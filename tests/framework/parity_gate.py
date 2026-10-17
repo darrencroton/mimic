@@ -52,6 +52,12 @@ Stages, in order (one MIMIC_RESULT marker each):
 6. ``stage_leg_verdicts`` -- names every leg's verdict and fails unless all
    passed. A leg that did not run is a failure.
 
+A package naming a horizontal dataset of its own (``GatePackage.horizontal_dataset``)
+has that dataset used by every stage in place of the package's ``snapshots``:
+stage 1 checks its presence and its snapshot list, stage 2 its provenance,
+stage 3 the horizontal run file's ``dataset_variant``, and each leg runs that
+variant and checks that the horizontal run read the named dataset.
+
 Worktrees and scratch outputs are removed on every exit path, including an
 interrupt; an interrupt first records a FAIL marker for the stage in flight.
 """
@@ -86,6 +92,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 # comparator must never shape the evidence on the gate's behalf.
 import compare_cross_format_identity as comparator  # noqa: E402
 
+from .fs import remove_tree  # noqa: E402
 from .markers import result_fail  # noqa: E402
 from .runner import run_test_suite  # noqa: E402
 
@@ -190,12 +197,12 @@ class GatePackage:
             position in the converter's order and -1 for a forest spanning files.
         horizontal_dataset: (directory, snapshot list) of a horizontal dataset
             to gate in place of the package's own ``snapshots`` and a_list. The
-            horizontal run file then also sets ``input.simulation_dir`` and
+            horizontal side then runs ``dataset_variant`` of its committed run
+            file, which also sets ``input.simulation_dir`` and
             ``input.snapshot_list_file`` to exactly these paths
-            (DATASET_OVERRIDE_KEYS). The shared stages do not write that file
-            or check the named dataset's presence, so the gate that does
-            declares it with ``THREADS_HORIZONTAL_DATASET = True``; any other
-            gate fails at stage 2.
+            (DATASET_OVERRIDE_KEYS), and records its package's declared file
+            range rather than ``file_range``, since it reads the files the
+            snapshot list names.
     """
 
     vertical: str
@@ -514,6 +521,34 @@ def assert_horizontal_run_file_diff(
         )
 
 
+def dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path, Path]) -> Path:
+    """Write ``run_file`` with an input section pointing at ``dataset`` (directory, a_list).
+
+    The section is appended, so the file must not have one of its own; the
+    result is verified to be the given file plus exactly DATASET_OVERRIDE_KEYS.
+    """
+    text = run_file.read_text()
+    if "input" in (yaml.safe_load(text) or {}):
+        raise AssertionError(
+            f"{run_file} has an input section of its own; the dataset variant opens one"
+        )
+    directory, snapshot_list = dataset
+    variant = scratch / f"{run_file.stem}_dataset.yaml"
+    variant.write_text(
+        text
+        + ("" if text.endswith("\n") else "\n")
+        + f"input:\n  simulation_dir: {directory}\n  snapshot_list_file: {snapshot_list}\n"
+    )
+    base = flatten_keys(yaml.safe_load(text) or {})
+    written = flatten_keys(yaml.safe_load(variant.read_text()) or {})
+    added = {key: written[key] for key in set(written) - set(base)}
+    if {k: v for k, v in written.items() if k in base} != base or added != {
+        key: str(value) for key, value in zip(DATASET_OVERRIDE_KEYS, dataset)
+    }:
+        raise AssertionError(f"{variant} is not {run_file} plus exactly {DATASET_OVERRIDE_KEYS}")
+    return variant
+
+
 # --------------------------------------------------------------------------
 # Small readers
 # --------------------------------------------------------------------------
@@ -742,7 +777,7 @@ def assert_manifest_inventory(manifest: Path, sidecar: Path, vertical_data: Path
             f"{int(files[row])}/{int(units[row])})"
         )
     table = index.forest_table()
-    multi_file = table.forest_ids[table.file_ordinal == -1]
+    multi_file = table.forest_ids[table.file_id == -1]
     unexplained = forest_ids[spanning][~numpy.isin(forest_ids[spanning], multi_file)]
     if unexplained.size:
         raise AssertionError(
@@ -932,7 +967,7 @@ class ParityGate:
         except subprocess.TimeoutExpired:
             pass
         if self.scratch is not None and self.scratch.exists():
-            shutil.rmtree(self.scratch, ignore_errors=True)
+            remove_tree(self.scratch)
 
     @staticmethod
     def _raise_on_signal(signum, _frame):
@@ -1074,6 +1109,14 @@ class ParityGate:
             return range_override_variant(run_file, scratch, self.package.file_range)
         return run_file
 
+    def worktree_dataset(self, worktree: Path) -> tuple[Path, Path]:
+        """The named horizontal dataset as a worktree's run reads it: a snapshot list inside
+        the repository is the worktree's own copy, as every other input of a HEAD-built run is."""
+        directory, snapshot_list = (Path(path) for path in self.package.horizontal_dataset)
+        if snapshot_list.is_relative_to(REPO_ROOT):
+            snapshot_list = worktree / snapshot_list.relative_to(REPO_ROOT)
+        return directory, snapshot_list
+
     # ---- stage 1 ---------------------------------------------------------
 
     def read_vertical_inventory(self) -> dict:
@@ -1122,9 +1165,10 @@ class ParityGate:
         }
 
     def expected_snapshot_files(self) -> list[str]:
-        alist = package_path(self.package.horizontal, self.package.alist)
+        """The snapshot files the horizontal dataset's snapshot list names."""
+        alist = self.package.horizontal_snapshot_list()
         if not alist.is_file():
-            raise AssertionError(f"horizontal package a_list is missing: {alist}")
+            raise AssertionError(f"horizontal snapshot list is missing: {alist}")
         return [f"snapshot_{index:03d}.h5" for index in range(len(snapshot_list_entries(alist)))]
 
     def stage_preconditions(self) -> None:
@@ -1149,11 +1193,19 @@ class ParityGate:
         )
 
         required = self.expected_snapshot_files()
-        horizontal_data = assert_dataset_present(pkg.horizontal, (*required, FORESTS_FILE))
-        log(
-            f"  {pkg.horizontal}: {horizontal_data} -> {horizontal_data.resolve()} "
-            f"({len(required)} snapshot files from the a_list, plus {FORESTS_FILE})"
+        horizontal_data = assert_dataset_present(
+            pkg.horizontal, (*required, FORESTS_FILE), pkg.horizontal_snapshots()
         )
+        named = "the named dataset " if pkg.horizontal_dataset is not None else ""
+        log(
+            f"  {pkg.horizontal}: {named}{horizontal_data} -> {horizontal_data.resolve()} "
+            f"({len(required)} snapshot files from {pkg.horizontal_snapshot_list()}, plus "
+            f"{FORESTS_FILE})"
+        )
+        if pkg.manifest is not None:
+            if not Path(pkg.manifest).is_file():
+                raise AssertionError(f"the conversion manifest {pkg.manifest} is not a file")
+            log(f"  conversion manifest: {pkg.manifest}")
 
         parent = scratch_parent()
         usage = shutil.disk_usage(parent)
@@ -1176,17 +1228,6 @@ class ParityGate:
         """The horizontal dataset is the pinned conversion of the vertical side's files."""
         pkg = self.package
         banner(f"Stage 2: horizontal dataset provenance (format version {pkg.format_version})")
-        # The shared stages read a named dataset here only; its presence check
-        # and the horizontal runs need a gate that threads it through them.
-        if pkg.horizontal_dataset is not None and not getattr(
-            self, "THREADS_HORIZONTAL_DATASET", False
-        ):
-            raise AssertionError(
-                f"{type(self).__name__} names the horizontal dataset {pkg.horizontal_dataset} "
-                f"but does not thread it through its presence check and runs, which would read "
-                f"the {pkg.horizontal} package's own snapshots; such a gate subclasses "
-                f"ParityGate and sets THREADS_HORIZONTAL_DATASET"
-            )
         self.require("preconditions", "not inspecting the dataset")
 
         directory = pkg.horizontal_snapshots()
@@ -1326,6 +1367,16 @@ class ParityGate:
                 f"  {model}: {horizontal_path.name} differs from the effective vertical run "
                 f"file in exactly {list(AUTHORIZED_KEY_CHANGES)}"
             )
+            if pkg.horizontal_dataset is not None:
+                scratch = self.scratch_dir("run-files", "check", model)
+                variant = dataset_variant(horizontal_path, scratch, pkg.horizontal_dataset)
+                assert_horizontal_run_file_diff(
+                    effective, variant, pkg.horizontal, pkg.horizontal_dataset
+                )
+                log(
+                    f"  {model}: its dataset variant differs from the effective vertical run "
+                    f"file in exactly {[*AUTHORIZED_KEY_CHANGES, *DATASET_OVERRIDE_KEYS]}"
+                )
         self.done.add("run-files")
 
     # ---- stage 4 ---------------------------------------------------------
@@ -1459,6 +1510,8 @@ class ParityGate:
         run_file = worktree_run_file
         if simulation == self.package.vertical:
             run_file = self.effective_vertical_run_file(worktree_run_file, scratch)
+        elif self.package.horizontal_dataset is not None:
+            run_file = dataset_variant(run_file, scratch, self.worktree_dataset(worktree))
         if scheme == "dynamic":
             run_file = dynamic_variant(run_file, scratch)
         return self.run_in_worktree(key, worktree, run_file, model, simulation)
@@ -1502,20 +1555,38 @@ class ParityGate:
                 f"(-> {directory.resolve()}), not the dataset stage 1 checked "
                 f"({main_directory.resolve()})"
             )
-        horizontal_integers = horizontal_run.properties()[2]
-        horizontal_range = (
-            horizontal_integers.get("FirstFile"),
-            horizontal_integers.get("LastFile"),
-        )
-        if horizontal_range != tuple(pkg.file_range):
+        _, strings, integers, _, _ = horizontal_run.properties()
+        horizontal_range = (integers.get("FirstFile"), integers.get("LastFile"))
+        expected_range, source = tuple(pkg.file_range), "the package pins"
+        if pkg.horizontal_dataset is not None:
+            # The named dataset's files come from its snapshot list; the run
+            # records the range its package declares.
+            info = yaml.safe_load(package_path(pkg.horizontal, "simulation_info.yaml").read_text())
+            expected_range = (int(info["input"]["first_file"]), int(info["input"]["last_file"]))
+            source = f"the {pkg.horizontal} package declares"
+            read = horizontal_run.worktree / strings.get("SimulationDir", "")
+            if read.resolve() != pkg.horizontal_snapshots().resolve():
+                raise AssertionError(
+                    f"{horizontal_run.master}: the horizontal run read {read.resolve()}, not the "
+                    f"named dataset {pkg.horizontal_snapshots().resolve()}"
+                )
+            snapshot_list = self.worktree_dataset(horizontal_run.worktree)[1]
+            if strings.get("FileWithSnapList") != str(snapshot_list):
+                raise AssertionError(
+                    f"{horizontal_run.master}: the horizontal run read the snapshot list "
+                    f"{strings.get('FileWithSnapList')!r}, not its worktree's "
+                    f"{str(snapshot_list)!r}"
+                )
+        if horizontal_range != expected_range:
             raise AssertionError(
                 f"{horizontal_run.master}: the horizontal run recorded (FirstFile, LastFile) "
-                f"{horizontal_range}, the package pins {pkg.file_range}"
+                f"{horizontal_range}, {source} {expected_range}"
             )
         log(
             f"  vertical run read {inventory['files'][0]}..{inventory['files'][-1]} from "
-            f"{directory.resolve()}; both runs record FirstFile-LastFile "
-            f"{pkg.file_range[0]}-{pkg.file_range[1]}"
+            f"{directory.resolve()}; the horizontal run read "
+            f"{pkg.horizontal_snapshots().resolve()} and records FirstFile-LastFile "
+            f"{expected_range[0]}-{expected_range[1]}"
         )
 
     @staticmethod
@@ -1688,10 +1759,15 @@ class ParityGate:
         fields = self.structural_preflight(vertical_run, horizontal_run)
 
         status, stdout = self.run_comparator(leg, vertical_run, horizontal_run)
+        if status == 1:
+            raise AssertionError(
+                f"{leg}: cross-format identity comparison failed (exit 1); every "
+                f"divergence is listed by snapshot, field and example id in the output above"
+            )
         if status != 0:
             raise AssertionError(
-                f"{leg}: cross-format identity comparison failed (exit {status}); every "
-                f"divergence is listed by snapshot, field and example id in the output above"
+                f"{leg}: the comparator could not compare the runs (exit {status}: 2 is an input "
+                f"error, 3 a failure of the comparator itself); its error is in the output above"
             )
         match = None
         for line in stdout.splitlines():

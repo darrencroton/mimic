@@ -77,8 +77,7 @@ def make_scatter_workdir(root):
 
     The Consistent-Trees ASCII route keeps exactly this state in its
     preparation directory (``pipeline.ASCII_PREPARATION_DIR``): the scatter
-    and sort stages run here in the route's extended layout, from the shipped
-    profile, over the canned fixture forests written under ``root/inputs``.
+    and sort stages run here in the layout of the shipped profile, over the canned fixture forests written under ``root/inputs``.
     Returns ``root/workdir``, every snapshot recorded ``sorted``.
     """
     root = Path(root)
@@ -238,13 +237,12 @@ class InventoryRecordTests(unittest.TestCase):
         self.assertEqual(record["units_sha256"], expected)
 
     def test_a_non_physical_inventory_records_no_files(self):
-        """The ASCII route's per-forest inventory (``physical_units = False``,
+        """The ASCII route's per-forest inventory (``physical_units=False``,
         units ``(0, ForestIndex)``) is digested by the same rule but declares
-        no per-file summary; an explicit ``physical_units = True`` is the
+        no per-file summary; an explicit ``physical_units=True`` is the
         default record exactly."""
         units = self.units([((0, 0), 6), ((0, 1), 4), ((0, 2), 2)])
-        forests = SourceInventory(units)
-        forests.physical_units = False
+        forests = SourceInventory(units, physical_units=False)
         record = cm.inventory_record(forests)
         self.assertEqual(record["files"], [])
         self.assertEqual((record["n_units"], record["total_halos"]), (3, 12))
@@ -258,8 +256,7 @@ class InventoryRecordTests(unittest.TestCase):
             physical["files"], [{"source_file_ordinal": 0, "n_units": 3, "n_halos": 12}]
         )
         self.assertEqual({**physical, "files": []}, record)
-        explicit = SourceInventory(units)
-        explicit.physical_units = True
+        explicit = SourceInventory(units, physical_units=True)
         self.assertEqual(cm.inventory_record(explicit), physical)
 
     def test_moving_one_halo_between_units_changes_the_digest(self):
@@ -596,7 +593,7 @@ class ManifestLifecycleTests(TempCase):
         work = self.tmp / "unreadable"
         (work / cm.MANIFEST_NAME).mkdir(parents=True)
         path = re.escape(str(work / cm.MANIFEST_NAME))
-        for call in (cm.classify_manifest, cm.ConversionManifest.load, cm.open_manifest):
+        for call in (cm.classify_manifest, cm.ConversionManifest.load):
             with self.subTest(call=call.__name__, what="directory"):
                 with self.assertRaisesRegex(
                     ConverterError, "^{}: not a readable JSON".format(path)
@@ -795,18 +792,16 @@ class VersionDispatchTests(TempCase):
     def test_absent(self):
         self.assertEqual(cm.classify_manifest(self.tmp), cm.MANIFEST_ABSENT)
         with self.assertRaisesRegex(ConverterError, "no manifest"):
-            cm.open_manifest(self.tmp)
-        with self.assertRaisesRegex(ConverterError, "no manifest"):
             cm.ConversionManifest.load(self.tmp)
 
     def test_version_1_is_permanently_rejected_by_both_owners(self):
-        work = self.write_manifest({"manifest_version": 1, "dtype_tag": scatter.DTYPE_TAG})
+        work = self.write_manifest({"manifest_version": 1})
         with self.assertRaisesRegex(ConverterError, "permanently"):
             cm.classify_manifest(work)
         with self.assertRaisesRegex(ConverterError, "permanently"):
-            cm.open_manifest(work)
+            cm.ConversionManifest.load(work)
         with self.assertRaisesRegex(ConverterError, "version 1 != supported 2"):
-            scatter.Manifest.load_or_create(work)
+            scatter.Manifest.load(work)
 
     def test_unknown_versions_fail(self):
         for version in (0, 4, "3", "2", True, None, 3.0):
@@ -824,12 +819,12 @@ class VersionDispatchTests(TempCase):
         with self.assertRaisesRegex(ConverterError, "JSON object"):
             cm.classify_manifest(work)
 
-    def test_the_legacy_loader_refuses_a_generic_manifest(self):
+    def test_the_scatter_loader_refuses_a_generic_manifest(self):
         schema = load_profile("consistent_trees_hdf5.yaml")
         work = self.tmp / "generic"
         cm.ConversionManifest.create(work, configuration_for(schema), [])
         with self.assertRaisesRegex(ConverterError, "manifest version 3 != supported 2"):
-            scatter.Manifest.load_or_create(work)
+            scatter.Manifest.load(work)
 
 
 class ScatterManifestBoundaryTests(TempCase):
@@ -840,20 +835,18 @@ class ScatterManifestBoundaryTests(TempCase):
         super().setUp()
         self.work = make_scatter_workdir(self.tmp / "scattered")
 
-    def test_the_fixture_is_a_sorted_extended_scatter_manifest(self):
+    def test_the_fixture_is_a_sorted_scatter_manifest(self):
         data = json.loads((self.work / cm.MANIFEST_NAME).read_text())
         self.assertEqual(data["manifest_version"], scatter.MANIFEST_VERSION)
         self.assertNotIn("manifest_kind", data)
         self.assertIn("scratch_layout", data)
         self.assertEqual({entry["status"] for entry in data["snapshots"].values()}, {"sorted"})
 
-    def test_classified_legacy_and_loaded_by_the_scatter_owner_unchanged(self):
+    def test_classified_as_scatter_and_loaded_by_the_scatter_owner_unchanged(self):
         before = (self.work / cm.MANIFEST_NAME).read_bytes()
-        self.assertEqual(cm.classify_manifest(self.work), cm.MANIFEST_LEGACY)
-        loaded = cm.open_manifest(self.work)
-        self.assertIsInstance(loaded, scatter.Manifest)
+        self.assertEqual(cm.classify_manifest(self.work), cm.MANIFEST_SCATTER)
+        loaded = scatter.Manifest.load(self.work)
         self.assertEqual(loaded.data, json.loads(before))
-        self.assertTrue(loaded.layout.is_extended)
         self.assertEqual((self.work / cm.MANIFEST_NAME).read_bytes(), before)
 
     def test_the_generic_owner_refuses_it_without_touching_it(self):

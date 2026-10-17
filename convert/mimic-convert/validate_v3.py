@@ -8,15 +8,19 @@ it measured. A file that does not declare ``format_version`` 3 is refused by
 the header checks. The battery is reached through ``convert_trees.py
 validate|report``.
 
-**Two modes.** This external-sort battery is the default and validates every
-version 3 dataset, gapped ``Descendant`` links included. Its bounded mode
-(``bounded=True``, :mod:`validate_bounded`) validates adjacent datasets
-(``links_adjacent`` 1) without any sort or spill, within a ceiling it prints
-at start, and is the practical validator at the largest scales. The two share
-this module's public interface: the outcome type and :class:`FailureTally`,
-the structure, header, binding, sidecar and conservation checks, and
-:class:`RowScan`, the per-row block check every scanner of either mode
-constructs and extends.
+**One battery, two modes.** This module is the external-sort mode, the
+default, which validates every version 3 dataset, gapped ``Descendant`` links
+included. The bounded mode (:func:`validate_bounded.run_battery_bounded`,
+``validate|report --bounded``) validates adjacent datasets (``links_adjacent``
+1) without any sort or spill, within a ceiling it prints at start, and is the
+practical validator at the largest scales. Both modes settle the same checks,
+names and verdicts; counts, examples and wording can differ. They share this
+module's public interface: the outcome types, :func:`settle_front` (every
+check settled before a halo row is read), :class:`RowScan` (the per-row block
+check every scanner of either mode constructs and extends),
+:func:`settle_scan` (every check recorded from a finished scan), the
+structure, header, binding, sidecar and conservation checks, and the failure
+kinds both modes word alike.
 
 **Independence.** The fixed format tables below are restated literally from
 the specification rather than imported from the writer or the schema module,
@@ -61,7 +65,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from conversion_manifest import ConversionManifest, sha256_file  # noqa: E402
+from conversion_manifest import ConversionManifest, IdentitySchemeError, sha256_file  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from hdf5_writer_v3 import (  # noqa: E402
     CHUNK_1D,
@@ -162,10 +166,6 @@ def check_header_bounds(n_forests_total: int, max_rank: int, multiplier: int) ->
     return failures
 
 
-def battery_failed(outcomes: List[Outcome]) -> bool:
-    return any(outcome.status == "FAIL" for outcome in outcomes)
-
-
 #: The fixed /halos table (topology, then identity), restated from the spec.
 _V3_FIXED_DATASETS = (
     ("Descendant", "<i8"),
@@ -204,9 +204,9 @@ _V3_SIDECAR = ("ForestID", "SourceFileOrdinal", "SourceUnitOrdinal")
 
 #: Formats whose SourceHaloID is the halo's 1-based position in (ForestIndex,
 #: HaloRankInForest) order -- every route: an L-Halo tree, a forests-HDF5
-#: ForestInfo row and (since the 2026-10-07 ruling) a whole Consistent-Trees
-#: ASCII forest is one inventory unit, so a forest's halos are one contiguous
-#: SourceHaloID range in rank order.
+#: ForestInfo row and, under the forest-rank identity scheme, a whole
+#: Consistent-Trees ASCII forest is one inventory unit, so a forest's halos are
+#: one contiguous SourceHaloID range in rank order.
 POSITION_IDENTITY_FORMATS = ("consistent_trees_ascii", "consistent_trees_hdf5", "lhalo_binary")
 
 #: Formats whose inventory records per-file unit counts (``files``), so the
@@ -290,7 +290,34 @@ _V3_ORDER_CONSUMER_BYTES = 6 * 8 + 4
 _V3_SHARES = {"join": 6, "chain": 4, "identity": 2, "sid": 1, "scan": 3}
 _V3_SHARE_DENOMINATOR = 16
 
-_INT32_MAX = int(np.iinfo(np.int32).max)
+# ---------------------------------------------------------------------------
+# Failure kinds both modes word alike
+# ---------------------------------------------------------------------------
+
+KIND_PROGENITOR_REACH = (
+    "halo(s) not reached exactly once by their descendant's progenitor chain "
+    "(reached k times, expected once iff the halo has a Descendant)"
+)
+KIND_FOF_REACH = (
+    "halo(s) not reached exactly once by their FoF chain (reached k times, expected "
+    "once iff the halo is not its group's central)"
+)
+KIND_FIRST_PROGENITOR = "FirstProgenitor(s) whose target's Descendant is not the owner"
+KIND_NEXT_PROGENITOR = "NextProgenitor(s) whose target names a different descendant than the owner"
+KIND_FOF_CENTRAL = "FirstHaloInFOFgroup target(s) that are not self-referencing centrals"
+KIND_FOF_MEMBER = "NextHaloInFOFgroup target(s) in a different FoF group than the owner"
+KIND_CROSSING_FORESTS = "link(s) crossing forests"
+KIND_RANK_DENSITY = (
+    "(ForestIndex, HaloRankInForest) pair(s) breaking per-forest rank density or uniqueness"
+)
+KIND_ASCII_FOREST_SKIPPED = "ForestIndex value(s) skipping a forest (ASCII forests all hold halos)"
+KIND_POSITION_IDENTITY = (
+    "halo(s) whose SourceHaloID is not its (ForestIndex, rank) position in the source order"
+)
+KIND_DUPLICATED_SOURCE_KEY = "duplicated SourceHaloID value(s)"
+#: Formatted with the inventory's total_halos.
+KIND_SOURCE_KEY_OUTSIDE = "SourceHaloID value(s) outside the inventory's [1, {}]"
+KIND_SOURCE_KEY_GAP = "gap(s) in SourceHaloID coverage of the unsampled inventory"
 
 
 class V3BatteryResult:
@@ -302,7 +329,29 @@ class V3BatteryResult:
 
     @property
     def failed(self) -> bool:
-        return battery_failed(self.outcomes)
+        return any(outcome.status == "FAIL" for outcome in self.outcomes)
+
+
+class Verdicts:
+    """The outcomes one battery run settles, in the order it settles them."""
+
+    def __init__(self):
+        self.outcomes: List[Outcome] = []
+
+    def record(self, name: str, failures: List[str], detail: str = "") -> bool:
+        """FAIL with the failures joined, or PASS with ``detail``; True on PASS."""
+        if failures:
+            self.outcomes.append(Outcome(name, "FAIL", "; ".join(failures)))
+            return False
+        self.outcomes.append(Outcome(name, "PASS", detail))
+        return True
+
+    def skip(self, names, reason: str) -> None:
+        for name in names:
+            self.outcomes.append(Outcome(name, "SKIP", reason))
+
+    def result(self, measurements: Dict[str, object]) -> "V3BatteryResult":
+        return V3BatteryResult(ordered_outcomes(self.outcomes), measurements)
 
 
 class FailureTally:
@@ -332,6 +381,77 @@ class FailureTally:
 
 def _v3_rows(snap: int, rows: np.ndarray) -> List[str]:
     return ["{} row {}".format(snapshot_h5_name(snap), int(row)) for row in rows[:5]]
+
+
+def pair_examples(forest: np.ndarray, rank: np.ndarray) -> List[str]:
+    """Up to five ``(ForestIndex, rank)`` pairs."""
+    return ["(ForestIndex={}, rank={})".format(f, r) for f, r in zip(forest[:5], rank[:5])]
+
+
+def position_examples(forest, rank, sid, expected) -> List[str]:
+    """Up to five halos whose SourceHaloID is not their identity position."""
+    return [
+        "(ForestIndex={}, rank={}) has SourceHaloID {}, expected {}".format(f, r, s, e)
+        for f, r, s, e in zip(forest[:5], rank[:5], sid[:5], expected[:5])
+    ]
+
+
+def is_unsampled(inventory: Optional[Mapping]) -> bool:
+    """The inventory selects every halo it counts."""
+    return inventory is not None and int(inventory["selected_halos"]) == int(
+        inventory["total_halos"]
+    )
+
+
+def position_identity_applies(source_format: str, inventory: Optional[Mapping]) -> bool:
+    """SourceHaloID must equal the halo's 1-based (ForestIndex, rank)
+    position: the format makes it one, and nothing was sampled away."""
+    return source_format in POSITION_IDENTITY_FORMATS and is_unsampled(inventory)
+
+
+def identity_summary(
+    source_format: str,
+    inventory: Optional[Mapping],
+    last_forest: int,
+    n_forests_total: int,
+    measured_max: int,
+    max_rank: int,
+) -> List[str]:
+    """The identity failures settled once every halo is seen: a sampled
+    ASCII inventory, an ASCII enumeration whose last ForestIndex
+    (``last_forest``, -1 for none) is not ``n_forests_total - 1``, and a
+    measured maximum rank other than the header's."""
+    messages = []
+    ascii_route = source_format == "consistent_trees_ascii"
+    if ascii_route and inventory is not None and not is_unsampled(inventory):
+        messages.append(
+            "consistent_trees_ascii inventory selects {} of {} halos; the ASCII route does "
+            "not sample".format(inventory["selected_halos"], inventory["total_halos"])
+        )
+    if ascii_route and last_forest != n_forests_total - 1:
+        messages.append(
+            "ForestIndex values end at {} but n_forests_total is {}".format(
+                last_forest, n_forests_total
+            )
+        )
+    if measured_max != max_rank:
+        messages.append(
+            "measured max HaloRankInForest {} != header max_halo_rank_in_forest {}".format(
+                measured_max, max_rank
+            )
+        )
+    return messages
+
+
+def emitted_count_failures(emitted: int, inventory: Optional[Mapping]) -> List[str]:
+    """The SourceHaloID values emitted against the inventory's selection."""
+    if inventory is None or emitted == int(inventory["selected_halos"]):
+        return []
+    return [
+        "{} SourceHaloID value(s) emitted; the inventory selects {}".format(
+            emitted, inventory["selected_halos"]
+        )
+    ]
 
 
 def _share(budget_bytes: int, name: str) -> int:
@@ -597,8 +717,25 @@ def sidecar_structure(path: Path) -> List[str]:
 
 def load_manifest(manifest_path: Path):
     """The generic conversion manifest the dataset claims, loaded with its
-    own integrity checks (configuration digest, embedded schema identity)."""
-    return ConversionManifest.load(Path(manifest_path).parent)
+    own integrity checks (configuration digest, embedded schema identity).
+    Every path that validates or reports a conversion loads it here, so an
+    ASCII conversion that predates the forest-rank identity scheme is
+    refused (:class:`IdentitySchemeError`) before anything else is read."""
+    manifest = ConversionManifest.load(Path(manifest_path).parent)
+    manifest.require_current_identity_scheme()
+    return manifest
+
+
+def try_load_manifest(manifest_path: Path):
+    """``(manifest, None)``, or ``(None, error)`` when the manifest does not
+    load; the error is a manifest-binding failure, never a refusal. An
+    outdated identity scheme is refused, not returned."""
+    try:
+        return load_manifest(manifest_path), None
+    except IdentitySchemeError:
+        raise
+    except (ConverterError, OSError, ValueError, KeyError) as exc:
+        return None, exc
 
 
 def check_manifest_binding(directory: Path, a_list_path, a_list: np.ndarray, manifest) -> List[str]:
@@ -822,7 +959,7 @@ def float_columns(declarations: Dict[str, Tuple[str, ...]]) -> List[str]:
 
 
 class RowScan:
-    """The per-row rules both batteries share: one pass over every snapshot
+    """The per-row rules both modes share: one pass over every snapshot
     file in row blocks of ``scan_rows``, judging every row as it is read.
 
     The block check settles the per-row invariants (row-values,
@@ -830,9 +967,10 @@ class RowScan:
     :class:`FailureTally` attributes, accumulates the measurements in
     ``stats``, and hands what crosses rows to the scan's sinks: each block's
     ``(forest, rank, sid)`` identity records to ``identity_sink.add``, its
-    ``sid`` records to ``source_key_sink.add``, and, while every link seen so
-    far is in range, its links to :meth:`emit_topology`, which a battery
-    implements. ``meter`` is the battery's residency meter.
+    ``sid`` records to ``source_key_sink.add`` unless that sink is None (no
+    record is then built), and, while every link seen so far is in range, its
+    links to :meth:`emit_topology`, which a mode implements. ``meter`` is the
+    mode's residency meter.
     """
 
     def __init__(
@@ -981,9 +1119,10 @@ class RowScan:
         records["rank"] = rank
         records["sid"] = sid
         self.identity.add(records)
-        records = np.empty(size, dtype=_V3_SID_DTYPE)
-        records["sid"] = sid
-        self.sids.add(records)
+        if self.sids is not None:
+            records = np.empty(size, dtype=_V3_SID_DTYPE)
+            records["sid"] = sid
+            self.sids.add(records)
 
         # -- snapshot-qualified links --------------------------------------
         before_links = bool(self.links)
@@ -1097,8 +1236,8 @@ class RowScan:
         return int(sid[-1])
 
 
-class _V3Scan(RowScan):
-    """The external-sort battery's scan: the shared row check, feeding four
+class _ExternalSortScan(RowScan):
+    """The external-sort mode's scan: the shared row check, feeding four
     bounded external sorts whose merges settle everything that crosses rows,
     snapshots or files."""
 
@@ -1278,7 +1417,15 @@ def link_examples(offsets: np.ndarray, owners, targets, mask) -> List[str]:
     ]
 
 
-def _v3_topology_closure(scan: _V3Scan) -> List[str]:
+def reach_examples(offsets: np.ndarray, positions, reached) -> List[str]:
+    """Up to five halos, by global position, with how often they were reached."""
+    return [
+        "{} (k={})".format(describe_position(offsets, g), int(k))
+        for g, k in zip(positions[:5], reached[:5])
+    ]
+
+
+def _v3_topology_closure(scan: _ExternalSortScan) -> List[str]:
     """Consume the sorted topology join: every link into a halo is judged
     against that halo's own record, and every halo's in-links are counted.
 
@@ -1295,24 +1442,10 @@ def _v3_topology_closure(scan: _V3Scan) -> List[str]:
         expected_fof = (b != key).astype(np.int64)
         bad = prog_in != expected_prog
         failures.add(
-            "halo(s) not reached exactly once by their descendant's progenitor chain "
-            "(reached k times, expected once iff the halo has a Descendant)",
-            int(bad.sum()),
-            [
-                "{} (k={})".format(describe_position(offsets, g), int(k))
-                for g, k in zip(key[bad][:5], prog_in[bad][:5])
-            ],
+            KIND_PROGENITOR_REACH, int(bad.sum()), reach_examples(offsets, key[bad], prog_in[bad])
         )
         bad = fof_in != expected_fof
-        failures.add(
-            "halo(s) not reached exactly once by their FoF chain (reached k times, expected "
-            "once iff the halo is not its group's central)",
-            int(bad.sum()),
-            [
-                "{} (k={})".format(describe_position(offsets, g), int(k))
-                for g, k in zip(key[bad][:5], fof_in[bad][:5])
-            ],
-        )
+        failures.add(KIND_FOF_REACH, int(bad.sum()), reach_examples(offsets, key[bad], fof_in[bad]))
 
     blocks = scan.join.sorted_blocks(
         budget_bytes=scan.budget_bytes, consumer_bytes_per_record=_V3_JOIN_CONSUMER_BYTES
@@ -1350,32 +1483,16 @@ def _v3_topology_closure(scan: _V3Scan) -> List[str]:
             matched = ~orphan
             prog = matched & ((r_tag == 1) | (r_tag == 2))
             bad = prog & (r_tag == 1) & (g_a != r_a)
-            failures.add(
-                "FirstProgenitor(s) whose target's Descendant is not the owner",
-                int(bad.sum()),
-                where(bad),
-            )
+            failures.add(KIND_FIRST_PROGENITOR, int(bad.sum()), where(bad))
             bad = prog & (r_tag == 2) & (g_a != r_a)
-            failures.add(
-                "NextProgenitor(s) whose target names a different descendant than the owner",
-                int(bad.sum()),
-                where(bad),
-            )
+            failures.add(KIND_NEXT_PROGENITOR, int(bad.sum()), where(bad))
             bad = matched & (r_tag == 3) & (g_b != g_key)
-            failures.add(
-                "FirstHaloInFOFgroup target(s) that are not self-referencing centrals",
-                int(bad.sum()),
-                where(bad),
-            )
+            failures.add(KIND_FOF_CENTRAL, int(bad.sum()), where(bad))
             fof = matched & (r_tag == 4)
             bad = fof & (g_b != r_a)
-            failures.add(
-                "NextHaloInFOFgroup target(s) in a different FoF group than the owner",
-                int(bad.sum()),
-                where(bad),
-            )
+            failures.add(KIND_FOF_MEMBER, int(bad.sum()), where(bad))
             bad = matched & (g_forest != block["forest"][requests])
-            failures.add("link(s) crossing forests", int(bad.sum()), where(bad))
+            failures.add(KIND_CROSSING_FORESTS, int(bad.sum()), where(bad))
 
             # in-link counts per own-record of this block, plus the carry's
             prog_in = np.bincount(source[prog & inside], minlength=size)
@@ -1419,7 +1536,7 @@ def _v3_topology_closure(scan: _V3Scan) -> List[str]:
     return failures.messages()
 
 
-def _v3_chain_cycles(scan: _V3Scan) -> Tuple[List[str], int]:
+def _v3_chain_cycles(scan: _ExternalSortScan) -> Tuple[List[str], int]:
     """Prove every NextProgenitor and NextHaloInFOFgroup chain terminates."""
     half = scan.budget_bytes // 2
     layout = SnapshotLayout(list(range(scan.n_snapshots)), scan.counts.tolist())
@@ -1445,7 +1562,7 @@ def _v3_chain_cycles(scan: _V3Scan) -> Tuple[List[str], int]:
 
 
 def _v3_identity(
-    scan: _V3Scan,
+    scan: _ExternalSortScan,
     source_format: str,
     n_forests_total: int,
     max_rank: int,
@@ -1466,10 +1583,7 @@ def _v3_identity(
     failures = FailureTally()
     carry_forest, carry_rank, position = -1, -1, 0
     measured_max = -1
-    unsampled = inventory is not None and int(inventory["selected_halos"]) == int(
-        inventory["total_halos"]
-    )
-    position_identity = source_format in POSITION_IDENTITY_FORMATS and unsampled
+    position_identity = position_identity_applies(source_format, inventory)
     blocks = scan.identity.sorted_blocks(
         budget_bytes=scan.budget_bytes, consumer_bytes_per_record=_V3_ORDER_CONSUMER_BYTES
     )
@@ -1483,19 +1597,11 @@ def _v3_identity(
             prev_forest[1:], prev_rank[1:] = forest[:-1], rank[:-1]
             same = forest == prev_forest
             bad = np.where(same, rank != prev_rank + 1, rank != 0)
-            failures.add(
-                "(ForestIndex, HaloRankInForest) pair(s) breaking per-forest rank density or "
-                "uniqueness",
-                int(bad.sum()),
-                [
-                    "(ForestIndex={}, rank={})".format(f, r)
-                    for f, r in zip(forest[bad][:5], rank[bad][:5])
-                ],
-            )
+            failures.add(KIND_RANK_DENSITY, int(bad.sum()), pair_examples(forest[bad], rank[bad]))
             if source_format == "consistent_trees_ascii":
                 bad = ~same & (forest != prev_forest + 1)
                 failures.add(
-                    "ForestIndex value(s) skipping a forest (ASCII forests all hold halos)",
+                    KIND_ASCII_FOREST_SKIPPED,
                     int(bad.sum()),
                     [
                         "ForestIndex={} after {}".format(f, p)
@@ -1506,45 +1612,21 @@ def _v3_identity(
                 expected = position + 1 + np.arange(size, dtype=np.int64)
                 bad = sid != expected
                 failures.add(
-                    "halo(s) whose SourceHaloID is not its (ForestIndex, rank) position in the "
-                    "source order",
+                    KIND_POSITION_IDENTITY,
                     int(bad.sum()),
-                    [
-                        "(ForestIndex={}, rank={}) has SourceHaloID {}, expected {}".format(
-                            f, r, s, e
-                        )
-                        for f, r, s, e in zip(
-                            forest[bad][:5], rank[bad][:5], sid[bad][:5], expected[bad][:5]
-                        )
-                    ],
+                    position_examples(forest[bad], rank[bad], sid[bad], expected[bad]),
                 )
             measured_max = max(measured_max, int(rank.max()))
             carry_forest, carry_rank = int(forest[-1]), int(rank[-1])
             position += size
     finally:
         blocks.close()
-    messages = failures.messages()
-    if source_format == "consistent_trees_ascii" and inventory is not None and not unsampled:
-        messages.append(
-            "consistent_trees_ascii inventory selects {} of {} halos; the ASCII route does not "
-            "sample".format(inventory["selected_halos"], inventory["total_halos"])
-        )
-    if source_format == "consistent_trees_ascii" and carry_forest != n_forests_total - 1:
-        messages.append(
-            "ForestIndex values end at {} but n_forests_total is {}".format(
-                carry_forest, n_forests_total
-            )
-        )
-    if measured_max != max_rank:
-        messages.append(
-            "measured max HaloRankInForest {} != header max_halo_rank_in_forest {}".format(
-                measured_max, max_rank
-            )
-        )
-    return messages
+    return failures.messages() + identity_summary(
+        source_format, inventory, carry_forest, n_forests_total, measured_max, max_rank
+    )
 
 
-def _v3_source_keys(scan: _V3Scan, inventory: Optional[Mapping]) -> List[str]:
+def _v3_source_keys(scan: _ExternalSortScan, inventory: Optional[Mapping]) -> List[str]:
     """Consume the SourceHaloID ordering: globally unique, and -- against the
     conversion's inventory -- within [1, total_halos] and exactly as many as
     the inventory selects, which for an unsampled inventory is exactly
@@ -1553,7 +1635,7 @@ def _v3_source_keys(scan: _V3Scan, inventory: Optional[Mapping]) -> List[str]:
     previous = 0
     position = 0
     total = None if inventory is None else int(inventory["total_halos"])
-    unsampled = inventory is not None and int(inventory["selected_halos"]) == total
+    unsampled = is_unsampled(inventory)
     blocks = scan.sids.sorted_blocks(
         budget_bytes=scan.budget_bytes, consumer_bytes_per_record=_V3_ORDER_CONSUMER_BYTES
     )
@@ -1564,19 +1646,17 @@ def _v3_source_keys(scan: _V3Scan, inventory: Optional[Mapping]) -> List[str]:
             before[0] = previous
             before[1:] = sid[:-1]
             bad = sid == before
-            failures.add("duplicated SourceHaloID value(s)", int(bad.sum()), sid[bad].tolist())
+            failures.add(KIND_DUPLICATED_SOURCE_KEY, int(bad.sum()), sid[bad].tolist())
             if total is not None:
                 bad = (sid < 1) | (sid > total)
                 failures.add(
-                    "SourceHaloID value(s) outside the inventory's [1, {}]".format(total),
-                    int(bad.sum()),
-                    sid[bad].tolist(),
+                    KIND_SOURCE_KEY_OUTSIDE.format(total), int(bad.sum()), sid[bad].tolist()
                 )
             if unsampled:
                 expected = position + 1 + np.arange(sid.size, dtype=np.int64)
                 bad = sid != expected
                 failures.add(
-                    "gap(s) in SourceHaloID coverage of the unsampled inventory",
+                    KIND_SOURCE_KEY_GAP,
                     int(bad.sum()),
                     [
                         "{} where {} was expected".format(s, e)
@@ -1587,14 +1667,7 @@ def _v3_source_keys(scan: _V3Scan, inventory: Optional[Mapping]) -> List[str]:
             position += int(sid.size)
     finally:
         blocks.close()
-    messages = failures.messages()
-    if inventory is not None and position != int(inventory["selected_halos"]):
-        messages.append(
-            "{} SourceHaloID value(s) emitted; the inventory selects {}".format(
-                position, inventory["selected_halos"]
-            )
-        )
-    return messages
+    return failures.messages() + emitted_count_failures(position, inventory)
 
 
 # ---------------------------------------------------------------------------
@@ -1729,62 +1802,48 @@ def require_budget(budget_bytes) -> int:
     return budget_bytes
 
 
-def run_battery_v3(
-    directory,
+class DatasetFront:
+    """What the checks settled before any halo row is read hand to the row
+    phase: the dataset, its manifest and headers, and the values the
+    run-scoped headers fix (``n_forests_total`` is None unless they agree)."""
+
+    def __init__(self, directory, manifest, manifest_error, declared, headers, run_scoped_ok):
+        self.directory = directory
+        self.manifest = manifest
+        self.manifest_error = manifest_error
+        self.inventory = manifest.inventory if manifest is not None else None
+        self.declared = declared
+        self.headers = headers
+        self.counts = [int(header["_rows"]) for header in headers]
+        self.box_sizes = [header["box_size_mpc_h"] for header in headers]
+        self.run_scoped_ok = run_scoped_ok
+        first = headers[0]
+        self.n_forests_total = int(first["n_forests_total"]) if run_scoped_ok else None
+        self.max_rank = int(first["max_halo_rank_in_forest"])
+        self.source_format = first["source_format"]
+
+
+def settle_front(
+    directory: Path,
     a_list_path,
-    manifest_path=None,
-    multiplier: int = DEFAULT_MULTIPLIER,
-    *,
-    budget_bytes: int = DEFAULT_V3_BUDGET_BYTES,
-    spill_dir=None,
-    bounded: bool = False,
-) -> V3BatteryResult:
-    """Run the version 3 producer battery over one dataset directory.
+    a_list: np.ndarray,
+    manifest,
+    manifest_error,
+    verdicts: Verdicts,
+    measurements: Dict[str, object],
+) -> Optional[DatasetFront]:
+    """Settle every check decided before a halo row is read, alike in both
+    modes: file-set, object-set, sidecar-object-set, manifest-binding,
+    schema-binding, header-values and run-scoped-headers, and record the
+    header measurements.
 
-    ``manifest_path`` names the generic conversion's ``manifest.json``; it
-    binds the dataset to its conversion (schema, inventory, stage counts,
-    registered outputs). Without it (API mode, unreachable from the CLI) the
-    binding and conservation checks are SKIP and coverage is judged for
-    uniqueness only. ``budget_bytes`` bounds the scan and sort buffers;
-    ``spill_dir`` hosts the private sort directory (default: the system
-    temporary directory), which is removed on every path.
-
-    ``bounded`` runs the same checks in :mod:`validate_bounded`'s mode
-    instead: adjacent datasets only, no external sort and no spill, within a
-    ceiling it states and refuses above ``budget_bytes``.
+    ``manifest`` is the loaded conversion manifest, or None with
+    ``manifest_error`` the reason it did not load (None when no manifest was
+    given). Returns None, with every later check SKIP, when the structure or
+    a differing ``/schema`` leaves the rows unreadable as one table.
     """
-    if bounded:
-        from validate_bounded import run_battery_bounded
-
-        return run_battery_bounded(
-            directory,
-            a_list_path,
-            manifest_path,
-            multiplier,
-            budget_bytes=budget_bytes,
-            spill_dir=spill_dir,
-        )
-    budget_bytes = require_budget(budget_bytes)
-    directory = Path(directory)
-    if not directory.is_dir():
-        raise ConverterError("{}: not a directory".format(directory))
-    a_list, _ = load_a_list(a_list_path)
     n_snapshots = len(a_list)
-    outcomes: List[Outcome] = []
-    measurements: Dict[str, object] = {"budget_bytes": budget_bytes}
-
-    def record(name: str, failures: List[str], detail: str = "") -> bool:
-        if failures:
-            outcomes.append(Outcome(name, "FAIL", "; ".join(failures)))
-            return False
-        outcomes.append(Outcome(name, "PASS", detail))
-        return True
-
-    def skip(names, reason: str) -> None:
-        for name in names:
-            outcomes.append(Outcome(name, "SKIP", reason))
-
-    structural_ok = record("file-set", check_file_set(directory, n_snapshots))
+    structural_ok = verdicts.record("file-set", check_file_set(directory, n_snapshots))
     declarations: List[Dict[str, Tuple[str, ...]]] = []
     if structural_ok:
         failures = []
@@ -1796,146 +1855,237 @@ def run_battery_v3(
                 file_failures, declared = ["unreadable as HDF5 ({})".format(exc)], None
             failures += ["{}: {}".format(path.name, f) for f in file_failures]
             declarations.append(declared or {})
-        structural_ok = record("object-set", failures)
+        structural_ok = verdicts.record("object-set", failures)
         try:
             sidecar_failures = sidecar_structure(directory / "forests.h5")
         except OSError as exc:
             sidecar_failures = ["forests.h5: unreadable as HDF5 ({})".format(exc)]
-        structural_ok = record("sidecar-object-set", sidecar_failures) and structural_ok
+        structural_ok = verdicts.record("sidecar-object-set", sidecar_failures) and structural_ok
     else:
-        skip(("object-set", "sidecar-object-set"), "file set invalid")
+        verdicts.skip(("object-set", "sidecar-object-set"), "file set invalid")
 
-    manifest = None
-    if manifest_path is not None:
-        try:
-            manifest = load_manifest(Path(manifest_path))
-        except (ConverterError, OSError, ValueError, KeyError) as exc:
-            record("manifest-binding", ["cannot load the conversion manifest: {}".format(exc)])
-        else:
-            record(
-                "manifest-binding", check_manifest_binding(directory, a_list_path, a_list, manifest)
-            )
+    if manifest is not None:
+        verdicts.record(
+            "manifest-binding", check_manifest_binding(directory, a_list_path, a_list, manifest)
+        )
+    elif manifest_error is not None:
+        verdicts.record(
+            "manifest-binding", ["cannot load the conversion manifest: {}".format(manifest_error)]
+        )
     else:
-        skip(("manifest-binding",), "no manifest given (API mode; unreachable from the CLI)")
+        verdicts.skip(
+            ("manifest-binding",), "no manifest given (API mode; unreachable from the CLI)"
+        )
 
     semantic = V3_CHECKS[V3_CHECKS.index("header-values") :]
     if not structural_ok:
-        skip(("schema-binding",) + semantic, "structural conformance failed; semantics not trusted")
-        return V3BatteryResult(ordered_outcomes(outcomes), measurements)
-    record("schema-binding", check_schema_binding(declarations, manifest))
+        verdicts.skip(
+            ("schema-binding",) + semantic, "structural conformance failed; semantics not trusted"
+        )
+        return None
+    verdicts.record("schema-binding", check_schema_binding(declarations, manifest))
     if any(declared != declarations[0] for declared in declarations):
-        skip(semantic, "files declare different /schema; their columns are not comparable")
-        return V3BatteryResult(ordered_outcomes(outcomes), measurements)
+        verdicts.skip(semantic, "files declare different /schema; their columns are not comparable")
+        return None
 
     headers = [read_header(directory / snapshot_h5_name(snap)) for snap in range(n_snapshots)]
-    counts = [int(header["_rows"]) for header in headers]
     measurements["format_versions"] = sorted({int(h["format_version"]) for h in headers})
-    measurements["snapshot_counts"] = counts
+    measurements["snapshot_counts"] = [int(h["_rows"]) for h in headers]
     measurements["snapshot_bytes"] = [int(h["_bytes"]) for h in headers]
     measurements["sidecar_bytes"] = int((directory / "forests.h5").stat().st_size)
     header_failures, run_scoped_failures = check_headers(headers, a_list, manifest)
-    record("header-values", header_failures)
-    run_scoped_ok = record("run-scoped-headers", run_scoped_failures)
+    verdicts.record("header-values", header_failures)
+    run_scoped_ok = verdicts.record("run-scoped-headers", run_scoped_failures)
+    front = DatasetFront(
+        directory, manifest, manifest_error, declarations[0], headers, run_scoped_ok
+    )
     first = headers[0]
-    n_forests_total = int(first["n_forests_total"]) if run_scoped_ok else None
-    max_rank = int(first["max_halo_rank_in_forest"])
-    source_format = first["source_format"]
     measurements.update(
         n_forests_total=int(first["n_forests_total"]),
-        header_max_halo_rank_in_forest=max_rank,
+        header_max_halo_rank_in_forest=front.max_rank,
         header_links_adjacent=int(first["links_adjacent"]),
-        source_format=source_format,
+        source_format=front.source_format,
         column_mapping_sha256=first["column_mapping_sha256"],
     )
+    return front
+
+
+def settle_scan(
+    verdicts: Verdicts,
+    front: DatasetFront,
+    scan: RowScan,
+    multiplier: int,
+    measurements: Dict[str, object],
+    *,
+    topology,
+    source_keys,
+    identity,
+) -> None:
+    """Settle every check that follows a finished row scan, alike in both
+    modes, and record the scan's measurements.
+
+    The mode supplies its cross-row results through three callables, each
+    called at most once and in this order: ``topology()`` returns the
+    topology-closure failures, the chain-cycles failures and the chain-cycles
+    PASS detail, and is called only when every link target is valid;
+    ``source_keys()`` returns the source-key-coverage failures; ``identity()``
+    returns the identity failures beyond the scan's range checks, and is
+    called only when the run-scoped headers agree.
+    """
+    record = verdicts.record
+    record("row-values", scan.row_values.messages())
+    record(
+        "len-nonnegative",
+        scan.lengths.messages(),
+        detail="{} Len==0 halo(s)".format(scan.len_zero),
+    )
+    record(
+        "field-finiteness",
+        scan.finiteness.messages(),
+        detail="{} float field(s)".format(len(scan.floats)),
+    )
+    record(
+        "position-bounds",
+        check_position_bounds(scan, front.headers, front.declared),
+        detail="every Pos component within [0, box_size_mpc_h]",
+    )
+    links_ok = record("link-targets", scan.links.messages())
+    gapped = scan.stats["gapped_descendants"]
+    measured_adjacent = int(gapped == 0)
+    if links_ok:
+        record(
+            "links-adjacent",
+            [
+                "{}: links_adjacent {} but the dataset measures {} ({} gapped descendant "
+                "link(s))".format(
+                    snapshot_h5_name(snap), header["links_adjacent"], measured_adjacent, gapped
+                )
+                for snap, header in enumerate(front.headers)
+                if header["links_adjacent"] != measured_adjacent
+            ],
+        )
+        closure, cycles, cycle_detail = topology()
+        record("topology-closure", closure)
+        record("chain-cycles", cycles, detail=cycle_detail)
+    else:
+        verdicts.skip(
+            ("links-adjacent", "topology-closure", "chain-cycles"),
+            "link targets invalid; topology not walked",
+        )
+    record("source-key-coverage", source_keys())
+    if front.run_scoped_ok:
+        record("identity", scan.identity_ranges.messages() + identity())
+        record(
+            "header-bounds", check_header_bounds(front.n_forests_total, front.max_rank, multiplier)
+        )
+        record(
+            "sidecar-content",
+            check_sidecar_content(
+                front.directory / "forests.h5",
+                front.source_format,
+                front.n_forests_total,
+                front.inventory,
+                scan.scan_rows,
+            ),
+        )
+    else:
+        verdicts.skip(
+            ("identity", "header-bounds", "sidecar-content"), "run-scoped headers inconsistent"
+        )
+    if front.manifest is not None:
+        record("count-conservation", check_count_conservation(front.counts, front.manifest))
+    elif front.manifest_error is not None:
+        verdicts.skip(
+            ("count-conservation",),
+            "the conversion manifest failed to load; source counts unavailable",
+        )
+    else:
+        verdicts.skip(("count-conservation",), "no manifest given; source counts unavailable")
+    measurements.update(scan.stats)
+    measurements.update(
+        len_zero=scan.len_zero,
+        links_adjacent_measured=measured_adjacent,
+        chain_edges=scan.n_chain_edges,
+        scan_rows=scan.scan_rows,
+    )
+
+
+def run_battery_v3(
+    directory,
+    a_list_path,
+    manifest_path=None,
+    multiplier: int = DEFAULT_MULTIPLIER,
+    *,
+    budget_bytes: int = DEFAULT_V3_BUDGET_BYTES,
+    spill_dir=None,
+) -> V3BatteryResult:
+    """Run the version 3 producer battery's external-sort mode over one
+    dataset directory.
+
+    ``manifest_path`` names the generic conversion's ``manifest.json``; it
+    binds the dataset to its conversion (schema, inventory, stage counts,
+    registered outputs). Without it (API mode, unreachable from the CLI) the
+    binding and conservation checks are SKIP and coverage is judged for
+    uniqueness only. ``budget_bytes`` bounds the scan and sort buffers;
+    ``spill_dir`` hosts the private sort directory (default: the system
+    temporary directory), which is removed on every path.
+
+    The bounded mode, :func:`validate_bounded.run_battery_bounded`, takes the
+    same arguments.
+    """
+    budget_bytes = require_budget(budget_bytes)
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise ConverterError("{}: not a directory".format(directory))
+    a_list, _ = load_a_list(a_list_path)
+    manifest, manifest_error = None, None
+    if manifest_path is not None:
+        manifest, manifest_error = try_load_manifest(Path(manifest_path))
+    verdicts = Verdicts()
+    measurements: Dict[str, object] = {
+        "budget_bytes": budget_bytes,
+        "battery_mode": "external-sort",
+    }
+    front = settle_front(
+        directory, a_list_path, a_list, manifest, manifest_error, verdicts, measurements
+    )
+    if front is None:
+        return verdicts.result(measurements)
 
     spill_root = Path(tempfile.mkdtemp(prefix=V3_SPILL_PREFIX, dir=spill_dir))
     scan = None
     try:
-        scan = _V3Scan(
+        scan = _ExternalSortScan(
             directory,
-            counts,
-            [header["box_size_mpc_h"] for header in headers],
-            declarations[0],
-            n_forests_total,
+            front.counts,
+            front.box_sizes,
+            front.declared,
+            front.n_forests_total,
             budget_bytes,
             spill_root,
         )
         scan.run()
-        record("row-values", scan.row_values.messages())
-        record(
-            "len-nonnegative",
-            scan.lengths.messages(),
-            detail="{} Len==0 halo(s)".format(scan.len_zero),
-        )
-        record(
-            "field-finiteness",
-            scan.finiteness.messages(),
-            detail="{} float field(s)".format(len(scan.floats)),
-        )
-        record(
-            "position-bounds",
-            check_position_bounds(scan, headers, declarations[0]),
-            detail="every Pos component within [0, box_size_mpc_h]",
-        )
-        links_ok = record("link-targets", scan.links.messages())
-        measured_adjacent = int(scan.stats["gapped_descendants"] == 0)
-        adjacency = [
-            "{}: links_adjacent {} but the dataset measures {} ({} gapped descendant link(s))".format(
-                snapshot_h5_name(snap),
-                header["links_adjacent"],
-                measured_adjacent,
-                scan.stats["gapped_descendants"],
-            )
-            for snap, header in enumerate(headers)
-            if header["links_adjacent"] != measured_adjacent
-        ]
-        if links_ok:
-            record("links-adjacent", adjacency)
-            record("topology-closure", _v3_topology_closure(scan))
-            cycle_failures, rounds = _v3_chain_cycles(scan)
-            record(
-                "chain-cycles", cycle_failures, detail="{} pointer-jumping round(s)".format(rounds)
-            )
-        else:
-            skip(
-                ("links-adjacent", "topology-closure", "chain-cycles"),
-                "link targets invalid; topology not walked",
-            )
+        if scan.links:
+            # nothing walks the topology: release its sorters before the merges below
             scan.join.close()
             scan.chain.close()
-        inventory = manifest.inventory if manifest is not None else None
-        record("source-key-coverage", _v3_source_keys(scan, inventory))
-        if run_scoped_ok:
-            record(
-                "identity",
-                scan.identity_ranges.messages()
-                + _v3_identity(scan, source_format, n_forests_total, max_rank, inventory),
-            )
-            record("header-bounds", check_header_bounds(n_forests_total, max_rank, multiplier))
-            record(
-                "sidecar-content",
-                check_sidecar_content(
-                    directory / "forests.h5",
-                    source_format,
-                    n_forests_total,
-                    inventory,
-                    scan.scan_rows,
-                ),
-            )
-        else:
-            skip(
-                ("identity", "header-bounds", "sidecar-content"), "run-scoped headers inconsistent"
-            )
-        if manifest is not None:
-            record("count-conservation", check_count_conservation(counts, manifest))
-        else:
-            skip(("count-conservation",), "no manifest given; source counts unavailable")
-        measurements.update(scan.stats)
-        measurements.update(
-            len_zero=scan.len_zero,
-            links_adjacent_measured=measured_adjacent,
-            chain_edges=scan.n_chain_edges,
-            scan_rows=scan.scan_rows,
+
+        def topology():
+            closure = _v3_topology_closure(scan)
+            cycles, rounds = _v3_chain_cycles(scan)
+            return closure, cycles, "{} pointer-jumping round(s)".format(rounds)
+
+        settle_scan(
+            verdicts,
+            front,
+            scan,
+            multiplier,
+            measurements,
+            topology=topology,
+            source_keys=lambda: _v3_source_keys(scan, front.inventory),
+            identity=lambda: _v3_identity(
+                scan, front.source_format, front.n_forests_total, front.max_rank, front.inventory
+            ),
         )
     except RankSortError as exc:
         raise ConverterError("v3 battery sort failed: {}".format(exc)) from exc
@@ -1949,7 +2099,7 @@ def run_battery_v3(
         raise ConverterError(
             "{}: the battery's spill directory could not be removed".format(spill_root)
         )
-    return V3BatteryResult(ordered_outcomes(outcomes), measurements)
+    return verdicts.result(measurements)
 
 
 def ordered_outcomes(outcomes: List[Outcome]) -> List[Outcome]:

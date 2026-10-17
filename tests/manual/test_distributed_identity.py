@@ -90,7 +90,6 @@ import argparse
 import os
 import re
 import shlex
-import shutil
 import signal
 import subprocess
 import sys
@@ -101,6 +100,10 @@ import h5py
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+
+from framework.fs import remove_tree  # noqa: E402
+
 SIMULATION = "mini-millennium-horizontal"
 MODELS = ("halos-only", "sage16", "sham", "hod")
 NP_COUNTS = (1, 2, 3, 4, 8)
@@ -618,7 +621,7 @@ def terminate_group(process: subprocess.Popen) -> str:
 def write_run_file(config: dict, run_dir: Path) -> Path:
     """Write the run file for one run into a fresh output directory and return its path."""
     if run_dir.exists():
-        shutil.rmtree(run_dir)
+        remove_tree(run_dir)
     run_dir.mkdir(parents=True)
     derived = dict(config)
     derived["output"] = dict(config["output"], output_directory=str(run_dir))
@@ -737,7 +740,7 @@ def main(argv=None) -> int:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     LOG_PATH.write_text("")
     if WORK_ROOT.exists():
-        shutil.rmtree(WORK_ROOT)
+        remove_tree(WORK_ROOT)
     mpirun = shlex.split(os.environ.get("MPIRUN", "mpirun"))
     gate = Gate(mpirun)
     print(f"Launcher: {shlex.join(mpirun)}; log: {LOG_PATH}", flush=True)

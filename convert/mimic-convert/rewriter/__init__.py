@@ -23,7 +23,10 @@ input is a version 3 dataset. Two operations are implemented here:
   recomputed under the reference rules; every other forest reproduces its
   payload, topology and ``UniqueGalaxyID`` exactly. The logical descendant
   relation never changes. A table that changes nothing produces the no-op's
-  output.
+  output. The table need only satisfy its own invariants: one that splits a
+  FoF group of the final snapshot is not refused, and the promotions it
+  causes there are recorded in the summary's per-snapshot counts like any
+  other.
 
 Only datasets whose every ``Descendant`` link is adjacent (``links_adjacent``
 1) are accepted; the gapped case is out of scope and refused.
@@ -66,10 +69,12 @@ reference rank orders a forest's halos by descending snapshot first.
    the FoF chains are the runs of the new order (each group its central then
    its members, a promoted halo a group of one) and the progenitor links
    come from the remap entries; the verification then proves that every
-   descendant carries the ``MostBoundID`` it carried in the input, that every
-   untouched forest reproduces its payload, links and identity exactly, that
-   every promoted halo is its own group's first halo, and that the
-   recomputed chains partition the progenitors and the groups.
+   ``Descendant`` names the input's descendant row, that every untouched
+   forest reproduces its payload, links and identity exactly, that every
+   promoted halo is its own group's first halo, that each FoF group is one
+   run of rows from its central, and that a walk from each descendant's
+   ``FirstProgenitor`` through ``NextProgenitor`` reaches every progenitor of
+   that descendant exactly once and nothing else.
 
 **Output.** A converter-shaped workdir: ``manifest.json`` of the shape the
 producer battery binds to, ``dataset/`` holding exactly the snapshot files
@@ -79,89 +84,17 @@ a cut, ``cut_pieces.npy`` (every piece of every split forest).
 ``convert_trees.py validate --workdir <output>`` and ``report`` then run with
 their binding and conservation checks applied.
 
-**Memory.** The concurrent peak per phase, with ``n`` the widest slab's
-rows, ``F`` ``n_forests_total``, ``T`` the index's trees, ``P`` its (file,
-forest) pairs and ``b`` the rows read per block (Shin-Uchuu: n = 519,342,987,
-F = 166,547,771, T = 315,004,242, P about 320 million). The per-row and
-per-tree coefficients marked measured were measured with ``tracemalloc`` on a
-synthetic 400,000-row slab (``rewriter.inputs.MEMORY_FORMULAS`` repeats them
-for the summary and ``planned_peak_bytes`` evaluates them for an input):
-
-- pass 0 peaks at its inventory step, **133 B x T + 80 B x F + 8 B x P +
-  24 B x b**: the index (32 B x T, after a load that peaks at 79 B x T), its
-  forest table (40 B x F + 8 B x P, built with a transient of 57 B x T at
-  Shin-Uchuu's ratio and 81 B x T when forests equal trees), the sidecar
-  columns (24 B x F), the roots and their slabs (12 B x T, after a gathering
-  peak of 42 B x T), the totals and bases (16 B x F), and the inventory
-  (56 B x T) with the marker ordinals' transient (33 B x T, measured); about
-  58 GB at Shin-Uchuu. The index, forest table, sidecar columns, totals and
-  inventory are then released (the inventory is checkpointed in the scratch
-  and reloaded at the end).
-- the baseline through passes 1 and 2 is **16 B x F + 16 B x T + 4 B x n**:
-  the forest bases and running counts, the roots and tree counts, and the
-  previous slab's labels; about 9.8 GB.
-- the remap store: 32 B per row of each resident slab (the permutation and
-  three identities), at most three slabs, **96 B x n**; about 50 GB. Its peak
-  is recorded in the summary.
-- pass 1 holds, beside the baseline and the two remap entries already
-  resident (64 B x n), a working set of **68 B x n**, and **79 B x n** for a
-  last slab whose every halo is terminal (measured: the sort's four key
-  columns and workspace, then the identities, the labels and the root
-  lookup's transients); about 80 GB concurrent at Shin-Uchuu.
-- pass 2 holds, beside the baseline and three remap entries, **45 B x n**
-  while writing (one input column and its gathered output, or a link's
-  temporaries and the target's inverse permutation) and **79 B x n** while
-  verifying (the written and input link, the compared target ids, one target
-  slab's ``MostBoundID``, then the identity columns), both measured; about
-  101 GB concurrent at Shin-Uchuu, the run's peak.
-
-A cut adds the following (``rewriter.cut``), with ``F'`` the output's forests,
-``p`` the pieces of the split forests and ``P`` the (file, forest) pairs of
-the cut index. Shin-Uchuu under the decided table: F' = 244,953,607, T =
-315,004,242, p = 86,459,398, P about 320 million, n = 519,342,987. The
-per-row and per-tree coefficients marked measured were measured with
-``tracemalloc`` on a synthetic 400,000-row slab (100,000 forests of two trees
-each, every forest cut into its two trees, every row of the slab a
-progenitor, three quarters of them of descendants with three progenitors,
-one quarter promoted; the uncut pass 1 measured 73 B x n on the same slab):
-
-- the labelling pre-pass, beside pass 0's resident arrays (about 52 B x T +
-  80 B x F + 8 B x P, 32 GB): two slabs' labels, one block of ``Descendant``
-  and ``MostBoundID`` and the per-slab ``unique``'s transients, **8 B x n +
-  16 B x b + about 20 B x n** (measured 39 B x n with b = 0.65 n); about
-  15 GB, 47 GB concurrent;
-- the table's installation: the table read and checked at the census
-  reader's 128 B x T (40 GB, transient), then the cut index (32 B x T), its
-  forest table (40 B x F' + 8 B x P), the table ids, per-tree forests and
-  totals (32 B x T), the output totals, bases and sidecar (42 B x F'), the
-  pieces (56 B x p) and about 20 B x T of transients: **84 B x T + 82 B x F'
-  + 8 B x P + 56 B x p** (measured 189 B x T with F' = p = T), about 52 GB,
-  **84 GB concurrent** with pass 0's arrays, the install-time peak;
-- the baseline through passes 1 and 2 grows by the per-tree forests, original
-  forests and totals, **24 B x T** (7.6 GB), and by the output's bases and
-  split masks (10 B x F' in place of 8 B x F);
-- the remap store holds two more int64 columns per resident slab (the
-  recomputed ``NextProgenitor`` and the next slab's ``FirstProgenitor``):
-  **48 B per row, 144 B x n** over three slabs, 75 GB;
-- pass 1 holds, beside the baseline and the two remap entries already resident
-  (96 B x n), a working set of **298 B x n** (measured: the uncut set, the
-  inverse permutations of this slab and the next, the new forest, the
-  promotion mask, the old and new keys, the stored progenitor links, the
-  mass and the insertion positions before and after the cut over the
-  multi-progenitor groups); about 155 GB, **219 GB concurrent**, the run's
-  peak;
-- pass 2 holds, beside the baseline and three remap entries (144 B x n),
-  **56 B x n** while writing and **117 B x n** while verifying (measured:
-  the FoF chain construction, then the written columns, the previous slab's
-  ``Descendant`` and the structural masks); about 61 GB, **150 GB
-  concurrent** while verifying.
+**Memory.** Every phase's concurrent peak, for the no-op and the cut, is
+stated once, in ``rewriter.inputs.MEMORY_FORMULAS``, which every summary
+records and ``rewriter.inputs.planned_peak_bytes`` evaluates for an input (the
+manifest's ``transpose_budget_bytes``). The cut's pass 1 is the run's peak.
 
 Every whole-slab array is int64-indexed; nothing is narrowed to int32 but the
 tree labels, whose ordinals the root enumeration bounds.
 """
 
 #: The rewriter's own version, recorded in every manifest it writes.
-REWRITER_VERSION = 1
+REWRITER_VERSION = 2
 
 #: The one source format the rewriter accepts and stamps.
 SOURCE_FORMAT = "consistent_trees_ascii"
@@ -176,6 +109,7 @@ SUMMARY_NAME = "rewrite_summary.json"
 TREE_INVENTORY_NAME = "tree_inventory.npy"
 CUT_PIECES_NAME = "cut_pieces.npy"
 DATASET_DIR = "dataset"
+
 
 __all__ = [
     "CUT_PIECES_NAME",

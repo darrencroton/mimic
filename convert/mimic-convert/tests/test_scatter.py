@@ -1,10 +1,13 @@
 """Unit tests: Phase 0 map, root coverage, ForestIndex order, scatter
 conservation, manifest resume, aggregates, cleanup containment guard.
 
-``TestScratchBuffering`` covers explicit 8192-byte scratch buffering (serial
-and pooled) and ``TestExtendedScatter`` the extended scratch layout (binding,
-source-unit sidecars, serial/pooled equality)."""
+Every scatter runs under a profile schema: the shipped default profile unless a
+test names another. ``TestScratchBuffering`` covers explicit 8192-byte scratch
+buffering (serial and pooled) and ``TestExtendedScatter`` the layout of a
+profile that declares extras (binding, source-unit sidecars, serial/pooled
+equality)."""
 
+import functools
 import json
 import multiprocessing as mp
 import os
@@ -24,13 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fixtures  # noqa: E402
 import scatter  # noqa: E402
 from column_schema import build_schema, load_column_map  # noqa: E402
-from ctrees_parser import (  # noqa: E402
-    DTYPE_TAG,
-    RECORD_DTYPE,
-    ConverterError,
-    CtreesFileParser,
-    ScratchLayout,
-)
+from ctrees_parser import ConverterError, CtreesFileParser, ScratchLayout  # noqa: E402
 from scatter import (  # noqa: E402
     SOURCE_COMPLETED,
     SOURCE_PENDING,
@@ -42,6 +39,20 @@ from scatter import (  # noqa: E402
     validate_observed_pairs,
     validate_root_coverage,
 )
+
+PROFILE_DIR = Path(__file__).resolve().parents[1] / "profiles"
+DEFAULT_PROFILE = PROFILE_DIR / "consistent_trees_ascii.yaml"
+ALL_TYPES_PROFILE = Path(__file__).parent / "data" / "column_maps" / "ascii_all_extra_types.yaml"
+
+
+@functools.lru_cache(maxsize=None)
+def _schema(path=ALL_TYPES_PROFILE):
+    """The canonical schema of a profile, built once per profile."""
+    return build_schema(load_column_map(path))
+
+
+def default_schema():
+    return _schema(DEFAULT_PROFILE)
 
 
 def _mp_worker_init_and_count(forests_list_path, expected_md5, counter, barrier) -> None:
@@ -181,7 +192,16 @@ class ScatterEnv:
         self.a_list = fixtures.write_a_list(root / "test.a_list")
         self.sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
 
+    @property
+    def schema(self):
+        return default_schema()
+
+    @property
+    def dtype(self):
+        return ScratchLayout.from_schema(self.schema).dtype
+
     def run(self, **kwargs):
+        kwargs.setdefault("schema", self.schema)
         return run_scatter(
             tree_files=self.tree_files,
             forests_list_path=self.forests_list,
@@ -310,7 +330,7 @@ class TestScatter(unittest.TestCase):
         expected = self.env.expected_snapshot_counts()
         total_rows = 0
         for snap, count in expected.items():
-            data = np.fromfile(scratch / snapshot_scratch_name(snap), dtype=RECORD_DTYPE)
+            data = np.fromfile(scratch / snapshot_scratch_name(snap), dtype=self.env.dtype)
             self.assertEqual(len(data), count)
             total_rows += len(data)
             self.assertEqual(manifest.data["snapshots"][str(snap)]["rows"], count)
@@ -361,7 +381,7 @@ class TestScatter(unittest.TestCase):
         ]
         self.assertTrue(removed)
 
-    def test_every_scratch_entry_records_frozen_dtype_tag(self):
+    def test_every_scratch_entry_records_the_layout_dtype_tag(self):
         manifest = self.env.run()
         record_entries = [
             v
@@ -370,7 +390,22 @@ class TestScatter(unittest.TestCase):
         ]
         self.assertTrue(record_entries)
         for entry in record_entries:
-            self.assertEqual(entry["dtype_tag"], DTYPE_TAG)
+            self.assertEqual(entry["dtype_tag"], manifest.layout.dtype_tag)
+
+    def test_a_linked_snapshot_is_refused_before_anything_is_created(self):
+        self.env.run()
+        workdir = self.env.workdir
+        path = workdir / "manifest.json"
+        data = json.loads(path.read_text())
+        linked = min(int(snap) for snap in data["snapshots"])
+        data["snapshots"][str(linked)]["status"] = "linked"
+        path.write_text(json.dumps(data))
+        before = {p: p.read_bytes() for p in workdir.rglob("*") if p.is_file()}
+        with self.assertRaisesRegex(
+            ConverterError, "snapshot {}: unexpected status 'linked'".format(linked)
+        ):
+            self.env.run()
+        self.assertEqual({p: p.read_bytes() for p in workdir.rglob("*") if p.is_file()}, before)
 
     def test_missing_input_file_aborts(self):
         self.env.tree_files.append(Path(self.tmp.name) / "missing.dat")
@@ -447,7 +482,7 @@ class TestScatter(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "malformed"):
             self.env.run(save_every_n_files=1)
 
-        manifest = Manifest.load_or_create(self.env.workdir)
+        manifest = Manifest.load(self.env.workdir)
         file0 = str(self.env.tree_files[0].resolve())
         self.assertEqual(manifest.data["source_files"][file0]["status"], "completed")
 
@@ -471,8 +506,7 @@ class TestScatter(unittest.TestCase):
         scratch = self.env.workdir / "scratch"
         partials = list(scratch.glob("snap_*.src_*.bin"))
         self.assertTrue(partials, "expected partial worker binaries after the kill")
-        manifest = Manifest.load_or_create(self.env.workdir)
-        self.assertEqual(manifest.data["source_files"], {})
+        self.assertFalse((self.env.workdir / "manifest.json").exists())
 
         # re-run: 'wb' truncation must absorb the partial files; totals exact
         manifest = self.env.run(chunksize=2)
@@ -480,7 +514,7 @@ class TestScatter(unittest.TestCase):
         for snap, count in expected.items():
             entry = manifest.data["snapshots"][str(snap)]
             self.assertEqual(entry["rows"], count)
-            data = np.fromfile(scratch / snapshot_scratch_name(snap), dtype=RECORD_DTYPE)
+            data = np.fromfile(scratch / snapshot_scratch_name(snap), dtype=self.env.dtype)
             self.assertEqual(len(data), count)
 
     def test_changed_a_list_content_refuses_resume(self):
@@ -531,7 +565,7 @@ class TestScatter(unittest.TestCase):
         what was scattered. A resume that does not re-enter scatter (the ASCII
         adapter's ``_check_recorded_inputs``) relies on this classification."""
         self.env.run()
-        manifest = Manifest.load_or_create(self.env.workdir)
+        manifest = Manifest.load(self.env.workdir)
         self.assertEqual(manifest.classify_source(self.env.tree_files[0]), SOURCE_COMPLETED)
         _stash(self.env.tree_files[0], Path(self.tmp.name) / "holding")
         with self.assertRaises(ConverterError) as ctx:
@@ -544,7 +578,7 @@ class TestScatter(unittest.TestCase):
         entry satisfies it only while the bytes on disk match the recorded size
         and mtime, and a changed one is classified pending."""
         self.env.run()
-        manifest = Manifest.load_or_create(self.env.workdir)
+        manifest = Manifest.load(self.env.workdir)
         self.assertTrue(manifest.source_completed(self.env.tree_files[1]))
         with open(self.env.tree_files[1], "a") as handle:
             handle.write("#tree 10199\n")
@@ -642,7 +676,7 @@ class TestScatter(unittest.TestCase):
 
         manifest = self.env.run()
         run_sort(self.env.workdir)
-        manifest = Manifest.load_or_create(self.env.workdir)
+        manifest = Manifest.load(self.env.workdir)
         snap = sorted(manifest.data["snapshots"], key=int)[0]
         Path(manifest.data["snapshots"][snap]["sorted_file"]).unlink()
         with self.assertRaisesRegex(ConverterError, "missing on disk"):
@@ -665,7 +699,7 @@ class TestScatter(unittest.TestCase):
         data = json.loads(manifest_path.read_text())
         data["dtype_tag"] = "something-else"
         manifest_path.write_text(json.dumps(data))
-        with self.assertRaisesRegex(ConverterError, "dtype tag mismatch"):
+        with self.assertRaisesRegex(ConverterError, "disagrees with its own scratch layout"):
             self.env.run()
 
     def test_pool_scatter_matches_serial(self):
@@ -920,9 +954,9 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
         task_args = captured["task_args"]
         self.assertEqual(len(task_args), 3)  # one task per pending source file
         for task in task_args:
-            # (path, src_index, scratch_dir, chunksize, schema); a legacy run has no schema
+            # (path, src_index, scratch_dir, chunksize, schema)
             self.assertEqual(len(task), 5)
-            self.assertIsNone(task[4])
+            self.assertIs(task[4], env.schema)
             for element in task:
                 self.assertNotIsInstance(element, scatter.ForestMap)
 
@@ -1131,7 +1165,7 @@ class TestCleanupContainment(unittest.TestCase):
         self.dir = Path(self.tmp.name)
         self.workdir = self.dir / "workdir"
         self.workdir.mkdir()
-        self.manifest = Manifest.load_or_create(self.workdir)
+        self.manifest = Manifest(self.workdir, ScratchLayout.from_schema(default_schema()))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -1178,14 +1212,6 @@ class TestCleanupContainment(unittest.TestCase):
         self.assertTrue(target.exists())
 
 
-PROFILE_DIR = Path(__file__).resolve().parents[1] / "profiles"
-ALL_TYPES_PROFILE = Path(__file__).parent / "data" / "column_maps" / "ascii_all_extra_types.yaml"
-
-
-def _schema(path=ALL_TYPES_PROFILE):
-    return build_schema(load_column_map(path))
-
-
 class SpanningEnv(ScatterEnv):
     """Two files where forest 100's two trees are split across the files and
     file 0 interleaves two forests' trees -- so units are neither whole forests
@@ -1228,9 +1254,9 @@ class TestScratchBuffering(unittest.TestCase):
         return seen
 
     def test_serial_worker_and_concat_handles(self):
-        for kwargs in ({}, {"schema": _schema()}):
-            with self.subTest(extended=bool(kwargs)):
-                writes = [s for s in self._recorded_opens(**kwargs) if "w" in s[1]]
+        for schema in (default_schema(), _schema()):
+            with self.subTest(extras=len(schema.extra_fields)):
+                writes = [s for s in self._recorded_opens(schema=schema) if "w" in s[1]]
                 scratch = [s for s in writes if s[0].endswith(".bin")]
                 self.assertTrue(any(".src_" in s[0] for s in scratch))
                 self.assertTrue(any(".src_" not in s[0] for s in scratch))
@@ -1242,10 +1268,7 @@ class TestScratchBuffering(unittest.TestCase):
             env = ScatterEnv(Path(tmp))
             forest_map = load_forests_list(env.forests_list)
             scratch_dir = Path(tmp) / "scratch"
-            tasks = [
-                (path, i, scratch_dir, 2, None if i == 0 else _schema())
-                for i, path in enumerate(env.tree_files)
-            ]
+            tasks = [(path, i, scratch_dir, 2, _schema()) for i, path in enumerate(env.tree_files)]
             ctx = mp.get_context("spawn")
             with ctx.Pool(
                 processes=2,
@@ -1268,13 +1291,12 @@ class TestExtendedScatter(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_manifest_records_the_extended_layout(self):
+    def test_manifest_records_the_scratch_layout(self):
         env = SpanningEnv(self.root)
         manifest = env.run(schema=_schema(), chunksize=2)
         layout = ScratchLayout.from_schema(_schema())
         data = json.loads((env.workdir / "manifest.json").read_text())
         self.assertEqual(data["dtype_tag"], layout.dtype_tag)
-        self.assertNotEqual(data["dtype_tag"], DTYPE_TAG)
         self.assertEqual(data["scratch_layout"], layout.to_record())
         self.assertEqual(manifest.layout, layout)
         for entry in data["snapshots"].values():
@@ -1282,13 +1304,6 @@ class TestExtendedScatter(unittest.TestCase):
             self.assertEqual(meta["dtype_tag"], layout.dtype_tag)
             records = np.fromfile(entry["scratch_file"], dtype=layout.dtype)
             self.assertEqual(records.size, entry["rows"])
-
-    def test_legacy_manifest_has_no_layout_record(self):
-        env = ScatterEnv(self.root)
-        env.run()
-        data = json.loads((env.workdir / "manifest.json").read_text())
-        self.assertNotIn("scratch_layout", data)
-        self.assertEqual(data["dtype_tag"], DTYPE_TAG)
 
     def test_unit_sidecars_are_literal_and_registered(self):
         env = SpanningEnv(self.root)
@@ -1306,38 +1321,23 @@ class TestExtendedScatter(unittest.TestCase):
             meta = manifest.data["intermediates"][str(path.resolve())]
             self.assertEqual((meta["kind"], meta["rows"]), ("source-units", len(table)))
 
-    def test_coordinates_survive_chunk_and_tree_boundaries(self):
+    def test_forest_join_and_extras_survive_chunk_and_tree_boundaries(self):
         env = SpanningEnv(self.root)
         manifest = env.run(schema=_schema(), chunksize=1)
-        layout = manifest.layout
         got = {}
         for entry in manifest.data["snapshots"].values():
-            for r in np.fromfile(entry["scratch_file"], dtype=layout.dtype):
+            for r in np.fromfile(entry["scratch_file"], dtype=manifest.layout.dtype):
                 got[int(r["id"])] = (
-                    int(r["src_file_ordinal"]),
-                    int(r["src_unit_ordinal"]),
-                    int(r["src_row_ordinal"]),
+                    int(r["tree_root_id"]),
+                    int(r["forest_id"]),
                     int(r["extra_NumProg"]),
                 )
-        # literal: each file's rows in file order, numbered within their unit
-        expected = {}
-        for file_ordinal, trees in enumerate(
-            [
-                [
-                    (0, env.forests[0].trees[0]),
-                    (1, env.forests[1].trees[0]),
-                    (2, env.forests[2].trees[0]),
-                ],
-                [
-                    (0, env.forests[3].trees[0]),
-                    (1, env.forests[0].trees[1]),
-                    (2, env.forests[4].trees[0]),
-                ],
-            ]
-        ):
-            for unit, tree in trees:
-                for row, halo in enumerate(tree.halos):
-                    expected[halo.halo_id] = (file_ordinal, unit, row, halo.num_prog)
+        expected = {
+            halo.halo_id: (tree.root_id, forest.forest_id, halo.num_prog)
+            for forest in env.forests
+            for tree in forest.trees
+            for halo in tree.halos
+        }
         self.assertEqual(got, expected)
 
     def test_serial_and_pooled_extended_scratch_are_identical(self):
@@ -1376,7 +1376,6 @@ class TestExtendedScatter(unittest.TestCase):
         same_width = self.root / "same_width.yaml"
         same_width.write_text(relabelled)
         for label, schema in (
-            ("no schema on an extended workdir", None),
             ("different selection", default),
             ("same width, different units", _schema(same_width)),
         ):
@@ -1385,18 +1384,24 @@ class TestExtendedScatter(unittest.TestCase):
                     env.run(schema=schema)
                 self.assertEqual((env.workdir / "manifest.json").read_text(), before)
 
-    def test_extended_request_on_a_legacy_workdir_is_refused(self):
-        env = ScatterEnv(self.root)
-        env.run()
-        with self.assertRaisesRegex(ConverterError, "holds legacy scratch records"):
-            env.run(schema=_schema())
+    def test_a_manifest_without_a_layout_record_is_refused(self):
+        env = SpanningEnv(self.root)
+        env.run(schema=_schema())
+        path = env.workdir / "manifest.json"
+        data = json.loads(path.read_text())
+        del data["scratch_layout"]
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ConverterError, "records no scratch layout"):
+            Manifest.load(env.workdir)
 
     def test_downstream_stages_derive_the_layout_from_the_manifest(self):
         env = SpanningEnv(self.root)
         env.run(schema=_schema())
-        self.assertEqual(
-            Manifest.load_or_create(env.workdir).layout, ScratchLayout.from_schema(_schema())
-        )
+        self.assertEqual(Manifest.load(env.workdir).layout, ScratchLayout.from_schema(_schema()))
+
+    def test_a_missing_manifest_is_refused_on_load(self):
+        with self.assertRaisesRegex(ConverterError, "no manifest found; run scatter first"):
+            Manifest.load(self.root / "nowhere")
 
     def test_tampered_layout_record_is_refused(self):
         env = SpanningEnv(self.root)
@@ -1406,41 +1411,18 @@ class TestExtendedScatter(unittest.TestCase):
         data["scratch_layout"]["extras"][0][1] = "double"
         path.write_text(json.dumps(data))
         with self.assertRaisesRegex(ConverterError, "does not match the tag"):
-            Manifest.load_or_create(env.workdir)
+            Manifest.load(env.workdir)
 
-    def test_extended_source_entries_name_the_source_units_sidecar(self):
-        """An extended scatter records each file's source-units sidecar count,
-        and the entry's owned intermediates name the sidecar every SourceHaloID
-        and source coordinate of the file derives from."""
+    def test_the_manifest_owns_each_files_source_units_sidecar(self):
+        """Every SourceHaloID and forest ordinal of a file derives from its
+        source-units sidecar, so the manifest owns it with its checksum."""
         env = SpanningEnv(self.root)
         manifest = env.run(schema=_schema())
-        for i, path in enumerate(env.tree_files):
-            entry = manifest.source_entry(path)
-            self.assertEqual(entry["source_units"], 3)
+        for i in range(len(env.tree_files)):
             sidecar = (env.workdir / "scratch" / scatter.source_units_name(i)).resolve()
             registered = manifest.data["intermediates"][str(sidecar)]
             self.assertEqual((registered["kind"], registered["rows"]), ("source-units", 3))
             self.assertEqual(registered["md5"], scatter.file_md5(sidecar))
-
-    def test_legacy_source_entries_list_no_units_sidecar(self):
-        env = ScatterEnv(self.root)
-        manifest = env.run()
-        for path in env.tree_files:
-            entry = manifest.source_entry(path)
-            self.assertNotIn("source_units", entry)
-        kinds = {record["kind"] for record in manifest.data["intermediates"].values()}
-        self.assertNotIn("source-units", kinds)
-        self.assertFalse(list((env.workdir / "scratch").glob("units_src_*")))
-
-    def test_frozen_tag_comparison_rejects_an_extended_manifest(self):
-        # the earlier Manifest accepted exactly DTYPE_TAG; an extended
-        # manifest's tag differs, so older code refuses to resume it
-        env = SpanningEnv(self.root)
-        env.run(schema=_schema())
-        data = json.loads((env.workdir / "manifest.json").read_text())
-        self.assertEqual(data["manifest_version"], scatter.MANIFEST_VERSION)
-        self.assertNotEqual(data["dtype_tag"], DTYPE_TAG)
-        self.assertTrue(data["dtype_tag"].startswith("ctrees-scratch-v2/"))
 
 
 if __name__ == "__main__":

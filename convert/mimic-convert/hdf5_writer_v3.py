@@ -37,8 +37,12 @@ verified against its source records before the stage reports it.
 
 :func:`write_v3_snapshot_columns` is the same file from whole columns, for the
 dataset rewriter (``rewrite_trees.py``), which produces one permuted column at a
-time rather than a record stream; it shares every object, header, chunk-shape
-and ``/schema`` rule above and adds nothing to the format.
+time rather than a record stream; both writers create their objects through one
+helper, so they share every object, header, chunk-shape and ``/schema`` rule and
+the column writer adds nothing to the format. The rewriter verifies its files
+with the same structure and layout verifiers
+(:func:`verify_v3_snapshot_structure`, :func:`verify_v3_dataset_layout`,
+:func:`require_hard_links`), comparing the rows itself.
 """
 
 import itertools
@@ -46,7 +50,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Iterator, List, Mapping, Sequence, Tuple
+from typing import Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 import h5py
 import numpy as np
@@ -118,11 +122,14 @@ def load_header_metadata(path) -> Dict[str, float]:
             "omega_lambda": float(cosmology["omega_lambda"]),
             "hubble_h": float(cosmology["hubble_h"]),
         }
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError) as exc:
+        problem = "no key {!r}".format(exc.args[0]) if isinstance(exc, KeyError) else str(exc)
         raise ConverterError(
-            "{}: missing or malformed simulation metadata (need simulation.cosmology "
-            "omega_matter/omega_lambda/hubble_h, box_size.value, particle_mass.value)".format(path)
-        )
+            "{}: missing or malformed simulation metadata ({}; need simulation.cosmology "
+            "omega_matter/omega_lambda/hubble_h, box_size.value, particle_mass.value)".format(
+                path, problem
+            )
+        ) from exc
     if box.get("units") != BOX_SIZE_UNITS:
         raise ConverterError(
             "{}: box_size units {!r} != required {!r}".format(
@@ -287,6 +294,52 @@ def v3_chunk_shape(n_rows: int, is_vec: bool) -> Tuple[int, ...]:
     return (rows, 3) if is_vec else (rows,)
 
 
+def _create_v3_objects(
+    handle: h5py.File,
+    header: Mapping[str, object],
+    table: Mapping[str, Tuple[np.dtype, bool]],
+    n_halos: int,
+    track_times: bool,
+) -> Dict[str, h5py.Dataset]:
+    """Create ``/header`` with every attribute and ``/halos`` with every
+    ``table`` dataset pre-sized to ``n_halos`` rows, in table order; returns
+    the datasets for the caller to fill. Both snapshot writers create their
+    objects here, so their files share one layout."""
+    header_group = handle.create_group("header", track_times=track_times)
+    for name, dtype in HEADER_ATTRS.items():
+        header_group.attrs.create(name, header[name], dtype=dtype)
+    for name, size in V3_STRING_ATTRS.items():
+        header_group.attrs.create(
+            name, _fixed_ascii(header[name], size, name), dtype=h5py.string_dtype("ascii", size)
+        )
+    halos = handle.create_group("halos", track_times=track_times)
+    return {
+        name: halos.create_dataset(
+            name,
+            shape=(n_halos, 3) if is_vec else (n_halos,),
+            dtype=dtype,
+            chunks=v3_chunk_shape(n_halos, is_vec),
+            maxshape=(None, 3) if is_vec else (None,),
+            compression=None,
+            track_times=track_times,
+        )
+        for name, (dtype, is_vec) in table.items()
+    }
+
+
+def _write_v3_schema(
+    handle: h5py.File, declarations: Sequence[PayloadField], track_times: bool
+) -> None:
+    """Create ``/schema``: one childless subgroup per declaration carrying
+    exactly :data:`V3_SCHEMA_ATTRS` as UTF-8 strings."""
+    schema_group = handle.create_group("schema", track_times=track_times)
+    utf8 = h5py.string_dtype("utf-8")
+    for declaration in declarations:
+        group = schema_group.create_group(declaration.name, track_times=track_times)
+        for key in V3_SCHEMA_ATTRS:
+            group.attrs.create(key, getattr(declaration, key), dtype=utf8)
+
+
 def write_v3_snapshot_file(
     path,
     header: Mapping[str, object],
@@ -297,30 +350,14 @@ def write_v3_snapshot_file(
 ) -> None:
     """Create one v3 ``snapshot_NNN.h5`` holding exactly /header, /halos and
     /schema, streaming ``blocks`` (structured records carrying every
-    ``table`` column) into datasets pre-sized to ``n_halos`` rows.
+    ``table`` column) into datasets pre-sized to ``n_halos`` rows. No object
+    header carries a modification time.
 
     The file is created exclusively (``w-``): the write stage's attempt
     directory is fresh, and nothing here ever overwrites an existing file.
     """
     with h5py.File(path, "w-", libver="latest") as handle:
-        header_group = handle.create_group("header")
-        for name, dtype in HEADER_ATTRS.items():
-            header_group.attrs.create(name, header[name], dtype=dtype)
-        for name, size in V3_STRING_ATTRS.items():
-            header_group.attrs.create(
-                name, _fixed_ascii(header[name], size, name), dtype=h5py.string_dtype("ascii", size)
-            )
-        halos = handle.create_group("halos")
-        datasets = {}
-        for name, (dtype, is_vec) in table.items():
-            datasets[name] = halos.create_dataset(
-                name,
-                shape=(n_halos, 3) if is_vec else (n_halos,),
-                dtype=dtype,
-                chunks=v3_chunk_shape(n_halos, is_vec),
-                maxshape=(None, 3) if is_vec else (None,),
-                compression=None,
-            )
+        datasets = _create_v3_objects(handle, header, table, n_halos, track_times=False)
         written = 0
         for block in blocks:
             stop = written + int(block.size)
@@ -333,12 +370,7 @@ def write_v3_snapshot_file(
             written = stop
         if written != n_halos:
             raise ConverterError("{}: {} rows streamed, {} declared".format(path, written, n_halos))
-        schema_group = handle.create_group("schema")
-        utf8 = h5py.string_dtype("utf-8")
-        for declaration in declarations:
-            group = schema_group.create_group(declaration.name)
-            for key in V3_SCHEMA_ATTRS:
-                group.attrs.create(key, getattr(declaration, key), dtype=utf8)
+        _write_v3_schema(handle, declarations, track_times=False)
 
 
 def write_v3_snapshot_columns(
@@ -361,33 +393,14 @@ def write_v3_snapshot_columns(
     and returns that column for every row, which is written in slices of
     ``block_rows``; the column must have ``n_halos`` rows and the table's
     dtype and shape. ``track_times`` is passed to every group and dataset
-    created (the file's own creation property list leaves time tracking off
-    by default), so with the default ``False`` no object header carries a
+    created, so with the default ``False`` no object header carries a
     modification time and a repeated write of the same content is
     byte-identical. The file is created exclusively (``w-``), as the record
     writer's is.
     """
     block_rows = _require_block_rows(block_rows)
     with h5py.File(path, "w-", libver="latest") as handle:
-        header_group = handle.create_group("header", track_times=track_times)
-        for name, dtype in HEADER_ATTRS.items():
-            header_group.attrs.create(name, header[name], dtype=dtype)
-        for name, size in V3_STRING_ATTRS.items():
-            header_group.attrs.create(
-                name, _fixed_ascii(header[name], size, name), dtype=h5py.string_dtype("ascii", size)
-            )
-        halos = handle.create_group("halos", track_times=track_times)
-        datasets = {}
-        for name, (dtype, is_vec) in table.items():
-            datasets[name] = halos.create_dataset(
-                name,
-                shape=(n_halos, 3) if is_vec else (n_halos,),
-                dtype=dtype,
-                chunks=v3_chunk_shape(n_halos, is_vec),
-                maxshape=(None, 3) if is_vec else (None,),
-                compression=None,
-                track_times=track_times,
-            )
+        datasets = _create_v3_objects(handle, header, table, n_halos, track_times)
         for name, dataset in datasets.items():
             dtype, is_vec = table[name]
             values = np.ascontiguousarray(column(name), dtype=dtype)
@@ -401,12 +414,7 @@ def write_v3_snapshot_columns(
                 stop = min(start + block_rows, n_halos)
                 dataset[start:stop] = values[start:stop]
             del values
-        schema_group = handle.create_group("schema", track_times=track_times)
-        utf8 = h5py.string_dtype("utf-8")
-        for declaration in declarations:
-            group = schema_group.create_group(declaration.name, track_times=track_times)
-            for key in V3_SCHEMA_ATTRS:
-                group.attrs.create(key, getattr(declaration, key), dtype=utf8)
+        _write_v3_schema(handle, declarations, track_times)
 
 
 def write_v3_sidecar(path, blocks: Iterable[Mapping[str, np.ndarray]]) -> int:
@@ -699,7 +707,9 @@ class HorizontalV3Writer(StageWriter):
             )
 
 
-def _require_hard_links(group, path: Path) -> None:
+def require_hard_links(group, path) -> None:
+    """Every member of ``group`` is a hard link: no soft or external link
+    stands in for an object the format requires to be in the file."""
     for name in group:
         link = group.get(name, getlink=True)
         if not isinstance(link, h5py.HardLink):
@@ -710,7 +720,11 @@ def _require_hard_links(group, path: Path) -> None:
             )
 
 
-def _verify_v3_dataset_layout(dataset, dtype: np.dtype, is_vec: bool, n_rows: int, path) -> None:
+def verify_v3_dataset_layout(dataset, dtype: np.dtype, is_vec: bool, n_rows: int, path) -> None:
+    """One dataset's storage as the format's Storage Layout fixes it: the
+    explicit dtype, ``n_rows`` rows (times 3 for a vector), chunk rows in
+    ``[1, 65536]``, no filter, no scale-offset, stored in the file, and no
+    attributes; every violation is named in one error."""
     shape = (n_rows, 3) if is_vec else (n_rows,)
     problems = []
     if dataset.dtype.str != dtype.str:
@@ -737,6 +751,111 @@ def _verify_v3_dataset_layout(dataset, dtype: np.dtype, is_vec: bool, n_rows: in
         raise ConverterError("{}: {}: {}".format(path, dataset.name, "; ".join(problems)))
 
 
+def verify_v3_snapshot_structure(
+    handle: h5py.File,
+    path,
+    header: Mapping[str, object],
+    table: Mapping[str, Tuple[np.dtype, bool]],
+    declarations: Sequence[PayloadField],
+    n_halos: int,
+    compare_rows: Optional[Callable[[h5py.Group], None]] = None,
+) -> None:
+    """Everything the format fixes about one open snapshot file except its
+    row values: the root holds exactly /header, /halos and /schema, every
+    object is a hard link, the header attributes are exactly ``header`` at
+    the format's types, /halos holds exactly ``table`` at its layout, and
+    /schema declares exactly ``declarations``. ``compare_rows``, when given,
+    is called with /halos once its layout is verified and before /schema is
+    checked; it compares the row values with what the producer expected.
+    Raises on the first difference."""
+    if set(handle.keys()) != {"header", "halos", "schema"} or handle.attrs.keys():
+        raise ConverterError(
+            "{}: root holds {} (attributes {}), not exactly /header, /halos, /schema".format(
+                path, sorted(handle.keys()), sorted(handle.attrs.keys())
+            )
+        )
+    require_hard_links(handle, path)
+    attrs = handle["header"].attrs
+    expected_names = set(HEADER_ATTRS) | set(V3_STRING_ATTRS)
+    if set(attrs.keys()) != expected_names:
+        raise ConverterError(
+            "{}: header attributes {} != {}".format(
+                path, sorted(attrs.keys()), sorted(expected_names)
+            )
+        )
+    for name, dtype in HEADER_ATTRS.items():
+        stored = np.asarray(attrs[name])
+        if stored.dtype != np.dtype(dtype) or stored.shape != () or stored != header[name]:
+            raise ConverterError(
+                "{}: header {} is {!r} ({}), expected {!r}".format(
+                    path, name, stored, stored.dtype, header[name]
+                )
+            )
+    for name, size in V3_STRING_ATTRS.items():
+        kind = attrs.get_id(name).get_type()
+        if (
+            not isinstance(kind, h5py.h5t.TypeStringID)
+            or kind.is_variable_str()
+            or kind.get_size() != size
+            or kind.get_cset() != h5py.h5t.CSET_ASCII
+        ):
+            raise ConverterError(
+                "{}: header {} is not {}-byte fixed ASCII".format(path, name, size)
+            )
+        if attrs[name] != str(header[name]).encode("ascii"):
+            raise ConverterError(
+                "{}: header {} is {!r}, expected {!r}".format(path, name, attrs[name], header[name])
+            )
+
+    halos = handle["halos"]
+    if set(halos.keys()) != set(table) or halos.attrs.keys():
+        raise ConverterError(
+            "{}: /halos holds {} (attributes {}), expected exactly {}".format(
+                path, sorted(halos.keys()), sorted(halos.attrs.keys()), sorted(table)
+            )
+        )
+    require_hard_links(halos, path)
+    for name, (dtype, is_vec) in table.items():
+        verify_v3_dataset_layout(halos[name], dtype, is_vec, n_halos, path)
+    if compare_rows is not None:
+        compare_rows(halos)
+
+    schema_group = handle["schema"]
+    wanted = {declaration.name: declaration for declaration in declarations}
+    if set(schema_group.keys()) != set(wanted) or schema_group.attrs.keys():
+        raise ConverterError(
+            "{}: /schema declares {}, expected exactly {}".format(
+                path, sorted(schema_group.keys()), sorted(wanted)
+            )
+        )
+    require_hard_links(schema_group, path)
+    for name, declaration in wanted.items():
+        group = schema_group[name]
+        if (
+            not isinstance(group, h5py.Group)
+            or len(group)
+            or (set(group.attrs.keys()) != set(V3_SCHEMA_ATTRS))
+        ):
+            raise ConverterError(
+                "{}: /schema/{} must be a childless group with exactly {}".format(
+                    path, name, V3_SCHEMA_ATTRS
+                )
+            )
+        for key in V3_SCHEMA_ATTRS:
+            kind = group.attrs.get_id(key).get_type()
+            if (
+                not isinstance(kind, h5py.h5t.TypeStringID)
+                or not kind.is_variable_str()
+                or kind.get_cset() != h5py.h5t.CSET_UTF8
+                or group.attrs[key] != getattr(declaration, key)
+            ):
+                raise ConverterError(
+                    "{}: /schema/{} {} is {!r}, expected UTF-8 {!r}".format(
+                        path, name, key, group.attrs[key], getattr(declaration, key)
+                    )
+                )
+
+
 def _verify_v3_snapshot_file(
     path: Path,
     header: Mapping[str, object],
@@ -746,59 +865,10 @@ def _verify_v3_snapshot_file(
     blocks: Iterable[np.ndarray],
 ) -> None:
     """Re-read one written snapshot and compare everything with what it
-    should hold; raise on the first difference."""
-    with h5py.File(path, "r") as handle:
-        if set(handle.keys()) != {"header", "halos", "schema"} or handle.attrs.keys():
-            raise ConverterError(
-                "{}: root holds {} (attributes {}), not exactly /header, /halos, /schema".format(
-                    path, sorted(handle.keys()), sorted(handle.attrs.keys())
-                )
-            )
-        _require_hard_links(handle, path)
-        attrs = handle["header"].attrs
-        expected_names = set(HEADER_ATTRS) | set(V3_STRING_ATTRS)
-        if set(attrs.keys()) != expected_names:
-            raise ConverterError(
-                "{}: header attributes {} != {}".format(
-                    path, sorted(attrs.keys()), sorted(expected_names)
-                )
-            )
-        for name, dtype in HEADER_ATTRS.items():
-            stored = np.asarray(attrs[name])
-            if stored.dtype != np.dtype(dtype) or stored.shape != () or stored != header[name]:
-                raise ConverterError(
-                    "{}: header {} is {!r} ({}), expected {!r}".format(
-                        path, name, stored, stored.dtype, header[name]
-                    )
-                )
-        for name, size in V3_STRING_ATTRS.items():
-            kind = attrs.get_id(name).get_type()
-            if (
-                not isinstance(kind, h5py.h5t.TypeStringID)
-                or kind.is_variable_str()
-                or kind.get_size() != size
-                or kind.get_cset() != h5py.h5t.CSET_ASCII
-            ):
-                raise ConverterError(
-                    "{}: header {} is not {}-byte fixed ASCII".format(path, name, size)
-                )
-            if attrs[name] != str(header[name]).encode("ascii"):
-                raise ConverterError(
-                    "{}: header {} is {!r}, expected {!r}".format(
-                        path, name, attrs[name], header[name]
-                    )
-                )
+    should hold, its rows against the transposed records ``blocks``; raise
+    on the first difference."""
 
-        halos = handle["halos"]
-        if set(halos.keys()) != set(table) or halos.attrs.keys():
-            raise ConverterError(
-                "{}: /halos holds {} (attributes {}), expected exactly {}".format(
-                    path, sorted(halos.keys()), sorted(halos.attrs.keys()), sorted(table)
-                )
-            )
-        _require_hard_links(halos, path)
-        for name, (dtype, is_vec) in table.items():
-            _verify_v3_dataset_layout(halos[name], dtype, is_vec, n_halos, path)
+    def compare_rows(halos: h5py.Group) -> None:
         start = 0
         for block in blocks:
             stop = start + int(block.size)
@@ -817,40 +887,10 @@ def _verify_v3_snapshot_file(
                 "{}: compared {} rows, the snapshot holds {}".format(path, start, n_halos)
             )
 
-        schema_group = handle["schema"]
-        wanted = {declaration.name: declaration for declaration in declarations}
-        if set(schema_group.keys()) != set(wanted) or schema_group.attrs.keys():
-            raise ConverterError(
-                "{}: /schema declares {}, expected exactly {}".format(
-                    path, sorted(schema_group.keys()), sorted(wanted)
-                )
-            )
-        _require_hard_links(schema_group, path)
-        for name, declaration in wanted.items():
-            group = schema_group[name]
-            if (
-                not isinstance(group, h5py.Group)
-                or len(group)
-                or (set(group.attrs.keys()) != set(V3_SCHEMA_ATTRS))
-            ):
-                raise ConverterError(
-                    "{}: /schema/{} must be a childless group with exactly {}".format(
-                        path, name, V3_SCHEMA_ATTRS
-                    )
-                )
-            for key in V3_SCHEMA_ATTRS:
-                kind = group.attrs.get_id(key).get_type()
-                if (
-                    not isinstance(kind, h5py.h5t.TypeStringID)
-                    or not kind.is_variable_str()
-                    or kind.get_cset() != h5py.h5t.CSET_UTF8
-                    or group.attrs[key] != getattr(declaration, key)
-                ):
-                    raise ConverterError(
-                        "{}: /schema/{} {} is {!r}, expected UTF-8 {!r}".format(
-                            path, name, key, group.attrs[key], getattr(declaration, key)
-                        )
-                    )
+    with h5py.File(path, "r") as handle:
+        verify_v3_snapshot_structure(
+            handle, path, header, table, declarations, n_halos, compare_rows
+        )
 
 
 def _verify_v3_sidecar(path: Path, blocks: Iterable[Mapping[str, np.ndarray]]) -> int:
@@ -863,13 +903,13 @@ def _verify_v3_sidecar(path: Path, blocks: Iterable[Mapping[str, np.ndarray]]) -
                     path, sorted(handle.keys()), sorted(handle.attrs.keys()), V3_SIDECAR_DATASETS
                 )
             )
-        _require_hard_links(handle, path)
+        require_hard_links(handle, path)
         lengths = {int(handle[name].shape[0]) for name in V3_SIDECAR_DATASETS}
         if len(lengths) != 1:
             raise ConverterError("{}: sidecar datasets differ in length".format(path))
         (n_forests,) = lengths
         for name in V3_SIDECAR_DATASETS:
-            _verify_v3_dataset_layout(handle[name], np.dtype("<i8"), False, n_forests, path)
+            verify_v3_dataset_layout(handle[name], np.dtype("<i8"), False, n_forests, path)
         start = 0
         for block in blocks:
             stop = start + int(block["ForestID"].size)

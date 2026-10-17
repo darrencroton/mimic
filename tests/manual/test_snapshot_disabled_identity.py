@@ -974,8 +974,8 @@ class Identity:
         """The comparator fails on every injected defect and accepts only the permitted ones."""
         if self.mutation_source is None:
             raise AssertionError("the sage16 default fixed leg produced no output to mutate")
-        count = run_mutation_checks(self.mutation_source, self.scratch("mutations"))
-        self.evidence["mutation_cases"] = count
+        injected, controls = run_mutation_checks(self.mutation_source, self.scratch("mutations"))
+        self.evidence["mutation_cases"] = {"injected": injected, "controls": controls}
         self.save_evidence()
 
     def test_leg_verdicts(self) -> None:
@@ -1407,11 +1407,12 @@ def mutation_cases(source: OutputRun) -> list[Case]:
     return [Case(*row) for row in rows]
 
 
-def run_mutation_checks(source: OutputRun, scratch: Path) -> int:
+def run_mutation_checks(source: OutputRun, scratch: Path) -> tuple[int, int]:
     """Prove each assertion of the comparator fails on the defect it exists to catch.
 
     Every case compares fresh copies of the source output, each with its own path-prefix token.
-    Returns the number of cases that behaved as required.
+    Returns how many injected defects were rejected and how many controls were accepted. The
+    total varies with the source: an altered-dataset case is added for each non-empty dataset.
     """
     cases = mutation_cases(source)
     for number, case in enumerate(cases):
@@ -1437,8 +1438,12 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> int:
         if case.unpermitted and any(case.unpermitted in label for label in report.permitted):
             raise AssertionError(f"mutation {case.name!r} was also named as permitted")
         log(f"  mutation rejected: {case.name} ({len(report.errors)} error(s))")
-    log(f"comparator self-check: {len(cases)} mutation/control cases behaved as required")
-    return len(cases)
+    controls = sum(case.needle is None for case in cases)
+    log(
+        f"comparator self-check: {len(cases)} cases behaved as required "
+        f"({len(cases) - controls} injected defects rejected, {controls} controls accepted)"
+    )
+    return len(cases) - controls, controls
 
 
 # ---------------------------------------------------------------------------

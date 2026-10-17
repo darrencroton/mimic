@@ -16,7 +16,7 @@ Do NOT use it for:
 - The evidence method for scientific claims (parity recipes, tolerance design, hypothesis testing) — see the `mimic-scientific-method` skill.
 - Diagnosing a failure you hit while validating — see the `mimic-debugging-playbook` skill.
 - Writing the actual module/property/plot/simulation change — see `mimic-modules`, `mimic-properties`, `mimic-plots-and-analysis`, `mimic-simulations-and-readers`.
-- Doc style and docs/dev lifecycle details — see the `mimic-docs-and-writing` skill.
+- Doc style and the docs/dev reference rule — see the `mimic-docs-and-writing` skill.
 
 ## First actions
 
@@ -25,7 +25,7 @@ Before editing anything:
 1. Classify the change using the table below. A change usually touches more than one class; apply the union of gates.
 2. Note the MODEL/SIMULATION pair you will use for the entire change. Defaults are `sage16` + `mini-millennium` (from `DEFAULT_MODEL` / `DEFAULT_SIMULATION` in the `Makefile`), so plain `make` is valid; if you override, use the identical pair on every command.
 3. Confirm you are on the intended branch (`git branch --show-current`) — never auto-create a branch, never commit without asking the user.
-4. If the change is structural (new driver, new package type, cross-package moves), `ls docs/dev/` first — structural work is planned under the owner's development pathway there.
+4. If the change is structural (new driver, new package type, cross-package moves), note that structural work is planned under the owner's development pathway in `docs/dev/`.
 5. If any file you intend to edit lives under a `generated/` directory, stop: edit the metadata or the generator instead (non-negotiable A below).
 
 ## 1. Change classification and required gates
@@ -123,7 +123,7 @@ A test that skips because a guard still references the old name reports green wh
 
 ## 5. Structural changes: planning in docs/dev
 
-Structural work is planned under the owner's development pathway in `docs/dev/`; plans there are ephemeral and never a source of facts, and completed plans are archived to the gitignored `archive/dev-plans/` (so they may not exist on other machines). Durable knowledge must migrate to the permanent docs and skills before archiving. Before any structural change (new drivers, new package types, cross-package data-flow changes), `ls docs/dev/` so you neither duplicate nor contradict a plan in progress, and never cross-reference a plan from permanent files (docs of record, code comments, skills).
+Structural work is planned under the owner's development pathway in `docs/dev/`; plans there are ephemeral and never a source of facts. Durable knowledge belongs in the permanent docs and skills, and nothing outside `docs/dev/` references anything inside it (docs of record, code comments, skills, tests).
 
 ## 6. What CI runs (`.github/workflows/ci.yml`)
 
@@ -153,7 +153,6 @@ rg -n 'Repository Boundaries' docs/STYLE-GUIDE.md
 git log --oneline -n1 3c40e2b5 a646e7b4 332153c7 6cbeafe4        # incident commits still resolvable
 sed -n '1,30p' scripts/regenerate_baseline.sh                    # HDF5 baseline procedure unchanged
 sed -n '1,30p' models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py  # physics refresh
-ls docs/dev/                                                      # development plans directory
 make help | grep -E 'generate|check-|validate|lint|tests'         # target names still current
 ```
 

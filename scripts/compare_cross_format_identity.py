@@ -43,25 +43,44 @@ rule as tree rows.
 
 **Alternate matching modes.** Two datasets of one simulation can enumerate it
 differently and still describe the same galaxies; the default rule then cannot
-pair their records. Each mode below changes only how records are paired, never
-what a pair must agree on:
+pair their records. Each mode below pairs one kind of row by what it describes
+rather than by its id:
 
 - ``--match-by-catalogue-id`` pairs tree rows by the catalogue key
-  (``MostBoundID``, ``SnapNum``) instead of ``UniqueGalaxyID``, for datasets
-  whose forest enumeration differs.
-- ``--match-created-by-lineage`` pairs created rows by birth lineage
-  (``MostBoundID``, ``SnapNum``, ordinal). A created record is a copy of its
-  host row, so the first two are the host's; the ordinal is the host's
-  creation count decoded from the id, ``(-id - 1) mod``
-  ``MAX_CREATED_RECORDS_PER_HOST``. The rest of a created id encodes the host's
-  row in its driver's processing unit, which a reordered dataset moves.
+  (``MostBoundID``, ``SnapNum``), for datasets whose forest enumeration differs.
+  Every output row's ``SnapNum`` is the snapshot it is written in
+  (``src/core/output_buffer.c``), so within one output snapshot the key is
+  ``MostBoundID`` alone; ``SnapNum`` is still compared byte for byte.
+- ``--match-created-by-lineage`` pairs created rows by (``MostBoundID``,
+  ``SnapNum``, ordinal). A created record copies its host's ``MostBoundID`` at
+  birth and keeps it when it is inherited, so the first is its birth host's
+  even after that host's halo has moved on, and ``SnapNum`` is the output
+  snapshot as for every row. The ordinal is the host's creation count decoded
+  from the id, ``(-id - 1) mod MAX_CREATED_RECORDS_PER_HOST``; the rest of a
+  created id encodes the host's row in its driver's processing unit, which a
+  reordered dataset moves. Two surviving records born on hosts of one
+  ``MostBoundID`` with one ordinal share a key, and fail as a duplicate.
 
 In either mode a key duplicated within one run, a key present in one run only,
 and a field difference are each a failure, reported as for tree rows. Paired
-records agree byte for byte in every field but two: ``UniqueGalaxyID`` is what
-the mode replaces as the key and is not compared, and ``UniqueCentralGalaxyID``,
-the one other identity-valued field, is compared through the pairing itself
--- the first run's central must be paired with the second run's central.
+records agree byte for byte in every field but the two identity-valued ones:
+
+- ``UniqueCentralGalaxyID`` is compared through the pairing: the first run's
+  central must be paired with the second run's central.
+- ``UniqueGalaxyID`` is not compared, since relabelling it is what the mode
+  accepts. It is persistent instead (a tree galaxy keeps the id of the halo it
+  formed in, a created record the id it was created with), so its pairing must
+  persist: a
+  first-run id paired with second-run id R at one compared output snapshot
+  must be paired with R, or be unpaired, at the next one, and the same holds
+  for every second-run id. A broken pairing fails, naming both snapshots and a
+  sample of the ids. The check sees only consecutive compared snapshots: an id
+  relabelled at the same snapshot in both runs, or relabelled across a snapshot
+  where it is not paired (absent, unmatched, or in a kind of row whose
+  duplicate keys stopped its pairing), is not seen.
+
+Rows paired by id under an alternate mode -- tree rows without
+``--match-by-catalogue-id`` -- are compared as under the default rule.
 ``--compare-created`` pairs created rows by their id and cannot be combined
 with the lineage mode.
 
@@ -74,17 +93,20 @@ forest: a tree record's ``ForestIndex`` is decoded from its id
 ``ForestID``, and a piece the record lists is mapped to the forest it was cut
 from; a created record follows its host into the forest of the central its
 ``UniqueCentralGalaxyID`` names in the same run and snapshot. The multiplier
-must be the one both runs record (``RunProperties/UniqueGalaxyIDMultiplier``).
+must be the one both runs record (``RunProperties/UniqueGalaxyIDMultiplier``),
+and one of the two sidecars must be the dataset the record was computed on (its
+``dataset`` entry's ``n_forests_total`` and ``forest_id_sha256``).
 A record that cannot be placed is an input error.
 Records of the forests the record splits are paired by the catalogue key
 (``--match-by-catalogue-id`` is required) and **reported, not failed**: per
 forest (one line for every split forest with records) and in total, how many
 are identical, how many differ and in which fields, and how many are
-unmatched. Records of every other forest keep the
-strict rule, including an identical ``UniqueGalaxyID`` for tree rows, since a
-forest the cut leaves alone keeps its ``ForestIndex``. ``--report-all-forests``
-reports every forest without failing instead, for a model whose identity-keyed
-choices can move outside the split forests; input errors still fail.
+unmatched; their pairing is not held to persist. Records of every other forest
+keep the strict rule, including an identical ``UniqueGalaxyID`` for tree rows,
+since a forest the cut leaves alone keeps its ``ForestIndex``.
+``--report-all-forests`` reports every forest without failing instead, for a
+model whose identity-keyed choices can move outside the split forests; input
+errors still fail.
 
 Usage:
 
@@ -94,48 +116,64 @@ where each argument is an output directory joined with the run's
 ``output_filename`` -- for example ``output/halos-only-micro-uchuu-ascii/halos``.
 Galaxies are aggregated across every numbered partition file
 ``<basename>_<digits>.hdf5`` -- or, for a multi-task horizontal run,
-``<basename>_<digits>_task<digits>.hdf5`` -- in ascending (number, task) order;
-the master ``<basename>.hdf5`` is ignored, since it only links to those
-partitions. One run's partitions are either all task-suffixed or none of them
-are; a mixture is an input error.
+``<basename>_<digits>_task<digits>.hdf5`` -- in ascending (number, task) order.
+The master ``<basename>.hdf5`` is read for its links only: the partitions found
+must be exactly the files it links, so a stale partition left by an earlier run
+in the same directory, or a linked partition that is missing, is an input
+error. One run's partitions are either all task-suffixed or none of them are;
+a mixture is an input error.
 
-Exit status is 0 when the two runs are identical under the rules above and 1 when
-they are not (2 for a usage or input error). Unreadable input is an input error,
-never a difference: a corrupt or truncated partition reported as a bitwise
-difference would send someone hunting a physics bug that does not exist.
+Exit status is 0 when the two runs are identical under the rules above, 1 when
+they are not, 2 for a usage or input error, and 3 when the comparator itself
+fails (an exhausted memory, or a defect in this script): its traceback is
+printed and the status says nothing about the runs. Unreadable input is an
+input error, never a difference: a corrupt or truncated partition reported as a
+bitwise difference would send someone hunting a physics bug that does not
+exist.
 
 Both runs are read one output snapshot at a time rather than held whole. The
 comparator exists to compare production runs, and its memory is heaviest exactly
 when a large divergence is being diagnosed, which is the worst moment to run out
-of it. Beside both runs' snapshot records, nothing holds a second copy of them
-when every row is compared: the default rule compares the records as read (a
-snapshot with rows it does not compare -- created rows without
-``--compare-created`` -- is first reduced to a copy of its compared rows), and
-an alternate pairing selects and pairs rows by position (``Rows``). It holds
-8 B per row for each run's tree and created rows, then 8 B per pair for each
-run's paired positions, a one-byte tree mask per pair and, under the cut
-report, each pair's forest (8 B) and a one-byte reported mask, and gathers one
-field of the pairs at a time while the fields are compared. The pairing keys
-(8 B per key column per row) and the sorts that pair them are transient.
-Measured with ``tracemalloc`` beside both runs' records, a comparison peaked at
-about 70 B per row of one run under the default rule with ids as sparse as a
-multiplier of 2 x 10^10 makes them (53 B when they are dense enough for numpy's
-table-based set difference), 210 B under the catalogue pairing and 231 B with
-the cut report as well. A Shin-Uchuu output snapshot holds up to 490 million
-records of 264 B, about 130 GB per run, which is why no step may copy a run's
-records. The cut-difference report adds, for the whole comparison, both
-sidecars' ``ForestID`` columns (8 B per forest each), the record's piece ids
-and their original forests (16 B per piece, plus one column's line and its
-text, about 26 B per piece, while it is parsed), and its per-forest tallies
-(about 40 B per reported forest per snapshot, and 16 B per differing field of
-each).
+of it. A Shin-Uchuu output snapshot holds up to 490 million records, over
+100 GB per run, so no step copies a run's records: rows are selected and paired
+by position (``Rows``) and one field of the pairs is gathered at a time. Beside
+both runs' snapshot records, per row of one run it holds:
+
+- the pairing: each run's key column (8 B, a view of the records under the
+  default rule when every row is compared) with its sort order and sorted copy
+  (16 B), then each run's paired positions (8 B per pair); an alternate mode
+  also holds each run's tree and created positions (8 B) and a tree mask (1 B
+  per pair), and key sets that differ add the search that pairs them (about
+  10 B);
+- per field: both runs' gathered values and the boolean array of their byte
+  comparison (each the field's itemsize per pair: 12 B for ``Pos``), plus a
+  mismatch mask (1 B per pair); ``UniqueCentralGalaxyID`` instead maps each
+  central through a sort of the first run's ids (about 60 B per pair, released
+  before the next field, keeping only the reported sample);
+- under the cut report, each pair's original forest (8 B) and the reported,
+  strict and any-difference masks (3 B per pair), and each run's placement of
+  its rows (8 B, and a sort of the tree ids only when created rows are placed);
+- under an alternate mode, from one snapshot to the next, the previous
+  snapshot's id pairs (16 B per pair) that the persistence check reads.
+
+Measured with ``tracemalloc`` beside both runs' records, at a snapshot after the
+first, a comparison peaked at about 57 B per row of one run under the default
+rule, 99 B under the catalogue pairing and 114 B with the cut report as well
+(the self-test pins these figures). The cut-difference
+report adds, for the whole comparison, both sidecars' ``ForestID`` columns (8 B
+per forest each), the record's piece ids and their original forests (16 B per
+piece, plus one column's line and its text, about 26 B per piece, while it is
+parsed), and its per-forest tallies (about 40 B per reported forest per
+snapshot, and 16 B per differing field of each).
 """
 
 import argparse
 import contextlib
+import hashlib
 import json
 import re
 import sys
+import traceback
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -164,8 +202,15 @@ CATALOGUE_FIELDS = ("MostBoundID", "SnapNum")
 #: there changes every created id, so it must change here too.
 MAX_CREATED_RECORDS_PER_HOST = 1024
 
+#: The lineage key packs (MostBoundID, ordinal) into one int64 as
+#: MostBoundID * radix + ordinal, which holds for |MostBoundID| up to this.
+LINEAGE_MOSTBOUNDID_LIMIT = numpy.iinfo(numpy.int64).max // MAX_CREATED_RECORDS_PER_HOST - 1
+
 #: The two piece columns of a cut table's record the report reads.
 RECORD_PIECE_COLUMNS = ("id", "forest_id")
+
+#: The record's dataset identity entries the sidecars are checked against.
+RECORD_IDENTITY_KEYS = ("n_forests_total", "forest_id_sha256")
 
 SNAP_GROUP_RE = re.compile(r"^Snap(\d+)$")
 
@@ -200,6 +245,10 @@ class Matching(NamedTuple):
         return f"{tree}, {created}"
 
 
+#: The default rule: tree rows by id, created rows not compared.
+BY_ID = Matching("id", None)
+
+
 def schema_signature(dtype):
     """Return the field schema a bitwise field comparison depends on.
 
@@ -227,7 +276,8 @@ def partition_files(spec):
     string the run YAML's output_directory and output_filename produce. A
     multi-task horizontal run writes ``<base>_<snap>_task<task>.hdf5`` and every
     other run ``<base>_<number>.hdf5``; one run never writes both, so a directory
-    holding both is stale or mixed output and an input error.
+    holding both is stale or mixed output and an input error. The files found
+    must be exactly those the master ``<base>.hdf5`` links.
     """
     path = Path(spec)
     directory, base = path.parent, path.name
@@ -256,7 +306,35 @@ def partition_files(spec):
             f"{base}_<digits>_task<digits>.hdf5 with {len(chunks) - suffixed} unsuffixed "
             f"{base}_<digits>.hdf5; one run writes only one kind"
         )
-    return [entry for _, _, entry in chunks]
+    files = [entry for _, _, entry in chunks]
+    linked = master_links(directory / f"{base}.hdf5")
+    stale = sorted(entry.name for entry in files if entry.name not in linked)
+    missing = sorted(linked - {entry.name for entry in files})
+    if stale or missing:
+        raise ComparisonError(
+            f"{directory / base}.hdf5 does not link exactly the partition files present: "
+            f"{len(stale)} present but not linked (stale output?) {stale[:5]}, "
+            f"{len(missing)} linked but missing {missing[:5]}"
+        )
+    return files
+
+
+def master_links(master):
+    """The file names a run's master file links its Snap###/<partition>/Galaxies to."""
+    if not master.is_file():
+        raise ComparisonError(f"{master}: no master file, which lists the run's partitions")
+    names = set()
+    with open_partition(master) as handle:
+        for snap in handle:
+            if SNAP_GROUP_RE.match(snap) is None:
+                continue
+            for partition in handle[snap].values():
+                if not isinstance(partition, h5py.Group):
+                    continue
+                link = partition.get("Galaxies", getlink=True)
+                if isinstance(link, h5py.ExternalLink):
+                    names.add(link.filename)
+    return names
 
 
 @contextlib.contextmanager
@@ -266,8 +344,8 @@ def open_partition(path, snap=None):
     h5py raises OSError for a file that is missing, truncated, not HDF5, or
     corrupt mid-dataset, and dataset reads inside the block raise it too. Left
     uncaught that would surface as a traceback and the exit status reserved for
-    "the two runs differ". Unreadable input is an input error, so it is named
-    with its path (and snapshot, where the caller knows one) and reported as one.
+    a failure of the comparator itself. Unreadable input is an input error, so it
+    is named with its path (and snapshot, where the caller knows one).
     """
     where = str(path) if snap is None else f"{path} (Snap{snap:03d})"
     try:
@@ -351,16 +429,13 @@ def read_snapshot(index, snap, field=None):
     concatenated second copy of the snapshot ever exists. That matters most
     where it is largest: a horizontal run holds one snapshot's whole
     record set in a single partition file, and would otherwise hold that
-    snapshot twice at the moment it is read. (Such a run writes one
-    partition file per requested output snapshot rather than one for the whole
-    run; the memory argument is unchanged, because it was always about one
-    snapshot's records landing in one file.)
+    snapshot twice at the moment it is read.
 
     With `field`, only that column is read -- which is how the duplicate pass
-    looks at every snapshot of both runs for the price of one int64 per galaxy
+    looks at every snapshot of both runs for the price of one column per galaxy
     instead of a whole record. h5py has no read_direct for a single field of a
-    compound dataset, so that path takes the copy; it is 8 bytes per galaxy
-    against a 160-byte record, and it is released before the next snapshot.
+    compound dataset, so that path takes the copy, the column's width per galaxy,
+    released before the next snapshot.
     """
     parts = index.layout.get(snap, ())
     total = sum(rows for _, rows in parts)
@@ -403,24 +478,27 @@ def field_bytes(values):
     return contiguous.view(numpy.uint8).reshape(len(contiguous), -1)
 
 
-def report_duplicates(label, snap, ids, max_report):
-    """Report duplicated ids within one run. Returns the number of duplicated values."""
-    unique, counts = numpy.unique(ids, return_counts=True)
-    repeated = unique[counts > 1]
-    if repeated.size == 0:
-        return 0
+def report_repeats(label, snap, what, unit, ordered, name_of, max_report):
+    """Report the keys repeated in one run's sorted keys `ordered`. Returns how many repeat.
 
-    total_extra = int(counts[counts > 1].sum() - repeated.size)
+    `name_of(i)` names the key at sorted position i. Only a run that has a
+    repeat pays for more than one comparison of neighbours.
+    """
+    same = ordered[1:] == ordered[:-1]
+    if not same.any():
+        return 0
+    starts = numpy.flatnonzero(numpy.concatenate(([True], ~same)))
+    counts = numpy.diff(numpy.append(starts, ordered.size))
+    starts, counts = starts[counts > 1], counts[counts > 1]
     print(
-        f"  FAIL Snap{snap:03d}: {label} contains {repeated.size} duplicated {ID_FIELD} "
-        f"value(s) ({total_extra} extra record(s) beyond one per id)"
+        f"  FAIL Snap{snap:03d}: {label} contains {starts.size} duplicated {what} "
+        f"({int(counts.sum() - starts.size)} extra record(s) beyond one per {unit})"
     )
-    for value in repeated[:max_report]:
-        occurrences = int(counts[unique == value][0])
-        print(f"    {ID_FIELD} {int(value)} appears {occurrences} times")
-    if repeated.size > max_report:
-        print(f"    ... and {repeated.size - max_report} more duplicated id(s)")
-    return int(repeated.size)
+    for start, count in zip(starts[:max_report], counts[:max_report]):
+        print(f"    {name_of(start)} appears {int(count)} times")
+    if starts.size > max_report:
+        print(f"    ... and {starts.size - max_report} more duplicated {unit}(s)")
+    return int(starts.size)
 
 
 def report_run_duplicates(label, index, max_report):
@@ -433,56 +511,42 @@ def report_run_duplicates(label, index, max_report):
     """
     duplicated = 0
     for snap in sorted(index.snapshots):
-        ids = read_snapshot(index, snap, field=ID_FIELD)
-        if report_duplicates(label, snap, ids, max_report):
+        ids = numpy.sort(read_snapshot(index, snap, field=ID_FIELD))
+        name_of = lambda at, ids=ids: f"{ID_FIELD} {int(ids[at])}"  # noqa: E731
+        if report_repeats(label, snap, f"{ID_FIELD} value(s)", "id", ids, name_of, max_report):
             duplicated += 1
         del ids
     return duplicated
-
-
-def compared_rows(records, compare_created=False):
-    """Split one snapshot's records into compared rows and the tree, created and zero-id counts.
-
-    Tree rows carry positive ids and records created during the run strictly
-    negative ones; no encoder produces 0, so a zero id is a defect the caller
-    reports rather than a row to skip. The compared rows are the tree rows, plus
-    the created rows when `compare_created` is set. The counts are of ids
-    greater than, less than and equal to zero respectively. When every row is
-    compared the records themselves are returned, never a copy of them.
-    """
-    ids = records[ID_FIELD]
-    compared = ids != 0 if compare_created else ids > 0
-    return (
-        records if compared.all() else records[compared],
-        int(numpy.count_nonzero(ids > 0)),
-        int(numpy.count_nonzero(ids < 0)),
-        int(numpy.count_nonzero(ids == 0)),
-    )
 
 
 class Rows:
     """Some rows of one snapshot's records, held as their positions in them.
 
     ``rows[name]`` gathers one field of the selected rows, so a selection costs
-    8 B per row instead of a copy of every record it holds; ``rows.at(name, i)``
-    reads one field of the i-th row alone. ``len`` and ``dtype`` answer as the
-    records would.
+    8 B per row instead of a copy of every record it holds; positions of None
+    select every row, and ``rows[name]`` is then a view of the records.
+    ``rows.at(name, i)`` reads one field of the i-th row alone, and
+    ``rows.where(index)`` turns indices into the selection into record positions.
     """
 
     __slots__ = ("records", "positions")
 
-    def __init__(self, records, positions):
+    def __init__(self, records, positions=None):
         self.records = records
         self.positions = positions
 
     def __len__(self):
-        return len(self.positions)
+        return len(self.records) if self.positions is None else len(self.positions)
 
     def __getitem__(self, name):
-        return self.records[name][self.positions]
+        column = self.records[name]
+        return column if self.positions is None else column[self.positions]
 
     def at(self, name, row):
-        return self.records[name][self.positions[row]]
+        return self.records[name][row if self.positions is None else self.positions[row]]
+
+    def where(self, index):
+        return index if self.positions is None else self.positions[index]
 
     @property
     def dtype(self):
@@ -516,111 +580,8 @@ class SnapshotResult(NamedTuple):
     created_compared: int = 0
 
 
-def compare_snapshot(snap, left, right, labels, max_report, compare_created=False):
-    """Compare one output snapshot's shared rows. Returns a SnapshotResult.
-
-    Records created during a run (negative ids) are split off first and
-    reported by count, unless `compare_created` is set, in which case they are
-    compared exactly like tree rows; everything below sees the compared rows
-    only.
-
-    Precondition: neither run carries duplicated ids — report_run_duplicates()
-    has already run over both and the comparison stopped if it found any. That
-    is what lets the set difference below assume unique inputs.
-    """
-    left_label, right_label = labels
-    failures = 0
-
-    left, left_tree, left_created, left_zero = compared_rows(left, compare_created)
-    right, _, right_created, right_zero = compared_rows(right, compare_created)
-    created = (left_created, right_created)
-
-    def result(failures):
-        return SnapshotResult(failures, left_tree, created, left_created if compare_created else 0)
-
-    if not compare_created:
-        report_created(snap, created, labels)
-    if left_zero or right_zero:
-        print(
-            f"  FAIL Snap{snap:03d}: {ID_FIELD} 0 is neither a tree id nor a created id -- "
-            f"{left_label} {left_zero}, {right_label} {right_zero} row(s)"
-        )
-        failures += 1
-
-    left_ids = left[ID_FIELD]
-    right_ids = right[ID_FIELD]
-
-    # Identical id sets.
-    only_left = numpy.setdiff1d(left_ids, right_ids, assume_unique=True)
-    only_right = numpy.setdiff1d(right_ids, left_ids, assume_unique=True)
-    if only_left.size or only_right.size:
-        print(
-            f"  FAIL Snap{snap:03d}: {ID_FIELD} sets differ -- "
-            f"{only_left.size} only in {left_label} ({left_ids.size} total), "
-            f"{only_right.size} only in {right_label} ({right_ids.size} total)"
-        )
-        for label, values in ((left_label, only_left), (right_label, only_right)):
-            if values.size:
-                sample = ", ".join(str(int(v)) for v in values[:max_report])
-                suffix = "" if values.size <= max_report else f", ... (+{values.size - max_report})"
-                print(f"    only in {label}: {sample}{suffix}")
-        return result(failures + 1)
-
-    if left_ids.size == 0:
-        print(f"  ok   Snap{snap:03d}: both runs are empty")
-        return result(failures)
-
-    # Byte-identical fields for every shared id, aligned by id.
-    left_order = numpy.argsort(left_ids, kind="stable")
-    right_order = numpy.argsort(right_ids, kind="stable")
-
-    #: [(field, total mismatches, bounded sample of aligned row indices)]. Only
-    #: the count and the sample are kept: on a large divergence the full
-    #: mismatch index array is the same order of magnitude as the data itself,
-    #: and it is retained for every differing field at once, which is the worst
-    #: possible moment to hold it.
-    differing_fields = []
-    for name in left.dtype.names:
-        left_field = field_bytes(left[name][left_order])
-        right_field = field_bytes(right[name][right_order])
-        mismatched = numpy.nonzero((left_field != right_field).any(axis=1))[0]
-        del left_field, right_field
-        if mismatched.size == 0:
-            continue
-        differing_fields.append((name, int(mismatched.size), mismatched[:max_report].copy()))
-        del mismatched
-
-    if not differing_fields:
-        print(
-            f"  ok   Snap{snap:03d}: {left_ids.size} galaxies, "
-            f"all {len(left.dtype.names)} fields byte-identical"
-        )
-        return result(failures)
-
-    print(
-        f"  FAIL Snap{snap:03d}: {len(differing_fields)} of {len(left.dtype.names)} field(s) "
-        f"differ over {left_ids.size} shared id(s)"
-    )
-    for name, total, sample in differing_fields:
-        print(f"    {name}: {total} record(s) differ")
-        for row in sample:
-            # Index scalar-wise through the sort permutation. Sorting the whole
-            # field again per reported record would rebuild a full copy of the
-            # column for each of at most max_report samples.
-            galaxy_id = int(left_ids[left_order[row]])
-            left_value = left[name][left_order[row]]
-            right_value = right[name][right_order[row]]
-            print(
-                f"      {ID_FIELD} {galaxy_id}: "
-                f"{left_label}={left_value!r} {right_label}={right_value!r}"
-            )
-        if total > max_report:
-            print(f"      ... and {total - max_report} more record(s)")
-    return result(failures + len(differing_fields))
-
-
 # --------------------------------------------------------------------------
-# Alternate matching modes
+# Pairing
 # --------------------------------------------------------------------------
 
 
@@ -633,70 +594,203 @@ def created_ordinals(ids):
     return numpy.negative(ids + 1) % MAX_CREATED_RECORDS_PER_HOST
 
 
-def pairing_keys(records, kind, matching):
-    """Each record's pairing key under `matching`, as a structured array.
+def pairing_keys(rows, mode, where):
+    """Each row's int64 pairing key under `mode` ("id", "catalogue" or "lineage").
 
-    `kind` is "tree" or "created". A record paired by id is keyed by its
-    ``UniqueGalaxyID``; a tree row paired by catalogue by (``MostBoundID``,
-    ``SnapNum``); a created row paired by lineage by those plus its ordinal.
+    Within one output snapshot ``SnapNum`` is the snapshot itself, so a
+    catalogue key is ``MostBoundID`` and a lineage key ``MostBoundID * radix +
+    ordinal``, the lineage pair packed into one int64 so one sort pairs it.
     """
-    mode = matching.tree if kind == "tree" else matching.created
     if mode == "id":
-        keys = numpy.empty(len(records), dtype=[(ID_FIELD, "<i8")])
-        keys[ID_FIELD] = records[ID_FIELD]
+        return rows[ID_FIELD]
+    keys = numpy.asarray(rows["MostBoundID"], dtype=numpy.int64)
+    if mode == "catalogue":
         return keys
-    names = [*CATALOGUE_FIELDS, *(["ordinal"] if kind == "created" else [])]
-    keys = numpy.empty(len(records), dtype=[(name, "<i8") for name in names])
-    for name in CATALOGUE_FIELDS:
-        keys[name] = records[name]
-    if kind == "created":
-        keys["ordinal"] = created_ordinals(records[ID_FIELD])
-    return keys
+    outside = numpy.abs(keys) > LINEAGE_MOSTBOUNDID_LIMIT
+    if outside.any():
+        raise ComparisonError(
+            f"{where}: created record MostBoundID {int(keys[outside][0])} is beyond the "
+            f"+/-{LINEAGE_MOSTBOUNDID_LIMIT} the lineage key packs"
+        )
+    return keys * MAX_CREATED_RECORDS_PER_HOST + created_ordinals(rows[ID_FIELD])
 
 
-def format_key(key):
-    """One structured key as ``(name=value, ...)``."""
-    return "(" + ", ".join(f"{name}={int(key[name])}" for name in key.dtype.names) + ")"
+def describe_key(rows, mode, row):
+    """One row's pairing key as ``(name=value, ...)``, read from its record."""
+    names = [ID_FIELD] if mode == "id" else list(CATALOGUE_FIELDS)
+    values = [f"{name}={int(rows.at(name, row))}" for name in names]
+    if mode == "lineage":
+        values.append(f"ordinal={int(created_ordinals(rows.at(ID_FIELD, row)))}")
+    return "(" + ", ".join(values) + ")"
 
 
-def report_duplicate_keys(label, snap, kind, keys, max_report):
-    """Report pairing keys duplicated within one run. Returns the number of duplicated keys."""
-    unique, counts = numpy.unique(keys, return_counts=True)
-    repeated = unique[counts > 1]
-    if repeated.size == 0:
-        return 0
-    total_extra = int(counts[counts > 1].sum() - repeated.size)
-    print(
-        f"  FAIL Snap{snap:03d}: {label} contains {repeated.size} duplicated {kind}-row "
-        f"key(s) ({total_extra} extra record(s) beyond one per key)"
-    )
-    for key, count in zip(repeated[:max_report], counts[counts > 1][:max_report]):
-        print(f"    {format_key(key)} appears {int(count)} times")
-    if repeated.size > max_report:
-        print(f"    ... and {repeated.size - max_report} more duplicated key(s)")
-    return int(repeated.size)
+def pair_sorted(left, right):
+    """Pair two runs' keys, each given as (order, sorted keys) and unique within its run.
 
-
-def pair_keys(left_keys, right_keys):
-    """Pair two runs' keys, each unique within its run.
-
-    Returns (left_index, right_index, only_left, only_right): the paired
-    positions in each run, in ascending key order, and the positions of each
-    run's unpaired keys. The keys are labelled through one sort of both runs'
-    keys together, so composite keys pair exactly as their fields do.
+    Returns (left index, right index, left only, right only): indices into each
+    run's keys, all in ascending key order. Equal key sets, the common case, are
+    decided by one comparison of the sorted keys.
     """
-    labels = numpy.unique(numpy.concatenate([left_keys, right_keys]), return_inverse=True)[1]
-    labels = labels.reshape(-1)
-    left_labels, right_labels = labels[: len(left_keys)], labels[len(left_keys) :]
-    _, left_index, right_index = numpy.intersect1d(
-        left_labels, right_labels, assume_unique=True, return_indices=True
+    (left_order, left_keys), (right_order, right_keys) = left, right
+    if numpy.array_equal(left_keys, right_keys):
+        none = left_order[:0]
+        return left_order, right_order, none, none
+    at = numpy.searchsorted(right_keys, left_keys)
+    at[at == right_keys.size] = 0
+    found = right_keys[at] == left_keys if right_keys.size else numpy.zeros(left_keys.size, bool)
+    hit = numpy.zeros(right_keys.size, dtype=bool)
+    hit[at[found]] = True
+    return left_order[found], right_order[at[found]], left_order[~found], right_order[~hit]
+
+
+class Pairs(NamedTuple):
+    """One snapshot's paired records: positions in each run's records, a tree mask,
+    each pair's original forest (None without the cut report), and the number
+    of tree and created pairs."""
+
+    left: numpy.ndarray
+    right: numpy.ndarray
+    is_tree: numpy.ndarray
+    forests: Optional[numpy.ndarray]
+    tree: int
+    created: int
+
+
+def row_groups(records, matching):
+    """The rows of one run's snapshot that are paired, as [(kind, mode, Rows)].
+
+    The default rule pairs every compared row by id in one group, so its id-set
+    report covers them all; an alternate mode pairs tree and created rows apart.
+    """
+    ids = records[ID_FIELD]
+    if not matching.alternate:
+        compared = ids != 0 if matching.created else ids > 0
+        return [
+            ("id", "id", Rows(records, None if compared.all() else numpy.flatnonzero(compared)))
+        ]
+    groups = [("tree", matching.tree, Rows(records, numpy.flatnonzero(ids > 0)))]
+    if matching.created is not None:
+        groups.append(("created", matching.created, Rows(records, numpy.flatnonzero(ids < 0))))
+    return groups
+
+
+class Unpaired(NamedTuple):
+    """One run's rows of one kind and the indices into them that found no partner."""
+
+    rows: Rows
+    only: numpy.ndarray
+
+
+def report_unpaired(snap, kind, mode, labels, left, right, max_report):
+    """Report keys present in one run only, given each run's Unpaired rows."""
+    sides = (left, right)
+    totals = ", ".join(
+        f"{only.size} only in {label} ({len(rows)} total)"
+        for label, (rows, only) in zip(labels, sides)
     )
-    unpaired = []
-    for size, index in ((len(left_keys), left_index), (len(right_keys), right_index)):
-        mask = numpy.ones(size, dtype=bool)
-        mask[index] = False
-        unpaired.append(numpy.flatnonzero(mask))
-    return left_index, right_index, unpaired[0], unpaired[1]
+    what = f"{ID_FIELD} sets" if kind == "id" else f"{kind}-row key sets"
+    print(f"  FAIL Snap{snap:03d}: {what} differ -- {totals}")
+    for label, (rows, only) in zip(labels, sides):
+        if only.size == 0:
+            continue
+        more = only.size - max_report
+        if kind == "id":
+            sample = ", ".join(str(int(rows.at(ID_FIELD, row))) for row in only[:max_report])
+            print(f"    only in {label}: {sample}" + (f", ... (+{more})" if more > 0 else ""))
+            continue
+        for row in only[:max_report]:
+            key = describe_key(rows, mode, row)
+            print(f"    only in {label}: {key} ({ID_FIELD} {int(rows.at(ID_FIELD, row))})")
+        if more > 0:
+            print(f"    only in {label}: ... (+{more})")
+
+
+#: The cut report's tally columns of each run's unpaired records.
+COLUMNS_ONLY = ("only_left", "only_right")
+
+
+def pair_snapshot(snap, left, right, labels, max_report, matching, cut):
+    """Pair one output snapshot's records under `matching`. Returns (failures, Pairs).
+
+    Each group of rows (``row_groups``) is keyed (``pairing_keys``), sorted
+    once per run, checked for a repeated key unless keyed by the ids already
+    proven unique, and paired. The default rule stops at an id-set difference,
+    as the field comparison of its remaining ids would add nothing; an alternate
+    mode compares whatever paired. With `cut`, every row is first placed in its
+    original forest and unpaired rows of a reported forest are tallied, not failed.
+    """
+    groups = [row_groups(records, matching) for records in (left, right)]
+    paired = []  # (kind, left positions, right positions, forests or None)
+    failures = 0
+    for (kind, mode, left_rows), (_, _, right_rows) in zip(*groups):
+        sides = (left_rows, right_rows)
+        forests = (None, None)
+        if cut is not None:
+            forests = tuple(
+                cut.place(side, rows, kind, f"{labels[side]} Snap{snap:03d}")
+                for side, rows in enumerate(sides)
+            )
+        keyed = []
+        for label, rows in zip(labels, sides):
+            keys = pairing_keys(rows, mode, f"{label} Snap{snap:03d}")
+            order = numpy.argsort(keys)
+            keyed.append((order, keys[order]))
+            del keys
+        repeats = 0
+        for label, rows, (order, ordered) in zip(labels, sides, keyed):
+            if mode != "id":  # ids are already proven unique
+
+                def name_of(at, r=rows, o=order, m=mode):
+                    return describe_key(r, m, o[at])
+
+                what = f"{kind}-row key(s)"
+                repeats += report_repeats(label, snap, what, "key", ordered, name_of, max_report)
+        if repeats:
+            failures += 1
+            continue
+        left_index, right_index, only_left, only_right = pair_sorted(*keyed)
+        del keyed
+
+        if cut is not None:
+            strict = []
+            for column, only, side in zip(COLUMNS_ONLY, (only_left, only_right), forests):
+                reported = cut.reported(side[only])
+                cut.add(column, side[only][reported])
+                strict.append(only[~reported])
+            only_left, only_right = strict
+        if only_left.size or only_right.size:
+            left_only, right_only = Unpaired(left_rows, only_left), Unpaired(right_rows, only_right)
+            report_unpaired(snap, kind, mode, labels, left_only, right_only, max_report)
+            failures += 1
+            if kind == "id":
+                return failures, None
+
+        placed = None
+        if cut is not None:
+            placed = forests[0][left_index]
+            moved = placed != forests[1][right_index]
+            if moved.any():
+                raise ComparisonError(
+                    f"Snap{snap:03d}: paired {kind} records {ID_FIELD} "
+                    f"{int(left_rows[ID_FIELD][left_index][moved][0])} and "
+                    f"{int(right_rows[ID_FIELD][right_index][moved][0])} are placed in original "
+                    f"forests {int(placed[moved][0])} and "
+                    f"{int(forests[1][right_index][moved][0])}; the sidecars or the cut "
+                    f"record do not describe these runs"
+                )
+        paired.append((kind, left_rows.where(left_index), right_rows.where(right_index), placed))
+
+    counts = {kind: len(positions) for kind, positions, _, _ in paired}
+    if sum(counts.values()) == 0:
+        return failures, None
+    return failures, Pairs(
+        numpy.concatenate([positions for _, positions, _, _ in paired]),
+        numpy.concatenate([positions for _, _, positions, _ in paired]),
+        numpy.concatenate([numpy.full(len(p), kind != "created") for kind, p, _, _ in paired]),
+        None if cut is None else numpy.concatenate([f for _, _, _, f in paired]),
+        counts.get("tree", 0) + counts.get("id", 0),
+        counts.get("created", 0),
+    )
 
 
 def central_mapping(left, right):
@@ -716,19 +810,48 @@ def central_mapping(left, right):
     return ~found | (mapped != right[CENTRAL_FIELD]), found, mapped
 
 
-def report_unpaired(snap, kind, labels, sides, max_report):
-    """Report keys present in one run only. `sides` holds each run's (keys, ids, total)."""
-    (left_keys, left_ids, left_total), (right_keys, right_ids, right_total) = sides
-    print(
-        f"  FAIL Snap{snap:03d}: {kind}-row key sets differ -- "
-        f"{left_keys.size} only in {labels[0]} ({left_total} total), "
-        f"{right_keys.size} only in {labels[1]} ({right_total} total)"
-    )
-    for label, keys, ids in ((labels[0], left_keys, left_ids), (labels[1], right_keys, right_ids)):
-        for key, galaxy_id in zip(keys[:max_report], ids[:max_report]):
-            print(f"    only in {label}: {format_key(key)} ({ID_FIELD} {int(galaxy_id)})")
-        if keys.size > max_report:
-            print(f"    only in {label}: ... (+{keys.size - max_report})")
+class PairHistory:
+    """The previous compared snapshot's id pairs, for the persistence check.
+
+    Holds the pairs (first-run id, second-run id) sorted by the first, 16 B per
+    pair, and only those of the most recent snapshot.
+    """
+
+    def __init__(self):
+        self.snap = None
+        self.ids = (numpy.zeros(0, numpy.int64), numpy.zeros(0, numpy.int64))
+
+    def check(self, snap, ids, labels, max_report):
+        """Report the ids at `snap` whose partner differs from the previous snapshot's,
+        then keep `snap`'s pairs (`ids`, each run's ids per pair). Returns 0 or 1."""
+        total, samples = 0, []
+        for this in (0, 1):
+            before, partner = self.ids[this], self.ids[1 - this]
+            if before.size == 0 or ids[this].size == 0:
+                continue
+            if this:
+                order = numpy.argsort(before)
+                before, partner = before[order], partner[order]
+            at = numpy.minimum(numpy.searchsorted(before, ids[this]), before.size - 1)
+            rows = numpy.flatnonzero((before[at] == ids[this]) & (partner[at] != ids[1 - this]))
+            total += rows.size
+            samples += [(this, row, int(partner[at[row]])) for row in rows[:max_report]]
+        if total:
+            print(
+                f"  FAIL Snap{snap:03d}: {total} paired {ID_FIELD}(s) changed partner since "
+                f"Snap{self.snap:03d}; a paired id keeps its partner from one compared snapshot "
+                f"to the next"
+            )
+            for this, row, earlier in samples[:max_report]:
+                print(
+                    f"    {labels[this]} {ID_FIELD} {int(ids[this][row])}: paired with "
+                    f"{int(ids[1 - this][row])} here, with {earlier} at Snap{self.snap:03d}"
+                )
+            if total > max_report:
+                print(f"    ... and {total - max_report} more")
+        order = numpy.argsort(ids[0])
+        self.snap, self.ids = snap, (ids[0][order], ids[1][order])
+        return int(total > 0)
 
 
 # --------------------------------------------------------------------------
@@ -738,13 +861,14 @@ def report_unpaired(snap, kind, labels, sides, max_report):
 
 class CutRecord(NamedTuple):
     """What the report needs from a cut table's record: every piece of every
-    split forest (ascending piece id) with the forest it was cut from, and the
-    fresh-id floor: the catalogue's largest forest id, above which every fresh
-    piece id lies."""
+    split forest (ascending piece id) with the forest it was cut from, the
+    fresh-id floor (the catalogue's largest forest id, above which every fresh
+    piece id lies) and the identity of the dataset it was computed on."""
 
     piece_ids: numpy.ndarray
     forest_ids: numpy.ndarray
     fresh_id_floor: int
+    dataset: dict
 
     @property
     def split(self):
@@ -753,14 +877,14 @@ class CutRecord(NamedTuple):
 
 
 def read_cut_record(path):
-    """Read a cut table's record: its fresh-id floor and two piece columns.
+    """Read a cut table's record: its dataset identity, fresh-id floor and two piece columns.
 
     The record is written one header entry per line, then one line per piece
-    column, so the two columns needed are parsed line by line rather than
-    loading the whole document: a whole-simulation record holds six columns of
-    tens of millions of pieces. Raises ComparisonError for anything else.
+    column, so the entries needed are parsed line by line rather than loading
+    the whole document: a whole-simulation record holds six columns of tens of
+    millions of pieces. Raises ComparisonError for anything else.
     """
-    floor = None
+    header = {}
     columns = {}
     try:
         with open(path) as handle:
@@ -768,9 +892,9 @@ def read_cut_record(path):
                 # Entries are identified by their start; a column line is
                 # sliced once, never stripped whole.
                 head = line[:80].lstrip()
-                if head.startswith('"fresh_id_floor":'):
-                    floor = json.loads(line.split(":", 1)[1].strip().rstrip(","))
-                    continue
+                for name in ("fresh_id_floor", "dataset"):
+                    if head.startswith(f'"{name}":'):
+                        header[name] = json.loads(line.split(":", 1)[1].strip().rstrip(","))
                 for name in RECORD_PIECE_COLUMNS:
                     prefix = f'"{name}": ['
                     if head.startswith(prefix):
@@ -784,11 +908,13 @@ def read_cut_record(path):
     except (OSError, UnicodeDecodeError, ValueError) as error:
         raise ComparisonError(f"{path}: not a readable cut table record ({error})") from error
 
+    floor, dataset = header.get("fresh_id_floor"), header.get("dataset")
     missing = [name for name in RECORD_PIECE_COLUMNS if name not in columns]
+    if not isinstance(dataset, dict) or any(key not in dataset for key in RECORD_IDENTITY_KEYS):
+        missing.append(f"dataset {list(RECORD_IDENTITY_KEYS)}")
     if not isinstance(floor, int) or missing:
         raise ComparisonError(
-            f"{path}: not a cut table record (fresh_id_floor {floor!r}, missing piece "
-            f"columns {missing})"
+            f"{path}: not a cut table record (fresh_id_floor {floor!r}, missing {missing})"
         )
     piece_ids, forest_ids = columns["id"], columns["forest_id"]
     if piece_ids.size != forest_ids.size:
@@ -805,7 +931,7 @@ def read_cut_record(path):
             f"{int(forest_ids[invalid][0])} neither keeps the forest's id nor is fresh "
             f"(above {floor})"
         )
-    return CutRecord(piece_ids, forest_ids, floor)
+    return CutRecord(piece_ids, forest_ids, floor, dataset)
 
 
 def recorded_multiplier(index):
@@ -833,6 +959,26 @@ def read_sidecar_forest_ids(path):
             return numpy.asarray(handle["ForestID"][()], dtype=numpy.int64)
     except OSError as error:
         raise ComparisonError(f"{path}: cannot be read ({error})") from error
+
+
+def check_record_dataset(record, record_path, sidecars, sidecar_paths):
+    """One sidecar must be the dataset the record was computed on, by its identity.
+
+    The census binds a record to its dataset by the ForestID column's count and
+    SHA-256 (as little-endian int64, in ForestIndex order), so a record of
+    another dataset, or of another version of this one, is refused by name.
+    """
+    wanted = tuple(record.dataset[key] for key in RECORD_IDENTITY_KEYS)
+    found = [
+        (int(ids.size), hashlib.sha256(numpy.ascontiguousarray(ids, dtype="<i8")).hexdigest())
+        for ids in sidecars
+    ]
+    if wanted not in found:
+        described = "; ".join(f"{path}: {identity}" for path, identity in zip(sidecar_paths, found))
+        raise ComparisonError(
+            f"{record_path}: the cut record was computed on the dataset with "
+            f"{dict(zip(RECORD_IDENTITY_KEYS, wanted))}, which neither sidecar is ({described})"
+        )
 
 
 class CutReport:
@@ -873,37 +1019,39 @@ class CutReport:
             )
         return mapped
 
-    def place(self, side, tree, created, where):
-        """Original forests of one run's tree rows and created rows in one snapshot."""
+    def place(self, side, rows, kind, where):
+        """Original forests of one run's tree or created rows in one snapshot.
+
+        A created record follows its host into the host's forest. Its
+        MostBoundID is its birth host's and goes stale once the record is
+        inherited, but its UniqueCentralGalaxyID names the central of the FoF
+        group it is in now, a tree row of the same run and snapshot.
+        """
+        ids = rows.records[ID_FIELD]
+        wanted = rows[ID_FIELD] if kind == "tree" else rows[CENTRAL_FIELD]
+        if kind == "created" and len(wanted):
+            tree = numpy.flatnonzero(ids > 0)
+            order = numpy.argsort(ids[tree], kind="stable")
+            ordered = ids[tree][order]
+            at = numpy.minimum(numpy.searchsorted(ordered, wanted), max(ordered.size - 1, 0))
+            found = ordered[at] == wanted if ordered.size else numpy.zeros(len(wanted), bool)
+            if not found.all():
+                missing = ~found
+                raise ComparisonError(
+                    f"{where}: created record {ID_FIELD} {int(rows[ID_FIELD][missing][0])} "
+                    f"cannot be placed: its {CENTRAL_FIELD} {int(wanted[missing][0])} is no tree "
+                    f"row of this snapshot"
+                )
         sidecar = self.sidecars[side]
-        ids = tree[ID_FIELD]
-        forest_index = ids // self.multiplier - 1
+        forest_index = wanted // self.multiplier - 1
         outside = (forest_index < 0) | (forest_index >= sidecar.size)
         if outside.any():
             raise ComparisonError(
-                f"{where}: {ID_FIELD} {int(ids[outside][0])} decodes to ForestIndex "
+                f"{where}: {ID_FIELD} {int(wanted[outside][0])} decodes to ForestIndex "
                 f"{int(forest_index[outside][0])} under multiplier {self.multiplier}, outside "
                 f"the sidecar's {sidecar.size} forests"
             )
-        tree_forests = self.original(sidecar[forest_index], where)
-
-        # A created record follows its host into the host's forest. Its
-        # MostBoundID is its birth host's and goes stale once the record is
-        # inherited, but its UniqueCentralGalaxyID names the central of the FoF
-        # group it is in now, a tree row of the same run and snapshot.
-        order = numpy.argsort(ids, kind="stable")
-        wanted = created[CENTRAL_FIELD]
-        position = numpy.minimum(numpy.searchsorted(ids[order], wanted), max(len(ids) - 1, 0))
-        found = ids[order][position] == wanted if len(ids) else numpy.zeros(len(wanted), bool)
-        if not found.all():
-            missing = ~found
-            raise ComparisonError(
-                f"{where}: created record {ID_FIELD} {int(created[ID_FIELD][missing][0])} cannot "
-                f"be placed: its {CENTRAL_FIELD} {int(wanted[missing][0])} is no tree row of "
-                f"this snapshot"
-            )
-        created_forests = tree_forests[order][position] if len(ids) else wanted[:0]
-        return tree_forests, created_forests
+        return self.original(sidecar[forest_index], where)
 
     def reported(self, forests):
         """Which records are reported rather than held to the strict rule."""
@@ -977,214 +1125,141 @@ class CutReport:
             )
 
 
-def pair_snapshot(snap, left, right, labels, max_report, matching, cut):
-    """Pair one output snapshot's records under `matching`, the first half of
-    ``compare_snapshot_matched``.
+# --------------------------------------------------------------------------
+# One snapshot
+# --------------------------------------------------------------------------
 
-    Returns (failures, pairs): `pairs` is None when nothing was paired, else (the
-    first run's paired records' positions in its snapshot records, the second
-    run's, a tree-row mask, each pair's original forest or None, tree pairs,
-    created pairs). Rows are selected and paired by position (``Rows``), so no
-    record is copied here.
+
+def compare_snapshot(snap, left, right, labels, max_report, matching=BY_ID, cut=None, history=None):
+    """Compare one output snapshot's records under `matching`. Returns a SnapshotResult.
+
+    The records are paired (``pair_snapshot``) and every pair compared field by
+    field as raw bytes. Under an alternate mode ``UniqueGalaxyID`` is not
+    compared but its pairing is checked against the previous snapshot's
+    (`history`, a PairHistory), and ``UniqueCentralGalaxyID`` is compared
+    through the pairing (``central_mapping``). With `cut`, records of a
+    reported forest are tallied instead of failing, and records of every other
+    forest are held to the strict rule, which for tree rows includes an
+    identical ``UniqueGalaxyID``.
+
+    Precondition: neither run carries duplicated ids -- report_run_duplicates()
+    has already run over both and the comparison stopped if it found any.
     """
-    left_label, right_label = labels
+    alternate = matching.alternate
+    ids = (left[ID_FIELD], right[ID_FIELD])
+    created = tuple(int(numpy.count_nonzero(column < 0)) for column in ids)
+    zeros = tuple(int(numpy.count_nonzero(column == 0)) for column in ids)
     failures = 0
-    runs = []
-    for side, records in enumerate((left, right)):
-        ids = records[ID_FIELD]
-        tree = Rows(records, numpy.flatnonzero(ids > 0))
-        # Created rows are split off and placed only when they are compared.
-        made = Rows(
-            records,
-            numpy.flatnonzero(ids < 0) if matching.created is not None else numpy.zeros(0, int),
-        )
-        placed = (None, None)
-        if cut is not None:
-            placed = cut.place(side, tree, made, f"{labels[side]} Snap{snap:03d}")
-        runs.append({"tree": (tree, placed[0]), "created": (made, placed[1])})
-
-    kinds = ["tree", *(["created"] if matching.created is not None else [])]
-    paired = []  # (kind, left positions, right positions, forests or None)
-    for kind in kinds:
-        (left_rows, left_forests), (right_rows, right_forests) = runs[0][kind], runs[1][kind]
-        left_keys = pairing_keys(left_rows, kind, matching)
-        right_keys = pairing_keys(right_rows, kind, matching)
-        if report_duplicate_keys(left_label, snap, kind, left_keys, max_report) + (
-            report_duplicate_keys(right_label, snap, kind, right_keys, max_report)
-        ):
-            failures += 1
-            continue
-        left_index, right_index, only_left, only_right = pair_keys(left_keys, right_keys)
-
-        if cut is not None:
-            strict = []
-            for column, only, forests in (
-                ("only_left", only_left, left_forests),
-                ("only_right", only_right, right_forests),
-            ):
-                reported = cut.reported(forests[only])
-                cut.add(column, forests[only][reported])
-                strict.append(only[~reported])
-            only_left, only_right = strict
-        if only_left.size or only_right.size:
-            report_unpaired(
-                snap,
-                kind,
-                labels,
-                (
-                    (left_keys[only_left], left_rows[ID_FIELD][only_left], len(left_rows)),
-                    (right_keys[only_right], right_rows[ID_FIELD][only_right], len(right_rows)),
-                ),
-                max_report,
-            )
-            failures += 1
-
-        forests = None
-        if cut is not None:
-            forests = left_forests[left_index]
-            moved = forests != right_forests[right_index]
-            if moved.any():
-                raise ComparisonError(
-                    f"Snap{snap:03d}: paired {kind} records {ID_FIELD} "
-                    f"{int(left_rows[ID_FIELD][left_index][moved][0])} and "
-                    f"{int(right_rows[ID_FIELD][right_index][moved][0])} are placed in original "
-                    f"forests {int(forests[moved][0])} and "
-                    f"{int(right_forests[right_index][moved][0])}; the sidecars or the cut "
-                    f"record do not describe these runs"
-                )
-        paired.append(
-            (kind, left_rows.positions[left_index], right_rows.positions[right_index], forests)
-        )
-
-    counts = {kind: len(positions) for kind, positions, _, _ in paired}
-    tree_pairs, created_pairs = counts.get("tree", 0), counts.get("created", 0)
-    if tree_pairs + created_pairs == 0:
-        return failures, None
-    return failures, (
-        numpy.concatenate([positions for _, positions, _, _ in paired]),
-        numpy.concatenate([positions for _, _, positions, _ in paired]),
-        numpy.concatenate(
-            [numpy.full(len(positions), kind == "tree") for kind, positions, _, _ in paired]
-        ),
-        None if cut is None else numpy.concatenate([f for _, _, _, f in paired]),
-        tree_pairs,
-        created_pairs,
-    )
-
-
-def compare_snapshot_matched(snap, left, right, labels, max_report, matching, cut=None):
-    """Compare one output snapshot under an alternate mode. Returns a SnapshotResult.
-
-    Tree rows, then created rows unless they are not compared, are paired by
-    their mode's key (``pairing_keys``, in ``pair_snapshot``). A key duplicated
-    within one run fails its kind of row; an unpaired key fails; every pair is
-    then compared field by field: bytes for every field, except that
-    ``UniqueGalaxyID`` is the key and ``UniqueCentralGalaxyID`` is compared
-    through the pairing (``central_mapping``).
-
-    With `cut`, every compared record is first placed in its original forest.
-    Records of a reported forest are tallied instead of failing, and records of
-    every other forest are held to the strict rule, which for tree rows includes
-    an identical ``UniqueGalaxyID``. A pair placed in two different forests means
-    the sidecars or record do not describe these runs, an input error.
-    """
-    left_label, right_label = labels
-    failures = 0
-    left_all, right_all = left[ID_FIELD], right[ID_FIELD]
-    created = (int(numpy.count_nonzero(left_all < 0)), int(numpy.count_nonzero(right_all < 0)))
-    zeros = (int(numpy.count_nonzero(left_all == 0)), int(numpy.count_nonzero(right_all == 0)))
+    if matching.created is None:
+        report_created(snap, created, labels)
     if any(zeros):
         print(
             f"  FAIL Snap{snap:03d}: {ID_FIELD} 0 is neither a tree id nor a created id -- "
-            f"{left_label} {zeros[0]}, {right_label} {zeros[1]} row(s)"
+            f"{labels[0]} {zeros[0]}, {labels[1]} {zeros[1]} row(s)"
         )
         failures += 1
-    if matching.created is None:
-        report_created(snap, created, labels)
 
     paired_failures, pairs = pair_snapshot(snap, left, right, labels, max_report, matching, cut)
     failures += paired_failures
+    if alternate:
+        tree_rows, created_compared = (0, 0) if pairs is None else (pairs.tree, pairs.created)
+    else:
+        tree_rows = int(numpy.count_nonzero(ids[0] > 0))
+        created_compared = created[0] if matching.created else 0
+
+    def result(failures):
+        return SnapshotResult(failures, tree_rows, created, created_compared)
+
     if pairs is None:
         if not failures:
             print(f"  ok   Snap{snap:03d}: both runs are empty")
-        return SnapshotResult(failures, 0, created, 0)
-    left_positions, right_positions, is_tree, forests, tree_pairs, created_pairs = pairs
-    del pairs
+        return result(failures)
+
     # Each field is gathered from the snapshot records when it is compared.
-    pair_left, pair_right = Rows(left, left_positions), Rows(right, right_positions)
-
-    def result(failures):
-        return SnapshotResult(failures, tree_pairs, created, created_pairs)
-
-    reported = numpy.zeros(len(pair_left), dtype=bool) if cut is None else cut.reported(forests)
+    pair_left, pair_right = Rows(left, pairs.left), Rows(right, pairs.right)
+    reported = (
+        numpy.zeros(len(pair_left), dtype=bool) if cut is None else cut.reported(pairs.forests)
+    )
     strict = ~reported
+    if history is not None:
+        # Pairs made by id are trivially persistent; the others are checked.
+        by_key = numpy.where(pairs.is_tree, matching.tree != "id", matching.created == "lineage")
+        held = numpy.flatnonzero(strict & by_key)
+        held_ids = (left[ID_FIELD][pairs.left[held]], right[ID_FIELD][pairs.right[held]])
+        del by_key, held
+        failures += history.check(snap, held_ids, labels, max_report)
+        del held_ids
 
-    any_differs = numpy.zeros(len(pair_left), dtype=bool)
+    any_differs = numpy.zeros(len(pair_left), dtype=bool) if cut is not None else None
     differing_fields = []  # (field, total strict mismatches, bounded sample of pair rows)
-    central = None
+    centrals = {}  # sampled pair row -> (found, mapped) for the central report
     for name in pair_left.dtype.names:
-        if name == ID_FIELD:
+        if alternate and name == ID_FIELD:
             if cut is None:
                 continue
             # A forest the cut leaves alone keeps its ForestIndex, so its tree
             # rows keep their ids; created ids move with their hosts' rows.
-            mismatched = is_tree & (pair_left[ID_FIELD] != pair_right[ID_FIELD])
-        elif name == CENTRAL_FIELD:
+            mismatched = pairs.is_tree & (pair_left[ID_FIELD] != pair_right[ID_FIELD])
+        elif alternate and name == CENTRAL_FIELD:
             mismatched, found, mapped = central_mapping(pair_left, pair_right)
-            central = (found, mapped)
+            for row in numpy.flatnonzero(mismatched & strict)[:max_report]:
+                centrals[int(row)] = (bool(found[row]), int(mapped[row]))
+            del found, mapped
         else:
             left_bytes = field_bytes(pair_left[name])
             right_bytes = field_bytes(pair_right[name])
             mismatched = (left_bytes != right_bytes).any(axis=1)
             del left_bytes, right_bytes
         if cut is not None and name != ID_FIELD:
-            cut.add_field(name, forests[mismatched & reported])
+            cut.add_field(name, pairs.forests[mismatched & reported])
             any_differs |= mismatched & reported
         rows = numpy.flatnonzero(mismatched & strict)
         if rows.size:
             differing_fields.append((name, int(rows.size), rows[:max_report]))
 
     if cut is not None:
-        cut.add("identical", forests[reported & ~any_differs])
-        cut.add("differing", forests[reported & any_differs])
+        cut.add("identical", pairs.forests[reported & ~any_differs])
+        cut.add("differing", pairs.forests[reported & any_differs])
 
     nfields = len(pair_left.dtype.names)
     held = int(strict.sum())
-    paired_note = f"{tree_pairs} tree and {created_pairs} created record(s) paired"
-    if cut is not None:
-        paired_note += (
-            f", {int(reported.sum())} in reported forests ({int(any_differs.sum())} differing)"
+    differ = f"{len(differing_fields)} of {nfields} field(s) differ over"
+    if alternate:
+        scope = f"{pairs.tree} tree and {pairs.created} created record(s) paired"
+        if cut is not None:
+            scope += (
+                f", {int(reported.sum())} in reported forests ({int(any_differs.sum())} differing)"
+            )
+        ok = (
+            f"{scope}; the {held} held to the strict rule are identical in all {nfields} fields "
+            f"under the pairing"
         )
+        fail = f"{scope}; {differ} the {held} held to the strict rule"
+    else:
+        ok = f"{held} galaxies, all {nfields} fields byte-identical"
+        fail = f"{differ} {held} shared id(s)"
     if not differing_fields:
-        print(
-            f"  ok   Snap{snap:03d}: {paired_note}; the {held} held to the strict rule are "
-            f"identical in all {nfields} fields under the pairing"
-        )
+        print(f"  ok   Snap{snap:03d}: {ok}")
         return result(failures)
 
-    print(
-        f"  FAIL Snap{snap:03d}: {paired_note}; {len(differing_fields)} of {nfields} field(s) "
-        f"differ over the {held} held to the strict rule"
-    )
+    print(f"  FAIL Snap{snap:03d}: {fail}")
     for name, total, sample in differing_fields:
         print(f"    {name}: {total} record(s) differ")
         for row in sample:
-            pair = (
-                f"{ID_FIELD} {int(pair_left.at(ID_FIELD, row))} <-> "
-                f"{int(pair_right.at(ID_FIELD, row))}"
-            )
-            if name == CENTRAL_FIELD:
-                found, mapped = central
-                left_central = int(pair_left.at(CENTRAL_FIELD, row))
-                maps = f"maps to {int(mapped[row])}" if found[row] else "is paired with no record"
+            pair = f"{ID_FIELD} {int(pair_left.at(ID_FIELD, row))}"
+            if alternate:
+                pair += f" <-> {int(pair_right.at(ID_FIELD, row))}"
+            if alternate and name == CENTRAL_FIELD:
+                found, mapped = centrals[int(row)]
+                maps = f"maps to {mapped}" if found else "is paired with no record"
                 print(
-                    f"      {pair}: {left_label} central {left_central} {maps}, "
-                    f"{right_label} central {int(pair_right.at(CENTRAL_FIELD, row))}"
+                    f"      {pair}: {labels[0]} central {int(pair_left.at(CENTRAL_FIELD, row))} "
+                    f"{maps}, {labels[1]} central {int(pair_right.at(CENTRAL_FIELD, row))}"
                 )
             else:
                 print(
-                    f"      {pair}: {left_label}={pair_left.at(name, row)!r} "
-                    f"{right_label}={pair_right.at(name, row)!r}"
+                    f"      {pair}: {labels[0]}={pair_left.at(name, row)!r} "
+                    f"{labels[1]}={pair_right.at(name, row)!r}"
                 )
         if total > max_report:
             print(f"      ... and {total - max_report} more record(s)")
@@ -1249,12 +1324,16 @@ def main(argv=None):
     parser.add_argument(
         "--match-created-by-lineage",
         action="store_true",
-        help="pair created rows by (MostBoundID, SnapNum, creation ordinal) and compare them",
+        help=f"pair created rows by (MostBoundID, SnapNum, creation ordinal) and compare them; "
+        f"their {ID_FIELD} is not compared but must keep its partner from one compared snapshot "
+        f"to the next, and {CENTRAL_FIELD} is compared through the pairing",
     )
     parser.add_argument(
         "--match-by-catalogue-id",
         action="store_true",
-        help="pair tree rows by (MostBoundID, SnapNum), for datasets enumerated differently",
+        help=f"pair tree rows by (MostBoundID, SnapNum), for datasets enumerated differently; "
+        f"their {ID_FIELD} is not compared but must keep its partner from one compared snapshot "
+        f"to the next, and {CENTRAL_FIELD} is compared through the pairing",
     )
     cut = parser.add_argument_group(
         "cut-difference report",
@@ -1306,6 +1385,13 @@ def main(argv=None):
         # difference: exit 2 keeps "the runs differ" (1) meaning exactly that.
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
+    except Exception:  # any other failure is the comparator's own, never the runs'
+        traceback.print_exc()
+        print(
+            "ERROR: the comparator failed (exit 3); this says nothing about the two runs",
+            file=sys.stderr,
+        )
+        return 3
 
 
 def compare_runs(args):
@@ -1334,24 +1420,19 @@ def compare_runs(args):
                     f"--multiplier {args.multiplier} is not the UniqueGalaxyIDMultiplier "
                     f"{recorded} that {label} ({index.files[0].parent}) records"
                 )
-        cut = CutReport(
-            args.multiplier,
-            (
-                read_sidecar_forest_ids(args.left_sidecar),
-                read_sidecar_forest_ids(args.right_sidecar),
-            ),
-            read_cut_record(args.cut_record),
-            args.report_all_forests,
-        )
+        sidecar_paths = (args.left_sidecar, args.right_sidecar)
+        sidecars = tuple(read_sidecar_forest_ids(path) for path in sidecar_paths)
+        record = read_cut_record(args.cut_record)
+        check_record_dataset(record, args.cut_record, sidecars, sidecar_paths)
+        cut = CutReport(args.multiplier, sidecars, record, args.report_all_forests)
         print(
             f"cut record: {args.cut_record} ({cut.record.piece_ids.size} pieces of "
             f"{cut.split.size} split forest(s)); multiplier {args.multiplier}"
         )
     if matching.alternate:
+        needed = [*CATALOGUE_FIELDS, *([CENTRAL_FIELD] if cut is not None else [])]
         for index in (left, right):
             names = [name for name, _, _ in index.signature]
-            placing_created = cut is not None and matching.created is not None
-            needed = [*CATALOGUE_FIELDS, *([CENTRAL_FIELD] if placing_created else [])]
             missing = [name for name in needed if name not in names]
             if missing:
                 raise ComparisonError(
@@ -1398,17 +1479,13 @@ def compare_runs(args):
     total = 0
     created = [0, 0]
     created_compared = 0
+    history = PairHistory() if matching.alternate else None
     for snap in sorted(left_snaps & right_snaps):
         left_records = read_snapshot(left, snap)
         right_records = read_snapshot(right, snap)
-        if matching.alternate:
-            outcome = compare_snapshot_matched(
-                snap, left_records, right_records, labels, args.max_report, matching, cut
-            )
-        else:
-            outcome = compare_snapshot(
-                snap, left_records, right_records, labels, args.max_report, args.compare_created
-            )
+        outcome = compare_snapshot(
+            snap, left_records, right_records, labels, args.max_report, matching, cut, history
+        )
         failures += outcome.failures
         total += outcome.tree_rows + outcome.created_compared
         created_compared += outcome.created_compared

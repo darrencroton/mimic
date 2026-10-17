@@ -48,30 +48,32 @@ its final name only on success. The verification checks:
 - the object set, header attributes, dataset layouts and ``/schema`` the
   format fixes;
 - every column against the input's under the permutation;
-- every link's target row carries the ``MostBoundID`` the input's target row
-  carried (through the target slab's permutation), FoF centrals stay
-  self-referencing, and the companion columns name the target slab;
+- every link names, through the target slab's permutation, the input row the
+  input's link named; FoF centrals stay self-referencing, and the companion
+  columns name the target slab;
 - ``SnapNum``, ``ForestIndex`` non-decreasing, ranks dense within each
   forest's run, and ``SourceHaloID`` the forest base plus the rank.
 
 Under a cut the FoF chains are the runs of the new order (each group its
 central then its members in ascending id, a promoted halo a group of one) and
 the progenitor links come from the remap entries. The verification then
-proves, for every row, that ``Descendant`` carries the ``MostBoundID`` it
-carried in the input (the logical relation is unchanged) and that the FoF
-central lies in the row's own forest; for every row of a forest the table
-leaves uncut, that every link's target carries the input target's
-``MostBoundID``, the null pattern is the input's and ``ForestIndex`` and
-``HaloRankInForest`` are the input's (so ``UniqueGalaxyID`` is unchanged);
-for every promoted halo, that it is its own group's first halo and last
-member; and for the recomputed chains, that every ``FirstHaloInFOFgroup``
-is a central whose members form one run, that the ``NextHaloInFOFgroup``
-links chain exactly the members of each group, and that ``FirstProgenitor``
-and ``NextProgenitor`` together chain exactly the progenitors of every
-descendant, each progenitor once.
+proves, for every row, that ``Descendant`` names the input's descendant row
+(the logical relation is unchanged) and that the FoF central lies in the
+row's own forest; for every row of a forest the table leaves uncut, that
+every link names the input's target row, the null pattern is the input's and
+``ForestIndex`` and ``HaloRankInForest`` are the input's (so
+``UniqueGalaxyID`` is unchanged); for every promoted halo, that it is its
+own group's first halo and last member; and for the recomputed chains, that
+every ``NextHaloInFOFgroup`` is -1 or the next row and every
+``FirstHaloInFOFgroup`` the first row of its run, so that each group is
+exactly the run from its central, and that a walk from each descendant's
+``FirstProgenitor`` through ``NextProgenitor`` reaches every progenitor of
+that descendant exactly once and nothing else, so that no chain is cut
+short or closed in a cycle.
 
-Memory per slab is stated in the package docstring; every array here is
-int64-indexed and released as soon as the next step no longer needs it.
+Memory per slab is stated in ``rewriter.inputs.MEMORY_FORMULAS``; every
+array here is int64-indexed and released as soon as the next step no longer
+needs it.
 """
 
 import os
@@ -84,16 +86,16 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from census.common import examples  # noqa: E402
 from census.cut import MASS_COLUMN, chain_positions  # noqa: E402
 from column_schema import PayloadField  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from hdf5_writer_v3 import (  # noqa: E402
-    CHUNK_1D,
-    HEADER_ATTRS,
-    V3_SCHEMA_ATTRS,
     V3_SIDECAR_DATASETS,
-    V3_STRING_ATTRS,
     V3_WRITE_BLOCK_ROWS,
+    require_hard_links,
+    verify_v3_dataset_layout,
+    verify_v3_snapshot_structure,
     write_v3_sidecar,
     write_v3_snapshot_columns,
 )
@@ -113,16 +115,6 @@ _LINK_INFO = {name: (companion, offset) for name, companion, offset in LINKS}
 _COMPANIONS = {companion: name for name, companion, _offset in LINKS if companion is not None}
 _IDENTITY = ("SourceHaloID", "ForestIndex", "HaloRankInForest")
 
-#: Columns pass 1 reads from the input slab (a cut also reads ``M_Crit200``
-#: and ``NextProgenitor``, and the next slab's ``FirstProgenitor``).
-PASS1_COLUMNS = (
-    "ForestIndex",
-    "FirstHaloInFOFgroup",
-    "MostBoundID",
-    "HaloRankInForest",
-    "Descendant",
-)
-
 #: What each per-snapshot cut count means, recorded with the counts (the
 #: census's definitions of the same quantities).
 CUT_COUNT_DEFINITIONS = {
@@ -141,12 +133,8 @@ CUT_COUNT_DEFINITIONS = {
 }
 
 
-def _examples(values, limit: int = 5) -> list:
-    return list(values)[:limit]
-
-
 def _rows(path, rows) -> str:
-    return "{} rows {}".format(path, _examples(np.asarray(rows).tolist()))
+    return "{} rows {}".format(path, examples(rows))
 
 
 # ---------------------------------------------------------------------------
@@ -256,23 +244,20 @@ def rank_slab(
     roots: np.ndarray,
     labels_next: Optional[np.ndarray],
     tree_counts: np.ndarray,
-    identity_from_input: bool = False,
     cut: Optional[CutSlab] = None,
     above: Optional[SlabRemap] = None,
 ) -> Tuple[SlabRemap, np.ndarray, Dict[str, int]]:
     """Pass 1 for one slab (module docstring). ``running`` and ``tree_counts``
     are advanced in place; ``labels_next`` is the next slab's labels in its
-    input row order (``None`` for the last slab). With ``identity_from_input``
-    (the no-op) the derived order must be the input's own: the permutation
-    the identity and the derived ``ForestIndex``, ``HaloRankInForest`` and
+    input row order (``None`` for the last slab). Without ``cut`` (the no-op)
+    the derived order must be the input's own: the permutation the identity
+    and the derived ``ForestIndex``, ``HaloRankInForest`` and
     ``SourceHaloID`` the stored columns, refused otherwise naming the first
     row. With ``cut`` (and ``above``, the next slab's remap entry) the slab is
     ranked and chained under the table. Returns the remap entry, this slab's
     labels in input row order, and the cut's per-slab counts
     (:data:`CUT_COUNT_DEFINITIONS`; empty without a cut)."""
-    path = dataset.snapshot_path(snap)
-    n = dataset.n_halos[snap]
-    if n == 0:
+    if dataset.n_halos[snap] == 0:
         empty = np.zeros(0, dtype=np.int64)
         remap = SlabRemap(snap=snap, perm=empty, forest=empty, rank=empty, sid=empty)
         counts: Dict[str, int] = {}
@@ -281,7 +266,155 @@ def rank_slab(
             remap.first_prog_up = np.full(0 if above is None else above.n, -1, dtype=np.int64)
             counts = {name: 0 for name in CUT_COUNT_DEFINITIONS}
         return remap, np.zeros(0, dtype=np.int32), counts
+    if cut is None:
+        remap, labels = _rank_noop(dataset, snap, sid_base, running, roots, labels_next)
+        counts = {}
+    else:
+        remap, labels, counts = _rank_cut(
+            dataset, snap, sid_base, running, roots, labels_next, cut, above
+        )
+    present, present_counts = np.unique(labels, return_counts=True)
+    tree_counts[present] += present_counts
+    return remap, labels, counts
+
+
+# Pass 1 is split into stages so that every whole-slab array is owned by one
+# function: a stage's intermediates are released when it returns, and the
+# two orchestrators below release what they own as soon as no later stage
+# reads it.
+
+
+def _rank_noop(
+    dataset: HorizontalDataset,
+    snap: int,
+    sid_base: np.ndarray,
+    running: np.ndarray,
+    roots: np.ndarray,
+    labels_next: Optional[np.ndarray],
+) -> Tuple[SlabRemap, np.ndarray]:
+    """The no-op's pass 1: the reference order, proved to be the stored one,
+    and the identities, proved to be the stored ones."""
+    path = dataset.snapshot_path(snap)
+    n = dataset.n_halos[snap]
     forest = _int64(dataset, snap, "ForestIndex")
+    fhif = _centrals(dataset, snap)
+    mbid = _int64(dataset, snap, "MostBoundID")
+    upid = mbid[fhif]
+    pid = np.where(fhif == np.arange(n, dtype=np.int64), -1, upid)
+    del fhif
+    perm = np.lexsort((mbid, pid, upid, forest))
+    moved = perm != np.arange(n, dtype=np.int64)
+    if moved.any():
+        first = int(np.flatnonzero(moved)[0])
+        raise ConverterError(
+            "{}: the stored row order is not the (ForestIndex, HaloRankInForest) order the "
+            "input's own columns derive: {} row(s) move, the first at row {} (input row {} "
+            "belongs there); refusing to reproduce it".format(
+                path, int(moved.sum()), first, int(perm[first])
+            )
+        )
+    del moved
+    sorted_forest = forest[perm]
+    del forest
+    _refuse_repeated_keys(path, perm, sorted_forest, upid, pid, mbid)
+    del upid, pid
+    rank, sid = _ranks(dataset, snap, perm, sorted_forest, running, sid_base)
+    sid_in = _int64(dataset, snap, "SourceHaloID")
+    bad = sid_in != sid
+    if bad.any():
+        first = int(np.flatnonzero(bad)[0])
+        raise ConverterError(
+            "{}: {} row(s) whose stored SourceHaloID differs from the forest base plus the "
+            "derived rank, the first at row {} (stored {}, derived {}); refusing to "
+            "reproduce it".format(path, int(bad.sum()), first, int(sid_in[first]), int(sid[first]))
+        )
+    del sid_in, bad
+    remap = SlabRemap(snap=snap, perm=perm, forest=sorted_forest, rank=rank, sid=sid)
+    labels = tree_labels(path, _int64(dataset, snap, "Descendant"), mbid, roots, labels_next)
+    return remap, labels
+
+
+def _rank_cut(
+    dataset: HorizontalDataset,
+    snap: int,
+    sid_base: np.ndarray,
+    running: np.ndarray,
+    roots: np.ndarray,
+    labels_next: Optional[np.ndarray],
+    cut: CutSlab,
+    above: Optional[SlabRemap],
+) -> Tuple[SlabRemap, np.ndarray, Dict[str, int]]:
+    """The cut's pass 1: labels first, then each halo's forest under the
+    table, the promotions, the reference order over the new keys, the
+    identities (proved against the input over the uncut forests), and the
+    progenitor chains over the slab (module docstring)."""
+    path = dataset.snapshot_path(snap)
+    n = dataset.n_halos[snap]
+    forest = _int64(dataset, snap, "ForestIndex")
+    fhif = _centrals(dataset, snap)
+    mbid = _int64(dataset, snap, "MostBoundID")
+    desc = _int64(dataset, snap, "Descendant")
+    labels = tree_labels(path, desc, mbid, roots, labels_next)
+    # every row's stored forest must be its tree's: a row stored under
+    # another forest cannot be re-homed, cut or not
+    wrong = cut.tree_original[labels] != forest
+    if wrong.any():
+        raise ConverterError(
+            "{}: {} halo(s) whose stored ForestIndex is not their tree's forest; examples "
+            "(row, stored, tree's): {}".format(
+                path,
+                int(wrong.sum()),
+                [
+                    (int(w), int(forest[w]), int(cut.tree_original[labels[w]]))
+                    for w in np.flatnonzero(wrong)[:5]
+                ],
+            )
+        )
+    del wrong
+    key_forest = cut.tree_forest[labels]
+    changed = cut.split_old[forest]
+    foreign = forest[fhif] != forest
+    if foreign.any():
+        raise ConverterError(
+            "{}: {} halo(s) whose FoF central lies in another forest of the input; hosts are "
+            "resolved under the input's own partition, which must hold them; {}".format(
+                path, int(foreign.sum()), _rows(path, np.flatnonzero(foreign))
+            )
+        )
+    del foreign, forest
+    rows = np.arange(n, dtype=np.int64)
+    promoted = (fhif != rows) & (key_forest[fhif] != key_forest)
+    counts = _promotion_counts(fhif, promoted, key_forest)
+    upid_old = mbid[fhif]
+    pid_old = np.where(fhif == rows, -1, upid_old)
+    upid = np.where(promoted, mbid, upid_old)
+    pid = np.where((fhif == rows) | promoted, -1, upid)
+    del fhif, promoted, rows
+    perm = np.lexsort((mbid, pid, upid, key_forest))
+    sorted_forest = key_forest[perm]
+    del key_forest
+    _refuse_repeated_keys(path, perm, sorted_forest, upid, pid, mbid)
+    # the cut forests' ranks are recomputed; the derivation is proved on the others
+    rank, sid = _ranks(dataset, snap, perm, sorted_forest, running, sid_base, changed)
+    del changed
+    remap = SlabRemap(snap=snap, perm=perm, forest=sorted_forest, rank=rank, sid=sid)
+    prog, targets, before, after = _chain_positions(
+        dataset, snap, desc, mbid, (upid_old, pid_old), (upid, pid), above
+    )
+    del desc, mbid, upid_old, pid_old, upid, pid
+    if prog.size:
+        counts["descendants_checked"] = _check_stored_chains(
+            dataset, snap, prog, targets, before, above.n
+        )
+    counts.update(_output_chains(remap, above, prog, targets, before, after))
+    return remap, labels, counts
+
+
+def _centrals(dataset: HorizontalDataset, snap: int) -> np.ndarray:
+    """The slab's ``FirstHaloInFOFgroup``, refused unless every value is a
+    row of the slab whose own central is itself."""
+    path = dataset.snapshot_path(snap)
+    n = dataset.n_halos[snap]
     fhif = _int64(dataset, snap, "FirstHaloInFOFgroup")
     bad = (fhif < 0) | (fhif >= n)
     if bad.any():
@@ -297,85 +430,51 @@ def rank_slab(
                 path, int(not_central.sum()), _rows(path, np.flatnonzero(not_central))
             )
         )
-    del not_central
-    mbid = _int64(dataset, snap, "MostBoundID")
-    rows = np.arange(n, dtype=np.int64)
-    upid = mbid[fhif]
-    pid = np.where(fhif == rows, -1, upid)
-    labels = None
-    changed = None
-    if cut is not None:
-        desc = _int64(dataset, snap, "Descendant")
-        labels = tree_labels(path, desc, mbid, roots, labels_next)
-        # every row's stored forest must be its tree's: a row stored under
-        # another forest cannot be re-homed, cut or not
-        wrong = cut.tree_original[labels] != forest
-        if wrong.any():
-            raise ConverterError(
-                "{}: {} halo(s) whose stored ForestIndex is not their tree's forest; examples "
-                "(row, stored, tree's): {}".format(
-                    path,
-                    int(wrong.sum()),
-                    [
-                        (int(w), int(forest[w]), int(cut.tree_original[labels[w]]))
-                        for w in np.flatnonzero(wrong)[:5]
-                    ],
-                )
+    return fhif
+
+
+def _refuse_repeated_keys(
+    path,
+    perm: np.ndarray,
+    sorted_forest: np.ndarray,
+    upid: np.ndarray,
+    pid: np.ndarray,
+    mbid: np.ndarray,
+) -> None:
+    """The reference key must be total: no two rows of the slab share
+    (``ForestIndex``, upid, pid, ``MostBoundID``)."""
+    if perm.size < 2:
+        return
+    same = sorted_forest[1:] == sorted_forest[:-1]
+    for column in (upid, pid, mbid):
+        ordered = column[perm]
+        same &= ordered[1:] == ordered[:-1]
+        del ordered
+    if same.any():
+        raise ConverterError(
+            "{}: {} row(s) repeat another row's (ForestIndex, upid, pid, MostBoundID) key; "
+            "the reference order needs distinct ids within a slab; {}".format(
+                path, int(same.sum()), _rows(path, perm[1:][same])
             )
-        del wrong
-        key_forest = cut.tree_forest[labels]
-        changed = cut.split_old[forest]
-        foreign = forest[fhif] != forest
-        if foreign.any():
-            raise ConverterError(
-                "{}: {} halo(s) whose FoF central lies in another forest of the input; hosts are "
-                "resolved under the input's own partition, which must hold them; {}".format(
-                    path, int(foreign.sum()), _rows(path, np.flatnonzero(foreign))
-                )
-            )
-        del foreign
-        promoted = (fhif != rows) & (key_forest[fhif] != key_forest)
-        upid_old, pid_old = upid, pid
-        upid = np.where(promoted, mbid, upid_old)
-        pid = np.where((fhif == rows) | promoted, -1, upid)
-        del rows
-    else:
-        key_forest = forest
-        del fhif, rows
-    perm = np.lexsort((mbid, pid, upid, key_forest))
-    if identity_from_input:
-        moved = perm != np.arange(n, dtype=np.int64)
-        if moved.any():
-            first = int(np.flatnonzero(moved)[0])
-            raise ConverterError(
-                "{}: the stored row order is not the (ForestIndex, HaloRankInForest) order the "
-                "input's own columns derive: {} row(s) move, the first at row {} (input row {} "
-                "belongs there); refusing to reproduce it".format(
-                    path, int(moved.sum()), first, int(perm[first])
-                )
-            )
-        del moved
-    sorted_forest = key_forest[perm]
-    del forest
-    if cut is None:
-        del key_forest  # the same array as forest
-    if n > 1:
-        same = sorted_forest[1:] == sorted_forest[:-1]
-        for column in (upid, pid, mbid):
-            ordered = column[perm]
-            same &= ordered[1:] == ordered[:-1]
-            del ordered
-        if same.any():
-            where = perm[1:][same]
-            raise ConverterError(
-                "{}: {} row(s) repeat another row's (ForestIndex, upid, pid, MostBoundID) key; "
-                "the reference order needs distinct ids within a slab; {}".format(
-                    path, int(same.sum()), _rows(path, where)
-                )
-            )
-        del same
-    if cut is None:
-        del upid, pid
+        )
+
+
+def _ranks(
+    dataset: HorizontalDataset,
+    snap: int,
+    perm: np.ndarray,
+    sorted_forest: np.ndarray,
+    running: np.ndarray,
+    sid_base: np.ndarray,
+    changed: Optional[np.ndarray] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """``HaloRankInForest`` continuing each forest's running count (advanced
+    in place) and ``SourceHaloID`` the forest base plus the rank, in the new
+    order. The rank must equal the input's for every row, or under a cut for
+    every row of a forest the table leaves uncut (``changed``, in input row
+    order, marks the others)."""
+    path = dataset.snapshot_path(snap)
+    n = perm.size
     starts = np.flatnonzero(np.r_[True, sorted_forest[1:] != sorted_forest[:-1]])
     lengths = np.diff(np.append(starts, n))
     run_forests = sorted_forest[starts]
@@ -387,7 +486,6 @@ def rank_slab(
     rank_in = _int64(dataset, snap, "HaloRankInForest")[perm]
     bad = rank_in != rank
     if changed is not None:
-        # the cut forests' ranks are recomputed; the derivation is proved on the others
         bad &= ~changed[perm]
     if bad.any():
         where = np.flatnonzero(bad)[:5]
@@ -396,166 +494,140 @@ def rank_slab(
             "the input columns; examples (input row, held, derived): {}".format(
                 path,
                 int(bad.sum()),
-                " of uncut forests" if cut is not None else "",
+                " of uncut forests" if changed is not None else "",
                 [(int(perm[w]), int(rank_in[w]), int(rank[w])) for w in where],
             )
         )
-    del rank_in, bad
-    if identity_from_input:
-        sid_in = _int64(dataset, snap, "SourceHaloID")
-        bad = sid_in != sid
-        if bad.any():
-            first = int(np.flatnonzero(bad)[0])
-            raise ConverterError(
-                "{}: {} row(s) whose stored SourceHaloID differs from the forest base plus the "
-                "derived rank, the first at row {} (stored {}, derived {}); refusing to "
-                "reproduce it".format(
-                    path, int(bad.sum()), first, int(sid_in[first]), int(sid[first])
-                )
-            )
-        del sid_in, bad
-    remap = SlabRemap(snap=snap, perm=perm, forest=sorted_forest, rank=rank, sid=sid)
-    counts: Dict[str, int] = {}
-    if cut is None:
-        desc = _int64(dataset, snap, "Descendant")
-        labels = tree_labels(path, desc, mbid, roots, labels_next)
-        del desc, mbid
-    else:
-        counts = _cut_chains(
-            dataset,
-            snap,
-            remap,
-            key_forest,
-            desc,
-            mbid,
-            fhif,
-            upid,
-            pid,
-            upid_old,
-            pid_old,
-            promoted,
-            above,
-        )
-    present, present_counts = np.unique(labels, return_counts=True)
-    tree_counts[present] += present_counts
-    return remap, labels, counts
+    return rank, sid
 
 
-def _cut_chains(
-    dataset: HorizontalDataset,
-    snap: int,
-    remap: SlabRemap,
-    forest_new: np.ndarray,
-    desc: np.ndarray,
-    mbid: np.ndarray,
-    fhif: np.ndarray,
-    upid: np.ndarray,
-    pid: np.ndarray,
-    upid_old: np.ndarray,
-    pid_old: np.ndarray,
-    promoted: np.ndarray,
-    above: Optional[SlabRemap],
+def _promotion_counts(
+    fhif: np.ndarray, promoted: np.ndarray, forest_new: np.ndarray
 ) -> Dict[str, int]:
-    """The cut's progenitor chains over one slab (module docstring), into
-    ``remap.next_prog`` and ``remap.first_prog_up``; returns the slab's
-    counts. Every array is in input row order unless said otherwise."""
-    path = dataset.snapshot_path(snap)
-    n = remap.n
-    n_next = 0 if above is None else above.n
-    counts: Dict[str, int] = {
-        "promoted_halos": int(np.count_nonzero(promoted)),
-        "groups_losing_members": int(np.unique(fhif[promoted]).size),
-        "groups_central_leaves_members_stay": 0,
-        "remnants_with_several_members": 0,
-        "progenitor_order_changed": 0,
-        "first_progenitor_changed": 0,
-        "descendants_checked": 0,
-    }
+    """The slab's counts (:data:`CUT_COUNT_DEFINITIONS`) with the promotions
+    filled in and the chain counts zero."""
+    counts = {name: 0 for name in CUT_COUNT_DEFINITIONS}
+    counts["promoted_halos"] = int(np.count_nonzero(promoted))
+    counts["groups_losing_members"] = int(np.unique(fhif[promoted]).size)
     if promoted.any():
         remnants = np.unique(
             np.stack((fhif[promoted], forest_new[promoted]), axis=1), axis=0, return_counts=True
         )[1]
         counts["groups_central_leaves_members_stay"] = int(remnants.size)
         counts["remnants_with_several_members"] = int(np.count_nonzero(remnants >= 2))
-        del remnants
-    del fhif, promoted
-    inverse = remap.inverse()
-    next_prog = np.full(n, -1, dtype=np.int64)
-    first_prog_up = np.full(n_next, -1, dtype=np.int64)
+    return counts
+
+
+def _chain_positions(
+    dataset: HorizontalDataset,
+    snap: int,
+    desc: np.ndarray,
+    mbid: np.ndarray,
+    keys_old: Tuple[np.ndarray, np.ndarray],
+    keys_new: Tuple[np.ndarray, np.ndarray],
+    above: Optional[SlabRemap],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """The slab's progenitors (input rows), their descendants (input rows of
+    the next slab) and each progenitor's position in its descendant's chain
+    under the reference insertion loop over the input's own (upid, pid) keys
+    and over the cut's; a descendant's only progenitor is at position 0."""
     prog = np.flatnonzero(desc != -1)
+    targets = desc[prog]
+    before = np.zeros(prog.size, dtype=np.int64)
+    after = np.zeros(prog.size, dtype=np.int64)
+    if prog.size == 0:
+        return prog, targets, before, after
+    # tree_labels has refused a Descendant on the last slab or out of range
+    multi = np.bincount(targets, minlength=above.n)[targets] >= 2
+    if multi.any():
+        mass = np.ascontiguousarray(dataset.read_column(snap, MASS_COLUMN), dtype=np.float32)
+        m = prog[multi]
+        g = targets[multi]
+        ids = mbid[m]
+        masses = mass[m]
+        del mass
+        after[multi] = chain_positions(g, keys_new[0][m], keys_new[1][m], ids, masses)
+        before[multi] = chain_positions(g, keys_old[0][m], keys_old[1][m], ids, masses)
+    return prog, targets, before, after
+
+
+def _check_stored_chains(
+    dataset: HorizontalDataset,
+    snap: int,
+    prog: np.ndarray,
+    targets: np.ndarray,
+    before: np.ndarray,
+    n_next: int,
+) -> int:
+    """The input's stored ``NextProgenitor`` (this slab) and ``FirstProgenitor``
+    (the next) must be the insertion loop's chains over the input's own keys,
+    and a descendant without progenitors must have none stored; returns the
+    descendants checked."""
+    path = dataset.snapshot_path(snap)
+    order = np.lexsort((before, targets))
+    grouped = targets[order]
+    chained = prog[order]
+    del order
+    continues = np.r_[grouped[1:] == grouped[:-1], False]
+    starts = np.r_[True, grouped[1:] != grouped[:-1]]
+    expected_next = np.where(continues, np.r_[chained[1:], -1], -1)
+    stored_next = _int64(dataset, snap, "NextProgenitor")[chained]
+    stored_first = _int64(dataset, snap + 1, "FirstProgenitor")
+    has_progenitor = np.zeros(n_next, dtype=bool)
+    has_progenitor[targets] = True
+    bad_next = stored_next != expected_next
+    bad_first = stored_first[grouped[starts]] != chained[starts]
+    bad_none = (stored_first != -1) & ~has_progenitor
+    if bad_next.any() or bad_first.any() or bad_none.any():
+        descendants = np.unique(
+            np.concatenate(
+                [grouped[bad_next], grouped[starts][bad_first], np.flatnonzero(bad_none)]
+            )
+        )
+        raise ConverterError(
+            "{}: the input's progenitor chains into snapshot {} are not the reference "
+            "insertion order over the input's own keys for {} descendant(s) ({} NextProgenitor "
+            "link(s) and {} FirstProgenitor link(s) differ); the cut recomputes chains by that "
+            "order and cannot reproduce these; descendant rows of snapshot {}: {}".format(
+                path,
+                snap + 1,
+                descendants.size,
+                int(bad_next.sum()),
+                int(bad_first.sum() + bad_none.sum()),
+                snap + 1,
+                examples(descendants),
+            )
+        )
+    return int(np.count_nonzero(starts))
+
+
+def _output_chains(
+    remap: SlabRemap,
+    above: Optional[SlabRemap],
+    prog: np.ndarray,
+    targets: np.ndarray,
+    before: np.ndarray,
+    after: np.ndarray,
+) -> Dict[str, int]:
+    """The cut's chains in the new rows of this slab and the next, into
+    ``remap.next_prog`` and ``remap.first_prog_up``; returns the
+    progenitor-order counts."""
+    next_prog = np.full(remap.n, -1, dtype=np.int64)
+    first_prog_up = np.full(0 if above is None else above.n, -1, dtype=np.int64)
+    counts = {"progenitor_order_changed": 0, "first_progenitor_changed": 0}
     if prog.size:
-        # tree_labels has refused a Descendant on the last slab or out of range
-        inverse_next = above.inverse()
-        targets = desc[prog]
-        group_size = np.bincount(targets, minlength=n_next)[targets]
-        before = np.zeros(prog.size, dtype=np.int64)
-        after = np.zeros(prog.size, dtype=np.int64)
-        multi = group_size >= 2
-        del group_size
-        if multi.any():
-            mass = np.ascontiguousarray(dataset.read_column(snap, MASS_COLUMN), dtype=np.float32)
-            m = prog[multi]
-            g = targets[multi]
-            ids = mbid[m]
-            masses = mass[m]
-            del mass
-            after[multi] = chain_positions(g, upid[m], pid[m], ids, masses)
-            del upid, pid
-            before[multi] = chain_positions(g, upid_old[m], pid_old[m], ids, masses)
-            del upid_old, pid_old, ids, masses, m, g
-        del multi, mbid
-        # the input's stored chains must be the loop's over the input's own keys
-        order = np.lexsort((before, targets))
-        grouped = targets[order]
-        chained = prog[order]
-        continues = np.r_[grouped[1:] == grouped[:-1], False]
-        starts = np.r_[True, grouped[1:] != grouped[:-1]]
-        expected_next = np.where(continues, np.r_[chained[1:], -1], -1)
-        stored_next = _int64(dataset, snap, "NextProgenitor")[chained]
-        stored_first = _int64(dataset, snap + 1, "FirstProgenitor")
-        has_progenitor = np.zeros(n_next, dtype=bool)
-        has_progenitor[targets] = True
-        bad_next = stored_next != expected_next
-        bad_first = stored_first[grouped[starts]] != chained[starts]
-        bad_none = (stored_first != -1) & ~has_progenitor
-        if bad_next.any() or bad_first.any() or bad_none.any():
-            descendants = np.unique(
-                np.concatenate(
-                    [grouped[bad_next], grouped[starts][bad_first], np.flatnonzero(bad_none)]
-                )
-            )
-            raise ConverterError(
-                "{}: the input's progenitor chains into snapshot {} are not the reference "
-                "insertion order over the input's own keys for {} descendant(s) ({} NextProgenitor "
-                "link(s) and {} FirstProgenitor link(s) differ); the cut recomputes chains by that "
-                "order and cannot reproduce these; descendant rows of snapshot {}: {}".format(
-                    path,
-                    snap + 1,
-                    descendants.size,
-                    int(bad_next.sum()),
-                    int(bad_first.sum() + bad_none.sum()),
-                    snap + 1,
-                    _examples(descendants.tolist()),
-                )
-            )
-        counts["descendants_checked"] = int(np.count_nonzero(starts))
-        del stored_next, stored_first, has_progenitor, bad_next, bad_first, bad_none
-        del order, grouped, chained, continues, starts, expected_next
-        # the output chains, in the new rows of this slab and the next
         order = np.lexsort((after, targets))
         grouped = targets[order]
-        new_rows = inverse[prog[order]]
+        new_rows = remap.inverse()[prog[order]]
+        del order
         continues = np.r_[grouped[1:] == grouped[:-1], False]
         starts = np.r_[True, grouped[1:] != grouped[:-1]]
         next_prog[new_rows] = np.where(continues, np.r_[new_rows[1:], -1], -1)
-        first_prog_up[inverse_next[grouped[starts]]] = new_rows[starts]
-        moved = before != after
-        counts["progenitor_order_changed"] = int(np.unique(targets[moved]).size)
+        first_prog_up[above.inverse()[grouped[starts]]] = new_rows[starts]
+        counts["progenitor_order_changed"] = int(np.unique(targets[before != after]).size)
         counts["first_progenitor_changed"] = int(
             np.unique(targets[(before == 0) & (after != 0)]).size
         )
-        del order, grouped, new_rows, continues, starts, moved, before, after, inverse_next
-    del inverse
     remap.next_prog = next_prog
     remap.first_prog_up = first_prog_up
     return counts
@@ -582,10 +654,10 @@ class SlabColumns:
     """The output columns of one slab, computed on demand from the input slab
     and the window: one column resident at a time, the target slab's inverse
     permutation while a link is remapped, and the null masks of the links.
-    With ``identity_from_input`` the identity columns are the input's own
-    (which pass 1 has proved equal to the derived ones). With ``cut`` the FoF
-    links are built from the new order (:meth:`fof`) and the progenitor links
-    come from the remap entries; ``Descendant`` is remapped as always."""
+    The identity columns are the remap store's (for the no-op pass 1 has
+    proved them equal to the input's). With ``cut`` the FoF links are built
+    from the new order (:meth:`fof`) and the progenitor links come from the
+    remap entries; ``Descendant`` is remapped as always."""
 
     def __init__(
         self,
@@ -593,14 +665,12 @@ class SlabColumns:
         snap: int,
         window: Window,
         table: Mapping[str, Tuple[np.dtype, bool]],
-        identity_from_input: bool = False,
         cut: Optional[CutSlab] = None,
     ):
         self.dataset = dataset
         self.snap = snap
         self.window = window
         self.table = table
-        self.identity_from_input = identity_from_input
         self.cut = cut
         self.path = dataset.snapshot_path(snap)
         self.n = window.own.n
@@ -747,8 +817,6 @@ class SlabColumns:
         return np.ascontiguousarray(values[self.window.own.perm], dtype=dtype)
 
     def identity(self, name: str) -> np.ndarray:
-        if self.identity_from_input:
-            return _int64(self.dataset, self.snap, name)
         return {
             "SourceHaloID": self.window.own.sid,
             "ForestIndex": self.window.own.forest,
@@ -787,136 +855,6 @@ def write_slab(
     return dict(columns.n_links)
 
 
-def _require_hard_links(group, path) -> None:
-    for name in group:
-        link = group.get(name, getlink=True)
-        if not isinstance(link, h5py.HardLink):
-            raise ConverterError(
-                "{}: {}/{} is a {}, not a physically present object".format(
-                    path, group.name.rstrip("/"), name, type(link).__name__
-                )
-            )
-
-
-def _check_layout(dataset, dtype: np.dtype, is_vec: bool, n_rows: int, path) -> None:
-    shape = (n_rows, 3) if is_vec else (n_rows,)
-    problems = []
-    if dataset.dtype.str != dtype.str:
-        problems.append("dtype {} != {}".format(dataset.dtype.str, dtype.str))
-    if dataset.shape != shape:
-        problems.append("shape {} != {}".format(dataset.shape, shape))
-    chunks = dataset.chunks
-    if (
-        chunks is None
-        or len(chunks) != len(shape)
-        or not 1 <= chunks[0] <= CHUNK_1D[0]
-        or (is_vec and chunks[1] != 3)
-    ):
-        problems.append("chunks {} (rows must be in [1, {}])".format(chunks, CHUNK_1D[0]))
-    if dataset.compression is not None or dataset.shuffle or dataset.fletcher32:
-        problems.append("filtered")
-    if dataset.scaleoffset is not None:
-        problems.append("scale-offset")
-    if dataset.external or dataset.is_virtual:
-        problems.append("not stored in this file")
-    if dataset.attrs.keys():
-        problems.append("carries attributes {}".format(sorted(dataset.attrs.keys())))
-    if problems:
-        raise ConverterError("{}: {}: {}".format(path, dataset.name, "; ".join(problems)))
-
-
-def _check_structure(
-    handle,
-    path,
-    header: Mapping[str, object],
-    table: Mapping[str, Tuple[np.dtype, bool]],
-    declarations: Sequence[PayloadField],
-    n_halos: int,
-) -> None:
-    if set(handle.keys()) != {"header", "halos", "schema"} or handle.attrs.keys():
-        raise ConverterError(
-            "{}: root holds {} (attributes {}), not exactly /header, /halos, /schema".format(
-                path, sorted(handle.keys()), sorted(handle.attrs.keys())
-            )
-        )
-    _require_hard_links(handle, path)
-    attrs = handle["header"].attrs
-    expected_names = set(HEADER_ATTRS) | set(V3_STRING_ATTRS)
-    if set(attrs.keys()) != expected_names:
-        raise ConverterError(
-            "{}: header attributes {} != {}".format(
-                path, sorted(attrs.keys()), sorted(expected_names)
-            )
-        )
-    for name, dtype in HEADER_ATTRS.items():
-        stored = np.asarray(attrs[name])
-        if stored.dtype != np.dtype(dtype) or stored.shape != () or stored != header[name]:
-            raise ConverterError(
-                "{}: header {} is {!r} ({}), expected {!r}".format(
-                    path, name, stored, stored.dtype, header[name]
-                )
-            )
-    for name, size in V3_STRING_ATTRS.items():
-        kind = attrs.get_id(name).get_type()
-        if (
-            not isinstance(kind, h5py.h5t.TypeStringID)
-            or kind.is_variable_str()
-            or kind.get_size() != size
-            or kind.get_cset() != h5py.h5t.CSET_ASCII
-        ):
-            raise ConverterError(
-                "{}: header {} is not {}-byte fixed ASCII".format(path, name, size)
-            )
-        if attrs[name] != str(header[name]).encode("ascii"):
-            raise ConverterError(
-                "{}: header {} is {!r}, expected {!r}".format(path, name, attrs[name], header[name])
-            )
-    halos = handle["halos"]
-    if set(halos.keys()) != set(table) or halos.attrs.keys():
-        raise ConverterError(
-            "{}: /halos holds {} (attributes {}), expected exactly {}".format(
-                path, sorted(halos.keys()), sorted(halos.attrs.keys()), sorted(table)
-            )
-        )
-    _require_hard_links(halos, path)
-    for name, (dtype, is_vec) in table.items():
-        _check_layout(halos[name], dtype, is_vec, n_halos, path)
-    schema_group = handle["schema"]
-    wanted = {declaration.name: declaration for declaration in declarations}
-    if set(schema_group.keys()) != set(wanted) or schema_group.attrs.keys():
-        raise ConverterError(
-            "{}: /schema declares {}, expected exactly {}".format(
-                path, sorted(schema_group.keys()), sorted(wanted)
-            )
-        )
-    _require_hard_links(schema_group, path)
-    for name, declaration in wanted.items():
-        group = schema_group[name]
-        if (
-            not isinstance(group, h5py.Group)
-            or len(group)
-            or set(group.attrs.keys()) != set(V3_SCHEMA_ATTRS)
-        ):
-            raise ConverterError(
-                "{}: /schema/{} must be a childless group with exactly {}".format(
-                    path, name, V3_SCHEMA_ATTRS
-                )
-            )
-        for key in V3_SCHEMA_ATTRS:
-            kind = group.attrs.get_id(key).get_type()
-            if (
-                not isinstance(kind, h5py.h5t.TypeStringID)
-                or not kind.is_variable_str()
-                or kind.get_cset() != h5py.h5t.CSET_UTF8
-                or group.attrs[key] != getattr(declaration, key)
-            ):
-                raise ConverterError(
-                    "{}: /schema/{} {} is {!r}, expected UTF-8 {!r}".format(
-                        path, name, key, group.attrs[key], getattr(declaration, key)
-                    )
-                )
-
-
 def _read_blocks(dataset, n_rows: int, block_rows: int):
     for start in range(0, n_rows, block_rows):
         yield start, dataset[start : min(start + block_rows, n_rows)]
@@ -950,9 +888,7 @@ def verify_slab(
     block_rows: int,
 ) -> None:
     """Re-read one written slab and check everything the module docstring
-    lists; raise on the first difference. The input ``MostBoundID`` of one
-    target slab at a time is read for the link check (the links are taken in
-    target order, so each slab's column is read once)."""
+    lists; raise on the first difference."""
     snap = columns.snap
     own = columns.window.own
     n = own.n
@@ -962,13 +898,13 @@ def verify_slab(
     touched = None if cut is None else cut.split_new[own.forest]
     promoted = None if cut is None else columns.fof()[2]
     with h5py.File(path, "r") as handle:
-        _check_structure(handle, path, header, columns.table, declarations, n)
+        verify_v3_snapshot_structure(handle, path, header, columns.table, declarations, n)
         halos = handle["halos"]
         for name in columns.table:
             expected = columns(name)
             _compare(halos[name], expected, block_rows, path, name)
             del expected
-        if columns.identity_from_input:
+        if cut is None:
             for name in _IDENTITY:
                 if not np.array_equal(
                     np.asarray(halos[name][...], dtype=np.int64), _int64(dataset, snap, name)
@@ -976,10 +912,9 @@ def verify_slab(
                     raise ConverterError(
                         "{}: /halos/{} differs from the input's stored column".format(path, name)
                     )
-        # links: the target row of every written link carries the MostBoundID
-        # of the input's target row, through the target slab's permutation
-        mbid_snap, mbid_target = None, None
-        for name, companion, offset in sorted(LINKS, key=lambda link: link[2]):
+        # links: every written link names, through the target slab's
+        # permutation, the input row the input's link named
+        for name, companion, offset in LINKS:
             target = columns.window.target(offset)
             written = np.asarray(halos[name][...], dtype=np.int64)
             old = columns.old_link(name)
@@ -1003,18 +938,16 @@ def verify_slab(
                 )
             compare = as_input & ~null
             if target is not None and compare.any():
-                if mbid_snap != target.snap:
-                    mbid_target = _int64(dataset, target.snap, "MostBoundID")
-                    mbid_snap = target.snap
-                actual = mbid_target[target.perm[written[compare]]]
-                wanted = mbid_target[old[compare]]
-                if not np.array_equal(actual, wanted):
-                    bad = np.flatnonzero(compare)[actual != wanted]
+                moved = target.perm[written[compare]] != old[compare]
+                if moved.any():
+                    bad = np.flatnonzero(compare)[moved]
                     raise ConverterError(
-                        "{}: {} /halos/{} link(s) whose target row does not carry the input "
-                        "target's MostBoundID; {}".format(path, bad.size, name, _rows(path, bad))
+                        "{}: {} /halos/{} link(s) whose target is not the input target's row "
+                        "under the target slab's permutation; {}".format(
+                            path, bad.size, name, _rows(path, bad)
+                        )
                     )
-                del actual, wanted
+                del moved
             del compare, as_input, null_as_input
             if name == "FirstHaloInFOFgroup":
                 rows = np.arange(n, dtype=np.int64)
@@ -1036,7 +969,6 @@ def verify_slab(
                         )
                     )
             del written, old, null
-        del mbid_target
         # identities and SnapNum
         snapnum = np.asarray(halos["SnapNum"][...], dtype=np.int64)
         if np.any(snapnum != snap):
@@ -1073,8 +1005,9 @@ def verify_slab(
 def _verify_cut(handle, path, columns: SlabColumns, touched, promoted, forest, rank) -> None:
     """The cut's structural proof over one written slab (module docstring):
     the uncut forests' identity, the promoted halos' groups, every central in
-    its row's forest, and the recomputed FoF and progenitor chains covering
-    each group and each descendant's progenitors exactly once."""
+    its row's forest, every FoF group one run of rows from its central, and
+    every progenitor reached exactly once by a walk from its descendant's
+    ``FirstProgenitor``."""
     halos = handle["halos"]
     own = columns.window.own
     dataset = columns.dataset
@@ -1105,39 +1038,14 @@ def _verify_cut(handle, path, columns: SlabColumns, touched, promoted, forest, r
                 path, int(np.count_nonzero(forest[central] != forest))
             )
         )
-    linked = next_fof != -1
-    members = next_fof[linked]
-    if (
-        np.any(central[members] != central[linked])
-        or np.unique(members).size != members.size
-        or members.size != n - np.unique(central).size
-    ):
-        raise ConverterError(
-            "{}: the NextHaloInFOFgroup links do not chain exactly the members of each FoF "
-            "group".format(path)
-        )
-    del central, next_fof, linked, members
-    # progenitor chains: the heads written into the next slab (its verified
-    # FirstProgenitor) and this slab's NextProgenitor links name every
-    # progenitor of a descendant exactly once, each in its descendant's chain
-    desc = np.asarray(halos["Descendant"][...], dtype=np.int64)
-    next_prog = np.asarray(halos["NextProgenitor"][...], dtype=np.int64)
-    heads = own.first_prog_up if own.first_prog_up is not None else np.zeros(0, dtype=np.int64)
-    head_rows = heads[heads != -1]
-    linked = next_prog != -1
-    chained = next_prog[linked]
-    named = np.concatenate([head_rows, chained])
-    if (
-        np.any(desc[head_rows] != np.flatnonzero(heads != -1))
-        or np.any(desc[chained] != desc[linked])
-        or np.unique(named).size != named.size
-        or named.size != int(np.count_nonzero(desc != -1))
-    ):
-        raise ConverterError(
-            "{}: the FirstProgenitor and NextProgenitor links do not chain exactly the "
-            "progenitors of each descendant".format(path)
-        )
-    del desc, next_prog, heads, head_rows, linked, chained, named
+    _verify_fof_runs(path, central, next_fof, rows)
+    del central, next_fof
+    _verify_progenitor_walk(
+        path,
+        np.asarray(halos["Descendant"][...], dtype=np.int64),
+        np.asarray(halos["NextProgenitor"][...], dtype=np.int64),
+        own.first_prog_up if own.first_prog_up is not None else np.zeros(0, dtype=np.int64),
+    )
     # this slab's FirstProgenitor names, for every halo with one, a halo of the
     # previous slab whose input Descendant is this halo
     first = np.asarray(halos["FirstProgenitor"][...], dtype=np.int64)
@@ -1153,6 +1061,73 @@ def _verify_cut(handle, path, columns: SlabColumns, touched, promoted, forest, r
                 "{}: a FirstProgenitor target is not a progenitor of its halo".format(path)
             )
         del desc_below, inverse
+
+
+def _verify_fof_runs(path, central: np.ndarray, next_fof: np.ndarray, rows: np.ndarray) -> None:
+    """The written FoF chains are contiguous, as the cut writes them: every
+    ``NextHaloInFOFgroup`` is -1 or the next row, and every row's
+    ``FirstHaloInFOFgroup`` is the first row of its run. Each group is then
+    exactly the run from its central, with no member left out, repeated or
+    chained in a cycle. ``rows`` is ``arange(n)``."""
+    if central.size == 0:
+        return
+    linked = next_fof != -1
+    bad = linked & (next_fof != rows + 1)
+    bad[-1] |= linked[-1]
+    run_head = np.maximum.accumulate(np.where(np.r_[True, ~linked[:-1]], rows, 0))
+    bad |= central != run_head
+    if bad.any():
+        raise ConverterError(
+            "{}: the NextHaloInFOFgroup links do not chain exactly the members of each FoF "
+            "group (each group one run of rows from its central, every link -1 or the next "
+            "row); {}".format(path, _rows(path, np.flatnonzero(bad)))
+        )
+
+
+def _verify_progenitor_walk(
+    path, desc: np.ndarray, next_prog: np.ndarray, heads: np.ndarray
+) -> None:
+    """The written progenitor chains of one slab against its descendants:
+    ``heads`` is the next slab's verified ``FirstProgenitor`` (a row of this
+    slab per descendant, -1 for none). Walking every chain at once from its
+    head through ``NextProgenitor`` must stay on that descendant's
+    progenitors, never return to a halo already reached, and reach every
+    halo with a descendant; no other halo may carry a ``NextProgenitor``. A
+    cycle or a chain that its head does not reach is refused. Each step
+    marks at least one new halo, so the walk ends within as many steps as
+    the longest chain."""
+    n = int(desc.size)
+    reached = np.zeros(n, dtype=bool)
+    owner = np.flatnonzero(heads != -1)
+    step = heads[owner]
+    problem = None
+    if np.any((next_prog < -1) | (next_prog >= n)) or np.any((step < 0) | (step >= n)):
+        problem = "a link outside the slab"
+    n_steps = 0
+    while problem is None and step.size:
+        if np.any(desc[step] != owner):
+            problem = "a chain reaches a progenitor of another descendant"
+        elif reached[step].any():
+            problem = "a chain returns to a halo already reached"
+        else:
+            reached[step] = True
+            n_steps += step.size
+            following = next_prog[step]
+            more = following != -1
+            step, owner = following[more], owner[more]
+    if problem is None:
+        missed = int(np.count_nonzero(reached != (desc != -1)))
+        if missed:
+            problem = "{} progenitor(s) not reached from their FirstProgenitor".format(missed)
+        elif n_steps != int(np.count_nonzero(reached)):
+            problem = "two chains reach one halo"
+        elif np.any(next_prog[~reached] != -1):
+            problem = "a halo without a descendant carries a NextProgenitor"
+    if problem is not None:
+        raise ConverterError(
+            "{}: the FirstProgenitor and NextProgenitor links do not chain exactly the "
+            "progenitors of each descendant: {}".format(path, problem)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1186,9 +1161,9 @@ def verify_sidecar(path, sidecar: Mapping[str, np.ndarray]) -> None:
                     path, list(handle.keys()), sorted(handle.attrs.keys()), V3_SIDECAR_DATASETS
                 )
             )
-        _require_hard_links(handle, path)
+        require_hard_links(handle, path)
         for name in V3_SIDECAR_DATASETS:
-            _check_layout(handle[name], np.dtype("<i8"), False, n, path)
+            verify_v3_dataset_layout(handle[name], np.dtype("<i8"), False, n, path)
             if (
                 handle[name][...].tobytes()
                 != np.ascontiguousarray(sidecar[name], dtype="<i8").tobytes()

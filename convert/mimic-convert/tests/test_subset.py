@@ -218,7 +218,7 @@ class NumericContractTests(unittest.TestCase):
         mvir = np.array([1.0e12, 0.0, 3.7e10, 1.0], dtype=np.float64)
         jx = np.array([4.2e10, 9.9e9, -1.3e11, 0.0], dtype=np.float64)
 
-        records = np.zeros(mvir.size, dtype=ctrees_parser.RECORD_DTYPE)
+        records = np.zeros(mvir.size, dtype=ctrees_parser.CORE_RECORD_DTYPE)
         records["Mvir"] = mvir.astype(np.float32)
         records["Jx"] = jx.astype(np.float32)
         records["Jy"] = jx.astype(np.float32)

@@ -26,8 +26,7 @@ COMPLETE = "complete"
 COMPLETE_BY_MIGRATION = (
     "complete real data by migration (sage16 on the uncut dataset is bitwise identical to the "
     "version 2 run, vertical parity is on the subset only, which is the only gate of halos-only, "
-    "and the package's dataset is the cut one, identical to the uncut run outside the split "
-    "forests with the differences inside them reported, not gated)"
+    "and the package's dataset is the cut one: see the spec row)"
 )
 
 FULL_UCHUU_NOT_CLAIMED = (

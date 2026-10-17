@@ -460,7 +460,7 @@ class BoundedBatteryTests(CliCase):
         )
         for command in ("validate", "report"):
             refused = self.cli(
-                command, "--workdir", work, "--bounded", "--memory-budget-mb", BUDGET_MB, expect=1
+                command, "--workdir", work, "--bounded", "--memory-budget-mb", BUDGET_MB, expect=2
             )
             self.assertIn("ERROR: the bounded battery validates adjacent datasets", refused.stderr)
             self.assertIn("snapshot_000.h5 declares links_adjacent 0", refused.stderr)
@@ -487,15 +487,15 @@ class FailureTests(CliCase):
         route[route.index(flag) + 1] = value
         return route
 
-    def ingest_fails(self, route, message, expect=1):
-        result = self.cli("ingest", "--workdir", self.work, *route, expect=expect)
+    def ingest_fails(self, route, message):
+        result = self.cli("ingest", "--workdir", self.work, *route, expect=2)
         self.assertIn(message, result.stderr)
         self.assertFalse(self.work.exists(), "a refused ingest created its workdir")
         return result
 
     def test_an_unknown_source_format_is_rejected_by_the_parser(self):
         route = self.with_option("--source-format", "lhalo_hdf5")
-        self.ingest_fails(route, "invalid choice", expect=2)
+        self.ingest_fails(route, "invalid choice")
 
     def test_a_profile_of_another_format_is_refused_not_reinterpreted(self):
         profile = CONVERT_DIR / "profiles" / "consistent_trees_ascii.yaml"
@@ -543,10 +543,10 @@ class FailureTests(CliCase):
             self.work,
             "--simulation-info",
             route_value(self.route, "--simulation-info"),
-            expect=1,
+            expect=2,
         )
         self.assertIn("transpose", result.stderr)
-        self.cli("validate", "--workdir", self.work, expect=1)
+        self.cli("validate", "--workdir", self.work, expect=2)
 
     def test_conflicting_resume_inputs_fail_before_mutation(self):
         self.cli("ingest", "--workdir", self.work, *self.route)
@@ -557,7 +557,7 @@ class FailureTests(CliCase):
             self.route + ["--memory-budget-mb", "1024"],
             self.route + ["--ingest-max-rows", "2"],
         ):
-            result = self.cli("ingest", "--workdir", self.work, *route, expect=1)
+            result = self.cli("ingest", "--workdir", self.work, *route, expect=2)
             self.assertIn("different conversion", result.stderr)
             self.assertEqual(tree_state(self.work), before)
         # The identical configuration is a verified no-op.
@@ -572,14 +572,14 @@ class FailureTests(CliCase):
             self.work,
             "--a-list",
             route_value(self.route, "--a-list"),
-            expect=1,
+            expect=2,
         )
         self.assertIn("given without --source-format", result.stderr)
-        result = self.cli("ingest", "--workdir", self.work, "--memory-budget-mb", "8", expect=1)
+        result = self.cli("ingest", "--workdir", self.work, "--memory-budget-mb", "8", expect=2)
         self.assertIn("--memory-budget-mb given without --source-format", result.stderr)
 
     def test_resume_with_nothing_recorded_is_refused(self):
-        result = self.cli("ingest", "--workdir", self.work, expect=1)
+        result = self.cli("ingest", "--workdir", self.work, expect=2)
         self.assertIn("no generic conversion to resume", result.stderr)
 
     def test_resume_uses_the_embedded_configuration_after_the_profile_is_gone(self):
@@ -602,7 +602,7 @@ class FailureTests(CliCase):
     def test_a_scatter_manifest_workdir_is_never_adopted(self):
         work = make_scatter_workdir(self.tmp / "scattered")
         before = tree_state(work)
-        result = self.cli("ingest", "--workdir", work, *self.route, expect=1)
+        result = self.cli("ingest", "--workdir", work, *self.route, expect=2)
         self.assertIn("holds a scatter manifest", result.stderr)
         self.assertEqual(tree_state(work), before)
 
@@ -640,7 +640,7 @@ class LHaloMetadataBindingTests(CliCase):
 
     def test_write_refuses_another_packages_simulation_info(self):
         self.ingest_and_transpose()
-        result = self.cli("write", "--workdir", self.work, "--simulation-info", self.full, expect=1)
+        result = self.cli("write", "--workdir", self.work, "--simulation-info", self.full, expect=2)
         self.assertIn("different simulation_info", result.stderr)
         self.assert_nothing_written()
         # The recorded metadata still writes, and its box size is the header's.
@@ -655,7 +655,7 @@ class LHaloMetadataBindingTests(CliCase):
         shutil.copy(self.mini, edited)
         self.ingest_and_transpose(sim_info=edited)
         edited.write_text(edited.read_text().replace("value: 62.5", "value: 500.0"))
-        result = self.cli("write", "--workdir", self.work, "--simulation-info", edited, expect=1)
+        result = self.cli("write", "--workdir", self.work, "--simulation-info", edited, expect=2)
         self.assertIn(str(edited.resolve()), result.stderr)
         self.assert_nothing_written()
 
@@ -664,7 +664,7 @@ class LHaloMetadataBindingTests(CliCase):
         before = tree_state(self.work)
         other = list(route)
         other[other.index("--simulation-info") + 1] = self.full
-        result = self.cli("ingest", "--workdir", self.work, *other, expect=1)
+        result = self.cli("ingest", "--workdir", self.work, *other, expect=2)
         self.assertIn("different conversion", result.stderr)
         self.assertEqual(tree_state(self.work), before)
 
@@ -690,7 +690,7 @@ class ForestsHDF5MetadataBindingTests(LHaloMetadataBindingTests):
 
     def test_write_refuses_another_packages_simulation_info(self):
         self.ingest_and_transpose()
-        result = self.cli("write", "--workdir", self.work, "--simulation-info", self.full, expect=1)
+        result = self.cli("write", "--workdir", self.work, "--simulation-info", self.full, expect=2)
         self.assertIn("different simulation_info", result.stderr)
         self.assert_nothing_written()
         self.cli("write", "--workdir", self.work, "--simulation-info", self.mini)
@@ -704,7 +704,7 @@ class ForestsHDF5MetadataBindingTests(LHaloMetadataBindingTests):
         shutil.copy(self.mini, edited)
         self.ingest_and_transpose(sim_info=edited)
         edited.write_text(edited.read_text().replace("value: 2000.0", "value: 100.0"))
-        result = self.cli("write", "--workdir", self.work, "--simulation-info", edited, expect=1)
+        result = self.cli("write", "--workdir", self.work, "--simulation-info", edited, expect=2)
         self.assertIn(str(edited.resolve()), result.stderr)
         self.assert_nothing_written()
 

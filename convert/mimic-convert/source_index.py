@@ -22,7 +22,7 @@ in one file, F is unit 0 and G unit 1). A forest spanning files carries -1/-1,
 as the version 3 sidecar does (``HORIZONTAL-HDF5-FORMAT.md``, V3 Forest
 Sidecar).
 
-``ForestTable.file_ordinal`` is the ``locations.dat`` ``FileID``, **not** the
+``ForestTable.file_id`` is the ``locations.dat`` ``FileID``, **not** the
 sidecar's ``SourceFileOrdinal``. The converter numbers tree files in the order
 they are given to it, and on real Shin-Uchuu data a lexically sorted file list
 differs from ``FileID`` order (``tree_0_0_10.dat`` is ``FileID`` 10 but sorts
@@ -64,12 +64,9 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from census.common import examples  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from subset import load_forests_list, load_locations  # noqa: E402
-
-
-def _examples(values: np.ndarray, limit: int = 5) -> list:
-    return np.asarray(values)[:limit].tolist()
 
 
 def _sorted_unique(values: np.ndarray, what: str) -> np.ndarray:
@@ -81,7 +78,7 @@ def _sorted_unique(values: np.ndarray, what: str) -> np.ndarray:
         if repeated.size:
             raise ConverterError(
                 "{}: {} tree root id(s) listed more than once; examples: {}".format(
-                    what, repeated.size, _examples(ordered[repeated])
+                    what, repeated.size, examples(ordered[repeated])
                 )
             )
     return order
@@ -99,12 +96,8 @@ class ForestTable:
     n_trees: np.ndarray  # int64
     file_starts: np.ndarray  # int64, length n_forests + 1
     files: np.ndarray  # int64
-    file_ordinal: np.ndarray  # int64 locations.dat FileID (not SourceFileOrdinal); -1 if spanning
+    file_id: np.ndarray  # int64 locations.dat FileID (not SourceFileOrdinal); -1 if spanning
     unit_ordinal: np.ndarray  # int64; -1 for a forest spanning files
-
-    def files_of(self, position: int) -> np.ndarray:
-        """The sorted ``FileID`` set of the forest at ``position``."""
-        return self.files[self.file_starts[position] : self.file_starts[position + 1]]
 
 
 @dataclass
@@ -148,10 +141,10 @@ class SourceIndex:
                 "(e.g. {})".format(
                     only_list.size,
                     forests_list,
-                    _examples(only_list),
+                    examples(only_list),
                     only_loc.size,
                     locations,
-                    _examples(only_loc),
+                    examples(only_loc),
                 )
             )
         del loc_sorted
@@ -264,13 +257,13 @@ class SourceIndex:
         file_starts = np.zeros(forest_ids.size + 1, dtype=np.int64)
         np.cumsum(n_files, out=file_starts[1:])
         single = n_files == 1
-        file_ordinal = np.where(single, pair_file[first_pair], -1).astype(np.int64)
+        file_id = np.where(single, pair_file[first_pair], -1).astype(np.int64)
         unit_ordinal = np.where(single, pair_unit[first_pair], -1).astype(np.int64)
         return ForestTable(
             forest_ids=forest_ids.astype(np.int64, copy=False),
             n_trees=tree_counts.astype(np.int64, copy=False),
             file_starts=file_starts,
             files=pair_file.astype(np.int64, copy=False),
-            file_ordinal=file_ordinal,
+            file_id=file_id,
             unit_ordinal=unit_ordinal,
         )

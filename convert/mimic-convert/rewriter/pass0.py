@@ -21,9 +21,7 @@ once in bounded blocks before any output is written:
   row count, which pass 1 fills in as it labels halos with their trees, and
   whose per-file sums the summary records (:func:`conservation_record`).
 
-Memory: the totals and bases, 16 B x n_forests; the roots with their forests
-and slabs, 20 B x n_trees at rest (42 B x n_trees while they are gathered);
-the inventory, 56 B x n_trees; plus the block being read.
+Memory: the ``pass0`` entry of ``rewriter.inputs.MEMORY_FORMULAS``.
 """
 
 import os
@@ -35,6 +33,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from census.common import examples  # noqa: E402
 from census.trees import enumerate_roots, root_correspondence  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import HorizontalDataset  # noqa: E402
@@ -54,10 +53,6 @@ INVENTORY_DTYPE = np.dtype(
 )
 
 _INT64_MAX = int(np.iinfo(np.int64).max)
-
-
-def _examples(values, limit: int = 5) -> list:
-    return list(values)[:limit]
 
 
 @dataclass
@@ -85,7 +80,7 @@ def scan_forest_totals(
                 rows = start + np.flatnonzero(bad)
                 raise ConverterError(
                     "{}: {} ForestIndex value(s) outside [0, {}); rows {}".format(
-                        dataset.snapshot_path(snap), int(bad.sum()), n_forests, _examples(rows)
+                        dataset.snapshot_path(snap), int(bad.sum()), n_forests, examples(rows)
                     )
                 )
             present, counts = np.unique(block, return_counts=True)
@@ -102,7 +97,7 @@ def source_bases(totals: np.ndarray) -> Tuple[np.ndarray, int]:
     if empty.size:
         raise ConverterError(
             "{} forest(s) hold no halo (a Consistent-Trees forest always does); ForestIndex "
-            "examples: {}".format(empty.size, _examples(empty.tolist()))
+            "examples: {}".format(empty.size, examples(empty.tolist()))
         )
     prefix = np.cumsum(totals, dtype=np.int64)
     # a wrapped partial sum is smaller than its predecessor (every total is
@@ -202,10 +197,9 @@ def tree_inventory(
 
 def conservation_record(inventory: np.ndarray, filenames: Dict[int, str]) -> Dict[str, object]:
     """Per-file sums of the trees' rows, through the inventory's ``file_id``,
-    with ``filenames`` the ``locations.dat`` ``FileID`` -> name map. The record
-    has the shape of the census's conservation check (``census.trees``) and the
-    verdict ``unchecked``: a horizontal dataset carries no per-file parsed
-    counts to check the sums against."""
+    with ``filenames`` the ``locations.dat`` ``FileID`` -> name map. The sums
+    are recorded, not checked: a horizontal dataset carries no per-file
+    parsed counts to check them against."""
     file_ids = sorted(filenames)
     present, inverse = np.unique(inventory["file_id"], return_inverse=True)
     sums = np.zeros(present.size, dtype=np.int64)
@@ -219,4 +213,4 @@ def conservation_record(inventory: np.ndarray, filenames: Dict[int, str]) -> Dic
         }
         for file_id in file_ids
     ]
-    return {"files": files, "unattributed_halos": 0, "verdict": "unchecked"}
+    return {"files": files}

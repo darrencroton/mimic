@@ -47,9 +47,10 @@ use, and ``F`` = 166,547,771). Per-tree figures were measured with
 ``tracemalloc`` on synthetic inputs; each phase's peak adds the column blocks
 being read (8 B x ``block_rows`` per column):
 
-- **pass 1** (roots): about **42 B x n** at its peak -- the terminal ids,
-  forests and slabs (20 B), the sort order (8 B), one reindexed copy and the
-  stable sort's buffer -- falling to 20 B x n once sorted. About 13.2 GB.
+- **pass 1** (roots): about **36 B x n** of arrays at its peak -- the terminal
+  ids, forests and slabs (20 B), the sort order (8 B) and one reindexed copy --
+  falling to 20 B x n once sorted, plus the stable sort's working buffer, which
+  ``tracemalloc`` does not count. About 11.3 GB of arrays.
 - **pass 2** (labels): the two label arrays, ``4 B x (n_halos(s) +
   n_halos(s + 1))``, about 4.15 GB for Shin-Uchuu's widest adjacent pair
   (snapshots 33 and 34, 1,037,966,193 halos); the 20 B x n of pass 1; the
@@ -74,10 +75,10 @@ matrix is held.
 
 The conservation check sums the tree totals per source file through
 ``locations.dat`` and, when a JSON carrying ``source_files`` with per-file
-``parsed_count`` is given (the ASCII preparation's ``manifest.json``, or a
-``conversion_report.json`` of the historical version 2 converter, which records
-the same mapping), compares each file's sum with its parsed count. Agreement
-is necessary for the trees to be the ``#tree`` blocks, not sufficient.
+``parsed_count`` is given (the ASCII preparation's ``manifest.json``, or any
+JSON mapping each source file to its parsed halo count under ``source_files``),
+compares each file's sum with its parsed count. Agreement is necessary for the
+trees to be the ``#tree`` blocks, not sufficient.
 """
 
 import os
@@ -94,12 +95,14 @@ from census.aggregate import (  # noqa: E402
     SUMMARY_NAME,
     begin,
     bind,
+    check_identity,
     load_array,
     read_json,
     save_array,
     slab_stem,
     write_json,
 )
+from census.common import INT32_MAX, examples, in_sorted, quiet  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from source_index import SourceIndex  # noqa: E402
@@ -110,15 +113,6 @@ LABELS_DIR = "labels"
 #: Columns the two passes read.
 TREE_COLUMNS = ("Descendant", "MostBoundID", "ForestIndex")
 
-#: Examples quoted per reported count.
-N_EXAMPLES = 5
-
-_INT32_MAX = int(np.iinfo(np.int32).max)
-
-
-def _quiet(_message: str) -> None:
-    pass
-
 
 def trees_dir(aggregate_dir) -> Path:
     return Path(aggregate_dir) / TREES_DIR
@@ -128,9 +122,9 @@ def label_path(aggregate_dir, snap: int) -> Path:
     return trees_dir(aggregate_dir) / LABELS_DIR / (slab_stem(snap) + ".npy")
 
 
-def load_labels(aggregate_dir, snap: int, mmap: bool = True) -> np.ndarray:
-    """One slab's int32 root ordinals, in the slab's row order (mapped by default)."""
-    return load_array(label_path(aggregate_dir, snap), mmap)
+def load_labels(aggregate_dir, snap: int) -> np.ndarray:
+    """One slab's int32 root ordinals, in the slab's row order."""
+    return load_array(label_path(aggregate_dir, snap))
 
 
 def slab_tree_pair_paths(aggregate_dir, snap: int) -> Tuple[Path, Path]:
@@ -150,16 +144,23 @@ def load_roots(aggregate_dir) -> np.ndarray:
     return load_array(trees_dir(aggregate_dir) / "roots.npy")
 
 
-def _examples(values) -> list:
-    return np.asarray(values)[:N_EXAMPLES].tolist()
+def require_forest_range(path, forests: np.ndarray, rows, n_forests: int) -> None:
+    """Refuse a ``ForestIndex`` outside ``[0, n_forests)`` among ``forests``.
 
+    Args:
+        rows: the slab row of each value (an array), or the row of the first.
 
-def _in_sorted(haystack: np.ndarray, needles: np.ndarray) -> np.ndarray:
-    """Whether each needle occurs in the ascending ``haystack``."""
-    if haystack.size == 0:
-        return np.zeros(needles.shape, dtype=bool)
-    position = np.minimum(np.searchsorted(haystack, needles), haystack.size - 1)
-    return haystack[position] == needles
+    Raises:
+        ConverterError: naming the file, the first offending row and its value.
+    """
+    if forests.size and (int(forests.min()) < 0 or int(forests.max()) >= n_forests):
+        at = int(np.argmax((forests < 0) | (forests >= n_forests)))
+        row = int(rows[at]) if np.ndim(rows) else int(rows) + at
+        raise ConverterError(
+            "{}: ForestIndex {} at row {} is outside [0, {})".format(
+                path, int(forests[at]), row, n_forests
+            )
+        )
 
 
 # ---- pass 1 ----------------------------------------------------------------
@@ -175,9 +176,13 @@ def enumerate_roots(
         aligned; position is the root ordinal.
 
     Raises:
-        ConverterError: on a repeated terminal id, or more roots than int32
-            ordinals can number.
+        ConverterError: on a ``ForestIndex`` outside ``[0, n_forests_total)``
+            (naming the snapshot, row and value), more roots than int32
+            ordinals can number (refused as the count passes the limit, before
+            the roots are joined and sorted), or a repeated terminal id.
     """
+    n_forests = dataset.n_forests_total
+    n_roots = 0
     root_blocks, forest_blocks, snap_blocks = [], [], []
     for snap in dataset.snapshots:
         for start, block in dataset.iter_column(snap, "Descendant", block_rows):
@@ -190,14 +195,22 @@ def enumerate_roots(
                 snap, ("MostBoundID", "ForestIndex"), start + low, start + high
             )
             picked = terminal - low
+            forests = rows["ForestIndex"][picked].astype(np.int64)
+            require_forest_range(dataset.snapshot_path(snap), forests, start + terminal, n_forests)
+            n_roots += picked.size
+            if n_roots > INT32_MAX:
+                raise ConverterError(
+                    "{}: more than 2^31 - 1 terminal roots, which int32 root ordinals cannot "
+                    "number".format(dataset.directory)
+                )
             root_blocks.append(rows["MostBoundID"][picked].astype(np.int64))
-            forest_blocks.append(rows["ForestIndex"][picked].astype(np.int64))
+            forest_blocks.append(forests)
             snap_blocks.append(np.full(picked.size, snap, dtype=np.int32))
     if not root_blocks:
         empty = np.zeros(0, dtype=np.int64)
         return empty, empty.copy(), np.zeros(0, dtype=np.int32)
     # each column concatenated and its blocks released before the next, then
-    # each reindexed in turn, so the transient peak is 36 B per root (module docstring)
+    # each reindexed in turn, so the arrays peak at 36 B per root (module docstring)
     roots = np.concatenate(root_blocks)
     del root_blocks
     forests = np.concatenate(forest_blocks)
@@ -214,12 +227,8 @@ def enumerate_roots(
         raise ConverterError(
             "{}: {} terminal MostBoundID value(s) occur more than once, so root ordinals would "
             "be ambiguous; examples: {}".format(
-                dataset.directory, repeated.size, _examples(roots[repeated])
+                dataset.directory, repeated.size, examples(roots[repeated])
             )
-        )
-    if roots.size > _INT32_MAX:
-        raise ConverterError(
-            "{}: {} terminal roots exceed int32 root ordinals".format(dataset.directory, roots.size)
         )
     return roots, forests, snaps
 
@@ -235,11 +244,18 @@ def _label_slab(
     next_labels: Optional[np.ndarray],
     block_rows: int,
 ) -> Tuple[np.ndarray, int]:
-    """One slab's labels, and the halos whose ``ForestIndex`` is not their tree's."""
+    """One slab's labels, and the halos whose ``ForestIndex`` is not their tree's.
+
+    Raises:
+        ConverterError: on a ``ForestIndex`` outside ``[0, n_forests_total)``,
+            a terminal halo that is not an enumerated root, or a bad
+            ``Descendant`` link.
+    """
     labels = np.empty(dataset.n_halos[snap], dtype=np.int32)
     forest_mismatches = 0
     path = dataset.snapshot_path(snap)
     for start, block in dataset.iter_columns(snap, TREE_COLUMNS, block_rows):
+        require_forest_range(path, block["ForestIndex"], start, dataset.n_forests_total)
         descendant = block["Descendant"].astype(np.int64, copy=False)
         out = labels[start : start + descendant.size]
         terminal = descendant == -1
@@ -286,8 +302,8 @@ def narrow_tree_counts(counts: np.ndarray, ordinals: np.ndarray, snap: int) -> n
             tree holding more than 2^31 - 1 of the slab's halos.
     """
     counts = np.asarray(counts)
-    if counts.size and int(counts.max()) > _INT32_MAX:
-        at = int(np.argmax(counts > _INT32_MAX))
+    if counts.size and int(counts.max()) > INT32_MAX:
+        at = int(np.argmax(counts > INT32_MAX))
         raise ConverterError(
             "snapshot {}: tree with root ordinal {} holds {} halos, beyond int32".format(
                 snap, int(ordinals[at]), int(counts[at])
@@ -302,7 +318,7 @@ def label_trees(
     roots: np.ndarray,
     tree_forest: np.ndarray,
     block_rows: int = DEFAULT_BLOCK_ROWS,
-    log: Callable[[str], None] = _quiet,
+    log: Callable[[str], None] = quiet,
 ) -> Dict:
     """Pass 2 (module docstring): write every slab's labels and tree pairs;
     returns the per-tree totals and peaks and the pass's counts and sizes."""
@@ -369,7 +385,7 @@ def root_correspondence(
         "terminal_roots": int(roots.size),
         "roots_not_in_last_snapshot": {
             "count": int(np.count_nonzero(not_last)),
-            "examples": _examples(roots[not_last]),
+            "examples": examples(roots[not_last]),
         },
     }
     if index is None:
@@ -377,24 +393,24 @@ def root_correspondence(
         return record
     position = index.find(roots)
     found = position >= 0
-    listed = _in_sorted(roots, index.tree_roots)
+    listed = in_sorted(roots, index.tree_roots)
     mismatched = np.zeros(roots.size, dtype=bool)
     mismatched[found] = index.forest_ids[position[found]] != forest_ids[tree_forest[found]]
     record["index_roots"] = index.n_trees
     record["roots_not_in_forests_list"] = {
         "count": int(np.count_nonzero(~found)),
-        "examples": _examples(roots[~found]),
+        "examples": examples(roots[~found]),
     }
     record["forests_list_roots_without_terminal_halo"] = {
         "count": int(np.count_nonzero(~listed)),
-        "examples": _examples(index.tree_roots[~listed]),
+        "examples": examples(index.tree_roots[~listed]),
     }
     record["roots_not_in_last_snapshot"]["in_forests_list"] = int(
         np.count_nonzero(not_last & found)
     )
     record["forest_mismatches"] = {
         "count": int(np.count_nonzero(mismatched)),
-        "examples": _examples(roots[mismatched]),
+        "examples": examples(roots[mismatched]),
     }
     failed = (
         record["roots_not_in_forests_list"]["count"]
@@ -429,7 +445,8 @@ def load_parsed_counts(path) -> ParsedCounts:
     if not isinstance(sources, dict) or not sources:
         raise ConverterError(
             "{}: no source_files with per-file parsed_count (expected an ASCII preparation "
-            "manifest.json, or a historical version 2 conversion_report.json)".format(path)
+            "manifest.json, or a JSON whose source_files maps each source file to a record "
+            "with its parsed_count)".format(path)
         )
     counts: Dict[str, int] = {}
     for source, entry in sources.items():
@@ -460,15 +477,17 @@ def conservation(
     position = index.find(roots)
     found = position >= 0
     file_ids = sorted(index.filenames)
-    sums = np.zeros((max(file_ids) + 1) if file_ids else 0, dtype=np.int64)
-    np.add.at(sums, index.file_ids[position[found]], tree_totals[found])
+    # one slot per listed file, however sparse the FileIDs: every index row's file is listed
+    sums = np.zeros(len(file_ids), dtype=np.int64)
+    slot = np.searchsorted(np.asarray(file_ids, dtype=np.int64), index.file_ids[position[found]])
+    np.add.at(sums, slot, tree_totals[found])
     files = [
         {
             "file_id": file_id,
             "name": os.path.basename(index.filenames[file_id]),
-            "census_halos": int(sums[file_id]),
+            "census_halos": int(sums[at]),
         }
-        for file_id in file_ids
+        for at, file_id in enumerate(file_ids)
     ]
     record: Dict = {
         "files": files,
@@ -499,27 +518,14 @@ def conservation(
 # ---- the subcommand ----------------------------------------------------------
 
 
-def run_trees(
-    dataset: HorizontalDataset,
-    aggregate_dir,
-    index: Optional[SourceIndex] = None,
-    report: Optional[ParsedCounts] = None,
-    block_rows: int = DEFAULT_BLOCK_ROWS,
-    log: Callable[[str], None] = _quiet,
-) -> Dict:
-    """Run both passes and the checks, write the aggregates; returns the summary.
-
-    ``report`` is :func:`load_parsed_counts`' result, parsed by the caller
-    before the index files are loaded. Every refusal that needs no pass result
-    happens before the directory's completion marker or any array is touched.
+def prepare_trees(dataset: HorizontalDataset, aggregate_dir) -> Dict:
+    """Every refusal that needs no index file and no pass, before anything is
+    loaded or written: a gapped dataset, and a directory produced from another
+    dataset (nothing is bound here). Returns the dataset's identity.
 
     Raises:
-        ConverterError: for a report without index files, a gapped dataset
-            (``links_adjacent`` 0), another dataset's directory, or any
-            refusal of the passes.
+        ConverterError: naming the first refusal.
     """
-    if report is not None and index is None:
-        raise ConverterError("the conservation check needs forests.list and locations.dat")
     if dataset.links_adjacent != 1:
         raise ConverterError(
             "{}: links_adjacent is {}; the census labels adjacent descendant links only".format(
@@ -527,6 +533,35 @@ def run_trees(
             )
         )
     identity = dataset.identity()
+    check_identity(aggregate_dir, identity)
+    return identity
+
+
+def run_trees(
+    dataset: HorizontalDataset,
+    aggregate_dir,
+    index: Optional[SourceIndex] = None,
+    report: Optional[ParsedCounts] = None,
+    block_rows: int = DEFAULT_BLOCK_ROWS,
+    log: Callable[[str], None] = quiet,
+    identity: Optional[Dict] = None,
+) -> Dict:
+    """Run both passes and the checks, write the aggregates; returns the summary.
+
+    ``report`` is :func:`load_parsed_counts`' result, parsed by the caller
+    before the index files are loaded; ``identity`` is :func:`prepare_trees`'
+    result when the caller has already run it (before loading the index files),
+    otherwise it is run here. Every refusal that needs no pass result happens
+    before the directory's completion marker or any array is touched.
+
+    Raises:
+        ConverterError: for a report without index files, any
+            :func:`prepare_trees` refusal, or any refusal of the passes.
+    """
+    if report is not None and index is None:
+        raise ConverterError("the conservation check needs forests.list and locations.dat")
+    if identity is None:
+        identity = prepare_trees(dataset, aggregate_dir)
     aggregate_dir = bind(aggregate_dir, identity)
     out = trees_dir(aggregate_dir)
     begin(out)

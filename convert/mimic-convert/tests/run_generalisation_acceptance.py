@@ -226,12 +226,12 @@ DUMP_REQUIRED_COLUMNS = DUMP_INT_COLUMNS + tuple(
     c for cols in DUMP_FLOAT_COLUMNS.values() for c in cols
 )
 
+#: Every route's SourceHaloID order is ascending (ForestIndex, rank): on the two
+#: prelinked routes a forest (an L-Halo tree, a forests-HDF5 ForestInfo row) is
+#: one inventory unit; on ASCII the inventory unit is the forest itself (the
+#: forest-rank identity convention). ``source_halo_id`` therefore applies to
+#: every format.
 SOURCE_FORMATS = ("lhalo_binary", "consistent_trees_hdf5", "consistent_trees_ascii")
-#: Formats whose SourceHaloID order *is* ascending (ForestIndex, rank): every
-#: route. On the two prelinked routes a forest (an L-Halo tree, a forests-HDF5
-#: ForestInfo row) is one inventory unit; on ASCII the inventory unit is the
-#: forest itself (the forest-rank identity scheme).
-UNIT_FOREST_FORMATS = ("lhalo_binary", "consistent_trees_hdf5", "consistent_trees_ascii")
 
 #: The profile role that names each format's own per-halo catalog identifier
 #:, which the converter carries as ``MostBoundID``. Restated, not imported.
@@ -847,7 +847,7 @@ class SourceDump:
         return out
 
 
-def reference_blocks(dump_blocks, source_format, findings):
+def reference_blocks(dump_blocks, findings):
     """Check a (ForestIndex, rank)-sorted, de-duplicated dump; assign expected SourceHaloID.
 
     Ranks must be dense from 0 within every forest (``dump_integrity``), and a
@@ -856,11 +856,6 @@ def reference_blocks(dump_blocks, source_format, findings):
     unit on the prelinked routes, the forest as the unit on ASCII -- so the
     expected ``SourceHaloID`` of the k-th row is k (from 1).
     """
-    # Every format the CLI accepts is listed; the test stays because
-    # compare_streams is also called directly with any string, and an
-    # unlisted format must get no SourceHaloID expectation rather than one
-    # its id convention might not satisfy.
-    assign = source_format in UNIT_FOREST_FORMATS
     position = 0
     carry_forest, carry_next = None, 0
     for block in dump_blocks:
@@ -910,9 +905,8 @@ def reference_blocks(dump_blocks, source_format, findings):
         if n:
             carry_forest = int(forest[-1])
             carry_next = int(expected[-1]) + 1
-        if assign:
-            block = block.copy()
-            block["SourceHaloID"] = np.arange(position + 1, position + n + 1, dtype=np.int64)
+        block = block.copy()
+        block["SourceHaloID"] = np.arange(position + 1, position + n + 1, dtype=np.int64)
         position += n
         yield block
 
@@ -1234,7 +1228,7 @@ def _declare_checks(findings, source_format):
     findings.declare("source_halo_id", "SourceHaloID is the 1-based (ForestIndex, rank) position")
 
 
-def _compare_window(reference, converted, source_format, findings):
+def _compare_window(reference, converted, findings):
     n = len(reference)
 
     def check(name, bad, describe):
@@ -1293,14 +1287,13 @@ def _compare_window(reference, converted, source_format, findings):
                 np.atleast_1d(c[f]).tolist(),
             ),
         )
-    if source_format in UNIT_FOREST_FORMATS:
-        check(
-            "source_halo_id",
-            reference["SourceHaloID"] != converted["SourceHaloID"],
-            lambda r, c: "{}: expected SourceHaloID {} converted {}".format(
-                _describe_key(r), int(r["SourceHaloID"]), int(c["SourceHaloID"])
-            ),
-        )
+    check(
+        "source_halo_id",
+        reference["SourceHaloID"] != converted["SourceHaloID"],
+        lambda r, c: "{}: expected SourceHaloID {} converted {}".format(
+            _describe_key(r), int(r["SourceHaloID"]), int(c["SourceHaloID"])
+        ),
+    )
 
 
 def compare_streams(
@@ -1370,7 +1363,6 @@ def compare_streams(
                 "duplicate_reference_rows",
                 _describe_key,
             ),
-            source_format,
             findings,
         )
         stats["joins"]["compare"] = {}
@@ -1409,7 +1401,7 @@ def compare_streams(
             hit = match >= 0
             matched += int(np.count_nonzero(hit))
             if hit.any():
-                _compare_window(ref[hit], conv[match[hit]], source_format, findings)
+                _compare_window(ref[hit], conv[match[hit]], findings)
     finally:
         stats["sorts"] = [made.stats for made in sorters]
         for made in sorters:

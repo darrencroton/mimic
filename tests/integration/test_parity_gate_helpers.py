@@ -2,29 +2,38 @@
 """
 Parity-gate helpers: the pure functions of tests/framework/parity_gate.py every
 cross-format gate uses to prove its two runs share one input, the inventory
-proof from a conversion manifest, and the guard on a named horizontal dataset.
+proof from a conversion manifest, the use of a named horizontal dataset by every
+stage, and the scratch-tree removal the gates share.
 Needs no dataset or build. Run with: python3 tests/integration/test_parity_gate_helpers.py
 """
 
 import json
+import shutil
 import sys
 import tempfile
 from functools import partial
 from pathlib import Path
+from unittest import mock
 
 import h5py
 import numpy
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from framework import run_test_suite  # noqa: E402
+from framework.fs import remove_tree  # noqa: E402
 from framework.parity_gate import (  # noqa: E402
+    REPO_ROOT,
     GatePackage,
     ParityGate,
+    RunOutput,
     assert_horizontal_run_file_diff,
     assert_manifest_inventory,
     dynamic_variant,
+    flatten_keys,
     functional_lines,
+    package_path,
     range_override_variant,
 )
 
@@ -165,38 +174,110 @@ def test_manifest_inventory_proves_a_two_file_conversion():
         assert _refuses(wrong), "a single-file forest marked -1/-1 was accepted"
 
 
-def test_named_dataset_needs_a_gate_that_threads_it():
-    """A gate naming a horizontal dataset fails at stage 2 unless it threads the dataset."""
-    package = GatePackage(
-        vertical="vert",
-        horizontal="horiz",
-        alist="horiz.a_list",
-        evidence="none",
-        file_range=(0, 0),
-        override_vertical_range=False,
-        format_version=3,
-        source_format="consistent_trees_ascii",
-        column_mapping_sha256="0" * 64,
-        links_adjacent=1,
-        halos=0,
-        forests=0,
-        gapped_descendants=0,
-        max_descendant_span=1,
-        required_free_bytes=0,
-        horizontal_dataset=(Path("/data/subset"), Path("/data/subset.a_list")),
-    )
+def test_a_named_dataset_is_used_by_every_stage():
+    """A package naming a horizontal dataset has it read in place of the package's own.
 
-    class Threading(ParityGate):
-        THREADS_HORIZONTAL_DATASET = True
+    Its snapshot list names the snapshot files stages 1 and 2 expect, a leg runs
+    the dataset variant of the worktree's run file, and a leg refuses a horizontal
+    run that read the package's own snapshots. ``shin-uchuu`` stands in as the
+    horizontal package because a leg reads the file range its package declares.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        dataset, worktree = root / "dataset", root / "worktree"
+        dataset.mkdir()
+        alist = _write(root, "named.a_list", "0.5\n1.0\n")
+        package = GatePackage(
+            vertical="vert",
+            horizontal="shin-uchuu",
+            alist="shin-uchuu.a_list",
+            evidence="none",
+            file_range=(0, 3),
+            override_vertical_range=False,
+            format_version=3,
+            source_format="consistent_trees_ascii",
+            column_mapping_sha256="0" * 64,
+            links_adjacent=1,
+            halos=0,
+            forests=0,
+            gapped_descendants=0,
+            max_descendant_span=1,
+            required_free_bytes=0,
+            horizontal_dataset=(dataset, alist),
+        )
+        gate = ParityGate(package)
+        assert gate.expected_snapshot_files() == ["snapshot_000.h5", "snapshot_001.h5"]
 
-    for gate, refused_for_threading in ((ParityGate(package), True), (Threading(package), False)):
-        message = ""
-        try:
-            gate.stage_dataset_provenance()
-        except AssertionError as error:
-            message = str(error)
-        threading_refusal = "THREADS_HORIZONTAL_DATASET" in message
-        assert threading_refusal == refused_for_threading, f"{type(gate).__name__}: {message}"
+        run_file = worktree / gate.committed_run_file("halos-only", "shin-uchuu").relative_to(
+            REPO_ROOT
+        )
+        run_file.parent.mkdir(parents=True)
+        run_file.write_text(HORIZONTAL.replace("input:\n  first_file: 0\n  last_file: 3\n", ""))
+        gate.scratch, gate.worktrees[gate.pair_key("halos-only", "shin-uchuu")] = root, worktree
+        with mock.patch.object(gate, "run_in_worktree", side_effect=lambda *args: args[2]):
+            ran = gate.execute_run("halos-only", "shin-uchuu", "fixed")
+        keys = flatten_keys(yaml.safe_load(ran.read_text()))
+        assert (keys["input.simulation_dir"], keys["input.snapshot_list_file"]) == (
+            str(dataset),
+            str(alist),
+        ), keys
+
+        def run(name, **attrs):
+            (root / name).mkdir()
+            with h5py.File(root / name / "model.hdf5", "w") as handle:
+                group = handle.create_group("RunProperties")
+                group["Redshifts"], group["FieldMetadata"] = numpy.zeros(1), numpy.zeros(1)
+                group.attrs.update({"FirstFile": 0, "LastFile": 0, **attrs})
+            return RunOutput(name, root / name, "model", worktree, run_file)
+
+        gate.vertical_inventory = {
+            "tree_name": "t",
+            "first_file": 0,
+            "last_file": 0,
+            "files": ["t"],
+        }
+        vertical = run(
+            "vertical", TreeName="t", SimulationDir=str(package_path("vert", "snapshots"))
+        )
+        named = run("named", SimulationDir=str(dataset), FileWithSnapList=str(alist))
+        gate.assert_recorded_file_ranges(vertical, named)
+        own = package_path("shin-uchuu", "snapshots")
+        own_run = run("own", SimulationDir=str(own), FileWithSnapList=str(alist))
+        refused = partial(gate.assert_recorded_file_ranges, vertical, own_run)
+        assert _refuses(refused), "a horizontal run of the package's own snapshots was accepted"
+
+
+def test_remove_tree_retries_once_then_refuses_a_tree_that_remains():
+    """A tree whose first removal fails (an entry recreated meanwhile) is removed on the
+    retry; one that still exists afterwards raises rather than being left silently."""
+    real = shutil.rmtree
+    with tempfile.TemporaryDirectory() as tmp:
+        tree = Path(tmp) / "tree"
+        (tree / "sub").mkdir(parents=True)
+        calls = []
+
+        def racing(path, ignore_errors=False):
+            calls.append(ignore_errors)
+            if len(calls) == 1:
+                raise OSError("Directory not empty")
+            real(path, ignore_errors=ignore_errors)
+
+        with mock.patch("framework.fs.shutil.rmtree", side_effect=racing):
+            remove_tree(tree)
+        assert not tree.exists() and calls == [False, True], calls
+
+        def held_open(_path, ignore_errors=False):
+            if not ignore_errors:
+                raise OSError("Directory not empty")
+
+        tree.mkdir()
+        with mock.patch("framework.fs.shutil.rmtree", side_effect=held_open):
+            try:
+                remove_tree(tree)
+            except OSError:
+                pass
+            else:
+                raise AssertionError("a tree that remained after the retry was not reported")
 
 
 if __name__ == "__main__":
@@ -208,7 +289,8 @@ if __name__ == "__main__":
                 test_horizontal_diff_accepts_two_keys_and_rejects_a_third,
                 test_horizontal_diff_admits_the_dataset_override_keys_only_with_an_override,
                 test_manifest_inventory_proves_a_two_file_conversion,
-                test_named_dataset_needs_a_gate_that_threads_it,
+                test_a_named_dataset_is_used_by_every_stage,
+                test_remove_tree_retries_once_then_refuses_a_tree_that_remains,
             ],
             "Parity-gate run-file helpers (test_parity_gate_helpers.py)",
         )

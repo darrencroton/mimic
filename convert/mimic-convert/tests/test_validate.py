@@ -10,6 +10,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -37,7 +38,7 @@ from conversion_manifest import ConversionManifest  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from hdf5_writer_v3 import HorizontalV3Writer, snapshot_h5_name  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
-from test_hdf5_writer import make_v3_conversion  # noqa: E402
+from test_hdf5_writer_v3 import make_v3_conversion  # noqa: E402
 
 
 def outcome_map(outcomes):
@@ -73,7 +74,6 @@ LITERAL_DECLARATIONS = {
     "Vmax": ("float", "km/s", "none", "Maximum circular velocity"),
     "MostBoundID": ("long long", "dimensionless", "none", "Catalog identifier"),
 }
-_LITERAL_STORAGE = {"int": "<i4", "long long": "<i8", "float": "<f4", "vec3_float": "<f4"}
 _LITERAL_FIXED = {
     "Descendant": "<i8",
     "FirstProgenitor": "<i8",
@@ -886,8 +886,8 @@ def make_v3_ascii_conversion(root, forests):
 
 
 def reorder_to_source_file_order(directory, forests):
-    """Rewrite an ASCII v3 dataset in the physical order the pre-2026-10-07
-    convention gave a one-file source: SourceHaloID is the halo's 1-based data
+    """Rewrite an ASCII v3 dataset in the physical order a one-file source has
+    without the forest-rank identity scheme: SourceHaloID is the halo's 1-based data
     row in the source file and every slab is in ascending SourceHaloID. Rows
     are permuted with every column, and each link's row index is remapped, so
     every link still names the same halo and only the identity order changes.
@@ -1214,7 +1214,7 @@ def write_adjacent_chain_dataset(directory, n_forests: int, n_snapshots: int = 3
     )
 
 
-class TestV3BoundedBattery(unittest.TestCase):
+class TestExternalSortBudget(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="v3_bounded_"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
@@ -1269,8 +1269,7 @@ class TestV3FormatTables(unittest.TestCase):
         self.assertEqual(
             [(name, dtype.str) for name, (dtype, _vec) in list(written.items())[:11]], restated
         )
-        # the version the battery requires is the writer's, and the format's
-        self.assertEqual(validate_v3.V3_FORMAT_VERSION, V3_FORMAT_VERSION)
+        # the version the writer stamps and the battery requires is the format's
         self.assertEqual(V3_FORMAT_VERSION, 3)
 
     def test_the_declarable_types_match_the_schema_module(self):
@@ -1368,7 +1367,7 @@ class BoundedAgreementCase(unittest.TestCase):
         external = validate_v3.run_battery_v3(
             directory, a_list, manifest_path=manifest_path, budget_bytes=V3_BUDGET
         )
-        self.assertNotIn("battery_mode", external.measurements)
+        self.assertEqual(external.measurements["battery_mode"], "external-sort")
         expected = verdicts(external)
         self.assertEqual(list(expected), list(validate_v3.V3_CHECKS))
         lines = None
@@ -1412,6 +1411,11 @@ class BoundedAgreementCase(unittest.TestCase):
                 self.assertEqual(current, lines, "block_rows {}".format(block_rows))
             lines = current
         return outcome_map(external.outcomes), outcome_map(bounded.outcomes)
+
+    def assert_only_kind(self, outcome, kind):
+        """``outcome`` fails with ``kind`` as its one failure kind."""
+        pattern = r"^\d+ {}; examples: [^;]*$".format(re.escape(kind))
+        self.assertRegex(outcome.detail, pattern, outcome.line())
 
 
 class TestBoundedModeAgreement(BoundedAgreementCase):
@@ -1461,7 +1465,9 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
 
     def test_every_corruption_gets_the_same_verdicts(self):
         """Each corruption of the adjacent dataset, after the external-sort
-        battery's own corruption tests, with the check it must fail."""
+        mode's own corruption tests, with the check it must fail. A third
+        element names the one failure kind both modes must report for a
+        corruption that only that kind's detector catches."""
         mutations = {
             # structure
             "extra root object": (lambda d: self.add_root_group(d), "object-set"),
@@ -1561,6 +1567,11 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
                 lambda d: set_values(d, 4, "NextProgenitor", {0: 2}),
                 "topology-closure",
             ),
+            "NextProgenitor chain spliced onto another descendant's": (
+                lambda d: self.splice_progenitor_chain(d),
+                "topology-closure",
+                validate_v3.KIND_NEXT_PROGENITOR,
+            ),
             "FoF member of another group": (
                 lambda d: set_values(d, 5, "NextHaloInFOFgroup", {2: 5}),
                 "topology-closure",
@@ -1604,6 +1615,11 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
                 or set_values(d, 1, "ForestIndex", {0: 3}),
                 "identity",
             ),
+            "empty ASCII forest inside the enumeration": (
+                lambda d: self.empty_forest(d, 3),
+                "identity",
+                validate_v3.KIND_ASCII_FOREST_SKIPPED,
+            ),
             "physically ordered ASCII dataset": (
                 lambda d: reorder_to_source_file_order(d, self.forests),
                 "identity",
@@ -1622,12 +1638,34 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
                 "manifest-binding",
             ),
         }
-        for name, (mutate, check) in mutations.items():
+        for name, (mutate, check, *only) in mutations.items():
             with self.subTest(name):
                 directory = self.copy()
                 mutate(directory)
-                external, _bounded = self.agree(directory, BOUNDED_BLOCK_SIZES[:3], examples=False)
+                external, bounded = self.agree(directory, BOUNDED_BLOCK_SIZES[:3], examples=False)
                 self.assertEqual(external[check].status, "FAIL", external[check].line())
+                for kind in only:
+                    self.assert_only_kind(external[check], kind)
+                    self.assert_only_kind(bounded[check], kind)
+
+    def test_a_repeated_pair_fails_identity_where_position_identity_does_not_apply(self):
+        """Without the position check (the state of a sampled L-Halo or
+        forests-HDF5 conversion) only the per-forest rank order catches a
+        repeated (ForestIndex, rank) pair, which in the bounded mode is the
+        position bitset. Each repeated pair is listed once among the
+        examples."""
+        directory = self.copy()
+        set_values(directory, 5, "HaloRankInForest", {7: 0})
+        with mock.patch.object(validate_v3, "POSITION_IDENTITY_FORMATS", ()):
+            external, bounded = self.agree(directory)
+        self.assertEqual(external["identity"].status, "FAIL")
+        detail = bounded["identity"].detail
+        self.assertNotIn(validate_v3.KIND_POSITION_IDENTITY, detail)
+        found = re.search(re.escape(validate_v3.KIND_RANK_DENSITY) + "; examples: ([^;]*)", detail)
+        self.assertIsNotNone(found, detail)
+        listed = re.findall(r"\(ForestIndex=\d+, rank=\d+\)", found.group(1))
+        self.assertTrue(listed, detail)
+        self.assertEqual(len(listed), len(set(listed)), detail)
 
     def test_another_a_list_gets_the_same_verdicts(self):
         other = Path(self._tmp.name) / "other.a_list"
@@ -1667,6 +1705,43 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
                 self.assertEqual(external[check].status, "FAIL", external[check].line())
 
     # ---- corruption helpers ------------------------------------------------
+
+    def splice_progenitor_chain(self, directory):
+        """Cut 1010's two-member progenitor chain at snapshot 4 after its head
+        and hang the second member on 1020's one-member chain instead: every
+        halo is still reached once and no link crosses a forest, but that
+        NextProgenitor names a halo of another descendant."""
+        with h5py.File(Path(directory) / "snapshot_005.h5", "r") as handle:
+            first_progenitor = handle["halos"]["FirstProgenitor"][...]
+        with h5py.File(Path(directory) / "snapshot_004.h5", "r") as handle:
+            next_progenitor = handle["halos"]["NextProgenitor"][...]
+        head = int(first_progenitor[row_of(directory, 5, 1010)])
+        second = int(next_progenitor[head])
+        other = int(first_progenitor[row_of(directory, 5, 1020)])
+        self.assertEqual((next_progenitor[second], next_progenitor[other]), (-1, -1))
+        set_values(directory, 4, "NextProgenitor", {head: -1, other: second})
+        set_values(directory, 4, "NextProgenitorSnapshot", {head: -1, other: 4})
+
+    def empty_forest(self, directory, forest):
+        """Relabel ``forest``'s halos as ``forest - 1``'s, ranked after its own:
+        ``forest`` holds no halo while every SourceHaloID position, link and
+        the maximum rank stay as they were."""
+        paths = sorted(Path(directory).glob("snapshot_*.h5"))
+        indices = []
+        for path in paths:
+            with h5py.File(path, "r") as handle:
+                indices.append(handle["halos"]["ForestIndex"][...])
+        offset = sum(int(np.count_nonzero(values == forest - 1)) for values in indices)
+        for path, values in zip(paths, indices):
+            rows = np.flatnonzero(values == forest)
+            if not rows.size:
+                continue
+            with h5py.File(path, "r+") as handle:
+                halos = handle["halos"]
+                rank = halos["HaloRankInForest"][...]
+                for row in rows:
+                    halos["ForestIndex"][row] = forest - 1
+                    halos["HaloRankInForest"][row] = rank[row] + offset
 
     def add_root_group(self, directory):
         with h5py.File(directory / "snapshot_002.h5", "r+") as handle:
@@ -1886,7 +1961,7 @@ class TestBoundedModeRefusals(unittest.TestCase):
 
     def assert_refused_before_reading(self, pattern, conv, directory=None, **kwargs):
         reads = mock.patch.object(
-            validate_bounded, "check_manifest_binding", side_effect=AssertionError("read")
+            validate_v3, "check_manifest_binding", side_effect=AssertionError("read")
         )
         with reads, mock.patch.object(
             validate_bounded._BoundedRowScan, "run", side_effect=AssertionError("scanned")
@@ -1908,17 +1983,6 @@ class TestBoundedModeRefusals(unittest.TestCase):
         )
         self.assertFalse(result.failed)
         self.assertEqual(result.measurements["links_adjacent_measured"], 0)
-
-    def test_the_dispatch_refuses_a_gapped_dataset_too(self):
-        with self.assertRaisesRegex(ConverterError, "links_adjacent 0"):
-            with capture_stderr():
-                validate_v3.run_battery_v3(
-                    self.gapped.dataset,
-                    self.gapped.a_list,
-                    manifest_path=self.gapped.manifest.path,
-                    budget_bytes=BOUNDED_BUDGET,
-                    bounded=True,
-                )
 
     def test_one_gapped_file_among_adjacent_files_is_refused_by_name(self):
         directory = self.copy(self.adjacent)
@@ -1944,6 +2008,22 @@ class TestBoundedModeRefusals(unittest.TestCase):
             "cannot load the conversion manifest",
             self.adjacent,
             manifest_path=Path(self._tmp.name) / "absent" / "manifest.json",
+        )
+
+    def test_a_snapshot_above_int32_max_rows_is_refused_by_name(self):
+        """The mode holds whole-snapshot columns, which the format does not let
+        a validator require above INT32_MAX rows. The wide SourceHaloID is
+        declared but never written, so nothing of its size is stored."""
+        directory = self.copy(self.adjacent)
+        with h5py.File(directory / "snapshot_005.h5", "r+") as handle:
+            halos = handle["halos"]
+            del halos["SourceHaloID"]
+            rows = validate_bounded.MAX_WIDEST_ROWS + 1
+            halos.create_dataset("SourceHaloID", shape=(rows,), dtype="<i8", chunks=(65536,))
+        self.assert_refused_before_reading(
+            r"above INT32_MAX \(2147483647\) rows.*snapshot_005\.h5 holds 2147483648 rows",
+            self.adjacent,
+            directory,
         )
 
     def test_block_sizes_outside_the_int32_range_are_refused(self):
@@ -1975,13 +2055,13 @@ class TestBoundedModeRefusals(unittest.TestCase):
         # the battery hands its one effective block to the inherited sidecar
         # reader and row scan: here min(block_rows, W) = W = 9 rows
         calls = []
-        real = validate_bounded.check_sidecar_content
+        real = validate_v3.check_sidecar_content
 
         def recording(*args):
             calls.append(args[-1])
             return real(*args)
 
-        with mock.patch.object(validate_bounded, "check_sidecar_content", side_effect=recording):
+        with mock.patch.object(validate_v3, "check_sidecar_content", side_effect=recording):
             result = self.bounded(self.adjacent)
         ceiling = result.measurements["ceiling"]
         self.assertEqual(ceiling["effective_block_rows"], 9)
@@ -2006,7 +2086,7 @@ class TestBoundedModeRefusals(unittest.TestCase):
         def peak_of(block):
             tracemalloc.start()
             try:
-                failures = validate_bounded.check_sidecar_content(
+                failures = validate_v3.check_sidecar_content(
                     path, "consistent_trees_ascii", n_forests, None, block
                 )
                 return failures, tracemalloc.get_traced_memory()[1]
@@ -2027,7 +2107,7 @@ class TestBoundedModeRefusals(unittest.TestCase):
             manifest_path=self.adjacent.manifest.path,
             budget_bytes=V3_BUDGET,
         )
-        self.assertNotIn("battery_mode", result.measurements)
+        self.assertEqual(result.measurements["battery_mode"], "external-sort")
         self.assertGreater(result.measurements["chain_edges"], 0)
 
 
@@ -2081,11 +2161,11 @@ class TestBoundedCeiling(unittest.TestCase):
         self.assertIn("ceiling_bytes {}".format(expected), text)
 
     def test_the_battery_allocates_within_its_printed_ceiling(self):
-        """Every buffer and object the battery allocates, metered or not, as
-        tracemalloc sees it, stays inside the ceiling it printed, on a dataset
-        whose widest-snapshot columns dominate the ceiling. The meter is
-        charged from the ceiling's own terms; this measures the battery
-        instead."""
+        """Every buffer and object the battery allocates through Python and
+        numpy, metered or not, stays inside the ceiling it printed, on a
+        dataset whose widest-snapshot columns dominate the ceiling. The meter
+        is charged from the ceiling's own terms; this measures the battery
+        instead. The HDF5 library's own buffers are not traced."""
         n_forests, n_snapshots, block_rows = 400_000, 2, 4096
         n_halos = n_forests * n_snapshots
         with tempfile.TemporaryDirectory() as tmp:
@@ -2098,19 +2178,19 @@ class TestBoundedCeiling(unittest.TestCase):
                 "files": [{"source_file_ordinal": 0, "n_units": n_forests}],
             }
             # A literal dataset has no conversion manifest: the checks bound to
-            # one are the external-sort battery's own, hold nothing that grows
-            # with the dataset, and are stood in for, so every pass of the
-            # bounded mode runs on the real files.
+            # one are shared with the external-sort mode, hold nothing that
+            # grows with the dataset, and are stood in for, so every pass of
+            # the bounded mode runs on the real files.
             with mock.patch.object(
-                validate_bounded, "load_manifest", return_value=SimpleNamespace(inventory=inventory)
+                validate_v3, "load_manifest", return_value=SimpleNamespace(inventory=inventory)
             ), mock.patch.object(
-                validate_bounded, "check_manifest_binding", return_value=[]
+                validate_v3, "check_manifest_binding", return_value=[]
             ), mock.patch.object(
-                validate_bounded, "check_schema_binding", return_value=[]
+                validate_v3, "check_schema_binding", return_value=[]
             ), mock.patch.object(
-                validate_bounded, "check_headers", return_value=([], [])
+                validate_v3, "check_headers", return_value=([], [])
             ), mock.patch.object(
-                validate_bounded, "check_count_conservation", return_value=[]
+                validate_v3, "check_count_conservation", return_value=[]
             ), capture_stderr():
                 tracemalloc.start()
                 try:

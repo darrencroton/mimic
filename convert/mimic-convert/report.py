@@ -23,12 +23,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np  # noqa: E402
 import runtime_routes  # noqa: E402
-from conversion_manifest import ConversionManifest  # noqa: E402
+from conversion_manifest import MANIFEST_NAME  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
+from validate_bounded import run_battery_bounded  # noqa: E402
 from validate_v3 import (  # noqa: E402
     DEFAULT_MULTIPLIER,
     DEFAULT_V3_BUDGET_BYTES,
     V3BatteryResult,
+    load_manifest,
     run_battery_v3,
 )
 
@@ -275,7 +277,7 @@ def build_report_v3(manifest, battery, dataset_dir) -> dict:
             "validation": {
                 # which battery mode settled the verdicts; the bounded mode's
                 # printed ceiling, None for the external-sort mode
-                "battery_mode": measured.get("battery_mode", "external-sort"),
+                "battery_mode": measured["battery_mode"],
                 "ceiling_bytes": (measured.get("ceiling") or {}).get("ceiling_bytes"),
                 "budget_bytes": measured.get("budget_bytes"),
                 "peak_resident_bytes": measured.get("peak_resident_bytes"),
@@ -501,19 +503,21 @@ def run_report_v3(
     reported as is and the battery is not run again, so ``multiplier``,
     ``budget_bytes``, ``spill_dir`` and ``bounded`` are then unused. Binding
     that result to this dataset is the caller's obligation. ``bounded`` runs
-    the battery in its bounded mode (``run_battery_v3``)."""
-    manifest = ConversionManifest.load(workdir)
+    the battery in its bounded mode (:func:`validate_bounded.run_battery_bounded`).
+    A workdir the battery refuses (:func:`validate_v3.load_manifest`) is
+    refused before anything is written."""
+    manifest = load_manifest(Path(workdir) / MANIFEST_NAME)
     manifest.require_complete("write")
     dataset_dir = manifest.artifact_path(manifest.stage("write")["directory"])
     if battery is None:
-        battery = run_battery_v3(
+        run_battery = run_battery_bounded if bounded else run_battery_v3
+        battery = run_battery(
             dataset_dir,
             a_list_path,
             manifest_path=manifest.path,
             multiplier=multiplier,
             budget_bytes=budget_bytes,
             spill_dir=spill_dir,
-            bounded=bounded,
         )
     report = build_report_v3(manifest, battery, dataset_dir)
     json_path = write_report_v3(report, manifest.workdir)

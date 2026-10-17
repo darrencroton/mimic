@@ -34,15 +34,10 @@ and the sidecar need:
   by first ``#tree`` marker, and a piece spanning files carries -1/-1;
 - the per-tree inventory's forest columns, which name each tree's piece.
 
-Memory (the package docstring states the figures and what was measured): the
-labelling pre-pass holds two slabs' labels (8 B x n) beside one block of two
-columns (16 B x b) and the per-slab ``unique``'s transients; the table read
-peaks at the census reader's 128 B per tree, then the installation holds 84 B
-x T + 82 B x F' + 8 B x P + 56 B x p (measured 189 B x T when F' = p = T),
-about 84 GB concurrent with pass 0's arrays at Shin-Uchuu; the pieces are
-written out and released at once, and the passes keep ``tree_forest``,
-``tree_original`` and ``tree_totals`` (24 B x T), the output bases and the
-split masks.
+Memory: the ``cut_*`` entries of ``rewriter.inputs.MEMORY_FORMULAS``. The
+pieces are written out and released before the slab passes, which keep
+``tree_forest``, ``tree_original`` and ``tree_totals``, the output's bases and
+forest ids, and the split masks.
 """
 
 import os
@@ -80,10 +75,6 @@ N_LARGEST = 10
 
 #: The columns the labelling pre-pass reads.
 LABEL_COLUMNS = ("Descendant", "MostBoundID")
-
-
-def _examples(values, limit: int = 5) -> list:
-    return list(values)[:limit]
 
 
 @dataclass
@@ -273,7 +264,7 @@ def install_table(
     )
     # a piece held in one file needs that file's conversion ordinal, which a
     # version 3 input's sidecar gives only through a forest held in that file
-    single_files = np.unique(forest_table.file_ordinal[forest_table.file_ordinal >= 0])
+    single_files = np.unique(forest_table.file_id[forest_table.file_id >= 0])
     no_ordinal = [
         int(f) for f in single_files.tolist() if prepared.file_ordinals.get(int(f), -1) < 0
     ]
@@ -283,7 +274,7 @@ def install_table(
             "conversion ordinal for ({}); every input forest of those files spans files, and the "
             "cut cannot infer the converter's file order".format(
                 request.cut_table,
-                int(np.count_nonzero(np.isin(forest_table.file_ordinal, no_ordinal))),
+                int(np.count_nonzero(np.isin(forest_table.file_id, no_ordinal))),
                 ", ".join(
                     "FileID {} ({})".format(f, index.filenames.get(f)) for f in no_ordinal[:5]
                 ),

@@ -228,12 +228,12 @@ class InventoryTests(unittest.TestCase):
         prelinked routes' unchanged, ``SourceHaloID = 1 + sum(n_g for g <
         ForestIndex) + HaloRankInForest``, and inversion lands on
         ``(0, ForestIndex, HaloRankInForest)`` -- the 0 a shim, declared by
-        ``physical_units = False`` rather than read as a file."""
+        ``physical_units=False`` rather than read as a file."""
         counts = [6, 4, 2, 2, 3]
         inventory = base.SourceInventory(
-            [base.SourceUnit(0, forest, n) for forest, n in enumerate(counts)]
+            [base.SourceUnit(0, forest, n) for forest, n in enumerate(counts)],
+            physical_units=False,
         )
-        inventory.physical_units = False
         source_halo_id = 1
         for forest, n in enumerate(counts):
             self.assertEqual(inventory.base_id(0, forest), 1 + sum(counts[:forest]))

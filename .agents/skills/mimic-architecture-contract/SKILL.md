@@ -24,7 +24,7 @@ Do NOT use it for:
 Before editing anything under `src/` or proposing a structural change:
 
 1. Read `docs/VISION.md` (the principles below are its operational form) and skim `docs/DEVELOPER-GUIDE.md` for the subsystem you are touching.
-2. Structural work is planned under the owner's development pathway in `docs/dev/`; plans there are ephemeral and never a source of facts. `ls docs/dev/` to see whether one already covers the design space you are entering.
+2. Structural work is planned under the owner's development pathway in `docs/dev/`; plans there are ephemeral and never a source of facts.
 3. Trace your change against the data-flow section below: name the exact function where your change lands and which invariants (section 3) it can reach.
 4. Run `make info` to confirm the build configuration you will test against, and pick ONE `MODEL`/`SIMULATION` pair for every command in the task (defaults: `sage16` + `mini-millennium`).
 5. If your change touches a file under any `generated/` directory, stop — edit the YAML metadata or the generator and run `make generate` instead (see the `mimic-properties` skill).
@@ -176,7 +176,7 @@ Stated plainly so you neither trip over them nor "fix" them casually. None of th
 
 ## 7. Where structural proposals go
 
-Any change that alters this contract — a new driver, a new dispatch mode, a new package type, a new ID scheme, buffer-ownership changes — is planned under the owner's development pathway in `docs/dev/`; plans there are ephemeral and never a source of facts (they are archived once done). Gates and review for the eventual implementation: the `mimic-change-control` skill.
+Any change that alters this contract — a new driver, a new dispatch mode, a new package type, a new ID scheme, buffer-ownership changes — is planned under the owner's development pathway in `docs/dev/`; plans there are ephemeral and never a source of facts. Gates and review for the eventual implementation: the `mimic-change-control` skill.
 
 ## Provenance and maintenance
 
@@ -205,8 +205,6 @@ grep -n "vertical_reader_lookup\|horizontal_reader_lookup" src/core/read_paramet
 # Stale generated files still present (weak point W4)
 grep -n "GENERATED_HEADERS" Makefile
 
-# Active structural plans
-ls docs/dev/
 ```
 
 If a re-verification command comes back empty or different, trust the repo, fix this skill, and note the drift.

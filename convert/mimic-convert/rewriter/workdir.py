@@ -5,14 +5,17 @@ validate`` and ``report`` bind to it through their existing entry points:
 
 - ``manifest.json``: a generic conversion manifest
   (``conversion_manifest.ConversionManifest``) created before the first
-  output byte, pinning every input artefact (the a_list, metadata, profile,
-  index files and conversion record by content, the input dataset's files by
-  path, size, mtime and inode) and freezing the rewriter's configuration; its
+  output byte, pinning every input artefact (the a_list, the simulation
+  metadata, the index files and, for a cut, the table and its record by
+  content; the input dataset's files by path, size, mtime and inode) and
+  freezing the rewriter's configuration; its
   ``ingest``, ``transpose`` and ``write`` stages are completed at the end with
   the counts the battery checks (per-snapshot counts, the halo total, the link
   counts, zero gapped descendants, a maximum span of 1, ``links_adjacent`` 1),
   the ``write`` stage registering ``dataset/`` and every file in it by SHA-256;
-- ``dataset/``: the snapshot files and ``forests.h5`` and nothing else;
+- ``dataset/``: the snapshot files and ``forests.h5`` and nothing else, each
+  verified under a temporary name and moved into place by
+  :func:`replace_durably`;
 - beside the manifest: ``tree_inventory.npy`` (its size and SHA-256 are in the
   restart state), ``rewrite_state.json`` (the restart state below),
   ``rewrite_summary.json`` and, for a cut, ``cut_pieces.npy`` (recorded like
@@ -102,6 +105,19 @@ def write_json_atomic(path: Path, document: Mapping) -> None:
         handle.write(json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
+    os.replace(tmp, path)
+    _fsync_directory(path.parent)
+
+
+def replace_durably(tmp: Path, path: Path) -> None:
+    """Rename the closed file ``tmp`` to ``path`` so that it survives a power
+    loss: its contents are flushed to disk before the rename and the
+    directory entry after it."""
+    descriptor = os.open(str(tmp), os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
     os.replace(tmp, path)
     _fsync_directory(path.parent)
 

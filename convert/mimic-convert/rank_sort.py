@@ -31,9 +31,10 @@ record within its forest in that order, so ranks are dense over
 a numpy structured array carrying at least the fields ``forest_id``, ``upid``,
 ``pid`` and ``id``, **each exactly int64** — any other dtype is rejected, never
 coerced (a silently truncated int32 id would corrupt every rank downstream).
-Extra fields are ignored, so a ``fixups.FIXED_RECORD_DTYPE`` array can be handed
-over as-is. A snapshot may be delivered as several consecutive blocks (the
-memory budget bounds this module, not its caller) and a snapshot contributing
+Extra fields are ignored, so a fixed-record array
+(``fixups.fixed_record_dtype``) can be handed over as-is. A snapshot may be
+delivered as several consecutive blocks (the memory
+budget bounds this module, not its caller) and a snapshot contributing
 zero records may be delivered as an empty block or omitted entirely. **A
 record's global position is its index in the concatenation of the blocks in
 iteration order** — so a caller that feeds snapshots in ascending order, each in

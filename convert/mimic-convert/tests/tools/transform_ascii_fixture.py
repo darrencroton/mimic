@@ -62,10 +62,15 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from census.cut_table import read_cut_table  # noqa: E402
-from ctrees_parser import parse_header_line, resolve_columns  # noqa: E402
+from column_schema import build_schema, load_column_map  # noqa: E402
+from ctrees_parser import parse_header_line, resolve_selection  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from fixups import fix_upid_snapshot  # noqa: E402
 from scatter import load_forests_list  # noqa: E402
+
+#: The shipped default Consistent-Trees ASCII profile, whose roles locate the
+#: columns the transformation reads.
+DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "profiles" / "consistent_trees_ascii.yaml"
 
 #: The one tree file the tool writes (Consistent-Trees' name for a one-file box).
 OUTPUT_TREE_FILE = "tree_0_0_0.dat"
@@ -101,12 +106,15 @@ class _File:
             len(self.lines),
         )
         self.n_trees = sum(1 for raw in self.lines if raw.split()[:1] == [b"#tree"])
-        layout = resolve_columns(parse_header_line(self.lines[0].decode("ascii").strip()))
+        layout = resolve_selection(
+            parse_header_line(self.lines[0].decode("ascii").strip()),
+            build_schema(load_column_map(DEFAULT_PROFILE)),
+        )
         self.n_columns = len(layout.all_names)
         self.id = layout.indices["id"]
         self.pid = layout.indices["pid"]
         self.upid = layout.indices["upid"]
-        self.snap = layout.indices[layout.snapshot_key]
+        self.snap = layout.indices["snap"]
 
 
 def _read_rows(files: Sequence[_File]) -> np.ndarray:

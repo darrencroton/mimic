@@ -255,7 +255,7 @@ def resolve_sample_columns(names: Sequence[str]) -> Dict[str, int]:
 
     Case-insensitive first match, mirroring the reference ``match_column_name``;
     a duplicated required column aborts, as it does in the converter's own
-    ``resolve_columns``.
+    ``ctrees_parser.resolve_selection``.
     """
     lowered = [n.lower() for n in names]
     wanted = ("scale", "id", "mvir", "jx", "jy", "jz")

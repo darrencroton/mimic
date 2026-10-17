@@ -109,7 +109,7 @@ The recorded gate of 2026-10-08 passed on this version 3 dataset: under `halos-o
 
 ## Committed contract fixture
 
-`_tests/data/worked_ascii/` holds a tiny version 3 dataset converted by `convert_trees.py` from a committed synthetic Consistent-Trees ASCII source, `_tests/data/source/` (`tree_0_0_0.dat`, `forests.list` and `worked_ascii.a_list`, written by `source/generate_source.py`) at the last six scale factors of this package's snapshot list: six snapshots (the first empty), three forests of four trees, and topology chosen to exercise the cases a reader must handle: a descendant with three progenitors, a two-member FoF group, a forest holding two self-central halos in the same snapshot, and a forest that ends before the final snapshot. The package's generic test tiers (`_tests/input/test_simulation.yaml`) run on it; `shin-uchuu`'s fixture is built from the same source at its own scale factors.
+`_tests/data/worked_ascii/` holds a tiny version 3 dataset converted by `convert_trees.py` from a committed synthetic Consistent-Trees ASCII source, `_tests/data/source/` (`tree_0_0_0.dat`, `forests.list` and `worked_ascii.a_list`, written by `source/generate_source.py`) at the last six scale factors of this package's snapshot list: six snapshots (the first empty), three forests holding four trees in all (forest 10 has two, forests 20 and 30 one each), and topology chosen to exercise the cases a reader must handle: a descendant with three progenitors, a two-member FoF group, a forest holding two self-central halos in the same snapshot, and a forest that ends before the final snapshot. The package's generic test tiers (`_tests/input/test_simulation.yaml`) run on it; `shin-uchuu`'s fixture is built from the same source at its own scale factors.
 
 Regenerate it with:
 
@@ -117,7 +117,7 @@ Regenerate it with:
 simulations/micro-uchuu-ascii-horizontal/_tests/data/regenerate.sh
 ```
 
-The script rewrites the source from its generator, converts it with `convert_trees.py` (ingest, transpose, write, then report, which runs the producer validation battery) under the `micro-uchuu-ascii` converter profile and metadata in a temporary workdir that is removed on exit, and installs the dataset and its a_list under `worked_ascii/`. The generator is deterministic and the converter is the only producer: nothing edits a written file.
+The script rewrites the committed source under `_tests/data/source/` from its generator, then calls `_tests/data/source/convert_worked_ascii.sh`, which generates the same source again at this package's scale factors into a temporary directory, converts it with `convert_trees.py` (ingest, transpose, write, then report, which runs the producer validation battery) under the `micro-uchuu-ascii` converter profile and metadata in a temporary workdir that is removed on exit, installs the dataset and its a_list under `worked_ascii/`, and fails if the installed `snapshot_*.h5` files are not exactly the set the conversion wrote. The generator is deterministic and the converter is the only producer: nothing edits a written file.
 
 ## Related packages
 

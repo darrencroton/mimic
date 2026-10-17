@@ -786,7 +786,7 @@ class BinaryLayoutTests(unittest.TestCase):
                 with self.assertRaisesRegex(ConverterError, "must be in"):
                     schema_for(profile, self.source_properties)
 
-    def test_layout_dtype_matches_the_slice_1_lhalo_record_dtype(self):
+    def test_layout_dtype_matches_the_hard_coded_lhalo_record_dtype(self):
         """Two descriptions of the same 104-byte record must not drift apart.
 
         `adapters/source_inventory.py` hard-codes LHALO_FIELDS; the layout module

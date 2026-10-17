@@ -40,7 +40,9 @@ from hdf5_writer_v3 import (  # noqa: E402
     load_header_metadata,
     snapshot_h5_name,
     v3_chunk_shape,
+    v3_halo_datasets,
     write_v3_sidecar,
+    write_v3_snapshot_columns,
 )
 from report import identity_multiplier_window, recommended_multiplier  # noqa: E402
 from validate_v3 import run_battery_v3  # noqa: E402
@@ -235,6 +237,31 @@ class TestV3Emission(V3Case):
             set(sidecar.keys()), {"ForestID", "SourceFileOrdinal", "SourceUnitOrdinal"}
         )
         self.assertEqual(set(sidecar.attrs.keys()), set())
+
+    def test_the_column_writer_writes_the_record_writers_bytes(self):
+        # the dataset rewriter writes through write_v3_snapshot_columns: the
+        # same columns in the same block size give byte-identical files
+        table = v3_halo_datasets(self.conv.schema)
+        declarations = self.conv.schema.output_field_declarations()
+        for snap in range(4):
+            name = snapshot_h5_name(snap)
+            with h5py.File(self.conv.dataset / name, "r") as handle:
+                header = {
+                    key: value.decode("ascii") if isinstance(value, bytes) else value
+                    for key, value in handle["header"].attrs.items()
+                }
+                columns = {key: handle["halos"][key][...] for key in table}
+            copy = Path(self._tmp.name) / ("columns_" + name)
+            write_v3_snapshot_columns(
+                copy,
+                header,
+                table,
+                declarations,
+                int(header["n_halos"]),
+                columns.__getitem__,
+                block_rows=2,
+            )
+            self.assertEqual(copy.read_bytes(), (self.conv.dataset / name).read_bytes(), name)
 
     def test_topology_and_identity_are_the_hand_derived_gapped_graph(self):
         for snap, columns in literal.EXPECTED.items():

@@ -813,3 +813,24 @@ Run 6, 2026-10-17, on top of `417be29c`. Logs are the slice's own (the run's sli
 **The distributed gate.** `MPIRUN="mpirun --oversubscribe" make tests-distributed`: PASS, **264 live checks** (baseline 266). The removed version 2 refusal leg carried exactly two checks, its MPI build (`build_mpi_halos-only_micro-uchuu-ascii-horizontal`) and its refusal (`version_2_refused_at_np2`): 266 − 2 = 264. A first run stopped before any check when Finder wrote a `.DS_Store` into `output/distributed-identity/gate` while the gate was clearing it; the rerun passed.
 
 **The disabled-mode identity test** now has eight legs ({halos-only, sage16} x {vertical mini-Millennium, gapped version 3} x {fixed, dynamic}). **PD-R6-4:** the contract named the `sage16` gapped fixed leg as the comparator self-check's mutation source, but on the five-halo gapped fixture that leg writes at most one galaxy per snapshot ({0: 1, 1: 1, 2: 1, 3: 0, 4: 1}) and the `halos-only` gapped legs have no galaxy absent from the next populated snapshot, so neither can feed the mutation cases; PM ruled the source `sage16` x vertical mini-Millennium x fixed. Its output keeps every snapshot in one partition per input file, so `snapshot_partition` now reads each snapshot's partition from the master file's `Galaxies` link instead of deriving it from the snapshot number. The test refuses uncommitted runtime paths, so it ran on the commits: at `e5cf0b7bc44f06b7ef10ff8d51f612e1a836c841`, `make tests-snapshot-global-identity` PASS, 12/12 stages, all 8 legs, and the self-check's 43 mutation and control cases (36 mutations rejected, 7 controls accepted) behaving as required, the same 43 case names the version 2 source generated at `ae6cf396` (evidence `archive/snapshot-global-identity/20261016T182021Z-ref501bac12-heade5cf0b7b/evidence.json`). With no version 2 gate left, `GatePackage.column_mapping_sha256` is a required `str`; default `tests-integration` 250/0 (n/a 12), `test_parity_gate_helpers.py` 6/6.
+
+### Stage D closeout
+
+State at `6bf87cf5`, after Slice 20 and Slices 19 and 21 to 25.
+
+**What Stage D deleted.** The version 2 reader path in `read_horizontal_hdf5.c` and the horizontal driver (the reader accepts `format_version` 3 only). Under `convert/mimic-convert/`: `convert_ctrees.py`, `hdf5_writer.py`, `validate.py`, `crosscheck.py`, `tests/mock_reference.py`, `tests/test_crosscheck.py`, the `tests/data/legacy_manifest_v2/` golden workdir, the rewriter's `migrate` operation, the ASCII preparation stages' release, finalize, batch and consumptive options, and the version 2 input of the bounded reader and the census. Under `simulations/`: the version 2 fixtures of `micro-uchuu-ascii-horizontal` (`_tests/data/` and `_tests/data/generic/`: six snapshot files, `forests.h5`, `fixture_manifest.json` and the a_list each, with `generic/regenerate.sh`) and of `shin-uchuu` (six snapshot files, `forests.h5`, `fixture_manifest.json`), `create_snapshot_fixture.py`, `check_fixture_conformance.py`, two version 2 C reader unit tests (`test_unit_horizontal_reader_open.c`, `test_unit_horizontal_driver_gather.c`) and `micro-uchuu-ascii`'s `test_topology_dump_format.py`. `make check-horizontal-fixture` and its CI step, `mimic-topology-dump`'s default version 1 mode and the version 2 refusal leg of `make tests-distributed` were removed. The version 2 reader's negative battery was ported to `tests/unit/test_horizontal_v3_reader.c`.
+
+**Measured line counts.** `git diff --shortstat ae6cf396 6bf87cf5`: 174 files changed, 3,994 insertions, 22,620 deletions.
+
+**Final baselines.**
+
+| Tier or target | Result |
+|---|---|
+| `make tests-converter` | 1550 passed, 0 failed |
+| `make tests-unit` | 599 passed, 0 failed (27 n/a) |
+| `make tests-integration` | 250 passed, 0 failed |
+| `make tests-scientific` | 38 passed, 0 failed, with the known WARN |
+| `make tests-horizontal-v3` | PASS |
+| `make tests-distributed` | 264 live checks (266 before Slice 20) |
+| `make tests-snapshot-global` | 115 declared cases (45 + 12 + 27 + 31) |
+| `make tests-snapshot-global-identity` | 8 legs ({halos-only, sage16} x {vertical mini-Millennium, gapped version 3} x {fixed, dynamic}) |

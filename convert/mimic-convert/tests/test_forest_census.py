@@ -23,7 +23,8 @@ Oracles:
 - the decided table against tables written out by hand from the fixture
   topology, on version 3 datasets the converter writes from the same forests
   under two catalogue file layouts, and against the partition that cuts every
-  co-membership ended
+  co-membership (a pair of trees, one holding a FoF member of a group centred
+  in the other) ended
   before the final snapshot, computed independently from the raw slab columns
   inside the test (:func:`all_ended_pieces`); naming, invariants, promotions,
   the progenitor-order change, the affected-history bracket and the partition
@@ -31,11 +32,13 @@ Oracles:
   topology.
 """
 
+import argparse
 import contextlib
 import hashlib
 import io
 import json
 import os
+import random
 import re
 import shutil
 import sys
@@ -63,6 +66,7 @@ from census import (  # noqa: E402
     table,
     trees,
 )
+from census.common import in_sorted  # noqa: E402
 from column_schema import build_schema, load_column_map  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from hdf5_writer_v3 import HorizontalV3Writer  # noqa: E402
@@ -153,6 +157,11 @@ def run_quietly(function, *args, **kwargs):
         return function(*args, **kwargs)
 
 
+def directory_bytes(directory, pattern="*"):
+    """Total size of the regular files under ``directory`` matching ``pattern``."""
+    return sum(p.stat().st_size for p in Path(directory).rglob(pattern) if p.is_file())
+
+
 def read_slab_column(dataset_dir, snap, name):
     with h5py.File(Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap), "r") as handle:
         return handle["halos"][name][...]
@@ -189,7 +198,70 @@ def correspondence_layout():
 # ---------------------------------------------------------------------------
 
 
+def literal_cut_forests(weights, ntask):
+    """``horizontal_partition_cut_forests`` of ``src/core/horizontal_partition.c``
+    transcribed line by line: a binary search over the capacity of a
+    forest-by-forest greedy packing."""
+
+    def greedy_pack(capacity, cuts=None):
+        ranges, filled = 1, 0
+        for forest, weight in enumerate(weights):
+            if weight > capacity - filled:
+                if cuts is not None:
+                    cuts[ranges] = forest
+                ranges += 1
+                filled = 0
+            filled += weight
+        return ranges
+
+    low, high = max(weights, default=0), sum(weights)
+    while low < high:
+        middle = low + (high - low) // 2
+        if greedy_pack(middle) <= ntask:
+            high = middle
+        else:
+            low = middle + 1
+    cuts = [0] * (ntask + 1)
+    ranges = greedy_pack(low, cuts)
+    for rank in range(ranges, ntask + 1):
+        cuts[rank] = len(weights)
+    return cuts
+
+
+def literal_partition_cut(weights, ntask, nchunk):
+    """``horizontal_partition_cut``, transcribed on :func:`literal_cut_forests`."""
+    task_cuts = literal_cut_forests(weights, ntask)
+    cuts = [0] * (ntask * nchunk + 1)
+    for task in range(ntask + 1):
+        cuts[task * nchunk] = task_cuts[task]
+    if nchunk > 1:
+        for task in range(ntask):
+            low = task_cuts[task]
+            chunk_cuts = literal_cut_forests(weights[low : task_cuts[task + 1]], nchunk)
+            for chunk in range(nchunk + 1):
+                cuts[task * nchunk + chunk] = chunk_cuts[chunk] + low
+    return cuts
+
+
 class TestPartition(unittest.TestCase):
+    def test_the_prefix_sum_packing_equals_the_literal_greedy_packing(self):
+        generator = random.Random(20261017)
+        for _case in range(300):
+            n_forests = generator.randint(0, 60)
+            style = generator.choice(("small", "zero_heavy", "heavy_tailed"))
+            if style == "small":
+                weights = [generator.randint(1, 9) for _ in range(n_forests)]
+            elif style == "zero_heavy":
+                weights = [generator.choice((0, 0, 0, 1, 2, 7)) for _ in range(n_forests)]
+            else:
+                weights = [int(generator.paretovariate(1.1)) for _ in range(n_forests)]
+            ntask, nchunk = generator.randint(1, 8), generator.randint(1, 32)
+            self.assertEqual(
+                partition.partition_cut(weights, ntask, nchunk),
+                literal_partition_cut(weights, ntask, nchunk),
+                (weights, ntask, nchunk),
+            )
+
     def test_heavy_forest_shares_range_with_light_neighbour(self):
         # tests/unit/test_horizontal_partition.c, weights {1, 5, 1} on two ranks
         self.assertEqual(partition.cut_forests([1, 5, 1], 2), [0, 2, 3])
@@ -320,12 +392,19 @@ class TestSourceIndex(unittest.TestCase):
         table = SourceIndex.load(*self.write(self.FORESTS, self.LOCATIONS)).forest_table()
         np.testing.assert_array_equal(table.forest_ids, [1, 2, 3, 4])
         np.testing.assert_array_equal(table.n_trees, [3, 1, 2, 1])
-        self.assertEqual([table.files_of(i).tolist() for i in range(4)], [[0], [0], [0, 1], [1]])
+        files = [table.files[table.file_starts[i] : table.file_starts[i + 1]] for i in range(4)]
+        self.assertEqual([f.tolist() for f in files], [[0], [0], [0, 1], [1]])
         # F's markers F, F, (G), F: one unit, rank 0; G is rank 1 although an F
         # marker follows it; H spans files; in b.dat H's marker comes first, so
         # K is rank 1 there
-        np.testing.assert_array_equal(table.file_ordinal, [0, 0, -1, 1])
+        np.testing.assert_array_equal(table.file_id, [0, 0, -1, 1])
         np.testing.assert_array_equal(table.unit_ordinal, [0, 1, -1, 1])
+
+    def test_marker_ordinals_rank_each_marker_within_its_file(self):
+        index = SourceIndex.load(*self.write(self.FORESTS, self.LOCATIONS))
+        # roots 10, 11, 12, 20, 30 are a.dat's markers at offsets 100, 200, 400, 300, 500;
+        # 31 and 40 are b.dat's at 50 and 150
+        np.testing.assert_array_equal(index.marker_ordinals(), [0, 1, 3, 2, 4, 0, 1])
 
     def test_a_root_in_one_file_only_is_refused(self):
         with self.assertRaisesRegex(ConverterError, r"1 tree root\(s\) only in .*forests.list"):
@@ -336,6 +415,41 @@ class TestSourceIndex(unittest.TestCase):
     def test_a_repeated_root_is_refused(self):
         with self.assertRaisesRegex(ConverterError, "listed more than once; examples: \\[12\\]"):
             SourceIndex.load(*self.write(self.FORESTS + [(12, 1)], self.LOCATIONS))
+
+
+class TestIndexCheck(unittest.TestCase):
+    ROOTS = np.array([10, 20], dtype=np.int64)
+    INDEX_FORESTS = np.array([1, 2], dtype=np.int64)
+    TREE_FOREST = np.array([0, 1], dtype=np.int64)
+
+    def check(self, sidecar):
+        return table.check_index(
+            self.ROOTS, self.INDEX_FORESTS, self.ROOTS, self.TREE_FOREST, np.array(sidecar)
+        )
+
+    def test_the_largest_forest_id_must_agree(self):
+        self.assertEqual(self.check([1, 2])["verdict"], "pass")
+        # a sidecar forest without a tree: the fresh ids would start above id 9, not above 2
+        record = self.check([1, 2, 9])
+        self.assertEqual(record["verdict"], "fail")
+        self.assertEqual(record["max_forest_id"], {"index_files": 2, "dataset": 9})
+
+
+class TestConservation(unittest.TestCase):
+    def test_sparse_file_ids_are_summed_by_listed_file(self):
+        far = 2_000_000_000  # a dense vector over FileID would need 16 GB
+        index = SourceIndex(
+            tree_roots=np.array([10, 20, 30]),
+            forest_ids=np.array([1, 2, 3]),
+            file_ids=np.array([far, 5, far]),
+            offsets=np.zeros(3, dtype=np.int64),
+            filenames={5: "a.dat", far: "b.dat"},
+        )
+        record = trees.conservation(np.array([10, 20, 30, 99]), np.array([3, 4, 5, 6]), index)
+        self.assertEqual(
+            [(f["file_id"], f["census_halos"]) for f in record["files"]], [(5, 4), (far, 8)]
+        )
+        self.assertEqual(record["unattributed_halos"], 6)
 
 
 # ---------------------------------------------------------------------------
@@ -522,6 +636,72 @@ class TestCommittedDataset(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "links_adjacent is 0"):
             trees.run_trees(HorizontalDataset(gapped), self.tmp / "agg")
 
+    def test_trees_refuses_before_loading_the_index_files(self):
+        gapped = copy_worked_ascii(self.tmp / "gapped")
+        for path in gapped.glob("snapshot_*.h5"):
+            with h5py.File(path, "r+") as handle:
+                handle["header"].attrs["links_adjacent"] = np.int32(0)
+        foreign = self.tmp / "foreign_agg"
+        foreign.mkdir()
+        identity = HorizontalDataset(WORKED_ASCII).identity()
+        aggregate.write_json(foreign / aggregate.IDENTITY_NAME, dict(identity, n_forests_total=9))
+        cases = (
+            (gapped, self.tmp / "agg_gapped", "links_adjacent is 0"),
+            (WORKED_ASCII, foreign, "produced from a different dataset"),
+        )
+        for dataset, agg, message in cases:
+            command = ["trees", "--dataset", str(dataset), "--aggregate", str(agg)]
+            command += ["--forests-list", "forests.list", "--locations", "locations.dat"]
+            with mock.patch.object(forest_census, "load_index") as load, capture_stderr() as err:
+                status = forest_census.main(command)
+            self.assertEqual(status, 2, message)
+            self.assertIn(message, err.text)
+            load.assert_not_called()
+        # nothing was bound or written by either refusal
+        self.assertFalse((self.tmp / "agg_gapped").exists())
+        self.assertEqual(sorted(p.name for p in foreign.iterdir()), [aggregate.IDENTITY_NAME])
+
+    def test_a_forest_index_out_of_range_is_refused_by_trees(self):
+        # slab 5's halos are all terminal, slab 4's are all linked
+        for name, file_name, row, value, message in (
+            ("terminal", "snapshot_005.h5", 0, 3, "snapshot_005.h5: ForestIndex 3 at row 0 is out"),
+            ("negative", "snapshot_005.h5", 2, -1, "snapshot_005.h5: ForestIndex -1 at row 2 is"),
+            ("linked", "snapshot_004.h5", 1, 3, "snapshot_004.h5: ForestIndex 3 at row 1 is out"),
+        ):
+
+            def edit(handle, row=row, value=value):
+                handle["halos"]["ForestIndex"][row] = value
+
+            dataset = HorizontalDataset(self.edited(name, file_name, edit))
+            agg = self.tmp / "agg_{}".format(name)
+            with capture_stderr() as err:
+                status = forest_census.main(
+                    ["trees", "--dataset", str(dataset.directory), "--aggregate", str(agg)]
+                )
+            self.assertEqual(status, 2, name)
+            self.assertIn(message, err.text)
+            self.assertFalse((agg / "trees" / "summary.json").exists(), name)
+
+    def test_occupancy_refuses_a_slab_that_is_not_forest_blocked(self):
+        def edit(handle):
+            handle["halos"]["ForestIndex"][2] = 1  # 0, 0, 1, 0, 1, 1
+
+        dataset = HorizontalDataset(self.edited("unblocked", "snapshot_004.h5", edit))
+        for block_rows in (1 << 22, 3):  # the fall within a block, and across two
+            with self.assertRaisesRegex(ConverterError, "ForestIndex falls from 1 at row 2 to 0"):
+                occupancy.run_occupancy(dataset, self.tmp / "agg", block_rows)
+
+    def test_an_occupancy_count_beyond_int32_names_the_forest(self):
+        dataset = HorizontalDataset(WORKED_ASCII)
+        with mock.patch.object(occupancy, "INT32_MAX", 3):
+            with self.assertRaisesRegex(ConverterError, "snapshot_004.h5: forest 0 holds 4 rows"):
+                occupancy.run_occupancy(dataset, self.tmp / "agg")
+
+    def test_more_roots_than_int32_ordinals_is_refused_during_the_scan(self):
+        with mock.patch.object(trees, "INT32_MAX", 4):  # the fixture has 5 terminal halos
+            with self.assertRaisesRegex(ConverterError, "more than 2.31 - 1 terminal roots"):
+                trees.enumerate_roots(HorizontalDataset(WORKED_ASCII))
+
     def test_a_repeated_terminal_id_is_refused(self):
         repeated = copy_worked_ascii(self.tmp / "repeated")
         with h5py.File(repeated / "snapshot_005.h5", "r+") as handle:
@@ -580,11 +760,11 @@ class TestCensusOnVersion3(unittest.TestCase):
         np.testing.assert_array_equal(table.forest_ids, sidecar["ForestID"])
         # file_ordinal is the FileID; it equals SourceFileOrdinal here only because
         # convert_ascii gives the converter its tree files in FileID order
-        np.testing.assert_array_equal(table.file_ordinal, sidecar["SourceFileOrdinal"])
+        np.testing.assert_array_equal(table.file_id, sidecar["SourceFileOrdinal"])
         np.testing.assert_array_equal(table.unit_ordinal, sidecar["SourceUnitOrdinal"])
         # literal: 1100 unit 0 of file 0 (markers F, F, G, F), 1200 spans, 1300
         # unit 1 of file 0, 1400 unit 0 of file 1
-        np.testing.assert_array_equal(table.file_ordinal, [0, -1, 0, 1])
+        np.testing.assert_array_equal(table.file_id, [0, -1, 0, 1])
         np.testing.assert_array_equal(table.unit_ordinal, [0, -1, 1, 0])
         np.testing.assert_array_equal(table.n_trees, [3, 2, 1, 1])
 
@@ -632,7 +812,8 @@ class TestCensusOnVersion3(unittest.TestCase):
         self.assertEqual([row["halos"] for row in summary["per_snapshot"]], [0, 1, 1, 4, 7, 6])
 
     def test_top_shares_count_the_most_populous_forests(self):
-        shares = occupancy.top_shares(np.array([5, 1, 3, 1]), 10, tops=(1, 2, 10))
+        with mock.patch.object(occupancy, "TOP_SHARES", (1, 2, 10)):
+            shares = occupancy.top_shares(np.array([5, 1, 3, 1]), 10)
         self.assertEqual(shares["1"], {"halos": 5, "share": 0.5})
         self.assertEqual(shares["2"], {"halos": 8, "share": 0.8})
         self.assertEqual(shares["10"], {"halos": 10, "share": 1.0})
@@ -644,18 +825,12 @@ class TestCensusOnVersion3(unittest.TestCase):
     def test_aggregate_sizes_are_measured_and_stated(self):
         base = occupancy.occupancy_dir(self.agg)
         recorded = self.occupancy["aggregates"]
-        self.assertEqual(
-            recorded["slab_pairs"]["bytes"], aggregate.directory_bytes(base, "slab_*.npy")
-        )
+        self.assertEqual(recorded["slab_pairs"]["bytes"], directory_bytes(base, "slab_*.npy"))
         self.assertEqual(recorded["slab_pairs"]["pairs"], 11)
-        self.assertEqual(
-            recorded["per_forest"]["bytes"], aggregate.directory_bytes(base, "forest_*.npy")
-        )
+        self.assertEqual(recorded["per_forest"]["bytes"], directory_bytes(base, "forest_*.npy"))
         tree_dir = trees.trees_dir(self.agg)
         sizes = self.trees["aggregates"]
-        self.assertEqual(
-            sizes["labels"]["bytes"], aggregate.directory_bytes(tree_dir / trees.LABELS_DIR)
-        )
+        self.assertEqual(sizes["labels"]["bytes"], directory_bytes(tree_dir / trees.LABELS_DIR))
         self.assertEqual(
             sizes["slab_tree_pairs"]["bytes"],
             sum(path.stat().st_size for path in tree_dir.glob("slab_*.npy")),
@@ -889,6 +1064,12 @@ class TestCensusOnVersion3(unittest.TestCase):
         }
         self.assertEqual(after, before)
 
+    def test_counts_beyond_what_the_driver_accepts_are_refused(self):
+        self.assertEqual(forest_census._counts("1,2,2147483647"), [1, 2, 2147483647])
+        for text in ("0", "1,2147483648", "a"):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                forest_census._counts(text)
+
     def test_the_trees_and_partition_command_lines(self):
         other = str(self.tmp / "agg_cli")
         dataset = ["--dataset", str(self.paths["dataset"]), "--aggregate", other]
@@ -981,7 +1162,7 @@ class TestCorrespondenceMismatch(unittest.TestCase):
         index = SourceIndex.load(self.paths["forests_list"], self.paths["locations"])
         for function, arguments in (
             (table.run_table, (index.tree_roots, index.forest_ids, {})),
-            (cut.run_cut, ()),
+            (cut.run_cut, (1.0,)),
         ):
             with self.assertRaisesRegex(ConverterError, "verdict is 'fail'; .*needs it to pass"):
                 function(self.dataset, self.tmp / "agg", *arguments)
@@ -999,6 +1180,31 @@ class TestCorrespondenceMismatch(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Progenitor chains, the installed partition and the cut table's invariants
 # ---------------------------------------------------------------------------
+
+
+def chain_order(encounter, mass):
+    """The reference incremental-insertion chain over progenitors visited in
+    ``encounter`` order: the first starts the chain, each later one becomes the
+    head if strictly more massive than the current head, else the tail
+    (``links.build_progenitor_links``)."""
+    encounter = [int(i) for i in encounter]
+    chain = [encounter[0]]
+    head = encounter[0]
+    for item in encounter[1:]:
+        if mass[head] < mass[item]:
+            chain.insert(0, item)
+            head = item
+        else:
+            chain.append(item)
+    return chain
+
+
+class TestInSorted(unittest.TestCase):
+    def test_membership_in_an_ascending_array(self):
+        needles = np.array([[1, 2, 3], [4, 6, 7]])
+        got = in_sorted(np.array([2, 4, 6]), needles)
+        np.testing.assert_array_equal(got, [[False, True, False], [True, True, False]])
+        np.testing.assert_array_equal(in_sorted(np.zeros(0, dtype=np.int64), needles), got & False)
 
 
 class TestChains(unittest.TestCase):
@@ -1024,11 +1230,17 @@ class TestChains(unittest.TestCase):
             for group in np.unique(groups):
                 members = np.flatnonzero(groups == group)
                 encounter = members[np.lexsort((ids[members], pid[members], upid[members]))]
-                expected = cut.chain_order(encounter, mass)
+                expected = chain_order(encounter, mass)
                 got = members[np.argsort(positions[members])].tolist()
                 self.assertEqual(got, expected, group)
                 self.assertEqual(sorted(positions[members].tolist()), list(range(members.size)))
         self.assertEqual(cut.chain_positions([], [], [], [], np.zeros(0)).size, 0)
+
+    def test_a_key_that_would_overflow_int64_is_refused(self):
+        groups, upid, pid, ids, mass = self.random_groups(np.random.default_rng(3), 3)
+        with mock.patch.object(cut, "INT64_MAX", 5):
+            with self.assertRaisesRegex(ConverterError, "overflow the int64 chain key"):
+                cut.chain_positions(groups, upid, pid, ids, mass)
 
     def test_the_stored_chain_check(self):
         generator = np.random.default_rng(7)
@@ -1579,12 +1791,12 @@ def run_decided(dataset, agg, paths, index, selection=None, block_rows=1 << 22):
         cut.run_cut,
         dataset,
         agg,
+        1.0,
         selection,
         [1, 2, 4],
         [1, 2, 4],
         1 << 30,
         [6, 9, 16],
-        1.0,
         block_rows,
     )
     return summary_table, summary_cut
@@ -1909,9 +2121,10 @@ class TestDecidedTable(unittest.TestCase):
             (8 * 5, 8 * 10),
         )
         self.assertEqual(memory["widest_pass_slab"]["dense_row_bytes"], 12 * 15)
-        for summary in (self.cut, self.table):
-            for name, value in summary["memory"]["peak_rss_bytes_after"].items():
+        for measured in (self.cut["measurements"], self.table["memory"]):
+            for name, value in measured["peak_rss_bytes_after"].items():
                 self.assertGreater(value, 0, name)
+        self.assertGreaterEqual(self.cut["measurements"]["peak_pass_seconds"], 0)
         self.assertEqual(
             self.cut["aggregates"]["summary"]["bytes"],
             (cut.cut_dir(self.agg) / "summary.json").stat().st_size,
@@ -1934,13 +2147,10 @@ class TestDecidedTable(unittest.TestCase):
             (other / "table" / "forests.list").read_bytes(),
             (self.agg / "table" / "forests.list").read_bytes(),
         )
-        varying = ("dataset_dir", "io", "memory", "aggregates", "table")
+        varying = ("dataset_dir", "io", "memory", "measurements", "aggregates", "table")
         for got, want in ((summary_table, self.table), (summary_cut, self.cut)):
             got = json.loads(json.dumps(got).replace(str(other), str(self.agg)))
             want = json.loads(json.dumps(want))
-            # the peak pass's wall-clock is measured, so no two runs share it
-            for record in (got, want):
-                record.get("partition", {}).get("weights", {}).pop("peak_pass_seconds", None)
             for key in set(want) - set(varying):
                 self.assertEqual(got[key], want[key], key)
 
@@ -1962,7 +2172,7 @@ class TestDecidedTable(unittest.TestCase):
         self.assertEqual(record["rule"]["scope"], "restricted to the selected forests")
         self.assertIn("every other forest keeps its identity assignment", record["rule"]["text"])
         self.assertEqual(record["rule"]["selection"], {"forest_index": [4], "forest_id": [2000]})
-        self.assertNotEqual(summary_table["scope"], "whole simulation")
+        self.assertNotEqual(summary_table["rule"]["scope"], "whole simulation")
         self.assertEqual(summary_cut["scope"], "restricted to the selected forests")
         self.assertTrue((other / "cut-restricted" / "summary.json").is_file())
         self.assertEqual(
@@ -2101,7 +2311,7 @@ class TestDecidedTable(unittest.TestCase):
         with capture_stderr() as captured:
             status = forest_census.main(arguments)
         self.assertEqual(status, 2)
-        self.assertIn("an id outside int64", captured.text)
+        self.assertIn("a tree root or forest id beyond int64", captured.text)
         self.assertFalse(table.table_dir(other).exists())
         with self.assertRaisesRegex(ConverterError, "huge.list: malformed cut table"):
             cut_table.read_cut_table(
@@ -2192,7 +2402,7 @@ class TestDecidedTable(unittest.TestCase):
 
     def test_a_promotion_at_the_final_snapshot_is_refused(self):
         other = self.fresh_census("agg_final_promotion")
-        real = cut.decided_table
+        real = table.decided_table
 
         def wrong(*args, **kwargs):
             built = real(*args, **kwargs)
@@ -2201,12 +2411,26 @@ class TestDecidedTable(unittest.TestCase):
             built.tree_piece[roots.index(1110)] = built.tree_piece[roots.index(1120)]
             return built
 
-        with mock.patch.object(cut, "decided_table", wrong):
+        with mock.patch.object(table, "decided_table", wrong):
             with self.assertRaisesRegex(
                 ConverterError, "1 halo\\(s\\) promoted at the final snapshot"
             ):
-                cut.run_cut(self.dataset, other, reserve_gib=1.0, laptop_gib=[6])
+                cut.run_cut(self.dataset, other, 1.0, laptop_gib=[6])
         self.assertFalse((cut.cut_dir(other) / "summary.json").exists())
+
+    def test_an_installed_partition_that_loses_rows_is_refused(self):
+        other = self.fresh_census("agg_installed")
+        real = cut.install_pieces
+
+        def short(*args):
+            forests, counts = real(*args)
+            return forests, counts + 1
+
+        with mock.patch.object(cut, "install_pieces", short):
+            with self.assertRaisesRegex(
+                ConverterError, r"snapshot_00\d.h5: the installed partition holds \d+ rows but "
+            ):
+                cut.run_cut(self.dataset, other, 1.0, laptop_gib=[6])
 
 
 def convert_ascii_one_file(root: Path, file_trees, forests):

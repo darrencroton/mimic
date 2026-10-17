@@ -11,9 +11,10 @@ Aggregates written under ``<aggregate>/occupancy/`` (sizes also recorded in
 
 - ``slab_NNN_forests.npy`` (int64, ascending) and ``slab_NNN_counts.npy``
   (int32): the forests present in slab NNN and their row counts. **12 B per
-  present forest per slab** plus a 128 B header per file: ``12 x sum over
-  slabs of the forests present``, about 25 GB at Shin-Uchuu scale (about
-  2.1 x 10^9 (slab, forest) pairs over 70 slabs).
+  present forest per slab** plus a 128 B header per file: ``12 B x P`` for ``P``
+  the (slab, forest) pairs, the sum over slabs of the forests present. At
+  Shin-Uchuu scale the final slab alone holds all 166,547,771 forests (2.0 GB),
+  and ``P`` is about 5.2 x 10^9 over 70 slabs: about 62 GB.
 - ``forest_totals.npy`` (int64), ``forest_max_occupancy.npy`` (int32) and
   ``forest_max_snapshot.npy`` (int32, -1 for a forest with no halo): per forest,
   its halos over all slabs, its largest slab occupancy and the lowest-numbered
@@ -27,11 +28,14 @@ Aggregates written under ``<aggregate>/occupancy/`` (sizes also recorded in
   its top-10 and top-100 shares), a per-snapshot table, and the aggregate sizes.
 
 Resident memory: 24 B x n_forests_total (the three per-forest arrays and the
-int64 scratch counter; about 4.0 GB for Shin-Uchuu's 166,547,771 forests, and
-8 B more per forest for the sidecar ``ForestID`` when the summary is built), one
+int64 scratch counter; about 4.0 GB for Shin-Uchuu's 166,547,771 forests), one
 ``ForestIndex`` block (8 B x block rows) with its ``np.unique`` temporaries, and
-one slab's pairs (12 B per present forest). No array of a slab's length and no
-forest x snapshot matrix is held.
+one slab's present forests: 20 B per present forest while its pairs are built
+(the int64 forest indices and counts, then the int32 counts), 12 B once the pairs
+are held. The final slab holds every forest, so the pass peaks at 44 B x
+n_forests_total (7.3 GB at Shin-Uchuu). The scratch counter is released before
+the summary is built, which reads the sidecar ``ForestID`` (8 B x n_forests_total).
+No array of a slab's length and no forest x snapshot matrix is held.
 """
 
 import os
@@ -52,6 +56,7 @@ from census.aggregate import (  # noqa: E402
     slab_stem,
     write_json,
 )
+from census.common import INT32_MAX, quiet  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 
@@ -62,19 +67,6 @@ OCCUPANCY_THRESHOLDS = (100_000, 250_000, 1_000_000)
 
 #: The widest slab's top-k forest shares reported.
 TOP_SHARES = (10, 100)
-
-#: Per-forest arrays: name -> dtype.
-PER_FOREST_ARRAYS = {
-    "forest_totals": np.int64,
-    "forest_max_occupancy": np.int32,
-    "forest_max_snapshot": np.int32,
-}
-
-_INT32_MAX = int(np.iinfo(np.int32).max)
-
-
-def _quiet(_message: str) -> None:
-    pass
 
 
 def occupancy_dir(aggregate_dir) -> Path:
@@ -88,10 +80,10 @@ def slab_pair_paths(aggregate_dir, snap: int) -> Tuple[Path, Path]:
     return base / (stem + "_forests.npy"), base / (stem + "_counts.npy")
 
 
-def load_slab_pairs(aggregate_dir, snap: int, mmap: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+def load_slab_pairs(aggregate_dir, snap: int) -> Tuple[np.ndarray, np.ndarray]:
     """One slab's present forests (int64, ascending) and their counts (int32)."""
     forests_path, counts_path = slab_pair_paths(aggregate_dir, snap)
-    return load_array(forests_path, mmap), load_array(counts_path, mmap)
+    return load_array(forests_path), load_array(counts_path)
 
 
 def widest_snapshot(n_halos: Sequence[int]) -> Optional[int]:
@@ -102,6 +94,15 @@ def widest_snapshot(n_halos: Sequence[int]) -> Optional[int]:
         if int(halos) > widest_halos:
             widest, widest_halos = snap, int(halos)
     return widest
+
+
+def _first_fall(block: np.ndarray, previous: int) -> Optional[int]:
+    """The index in ``block`` of its first value below the one before it (the
+    block's first is compared with ``previous``), or ``None`` when none falls."""
+    if block[0] < previous:
+        return 0
+    falls = np.flatnonzero(block[1:] < block[:-1])
+    return int(falls[0]) + 1 if falls.size else None
 
 
 def slab_occupancy(
@@ -118,10 +119,17 @@ def slab_occupancy(
     Returns:
         ``(forests, counts)``: int64 ascending and int32, aligned.
 
+    The partition and cut subcommands apply forest ranges to these pairs as
+    contiguous row ranges, which holds only for a **forest-blocked** slab (rows
+    in ascending ``ForestIndex``): the format guarantees it, and since this pass
+    already scans every block it also verifies it.
+
     Raises:
-        ConverterError: on a ``ForestIndex`` outside ``[0, n_forests_total)``.
+        ConverterError: on a ``ForestIndex`` outside ``[0, n_forests_total)``,
+            or one that falls below its predecessor.
     """
     n_forests = scratch.size
+    previous = 0
     for start, block in dataset.iter_column(snap, "ForestIndex", block_rows):
         if block.size == 0:
             continue
@@ -132,21 +140,38 @@ def slab_occupancy(
                     dataset.snapshot_path(snap), n_forests, start, start + block.size, low, high
                 )
             )
+        at = _first_fall(block, previous)
+        if at is not None:
+            raise ConverterError(
+                "{}: not forest-blocked: ForestIndex falls from {} at row {} to {} at row {}".format(
+                    dataset.snapshot_path(snap),
+                    previous if at == 0 else int(block[at - 1]),
+                    start + at - 1,
+                    int(block[at]),
+                    start + at,
+                )
+            )
+        previous = int(block[-1])
         forests, counts = np.unique(block, return_counts=True)
         scratch[forests] += counts
     present = np.flatnonzero(scratch)
     counts = scratch[present]
     scratch[present] = 0
-    if counts.size and int(counts.max()) > _INT32_MAX:
-        raise ConverterError("{}: a forest holds more than 2^31 - 1 rows".format(snap))
-    return present.astype(np.int64), counts.astype(np.int32)
+    if counts.size and int(counts.max()) > INT32_MAX:
+        at = int(np.argmax(counts))
+        raise ConverterError(
+            "{}: forest {} holds {} rows, more than the 2^31 - 1 an int32 count holds".format(
+                dataset.snapshot_path(snap), int(present[at]), int(counts[at])
+            )
+        )
+    return present.astype(np.int64, copy=False), counts.astype(np.int32)
 
 
-def top_shares(counts: np.ndarray, n_halos: int, tops: Sequence[int] = TOP_SHARES) -> Dict:
-    """The halos and share of a slab held by its ``k`` most populous forests."""
+def top_shares(counts: np.ndarray, n_halos: int) -> Dict:
+    """The halos and share of a slab held by its ``TOP_SHARES`` most populous forests."""
     ordered = np.sort(np.asarray(counts, dtype=np.int64))[::-1]
     shares = {}
-    for k in tops:
+    for k in TOP_SHARES:
         halos = int(ordered[:k].sum())
         shares[str(k)] = {"halos": halos, "share": (halos / n_halos) if n_halos else None}
     return shares
@@ -181,7 +206,7 @@ def run_occupancy(
     dataset: HorizontalDataset,
     aggregate_dir,
     block_rows: int = DEFAULT_BLOCK_ROWS,
-    log: Callable[[str], None] = _quiet,
+    log: Callable[[str], None] = quiet,
 ) -> Dict:
     """Run the occupancy pass and write its aggregates; returns the summary."""
     identity = dataset.identity()

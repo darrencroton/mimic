@@ -287,7 +287,7 @@ int test_row_offset_zero_leaves_slab_unchanged(void) {
 
 /**
  * @test    test_partition_resident_bytes
- * @brief   The partition term of the retention accounting (D11)
+ * @brief   The partition term of the horizontal driver's resident-memory accounting
  *
  * Every task of a distributed run keeps the partition for the whole run, so the
  * driver adds it to the resident total its ceiling check and memory profile

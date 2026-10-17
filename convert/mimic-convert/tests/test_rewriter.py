@@ -52,6 +52,7 @@ from census import cut_table  # noqa: E402
 from conversion_manifest import sha256_file  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from hdf5_writer_v3 import V3_SIDECAR_DATASETS  # noqa: E402
+from rewriter import passes as rewriter_passes  # noqa: E402
 from rewriter import run as rewriter_run  # noqa: E402
 from rewriter.inputs import RewriteRequest  # noqa: E402
 from rewriter.run import run_rewrite  # noqa: E402
@@ -272,7 +273,7 @@ class TestNoop(unittest.TestCase):
         # the per-file row sums are recorded; a horizontal input carries no
         # parsed counts to check them against
         conservation = self.summary["conservation"]
-        self.assertEqual(conservation["verdict"], "unchecked")
+        self.assertEqual(sorted(conservation), ["files"])
         self.assertEqual(
             [(entry["name"], entry["census_halos"]) for entry in conservation["files"]],
             [("tree_0.dat", 11), ("tree_1.dat", 6)],
@@ -341,44 +342,6 @@ class TestNoop(unittest.TestCase):
             self.assertEqual(rewrite_trees.main(argv), 0)
         self.assertIn("noop: COMPLETE", stdout.getvalue())
         assert_bytes_equal(self, self.out / "dataset", out / "dataset")
-
-    def test_the_cli_takes_no_profile_and_no_conversion_manifest(self):
-        # the input's /schema is carried through and the sidecar ordinals
-        # follow the input sidecar, so neither option exists
-        common = [
-            "--input",
-            str(self.source["dataset"]),
-            "--output",
-            str(self.root / "x"),
-            "--scratch",
-            str(self.root / "sx"),
-            "--simulation-info",
-            str(self.source["root"] / "simulation_info.yaml"),
-            "--a-list",
-            str(self.source["root"] / "fixture.a_list"),
-            "--forests-list",
-            str(self.source["forests_list"]),
-            "--locations",
-            str(self.source["locations"]),
-        ]
-        for operation, extra in (
-            ("noop", ["--column-map", "profile.yaml"]),
-            ("cut", ["--cut-table", "table.list", "--conversion-manifest", "manifest.json"]),
-        ):
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
-                with self.assertRaises(SystemExit) as raised:
-                    rewrite_trees.main([operation] + common + extra)
-            self.assertEqual(raised.exception.code, 2)
-            self.assertIn("unrecognized arguments: {}".format(extra[-2]), stderr.getvalue())
-        # and there is no third operation
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaises(SystemExit) as raised:
-                rewrite_trees.main(["migrate"] + common)
-        self.assertEqual(raised.exception.code, 2)
-        self.assertIn("invalid choice: 'migrate'", stderr.getvalue())
-        self.assertFalse((self.root / "x").exists())
 
     def copy_v3(self, name):
         copy = self.root / name
@@ -842,6 +805,37 @@ class TestRefusals(unittest.TestCase):
             self.source,
             self.source["dataset"],
             simulation_info=other,
+        )
+
+    def test_an_object_the_format_does_not_define_is_refused_by_name(self):
+        # the passes write only the format's objects, so an extra /halos
+        # column would be dropped silently; it is refused before any write
+        copy = self.root / "extra_column"
+        shutil.copytree(self.source["dataset"], copy)
+        with h5py.File(copy / "snapshot_002.h5", "r+") as handle:
+            n = handle["halos"]["Vmax"].shape[0]
+            handle["halos"].create_dataset("ExtraColumn", data=np.zeros(n, dtype="<f4"))
+        self.refused(
+            "snapshot_002.h5: /halos holds object\\(s\\) \\['ExtraColumn'\\] that the format "
+            "does not define",
+            "noop",
+            self.source,
+            copy,
+        )
+
+    def test_a_schema_declaration_that_is_not_the_profiles_is_refused(self):
+        # the digest still names the shipped profile, but one slab's /schema
+        # declares another unit for Vmax
+        copy = self.root / "schema_units"
+        shutil.copytree(self.source["dataset"], copy)
+        with h5py.File(copy / "snapshot_003.h5", "r+") as handle:
+            handle["schema"]["Vmax"].attrs["units"] = "m/s"
+        self.refused(
+            "snapshot_003.h5: /schema differs from the profile's declarations \\(missing \\[\\], "
+            "extra \\[\\], changed \\['Vmax'\\]\\)",
+            "noop",
+            self.source,
+            copy,
         )
 
     def test_a_slab_corrupted_after_writing_is_caught_by_the_verification(self):
@@ -1460,6 +1454,14 @@ class TestCutTableAndRefusals(unittest.TestCase):
         )
         three = fixtures.three_piece_forest()
         cls.three = cut_source(cls.root / "three", three, cut_layout(three))
+        cls.three_table = write_table(
+            cls.root / "three", "cut", fixtures.three_piece_cut_table(), cls.three
+        )
+        tie = fixtures.progenitor_tie_forest()
+        cls.tie = cut_source(cls.root / "tie", tie, cut_layout(tie))
+        cls.tie_table = write_table(
+            cls.root / "tie", "cut", fixtures.progenitor_tie_cut_table(), cls.tie
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -1816,6 +1818,218 @@ class TestCutTableAndRefusals(unittest.TestCase):
             source,
             write_table(root, "cut", fixtures.three_piece_cut_table(), source),
         )
+
+    def test_an_overflowing_multiplier_is_refused_before_pass_0(self):
+        # the output holds at least the input's forests, so the overflow is
+        # known before pass 0 and the table's installation
+        with mock.patch.object(rewriter_run, "run_pass0", side_effect=AssertionError("pass 0 ran")):
+            self.refused(
+                "--multiplier {0}: cannot encode the output's bounds: multiplier {0} x "
+                "\\(n_forests_total 3 \\+ 1\\) overflows int64".format(2**62),
+                self.severed,
+                self.severed_table,
+                multiplier=2**62,
+            )
+
+    def test_a_digest_that_is_not_the_default_profiles_is_refused(self):
+        copy = self.root / "severed" / "other_digest"
+        shutil.copytree(self.severed["dataset"], copy)
+        for snap in range(N_SNAPSHOTS):
+            with h5py.File(copy / "snapshot_{:03d}.h5".format(snap), "r+") as handle:
+                handle["header"].attrs.modify(
+                    "column_mapping_sha256", np.array(("0" * 64).encode(), dtype="S64")
+                )
+        self.refused(
+            "snapshot_000.h5: column_mapping_sha256 0{64} is not the shipped",
+            self.severed,
+            self.severed_table,
+            input_dir=copy,
+        )
+
+    def test_a_central_in_another_forest_of_the_input_is_refused(self):
+        # at snapshot 4 the lone central 2001 (forest 8000) is made a member of
+        # 1401's group (forest 1400): its stored forest is still its tree's,
+        # and pass 1 refuses the host outside its forest
+        copy = self.root / "severed" / "foreign_central"
+        shutil.copytree(self.severed["dataset"], copy)
+        with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
+            ids = handle["halos"]["MostBoundID"][...].tolist()
+            handle["halos"]["FirstHaloInFOFgroup"][ids.index(2001)] = ids.index(1401)
+            row = ids.index(2001)
+        with self.assertRaisesRegex(
+            ConverterError,
+            "snapshot_004.h5: 1 halo\\(s\\) whose FoF central lies in another forest of the "
+            "input; .* rows \\[{}\\]".format(row),
+        ):
+            cut(
+                self.severed,
+                self.root / "severed" / "foreign_out",
+                self.root / "severed" / "foreign_s",
+                self.severed_table,
+                input_dir=copy,
+            )
+
+    def test_a_stored_first_progenitor_of_a_halo_without_progenitors_is_refused(self):
+        # 2001 at snapshot 4 has no progenitor but is given one at snapshot 3
+        copy = self.root / "severed" / "phantom_first"
+        shutil.copytree(self.severed["dataset"], copy)
+        with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
+            ids = handle["halos"]["MostBoundID"][...].tolist()
+            handle["halos"]["FirstProgenitor"][ids.index(2001)] = 0
+            handle["halos"]["FirstProgenitorSnapshot"][ids.index(2001)] = 3
+        with self.assertRaisesRegex(
+            ConverterError,
+            "snapshot_003.h5: the input's progenitor chains into snapshot 4 are not the "
+            "reference insertion order .* for 1 descendant\\(s\\) \\(0 NextProgenitor "
+            "link\\(s\\) and 1 FirstProgenitor",
+        ):
+            cut(
+                self.severed,
+                self.root / "severed" / "phantom_out",
+                self.root / "severed" / "phantom_s",
+                self.severed_table,
+                input_dir=copy,
+            )
+
+    def test_the_verification_refuses_a_corrupted_cut_slab(self):
+        """Each case corrupts what pass 2 both writes and compares the file
+        against, so only the slab's structural verification can notice: it
+        must refuse the temporary file, naming the rule broken, and the slab
+        must never reach its final name."""
+        SlabColumns = rewriter_passes.SlabColumns
+
+        def new_order_ids(dataset, snap, perm):
+            return dataset.read_column(snap, "MostBoundID")[perm].tolist()
+
+        def swapped_descendant(original):
+            def link(columns, name):
+                values = original(columns, name)
+                if name == "Descendant" and columns.snap == 4:
+                    other = int(np.flatnonzero(values != values[0])[0])
+                    values[[0, other]] = values[[other, 0]]
+                return values
+
+            return link
+
+        def companion_without_its_link(original):
+            def companion(columns, name):
+                values = original(columns, name)
+                if name == "DescendantSnapshot" and columns.snap == 4:
+                    values[0] = -1
+                return values
+
+            return companion
+
+        def promoted_halo_still_chained(original):
+            def fof(columns):
+                central, next_fof, promoted = original(columns)
+                if columns.snap == 4:
+                    first = int(np.flatnonzero(promoted)[0])
+                    next_fof[first] = first
+                return central, next_fof, promoted
+
+            return fof
+
+        def fof_cycle_off_the_central(original):
+            # the group {2520, 2530}: the central ends the chain and the
+            # member links to itself
+            def fof(columns):
+                central, next_fof, promoted = original(columns)
+                if columns.snap == 5:
+                    ids = new_order_ids(columns.dataset, 5, columns.window.own.perm)
+                    head, member = ids.index(2520), ids.index(2530)
+                    next_fof[head], next_fof[member] = -1, member
+                return central, next_fof, promoted
+
+            return fof
+
+        def misranked_uncut_row(original):
+            # row 0 of snapshot 4 is 1401, forest 1400's only halo there
+            def rank_slab(*args, **kwargs):
+                remap, labels, counts = original(*args, **kwargs)
+                if remap.snap == 4:
+                    remap.rank[0] += 1
+                    remap.sid[0] += 1
+                return remap, labels, counts
+
+            return rank_slab
+
+        def progenitor_cycle_off_the_head(original):
+            # 2450's chain 2451 -> 2452: the head ends the chain and 2452
+            # links to itself
+            def rank_slab(dataset, snap, *args, **kwargs):
+                remap, labels, counts = original(dataset, snap, *args, **kwargs)
+                if snap == 4:
+                    ids = new_order_ids(dataset, 4, remap.perm)
+                    head, tail = ids.index(2451), ids.index(2452)
+                    remap.next_prog[head], remap.next_prog[tail] = -1, tail
+                return remap, labels, counts
+
+            return rank_slab
+
+        three, tie = (self.three, self.three_table), (self.tie, self.tie_table)
+        cases = (
+            (
+                SlabColumns,
+                "link",
+                swapped_descendant,
+                three,
+                4,
+                "2 /halos/Descendant link\\(s\\) whose target is not the input target's row",
+            ),
+            (
+                SlabColumns,
+                "companion",
+                companion_without_its_link,
+                three,
+                4,
+                "/halos/DescendantSnapshot is not -1 iff Descendant is -1",
+            ),
+            (
+                SlabColumns,
+                "fof",
+                promoted_halo_still_chained,
+                three,
+                4,
+                "a promoted halo is not its own FoF group's first and only member",
+            ),
+            (
+                SlabColumns,
+                "fof",
+                fof_cycle_off_the_central,
+                three,
+                5,
+                "the NextHaloInFOFgroup links do not chain exactly the members of each FoF group",
+            ),
+            (
+                rewriter_run,
+                "rank_slab",
+                misranked_uncut_row,
+                three,
+                4,
+                "/halos/HaloRankInForest differs from the input's for 1 row\\(s\\) of uncut "
+                "forests",
+            ),
+            (
+                rewriter_run,
+                "rank_slab",
+                progenitor_cycle_off_the_head,
+                tie,
+                4,
+                "the FirstProgenitor and NextProgenitor links do not chain exactly the "
+                "progenitors of each descendant: 1 progenitor\\(s\\) not reached",
+            ),
+        )
+        for owner, attribute, corruption, (source, table), snap, rule in cases:
+            with self.subTest(corruption.__name__):
+                out = self.root / corruption.__name__
+                slab = "snapshot_{:03d}.h5".format(snap)
+                patched = corruption(getattr(owner, attribute))
+                with mock.patch.object(owner, attribute, patched):
+                    with self.assertRaisesRegex(ConverterError, slab + "\\.tmp: " + rule):
+                        cut(source, out, self.root / (corruption.__name__ + "_s"), table)
+                self.assertIn(slab + ".tmp", dataset_files(out / "dataset"))
+                self.assertNotIn(slab, dataset_files(out / "dataset"))
 
     def test_stored_chains_that_are_not_the_reference_order_are_refused(self):
         # forest 8000's progenitor chain at snapshot 4 reversed in the input

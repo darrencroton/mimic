@@ -9,13 +9,14 @@ already reproduces that reconstruction bit for bit in its per-snapshot stages
 (``scatter`` -> ``sort_index`` -> ``fixups`` -> ``links``), and ASCII topology
 reconstruction stays that adapter-specific preparation. So this adapter does
 not re-derive anything. :func:`prepare_workdir` runs those stages in the
-*extended* scratch layout, which carries every row's canonical source
-coordinate and the profile's declared extras through them unchanged, and
+schema's scratch layout, which carries the profile's declared extras through
+them unchanged, and
 :class:`CTreesAsciiAdapter` then re-expresses the prepared records as
 canonical batches.
 
-**Canonical unit and identity.** Under the 2026-10-07 owner ruling the
-route's canonical unit is the whole forest: units are the forests in ascending
+**Canonical unit and identity.** Under the forest-rank identity convention
+(the format document's errata record it) the route's canonical unit is the
+whole forest: units are the forests in ascending
 ``ForestIndex`` (the dense ascending-forest-id enumeration of
 ``forest_index_table.npy``), a unit's halo count is the forest's total over
 every snapshot, and the row ordinal is ``HaloRankInForest`` (the post-fix-up
@@ -28,7 +29,7 @@ forest-blocked, and ``SourceInventory.coordinate`` inverts an id to
 ``(0, ForestIndex, HaloRankInForest)``: the leading 0 is a deliberate shim
 that keeps the three-field coordinate contract the two prelinked routes rely
 on, not a file ordinal, and the inventory says so by declaring no physical
-units (``physical_units = False``).
+units (``physical_units=False``).
 
 **Physical coordinates** survive only for the forest sidecar. A *physical
 unit* is the part of one ASCII forest that one file carries -- every ``#tree``
@@ -37,8 +38,7 @@ forest's first ``#tree`` marker in the file (``ctrees_parser.plan_source_units``
 A forest whose trees lie in several files is several physical units;
 :meth:`CTreesAsciiAdapter.iter_forests` then reports -1 ordinals for it, as
 the v3 forest sidecar prescribes, and the per-file unit sidecars the manifest
-owns retain its full membership. The scatter-time ``(file, unit, row)``
-stamps in the fixed scratch no longer feed identity.
+owns retain its full membership.
 
 **Identity is both kinds at once.** ``SourceHaloID`` is the canonical key;
 ``ForestIndex`` and ``HaloRankInForest`` are the existing ASCII identity
@@ -107,13 +107,13 @@ from links import (
     run_links,
 )
 from scatter import (
+    CUT_TABLE_BYTES_PER_TREE,
     SOURCE_COMPLETED,
     Manifest,
     file_md5,
     install_cut,
     load_a_list,
     load_cut_table,
-    load_forests_list,
     run_scatter,
     source_units_name,
 )
@@ -243,7 +243,7 @@ def batch_term_bytes(schema: CanonicalSchema, max_rows: int, n_rows: Optional[in
 
     A batch holds ``min(max_rows, n_rows)`` rows, since no batch spans two
     snapshots. Each row is charged its gathered fixed record (the schema's
-    extended fixed layout), its links record, the canonical identity,
+    fixed layout), its links record, the canonical identity,
     coordinate, link and payload columns built from them, and one element of
     every declared extra; the total is doubled as headroom for the conversion
     temporaries a batch's assembly creates. The function is pure: it reads
@@ -255,7 +255,7 @@ def batch_term_bytes(schema: CanonicalSchema, max_rows: int, n_rows: Optional[in
         max_rows: The batch-size cap passed to ``iter_batches``.
         n_rows: The snapshot's halo count, or ``None`` to charge a full batch
             of ``max_rows`` -- the worst case, which over-refuses a small
-            catalog (664 MiB for the default profile at ``1 << 20`` rows).
+            catalog (616 MiB for the default profile at ``1 << 20`` rows).
 
     Returns:
         The batch term in bytes.
@@ -314,8 +314,8 @@ def prepare_workdir(
     memory_budget_bytes: Optional[int] = None,
     cut_table_path=None,
 ) -> Manifest:
-    """Run the existing ASCII topology preparation in the schema's extended
-    scratch layout: scatter, sort, fix-ups and links. Returns the workdir
+    """Run the existing ASCII topology preparation in the schema's scratch
+    layout: scatter, sort, fix-ups and links. Returns the workdir
     manifest.
 
     **A declared cut table** (``cut_table_path``, a ``forests.list``-shaped
@@ -382,7 +382,7 @@ def prepare_workdir(
             "a fractional ceiling would be truncated into a different budget than asked for",
             minimum=1,
         )
-    manifest = Manifest.load_or_create(workdir, layout=ScratchLayout.from_schema(schema))
+    manifest = Manifest.load_or_create(workdir, ScratchLayout.from_schema(schema))
     if manifest.path.exists() and any(
         entry.get("status") == "linked" for entry in manifest.data["snapshots"].values()
     ):
@@ -408,6 +408,17 @@ def prepare_workdir(
     )
     cut_map = None
     if cut_table_path is not None:
+        if memory_budget_bytes is not None:
+            n_trees = sum(
+                int(scattered.source_entry(path)["tree_rows"])
+                for path in scattered.data["provenance"]["source_files"]
+            )
+            check_budget(
+                n_trees * CUT_TABLE_BYTES_PER_TREE,
+                memory_budget_bytes,
+                "loading the cut table ({} trees)".format(n_trees),
+                "raise memory_budget_bytes",
+            )
         cut_map = load_cut_table(scattered, forests_list_path, cut_table_path)
     if max_rows is not None:
         _check_largest_batch_term(schema, scattered, max_rows, memory_budget_bytes)
@@ -470,7 +481,7 @@ def _check_recorded_inputs(
         ),
         (
             "forests_list",
-            load_forests_list(forests_list_path).md5,
+            file_md5(forests_list_path),
             provenance.get("forests_list", {}).get("md5"),
         ),
         ("a_list", load_a_list(a_list_path)[1], provenance.get("a_list", {}).get("md5")),
@@ -759,7 +770,7 @@ class CTreesAsciiAdapter(SourceAdapter):
             raise ConverterError(
                 "{}: no manifest; run prepare_workdir with this schema first".format(self.workdir)
             )
-        manifest = Manifest.load_or_create(self.workdir)
+        manifest = Manifest.load(self.workdir)
         if manifest.layout != self.layout:
             raise ConverterError(
                 "{}: prepared with scratch layout {!r} (schema {}), not the one this schema "
@@ -905,16 +916,16 @@ class CTreesAsciiAdapter(SourceAdapter):
             )
         del forest_of_unit, known, forest_table
 
+        # the canonical unit is the forest, not a physical (file, unit): the
+        # leading 0 is the coordinate shim, and the manifest's inventory record
+        # must not read it as file 0 (conversion_manifest.inventory_record)
         inventory = SourceInventory(
             [
                 SourceUnit(source_file_ordinal=0, unit_ordinal=forest, n_halos=count)
                 for forest, count in enumerate(totals.tolist())
-            ]
+            ],
+            physical_units=False,
         )
-        # the canonical unit is the forest, not a physical (file, unit): the
-        # leading 0 is the coordinate shim, and the manifest's inventory record
-        # must not read it as file 0 (conversion_manifest.inventory_record)
-        inventory.physical_units = False
         prepared = sum(int(entry["rows"]) for entry in manifest.data["snapshots"].values())
         if inventory.total_halos != prepared:
             raise ConverterError(
@@ -977,8 +988,7 @@ class CTreesAsciiAdapter(SourceAdapter):
     def _source_ids(self, fixed: np.ndarray, links: np.ndarray, snap: int) -> np.ndarray:
         """``SourceHaloID`` of every row of one snapshot, in slab order:
         ``base[ForestIndex] + HaloRankInForest``, both read from the links
-        record in bounded reads (the scatter-time physical coordinates in
-        ``fixed`` no longer feed identity; it names a refused row's halo id).
+        record in bounded reads (``fixed`` only names a refused row's halo id).
         Each forest is checked against the inventory's forests and each rank
         against its forest's halo count."""
         n_forests = self._forest_counts.size

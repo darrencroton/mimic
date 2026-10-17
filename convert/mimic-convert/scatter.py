@@ -4,36 +4,31 @@ Phase 0 streams ``forests.list`` into a sorted tree-root-id -> forest-id map and
 assigns the dense run-scoped ForestIndex by ascending ctrees forest id, the
 same enumeration order the vertical Consistent-Trees ASCII reader uses.
 Phase 1 scatters ctrees ASCII files into per-snapshot scratch binaries in the
-frozen record dtype, with a resume manifest, per-forest max-snapshot
+scratch record dtype, with a resume manifest, per-forest max-snapshot
 aggregates, and observed (SnapNum, scale) pairs cross-validated against the
 canonical a_list.
 
 Cleanup discipline: the converter never deletes source
 data. Deletion is restricted to manifest-owned intermediates located under the
-workdir; ``remove_intermediate`` refuses anything else. The sort stage
-consumes the unsorted snapshot scratch through
-``Manifest.consume_intermediates``, which routes every deletion through that
+workdir; ``remove_intermediate`` refuses anything else. The sort stage deletes
+the unsorted snapshot scratch through it, and ``Manifest.finish_removals``
+finishes a deletion a crash interrupted, routing every unlink through the
 same guard.
 
-**Scratch layout**. A workdir holds one
-``ctrees_parser.ScratchLayout`` for its whole life: the frozen 108-byte legacy
-record, used when no schema is given, or the extended record of the canonical
-ASCII bridge (source coordinates plus declared extras), which the version 3
-route always uses. ``run_scatter`` fixes it from its ``schema`` argument when
+**Scratch layout**. A workdir holds one ``ctrees_parser.ScratchLayout`` for
+its whole life: the core record fields followed by the declared extras of the
+schema's profile. ``run_scatter`` fixes it from its ``schema`` argument when
 the manifest is created; every later stage derives it from the manifest, and
-any caller that names a different layout -- including a caller naming no
-schema against an extended workdir -- is refused before anything is mutated.
-An extended workdir records a dtype tag the frozen ``DTYPE_TAG`` comparison of
-older code rejects, so a converter that predates it can never resume it.
+any caller that names a different layout is refused before anything is
+mutated.
 
 Every scratch file handle this module opens is buffered explicitly at
 :data:`SCRATCH_BUFFER_BYTES`, in the serial and the pooled scatter alike, so
 the buffer never scales with a filesystem's ``st_blksize`` across the up to
 one-handle-per-snapshot a source file can hold open.
 
-**A declared cut table** (extended layout only; ``run_scatter``'s
-``cut_table_path``) changes nothing scatter itself produces: ``forests.list``
-stays the partition every record's ``forest_id`` is joined from, because the
+**A declared cut table** (``run_scatter``'s ``cut_table_path``) changes nothing
+scatter itself produces: ``forests.list`` stays the partition every record's ``forest_id`` is joined from, because the
 fix-up stage resolves hosts under it. Scatter checks the table's roots against
 ``forests.list`` before any file is read, binds the table's md5 into the
 workdir's provenance, and records each file's per-tree row counts
@@ -60,8 +55,6 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import (  # noqa: E402
-    DTYPE_TAG,
-    LEGACY_LAYOUT,
     ConverterError,
     CtreesFileParser,
     ScratchLayout,
@@ -69,14 +62,12 @@ from ctrees_parser import (  # noqa: E402
 )
 
 MANIFEST_NAME = "manifest.json"
-#: Bumped 1 -> 2 when fix_flybys was removed: the frozen record dtypes are
-#: unchanged (no new columns), so DTYPE_TAG/FIXED_DTYPE_TAG cannot detect
-#: this change on their own. A workdir manifested under version 1 may hold
-#: fixed/linked snapshots with the pre-removal MostBoundID sign convention;
-#: resuming into it would skip re-verifying those snapshots (fix_one_snapshot
-#: trusts recorded checksums, not content semantics) and let a stale
-#: intermediate reach an emitted dataset. Refusing the resume outright forces a
-#: fresh workdir instead.
+#: Version of the scatter manifest. A version 1 workdir may hold fixed/linked
+#: snapshots with a different MostBoundID sign convention that no dtype tag
+#: reveals; resuming into it would skip re-verifying those snapshots
+#: (fix_one_snapshot trusts recorded checksums, not content semantics) and let
+#: a stale intermediate reach an emitted dataset, so it is refused outright and
+#: a fresh workdir is required.
 MANIFEST_VERSION = 2
 #: absolute tolerance for observed scale vs canonical a_list entry
 A_LIST_ATOL = 1e-4
@@ -89,8 +80,7 @@ A_LIST_ATOL = 1e-4
 #: the time arm fire on every completion and silently reproduce the
 #: per-file-save cost the count arm avoids. The time arm is therefore
 #: disabled by default (infinite) and the count arm alone bounds worst-case
-#: re-work; an operator who wants a time-boxed ceiling can still pass
-#: save_every_seconds explicitly.
+#: re-work. ``save_every_seconds`` is a test hook: no caller sets it.
 DEFAULT_SAVE_EVERY_N_FILES = 25
 DEFAULT_SAVE_EVERY_SECONDS = float("inf")
 
@@ -122,8 +112,8 @@ def worker_scratch_name(snap: int, src_index: int) -> str:
 
 
 def source_units_name(src_index: int) -> str:
-    """Per-source ``[n_units, 2]`` (forest id, halo count) sidecar of an
-    extended-layout scatter: that file's canonical source units."""
+    """Per-source ``[n_units, 2]`` (forest id, halo count) sidecar of
+    a scatter: that file's canonical source units."""
     return "units_src_{}.npy".format(src_index)
 
 
@@ -356,7 +346,7 @@ class Manifest:
     """JSON resume manifest under the workdir; every intermediate the converter
     creates is recorded here, and cleanup refuses paths it does not own."""
 
-    def __init__(self, workdir, layout: ScratchLayout = LEGACY_LAYOUT):
+    def __init__(self, workdir, layout: ScratchLayout):
         self.workdir = Path(workdir).resolve()
         self.path = self.workdir / MANIFEST_NAME
         self.layout = layout
@@ -368,64 +358,68 @@ class Manifest:
             "snapshots": {},
             "observed_pairs": [],
             "provenance": {},
+            "scratch_layout": layout.to_record(),
         }
-        if layout.is_extended:
-            # absent from a legacy manifest, so the legacy JSON is unchanged
-            self.data["scratch_layout"] = layout.to_record()
 
     @classmethod
-    def load_or_create(cls, workdir, layout: Optional[ScratchLayout] = None) -> "Manifest":
+    def load(cls, workdir) -> "Manifest":
+        """The workdir's existing manifest, whose recorded scratch layout is
+        the layout of every later stage."""
+        path = Path(workdir).resolve() / MANIFEST_NAME
+        if not path.exists():
+            raise ConverterError("{}: no manifest found; run scatter first".format(workdir))
+        return cls._read(workdir)
+
+    @classmethod
+    def load_or_create(cls, workdir, layout: ScratchLayout) -> "Manifest":
         """Load the workdir's manifest, or start a new one in memory.
 
-        ``layout`` None derives the scratch layout from an existing manifest
-        (every stage after scatter); a given ``layout`` must equal the
-        recorded one exactly -- dtype tag and schema digest -- and is what a
-        new manifest is created with. Nothing is written here.
+        ``layout`` must equal the recorded one exactly -- dtype tag and schema
+        digest -- and is what a new manifest is created with. Nothing is
+        written here.
         """
-        manifest = cls(workdir, layout if layout is not None else LEGACY_LAYOUT)
-        if manifest.path.exists():
-            with open(manifest.path) as handle:
-                data = json.load(handle)
-            if data.get("manifest_version") != MANIFEST_VERSION:
-                raise ConverterError(
-                    "{}: manifest version {} != supported {}".format(
-                        manifest.path, data.get("manifest_version"), MANIFEST_VERSION
-                    )
+        if not (Path(workdir).resolve() / MANIFEST_NAME).exists():
+            return cls(workdir, layout)
+        manifest = cls._read(workdir)
+        if layout != manifest.layout:
+            raise ConverterError(
+                "{}: this workdir holds scratch records of tag {!r} (schema {}), not the "
+                "requested layout of tag {!r} (schema {}) — a different field selection is "
+                "a different conversion; refusing to resume, use a fresh workdir".format(
+                    manifest.path,
+                    manifest.layout.dtype_tag,
+                    manifest.layout.schema_digest,
+                    layout.dtype_tag,
+                    layout.schema_digest,
                 )
-            if "scratch_layout" in data:
-                recorded = ScratchLayout.from_record(data["scratch_layout"], str(manifest.path))
-                if data.get("dtype_tag") != recorded.dtype_tag:
-                    raise ConverterError(
-                        "{}: manifest dtype tag {!r} disagrees with its own scratch layout "
-                        "record ({!r}) — refusing to resume".format(
-                            manifest.path, data.get("dtype_tag"), recorded.dtype_tag
-                        )
-                    )
-            elif data.get("dtype_tag") != DTYPE_TAG:
-                raise ConverterError(
-                    "{}: manifest dtype tag mismatch (manifest: {!r}; current: {!r}); "
-                    "the scratch record dtype is frozen — refusing to resume".format(
-                        manifest.path, data.get("dtype_tag"), DTYPE_TAG
-                    )
+            )
+        return manifest
+
+    @classmethod
+    def _read(cls, workdir) -> "Manifest":
+        """Read the workdir's manifest file, refusing a version or layout
+        record this code would not have written."""
+        path = Path(workdir).resolve() / MANIFEST_NAME
+        with open(path) as handle:
+            data = json.load(handle)
+        if data.get("manifest_version") != MANIFEST_VERSION:
+            raise ConverterError(
+                "{}: manifest version {} != supported {}".format(
+                    path, data.get("manifest_version"), MANIFEST_VERSION
                 )
-            else:
-                recorded = LEGACY_LAYOUT
-            if layout is not None and layout != recorded:
-                raise ConverterError(
-                    "{}: this workdir holds {} scratch records (tag {!r}, schema {}), not the "
-                    "requested {} layout (tag {!r}, schema {}) — a different field selection is "
-                    "a different conversion; refusing to resume, use a fresh workdir".format(
-                        manifest.path,
-                        "extended" if recorded.is_extended else "legacy",
-                        recorded.dtype_tag,
-                        recorded.schema_digest,
-                        "extended" if layout.is_extended else "legacy",
-                        layout.dtype_tag,
-                        layout.schema_digest,
-                    )
+            )
+        if "scratch_layout" not in data:
+            raise ConverterError("{}: manifest records no scratch layout".format(path))
+        recorded = ScratchLayout.from_record(data["scratch_layout"], str(path))
+        if data.get("dtype_tag") != recorded.dtype_tag:
+            raise ConverterError(
+                "{}: manifest dtype tag {!r} disagrees with its own scratch layout "
+                "record ({!r}) — refusing to resume".format(
+                    path, data.get("dtype_tag"), recorded.dtype_tag
                 )
-            manifest.layout = recorded
-            manifest.data = data
+            )
+        manifest = cls(workdir, recorded)
+        manifest.data = data
         return manifest
 
     def save(self) -> None:
@@ -442,8 +436,7 @@ class Manifest:
         """Record an intermediate's absolute path and content checksum — the
         frozen ownership contract every later deletion is verified against.
         Scratch files holding structured records carry the workdir's
-        ``manifest.layout.dtype_tag`` (the frozen ``DTYPE_TAG`` for the legacy
-        layout); other binaries record their own dtype."""
+        ``manifest.layout.dtype_tag``; other binaries record their own dtype."""
         resolved = Path(path).resolve()
         entry = {"kind": kind, "status": "present", "md5": file_md5(resolved)}
         if rows is not None:
@@ -477,49 +470,29 @@ class Manifest:
         resolved.unlink()
         entry["status"] = "removed"
 
-    def consume_intermediates(self, paths, *, delete: bool) -> List[Path]:
-        """Finish the delete-after-verify protocol for intermediates whose
-        terminal consumer is done with them.
+    def finish_removals(self, paths) -> None:
+        """Finish the deletion of intermediates a stage has already replaced.
 
-        Callers reach this with the successor artifact already re-read,
-        verified, registered and saved -- the predecessor half of the
-        verify-before-consume protocol. Each path is resolved to exactly one of
-        four outcomes:
-
-        * no manifest entry, or an entry already recorded ``removed`` -- nothing
-          to do, which is what makes a re-run idempotent;
-        * registered ``present`` but absent on disk -- a crash landed between
-          the unlink and the manifest save, so the record converges on
-          ``removed``. That happens whether or not ``delete`` is set: the bytes
-          are gone already and the only open question is whether the manifest
-          says so;
-        * registered ``present``, on disk, ``delete`` set -- deleted through
-          :meth:`remove_intermediate`, which is the only path to an unlink;
-        * registered ``present``, on disk, ``delete`` clear -- retained.
-
-        The manifest is saved once, at the end, iff anything changed. Returns
-        the paths whose bytes are gone as a result -- deleted here, or deleted
-        by an interrupted earlier call and only now recorded.
+        A path with no manifest entry, or an entry already recorded ``removed``,
+        is skipped, which makes a re-run idempotent. A path registered
+        ``present`` but absent on disk was unlinked by a crash that landed
+        before the manifest was saved: its record converges on ``removed``.
+        Any other registered path is deleted through
+        :meth:`remove_intermediate`, the only path to an unlink. The caller
+        saves the manifest.
         """
-        removed: List[Path] = []
         for path in paths:
             resolved = Path(path).resolve()
             entry = self.data["intermediates"].get(str(resolved))
             if entry is None or entry.get("status") != "present":
                 continue
-            if not resolved.exists():
-                entry["status"] = "removed"
-            elif delete:
+            if resolved.exists():
                 self.remove_intermediate(resolved)
             else:
-                continue
-            removed.append(resolved)
-        if removed:
-            self.save()
-        return removed
+                entry["status"] = "removed"
 
     def verify_intermediate(self, path, what: str) -> dict:
-        """Verify a registered intermediate before consuming or skip-trusting
+        """Verify a registered intermediate before reading or skip-trusting
         it: manifest-owned, still on disk, and content checksum unchanged."""
         resolved = Path(path).resolve()
         entry = self.data["intermediates"].get(str(resolved))
@@ -621,10 +594,10 @@ class FileScatterResult:
     observed_roots: np.ndarray
     forest_max_snap: Dict[int, int]
     worker_files: Dict[int, str]
-    #: extended layout only: ``[n_units, 2]`` (forest id, halo count)
-    source_units: Optional[np.ndarray] = None
-    #: extended layout only: rows per ``#tree`` marker, in file order
-    tree_rows: Optional[np.ndarray] = None
+    #: ``[n_units, 2]`` (forest id, halo count): this file's source units
+    source_units: np.ndarray
+    #: rows per ``#tree`` marker, in file order
+    tree_rows: np.ndarray
 
 
 def _update_forest_max(acc: Dict[int, int], forest_ids: np.ndarray, snaps: np.ndarray) -> None:
@@ -645,24 +618,20 @@ def scatter_one_file(
     scratch_dir,
     forest_map: ForestMap,
     chunksize: int,
-    schema=None,
+    schema,
 ) -> FileScatterResult:
     """Scatter one ctrees file into per-snapshot worker binaries.
 
     Worker files are opened with 'wb' so a re-run after a crash truncates
     partial output instead of appending to it, and with the explicit
-    :data:`SCRATCH_BUFFER_BYTES` buffer.
-
-    With a ``schema`` the records are in its extended scratch layout and carry
-    each row's canonical source coordinate: ``src_index`` is the file ordinal,
-    and the units come from :func:`ctrees_parser.plan_source_units` over this
-    file's pre-scan. The parsed rows' unit attribution is checked against that
-    plan before the result is returned.
+    :data:`SCRATCH_BUFFER_BYTES` buffer. The records are in ``schema``'s
+    scratch layout; the file's source units come from
+    :func:`ctrees_parser.plan_source_units` over its pre-scan.
     """
     path = Path(path)
     scratch_dir = Path(scratch_dir)
     scratch_dir.mkdir(parents=True, exist_ok=True)
-    parser = CtreesFileParser(path, chunksize=chunksize, schema=schema)
+    parser = CtreesFileParser(path, schema, chunksize=chunksize)
 
     if (
         parser.prescan.declared_tree_count is not None
@@ -679,10 +648,7 @@ def scatter_one_file(
     root_order = np.argsort(parser.prescan.tree_root_ids, kind="stable")
     sorted_roots = parser.prescan.tree_root_ids[root_order]
     sorted_forests = tree_forest_ids[root_order]
-    extended = parser.scratch_layout.is_extended
-    if extended:
-        parser.unit_plan = plan_source_units(parser.prescan, tree_forest_ids, src_index)
-        unit_rows = np.zeros(parser.unit_plan.unit_counts.size, dtype=np.int64)
+    unit_plan = plan_source_units(parser.prescan, tree_forest_ids)
 
     handles = {}
     counts: Dict[int, int] = {}
@@ -694,8 +660,6 @@ def scatter_one_file(
             pos = np.searchsorted(sorted_roots, records["tree_root_id"])
             records["forest_id"] = sorted_forests[pos]
             _update_forest_max(forest_max, records["forest_id"], records["snap"])
-            if extended:
-                _check_unit_rows(records, parser.unit_plan, unit_rows, path)
             for snap in np.unique(records["snap"]).tolist():
                 part = records[records["snap"] == snap]
                 if snap not in handles:
@@ -712,12 +676,6 @@ def scatter_one_file(
         raise ConverterError(
             "{}: scattered row total {} != independent pre-count {}".format(
                 path, total, parser.prescan.n_rows
-            )
-        )
-    if extended and not np.array_equal(unit_rows, parser.unit_plan.unit_counts):
-        raise ConverterError(
-            "{}: parsed rows per source unit {} disagree with the pre-scan plan {}".format(
-                path, unit_rows.tolist()[:10], parser.unit_plan.unit_counts.tolist()[:10]
             )
         )
     # the source must not have changed between the pre-scan and the pandas
@@ -747,39 +705,9 @@ def scatter_one_file(
             snap: str((scratch_dir / worker_scratch_name(snap, src_index)).resolve())
             for snap in counts
         },
-        source_units=parser.unit_plan.table() if extended else None,
-        tree_rows=(
-            np.diff(np.r_[parser.prescan.tree_start_rows, np.int64(parser.prescan.n_rows)])
-            if extended
-            else None
-        ),
+        source_units=unit_plan.table(),
+        tree_rows=np.diff(np.r_[parser.prescan.tree_start_rows, np.int64(parser.prescan.n_rows)]),
     )
-
-
-def _check_unit_rows(records: np.ndarray, plan, unit_rows: np.ndarray, path: Path) -> None:
-    """Accumulate one chunk's rows per source unit, and check every row's
-    coordinate lies inside its unit and its forest is the unit's forest --
-    the parsed attribution agreeing with the pre-scan plan it came from."""
-    units = records["src_unit_ordinal"]
-    n_units = plan.unit_counts.size
-    bad = (units < 0) | (units >= n_units)
-    if not bad.any():
-        rows = records["src_row_ordinal"]
-        bad = (rows < 0) | (rows >= plan.unit_counts[units])
-        bad |= plan.unit_forest_ids[units] != records["forest_id"]
-    if bad.any():
-        row = int(np.nonzero(bad)[0][0])
-        raise ConverterError(
-            "{}: record id {} has source coordinate (unit {}, row {}) outside the pre-scan "
-            "plan of {} unit(s)".format(
-                path,
-                int(records["id"][row]),
-                int(units[row]),
-                int(records["src_row_ordinal"][row]),
-                n_units,
-            )
-        )
-    unit_rows += np.bincount(units, minlength=n_units)
 
 
 #: per-worker-process forest map: set once by ``_init_scatter_worker``
@@ -858,8 +786,7 @@ def _init_scatter_worker(forests_list_path: str, expected_md5: str) -> None:
 def _scatter_worker(args: Tuple) -> FileScatterResult:
     """Pool task: ``(path, src_index, scratch_dir, chunksize, schema)``.
 
-    ``schema`` is the extended layout's schema, or ``None`` for the legacy
-    layout; it travels with the task (a small frozen object) so a pooled
+    ``schema`` travels with the task (a small frozen object) so a pooled
     worker scatters into the same layout, through the same
     :func:`scatter_one_file`, as the serial path.
     """
@@ -880,23 +807,22 @@ def run_scatter(
     forests_list_path,
     a_list_path,
     workdir,
+    schema,
     pool_size: int = 1,
     chunksize: int = 1_000_000,
     simulation_info_path=None,
     save_every_n_files: int = DEFAULT_SAVE_EVERY_N_FILES,
     save_every_seconds: float = DEFAULT_SAVE_EVERY_SECONDS,
-    schema=None,
     cut_table_path=None,
 ) -> Manifest:
     """Phase 0 + Phase 1: map, scatter, concat, aggregates, manifest.
 
-    ``schema`` (default None: the frozen legacy scratch layout) is a
-    ``consistent_trees_ascii`` canonical schema; it selects the columns and
-    fixes the workdir's extended scratch layout (see the module docstring).
-    A resume must pass the same schema, or none for a legacy workdir.
+    ``schema`` is a ``consistent_trees_ascii`` canonical schema; it selects the
+    columns and fixes the workdir's scratch layout (see the module docstring).
+    A resume must pass the same schema.
 
-    ``cut_table_path`` (extended layout only; default None, which changes
-    nothing) names a cut forest table in ``forests.list`` shape. Before any
+    ``cut_table_path`` (default None, which changes nothing) names a cut forest
+    table in ``forests.list`` shape. Before any
     source file is read, its tree roots must be exactly ``forests.list``'s;
     its md5 is then bound into the provenance (a resume must name the same
     table, or none when none was named), and every scattered file's per-tree
@@ -920,8 +846,7 @@ def run_scatter(
     any finite default in that range would make the time arm fire on every
     completion and silently reproduce the per-file-save cost this policy
     exists to remove — only ``save_every_n_files`` (default 25) bounds the
-    default worst-case re-work. Pass ``save_every_seconds`` explicitly for a
-    time-boxed durability ceiling. Worker-scratch and sidecar artifacts are
+    default worst-case re-work. Worker-scratch and sidecar artifacts are
     always durably written before they are registered, so an interruption
     between saves leaves at most unsaved-but-written artifacts on disk —
     never a manifest entry naming something absent. A re-scatter of the
@@ -947,17 +872,13 @@ def run_scatter(
     forest_map = load_forests_list(forests_list_path)
     cut_identity = None
     if cut_table_path is not None:
-        if schema is None:
-            raise ConverterError(
-                "a cut table is a canonical ASCII route option; the legacy layout takes none"
-            )
         cut_map = load_forests_list(cut_table_path)
         check_cut_roots(cut_map, forest_map, cut_table_path)
         cut_identity = {"path": str(Path(cut_table_path).resolve()), "md5": cut_map.md5}
         del cut_map
 
-    layout = LEGACY_LAYOUT if schema is None else ScratchLayout.from_schema(schema)
-    manifest = Manifest.load_or_create(workdir, layout=layout)
+    layout = ScratchLayout.from_schema(schema)
+    manifest = Manifest.load_or_create(workdir, layout)
 
     # bind the manifest to its input identities: a resumed run must see the
     # same canonical metadata content and the same ordered source set it was
@@ -1064,12 +985,11 @@ def run_scatter(
             )
         manifest.register_intermediate(roots_file, "observed-roots")
         manifest.register_intermediate(forest_max_file, "forest-max-snap")
-        if result.source_units is not None:
-            units_file = scratch_dir / source_units_name(result.src_index)
-            np.save(units_file, result.source_units)
-            manifest.register_intermediate(
-                units_file, "source-units", rows=int(result.source_units.shape[0])
-            )
+        units_file = scratch_dir / source_units_name(result.src_index)
+        np.save(units_file, result.source_units)
+        manifest.register_intermediate(
+            units_file, "source-units", rows=int(result.source_units.shape[0])
+        )
         if cut_identity is not None:
             tree_rows_file = scratch_dir / tree_rows_name(result.src_index)
             np.save(tree_rows_file, result.tree_rows)
@@ -1089,12 +1009,6 @@ def run_scatter(
             "observed_pairs": [[snap, scale] for snap, scale in result.observed_pairs],
             "status": "completed",
         }
-        if result.source_units is not None:
-            # absent from a legacy-layout entry, so its JSON is unchanged; it
-            # records that the file's source-units sidecar exists
-            manifest.data["source_files"][result.path]["source_units"] = int(
-                result.source_units.shape[0]
-            )
         if cut_identity is not None:
             manifest.data["source_files"][result.path]["tree_rows"] = int(result.tree_rows.size)
         maybe_save_manifest()
@@ -1131,7 +1045,21 @@ def run_scatter(
 def _finalize_scatter(
     manifest: Manifest, tree_files: Sequence[Path], forest_map: ForestMap, scratch_dir: Path
 ) -> None:
-    """Coverage validation, per-snapshot concat, aggregate merge, sidecar table."""
+    """Coverage validation, per-snapshot concat, aggregate merge, sidecar table.
+
+    A workdir the link stage has already linked is refused before anything is
+    created: a linked snapshot is final, and only the link stage re-runs on it.
+    """
+    linked = sorted(
+        int(snap)
+        for snap, entry in manifest.data["snapshots"].items()
+        if entry.get("status") == "linked"
+    )
+    if linked:
+        raise ConverterError(
+            "snapshot {}: unexpected status 'linked'; once a snapshot is linked only the link "
+            "stage re-runs".format(linked[0])
+        )
     entries = []
     for path in tree_files:
         entry = manifest.source_entry(path)
@@ -1219,7 +1147,7 @@ def _finalize_scatter(
             manifest.verify_intermediate(snap_entry["sorted_file"], "sorted snapshot scratch")
             manifest.verify_intermediate(snap_entry["index_file"], "snapshot id index")
             manifest.verify_intermediate(snap_entry["fixed_file"], "fixed snapshot scratch")
-            _retry_worker_cleanup(manifest, scratch_dir, snap, parts)
+            _finish_worker_removals(manifest, scratch_dir, snap, parts)
             manifest.save()
             continue
         if snap_entry and snap_entry.get("status") == "sorted":
@@ -1228,14 +1156,14 @@ def _finalize_scatter(
             # verify the sorted artifacts and finish the interrupted cleanup.
             manifest.verify_intermediate(snap_entry["sorted_file"], "sorted snapshot scratch")
             manifest.verify_intermediate(snap_entry["index_file"], "snapshot id index")
-            _retry_worker_cleanup(manifest, scratch_dir, snap, parts)
+            _finish_worker_removals(manifest, scratch_dir, snap, parts)
             manifest.save()
             continue
         if snap_entry and snap_entry.get("status") == "concatenated":
             # skip-trusting a prior concat requires verifying it, then
             # retrying any cleanup a crash may have left unfinished
             manifest.verify_intermediate(target, "concatenated snapshot scratch")
-            _retry_worker_cleanup(manifest, scratch_dir, snap, parts)
+            _finish_worker_removals(manifest, scratch_dir, snap, parts)
             manifest.save()
             continue
         expected_rows = sum(p["count"] for p in parts)
@@ -1285,19 +1213,9 @@ def _finalize_scatter(
         manifest.save()
 
 
-def _retry_worker_cleanup(manifest: Manifest, scratch_dir: Path, snap: int, parts) -> None:
-    """Finish worker-file deletion a crash may have interrupted. A registered
-    entry whose file is already gone is the intended end state of a cleanup
-    that crashed between unlink and manifest save — record it as removed."""
-    for p in parts:
-        worker_path = (scratch_dir / worker_scratch_name(snap, p["src_index"])).resolve()
-        entry = manifest.data["intermediates"].get(str(worker_path))
-        if entry is None or entry.get("status") != "present":
-            continue
-        if worker_path.exists():
-            manifest.remove_intermediate(worker_path)
-        else:
-            entry["status"] = "removed"
+def _finish_worker_removals(manifest: Manifest, scratch_dir: Path, snap: int, parts) -> None:
+    """Finish worker-file deletion a crash may have interrupted."""
+    manifest.finish_removals(scratch_dir / worker_scratch_name(snap, p["src_index"]) for p in parts)
 
 
 # ---------------------------------------------------------------------------
@@ -1338,6 +1256,11 @@ def _scattered_trees(manifest: Manifest) -> List[Tuple[int, np.ndarray, np.ndarr
     return trees
 
 
+#: Peak resident bytes per tree of :func:`load_cut_table`, as measured in its
+#: docstring.
+CUT_TABLE_BYTES_PER_TREE = 197
+
+
 def load_cut_table(manifest: Manifest, forests_list_path, cut_table_path) -> ForestMap:
     """The workdir's cut table, every invariant checked, as the map the fix-up
     stage and :func:`install_cut` relabel from.
@@ -1355,9 +1278,9 @@ def load_cut_table(manifest: Manifest, forests_list_path, cut_table_path) -> For
     each), and the per-file roots and row counts with their concatenations,
     the sort order and the ordered totals (48 B per tree), all resident
     together. Measured with ``tracemalloc`` around this call on synthetic
-    two-file workdirs of one-halo trees: a peak of 197 B per tree at 100,000
-    and at 200,000 trees (19.7 and 39.4 MB), plus the constant 8 MiB block
-    the md5 reads use.
+    two-file workdirs of one-halo trees: a peak of 197 B per tree
+    (:data:`CUT_TABLE_BYTES_PER_TREE`) at 100,000 and at 200,000 trees (19.7
+    and 39.4 MB), plus the constant 8 MiB block the md5 reads use.
     """
     from census.cut_table import read_cut_table
 
@@ -1430,10 +1353,7 @@ def install_cut(manifest: Manifest, cut_map: ForestMap) -> None:
     (``ctrees_parser.plan_source_units`` over the recorded marker roots and
     tree row counts), its count the piece's rows in the file. The original
     partition's versions are replaced, never kept beside these, so the link
-    stage and the adapter read the cut partition only. The fixed scratch
-    records keep the source coordinates scatter stamped under the original
-    partition's units; nothing reads them after scatter's own attribution
-    check. Idempotent: a resumed install keeps what it already wrote, and an
+    stage and the adapter read the cut partition only. Idempotent: a resumed install keeps what it already wrote, and an
     install interrupted between a table's replacement and the manifest save
     is completed here (``_finalize_scatter`` leaves the forest table to this
     function once every snapshot is fixed).
@@ -1456,7 +1376,7 @@ def install_cut(manifest: Manifest, cut_map: ForestMap) -> None:
             tree_start_rows=starts,
             n_rows=int(rows.sum()),
         )
-        plan = plan_source_units(markers, cut_map.lookup_forest_ids(roots), src_index)
+        plan = plan_source_units(markers, cut_map.lookup_forest_ids(roots))
         table = plan.table()
         _install_table(
             manifest,

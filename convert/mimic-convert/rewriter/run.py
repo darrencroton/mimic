@@ -4,17 +4,20 @@ The passes are the package docstring's; this module sequences them, keeps
 the remap window to slabs N+1, N and N-1, checkpoints pass 1 after every
 slab, records each verified slab in the restart state before any recovery
 file is removed, and finishes the manifest, the per-tree inventory and the
-summary. On ``--resume`` it continues after the last verified slab from the
-scratch files the state names (a surplus or already-removed recovery file is
-tolerated), and on a completed run it re-verifies the registered outputs and
-the inventory and returns.
+summary. Every snapshot file and the sidecar are flushed to disk before they
+are renamed into place, and the directory after, so a slab the state records
+as verified survives a power loss as well as a crash. On ``--resume`` it
+continues after the last verified slab from the scratch files the state
+names (a surplus or already-removed recovery file is tolerated), and on a
+completed run it re-verifies the registered outputs and the inventory and
+returns.
 
 What stays resident through passes 1 and 2 is deliberately small: the index,
 its forest table, the sidecar columns, the forest totals and the inventory
 are released once pass 0, the sidecar and the inventory checkpoint are done
 (the inventory is reloaded from the scratch at the end); the baseline is then
 the forest bases and running counts, the roots and tree counts, and one or
-two slabs' labels (package docstring).
+two slabs' labels (``rewriter.inputs.MEMORY_FORMULAS``).
 
 For a cut (``rewriter.cut``) pass 0 continues with the labelling pre-pass
 and the table's installation, every refusal of which happens before the
@@ -89,6 +92,7 @@ from rewriter.workdir import (  # noqa: E402
     load_array,
     open_manifest,
     read_json,
+    replace_durably,
     save_array_atomic,
     state_path,
     summary_path,
@@ -134,16 +138,35 @@ def _check_recorded_file(path: Path, record: Optional[dict], what: str) -> None:
         raise ConverterError("{}: differs from the {} the state records".format(path, what))
 
 
+def _check_registered(
+    manifest, output_dir: Path, name: str, record: Optional[dict], what: str
+) -> None:
+    """A dataset file the restart state records must be the one the manifest
+    registered (whose content ``verify_stage_artifacts`` has checked)."""
+    path = dataset_dir(output_dir) / name
+    if record is None:
+        raise ConverterError("{}: the restart state records no {}".format(path, what))
+    registered = manifest.artifact("{}/{}".format(DATASET_DIR, name))
+    if (
+        registered is None
+        or registered["sha256"] != record["sha256"]
+        or int(registered["bytes"]) != int(record["bytes"])
+    ):
+        raise ConverterError("{}: differs from the {} the state records".format(path, what))
+
+
 def _reverify_complete(manifest, state: RestartState, output_dir: Path, log) -> dict:
-    """A completed run: every registered output and the inventory present
-    with their recorded checksums; returns the recorded summary."""
+    """A completed run: every registered output present with its registered
+    checksum and recorded as verified, and the inventory (and a cut's
+    pieces) with its recorded checksum; returns the recorded summary. Each
+    file is read once."""
     manifest.require_complete("write")
     manifest.verify_stage_artifacts("write")
     for snap, record in state.data["verified"].items():
-        _check_recorded_file(
-            dataset_dir(output_dir) / snapshot_h5_name(int(snap)), record, "verified slab"
+        _check_registered(
+            manifest, output_dir, snapshot_h5_name(int(snap)), record, "verified slab"
         )
-    _check_recorded_file(dataset_dir(output_dir) / SIDECAR_NAME, state.data["sidecar"], "sidecar")
+    _check_registered(manifest, output_dir, SIDECAR_NAME, state.data["sidecar"], "sidecar")
     _check_recorded_file(inventory_path(output_dir), state.data.get("inventory"), "tree inventory")
     if state.data.get("cut_pieces") is not None:
         _check_recorded_file(cut_pieces_path(output_dir), state.data["cut_pieces"], "cut pieces")
@@ -201,7 +224,6 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
     configuration_sha256 = canonical_sha256(prepared.configuration)
     n_snapshots = prepared.n_snapshots
     block_rows = int(request.block_rows)
-    identity_from_input = request.operation == OPERATION_NOOP
     cutting = request.operation == OPERATION_CUT
     plan: Optional[CutPlan] = None
     scratch = Scratch(scratch_dir)
@@ -276,7 +298,7 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
             sidecar_path.unlink()
         n_forests = write_sidecar(tmp, prepared.sidecar)
         verify_sidecar(tmp, prepared.sidecar)
-        os.replace(tmp, sidecar_path)
+        replace_durably(tmp, sidecar_path)
         state.data["sidecar"] = {
             "sha256": sha256_file(sidecar_path),
             "bytes": sidecar_path.stat().st_size,
@@ -285,7 +307,7 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         state.save()
         log("sidecar: {} forest(s) written and verified".format(n_forests))
     # the whole-input tables are no longer needed: release them before the
-    # slab passes (package docstring, the resident baseline)
+    # slab passes (the resident baseline of rewriter.inputs.MEMORY_FORMULAS)
     prepared.release_tables()
     census.totals = None
     if plan is not None:
@@ -300,7 +322,7 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
     if lowest is None:
         running = np.zeros(n_forests, dtype=np.int64)
         tree_counts = np.zeros(n_trees, dtype=np.int64)
-        labels = _pass1(run, census, state, top, running, None, tree_counts, identity_from_input)
+        labels = _pass1(run, census, state, top, running, None, tree_counts)
         pending = top
     elif lowest == 0:
         pending = None
@@ -319,10 +341,8 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         )
     while pending is not None:
         if pending - 1 >= 0:
-            labels = _pass1(
-                run, census, state, pending - 1, running, labels, tree_counts, identity_from_input
-            )
-        _pass2(run, census, state, pending, block_rows, identity_from_input)
+            labels = _pass1(run, census, state, pending - 1, running, labels, tree_counts)
+        _pass2(run, census, state, pending, block_rows)
         _release_after(run, state, pending)
         pending = pending - 1 if pending > 0 else None
     del running, labels
@@ -434,7 +454,7 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         "elapsed_seconds": round(time.time() - started, 3),
     }
     if request.operation == OPERATION_NOOP:
-        summary["byte_comparison"] = _byte_comparison(dataset, run.dataset_out)
+        summary["byte_comparison"] = _byte_comparison(dataset, state)
     if cut_record is not None:
         summary["cut"] = cut_record
     write_json_atomic(summary_path(output_dir), summary)
@@ -453,11 +473,7 @@ def _reload_pass0(state: RestartState, scratch: Scratch, log) -> Census:
     names = scratch.pass0_names()
     recorded = state.data["pass0"]
     if recorded is None or "inventory_sha256" not in recorded:
-        raise ConverterError(
-            "{}: no complete pass 0 checkpoint; the run cannot resume (start it afresh)".format(
-                state.path
-            )
-        )
+        raise _cannot_resume(state, scratch, "no complete pass 0 checkpoint")
     totals = scratch.load(names["totals"], recorded["sha256"]["totals"])
     roots = scratch.load(names["roots"], recorded["sha256"]["roots"])
     sid_base, max_rank = source_bases(totals)
@@ -512,11 +528,21 @@ def _install(prepared: Prepared, census: Census, tree_totals: np.ndarray, log) -
 def _load_checkpoint(run: _Run, state: RestartState, snap: int):
     recorded = state.data["checkpoints"].get(str(snap))
     if recorded is None:
-        raise ConverterError(
-            "{}: no pass 1 checkpoint for snapshot {}; the run cannot resume (start it afresh "
-            "in an empty output and scratch)".format(state.path, snap)
+        raise _cannot_resume(
+            state, run.scratch, "no pass 1 checkpoint for snapshot {}".format(snap)
         )
     return run.scratch.load_checkpoint(snap, recorded)
+
+
+def _cannot_resume(state: RestartState, scratch: Scratch, reason: str) -> ConverterError:
+    """The one recovery advice for a run interrupted before a checkpoint it
+    needs: a fresh run, which refuses a used output or scratch."""
+    return ConverterError(
+        "{}: {}; the run cannot resume: start it afresh in an empty output and scratch "
+        "(remove {} and {}, or choose empty ones)".format(
+            state.path, reason, state.path.parent, scratch.directory
+        )
+    )
 
 
 def _prune_recovery(run: _Run, state: RestartState, keep_remaps, keep_checkpoints) -> None:
@@ -538,7 +564,6 @@ def _pass1(
     running: np.ndarray,
     labels_next: Optional[np.ndarray],
     tree_counts: np.ndarray,
-    identity_from_input: bool,
 ) -> np.ndarray:
     remap, labels, cut_counts = rank_slab(
         run.prepared.dataset,
@@ -548,7 +573,6 @@ def _pass1(
         census.roots,
         labels_next,
         tree_counts,
-        identity_from_input,
         run.cut,
         run.remaps.get(snap + 1),
     )
@@ -571,19 +595,17 @@ def _pass2(
     state: RestartState,
     snap: int,
     block_rows: int,
-    identity_from_input: bool,
 ) -> None:
-    """Write the slab to its temporary name, verify that file, rename it, and
-    persist the verified progress before any recovery file is touched."""
+    """Write the slab to its temporary name, verify that file, flush it to
+    disk and rename it, and persist the verified progress before any
+    recovery file is touched."""
     prepared = run.prepared
     window = Window(
         own=run.remaps[snap], above=run.remaps.get(snap + 1), below=run.remaps.get(snap - 1)
     )
-    columns = SlabColumns(
-        prepared.dataset, snap, window, prepared.table, identity_from_input, run.cut
-    )
+    columns = SlabColumns(prepared.dataset, snap, window, prepared.table, run.cut)
     header = output_header(prepared, snap, window.own.n, census.max_rank)
-    if identity_from_input:
+    if run.cut is None:
         check_header_reproduced(prepared.dataset, snap, header)
     path = run.dataset_out / snapshot_h5_name(snap)
     tmp = run.dataset_out / (snapshot_h5_name(snap) + ".tmp")
@@ -593,7 +615,7 @@ def _pass2(
         path.unlink()
     n_links = write_slab(columns, tmp, header, prepared.declarations, block_rows)
     verify_slab(tmp, columns, header, prepared.declarations, census.sid_base, block_rows)
-    os.replace(tmp, path)
+    replace_durably(tmp, path)
     digest = state.mark_verified(snap, path)
     state.data["verified"][str(snap)]["n_links"] = n_links
     state.save()
@@ -618,16 +640,24 @@ def _release_after(run: _Run, state: RestartState, pending: int) -> None:
     state.save()
 
 
-def _byte_comparison(dataset, dataset_out: Path) -> dict:
+def _byte_comparison(dataset, state: RestartState) -> dict:
     """Per output file, whether its bytes equal the input file's: expected
-    only when the input was itself written by the rewriter."""
+    only when the input was itself written by the rewriter. The outputs'
+    sizes and digests are the restart state's; an input file is hashed only
+    when its size is its output's."""
+    outputs = {
+        snapshot_h5_name(int(snap)): record for snap, record in state.data["verified"].items()
+    }
+    outputs[SIDECAR_NAME] = state.data["sidecar"]
+    inputs = [(snapshot_h5_name(snap), dataset.snapshot_path(snap)) for snap in dataset.snapshots]
+    inputs.append((SIDECAR_NAME, dataset.sidecar_path))
     files = {}
-    for snap in dataset.snapshots:
-        name = snapshot_h5_name(snap)
-        files[name] = sha256_file(dataset_out / name) == sha256_file(dataset.snapshot_path(snap))
-    files[SIDECAR_NAME] = sha256_file(dataset_out / SIDECAR_NAME) == sha256_file(
-        dataset.sidecar_path
-    )
+    for name, source in inputs:
+        record = outputs[name]
+        files[name] = bool(
+            source.stat().st_size == int(record["bytes"])
+            and sha256_file(source) == record["sha256"]
+        )
     return {
         "files": files,
         "all_equal": all(files.values()),

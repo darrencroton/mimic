@@ -11,8 +11,8 @@
 # `scale` is parsed by the reference path but not retained in the scratch
 # record; it is a required role all the same.
 #
-# This profile selects exactly the columns of the frozen legacy scratch record,
-# so a conversion through it carries no extra fields.
+# This profile selects exactly the core columns every Consistent-Trees-derived
+# dataset carries, so a conversion through it declares no extra fields.
 
 schema_version: 1
 source_format: consistent_trees_ascii

@@ -59,13 +59,12 @@ profile is.
 HDF5 emission is out of scope here: ``adapters/ctrees_ascii.py`` reads the
 links scratch into canonical batches, which the version 3 writer emits.
 
-**Extended scratch layouts**. Fixed records
-are read in the workdir's own layout (``fixups.fixed_layout``), so a record
-carrying source coordinates and declared extras is linked exactly like a
-legacy one; the identity stream's per-row byte arithmetic uses that layout's
-actual itemsize (:func:`identity_stream_bytes_per_row`). The links record
-itself never widens: ``LINKS_RECORD_DTYPE`` stays the frozen 36-byte topology
-and identity record, and the rank core reads only its key fields.
+**Scratch layouts**. Fixed records are read in the workdir's own layout
+(``fixups.fixed_layout``), so a record carrying declared extras is linked
+exactly like one without; the identity stream's per-row byte arithmetic uses
+that layout's actual itemsize (:func:`identity_stream_bytes_per_row`). The
+links record itself never widens: ``LINKS_RECORD_DTYPE`` is the fixed 36-byte
+topology and identity record, and the rank core reads only its key fields.
 """
 
 import os
@@ -82,7 +81,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import ConverterError  # noqa: E402
-from fixups import FIXED_RECORD_DTYPE, fixed_layout  # noqa: E402
+from fixups import fixed_layout  # noqa: E402
 from rank_sort import (  # noqa: E402
     MIN_BUDGET_BYTES,
     RANK_DTYPE,
@@ -121,7 +120,7 @@ _INT32_MAX = np.iinfo(np.int32).max
 #: table, the per-forest counts and offsets) or the exact one-bit-per-halo
 #: verification bitset: those are what make the identity assertion exact, and
 #: their sizes are reported rather than estimated. 2 GiB is the default
-#: because it keeps ``links`` peak RSS at the 406,668,896-halo rehearsal scale
+#: because it keeps ``links`` peak RSS on the 406,668,896-halo Shin-Uchuu subset
 #: well under a 24 GB ceiling while generating few enough spill runs to
 #: merge in a single pass.
 DEFAULT_RANK_BUDGET_BYTES = 2 * 1024**3
@@ -132,19 +131,15 @@ DEFAULT_RANK_BUDGET_BYTES = 2 * 1024**3
 #: here only need to be large enough for efficient sequential I/O.
 STREAM_BUDGET_SHARE = 4
 
-#: Bytes the identity stream holds per fixed-record row while feeding the core,
-#: enumerated rather than estimated: the block being read (120), the PREVIOUS
-#: block, which the core's own ``for`` loop still references while the generator
-#: reads the next one (120), the int64 ForestIndex derived from a block (8), and
-#: numpy's own contiguous copy of the strided ``forest_id`` column that
-#: ``np.searchsorted`` makes (8).
-IDENTITY_STREAM_BYTES_PER_ROW = 2 * FIXED_RECORD_DTYPE.itemsize + 2 * RANK_DTYPE.itemsize
-
 
 def identity_stream_bytes_per_row(fixed_dtype: np.dtype) -> int:
-    """:data:`IDENTITY_STREAM_BYTES_PER_ROW` for a fixed record of any width:
-    two blocks of the ACTUAL record plus the same two int64 columns. A wider
-    extended record therefore streams fewer rows per block under one budget."""
+    """Bytes the identity stream holds per fixed-record row while feeding the
+    core, enumerated rather than estimated: the block being read, the PREVIOUS
+    block, which the core's own ``for`` loop still references while the
+    generator reads the next one (two blocks of the actual record), the int64
+    ForestIndex derived from a block (8), and numpy's own contiguous copy of the
+    strided ``forest_id`` column that ``np.searchsorted`` makes (8). A wider
+    record therefore streams fewer rows per block under one budget."""
     return 2 * np.dtype(fixed_dtype).itemsize + 2 * RANK_DTYPE.itemsize
 
 
@@ -1178,7 +1173,7 @@ def link_one_snapshot(
 
 def verify_links_output(manifest: Manifest, snap: int) -> None:
     """Verify one snapshot's links file the way a skip-trust must: manifest
-    ownership and content checksum, the frozen dtype tag, the recorded row
+    ownership and content checksum, the dtype tag, the recorded row
     count, and the on-disk size those rows imply.
 
     ``link_one_snapshot``'s skip path calls it, so a links file that is
@@ -1227,9 +1222,7 @@ def run_links(workdir, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES) -> Mani
     changes how much of the pass is resident and nothing else: every value
     written is identical at any budget.
     """
-    manifest = Manifest.load_or_create(workdir)
-    if not manifest.path.exists():
-        raise ConverterError("{}: no manifest found; run scatter first".format(workdir))
+    manifest = Manifest.load(workdir)
     snaps = sorted(int(s) for s in manifest.data["snapshots"])
     if not snaps:
         raise ConverterError("{}: manifest records no snapshots".format(workdir))

@@ -8,7 +8,8 @@ in one group is unchanged; a forest ending in several (a **split forest**) is
 cut into exactly its groups, named by the cut table's rule (``census/cut_table.py``: the
 largest piece keeps the forest's id, every other one takes a fresh id above
 the catalogue's maximum in descending size, ties by the smallest tree root id).
-This is the partition that cuts every co-membership ended before the final
+This is the partition that cuts every co-membership (a pair of trees, one
+holding a FoF member of a group centred in the other) ended before the final
 snapshot and keeps every one present at it: no halo is promoted at the final
 snapshot, every z = 0 FoF group of the input is preserved, and no tree is
 split. "Ended" is fixed by the dataset's final snapshot (its scale factor is
@@ -46,9 +47,11 @@ time (:func:`piece_slab_counts`).
 
 **Reads.** ``FirstHaloInFOFgroup`` and ``ForestIndex`` of the final slab, once:
 ``(w_link + 8) x n_halos(final)`` bytes, with ``w_link`` the 8 B (int64) link
-width, measured into ``summary.json`` (``io``). The labels of the
-final slab (4 B per halo) and every slab's tree pairs (8 B per present tree)
-are read from the aggregates.
+width, measured into ``summary.json`` (``io``: the bytes of the arrays the
+dataset returned, which is what the census asked HDF5 for; HDF5 reads whole
+chunks, so the device may move more). The labels of the final slab (4 B per
+halo) and every slab's tree pairs (8 B per present tree) are read from the
+aggregates.
 
 **Memory**, with ``n`` the trees (equal to the final slab's halos), ``F`` =
 ``n_forests_total``, ``t`` the split forests' trees and ``p`` their pieces
@@ -101,6 +104,7 @@ from census.aggregate import (  # noqa: E402
     require_completed,
     write_json,
 )
+from census.common import INT32_MAX, N_EXAMPLES, N_LARGEST, quiet  # noqa: E402
 from census.cut_table import (  # noqa: E402
     check_table,
     name_pieces,
@@ -128,16 +132,7 @@ RESTRICTED_RULE_TEXT = (
 #: Columns of the final slab the construction reads.
 FINAL_COLUMNS = ("FirstHaloInFOFgroup", "ForestIndex")
 
-#: Examples quoted per reported count, and entries per list of largest items.
-N_EXAMPLES = 5
-N_LARGEST = 10
-
-_INT32_MAX = int(np.iinfo(np.int32).max)
 _HASH_ROWS = 1 << 22
-
-
-def _quiet(_message: str) -> None:
-    pass
 
 
 def output_dir(aggregate_dir, name: str, selection: Optional[np.ndarray]) -> Path:
@@ -259,7 +254,7 @@ def require_all_reach_final(dataset: HorizontalDataset, aggregate_dir) -> int:
     Raises:
         ConverterError: naming how many trees end early, with example root ids.
     """
-    last = dataset.snapshots[-1] if dataset.snapshots else -1
+    last = dataset.snapshots[-1]
     root_snapshot = load_array(trees_dir(aggregate_dir) / "tree_root_snapshot.npy")
     early = np.flatnonzero(root_snapshot != last)
     if early.size:
@@ -309,7 +304,10 @@ def check_index(
     """Whether the index files given to this run describe this census: the
     root sets must be equal and every root's ``forests.list`` forest id must
     be the sidecar ``ForestID`` of its tree's forest -- the ``trees``
-    correspondence, applied to the index files in hand.
+    correspondence, applied to the index files in hand -- and the largest
+    forest id of the two must agree, so that the fresh ids the table names
+    above the sidecar's largest (:func:`decided_table`) are above the index
+    files' largest too.
 
     Returns:
         ``{"verdict": "pass" | "fail", "message", ...counts and examples}``;
@@ -349,6 +347,16 @@ def check_index(
         record["message"] = (
             "the index files give {} tree root(s) a forest other than the dataset's (e.g. roots "
             "{}); they are not the index files this census describes".format(wrong, examples)
+        )
+        return record
+    index_max = int(index_forest_ids.max()) if index_forest_ids.size else 0
+    dataset_max = int(forest_ids.max()) if forest_ids.size else 0
+    if index_max != dataset_max:
+        record["verdict"] = "fail"
+        record["max_forest_id"] = {"index_files": index_max, "dataset": dataset_max}
+        record["message"] = (
+            "the index files' largest forest id is {} but the dataset's is {}; they are not the "
+            "index files this census describes".format(index_max, dataset_max)
         )
     return record
 
@@ -400,9 +408,9 @@ def z0_central_trees(
             "{}: the final slab holds {} halos but the census has {} trees; with every tree "
             "reaching the final snapshot they are one to one".format(path, n_rows, n_trees)
         )
-    if n_rows > _INT32_MAX:
+    if n_rows > INT32_MAX:
         raise ConverterError("{}: more rows than int32 row indices hold".format(path))
-    labels = load_labels(aggregate_dir, last, mmap=False)
+    labels = load_labels(aggregate_dir, last)
     if labels.size != n_rows:
         raise ConverterError(
             "{}: {} labels for {} halos; the trees aggregates are stale".format(
@@ -466,7 +474,7 @@ class DecidedTable:
     pieces: Dict[str, np.ndarray]  # cut_table.name_pieces' per-piece columns
     centrals: np.ndarray  # int64 z = 0 centrals per ForestIndex
     forest_halos: np.ndarray  # int64 halos per ForestIndex over all slabs
-    fresh_id_floor: int
+    fresh_id_floor: int  # the sidecar's largest ForestID: fresh piece ids start above it
 
     @property
     def n_pieces(self) -> int:
@@ -556,6 +564,49 @@ def decided_table(
     )
 
 
+@dataclass
+class TreeArrays:
+    """The ``trees`` aggregates and the sidecar the decided table is built from."""
+
+    roots: np.ndarray  # int64 terminal-root ids, ascending
+    tree_forest: Optional[np.ndarray]  # int64 ForestIndex per root ordinal; None once released
+    tree_totals: np.ndarray  # int64 halos per root ordinal (mapped)
+    forest_ids: np.ndarray  # int64 sidecar ForestID per ForestIndex
+
+    @classmethod
+    def load(cls, dataset: HorizontalDataset, aggregate_dir) -> "TreeArrays":
+        return cls(
+            roots=load_roots(aggregate_dir),
+            tree_forest=load_array(trees_dir(aggregate_dir) / "tree_forest.npy"),
+            tree_totals=load_array(trees_dir(aggregate_dir) / "tree_totals.npy", mmap=True),
+            forest_ids=dataset.forest_ids(),
+        )
+
+    def decide(
+        self,
+        dataset: HorizontalDataset,
+        aggregate_dir,
+        selection: Optional[np.ndarray] = None,
+        block_rows: int = DEFAULT_BLOCK_ROWS,
+        meter: Optional[ReadMeter] = None,
+    ) -> DecidedTable:
+        """:func:`decided_table` over these arrays, then release the tree
+        forests, which nothing needs once the pieces are built."""
+        table = decided_table(
+            dataset,
+            aggregate_dir,
+            self.roots,
+            self.tree_forest,
+            self.tree_totals,
+            self.forest_ids,
+            selection,
+            block_rows,
+            meter,
+        )
+        self.tree_forest = None
+        return table
+
+
 def assignment_digest(table: DecidedTable, roots: np.ndarray) -> str:
     """SHA-256 of every split-forest tree's (root id, piece id) as little-endian
     int64 pairs in ascending root: the table's assignment, independent of
@@ -639,7 +690,7 @@ def piece_peaks(
     dataset: HorizontalDataset,
     aggregate_dir,
     table: DecidedTable,
-    log: Callable[[str], None] = _quiet,
+    log: Callable[[str], None] = quiet,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Each piece's largest slab count and the lowest-numbered slab of it."""
     peak = np.zeros(table.n_pieces, dtype=np.int64)
@@ -700,7 +751,7 @@ def run_table(
     index_files: Dict,
     selection: Optional[np.ndarray] = None,
     block_rows: int = DEFAULT_BLOCK_ROWS,
-    log: Callable[[str], None] = _quiet,
+    log: Callable[[str], None] = quiet,
     prepared: Optional[Dict] = None,
 ) -> Dict:
     """Build the decided table and write it, its record and the summary.
@@ -719,27 +770,16 @@ def run_table(
     inputs = prepared if prepared is not None else prepare_table(dataset, aggregate_dir, selection)
     memory = {"after_loading_index_files": peak_rss_bytes()}
     meter = ReadMeter()
-    roots = load_roots(aggregate_dir)
-    tree_forest = load_array(trees_dir(aggregate_dir) / "tree_forest.npy")
-    tree_totals = load_array(trees_dir(aggregate_dir) / "tree_totals.npy", mmap=True)
-    forest_ids = dataset.forest_ids()
-    index = check_index(index_roots, index_forest_ids, roots, tree_forest, forest_ids, block_rows)
+    arrays = TreeArrays.load(dataset, aggregate_dir)
+    roots, tree_totals, forest_ids = arrays.roots, arrays.tree_totals, arrays.forest_ids
+    index = check_index(
+        index_roots, index_forest_ids, roots, arrays.tree_forest, forest_ids, block_rows
+    )
     if index["verdict"] != "pass":
         raise ConverterError("{}; no cut table is written".format(index["message"]))
 
     log("table: z = 0 FoF groups of snapshot {}".format(dataset.snapshots[-1]))
-    table = decided_table(
-        dataset,
-        aggregate_dir,
-        roots,
-        tree_forest,
-        tree_totals,
-        forest_ids,
-        selection,
-        block_rows,
-        meter,
-    )
-    del tree_forest
+    table = arrays.decide(dataset, aggregate_dir, selection, block_rows, meter)
     memory["after_pieces"] = peak_rss_bytes()
     log(
         "table: {} split forest(s), {} piece(s) ({} fresh)".format(
@@ -770,8 +810,9 @@ def run_table(
         "text": RULE_TEXT if selection is None else RESTRICTED_RULE_TEXT,
         "final_snapshot": int(last),
         "final_scale_factor": dataset.scale_factors[last],
-        "equivalence": "the partition that cuts every co-membership ended before the final "
-        "snapshot and keeps every one present at it",
+        "equivalence": "the partition that cuts every co-membership (a pair of trees, one "
+        "holding a FoF member of a group centred in the other) ended before the final snapshot "
+        "and keeps every one present at it",
         **scope,
     }
     header = {
@@ -800,13 +841,10 @@ def run_table(
     summary = {
         "dataset": inputs["identity"],
         "dataset_dir": str(dataset.directory.resolve()),
-        **scope,
         "rule": rule,
-        "index_files": index_files,
         "root_correspondence": inputs["trees"]["root_correspondence"]["verdict"],
         "index_check": index,
         "checks": {
-            "trees_ending_before_the_final_snapshot": 0,
             "final_slab_central_references": "validated: in range, self-central, in the "
             "member's original forest",
             "piece_count_equals_z0_centrals": "asserted for every split forest",
@@ -820,13 +858,7 @@ def run_table(
             "largest": [piece_entry(table, int(at), peak, peak_snapshot) for at in by_halos],
             "highest_peak": [piece_entry(table, int(at), peak, peak_snapshot) for at in by_peak],
         },
-        "fresh_id_floor": {
-            "value": table.fresh_id_floor,
-            "index_max_forest_id": int(index_forest_ids.max()) if index_forest_ids.size else 0,
-            "dataset_max_forest_id": int(forest_ids.max()) if forest_ids.size else 0,
-            "note": "fresh piece ids start at value + 1, the dataset sidecar's largest forest "
-            "id, which the passed index check makes the index files' largest too",
-        },
+        "fresh_id_floor": table.fresh_id_floor,
         "assignment_sha256": digest,
         "table": record_table,
         "io": meter.record(

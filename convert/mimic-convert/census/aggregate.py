@@ -23,7 +23,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Mapping, Optional, Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 
@@ -58,6 +58,18 @@ def write_json(path, payload: Mapping) -> Path:
         handle.write("\n")
     os.replace(str(tmp), str(path))
     return path
+
+
+def write_json_recording_size(path, payload: Mapping, record: dict) -> Path:
+    """:func:`write_json` of ``payload``, which holds ``record`` (a dict with a ``"bytes"``
+    entry), rewritten until ``record["bytes"]`` is the file's own size."""
+    for _attempt in range(8):
+        write_json(path, payload)
+        size = Path(path).stat().st_size
+        if size == record["bytes"]:
+            break
+        record["bytes"] = size
+    return Path(path)
 
 
 def read_json(path):
@@ -107,19 +119,16 @@ def load_array(path, mmap: bool = False) -> np.ndarray:
     return np.load(path, mmap_mode="r" if mmap else None, allow_pickle=False)
 
 
-def bind(aggregate_dir, identity: Mapping) -> Path:
-    """Bind ``aggregate_dir`` to the dataset ``identity``: write it to a new
-    directory, or require an existing directory's record to be equal.
+def check_identity(aggregate_dir, identity: Mapping) -> None:
+    """Require an existing directory's identity record, if it has one, to equal
+    the dataset ``identity``; writes nothing.
 
     Raises:
         ConverterError: when the directory was produced from another dataset.
     """
-    aggregate_dir = Path(aggregate_dir)
-    aggregate_dir.mkdir(parents=True, exist_ok=True)
-    path = aggregate_dir / IDENTITY_NAME
+    path = Path(aggregate_dir) / IDENTITY_NAME
     if not path.exists():
-        write_json(path, identity)
-        return aggregate_dir
+        return
     recorded = read_record(path)
     current = json.loads(json.dumps(identity))
     if recorded != current:
@@ -132,6 +141,20 @@ def bind(aggregate_dir, identity: Mapping) -> Path:
             "{}: produced from a different dataset (identity differs in {}); use a new "
             "aggregate directory for this dataset".format(aggregate_dir, differing)
         )
+
+
+def bind(aggregate_dir, identity: Mapping) -> Path:
+    """Bind ``aggregate_dir`` to the dataset ``identity``: write it to a new
+    directory, or require an existing directory's record to be equal.
+
+    Raises:
+        ConverterError: when the directory was produced from another dataset.
+    """
+    aggregate_dir = Path(aggregate_dir)
+    aggregate_dir.mkdir(parents=True, exist_ok=True)
+    check_identity(aggregate_dir, identity)
+    if not (aggregate_dir / IDENTITY_NAME).exists():
+        write_json(aggregate_dir / IDENTITY_NAME, identity)
     return aggregate_dir
 
 
@@ -190,10 +213,3 @@ def require_completed(aggregate_dir, directory, what: str, identity: Mapping, ke
             )
         )
     return summary
-
-
-def directory_bytes(directory, pattern: Optional[str] = None) -> int:
-    """Total size of the regular files under ``directory`` (matching ``pattern``)."""
-    directory = Path(directory)
-    paths = directory.rglob(pattern) if pattern else directory.rglob("*")
-    return sum(path.stat().st_size for path in paths if path.is_file())

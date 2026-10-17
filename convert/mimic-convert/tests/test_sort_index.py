@@ -1,8 +1,9 @@
 """Unit tests: sort determinism, duplicate-id abort, verify-then-delete.
 
-``TestExtendedSort`` checks that extended records (source coordinates and
-declared extras) travel with their id through the sort, and that a scratch file
-of a different layout is refused."""
+Every stage runs under a profile schema: the shipped default profile unless a
+test names another. ``TestSortWithDeclaredExtras`` checks that declared extras
+travel with their id through the sort, and that a scratch file of a different
+layout is refused."""
 
 import hashlib
 import os
@@ -17,12 +18,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixtures  # noqa: E402
-from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError  # noqa: E402
+from ctrees_parser import ConverterError  # noqa: E402
 from fixups import run_fixups  # noqa: E402
 from links import run_links  # noqa: E402
 from scatter import Manifest, run_scatter, snapshot_scratch_name  # noqa: E402
 from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
-from test_fixups import capture_stderr  # noqa: E402
+from test_fixups import (  # noqa: E402
+    capture_stderr,
+    default_layout,
+    default_schema,
+    delete_through_the_guard,
+)
 
 
 def make_scattered_workdir(root: Path, forests=None):
@@ -36,6 +42,7 @@ def make_scattered_workdir(root: Path, forests=None):
         forests_list_path=forests_list,
         a_list_path=a_list,
         workdir=workdir,
+        schema=default_schema(),
     )
     return workdir
 
@@ -55,7 +62,7 @@ class TestSortIndex(unittest.TestCase):
         for snap_str, entry in manifest.data["snapshots"].items():
             snap = int(snap_str)
             self.assertEqual(entry["status"], "sorted")
-            data = np.fromfile(scratch / sorted_scratch_name(snap), dtype=RECORD_DTYPE)
+            data = np.fromfile(scratch / sorted_scratch_name(snap), dtype=default_layout().dtype)
             self.assertEqual(len(data), entry["rows"])
             self.assertTrue(np.all(np.diff(data["id"]) > 0))  # strictly ascending, unique
             index_ids = np.fromfile(scratch / index_name(snap), dtype=np.int64)
@@ -65,11 +72,11 @@ class TestSortIndex(unittest.TestCase):
             self.assertFalse(unsorted.exists())
             status = manifest.data["intermediates"][str(unsorted.resolve())]["status"]
             self.assertEqual(status, "removed")
-            # every scratch-file entry carries the frozen dtype tag
+            # every scratch-file entry carries the layout's dtype tag
             sorted_entry = manifest.data["intermediates"][
                 str((scratch / sorted_scratch_name(snap)).resolve())
             ]
-            self.assertEqual(sorted_entry["dtype_tag"], DTYPE_TAG)
+            self.assertEqual(sorted_entry["dtype_tag"], default_layout().dtype_tag)
             idx_entry = manifest.data["intermediates"][str((scratch / index_name(snap)).resolve())]
             self.assertEqual(idx_entry["dtype_tag"], "<i8")
 
@@ -117,7 +124,7 @@ class TestSortIndex(unittest.TestCase):
 
     def test_checksum_mismatch_aborts_and_keeps_unsorted(self):
         workdir = make_scattered_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         snap = sorted(manifest.data["snapshots"], key=int)[0]
         manifest.data["snapshots"][snap]["id_checksum"] ^= 0xDEAD
         manifest.save()
@@ -128,10 +135,10 @@ class TestSortIndex(unittest.TestCase):
 
     def test_sort_preserves_record_bytes(self):
         workdir = make_scattered_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         expected = {}
         for snap_str, entry in manifest.data["snapshots"].items():
-            arr = np.fromfile(entry["scratch_file"], dtype=RECORD_DTYPE)
+            arr = np.fromfile(entry["scratch_file"], dtype=default_layout().dtype)
             expected[snap_str] = arr[np.argsort(arr["id"], kind="stable")].tobytes()
         run_sort(workdir)
         for snap_str, want in expected.items():
@@ -140,7 +147,7 @@ class TestSortIndex(unittest.TestCase):
 
     def test_tampered_unsorted_input_aborts(self):
         workdir = make_scattered_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         snap = sorted(manifest.data["snapshots"], key=int)[0]
         target = Path(manifest.data["snapshots"][snap]["scratch_file"])
         data = bytearray(target.read_bytes())
@@ -226,6 +233,7 @@ class TestSortSkipTrust(unittest.TestCase):
             a_list_path=a_list,
             workdir=workdir,
             simulation_info_path=sim_info,
+            schema=default_schema(),
         )
         run_sort(workdir)
         run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
@@ -236,17 +244,15 @@ class TestSortSkipTrust(unittest.TestCase):
     def _record_removed(self, workdir, keys, snap="5"):
         """Delete snapshot ``snap``'s ``keys`` artifacts through the manifest's
         guard, so the manifest records each one as removed."""
-        manifest = Manifest.load_or_create(workdir)
-        paths = [manifest.data["snapshots"][snap][key] for key in keys]
-        self.assertEqual(
-            [Path(p) for p in paths], manifest.consume_intermediates(paths, delete=True)
-        )
-        for path in paths:
+        manifest = Manifest.load(workdir)
+        for key in keys:
+            path = manifest.data["snapshots"][snap][key]
+            delete_through_the_guard(manifest, path)
             self.assertFalse(Path(path).exists())
 
     def test_a_merely_missing_artifact_is_still_a_hard_failure(self):
         workdir = self._sorted_workdir()
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         Path(manifest.data["snapshots"]["5"]["sorted_file"]).unlink()
         with self.assertRaisesRegex(ConverterError, "missing on disk"):
             run_sort(workdir)
@@ -272,7 +278,7 @@ class TestSortSkipTrust(unittest.TestCase):
                     run_sort(workdir)
                 else:
                     workdir, _, _ = self._workdir_through(name)
-                manifest = Manifest.load_or_create(workdir)
+                manifest = Manifest.load(workdir)
                 self.assertEqual(status, manifest.data["snapshots"]["5"]["status"])
                 self._record_removed(workdir, [key])
                 with self.assertRaisesRegex(ConverterError, "not a manifest-owned intermediate"):
@@ -282,7 +288,7 @@ class TestSortSkipTrust(unittest.TestCase):
         """The link stage still has to read the fixed file, so at ``fixed`` it
         must be present."""
         workdir, _, _ = self._workdir_through("fixed-missing")
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         self.assertEqual("fixed", manifest.data["snapshots"]["5"]["status"])
         Path(manifest.data["snapshots"]["5"]["fixed_file"]).unlink()
         with self.assertRaisesRegex(ConverterError, "missing on disk"):
@@ -291,7 +297,7 @@ class TestSortSkipTrust(unittest.TestCase):
     def test_a_fixed_rerun_verifies_and_keeps_every_artifact(self):
         workdir, _, _ = self._workdir_through("fixed-rerun")
         run_sort(workdir)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         for entry in manifest.data["snapshots"].values():
             self.assertEqual("fixed", entry["status"])
             for key in ("sorted_file", "index_file", "fixed_file"):
@@ -307,7 +313,7 @@ class TestSortSkipTrust(unittest.TestCase):
         for name, removed in (("linked-intact", ()), ("linked-removed", LINKED_ARTIFACTS)):
             with self.subTest(removed=removed):
                 workdir, a_list, sim_info = self._workdir_through(name, link=True)
-                manifest = Manifest.load_or_create(workdir)
+                manifest = Manifest.load(workdir)
                 for entry in manifest.data["snapshots"].values():
                     self.assertEqual("linked", entry["status"])
                 if removed:
@@ -320,7 +326,7 @@ class TestSortSkipTrust(unittest.TestCase):
 
     def test_tampered_artifact_is_still_refused(self):
         workdir = self._sorted_workdir()
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         path = Path(manifest.data["snapshots"]["5"]["sorted_file"])
         with open(path, "r+b") as handle:
             handle.write(b"\x00\x01\x02\x03")
@@ -332,7 +338,7 @@ class TestSortSkipTrust(unittest.TestCase):
 LINKED_ARTIFACTS = ("sorted_file", "index_file", "fixed_file", "links_file")
 
 
-class TestExtendedSort(unittest.TestCase):
+class TestSortWithDeclaredExtras(unittest.TestCase):
     def setUp(self):
         from column_schema import build_schema, load_column_map
 
@@ -358,7 +364,7 @@ class TestExtendedSort(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_extras_and_coordinates_travel_with_their_id(self):
+    def test_extras_travel_with_their_id(self):
         layout = self.manifest.layout
         before = {}
         for entry in self.manifest.data["snapshots"].values():
@@ -378,7 +384,8 @@ class TestExtendedSort(unittest.TestCase):
 
     def test_scratch_of_another_layout_is_refused(self):
         entry = self.manifest.data["snapshots"]["5"]
-        self.manifest.data["intermediates"][entry["scratch_file"]]["dtype_tag"] = DTYPE_TAG
+        intermediate = self.manifest.data["intermediates"][entry["scratch_file"]]
+        intermediate["dtype_tag"] = default_layout().dtype_tag
         self.manifest.save()
         with self.assertRaisesRegex(ConverterError, "refusing to sort"):
             with capture_stderr():

@@ -1027,8 +1027,8 @@ class ReachabilityTests(unittest.TestCase):
     def test_real_uchuu_snapshots_absent_opportunistic(self):
         # Not a hardcoded environment assumption: this only asserts the
         # "absent" shape when the real path is genuinely absent on this
-        # checkout, and skips (rather than failing for no code reason) the
-        # day the owner mounts the volume. The synthetic case above is the
+        # checkout, and skips (rather than failing for no code reason) when
+        # the real data directory is present. The synthetic case above is the
         # one the acceptance criteria actually depend on.
         repo_root = Path(__file__).parents[3]
         sim_info = si.load_simulation_info(
@@ -1540,8 +1540,8 @@ class JsonOutputSafetyTests(unittest.TestCase):
         # (mock.patch.dict over NAMED_PACKAGES, the same pattern the other
         # reachability tests already use) rather than a real named package's
         # simulation_dir -- if _check_json_output_safe ever regresses, this
-        # test must fail loudly, not write a stray file into real source data
-        # under /Volumes/Internal/data/millennium/.
+        # test must fail loudly, not write a stray file into the real source
+        # data directory.
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
             snap_dir = tmp / "snapshots"

@@ -33,7 +33,7 @@
 #
 # Mirror maintenance: the shared payload fields track micro-uchuu-ascii and
 # micro-uchuu-hdf5. Any change to a shared field must be made in all three, and
-# any change to a name or type here must first be made in the frozen format
+# any change to a name or type here must first be made in the format
 # specification.
 
 halo_properties:

@@ -29,10 +29,12 @@ through, and the sidecar's file ordinals follow the input sidecar.
 
 Refusals happen before any write and exit 2 naming the offending value: an
 input that is not version 3, ``links_adjacent`` 0, an input of another source
-format, missing or inconsistent index files, an a_list that is not the
-input's, a multiplier that cannot encode the output's bounds (the installed
-table's for cut), terminal halos that do not correspond to the index files'
-tree roots, a cut table violating any of its invariants, a cut piece held in
+format, an input object or attribute the format does not define (the output
+would not carry it), missing or inconsistent index files, an a_list that is
+not the input's, a multiplier that cannot encode the output's bounds (for cut,
+an overflow with the input's forest count at once and the installed table's
+bounds once it is installed), terminal halos that do not correspond to the
+index files' tree roots, a cut table violating any of its invariants, a cut piece held in
 one file whose FileID the input sidecar gives no conversion ordinal for, and a
 record that is not the given table's or index files'. Two refusals of a cut
 are made per slab once the workdir exists: a halo whose FoF central lies in
@@ -106,16 +108,14 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rewrite_trees",
-        description="Rewrite a horizontal-HDF5 dataset of a Consistent-Trees ASCII catalogue "
-        "into a version 3 dataset: noop (version 3 in, the identity) or cut (version 3 in, "
-        "under a cut forest table). Every location is explicit; refusals exit 2.",
+        description="Rewrite a version 3 horizontal-HDF5 dataset of a Consistent-Trees ASCII "
+        "catalogue: noop (the identity) or cut (under a cut forest table). Every location is "
+        "explicit; refusals exit 2.",
     )
     sub = parser.add_subparsers(dest="operation", required=True)
-    noop = sub.add_parser(
-        OPERATION_NOOP, help="version 3 in, version 3 out under the identity table"
-    )
+    noop = sub.add_parser(OPERATION_NOOP, help="rewrite under the identity table")
     _add_common(noop)
-    cut = sub.add_parser(OPERATION_CUT, help="version 3 in, version 3 out under a cut table")
+    cut = sub.add_parser(OPERATION_CUT, help="rewrite under a cut forest table")
     _add_common(cut)
     cut.add_argument(
         "--cut-table",

@@ -1302,7 +1302,7 @@ class OtherAdapterTests(unittest.TestCase):
                 pipeline.run_ingest(work, save_every_chunks=1)
         self.assertTrue((work / pipeline.ASCII_PREPARATION_DIR / cm.MANIFEST_NAME).exists())
         self.assertEqual(
-            cm.classify_manifest(work / pipeline.ASCII_PREPARATION_DIR), cm.MANIFEST_LEGACY
+            cm.classify_manifest(work / pipeline.ASCII_PREPARATION_DIR), cm.MANIFEST_SCATTER
         )
         pipeline.run_ingest(work, save_every_chunks=1)
         pipeline.run_transpose(work)

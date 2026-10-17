@@ -10,9 +10,9 @@ Snapshots are independent jobs; this implementation processes them serially,
 which is sufficient at micro-Uchuu scale (parallelisation is a Shin-Uchuu
 production concern).
 
-Records are read in the workdir's own scratch layout (``Manifest.layout``): the
-frozen 108-byte record, or the extended one whose source coordinates and
-declared extras ride along with each row through the sort unchanged.
+Records are read in the workdir's own scratch layout (``Manifest.layout``);
+every field, declared extras included, rides along with each row through the
+sort unchanged.
 """
 
 import os
@@ -57,7 +57,7 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
         manifest.verify_intermediate(entry["index_file"], "snapshot id index")
         if status == "fixed":
             manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
-        _retry_unsorted_cleanup(manifest, entry)
+        manifest.finish_removals([entry["scratch_file"]])
         manifest.save()
         return
     if status != "concatenated":
@@ -134,21 +134,9 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
     manifest.save()
 
 
-def _retry_unsorted_cleanup(manifest: Manifest, entry: dict) -> None:
-    """Finish unsorted-file deletion a crash may have interrupted. A registered
-    entry whose file is already gone is the intended end state of a cleanup
-    that crashed between unlink and manifest save — record it as removed.
-
-    Sort's consumption of the unsorted scratch is unconditional, so
-    ``delete`` is always set here."""
-    manifest.consume_intermediates([entry["scratch_file"]], delete=True)
-
-
 def run_sort(workdir, snapshots: Optional[Sequence[int]] = None) -> Manifest:
     """Sort every concatenated snapshot in the workdir (or the given subset)."""
-    manifest = Manifest.load_or_create(workdir)
-    if not manifest.path.exists():
-        raise ConverterError("{}: no manifest found; run scatter first".format(workdir))
+    manifest = Manifest.load(workdir)
     if snapshots is None:
         snapshots = sorted(int(s) for s in manifest.data["snapshots"])
     for snap in snapshots:

@@ -2,13 +2,17 @@
 
 Measures how a dataset's halos are distributed over forests and over effective
 descendant trees, slab by slab, and simulates the horizontal driver's two-level
-forest partition, without ever holding a whole column of a slab: every read is a
-bounded block (``horizontal_dataset.py``). Results go to an **aggregate
-directory** bound to the dataset it was produced from (``census/aggregate.py``);
-a subcommand given another dataset refuses the directory. Each subcommand writes
-its own subdirectory and a ``summary.json`` last; aggregate sizes and their
-formulas are in every summary. The directory is deleted by hand when the
-census is done.
+forest partition. Every read of a dataset column is a bounded block
+(``horizontal_dataset.py``), so no dataset column is ever held whole; the state
+that is slab-long is derived: ``trees`` holds two int32 label arrays (4 B per
+halo each) and ``cut`` the labels and two dense int32 row arrays of one slab
+(12 B x n_halos(s)). Results go to an **aggregate directory** bound to the
+dataset it was produced from (``census/aggregate.py``); a subcommand given
+another dataset refuses the directory. Each subcommand writes its own
+subdirectory and a ``summary.json`` last; aggregate sizes and their formulas are
+in every summary, and ``table`` and ``cut`` also record the bytes of dataset
+columns they read (``io``). The directory is deleted by hand when the census is
+done.
 
 Subcommands::
 
@@ -23,7 +27,8 @@ Subcommands::
         Terminal-root labels for every halo (int32 root ordinals per slab, kept
         for the table and the cut), per-tree totals and per-slab occupancy, the
         root correspondence with the index files and the per-file conservation
-        check (census/trees.py).
+        check (census/trees.py). Refuses a gapped dataset and an aggregate
+        directory produced from another dataset before loading the index files.
 
     forest_census.py partition --aggregate DIR [--ntask 1,2,4,8]
             [--nchunk 1,2,4,8,16,32]
@@ -66,6 +71,7 @@ from typing import List, Optional, Sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from census.common import INT32_MAX  # noqa: E402
 from census.cut import (  # noqa: E402
     CUT_NCHUNKS,
     DEFAULT_BYTES_PER_HALO,
@@ -76,7 +82,7 @@ from census.cut_table import md5_file  # noqa: E402
 from census.occupancy import run_occupancy  # noqa: E402
 from census.partition import DEFAULT_NCHUNKS, DEFAULT_NTASKS, run_partition  # noqa: E402
 from census.table import prepare_table, run_table, selected_forests  # noqa: E402
-from census.trees import load_parsed_counts, run_trees  # noqa: E402
+from census.trees import load_parsed_counts, prepare_trees, run_trees  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from source_index import SourceIndex  # noqa: E402
@@ -94,8 +100,10 @@ def _counts(text: str) -> List[int]:
         raise argparse.ArgumentTypeError(
             "expected comma-separated integers, got {!r}".format(text)
         ) from exc
-    if not values or min(values) < 1:
-        raise argparse.ArgumentTypeError("expected positive integers, got {!r}".format(text))
+    if not values or min(values) < 1 or max(values) > INT32_MAX:
+        raise argparse.ArgumentTypeError(
+            "expected positive integers up to {}, got {!r}".format(INT32_MAX, text)
+        )
     return values
 
 
@@ -206,7 +214,7 @@ def _print_partition(summary: dict) -> None:
 
 def _print_table(summary: dict) -> None:
     groups = summary["groups"]
-    print("table: {} ({})".format(summary["rule"]["text"], summary["scope"]))
+    print("table: {} ({})".format(summary["rule"]["text"], summary["rule"]["scope"]))
     print(
         "z = 0 FoF groups: {} over {} forests; {} forest(s) split into {} groups; {} forests "
         "after the cut".format(
@@ -261,14 +269,14 @@ def _print_cut(summary: dict) -> None:
 
 
 def load_index(forests_list, locations) -> SourceIndex:
-    """:meth:`SourceIndex.load`, with an id beyond int64 refused as a
-    ``ConverterError`` rather than the shared loaders' ``OverflowError``."""
+    """:meth:`SourceIndex.load`, with a value the shared loaders cannot hold
+    (a tree root or forest id beyond int64, a ``FileID`` beyond int32) refused
+    as a ``ConverterError`` rather than their ``OverflowError``."""
     try:
         return SourceIndex.load(forests_list, locations)
     except OverflowError as exc:
-        raise ConverterError(
-            "{} or {}: an id outside int64 ({})".format(forests_list, locations, exc)
-        ) from exc
+        message = "{} or {}: a tree root or forest id beyond int64, or a FileID beyond int32 ({})"
+        raise ConverterError(message.format(forests_list, locations, exc)) from exc
 
 
 def cmd_occupancy(args: argparse.Namespace) -> int:
@@ -278,7 +286,7 @@ def cmd_occupancy(args: argparse.Namespace) -> int:
 
 
 def cmd_trees(args: argparse.Namespace) -> int:
-    # every refusal of the arguments, the report included, before the long loads
+    # every refusal of the arguments, the report, the dataset and the directory before the loads
     if (args.forests_list is None) != (args.locations is None):
         raise ConverterError("--forests-list and --locations are given together or not at all")
     if args.conversion_report is not None and args.forests_list is None:
@@ -287,11 +295,12 @@ def cmd_trees(args: argparse.Namespace) -> int:
     if args.conversion_report is not None:
         report = load_parsed_counts(args.conversion_report)
     dataset = HorizontalDataset(args.dataset)
+    identity = prepare_trees(dataset, args.aggregate)
     index = None
     if args.forests_list is not None:
         _log("trees: loading {} and {}".format(args.forests_list, args.locations))
         index = load_index(args.forests_list, args.locations)
-    summary = run_trees(dataset, args.aggregate, index, report, args.block_rows, _log)
+    summary = run_trees(dataset, args.aggregate, index, report, args.block_rows, _log, identity)
     _print_trees(summary)
     return 0
 
@@ -340,12 +349,12 @@ def cmd_cut(args: argparse.Namespace) -> int:
     summary = run_cut(
         dataset,
         args.aggregate,
+        args.reserve_gib,
         selection,
         args.ntask,
         args.nchunk,
         args.bytes_per_halo,
         args.laptop_gib,
-        args.reserve_gib,
         args.block_rows,
         _log,
     )
@@ -432,7 +441,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--bytes-per-halo",
         type=_positive,
         default=DEFAULT_BYTES_PER_HALO,
-        help="bytes per resident halo of a chunked run (default 1100)",
+        help="bytes per resident halo of a chunked run (default 1100, the measured per-halo "
+        "resident footprint of a chunked run; override it with the figure for your model)",
     )
     cut.add_argument(
         "--laptop-gib",

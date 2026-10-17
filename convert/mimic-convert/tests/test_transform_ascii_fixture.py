@@ -36,10 +36,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "too
 
 import fixtures  # noqa: E402
 import transform_ascii_fixture  # noqa: E402
+from column_schema import build_schema, load_column_map  # noqa: E402
 from ctrees_parser import parse_file  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from test_ascii_adapter import CUT_FIXTURES, convert_under_cut  # noqa: E402
 from test_rewriter import assert_datasets_equal, companions, cut_layout  # noqa: E402
+
+#: The shipped default profile's schema, which every parse here runs under.
+SCHEMA = build_schema(
+    load_column_map(
+        Path(__file__).resolve().parents[1] / "profiles" / "consistent_trees_ascii.yaml"
+    )
+)
 
 #: The halos each fixture's decided table promotes (its docstring's account).
 PROMOTED = {
@@ -77,7 +85,7 @@ def parsed(directory: Path):
     """Every record of a directory's tree files, keyed by halo id."""
     by_id = {}
     for path in sorted(directory.glob("tree_*.dat")):
-        records, _result, _prescan = parse_file(path)
+        records, _result, _prescan = parse_file(path, SCHEMA)
         for record in records:
             by_id[int(record["id"])] = record
     return by_id

@@ -9,6 +9,7 @@ positive.
 """
 
 import contextlib
+import functools
 import io
 import os
 import sys
@@ -22,12 +23,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixtures  # noqa: E402
-from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError  # noqa: E402
+from column_schema import build_schema, load_column_map  # noqa: E402
+from ctrees_parser import ConverterError, ScratchLayout  # noqa: E402
 from fixups import (  # noqa: E402
-    FIXED_DTYPE_TAG,
-    FIXED_RECORD_DTYPE,
+    FIXED_DTYPE_TAG_PREFIX,
     derive_len,
     fix_upid_snapshot,
+    fixed_layout,
     load_particle_mass,
     normalise_spin,
     round_half_away_from_zero,
@@ -41,6 +43,28 @@ from sort_index import run_sort, sorted_scratch_name  # noqa: E402
 
 #: fixture a_list as float64 (index = SnapNum)
 A_LIST = np.asarray(fixtures.A_LIST, dtype=np.float64)
+
+PROFILE_DIR = Path(__file__).resolve().parents[1] / "profiles"
+DEFAULT_PROFILE = PROFILE_DIR / "consistent_trees_ascii.yaml"
+ALL_TYPES_PROFILE = Path(__file__).parent / "data" / "column_maps" / "ascii_all_extra_types.yaml"
+
+
+@functools.lru_cache(maxsize=None)
+def default_schema():
+    """The shipped default Consistent-Trees ASCII profile's schema, built once:
+    every stage test runs on the layout it selects unless it names another."""
+    return build_schema(load_column_map(DEFAULT_PROFILE))
+
+
+def default_layout():
+    return ScratchLayout.from_schema(default_schema())
+
+
+def delete_through_the_guard(manifest, path):
+    """Delete ``path`` through the manifest's containment guard and save the
+    record, as a stage that consumes an intermediate does."""
+    manifest.remove_intermediate(path)
+    manifest.save()
 
 
 class _Captured:
@@ -69,8 +93,8 @@ def capture_stderr():
 
 
 def make_fixed(rows):
-    """Build an id-sorted FIXED_RECORD_DTYPE array from per-halo dicts."""
-    records = np.zeros(len(rows), dtype=FIXED_RECORD_DTYPE)
+    """Build an id-sorted fixed-record array (the default layout's) from per-halo dicts."""
+    records = np.zeros(len(rows), dtype=fixed_layout(default_layout())[0])
     records["desc_id"] = -1
     records["desc_scale"] = -1.0
     records["pid"] = -1
@@ -456,6 +480,7 @@ def make_sorted_workdir(root: Path, forests=None):
         a_list_path=a_list,
         workdir=workdir,
         simulation_info_path=sim_info,
+        schema=default_schema(),
     )
     run_sort(workdir)
     return workdir, a_list, sim_info
@@ -502,19 +527,20 @@ class TestFixupsPipeline(unittest.TestCase):
         scratch = workdir / "scratch"
         # raw sorted values, captured before fixups for the spin comparison
         raw = {
-            int(s): np.fromfile(scratch / sorted_scratch_name(int(s)), dtype=RECORD_DTYPE)
-            for s in Manifest.load_or_create(workdir).data["snapshots"]
+            int(s): np.fromfile(scratch / sorted_scratch_name(int(s)), dtype=default_layout().dtype)
+            for s in Manifest.load(workdir).data["snapshots"]
         }
+        fixed_dtype, fixed_tag = fixed_layout(default_layout())
         manifest = run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
         seen = {}
         for snap_str, entry in manifest.data["snapshots"].items():
             snap = int(snap_str)
             self.assertEqual(entry["status"], "fixed")
-            fixed = np.fromfile(entry["fixed_file"], dtype=FIXED_RECORD_DTYPE)
+            fixed = np.fromfile(entry["fixed_file"], dtype=fixed_dtype)
             self.assertEqual(len(fixed), entry["rows"])
             tag = manifest.data["intermediates"][entry["fixed_file"]]["dtype_tag"]
-            self.assertEqual(tag, FIXED_DTYPE_TAG)
+            self.assertEqual(tag, fixed_tag)
             for i in range(len(fixed)):
                 seen[int(fixed["id"][i])] = (
                     snap,
@@ -539,15 +565,10 @@ class TestFixupsPipeline(unittest.TestCase):
         for snap_str in manifest.data["snapshots"]:
             self.assertEqual(manifest.data["snapshots"][snap_str]["flyby_demotions"], 0)
 
-    def test_fixed_dtype_is_frozen_superset(self):
-        self.assertEqual(FIXED_RECORD_DTYPE.itemsize, 120)
-        self.assertEqual(FIXED_RECORD_DTYPE.names, RECORD_DTYPE.names + ("Len", "MostBoundID"))
-        for name in RECORD_DTYPE.names:
-            self.assertEqual(FIXED_RECORD_DTYPE.fields[name][0], RECORD_DTYPE.fields[name][0])
-
     def _fixed_by_id(self, manifest, snap):
         fixed = np.fromfile(
-            manifest.data["snapshots"][str(snap)]["fixed_file"], dtype=FIXED_RECORD_DTYPE
+            manifest.data["snapshots"][str(snap)]["fixed_file"],
+            dtype=fixed_layout(default_layout())[0],
         )
         return fixed, {int(fixed["id"][i]): i for i in range(len(fixed))}
 
@@ -661,6 +682,7 @@ class TestFixupsPipeline(unittest.TestCase):
             a_list_path=a_list,
             workdir=workdir,
             simulation_info_path=sim_info,
+            schema=default_schema(),
         )
         with self.assertRaisesRegex(ConverterError, "run sort first"):
             run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
@@ -683,6 +705,7 @@ class TestFixupsPipeline(unittest.TestCase):
             a_list_path=a_list,
             workdir=workdir,
             simulation_info_path=sim_info,
+            schema=default_schema(),
         )
         run_sort(workdir)
         manifest = run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
@@ -703,6 +726,7 @@ class TestFixupsPipeline(unittest.TestCase):
                 a_list_path=a_list,
                 workdir=workdir,
                 simulation_info_path=changed,
+                schema=default_schema(),
             )
 
     def test_mostboundid_invariant_reports_count_and_examples(self):
@@ -739,7 +763,7 @@ class TestFixupsKeepsItsInputs(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
 
     def _sorted_paths(self, workdir):
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         return {
             int(snap): Path(entry["sorted_file"])
             for snap, entry in manifest.data["snapshots"].items()
@@ -764,13 +788,14 @@ class TestFixupsKeepsItsInputs(unittest.TestCase):
             a_list_path=a_list,
             workdir=workdir,
             simulation_info_path=sim_info,
+            schema=default_schema(),
         )
 
     def test_every_sorted_file_is_retained(self):
         workdir, a_list, sim_info = make_sorted_workdir(self.root)
         before = self._sorted_paths(workdir)
         run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         for snap, path in before.items():
             self.assertTrue(path.exists(), "snapshot {} sorted file was deleted".format(snap))
             self.assertEqual(
@@ -803,11 +828,9 @@ class TestFixupsKeepsItsInputs(unittest.TestCase):
                     run_sort(workdir)
                     if status == "fixed":
                         run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-                    manifest = Manifest.load_or_create(workdir)
+                    manifest = Manifest.load(workdir)
                     self.assertEqual(status, manifest.data["snapshots"]["5"]["status"])
-                    manifest.consume_intermediates(
-                        [manifest.data["snapshots"]["5"][key]], delete=True
-                    )
+                    delete_through_the_guard(manifest, manifest.data["snapshots"]["5"][key])
                     with self.assertRaisesRegex(
                         ConverterError, "not a manifest-owned intermediate"
                     ):
@@ -820,9 +843,9 @@ class TestFixupsKeepsItsInputs(unittest.TestCase):
         root.mkdir()
         workdir, a_list, sim_info = make_sorted_workdir(root)
         run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         self.assertEqual("fixed", manifest.data["snapshots"]["5"]["status"])
-        manifest.consume_intermediates([manifest.data["snapshots"]["5"]["fixed_file"]], delete=True)
+        delete_through_the_guard(manifest, manifest.data["snapshots"]["5"]["fixed_file"])
         with self.assertRaisesRegex(ConverterError, "not a manifest-owned intermediate"):
             run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
@@ -837,16 +860,13 @@ class TestFixupsKeepsItsInputs(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Extended scratch layouts
+# A profile that declares extras
 # ---------------------------------------------------------------------------
 
-ALL_TYPES_PROFILE = Path(__file__).parent / "data" / "column_maps" / "ascii_all_extra_types.yaml"
 
-
-def run_both_layouts(root: Path, schema, chunksize: int = 2):
-    """Prepare the standard fixture forests twice, in the frozen legacy scratch
-    layout and in ``schema``'s extended layout, up to and including links.
-    Returns the two manifests (legacy, extended)."""
+def prepare_standard_forests(root: Path, schema, chunksize: int = 2):
+    """Prepare the standard fixture forests over two files in ``schema``'s
+    layout, up to and including links; returns the workdir manifest."""
     from adapters.ctrees_ascii import prepare_workdir
 
     forests = fixtures.standard_forests()
@@ -857,76 +877,54 @@ def run_both_layouts(root: Path, schema, chunksize: int = 2):
     forests_list = fixtures.write_forests_list(root / "forests.list", forests)
     a_list = fixtures.write_a_list(root / "test.a_list")
     sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
-    legacy_dir = root / "legacy"
     with capture_stderr():
-        run_scatter(
-            files,
-            forests_list,
-            a_list,
-            legacy_dir,
-            chunksize=chunksize,
-            simulation_info_path=sim_info,
+        return prepare_workdir(
+            schema, files, forests_list, a_list, sim_info, root / "workdir", chunksize=chunksize
         )
-        run_sort(legacy_dir)
-        run_fixups(legacy_dir, a_list, sim_info)
-        legacy = run_links(legacy_dir)
-        extended = prepare_workdir(
-            schema, files, forests_list, a_list, sim_info, root / "extended", chunksize=chunksize
-        )
-    return legacy, extended
 
 
-class TestExtendedFixups(unittest.TestCase):
+class TestFixupsWithDeclaredExtras(unittest.TestCase):
     def setUp(self):
-        from column_schema import build_schema, load_column_map
-
         self.tmp = tempfile.TemporaryDirectory()
         self.schema = build_schema(load_column_map(ALL_TYPES_PROFILE))
-        self.legacy, self.extended = run_both_layouts(Path(self.tmp.name), self.schema)
+        self.manifest = prepare_standard_forests(Path(self.tmp.name), self.schema)
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_legacy_fixed_layout_is_frozen(self):
-        from ctrees_parser import LEGACY_LAYOUT
-        from fixups import FIXED_DTYPE_TAG, fixed_layout
-
-        self.assertEqual(fixed_layout(LEGACY_LAYOUT), (FIXED_RECORD_DTYPE, FIXED_DTYPE_TAG))
-        self.assertEqual(FIXED_RECORD_DTYPE.itemsize, 120)
-
-    def test_extended_fixed_record_is_scratch_plus_len_and_mostboundid(self):
-        from fixups import EXTENDED_FIXED_DTYPE_TAG_PREFIX, fixed_layout
-
-        self.assertEqual(EXTENDED_FIXED_DTYPE_TAG_PREFIX, "ctrees-fixed-v2")
-        dtype, tag = fixed_layout(self.extended.layout)
-        self.assertEqual(dtype.names, self.extended.layout.dtype.names + ("Len", "MostBoundID"))
-        self.assertEqual(dtype.itemsize, self.extended.layout.dtype.itemsize + 12)
+    def test_fixed_record_is_scratch_plus_len_and_mostboundid(self):
+        self.assertEqual(FIXED_DTYPE_TAG_PREFIX, "ctrees-fixed-v2")
+        dtype, tag = fixed_layout(self.manifest.layout)
+        self.assertEqual(dtype.names, self.manifest.layout.dtype.names + ("Len", "MostBoundID"))
+        self.assertEqual(dtype.itemsize, self.manifest.layout.dtype.itemsize + 12)
         self.assertTrue(tag.startswith("ctrees-fixed-v2/itemsize={}/".format(dtype.itemsize)))
-        for entry in self.extended.data["snapshots"].values():
-            meta = self.extended.data["intermediates"][entry["fixed_file"]]
+        for entry in self.manifest.data["snapshots"].values():
+            meta = self.manifest.data["intermediates"][entry["fixed_file"]]
             self.assertEqual(meta["dtype_tag"], tag)
 
-    def test_legacy_fields_are_bit_identical_to_the_legacy_layout(self):
-        from fixups import fixed_layout
-
-        dtype, _tag = fixed_layout(self.extended.layout)
-        for snap, entry in self.legacy.data["snapshots"].items():
-            legacy = np.fromfile(entry["fixed_file"], dtype=FIXED_RECORD_DTYPE)
-            extended = np.fromfile(self.extended.data["snapshots"][snap]["fixed_file"], dtype=dtype)
-            for name in FIXED_RECORD_DTYPE.names:
-                self.assertEqual(extended[name].tobytes(), legacy[name].tobytes(), name)
+    def test_declared_extras_leave_the_core_fields_bit_identical(self):
+        root = Path(self.tmp.name) / "plain"
+        root.mkdir()
+        plain = prepare_standard_forests(root, default_schema())
+        plain_dtype, _tag = fixed_layout(plain.layout)
+        dtype, _tag = fixed_layout(self.manifest.layout)
+        for snap, entry in plain.data["snapshots"].items():
+            without = np.fromfile(entry["fixed_file"], dtype=plain_dtype)
+            with_extras = np.fromfile(
+                self.manifest.data["snapshots"][snap]["fixed_file"], dtype=dtype
+            )
+            for name in plain_dtype.names:
+                self.assertEqual(with_extras[name].tobytes(), without[name].tobytes(), name)
 
     def test_raw_j_extra_is_not_normalised_with_core_spin(self):
-        from fixups import fixed_layout
-
-        dtype, _tag = fixed_layout(self.extended.layout)
+        dtype, _tag = fixed_layout(self.manifest.layout)
         halos = {
             h.halo_id: h
             for tree in fixtures.all_trees(fixtures.standard_forests())
             for h in tree.halos
         }
         checked_normalised = checked_zero_mass = 0
-        for entry in self.extended.data["snapshots"].values():
+        for entry in self.manifest.data["snapshots"].values():
             for row in np.fromfile(entry["fixed_file"], dtype=dtype):
                 halo = halos[int(row["id"])]
                 raw = [
@@ -964,10 +962,11 @@ class TestExtendedFixups(unittest.TestCase):
                 simulation_info_path=sim_info,
             )
             run_sort(root / "w")
-        manifest = Manifest.load_or_create(root / "w")
+        manifest = Manifest.load(root / "w")
         entry = manifest.data["snapshots"]["5"]
-        # a well-formed tag, but the legacy layout's rather than this workdir's
-        manifest.data["intermediates"][entry["sorted_file"]]["dtype_tag"] = DTYPE_TAG
+        # a well-formed tag, but another layout's rather than this workdir's
+        intermediate = manifest.data["intermediates"][entry["sorted_file"]]
+        intermediate["dtype_tag"] = default_layout().dtype_tag
         manifest.save()
         with self.assertRaisesRegex(ConverterError, "refusing to fix"):
             with capture_stderr():

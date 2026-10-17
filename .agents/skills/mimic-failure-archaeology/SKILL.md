@@ -1,6 +1,6 @@
 ---
 name: mimic-failure-archaeology
-description: The chronicle of Mimic's settled battles — root causes, reverts, dead ends, and precision-policy history — so nobody re-fights them. Load this skill before re-investigating any past decision or "suspicious" old behaviour, when you see a SAGE parity comment or a one-galaxy z=0 count difference, when tempted to widen float fields or "fix" legacy quirks, when hunting why a doc/plan file disappeared from docs/dev, when evaluating an old branch (feature/positive-agn-feedback), or when a task says "has this been tried before?", "why is it like this?", "restore/revert", or "history/archaeology".
+description: The chronicle of Mimic's settled battles — root causes, reverts, dead ends, and precision-policy history — so nobody re-fights them. Load this skill before re-investigating any past decision or "suspicious" old behaviour, when you see a SAGE parity comment or a one-galaxy z=0 count difference, when tempted to widen float fields or "fix" legacy quirks, when evaluating an old branch (feature/positive-agn-feedback), or when a task says "has this been tried before?", "why is it like this?", "restore/revert", or "history/archaeology".
 ---
 
 # Mimic Failure Archaeology
@@ -9,7 +9,7 @@ This skill is the project's institutional memory: the settled investigations, th
 
 ## When to use / when NOT to use
 
-Use this skill to check whether a question has already been answered, to find the commit or archived document that answered it, and to cite the precedent instead of re-running the investigation.
+Use this skill to check whether a question has already been answered, to find the commit that answered it, and to cite the precedent instead of re-running the investigation.
 
 Do NOT use it for:
 - Diagnosing a live failure with no history angle — see the `mimic-debugging-playbook` skill.
@@ -21,13 +21,12 @@ Do NOT use it for:
 ## First actions
 
 1. Search this skill and `references/chronicle.md` for your symptom keyword (property name, module name, "parity", "float", "flyby", ...). If it appears, read the incident before touching code.
-2. Search git history before re-investigating (recipes below). The repo has ~1,100+ commits with descriptive messages; most questions are answered in a message or a deleted development plan under `docs/dev/`.
-3. Check whether the topic is an active plan rather than a closed battle: `ls docs/dev/` (plans there are ephemeral and never a source of facts).
-4. Only after (1)–(3) come up empty, open a fresh investigation under the rules in the `mimic-scientific-method` skill.
+2. Search git history before re-investigating (recipes below). The repo has ~1,100+ commits with descriptive messages; most questions are answered in a commit message.
+3. Only after (1) and (2) come up empty, open a fresh investigation under the rules in the `mimic-scientific-method` skill.
 
 ## Searching history before re-investigating
 
-`docs/dev/` is the owner's development pathway; plans there are ephemeral, and completed plans are deleted from git and moved to `archive/dev-plans/`, which is gitignored and machine-local and may not exist on your machine. Durable knowledge therefore lives in this skill; git history is how you recover the full documents.
+Durable knowledge lives in this skill and the documents of record; git history holds the commits behind it.
 
 ```bash
 # Find commits whose message mentions a topic (case-insensitive)
@@ -37,19 +36,17 @@ git log --oneline -i --grep='reincorporation'
 git log --oneline -S 'MaxDynamicSubsteps' -- src/
 
 # Find when a now-deleted file existed, and every commit that touched it
-git log --oneline --follow -- docs/dev/DYNAMIC-TIMESTEP-CONVERGENCE-NOTES.md
+git log --oneline --follow -- <path>
 
 # Read a deleted file as it existed just before its deleting commit
-git show 9a6f4322^:docs/dev/DYNAMIC-TIMESTEP-CONVERGENCE-NOTES.md
+git show <deleting-commit>^:<path>
 
 # Read a specific commit's full message and diff
 git show 6cbeafe4
 
-# List files a commit deleted (to find which ^:path to recover)
-git show --stat --diff-filter=D 9a6f4322
+# List files a commit deleted
+git show --stat --diff-filter=D <commit>
 ```
-
-Pattern: a commit that "archives" or "removes" planning docs (e.g. `9a6f4322`, `c568e8bb`) is your pointer — `git show <hash>^:<path>` recovers the document even though `archive/` is not in git.
 
 ## The ten most valuable settled battles (brief)
 
@@ -63,7 +60,7 @@ Full detail, evidence, and status for every incident is in `references/chronicle
 | 4 | ctrees catalog precision (`4a97d3d0`) | Investigated and settled: DON'T widen — ASCII source has ~7 sig figs; `ctrees_compat.h` is deliberately float. Cite this before reopening |
 | 5 | Docs overhaul revert (`8d0f39c6` → redo `432e4ca7`) | Framework-first framing is doctrine; models are interchangeable packages, not the product |
 | 6 | Rename staleness (sage→sage16, `3c40e2b5` et al.) | Renames must grep docs, scripts, harness defaults, AND model-name guards in tests — the physics baseline test silently skipped for a while |
-| 7 | Dynamic timestep campaign (shipped 2026-07-01) | Closed and shipped (`469b7adc`, `b942bf3c`, `58f1d3c2`); MaxDynamicSubsteps 50→200 came from measurement; notes recoverable via `git show 9a6f4322^:...` |
+| 7 | Dynamic timestep campaign (shipped 2026-07-01) | Closed and shipped (`469b7adc`, `b942bf3c`, `58f1d3c2`); MaxDynamicSubsteps 50→200 came from measurement |
 | 8 | Stripping metal conservation | Documented as a known issue (`25f54878`), then fixed (`3f1e124b`) — check status before "rediscovering" it |
 | 9 | fix_flybys z=0 divergence (`b727fd36`, reversed) | **A reversed decision, and the reason matters.** Accepted 2026-08 as a ~10–25% Type-0 divergence measured on micro-Uchuu; refuted 2026-09-09 on Shin-Uchuu, where percolating forests put 33% of the z=0 population in one bogus FoF group. Deleted from the C reader and converter, horizontal format bumped to `format_version = 2`. The transferable lesson: "accepted at the scale we tested" is not "accepted" |
 | 10 | Deliberate retirements ≠ failures | Split-pass merger path (`53fb1904`), per-task partition (`8be9309f`), parameter registry (`74c56f4a`) were removed on purpose — do not "restore" them |
@@ -97,5 +94,4 @@ Status snapshot in this skill and the chronicle dated 2026-07-03; plan status ch
 - Tags/era boundaries: `git tag` (as of 2026-07-03: `v0.1-beta`, `v0.5`, `v0.9-pre-release`, `v1.0`)
 - Branch staleness: `git rev-list --left-right --count main...feature/positive-agn-feedback`
 - Parity-quirk marker count: `rg -n 'SAGE parity' models/sage16/ | wc -l`
-- Recoverability of archived plans: `git show 9a6f4322^:docs/dev/DYNAMIC-TIMESTEP-CONVERGENCE-NOTES.md | head`
 - `archive/` (gitignored, machine-local symlink) may hold full reports (e.g. `archive/SAGE16-PARITY-REPORT.md`) — treat it as corroboration; the durable record is here and in git history.

@@ -59,6 +59,7 @@ from test_conversion_manifest import tree_state  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
 from test_rewriter import (  # noqa: E402
     assert_datasets_equal,
+    companions,
     cut,
     cut_layout,
     cut_source,
@@ -122,7 +123,7 @@ def link_stage_slabs(workdir):
     stage wrote for them, in the stage's ascending-id slab order, under the
     ``/halos`` names the canonical batches use. Row-index links target the
     same slab, except ``Descendant`` (N+1) and ``FirstProgenitor`` (N-1)."""
-    manifest = Manifest.load_or_create(workdir)
+    manifest = Manifest.load(workdir)
     fixed_dtype = fixed_layout(manifest.layout)[0]
     slabs = {}
     for snap, entry in manifest.data["snapshots"].items():
@@ -305,7 +306,7 @@ class TestCanonicalBridge(unittest.TestCase):
 
         adapter = CTreesAsciiAdapter(self.schema, self.workdir)
         adapter.inventory()
-        snapshots = Manifest.load_or_create(self.workdir).data["snapshots"]
+        snapshots = Manifest.load(self.workdir).data["snapshots"]
         expected = sorted(
             (str(Path(entry[key]).resolve()), what)
             for entry in snapshots.values()
@@ -526,10 +527,11 @@ class TransposedTopologyTests(unittest.TestCase):
             self.assertEqual(key, sorted(key), snap)
             for k, hid in enumerate(slab["MostBoundID"].tolist()):
                 self.assertEqual(int(ids[k]), LITERAL_IDS[hid], (snap, hid))
-        # under the physical (file, unit, row) ids, 1020 (forest 100's second
-        # tree, file 1's unit 1) held id 13, after forest 200 (file 0) and
-        # forest 500 (file 1's unit 0); under the ruling it follows forest
-        # 100's first central directly, so snapshot 5's rows reorder
+        # under physical (file, unit, row) ids, 1020 (forest 100's second
+        # tree, file 1's unit 1) would hold id 13, after forest 200 (file 0)
+        # and forest 500 (file 1's unit 0); under the forest-rank convention it
+        # follows forest 100's first central directly, so snapshot 5's rows
+        # reorder
         self.assertEqual(
             self.slabs[5]["MostBoundID"].tolist(),
             [1010, 1020, 2010, 2011, 5010, 5011, 6010, 6011, 6012],
@@ -701,15 +703,15 @@ class TestBridgeRuns(unittest.TestCase):
                 env.prepare(schema, workdir="early", max_rows=max_rows, memory_budget_bytes=1)
         rows_of = {
             int(snap): int(entry["rows"])
-            for snap, entry in Manifest.load_or_create(workdir).data["snapshots"].items()
+            for snap, entry in Manifest.load(workdir).data["snapshots"].items()
         }
         largest = max(rows_of.values())
         refused = min(snap for snap, n_rows in rows_of.items() if n_rows == largest)
-        # all-types profile: 200-byte fixed record + 36 links + 152 canonical + 56 extras
-        requirement = 2 * min(max_rows, largest) * (200 + 36 + 152 + 56)
+        # all-types profile: 176-byte fixed record + 36 links + 152 canonical + 56 extras
+        requirement = 2 * min(max_rows, largest) * (176 + 36 + 152 + 56)
 
         def statuses():
-            data = Manifest.load_or_create(workdir).data
+            data = Manifest.load(workdir).data
             return {entry["status"] for entry in data["snapshots"].values()}
 
         with self.assertRaisesRegex(
@@ -790,15 +792,16 @@ class TestBridgeRuns(unittest.TestCase):
                     env.prepare(schema)
                 self.assertEqual((workdir / "manifest.json").read_bytes(), manifest_before)
                 # scatter refuses the same modification the same way (shown on
-                # a workdir in the frozen scratch layout)
-                legacy = Path(tmp) / "legacy"
+                # a separate workdir)
+                separate = Path(tmp) / "separate"
                 with capture_stderr():
                     path.write_text(text)
                     run_scatter(
                         env.tree_files,
                         env.forests_list,
                         env.a_list,
-                        legacy,
+                        separate,
+                        schema,
                         simulation_info_path=env.sim_info,
                     )
                     path.write_text(text.replace("150.0", "150.25", 1))
@@ -809,7 +812,8 @@ class TestBridgeRuns(unittest.TestCase):
                             env.tree_files,
                             env.forests_list,
                             env.a_list,
-                            legacy,
+                            separate,
+                            schema,
                             simulation_info_path=env.sim_info,
                         )
 
@@ -834,8 +838,8 @@ class TestBridgeRuns(unittest.TestCase):
         data["required_columns"] = {role: list(a) for role, a in data["required_columns"].items()}
         schema = build_schema(parse_column_map(data, "<wide>"))
         workdir = env.prepare(schema)
-        manifest = Manifest.load_or_create(workdir)
-        self.assertEqual(manifest.layout.dtype.itemsize, 132 + 40 * 8)
+        manifest = Manifest.load(workdir)
+        self.assertEqual(manifest.layout.dtype.itemsize, 108 + 40 * 8)
         _b, table = collect(CTreesAsciiAdapter(schema, workdir), 5)
         for k in range(40):
             self.assertTrue(np.all(table["Wide{:02d}".format(k)] == 150.0))
@@ -886,21 +890,9 @@ class TestBridgeRefusals(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "needs a 'consistent_trees_ascii' schema"):
             CTreesAsciiAdapter(schema_of(PROFILE_DIR / "consistent_trees_hdf5.yaml"), self.workdir)
 
-    def test_missing_manifest_and_legacy_workdir_are_refused(self):
+    def test_a_missing_manifest_is_refused(self):
         with self.assertRaisesRegex(ConverterError, "no manifest"):
             CTreesAsciiAdapter(schema_of(), self.env.root / "absent").inventory()
-        with tempfile.TemporaryDirectory() as tmp:
-            env = Env(Path(tmp))
-            with capture_stderr():
-                run_scatter(
-                    env.tree_files,
-                    env.forests_list,
-                    env.a_list,
-                    Path(tmp) / "w",
-                    simulation_info_path=env.sim_info,
-                )
-            with self.assertRaisesRegex(ConverterError, "refusing to read"):
-                CTreesAsciiAdapter(schema_of(), Path(tmp) / "w").inventory()
 
     def test_unfinished_preparation_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -965,14 +957,14 @@ class TestBridgeRefusals(unittest.TestCase):
 
     def test_an_oversized_snapshot_is_refused_at_its_exact_requirement(self):
         """The largest snapshot's figure, rebuilt from literal widths (the
-        all-types profile's 200-byte fixed record, 36-byte links record,
+        all-types profile's 176-byte fixed record, 36-byte links record,
         152 canonical bytes and 56 extra bytes per row), is the exact
         boundary: one byte less is refused naming the snapshot, and exactly
         that much converts."""
         schema = schema_of()
         rows_of = {
             int(snap): int(entry["rows"])
-            for snap, entry in Manifest.load_or_create(self.workdir).data["snapshots"].items()
+            for snap, entry in Manifest.load(self.workdir).data["snapshots"].items()
         }
         max_rows = 2
 
@@ -983,7 +975,7 @@ class TestBridgeRefusals(unittest.TestCase):
                 8 * (neighbours + n_rows)
                 + 16 * n_rows
                 + 65536 * 40
-                + 2 * min(max_rows, n_rows) * (200 + 36 + 152 + 56)
+                + 2 * min(max_rows, n_rows) * (176 + 36 + 152 + 56)
             )
 
         worst = max(requirement(snap) for snap in rows_of)
@@ -1005,13 +997,13 @@ class TestBridgeRefusals(unittest.TestCase):
 
     def test_batch_term_is_pinned_to_the_record_widths(self):
         default, all_types = schema_of(DEFAULT_PROFILE), schema_of()
-        # default profile: 144-byte fixed record + 36 links + 152 canonical
-        self.assertEqual(batch_term_bytes(default, 1 << 20), 2 * (1 << 20) * 332)
-        self.assertEqual(batch_term_bytes(default, 1 << 20, 4), 2 * 4 * 332)
+        # default profile: 120-byte fixed record + 36 links + 152 canonical
+        self.assertEqual(batch_term_bytes(default, 1 << 20), 2 * (1 << 20) * 308)
+        self.assertEqual(batch_term_bytes(default, 1 << 20, 4), 2 * 4 * 308)
         self.assertEqual(batch_term_bytes(default, 3, 0), 0)
-        # all-types profile: 200-byte fixed record + 36 + 152 + 56 extra bytes
-        self.assertEqual(batch_term_bytes(all_types, 10, 3), 2 * 3 * 444)
-        self.assertEqual(batch_term_bytes(all_types, 2, 5), 2 * 2 * 444)
+        # all-types profile: 176-byte fixed record + 36 + 152 + 56 extra bytes
+        self.assertEqual(batch_term_bytes(all_types, 10, 3), 2 * 3 * 420)
+        self.assertEqual(batch_term_bytes(all_types, 2, 5), 2 * 2 * 420)
         self.assertEqual(batch_term_bytes(all_types, 7), batch_term_bytes(all_types, 7, 7))
         for bad in (0, True, 1.5):
             with self.subTest(max_rows=bad), self.assertRaises(ConverterError):
@@ -1038,7 +1030,7 @@ class TestBridgeRefusals(unittest.TestCase):
         """Rewrite one snapshot's scratch record file through ``edit`` and
         re-register it, so its checksum passes and only the adapter's own
         checks stand between the forgery and the batches."""
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         entry = manifest.data["snapshots"][str(snap)]
         records = np.fromfile(entry[key], dtype=dtype)
         edit(records)
@@ -1109,7 +1101,7 @@ class TestBridgeRefusals(unittest.TestCase):
                     with tempfile.TemporaryDirectory() as tmp:
                         env = Env(Path(tmp))
                         workdir = env.prepare(schema_of())
-                        manifest = Manifest.load_or_create(workdir)
+                        manifest = Manifest.load(workdir)
                         dtype = (
                             fixed_layout(manifest.layout)[0]
                             if key == "fixed_file"
@@ -1133,7 +1125,7 @@ class TestBridgeRefusals(unittest.TestCase):
     def _truncate_and_register(workdir, snap, key, kind, dtype):
         """Drop one snapshot scratch file's last record and re-register the
         shorter file, leaving the snapshot's recorded ``rows`` unchanged."""
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         entry = manifest.data["snapshots"][str(snap)]
         records = np.fromfile(entry[key], dtype=dtype)[:-1]
         records.tofile(entry[key])
@@ -1144,26 +1136,6 @@ class TestBridgeRefusals(unittest.TestCase):
             dtype_tag=manifest.data["intermediates"][entry[key]]["dtype_tag"],
         )
         manifest.save()
-
-    def test_scatter_time_coordinates_no_longer_feed_identity(self):
-        """Forged physical (file, unit, row) stamps in the fixed scratch change
-        no emitted value: identity is read from the links record."""
-        from fixups import fixed_layout
-
-        _b, clean = collect(CTreesAsciiAdapter(schema_of(), self.workdir))
-        with tempfile.TemporaryDirectory() as tmp:
-            env = Env(Path(tmp))
-            workdir = env.prepare(schema_of())
-            dtype, _tag = fixed_layout(Manifest.load_or_create(workdir).layout)
-
-            def edit(records):
-                records["src_row_ordinal"][:] = 0
-                records["src_unit_ordinal"][:] = 99
-
-            self._forge(workdir, 5, "fixed_file", "snapshot-fixed", dtype, edit)
-            _b, forged = collect(CTreesAsciiAdapter(schema_of(), workdir))
-        for name, values in clean.items():
-            self.assertEqual(forged[name].tobytes(), values.tobytes(), name)
 
 
 class OldWorkdirTests(unittest.TestCase):
@@ -1241,12 +1213,13 @@ class OldWorkdirTests(unittest.TestCase):
                 self.assertEqual(tree_state(work), before)
 
     #: what every stage entry says to an old ASCII workdir
-    PREDATES = "predates the 2026-10-07 identity ruling .* reconvert it"
+    PREDATES = "predates the forest-rank identity convention .* reconvert it"
 
     def assert_refused_untouched(self, work, call):
-        """``call`` refuses the old workdir as predating the ruling, and no
-        file or directory under it is created, removed, rewritten or
-        re-timed (``tree_state``: listing, sizes, mtimes and content)."""
+        """``call`` refuses the old workdir as predating the forest-rank identity
+        convention, and no file or directory under it is created, removed,
+        rewritten or re-timed (``tree_state``: listing, sizes, mtimes and
+        content)."""
         before = tree_state(work)
         with capture_stderr(), self.assertRaisesRegex(ConverterError, self.PREDATES):
             call(work)
@@ -1303,15 +1276,16 @@ class OldWorkdirTests(unittest.TestCase):
     def test_the_scheme_check_leaves_the_other_routes_alone(self):
         """The stage-entry check reads only an ASCII configuration: a
         prelinked configuration records no scheme and passes it."""
+        check = cm.ConversionManifest.require_current_identity_scheme
         for source_format in ("lhalo_binary", "consistent_trees_hdf5"):
-            manifest = mock.Mock()
+            manifest = mock.Mock(spec=["configuration", "workdir"])
             manifest.configuration = {"adapter": {"source_format": source_format, "parameters": {}}}
-            pipeline._require_current_identity_scheme(manifest)
+            check(manifest)
         manifest.configuration = {
             "adapter": {"source_format": "consistent_trees_ascii", "parameters": {}}
         }
         with self.assertRaisesRegex(ConverterError, self.PREDATES):
-            pipeline._require_current_identity_scheme(manifest)
+            check(manifest)
 
     def test_another_identity_scheme_is_refused(self):
         for value in ("physical", None, 1):
@@ -1445,7 +1419,7 @@ class BudgetAccountingTests(unittest.TestCase):
             )
             adapter = CTreesAsciiAdapter(schema_of(), workdir, memory_budget_bytes=need - 1)
             unread = AssertionError("the manifest was read")
-            with mock.patch.object(Manifest, "load_or_create", side_effect=unread):
+            with mock.patch.object(Manifest, "load", side_effect=unread):
                 with self.assertRaisesRegex(
                     ConverterError,
                     r"^loading the conversion manifest \({} bytes\) needs {} bytes".format(
@@ -1551,7 +1525,7 @@ class CutTableTests(unittest.TestCase):
                     + summary["cut"]["fresh_pieces"],
                 )
                 self.assertGreater(summary["cut"]["fresh_pieces"], 0)
-                # the same severance: the route's promotions per snapshot are (C)'s
+                # the same severance: the route's promotions per snapshot are the cut operation's
                 prepared = json.loads(
                     (root / "route" / pipeline.ASCII_PREPARATION_DIR / "manifest.json").read_text()
                 )
@@ -1575,6 +1549,70 @@ class CutTableTests(unittest.TestCase):
                     self.assertEqual(
                         convert_trees.main(["validate", "--workdir", str(root / "route")]), 0
                     )
+
+    def test_a_host_in_another_forest_is_refused_by_name_without_a_table(self):
+        """Only a declared cut table makes a satellite whose host lies in
+        another forest convertible: without one, ingest refuses the satellite
+        as an unresolved host under the catalogue's own partition."""
+        forest = fixtures.severed_satellite_forest()
+        root = self.root / "foreign"
+        root.mkdir()
+        for index, trees in enumerate(cut_layout(forest, 1)):
+            fixtures.write_ctrees_file(root / "tree_{}.dat".format(index), trees)
+        # tree 2110 is a forest of its own, so its satellite 2111's host (in
+        # tree 2100) lies in another forest
+        first, last = companions()
+        listed = [
+            first,
+            fixtures.ForestSpec(forest_id=2100, trees=forest.trees[:1]),
+            fixtures.ForestSpec(forest_id=2150, trees=forest.trees[1:]),
+            last,
+        ]
+        fixtures.write_forests_list(root / "forests.list", listed)
+        fixtures.write_simulation_info(root / "simulation_info.yaml")
+        fixtures.write_a_list(root / "fixture.a_list")
+        work = root / "route"
+        pipeline.initialize(
+            work,
+            schema_of(DEFAULT_PROFILE),
+            route_parameters({"root": root}),
+            root / "fixture.a_list",
+            ingest_max_rows=4,
+            transpose_budget_bytes=4 << 20,
+        )
+        refusal = (
+            r"origin id=2111, at id=2111, upid=2101, pid=2101, forest=2150: neither target "
+            r"present within the forest"
+        )
+        with capture_stderr():
+            with self.assertRaisesRegex(ConverterError, refusal):
+                pipeline.run_ingest(work)
+
+    def test_the_cut_table_term_is_refused_over_budget_before_the_table_is_loaded(self):
+        parameters = route_parameters(self.severed, self.severed_table)
+        n_trees = 4  # the two companions' trees and the forest's two
+        need = n_trees * ctrees_ascii.CUT_TABLE_BYTES_PER_TREE
+        with mock.patch.object(
+            ctrees_ascii, "load_cut_table", side_effect=AssertionError("loaded")
+        ):
+            refusal = (
+                r"^loading the cut table \({} trees\) needs {} bytes, above the configured "
+                r"memory budget of {} bytes; raise memory_budget_bytes$".format(
+                    n_trees, need, need - 1
+                )
+            )
+            with capture_stderr(), self.assertRaisesRegex(ConverterError, refusal):
+                prepare_workdir(
+                    schema_of(DEFAULT_PROFILE),
+                    parameters["tree_files"],
+                    parameters["forests_list"],
+                    self.severed["root"] / "fixture.a_list",
+                    parameters["simulation_info"],
+                    self.root / "budget",
+                    max_rows=4,
+                    memory_budget_bytes=need - 1,
+                    cut_table_path=self.severed_table,
+                )
 
     def test_without_a_table_nothing_is_recorded(self):
         recorded = pipeline.canonical_parameters(
@@ -1772,7 +1810,7 @@ class CutTableTests(unittest.TestCase):
         self.assertEqual(
             np.load(workdir / "scratch" / source_units_name(1)).tolist(), [[8001, 2], [8000, 3]]
         )
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         # every source's tree-rows sidecar is a registered intermediate
         for path in manifest.data["provenance"]["source_files"]:
             entry = manifest.source_entry(path)

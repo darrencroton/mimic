@@ -232,15 +232,15 @@ class SourceInventory:
     the row: the leading 0 is a deliberate shim that keeps this three-field
     contract (and its non-negativity) for the two prelinked routes rather than
     widening it, not a file ordinal. A route whose units are not physical says
-    so by setting ``physical_units = False`` on the inventory it returns;
-    ``conversion_manifest.inventory_record`` then records no per-file
-    summary. An inventory without the attribute is physical.
+    so by constructing its inventory with ``physical_units=False``;
+    ``conversion_manifest.inventory_record`` then records no per-file summary.
     """
 
     def __init__(
         self,
         units: Sequence[SourceUnit],
         selected: Optional[Sequence[Tuple[int, int]]] = None,
+        physical_units: bool = True,
     ):
         ordered = tuple(units)
         seen = set()
@@ -264,8 +264,8 @@ class SourceInventory:
             seen.add(key)
             previous = key
             bases.append(total + 1)
-            # Checked before the addition, so the abort happens instead of the
-            # overflow, not after it ("Abort on int64 overflow").
+            # Tested before the addition, so an id that would not fit in int64 is
+            # refused rather than computed.
             if total > INT64_MAX - unit.n_halos:
                 raise ConverterError(
                     "SourceHaloID assignment overflows int64 at unit {} ({} halos already "
@@ -274,6 +274,7 @@ class SourceInventory:
             total += unit.n_halos
 
         self.units: Tuple[SourceUnit, ...] = ordered
+        self.physical_units: bool = physical_units
         self.total_halos: int = total
         self._bases: Tuple[int, ...] = tuple(bases)
         self._index: Dict[Tuple[int, int], int] = {
@@ -404,8 +405,8 @@ class CanonicalBatch:
         Deliberately *not* checked: ``MostBoundID`` uniqueness, positivity or
         ordering. It is the source catalog's own signed particle/halo
         identifier, legitimately duplicated and legitimately negative in the
-        general format, so it is never treated as a key. ``SourceHaloID`` is the unique key, and it is
-        checked here.
+        general format, so it is never treated as a key. ``SourceHaloID`` is the
+        unique key, and it is checked here.
         """
         if "SourceHaloID" not in self.identity:
             raise ConverterError("batch is missing the SourceHaloID identity column")

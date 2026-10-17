@@ -74,10 +74,18 @@ the ASCII route's rank pass, and the transpose's external-sort buffers. Each
 budgeted term is checked against it before that term is allocated, and a
 conversion whose terms cannot fit is refused rather than run. It does not bound
 the Python interpreter's total resident size, and concurrently resident terms
-are not summed against it. ``validate``/``report`` take their own budget for
-the battery's bounded sorts. With ``--bounded`` they run the battery's bounded
-mode instead (``validate_bounded.py``): adjacent datasets only, no sort and no
-spill, within a ceiling it prints at start and refuses above the budget.
+are not summed against it. ``validate``/``report`` take their own budget: in
+the battery's default external-sort mode it bounds the scan and sort buffers;
+with ``--bounded`` they run the battery's bounded mode instead
+(``validate_bounded.py``): adjacent datasets only, no sort and no spill,
+within a ceiling it prints at start and refuses above the budget.
+
+**Exit status.** 0 on success; 1 when ``validate`` or ``report`` finds the
+dataset failing the battery (``report`` still writes its report); 2 when a
+command is refused or stops on an error -- bad arguments, a stage run out of
+order or against inputs the conversion did not record, an outdated workdir, a
+dataset the bounded mode does not take (gapped links, a snapshot above
+INT32_MAX rows, a ceiling above the budget), or a file that cannot be read.
 
 **Sources are read-only.** Source files are opened for reading only and pinned
 in the manifest. Nothing transfers or deletes a source file; the only opt-in
@@ -125,6 +133,10 @@ PROFILE_DIR = CONVERT_DIR / "profiles"
 FORMAT_VERSION = 3
 
 DEFAULT_MEMORY_BUDGET_MB = 2048
+
+#: Exit status of a command refused or stopped on an error, as argparse's for
+#: bad arguments; 1 is reserved for a dataset that fails the battery.
+EXIT_REFUSED = 2
 
 _INT32_MAX = 2**31 - 1
 
@@ -622,26 +634,27 @@ def cmd_write(args) -> int:
 
 
 def _complete_manifest(workdir):
-    from conversion_manifest import ConversionManifest
+    from conversion_manifest import MANIFEST_NAME
+    from validate_v3 import load_manifest
 
-    manifest = ConversionManifest.load(workdir)
+    manifest = load_manifest(Path(workdir) / MANIFEST_NAME)
     manifest.require_complete("write")
     return manifest
 
 
 def cmd_validate(args) -> int:
+    from validate_bounded import run_battery_bounded
     from validate_v3 import run_battery_v3
 
     manifest = _complete_manifest(args.workdir)
-    budget_bytes = _megabytes(args.memory_budget_mb)
-    battery = run_battery_v3(
+    run_battery = run_battery_bounded if args.bounded else run_battery_v3
+    battery = run_battery(
         _dataset_dir(manifest),
         manifest.configuration["snapshots"]["a_list_path"],
         manifest_path=manifest.path,
         multiplier=args.multiplier,
-        budget_bytes=budget_bytes,
+        budget_bytes=_megabytes(args.memory_budget_mb),
         spill_dir=args.spill_dir,
-        bounded=args.bounded,
     )
     for outcome in battery.outcomes:
         print(outcome.line())
@@ -786,7 +799,8 @@ def _add_validation_options(parser: argparse.ArgumentParser) -> None:
         "--memory-budget-mb",
         type=int,
         default=DEFAULT_V3_BUDGET_BYTES >> 20,
-        help="working-buffer budget of the battery's bounded sorts, in MiB (default {})".format(
+        help="the battery's budget, in MiB (default {}): the external-sort mode's scan and sort "
+        "buffers, or under --bounded the limit its printed ceiling is refused above".format(
             DEFAULT_V3_BUDGET_BYTES >> 20
         ),
     )
@@ -884,14 +898,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     validate = sub.add_parser(
         "validate",
-        help="run the version 3 producer battery over the written dataset (exit 1 on FAIL)",
+        help="run the version 3 producer battery over the written dataset (exit 1 on FAIL, 2 on "
+        "a refusal)",
     )
     _add_workdir(validate)
     _add_validation_options(validate)
 
     report = sub.add_parser(
         "report",
-        help="validate and write conversion_report.json/.txt into --workdir (exit 1 on FAIL)",
+        help="validate and write conversion_report.json/.txt into --workdir (exit 1 on FAIL, 2 "
+        "on a refusal)",
     )
     _add_workdir(report)
     _add_validation_options(report)
@@ -916,7 +932,7 @@ def main(argv=None) -> int:
         return _COMMANDS[args.command](args)
     except (ConverterError, MissingDependencyError, OSError) as exc:
         print("ERROR: {}".format(exc), file=sys.stderr)
-        return 1
+        return EXIT_REFUSED
 
 
 if __name__ == "__main__":

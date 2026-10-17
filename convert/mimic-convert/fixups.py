@@ -25,11 +25,11 @@ After this stage the ``Jx``/``Jy``/``Jz`` fields of the fixed records carry the
 normalised Spin components (raw J only where ``Mvir == 0``, per the reference
 carve-out).
 
-An extended scratch layout passes through
-unchanged apart from the two appended fields: its source coordinates and
-declared extras are copied field for field into the fixed record, and no
-convention touches them -- an extra that selects the raw ``Jx``/``Jy``/``Jz``
-columns keeps the catalog J while the core ``Jx``/``Jy``/``Jz`` are normalised.
+The scratch layout passes through unchanged apart from the two appended
+fields: its declared extras are copied field for field into the fixed record,
+and no convention touches them -- an extra that selects the raw
+``Jx``/``Jy``/``Jz`` columns keeps the catalog J while the core
+``Jx``/``Jy``/``Jz`` are normalised.
 
 **Under a declared cut table** (``cut_map``; the canonical ASCII route only)
 hosts are still resolved under the original ``forests.list`` partition, and
@@ -51,12 +51,7 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ctrees_parser import (  # noqa: E402
-    RECORD_DTYPE,
-    ConverterError,
-    ScratchLayout,
-    describe_dtype,
-)
+from ctrees_parser import ConverterError, ScratchLayout, describe_dtype  # noqa: E402
 from scatter import (  # noqa: E402
     A_LIST_ATOL,
     ForestMap,
@@ -66,32 +61,14 @@ from scatter import (  # noqa: E402
     load_a_list,
 )
 
-#: Fixed-record dtype: the frozen scratch fields plus this stage's outputs.
-#: Little-endian, packed, itemsize 120. Jx/Jy/Jz hold normalised Spin after
-#: the fix-up stage (see module docstring).
-FIXED_RECORD_DTYPE = np.dtype(
-    [(name, RECORD_DTYPE.fields[name][0].str) for name in RECORD_DTYPE.names]
-    + [("Len", "<i4"), ("MostBoundID", "<i8")],
-    align=False,
-)
-
-#: Human-readable dtype identity recorded in every fixed-file manifest entry.
-FIXED_DTYPE_TAG = "ctrees-fixed-v1/itemsize=120/" + ",".join(
-    "{}:{}".format(name, FIXED_RECORD_DTYPE.fields[name][0].str)
-    for name in FIXED_RECORD_DTYPE.names
-)
-
-#: Version prefix of an extended fixed-record tag (see fixed_layout); like the
-#: extended scratch prefix, it differs from the frozen ``ctrees-fixed-v1``.
-EXTENDED_FIXED_DTYPE_TAG_PREFIX = "ctrees-fixed-v2"
+#: Version prefix of the fixed-record dtype tag (see :func:`fixed_layout`).
+FIXED_DTYPE_TAG_PREFIX = "ctrees-fixed-v2"
 
 
 def fixed_record_dtype(scratch_dtype: np.dtype) -> np.dtype:
     """The fixed record for one scratch record: every scratch field, in order,
-    then ``Len`` and ``MostBoundID``. For ``RECORD_DTYPE`` it is exactly the
-    frozen 120-byte ``FIXED_RECORD_DTYPE``."""
-    if scratch_dtype == RECORD_DTYPE:
-        return FIXED_RECORD_DTYPE
+    then ``Len`` and ``MostBoundID``. Jx/Jy/Jz hold normalised Spin after the
+    fix-up stage (see the module docstring)."""
     return np.dtype(
         scratch_dtype.descr + [("Len", "<i4"), ("MostBoundID", "<i8")],
         align=False,
@@ -99,12 +76,9 @@ def fixed_record_dtype(scratch_dtype: np.dtype) -> np.dtype:
 
 
 def fixed_layout(layout: ScratchLayout) -> Tuple[np.dtype, str]:
-    """``(fixed dtype, fixed dtype tag)`` for a workdir's scratch layout: the
-    frozen pair for the legacy layout, a ``ctrees-fixed-v2`` pair otherwise."""
-    if not layout.is_extended:
-        return FIXED_RECORD_DTYPE, FIXED_DTYPE_TAG
+    """``(fixed dtype, fixed dtype tag)`` for a workdir's scratch layout."""
     dtype = fixed_record_dtype(layout.dtype)
-    return dtype, describe_dtype(EXTENDED_FIXED_DTYPE_TAG_PREFIX, dtype)
+    return dtype, describe_dtype(FIXED_DTYPE_TAG_PREFIX, dtype)
 
 
 #: Reference upid-chain depth limit (ctrees_utils.c find_fof_halo).
@@ -501,10 +475,9 @@ def apply_fixups_snapshot(
     :func:`sever_snapshot` once every host is resolved; the stats then count
     its promotions as ``cut_promotions``.
 
-    Returns the fixed-record array (``fixed_record_dtype(records.dtype)``:
-    FIXED_RECORD_DTYPE for legacy records) and the per-snapshot stats. Every
-    field of ``records`` is copied, so an extended record's source coordinates
-    and extras arrive in the fixed record untouched by any convention below.
+    Returns the fixed-record array (``fixed_record_dtype(records.dtype)``) and
+    the per-snapshot stats. Every field of ``records`` is copied, so a record's
+    extras arrive in the fixed record untouched by any convention below.
     """
     fixed = np.zeros(records.size, dtype=fixed_record_dtype(records.dtype))
     for name in records.dtype.names:
@@ -513,8 +486,7 @@ def apply_fixups_snapshot(
     validate_adjacency(fixed, snap, a_list, context)
     normalise_spin(fixed)
     fixed["Len"], len_zero = derive_len(fixed["Mvir"], particle_mass, context)
-    # MostBoundID carries the ctrees id (convert_ctrees_to_lht) and is always
-    # positive — the flyby demotion marker that used to negate it is gone.
+    # MostBoundID carries the ctrees id and is always positive.
     fixed["MostBoundID"] = fixed["id"]
     # Corrupt-input guard, independent of fix_upid below: every forest
     # peaking at this snapshot must have at least one pid == -1 record here.
@@ -565,9 +537,7 @@ def run_fixups(
     is required exactly when scatter bound one: its md5 must be the bound
     one, so no snapshot of a workdir is fixed with and another without it.
     """
-    manifest = Manifest.load_or_create(workdir)
-    if not manifest.path.exists():
-        raise ConverterError("{}: no manifest found; run scatter first".format(workdir))
+    manifest = Manifest.load(workdir)
     bound_cut = (manifest.data["provenance"].get("cut_table") or {}).get("md5")
     given_cut = None if cut_map is None else cut_map.md5
     if bound_cut != given_cut:

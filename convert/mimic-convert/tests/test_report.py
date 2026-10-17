@@ -5,7 +5,7 @@ gapped L-Halo source with the extras-example profile, so every count it
 states is checked against the hand-derived graph (``test_pipeline.EXPECTED``:
 two gapped descendants, the longer spanning three snapshots) rather than
 against the battery's own arithmetic. The identity multiplier arithmetic the
-report states is covered by ``test_hdf5_writer.TestIdentityMultiplier``.
+report states is covered by ``test_hdf5_writer_v3.TestIdentityMultiplier``.
 """
 
 import json
@@ -22,11 +22,15 @@ import h5py
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import fixtures  # noqa: E402
 import report  # noqa: E402
 import runtime_routes  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
+from conversion_manifest import MANIFEST_NAME, canonical_sha256  # noqa: E402
 from report import REPORT_JSON, REPORT_TXT, run_report_v3  # noqa: E402
-from test_hdf5_writer import V3_LHALO_EXTRAS_PAYLOAD, make_v3_conversion  # noqa: E402
+from test_fixups import capture_stderr  # noqa: E402
+from test_hdf5_writer_v3 import V3_LHALO_EXTRAS_PAYLOAD, make_v3_conversion  # noqa: E402
+from test_validate import make_v3_ascii_conversion  # noqa: E402
 from validate_v3 import run_battery_v3  # noqa: E402
 
 #: The fixed topology and identity table in format order, with the core
@@ -293,6 +297,23 @@ class TestV3ReportFailures(unittest.TestCase):
         conv = make_v3_conversion(self.tmp, write=False)
         with self.assertRaisesRegex(ConverterError, "write"):
             run_report_v3(conv.work, conv.a_list, budget_bytes=BUDGET)
+        self.assertFalse((conv.work / REPORT_JSON).exists())
+
+    def test_an_ascii_workdir_before_the_forest_rank_scheme_is_refused_untouched(self):
+        """An ASCII conversion whose manifest records no identity_scheme
+        (digest recomputed, so the manifest itself is consistent) is refused
+        by name, and nothing in the workdir is written."""
+        with capture_stderr():
+            conv = make_v3_ascii_conversion(self.tmp, fixtures.standard_forests())
+        path = conv.work / MANIFEST_NAME
+        data = json.loads(path.read_text())
+        del data["configuration"]["adapter"]["parameters"]["identity_scheme"]
+        data["configuration_sha256"] = canonical_sha256(data["configuration"])
+        path.write_text(json.dumps(data))
+        before = tree_state(conv.work)
+        with self.assertRaisesRegex(ConverterError, "predates the forest-rank identity convention"):
+            run_report_v3(conv.work, conv.a_list, budget_bytes=BUDGET)
+        self.assertEqual(tree_state(conv.work), before)
         self.assertFalse((conv.work / REPORT_JSON).exists())
 
 

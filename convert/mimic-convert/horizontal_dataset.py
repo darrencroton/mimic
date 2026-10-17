@@ -4,11 +4,15 @@ A dataset directory holds one ``snapshot_NNN.h5`` per snapshot, contiguous from
 ``000``, and the ``forests.h5`` sidecar
 (``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md``, V3 File Set and Naming).
 :class:`HorizontalDataset` opens one, reads every snapshot's ``/header``
-attributes, checks the run-scoped ones agree across files, and then reads
-``/halos`` columns only in **bounded blocks**: one named column of one slab, at
-most ``block_rows`` rows at a time (default 2^22). Nothing here
-ever materialises a whole column of a slab, which is what lets the forest census
-(``forest_census.py``) walk a 519 million-row slab in a few hundred megabytes.
+attributes, checks the dataset-wide ones agree across files, and reads
+``/halos`` columns in **bounded blocks**: :meth:`~HorizontalDataset.iter_columns`
+reads at most ``block_rows`` rows of a slab at a time (default 2^22) and
+:meth:`~HorizontalDataset.read_rows` the range its caller holds, which is what
+lets the forest census (``forest_census.py``) walk a 519 million-row slab in a
+few hundred megabytes. Three reads are whole by contract and state their size:
+:meth:`~HorizontalDataset.read_column` (one column of one slab),
+:meth:`~HorizontalDataset.sidecar_columns` and
+:meth:`~HorizontalDataset.forest_ids` (8 B per forest per column).
 
 The :meth:`HorizontalDataset.identity` record -- format version,
 ``source_format``, ``n_forests_total``, per-snapshot ``n_halos`` and the
@@ -16,9 +20,13 @@ SHA-256 of the sidecar's ``ForestID`` column -- is what census aggregate
 directories are bound to, so that a later subcommand refuses a directory
 produced from a different dataset.
 
-This module validates only what it relies on (file set, supported version,
-agreement of the run-scoped attributes, column lengths, the sidecar length); the
-full conformance battery is ``validate_v3.py`` (or ``validate_bounded.py``).
+This module validates only what it needs to open and address a dataset: the
+file set, the supported version, agreement of the dataset-wide attributes,
+column lengths and the sidecar length. Its consumers also rely on every
+``ForestIndex`` lying in ``[0, n_forests_total)`` and on each slab being
+grouped by forest; neither is checked here. The conformance battery,
+``validate_v3.py`` (with its bounded mode in ``validate_bounded.py``), is
+what checks a dataset in full.
 """
 
 import hashlib
@@ -50,7 +58,7 @@ SUPPORTED_FORMAT_VERSIONS = (V3_FORMAT_VERSION,)
 
 #: Header attributes that are properties of the whole dataset and must be
 #: identical in every snapshot file.
-RUN_SCOPED_ATTRS = (
+DATASET_WIDE_ATTRS = (
     "format_version",
     "links_adjacent",
     "n_forests_total",
@@ -98,7 +106,7 @@ class HorizontalDataset:
     Raises:
         ConverterError: on a missing or non-contiguous snapshot file set, a
             missing sidecar, a ``format_version`` other than 3 or a mixed one, a
-            run-scoped attribute that differs between files, a header
+            dataset-wide attribute that differs between files, a header
             ``snapshot_number`` that disagrees with its file name, or a sidecar
             ``ForestID`` whose length is not ``n_forests_total``.
     """
@@ -148,7 +156,7 @@ class HorizontalDataset:
                 "{}: format_version {!r} is not supported; this reader opens format_version {} "
                 "only".format(self.snapshot_path(0), version, V3_FORMAT_VERSION)
             )
-        for name in RUN_SCOPED_ATTRS:
+        for name in DATASET_WIDE_ATTRS:
             values = {repr(header.get(name)) for header in self._headers}
             if len(values) != 1:
                 raise ConverterError(

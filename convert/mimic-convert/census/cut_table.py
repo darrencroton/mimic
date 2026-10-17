@@ -73,6 +73,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from census.common import INT64_MAX, examples  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from subset import SubsetError, load_forests_list  # noqa: E402
 
@@ -90,12 +91,6 @@ RECORD_COLUMNS = ("id", "forest_id", "trees", "halos", "peak_occupancy", "peak_s
 
 #: Pieces formatted per write of a record column.
 RECORD_CHUNK = 1 << 16
-
-_INT64_MAX = int(np.iinfo(np.int64).max)
-
-
-def _examples(values, limit: int = 5) -> list:
-    return np.asarray(values)[:limit].tolist()
 
 
 def md5_file(path) -> str:
@@ -178,7 +173,7 @@ def name_pieces(
     ids = np.asarray(forest_ids, dtype=np.int64)[forest]
     fresh = np.flatnonzero(~keeps)
     if fresh.size:
-        if int(catalogue_max) > _INT64_MAX - fresh.size:
+        if int(catalogue_max) > INT64_MAX - fresh.size:
             raise ConverterError(
                 "{} fresh forest ids above {} exceed int64".format(fresh.size, catalogue_max)
             )
@@ -252,7 +247,7 @@ def check_table(
         if repeated.size:
             raise ConverterError(
                 "{}: {} tree root(s) listed more than once; examples: {}".format(
-                    what, repeated.size, _examples(roots[repeated])
+                    what, repeated.size, examples(roots[repeated])
                 )
             )
     if roots.size != index_roots.size or not np.array_equal(roots, index_roots):
@@ -261,7 +256,7 @@ def check_table(
         raise ConverterError(
             "{}: {} tree root(s) of the index files missing (e.g. {}), {} not in the index "
             "files (e.g. {})".format(
-                what, missing.size, _examples(missing), extra.size, _examples(extra)
+                what, missing.size, examples(missing), extra.size, examples(extra)
             )
         )
     del roots
@@ -306,7 +301,7 @@ def check_table(
         lost = np.setdiff1d(forests, keeping, assume_unique=True)
         raise ConverterError(
             "{}: {} forest(s) keep no piece with their own id (e.g. {})".format(
-                what, lost.size, _examples(lost)
+                what, lost.size, examples(lost)
             )
         )
     record = {

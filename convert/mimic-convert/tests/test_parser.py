@@ -1,11 +1,12 @@
-"""Unit tests for the ctrees ASCII parser: frozen dtype, header dialects,
+"""Unit tests for the ctrees ASCII parser: core record dtype, header dialects,
 #tree attribution, independent pre-count, malformed-input aborts.
 
-The schema-driven selection, the extended scratch layout, declared-extra
-parsing and source-unit planning are covered by ``Test*Selection*``,
-``TestExtraParsing``, ``TestSourceUnits`` and ``TestScratchLayout``. Their
-oracles are literal: expected values are written out or computed from the
-fixture's own source text, never from the parser."""
+Every parse runs under a profile schema: the shipped default profile unless a
+test declares extras. The schema-driven selection, the scratch layout,
+declared-extra parsing and source-unit planning are covered by
+``Test*Selection*``, ``TestExtraParsing``, ``TestSourceUnits`` and
+``TestScratchLayout``. Their oracles are literal: expected values are written
+out or computed from the fixture's own source text, never from the parser."""
 
 import os
 import sys
@@ -27,9 +28,7 @@ from column_schema import (  # noqa: E402
     parse_column_map,
 )
 from ctrees_parser import (  # noqa: E402
-    DTYPE_TAG,
-    LEGACY_LAYOUT,
-    RECORD_DTYPE,
+    CORE_RECORD_DTYPE,
     ConverterError,
     CtreesFileParser,
     ScratchLayout,
@@ -37,7 +36,6 @@ from ctrees_parser import (  # noqa: E402
     parse_header_line,
     plan_source_units,
     prescan_file,
-    resolve_columns,
     resolve_selection,
 )
 
@@ -72,17 +70,22 @@ def extra(name, fields, type_name, component=None):
     }
 
 
+def parse_default(path, chunksize=1_000_000):
+    """``ctrees_parser.parse_file`` under the shipped default profile."""
+    return parse_file(path, ascii_schema(), chunksize=chunksize)
+
+
 def f32(text):
-    """The frozen numeric parse path: float64 text parse, float32 cast."""
+    """The numeric parse path: float64 text parse, float32 cast."""
     return np.float64(text).astype(np.float32)
 
 
-class TestFrozenDtype(unittest.TestCase):
+class TestCoreRecordDtype(unittest.TestCase):
     def test_itemsize_is_108_packed_little_endian(self):
-        self.assertEqual(RECORD_DTYPE.itemsize, 108)
-        self.assertFalse(RECORD_DTYPE.isalignedstruct)
+        self.assertEqual(CORE_RECORD_DTYPE.itemsize, 108)
+        self.assertFalse(CORE_RECORD_DTYPE.isalignedstruct)
 
-    def test_field_layout_frozen(self):
+    def test_field_layout(self):
         expected = [
             ("id", "<i8"),
             ("desc_id", "<i8"),
@@ -105,8 +108,7 @@ class TestFrozenDtype(unittest.TestCase):
             ("tree_root_id", "<i8"),
             ("forest_id", "<i8"),
         ]
-        self.assertEqual(RECORD_DTYPE.descr, expected)
-        self.assertIn("itemsize=108", DTYPE_TAG)
+        self.assertEqual(CORE_RECORD_DTYPE.descr, expected)
 
 
 class TestHeaderParsing(unittest.TestCase):
@@ -131,34 +133,23 @@ class TestHeaderParsing(unittest.TestCase):
             "#SCALE(0) ID(1) DESC_SCALE(2) Desc_ID(3) PID(4) UPID(5) MVIR(6) VRMS(7) "
             "VMAX(8) X(9) Y(10) Z(11) VX(12) VY(13) VZ(14) JX(15) JY(16) JZ(17) SNAP_NUM(18)"
         )
-        layout = resolve_columns(parse_header_line(header))
+        layout = resolve_selection(parse_header_line(header), ascii_schema())
         self.assertEqual(layout.snapshot_column, "snap_num")
         self.assertEqual(layout.indices["mvir"], 6)
 
-    def test_duplicate_required_column_aborts(self):
-        header = "#scale(0) id(1) id(2) snap_num(3)"
-        with self.assertRaisesRegex(ConverterError, "duplicate"):
-            resolve_columns(parse_header_line(header))
-
-    def test_both_snapshot_spellings_abort(self):
-        names = parse_header_line(fixtures.header_line())
-        names.append("snap_idx")
-        with self.assertRaisesRegex(ConverterError, "ambiguous snapshot"):
-            resolve_columns(names)
-
     def test_missing_column_aborts(self):
-        with self.assertRaisesRegex(ConverterError, "missing required"):
-            resolve_columns(["scale", "id", "snap_num"])
+        with self.assertRaisesRegex(ConverterError, "none of the aliases"):
+            resolve_selection(["scale", "id", "snap_num"], ascii_schema())
 
     def test_missing_snapshot_column_aborts(self):
         names = [n for n in parse_header_line(fixtures.header_line()) if n != "Snap_num"]
-        with self.assertRaisesRegex(ConverterError, "snap_idx/snap_num"):
-            resolve_columns(names)
+        with self.assertRaisesRegex(ConverterError, "snap_idx"):
+            resolve_selection(names, ascii_schema())
 
 
 class TestGoldenFixtures(unittest.TestCase):
     def _check_common_records(self, records):
-        self.assertEqual(records.dtype, RECORD_DTYPE)
+        self.assertEqual(records.dtype, ScratchLayout.from_schema(ascii_schema()).dtype)
         np.testing.assert_array_equal(records["id"], [1000, 1001, 2000])
         np.testing.assert_array_equal(records["tree_root_id"], [1000, 1000, 2000])
         np.testing.assert_array_equal(records["forest_id"], [-1, -1, -1])
@@ -172,7 +163,7 @@ class TestGoldenFixtures(unittest.TestCase):
         self.assertEqual(records["vmax"][0], f32("250.25"))
 
     def test_indexed_header_golden(self):
-        records, result, prescan = parse_file(DATA_DIR / "indexed_header.dat")
+        records, result, prescan = parse_default(DATA_DIR / "indexed_header.dat")
         self._check_common_records(records)
         self.assertEqual(prescan.n_rows, 3)
         self.assertEqual(prescan.declared_tree_count, 2)
@@ -180,33 +171,33 @@ class TestGoldenFixtures(unittest.TestCase):
         self.assertEqual(result.observed_pairs, {(5, 1.0), (4, 0.9)})
 
     def test_fields_header_golden(self):
-        records, result, _ = parse_file(DATA_DIR / "fields_header.dat")
+        records, result, _ = parse_default(DATA_DIR / "fields_header.dat")
         self._check_common_records(records)
         self.assertTrue(result.complete)
 
     def test_casing_variants_golden(self):
-        records, _, _ = parse_file(DATA_DIR / "casing_variants.dat")
+        records, _, _ = parse_default(DATA_DIR / "casing_variants.dat")
         self.assertEqual(len(records), 1)
         self.assertEqual(records["id"][0], 1000)
         self.assertEqual(records["snap"][0], 5)
 
     def test_duplicate_column_golden_aborts(self):
         with self.assertRaisesRegex(ConverterError, "duplicate"):
-            parse_file(DATA_DIR / "duplicate_column.dat")
+            parse_default(DATA_DIR / "duplicate_column.dat")
 
     def test_malformed_row_golden_aborts(self):
         with self.assertRaisesRegex(ConverterError, "malformed"):
-            parse_file(DATA_DIR / "malformed_row.dat")
+            parse_default(DATA_DIR / "malformed_row.dat")
 
     def test_truncated_row_golden_aborts(self):
         with self.assertRaises(ConverterError):
-            parse_file(DATA_DIR / "truncated_row.dat")
+            parse_default(DATA_DIR / "truncated_row.dat")
 
     def test_tree_boundaries_across_chunks(self):
         expected_roots = np.array([10, 20, 20, 30, 30, 30], dtype=np.int64)
         expected_ids = np.array([10, 20, 21, 30, 31, 32], dtype=np.int64)
         for chunksize in (1, 2, 3, 100):
-            records, _, _ = parse_file(DATA_DIR / "tree_boundaries.dat", chunksize=chunksize)
+            records, _, _ = parse_default(DATA_DIR / "tree_boundaries.dat", chunksize=chunksize)
             np.testing.assert_array_equal(records["tree_root_id"], expected_roots)
             np.testing.assert_array_equal(records["id"], expected_ids)
 
@@ -229,7 +220,7 @@ class TestSyntheticFixtures(unittest.TestCase):
                 dialect=dialect,
                 snapshot_column=snapcol,
             )
-            records, result, prescan = parse_file(path)
+            records, result, prescan = parse_default(path)
             self.assertEqual(len(records), n_halos)
             self.assertEqual(prescan.n_rows, n_halos)
             self.assertTrue(result.complete)
@@ -258,28 +249,28 @@ class TestSyntheticFixtures(unittest.TestCase):
     def test_nan_value_aborts(self):
         path = self._write_with_token("nan.dat", "Mvir", "nan")
         with self.assertRaisesRegex(ConverterError, "non-finite"):
-            parse_file(path)
+            parse_default(path)
 
     def test_inf_value_aborts(self):
         path = self._write_with_token("inf.dat", "x", "inf")
         with self.assertRaisesRegex(ConverterError, "non-finite"):
-            parse_file(path)
+            parse_default(path)
 
     def test_negative_inf_value_aborts(self):
         path = self._write_with_token("ninf.dat", "vy", "-inf")
         with self.assertRaisesRegex(ConverterError, "non-finite"):
-            parse_file(path)
+            parse_default(path)
 
     def test_float32_overflow_aborts(self):
         # finite in float64, infinite after the float32 cast
         path = self._write_with_token("overflow.dat", "Jz", "1e39")
         with self.assertRaisesRegex(ConverterError, "float32-overflowing"):
-            parse_file(path)
+            parse_default(path)
 
     def test_nan_scale_aborts(self):
         path = self._write_with_token("nanscale.dat", "scale", "nan")
         with self.assertRaisesRegex(ConverterError, "non-finite"):
-            parse_file(path)
+            parse_default(path)
 
     def test_extra_token_row_aborts_in_prescan(self):
         path = self._write_with_token("extra.dat", "Tree_root_ID", "9 42")
@@ -306,7 +297,7 @@ class TestSyntheticFixtures(unittest.TestCase):
             "-9.999999e-38",
         ):
             path = self._write_with_token("adv.dat", "Mvir", token)
-            records, _, _ = parse_file(path)
+            records, _, _ = parse_default(path)
             self.assertEqual(records["Mvir"][-1], f32(token))
 
     def test_float32_cast_matches_reference_path(self):
@@ -316,13 +307,13 @@ class TestSyntheticFixtures(unittest.TestCase):
             )
         ]
         path = fixtures.write_ctrees_file(self.dir / "cast.dat", trees)
-        records, _, _ = parse_file(path)
+        records, _, _ = parse_default(path)
         self.assertEqual(records["Mvir"][0], f32("{:.5e}".format(1.23456789e11)))
 
     def test_header_only_file_parses_empty(self):
         path = self.dir / "empty.dat"
         path.write_text(fixtures.header_line() + "\n")
-        records, result, prescan = parse_file(path)
+        records, result, prescan = parse_default(path)
         self.assertEqual(len(records), 0)
         self.assertEqual(prescan.n_rows, 0)
         self.assertTrue(result.complete)
@@ -330,7 +321,7 @@ class TestSyntheticFixtures(unittest.TestCase):
     def test_tree_count_line_skipped_and_recorded(self):
         trees = fixtures.all_trees(fixtures.standard_forests())
         path = fixtures.write_ctrees_file(self.dir / "counted.dat", trees, include_tree_count=True)
-        records, result, prescan = parse_file(path)
+        records, result, prescan = parse_default(path)
         self.assertEqual(prescan.declared_tree_count, len(trees))
         self.assertEqual(len(records), sum(len(t.halos) for t in trees))
         self.assertTrue(result.complete)
@@ -340,7 +331,7 @@ class TestSyntheticFixtures(unittest.TestCase):
         path = fixtures.write_ctrees_file(
             self.dir / "uncounted.dat", trees, include_tree_count=False
         )
-        _, result, prescan = parse_file(path)
+        _, result, prescan = parse_default(path)
         self.assertIsNone(prescan.declared_tree_count)
         self.assertTrue(result.complete)
 
@@ -364,7 +355,7 @@ class TestSyntheticFixtures(unittest.TestCase):
         lines = path.read_text().splitlines()
         lines.insert(-1, "#treejunk 99")  # between the two data rows
         path.write_text("\n".join(lines) + "\n")
-        records, _, prescan = parse_file(path)
+        records, _, prescan = parse_default(path)
         self.assertEqual(prescan.tree_root_ids.tolist(), [10])
         np.testing.assert_array_equal(records["tree_root_id"], [10, 10])
 
@@ -404,10 +395,12 @@ class TestSyntheticFixtures(unittest.TestCase):
         for snap_token in ("2147483648", "-2147483649"):  # INT32_MAX+1, INT32_MIN-1
             path = self._write_with_token("bigsnap.dat", "Snap_num", snap_token)
             with self.assertRaisesRegex(ConverterError, "outside int32 range"):
-                parse_file(path)
+                parse_default(path)
 
     def test_snapshot_at_int32_limits_parses(self):
-        records, _, _ = parse_file(self._write_with_token("edgesnap.dat", "Snap_num", "2147483647"))
+        records, _, _ = parse_default(
+            self._write_with_token("edgesnap.dat", "Snap_num", "2147483647")
+        )
         self.assertEqual(records["snap"][-1], 2147483647)
 
     def test_missing_header_aborts(self):
@@ -427,7 +420,7 @@ class TestSyntheticFixtures(unittest.TestCase):
         path = fixtures.write_ctrees_file(self.dir / "trees.dat", trees)
         doctored = prescan_file(path)
         doctored.n_rows += 1
-        parser = CtreesFileParser(path, prescan=doctored)
+        parser = CtreesFileParser(path, ascii_schema(), prescan=doctored)
         with self.assertRaisesRegex(ConverterError, "pre-count"):
             list(parser.chunks())
 
@@ -436,7 +429,7 @@ class TestSyntheticFixtures(unittest.TestCase):
         path = fixtures.write_ctrees_file(self.dir / "trees.dat", trees)
         doctored = prescan_file(path)
         doctored.n_rows -= 1
-        parser = CtreesFileParser(path, prescan=doctored)
+        parser = CtreesFileParser(path, ascii_schema(), prescan=doctored)
         with self.assertRaisesRegex(ConverterError, "pre-count"):
             list(parser.chunks())
 
@@ -449,50 +442,32 @@ def _plain_halos(n, snap=5, first_id=11):
     return [fixtures.HaloSpec(halo_id=first_id + k, snap=snap, mvir=1.0e11) for k in range(n)]
 
 
-def _parse(path, schema, chunksize=1000, forest_of_tree=None):
-    """Parse ``path`` in the schema's extended layout; every tree is its own
-    forest unless ``forest_of_tree`` (root id -> forest id) says otherwise."""
-    prescan = prescan_file(path)
-    roots = prescan.tree_root_ids
-    forests = np.array(
-        [forest_of_tree.get(int(r), int(r)) if forest_of_tree else int(r) for r in roots],
-        dtype=np.int64,
-    )
-    parser = CtreesFileParser(path, chunksize=chunksize, prescan=prescan, schema=schema)
-    parser.unit_plan = plan_source_units(prescan, forests, 0)
-    parts = list(parser.chunks())
-    return np.concatenate(parts) if parts else np.zeros(0, dtype=parser.dtype)
+def _parse(path, schema, chunksize=1000):
+    """Parse ``path`` in the schema's scratch layout, returning its records."""
+    return parse_file(path, schema, chunksize=chunksize)[0]
 
 
-class TestProfileSelectionEquivalence(unittest.TestCase):
-    """The shipped default profile selects exactly the legacy columns."""
+class TestDefaultProfileSelection(unittest.TestCase):
+    """The shipped default profile selects exactly the core columns."""
 
-    def test_default_profile_resolves_to_the_legacy_indices(self):
+    def test_default_profile_resolves_each_role_to_its_own_column(self):
         schema = build_schema(load_column_map(DEFAULT_ASCII_PROFILE))
+        roles = ("scale", "id", "desc_scale", "desc_id", "pid", "upid", "mvir", "vrms", "vmax")
+        roles += ("x", "y", "z", "vx", "vy", "vz", "jx", "jy", "jz")
         for dialect in ("indexed", "fields"):
             for spelling in ("Snap_num", "snap_idx"):
                 names = parse_header_line(fixtures.header_line(dialect, spelling))
-                legacy = resolve_columns(names)
+                lowered = [name.lower() for name in names]
                 selected = resolve_selection(names, schema)
-                legacy_indices = dict(legacy.indices)
-                legacy_indices["snap"] = legacy_indices.pop(legacy.snapshot_column)
-                self.assertEqual(selected.indices, legacy_indices)
+                self.assertEqual(
+                    selected.indices,
+                    {
+                        **{role: lowered.index(role) for role in roles},
+                        "snap": lowered.index(spelling.lower()),
+                    },
+                )
                 self.assertEqual(selected.snapshot_column, spelling.lower())
                 self.assertEqual(selected.extras, ())
-
-    def test_default_profile_parses_legacy_fields_bit_identically(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = fixtures.write_ctrees_file(
-                Path(tmp) / "t.dat", fixtures.all_trees(fixtures.standard_forests())
-            )
-            legacy, _, _ = parse_file(path, chunksize=3)
-            extended = _parse(path, build_schema(load_column_map(DEFAULT_ASCII_PROFILE)), 3)
-        for name in RECORD_DTYPE.names:
-            self.assertEqual(extended[name].tobytes(), legacy[name].tobytes(), name)
-        self.assertEqual(
-            extended.dtype.names,
-            RECORD_DTYPE.names + ("src_file_ordinal", "src_unit_ordinal", "src_row_ordinal"),
-        )
 
 
 class TestProfileSelectionRejections(unittest.TestCase):
@@ -508,7 +483,7 @@ class TestProfileSelectionRejections(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "duplicate required column"):
             resolve_selection(self.names("MVIR"), ascii_schema())
 
-    def test_duplicate_unselected_column_is_ignored_as_in_legacy(self):
+    def test_duplicate_unselected_column_is_ignored(self):
         # real headers repeat b_to_a / A[x] once suffix-stripped
         names = self.names("b_to_a(500c)", "b_to_a")
         self.assertEqual(resolve_selection(names, ascii_schema()).extras, ())
@@ -672,61 +647,25 @@ class TestSourceUnits(unittest.TestCase):
             ]
             path = fixtures.write_ctrees_file(Path(tmp) / "t.dat", trees)
             prescan = prescan_file(path)
-            plan = plan_source_units(prescan, np.array([100, 200, 100, 200]), 3)
+            plan = plan_source_units(prescan, np.array([100, 200, 100, 200]))
             self.assertEqual(plan.unit_of_tree.tolist(), [0, 1, 0, 1])
-            self.assertEqual(plan.unit_row_base.tolist(), [0, 0, 2, 3])
             self.assertEqual(plan.unit_forest_ids.tolist(), [100, 200])
             self.assertEqual(plan.unit_counts.tolist(), [3, 7])
             self.assertEqual(plan.table().tolist(), [[100, 3], [200, 7]])
-            forest_of = {5: 100, 6: 200, 7: 100, 8: 200}
-            for chunksize in (1, 2, 3, 10):
-                prescan = prescan_file(path)
-                parser = CtreesFileParser(
-                    path, chunksize=chunksize, prescan=prescan, schema=ascii_schema()
-                )
-                parser.unit_plan = plan_source_units(
-                    prescan, np.array([forest_of[int(r)] for r in prescan.tree_root_ids]), 3
-                )
-                records = np.concatenate(list(parser.chunks()))
-                got = {
-                    int(r["id"]): (
-                        int(r["src_file_ordinal"]),
-                        int(r["src_unit_ordinal"]),
-                        int(r["src_row_ordinal"]),
-                    )
-                    for r in records
-                }
-                expected = {50: (3, 0, 0), 51: (3, 0, 1), 70: (3, 0, 2)}
-                expected.update({60 + k: (3, 1, k) for k in range(3)})
-                expected.update({80 + k: (3, 1, 3 + k) for k in range(4)})
-                self.assertEqual(got, expected, "chunksize {}".format(chunksize))
-
-    def test_extended_parse_without_a_plan_aborts(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = fixtures.write_ctrees_file(Path(tmp) / "t.dat", _one_tree(_plain_halos(2)))
-            parser = CtreesFileParser(path, schema=ascii_schema())
-            with self.assertRaisesRegex(ConverterError, "source-unit plan"):
-                list(parser.chunks())
 
 
 class TestScratchLayout(unittest.TestCase):
-    def test_legacy_layout_is_the_frozen_record(self):
-        self.assertIs(LEGACY_LAYOUT.dtype, RECORD_DTYPE)
-        self.assertEqual(LEGACY_LAYOUT.dtype_tag, DTYPE_TAG)
-        self.assertFalse(LEGACY_LAYOUT.is_extended)
-
-    def test_extended_layout_width_and_tag(self):
+    def test_layout_width_and_tag(self):
         schema = build_schema(load_column_map(ALL_TYPES_PROFILE))
         layout = ScratchLayout.from_schema(schema)
-        # 108 frozen + 3 x 8 coordinates + 4+8+8+4+8+12+12 extras (sorted)
-        self.assertEqual(layout.dtype.itemsize, 108 + 24 + 56)
+        # 108 core + 4+8+8+4+8+12+12 extras (sorted)
+        self.assertEqual(layout.dtype.itemsize, 108 + 56)
         self.assertEqual(
             [n for n in layout.dtype.names if n.startswith("extra_")],
             ["extra_" + n for n in sorted(e.name for e in schema.extra_fields)],
         )
-        self.assertTrue(layout.dtype_tag.startswith("ctrees-scratch-v2/itemsize=188/"))
+        self.assertTrue(layout.dtype_tag.startswith("ctrees-scratch-v2/itemsize=164/"))
         self.assertIn("extra_RawJ:<f4[3]", layout.dtype_tag)
-        self.assertNotEqual(layout.dtype_tag, DTYPE_TAG)
         self.assertEqual(ScratchLayout.from_record(layout.to_record(), "t"), layout)
 
     def test_every_declarable_extra_type_has_its_little_endian_scratch_element(self):
@@ -745,15 +684,14 @@ class TestScratchLayout(unittest.TestCase):
                 stored = layout.dtype.fields["extra_E"][0]
                 self.assertEqual((stored.base.str, stored.shape), (element, shape))
 
-    def test_zero_extra_layout_still_carries_source_keys(self):
+    def test_zero_extra_layout_is_the_core_record(self):
         layout = ScratchLayout.from_schema(ascii_schema())
-        self.assertEqual(layout.dtype.itemsize, 132)
-        self.assertTrue(layout.is_extended)
+        self.assertEqual(layout.dtype, CORE_RECORD_DTYPE)
 
     def test_wide_schema(self):
         extras = [extra("Wide{:02d}".format(k), ["Rvir"], "double") for k in range(40)]
         layout = ScratchLayout.from_schema(ascii_schema(extras))
-        self.assertEqual(layout.dtype.itemsize, 132 + 40 * 8)
+        self.assertEqual(layout.dtype.itemsize, 108 + 40 * 8)
 
     def test_same_width_schemas_differ_in_digest(self):
         a = ScratchLayout.from_schema(ascii_schema([extra("E", ["Rvir"], "float")]))

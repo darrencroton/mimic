@@ -109,11 +109,13 @@ figures with ``n`` = 315,004,242 and ``F`` = 166,547,771):
   their gathers, about **19 B per present tree and 12 B per present forest**,
   two per-piece vectors (**16 B x p**), and the dense partition weights, each
   forest's or piece's peak (**8 B x P**, transient, with the occupancy's int32
-  peaks, **4 B x F**, while they load); each grid point holds its forest cuts
-  and range peaks. The peaks need every slab before the partition can be cut,
+  peaks, **4 B x F**, while they load, and the cut's prefix sums, **8 B x P**,
+  and one-byte comparison mask, **1 B x P**, while each grid point is cut:
+  **17 B x P** at the peak); each grid point holds its forest cuts and range
+  peaks. The peaks need every slab before the partition can be cut,
   so the slabs' tree pairs are read twice, once for the peaks and once to apply
   the partition; no dataset column is read in step 2, and the first pass's
-  wall-clock is recorded in ``summary.json`` (``partition.weights``);
+  wall-clock is recorded in ``summary.json`` (``measurements``);
 - per slab of the pass (arrays of one slab's length): the labels and the two
   dense row arrays, **12 B x n_halos(s)** (6.2 GB at the widest slab's
   519,342,987 rows), and the descendant mask of the next slab, **1 B x
@@ -125,11 +127,14 @@ figures with ``n`` = 315,004,242 and ``F`` = 166,547,771):
   sibling** while the sibling index is built and **200 B x (block_rows + g_max
   - 1)** per batch for the slab's largest progenitor group of ``g_max`` records.
 
-The figures the run measured are recorded in ``summary.json`` (``memory``: the
-peak resident set after each phase, and each slab's rows read and retained
-rows) beside these formulas. The driver's transient startup weights, 8 B x
-``n_forests_total`` before and after the cut, are stated there too. No tree x
-snapshot or forest x snapshot matrix is held.
+The figures the run measured are recorded in ``summary.json``
+(``measurements``: the peak resident set after each phase and the first pass's
+wall-clock, which differ between runs of one census as nothing else in the
+summary does but its own size; each slab's rows read and retained rows are in
+``severance``) beside these formulas.
+The driver's transient startup weights, 8 B x ``n_forests_total`` before and
+after the cut, are stated under ``memory``. No tree x snapshot or forest x
+snapshot matrix is held.
 
 Aggregates: ``<aggregate>/cut/summary.json`` (``cut-restricted/`` for a forest
 selection), a few kilobytes plus about 10 integers per grid point and slab.
@@ -138,7 +143,6 @@ selection), a few kilobytes plus about 10 integers per grid point and slab.
 import os
 import sys
 import time
-from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -152,7 +156,15 @@ from census.aggregate import (  # noqa: E402
     begin,
     load_array,
     require_completed,
-    write_json,
+    write_json_recording_size,
+)
+from census.common import (  # noqa: E402
+    INT32_MAX,
+    INT64_MAX,
+    N_EXAMPLES,
+    N_LARGEST,
+    in_sorted,
+    quiet,
 )
 from census.occupancy import load_slab_pairs, occupancy_dir  # noqa: E402
 from census.partition import (  # noqa: E402
@@ -167,9 +179,9 @@ from census.partition import (  # noqa: E402
 from census.table import (  # noqa: E402
     DecidedTable,
     ReadMeter,
+    TreeArrays,
     assignment_digest,
     check_central_rows,
-    decided_table,
     output_dir,
     peak_rss_bytes,
     piece_entry,
@@ -180,7 +192,7 @@ from census.table import (  # noqa: E402
     require_census,
     scope_record,
 )
-from census.trees import load_labels, load_roots, trees_dir  # noqa: E402
+from census.trees import load_labels  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 
@@ -189,7 +201,9 @@ CUT_DIR = "cut"
 #: The chunk counts per task the cut's grid applies when none are given.
 CUT_NCHUNKS = (1, 2, 4, 8, 16, 32, 64, 128)
 
-#: Bytes per resident halo of a chunked horizontal run (the chunked streaming record).
+#: Bytes per resident halo of a chunked horizontal run: the per-halo resident footprint measured
+#: on chunked ``sage16`` runs. It decides every laptop-fit verdict, so override it with a figure
+#: measured for the model in use.
 DEFAULT_BYTES_PER_HALO = 1100
 
 #: Laptop memory classes, GiB.
@@ -198,12 +212,7 @@ DEFAULT_LAPTOP_GIB = (16, 32, 64)
 #: The mass column: native float32 Mvir (Msun/h) for Consistent-Trees-derived datasets.
 MASS_COLUMN = "M_Crit200"
 
-#: Pieces and examples quoted per list.
-N_LARGEST = 10
-N_EXAMPLES = 5
-
 _GIB = 1 << 30
-_INT32_MAX = int(np.iinfo(np.int32).max)
 _KEY_SHIFT = 31
 
 #: What each per-snapshot count means, recorded with the counts.
@@ -238,10 +247,6 @@ HOD_SHAM_MECHANISMS = (
 )
 
 
-def _quiet(_message: str) -> None:
-    pass
-
-
 def cut_dir(aggregate_dir, selection: Optional[np.ndarray] = None) -> Path:
     return output_dir(aggregate_dir, CUT_DIR, selection)
 
@@ -254,14 +259,6 @@ def drain(parts: List[np.ndarray], dtype=np.int64) -> np.ndarray:
     whole = np.concatenate(parts) if parts else np.zeros(0, dtype=dtype)
     parts.clear()
     return whole
-
-
-def in_sorted(haystack: np.ndarray, needles: np.ndarray) -> np.ndarray:
-    """Whether each needle occurs in the ascending ``haystack``."""
-    if haystack.size == 0:
-        return np.zeros(np.shape(needles), dtype=bool)
-    position = np.minimum(np.searchsorted(haystack, needles), haystack.size - 1)
-    return haystack[position] == needles
 
 
 def pair_keys(first: np.ndarray, second: np.ndarray) -> np.ndarray:
@@ -389,7 +386,7 @@ def prepare_cut(dataset: HorizontalDataset, aggregate_dir, selection=None) -> Di
     )
     if occupancy["widest_slab"] is None:
         raise ConverterError("{}: the dataset has no halo to cut".format(aggregate_dir))
-    wide = [snap for snap, rows in enumerate(dataset.n_halos) if rows > _INT32_MAX]
+    wide = [snap for snap, rows in enumerate(dataset.n_halos) if rows > INT32_MAX]
     if wide:
         raise ConverterError(
             "{}: snapshot(s) {} hold more rows than int32 row indices hold".format(
@@ -450,7 +447,9 @@ def install_pieces(
     its id-keeping piece's, and each fresh piece is appended at ``ForestIndex``
     ``n_forests + (id - catalogue_max - 1)`` (ascending fresh id, in the order
     :class:`CutState` sorted once). Empty entries are dropped; the result
-    ascends."""
+    ascends. Like :func:`partition.range_rows`, it assumes the slab is
+    forest-blocked: the format guarantees it, the horizontal driver verifies it
+    at startup and the occupancy pass refuses a slab that is not."""
     forests = np.asarray(forests, dtype=np.int64)
     counts = np.asarray(counts, dtype=np.int64).copy()
     pieces = state.pieces
@@ -470,24 +469,6 @@ def install_pieces(
 # ---- progenitor chains (the reference encounter order) ----------------------------
 
 
-def chain_order(encounter: Sequence[int], mass: np.ndarray) -> List[int]:
-    """The reference incremental-insertion chain over progenitors visited in
-    ``encounter`` order: the first starts the chain, each later one becomes
-    the head if strictly more massive than the current head, else the tail
-    (``links.build_progenitor_links``). Kept as the reference that
-    :func:`chain_positions` is tested against."""
-    encounter = [int(i) for i in encounter]
-    chain = deque(encounter[:1])
-    head = encounter[0]
-    for item in encounter[1:]:
-        if mass[head] < mass[item]:
-            chain.appendleft(item)
-            head = item
-        else:
-            chain.append(item)
-    return list(chain)
-
-
 def chain_positions(
     groups: np.ndarray, upid: np.ndarray, pid: np.ndarray, ids: np.ndarray, mass: np.ndarray
 ) -> np.ndarray:
@@ -504,6 +485,10 @@ def chain_positions(
 
     Returns:
         int64 positions (0 is the first progenitor), aligned with the inputs.
+
+    Raises:
+        ConverterError: when the descendant count times the distinct-mass count
+            would overflow the int64 key.
     """
     groups = np.asarray(groups, dtype=np.int64)
     positions = np.zeros(groups.size, dtype=np.int64)
@@ -515,7 +500,13 @@ def chain_positions(
     group_no = np.cumsum(first) - 1
     rank = np.unique(np.asarray(mass)[order], return_inverse=True)[1].reshape(-1)
     levels = int(rank.max()) + 1
-    value = group_no * levels + rank  # below 2^63: groups and levels are below 2^31
+    if (int(group_no[-1]) + 1) * levels > INT64_MAX:
+        raise ConverterError(
+            "{} descendants with {} distinct masses overflow the int64 chain key".format(
+                int(group_no[-1]) + 1, levels
+            )
+        )
+    value = group_no * levels + rank
     running = np.maximum.accumulate(value)
     record = first | (value > np.r_[-1, running[:-1]])
     starts = np.flatnonzero(first)
@@ -702,7 +693,7 @@ def severance_pass(
     aggregate_dir,
     state: CutState,
     block_rows: int = DEFAULT_BLOCK_ROWS,
-    log: Callable[[str], None] = _quiet,
+    log: Callable[[str], None] = quiet,
     meter: Optional[ReadMeter] = None,
 ) -> Dict:
     """Step 3 (module docstring): fills ``state.per_snapshot`` and the seeded
@@ -726,7 +717,7 @@ def severance_pass(
         path = dataset.snapshot_path(snap)
         n_rows = dataset.n_halos[snap]
         n_next = dataset.n_halos[snap + 1] if snap != last else 0
-        labels = load_labels(aggregate_dir, snap, mmap=False)
+        labels = load_labels(aggregate_dir, snap)
         if labels.size != n_rows:
             raise ConverterError(
                 "{}: {} labels for {} halos; the trees aggregates are stale".format(
@@ -851,7 +842,8 @@ def installed_weights(aggregate_dir, state: CutState, n_forests: int, catalogue_
     ``ForestIndex`` ``n_forests + (id - catalogue_max - 1)``. Needs
     ``state.peak`` complete. Holds the dense int64 result, 8 B x (forests +
     fresh pieces), and, while the forests' peaks load straight into it, the
-    occupancy's int32 peaks, 4 B x forests."""
+    occupancy's int32 peaks, 4 B x forests; cutting it adds the prefix sums and a
+    one-byte mask, 9 B x (forests + fresh pieces) (``census/partition.py``)."""
     pieces = state.pieces
     weights = np.zeros(n_forests + state.table.n_fresh, dtype=np.int64)
     peak_weights(aggregate_dir, n_forests, out=weights[:n_forests])
@@ -986,14 +978,14 @@ def laptop_rows(
 def run_cut(
     dataset: HorizontalDataset,
     aggregate_dir,
+    reserve_gib: float,
     selection: Optional[np.ndarray] = None,
     ntasks: Sequence[int] = DEFAULT_NTASKS,
     nchunks: Sequence[int] = CUT_NCHUNKS,
     bytes_per_halo: int = DEFAULT_BYTES_PER_HALO,
     laptop_gib: Sequence[int] = DEFAULT_LAPTOP_GIB,
-    reserve_gib: float = 0.0,
     block_rows: int = DEFAULT_BLOCK_ROWS,
-    log: Callable[[str], None] = _quiet,
+    log: Callable[[str], None] = quiet,
 ) -> Dict:
     """Evaluate the decided table (module docstring) and write the summary;
     returns it.
@@ -1001,7 +993,8 @@ def run_cut(
     Raises:
         ConverterError: on any :func:`prepare_cut` refusal, a reserve that
             leaves a class no usable memory, a refusal of the construction or
-            of the pass.
+            of the pass, or an installed partition whose slab does not hold the
+            slab's halos.
     """
     if reserve_bytes(reserve_gib) < 0 or any(
         reserve_bytes(reserve_gib) >= int(gib) * _GIB for gib in laptop_gib
@@ -1016,23 +1009,10 @@ def run_cut(
     meter = ReadMeter()
     identity = inputs["identity"]
     n_forests = dataset.n_forests_total
-    forest_ids = dataset.forest_ids()
-    roots = load_roots(aggregate_dir)
-    tree_forest = load_array(trees_dir(aggregate_dir) / "tree_forest.npy")
-    tree_totals = load_array(trees_dir(aggregate_dir) / "tree_totals.npy", mmap=True)
-    table = decided_table(
-        dataset,
-        aggregate_dir,
-        roots,
-        tree_forest,
-        tree_totals,
-        forest_ids,
-        selection,
-        block_rows,
-        meter,
-    )
-    del tree_forest
-    digest = assignment_digest(table, roots)
+    arrays = TreeArrays.load(dataset, aggregate_dir)
+    forest_ids = arrays.forest_ids
+    table = arrays.decide(dataset, aggregate_dir, selection, block_rows, meter)
+    digest = assignment_digest(table, arrays.roots)
     catalogue_max = table.fresh_id_floor
     state = CutState(table=table)
     memory["after_pieces"] = peak_rss_bytes()
@@ -1055,6 +1035,13 @@ def run_cut(
         per_piece = piece_slab_counts(aggregate_dir, snap, table)
         forests_s, counts_s = load_slab_pairs(aggregate_dir, snap)
         installed = install_pieces(forests_s, counts_s, state, per_piece, n_forests, catalogue_max)
+        rows_s = int(installed[1].sum())
+        if rows_s != dataset.n_halos[snap]:
+            raise ConverterError(
+                "{}: the installed partition holds {} rows but the slab has {}".format(
+                    dataset.snapshot_path(snap), rows_s, dataset.n_halos[snap]
+                )
+            )
         apply_points(points, snap, *installed)
         del per_piece, forests_s, counts_s, installed
     memory["after_aggregates"] = peak_rss_bytes()
@@ -1097,11 +1084,7 @@ def run_cut(
         **scope_record(selection, forest_ids),
         "assignment_sha256": digest,
         "root_correspondence": inputs["trees"]["root_correspondence"]["verdict"],
-        "fresh_id_floor": {
-            "value": catalogue_max,
-            "note": "fresh piece ids start at value + 1, the dataset sidecar's largest forest "
-            "id, as the table subcommand names them",
-        },
+        "fresh_id_floor": catalogue_max,
         "pieces": {
             "split_forests": int(table.split.size),
             "count": table.n_pieces,
@@ -1166,7 +1149,6 @@ def run_cut(
                 "weighting": WEIGHTING,
                 "installed": "every forest's peak, a split forest's replaced by its id-keeping "
                 "piece's, then each fresh piece's peak in ascending fresh id",
-                "peak_pass_seconds": peak_pass_seconds,
                 "peak_pass_note": "one pass over every slab's tree-pair aggregates computes the "
                 "pieces' peaks before the partition is cut; the slabs' tree pairs are read "
                 "again to apply it, and no dataset column is read for either",
@@ -1188,8 +1170,14 @@ def run_cut(
             "the final slab's FirstHaloInFOFgroup and ForestIndex for the table's construction; "
             "link width 8 B (int64)"
         ),
-        "memory": {
+        "measurements": {
+            "peak_pass_seconds": peak_pass_seconds,
             "peak_rss_bytes_after": memory,
+            "note": "wall-clock and the process's peak resident set (ru_maxrss) after each "
+            "phase, measured by this run: they differ between runs of one census, and every "
+            "other entry of the summary but the summary's own size does not",
+        },
+        "memory": {
             "widest_pass_slab": {
                 "snapshot": int(np.argmax(dataset.n_halos)),
                 "dense_row_bytes": 12 * max(dataset.n_halos),
@@ -1201,9 +1189,8 @@ def run_cut(
                 "uncut_bytes": 8 * n_forests,
                 "cut_bytes": 8 * (n_forests + table.n_fresh),
             },
-            "note": "the process's peak resident set (ru_maxrss) after each phase; the module "
-            "docstring states each phase's formula, and per_snapshot records each slab's rows "
-            "read and retained rows",
+            "note": "the module docstring states each phase's formula, and per_snapshot records "
+            "each slab's rows read and retained rows; measurements records the resident set",
         },
         "aggregates": {
             "summary": {
@@ -1213,13 +1200,5 @@ def run_cut(
         },
     }
     out = begin(cut_dir(aggregate_dir, selection))
-    # the summary records its own size: rewrite until the recorded figure is the file's
-    path = out / SUMMARY_NAME
-    record = summary["aggregates"]["summary"]
-    for _attempt in range(8):
-        write_json(path, summary)
-        size = path.stat().st_size
-        if size == record["bytes"]:
-            break
-        record["bytes"] = size
+    write_json_recording_size(out / SUMMARY_NAME, summary, summary["aggregates"]["summary"])
     return summary

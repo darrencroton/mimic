@@ -162,7 +162,7 @@ INGEST_DIR = "ingest"
 TRANSPOSE_DIR = "transpose"
 WRITE_DIR = "write"
 #: The ASCII adapter's own topology-preparation workdir, inside the generic
-#: one. It holds the ``scatter.Manifest`` extended-layout state that
+#: one. It holds the ``scatter.Manifest`` state that
 #: ``ctrees_ascii.prepare_workdir`` owns and resumes by its own rules.
 ASCII_PREPARATION_DIR = "ascii_preparation"
 
@@ -780,32 +780,11 @@ def initialize(
     return manifest
 
 
-def _require_current_identity_scheme(manifest: ConversionManifest) -> None:
-    """Refuse an ASCII workdir recorded before the forest-rank identity scheme.
-
-    ``initialize`` refuses one through the configuration digest, but a stage
-    resumed from its workdir alone never re-initializes, so every stage entry
-    checks the recorded scheme too, before it touches anything. Read-only;
-    the other routes record no scheme and are unaffected.
-    """
-    adapter = manifest.configuration["adapter"]
-    if adapter["source_format"] != "consistent_trees_ascii":
-        return
-    if adapter["parameters"].get("identity_scheme") != "forest-rank":
-        raise ConverterError(
-            "{}: this ASCII workdir predates the 2026-10-07 identity ruling (SourceHaloID is now "
-            "the (ForestIndex, HaloRankInForest) position, recorded as identity_scheme "
-            "'forest-rank'); it does not resume -- reconvert it in a fresh workdir".format(
-                manifest.workdir
-            )
-        )
-
-
 def _open_for_stage(workdir, schema: Optional[CanonicalSchema]) -> ConversionManifest:
     """Load and bind a manifest for a stage; every check here is read-only,
     so a refused resume leaves the workdir exactly as it was."""
     manifest = ConversionManifest.load(workdir)
-    _require_current_identity_scheme(manifest)
+    manifest.require_current_identity_scheme()
     manifest.require_schema(schema)
     recomputed = _record_dtypes(manifest.schema)
     recorded = manifest.configuration["record_dtypes"]

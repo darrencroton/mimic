@@ -22,11 +22,10 @@ which the ASCII route keeps in its own subdirectory of the workdir
 
 **The file name is shared with the scatter manifest on purpose.** The scatter
 manifest's loader pointed at a generic workdir reads ``manifest_version = 3``
-and refuses it (``scatter.Manifest.load_or_create`` accepts exactly
+and refuses it (``scatter.Manifest`` accepts exactly
 ``scatter.MANIFEST_VERSION``), and this module pointed at a directory holding
-a scatter manifest classifies it as :data:`MANIFEST_LEGACY` and hands it back
-untouched (:func:`open_manifest`), while :meth:`ConversionManifest.load` and
-``pipeline.initialize`` refuse it. A distinct name would let either loader
+a scatter manifest classifies it as :data:`MANIFEST_SCATTER`, which
+:meth:`ConversionManifest.load` and ``pipeline.initialize`` refuse. A distinct name would let either loader
 treat the other's directory as empty and start writing into it. Version 1 and
 every unknown version fail in both.
 
@@ -90,19 +89,18 @@ from column_schema import (
     parse_column_map,
 )
 from scatter import MANIFEST_NAME
-from scatter import MANIFEST_VERSION as LEGACY_MANIFEST_VERSION
-from scatter import Manifest as LegacyManifest
+from scatter import MANIFEST_VERSION as SCATTER_MANIFEST_VERSION
 
 __all__ = [
     "ARTIFACT_PRESENT",
     "ARTIFACT_REMOVED",
-    "LEGACY_MANIFEST_VERSION",
+    "SCATTER_MANIFEST_VERSION",
     "MANIFEST_KIND",
     "MANIFEST_NAME",
     "MANIFEST_VERSION",
     "MANIFEST_ABSENT",
     "MANIFEST_GENERIC",
-    "MANIFEST_LEGACY",
+    "MANIFEST_SCATTER",
     "SOURCE_ROLE",
     "STAGES",
     "STAGE_COMPLETE",
@@ -118,7 +116,6 @@ __all__ = [
     "finite_float",
     "inventory_record",
     "merge_dependencies",
-    "open_manifest",
     "pin_dependency",
     "schema_from_record",
     "schema_record",
@@ -136,7 +133,7 @@ MANIFEST_KIND = "mimic-generic-conversion"
 
 MANIFEST_ABSENT = "absent"
 MANIFEST_GENERIC = "generic"
-MANIFEST_LEGACY = "legacy"
+MANIFEST_SCATTER = "scatter"
 
 #: The explicit stages, in the only order they may complete.
 STAGES = ("ingest", "transpose", "write")
@@ -405,12 +402,12 @@ def inventory_record(inventory) -> Dict[str, object]:
     identically; a per-file summary keeps the record readable.
 
     The units are the route's canonical units. An inventory that declares
-    them non-physical (``physical_units = False``, the ASCII route's
-    per-forest inventory keyed ``(0, ForestIndex)``) gets an empty ``files``
-    summary, because its leading 0 is a coordinate shim, not a file; one
-    without the attribute is physical and is summarised per file as before.
+    them non-physical (``physical_units=False``, the ASCII route's per-forest
+    inventory keyed ``(0, ForestIndex)``) gets an empty ``files`` summary,
+    because its leading 0 is a coordinate shim, not a file; a physical
+    inventory is summarised per file.
     """
-    physical = getattr(inventory, "physical_units", True)
+    physical = inventory.physical_units
     digest = hashlib.sha256()
     files: Dict[int, List[int]] = {}
     block: List[Tuple[int, int, int]] = []
@@ -487,7 +484,7 @@ def classify_manifest(workdir) -> str:
     """Which state owner a workdir's manifest belongs to, without loading it.
 
     Returns :data:`MANIFEST_ABSENT`, :data:`MANIFEST_GENERIC` or
-    :data:`MANIFEST_LEGACY` (a current scatter manifest: the ASCII
+    :data:`MANIFEST_SCATTER` (a current scatter manifest: the ASCII
     preparation's state). Version 1 (the fix_flybys-era scatter manifest) and
     every unknown version raise: neither owner may resume them.
     """
@@ -496,8 +493,8 @@ def classify_manifest(workdir) -> str:
         return MANIFEST_ABSENT
     document = _read_json(path)
     version = _version_of(document, path)
-    if version == LEGACY_MANIFEST_VERSION:
-        return MANIFEST_LEGACY
+    if version == SCATTER_MANIFEST_VERSION:
+        return MANIFEST_SCATTER
     if version == MANIFEST_VERSION and document.get("manifest_kind") == MANIFEST_KIND:
         return MANIFEST_GENERIC
     if version == 1:
@@ -508,26 +505,9 @@ def classify_manifest(workdir) -> str:
     raise ConverterError(
         "{}: unknown manifest (version {!r}, kind {!r}); only scatter version {} and generic "
         "version {} are supported".format(
-            path, version, document.get("manifest_kind"), LEGACY_MANIFEST_VERSION, MANIFEST_VERSION
+            path, version, document.get("manifest_kind"), SCATTER_MANIFEST_VERSION, MANIFEST_VERSION
         )
     )
-
-
-def open_manifest(workdir):
-    """Load a workdir's manifest with the owner its version names.
-
-    A scatter manifest is loaded by ``scatter.Manifest`` exactly as the ASCII
-    preparation's own stages load it -- nothing is added, converted or written
-    -- so it stays resumable in its original representation, and no generic
-    provenance is ever invented for it. A generic manifest is loaded by
-    :meth:`ConversionManifest.load`. Anything else raises.
-    """
-    kind = classify_manifest(workdir)
-    if kind == MANIFEST_ABSENT:
-        raise ConverterError("{}: no manifest".format(Path(workdir) / MANIFEST_NAME))
-    if kind == MANIFEST_LEGACY:
-        return LegacyManifest.load_or_create(workdir)
-    return ConversionManifest.load(workdir)
 
 
 # ==========================================================================
@@ -719,6 +699,11 @@ def _empty_stage() -> Dict[str, object]:
     }
 
 
+class IdentitySchemeError(ConverterError):
+    """A Consistent-Trees ASCII conversion recorded before the forest-rank
+    identity convention: refused before its dataset is read, resumed or judged."""
+
+
 class ConversionManifest:
     """One generic workdir's frozen configuration, sources and stage state.
 
@@ -727,6 +712,26 @@ class ConversionManifest:
     configuration digest has been checked. Nothing is written except by
     :meth:`save` and the transition methods that call it.
     """
+
+    def require_current_identity_scheme(self) -> None:
+        """Refuse an ASCII conversion whose recorded adapter parameters lack
+        ``identity_scheme: forest-rank``: its SourceHaloID is not the halo's
+        (ForestIndex, HaloRankInForest) position, so it is neither resumed nor
+        validated but reconverted. The other routes record no scheme. Read-only.
+
+        Raises:
+            IdentitySchemeError: naming the workdir.
+        """
+        adapter = self.configuration["adapter"]
+        if adapter["source_format"] != "consistent_trees_ascii":
+            return
+        if adapter["parameters"].get("identity_scheme") != "forest-rank":
+            raise IdentitySchemeError(
+                "{}: this ASCII workdir predates the forest-rank identity convention (SourceHaloID "
+                "is the halo's position in (ForestIndex, HaloRankInForest) order, recorded as "
+                "identity_scheme 'forest-rank'); it is neither resumed nor validated -- reconvert "
+                "it in a fresh workdir".format(self.workdir)
+            )
 
     def __init__(self, workdir, data: Dict[str, object], schema: CanonicalSchema):
         self.workdir = Path(workdir).resolve()
@@ -813,11 +818,11 @@ class ConversionManifest:
         kind = classify_manifest(workdir)
         if kind == MANIFEST_ABSENT:
             raise ConverterError("{}: no manifest; start the conversion first".format(path))
-        if kind == MANIFEST_LEGACY:
+        if kind == MANIFEST_SCATTER:
             raise ConverterError(
                 "{}: this is a scatter manifest (version {}), the state of a Consistent-Trees "
                 "ASCII preparation, not a generic conversion's. The generic pipeline never "
-                "upgrades, relabels or adds provenance to it".format(path, LEGACY_MANIFEST_VERSION)
+                "upgrades, relabels or adds provenance to it".format(path, SCATTER_MANIFEST_VERSION)
             )
         data = _read_json(path)
         _check_shape(data, path)

@@ -36,11 +36,11 @@ from links import (  # noqa: E402
 from rank_sort import RankSortError  # noqa: E402
 from scatter import Manifest, file_md5, run_scatter  # noqa: E402
 from sort_index import run_sort  # noqa: E402
-from test_fixups import make_fixed  # noqa: E402
+from test_fixups import default_schema, make_fixed  # noqa: E402
 
 
 def make_linkable(rows):
-    """Build an id-sorted FIXED_RECORD_DTYPE array for link-stage unit tests.
+    """Build an id-sorted fixed-record array for link-stage unit tests.
 
     Post-fix invariants the link stage expects: centrals (``pid == -1``) carry
     ``upid == id``, which ``make_fixed`` does not apply — apply it here.
@@ -282,6 +282,7 @@ def make_linked_workdir(root: Path, forests=None, a_list_values=None):
         a_list_path=a_list,
         workdir=workdir,
         simulation_info_path=sim_info,
+        schema=default_schema(),
     )
     run_sort(workdir)
     run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
@@ -524,7 +525,7 @@ class TestLinksPipeline(unittest.TestCase):
     def test_run_scoped_value_change_refused(self):
         workdir, _, _ = make_linked_workdir(self.root)
         run_links(workdir)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         manifest.data["links"]["n_forests_total"] = 99
         manifest.save()
         with self.assertRaisesRegex(ConverterError, "run-scoped identity values changed"):
@@ -545,6 +546,7 @@ class TestLinksPipeline(unittest.TestCase):
             a_list_path=a_list,
             workdir=workdir,
             simulation_info_path=sim_info,
+            schema=default_schema(),
         )
         run_sort(workdir)
         with self.assertRaisesRegex(ConverterError, "run fixups first"):
@@ -552,7 +554,7 @@ class TestLinksPipeline(unittest.TestCase):
 
     def test_non_monotonic_observed_pairs_refused(self):
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         manifest.data["observed_pairs"] = [[1, 0.6], [2, 0.5]]
         manifest.save()
         with self.assertRaisesRegex(ConverterError, "not strictly increasing"):
@@ -563,7 +565,7 @@ class TestLinksPipeline(unittest.TestCase):
         # reference's scale-descending sort could split them; the rank pass
         # treats a snapshot as one slab and must refuse
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         manifest.data["observed_pairs"] = [[1, 0.59995], [1, 0.60005], [2, 0.7]]
         manifest.save()
         with self.assertRaisesRegex(ConverterError, "multiple scale factors"):
@@ -719,7 +721,7 @@ def reregister_forest_table(manifest, table):
     manifest.save()
 
 
-class Slice5Case(unittest.TestCase):
+class IdentityPassCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
@@ -748,10 +750,10 @@ class Slice5Case(unittest.TestCase):
             return identity
 
 
-class TestBoundedIdentityPass(Slice5Case):
+class TestBoundedIdentityPass(IdentityPassCase):
     def test_matches_the_in_memory_formulation_at_every_budget(self):
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         for budget in (4096, 1 << 16, links.DEFAULT_RANK_BUDGET_BYTES):
             with self.subTest(budget=budget):
                 self.assert_matches_oracle(manifest, budget)
@@ -762,7 +764,7 @@ class TestBoundedIdentityPass(Slice5Case):
         # cannot be exercised at fixture size
         forests = scaling_forests(n_forests=12, snaps=range(4, 6), halos_per_snap=400)
         workdir, _, _ = make_linked_workdir(self.root, forests=forests)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         identity = self.assert_matches_oracle(manifest, 8192)
         self.assertGreater(identity.n_runs, identity.merge_records)
         self.assertGreaterEqual(identity.n_merge_passes, 1)
@@ -826,12 +828,12 @@ class TestBoundedIdentityPass(Slice5Case):
         workdir, _, _ = make_linked_workdir(self.root, forests=forests)
         with self.assertRaisesRegex(ConverterError, "crossing forest boundaries"):
             run_links(workdir)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         self.assertEqual(self.identity_dirs(manifest), [])
 
     def test_stores_are_removed_when_the_rank_pass_itself_fails(self):
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         # a table with a forest nothing observed: the reconciliation fires after
         # the core has written both stores, which is the path that leaves them
         # behind if the pass does not own them
@@ -844,7 +846,7 @@ class TestBoundedIdentityPass(Slice5Case):
     def test_accessor_holds_at_most_the_adjacent_pair(self):
         forests = scaling_forests(n_forests=4, snaps=range(2, 6), halos_per_snap=25)
         workdir, _, _ = make_linked_workdir(self.root, forests=forests)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         identity, _, _ = links.compute_identity(manifest, budget_bytes=1 << 16)
         with identity:
             snaps = sorted(int(s) for s in manifest.data["snapshots"])
@@ -868,7 +870,7 @@ class TestBoundedIdentityPass(Slice5Case):
         # statement to leave in that window — BrokenPipeError on a closed pipe,
         # ENOSPC on the full volume this pass is bounded for
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         with mock.patch.object(links, "_log", side_effect=OSError("No space left on device")):
             with self.assertRaisesRegex(OSError, "No space left on device"):
                 links.compute_identity(manifest)
@@ -881,7 +883,7 @@ class TestBoundedIdentityPass(Slice5Case):
         # reaches the caller — cleaning up after a failure must not replace the
         # traceback that explains the run
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         total = sum(entry["rows"] for entry in manifest.data["snapshots"].values())
         with mock.patch.object(links, "shutil") as shutil_module:
             shutil_module.rmtree.return_value = None  # removal silently does nothing
@@ -909,7 +911,7 @@ class TestBoundedIdentityPass(Slice5Case):
         # of problem it exists to report). What reaches the caller must still be
         # the exception that explains the run
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         with mock.patch.object(links, "shutil") as shutil_module:
             shutil_module.rmtree.return_value = None
             with mock.patch.object(
@@ -926,7 +928,7 @@ class TestBoundedIdentityPass(Slice5Case):
         # raise today, and the guard's comment claims that of the WHOLE window;
         # this pins the claim instead of trusting it, by making one of them fail
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         with mock.patch.object(links, "FOREST_INDEX_STORE_NAME", None):
             with self.assertRaises(TypeError):
                 links.compute_identity(manifest)
@@ -936,7 +938,7 @@ class TestBoundedIdentityPass(Slice5Case):
         # an early failure has no byte count to report yet, and a wrong number
         # would be worse than none
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         with mock.patch.object(links, "shutil") as shutil_module:
             shutil_module.rmtree.return_value = None
             with mock.patch.object(
@@ -962,7 +964,7 @@ class TestBoundedIdentityPass(Slice5Case):
         # can land between them. Ownership therefore lives on the accessor's
         # lifetime: drop the last reference without closing, and the store goes
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         identity, _, _ = links.compute_identity(manifest)
         directory = identity.directory
         self.assertTrue(directory.exists())
@@ -1038,7 +1040,7 @@ class TestBoundedIdentityPass(Slice5Case):
         # the same guarantee reached the other way: close() failed, nobody calls
         # it again, and the accessor becomes unreachable
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         identity, _, _ = links.compute_identity(manifest)
         directory = identity.directory
         with mock.patch.object(links.shutil, "rmtree"):
@@ -1102,22 +1104,22 @@ class TestBoundedIdentityPass(Slice5Case):
         workdir, _, _ = make_linked_workdir(self.root)
         with self.assertRaisesRegex(ConverterError, "memory budget of 0 byte\\(s\\) is too small"):
             run_links(workdir, budget_bytes=0)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         self.assertEqual(
             {entry["status"] for entry in manifest.data["snapshots"].values()}, {"fixed"}
         )
 
     def test_budget_below_the_core_minimum_is_refused_with_both_figures(self):
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         with self.assertRaisesRegex(ConverterError, "memory budget of 64 byte\\(s\\) is too small"):
             links.compute_identity(manifest, budget_bytes=64)
 
 
-class TestForestTableReconciliation(Slice5Case):
+class TestForestTableReconciliation(IdentityPassCase):
     def test_listed_forest_with_no_halos_aborts(self):
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         table = np.load(Path(workdir) / "forest_index_table.npy")
         reregister_forest_table(manifest, np.append(table, np.int64(777_777)))
         with self.assertRaisesRegex(
@@ -1129,7 +1131,7 @@ class TestForestTableReconciliation(Slice5Case):
 
     def test_observed_forest_unlisted_aborts(self):
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         table = np.load(Path(workdir) / "forest_index_table.npy")
         dropped = int(table[1])
         reregister_forest_table(manifest, np.delete(table, 1))
@@ -1142,7 +1144,7 @@ class TestForestTableReconciliation(Slice5Case):
 
     def test_both_directions_are_reported_together(self):
         workdir, _, _ = make_linked_workdir(self.root)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         table = np.load(Path(workdir) / "forest_index_table.npy")
         mangled = np.sort(np.append(np.delete(table, 0), np.int64(888_888)))
         reregister_forest_table(manifest, mangled)
@@ -1269,7 +1271,7 @@ class TestVerifyIdentityBounded(unittest.TestCase):
                 verify_identity(column, column, 1, "test")
 
 
-class TestIdentityMemoryScaling(Slice5Case):
+class TestIdentityMemoryScaling(IdentityPassCase):
     """Actual allocation, not an instrument's own counter.
 
     Allocations that escape an instrument's meter are invisible to a test
@@ -1286,7 +1288,7 @@ class TestIdentityMemoryScaling(Slice5Case):
     does not scale with total halo count", which requires two real emitted
     datasets differing by at least 4x and pointedly excludes synthetic fixtures:
     that route is satisfied separately by the fixed-budget peak-RSS pair
-    measured on micro-Uchuu against the 406,668,896-halo rehearsal subset. This
+    measured on micro-Uchuu against the 406,668,896-halo Shin-Uchuu subset. This
     is the criterion's stated ALTERNATIVE route — instrument the resident
     buffers so a total-count-sized allocation cannot hide — which a fixture can
     serve, because it localises growth to a specific buffer in a way that
@@ -1308,7 +1310,7 @@ class TestIdentityMemoryScaling(Slice5Case):
         root.mkdir()
         forests = scaling_forests(n_forests=10, snaps=range(11 - n_snaps, 11), halos_per_snap=1000)
         workdir, _, _ = make_linked_workdir(root, forests=forests, a_list_values=LONG_A_LIST)
-        return Manifest.load_or_create(workdir)
+        return Manifest.load(workdir)
 
     def peak_of(self, call):
         """``tracemalloc``'s peak for one call, with the manifest checksum's own
@@ -1395,7 +1397,7 @@ class TestLinksKeepsItsInputs(unittest.TestCase):
         for readable assertions. The fixture's recorded snapshot set is
         {1, 2, 3, 4, 5}: snapshot 0 has no halos, so snapshot 1 has no
         pending buffer."""
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         snaps = sorted(int(s) for s in manifest.data["snapshots"])
         scratch = Path(manifest.data["snapshots"][str(snaps[0])]["fixed_file"]).parent
         paths = {}
@@ -1410,7 +1412,7 @@ class TestLinksKeepsItsInputs(unittest.TestCase):
     def test_every_index_fixed_file_and_pending_buffer_is_retained(self):
         workdir, _, _ = make_linked_workdir(self.root)
         run_links(workdir)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = Manifest.load(workdir)
         paths = self._paths(workdir)
         self.assertIn("pending_fp_5", paths)
         for name, path in paths.items():
@@ -1431,31 +1433,37 @@ class TestLinksKeepsItsInputs(unittest.TestCase):
             self.assertIsNotNone(entry)
 
 
-class TestExtendedLinks(unittest.TestCase):
-    """The link stage over extended records."""
+class TestLinksWithDeclaredExtras(unittest.TestCase):
+    """The link stage over records that carry declared extras, against the same
+    catalogue prepared under the default profile."""
 
     def setUp(self):
         from column_schema import build_schema, load_column_map
-        from test_fixups import ALL_TYPES_PROFILE, run_both_layouts
+        from test_fixups import ALL_TYPES_PROFILE, prepare_standard_forests
 
         self.tmp = tempfile.TemporaryDirectory()
-        self.schema = build_schema(load_column_map(ALL_TYPES_PROFILE))
-        self.legacy, self.extended = run_both_layouts(Path(self.tmp.name), self.schema)
+        root = Path(self.tmp.name)
+        (root / "plain").mkdir()
+        (root / "extras").mkdir()
+        self.plain = prepare_standard_forests(root / "plain", default_schema())
+        self.manifest = prepare_standard_forests(
+            root / "extras", build_schema(load_column_map(ALL_TYPES_PROFILE))
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def test_links_record_does_not_widen(self):
         self.assertEqual(LINKS_RECORD_DTYPE.itemsize, 36)
-        for entry in self.extended.data["snapshots"].values():
-            meta = self.extended.data["intermediates"][entry["links_file"]]
+        for entry in self.manifest.data["snapshots"].values():
+            meta = self.manifest.data["intermediates"][entry["links_file"]]
             self.assertEqual(meta["dtype_tag"], links.LINKS_DTYPE_TAG)
 
-    def test_links_are_byte_identical_to_the_legacy_layout(self):
-        self.assertEqual(self.extended.data["links"], self.legacy.data["links"])
-        for snap, entry in self.legacy.data["snapshots"].items():
+    def test_links_are_byte_identical_to_those_without_extras(self):
+        self.assertEqual(self.manifest.data["links"], self.plain.data["links"])
+        for snap, entry in self.plain.data["snapshots"].items():
             self.assertEqual(
-                Path(self.extended.data["snapshots"][snap]["links_file"]).read_bytes(),
+                Path(self.manifest.data["snapshots"][snap]["links_file"]).read_bytes(),
                 Path(entry["links_file"]).read_bytes(),
                 snap,
             )
@@ -1463,37 +1471,36 @@ class TestExtendedLinks(unittest.TestCase):
     def test_identity_stream_uses_the_actual_itemsize(self):
         from fixups import fixed_layout
 
-        self.assertEqual(
-            links.identity_stream_bytes_per_row(links.FIXED_RECORD_DTYPE),
-            links.IDENTITY_STREAM_BYTES_PER_ROW,
-        )
-        dtype, _tag = fixed_layout(self.extended.layout)
+        plain_dtype, _tag = fixed_layout(self.plain.layout)
+        plain_row = links.identity_stream_bytes_per_row(plain_dtype)
+        self.assertEqual(plain_row, 2 * plain_dtype.itemsize + 16)
+        dtype, _tag = fixed_layout(self.manifest.layout)
         wide = links.identity_stream_bytes_per_row(dtype)
         self.assertEqual(wide, 2 * dtype.itemsize + 16)
-        self.assertGreater(wide, links.IDENTITY_STREAM_BYTES_PER_ROW)
-        # a stream share that holds one legacy row but not one extended row
-        budget = links.STREAM_BUDGET_SHARE * (links.IDENTITY_STREAM_BYTES_PER_ROW + 44)
+        self.assertGreater(wide, plain_row)
+        # a stream share that holds one plain row but not one wide row
+        budget = links.STREAM_BUDGET_SHARE * (plain_row + 44)
         self.assertLess(budget // links.STREAM_BUDGET_SHARE, wide)
         with self.assertRaisesRegex(ConverterError, "at least {} byte".format(wide)):
-            links.compute_identity(self.extended, budget_bytes=budget)
-        identity, _n, _max = links.compute_identity(self.legacy, budget_bytes=budget)
+            links.compute_identity(self.manifest, budget_bytes=budget)
+        identity, _n, _max = links.compute_identity(self.plain, budget_bytes=budget)
         identity.close()
 
-    def test_extended_rank_pass_matches_at_a_tiny_budget(self):
+    def test_rank_pass_matches_at_a_tiny_budget(self):
         from fixups import fixed_layout
 
-        # the smallest budget whose stream share still holds one extended row:
-        # the identity stream then reads the wide records one row per block
+        # the smallest budget whose stream share still holds one wide row: the
+        # identity stream then reads the wide records one row per block
         tiny = links.STREAM_BUDGET_SHARE * links.identity_stream_bytes_per_row(
-            fixed_layout(self.extended.layout)[0]
+            fixed_layout(self.manifest.layout)[0]
         )
-        identity, n_forests, max_rank = links.compute_identity(self.extended, budget_bytes=tiny)
+        identity, n_forests, max_rank = links.compute_identity(self.manifest, budget_bytes=tiny)
         with identity:
-            reference, _n, _m = links.compute_identity(self.legacy)
+            reference, _n, _m = links.compute_identity(self.plain)
             with reference:
-                self.assertEqual(n_forests, self.legacy.data["links"]["n_forests_total"])
-                self.assertEqual(max_rank, self.legacy.data["links"]["max_halo_rank_in_forest"])
-                for snap in (int(s) for s in self.legacy.data["snapshots"]):
+                self.assertEqual(n_forests, self.plain.data["links"]["n_forests_total"])
+                self.assertEqual(max_rank, self.plain.data["links"]["max_halo_rank_in_forest"])
+                for snap in (int(s) for s in self.plain.data["snapshots"]):
                     for got, want in zip(identity[snap], reference[snap]):
                         self.assertEqual(got.tobytes(), want.tobytes())
 

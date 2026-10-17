@@ -34,8 +34,8 @@ from links import verify_identity  # noqa: E402
 from rank_sort import RankSortError, rank_forests  # noqa: E402
 
 #: A caller record layout with a field the core must ignore, so the tests also
-#: prove that a wider array (``fixups.FIXED_RECORD_DTYPE`` is 120 bytes) is
-#: accepted as-is.
+#: prove that a wider array (a fixed record carries far more than its key
+#: fields) is accepted as-is.
 KEY_DTYPE = np.dtype(
     [
         ("forest_id", "<i8"),
@@ -313,7 +313,7 @@ class TestOracleEquality(RankSortCase):
         result = self.run_core(blocks, budget_bytes=run_budget(64))
         forest = np.concatenate([records["forest_id"] for _, records in blocks])
         forest_index = np.searchsorted(result.forest_ids, forest)
-        verify_identity(forest_index, self.ranks_of(result), result.n_forests, "slice 4 core")
+        verify_identity(forest_index, self.ranks_of(result), result.n_forests, "external rank core")
 
 
 class TestMemoryBound(RankSortCase):

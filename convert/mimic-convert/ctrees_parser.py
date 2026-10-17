@@ -1,6 +1,6 @@
 """Phase 1 ctrees ASCII parsing for the ctrees -> horizontal-HDF5 converter.
 
-Owns the frozen scratch-record dtype, both Consistent-Trees header dialects
+Owns the scratch-record dtype, both Consistent-Trees header dialects
 (indexed ``#scale(0) id(1) ...`` primary, ``#fields:`` secondary), ``#tree``
 block-marker tracking, chunked pandas reads, and the independent row pre-count.
 
@@ -13,13 +13,11 @@ Reference semantics mirrored here (the reference sources cited below are authori
   the reference strtod-then-cast parse path;
 - duplicate or missing required columns abort; malformed rows abort.
 
-**Declarative selection.** Passing
-a ``consistent_trees_ascii`` :class:`column_schema.CanonicalSchema` selects the
-required columns through the profile's aliases and carries its declared extra
-fields in an *extended* scratch layout (:class:`ScratchLayout`), which also
-records every row's canonical source coordinate. Without a schema the parser
-uses the frozen legacy layout: the 108-byte ``RECORD_DTYPE``, ``DTYPE_TAG``
-and the legacy column resolution.
+**Declarative selection.** A ``consistent_trees_ascii``
+:class:`column_schema.CanonicalSchema` selects the required columns through the
+profile's aliases and carries its declared extra fields in the scratch layout
+(:class:`ScratchLayout`): the 20 core fields of :data:`CORE_RECORD_DTYPE`
+followed by every selected extra.
 
 Extra-field parse rules, stated here because an ASCII column has no declared
 type until it is parsed (``adapters/base.py`` notes):
@@ -53,10 +51,9 @@ import pandas as pd
 from column_schema import EXTRA_TYPES, resolve_extra_sources, resolve_required_columns
 from errors import ConverterError
 
-#: Frozen scratch-record dtype: little-endian, packed, itemsize 108 bytes.
-#: Field order and widths never change; every legacy scratch-file manifest
-#: entry records DTYPE_TAG against it.
-RECORD_DTYPE = np.dtype(
+#: The core fields every scratch record starts with: little-endian, packed,
+#: itemsize 108 bytes. Declared extras follow them (:class:`ScratchLayout`).
+CORE_RECORD_DTYPE = np.dtype(
     [
         ("id", "<i8"),
         ("desc_id", "<i8"),
@@ -82,27 +79,12 @@ RECORD_DTYPE = np.dtype(
     align=False,
 )
 
-#: Human-readable dtype identity recorded in every manifest.
-DTYPE_TAG = "ctrees-scratch-v1/itemsize=108/" + ",".join(
-    "{}:{}".format(name, RECORD_DTYPE.fields[name][0].str) for name in RECORD_DTYPE.names
-)
-
-#: Canonical source-coordinate fields an extended scratch record carries after
-#: the frozen 20 (``(source_file_ordinal, unit_ordinal, row_ordinal)``).
-SOURCE_KEY_FIELDS = (
-    ("src_file_ordinal", "<i8"),
-    ("src_unit_ordinal", "<i8"),
-    ("src_row_ordinal", "<i8"),
-)
-
 #: Scratch field-name prefix for a selected extra, so an output name such as
-#: ``X`` or ``id`` can never collide with a frozen scratch field.
+#: ``X`` or ``id`` can never collide with a core scratch field.
 EXTRA_FIELD_PREFIX = "extra_"
 
-#: Version prefix of an extended scratch dtype tag. Deliberately different from
-#: the frozen ``ctrees-scratch-v1`` prefix: a converter that predates the
-#: extended layout compares tags for equality and so refuses such a workdir.
-EXTENDED_DTYPE_TAG_PREFIX = "ctrees-scratch-v2"
+#: Version prefix of the scratch dtype tag.
+SCRATCH_DTYPE_TAG_PREFIX = "ctrees-scratch-v2"
 
 #: Version of the ``scratch_layout`` manifest record.
 SCRATCH_LAYOUT_RECORD_VERSION = 1
@@ -129,32 +111,23 @@ def _little_endian_element(spec) -> str:
 
 @dataclass(frozen=True)
 class ScratchLayout:
-    """Which scratch record a workdir holds: the frozen legacy one, or the
-    extended one of the canonical ASCII bridge.
+    """Which scratch record a workdir holds: the 20 core fields of
+    :data:`CORE_RECORD_DTYPE` followed by every selected extra (in the schema's
+    sorted order).
 
-    The legacy layout is ``RECORD_DTYPE`` itself, byte for byte, under the
-    frozen ``DTYPE_TAG``. The extended layout appends the three source
-    coordinates and every selected extra (in the schema's sorted order) to
-    those 20 fields; it is identified by its own tag *and* by the digest of the
-    schema that selected it, so two same-width schemas that differ only in
-    units or descriptions still refuse to share a workdir.
+    The layout is identified by its dtype tag *and* by the digest of the schema
+    that selected it, so two same-width schemas that differ only in units or
+    descriptions still refuse to share a workdir.
     """
 
-    extras: Tuple[Tuple[str, str], ...] = ()
-    schema_digest: Optional[str] = None
-
-    @property
-    def is_extended(self) -> bool:
-        return self.schema_digest is not None
+    extras: Tuple[Tuple[str, str], ...]
+    schema_digest: str
 
     @property
     def dtype(self) -> np.dtype:
-        if not self.is_extended:
-            return RECORD_DTYPE
         fields: List[tuple] = [
-            (name, RECORD_DTYPE.fields[name][0].str) for name in RECORD_DTYPE.names
+            (name, CORE_RECORD_DTYPE.fields[name][0].str) for name in CORE_RECORD_DTYPE.names
         ]
-        fields.extend(SOURCE_KEY_FIELDS)
         for name, type_name in self.extras:
             spec = EXTRA_TYPES[type_name]
             element = _little_endian_element(spec)
@@ -166,13 +139,11 @@ class ScratchLayout:
 
     @property
     def dtype_tag(self) -> str:
-        if not self.is_extended:
-            return DTYPE_TAG
-        return describe_dtype(EXTENDED_DTYPE_TAG_PREFIX, self.dtype)
+        return describe_dtype(SCRATCH_DTYPE_TAG_PREFIX, self.dtype)
 
     @classmethod
     def from_schema(cls, schema) -> "ScratchLayout":
-        """The extended layout a ``consistent_trees_ascii`` schema selects."""
+        """The layout a ``consistent_trees_ascii`` schema selects."""
         if schema.source_format != "consistent_trees_ascii":
             raise ConverterError(
                 "the ctrees ASCII scratch layout needs a consistent_trees_ascii schema, "
@@ -187,7 +158,7 @@ class ScratchLayout:
         return cls(extras=extras, schema_digest=schema.digest)
 
     def to_record(self) -> Dict[str, object]:
-        """Manifest record of an extended layout; the legacy layout has none."""
+        """The layout's manifest record."""
         return {
             "version": SCRATCH_LAYOUT_RECORD_VERSION,
             "extras": [[name, type_name] for name, type_name in self.extras],
@@ -197,7 +168,7 @@ class ScratchLayout:
 
     @classmethod
     def from_record(cls, record, context: str) -> "ScratchLayout":
-        """Rebuild an extended layout from its manifest record, refusing a
+        """Rebuild a layout from its manifest record, refusing a
         record this code would not have written: the tag is recomputed from
         the recorded extras and must match the recorded one exactly."""
         try:
@@ -237,9 +208,6 @@ class ScratchLayout:
             )
         return layout
 
-
-#: The frozen legacy layout, used when no schema is given.
-LEGACY_LAYOUT = ScratchLayout()
 
 DEFAULT_CHUNKSIZE = 1_000_000
 
@@ -362,83 +330,21 @@ class ExtraColumns:
 
 @dataclass
 class ColumnLayout:
-    """Resolved required-column indices for one file's header."""
+    """Resolved required-column indices and selected extras for one file's header."""
 
     all_names: List[str]
-    #: normalized-lowercase required column -> column index in the file
+    #: role name -> column index in the file
     indices: Dict[str, int]
-    #: which snapshot spelling the file uses (normalized lowercase), under
-    #: either resolution
+    #: which snapshot spelling the file uses (normalized lowercase)
     snapshot_column: str
-    #: key of the snapshot column in ``indices``. Both fields exist because the
-    #: resolutions key ``indices`` differently: the legacy one by spelling (so
-    #: this equals ``snapshot_column``), the profile one by the role name
-    #: ``snap`` (so the spelling is only in ``snapshot_column``)
-    snapshot_key: str = ""
-    #: selected extras (schema-driven resolution only)
+    #: selected extras
     extras: Tuple[ExtraColumns, ...] = ()
     #: column indices read as text for an integer extra (no role reads them)
     text_columns: frozenset = frozenset()
 
-    def __post_init__(self):
-        if not self.snapshot_key:
-            self.snapshot_key = self.snapshot_column
-
-    def is_integer_role(self, key: str) -> bool:
-        """Whether the ``indices`` entry ``key`` fills an int64 role (``_INT_ROLES``),
-        with the snapshot column recognised under either resolution's key."""
-        return ("snap" if key == self.snapshot_key else key) in _INT_ROLES
-
-
-def resolve_columns(names: List[str]) -> ColumnLayout:
-    """Map required columns to file column indices, aborting per the contract.
-
-    Case-insensitive first-match semantics follow the reference
-    match_column_name(); unlike the reference, a duplicated required column or
-    both snapshot spellings at once abort.
-    """
-    lowered = [n.lower() for n in names]
-    counts: Dict[str, int] = {}
-    for name in lowered:
-        counts[name] = counts.get(name, 0) + 1
-
-    required = list(_INT_COLUMNS) + list(_FLOAT_COLUMNS)
-    duplicates = [name for name in required if counts.get(name, 0) > 1]
-    duplicates += [s for s in SNAPSHOT_SPELLINGS if counts.get(s, 0) > 1]
-    if duplicates:
-        raise ConverterError(
-            "duplicate required column(s) in ctrees header: {}".format(
-                ", ".join(sorted(duplicates))
-            )
-        )
-
-    snapshot_present = [s for s in SNAPSHOT_SPELLINGS if s in counts]
-    if len(snapshot_present) > 1:
-        raise ConverterError(
-            "ambiguous snapshot column: both {} present in ctrees header".format(
-                " and ".join(snapshot_present)
-            )
-        )
-    if not snapshot_present:
-        raise ConverterError(
-            "missing required column(s) in ctrees header: one of {}".format(
-                "/".join(SNAPSHOT_SPELLINGS)
-            )
-        )
-    snapshot_column = snapshot_present[0]
-
-    indices: Dict[str, int] = {}
-    missing: List[str] = []
-    for wanted in required + [snapshot_column]:
-        try:
-            indices[wanted] = lowered.index(wanted)
-        except ValueError:
-            missing.append(wanted)
-    if missing:
-        raise ConverterError(
-            "missing required column(s) in ctrees header: {}".format(", ".join(sorted(missing)))
-        )
-    return ColumnLayout(all_names=names, indices=indices, snapshot_column=snapshot_column)
+    def is_integer_role(self, role: str) -> bool:
+        """Whether the ``indices`` entry ``role`` fills an int64 role (``_INT_ROLES``)."""
+        return role in _INT_ROLES
 
 
 #: The only token shape an integer extra accepts (ASCII digits, optional sign).
@@ -449,13 +355,13 @@ def resolve_selection(names: List[str], schema) -> ColumnLayout:
     """Resolve a ``consistent_trees_ascii`` schema's roles and extras against
     one file's header.
 
-    Matching is suffix-stripped and case-insensitive, as in the legacy
-    resolution, and exactly one alias must resolve for each role
-    (``column_schema.resolve_required_columns``, which also rejects two roles
-    resolving to one column). A selected column that the header carries more
-    than once is ambiguous and aborts; an *unselected* duplicate does not, as
-    in the legacy resolution -- real headers repeat ``b_to_a`` and ``A[x]`` once
-    suffix-stripped. Extra typing rules are the module docstring's.
+    Matching is suffix-stripped and case-insensitive, and exactly one alias
+    must resolve for each role (``column_schema.resolve_required_columns``,
+    which also rejects two roles resolving to one column). A selected column
+    that the header carries more than once is ambiguous and aborts; an
+    *unselected* duplicate does not -- real headers repeat ``b_to_a`` and
+    ``A[x]`` once suffix-stripped. Extra typing rules are the module
+    docstring's.
     """
     if schema.source_format != "consistent_trees_ascii":
         what = schema.source_format
@@ -536,7 +442,6 @@ def resolve_selection(names: List[str], schema) -> ColumnLayout:
         all_names=names,
         indices=indices,
         snapshot_column=roles["snap"],
-        snapshot_key="snap",
         extras=tuple(extras),
         text_columns=frozenset(lowered.index(spelling) for spelling in text_declared),
     )
@@ -548,17 +453,14 @@ class SourceUnitPlan:
 
     A unit is the part of one ASCII forest that one file carries: every
     ``#tree`` block of that file whose root belongs to the forest. Units are
-    numbered in order of their forest's first ``#tree`` marker in the file, and
-    a row's ``row_ordinal`` is its position among its unit's rows in file order
-    -- the source's own order, never a re-sorted one. A forest whose trees lie
-    in several files is several units, one per file; the sidecar convention
-    (-1 ordinals for a forest spanning files) follows from that.
+    numbered in order of their forest's first ``#tree`` marker in the file. A
+    forest whose trees lie in several files is several units, one per file; the
+    sidecar convention (-1 ordinals for a forest spanning files) follows from
+    that.
     """
 
-    source_file_ordinal: int
-    #: per ``#tree`` marker, in file order
+    #: per ``#tree`` marker, in file order, the unit it belongs to
     unit_of_tree: np.ndarray
-    unit_row_base: np.ndarray
     #: per unit, in unit order
     unit_forest_ids: np.ndarray
     unit_counts: np.ndarray
@@ -568,14 +470,11 @@ class SourceUnitPlan:
         return np.column_stack((self.unit_forest_ids, self.unit_counts)).astype(np.int64)
 
 
-def plan_source_units(
-    prescan: "PreScan", tree_forest_ids: np.ndarray, source_file_ordinal: int
-) -> SourceUnitPlan:
+def plan_source_units(prescan: "PreScan", tree_forest_ids: np.ndarray) -> SourceUnitPlan:
     """Group one file's trees into source units from the pre-scan alone.
 
     Pure arithmetic over the marker table (O(trees in the file)); no data row
-    is read, so the plan is independent of the pandas pass whose attribution
-    it later checks.
+    is read.
     """
     starts = np.asarray(prescan.tree_start_rows, dtype=np.int64)
     forests = np.asarray(tree_forest_ids, dtype=np.int64)
@@ -588,7 +487,7 @@ def plan_source_units(
     n_trees = starts.size
     if n_trees == 0:
         empty = np.zeros(0, dtype=np.int64)
-        return SourceUnitPlan(int(source_file_ordinal), empty, empty, empty, empty)
+        return SourceUnitPlan(empty, empty, empty)
     sizes = np.diff(np.r_[starts, np.int64(prescan.n_rows)])
     unique_forests, first_marker, inverse = np.unique(
         forests, return_index=True, return_inverse=True
@@ -601,21 +500,8 @@ def plan_source_units(
     unit_forest_ids = unique_forests[by_first]
     unit_counts = np.zeros(unique_forests.size, dtype=np.int64)
     np.add.at(unit_counts, unit_of_tree, sizes)
-    # exclusive running size of earlier trees of the same unit, in file order
-    order = np.argsort(unit_of_tree, kind="stable")
-    sorted_sizes = sizes[order]
-    running = np.cumsum(sorted_sizes) - sorted_sizes
-    sorted_units = unit_of_tree[order]
-    group_start = np.r_[True, sorted_units[1:] != sorted_units[:-1]]
-    group_base = np.maximum.accumulate(np.where(group_start, running, 0))
-    unit_row_base = np.empty(n_trees, dtype=np.int64)
-    unit_row_base[order] = running - group_base
     return SourceUnitPlan(
-        source_file_ordinal=int(source_file_ordinal),
-        unit_of_tree=unit_of_tree,
-        unit_row_base=unit_row_base,
-        unit_forest_ids=unit_forest_ids,
-        unit_counts=unit_counts,
+        unit_of_tree=unit_of_tree, unit_forest_ids=unit_forest_ids, unit_counts=unit_counts
     )
 
 
@@ -739,25 +625,20 @@ class ParseResult:
 class CtreesFileParser:
     """Chunked parser for one ctrees ASCII file.
 
-    Yields structured arrays in RECORD_DTYPE with ``tree_root_id`` attributed
-    from ``#tree`` markers and ``forest_id`` set to -1 (joined by the scatter
-    stage). The generator raises ConverterError unless the parsed row count
-    equals the independent pre-count exactly.
-
-    With a ``schema`` the columns are selected through its profile and the
-    records are in the extended ``ScratchLayout.from_schema(schema).dtype``:
-    the same 20 frozen fields, filled by exactly the same code, followed by
-    the source coordinate (from ``unit_plan``, which must then be supplied
-    before iterating) and every selected extra.
+    Columns are selected through ``schema``'s profile, and the yielded
+    structured arrays are in ``ScratchLayout.from_schema(schema).dtype``: the
+    20 core fields followed by every selected extra, with ``tree_root_id``
+    attributed from ``#tree`` markers and ``forest_id`` set to -1 (joined by the
+    scatter stage). The generator raises ConverterError unless the parsed row
+    count equals the independent pre-count exactly.
     """
 
     def __init__(
         self,
         path,
+        schema,
         chunksize: int = DEFAULT_CHUNKSIZE,
         prescan: Optional[PreScan] = None,
-        schema=None,
-        unit_plan: Optional[SourceUnitPlan] = None,
     ):
         self.path = Path(path)
         if chunksize < 1:
@@ -765,16 +646,11 @@ class CtreesFileParser:
         self.chunksize = chunksize
         self.prescan = prescan if prescan is not None else prescan_file(self.path)
         names = parse_header_line(self.prescan.header_line)
-        if schema is None:
-            self.scratch_layout = LEGACY_LAYOUT
-            self.layout = resolve_columns(names)
-        else:
-            self.scratch_layout = ScratchLayout.from_schema(schema)
-            try:
-                self.layout = resolve_selection(names, schema)
-            except ConverterError as exc:
-                raise ConverterError("{}: {}".format(self.path, exc)) from exc
-        self.unit_plan = unit_plan
+        self.scratch_layout = ScratchLayout.from_schema(schema)
+        try:
+            self.layout = resolve_selection(names, schema)
+        except ConverterError as exc:
+            raise ConverterError("{}: {}".format(self.path, exc)) from exc
         self.result = ParseResult()
 
     @property
@@ -820,18 +696,6 @@ class CtreesFileParser:
 
     def chunks(self) -> Iterator[np.ndarray]:
         prescan = self.prescan
-        if self.scratch_layout.is_extended:
-            plan = self.unit_plan
-            if plan is None:
-                raise ConverterError(
-                    "{}: an extended scratch layout needs a source-unit plan".format(self.path)
-                )
-            if plan.unit_of_tree.shape != prescan.tree_start_rows.shape:
-                raise ConverterError(
-                    "{}: source-unit plan covers {} tree(s), the pre-scan found {}".format(
-                        self.path, plan.unit_of_tree.size, prescan.tree_start_rows.size
-                    )
-                )
         row_offset = 0
         try:
             reader = self._read_csv_chunks()
@@ -889,14 +753,14 @@ class CtreesFileParser:
             # overflow warning is suppressed because the inf check below is
             # the deliberate detector)
             with np.errstate(over="ignore"):
-                cast = values.astype(RECORD_DTYPE[rec_field], copy=False)
+                cast = values.astype(CORE_RECORD_DTYPE[rec_field], copy=False)
             if cast.dtype.kind == "f":
                 bad = ~np.isfinite(cast)
                 if bad.any():
                     self._abort_non_finite("float32-overflowing", col, bad, row_offset)
             records[rec_field] = cast
 
-        snap64 = self._column(chunk, self.layout.snapshot_key)
+        snap64 = self._column(chunk, "snap")
         if snap64.size and (
             snap64.min() < np.iinfo(np.int32).min or snap64.max() > np.iinfo(np.int32).max
         ):
@@ -920,20 +784,13 @@ class CtreesFileParser:
         pairs = np.unique(np.column_stack((snap64.astype(np.float64), scale64)), axis=0)
         self.result.observed_pairs.update((int(s), float(a)) for s, a in pairs)
 
-        if self.scratch_layout.is_extended:
-            plan = self.unit_plan
-            records["src_file_ordinal"] = plan.source_file_ordinal
-            records["src_unit_ordinal"] = plan.unit_of_tree[marker_idx]
-            records["src_row_ordinal"] = plan.unit_row_base[marker_idx] + (
-                row_ordinals - self.prescan.tree_start_rows[marker_idx]
-            )
-            for extra in self.layout.extras:
-                for position, (idx, spelling) in enumerate(extra.columns):
-                    values = self._extra_values(chunk, extra, idx, spelling, row_offset)
-                    if len(extra.columns) == 1:
-                        records[extra.field] = values
-                    else:
-                        records[extra.field][:, position] = values
+        for extra in self.layout.extras:
+            for position, (idx, spelling) in enumerate(extra.columns):
+                values = self._extra_values(chunk, extra, idx, spelling, row_offset)
+                if len(extra.columns) == 1:
+                    records[extra.field] = values
+                else:
+                    records[extra.field][:, position] = values
         return records
 
     def _extra_values(
@@ -1014,12 +871,15 @@ class CtreesFileParser:
             ) from None
 
 
-def parse_file(path, chunksize: int = DEFAULT_CHUNKSIZE) -> Tuple[np.ndarray, ParseResult, PreScan]:
-    """Parse a whole file into one array (tests / small-file convenience)."""
-    parser = CtreesFileParser(path, chunksize=chunksize)
+def parse_file(
+    path, schema, chunksize: int = DEFAULT_CHUNKSIZE
+) -> Tuple[np.ndarray, ParseResult, PreScan]:
+    """Parse a whole file into one array of ``schema``'s scratch layout
+    (small-file convenience)."""
+    parser = CtreesFileParser(path, schema, chunksize=chunksize)
     parts = list(parser.chunks())
     if parts:
         records = np.concatenate(parts)
     else:
-        records = np.zeros(0, dtype=RECORD_DTYPE)
+        records = np.zeros(0, dtype=parser.dtype)
     return records, parser.result, parser.prescan

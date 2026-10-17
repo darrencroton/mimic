@@ -52,7 +52,10 @@ Run directly (seconds, no datasets and no Mimic build required):
 """
 
 import contextlib
+import hashlib
 import io
+import json
+import re
 import shutil
 import sys
 import tempfile
@@ -61,6 +64,7 @@ from pathlib import Path
 
 import h5py
 import numpy
+from numpy.lib.recfunctions import repack_fields
 
 
 def find_repo_root(start: Path) -> Path:
@@ -117,7 +121,7 @@ def task_filename(basename, key):
 
 
 def write_run(directory, basename, partitions, filename=numbered_filename):
-    """Write one run's partition files and return the comparator's spec string.
+    """Write one run's partition files and master file; return the comparator's spec string.
 
     `partitions` is a list of dicts, one per partition file, mapping a snapshot
     number to that partition's records -- which is the layout the comparator
@@ -125,14 +129,20 @@ def write_run(directory, basename, partitions, filename=numbered_filename):
     horizontal run writes one snapshot per partition. A dict of such dicts names
     each partition by its own key instead of its list index, and `filename(basename,
     key)` turns that key into the file name; ``task_filename`` with keys
-    (snapshot, task) is the layout a multi-task horizontal run produces.
+    (snapshot, task) is the layout a multi-task horizontal run produces. The
+    master ``<basename>.hdf5`` links every partition's Galaxies, as a run's does.
     """
     directory.mkdir(parents=True, exist_ok=True)
     keyed = partitions.items() if isinstance(partitions, dict) else enumerate(partitions)
-    for key, snapshots in keyed:
-        with h5py.File(directory / filename(basename, key), "w") as handle:
-            for snap, records in sorted(snapshots.items()):
-                handle.create_dataset(f"Snap{snap:03d}/Galaxies", data=records)
+    with h5py.File(directory / f"{basename}.hdf5", "w") as master:
+        for number, (key, snapshots) in enumerate(keyed):
+            name = filename(basename, key)
+            with h5py.File(directory / name, "w") as handle:
+                for snap, records in sorted(snapshots.items()):
+                    handle.create_dataset(f"Snap{snap:03d}/Galaxies", data=records)
+                    master[f"Snap{snap:03d}/File{number:03d}/Galaxies"] = h5py.ExternalLink(
+                        name, f"Snap{snap:03d}/Galaxies"
+                    )
     return str(directory / basename)
 
 
@@ -618,8 +628,8 @@ def created_id(host_key, ordinal):
     return -(1 + ordinal + comparator.MAX_CREATED_RECORDS_PER_HOST * host_key)
 
 
-def paired_records(tree, created, tree_ids, host_keys):
-    """One run's records for PAIRED_SNAP.
+def paired_records(tree, created, tree_ids, host_keys, snap=PAIRED_SNAP):
+    """One run's records for output snapshot `snap`.
 
     `tree` is a list of (MostBoundID, central MostBoundID, mass); `created` a list
     of (host MostBoundID, ordinal, mass), each inheriting its host's central as
@@ -635,7 +645,7 @@ def paired_records(tree, created, tree_ids, host_keys):
     ]
     records = numpy.zeros(len(rows), dtype=PAIRED_DTYPE)
     for index, (galaxy_id, central, mbid, mass) in enumerate(rows):
-        records[index] = (galaxy_id, central, mbid, PAIRED_SNAP, mass)
+        records[index] = (galaxy_id, central, mbid, snap, mass)
     return records
 
 
@@ -786,6 +796,153 @@ def test_broken_central_mapping_fails():
     print("  ✓ a central that does not map through the pairing fails and names both")
 
 
+def test_alternate_pairings_require_each_id_to_keep_its_partner():
+    """A galaxy relabelled partway through its history in one run fails; a consistent
+    relabelling passes.
+
+    UniqueGalaxyID is persistent, so the pairing of two runs' ids must be the same at
+    every compared snapshot. Three relabellings at the second snapshot each fail: a
+    second-run tree id (its satellite's central follows it, so every snapshot agrees
+    with itself), a first-run tree id, seen from the second run's side, and a
+    second-run created id under the lineage pairing.
+    """
+    print("Testing that a paired id keeps its partner across snapshots...")
+    with scratch() as root:
+
+        def run(name, ids, keys, later_ids=None, later_keys=None):
+            snapshots = {
+                PAIRED_SNAP: paired_records(PAIRED_TREE, PAIRED_CREATED, ids, keys),
+                PAIRED_SNAP
+                + 1: paired_records(
+                    PAIRED_TREE,
+                    PAIRED_CREATED,
+                    later_ids or ids,
+                    later_keys or keys,
+                    PAIRED_SNAP + 1,
+                ),
+            }
+            return write_run(root / name, "model", [snapshots])
+
+        left = run("left", LEFT_TREE_IDS, LEFT_HOST_KEYS)
+        status, report = compare(
+            left, run("consistent", RIGHT_TREE_IDS, RIGHT_HOST_KEYS), *BOTH_PAIRINGS
+        )
+        assert_status(status, IDENTICAL, report, "a relabelling kept on every snapshot")
+
+        relabelled_right = {**RIGHT_TREE_IDS, 11: 7_000_009}
+        relabelled_left = {**LEFT_TREE_IDS, 21: 2_000_777}
+        for what, first, second, line in (
+            (
+                "a second-run tree id",
+                left,
+                run("tree", RIGHT_TREE_IDS, RIGHT_HOST_KEYS, relabelled_right),
+                "left UniqueGalaxyID 1000001: paired with 7000009 here, with 5000001 at Snap005",
+            ),
+            (
+                "a first-run tree id",
+                run("first", LEFT_TREE_IDS, LEFT_HOST_KEYS, relabelled_left),
+                run("plain", RIGHT_TREE_IDS, RIGHT_HOST_KEYS),
+                "right UniqueGalaxyID 4000001: paired with 2000777 here, with 2000001 at Snap005",
+            ),
+            (
+                "a second-run created id",
+                left,
+                run("created", RIGHT_TREE_IDS, RIGHT_HOST_KEYS, None, {**RIGHT_HOST_KEYS, 21: 41}),
+                f"paired with {created_id(41, 0)} here, with {created_id(40, 0)} at Snap005",
+            ),
+        ):
+            status, report = compare(first, second, *BOTH_PAIRINGS)
+            assert_status(status, DIFFERENT, report, what)
+            assert "changed partner since Snap005" in report and line in report, f"{what}\n{report}"
+    print("  ✓ an id that changes partner fails; a relabelling kept on every snapshot passes")
+
+
+def test_alternate_pairings_fail_a_zero_id_and_an_unpaired_tree_row():
+    """A zero id and a tree row in one run only each fail under the alternate pairings.
+
+    Neither row belongs to a paired kind, so each is a failure only because it is
+    checked for in its own right.
+    """
+    print("Testing a zero id and an unpaired tree row under the alternate pairings...")
+    with scratch() as root:
+        left = paired_run(root, "left", tree_ids=LEFT_TREE_IDS, keys=LEFT_HOST_KEYS)
+        records = paired_records(PAIRED_TREE, PAIRED_CREATED, LEFT_TREE_IDS, LEFT_HOST_KEYS)
+        zero = records[:1].copy()
+        zero["UniqueGalaxyID"], zero["MostBoundID"] = 0, 99
+        right = paired_records(PAIRED_TREE, PAIRED_CREATED, RIGHT_TREE_IDS, RIGHT_HOST_KEYS)
+        zeroed = (
+            write_run(
+                root / "zero-left", "model", [{PAIRED_SNAP: numpy.concatenate([records, zero])}]
+            ),
+            write_run(
+                root / "zero-right", "model", [{PAIRED_SNAP: numpy.concatenate([right, zero])}]
+            ),
+        )
+        status, report = compare(*zeroed, *BOTH_PAIRINGS)
+        assert_status(status, DIFFERENT, report, "a zero id under the alternate pairings")
+        assert "UniqueGalaxyID 0 is neither" in report, f"the zero id was not reported\n{report}"
+
+        # Galaxy 12 is a satellite with no created record, so nothing else fails with it.
+        dropped = paired_run(root, "dropped", tree=[row for row in PAIRED_TREE if row[0] != 12])
+        status, report = compare(left, dropped, "--match-by-catalogue-id")
+        assert_status(status, DIFFERENT, report, "a tree row in one run only")
+        assert (
+            "tree-row key sets differ" in report and "(MostBoundID=12, SnapNum=5)" in report
+        ), report
+    print("  ✓ a zero id and an unpaired tree row each fail")
+
+
+def test_lineage_pairing_fails_a_wrong_central_and_a_duplicated_key():
+    """A created record naming the wrong central fails, and so do two created records
+    sharing a lineage key.
+
+    The twin carries an id of its own, so the run-wide duplicate-id pass cannot see
+    it: only the key check can.
+    """
+    print("Testing a created record's central and a duplicated lineage key...")
+    with scratch() as root:
+        left = paired_run(root, "left", tree_ids=LEFT_TREE_IDS, keys=LEFT_HOST_KEYS)
+        records = paired_records(PAIRED_TREE, PAIRED_CREATED, RIGHT_TREE_IDS, RIGHT_HOST_KEYS)
+        moved = records.copy()
+        moved["UniqueCentralGalaxyID"][moved["UniqueGalaxyID"] == created_id(40, 0)] = (
+            RIGHT_TREE_IDS[11]
+        )
+        status, report = compare(
+            left, write_run(root / "moved", "model", [{PAIRED_SNAP: moved}]), *BOTH_PAIRINGS
+        )
+        assert_status(status, DIFFERENT, report, "a created record's wrong central")
+        assert "central 2000001 maps to 4000001, right central 5000001" in report, report
+
+        twin = records[records["UniqueGalaxyID"] == created_id(3, 0)].copy()
+        twin["UniqueGalaxyID"] = created_id(99, 0)
+        twinned = write_run(
+            root / "twin", "model", [{PAIRED_SNAP: numpy.concatenate([records, twin])}]
+        )
+        status, report = compare(left, twinned, *BOTH_PAIRINGS)
+        assert_status(status, DIFFERENT, report, "a duplicated lineage key")
+        assert "duplicated created-row key" in report, f"duplicate not reported\n{report}"
+        assert "(MostBoundID=11, SnapNum=5, ordinal=0) appears 2 times" in report, report
+    print("  ✓ a created record's wrong central and a duplicated lineage key both fail")
+
+
+def test_lineage_key_beyond_its_packing_is_an_input_error():
+    """A created record whose MostBoundID the int64 lineage key cannot pack exits 2."""
+    print("Testing a MostBoundID beyond the lineage key's range...")
+    with scratch() as root:
+        mbid = 2**62
+        tree, created = [(mbid, mbid, 1.0)], [(mbid, 0, 0.5)]
+        runs = [
+            paired_run(
+                root, name, tree=tree, created=created, tree_ids={mbid: 1_000_001}, keys={mbid: 7}
+            )
+            for name in ("left", "right")
+        ]
+        status, report = compare(*runs, "--match-created-by-lineage")
+        assert_status(status, INPUT_ERROR, report, "a MostBoundID beyond the lineage key")
+        assert f"MostBoundID {mbid} is beyond" in report, report
+    print("  ✓ a MostBoundID the lineage key cannot pack is an input error")
+
+
 def test_alternate_mode_usage_errors():
     """Contradictory options are usage errors (exit 2), before any input is read."""
     print("Testing alternate-mode usage errors...")
@@ -890,19 +1047,30 @@ def cut_run(
     return spec
 
 
-def cut_inputs(root):
-    """Both sidecars and the cut record; returns the comparator options naming them."""
+def dataset_identity(forests):
+    """The identity entries a cut record binds to the dataset of sidecar `forests`."""
+    column = numpy.array(forests, dtype="<i8")
+    return {"forest_id_sha256": hashlib.sha256(column).hexdigest(), "n_forests_total": len(forests)}
+
+
+def cut_inputs(root, record_forests=UNCUT_FORESTS, pieces=("[20,100]", "[20,20]")):
+    """Both sidecars and the cut record; returns the comparator options naming them.
+
+    The record is computed on the dataset of `record_forests` and lists the
+    piece columns `pieces` (ids, original forests), as JSON list text.
+    """
     for name, forests in (("uncut", UNCUT_FORESTS), ("cut", CUT_FORESTS)):
         with h5py.File(root / f"{name}-forests.h5", "w") as handle:
             handle.create_dataset("ForestID", data=numpy.array(forests, dtype=numpy.int64))
     # The record's layout: one header entry per line, one line per piece column.
     (root / "record.json").write_text(
         "{\n"
+        f'  "dataset": {json.dumps(dataset_identity(record_forests), sort_keys=True)},\n'
         f'  "fresh_id_floor": {CUT_FRESH_FLOOR},\n'
         '  "rule": {"text": "the z = 0 FoF groups of every forest"},\n'
         '  "pieces": {\n'
-        '    "id": [20,100],\n'
-        '    "forest_id": [20,20],\n'
+        f'    "id": {pieces[0]},\n'
+        f'    "forest_id": {pieces[1]},\n'
         '    "trees": [2,1]\n'
         "  }\n"
         "}\n"
@@ -1053,6 +1221,61 @@ def test_cut_report_checks_the_multiplier_against_both_runs():
     print("  ✓ the multiplier must be the one both runs record")
 
 
+def test_cut_report_fails_a_record_unmatched_outside_the_split_forests():
+    """A tree galaxy of the unchanged forest 30 present in the cut run only fails."""
+    print("Testing an unmatched record outside the split forests...")
+    with scratch() as root:
+        options = cut_inputs(root)
+        extra = cut_run(root, "extra", cut=True, tree=[*CUT_TREE, (303, 301, 2, 2, 2, 7.0)])
+        status, report = compare(cut_run(root, "uncut", cut=False), extra, *options)
+        assert_status(status, DIFFERENT, report, "an unmatched record in an unchanged forest")
+        assert "tree-row key sets differ" in report and "MostBoundID=303" in report, report
+    print("  ✓ an unmatched record outside the split forests fails")
+
+
+def test_cut_report_refuses_inputs_that_do_not_describe_the_runs():
+    """Sidecars and records that do not describe the runs exit 2, never 0 or 1.
+
+    A record computed on another dataset; a second sidecar that swaps two
+    forests, so galaxy 101's pair lands in forests 10 and 30; a record that does
+    not list the cut run's fresh piece 100; and runs without the central field
+    that places created records.
+    """
+    print("Testing cut inputs that do not describe the runs...")
+    with scratch() as root:
+        uncut, cut = cut_run(root, "uncut", cut=False), cut_run(root, "cut", cut=True)
+        status, report = compare(uncut, cut, *cut_inputs(root, record_forests=[10, 20, 31]))
+        assert_status(status, INPUT_ERROR, report, "a record of another dataset")
+        assert "neither sidecar is" in report, f"the mismatch was not named\n{report}"
+
+        options = cut_inputs(root)
+        with h5py.File(root / "cut-forests.h5", "w") as handle:
+            handle.create_dataset(
+                "ForestID", data=numpy.array([30, 20, 10, 100], dtype=numpy.int64)
+            )
+        status, report = compare(uncut, cut, *options)
+        assert_status(status, INPUT_ERROR, report, "a pair placed in two forests")
+        assert "placed in original forests 10 and 30" in report, f"not named\n{report}"
+
+        status, report = compare(uncut, cut, *cut_inputs(root, pieces=("[20]", "[20]")))
+        assert_status(status, INPUT_ERROR, report, "a fresh piece the record does not list")
+        assert "ForestID 100 is a fresh piece id" in report, f"not named\n{report}"
+
+        for name in ("uncut", "cut"):
+            for path in (root / name).glob("model_*.hdf5"):
+                with h5py.File(path, "a") as handle:
+                    for snap in [key for key in handle if key.startswith("Snap")]:
+                        rows = handle[f"{snap}/Galaxies"][()]
+                        del handle[f"{snap}/Galaxies"]
+                        kept = [n for n in rows.dtype.names if n != "UniqueCentralGalaxyID"]
+                        handle[f"{snap}/Galaxies"] = repack_fields(rows[kept])
+        tree_pairing = [o for o in cut_inputs(root) if o != "--match-created-by-lineage"]
+        status, report = compare(uncut, cut, *tree_pairing)
+        assert_status(status, INPUT_ERROR, report, "records without UniqueCentralGalaxyID")
+        assert "carry no ['UniqueCentralGalaxyID']" in report, f"field not named\n{report}"
+    print("  ✓ a foreign record, swapped sidecar, unlisted piece or missing central is refused")
+
+
 def test_cut_report_unplaceable_record_is_an_input_error():
     """A tree id decoding outside its dataset's sidecar exits 2, never 0 or 1."""
     print("Testing an unplaceable record...")
@@ -1096,60 +1319,78 @@ def wide_records(rows, forests, multiplier):
 
 
 def peak_traced_bytes(call):
-    """The peak bytes traced while `call` runs, its stdout discarded."""
+    """The peak bytes traced while ``call(snap)`` compares a second snapshot, stdout discarded.
+
+    The first snapshot is compared first, untimed, so an alternate mode holds its
+    id pairs as it does at every later snapshot.
+    """
     tracemalloc.start()
     try:
         with contextlib.redirect_stdout(io.StringIO()):
-            outcome = call()
+            call(PAIRED_SNAP)
+            tracemalloc.reset_peak()
+            outcome = call(PAIRED_SNAP + 1)
         return tracemalloc.get_traced_memory()[1], outcome
     finally:
         tracemalloc.stop()
 
 
+#: The comparator docstring's measured peaks per row, in the order the test checks them.
+DOCUMENTED_PEAKS_RE = re.compile(
+    r"about (\d+) B per row of one run under the default rule, (\d+) B under the catalogue "
+    r"pairing and (\d+) B with the cut report"
+)
+
+
 def test_no_comparison_copies_a_runs_records():
-    """The default rule, the catalogue pairing and the cut report each stay below one run's records.
+    """The default rule, the catalogue pairing and the cut report each stay below one run's
+    records, and near the per-row peak the comparator's docstring states.
 
     A copy of either run's records (a boolean selection that keeps every row,
     the paired records, or their concatenation) traces at least that run's
     record bytes; positions, keys, masks, the pairing's sorts and one gathered
-    field at a time stay below it (about 0.23, 0.69 and 0.76 of it on these
-    304 B records). Each comparison must also find the identical runs
-    identical, so the bound is not met by skipping the work.
+    field at a time stay below it. Each peak must also lie within 20% of the
+    docstring's figure, so neither can drift from the other unnoticed, and each
+    comparison must find the identical runs identical, so the bound is not met
+    by skipping the work.
     """
     print("Testing that no comparison copies a run's records...")
+    documented = DOCUMENTED_PEAKS_RE.search(" ".join(comparator.__doc__.split()))
+    assert documented, "the comparator's docstring no longer states its measured peaks"
     rows, forests, multiplier = 200_000, 50, 20_000_000_000
     left, right = wide_records(rows, forests, multiplier), wide_records(rows, forests, multiplier)
-    budget = left.nbytes
     labels = ("left", "right")
     sidecar = numpy.arange(forests, dtype=numpy.int64) + 10
     record = comparator.CutRecord(
-        numpy.array([10], dtype=numpy.int64), numpy.array([10], dtype=numpy.int64), forests + 9
+        numpy.array([10], dtype=numpy.int64), numpy.array([10], dtype=numpy.int64), forests + 9, {}
     )
+    catalogue = comparator.Matching("catalogue", None)
     cases = {
-        "the default rule": lambda: comparator.compare_snapshot(
-            PAIRED_SNAP, left, right, labels, 10
-        ),
-        "the catalogue pairing": lambda: comparator.compare_snapshot_matched(
-            PAIRED_SNAP, left, right, labels, 10, comparator.Matching("catalogue", None)
-        ),
-        "the cut report": lambda: comparator.compare_snapshot_matched(
-            PAIRED_SNAP,
-            left,
-            right,
-            labels,
-            10,
-            comparator.Matching("catalogue", None),
+        "the default rule": (comparator.BY_ID, None),
+        "the catalogue pairing": (catalogue, None),
+        "the cut report": (
+            catalogue,
             comparator.CutReport(multiplier, (sidecar, sidecar), record, False),
         ),
     }
-    for what, call in cases.items():
-        peak, outcome = peak_traced_bytes(call)
+    for (what, (matching, cut)), figure in zip(cases.items(), documented.groups()):
+        history = comparator.PairHistory() if matching.alternate else None
+        peak, outcome = peak_traced_bytes(
+            lambda snap, m=matching, c=cut, h=history: comparator.compare_snapshot(
+                snap, left, right, labels, 10, m, c, h
+            )
+        )
         assert outcome.failures == 0 and outcome.tree_rows == rows, f"{what}: {outcome}"
-        assert peak < budget, (
+        assert peak < left.nbytes, (
             f"{what} traced {peak} B at its peak, at least one run's {left.nbytes} B of "
             f"records: a copy of the records was made"
         )
-    print(f"  ✓ every comparison stays below one run's {left.nbytes} B of records")
+        per_row = peak / rows
+        assert abs(per_row - int(figure)) <= 0.2 * int(figure), (
+            f"{what} peaked at {per_row:.0f} B per row; the comparator's docstring states "
+            f"{figure} B"
+        )
+    print(f"  ✓ every comparison stays below one run's {left.nbytes} B and near its stated peak")
 
 
 # --------------------------------------------------------------------------
@@ -1205,6 +1446,51 @@ def test_directory_without_partitions_is_an_input_error():
     print("  ✓ a directory with no partition files is an input error")
 
 
+def test_partitions_must_be_exactly_the_master_files_links():
+    """A partition the master does not link, or a linked one that is missing, exits 2.
+
+    A stale partition left by an earlier run in the same directory would
+    otherwise be aggregated as if this run had written it.
+    """
+    print("Testing the partition set against the master file...")
+    with scratch() as root:
+        records = make_records([1_000_000_001, 1_000_000_002])
+        left, right = build_pair(root, [{0: records}], [{0: records[:1]}, {0: records[1:]}])
+        stale = root / "left" / numbered_filename("model", 7)
+        with h5py.File(stale, "w") as handle:
+            handle.create_dataset("Snap000/Galaxies", data=records[:0])
+        status, report = compare(left, right)
+        assert_status(status, INPUT_ERROR, report, "a stale partition")
+        assert "present but not linked" in report and stale.name in report, report
+
+        stale.unlink()
+        (root / "right" / numbered_filename("model", 1)).unlink()
+        status, report = compare(left, right)
+        assert_status(status, INPUT_ERROR, report, "a missing partition")
+        assert "1 linked but missing ['model_001.hdf5']" in report, report
+    print("  ✓ the partitions must be exactly the files the master links")
+
+
+def test_an_unexpected_failure_exits_3_with_its_traceback():
+    """A failure of the comparator itself is neither a difference (1) nor an input error (2)."""
+    print("Testing an unexpected failure...")
+    with scratch() as root:
+        records = make_records([1_000_000_001])
+        left, right = build_pair(root, [{0: records}], [{0: records}])
+
+        def exhausted(*_args, **_kwargs):
+            raise MemoryError("no memory left")
+
+        original, comparator.compare_snapshot = comparator.compare_snapshot, exhausted
+        try:
+            status, report = compare(left, right)
+        finally:
+            comparator.compare_snapshot = original
+        assert_status(status, 3, report, "an unexpected failure")
+        assert "Traceback" in report and "MemoryError: no memory left" in report, report
+    print("  ✓ an unexpected failure exits 3 and prints its traceback")
+
+
 def main():
     """Run this file's tests via the shared framework runner."""
     return run_test_suite(
@@ -1232,16 +1518,24 @@ def main():
             test_lineage_mismatch_and_created_field_difference_fail,
             test_duplicate_catalogue_key_fails,
             test_broken_central_mapping_fails,
+            test_alternate_pairings_require_each_id_to_keep_its_partner,
+            test_alternate_pairings_fail_a_zero_id_and_an_unpaired_tree_row,
+            test_lineage_pairing_fails_a_wrong_central_and_a_duplicated_key,
+            test_lineage_key_beyond_its_packing_is_an_input_error,
             test_alternate_mode_usage_errors,
             test_cut_report_reports_a_split_forest_difference_and_fails_an_unchanged_one,
             test_cut_report_classifies_a_fresh_piece_record_to_its_original_forest,
             test_cut_report_places_an_inherited_created_record_through_its_central,
             test_cut_report_checks_the_multiplier_against_both_runs,
+            test_cut_report_fails_a_record_unmatched_outside_the_split_forests,
+            test_cut_report_refuses_inputs_that_do_not_describe_the_runs,
             test_cut_report_unplaceable_record_is_an_input_error,
             test_no_comparison_copies_a_runs_records,
             test_truncated_partition_is_an_input_error,
             test_missing_run_directory_is_an_input_error,
             test_directory_without_partitions_is_an_input_error,
+            test_partitions_must_be_exactly_the_master_files_links,
+            test_an_unexpected_failure_exits_3_with_its_traceback,
         ],
         "Cross-format identity comparator (test_compare_cross_format_identity.py)",
     )

@@ -11,17 +11,18 @@ ASCII tree file, indexed header dialect, a bare tree-count line and one ``#tree`
 block per tree), ``forests.list`` (every tree root to its forest) and
 ``worked_ascii.a_list`` (the fixture's six scale factors, one per line).
 ``../regenerate.sh`` converts them with ``convert/mimic-convert/convert_trees.py``
-into ``../worked_ascii/``.
+into ``../worked_ascii/`` (via ``convert_worked_ascii.sh`` beside this script).
 
 The scale factors are the last six of a vertical Consistent-Trees ASCII package's
 own snapshot list (its ``simulation_info.yaml`` ``input.snapshot_list_file``),
 renumbered from 0, so the fixture's timesteps have that package's real spacing.
 ``--package`` names the package (default ``micro-uchuu-ascii``, the source of
 this horizontal package); ``--output-dir`` writes elsewhere, which is how
-``simulations/shin-uchuu/_tests/data/regenerate.sh`` builds the same forests at
-``shin-uchuu-ascii``'s scale factors in a temporary directory.
+``convert_worked_ascii.sh`` builds the same forests at each package's scale factors in a
+temporary directory.
 
-The fixture is three forests of four trees over six snapshots, chosen to exercise
+The fixture is three forests holding four trees in all (forest 10 has two, forests 20 and 30
+one each) over six snapshots, chosen to exercise
 every case the horizontal reader and driver must handle:
 
 - snapshot 0 is empty and snapshots 1-5 are populated;

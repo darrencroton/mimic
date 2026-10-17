@@ -2,7 +2,7 @@
 #
 # Defines the RawHalo contract for the horizontal_hdf5 reader. Every entry below
 # is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (format_version 3),
-# whose Halo Datasets table makes dataset names and types normative: the
+# whose V3 Halo Datasets table makes dataset names and types normative: the
 # generated reader-side code consumes the datasets by name, so property names
 # and the on-disk names are the same strings and no `source:` mapping is needed.
 #
@@ -10,9 +10,9 @@
 # (key order, units, h_convention, range, output, init/output sources, and
 # core-role bindings) except the five link roles, which are `long long` here
 # because the version 3 format stores int64 links, while the vertical package
-# keeps `int`. The snapshot dataset is produced from that same
-# Shin-Uchuu Consistent-Trees subset by convert/mimic-convert/, which applies the
-# same reference value conventions. M_Crit200 therefore carries the native
+# keeps `int`. The snapshot dataset is the full Shin-Uchuu Consistent-Trees
+# catalogue's production dataset (see README.md), which applies the same
+# reference value conventions. M_Crit200 therefore carries the native
 # ctrees Mvir in Msun/h, positions are Mpc/h, Spin is the specific angular
 # momentum J/Mvir, (Mpc/h)(km/s), for non-zero Mvir -- the converter
 # deliberately keeps raw J for zero-mass halos -- and Len is derived as
@@ -34,7 +34,7 @@
 #
 # Mirror maintenance: the shared fields track simulations/shin-uchuu-ascii, link
 # types aside. Any other change to a shared field must be made in both, and any
-# change to a name or type here must first be made in the frozen format
+# change to a name or type here must first be made in the format
 # specification.
 
 halo_properties:
@@ -42,31 +42,31 @@ halo_properties:
   - name: Descendant
     type: long long
     units: dimensionless
-    description: Index of the descendant halo in this forest, or -1 if none
+    description: Row index of the descendant in the DescendantSnapshot file, or -1 if none
     provides_core_role: Descendant
 
   - name: FirstProgenitor
     type: long long
     units: dimensionless
-    description: Index of the first progenitor halo in this forest, or -1 if none
+    description: Row index of the main progenitor in the FirstProgenitorSnapshot file, or -1 if none
     provides_core_role: FirstProgenitor
 
   - name: NextProgenitor
     type: long long
     units: dimensionless
-    description: Index of the next progenitor linked to the same descendant, or -1 if none
+    description: Row index of the next sibling progenitor in the NextProgenitorSnapshot file, or -1 if none
     provides_core_role: NextProgenitor
 
   - name: FirstHaloInFOFgroup
     type: long long
     units: dimensionless
-    description: Index of the first halo in this FoF group
+    description: Row index in this snapshot of the FoF central
     provides_core_role: FirstHaloInFOFgroup
 
   - name: NextHaloInFOFgroup
     type: long long
     units: dimensionless
-    description: Index of the next halo in this FoF group, or -1 if none
+    description: Row index in this snapshot of the next FoF-group member, or -1 if last
     provides_core_role: NextHaloInFOFgroup
 
   # --- particle count (derived by the producer from Mvir / particle_mass) ---

@@ -74,6 +74,8 @@ extern struct MimicConfig MimicConfig;
 #define FIXTURE_N_FORESTS_TOTAL 2
 #define FIXTURE_MAX_RANK 3
 #define FIXTURE_MAX_HALOS 3
+/* Snapshot 1's entry of the fixture's a_list, which the headers repeat exactly. */
+#define FIXTURE_SCALE_FACTOR_SNAP1 0.012346
 
 static const int64_t FIXTURE_HALO_COUNTS[FIXTURE_SNAPSHOTS] = {2, 2, 0, 3};
 
@@ -1164,7 +1166,7 @@ static int c_scale_factor_one_ulp(const char *dir) {
   /* One ULP above snapshot 1's a_list entry: the producer compares exactly, so
      the reader must too, where a tolerance would accept it. */
   SNAP_FILE(dir, 1, p);
-  return set_attr_f64(p, "scale_factor", nextafter(0.012346, 1.0));
+  return set_attr_f64(p, "scale_factor", nextafter(FIXTURE_SCALE_FACTOR_SNAP1, 1.0));
 }
 static int c_box_size(const char *dir) {
   SNAP_FILE(dir, 3, p);

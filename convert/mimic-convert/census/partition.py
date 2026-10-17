@@ -27,7 +27,10 @@ its rows in every slab, so a forest that holds few rows in the widest slab but
 many in another is weighed by the slab where it is large. The occupancy pass
 already records the peaks (``forest_max_occupancy.npy``); the weight vector is
 8 B x ``n_forests_total`` (1.3 GB for Shin-Uchuu's 166,547,771 forests), plus
-the 4 B x ``n_forests_total`` int32 array it is widened from while it loads.
+the 4 B x ``n_forests_total`` int32 array it is widened from while it loads
+(12 B x ``n_forests_total`` in all). Cutting the weights adds their prefix sums
+(8 B x ``n_forests_total``) and a one-byte comparison mask, so the phase peaks
+at 17 B x ``n_forests_total`` (2.8 GB at Shin-Uchuu's forest count).
 :func:`range_rows` applies a partition's cuts to any slab's sparse per-forest
 counts, giving each range's row count in that slab.
 
@@ -54,12 +57,11 @@ from census.aggregate import (  # noqa: E402
     bound_identity,
     load_array,
     require_summary,
-    write_json,
+    write_json_recording_size,
 )
+from census.common import INT64_MAX  # noqa: E402
 from census.occupancy import load_slab_pairs, occupancy_dir  # noqa: E402
 from errors import ConverterError  # noqa: E402
-
-_INT64_MAX = int(np.iinfo(np.int64).max)
 
 
 def _prefix_sums(weights: np.ndarray) -> np.ndarray:
@@ -90,7 +92,7 @@ def _greedy_starts(prefix: np.ndarray, capacity: int, limit: int) -> List[int]:
     start = 0
     while True:
         reach = (
-            int(prefix[start]) + capacity if capacity <= _INT64_MAX - int(prefix[start]) else None
+            int(prefix[start]) + capacity if capacity <= INT64_MAX - int(prefix[start]) else None
         )
         end = n_forests if reach is None else int(np.searchsorted(prefix, reach, "right")) - 1
         if end >= n_forests or len(starts) > limit:
@@ -165,6 +167,11 @@ def range_rows(
     prefix: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Rows of one slab in each range of ``cuts``.
+
+    The slab is assumed forest-blocked: its rows are in ascending ``ForestIndex``
+    order, so a forest range is one contiguous run of rows. The format
+    guarantees it and the horizontal driver verifies it at startup; the
+    occupancy pass refuses a slab that is not.
 
     Args:
         forests: the slab's present ``ForestIndex`` values, ascending.
@@ -330,13 +337,9 @@ def run_partition(
             }
         },
     }
-    # the summary records its own size: rewrite until the recorded figure is the file's
-    path = Path(aggregate_dir) / PARTITION_DIR / SUMMARY_NAME
-    record = summary["aggregates"]["summary"]
-    for _attempt in range(8):
-        write_json(path, summary)
-        size = path.stat().st_size
-        if size == record["bytes"]:
-            break
-        record["bytes"] = size
+    write_json_recording_size(
+        Path(aggregate_dir) / PARTITION_DIR / SUMMARY_NAME,
+        summary,
+        summary["aggregates"]["summary"],
+    )
     return summary

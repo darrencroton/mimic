@@ -12,9 +12,8 @@ The refusals, in the order they are made:
   input, and neither contains the other;
 - the operation's options: ``cut`` needs ``--cut-table``, which ``noop``
   refuses, and takes ``--cut-table-record``;
-- the input: ``format_version`` 3 (every other version is refused by the
-  reader, and again here by name), ``links_adjacent`` 1, and
-  ``source_format`` ``consistent_trees_ascii``;
+- the input: ``format_version`` 3 (the reader refuses every other version),
+  ``links_adjacent`` 1, and ``source_format`` ``consistent_trees_ascii``;
 - the a_list: exactly the input's scale factors;
 - the simulation metadata: exactly the input's five physical header values;
 - the schema: the shipped default profile's, whose digest must be the
@@ -23,14 +22,20 @@ The refusals, in the order they are made:
   ``/schema`` must then declare exactly it, and is carried through;
 - the columns: every ``/halos`` column the output table needs, at the table's
   dtype and shape;
+- the object sets: no root object or attribute, ``/header`` attribute,
+  ``/halos`` or ``/schema`` object or attribute, or ``forests.h5`` dataset or
+  attribute that the format does not define, since the passes carry exactly
+  the format's objects and would drop any other;
 - the multiplier: it must encode the output's identity bounds -- the
-  input's for ``noop``; for ``cut`` the installed table's, checked when the
+  input's for ``noop``; for ``cut`` the input's forest count here (the output
+  holds at least as many forests) and the installed table's bounds when the
   table is installed (``rewriter.cut``), since a cut lowers
   ``max_halo_rank_in_forest`` and raises ``n_forests_total``;
 - the index files: both present and consistent with each other, listing
   exactly the input's forests in the sidecar's order;
 - the tree-file order: the ``FileID`` -> file-ordinal mapping the input
-  sidecar itself implies, refused when inconsistent;
+  sidecar itself implies, refused when inconsistent
+  (:func:`sidecar_file_ordinals`);
 - the cut table's record (``cut``, when given): a readable JSON record whose
   ``table.md5`` is the given table's md5 and whose ``index_files`` md5 values
   are the given index files', each refused otherwise; the record's dataset
@@ -57,16 +62,17 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
+import h5py
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from census.common import examples  # noqa: E402
 from census.cut_table import md5_file  # noqa: E402
 from column_schema import CanonicalSchema, PayloadField, build_schema, load_column_map  # noqa: E402
 from conversion_manifest import (  # noqa: E402
-    canonical_sha256,
     dtype_descriptor,
     pin_dependency,
     schema_record,
@@ -74,15 +80,16 @@ from conversion_manifest import (  # noqa: E402
 )
 from errors import ConverterError  # noqa: E402
 from hdf5_writer_v3 import (  # noqa: E402
+    HEADER_ATTRS,
     V3_SCHEMA_ATTRS,
     V3_SIDECAR_DATASETS,
+    V3_STRING_ATTRS,
     load_header_metadata,
     v3_halo_datasets,
 )
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from rewriter import (  # noqa: E402
     OPERATION_CUT,
-    OPERATION_NOOP,
     OPERATIONS,
     REWRITER_VERSION,
     SOURCE_FORMAT,
@@ -116,10 +123,6 @@ ROLE_FORESTS_LIST = "forests_list"
 ROLE_LOCATIONS = "locations"
 ROLE_CUT_TABLE = "cut_table"
 ROLE_CUT_TABLE_RECORD = "cut_table_record"
-
-
-def _examples(values, limit: int = 5) -> list:
-    return [v for v in list(values)[:limit]]
 
 
 @dataclass(frozen=True)
@@ -269,15 +272,9 @@ def check_options(request: RewriteRequest) -> None:
 # ---------------------------------------------------------------------------
 
 
-def check_dataset(request: RewriteRequest, dataset: HorizontalDataset) -> None:
-    """The input is version 3, adjacent, and of this format."""
-    wanted = 3
-    if dataset.format_version != wanted:
-        raise ConverterError(
-            "{}: format_version {} but {} rewrites a version {} input".format(
-                dataset.directory, dataset.format_version, request.operation, wanted
-            )
-        )
+def check_dataset(dataset: HorizontalDataset) -> None:
+    """The input is adjacent and of this format (the reader has refused every
+    version but 3)."""
     if dataset.links_adjacent != 1:
         raise ConverterError(
             "{}: links_adjacent {}; only a dataset whose every Descendant link is adjacent "
@@ -308,7 +305,7 @@ def check_a_list(request: RewriteRequest, dataset: HorizontalDataset) -> Tuple[f
                 request.a_list,
                 len(scales),
                 len(recorded),
-                _examples(differing) if differing else "none, lengths differ",
+                examples(differing) if differing else "none, lengths differ",
             )
         )
     return tuple(scales)
@@ -426,6 +423,45 @@ def check_columns(dataset: HorizontalDataset, table: Mapping[str, Tuple[np.dtype
                 )
 
 
+def check_object_sets(
+    dataset: HorizontalDataset,
+    table: Mapping[str, Tuple[np.dtype, bool]],
+    declarations: Sequence[PayloadField],
+) -> None:
+    """Every slab and the sidecar hold only objects and attributes the format
+    defines: the root's three groups, the header attributes, the table's
+    ``/halos`` datasets, the declared ``/schema`` subgroups, and the
+    sidecar's three datasets, none of the groups carrying another attribute.
+    The passes write exactly these, so anything else would be dropped; it is
+    refused by name instead. Missing objects are refused where they are read."""
+    header_attrs = tuple(HEADER_ATTRS) + tuple(V3_STRING_ATTRS)
+    defined = (
+        # group, its objects, its attributes
+        ("/", ("header", "halos", "schema"), ()),
+        ("/header", (), header_attrs),
+        ("/halos", tuple(table), ()),
+        ("/schema", tuple(declaration.name for declaration in declarations), ()),
+    )
+    for snap in dataset.snapshots:
+        path = dataset.snapshot_path(snap)
+        with h5py.File(path, "r") as handle:
+            for group, objects, attributes in defined:
+                _refuse_undefined(path, group, "object", handle[group].keys(), objects)
+                _refuse_undefined(path, group, "attribute", handle[group].attrs.keys(), attributes)
+    with h5py.File(dataset.sidecar_path, "r") as handle:
+        _refuse_undefined(dataset.sidecar_path, "/", "object", handle.keys(), V3_SIDECAR_DATASETS)
+        _refuse_undefined(dataset.sidecar_path, "/", "attribute", handle.attrs.keys(), ())
+
+
+def _refuse_undefined(path, group: str, kind: str, held, defined) -> None:
+    extra = sorted(set(held) - set(defined))
+    if extra:
+        raise ConverterError(
+            "{}: {} holds {}(s) {} that the format does not define; the rewriter writes only "
+            "the format's objects and refuses to drop these".format(path, group, kind, extra)
+        )
+
+
 # ---------------------------------------------------------------------------
 # The index files and the tree-file order
 # ---------------------------------------------------------------------------
@@ -463,37 +499,45 @@ def check_forest_ids(
                 table.forest_ids.size,
                 forest_ids.size,
                 only_index.size,
-                _examples(only_index.tolist()),
+                examples(only_index.tolist()),
                 only_sidecar.size,
-                _examples(only_sidecar.tolist()),
+                examples(only_sidecar.tolist()),
             )
         )
 
 
-def _basenames(index: SourceIndex) -> Dict[int, str]:
-    names = {file_id: os.path.basename(name) for file_id, name in index.filenames.items()}
+def check_file_names(index: SourceIndex) -> None:
+    """Refuse two ``locations.dat`` FileIDs that name one file (by base
+    name): which file a tree's FileID means would then be ambiguous."""
     seen: Dict[str, int] = {}
-    for file_id, name in sorted(names.items()):
+    for file_id, name in sorted(index.filenames.items()):
+        name = os.path.basename(name)
         if name in seen:
             raise ConverterError(
                 "locations.dat: FileID {} and {} both name {!r}; the tree-file mapping is "
                 "ambiguous".format(seen[name], file_id, name)
             )
         seen[name] = file_id
-    return names
 
 
 def sidecar_file_ordinals(
     index: SourceIndex, table: ForestTable, sidecar: Mapping[str, np.ndarray]
 ) -> Dict[int, int]:
     """The ``FileID`` -> ``SourceFileOrdinal`` mapping the input's own sidecar
-    implies through the forests held in one file, refused
-    when it is not one-to-one; a ``FileID`` whose every forest spans files
-    maps to -1. The unit ordinals and the spanning forests must agree too."""
-    _basenames(index)
+    implies through its forests held in one file, for every ``FileID`` of
+    ``locations.dat``; a ``FileID`` whose every forest spans files maps to -1.
+
+    Refused, before the mapping is formed: two FileIDs naming one file
+    (:func:`check_file_names`); a forest whose ``SourceUnitOrdinal`` is not
+    the index files' unit ordinal, or that spans files in the index files
+    but carries a file or unit ordinal other than -1; a mapping that is not
+    one-to-one; and a forest held in one file whose ordinal is -1. A sidecar
+    this accepts is exactly the one :func:`output_sidecar` derives from the
+    index files and the mapping."""
+    check_file_names(index)
     files = np.asarray(sidecar["SourceFileOrdinal"], dtype=np.int64)
     units = np.asarray(sidecar["SourceUnitOrdinal"], dtype=np.int64)
-    single = table.file_ordinal >= 0
+    single = table.file_id >= 0
     bad_units = units != table.unit_ordinal
     bad_span = (~single) & ((files != -1) | (units != -1))
     if bad_units.any() or bad_span.any():
@@ -501,10 +545,10 @@ def sidecar_file_ordinals(
         raise ConverterError(
             "index files inconsistent with the input sidecar: {} forest(s) whose unit ordinal "
             "or spanning status differs; ForestIndex examples: {}".format(
-                rows.size, _examples(rows.tolist())
+                rows.size, examples(rows.tolist())
             )
         )
-    pairs = np.unique(np.stack((table.file_ordinal[single], files[single]), axis=1), axis=0)
+    pairs = np.unique(np.stack((table.file_id[single], files[single]), axis=1), axis=0)
     if pairs.size:
         if (
             np.unique(pairs[:, 0]).size != pairs.shape[0]
@@ -512,12 +556,12 @@ def sidecar_file_ordinals(
         ):
             raise ConverterError(
                 "index files inconsistent with the input sidecar: FileID to SourceFileOrdinal is "
-                "not one-to-one; (FileID, ordinal) pairs: {}".format(_examples(pairs.tolist()))
+                "not one-to-one; (FileID, ordinal) pairs: {}".format(examples(pairs.tolist()))
             )
         if (pairs[:, 1] < 0).any():
             raise ConverterError(
                 "input sidecar: a forest held in one file carries SourceFileOrdinal -1; "
-                "(FileID, ordinal) pairs: {}".format(_examples(pairs.tolist()))
+                "(FileID, ordinal) pairs: {}".format(examples(pairs.tolist()))
             )
     mapping = {int(file_id): int(ordinal) for file_id, ordinal in pairs.tolist()}
     return {file_id: mapping.get(file_id, -1) for file_id in index.filenames}
@@ -529,21 +573,21 @@ def output_sidecar(
     """The three sidecar columns: the input's forest ids, each single-file
     forest's conversion file ordinal and unit ordinal, -1/-1 for a forest
     spanning files."""
-    single = table.file_ordinal >= 0
+    single = table.file_id >= 0
     keys = np.asarray(sorted(file_ordinals), dtype=np.int64)
     values = np.asarray([file_ordinals[key] for key in keys.tolist()], dtype=np.int64)
     files = np.full(table.forest_ids.size, -1, dtype=np.int64)
     if single.any():
-        position = np.searchsorted(keys, table.file_ordinal[single])
+        position = np.searchsorted(keys, table.file_id[single])
         position = np.minimum(position, max(keys.size - 1, 0))
-        found = keys.size > 0 and keys[position] == table.file_ordinal[single]
+        found = keys.size > 0 and keys[position] == table.file_id[single]
         held = np.where(found, values[position], -1)
         files[single] = held
     unknown = single & (files < 0)
     if unknown.any():
         raise ConverterError(
             "{} forest(s) held in one file whose FileID has no conversion ordinal; ForestIndex "
-            "examples: {}".format(int(unknown.sum()), _examples(np.flatnonzero(unknown).tolist()))
+            "examples: {}".format(int(unknown.sum()), examples(np.flatnonzero(unknown).tolist()))
         )
     units = np.where(single, table.unit_ordinal, -1).astype(np.int64)
     return {
@@ -557,54 +601,88 @@ def output_sidecar(
 # The planned working set
 # ---------------------------------------------------------------------------
 
-#: The concurrent peak per phase (package docstring): n the widest slab's
-#: rows, F the forests, T the index's trees, P its (file, forest) pairs, b the
-#: block rows read at a time. The per-row and per-tree coefficients marked
-#: measured were measured with tracemalloc on a synthetic 400,000-row slab.
+#: The rewriter's memory, stated once: the concurrent peak of every phase, for
+#: the no-op and then what a cut adds or changes. Every summary records it
+#: and :func:`planned_peak_bytes` evaluates it for an input.
 MEMORY_FORMULAS = {
-    "pass0": "133 B x T + 80 B x F + 8 B x P + 24 B x b at the inventory step, holding the "
-    "index (32 B x T), its forest table (40 B x F + 8 B x P), the sidecar columns (24 B x F), "
-    "the roots and their slabs (12 B x T), the totals and bases (16 B x F) and the inventory "
-    "(56 B x T) with the marker ordinals' transient (33 B x T, measured); earlier transients "
-    "are smaller: the index load (79 B x T), the forest table's build (57 B x T at Shin-Uchuu's "
-    "ratio, 81 B x T when forests equal trees) and the roots' gathering (42 B x T)",
+    "symbols": "n the widest slab's rows, F n_forests_total, T the index's trees, P its (file, "
+    "forest) pairs, b the rows read per block; for a cut F' the output's forests, p the pieces "
+    "of the split forests and P the cut index's pairs. Shin-Uchuu: n 519,342,987, F "
+    "166,547,771, T 315,004,242, P about 320 million, and under the decided table F' "
+    "244,953,607, p 86,459,398. The coefficients marked measured were measured with "
+    "tracemalloc on a synthetic 400,000-row slab (for the cut: 100,000 forests of two trees "
+    "each, every forest cut into its two trees, every row of the slab a progenitor, three "
+    "quarters of them of descendants with three progenitors, one quarter promoted)",
+    "pass0": "133 B x T + 80 B x F + 8 B x P + 24 B x b at the inventory step: the index "
+    "(32 B x T, after a load that peaks at 79 B x T), its forest table (40 B x F + 8 B x P, "
+    "built with a transient of 57 B x T at Shin-Uchuu's ratio and 81 B x T when forests "
+    "equal trees), the sidecar columns (24 B x F), the roots and their slabs (12 B x T, "
+    "after a gathering peak of 42 B x T), the totals and bases (16 B x F), and the inventory "
+    "(56 B x T) with the marker ordinals' transient (33 B x T, measured); about 58 GB at "
+    "Shin-Uchuu. The index, forest table, sidecar columns, totals and inventory are then "
+    "released (the inventory is checkpointed in the scratch and reloaded at the end)",
     "baseline": "16 B x F (forest bases, running counts) + 16 B x T (roots, tree counts) + "
-    "4 B x n (the previous slab's labels) through passes 1 and 2, once pass 0's tables are "
-    "released",
-    "remap_store": "32 B per row of each resident slab, at most three slabs: 96 B x n",
-    "pass1": "the working set of one slab beside the baseline and the two held remap entries "
-    "(64 B x n): 68 B x n, and 79 B x n for a last slab whose every halo is terminal "
-    "(measured; the sort's four key columns and workspace, then the identities, the labels "
-    "and the root lookup's transients)",
-    "pass2": "the working set of one slab beside the baseline and the three held remap "
-    "entries: 45 B x n while writing (one input column and its gathered output, or a link's "
-    "temporaries and the target's inverse permutation) and 79 B x n while verifying (the "
-    "written and input link, the compared target ids, one target slab's MostBoundID, then the "
-    "identity columns), measured",
-    "peak": "the larger of pass 0 and the slab passes' 16 B x F + 16 B x T + 179 B x n; "
-    "Shin-Uchuu (n 519,342,987, F 166,547,771, T 315,004,242, P about 320 million): about "
-    "58 GB for pass 0 and about 101 GB for pass 2's verification, the run's peak",
-    "cut": "a cut adds the labelling pre-pass (8 B x n + 16 B x b + about 20 B x n beside "
-    "pass 0's arrays), the table's installation (84 B x T + 82 B x F' + 8 B x P + 56 B x p "
-    "after a 128 B x T read, about 84 GB concurrent at Shin-Uchuu), 24 B x T to the baseline, "
-    "16 B per row per resident remap entry (144 B x n over three), a pass 1 working set of "
-    "298 B x n in place of 68 B x n (measured; 219 GB concurrent, the run's peak) and a "
-    "pass 2 working set of 56 B x n writing and 117 B x n verifying (measured; 150 GB "
-    "concurrent); the planned peak below uses the input's forests for F'",
+    "4 B x n (the previous slab's labels) through passes 1 and 2; about 9.8 GB",
+    "remap_store": "32 B per row of each resident slab (the permutation and three "
+    "identities), at most three slabs: 96 B x n, about 50 GB; its peak is recorded in the "
+    "summary",
+    "pass1": "beside the baseline and the two remap entries already resident (64 B x n), a "
+    "working set of 68 B x n, and 79 B x n for a last slab whose every halo is terminal "
+    "(measured: the sort's four key columns and workspace, then the identities, the labels "
+    "and the root lookup's transients); about 80 GB concurrent",
+    "pass2": "beside the baseline and the three remap entries, 45 B x n while writing (one "
+    "input column and its gathered output, or a link's temporaries and the target's inverse "
+    "permutation) and at most 79 B x n while verifying (measured: the written and input link "
+    "and the compared target rows, then the identity columns); about 101 GB concurrent",
+    "peak": "the larger of pass 0 and the slab passes' 16 B x F + 16 B x T + 179 B x n: "
+    "about 58 GB for pass 0 and about 101 GB for pass 2's verification, the run's peak, at "
+    "Shin-Uchuu",
+    "cut_labelling": "the labelling pre-pass, beside pass 0's resident arrays (about "
+    "52 B x T + 80 B x F + 8 B x P, 32 GB): two slabs' labels, one block of Descendant and "
+    "MostBoundID and the per-slab unique's transients, 8 B x n + 16 B x b + about 20 B x n "
+    "(measured 39 B x n with b = 0.65 n); about 15 GB, 47 GB concurrent",
+    "cut_installation": "the table read and checked at the census reader's 128 B x T (40 GB, "
+    "transient), then the cut index (32 B x T), its forest table (40 B x F' + 8 B x P), the "
+    "table ids, per-tree forests and totals (32 B x T), the output totals, bases and sidecar "
+    "(42 B x F'), the pieces (56 B x p) and about 20 B x T of transients: 84 B x T + "
+    "82 B x F' + 8 B x P + 56 B x p (measured 189 B x T with F' = p = T), about 52 GB, 84 GB "
+    "concurrent with pass 0's arrays; the per-tree inventory is then built with all of it "
+    "still resident (56 B x T and the marker ordinals' 33 B x T transient, about 89 B x T, "
+    "28 GB), the pre-pass peak of about 112 GB concurrent",
+    "cut_baseline": "the baseline grows by the per-tree forests, original forests and totals "
+    "(24 B x T, 7.6 GB), and its per-forest part is about 25 B x F' + 1 B x F in place of "
+    "16 B x F (the output's bases, running counts and forest ids, and the split masks)",
+    "cut_remap_store": "two more int64 columns per resident slab (the recomputed "
+    "NextProgenitor and the next slab's FirstProgenitor): 48 B per row, 144 B x n over three "
+    "slabs, 75 GB",
+    "cut_pass1": "beside the baseline and the two remap entries already resident (96 B x n), "
+    "a working set of at most 298 B x n in place of 68 B x n (measured: the uncut set, the "
+    "inverse permutations of this slab and the next, the new forest, the promotion mask, the "
+    "old and new keys, the stored progenitor links, the mass and the insertion positions "
+    "before and after the cut over the multi-progenitor groups; the keys are released before "
+    "the stored chains are checked); about 155 GB, 219 GB concurrent, the run's peak",
+    "cut_pass2": "beside the baseline and the three remap entries (144 B x n), 56 B x n while "
+    "writing and 117 B x n while verifying (measured: the FoF chain construction, then the "
+    "written columns, the previous slab's Descendant and the structural checks); about "
+    "61 GB, 150 GB concurrent",
+    "cut_peak": "the larger of the pre-pass (about 112 GB at Shin-Uchuu) and pass 1's "
+    "26 B x F' + 40 B x T + 398 B x n (219 GB); planned_peak_bytes uses the input's forests "
+    "for F' and T for p",
 }
 
 
 def planned_peak_bytes(
     widest: int, n_forests: int, n_trees: int, n_pairs: int, block_rows: int, cut: bool = False
 ) -> int:
-    """The concurrent peak the formulas above plan for this input: the larger
-    of pass 0's inventory step and the slab passes' verification peak, or for
-    a cut of the installation and pass 1 (with the input's forest count
-    standing in for the output's, unknown before the table is installed)."""
+    """The concurrent peak :data:`MEMORY_FORMULAS` plans for this input: the
+    larger of pass 0's inventory step and the slab passes' verification peak,
+    or for a cut of the pre-pass and pass 1 (with the input's forest count
+    standing in for the output's, unknown before the table is installed, and
+    the trees for the pieces)."""
     pass0 = 133 * n_trees + 80 * n_forests + 8 * n_pairs + 24 * block_rows
     if cut:
         install = 52 * n_trees + 80 * n_forests + 8 * n_pairs + 84 * n_trees + 82 * n_forests
-        install += 8 * n_pairs + 56 * n_trees
+        install += 8 * n_pairs + 56 * n_trees + 89 * n_trees
         slabs = 26 * n_forests + 40 * n_trees + (4 + 96 + 298) * widest
         return int(max(pass0, install, slabs))
     slabs = 16 * n_forests + 16 * n_trees + 179 * widest
@@ -653,13 +731,7 @@ def _configuration(
     The cut table is bound by its md5 (the census's digest of it) and its
     SHA-256, the latter taken from its pin (``pinned``: role -> content
     digest) so the table is read once for each; the record contributes the
-    rule text and its dataset lineage.
-
-    ``column_map``, ``conversion_manifest``, their digests and the tree-file
-    order are fixed at None and the empty list: the rewriter takes neither
-    file and records no tree-file order, and the keys keep the configuration
-    -- and so the digest a resume compares -- that of every workdir it has
-    written."""
+    rule text and its dataset lineage."""
     input_dtype = np.dtype(
         [
             (name, dtype.str, shape) if shape else (name, dtype.str)
@@ -675,10 +747,6 @@ def _configuration(
         "simulation_info": str(_resolved(request.simulation_info, "--simulation-info")),
         "forests_list": str(_resolved(request.forests_list, "--forests-list")),
         "locations": str(_resolved(request.locations, "--locations")),
-        "column_map": None,
-        "conversion_manifest": None,
-        "tree_file_order": [],
-        "tree_file_order_sha256": canonical_sha256([]),
         "multiplier": int(request.multiplier),
         "cut_table": (
             None if request.cut_table is None else str(_resolved(request.cut_table, "--cut-table"))
@@ -693,10 +761,9 @@ def _configuration(
         "cut_table_record_sha256": pinned.get(ROLE_CUT_TABLE_RECORD),
         "cut_rule": None if cut_record is None else cut_record["rule"],
         "cut_table_record_dataset": None if cut_record is None else cut_record["dataset"],
+        "identity_scheme": "forest-rank",
         "a_list_sha256": sha256_file(request.a_list),
         "simulation_info_sha256": sha256_file(request.simulation_info),
-        "column_map_sha256": None,
-        "conversion_manifest_sha256": None,
         "forests_list_sha256": sha256_file(request.forests_list),
         "locations_sha256": sha256_file(request.locations),
     }
@@ -724,7 +791,7 @@ def _configuration(
         },
         # the report's working-set keys: the rewriter reads in blocks of this
         # many rows, and the budget it plans for is the concurrent peak of
-        # the package docstring's formulas over this input (planned_peak_bytes)
+        # MEMORY_FORMULAS over this input (planned_peak_bytes)
         "ingest_max_rows": int(request.block_rows),
         "transpose_budget_bytes": int(parameters["planned_peak_bytes"]),
     }
@@ -742,14 +809,20 @@ def prepare(request: RewriteRequest) -> Prepared:
     check_options(request)
     input_dir, _output_dir, scratch_dir = check_paths(request)
     dataset = HorizontalDataset(input_dir)
-    check_dataset(request, dataset)
+    check_dataset(dataset)
     scale_factors = check_a_list(request, dataset)
     metadata = check_metadata(request, dataset)
     schema = load_schema(request, dataset)
     declarations = schema.output_field_declarations()
     table = v3_halo_datasets(schema)
     check_columns(dataset, table)
-    if request.operation != OPERATION_CUT:
+    check_object_sets(dataset, table, declarations)
+    if request.operation == OPERATION_CUT:
+        # the output holds at least the input's forests, so a multiplier that
+        # overflows with the input's count overflows with the output's; the
+        # rank bound waits for the installed table
+        check_multiplier(request, dataset.n_forests_total, -1)
+    else:
         check_multiplier(request, dataset.n_forests_total, dataset.max_halo_rank_in_forest)
     index = load_index(request)
     forest_table = index.forest_table()
@@ -763,12 +836,6 @@ def prepare(request: RewriteRequest) -> Prepared:
         )
     file_ordinals = sidecar_file_ordinals(index, forest_table, sidecar_in)
     sidecar = output_sidecar(forest_table, file_ordinals, forest_ids)
-    if request.operation == OPERATION_NOOP:
-        for name in V3_SIDECAR_DATASETS:
-            if not np.array_equal(sidecar[name], np.asarray(sidecar_in[name], dtype=np.int64)):
-                raise ConverterError(
-                    "index files inconsistent with the input sidecar: /{} differs".format(name)
-                )
     cut_table_md5, cut_record = None, None
     if request.operation == OPERATION_CUT:
         cut_table_md5, cut_record = check_cut_table_files(request)
@@ -811,6 +878,8 @@ def prepare(request: RewriteRequest) -> Prepared:
 # ---------------------------------------------------------------------------
 
 
+# The record's line layout is defined by its writer,
+# census.cut_table.write_table_record.
 def read_record_header(path) -> Dict[str, object]:
     """The header entries of a cut table's JSON record, without its per-piece
     columns. The census writes the record with one header entry per line
