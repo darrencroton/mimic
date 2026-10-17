@@ -1,5 +1,7 @@
 # Brief: a cut, vertical Shin-Uchuu for Mimic (updated Fri 16 Oct 2026, 18:10 AEDT; first written Thu 15 Oct 17:00)
 
+**Status (2026-10-17):** promoted into [`MIMIC-SHIN-UCHUU-CUT-VERTICAL-IMPLEMENTATION-PLAN.md`](MIMIC-SHIN-UCHUU-CUT-VERTICAL-IMPLEMENTATION-PLAN.md), which governs scope, acceptance and validation and records where it departs from this brief (the vertical format is L-Halo binary rather than Consistent-Trees HDF5; the super-forest's vertical memory is about 166 to 205 GB, above the estimate below). This brief stays as the record of the owner's direction and of where every retained dataset is.
+
 A planning brief for a fresh session. It is a follow-on to the Shin-Uchuu v3 plan (`MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md` (archived to `archive/dev-plans/`), branch `feature/shin-uchuu-v3`), not part of it. Figures marked *estimate* are reasoned, not measured; everything else comes from the v3 production procedure's record (`docs/dev/MIMIC-SHIN-UCHUU-V3-ACCEPTANCE.md`, Stage C section) and its logs. The same intent is summarised in the repo's `HANDOFF.md` ("FOLLOW-ON INTENT") so the sessions finishing v3 know about it.
 
 ## The question and the owner's direction
