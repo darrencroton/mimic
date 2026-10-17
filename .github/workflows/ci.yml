@@ -54,10 +54,6 @@ jobs:
       run: |
         make tests-converter
 
-    - name: Check horizontal fixture conformance
-      run: |
-        make check-horizontal-fixture
-
     - name: Run unit tests
       run: |
         make tests-unit

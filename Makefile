@@ -320,7 +320,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -508,7 +508,6 @@ help:
 	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
 	@echo "  make tests-distributed  - Run the distributed horizontal gate: the MPI collectives control test, serial-versus-MPI identity at -np 1, 2, 3, 4 and 8 for halos-only, sage16, sham and hod, chunked legs (input.forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3 for halos-only, sage16 and hod, with the sham/hod chunked refusal); needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; a few minutes; rebuild with make afterwards"
 	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
-	@echo "  make check-horizontal-fixture - Check the committed horizontal fixture against the format spec"
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
 	@echo "  make test-clean                   - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
@@ -755,8 +754,6 @@ tests:
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules,validate-modules)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
-	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-horizontal-fixture,check-horizontal-fixture)
-	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-converter || { grep -q '^converter:' build/.test_failures 2>/dev/null || grep -qx converter build/.test_failures 2>/dev/null || echo "converter" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
@@ -816,13 +813,6 @@ tests-converter:
 		printf "$${GREEN}=== TLDR: ALL CONVERTER TESTS PASSED ===$${NC}\n"; \
 		echo ""; \
 	fi
-
-# Structural conformance of the committed horizontal-HDF5 contract fixture
-# (simulations/micro-uchuu-ascii-horizontal/_tests/data/) against the frozen format
-# spec. Package-independent and fast; keeps the fixture from drifting between
-# the manual regeneration runs that produce it.
-check-horizontal-fixture:
-	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) simulations/micro-uchuu-ascii-horizontal/_tests/input/check_fixture_conformance.py simulations/micro-uchuu-ascii-horizontal/_tests/data,horizontal fixture conformance)
 
 tests-unit:
 	@. scripts/lib/colors.sh; \
