@@ -438,12 +438,14 @@ def test_run_files_diff_against_the_committed_vertical_file_only_with_a_vertical
         plain.effective_vertical_run_file = lambda *_args: effective
         for subject, expected in ((gate, vertical), (plain, effective)):
             subject.scratch, subject.done = root, {"dataset"}
-            subject.head = subject.git("rev-parse", "HEAD")
-            with mock.patch(
-                "framework.parity_gate.assert_horizontal_run_file_diff",
-                wraps=assert_horizontal_run_file_diff,
-            ) as diff:
-                subject.stage_run_files()
+            # The HEAD-match check is the gate's, not this rule's: skipped so that an
+            # uncommitted edit to the comparator or a run file cannot fail this test.
+            with mock.patch.object(subject, "assert_matches_head"):
+                with mock.patch(
+                    "framework.parity_gate.assert_horizontal_run_file_diff",
+                    wraps=assert_horizontal_run_file_diff,
+                ) as diff:
+                    subject.stage_run_files()
             # Once for the committed horizontal file, once for its dataset variant.
             bases = [call.args[0] for call in diff.call_args_list]
             assert bases == [expected, expected], bases

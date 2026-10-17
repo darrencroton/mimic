@@ -16,8 +16,8 @@ What it covers: the cut topology at subset scale, written by
 ``convert/mimic-convert/write_vertical_trees.py`` and read by both drivers, so a
 pass proves the conversion reproduces the horizontal run galaxy for galaxy on
 that subset. What it does not cover: the production dataset, whose largest
-forest (126,380,326 halos, the super-forest) is about a hundred times the
-subset's largest; nothing here exercises a forest of that size.
+forest holds 126,380,326 halos (the super-forest); nothing here exercises a
+forest of that size.
 
 Neither package's ``snapshots`` holds the subset (both hold production), so the
 gate is pointed at both datasets from outside::
@@ -123,7 +123,7 @@ def subset_package(lhalo: Path, file_range: tuple[int, int], dataset: Path) -> G
         require_halos_only_before_sage16=True,
         horizontal_dataset=(dataset, package_path("shin-uchuu", "shin-uchuu.a_list")),
         vertical_dataset=(lhalo, *file_range),
-        # Bounds on a hung step, not measurements, as for the uncut subset's gate.
+        # Upper bounds that stop a hung run or comparison, not expected durations.
         run_timeout_s=24 * 3600,
         compare_timeout_s=8 * 3600,
     )
