@@ -101,9 +101,10 @@ def recommended_multiplier(max_rank: int, n_forests_total: int) -> int:
 # The conversion report
 # ==========================================================================
 #
-# The report of a generic (manifest version 3) conversion. It states what was converted and what that output can and cannot do yet:
-# source format, the ACTUAL format version the emitted files declare (read
-# back by the battery, not assumed), the mapping and source layout, link-gap
+# The report of a generic (manifest version 3) conversion. It states what
+# was converted and what that output can and cannot do yet: source format,
+# the ACTUAL format version the emitted files declare (read back by the
+# battery, not assumed), the mapping and source layout, link-gap
 # counts, index bounds, resource measurements, the validation outcomes, and
 # its runtime status: that the current Mimic consumes format version 3, which
 # routes a parity gate has actually validated, and what still limits it. It

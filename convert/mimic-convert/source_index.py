@@ -27,9 +27,9 @@ sidecar's ``SourceFileOrdinal``. The converter numbers tree files in the order
 they are given to it, and on real Shin-Uchuu data a lexically sorted file list
 differs from ``FileID`` order (``tree_0_0_10.dat`` is ``FileID`` 10 but sorts
 before ``tree_0_0_2.dat``). A caller comparing with a sidecar must map each
-``FileID`` through that conversion's tree-file order, by file name
-(:func:`rewriter.inputs.tree_file_ordinals` does, from the conversion's
-recorded ordered source list, and refuses an ambiguous mapping); this module
+``FileID`` through that conversion's tree-file order
+(:func:`rewriter.inputs.sidecar_file_ordinals` derives it from a version 3
+sidecar's own ordinals, and refuses an inconsistent mapping); this module
 offers no such mapping. The unit ordinal needs no mapping: it is a rank within
 one file. :meth:`SourceIndex.marker_ordinals` gives the matching per-tree rank
 of each ``#tree`` marker within its file.

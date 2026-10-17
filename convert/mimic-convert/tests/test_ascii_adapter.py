@@ -53,7 +53,7 @@ from conversion_manifest import inventory_record  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from fixups import fixed_layout, fixed_scratch_name, run_fixups  # noqa: E402
 from links import LINKS_RECORD_DTYPE, links_scratch_name  # noqa: E402
-from scatter import Manifest, run_scatter, source_units_name  # noqa: E402
+from scatter import Manifest, run_scatter, source_units_name, tree_rows_name  # noqa: E402
 from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
 from test_conversion_manifest import tree_state  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
@@ -1773,11 +1773,11 @@ class CutTableTests(unittest.TestCase):
             np.load(workdir / "scratch" / source_units_name(1)).tolist(), [[8001, 2], [8000, 3]]
         )
         manifest = Manifest.load_or_create(workdir)
-        # a source's owned intermediates name its tree-rows sidecar
+        # every source's tree-rows sidecar is a registered intermediate
         for path in manifest.data["provenance"]["source_files"]:
             entry = manifest.source_entry(path)
-            owned = [p.name for p, _what in manifest.source_intermediates(entry)]
-            self.assertIn("tree_rows_src_{}.npy".format(entry["src_index"]), owned)
+            sidecar = (workdir / "scratch" / tree_rows_name(entry["src_index"])).resolve()
+            self.assertEqual(manifest.data["intermediates"][str(sidecar)]["kind"], "tree-rows")
         fixed_dtype = fixed_layout(manifest.layout)[0]
         records = [
             record

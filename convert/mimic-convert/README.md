@@ -339,7 +339,7 @@ All paths are relative to `convert/mimic-convert/`.
 | `horizontal_dataset.py`, `source_index.py` | bounded column reads of a horizontal dataset and its identity record; the `forests.list` / `locations.dat` reader |
 | `subset.py`         | whole-forest subset selection and byte-exact extraction from a very large ctrees dataset, driven entirely from the index files: `plan-candidates` / `sample-roots` / `calibrate-proxy` / `finalize` / `extract` |
 | `HORIZONTAL-HDF5-FORMAT.md` | the normative on-disk contract the writer conforms to |
-| `tests/`            | stdlib-unittest suite; synthetic fixture generator (`fixtures.py`); mock reference builder (`mock_reference.py`); the real-data comparison harness (`run_generalisation_acceptance.py`); committed golden fixtures under `tests/data/` |
+| `tests/`            | stdlib-unittest suite; synthetic fixture generator (`fixtures.py`); the real-data comparison harness (`run_generalisation_acceptance.py`); committed golden fixtures under `tests/data/` |
 
 ## Tests
 

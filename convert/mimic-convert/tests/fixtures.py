@@ -520,75 +520,18 @@ def early_ending_correspondence_forests() -> List[ForestSpec]:
 
 
 # ---------------------------------------------------------------------------
-# Correspondence-valid forests whose forest-id order disagrees with halo-id order
+# A forest enumerated last whose halo ids are not the highest
 # ---------------------------------------------------------------------------
 #
-# A version 2 slab is sorted by halo id while the version 3 row order is by
-# (ForestIndex, HaloRankInForest), ForestIndex being the rank of the forest id.
-# In the forests above the two orders agree, so a row permutation between them
-# moves only neighbours. Here forest 3000 holds halo ids 3000-3011 and 7100-7102,
-# forest 6000 holds 1500-1502 and 5500-5502, and forest 8000 holds 2000-2002, so
-# in every slab the version 2 order interleaves the three forests
-# (1500, 2000, 3000, ..., 5500, 7100 at the final snapshot) and every link kind
-# -- Descendant, FirstProgenitor, NextProgenitor and both FoF links -- crosses a
-# permutation that moves whole forest runs past one another.
-
-
-def interleaved_forest_3000() -> ForestSpec:
-    """Forest 3000: trees 3000 and 3010 (3010 is 3000's satellite at snapshot
-    5, 3011 is 3001's at 4) and tree 7100, with ids above every other forest's."""
-    tree_a = TreeSpec(
-        root_id=3000,
-        halos=[
-            HaloSpec(halo_id=3000, snap=5, mvir=2.5e12, num_prog=2),
-            HaloSpec(halo_id=3001, snap=4, mvir=1.5e12, desc_id=3000, num_prog=1),
-            HaloSpec(halo_id=3002, snap=4, mvir=4.0e11, desc_id=3000),
-            HaloSpec(halo_id=3003, snap=3, mvir=1.0e12, desc_id=3001),
-        ],
-    )
-    tree_b = TreeSpec(
-        root_id=3010,
-        halos=[
-            HaloSpec(halo_id=3010, snap=5, mvir=3.0e11, pid=3000, upid=3000, num_prog=1),
-            HaloSpec(halo_id=3011, snap=4, mvir=3.2e11, desc_id=3010, pid=3001, upid=3001),
-        ],
-    )
-    tree_c = TreeSpec(
-        root_id=7100,
-        halos=[
-            HaloSpec(halo_id=7100, snap=5, mvir=9.0e11, num_prog=2),
-            HaloSpec(halo_id=7101, snap=4, mvir=5.0e11, desc_id=7100),
-            HaloSpec(halo_id=7102, snap=4, mvir=6.0e11, desc_id=7100),
-        ],
-    )
-    return ForestSpec(forest_id=3000, trees=[tree_a, tree_b, tree_c])
-
-
-def interleaved_forest_6000() -> ForestSpec:
-    """Forest 6000: tree 1500 (ids below every other forest's) and tree 5500,
-    whose root is 1500's satellite at snapshot 5 with two progenitors."""
-    tree_a = TreeSpec(
-        root_id=1500,
-        halos=[
-            HaloSpec(halo_id=1500, snap=5, mvir=1.8e12, num_prog=1),
-            HaloSpec(halo_id=1501, snap=4, mvir=1.2e12, desc_id=1500, num_prog=1),
-            HaloSpec(halo_id=1502, snap=3, mvir=8.0e11, desc_id=1501),
-        ],
-    )
-    tree_b = TreeSpec(
-        root_id=5500,
-        halos=[
-            HaloSpec(halo_id=5500, snap=5, mvir=4.0e11, pid=1500, upid=1500, num_prog=2),
-            HaloSpec(halo_id=5501, snap=4, mvir=2.0e11, desc_id=5500, pid=1501, upid=1501),
-            HaloSpec(halo_id=5502, snap=4, mvir=2.5e11, desc_id=5500),
-        ],
-    )
-    return ForestSpec(forest_id=6000, trees=[tree_a, tree_b])
+# Forest 8000 has a forest id above every other fixture forest's, so beside any
+# of them it is enumerated last, while its halo ids (2000-2002) lie below those
+# of the cut fixtures' forests (2100 to 2700): halo-id order and the
+# (ForestIndex, HaloRankInForest) row order disagree.
 
 
 def interleaved_forest_8000() -> ForestSpec:
-    """Forest 8000: one tree whose ids (2000-2002) fall between forest 6000's
-    and forest 3000's, with two progenitors at snapshot 4."""
+    """Forest 8000: one tree (halo ids 2000-2002) with two progenitors at
+    snapshot 4."""
     tree = TreeSpec(
         root_id=2000,
         halos=[
@@ -598,12 +541,6 @@ def interleaved_forest_8000() -> ForestSpec:
         ],
     )
     return ForestSpec(forest_id=8000, trees=[tree])
-
-
-def interleaved_correspondence_forests() -> List[ForestSpec]:
-    """The interleaved forests in ascending forest id: every tree reaches the
-    final snapshot and every ``#tree`` root is its terminal halo."""
-    return [interleaved_forest_3000(), interleaved_forest_6000(), interleaved_forest_8000()]
 
 
 # ---------------------------------------------------------------------------

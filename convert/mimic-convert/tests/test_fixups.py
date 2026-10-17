@@ -789,7 +789,7 @@ class TestFixupsKeepsItsInputs(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "missing on disk"):
             self._scatter(*paths)
 
-    def test_scatter_rerun_refuses_a_consumption_recorded_at_any_status(self):
+    def test_scatter_rerun_refuses_a_removal_recorded_at_any_status(self):
         """Nothing after sort consumes the sorted file or the id index, so a
         manifest that records either as removed -- at ``sorted`` or at
         ``fixed`` -- describes a premature deletion, and a scatter re-run
@@ -813,7 +813,7 @@ class TestFixupsKeepsItsInputs(unittest.TestCase):
                     ):
                         self._scatter(*paths)
 
-    def test_a_consumed_fixed_file_at_status_fixed_is_a_hard_error(self):
+    def test_a_fixed_file_recorded_removed_at_status_fixed_is_refused(self):
         """At ``fixed`` the fixed file must be present: the link stage has yet
         to read it, so a manifest recording it removed is refused."""
         root = self.root / "fixed-strict"

@@ -18,14 +18,14 @@ declared extras ride along with each row through the sort unchanged.
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import ConverterError  # noqa: E402
-from scatter import Manifest, id_checksum, verify_or_consumed  # noqa: E402
+from scatter import Manifest, id_checksum  # noqa: E402
 
 
 def _log(message: str) -> None:
@@ -46,56 +46,19 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
     if entry is None:
         raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
     status = entry.get("status")
-    if status == "linked" and not consumption_recorded(manifest, entry):
-        # ``linked`` is not a status this stage ever skip-trusted. It became one
-        # only to keep a CONSUMED snapshot resumable, so with
-        # nothing consumed the refusal is the behaviour to preserve — the
-        # flag-off path keeps exactly what it had.
-        raise ConverterError(
-            "snapshot {}: unexpected status {!r}; run scatter first".format(snap, status)
-        )
-    if status in ("sorted", "fixed", "linked"):
-        # Skip-trusting a snapshot a later stage already carried forward:
-        # verify every artifact that exists at this status, and retry any
-        # unsorted-file cleanup a crash may have interrupted.
-        #
-        # ONE RULE decides which artifacts may legitimately be GONE, and it is
-        # load-bearing rather than tidy: **an artifact is accepted as consumed
-        # exactly at the statuses where its terminal consumer has provably
-        # run.** Anywhere else it must still be on disk and is verified
-        # outright, because accepting a consumption that cannot have happened
-        # yet would let a premature deletion pass as a resumable skip.
-        #
-        #   sorted_file  consumed by fixups, which saves ``fixed`` BEFORE the
-        #                removal -> accepted at ``fixed`` and ``linked``, strict
-        #                at ``sorted``.
-        #   index_file   consumed by links, which refuses to start unless every
-        #                snapshot is at least ``fixed`` -> accepted at ``fixed``
-        #                (a links run can die between its unreachable-index
-        #                drain and this snapshot's own link) and at ``linked``,
-        #                strict at ``sorted``.
-        #   fixed_file,  consumed by the writer, which runs only once EVERY
-        #   links_file   snapshot is ``linked`` -> accepted at ``linked`` only.
-        consumed: List[str] = []
-        if status == "sorted":
-            manifest.verify_intermediate(entry["sorted_file"], "sorted snapshot scratch")
-            manifest.verify_intermediate(entry["index_file"], "snapshot id index")
-        else:
-            verify_or_consumed(manifest, entry["sorted_file"], "sorted snapshot scratch", consumed)
-            verify_or_consumed(manifest, entry["index_file"], "snapshot id index", consumed)
+    if status in ("sorted", "fixed"):
+        # Skip-trusting a snapshot this stage, or the fix-up stage after it,
+        # already carried forward: every artifact that exists at this status is
+        # still on disk and is verified outright, and any unsorted-file cleanup
+        # a crash may have interrupted is retried. A ``linked`` snapshot is
+        # refused below: once any snapshot is linked, only the link stage is
+        # re-run.
+        manifest.verify_intermediate(entry["sorted_file"], "sorted snapshot scratch")
+        manifest.verify_intermediate(entry["index_file"], "snapshot id index")
         if status == "fixed":
             manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
-        elif status == "linked":
-            verify_or_consumed(manifest, entry["fixed_file"], "fixed snapshot scratch", consumed)
-            verify_or_consumed(manifest, entry["links_file"], "snapshot links scratch", consumed)
         _retry_unsorted_cleanup(manifest, entry)
         manifest.save()
-        if consumed:
-            _log(
-                "sort: snapshot {} is already {} and {} — skipping".format(
-                    snap, status, "; ".join(consumed)
-                )
-            )
         return
     if status != "concatenated":
         raise ConverterError(
@@ -171,34 +134,13 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
     manifest.save()
 
 
-#: The per-snapshot artifacts the consumptive-deletion table covers, as manifest
-#: entry keys. A snapshot with none of them recorded consumed has not been
-#: touched by consumptive deletion, whatever its status.
-CONSUMABLE_KEYS = ("sorted_file", "index_file", "fixed_file", "links_file")
-
-
-def consumption_recorded(manifest: Manifest, entry: dict) -> bool:
-    """True when consumptive deletion has actually taken one of this
-    snapshot's artifacts.
-
-    It is what gates the ``linked`` skip in this stage and in the fix-up stage.
-    Those two stages refused a ``linked`` snapshot before consumptive deletion existed, and must
-    go on refusing it whenever nothing was consumed — the flag-off workdir keeps
-    the behaviour it has today. The gate is complete across every place the flag
-    can be set, because each stage's consumption marks a different key: fixups
-    takes ``sorted_file``, links takes every ``index_file``, and the writer
-    takes ``fixed_file`` and ``links_file``.
-    """
-    return any(key in entry and manifest.is_consumed(entry[key]) for key in CONSUMABLE_KEYS)
-
-
 def _retry_unsorted_cleanup(manifest: Manifest, entry: dict) -> None:
     """Finish unsorted-file deletion a crash may have interrupted. A registered
     entry whose file is already gone is the intended end state of a cleanup
     that crashed between unlink and manifest save — record it as removed.
 
-    Sort's consumption of the unsorted scratch predates the opt-in deletion
-    flag and is unconditional, so ``delete`` is always set here."""
+    Sort's consumption of the unsorted scratch is unconditional, so
+    ``delete`` is always set here."""
     manifest.consume_intermediates([entry["scratch_file"]], delete=True)
 
 

@@ -1418,10 +1418,9 @@ class TestExtendedScatter(unittest.TestCase):
             entry = manifest.source_entry(path)
             self.assertEqual(entry["source_units"], 3)
             sidecar = (env.workdir / "scratch" / scatter.source_units_name(i)).resolve()
-            self.assertIn(
-                (sidecar, "source-units sidecar"),
-                [(p.resolve(), what) for p, what in manifest.source_intermediates(entry)],
-            )
+            registered = manifest.data["intermediates"][str(sidecar)]
+            self.assertEqual((registered["kind"], registered["rows"]), ("source-units", 3))
+            self.assertEqual(registered["md5"], scatter.file_md5(sidecar))
 
     def test_legacy_source_entries_list_no_units_sidecar(self):
         env = ScatterEnv(self.root)
@@ -1429,9 +1428,9 @@ class TestExtendedScatter(unittest.TestCase):
         for path in env.tree_files:
             entry = manifest.source_entry(path)
             self.assertNotIn("source_units", entry)
-            self.assertNotIn(
-                "source-units sidecar", [what for _p, what in manifest.source_intermediates(entry)]
-            )
+        kinds = {record["kind"] for record in manifest.data["intermediates"].values()}
+        self.assertNotIn("source-units", kinds)
+        self.assertFalse(list((env.workdir / "scratch").glob("units_src_*")))
 
     def test_frozen_tag_comparison_rejects_an_extended_manifest(self):
         # the earlier Manifest accepted exactly DTYPE_TAG; an extended

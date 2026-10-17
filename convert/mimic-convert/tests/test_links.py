@@ -372,6 +372,77 @@ class TestLinksPipeline(unittest.TestCase):
             seen[snap] = {name: links[name].tolist() for name in LINKS_RECORD_DTYPE.names}
         self.assertEqual(seen, GOLDEN_LINKS)
 
+    def test_a_gap_in_the_middle_of_the_recorded_snapshots(self):
+        """The standard fixture only has a LEADING gap (snapshot 0 empty).
+        Here the recorded set is {1, 2, 4, 5}: forest 100 dies at snapshot 2
+        and forest 200 first appears at 4, so snapshot 3 is a gap in the
+        middle. Snapshot 2 links with no successor (no descendants, no pending
+        buffer for 3) and snapshot 4 with no predecessor (no progenitors from
+        a pending buffer), while 1 -> 2 and 4 -> 5 link normally."""
+        early = fixtures.ForestSpec(
+            forest_id=100,
+            trees=[
+                fixtures.TreeSpec(
+                    root_id=101,
+                    halos=[
+                        fixtures.HaloSpec(halo_id=1010, snap=2, mvir=4.0e11, num_prog=1),
+                        fixtures.HaloSpec(halo_id=1011, snap=1, mvir=3.0e11, desc_id=1010),
+                    ],
+                )
+            ],
+        )
+        late = fixtures.ForestSpec(
+            forest_id=200,
+            trees=[
+                fixtures.TreeSpec(
+                    root_id=201,
+                    halos=[
+                        fixtures.HaloSpec(halo_id=2010, snap=5, mvir=9.0e11, num_prog=1),
+                        fixtures.HaloSpec(halo_id=2011, snap=4, mvir=7.0e11, desc_id=2010),
+                    ],
+                )
+            ],
+        )
+        workdir, _, _ = make_linked_workdir(self.root, forests=[early, late])
+        manifest = run_links(workdir)
+        self.assertEqual([1, 2, 4, 5], sorted(int(s) for s in manifest.data["snapshots"]))
+        self.assertEqual(
+            manifest.data["links"], {"n_forests_total": 2, "max_halo_rank_in_forest": 1}
+        )
+        seen = {}
+        for snap_str, entry in manifest.data["snapshots"].items():
+            self.assertEqual(entry["status"], "linked")
+            links_records = np.fromfile(entry["links_file"], dtype=LINKS_RECORD_DTYPE)
+            seen[int(snap_str)] = {
+                name: links_records[name].tolist() for name in LINKS_RECORD_DTYPE.names
+            }
+
+        def one_halo(desc, first_prog, forest, rank):
+            return {
+                "Descendant": [desc],
+                "FirstProgenitor": [first_prog],
+                "NextProgenitor": [-1],
+                "FirstHaloInFOFgroup": [0],
+                "NextHaloInFOFgroup": [-1],
+                "ForestIndex": [forest],
+                "HaloRankInForest": [rank],
+            }
+
+        self.assertEqual(
+            seen,
+            {
+                1: one_halo(desc=0, first_prog=-1, forest=0, rank=1),
+                2: one_halo(desc=-1, first_prog=0, forest=0, rank=0),
+                4: one_halo(desc=0, first_prog=-1, forest=1, rank=1),
+                5: one_halo(desc=-1, first_prog=0, forest=1, rank=0),
+            },
+        )
+        scratch = Path(manifest.data["snapshots"]["1"]["links_file"]).parent
+        self.assertEqual(
+            sorted(p.name for p in scratch.glob("snap_*_pending_fp.bin")),
+            [pending_fp_name(2), pending_fp_name(5)],
+        )
+
     def test_pending_buffers_written_and_sized(self):
         workdir, _, _ = make_linked_workdir(self.root)
         manifest = run_links(workdir)

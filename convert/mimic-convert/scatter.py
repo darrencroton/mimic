@@ -477,16 +477,6 @@ class Manifest:
         resolved.unlink()
         entry["status"] = "removed"
 
-    def is_consumed(self, path) -> bool:
-        """True when this path is a registered intermediate the manifest
-        records as already removed.
-
-        That is a deliberate consumption by a later stage, not a missing
-        artifact, and the difference is what lets a skip-trust path skip
-        instead of failing on a stat or a checksum."""
-        entry = self.data["intermediates"].get(str(Path(path).resolve()))
-        return entry is not None and entry.get("status") == "removed"
-
     def consume_intermediates(self, paths, *, delete: bool) -> List[Path]:
         """Finish the delete-after-verify protocol for intermediates whose
         terminal consumer is done with them.
@@ -607,53 +597,6 @@ class Manifest:
         if present:
             return SOURCE_PENDING
         raise ConverterError("input tree file does not exist: {}".format(candidate))
-
-    def source_intermediates(self, entry: dict) -> List[Tuple[Path, str]]:
-        """Every intermediate one completed source entry produced, derived from
-        the entry itself rather than guessed from the scratch directory
-        listing: the two per-source sidecars, the source-units sidecar when the
-        entry records one (an extended-layout scatter; every SourceHaloID and
-        source coordinate of the file derives from it), the tree-rows sidecar
-        when the entry records one (a scatter under a cut table), plus one
-        worker-scratch file per snapshot the file contributed rows to."""
-        scratch_dir = self.workdir / "scratch"
-        src_index = entry["src_index"]
-        owned = [
-            (scratch_dir / "roots_src_{}.npy".format(src_index), "observed-roots sidecar"),
-            (scratch_dir / "forest_max_src_{}.npy".format(src_index), "forest-max-snap sidecar"),
-        ]
-        if "source_units" in entry:
-            owned.append((scratch_dir / source_units_name(src_index), "source-units sidecar"))
-        if "tree_rows" in entry:
-            owned.append((scratch_dir / tree_rows_name(src_index), "tree-rows sidecar"))
-        for snap_str in sorted(entry["per_snapshot_counts"], key=int):
-            owned.append(
-                (
-                    scratch_dir / worker_scratch_name(int(snap_str), src_index),
-                    "worker scratch for snapshot {}".format(snap_str),
-                )
-            )
-        return owned
-
-
-def verify_or_consumed(manifest: Manifest, path, what: str, consumed: List[str]) -> None:
-    """Verify one skip-trusted artifact unless the manifest records it as
-    deliberately consumed by a later stage.
-
-    A consumed artifact is a registered intermediate the pipeline itself
-    removed through :meth:`Manifest.consume_intermediates`, not a missing
-    file: a skip-trust path that re-verifies one has to skip and name what was
-    consumed rather than fail on a stat or a checksum. Anything the manifest
-    still records as present is verified exactly as before. The sort stage's
-    skip-trust path (``sort_index.sort_one_snapshot``) uses it at the statuses
-    where a consumption can already have happened. ``consumed`` accumulates
-    one ready-to-log phrase per consumed artifact, so the caller decides how
-    to report the skip.
-    """
-    if manifest.is_consumed(path):
-        consumed.append("its {} was consumed by a later stage ({})".format(what, path))
-        return
-    manifest.verify_intermediate(path, what)
 
 
 # ---------------------------------------------------------------------------
@@ -1147,9 +1090,8 @@ def run_scatter(
             "status": "completed",
         }
         if result.source_units is not None:
-            # absent from a legacy entry, so the legacy JSON is unchanged; it
-            # is what names the sidecar among the entry's intermediates
-            # (source_intermediates)
+            # absent from a legacy-layout entry, so its JSON is unchanged; it
+            # records that the file's source-units sidecar exists
             manifest.data["source_files"][result.path]["source_units"] = int(
                 result.source_units.shape[0]
             )
