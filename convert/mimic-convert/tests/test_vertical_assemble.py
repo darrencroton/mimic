@@ -236,15 +236,18 @@ class AssemblyTests(CorrespondenceDataset):
             self.assembled(0, 4, expected_totals=[8, 6, 3, 3])
 
     def test_the_memory_bound(self):
-        """The stated function: the windows plus the forest in flight, and the batch."""
-        self.assertEqual(memory_bound(10, 3, 7, 100, 50), (30 + 7) * 100 + 10 * (100 + 50 + 128))
+        """The stated function: two windows per slab plus the forest in flight, and the batch
+        at the measured allowance of 176 B of temporaries per row."""
+        self.assertEqual(
+            memory_bound(10, 3, 7, 100, 50), (2 * 3 * 10 + 7) * 100 + 10 * (100 + 50 + 176)
+        )
         assembler = ForestAssembler(self.dataset, SHIN_UCHUU_RECORD)
         # ForestIndex, HaloRankInForest, MostBoundID and the five links (int64), the three
         # target snapshots, Len and SnapNum (int32), three float32 scalars and three vectors
         self.assertEqual(assembler.row_bytes, 8 * 8 + 4 * 5 + 4 * 3 + 12 * 3)
         self.assertEqual(
-            assembler.memory_bound(126_380_326),
-            memory_bound(DEFAULT_WINDOW_ROWS, 6, 126_380_326, 132, 88),
+            assembler.memory_bound(5_000_000),
+            memory_bound(DEFAULT_WINDOW_ROWS, 6, 5_000_000, 132, 88),
         )
 
 
@@ -264,6 +267,9 @@ class RefusalTests(CorrespondenceDataset):
 
         def null_central(values):
             values[2] = -1  # 1120's FirstHaloInFOFgroup
+
+        def empty_slab(values):
+            values[0] = 0  # 1100's FirstProgenitorSnapshot: snapshot 0 holds no row at all
 
         def out_of_order(values):
             values[1] = 1  # snapshot 4's ForestIndex [0, 0, 0, 0, 1, 1, 3] -> [0, 1, 0, ...]
@@ -313,6 +319,12 @@ class RefusalTests(CorrespondenceDataset):
                 # one-row windows emit forest 0 after the window holding row 1, before the
                 # window with row 2 is read: its ranks (0, 1, 2, 3, then 7) are refused first
                 r"forest 0: rank 7 found at position 4, where rank 4 is expected",
+            ),
+            (
+                "a companion naming an empty slab",
+                [(5, "FirstProgenitorSnapshot", empty_slab)],
+                r"forest 0, rank 0: FirstProgenitor -> row 0 names snapshot 0, in which the "
+                r"forest has no block",
             ),
             (
                 "a forest with no rows",

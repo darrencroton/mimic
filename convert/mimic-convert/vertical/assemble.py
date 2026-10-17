@@ -31,10 +31,12 @@ mapped link is then verified: the ``MostBoundID`` of the target row must equal t
 ``MostBoundID`` of the record the mapped rank names. A mapped rank the record's link type cannot
 hold is refused naming the forest.
 
-**Memory.** :func:`memory_bound` states the bound per assembler instance: the windows (every
-slab's unread tail of the forest in flight plus one window) and the batch being assembled (its
-columns, its records and the index and mask temporaries). The assembler holds no other
-per-forest state.
+**Memory.** Each slab keeps the windows it has read and not yet emitted as they were read, and
+rows are copied once, out of those windows into the batch they are assembled with.
+:func:`memory_bound` states the bound per assembler instance: the buffered windows (per slab,
+its block of the forest in flight, one window read beyond it and the view-retained remainder of
+one more) and the batch being assembled (its columns, its records and a measured allowance of
+temporaries). The assembler holds no other per-forest state.
 """
 
 import os
@@ -73,9 +75,12 @@ LINK_SNAPSHOT_COLUMNS = {
 #: The null link, in the source and in the record.
 NULL_LINK = -1
 
-#: The allowance per batch row for the assembler's index and mask temporaries (the stable sort
-#: order, record positions, per-link targets and mapped ranks), in :func:`memory_bound`.
-WORKING_BYTES_PER_ROW = 128
+#: The allowance per batch row for the assembler's temporaries in :func:`memory_bound`: the
+#: per-row snapshot, the stable sort order, record positions, placed ids and, per link kind, the
+#: targets, masks and mapped ranks. Measured with ``tracemalloc`` at 144 B per row on a batch in
+#: which every link of every row is non-null (the most the per-link temporaries can hold), plus
+#: 32 B of headroom that also covers the per-forest arrays of the totals check.
+WORKING_BYTES_PER_ROW = 176
 
 _FOREST = "ForestIndex"
 _RANK = "HaloRankInForest"
@@ -106,13 +111,17 @@ def memory_bound(
     """The bytes one assembler instance holds at most, for a range whose largest forest has
     ``largest_forest_halos`` halos.
 
-    The windows hold at most ``n_slabs * window_rows + largest_forest_halos`` rows of
-    ``row_bytes`` each (per slab, one window plus the slab's block of the forest in flight, and
-    those blocks sum to the forest's total). The batch being assembled holds at most
-    ``max(window_rows, largest_forest_halos)`` rows, each as its columns (``row_bytes``), its
-    record (``record_bytes``) and :data:`WORKING_BYTES_PER_ROW` of temporaries.
+    The buffered windows hold at most ``2 * n_slabs * window_rows + largest_forest_halos`` rows
+    of ``row_bytes`` each: per slab, its block of the forest in flight (those blocks sum to at
+    most the forest's total), one window of rows read beyond it, and up to one more window kept
+    alive by the view of its oldest, partly emitted window. The batch being assembled holds at
+    most ``max(window_rows, largest_forest_halos)`` rows (the forests a set of windows
+    completes are assembled in batches of about ``window_rows`` rows; a larger forest is a
+    batch alone), each as its columns (``row_bytes``, copied out of the windows), its record
+    (``record_bytes``) and :data:`WORKING_BYTES_PER_ROW` of temporaries; nothing else is
+    concatenated, so no other transient reaches the size of a batch.
     """
-    held = n_slabs * window_rows + largest_forest_halos
+    held = 2 * n_slabs * window_rows + largest_forest_halos
     batch = max(window_rows, largest_forest_halos)
     return held * row_bytes + batch * (row_bytes + record_bytes + WORKING_BYTES_PER_ROW)
 
@@ -126,16 +135,24 @@ def _require_window_rows(window_rows) -> int:
 
 
 class _Slab:
-    """One slab's cursor: the next unread row, and the rows read but not yet emitted."""
+    """One slab's cursor: the next unread row, and the windows read but not yet emitted.
+
+    The windows are kept as they were read (``chunks``, oldest first, the oldest possibly a
+    view of its window's unemitted tail); nothing is concatenated until rows are taken into a
+    batch, so every row is copied once however many windows a forest's block spans.
+    """
 
     def __init__(self, snap: int, n_rows: int):
         self.snap = snap
         self.n_rows = n_rows
         self.next_row = 0
-        #: the global row of ``buffer[...][0]``
+        #: the global row of the first buffered row
         self.base_row = 0
-        self.buffer: Dict[str, np.ndarray] = {}
+        self.chunks: List[Dict[str, np.ndarray]] = []
+        #: rows over every chunk
         self.length = 0
+        #: the ``ForestIndex`` of the last buffered row
+        self.last_forest = -1
 
     @property
     def exhausted(self) -> bool:
@@ -146,8 +163,7 @@ class _Slab:
         is complete here. A slab with nothing buffered and rows unread must be read first."""
         if self.length == 0:
             return _COMPLETE if self.exhausted else -1
-        last = int(self.buffer[_FOREST][-1])
-        return _COMPLETE if (last >= stop or self.exhausted) else last
+        return _COMPLETE if (self.last_forest >= stop or self.exhausted) else self.last_forest
 
 
 class ForestAssembler:
@@ -330,7 +346,7 @@ class ForestAssembler:
         forest = window[_FOREST]
         path = self.dataset.snapshot_path(slab.snap)
         if slab.length:
-            previous = int(slab.buffer[_FOREST][-1])
+            previous = slab.last_forest
         elif int(forest[0]) < first:
             raise ConverterError(
                 "{}: row {} holds ForestIndex {}, below the range's first forest {} although "
@@ -348,12 +364,9 @@ class ForestAssembler:
                     path, slab.next_row + row, forest[row], before[row]
                 )
             )
-        if slab.length:
-            for name in self.columns:
-                slab.buffer[name] = np.concatenate((slab.buffer[name], window[name]))
-        else:
-            slab.buffer = window
+        slab.chunks.append(window)
         slab.length += forest.size
+        slab.last_forest = int(forest[-1])
         slab.next_row = stop
 
     def _check_totals(
@@ -364,8 +377,8 @@ class ForestAssembler:
         totals = np.zeros(stop - first, dtype=np.int64)
         edges = np.arange(first, stop + 1, dtype=np.int64)
         for slab in slabs:
-            if slab.length:
-                totals += np.diff(np.searchsorted(slab.buffer[_FOREST], edges, "left"))
+            for chunk in slab.chunks:
+                totals += np.diff(np.searchsorted(chunk[_FOREST], edges, "left"))
         empty = np.flatnonzero(totals == 0)
         if empty.size:
             raise ConverterError(
@@ -386,18 +399,28 @@ class ForestAssembler:
         return np.cumsum(totals)
 
     def _emit(self, slabs: List[_Slab], first: int, stop: int) -> Iterator[AssembledForest]:
-        """Assemble the forests ``[first, stop)`` from the buffers, trimming each slab's
-        buffer to the rows that follow, and yield them one by one."""
+        """Assemble the forests ``[first, stop)`` from the buffered windows, dropping the rows
+        taken from each slab (the oldest remaining window becomes a view of its tail), and
+        yield them one by one."""
         slices = []
+        parts = []
         for slab in reversed(slabs):
-            taken = int(np.searchsorted(slab.buffer[_FOREST], stop, "left")) if slab.length else 0
+            taken = 0
+            while slab.chunks:
+                chunk = slab.chunks[0]
+                rows = int(np.searchsorted(chunk[_FOREST], stop, "left"))
+                if rows == 0:
+                    break
+                if rows == chunk[_FOREST].size:
+                    parts.append(slab.chunks.pop(0))
+                else:
+                    parts.append({name: chunk[name][:rows] for name in self.columns})
+                    slab.chunks[0] = {name: chunk[name][rows:] for name in self.columns}
+                taken += rows
+                if rows < chunk[_FOREST].size:
+                    break
             slices.append((slab, taken))
-        columns = {}
-        for name in self.columns:
-            columns[name] = np.concatenate([slab.buffer[name][:n] for slab, n in slices if n])
-            for slab, n in slices:
-                if n:
-                    slab.buffer[name] = slab.buffer[name][n:].copy()
+        columns = {name: np.concatenate([part[name] for part in parts]) for name in self.columns}
         n_slabs = len(slabs)
         snapshot = np.concatenate(
             [np.full(n, slab.snap, dtype=np.int32) for slab, n in slices if n]
@@ -552,8 +575,10 @@ def _map_links(
         )
     local = rows - row_base[snaps]
     inside = (local >= 0) & (local < slice_rows[snaps])
-    target = batch_start[snaps] + np.where(inside, local, 0)
-    good = inside & (forest[target] == owners)
+    target = np.zeros(source.size, dtype=np.int64)
+    target[inside] = batch_start[snaps[inside]] + local[inside]
+    good = inside.copy()
+    good[inside] = forest[target[inside]] == owners[inside]
     if not good.all():
         bad = int(np.argmin(good))
         at = int(source[bad])
