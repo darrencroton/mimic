@@ -430,8 +430,10 @@ def check_object_sets(
 ) -> None:
     """Every slab and the sidecar hold only objects and attributes the format
     defines: the root's three groups, the header attributes, the table's
-    ``/halos`` datasets, the declared ``/schema`` subgroups, and the
-    sidecar's three datasets, none of the groups carrying another attribute.
+    ``/halos`` datasets (carrying no attribute), the declared ``/schema``
+    subgroups (carrying exactly the declaration attributes and no object), and
+    the sidecar's three datasets (carrying no attribute), none of the groups
+    carrying another attribute.
     The passes write exactly these, so anything else would be dropped; it is
     refused by name instead. Missing objects are refused where they are read."""
     header_attrs = tuple(HEADER_ATTRS) + tuple(V3_STRING_ATTRS)
@@ -448,9 +450,23 @@ def check_object_sets(
             for group, objects, attributes in defined:
                 _refuse_undefined(path, group, "object", handle[group].keys(), objects)
                 _refuse_undefined(path, group, "attribute", handle[group].attrs.keys(), attributes)
+            # a /halos dataset carries no attribute; a /schema field group carries
+            # exactly the declaration attributes and no object
+            for name in table:
+                column = handle["halos"][name]
+                _refuse_undefined(path, "/halos/" + name, "attribute", column.attrs.keys(), ())
+            for declaration in declarations:
+                field = handle["schema"][declaration.name]
+                where = "/schema/" + declaration.name
+                _refuse_undefined(path, where, "object", field.keys(), ())
+                _refuse_undefined(path, where, "attribute", field.attrs.keys(), V3_SCHEMA_ATTRS)
     with h5py.File(dataset.sidecar_path, "r") as handle:
         _refuse_undefined(dataset.sidecar_path, "/", "object", handle.keys(), V3_SIDECAR_DATASETS)
         _refuse_undefined(dataset.sidecar_path, "/", "attribute", handle.attrs.keys(), ())
+        for name in V3_SIDECAR_DATASETS:
+            _refuse_undefined(
+                dataset.sidecar_path, "/" + name, "attribute", handle[name].attrs.keys(), ()
+            )
 
 
 def _refuse_undefined(path, group: str, kind: str, held, defined) -> None:
@@ -610,7 +626,8 @@ MEMORY_FORMULAS = {
     "of the split forests and P the cut index's pairs. Shin-Uchuu: n 519,342,987, F "
     "166,547,771, T 315,004,242, P about 320 million, and under the decided table F' "
     "244,953,607, p 86,459,398. The coefficients marked measured were measured with "
-    "tracemalloc on a synthetic 400,000-row slab (for the cut: 100,000 forests of two trees "
+    "tracemalloc, before the ranking pass was split into stage functions that hold no more "
+    "than it did at any point, so each is an upper bound, on a synthetic 400,000-row slab (for the cut: 100,000 forests of two trees "
     "each, every forest cut into its two trees, every row of the slab a progenitor, three "
     "quarters of them of descendants with three progenitors, one quarter promoted)",
     "pass0": "133 B x T + 80 B x F + 8 B x P + 24 B x b at the inventory step: the index "

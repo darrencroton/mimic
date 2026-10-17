@@ -1287,6 +1287,20 @@ class OldWorkdirTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, self.PREDATES):
             check(manifest)
 
+    def test_a_rewriter_workdir_is_forest_rank_by_construction(self):
+        """A rewriter workdir records rewriter_version and, before version 2,
+        no identity_scheme; its SourceHaloID is verified positional as it is
+        written, so the check passes it without the key."""
+        check = cm.ConversionManifest.require_current_identity_scheme
+        manifest = mock.Mock(spec=["configuration", "workdir"])
+        manifest.configuration = {
+            "adapter": {
+                "source_format": "consistent_trees_ascii",
+                "parameters": {"rewriter_version": 1, "operation": "cut"},
+            }
+        }
+        check(manifest)
+
     def test_another_identity_scheme_is_refused(self):
         for value in ("physical", None, 1):
             refusal = "identity_scheme must be 'forest-rank'"

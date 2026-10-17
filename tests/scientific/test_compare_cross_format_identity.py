@@ -928,19 +928,27 @@ def test_lineage_pairing_fails_a_wrong_central_and_a_duplicated_key():
 def test_lineage_key_beyond_its_packing_is_an_input_error():
     """A created record whose MostBoundID the int64 lineage key cannot pack exits 2."""
     print("Testing a MostBoundID beyond the lineage key's range...")
-    with scratch() as root:
-        mbid = 2**62
-        tree, created = [(mbid, mbid, 1.0)], [(mbid, 0, 0.5)]
-        runs = [
-            paired_run(
-                root, name, tree=tree, created=created, tree_ids={mbid: 1_000_001}, keys={mbid: 7}
+    # both extremes: the negative one is where an absolute-value check would wrap
+    for mbid in (2**62, -(2**63)):
+        with scratch() as root:
+            tree, created = [(mbid, mbid, 1.0)], [(mbid, 0, 0.5)]
+            runs = [
+                paired_run(
+                    root,
+                    name,
+                    tree=tree,
+                    created=created,
+                    tree_ids={mbid: 1_000_001},
+                    keys={mbid: 7},
+                )
+                for name in ("left", "right")
+            ]
+            status, report = compare(*runs, "--match-created-by-lineage")
+            assert_status(
+                status, INPUT_ERROR, report, f"a MostBoundID {mbid} beyond the lineage key"
             )
-            for name in ("left", "right")
-        ]
-        status, report = compare(*runs, "--match-created-by-lineage")
-        assert_status(status, INPUT_ERROR, report, "a MostBoundID beyond the lineage key")
-        assert f"MostBoundID {mbid} is beyond" in report, report
-    print("  ✓ a MostBoundID the lineage key cannot pack is an input error")
+            assert f"MostBoundID {mbid} is beyond" in report, report
+    print("  ✓ a MostBoundID the lineage key cannot pack is an input error, at both extremes")
 
 
 def test_alternate_mode_usage_errors():
@@ -1469,6 +1477,21 @@ def test_partitions_must_be_exactly_the_master_files_links():
         assert_status(status, INPUT_ERROR, report, "a missing partition")
         assert "1 linked but missing ['model_001.hdf5']" in report, report
     print("  ✓ the partitions must be exactly the files the master links")
+
+
+def test_a_master_snapshot_entry_that_is_not_a_group_is_an_input_error():
+    """A master whose Snap### entry is a dataset, not a group of partition links, exits 2."""
+    print("Testing a malformed master file...")
+    with scratch() as root:
+        records = make_records([1_000_000_001])
+        left, right = build_pair(root, [{0: records}], [{0: records}])
+        with h5py.File(root / "left" / "model.hdf5", "r+") as handle:
+            del handle["Snap000"]
+            handle.create_dataset("Snap000", data=records[:0])
+        status, report = compare(left, right)
+        assert_status(status, INPUT_ERROR, report, "a master entry that is not a group")
+        assert "/Snap000 is not a group of partition links" in report, report
+    print("  ✓ a master entry that is not a group is an input error")
 
 
 def test_an_unexpected_failure_exits_3_with_its_traceback():

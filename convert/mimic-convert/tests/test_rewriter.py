@@ -32,6 +32,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -822,6 +823,32 @@ class TestRefusals(unittest.TestCase):
             self.source,
             copy,
         )
+
+    def test_an_attribute_or_schema_object_the_format_does_not_define_is_refused(self):
+        # the passes write datasets without attributes and schema groups with
+        # exactly the declaration attributes, so each of these would be dropped
+        cases = (
+            ("halos_attr", "snapshot_002.h5", "/halos/Vmax holds attribute\\(s\\) \\['note'\\]"),
+            ("schema_child", "snapshot_002.h5", "/schema/Vmax holds object\\(s\\) \\['extra'\\]"),
+            ("sidecar_attr", "forests.h5", "/ForestID holds attribute\\(s\\) \\['note'\\]"),
+        )
+        for name, file_name, pattern in cases:
+            with self.subTest(case=name):
+                copy = self.root / name
+                shutil.copytree(self.source["dataset"], copy)
+                with h5py.File(copy / file_name, "r+") as handle:
+                    if name == "halos_attr":
+                        handle["halos"]["Vmax"].attrs["note"] = "x"
+                    elif name == "schema_child":
+                        handle["schema"]["Vmax"].create_dataset("extra", data=np.zeros(1))
+                    else:
+                        handle["ForestID"].attrs["note"] = "x"
+                self.refused(
+                    "{}: {} that the format does not define".format(file_name, pattern),
+                    "noop",
+                    self.source,
+                    copy,
+                )
 
     def test_a_schema_declaration_that_is_not_the_profiles_is_refused(self):
         # the digest still names the shipped profile, but one slab's /schema
@@ -2064,3 +2091,37 @@ class TestCutTableAndRefusals(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProgenitorWalk(unittest.TestCase):
+    """The per-slab progenitor walk names each way a written chain can fail to
+    be exactly its descendant's progenitors. Three halos: 0 and 1 are the
+    progenitors of the next slab's descendant 0 (head 0), halo 2 of its
+    descendant 1 (head 2)."""
+
+    desc = np.array([0, 0, 1], dtype=np.int64)
+    heads = np.array([0, 2], dtype=np.int64)
+
+    def walk(self, next_prog, desc=None, heads=None):
+        rewriter_passes._verify_progenitor_walk(
+            "slab",
+            self.desc if desc is None else np.asarray(desc, dtype=np.int64),
+            np.asarray(next_prog, dtype=np.int64),
+            self.heads if heads is None else np.asarray(heads, dtype=np.int64),
+        )
+
+    def test_the_written_chains_pass(self):
+        self.walk([1, -1, -1])
+
+    def test_each_refusal_is_named(self):
+        cases = (
+            ("a link outside the slab", [5, -1, -1], None, None),
+            ("a chain reaches a progenitor of another descendant", [2, -1, -1], None, None),
+            ("a chain returns to a halo already reached", [1, 0, -1], None, None),
+            ("1 progenitor(s) not reached from their FirstProgenitor", [-1, -1, -1], None, None),
+            ("a halo without a descendant carries a NextProgenitor", [1, -1, 0], [0, 0, -1], [0]),
+        )
+        for reason, next_prog, desc, heads in cases:
+            with self.subTest(reason=reason):
+                with self.assertRaisesRegex(ConverterError, re.escape(reason)):
+                    self.walk(next_prog, desc, heads)

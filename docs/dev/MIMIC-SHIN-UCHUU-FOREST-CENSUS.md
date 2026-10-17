@@ -1,6 +1,6 @@
 # Shin-Uchuu Forest Census — Stage B Record
 
-**Purpose:** The measured record the owner signs off for Stage B: the decided cut table for the whole Shin-Uchuu simulation (every forest cut at its z = 0 FoF groups), what it costs (promotions, progenitor-order changes, affected histories), and how the cut dataset partitions under chunked slab streaming. Written by Slice 9 (revision 5) of [`MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md`](MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md) for the decision gate of the brief, [`MIMIC-SHIN-UCHUU-V3-PLAN.md`](MIMIC-SHIN-UCHUU-V3-PLAN.md) ("The decision gate"). F11 names it as Stage B's standing evidence.
+**Purpose:** The measured record the owner signs off for Stage B: the decided cut table for the whole Shin-Uchuu simulation (every forest cut at its z = 0 FoF groups), what it costs (promotions, progenitor-order changes, affected histories), and how the cut dataset partitions under chunked slab streaming. Written by Slice 9 (revision 5) of `MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md` (archived to `archive/dev-plans/`) for the decision gate of the brief, `MIMIC-SHIN-UCHUU-V3-PLAN.md` (archived to `archive/dev-plans/`) ("The decision gate"). F11 names it as Stage B's standing evidence.
 
 **Status:** Measured 2026-10-09 (run 2b). The cut rule is the owner's decision of 2026-10-09 (plan F6, "The decided table"); this record measures it and does not revisit it. The **two decision slots** at the end were filled by the owner on 2026-10-10. Nothing here is a recommendation. No physics claim is made beyond the measured counts.
 

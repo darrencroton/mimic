@@ -45,7 +45,7 @@ Source: the Shin-Uchuu Consistent-Trees ASCII merger trees as held on the OzSTAR
 
 - `simulations/shin-uchuu/` — the horizontal HDF5 version 3 dataset of the full production catalog, made by the legacy version 2 converter (since removed) using this reader's value conventions as the reference, then migrated to version 3 by the rewriter's migration (since retired) and cut by `convert/mimic-convert/rewrite_trees.py cut` (its README records how). This package is the vertical side of that package's subset gate: the gate compares this package's reader over the 2,744-file subset with the horizontal reader over a version 3 conversion of exactly that subset, for `halos-only` and `sage16`, fixed and dynamic, and all four legs passed bitwise on the subset migrated from its version 2 conversion (`halos-only` 92,413,007 galaxies in all 20 fields; `sage16` 60,016,178 fixed and 60,016,233 dynamic in all 42). The gate covers the migration at subset scale only; it excludes the production super-forest and says nothing about the cut.
 
-**Mirror maintenance:** `halo_properties.yaml` is an intentional mirror of `simulations/shin-uchuu/halo_properties.yaml` (both use the ctrees RawHalo contract; they differ in the 140 Mpc/h box's `Pos` range and, in the horizontal package, in the five link roles, which are `long long` there and `int` here). Keep the rest in sync.
+**Mirror maintenance:** `halo_properties.yaml` is an intentional mirror of `simulations/shin-uchuu/halo_properties.yaml` (both use the ctrees RawHalo contract; they differ only in the five link roles, which are `long long` in the horizontal package and `int` here). Keep the rest in sync.
 
 ## Maintenance notes
 

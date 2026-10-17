@@ -1103,7 +1103,6 @@ def _verify_progenitor_walk(
     problem = None
     if np.any((next_prog < -1) | (next_prog >= n)) or np.any((step < 0) | (step >= n)):
         problem = "a link outside the slab"
-    n_steps = 0
     while problem is None and step.size:
         if np.any(desc[step] != owner):
             problem = "a chain reaches a progenitor of another descendant"
@@ -1111,7 +1110,6 @@ def _verify_progenitor_walk(
             problem = "a chain returns to a halo already reached"
         else:
             reached[step] = True
-            n_steps += step.size
             following = next_prog[step]
             more = following != -1
             step, owner = following[more], owner[more]
@@ -1119,8 +1117,6 @@ def _verify_progenitor_walk(
         missed = int(np.count_nonzero(reached != (desc != -1)))
         if missed:
             problem = "{} progenitor(s) not reached from their FirstProgenitor".format(missed)
-        elif n_steps != int(np.count_nonzero(reached)):
-            problem = "two chains reach one halo"
         elif np.any(next_prog[~reached] != -1):
             problem = "a halo without a descendant carries a NextProgenitor"
     if problem is not None:

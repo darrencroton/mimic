@@ -1,6 +1,6 @@
 # Brief: a cut, vertical Shin-Uchuu for Mimic (updated Fri 16 Oct 2026, 18:10 AEDT; first written Thu 15 Oct 17:00)
 
-A planning brief for a fresh session. It is a follow-on to the Shin-Uchuu v3 plan (`docs/dev/MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md`, branch `feature/shin-uchuu-v3`), not part of it. Figures marked *estimate* are reasoned, not measured; everything else comes from the v3 production procedure's record (`docs/dev/MIMIC-SHIN-UCHUU-V3-ACCEPTANCE.md`, Stage C section) and its logs. The same intent is summarised in the repo's `HANDOFF.md` ("FOLLOW-ON INTENT") so the sessions finishing v3 know about it.
+A planning brief for a fresh session. It is a follow-on to the Shin-Uchuu v3 plan (`MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md` (archived to `archive/dev-plans/`), branch `feature/shin-uchuu-v3`), not part of it. Figures marked *estimate* are reasoned, not measured; everything else comes from the v3 production procedure's record (`docs/dev/MIMIC-SHIN-UCHUU-V3-ACCEPTANCE.md`, Stage C section) and its logs. The same intent is summarised in the repo's `HANDOFF.md` ("FOLLOW-ON INTENT") so the sessions finishing v3 know about it.
 
 ## The question and the owner's direction
 

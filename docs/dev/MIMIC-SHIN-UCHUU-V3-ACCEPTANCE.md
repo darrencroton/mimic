@@ -1,6 +1,6 @@
 # Shin-Uchuu Version 3 — Acceptance Record
 
-**Status:** Started 2026-10-08 by Slice 5 of [`MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md`](MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md) (F11: one section per stage). This file records measurements; it is not a plan and makes no claim beyond the runs below. Every number here is quoted from a log named beside it; the logs live outside the repository, under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-a/` (where `output/` resolves on this host, abbreviated `$A` below) and the LaCie conversion workdir.
+**Status:** Started 2026-10-08 by Slice 5 of `MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md` (archived to `archive/dev-plans/`) (F11: one section per stage). This file records measurements; it is not a plan and makes no claim beyond the runs below. Every number here is quoted from a log named beside it; the logs live outside the repository, under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-a/` (where `output/` resolves on this host, abbreviated `$A` below) and the LaCie conversion workdir.
 
 **Host** (`$A/logs/host.log`): macOS (Darwin 27.0.0), Mac Studio (`Mac15,14`), 32 cores, 512 GiB RAM; Open MPI 5.0.9; HDF5 1.14.6; `mimic_venv` Python 3.14.6 with h5py 3.15.1 and numpy 2.3.4.
 

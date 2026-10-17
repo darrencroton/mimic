@@ -717,13 +717,19 @@ class ConversionManifest:
         """Refuse an ASCII conversion whose recorded adapter parameters lack
         ``identity_scheme: forest-rank``: its SourceHaloID is not the halo's
         (ForestIndex, HaloRankInForest) position, so it is neither resumed nor
-        validated but reconverted. The other routes record no scheme. Read-only.
+        validated but reconverted. The other routes record no scheme, and a
+        rewriter workdir is forest-rank by construction. Read-only.
 
         Raises:
             IdentitySchemeError: naming the workdir.
         """
         adapter = self.configuration["adapter"]
         if adapter["source_format"] != "consistent_trees_ascii":
+            return
+        # A rewriter workdir (its parameters carry rewriter_version) is forest-rank by
+        # construction: every slab's SourceHaloID is verified as forest base + rank as it
+        # is written, whether or not the rewriter that wrote it recorded the scheme.
+        if "rewriter_version" in adapter["parameters"]:
             return
         if adapter["parameters"].get("identity_scheme") != "forest-rank":
             raise IdentitySchemeError(

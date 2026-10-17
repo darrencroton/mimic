@@ -40,6 +40,7 @@ after the last verified slab; a completed run is re-verified (outputs and
 inventory against their recorded checksums) and exits.
 """
 
+import fcntl
 import hashlib
 import json
 import os
@@ -115,11 +116,20 @@ def replace_durably(tmp: Path, path: Path) -> None:
     directory entry after it."""
     descriptor = os.open(str(tmp), os.O_RDONLY)
     try:
-        os.fsync(descriptor)
+        _flush_to_disk(descriptor)
     finally:
         os.close(descriptor)
     os.replace(tmp, path)
     _fsync_directory(path.parent)
+
+
+def _flush_to_disk(descriptor: int) -> None:
+    """``fsync``, and on macOS ``F_FULLFSYNC`` as well, which flushes the
+    drive's own write cache where plain ``fsync`` does not."""
+    os.fsync(descriptor)
+    full = getattr(fcntl, "F_FULLFSYNC", None)
+    if full is not None:
+        fcntl.fcntl(descriptor, full)
 
 
 def read_json(path: Path, what: str) -> dict:

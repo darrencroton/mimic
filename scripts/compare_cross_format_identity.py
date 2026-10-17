@@ -328,6 +328,8 @@ def master_links(master):
         for snap in handle:
             if SNAP_GROUP_RE.match(snap) is None:
                 continue
+            if not isinstance(handle[snap], h5py.Group):
+                raise ComparisonError(f"{master}: /{snap} is not a group of partition links")
             for partition in handle[snap].values():
                 if not isinstance(partition, h5py.Group):
                     continue
@@ -606,7 +608,8 @@ def pairing_keys(rows, mode, where):
     keys = numpy.asarray(rows["MostBoundID"], dtype=numpy.int64)
     if mode == "catalogue":
         return keys
-    outside = numpy.abs(keys) > LINEAGE_MOSTBOUNDID_LIMIT
+    # signed bounds: abs(INT64_MIN) stays negative and would slip through
+    outside = (keys > LINEAGE_MOSTBOUNDID_LIMIT) | (keys < -LINEAGE_MOSTBOUNDID_LIMIT)
     if outside.any():
         raise ComparisonError(
             f"{where}: created record MostBoundID {int(keys[outside][0])} is beyond the "
