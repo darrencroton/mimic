@@ -300,7 +300,10 @@ class TestSortSkipTrust(unittest.TestCase):
     def test_a_linked_snapshot_is_refused_by_sort_and_fix_ups(self):
         """Once a snapshot is linked only the link stage is re-run. Sort and
         the fix-up stage refuse a ``linked`` snapshot whether every artifact is
-        on disk or the manifest records some as removed."""
+        on disk or the manifest records them as removed. The removal is
+        recorded on every snapshot, so the first snapshot either stage visits
+        already has its artifacts gone: skip-trusting it instead of refusing
+        would let the stage return without raising."""
         for name, removed in (("linked-intact", ()), ("linked-removed", LINKED_ARTIFACTS)):
             with self.subTest(removed=removed):
                 workdir, a_list, sim_info = self._workdir_through(name, link=True)
@@ -308,7 +311,8 @@ class TestSortSkipTrust(unittest.TestCase):
                 for entry in manifest.data["snapshots"].values():
                     self.assertEqual("linked", entry["status"])
                 if removed:
-                    self._record_removed(workdir, removed)
+                    for snap in manifest.data["snapshots"]:
+                        self._record_removed(workdir, removed, snap=snap)
                 with self.assertRaisesRegex(ConverterError, r"unexpected status 'linked'"):
                     run_sort(workdir)
                 with self.assertRaisesRegex(ConverterError, r"unexpected status 'linked'"):
