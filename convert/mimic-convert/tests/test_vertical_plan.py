@@ -145,7 +145,9 @@ class ForestTotalsTests(FixtureDataset):
         def raise_first(values):
             values[0] = 2  # forest 0's rank 0 at snapshot 5
 
-        with self.assertRaisesRegex(ConverterError, r"forest 0's first SourceHaloID is 2, not 1"):
+        with self.assertRaisesRegex(
+            ConverterError, r"forest 0's first SourceHaloID is 2, not 1 \(the totals need .* dense"
+        ):
             forest_totals(self.mutated((5, "SourceHaloID", raise_first)))
 
     def test_totals_that_do_not_sum_to_the_halo_total_are_refused(self):
@@ -156,7 +158,7 @@ class ForestTotalsTests(FixtureDataset):
         with self.assertRaisesRegex(
             ConverterError,
             r"forest totals do not sum to the dataset's 19 halos: forests 0 to 2 hold 116, "
-            r"leaving -97 for forest 3",
+            r"leaving -97 for forest 3 \(the totals need SourceHaloID to be the dense 1-based",
         ):
             forest_totals(dataset)
 

@@ -95,6 +95,8 @@ class RecordLayoutTests(unittest.TestCase):
         entries = [{"name": "Len", "type": "int"}, {"name": "Mass", "type": "unsigned"}]
         with self.assertRaisesRegex(ConverterError, r"'Mass' has type 'unsigned'"):
             record_dtype(entries)
+        with self.assertRaisesRegex(ConverterError, r"'Pos' has type \['float', 3\]"):
+            record_dtype([{"name": "Pos", "type": ["float", 3]}])
         with self.assertRaisesRegex(ConverterError, r"'Len' is declared twice"):
             record_dtype([{"name": "Len", "type": "int"}] * 2)
         with self.assertRaisesRegex(ConverterError, "entry 0 has no name"):

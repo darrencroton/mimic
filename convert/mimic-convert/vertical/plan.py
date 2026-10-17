@@ -153,13 +153,17 @@ def forest_totals(dataset: HorizontalDataset, block_rows: int = DEFAULT_BLOCK_RO
         )
     if minima[0] != 1:
         raise ConverterError(
-            "{}: forest 0's first SourceHaloID is {}, not 1".format(dataset.directory, minima[0])
+            "{}: forest 0's first SourceHaloID is {}, not 1 (the totals need SourceHaloID to be "
+            "the dense 1-based (ForestIndex, HaloRankInForest) position)".format(
+                dataset.directory, minima[0]
+            )
         )
     totals[-1] = total - minima[-1] + 1
     if totals[-1] < 1 or int(totals.sum()) != total:
         raise ConverterError(
             "{}: forest totals do not sum to the dataset's {} halos: forests 0 to {} hold {}, "
-            "leaving {} for forest {}".format(
+            "leaving {} for forest {} (the totals need SourceHaloID to be the dense 1-based "
+            "(ForestIndex, HaloRankInForest) position, which gapped ids are not)".format(
                 dataset.directory,
                 total,
                 n_forests - 2,

@@ -84,7 +84,7 @@ def record_dtype(source: Union[str, Path, Sequence[dict]]) -> np.dtype:
             raise ConverterError("halo_properties entry {!r} is declared twice".format(name))
         seen.add(name)
         kind = entry.get("type")
-        if kind not in RECORD_TYPES:
+        if not isinstance(kind, str) or kind not in RECORD_TYPES:
             raise ConverterError(
                 "halo_properties entry {!r} has type {!r}; a record field is one of {}".format(
                     name, kind, sorted(RECORD_TYPES)
