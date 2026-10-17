@@ -84,9 +84,12 @@ VERIFY_BLOCK_BYTES = 64 << 20
 #: The write buffer of a file being written.
 WRITE_BUFFER_BYTES = 8 << 20
 
-#: Bytes per forest of a file's header while it is written and checked: the plan's int64 total
-#: and the header's int32 count.
-HEADER_BYTES_PER_FOREST = 12
+#: Bytes per forest of a file's header while it is written and checked, the worker's copy of
+#: the plan's int64 totals included. Measured with ``tracemalloc`` at 20.0 B per forest for a
+#: 4-million-forest header and 20.4 B for 1 million (the totals, their int64 concatenation with
+#: ``ntrees`` and ``totNHalos``, and the int32 header); the re-read's parse of the header peaks
+#: at 17 B. Rounded up to 21 B.
+HEADER_BYTES_PER_FOREST = 21
 
 #: Exit statuses: every selected file complete, a verification failure, a refusal.
 EXIT_OK = 0
@@ -289,12 +292,12 @@ def _write_partial(job: FileJob, assembler: ForestAssembler, partial: Path) -> s
     """Write the file's header and every forest's records to ``partial``; returns the SHA-256
     of the bytes written. Each forest's records are written before the next is assembled."""
     counts = np.asarray(job.counts, dtype=np.int64)
-    header = np.concatenate(([counts.size, job.n_halos], counts)).astype(HEADER_DTYPE)
+    header = np.concatenate(([counts.size, job.n_halos], counts)).astype(HEADER_DTYPE).tobytes()
     digest = hashlib.sha256()
     expected = _RangeTotals(job.first_forest, counts)
     with open(partial, "xb", buffering=WRITE_BUFFER_BYTES) as handle:
-        handle.write(header.tobytes())
-        digest.update(header.tobytes())
+        handle.write(header)
+        digest.update(header)
         for forest in assembler.forests(job.first_forest, job.last_forest + 1, expected):
             view = forest.records.view(np.uint8)
             handle.write(view)
@@ -596,18 +599,27 @@ def _run_jobs(jobs: Iterator[FileJob], workers: int) -> Iterator[Tuple[FileJob, 
             )
         broken = True
 
-    def submit_next() -> None:
+    def submit_next() -> Optional[FileJob]:
+        """Submit the next job; returns it if the pool refused it (a worker died)."""
         job = next(jobs, None)
         if job is None:
-            return
+            return None
         try:
             pending[executor.submit(convert_file, job)] = job
         except BrokenProcessPool:
             break_pool()
+            return job
+        return None
+
+    def not_started(job: FileJob) -> _Failure:
+        return _Failure(False, "file {}: not started: a worker process died".format(job.number))
 
     try:
         for _ in range(workers):
-            submit_next()
+            dropped = submit_next()
+            if dropped is not None:
+                yield dropped, not_started(dropped)
+                break
         while pending:
             done, _ = wait(pending, return_when=FIRST_COMPLETED)
             for future in done:
@@ -623,7 +635,9 @@ def _run_jobs(jobs: Iterator[FileJob], workers: int) -> Iterator[Tuple[FileJob, 
                     outcome = _failure(job, error)
                 yield job, outcome
                 if not broken:
-                    submit_next()
+                    dropped = submit_next()
+                    if dropped is not None:
+                        yield dropped, not_started(dropped)
     finally:
         executor.shutdown(wait=True, cancel_futures=True)
 
@@ -805,7 +819,8 @@ def convert(
     _log("{} of {} selected file(s) complete".format(complete, len(selected)))
     for number, message in refused + unverified:
         _log("  file {} failed: {}".format(number, message))
-    if refused:
+    # Exit 0 means every selected file is complete, whatever stopped the others.
+    if refused or (complete < len(selected) and not unverified):
         return EXIT_REFUSED
     if unverified:
         return EXIT_VERIFICATION

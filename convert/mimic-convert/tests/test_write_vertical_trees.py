@@ -154,7 +154,7 @@ class RoundTripTests(ConverterCase):
         assembler = ForestAssembler(HorizontalDataset(self.dataset_dir), SHIN_UCHUU_RECORD)
         bound = writer.worker_memory_bound(assembler, 8, 2)
         self.assertEqual(
-            bound["total"], assembler.memory_bound(8) + (64 << 20) + (8 << 20) + 12 * 2
+            bound["total"], assembler.memory_bound(8) + (64 << 20) + (8 << 20) + 21 * 2
         )
         self.assertIn("memory bound per worker: {} bytes".format(bound["total"]), out)
 
@@ -289,38 +289,44 @@ class ResumeTests(ConverterCase):
         self.assertEqual(sorted(self.entries()), [0, 1, 2])
 
     def test_a_worker_death_keeps_the_entries_of_files_it_did_not_touch(self):
-        """A complete conversion rerun in a pool that breaks on file 1: file 1 fails in flight,
-        file 2 is never started, both keep their entries, and the next run skips all three by
-        SHA-256."""
+        """A complete conversion rerun in a pool that breaks running file 1: file 1 fails in
+        flight, file 2 is never started, both keep their entries, and the next run skips all
+        three by SHA-256. A fresh conversion whose pool breaks idle, at file 2's submission
+        after files 0 and 1 completed, names file 2 and exits 2."""
+
+        def breaking_pool(running=None, submitting=None):
+            """The pool's contract when a worker dies: the future of the file it was running
+            fails with BrokenProcessPool, and so does every later submission."""
+
+            class BreakingPool:
+                def __init__(self, max_workers, mp_context):
+                    self.broken = False
+
+                def submit(self, function, job):
+                    if self.broken or job.number == submitting:
+                        self.broken = True
+                        raise BrokenProcessPool("the pool is broken")
+                    future = Future()
+                    if job.number == running:
+                        self.broken = True
+                        future.set_exception(BrokenProcessPool("a child process terminated"))
+                    else:
+                        future.set_result(function(job))
+                    return future
+
+                def shutdown(self, wait, cancel_futures):
+                    pass
+
+            return BreakingPool
+
+        died = "a worker process died (killed, or out of memory)"
         self.plan()
         self.assertEqual(self.convert()[0], 0)
         before = self.manifest()["files"]
-
-        class BreakingPool:
-            """The pool's contract when a worker dies running file 1: that future fails with
-            BrokenProcessPool, and so does every later submission."""
-
-            def __init__(self, max_workers, mp_context):
-                self.broken = False
-
-            def submit(self, function, job):
-                if self.broken:
-                    raise BrokenProcessPool("the pool is broken")
-                future = Future()
-                if job.number == 1:
-                    self.broken = True
-                    future.set_exception(BrokenProcessPool("a child process terminated"))
-                else:
-                    future.set_result(function(job))
-                return future
-
-            def shutdown(self, wait, cancel_futures):
-                pass
-
-        with mock.patch.object(writer, "ProcessPoolExecutor", BreakingPool):
+        with mock.patch.object(writer, "ProcessPoolExecutor", breaking_pool(running=1)):
             code, out, err = self.convert("--workers", 2)
         self.assertEqual(code, 2, err)
-        self.assertEqual(out.count("a worker process died (killed, or out of memory)"), 1)
+        self.assertEqual(out.count(died), 1)
         self.assertIn("file 1: in flight when a worker process died", out)
         self.assertEqual(self.manifest()["files"], before)
 
@@ -328,6 +334,16 @@ class ResumeTests(ConverterCase):
         self.assertEqual(code, 0, err + out)
         self.assertEqual(out.count("matches its manifest entry; skipped"), 3)
         self.assertEqual(self.manifest()["files"], before)
+
+        idle = self.work / "idle"
+        self.plan(idle)
+        with mock.patch.object(writer, "ProcessPoolExecutor", breaking_pool(submitting=2)):
+            code, out, err = self.convert("--workers", 2, output=idle)
+        self.assertEqual(code, 2, err)
+        self.assertEqual(out.count(died), 1)
+        self.assertIn("FAILED file 2: file 2: not started: a worker process died", out)
+        self.assertIn("2 of 3 selected file(s) complete", out)
+        self.assertEqual(sorted(self.entries(idle)), [0, 1])
 
 
 class RefusalTests(ConverterCase):
