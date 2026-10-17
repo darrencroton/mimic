@@ -453,20 +453,25 @@ def check_object_sets(
             # a /halos dataset carries no attribute; a /schema field group carries
             # exactly the declaration attributes and no object
             for name in table:
-                column = handle["halos"][name]
-                _refuse_undefined(path, "/halos/" + name, "attribute", column.attrs.keys(), ())
+                column = handle["halos"].get(name)
+                if column is not None:
+                    _refuse_undefined(path, "/halos/" + name, "attribute", column.attrs.keys(), ())
             for declaration in declarations:
-                field = handle["schema"][declaration.name]
                 where = "/schema/" + declaration.name
+                field = handle["schema"].get(declaration.name)
+                if not isinstance(field, h5py.Group):
+                    raise ConverterError("{}: {} is not a group".format(path, where))
                 _refuse_undefined(path, where, "object", field.keys(), ())
                 _refuse_undefined(path, where, "attribute", field.attrs.keys(), V3_SCHEMA_ATTRS)
     with h5py.File(dataset.sidecar_path, "r") as handle:
         _refuse_undefined(dataset.sidecar_path, "/", "object", handle.keys(), V3_SIDECAR_DATASETS)
         _refuse_undefined(dataset.sidecar_path, "/", "attribute", handle.attrs.keys(), ())
         for name in V3_SIDECAR_DATASETS:
-            _refuse_undefined(
-                dataset.sidecar_path, "/" + name, "attribute", handle[name].attrs.keys(), ()
-            )
+            column = handle.get(name)
+            if column is not None:
+                _refuse_undefined(
+                    dataset.sidecar_path, "/" + name, "attribute", column.attrs.keys(), ()
+                )
 
 
 def _refuse_undefined(path, group: str, kind: str, held, defined) -> None:
@@ -626,10 +631,11 @@ MEMORY_FORMULAS = {
     "of the split forests and P the cut index's pairs. Shin-Uchuu: n 519,342,987, F "
     "166,547,771, T 315,004,242, P about 320 million, and under the decided table F' "
     "244,953,607, p 86,459,398. The coefficients marked measured were measured with "
-    "tracemalloc, before the ranking pass was split into stage functions that hold no more "
-    "than it did at any point, so each is an upper bound, on a synthetic 400,000-row slab (for the cut: 100,000 forests of two trees "
+    "tracemalloc on a synthetic 400,000-row slab (for the cut: 100,000 forests of two trees "
     "each, every forest cut into its two trees, every row of the slab a progenitor, three "
-    "quarters of them of descendants with three progenitors, one quarter promoted)",
+    "quarters of them of descendants with three progenitors, one quarter promoted). They "
+    "predate the split of the ranking pass into stage functions, which holds no more at any "
+    "point, so each is an upper bound",
     "pass0": "133 B x T + 80 B x F + 8 B x P + 24 B x b at the inventory step: the index "
     "(32 B x T, after a load that peaks at 79 B x T), its forest table (40 B x F + 8 B x P, "
     "built with a transient of 57 B x T at Shin-Uchuu's ratio and 81 B x T when forests "

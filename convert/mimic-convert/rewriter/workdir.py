@@ -125,11 +125,15 @@ def replace_durably(tmp: Path, path: Path) -> None:
 
 def _flush_to_disk(descriptor: int) -> None:
     """``fsync``, and on macOS ``F_FULLFSYNC`` as well, which flushes the
-    drive's own write cache where plain ``fsync`` does not."""
+    drive's own write cache where plain ``fsync`` does not; a filesystem that
+    rejects the call keeps the plain ``fsync``."""
     os.fsync(descriptor)
     full = getattr(fcntl, "F_FULLFSYNC", None)
     if full is not None:
-        fcntl.fcntl(descriptor, full)
+        try:
+            fcntl.fcntl(descriptor, full)
+        except OSError:
+            pass  # a filesystem without the call (a network share) keeps the plain fsync
 
 
 def read_json(path: Path, what: str) -> dict:

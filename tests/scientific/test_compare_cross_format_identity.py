@@ -1558,6 +1558,7 @@ def main():
             test_missing_run_directory_is_an_input_error,
             test_directory_without_partitions_is_an_input_error,
             test_partitions_must_be_exactly_the_master_files_links,
+            test_a_master_snapshot_entry_that_is_not_a_group_is_an_input_error,
             test_an_unexpected_failure_exits_3_with_its_traceback,
         ],
         "Cross-format identity comparator (test_compare_cross_format_identity.py)",

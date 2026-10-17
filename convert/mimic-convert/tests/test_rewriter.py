@@ -2089,10 +2089,6 @@ class TestCutTableAndRefusals(unittest.TestCase):
             )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestProgenitorWalk(unittest.TestCase):
     """The per-slab progenitor walk names each way a written chain can fail to
     be exactly its descendant's progenitors. Three halos: 0 and 1 are the
@@ -2125,3 +2121,7 @@ class TestProgenitorWalk(unittest.TestCase):
             with self.subTest(reason=reason):
                 with self.assertRaisesRegex(ConverterError, re.escape(reason)):
                     self.walk(next_prog, desc, heads)
+
+
+if __name__ == "__main__":
+    unittest.main()
