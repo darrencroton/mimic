@@ -63,16 +63,18 @@ Memory: convert prints its bound before it starts. Per worker it is
   (2*S*R + L)*B + max(R, L)*(B + b + {working}) bytes
 for S slabs, R = --window-rows, L the plan's largest forest in halos, B the bytes per halo of
 the dataset columns read and b the record's bytes (the forest assembler's windows, the forest
-in flight and its batch), plus the {reread} MiB re-read block, the {buffer} MiB write buffer
+in flight and its batch), plus the {reread} MiB re-read buffer, the {buffer} MiB write buffer
 and {header} B per forest of the largest file's header. The parent process holds 8 B per
-forest of the forest totals (16 B while it derives them); plan holds the same.
+forest of the forest totals while the files are converted, and about 17 B per forest while it
+derives them; plan holds up to 24 B per forest while it cuts the files.
 
 Exit status: 0 when every selected file is complete; 1 when a file fails its verification
 (the header against the plan, the size against the header plus totNHalos records, or the
 SHA-256 of the re-read file against the one computed while writing): that file stays
 <name>.<k>.partial and is never renamed, while every other file is still written and
 recorded; 2 on a refusal: an invalid option, unreadable input, a dataset that is not version
-3, a missing or mismatching file_plan.json, a malformed forest, or a worker that died.
+3, a missing or mismatching file_plan.json, a malformed forest, any other error in a
+file, or a worker that died.
 """.format(
     working=WORKING_BYTES_PER_ROW,
     reread=VERIFY_BLOCK_BYTES >> 20,

@@ -18,8 +18,11 @@ worker count or window, a dataset the open-time checks of
 fill, and a manifest written for another conversion. It then derives every forest's halo
 total (:func:`vertical.plan.forest_totals`), requires every planned file's total to agree,
 prints the memory bound per worker and converts the selected files, the largest first, in
-``workers`` processes. Every forest's assembled halo count must equal its total, which is
-refused otherwise naming the forest.
+``workers`` processes, at most ``workers`` files submitted at a time. Every forest's assembled
+halo count must equal its total, which is refused otherwise naming the forest. A file that
+fails, by a refusal, a verification failure or any other error, is reported and the run goes
+on, recording every file that completes; when a worker process dies, the files in flight fail,
+no further file is started, and a recorded file that was not moved aside keeps its entry.
 
 **The manifest.** ``manifest.json`` records the dataset identity, the record (the package's
 ``halo_properties.yaml`` path and md5, the layout and its digest), the plan's md5 and caps, the
@@ -175,7 +178,7 @@ def worker_memory_bound(
     assembler: ForestAssembler, largest_forest_halos: int, most_forests_in_a_file: int
 ) -> Dict[str, int]:
     """The bytes one worker holds at most, by term: the assembler's bound for the largest
-    forest, the re-read block, the write buffer and the largest file's header."""
+    forest, the one re-read buffer, the write buffer and the largest file's header."""
     terms = {
         "assembler": int(assembler.memory_bound(largest_forest_halos)),
         "reread_block": VERIFY_BLOCK_BYTES,
@@ -228,12 +231,24 @@ class _RangeTotals:
         return self.counts[key.start - self.first : key.stop - self.first]
 
 
+def _blocks(path, block_bytes: int = VERIFY_BLOCK_BYTES) -> Iterator[memoryview]:
+    """A file's bytes in blocks read into one reused buffer of ``block_bytes``: each block is
+    valid only until the next is read."""
+    buffer = bytearray(block_bytes)
+    view = memoryview(buffer)
+    with open(path, "rb", buffering=0) as handle:
+        while True:
+            n_read = handle.readinto(buffer)
+            if not n_read:
+                return
+            yield view[:n_read]
+
+
 def sha256_file(path, block_bytes: int = VERIFY_BLOCK_BYTES) -> str:
-    """The SHA-256 of a file's contents, read in blocks."""
+    """The SHA-256 of a file's contents, read in blocks into one buffer."""
     digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(block_bytes), b""):
-            digest.update(block)
+    for block in _blocks(path, block_bytes):
+        digest.update(block)
     return digest.hexdigest()
 
 
@@ -265,11 +280,9 @@ def move_aside(path: Path, stamp: str) -> Path:
     return target
 
 
-def _reread(path: Path, block_bytes: int = VERIFY_BLOCK_BYTES) -> Iterator[bytes]:
-    """The bytes of a written file, re-read from disk in blocks."""
-    with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(block_bytes), b""):
-            yield block
+def _reread(path: Path, block_bytes: int = VERIFY_BLOCK_BYTES) -> Iterator[memoryview]:
+    """The bytes of a written file, re-read from disk in blocks into one reused buffer."""
+    return _blocks(path, block_bytes)
 
 
 def _write_partial(job: FileJob, assembler: ForestAssembler, partial: Path) -> str:
@@ -532,34 +545,85 @@ def _set_entry(manifest: Dict[str, object], entry: Optional[Dict[str, object]], 
 # ---- the run ----------------------------------------------------------------
 
 
-def _run_jobs(jobs: Sequence[FileJob], workers: int) -> Iterator[Tuple[FileJob, object]]:
-    """Run ``convert_file`` over ``jobs``, yielding ``(job, result or exception)`` as each
-    completes: in this process for one worker, else in ``workers`` spawned processes, each
-    taking the next job in ``jobs`` order when it finishes one. A refusal or verification
-    failure (``ConverterError``, ``OSError``) is yielded; any other exception propagates."""
+@dataclass(frozen=True)
+class _Failure:
+    """A file that did not complete: whether it failed its verification, and the message.
+    Only the text is kept, so no exception (or the arrays its traceback holds) outlives it."""
+
+    verification: bool
+    message: str
+
+
+def _failure(job: FileJob, error: Exception) -> _Failure:
+    """The failure of ``job`` by ``error``: a verification failure, a refusal, or any other
+    exception, which is a refusal of the file naming its type."""
+    if isinstance(error, VerificationError):
+        return _Failure(True, str(error))
+    if isinstance(error, (ConverterError, OSError)):
+        return _Failure(False, str(error))
+    return _Failure(
+        False, "file {}: unexpected {}: {}".format(job.number, type(error).__name__, error)
+    )
+
+
+def _run_jobs(jobs: Iterator[FileJob], workers: int) -> Iterator[Tuple[FileJob, object]]:
+    """Run ``convert_file`` over ``jobs``, yielding ``(job, result or _Failure)`` as each
+    completes: in this process for one worker, else in ``workers`` spawned processes with at
+    most ``workers`` jobs submitted at a time, in ``jobs`` order. Every ``Exception`` of a job
+    is that job's failure; a ``BaseException`` that is not one (``KeyboardInterrupt``)
+    propagates. When a worker process dies, the jobs in flight fail, the death is logged once
+    and no further job is submitted."""
     if workers == 1:
         for job in jobs:
             try:
-                yield job, convert_file(job)
-            except (ConverterError, OSError) as error:
-                yield job, error
+                outcome = convert_file(job)
+            except Exception as error:
+                outcome = _failure(job, error)
+            yield job, outcome
         return
     executor = ProcessPoolExecutor(
         max_workers=workers, mp_context=multiprocessing.get_context("spawn")
     )
+    pending = {}
+    broken = False
+
+    def break_pool() -> None:
+        nonlocal broken
+        if not broken:
+            _log(
+                "a worker process died (killed, or out of memory): the files in flight are not "
+                "completed and no further file is started"
+            )
+        broken = True
+
+    def submit_next() -> None:
+        job = next(jobs, None)
+        if job is None:
+            return
+        try:
+            pending[executor.submit(convert_file, job)] = job
+        except BrokenProcessPool:
+            break_pool()
+
     try:
-        pending = {executor.submit(convert_file, job): job for job in jobs}
+        for _ in range(workers):
+            submit_next()
         while pending:
             done, _ = wait(pending, return_when=FIRST_COMPLETED)
             for future in done:
                 job = pending.pop(future)
                 try:
-                    yield job, future.result()
-                except (ConverterError, OSError) as error:
-                    yield job, error
-                except BrokenProcessPool as error:
-                    died = "file {}: a worker process died (killed, or out of memory): {}"
-                    yield job, ConverterError(died.format(job.number, error))
+                    outcome = future.result()
+                except BrokenProcessPool:
+                    break_pool()
+                    outcome = _Failure(
+                        False, "file {}: in flight when a worker process died".format(job.number)
+                    )
+                except Exception as error:
+                    outcome = _failure(job, error)
+                yield job, outcome
+                if not broken:
+                    submit_next()
     finally:
         executor.shutdown(wait=True, cancel_futures=True)
 
@@ -637,8 +701,9 @@ def convert(
     _log(
         "memory bound per worker: {} bytes ({}): the assembler's {} for --window-rows {} over {} "
         "slabs, {} B per row and {} B per record, with the plan's largest forest of {} halos; "
-        "the {} re-read block, the {} write buffer and {} B of header for the plan's most "
-        "forests in a file; {} worker(s): {}; the forest totals held here: {}".format(
+        "the {} re-read buffer, the {} write buffer and {} B of header for the plan's most "
+        "forests in a file; {} worker(s): {}; the forest totals held here: {} (8 B per "
+        "forest)".format(
             bound["total"],
             _size(bound["total"]),
             _size(bound["assembler"]),
@@ -679,41 +744,43 @@ def convert(
         if isinstance(halo_properties, (str, Path))
         else tuple(dict(entry) for entry in halo_properties)
     )
-    jobs = []
-    for number in selected:
+    order = sorted(selected, key=lambda number: (-planned[number]["n_halos"], number))
+
+    def job_of(number: int) -> FileJob:
+        """File ``number``'s job, built when it is submitted; its counts are a view of the
+        totals (a worker process receives a copy of that slice alone)."""
         entry = planned[number]
-        jobs.append(
-            FileJob(
-                dataset=str(dataset.directory),
-                halo_properties=properties,
-                window_rows=window_rows,
-                output=str(output),
-                tree_name=tree_name,
-                number=number,
-                first_forest=entry["first_forest"],
-                last_forest=entry["last_forest"],
-                n_halos=entry["n_halos"],
-                counts=totals[entry["first_forest"] : entry["last_forest"] + 1].copy(),
-                expected_sha256=recorded.get(number),
-                stamp=stamp,
-            )
+        return FileJob(
+            dataset=str(dataset.directory),
+            halo_properties=properties,
+            window_rows=window_rows,
+            output=str(output),
+            tree_name=tree_name,
+            number=number,
+            first_forest=entry["first_forest"],
+            last_forest=entry["last_forest"],
+            n_halos=entry["n_halos"],
+            counts=totals[entry["first_forest"] : entry["last_forest"] + 1],
+            expected_sha256=recorded.get(number),
+            stamp=stamp,
         )
-    jobs.sort(key=lambda job: (-job.n_halos, job.number))
+
     _log(
         "converting {} file(s) of {} into {} with {} worker(s), the largest first".format(
-            len(jobs), len(planned), output, workers
+            len(order), len(planned), output, workers
         )
     )
 
     refused = []
     unverified = []
-    for job, outcome in _run_jobs(jobs, workers):
-        if isinstance(outcome, BaseException):
-            (unverified if isinstance(outcome, VerificationError) else refused).append(
-                (job.number, outcome)
-            )
-            _log("FAILED file {}: {}".format(job.number, outcome))
-            if job.number in recorded:
+    for job, outcome in _run_jobs((job_of(number) for number in order), workers):
+        if isinstance(outcome, _Failure):
+            (unverified if outcome.verification else refused).append((job.number, outcome.message))
+            _log("FAILED file {}: {}".format(job.number, outcome.message))
+            # The entry goes only with its file: a job that failed before it moved its file
+            # aside (a worker death, say) leaves the rerun's SHA-256 check to decide.
+            final = output / file_name(tree_name, job.number)
+            if job.number in recorded and not (final.exists() or final.is_symlink()):
                 _set_entry(manifest, None, job.number)
                 write_json_atomic(manifest_path, manifest)
             continue
@@ -736,8 +803,8 @@ def convert(
     wanted = set(selected)
     complete = sum(1 for entry in manifest["files"] if entry["number"] in wanted)
     _log("{} of {} selected file(s) complete".format(complete, len(selected)))
-    for number, error in refused + unverified:
-        _log("  file {} failed: {}".format(number, error))
+    for number, message in refused + unverified:
+        _log("  file {} failed: {}".format(number, message))
     if refused:
         return EXIT_REFUSED
     if unverified:

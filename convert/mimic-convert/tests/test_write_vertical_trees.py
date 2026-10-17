@@ -19,6 +19,8 @@ import shutil
 import sys
 import tempfile
 import unittest
+from concurrent.futures import Future
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from unittest import mock
 
@@ -54,6 +56,10 @@ ORACLES = [FOREST_1100, FOREST_1200, FOREST_1300, FOREST_1400]
 
 #: The plan at 8 halos per file: (first forest, last forest, the forests' halo counts).
 FILES = [(0, 0, [8]), (1, 2, [6, 2]), (3, 3, [3])]
+
+
+class Killed(BaseException):
+    """A simulated kill: not an ``Exception``, so no per-file handler catches it."""
 
 
 def run(*argv):
@@ -231,11 +237,11 @@ class ResumeTests(ConverterCase):
         def killed_on_the_second_file(*args):
             calls.append(args)
             if len(calls) == 2:
-                raise RuntimeError("killed")
+                raise Killed()
             return real(*args)
 
         with mock.patch.object(writer, "_verify", killed_on_the_second_file):
-            with self.assertRaisesRegex(RuntimeError, "killed"):
+            with self.assertRaises(Killed):
                 self.convert()
         self.assertEqual(sorted(self.entries()), [0])
         first = self.entries()[0]
@@ -264,11 +270,11 @@ class ResumeTests(ConverterCase):
         def killed_on_the_third_save(*args):
             calls.append(args)
             if len(calls) == 3:  # the run's start, file 0, then file 1
-                raise RuntimeError("killed")
+                raise Killed()
             return real(*args)
 
         with mock.patch.object(writer, "write_json_atomic", killed_on_the_third_save):
-            with self.assertRaisesRegex(RuntimeError, "killed"):
+            with self.assertRaises(Killed):
                 self.convert()
         self.assertTrue(self.path(1).exists())
         self.assertEqual(sorted(self.entries()), [0])
@@ -281,6 +287,47 @@ class ResumeTests(ConverterCase):
         self.assertEqual(stale.read_bytes(), orphan)
         self.assertEqual(self.path(1).read_bytes(), orphan)
         self.assertEqual(sorted(self.entries()), [0, 1, 2])
+
+    def test_a_worker_death_keeps_the_entries_of_files_it_did_not_touch(self):
+        """A complete conversion rerun in a pool that breaks on file 1: file 1 fails in flight,
+        file 2 is never started, both keep their entries, and the next run skips all three by
+        SHA-256."""
+        self.plan()
+        self.assertEqual(self.convert()[0], 0)
+        before = self.manifest()["files"]
+
+        class BreakingPool:
+            """The pool's contract when a worker dies running file 1: that future fails with
+            BrokenProcessPool, and so does every later submission."""
+
+            def __init__(self, max_workers, mp_context):
+                self.broken = False
+
+            def submit(self, function, job):
+                if self.broken:
+                    raise BrokenProcessPool("the pool is broken")
+                future = Future()
+                if job.number == 1:
+                    self.broken = True
+                    future.set_exception(BrokenProcessPool("a child process terminated"))
+                else:
+                    future.set_result(function(job))
+                return future
+
+            def shutdown(self, wait, cancel_futures):
+                pass
+
+        with mock.patch.object(writer, "ProcessPoolExecutor", BreakingPool):
+            code, out, err = self.convert("--workers", 2)
+        self.assertEqual(code, 2, err)
+        self.assertEqual(out.count("a worker process died (killed, or out of memory)"), 1)
+        self.assertIn("file 1: in flight when a worker process died", out)
+        self.assertEqual(self.manifest()["files"], before)
+
+        code, out, err = self.convert()
+        self.assertEqual(code, 0, err + out)
+        self.assertEqual(out.count("matches its manifest entry; skipped"), 3)
+        self.assertEqual(self.manifest()["files"], before)
 
 
 class RefusalTests(ConverterCase):
@@ -364,6 +411,26 @@ class RefusalTests(ConverterCase):
         self.assertFalse(self.path(0).exists())
 
 
+class FailureTests(ConverterCase):
+    def test_an_unexpected_error_in_one_file(self):
+        """An ordinary exception in file 1 is a refusal of that file (exit 2), and files 0 and
+        2 still complete and are recorded."""
+        self.plan()
+        real = writer._verify
+
+        def broken_on_file_1(job, *args):
+            if job.number == 1:
+                raise ValueError("boom")
+            return real(job, *args)
+
+        with mock.patch.object(writer, "_verify", broken_on_file_1):
+            code, out, err = self.convert()
+        self.assertEqual(code, 2, err)
+        self.assertIn("FAILED file 1: file 1: unexpected ValueError: boom", out)
+        self.assertFalse(self.path(1).exists())
+        self.assertEqual(sorted(self.entries()), [0, 2])
+
+
 class VerificationTests(ConverterCase):
     def test_a_file_corrupted_before_its_verification(self):
         """File 1's re-read sees one payload byte flipped: it fails by name and stays
@@ -374,7 +441,7 @@ class VerificationTests(ConverterCase):
         def corrupted(path, *args):
             for block in real(path, *args):
                 if Path(path).name == "{}.1.partial".format(TREE):
-                    block = block[:-1] + bytes([block[-1] ^ 0xFF])
+                    block = bytes(block[:-1]) + bytes([block[-1] ^ 0xFF])
                 yield block
 
         with mock.patch.object(writer, "_reread", corrupted):
