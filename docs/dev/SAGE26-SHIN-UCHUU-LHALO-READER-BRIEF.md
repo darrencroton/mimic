@@ -114,7 +114,7 @@ Keep the rest of `setup_forests_io_lht_binary` unchanged: the header pass, the f
 | `Pos[3]`, `Vel[3]` | from offsets 28 and 40, unchanged |
 | `Spin[3]` | from offset 52, **unchanged**. It is already J/Mvir. Do not divide by the mass, which the Consistent-Trees readers do because their input is raw J (`src/io/read_tree_consistentrees_hdf5.c:622-625`) |
 | `VelDisp`, `Vmax` | from offsets 64 and 68, unchanged |
-| `MostBoundID` | from offset 72, unchanged. Keep it bit-exact: SAGE26 seeds its per-halo FFB draw with it (`src/model_regimes.c:143-150`, `:225`) and writes it out as `SimulationHaloIndex` (`src/io/save_gals_hdf5.c:878`) |
+| `MostBoundID` | from offset 72, unchanged. Keep it bit-exact: it is the origin of every galaxy's own `MostBoundID` field (set from the halo record at creation, `src/model_misc.c:99`, and refreshed from the host's record only for Type 0 and 1 galaxies of the first occupied progenitor, `src/core_build_model.c:240`, `:252-254`; see section 4). SAGE26 keys its FFB draw on that galaxy field and the snapshot (`src/model_regimes.c:143-150`, `:225`), and it writes the host halo's record value out as `SimulationHaloIndex` (`src/io/save_gals_hdf5.c:878`) |
 | `SnapNum` | from offset 80, unchanged |
 
 ### The fields the dataset does not have
@@ -192,11 +192,13 @@ For every forest, SAGE26 allocates its halos (`nhalos × sizeof(struct halo_data
 
 That is more than the 512 GiB (≈ 550 GB) of the Mac Studio this dataset was built on. How much of it becomes resident depends on how many `HaloGal` and `Gal` elements the forest actually writes, which this brief cannot estimate from the source alone. If the forest's surviving galaxy records approach its halo count, `HaloGal` alone is ≈ 276 GB resident. `Gal` holds one FoF group's galaxies at a time. The next four largest forests (71,150,152; 55,080,340; 51,040,732 and 49,139,058 halos) request about 320, 247, 229 and 221 GB on the same arithmetic (4,492 B per halo).
 
+The proposed reader's temporary per-forest buffer (section 2: nhalos × 88 B, about 11.1 GB for the super-forest) comes on top of the ≈ 568 GB if it is still live when the `GALAXY` arrays are allocated. Freeing it as soon as the forest's `struct halo_data` array is filled avoids that.
+
 **The super-forest is SAGE26's own memory question.** It decides whether, and on which host, the production run is possible. Measure it on the largest subset forest first (section 5). Shrinking `MAXGALFAC` or allocating on demand would be a SAGE26 change, outside this brief.
 
 ### int32 forest-local indices
 
-SAGE26 holds every halo link as `int` (`src/core_simulation.h:20-24`), walks forests with `int halonr` (`src/sage.c:338`, `:356`; `src/core_build_model.c:94-98`), and keeps galaxy counts and indices as `int`/`int32_t` (`src/sage.c:331`, `:344`, `:347`; `src/core_allvars.h:113-115`). Its counts table is `int32` on disk, promoted in memory (`src/io/read_tree_lhalo_binary.c:265-275`). The largest forest-local index is 126,380,325, about 17 times below `INT32_MAX`. The dataset's link type is `int32` too, and the converter refuses a rank the type cannot hold (`convert/mimic-convert/vertical/assemble.py:212`, `:284-287`).
+SAGE26 holds every halo link as `int` (`src/core_simulation.h:20-24`), walks forests with `int halonr` (`src/sage.c:356`; `src/core_build_model.c:94-98`), and keeps galaxy counts and indices as `int`/`int32_t` (`src/sage.c:331`, `:344`, `:347`; `src/core_allvars.h:113-115`). Its counts table is `int32` on disk, promoted in memory (`src/io/read_tree_lhalo_binary.c:265-275`). The largest forest-local index is 126,380,325, about 17 times below `INT32_MAX`. The dataset's link type is `int32` too, and the converter refuses a rank the type cannot hold (`convert/mimic-convert/vertical/assemble.py:212`, `:284-287`).
 
 ---
 
@@ -221,7 +223,7 @@ SAGE26 writes these per galaxy (`src/io/save_gals_hdf5.c:873-879`; the same in `
 - **`SAGEHaloIndex`** = `g->HaloNr`, the galaxy's **current host halo's** within-forest index. SAGE26 sets it when the galaxy is created (`src/model_misc.c:98`) and **overwrites it** each time the galaxy is carried into a descendant halo (`src/core_build_model.c:234-235`). SAGE26 reads the records in file order with the same forest-local indices, so `SAGEHaloIndex` equals that halo's `HaloRankInForest`.
 - **`SimulationHaloIndex`** = `llabs(MostBoundID)` of the current host halo, which is the Consistent-Trees halo id.
 
-So (file, `SAGETreeIndex`, `SAGEHaloIndex`) identifies **the host halo at an output snapshot**: a correspondence between host halos in the dataset. It is not the persistent birth-halo component of Mimic's `UniqueGalaxyID`. A central's host halo is in general not the halo it was born in, and a satellite's host can be another FoF member. The same holds for SAGE26's in-memory `GALAXY.MostBoundID`, which is updated to the host's id as the galaxy is carried forward (`src/core_build_model.c:252-254`) and is not written out.
+So (file, `SAGETreeIndex`, `SAGEHaloIndex`) identifies **the host halo at an output snapshot**: a correspondence between host halos in the dataset. It is not the persistent birth-halo component of Mimic's `UniqueGalaxyID`. A central's host halo is in general not the halo it was born in, and a satellite's host can be another FoF member. The same holds for SAGE26's in-memory `GALAXY.MostBoundID`, which is not written out. It is set from the birth halo at creation (`src/model_misc.c:99`). It is then updated to the host halo's id only for Type 0 and Type 1 galaxies (`src/core_build_model.c:240`), and only for the galaxies of the first occupied progenitor (`if(prog == first_occupied)`, `:252-254`). A Type 2 orphan keeps its last value.
 
 ### A galaxy-identity join
 
@@ -236,7 +238,7 @@ Without a birth mapping, the honest comparison is between host halos at an outpu
 
 ### What a SAGE26 against `sage16` comparison can claim
 
-- **`sage16` is near-bit-parity with SAGE 2016, not with SAGE26.** Its parity campaign against the original SAGE gave ≥ 98% bit-identical per property, with a one-galaxy z = 0 count difference understood (`.agents/skills/mimic-failure-archaeology/SKILL.md:57`). SAGE26 carries physics `sage16` does not have, among them CGM and hot-halo regimes, feedback-free bursts, and H₂ and H I reservoirs (`src/core_allvars.h:110-111`, `:144-146`), and an FFB draw seeded per halo (`src/model_regimes.c:143-150`).
+- **`sage16` is near-bit-parity with SAGE 2016, not with SAGE26.** Its parity campaign against the original SAGE gave ≥ 98% bit-identical per property, with a one-galaxy z = 0 count difference understood (`.agents/skills/mimic-failure-archaeology/SKILL.md:57`). SAGE26 carries physics `sage16` does not have, among them CGM and hot-halo regimes, feedback-free bursts, and H₂ and H I reservoirs (`src/core_allvars.h:110-111`, `:144-146`), and an FFB draw keyed on each galaxy's `MostBoundID` field and the snapshot (`src/model_regimes.c:143-150`, `:225`).
 - So the comparison is **scientific, not an identity**: mass functions, scaling relations and population statistics on the same trees, and the halo-level match above. The same-trees property *is* exact. With the reader in section 2, SAGE26 and Mimic read identical topology and identical halo values, apart from the mass scale and SAGE26's float32 rounding of `Mvir` × 1e-10. Differences in galaxies are therefore the models', not the inputs'.
 - It cannot claim that any galaxy "is the same galaxy" without the birth mapping above. It cannot claim agreement to a tolerance as evidence of correctness for either code.
 
