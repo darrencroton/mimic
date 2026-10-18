@@ -1,6 +1,6 @@
 # Mimic Convert: Merger-Tree Converters
 
-**Purpose**: The manual for `convert/mimic-convert/`, the offline tools that turn forest-ordered (vertical) merger trees into the snapshot-ordered horizontal HDF5 input Mimic's horizontal driver reads. It sits beside `plot/mimic-plot/` as Mimic's other standalone tool; most Mimic users never need it, because the shipped horizontal packages already point at converted data.
+**Purpose**: The manual for `convert/mimic-convert/`, the offline tools that turn forest-ordered (vertical) merger trees into the snapshot-ordered horizontal HDF5 input Mimic's horizontal driver reads, and that turn a forest-blocked horizontal dataset back into per-forest L-Halo binary files for the vertical driver. It sits beside `plot/mimic-plot/` as Mimic's other standalone tool; most Mimic users never need it, because the shipped horizontal packages already point at converted data.
 
 The converters are standalone: they never touch Mimic source, simulation packages, run files or `snapshots/` symlinks, they open source data read-only, and every deletion they perform is of a manifest-owned intermediate they created under their own workdir. The on-disk contract they write is [`HORIZONTAL-HDF5-FORMAT.md`](HORIZONTAL-HDF5-FORMAT.md), which lives in this directory.
 
@@ -8,7 +8,7 @@ The converters are standalone: they never touch Mimic source, simulation package
 
 It writes one format, horizontal-HDF5 **format version 3**, lossless, per [`HORIZONTAL-HDF5-FORMAT.md`](HORIZONTAL-HDF5-FORMAT.md#version-3). Mimic's reader and driver consume it, so the format is runnable; a route is runnable only where gated, and the parity-gated routes are listed in the [spec table](HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support). Full Uchuu is not claimed.
 
-Beside it, `rewrite_trees.py` rewrites an existing version 3 dataset under a forest table (see [Rewriting a horizontal dataset](#rewriting-a-horizontal-dataset-with-rewrite_treespy)), `forest_census.py` measures a dataset's forests and builds the decided cut table, and `subset.py` selects a whole-forest subset of a very large Consistent-Trees catalogue.
+Beside it, `rewrite_trees.py` rewrites an existing version 3 dataset under a forest table (see [Rewriting a horizontal dataset](#rewriting-a-horizontal-dataset-with-rewrite_treespy)), `forest_census.py` measures a dataset's forests and builds the decided cut table, `subset.py` selects a whole-forest subset of a very large Consistent-Trees catalogue, and `write_vertical_trees.py` runs the other way, writing a forest-blocked version 3 dataset as L-Halo binary trees in the record a simulation package declares (see [Writing vertical trees](#writing-vertical-trees-with-write_vertical_treespy)).
 
 **Conversion is not route validation.** A successful `convert_trees.py` run proves the dataset says exactly what its source says. Mimic's `horizontal_hdf5` reader and horizontal driver consume version 3, so a conforming dataset can be read, but a route is supported only where a recorded parity gate has shown its horizontal output bitwise identical, per `UniqueGalaxyID`, to the vertical reader of the same source format over the same files (except Shin-Uchuu, whose full catalogue cannot run vertical and whose row states its own evidence); each gate is `simulations/<package>/_tests/scientific/test_cross_format_identity.py`, and each package's README records its result. Running one also needs a simulation package whose every declared field matches the dataset's `/schema` (type, units and `h_convention`); undeclared `/schema` fields are validated and ignored. Because declared units are the source format's own, that means one package per simulation and source format; the shipped packages happen to declare every payload field their profile selects. The seven evidenced routes (mini-Millennium, Millennium, mini-Uchuu, micro-Uchuu from L-Halo, from forests-HDF5 and from Consistent-Trees ASCII, and Shin-Uchuu from Consistent-Trees ASCII) are recorded, with their packages, coverage, gated models and measured results, in the [V3 Runtime Support table](HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support) of the format specification, which is the one place that list is kept.
 
@@ -316,6 +316,54 @@ Per-file conservation against a conversion record, such as the ASCII preparation
 
 For the `cut`, the remap store peaked at 1,296,188,984 B (143.9 B per widest-slab row, 3.2 B per halo) and the scratch at 2.24 GB (249 B per widest-slab row, 5.5 B per halo). The scratch holds pass 0's checkpoints (the forest totals, roots and per-tree inventory), the resident slabs' remap entries and pass 1's checkpoint. At most one snapshot file is temporary in `dataset/` at a time, so a run needs about the output's size plus the scratch peak on its volume. At micro-Uchuu scale (22,580,924 halos) `cut` took 44 s at 0.40 GB. At production scale, `cut` under the decided table on the Shin-Uchuu dataset (3.16 TB, 22,503,649,037 halos, widest slab 519,342,987 rows) peaked at 211.6 GB RSS against its planned 223.6 GB.
 
+## Writing vertical trees with `write_vertical_trees.py`
+
+`write_vertical_trees.py` is the reverse direction: it reads a forest-blocked version 3 horizontal dataset and writes it as L-Halo binary merger trees, the per-forest files Mimic's `lhalo_binary` reader and vertical driver consume. It exists for datasets whose vertical form cannot be produced from the original catalogue, such as the cut Shin-Uchuu trees, and it is the converter behind the `shin-uchuu-lhalo` package. It reads the dataset through the same bounded column reads as the other tools and never modifies it.
+
+The converted trees carry the identity of the horizontal dataset. Forests are written in ascending `ForestIndex`, each forest's halos in `HaloRankInForest` order with forest-local links, and the files are numbered in plan order with none missing, so the vertical driver gives every halo the `UniqueGalaxyID` the horizontal driver gives it, at the same identity multiplier. A run that skips a file breaks that equality, because the forests after the gap take other forest numbers.
+
+```bash
+W="mimic_venv/bin/python convert/mimic-convert/write_vertical_trees.py"
+$W plan    --input <version 3 dataset dir> \
+    --halo-properties simulations/<package>/halo_properties.yaml --output <dir> \
+    [--max-halos-per-file N] [--max-forests-per-file M]
+$W convert --input <version 3 dataset dir> \
+    --halo-properties simulations/<package>/halo_properties.yaml --output <dir> \
+    --tree-name <tree_name> [--workers W] [--window-rows R] [--only-files 0,3-5]
+```
+
+**`plan`** derives every forest's halo total in one bounded pass over each slab's `ForestIndex` and `SourceHaloID`, cuts the forests into files and writes `<output>/file_plan.json`. It reads two columns of the dataset (16 B per halo) and holds 8 B per forest for the totals while it reads, plus up to 24 B per forest while it cuts the files. The totals derivation needs `SourceHaloID` to be the dense 1-based (`ForestIndex`, `HaloRankInForest`) position that version 3 datasets carry; a gapped dataset, such as a sampled one, is refused. `plan` also refuses, naming the first offending value, a slab whose `ForestIndex` decreases, a forest present in no slab, totals that do not sum to the dataset's halo count, and a cap that would put more than 2,147,483,647 halos or forests in one file (the header's `int` counts).
+
+**`convert`** writes every planned file as `<output>/<tree_name>.<k>` and records the conversion in `<output>/manifest.json`. `--tree-name` is the package's `tree_name` (no path separator); `--workers` is the number of files converted concurrently, one process each (default 1); `--only-files` selects file numbers as a comma-separated list of numbers and inclusive ranges. `convert` reads the plan, so run `plan` first and give both commands the same `--input`, `--halo-properties` and `--output`; it refuses a missing plan or one made for another dataset or record. It re-derives every forest's halo total at the start of every invocation, a two-column pass over the whole dataset, and requires each file's total to agree with the plan.
+
+**The record.** The records written are those the named package declares: the converter derives them from the package's `halo_properties.yaml` in declaration order, laid out as the C compiler lays out `struct RawHalo` (`int` links as 4 bytes, `float` and `long long` fields at their natural alignment, trailing padding to the largest alignment), so an array of records has the compiler's stride. The layout and its SHA-256 digest are recorded in `file_plan.json` and the manifest, and the plan binds to the digest; the path and md5 of the YAML are recorded for information only. Field values are copied from the dataset unchanged: no unit, type or convention change. A payload column whose type differs from the record field's type is refused before any row is read. The five links are remapped from the dataset's global rows to forest-local indices, with −1 kept as −1, and every remapped link is verified by comparing the `MostBoundID` of the halo it points at in the dataset with that of the record it points at in the output; a link that leaves its forest, or a forest whose halos do not number 0 to n−1 in rank order, is refused naming the forest.
+
+**The file plan.** Files are contiguous `ForestIndex` ranges in file-number order. A new file starts when adding the next forest would exceed `--max-halos-per-file` halos (default 100,000,000) or `--max-forests-per-file` forests (default 1,000,000), and a forest larger than the halo cap occupies a file alone. The ranges tile every forest, so the cut is a pure function of the forest totals and the caps. `file_plan.json` holds the dataset's identity (`forest_id_sha256`, forest and halo totals, `column_mapping_sha256`), the caps, the record digest and, per file, its number, first and last forest, forest count and halo count.
+
+**The memory bound.** `convert` prints its per-worker bound before it starts. For `S` slabs, `R` = `--window-rows`, `L` the plan's largest forest in halos, `B` the bytes per halo of the dataset columns read and `b` the record's size, a worker holds up to
+
+```text
+(2·S·R + L)·B + max(R, L)·(B + b + 176)
+```
+
+bytes, plus a 64 MiB re-read buffer, an 8 MiB write buffer and 21 B per forest of the largest file's header. The first term is the assembler's windows and the forest in flight; the second is its working arrays and the forest's output records. The parent process holds 8 B per forest for the totals while files are converted, and about 17 B per forest while it derives them. The bound excludes per-window Python object overhead, a few kilobytes per window, so it is accurate for windows of about 65,000 rows and up. With 70 slabs, the default window of 1,048,576 rows, 132 B per halo of columns and an 88-byte record, it is about 20 GB for a file whose largest forest holds 1.25 million halos and about 86 GB for the file of a 126-million-halo forest; the printed line names the plan's largest forest, whatever `--only-files` selects, so a file of small forests needs less than the line says, and a smaller `--window-rows` lowers the first term at the cost of more, smaller reads. The converter reads up to one window per slab beyond a file's last forest. Output is identical for any worker count and any `--window-rows`.
+
+**Verification and resume.** Each file is written to `<name>.<k>.partial` while its SHA-256 is computed, flushed, re-read whole and checked (the header's counts against the plan, the size against the header plus `totNHalos` records, and the re-read stream's SHA-256 against the one computed while writing), and renamed only when all three agree. The manifest records the dataset identity, the package's `halo_properties.yaml` md5, the record layout and digest, the plan's md5 and caps, each invocation's converter commit and command line, and per completed file its forest range, counts, byte size, SHA-256 and wall time; only the parent process writes it, after every completed file. A rerun with the same inputs skips every selected file whose on-disk SHA-256 equals its manifest entry's and redoes the rest. A file of a planned name that the manifest does not record as complete, and any `.partial`, is moved aside to `<name>.stale-<timestamp>`, never deleted, and rebuilt. Run one `convert` per output directory at a time.
+
+**Exit codes.** 0 when every selected file is complete; 1 when a file fails its verification (it stays `.partial`, every other file is still written and recorded); 2 for any refusal or other failure: an invalid option, unreadable input, a dataset that is not version 3, a missing or mismatching plan, a malformed forest, or a worker that died.
+
+**The halo-level check.** A conversion is checked independently of the converter by the acceptance harness: the C dump tool reads the converted files through Mimic's own `lhalo_binary` reader, and `compare` requires the version 3 dataset to say, halo by halo, link by link and bit by bit, what that reading says, in bounded memory. The dataset's header names the format its trees were first read from, which differs from `lhalo_binary` for a Consistent-Trees ASCII dataset, so `--dataset-source-format` names it. Build the dump tool for the package the files belong to, as in [Independent comparison tooling](#independent-comparison-tooling), then:
+
+```bash
+H="mimic_venv/bin/python convert/mimic-convert/tests/run_generalisation_acceptance.py"
+$H dump --record <record.json> --tool <dump build dir>/dump_ctrees_topology \
+    --run-file <run file declaring the converted directory, output_format: binary> --out <dump file>
+$H compare --record <record.json> --dataset <version 3 dataset dir> \
+    --source-format lhalo_binary --dataset-source-format consistent_trees_ascii --dump <dump file>
+```
+
+The dump tool's `--source-payload` mode is the one `dump` runs. The check proves the files are the dataset's trees; the run-level proof that the vertical driver then reproduces the horizontal driver's galaxies is the package's cross-format identity gate (`simulations/shin-uchuu-lhalo/_tests/scientific/test_cross_format_identity.py`, see [that package's README](../../simulations/shin-uchuu-lhalo/README.md)).
+
 ## Module map
 
 All paths are relative to `convert/mimic-convert/`.
@@ -344,6 +392,7 @@ All paths are relative to `convert/mimic-convert/`.
 | `forest_census.py`, `census/` | the forest census of a version 3 horizontal dataset and the decided cut table: `occupancy` / `trees` / `partition` / `table` / `cut`; see [Forest census](#forest-census-and-the-decided-cut-table-with-forest_censuspy) |
 | `rewrite_trees.py`, `rewriter/` | the horizontal-dataset rewriter of a Consistent-Trees ASCII catalogue's version 3 dataset: `noop` (the identity self-test) / `cut` (under a declared cut table); see [Rewriting a horizontal dataset](#rewriting-a-horizontal-dataset-with-rewrite_treespy) |
 | `horizontal_dataset.py`, `source_index.py` | bounded column reads of a horizontal dataset and its identity record; the `forests.list` / `locations.dat` reader |
+| `write_vertical_trees.py`, `vertical/` | the vertical writer of a forest-blocked version 3 dataset: `plan` / `convert` write L-Halo binary files in the record a package declares; see [Writing vertical trees](#writing-vertical-trees-with-write_vertical_treespy). `vertical/` holds `record.py` (the record dtype, layout and digest derived from a package's `halo_properties.yaml`), `plan.py` (forest totals, the file cut and `file_plan.json`), `assemble.py` (the bounded forest assembler, its link remapping and `MostBoundID` verification, and the memory bound) and `writer.py` (workers, write-verify-rename, the manifest and resume) |
 | `subset.py`         | whole-forest subset selection and byte-exact extraction from a very large ctrees dataset, driven entirely from the index files: `plan-candidates` / `sample-roots` / `calibrate-proxy` / `finalize` / `extract` |
 | `HORIZONTAL-HDF5-FORMAT.md` | the normative on-disk contract the writer conforms to |
 | `tests/`            | stdlib-unittest suite; synthetic fixture generator (`fixtures.py`); the real-data comparison harness (`run_generalisation_acceptance.py`); `tests/tools/transform_ascii_fixture.py`, which cuts a small Consistent-Trees ASCII fixture under a declared cut table so that the unmodified C reference reader reads the cut catalogue; committed parser, source-format and column-map fixtures under `tests/data/` |
@@ -360,6 +409,8 @@ mimic_venv/bin/python -m unittest discover -s convert/mimic-convert/tests -v   #
 The comparison harness's own self-tests (`test_generalisation_acceptance.py`) plant defects — dropped and duplicated rows, wrong target snapshots, reordered chains, changed values — and require the comparator to catch each one.
 
 The dump harness is built and checked byte for byte against literal oracles by the same self-tests (`CDumpToolTests`).
+
+The vertical writer's own cases (`test_vertical_record.py`, `test_vertical_plan.py`, `test_vertical_assemble.py`, `test_write_vertical_trees.py`) run on synthetic version 3 fixtures: they pin the derived record layouts and the file cuts literally and plant one defect per case (a link into another forest, a rank gap, a wrong target snapshot, a column of the wrong type, a mismatched `MostBoundID`, a corrupted or killed write) and require a named refusal, and they check that one worker writes the same bytes as two.
 
 ## Documentation Directory
 

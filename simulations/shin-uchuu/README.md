@@ -105,4 +105,5 @@ At subset scale (the cut version of the 2,744-file subset: 7,206,195 forests, wi
 ## Related packages
 
 - `simulations/shin-uchuu-ascii/` — a subset of the same catalog in Consistent-Trees ASCII, read by the vertical driver
+- `simulations/shin-uchuu-lhalo/` — this package's cut dataset written as L-Halo binary trees by `convert/mimic-convert/write_vertical_trees.py` and read by the vertical driver; its gate compares it with this package over the cut subset, and a vertical run there assigns the `UniqueGalaxyID`s this package assigns
 - `simulations/micro-uchuu-ascii-horizontal/` — the worked exemplar this package's structure and conventions mirror
