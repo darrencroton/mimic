@@ -68,7 +68,7 @@ The package's production dataset is the `shin-uchuu` package's cut version 3 dat
 | | |
 |---|---|
 | Input | the cut version 3 dataset of [`simulations/shin-uchuu/`](../shin-uchuu/README.md): 244,953,607 forests and 22,503,649,037 halos in 70 snapshot files, `links_adjacent 1`; `forest_id_sha256` `3c215f7a37eebe1fb174ed52e1c993fb1a9693b0a89ed1bdef688abd19393f22`, `column_mapping_sha256` `727d13f529fa80305f261b933612b6087aa52ade5dde7899bb18f8f4450f8f6d` |
-| Tool and commit | `write_vertical_trees.py` at commit `944364d41044eda4201916bc38d1aaa00e2bb418`; every file was written at that commit from a clean tree, each re-read and its SHA-256 checked before it was renamed |
+| Tool and commit | `write_vertical_trees.py` at commit `944364d41044eda4201916bc38d1aaa00e2bb418`; every file was written at that commit with the converter's directory unmodified, each re-read and its SHA-256 checked before it was renamed |
 | Caps | 100,000,000 halos and 1,000,000 forests per file; a forest larger than the halo cap occupies its file alone |
 | Files | 361, `shin-uchuu-cut.0` to `shin-uchuu-cut.360`, 1,981,300,932,572 B in all; file 0 holds the 126,380,326-halo forest alone |
 | Record | 88 bytes, 14 fields, layout digest `ab04dcbae52ffd11b1e773fe3c9aafecc22371f4583eeadf2353930e5bdf5e64` (`halo_properties.yaml` md5 `095cc9a62a460f61530989325d8d9e24`) |
@@ -107,7 +107,7 @@ make MODEL=sage16 SIMULATION=shin-uchuu-lhalo
 
 ### Memory
 
-The vertical driver holds one forest at a time, and a run's peak memory is set by the largest forest it processes, the 126,380,326-halo forest of file 0. Serial runs on that file, measured on one macOS host, peaked at about 165 GB of resident memory for `sage16` (164.8 GB) and about 143 GB for `halos-only` (142.6 GB); `sage16` needs a host with that much memory free. Of the `sage16` peak, 116.27 GB is the output buffer, seeded at five times the forest's halos (631,901,630 records). Under `mpirun` each rank's peak follows the largest forest that rank holds: with four ranks the rank holding file 0 peaked at 164.8 GB and the other three at 64 to 93 GB.
+The vertical driver holds one forest at a time, and a run's peak memory is set by the largest forest it processes, the 126,380,326-halo forest of file 0. Serial runs on that file, measured on one macOS host with the allocator's large-block cache disabled (`MallocLargeCache=0`; the default allocator can report more), peaked at about 165 GB of resident memory for `sage16` (164.8 GB) and about 143 GB for `halos-only` (142.6 GB); `sage16` needs a host with that much memory free. Of the `sage16` peak, 116.27 GB is the output buffer, seeded at five times the forest's halos (631,901,630 records). Under `mpirun` each rank's peak follows the largest forest that rank holds, so the rank holding file 0 needs the same memory as a serial run.
 
 ## Identity with the sibling packages
 

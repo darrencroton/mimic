@@ -387,11 +387,11 @@ The command is step 3's with no `--only-files` (`$P/scripts/s04_convert.sh`, sam
 - `iostat` on `disk9` at a mean of 107.7 MB/s (68.5 to 335.4);
 - the `iostat` series to that point at 600 KB per transfer and 221 transfers/s.
 
-The workers sat in state `U`, uninterruptible disk wait (`ps`). This is disk-bound, and worse than the rehearsal's 2-worker cold baseline of 137 to 138 MB/s: seek-bound interleaving of four workers' reads. Microsoft Defender averaged 17.7 % CPU over the conversion phase, comparable to the rehearsal, so it is not the cause.
+The workers sat in state `U`, uninterruptible disk wait (session observation with `ps`, not logged). This is disk-bound, and worse than the rehearsal's 2-worker cold baseline of 137 to 138 MB/s: seek-bound interleaving of four workers' reads. Microsoft Defender averaged 17.7 % CPU over the conversion phase, comparable to the rehearsal, so it is not the cause.
 
 Following HANDOFF's recipe (disk-bound: restart with fewer workers), the conversion was restarted with `--workers 2`. A larger `--window-rows` was ruled out because the read excess (about one window per slab per file) grows with the window: about 39 GB per file at 4,194,304 rows.
 
-**The interrupt.** HANDOFF's recipe of SIGINT to the process group did not work for a detached step. A job launched with `nohup … &` from a non-interactive shell inherits SIGINT as ignored, so Python never installs its handler. `kill -INT` at 07:01:53Z was a no-op: the workers kept writing, as `sample` showed. At 07:04:35Z the four workers were sent SIGTERM. The parent then logged that a worker process died, marked files 269, 282, 284 and 287 `in flight when a worker process died`, wrote its manifest (5 of 361 complete: 0, 275, 278, 285 and 286) and exited 2. The step logged its footer and ledger row (1,941.37 s; peak RSS 9.765 GB, the largest process). No process remained (`pgrep`).
+**The interrupt.** HANDOFF's recipe of SIGINT to the process group did not work for a detached step. A job launched with `nohup … &` from a non-interactive shell inherits SIGINT as ignored, so Python never installs its handler. `kill -INT` at about 07:02Z (a session time, not logged) was a no-op: the workers kept writing, as the session saw with `sample`. At 07:04:35Z the four workers were sent SIGTERM. The parent then logged that a worker process died, marked files 269, 282, 284 and 287 `in flight when a worker process died`, wrote its manifest (5 of 361 complete: 0, 275, 278, 285 and 286) and exited 2. The step logged its footer and ledger row (1,941.37 s; peak RSS 9.765 GB, the largest process). No process remained (session observation with `pgrep`, not logged).
 
 The four `.partial` files left behind were 0, 0, 301,669,220 and 4,862,148,624 B (files 269, 282, 284 and 287). The restart moves them aside as `.stale-<timestamp>`; they are logged in `$P/TRASH.md`.
 
@@ -410,7 +410,7 @@ The aggregate is about the 4 workers' (about 400,000 to 450,000 halos/s) with ha
 **Later checks**, every one or two hours (`$P/logs/p04-checks.txt`), held steady:
 - the workers at 5.6 to 8.9 % CPU;
 - the LaCie at 110 to 125 MB/s;
-- 311,000 to 414,000 halos/s (the change in `files complete` halos between consecutive checks over their intervals; the file holds no timestamps, so the trace below recovered the check times by matching each check's rates to the 10 s samples);
+- 310,600 to 440,400 halos/s: the change in `files complete` halos between consecutive checks, from the 07:38:57Z check on, over the time between them. `p04-checks.txt` holds no timestamps, so each check's time was recovered by matching its window length, its read and write rates and its summed RSS to the 10 s samples in `$P/logs/p04b-convert-w2.samples`. The matches are unique except for the 18:40Z and 20:40Z checks. The 18:40Z check is 18:40:48Z by its RSS. The 20:40Z check is one of 20:40:45Z, 20:40:55Z and 20:41:05Z, which equally match, and they give the lowest interval (18:40:48Z to the 20:40Z check) as 311,499, 311,066 or 310,635 halos/s. The highest is the 07:38:57Z to 08:39:30Z interval, 1,126,379,552 to 2,726,367,471 halos in 3,633 s, 440,404 halos/s;
 - summed RSS at most 51.9 GB (50,675,456 KiB);
 - free memory at 98 %.
 
@@ -482,8 +482,8 @@ Under `-np 4` at step 3's 1,304 B per halo of a rank's largest forest (164,794,8
 | Signal | Value |
 |---|---|
 | LaCie | 115.6 MB/s read and 32.4 MB/s write |
-| The four ranks | 0 to 2 % CPU at that instant, in disk wait; over the preceding 900 s their means were about 57, 55, 36 and 6 %. Rank 0 had peaked at 160,934,720 KiB (164.797 GB) in the samples while on file 0. Summed RSS 25.6 to 26.2 GB. |
-| The dataset's `rsync` | 21,058,564 KiB on NT after about 16 min. That is NT's `du -sk`, Lustre's compressed allocation, about 1.54 times smaller than the bytes (step 10); so about 35 MB/s. |
+| The four ranks | 0 to 2 % CPU at that instant, in disk wait; over the preceding 900 s their means were about 57, 55, 36 and 6 %. Rank 0 had peaked at 160,934,720 KiB (164.797 GB) in the samples while on file 0. Summed RSS 26.2 to 26.9 GB (25,546,544 to 26,239,424 KiB in `$P/logs/p06-sage16-np4.samples`). |
+| The dataset's `rsync` | running beside the step; its progress on NT was watched in the session and is not logged. |
 
 With five concurrent readers, the LaCie is seek-bound at 148 MB/s combined, a little above step 4's 110 to 125 MB/s, so step 6 and the transfer share it rather than adding throughput. Both stay running. Keeping the disk saturated beats the transfer alone, which the network caps at about 105 MB/s. The time saved by the overlap is smaller than projected.
 
@@ -523,20 +523,20 @@ The ranks ran disk-bound at 47.6 to 53.1 % CPU each over the run, beside the tra
   - scientific `passed=47 failed=0 skipped=1 warned=1`. The skip is the gate's designed `test_subset_not_named`, and the warning is `test_zero_values`.
   - No test of this package reads `snapshots`: its tests run on the committed fixture. So the plan's "real-data half of any test that reads `snapshots`" has no instance here.
 - **Default build.** Restored afterwards.
-- **Pre-commit gate.** `./scripts/beautify.sh` exited 0 (the session's `rc=0`; its output is `$P/logs/p07-beautify.log`), and `git status --porcelain` afterwards showed only the two expected paths. The lint skill's `check --base HEAD` gave `no new findings`, `verdict: pass` (session output; not logged).
+- **Pre-commit gate.** `./scripts/beautify.sh` ran (its output is `$P/logs/p07-beautify.log`), and `git status --porcelain` afterwards showed only the two expected paths (session observation, not logged). The lint skill's `check --base HEAD` gave `no new findings`, `verdict: pass` (session output; not logged).
 - **The commit** (owner pre-approved): `5dd6fcfe158cc7d5f3847d3cbaeb107370074666`, "Point shin-uchuu-lhalo at the production dataset's last file, 360". It changes that one line and nothing else. It is on `feature/shin-uchuu-cut-vertical` and not pushed.
 
 ### Step 8 and the transfers: live adjustment 2
 
 **What was seen.** By 07:46Z (18:46 AEDT) step 8 had run 2.5 h with no verdict:
-- **The comparator** (`$P/logs/p08-compare.procs`) sat in state `U` at about 1 % CPU with 5 to 7 GB of RSS. It had the vertical output's `model_163.hdf5` open (`lsof`).
+- **The comparator** (`$P/logs/p08-compare.procs`) sat in state `U` at about 1 % CPU with 5 to 7 GB of RSS (the state and the `lsof` sighting of the vertical output's `model_163.hdf5` open are session observations, not logged).
 - **Why it reads so much.** Reading any one field of Mimic's HDF5 output reads the whole galaxy records, so every comparator pass reads the full 542.8 GB vertical output from the LaCie.
-- **The dataset's `rsync`** had slowed while sharing the disk with the comparator. NT's `du -sk` grew from 357,491,312 to 582,553,302 KiB in the preceding 3.45 h. That is compressed allocation, so the bytes sent were about 1.54 times more, about 29 MB/s.
+- **The dataset's `rsync`** had slowed while sharing the disk with the comparator, as the session saw on NT (not logged).
 - **The LaCie** read about 96 MB/s in all over the last 10 min (`$P/logs/p08-compare.samples`). Two interleaved sequential readers thrashed it, as in step 4.
 
 **What changed.** At 07:47:28Z the dataset's `rsync` (pid 60800) was sent SIGTERM. Its step ended with rsync's exit 20 (`$P/LEDGER.md`, `p10a-rsync-dataset-to-nt`, 27,981.34 s), the chain logged `DATASET-RSYNC-FAILED` and `CHAIN-DONE`, and step 8 kept the disk.
 
-`$P/scripts/s10_after8.sh` (log `$P/logs/after8.out`; its first launch at 07:48Z failed at once with `Permission denied` because the script was not executable, `$P/logs/after8-failed-launch.out`, found at the 08:02Z check and relaunched at 08:03Z after `chmod +x`) then runs one job at a time, stopping at the first failure:
+`$P/scripts/s10_after8.sh` (log `$P/logs/after8.out`; its first launch at 07:48Z failed at once with `Permission denied` because the script was not executable, `$P/logs/after8-failed-launch.out`, found at a check at about 08:02Z and relaunched at about 08:03Z after `chmod +x`; both session times, not logged) then runs one job at a time, stopping at the first failure:
 1. wait for step 8's exit 0;
 2. the owner's plots (`$P/scripts/s09_plots.sh`);
 3. the dataset's `rsync` again (`p10a2`; `rsync -a` skips the files already complete on NT);
@@ -545,7 +545,7 @@ The ranks ran disk-bound at 47.6 to 53.1 % CPU each over the run, beside the tra
 
 The output's SHA-256 list was already made beside step 8: `$P/logs/p10c-sha256-output.log`, 5,538.02 s, exit 0; `$P/transfers/vertical-output.sha256sum`.
 
-With the `rsync` stopped, the comparator ran at 100 % CPU and 155,755,952 KiB (159.5 GB) of RSS, and the LaCie read 139.2 MB/s (08:02Z check, session output). The stopped `rsync` left no temporary file on NT: 152 files, 579,208,696 KiB by NT's `du -sk`, compressed allocation.
+With the `rsync` stopped, the comparator (pid 5918) ran at 99 to 100 % CPU, with RSS of 153,689,008 to 158,818,928 KiB (157.4 to 162.6 GB) over its samples from 08:01:33Z to 08:02:35Z (`$P/logs/p08-compare.procs`), and the LaCie read 144.5 MB/s over 07:52Z to 08:02Z, 584 s (`$P/logs/p08-compare.samples`, `ioreg`). The stopped `rsync` left no temporary file on NT (session observation, not logged).
 
 ### Step 8: the comparison
 
@@ -620,19 +620,19 @@ Both exited 0, into `$O/sage16-vertical-plots-shin-uchuu-profile`. `$P/scripts/c
 
 | Step | What | Result | Wall |
 |---|---|---|---|
-| `p10a2-rsync-dataset-to-nt` | `rsync -a --exclude=.DS_Store --exclude='*.stale-*' --exclude='*.partial' $D/ nt.swin.edu.au:/fred/oz214/dcroton/shin-uchuu/vertical-trees-lhalo-cut/`, resuming past the 152 files the stopped attempt had sent | exit 0 | 10,388.54 s |
+| `p10a2-rsync-dataset-to-nt` | `rsync -a --exclude=.DS_Store --exclude='*.stale-*' --exclude='*.partial' $D/ nt.swin.edu.au:/fred/oz214/dcroton/shin-uchuu/vertical-trees-lhalo-cut/`, resuming past the files the stopped attempt had already sent (`rsync -a` skips complete files) | exit 0 | 10,388.54 s |
 | `p10b-nt-sha256check-dataset` | `nice sha256sum -c` on the NT login node against `$P/transfers/vertical-dataset.sha256sum` (363 lines: the conversion manifest's 361 SHA-256s, plus `file_plan.json` and `manifest.json` hashed after step 4), output in NT's `verify/vertical-dataset-sha256check.out` | `sha256sum rc=0`, `lines 363`, `ok 363` | 2,321.15 s |
 | `p10d-rsync-output-to-nt` | `rsync -a --exclude=.DS_Store $O/sage16-vertical/ nt.swin.edu.au:/fred/oz214/dcroton/shin-uchuu/sage16-shin-uchuu-lhalo-cut/` | exit 0 | 5,312.02 s |
 | `p10e-nt-sha256check-output` | against `$P/transfers/vertical-output.sha256sum` (368 lines, made beside step 8) | `sha256sum rc=0`, `lines 368`, `ok 368` | 557.18 s |
 
-**Sizes and integrity.** During its resumed run the LaCie read 1,080,200,425,472 B (`ioreg`, `p10a2`, the only reader), 104.0 MB/s over 10,388.54 s, the network's rate. So about 0.90 TB had reached NT before the stop. The output's transfer read 554,123,300,864 B in 5,312.02 s, 104.3 MB/s. NT's `du -sk` (Lustre, compressed: 1,260,268,495 KiB for the dataset's 1,981,301,179,042 B) is not a byte count; the mid-run NT figures above are corrected for it. NT holds 363 dataset files and no `.stale-*`.
+**Sizes and integrity.** During its resumed run the LaCie read 1,080,200,425,472 B (`ioreg`, `p10a2`, the only reader), 104.0 MB/s over 10,388.54 s, the network's rate. So about 0.90 TB had reached NT before the stop. The output's transfer read 554,123,300,864 B in 5,312.02 s, 104.3 MB/s. The NT check covers 363 dataset files and 368 output files.
 
-| Copy | Local (`stat`) | NT (`du -sb --apparent-size`) |
-|---|---|---|
-| Dataset | 1,981,301,125,282 B, excluding the stale partials | 1,981,301,179,042 B |
-| Output | 554,103,301,177 B in 368 files | 554,103,364,665 B in 368 files |
+| Copy | Local (`stat`) |
+|---|---|
+| Dataset | 1,981,301,125,282 B, excluding the stale partials |
+| Output | 554,103,301,177 B in 368 files |
 
-The NT figures are larger by the directories' own sizes. No output file is newer than the SHA-256 list (`find -newer`). The local `du -sk` of the output moved from 542,827,068 to 541,117,228 KiB with no file changed: APFS block accounting.
+No output file is newer than the SHA-256 list (`find -newer`). The local `du -sk` of the output moved from 542,827,068 to 541,117,228 KiB with no file changed: APFS block accounting.
 
 **Dispositions.** Nothing local was deleted. `$P/TRASH.md` lists only the four stale partials, kept.
 
@@ -642,8 +642,8 @@ The NT figures are larger by the directories' own sizes. No output file is newer
 | `$O/sage16-vertical`, the production run | LaCie | kept; NT copy verified |
 | `$O/file0-halos-only`, `$O/file0-sage16` (step 3's runs, 7,319,844 and 5,303,056 KiB) | LaCie | kept; no NT copy |
 | `$O/sage16-vertical-plots`, `$O/sage16-vertical-plots-shin-uchuu-profile` (the figures) | LaCie | kept; the matched set also on the owner's Desktop |
-| `$P`, the procedure's logs, scripts, binaries, run files, reports and transfer lists (121,828 KiB) | LaCie | kept; no NT copy |
-| `$V`, the rehearsal scratch (252,263,396 KiB, 258.3 GB) | LaCie | kept, the owner's call later |
+| `$P`, the procedure's logs, scripts, binaries, run files, reports and transfer lists | LaCie | kept; no NT copy |
+| `$V`, the rehearsal scratch (252,263,396 KiB, 258.3 GB, as measured at step 1, `$P/logs/p01-ledger.txt`) | LaCie | kept, the owner's call later |
 | The cut horizontal dataset | LaCie | read only, untouched |
 | The reference | Internal | read only, untouched |
 
@@ -660,13 +660,21 @@ On 2026-10-20 the Slice 9 Developer (Claude Sonnet 5.5) commissioned two fresh-c
 **Result.** No figure was found wrong in a way that changes a conclusion: every per-snapshot count, the report's verdict line and md5, every rank's wall, user, system and peak RSS, every ledger row, both transfer lists and their NT checks, the manifest's totals and per-file hashes, the step 7 commit and the plot-comparison counts traced to their logs.
 
 **Corrections made from the trace** (each re-checked against its log before it was changed):
-- Step 4 pre-launch memory estimates named the big-forest files as 168 to 171 and 168 to 175; `$P/logs/p06-rank-memory.txt` puts the largest forests after file 0 in files 167 to 170, with 295.2 GB as the conservative bound, so the ranges are now 167 to 170 and 167 to 174.
+- The pre-launch memory estimates in the step 6 `-np 4` decision (under "Owner decisions before step 1") named the big-forest files as 168 to 171 and 168 to 175; `$P/logs/p06-rank-memory.txt` puts the largest forests after file 0 in files 167 to 170, with 295.2 GB as the conservative bound, so the ranges are now 167 to 170 and 167 to 174.
 - The read-excess inference: the totals pass read 0.088 TB by `ioreg` in the restart, not about 0.36 TB, so the excess is about 2.43 TB, 6.8 GB per converted file, not 2.16 TB and 6.1 GB; the cold figure of 0.36 TB is kept as such.
-- The later checks' throughput range is 311,000 to 414,000 halos/s (the 22:41Z to 23:41Z interval, 414,000, had been omitted); the check times are recovered from the 10 s samples because `p04-checks.txt` holds none.
-- The `iostat` figures of live adjustment 1 describe the series to the time of the check, not the whole step; the step 3 sequence's SHA-256 step was sampled every 10 s, not 5 s; two NT transfer rates were truncated, not rounded (35 and 29 MB/s, not 34 and 28).
+- The `iostat` figures of live adjustment 1 describe the series to the time of the check, not the whole step; the step 3 sequence's SHA-256 step was sampled every 10 s, not 5 s.
+- The later checks' throughput range was first corrected to 311,000 to 414,000 halos/s, which still omitted the 07:38:57Z to 08:39:30Z interval; it is 310,600 to 440,400 halos/s, with the way the check times were matched stated at step 4.
 
-**Not traceable to a log** (stated in the text as the session's own observation, an owner-given time or an expectation): the `kill -INT` at 07:01:53Z and the workers' `U` state; the 08:52Z and 09:05Z decision times; the 08:03Z relaunch; the stash-and-restore `cmp` checks of this record; the NT `du` figures and the NT file counts (the NT-side `sha256sum -c` outputs are logged: 363 and 368 lines, all ok); the 08:02Z comparator RSS and rate; `beautify.sh`'s `rc` and the lint verdict of step 7; the 105 MB/s network rate quoted as an expectation. `$P`'s 121,828 KiB is a `du -sk` taken after the last log was written, and a later `du -sk` gives 121,052 KiB (APFS block accounting; no log records either).
+**Corrections made from PM's independent trace** (below), each re-checked against its log:
+- Every measured number in this section now cites a named log or is gone. The 08:02Z comparator figures are replaced by what `$P/logs/p08-compare.procs` and `$P/logs/p08-compare.samples` hold, with their windows. The NT-side `du` figures and the rates and file counts derived from them are removed, and the logged NT `sha256sum -c` results and local `ioreg` rates carry the conclusions. `$P`'s size, the step 7 `beautify.sh` return code and the seconds of the `kill -INT` time are dropped.
+- Step 6's first-check summed RSS is 26.2 to 26.9 GB (the samples column is KiB). The `$V` size in the dispositions is labelled as the size at step 1.
+
+**Not traceable to a log**, and labelled in the text as such:
+- Owner-given times: the 08:52Z and 09:05Z decisions.
+- Session times and observations: the `kill -INT` at about 07:02Z; the relaunch at about 08:03Z; the progress and slowing of the dataset's `rsync` on NT and the absence of a temporary file there; the stash-and-restore `cmp` checks of this record; step 7's `git status` and lint verdict.
+- Non-numeric session observations: the workers' state `U` at step 4; the comparator's state `U` and the `lsof` sighting at step 8; "no process remained" (`pgrep`); the chain's dry run with stubbed actions; step 6's "in disk wait".
+- An expectation: the 105 MB/s network rate quoted at the owner's decision (the transfers' logged `ioreg` rates are 104.0 and 104.3 MB/s).
 
 **Left as written.** The pre-launch projection "about 3 to 3.5 h" for `-np 4` is the estimate given at the decision, not derivable exactly: the serial 8.56 to 10.18 h over the rehearsal's 3.21 gives 2.7 to 3.2 h. "About 411,000 halos/s for the four" is four times the median (the four files' rates sum to 415,512). The first check's 115.6 and 32.4 MB/s depend on the end of the 900 s window (115.5 and 32.2 at one instant).
 
-PM commissions a further independent trace of the committed record.
+**PM's independent trace.** A PM-commissioned, read-only Reviewer traced, on 2026-10-20, about 300 figures of this section and the production figures carried into the package README, the changelog, the skills and the pathway, at commit `ffeae300`, against the logs under `$P`. It found no material mismatch, and its minor findings are corrected here.
