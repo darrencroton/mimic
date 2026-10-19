@@ -13,7 +13,7 @@ input:
   # The last file of the dataset `snapshots/` points at: the last file number in
   # that conversion's file_plan.json. Every file of the range must be present, or
   # the forests that follow a missing file take other UniqueGalaxyIDs.
-  last_file: 0
+  last_file: 360
   tree_name: shin-uchuu-cut
   tree_type: lhalo_binary
   simulation_dir: simulations/shin-uchuu-lhalo/snapshots
