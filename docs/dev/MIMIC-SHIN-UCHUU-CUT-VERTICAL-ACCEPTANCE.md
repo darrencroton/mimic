@@ -214,7 +214,7 @@ Taken on 2026-10-18 before step 1 (HANDOFF's "Before the procedure"):
 
 - **The converter's read excess: proceed as is.** The converter is used unchanged at `944364d4`, with the same source md5s as the rehearsal. The fix (clamping each slab's last window to the file's last row) stays a recommended follow-up. The trade-off weighed was this. If the conversion is disk-bound at the cold baseline of about 137 to 175 MB/s, the fix would save a gross 5.5 to 7 h, or about 3 h at 300 MB/s. A separate reviewed slice would cost 2 to 3 h. That left a likely net gain of 3 to 5 h, against the risk of touching the assembler before production.
 - **The llama router: stopped by the owner for the whole procedure.** The service `com.dcroton.llama-router` is no longer loaded and `llama-server` is gone (`$P/logs/host.txt`). The router's lightweight front-end `llm-gate.py` (pids 914 and 959, 22,912 and 48,096 KiB) stays running; every step log's header records it.
-- **Step 6 runs serial**, confirmed against step 3's measured file-0 run (Decision 6). The owner is asked again only if the projection exceeds 24 h. **Changed by the owner at 08:52Z (19:52 AEDT): step 6 runs under `mpirun -np 4`**, the decision Decision 6 leaves to the owner. Serial had been taken from the 24 h threshold; nothing measured argued against MPI. The case: the rehearsal's `-np 4` run was bitwise identical to serial on the subset and 3.21 times as fast. The serial projection of 8.6 to 10.2 h becomes about 3 to 3.5 h. Memory per rank is about 1,304 B per halo of the rank's largest forest (step 3), so file 0 on rank 0 coincides only with small-forest files, about 225 GB. The big-forest files 168 to 171, reached together under round-robin striding, total about 300 GB, both inside 549.8 GB. These are the pre-launch estimates; the header check that replaced them is in step 6. Eight ranks were rejected: the big-forest files 168 to 175 together would need about 450 to 500 GB, and the LaCie could not feed eight ranks. Before launch, each rank's largest forests are read from the converted files' headers. If the worst concurrent peak leaves under 150 GB free, the run falls back to `-np 2`.
+- **Step 6 runs serial**, confirmed against step 3's measured file-0 run (Decision 6). The owner is asked again only if the projection exceeds 24 h. **Changed by the owner at 08:52Z (19:52 AEDT): step 6 runs under `mpirun -np 4`**, the decision Decision 6 leaves to the owner. Serial had been taken from the 24 h threshold; nothing measured argued against MPI. The case: the rehearsal's `-np 4` run was bitwise identical to serial on the subset and 3.21 times as fast. The serial projection of 8.6 to 10.2 h becomes about 3 to 3.5 h. Memory per rank is about 1,304 B per halo of the rank's largest forest (step 3), so file 0 on rank 0 coincides only with small-forest files, about 225 GB. The big-forest files 167 to 170 total about 300 GB (295.2 GB, `$P/logs/p06-rank-memory.txt`) if each rank is at its own largest at once, both inside 549.8 GB. These are the pre-launch estimates; the header check that replaced them is in step 6. Eight ranks were rejected: the big-forest files 167 to 174 together would need about 450 to 500 GB, and the LaCie could not feed eight ranks. Before launch, each rank's largest forests are read from the converted files' headers. If the worst concurrent peak leaves under 150 GB free, the run falls back to `-np 2`.
 - **The dataset directory** is `$D`, separate from the rehearsal's `$V/prod`. The procedure's log root is `$P`, and the runs go under `$O`.
 - **The rehearsal scratch `$V` is kept** through the procedure.
 - **Step 7's one-line commit is pre-approved** by the owner. No other commit is.
@@ -337,7 +337,7 @@ The MPI build for step 6 (owner's decision above) was made the same way with `US
 
 ### Step 3: file 0 alone
 
-The router was stopped and memory was 98 % free (`memory_pressure`) at launch. The sequence is `$P/scripts/s03_file0.sh`, sampled every 5 s.
+The router was stopped and memory was 98 % free (`memory_pressure`) at launch. The sequence is `$P/scripts/s03_file0.sh`, sampled every 5 s (the SHA-256 step every 10 s).
 
 | Step | What | Wall | Peak RSS | Log |
 |---|---|---|---|---|
@@ -385,7 +385,7 @@ The command is step 3's with no `--only-files` (`$P/scripts/s04_convert.sh`, sam
 - the workers at a mean of 3.3 to 4.7 % CPU;
 - the LaCie moving 82.1 MB/s read and 31.1 MB/s write (113.2 MB/s in all, from `ioreg`);
 - `iostat` on `disk9` at a mean of 107.7 MB/s (68.5 to 335.4);
-- the step's whole `iostat` series at 600 KB per transfer and 221 transfers/s.
+- the `iostat` series to that point at 600 KB per transfer and 221 transfers/s.
 
 The workers sat in state `U`, uninterruptible disk wait (`ps`). This is disk-bound, and worse than the rehearsal's 2-worker cold baseline of 137 to 138 MB/s: seek-bound interleaving of four workers' reads. Microsoft Defender averaged 17.7 % CPU over the conversion phase, comparable to the rehearsal, so it is not the cause.
 
@@ -410,7 +410,7 @@ The aggregate is about the 4 workers' (about 400,000 to 450,000 halos/s) with ha
 **Later checks**, every one or two hours (`$P/logs/p04-checks.txt`), held steady:
 - the workers at 5.6 to 8.9 % CPU;
 - the LaCie at 110 to 125 MB/s;
-- 311,000 to 389,000 halos/s (the change in `files complete` halos between consecutive checks over the session's check intervals; the file holds no timestamps);
+- 311,000 to 414,000 halos/s (the change in `files complete` halos between consecutive checks over their intervals; the file holds no timestamps, so the trace below recovered the check times by matching each check's rates to the 10 s samples);
 - summed RSS at most 51.9 GB (50,675,456 KiB);
 - free memory at 98 %.
 
@@ -430,7 +430,7 @@ The worker count was not changed again.
 | Device throughput | 121.9 MB/s combined over the step |
 | LaCie use | from 3,868,348,684 to 5,751,851,160 KiB at its peak, so 2,061,965,124 KiB (2.11 TB) free at the peak |
 
-The logical read of the converted rows is 2,900,999,483,184 B (132 B per halo). The device read exceeds it by 2.569 TB. That includes the totals pass (about 0.36 TB of two columns, partly cold) and the re-hash of 5 files (46,328,761,984 B, the manifest's `bytes` for files 0, 275, 278, 285 and 286). The rest, about 2.16 TB, is about 6.1 GB per converted file, the read excess. This is an inference from the counters, not a trace.
+The logical read of the converted rows is 2,900,999,483,184 B (132 B per halo). The device read exceeds it by 2.569 TB. That includes the totals pass (two columns; 0.088 TB by `ioreg` between its "deriving" and bound lines in `$P/logs/p04b-convert-w2.samples`, most of it warm; about 0.36 TB cold) and the re-hash of 5 files (46,328,761,984 B, the manifest's `bytes` for files 0, 275, 278, 285 and 286). The rest, about 2.43 TB, is about 6.8 GB per converted file (356 files), the read excess. This is an inference from the counters, not a trace.
 
 Per file (manifest `wall_seconds`, one worker each):
 
@@ -483,7 +483,7 @@ Under `-np 4` at step 3's 1,304 B per halo of a rank's largest forest (164,794,8
 |---|---|
 | LaCie | 115.6 MB/s read and 32.4 MB/s write |
 | The four ranks | 0 to 2 % CPU at that instant, in disk wait; over the preceding 900 s their means were about 57, 55, 36 and 6 %. Rank 0 had peaked at 160,934,720 KiB (164.797 GB) in the samples while on file 0. Summed RSS 25.6 to 26.2 GB. |
-| The dataset's `rsync` | 21,058,564 KiB on NT after about 16 min. That is NT's `du -sk`, Lustre's compressed allocation, about 1.54 times smaller than the bytes (step 10); so about 34 MB/s. |
+| The dataset's `rsync` | 21,058,564 KiB on NT after about 16 min. That is NT's `du -sk`, Lustre's compressed allocation, about 1.54 times smaller than the bytes (step 10); so about 35 MB/s. |
 
 With five concurrent readers, the LaCie is seek-bound at 148 MB/s combined, a little above step 4's 110 to 125 MB/s, so step 6 and the transfer share it rather than adding throughput. Both stay running. Keeping the disk saturated beats the transfer alone, which the network caps at about 105 MB/s. The time saved by the overlap is smaller than projected.
 
@@ -531,7 +531,7 @@ The ranks ran disk-bound at 47.6 to 53.1 % CPU each over the run, beside the tra
 **What was seen.** By 07:46Z (18:46 AEDT) step 8 had run 2.5 h with no verdict:
 - **The comparator** (`$P/logs/p08-compare.procs`) sat in state `U` at about 1 % CPU with 5 to 7 GB of RSS. It had the vertical output's `model_163.hdf5` open (`lsof`).
 - **Why it reads so much.** Reading any one field of Mimic's HDF5 output reads the whole galaxy records, so every comparator pass reads the full 542.8 GB vertical output from the LaCie.
-- **The dataset's `rsync`** had slowed while sharing the disk with the comparator. NT's `du -sk` grew from 357,491,312 to 582,553,302 KiB in the preceding 3.45 h. That is compressed allocation, so the bytes sent were about 1.54 times more, about 28 MB/s.
+- **The dataset's `rsync`** had slowed while sharing the disk with the comparator. NT's `du -sk` grew from 357,491,312 to 582,553,302 KiB in the preceding 3.45 h. That is compressed allocation, so the bytes sent were about 1.54 times more, about 29 MB/s.
 - **The LaCie** read about 96 MB/s in all over the last 10 min (`$P/logs/p08-compare.samples`). Two interleaved sequential readers thrashed it, as in step 4.
 
 **What changed.** At 07:47:28Z the dataset's `rsync` (pid 60800) was sent SIGTERM. Its step ended with rsync's exit 20 (`$P/LEDGER.md`, `p10a-rsync-dataset-to-nt`, 27,981.34 s), the chain logged `DATASET-RSYNC-FAILED` and `CHAIN-DONE`, and step 8 kept the disk.
@@ -652,3 +652,21 @@ Free space at the end was 1,520,475,540 KiB on the LaCie and 441,474,356 KiB on 
 ### Outcome
 
 The production procedure is complete. The cut Shin-Uchuu merger trees in L-Halo binary form (`$D`, 361 files, 244,953,607 forests, 22,503,649,037 halos) give, under `sage16` and the vertical driver, a run bitwise identical in every field to the cut horizontal run at all ten output snapshots: 2,059,547,378 galaxies, 313,753,033 at z = 0. Its `mimic-plot` figures are byte-identical to the horizontal run's.
+
+### Reviewer trace
+
+On 2026-10-20 the Slice 9 Developer (Claude Sonnet 5.5) commissioned two fresh-context, read-only subagents to trace this section against its logs under `$P`, `$D` and `$O`, before the section's closing commit. Neither wrote anywhere. One took the range from the section's opening through step 4 and the other step 5 through "Outcome". Together they checked about 390 distinct figures and claims: counts, sizes, times, hashes, exit codes, the commit hash and file names, recomputing every ratio, sum, unit conversion and rate. An earlier read-only trace of about 260 figures, made before this section's first commit, had its corrections re-checked.
+
+**Result.** No figure was found wrong in a way that changes a conclusion: every per-snapshot count, the report's verdict line and md5, every rank's wall, user, system and peak RSS, every ledger row, both transfer lists and their NT checks, the manifest's totals and per-file hashes, the step 7 commit and the plot-comparison counts traced to their logs.
+
+**Corrections made from the trace** (each re-checked against its log before it was changed):
+- Step 4 pre-launch memory estimates named the big-forest files as 168 to 171 and 168 to 175; `$P/logs/p06-rank-memory.txt` puts the largest forests after file 0 in files 167 to 170, with 295.2 GB as the conservative bound, so the ranges are now 167 to 170 and 167 to 174.
+- The read-excess inference: the totals pass read 0.088 TB by `ioreg` in the restart, not about 0.36 TB, so the excess is about 2.43 TB, 6.8 GB per converted file, not 2.16 TB and 6.1 GB; the cold figure of 0.36 TB is kept as such.
+- The later checks' throughput range is 311,000 to 414,000 halos/s (the 22:41Z to 23:41Z interval, 414,000, had been omitted); the check times are recovered from the 10 s samples because `p04-checks.txt` holds none.
+- The `iostat` figures of live adjustment 1 describe the series to the time of the check, not the whole step; the step 3 sequence's SHA-256 step was sampled every 10 s, not 5 s; two NT transfer rates were truncated, not rounded (35 and 29 MB/s, not 34 and 28).
+
+**Not traceable to a log** (stated in the text as the session's own observation, an owner-given time or an expectation): the `kill -INT` at 07:01:53Z and the workers' `U` state; the 08:52Z and 09:05Z decision times; the 08:03Z relaunch; the stash-and-restore `cmp` checks of this record; the NT `du` figures and the NT file counts (the NT-side `sha256sum -c` outputs are logged: 363 and 368 lines, all ok); the 08:02Z comparator RSS and rate; `beautify.sh`'s `rc` and the lint verdict of step 7; the 105 MB/s network rate quoted as an expectation. `$P`'s 121,828 KiB is a `du -sk` taken after the last log was written, and a later `du -sk` gives 121,052 KiB (APFS block accounting; no log records either).
+
+**Left as written.** The pre-launch projection "about 3 to 3.5 h" for `-np 4` is the estimate given at the decision, not derivable exactly: the serial 8.56 to 10.18 h over the rehearsal's 3.21 gives 2.7 to 3.2 h. "About 411,000 halos/s for the four" is four times the median (the four files' rates sum to 415,512). The first check's 115.6 and 32.4 MB/s depend on the end of the 900 s window (115.5 and 32.2 at one instant).
+
+PM commissions a further independent trace of the committed record.
