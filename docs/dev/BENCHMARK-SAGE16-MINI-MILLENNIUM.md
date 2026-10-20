@@ -45,7 +45,7 @@
 | Profile instrument | `/usr/bin/sample -wait mimic 10 1`, 20 serial repeats, 56 820 self-samples |
 | Serialisation | every run executed alone — no two `mimic` processes concurrently |
 
-**Prerequisite fixed during this work**: `simulations/mini-millennium/snapshots` pointed at mini-Uchuu data, so the shipped run file silently processed zero trees. It now points at `/Volumes/Internal/data/millennium/millennium-mini`, matching the convention used by every other simulation package. The path is gitignored, so no tracked file changed.
+**Prerequisite fixed during this work**: `simulations/mini-millennium/snapshots` pointed at mini-Uchuu data, so the shipped run file silently processed zero trees. It was repointed at the mini-Millennium trees (since 2026-10-20 at `/Volumes/Internal/data/millennium/mini-millennium-lhalo`, under the family layout every simulation package now uses). The path is gitignored, so no tracked file changed.
 
 **Attribution method**: `sample`'s call graph annotates most frames with `file.c:line`. Self-time per frame is the frame's sample count minus the sum of its direct children, and each frame is assigned to exactly one component by source path. Library frames are assigned by rule: `libsystem_m` to Math library (with a secondary table naming the calling component that pays for it), `libhdf5` and its syscalls to Output I/O, other kernel syscalls to the nearest source-annotated ancestor, allocator and platform frames to Runtime/system. Frames that resist attribution are reported in an explicit `Unattributed` bucket — 0.004% of the run, a single `DYLD-STUB$$malloc` — and are never folded into a named component.
 
