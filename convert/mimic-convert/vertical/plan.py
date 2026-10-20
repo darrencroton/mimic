@@ -31,7 +31,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Sequence, Union
+from typing import Dict, List, Optional, Sequence, Union
 
 import numpy as np
 
@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
+from vertical.common import require_positive_int, write_json_atomic  # noqa: E402
 from vertical.record import record_digest, record_dtype, record_layout  # noqa: E402
 
 #: The plan's file name inside a conversion's output directory.
@@ -56,6 +57,9 @@ DEFAULT_MAX_FORESTS_PER_FILE = 1_000_000
 INT32_MAX = int(np.iinfo(np.int32).max)
 
 _UNSEEN = np.iinfo(np.int64).max
+
+#: The integer fields of each file entry of a plan.
+_ENTRY_FIELDS = ("number", "first_forest", "last_forest", "n_forests", "n_halos")
 
 
 @dataclass(frozen=True)
@@ -99,13 +103,13 @@ def forest_totals(dataset: HorizontalDataset, block_rows: int = DEFAULT_BLOCK_RO
     total = dataset.total_halos
     minima = np.full(n_forests, _UNSEEN, dtype=np.int64)
     for snap in dataset.snapshots:
-        previous = None
+        previous = -1
         for start, columns in dataset.iter_columns(
             snap, ("ForestIndex", "SourceHaloID"), block_rows
         ):
             forest = columns["ForestIndex"].astype(np.int64, copy=False)
             ids = columns["SourceHaloID"].astype(np.int64, copy=False)
-            before = np.concatenate(([forest[0] if previous is None else previous], forest[:-1]))
+            before = np.concatenate(([previous], forest[:-1]))
             drops = np.flatnonzero(forest < before)
             if drops.size:
                 row = int(drops[0])
@@ -123,11 +127,9 @@ def forest_totals(dataset: HorizontalDataset, block_rows: int = DEFAULT_BLOCK_RO
                     )
                 )
             first = forest != before
-            if previous is None:
-                first[0] = True
             starts = forest[first]
             minima[starts] = np.minimum(minima[starts], ids[first])
-            previous = forest[-1]
+            previous = int(forest[-1])
 
     absent = np.flatnonzero(minima == _UNSEEN)
     if absent.size:
@@ -175,18 +177,6 @@ def forest_totals(dataset: HorizontalDataset, block_rows: int = DEFAULT_BLOCK_RO
     return totals
 
 
-def _require_cap(name: str, value) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or int(value) < 1:
-        raise ConverterError("{} must be a positive integer, got {!r}".format(name, value))
-    if int(value) > INT32_MAX:
-        raise ConverterError(
-            "{} {} would allow more than {} in a file (the reader's int counts)".format(
-                name, value, INT32_MAX
-            )
-        )
-    return int(value)
-
-
 def cut_files(
     totals: Sequence[int], max_halos_per_file: int, max_forests_per_file: int
 ) -> List[PlannedFile]:
@@ -197,11 +187,11 @@ def cut_files(
     files tile ``[0, len(totals))`` and are numbered from 0.
 
     Raises:
-        ConverterError: for a cap below 1 or above 2,147,483,647, a forest total below 1, or a
-            forest above 2,147,483,647 halos, naming the value.
+        ConverterError: for a cap that is not an integer from 1 to 2,147,483,647, a forest total
+            below 1, or a forest above 2,147,483,647 halos, naming the value.
     """
-    halo_cap = _require_cap("max_halos_per_file", max_halos_per_file)
-    forest_cap = _require_cap("max_forests_per_file", max_forests_per_file)
+    halo_cap = require_positive_int("max_halos_per_file", max_halos_per_file, INT32_MAX)
+    forest_cap = require_positive_int("max_forests_per_file", max_forests_per_file, INT32_MAX)
     totals = np.asarray(totals)
     if totals.ndim != 1 or (totals.size and totals.dtype.kind not in "iu"):
         raise ConverterError("forest totals must be a one-dimensional integer array")
@@ -253,7 +243,7 @@ def dataset_identity(dataset: HorizontalDataset) -> Dict[str, object]:
     }
 
 
-def _record_binding(halo_properties: Union[str, Path, Sequence[dict]]) -> Dict[str, object]:
+def record_binding(halo_properties: Union[str, Path, Sequence[dict]]) -> Dict[str, object]:
     """The record digest, with the YAML's path and md5 when it is a file (information only)."""
     binding = {"digest": record_digest(record_layout(record_dtype(halo_properties)))}
     if isinstance(halo_properties, (str, Path)):
@@ -273,9 +263,9 @@ def make_file_plan(
 
     The caps are checked before the dataset is read.
     """
-    _require_cap("max_halos_per_file", max_halos_per_file)
-    _require_cap("max_forests_per_file", max_forests_per_file)
-    record = _record_binding(halo_properties)
+    require_positive_int("max_halos_per_file", max_halos_per_file, INT32_MAX)
+    require_positive_int("max_forests_per_file", max_forests_per_file, INT32_MAX)
+    record = record_binding(halo_properties)
     files = cut_files(forest_totals(dataset, block_rows), max_halos_per_file, max_forests_per_file)
     return {
         "format": FILE_PLAN_FORMAT,
@@ -291,24 +281,43 @@ def make_file_plan(
 
 
 def write_file_plan(directory, plan: Dict[str, object]) -> Path:
-    """Write ``plan`` to ``<directory>/file_plan.json`` atomically; returns the path."""
+    """Write ``plan`` to ``<directory>/file_plan.json`` atomically and durably; returns the path."""
     path = Path(directory) / FILE_PLAN_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(plan, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-    os.replace(str(tmp), str(path))
+    write_json_atomic(path, plan)
     return path
 
 
 def _check_files(path: Path, plan: Dict[str, object]) -> None:
     """The plan's files are numbered from 0, tile ``[0, n_forests_total)`` and hold the
-    dataset's halos, with each entry's counts consistent."""
+    dataset's halos, with each entry's fields plain integers and its counts consistent with
+    each other, the reader's int limit and the plan's recorded caps (a lone forest may exceed
+    the halo cap, as :func:`cut_files` leaves it alone in its file).
+
+    Raises:
+        ConverterError: naming the first entry that is malformed, inconsistent or over a limit,
+            or the totals the entries do not reach.
+    """
     dataset = plan["dataset"]
+    halo_cap = require_positive_int(
+        "{}: caps max_halos_per_file".format(path), plan["caps"]["max_halos_per_file"], INT32_MAX
+    )
+    forest_cap = require_positive_int(
+        "{}: caps max_forests_per_file".format(path),
+        plan["caps"]["max_forests_per_file"],
+        INT32_MAX,
+    )
     expected = 0
     halos = 0
     for number, entry in enumerate(plan["files"]):
+        if not isinstance(entry, dict) or any(
+            isinstance(entry.get(name), bool) or not isinstance(entry.get(name), int)
+            for name in _ENTRY_FIELDS
+        ):
+            raise ConverterError(
+                "{}: file entry {} is malformed: every field of {} must be a plain integer: "
+                "{}".format(path, number, list(_ENTRY_FIELDS), entry)
+            )
         first, last = entry["first_forest"], entry["last_forest"]
         if (
             entry["number"] != number
@@ -319,6 +328,17 @@ def _check_files(path: Path, plan: Dict[str, object]) -> None:
         ):
             raise ConverterError(
                 "{}: file entry {} is inconsistent: {}".format(path, number, entry)
+            )
+        if (
+            entry["n_forests"] > forest_cap
+            or entry["n_halos"] > INT32_MAX
+            or (entry["n_halos"] > halo_cap and entry["n_forests"] > 1)
+        ):
+            raise ConverterError(
+                "{}: file entry {} exceeds a limit (at most {} forests per file, {} halos per "
+                "file, or a lone forest's, and the reader's {}): {}".format(
+                    path, number, forest_cap, halo_cap, INT32_MAX, entry
+                )
             )
         expected = last + 1
         halos += entry["n_halos"]
@@ -331,14 +351,25 @@ def _check_files(path: Path, plan: Dict[str, object]) -> None:
 
 
 def read_file_plan(
-    directory, dataset: HorizontalDataset, halo_properties: Union[str, Path, Sequence[dict]]
+    directory,
+    dataset: HorizontalDataset,
+    halo_properties: Union[str, Path, Sequence[dict]],
+    identity: Optional[Dict[str, object]] = None,
 ) -> Dict[str, object]:
     """Read ``<directory>/file_plan.json`` and check it binds this dataset and record.
 
+    Args:
+        directory: the output directory holding the plan.
+        dataset: the open dataset.
+        halo_properties: the package's ``halo_properties.yaml`` path, or its parsed list.
+        identity: the dataset's :func:`dataset_identity`, when the caller has it already (it
+            hashes the whole forest sidecar); derived here otherwise.
+
     Raises:
         ConverterError: for a missing or unreadable plan, one of another format or version,
-            inconsistent file entries, or a dataset identity or record digest that differs from
-            the open dataset's or the record derived from ``halo_properties``.
+            file entries that are not plain integers, are inconsistent or exceed the reader's
+            int limit or the plan's recorded caps, or a dataset identity or record digest that
+            differs from the open dataset's or the record derived from ``halo_properties``.
     """
     path = Path(directory) / FILE_PLAN_NAME
     try:
@@ -359,7 +390,8 @@ def read_file_plan(
         recorded_identity = plan["dataset"]
     except (KeyError, TypeError) as error:
         raise ConverterError("{}: malformed file plan ({!r})".format(path, error)) from error
-    identity = dataset_identity(dataset)
+    if identity is None:
+        identity = dataset_identity(dataset)
     for name, value in identity.items():
         if recorded_identity.get(name) != value:
             raise ConverterError(

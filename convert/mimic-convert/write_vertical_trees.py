@@ -24,12 +24,13 @@ Usage:
     mimic_venv/bin/python convert/mimic-convert/write_vertical_trees.py convert \\
         --input /data/<dataset> \\
         --halo-properties simulations/<package>/halo_properties.yaml \\
-        --output /data/<package-trees> --tree-name <tree_name> --workers 8
+        --output /data/<package-trees> --tree-name <tree_name> --workers 2
 """
 
 import argparse
 import os
 import sys
+import traceback
 from typing import Optional, Sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -59,6 +60,25 @@ when adding the next forest would exceed --max-halos-per-file halos or --max-for
 forests, and a forest larger than the halo cap occupies its file alone. No file may hold more
 than 2,147,483,647 halos or forests (the reader's int counts).
 
+Byte order: the files are written little-endian, the byte order of every host Mimic supports.
+
+Locks: convert holds an exclusive lock on <output>/.convert.lock for the run, and a second
+convert in the same directory is refused, naming it. Each file is written under an exclusive
+lock on <name>.<k>.lock, so a worker orphaned by a killed parent (SIGKILL, out of memory) cannot
+be raced by a rerun: a rerun that cannot lock a file refuses that file, naming it, and goes on.
+A worker removes a file's lock file when it completes or skips the file; the lock file of a
+file that failed or was killed stays, and is removed by the next run that completes that
+file. .convert.lock stays and blocks nothing once the run ends. On a filesystem that cannot
+lock, convert warns once and runs without either lock.
+
+Stopping: send SIGINT (Ctrl-C) or SIGTERM to the convert process itself (before the first file
+starts, during the totals pass, a signal ends the run at once). The first signal stops
+it starting further files; the files in flight (with --workers 1, the file being written) are
+completed and recorded, and convert exits 2 unless every selected file is complete. A second
+signal terminates the workers at once and exits 2, leaving the files they were writing as
+<name>.<k>.partial, which the next run moves aside and rebuilds. Rerun the same command to
+resume. The workers ignore SIGINT, so only the parent reacts to Ctrl-C.
+
 Memory: convert prints its bound before it starts. Per worker it is
   (2*S*R + L)*B + max(R, L)*(B + b + {working}) bytes
 for S slabs, R = --window-rows, L the plan's largest forest in halos, B the bytes per halo of
@@ -74,7 +94,9 @@ SHA-256 of the re-read file against the one computed while writing): that file s
 <name>.<k>.partial and is never renamed, while every other file is still written and
 recorded; 2 on a refusal: an invalid option, unreadable input, a dataset that is not version
 3, a missing or mismatching file_plan.json, a malformed forest, any other error in a
-file, or a worker that died.
+file, a file another process is writing, a worker that died, a second convert in the
+directory, an interrupted run that left a file incomplete, or an unexpected error (named on
+stderr, after its traceback).
 """.format(
     working=WORKING_BYTES_PER_ROW,
     reread=VERIFY_BLOCK_BYTES >> 20,
@@ -151,7 +173,9 @@ def build_parser() -> argparse.ArgumentParser:
         "<output>/manifest.json. A rerun with the same inputs skips every file whose SHA-256 "
         "equals its manifest entry's and redoes the rest; a file the manifest does not record "
         "as complete, and any .partial, is moved aside to <name>.stale-<timestamp> (never "
-        "deleted) and rebuilt. Run one convert per output directory at a time.",
+        "deleted) and rebuilt. Run one convert per output directory at a time: the lock file "
+        "<output>/.convert.lock refuses a second. The first SIGINT or SIGTERM stops the run "
+        "after the files in flight complete; a second terminates them.",
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -236,6 +260,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return cmd_convert(args, argv)
     except (ConverterError, OSError) as exc:
         print("ERROR: {}".format(exc), file=sys.stderr)
+        return EXIT_REFUSED
+    except KeyboardInterrupt:
+        print("ERROR: interrupted", file=sys.stderr)
+        return EXIT_REFUSED
+    except Exception as exc:
+        # Python's own status for an uncaught exception is 1, which this tool reserves for a
+        # file that failed its verification.
+        traceback.print_exc()
+        print("ERROR: unexpected {}: {}".format(type(exc).__name__, exc), file=sys.stderr)
         return EXIT_REFUSED
 
 

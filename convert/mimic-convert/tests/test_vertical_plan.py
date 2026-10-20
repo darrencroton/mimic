@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import h5py
 import numpy as np
@@ -37,6 +38,7 @@ from vertical.plan import (  # noqa: E402
     read_file_plan,
     write_file_plan,
 )
+from vertical.record import record_digest, record_dtype, record_layout  # noqa: E402
 
 SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "halo_properties.yaml"
 MINI_MILLENNIUM_RECORD = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
@@ -134,7 +136,7 @@ class ForestTotalsTests(FixtureDataset):
 
     def test_minima_that_do_not_increase_are_refused(self):
         def lower(values):
-            values[0] = 9  # forest 2's first row at snapshot 2, its minimum 15
+            values[0] = 9  # forest 2's first row at snapshot 2, lowered from 15 to forest 1's 9
 
         with self.assertRaisesRegex(
             ConverterError, r"forest 2's first SourceHaloID 9 does not exceed forest 1's 9"
@@ -188,8 +190,8 @@ class CutFilesTests(unittest.TestCase):
 
     def test_refusals(self):
         refusals = [
-            ((TOTALS, INT32_MAX + 1, 10), r"max_halos_per_file 2147483648 would allow more"),
-            ((TOTALS, 10, INT32_MAX + 1), r"max_forests_per_file 2147483648 would allow more"),
+            ((TOTALS, INT32_MAX + 1, 10), r"max_halos_per_file must be at most 2147483647, got"),
+            ((TOTALS, 10, INT32_MAX + 1), r"max_forests_per_file must be at most 2147483647"),
             ((TOTALS, 0, 10), r"max_halos_per_file must be a positive integer, got 0"),
             ((TOTALS, 10, True), r"max_forests_per_file must be a positive integer, got True"),
             (([1, INT32_MAX + 1], INT32_MAX, 10), r"forest 1 has 2147483648 halos, more than"),
@@ -223,8 +225,7 @@ class FilePlanTests(FixtureDataset):
         )
         self.assertEqual(plan["caps"], {"max_halos_per_file": 7, "max_forests_per_file": 10})
         self.assertEqual(
-            plan["record"]["digest"],
-            "ab04dcbae52ffd11b1e773fe3c9aafecc22371f4583eeadf2353930e5bdf5e64",
+            plan["record"]["digest"], record_digest(record_layout(record_dtype(SHIN_UCHUU_RECORD)))
         )
         self.assertEqual(plan["record"]["halo_properties"], str(SHIN_UCHUU_RECORD))
         self.assertEqual(len(plan["record"]["halo_properties_md5"]), 32)
@@ -276,7 +277,7 @@ class FilePlanTests(FixtureDataset):
                 plan,
                 dataset,
                 MINI_MILLENNIUM_RECORD,
-                r"planned for the record with digest ab04dcba",
+                r"planned for the record with digest [0-9a-f]{64}; the record derived now has [0-9a-f]{64}",
             ),
             (
                 "another mapping",
@@ -308,9 +309,58 @@ class FilePlanTests(FixtureDataset):
         with self.assertRaisesRegex(ConverterError, r"cannot read the file plan"):
             read_file_plan(self.work / "absent", dataset, SHIN_UCHUU_RECORD)
 
-    def test_make_file_plan_refuses_a_bad_cap(self):
-        with self.assertRaisesRegex(ConverterError, r"max_forests_per_file must be a positive"):
-            make_file_plan(HorizontalDataset(self.dataset_dir), SHIN_UCHUU_RECORD, 10, 0)
+    def test_malformed_and_over_limit_entries_are_refused_by_name(self):
+        """Every entry field must be a plain integer, and no entry may pass the reader's int
+        limit or the plan's recorded caps (7 halos, 10 forests); a lone forest above the halo
+        cap is the plan's file 0 and stays valid."""
+        dataset, plan = self.plan()
+
+        def edited(edit):
+            changed = json.loads(json.dumps(plan))
+            edit(changed)
+            return changed
+
+        def entry(index, **fields):
+            return lambda changed: changed["files"][index].update(fields)
+
+        cases = [
+            ("a float field", entry(1, n_halos=6.0), r"file entry 1 is malformed"),
+            ("a bool field", entry(0, number=False), r"file entry 0 is malformed"),
+            ("a string field", entry(2, last_forest="3"), r"file entry 2 is malformed"),
+            ("a missing field", lambda c: c["files"][1].pop("n_forests"), r"file entry 1 is malf"),
+            ("a halo count past int32", entry(0, n_halos=INT32_MAX + 1), r"file entry 0 exceeds"),
+            (
+                "more forests than the cap",
+                lambda c: c["caps"].update(max_forests_per_file=1),
+                r"file entry 2 exceeds a limit \(at most 1 forests per file, 7 halos",
+            ),
+            (
+                "more halos than the cap in several forests",
+                lambda c: c["caps"].update(max_halos_per_file=4),
+                r"file entry 2 exceeds a limit \(at most 10 forests per file, 4 halos",
+            ),
+            (
+                "a float cap",
+                lambda c: c["caps"].update(max_halos_per_file=7.0),
+                r"caps max_halos_per_file must be a positive integer, got 7.0",
+            ),
+        ]
+        for label, edit, message in cases:
+            with self.subTest(label):
+                write_file_plan(self.work, edited(edit))
+                with self.assertRaisesRegex(ConverterError, message):
+                    read_file_plan(self.work, dataset, SHIN_UCHUU_RECORD)
+        write_file_plan(self.work, plan)
+        self.assertEqual(read_file_plan(self.work, dataset, SHIN_UCHUU_RECORD), plan)
+
+    def test_make_file_plan_refuses_a_bad_cap_before_reading_the_dataset(self):
+        dataset = HorizontalDataset(self.dataset_dir)
+        with mock.patch.multiple(
+            dataset, read_rows=mock.DEFAULT, iter_columns=mock.DEFAULT
+        ) as reads:
+            with self.assertRaisesRegex(ConverterError, r"max_forests_per_file must be a positive"):
+                make_file_plan(dataset, SHIN_UCHUU_RECORD, 10, 0)
+        self.assertFalse(reads["read_rows"].called or reads["iter_columns"].called)
 
 
 if __name__ == "__main__":

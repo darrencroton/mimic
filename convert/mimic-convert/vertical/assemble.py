@@ -1,42 +1,45 @@
 """The forest assembler: each forest of a ``ForestIndex`` range of a forest-blocked version 3
-dataset as one L-Halo record array in rank order, with forest-local links, every link verified.
+dataset as one L-Halo record array in rank order, with forest-local links.
 
 **The pass.** Every slab of a version 3 dataset is grouped by forest in ascending ``ForestIndex``
 (``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md``, Source Identity), so a forest's rows in a
 slab are one contiguous block and consecutive forests' blocks are consecutive.
-:meth:`ForestAssembler.forests` finds the first row of the range's first forest in every slab by
-binary search on ``ForestIndex``, then streams every slab forward in windows of ``window_rows``
+:meth:`ForestAssembler.forests` finds, in every slab, the rows of the range by two binary
+searches on ``ForestIndex`` (the first row of the range's first forest and the first row at or
+past its stop), then streams the slab's rows of the range forward in windows of ``window_rows``
 rows, always reading from the slab that lags furthest behind. A forest is complete once every
-slab has read past it or is exhausted; a slab in which it is absent contributes an empty block.
-The forests the windows complete are assembled together, in batches of about ``window_rows``
-rows (a forest larger than that is a batch of its own), so the per-forest Python work is a view
-and a yield, whatever the number of forests.
+slab has read past it or has read all of its rows of the range; a slab in which it is absent
+contributes an empty block. The forests the windows complete are assembled together, in batches
+of about ``window_rows`` rows (a forest larger than that is a batch of its own), so the
+per-forest Python work is a view and a yield, whatever the number of forests.
 
-**The record.** A forest's records are its slab blocks concatenated from the highest snapshot
-down to the lowest, each block in row order: the reference vertical-driver order, in which
-``HaloRankInForest`` is the halo's index. The assembler requires the concatenated ranks to be
-exactly 0..n-1 and refuses otherwise, naming the forest and the first offending rank; a row of
-another forest inside a block is refused as a ``ForestIndex`` out of order. The payload fields
-are copied verbatim from the source columns into the record :func:`vertical.record.record_dtype`
-derives for the named package (no unit, type or convention change), so every payload column must
-already have the record field's dtype and shape, which is checked before any row is read.
+**The record.** A forest's records are placed by ``HaloRankInForest``: the record at position
+``rank`` of the forest holds the halo of that rank, so the rank is the record's position whatever
+convention the source route gives it (the reference vertical-driver order for the Consistent-Trees
+ASCII route, the source's within-tree row for the L-Halo and forests-HDF5 routes, which is not
+ordered by snapshot). The assembler requires the ranks of a forest's rows to be a permutation of
+0..n-1 and refuses otherwise, naming the forest and the first rank out of range or repeated; a
+row of another forest inside a block is refused as a ``ForestIndex`` out of order. The payload
+fields are copied verbatim from the source columns into the record
+:func:`vertical.record.record_dtype` derives for the named package (no unit, type or convention
+change), so every payload column must already have the record field's dtype and shape, which is
+checked before any row is read.
 
 **Links.** Each of the five links is mapped from (target snapshot, global row), the snapshot
 from its companion column for ``Descendant``, ``FirstProgenitor`` and ``NextProgenitor`` and the
 owner's own for the FoF links, to the target's ``HaloRankInForest``, read from the forest's own
 block of the target slab; a non-null link whose target lies outside that block, or whose
 companion names a slab in which the forest has no block, is refused naming the forest, the
-halo's rank and the link. ``-1`` maps to ``-1``; ``FirstHaloInFOFgroup`` is never ``-1``. Every
-mapped link is then verified: the ``MostBoundID`` of the target row must equal the
-``MostBoundID`` of the record the mapped rank names. A mapped rank the record's link type cannot
-hold is refused naming the forest.
+halo's rank and the link. ``-1`` maps to ``-1``; ``FirstHaloInFOFgroup`` is never ``-1``. A mapped
+rank the record's link type cannot hold is refused naming the forest.
 
 **Memory.** Each slab keeps the windows it has read and not yet emitted as they were read, and
 rows are copied once, out of those windows into the batch they are assembled with.
 :func:`memory_bound` states the bound per assembler instance: the buffered windows (per slab,
-its block of the forest in flight, one window read beyond it and the view-retained remainder of
-one more) and the batch being assembled (its columns, its records and a measured allowance of
-temporaries). The assembler holds no other per-forest state.
+its block of the forest in flight, one window read beyond it within the range and the
+view-retained remainder of one more) and the batch being assembled (its columns, its records and
+a measured allowance of temporaries). No slab reads a row at or past its first row of the range's
+stop. The assembler holds no other per-forest state.
 """
 
 import os
@@ -50,6 +53,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import HorizontalDataset  # noqa: E402
+from vertical.common import require_positive_int  # noqa: E402
 from vertical.record import record_dtype  # noqa: E402
 
 #: Rows per window read from each slab: 2^20 rows is 8 MiB of an int64 column.
@@ -76,19 +80,21 @@ LINK_SNAPSHOT_COLUMNS = {
 NULL_LINK = -1
 
 #: The allowance per batch row for the assembler's temporaries in :func:`memory_bound`: the
-#: per-row snapshot, the stable sort order, record positions, placed ids and, per link kind, the
-#: targets, masks and mapped ranks. Measured with ``tracemalloc`` at 144 B per row on a batch in
-#: which every link of every row is non-null (the most the per-link temporaries can hold), plus
-#: 32 B of headroom that also covers the per-forest arrays of the totals check.
-WORKING_BYTES_PER_ROW = 176
+#: per-row snapshot, record positions, the permutation check's counts and, per link kind, the
+#: targets, masks and mapped ranks, plus the per-forest counts and offsets. Measured with
+#: ``tracemalloc`` over one batch at 120 B per row for a single forest in which every link of
+#: every row is non-null (the most the per-link temporaries can hold) and 136 B per row when
+#: every forest is one halo (the most the per-forest arrays can add), plus 24 B of headroom
+#: that also covers the 8 B per forest of cumulative counts :meth:`ForestAssembler.forests`
+#: keeps while a batch is emitted.
+WORKING_BYTES_PER_ROW = 160
 
 _FOREST = "ForestIndex"
 _RANK = "HaloRankInForest"
-_MOST_BOUND = "MostBoundID"
 _INT64 = np.dtype("<i8")
 _INT32 = np.dtype("<i4")
 
-#: The frontier of a slab that has nothing left to read for the range.
+#: The frontier of a slab that has no row left to read for the range.
 _COMPLETE = np.iinfo(np.int64).max
 
 
@@ -113,8 +119,9 @@ def memory_bound(
 
     The buffered windows hold at most ``2 * n_slabs * window_rows + largest_forest_halos`` rows
     of ``row_bytes`` each: per slab, its block of the forest in flight (those blocks sum to at
-    most the forest's total), one window of rows read beyond it, and up to one more window kept
-    alive by the view of its oldest, partly emitted window. The batch being assembled holds at
+    most the forest's total), one window of rows read beyond it (within the range: no slab reads
+    past its end row), and up to one more window kept alive by the view of its oldest, partly
+    emitted window. The batch being assembled holds at
     most ``max(window_rows, largest_forest_halos)`` rows (the forests a set of windows
     completes are assembled in batches of about ``window_rows`` rows; a larger forest is a
     batch alone), each as its columns (``row_bytes``, copied out of the windows), its record
@@ -126,44 +133,39 @@ def memory_bound(
     return held * row_bytes + batch * (row_bytes + record_bytes + WORKING_BYTES_PER_ROW)
 
 
-def _require_window_rows(window_rows) -> int:
-    if isinstance(window_rows, bool) or not isinstance(window_rows, (int, np.integer)):
-        raise ConverterError("window_rows must be a positive integer, got {!r}".format(window_rows))
-    if int(window_rows) < 1:
-        raise ConverterError("window_rows must be a positive integer, got {}".format(window_rows))
-    return int(window_rows)
-
-
 class _Slab:
-    """One slab's cursor: the next unread row, and the windows read but not yet emitted.
+    """One slab's cursor over the rows of a ``ForestIndex`` range: the next unread row, the end
+    of the range's rows, and the windows read but not yet emitted.
 
     The windows are kept as they were read (``chunks``, oldest first, the oldest possibly a
     view of its window's unemitted tail); nothing is concatenated until rows are taken into a
     batch, so every row is copied once however many windows a forest's block spans.
     """
 
-    def __init__(self, snap: int, n_rows: int):
+    def __init__(self, snap: int, n_rows: int, first: int):
         self.snap = snap
         self.n_rows = n_rows
         self.next_row = 0
+        #: the first row at or past the range's stop (set once the search has run)
+        self.end_row = n_rows
         #: the global row of the first buffered row
         self.base_row = 0
         self.chunks: List[Dict[str, np.ndarray]] = []
         #: rows over every chunk
         self.length = 0
-        #: the ``ForestIndex`` of the last buffered row
-        self.last_forest = -1
+        #: the ``ForestIndex`` of the last buffered row, the range's first forest before any
+        self.last_forest = first
 
     @property
     def exhausted(self) -> bool:
-        return self.next_row >= self.n_rows
+        return self.next_row >= self.end_row
 
-    def frontier(self, stop: int) -> int:
+    def frontier(self) -> int:
         """The first forest this slab is not known to have read past: every forest below it
         is complete here. A slab with nothing buffered and rows unread must be read first."""
-        if self.length == 0:
-            return _COMPLETE if self.exhausted else -1
-        return _COMPLETE if (self.last_forest >= stop or self.exhausted) else self.last_forest
+        if self.exhausted:
+            return _COMPLETE
+        return self.last_forest if self.length else -1
 
 
 class ForestAssembler:
@@ -190,7 +192,7 @@ class ForestAssembler:
         window_rows: int = DEFAULT_WINDOW_ROWS,
     ):
         self.dataset = dataset
-        self.window_rows = _require_window_rows(window_rows)
+        self.window_rows = require_positive_int("window_rows", window_rows)
         self.dtype = record_dtype(halo_properties)
         missing = [name for name in LINK_FIELDS if name not in self.dtype.names]
         if missing:
@@ -214,7 +216,7 @@ class ForestAssembler:
         self.payload_fields = tuple(name for name in self.dtype.names if name not in LINK_FIELDS)
 
         expected: Dict[str, Tuple[np.dtype, Tuple[int, ...], str]] = {}
-        for name in (_FOREST, _RANK, _MOST_BOUND):
+        for name in (_FOREST, _RANK):
             expected[name] = (_INT64, (), "the format's int64")
         for name in LINK_FIELDS:
             expected[name] = (_INT64, (), "the format's int64")
@@ -230,7 +232,7 @@ class ForestAssembler:
         #: the columns each window reads, in a fixed order
         self.columns = tuple(expected)
         self.row_bytes = sum(
-            int(base.itemsize) * int(np.prod(shape, dtype=np.int64)) if shape else base.itemsize
+            int(base.itemsize) * int(np.prod(shape, dtype=np.int64))
             for base, shape, _ in expected.values()
         )
         for snap in dataset.snapshots:
@@ -274,31 +276,43 @@ class ForestAssembler:
 
         Args:
             first, stop: the ``ForestIndex`` range, within ``[0, n_forests_total)``.
-            expected_totals: optionally, every forest's halo total indexed by ``ForestIndex``
-                (as :func:`vertical.plan.forest_totals` returns it); a forest whose assembled
+            expected_totals: optionally, the halo total of each forest of the range alone, in
+                order (index 0 is forest ``first``; the slice of
+                :func:`vertical.plan.forest_totals` over the range); a forest whose assembled
                 halo count differs is refused.
 
         Raises:
-            ConverterError: for a range outside the dataset; a slab whose ``ForestIndex`` is
-                not non-decreasing; a forest with no rows in any slab or with a halo count
-                other than its expected total; ranks that are not exactly 0..n-1; a link that
-                is malformed, leaves the forest's block of its target slab, or names a slab the
-                forest has no block in; a mapped rank whose ``MostBoundID`` is not the target
-                row's; or a rank the record's link type cannot hold. Each names the forest.
+            ConverterError: for a range outside the dataset; ``expected_totals`` of a length
+                other than the range's; a slab whose ``ForestIndex`` is not non-decreasing over
+                its rows of the range (the rows outside the range are never read, so the whole
+                dataset's order is :func:`vertical.plan.forest_totals`' check); a forest with no
+                rows in any slab or with a halo count other than its expected total; ranks that
+                are not a permutation of 0..n-1; a link that is malformed, leaves the forest's
+                block of its target slab, or names a slab the forest has no block in; or a rank
+                the record's link type cannot hold. Each names the forest.
         """
         first, stop = self._check_range(first, stop)
-        slabs = [_Slab(snap, n) for snap, n in zip(self.dataset.snapshots, self.dataset.n_halos)]
+        if expected_totals is not None and len(expected_totals) != stop - first:
+            raise ConverterError(
+                "{}: {} expected totals for the {} forests of [{}, {})".format(
+                    self.dataset.directory, len(expected_totals), stop - first, first, stop
+                )
+            )
+        slabs = [
+            _Slab(snap, n, first) for snap, n in zip(self.dataset.snapshots, self.dataset.n_halos)
+        ]
         for slab in slabs:
             slab.next_row = slab.base_row = self._first_row(slab, first)
+            slab.end_row = self._first_row(slab, stop, low=slab.next_row)
         next_emit = first
         while next_emit < stop:
-            frontiers = [slab.frontier(stop) for slab in slabs]
+            frontiers = [slab.frontier() for slab in slabs]
             frontier = min(frontiers)
             if frontier <= next_emit:
-                self._read_window(slabs[frontiers.index(frontier)], first)
+                self._read_window(slabs[frontiers.index(frontier)])
                 continue
             batch_stop = min(frontier, stop)
-            cumulative = self._check_totals(slabs, next_emit, batch_stop, expected_totals)
+            cumulative = self._check_totals(slabs, first, next_emit, batch_stop, expected_totals)
             chunk_first = next_emit
             while chunk_first < batch_stop:
                 index = chunk_first - next_emit
@@ -325,43 +339,36 @@ class ForestAssembler:
             )
         return int(first), int(stop)
 
-    def _first_row(self, slab: _Slab, first: int) -> int:
-        """The first row of the slab whose ``ForestIndex`` is at least ``first``, by binary
-        search over single-row reads (``n_rows`` when there is none)."""
-        low, high = 0, slab.n_rows
+    def _first_row(self, slab: _Slab, forest: int, low: int = 0) -> int:
+        """The first row at or after ``low`` whose ``ForestIndex`` is at least ``forest``, by
+        binary search over single-row reads of ``ForestIndex`` (``n_rows`` when there is none)."""
+        high = slab.n_rows
         while low < high:
             mid = (low + high) // 2
             value = int(self.dataset.read_rows(slab.snap, (_FOREST,), mid, mid + 1)[_FOREST][0])
-            if value < first:
+            if value < forest:
                 low = mid + 1
             else:
                 high = mid
         return low
 
-    def _read_window(self, slab: _Slab, first: int) -> None:
-        """Append the slab's next window to its buffer, checking ``ForestIndex`` continues
-        non-decreasing from the last buffered row (or from the range's first forest)."""
-        stop = min(slab.next_row + self.window_rows, slab.n_rows)
+    def _read_window(self, slab: _Slab) -> None:
+        """Append the slab's next window, which ends at most at its end row, to its buffer,
+        checking ``ForestIndex`` continues non-decreasing from the last buffered row (or from
+        the range's first forest)."""
+        stop = min(slab.next_row + self.window_rows, slab.end_row)
         window = self.dataset.read_rows(slab.snap, self.columns, slab.next_row, stop)
         forest = window[_FOREST]
-        path = self.dataset.snapshot_path(slab.snap)
-        if slab.length:
-            previous = slab.last_forest
-        elif int(forest[0]) < first:
-            raise ConverterError(
-                "{}: row {} holds ForestIndex {}, below the range's first forest {} although "
-                "the search for that forest's first row passed it (ForestIndex is not "
-                "non-decreasing)".format(path, slab.next_row, forest[0], first)
-            )
-        else:
-            previous = int(forest[0])
-        before = np.concatenate(([previous], forest[:-1]))
+        before = np.concatenate(([slab.last_forest], forest[:-1]))
         drops = np.flatnonzero(forest < before)
         if drops.size:
             row = int(drops[0])
             raise ConverterError(
                 "{}: ForestIndex is not non-decreasing: row {} holds {} after {}".format(
-                    path, slab.next_row + row, forest[row], before[row]
+                    self.dataset.snapshot_path(slab.snap),
+                    slab.next_row + row,
+                    forest[row],
+                    before[row],
                 )
             )
         slab.chunks.append(window)
@@ -370,10 +377,11 @@ class ForestAssembler:
         slab.next_row = stop
 
     def _check_totals(
-        self, slabs: List[_Slab], first: int, stop: int, expected_totals
+        self, slabs: List[_Slab], range_first: int, first: int, stop: int, expected_totals
     ) -> np.ndarray:
-        """Every forest of ``[first, stop)`` has rows, and its expected total if one is given;
-        returns the cumulative row count over the range's forests."""
+        """Every forest of ``[first, stop)`` has rows, and its expected total if one is given
+        (``expected_totals`` indexed from the range's first forest, ``range_first``); returns
+        the cumulative row count over the forests."""
         totals = np.zeros(stop - first, dtype=np.int64)
         edges = np.arange(first, stop + 1, dtype=np.int64)
         for slab in slabs:
@@ -387,7 +395,9 @@ class ForestAssembler:
                 )
             )
         if expected_totals is not None:
-            planned = np.asarray(expected_totals[first:stop], dtype=np.int64)
+            planned = np.asarray(
+                expected_totals[first - range_first : stop - range_first], dtype=np.int64
+            )
             differs = np.flatnonzero(planned != totals)
             if differs.size:
                 index = int(differs[0])
@@ -453,33 +463,36 @@ class ForestAssembler:
         counts = np.bincount(forest, minlength=stop - first)
         offsets = np.zeros(stop - first + 1, dtype=np.int64)
         np.cumsum(counts, out=offsets[1:])
-        order = np.argsort(forest, kind="stable")
-        expected = np.arange(n_rows, dtype=np.int64) - offsets[forest[order]]
-        wrong = np.flatnonzero(rank[order] != expected)
-        if wrong.size:
-            at = int(wrong[0])
-            owner = int(forest[order][at])
+        outside = np.flatnonzero((rank < 0) | (rank >= counts[forest]))
+        if outside.size:
+            at = int(outside[0])
             raise ConverterError(
-                "{}: forest {}: rank {} found at position {}, where rank {} is expected (the "
-                "blocks from the highest snapshot down must give ranks 0..{})".format(
-                    where,
-                    first + owner,
-                    rank[order][at],
-                    expected[at],
-                    expected[at],
-                    counts[owner] - 1,
+                "{}: forest {}: rank {} is outside [0, {}), the forest's halo count".format(
+                    where, first + int(forest[at]), rank[at], counts[forest[at]]
                 )
             )
         position = offsets[forest] + rank
+        taken = np.bincount(position, minlength=n_rows)
+        repeated = np.flatnonzero(taken > 1)
+        if repeated.size:
+            owner = int(np.searchsorted(offsets, repeated[0], "right")) - 1
+            raise ConverterError(
+                "{}: forest {}: rank {} is held by more than one halo (the {} halos' ranks "
+                "must be 0..{} once each)".format(
+                    where,
+                    first + owner,
+                    repeated[0] - offsets[owner],
+                    counts[owner],
+                    counts[owner] - 1,
+                )
+            )
         records = np.zeros(n_rows, dtype=self.dtype)
         for name in self.payload_fields:
             records[name][position] = columns[name]
-        placed_most_bound = np.empty(n_rows, dtype=np.int64)
-        placed_most_bound[position] = columns[_MOST_BOUND]
         for name in LINK_FIELDS:
             companion = LINK_SNAPSHOT_COLUMNS.get(name)
             target_snap = columns[companion] if companion else snapshot
-            source, target, mapped = _map_links(
+            source, mapped = _map_links(
                 where,
                 first,
                 name,
@@ -490,20 +503,6 @@ class ForestAssembler:
                 batch_start,
                 row_base,
                 slice_rows,
-            )
-            _verify_links(
-                where,
-                first,
-                name,
-                forest,
-                rank,
-                counts,
-                offsets,
-                placed_most_bound,
-                columns[_MOST_BOUND],
-                source,
-                target,
-                mapped,
             )
             if source.size:
                 over = np.flatnonzero(mapped[source] > self.link_limit)
@@ -523,8 +522,8 @@ def _map_links(
 ):
     """Map one link kind from (target snapshot, global row) to the target's rank.
 
-    Returns ``(source, target, mapped)``: the batch indices of the rows whose link is not
-    null, the batch index each one targets, and every row's mapped rank (``-1`` where null).
+    Returns ``(source, mapped)``: the batch indices of the rows whose link is not null, and
+    every row's mapped rank (``-1`` where null).
 
     Raises:
         ConverterError: for a null ``FirstHaloInFOFgroup``; a companion snapshot that is ``-1``
@@ -560,7 +559,7 @@ def _map_links(
     source = np.flatnonzero(~null)
     mapped = np.full(forest.size, NULL_LINK, dtype=np.int64)
     if not source.size:
-        return source, source, mapped
+        return source, mapped
     snaps = target_snap[source].astype(np.int64)
     rows = link[source]
     owners = forest[source]
@@ -598,51 +597,4 @@ def _map_links(
             )
         )
     mapped[source] = rank[target]
-    return source, target, mapped
-
-
-def _verify_links(
-    where,
-    first,
-    name,
-    forest,
-    rank,
-    counts,
-    offsets,
-    placed_most_bound,
-    most_bound,
-    source,
-    target,
-    mapped,
-):
-    """Every mapped link names a record of its forest whose ``MostBoundID`` is the target
-    row's; refused otherwise, naming the forest, the halo's rank, the link and both ids."""
-    if not source.size:
-        return
-    ranks = mapped[source]
-    owners = forest[source]
-    astray = np.flatnonzero((ranks < 0) | (ranks >= counts[owners]))
-    if astray.size:
-        at = int(source[astray[0]])
-        raise ConverterError(
-            "{}: forest {}, rank {}: {} maps to rank {}, outside the forest's {} halos".format(
-                where, first + int(forest[at]), rank[at], name, mapped[at], counts[forest[at]]
-            )
-        )
-    named = placed_most_bound[offsets[owners] + ranks]
-    actual = most_bound[target]
-    differs = np.flatnonzero(named != actual)
-    if differs.size:
-        at = int(source[differs[0]])
-        raise ConverterError(
-            "{}: forest {}, rank {}: {} maps to rank {}, whose MostBoundID {} is not the target "
-            "row's {}".format(
-                where,
-                first + int(forest[at]),
-                rank[at],
-                name,
-                mapped[at],
-                named[differs[0]],
-                actual[differs[0]],
-            )
-        )
+    return source, mapped

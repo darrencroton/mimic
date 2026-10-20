@@ -10,6 +10,9 @@ reproduces the C rules for these types), and :func:`record_layout` and :func:`re
 describe it stably, so a file plan or manifest can bind the files it describes to the record
 they were written in.
 
+The record dtypes are little-endian (``<``), so the files are written little-endian: the byte
+order of every host Mimic supports, where the ``lhalo_binary`` reader reads host order.
+
 For ``simulations/shin-uchuu-ascii/halo_properties.yaml`` the record is 88 bytes: thirteen
 members fill 80, ``MostBoundID`` (``long long``) sits at offset 72, ``SnapNum`` at 80, and four
 bytes of trailing padding round the record up to the 8-byte alignment ``MostBoundID`` imposes.

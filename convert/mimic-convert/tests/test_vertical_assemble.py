@@ -6,14 +6,16 @@ forest-local ranks, ``SnapNum``) by rank: :mod:`fixtures`' correspondence forest
 is absent from four of the six slabs; 1100 spans three trees whose FoF groups mix them);
 forest 2700, whose root has a progenitor chain of three; the three-piece forest cut by its
 decided table, where a satellite promoted out of its host's group is a group of one and its
-former group is in another forest; the committed ``shin-uchuu`` ``worked_ascii`` fixture; and a
-thousand small forests, on which the per-forest Python work is counted. Every refusal comes from
-a copy of a dataset mutated in one way, except the ``MostBoundID`` verification, which a valid
-dataset cannot fail: that one is exercised by patching the link mapping between assembly and
-verification.
+former group is in another forest; the committed ``shin-uchuu`` ``worked_ascii`` fixture; the
+committed ``mini-millennium-horizontal`` fixtures, whose ``HaloRankInForest`` is the L-Halo
+source's within-tree row, not ordered by snapshot, checked against an independent index of the
+dataset's rows; and a thousand small forests, on which the per-forest Python work is counted and
+the rows each slab reads are bounded. Every refusal comes from a copy of a dataset mutated in one
+way.
 """
 
 import collections
+import math
 import shutil
 import sys
 import tempfile
@@ -35,10 +37,10 @@ from errors import ConverterError  # noqa: E402
 from horizontal_dataset import HorizontalDataset  # noqa: E402
 from test_forest_census import convert_ascii  # noqa: E402
 from test_vertical_plan import edit_column  # noqa: E402
-from vertical import assemble  # noqa: E402
 from vertical.assemble import (  # noqa: E402
     DEFAULT_WINDOW_ROWS,
     LINK_FIELDS,
+    LINK_SNAPSHOT_COLUMNS,
     AssembledForest,
     ForestAssembler,
     memory_bound,
@@ -48,6 +50,9 @@ from vertical.record import record_dtype  # noqa: E402
 SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "halo_properties.yaml"
 MINI_MILLENNIUM_RECORD = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
 WORKED_ASCII = REPO_ROOT / "simulations" / "shin-uchuu" / "_tests" / "data" / "worked_ascii"
+MM_HORIZONTAL = REPO_ROOT / "simulations" / "mini-millennium-horizontal"
+MM_HORIZONTAL_RECORD = MM_HORIZONTAL / "halo_properties.yaml"
+MM_HORIZONTAL_DATA = MM_HORIZONTAL / "_tests" / "data"
 
 #: Every payload field of the shin-uchuu record, copied verbatim from the column of that name.
 PAYLOAD_FIELDS = (
@@ -227,19 +232,27 @@ class AssemblyTests(CorrespondenceDataset):
                 checked += 1
         self.assertEqual(checked, 19)
 
-    def test_expected_totals_are_checked(self):
+    def test_expected_totals_are_those_of_the_range_alone(self):
+        """Index 0 of ``expected_totals`` is the range's first forest."""
         forests = self.assembled(0, 4, expected_totals=np.array([8, 6, 2, 3]))
         self.assertEqual([len(forest.records) for forest in forests], [8, 6, 2, 3])
+        forests = self.assembled(1, 3, expected_totals=np.array([6, 2]))
+        self.assertEqual([len(forest.records) for forest in forests], [6, 2])
+        for window_rows in (1, DEFAULT_WINDOW_ROWS):
+            with self.assertRaisesRegex(
+                ConverterError, r"forest 2 has 2 halos, but the plan expects 3"
+            ):
+                self.assembled(1, 3, window_rows=window_rows, expected_totals=[6, 3])
         with self.assertRaisesRegex(
-            ConverterError, r"forest 2 has 2 halos, but the plan expects 3"
+            ConverterError, r"1 expected totals for the 2 forests of \[1, 3\)"
         ):
-            self.assembled(0, 4, expected_totals=[8, 6, 3, 3])
+            self.assembled(1, 3, expected_totals=[6])
 
     def test_the_memory_bound(self):
         """The stated function: two windows per slab plus the forest in flight, and the batch
-        at the measured allowance of 176 B of temporaries per row."""
+        at the measured allowance of 160 B of temporaries per row."""
         self.assertEqual(
-            memory_bound(10, 3, 7, 100, 50), (2 * 3 * 10 + 7) * 100 + 10 * (100 + 50 + 176)
+            memory_bound(10, 3, 7, 100, 50), (2 * 3 * 10 + 7) * 100 + 10 * (100 + 50 + 160)
         )
         assembler = ForestAssembler(self.dataset, SHIN_UCHUU_RECORD)
         # ForestIndex, HaloRankInForest, MostBoundID and the five links (int64), the three
@@ -247,7 +260,9 @@ class AssemblyTests(CorrespondenceDataset):
         self.assertEqual(assembler.row_bytes, 8 * 8 + 4 * 5 + 4 * 3 + 12 * 3)
         self.assertEqual(
             assembler.memory_bound(5_000_000),
-            memory_bound(DEFAULT_WINDOW_ROWS, 6, 5_000_000, 132, 88),
+            memory_bound(
+                DEFAULT_WINDOW_ROWS, 6, 5_000_000, 132, record_dtype(SHIN_UCHUU_RECORD).itemsize
+            ),
         )
 
 
@@ -256,8 +271,11 @@ class RefusalTests(CorrespondenceDataset):
         def link_into_another_forest(values):
             values[0] = 4  # 1101's NextProgenitor, from 1102 (row 2) to forest 1's 1201
 
-        def rank_gap(values):
-            values[0] = 9  # 1103, forest 0's rank 7
+        def rank_out_of_range(values):
+            values[0] = 9  # 1103, forest 0's rank 7, past the forest's eight halos
+
+        def rank_repeated(values):
+            values[0] = 6  # 1103's rank 7 repeats 1111's rank 6, so no halo has rank 7
 
         def wrong_companion(values):
             values[0] = 3  # 1300's FirstProgenitorSnapshot: forest 2 has no block at 3
@@ -291,10 +309,15 @@ class RefusalTests(CorrespondenceDataset):
                 r"snapshot 4 \(rows \[0, 4\)\)",
             ),
             (
-                "a rank gap",
-                [(3, "HaloRankInForest", rank_gap)],
-                r"forest 0: rank 9 found at position 7, where rank 7 is expected \(the blocks "
-                r"from the highest snapshot down must give ranks 0\.\.7\)",
+                "a rank out of range",
+                [(3, "HaloRankInForest", rank_out_of_range)],
+                r"forest 0: rank 9 is outside \[0, 8\), the forest's halo count",
+            ),
+            (
+                "a repeated rank",
+                [(3, "HaloRankInForest", rank_repeated)],
+                r"forest 0: rank 6 is held by more than one halo \(the 8 halos' ranks must be "
+                r"0\.\.7 once each\)",
             ),
             (
                 "a wrong companion snapshot",
@@ -317,8 +340,9 @@ class RefusalTests(CorrespondenceDataset):
                 [(4, "ForestIndex", out_of_order)],
                 r"snapshot_004\.h5: ForestIndex is not non-decreasing: row 2 holds 0 after 1",
                 # one-row windows emit forest 0 after the window holding row 1, before the
-                # window with row 2 is read: its ranks (0, 1, 2, 3, then 7) are refused first
-                r"forest 0: rank 7 found at position 4, where rank 4 is expected",
+                # window with row 2 is read: its five halos' ranks (0, 1, 2, 3, then 7) are
+                # refused first
+                r"forest 0: rank 7 is outside \[0, 5\)",
             ),
             (
                 "a companion naming an empty slab",
@@ -379,24 +403,6 @@ class RefusalTests(CorrespondenceDataset):
         ):
             list(assembler.forests(0, 4))
 
-    def test_a_mapped_rank_at_the_wrong_record_fails_the_most_bound_id_check(self):
-        """Between mapping and verification the first mapped link (1101's Descendant, rank 0)
-        is pointed at rank 1: the record there is 1110, not the target row's 1100."""
-        original = assemble._map_links
-
-        def wrong_mapping(*args):
-            source, target, mapped = original(*args)
-            mapped[source[0]] = 1
-            return source, target, mapped
-
-        with mock.patch.object(assemble, "_map_links", wrong_mapping):
-            with self.assertRaisesRegex(
-                ConverterError,
-                r"forest 0, rank 3: Descendant maps to rank 1, whose MostBoundID 1110 is not the "
-                r"target row's 1100",
-            ):
-                self.assembled(0, 4)
-
     def test_ranges_and_windows_are_checked(self):
         for first, stop in ((2, 2), (-1, 2), (0, 5), (True, 2)):
             with self.subTest(first=first, stop=stop):
@@ -441,6 +447,81 @@ class TopologyTests(unittest.TestCase):
         self.assertEqual(self.assembled(WORKED_ASCII, 0, 1), [WORKED_10])
 
 
+class SourceRankConventionTests(unittest.TestCase):
+    """The ``lhalo_binary`` route's committed fixtures: ``HaloRankInForest`` is the source's
+    within-tree row, which the concatenation of the slab blocks from the highest snapshot down
+    does not give in order (``worked_graph``'s forest holds ranks 0, 1, 3, 4, 2 in that
+    order)."""
+
+    FIXTURES = ("worked_graph", "forest_blocks", "wide_slab", "three_snapshot_chain", "adjacent")
+
+    def test_the_worked_graph_ranks_are_not_in_snapshot_order(self):
+        dataset = HorizontalDataset(MM_HORIZONTAL_DATA / "worked_graph")
+        ranks = []
+        for snap in reversed(dataset.snapshots):
+            block = dataset.read_rows(snap, ("HaloRankInForest",), 0, dataset.n_halos[snap])
+            ranks += block["HaloRankInForest"].tolist()
+        self.assertEqual(ranks, [0, 1, 3, 4, 2])
+
+    def test_every_record_is_its_source_row_and_every_link_its_targets_rank(self):
+        """Every record's payload equals the dataset row with the same (forest, rank), and every
+        link names the rank of the row the source link points at, found by the index built here
+        from the dataset's columns alone.
+
+        ``worked_graph`` and ``three_snapshot_chain`` carry links whose companion snapshot is
+        not the owner's neighbour (``Descendant`` from snapshot 0 to snapshot 2, say), so they
+        are mapped through their companion columns, not through owner +- 1; ``adjacent`` has
+        none."""
+        gapped = {}
+        for name in self.FIXTURES:
+            dataset = HorizontalDataset(MM_HORIZONTAL_DATA / name)
+            windows = (
+                (2, DEFAULT_WINDOW_ROWS) if max(dataset.n_halos) < 100 else (DEFAULT_WINDOW_ROWS,)
+            )
+            for window_rows in windows:
+                with self.subTest(fixture=name, window_rows=window_rows):
+                    assembler = ForestAssembler(dataset, MM_HORIZONTAL_RECORD, window_rows)
+                    gapped[name] = self.check_against_the_source_rows(dataset, assembler)
+        self.assertGreater(gapped["worked_graph"], 0)
+        self.assertGreater(gapped["three_snapshot_chain"], 0)
+        self.assertEqual(gapped["adjacent"], 0)
+
+    def check_against_the_source_rows(self, dataset, assembler):
+        columns = {
+            snap: dataset.read_rows(snap, assembler.columns, 0, dataset.n_halos[snap])
+            for snap in dataset.snapshots
+        }
+        row_of = {}
+        for snap, block in columns.items():
+            for row, key in enumerate(zip(block["ForestIndex"], block["HaloRankInForest"])):
+                key = (int(key[0]), int(key[1]))
+                self.assertNotIn(key, row_of)
+                row_of[key] = (snap, row)
+        forests = list(assembler.forests(0, dataset.n_forests_total))
+        self.assertEqual(sum(len(forest.records) for forest in forests), len(row_of))
+        gapped = 0
+        for forest in forests:
+            for rank, record in enumerate(forest.records):
+                snap, row = row_of[(forest.forest, rank)]
+                source = columns[snap]
+                for field in assembler.payload_fields:
+                    self.assertEqual(
+                        record[field].tobytes(), source[field][row].tobytes(), (forest.forest, rank)
+                    )
+                for link in LINK_FIELDS:
+                    target = int(source[link][row])
+                    expected = -1
+                    if target != -1:
+                        companion = LINK_SNAPSHOT_COLUMNS.get(link)
+                        target_snap = int(source[companion][row]) if companion else snap
+                        gapped += abs(target_snap - snap) > 1
+                        target_block = columns[target_snap]
+                        self.assertEqual(int(target_block["ForestIndex"][target]), forest.forest)
+                        expected = int(target_block["HaloRankInForest"][target])
+                    self.assertEqual(int(record[link]), expected, (forest.forest, rank, link))
+        return gapped
+
+
 class ManyForestsTests(unittest.TestCase):
     """A thousand small forests: the per-forest Python work is a bounded number of calls, the
     reads are windows and search probes only, and the window size changes nothing."""
@@ -476,11 +557,12 @@ class ManyForestsTests(unittest.TestCase):
         return calls
 
     def test_the_per_forest_work_is_bounded(self):
-        """Both ranges read the same two windows and the same search probes (every slab fits
-        one window), so the difference in calls is the per-forest cost of the iteration alone
-        (consumed by a zero-length deque): the generator resumptions and the record's
+        """Both ranges read each slab's rows in one window and the search probes of two binary
+        searches per slab, so the difference in calls is the per-forest cost of the iteration
+        alone (consumed by a zero-length deque): the generator resumptions and the record's
         construction, three calls per forest; a bound of five holds that."""
         counts = {}
+        probes_allowed = sum(2 * math.ceil(math.log2(rows + 1)) for rows in self.dataset.n_halos)
         for stop in (250, 1000):
             assembler = ForestAssembler(self.dataset, SHIN_UCHUU_RECORD, 2048)
             with mock.patch.object(
@@ -491,10 +573,53 @@ class ManyForestsTests(unittest.TestCase):
                     collections.deque(assembler.forests(0, stop), maxlen=0)
 
                 counts[stop] = self.calls_during(exhaust)
-                spans = [call.args[3] - call.args[2] for call in reads.call_args_list]
-            self.assertEqual(sum(1 for span in spans if span > 1), 2, stop)
-            self.assertLessEqual(sum(1 for span in spans if span == 1), 2 * 11, stop)
+                names = [call.args[1] for call in reads.call_args_list]
+            self.assertEqual(sum(1 for name in names if name == assembler.columns), 2, stop)
+            self.assertLessEqual(
+                sum(1 for name in names if name == ("ForestIndex",)), probes_allowed
+            )
+            self.assertEqual(
+                len(names),
+                sum(1 for name in names if name in (assembler.columns, ("ForestIndex",))),
+            )
         self.assertLessEqual(counts[1000] - counts[250], 5 * 750)
+
+    def test_no_slab_reads_a_row_past_the_range(self):
+        """Over the range [100, 400) each slab's windows tile exactly its rows of the range:
+        none starts before the range's first row or reads at or past its first row of the
+        stop. Every other read is a one-row probe of ``ForestIndex``."""
+        first, stop = 100, 400
+        bounds = {}
+        for snap in self.dataset.snapshots:
+            forest = self.dataset.read_column(snap, "ForestIndex")
+            bounds[snap] = (
+                int(np.searchsorted(forest, first, "left")),
+                int(np.searchsorted(forest, stop, "left")),
+            )
+        expected = self.consume(1000)[first:stop]
+        for window_rows in (1, 7, 2048):
+            with self.subTest(window_rows=window_rows):
+                assembler = ForestAssembler(self.dataset, SHIN_UCHUU_RECORD, window_rows)
+                with mock.patch.object(
+                    self.dataset, "read_rows", wraps=self.dataset.read_rows
+                ) as reads:
+                    assembled = [rows(forest) for forest in assembler.forests(first, stop)]
+                self.assertEqual(assembled, expected)
+                windows = collections.defaultdict(list)
+                for call in reads.call_args_list:
+                    snap, names, start, end = call.args
+                    if names == ("ForestIndex",):
+                        self.assertEqual(end - start, 1)
+                    else:
+                        self.assertEqual(names, assembler.columns)
+                        windows[snap].append((start, end))
+                for snap, (low, high) in bounds.items():
+                    read = windows.get(snap, [])
+                    self.assertEqual(read[0][0] if read else low, low, snap)
+                    self.assertEqual(read[-1][1] if read else high, high, snap)
+                    self.assertTrue(all(a[1] == b[0] for a, b in zip(read, read[1:])), snap)
+                    self.assertTrue(all(end - start <= window_rows for start, end in read), snap)
+                self.assertTrue(sum(len(read) for read in windows.values()) >= 2)
 
     def test_every_window_size_gives_the_same_forests(self):
         expected = self.consume(1000)

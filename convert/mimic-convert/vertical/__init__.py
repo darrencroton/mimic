@@ -6,7 +6,7 @@ C compiler lays out the generated ``struct RawHalo``; ``plan`` derives every for
 from the dataset's slabs, cuts the output files into contiguous forest ranges and reads and writes
 the ``file_plan.json`` that binds a conversion to its dataset and record; ``assemble`` streams
 a dataset's slabs in bounded windows and yields each forest of a ``ForestIndex`` range as one
-record array in rank order, its links forest-local and verified; ``writer`` writes, verifies and
-renames each planned file, in parallel across files, and records it in the conversion manifest,
-from which a rerun resumes.
+record array in rank order, its links forest-local; ``writer`` writes, verifies and renames each
+planned file, in parallel across files, and records it in the conversion manifest, from which a
+rerun resumes; ``common`` holds the helpers the others share.
 """

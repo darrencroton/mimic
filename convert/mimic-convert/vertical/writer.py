@@ -15,40 +15,71 @@ a check raises :class:`VerificationError` and stays ``.partial``.
 worker count or window, a dataset the open-time checks of
 :class:`horizontal_dataset.HorizontalDataset` refuse, a missing or mismatching
 ``file_plan.json`` (:func:`vertical.plan.read_file_plan`), a record the dataset's columns cannot
-fill, and a manifest written for another conversion. It then derives every forest's halo
-total (:func:`vertical.plan.forest_totals`), requires every planned file's total to agree,
-prints the memory bound per worker and converts the selected files, the largest first, in
-``workers`` processes, at most ``workers`` files submitted at a time. Every forest's assembled
-halo count must equal its total, which is refused otherwise naming the forest. A file that
-fails, by a refusal, a verification failure or any other error, is reported and the run goes
-on, recording every file that completes; when a worker process dies, the files in flight fail,
-no further file is started, and a recorded file that was not moved aside keeps its entry.
+fill, a manifest written for another conversion, and a second ``convert`` in the same output
+directory. It then derives every forest's halo total (:func:`vertical.plan.forest_totals`),
+requires every planned file's total to agree, prints the memory bound per worker and converts
+the selected files, the largest first, in ``workers`` processes, at most ``workers`` files
+submitted at a time. Every forest's assembled halo count must equal its total, which is refused
+otherwise naming the forest. A file that fails, by a refusal, a verification failure or any
+other error, is reported and the run goes on, recording every file that completes; when a
+worker process dies, the files in flight fail, no further file is started and the files never
+started are named.
+
+**Locks.** The parent holds an exclusive, non-blocking ``flock`` on ``<output>/.convert.lock``
+for the run, so a second ``convert`` in the directory is refused naming it. Each file is written
+under an exclusive ``flock`` on ``<name>.<k>.lock``, held by the worker for the whole of
+:func:`convert_file`, so a worker orphaned by a parent that was killed (SIGKILL, out of memory)
+cannot be raced by a rerun: a rerun that cannot take the file's lock refuses that file, naming
+it, and goes on. The worker unlinks ``<name>.<k>.lock``, while still holding it, when it
+completes or skips the file; the lock of a file that failed or was killed stays, and is removed by
+the next run that completes that file. ``.convert.lock`` stays and blocks nothing
+once the run ends; the lock is the kernel's, so a stale file means nothing. On a filesystem that
+cannot lock (``ENOLCK``, ``ENOSYS``, ``EOPNOTSUPP``) the run warns once, naming
+``.convert.lock``, that neither lock is enforced there, and goes on without either.
+
+**Stopping.** While files are being converted, the first SIGINT or SIGTERM sent to the parent
+is a request to stop: no further file is started, the file or files in flight are completed and
+recorded, and the run ends with :data:`EXIT_REFUSED` unless every selected file is complete. The
+second signal terminates the workers at once and waits until none is alive (the files they were
+writing stay ``.partial`` and the next run moves them aside). The workers ignore SIGINT, so a
+terminal's Ctrl-C reaches only the parent. With one worker the file is written in the parent and
+a first signal lets it finish.
 
 **The manifest.** ``manifest.json`` records the dataset identity, the record (the package's
 ``halo_properties.yaml`` path and md5, the layout and its digest), the plan's md5 and caps, the
 ``tree_name``, every invocation (the converter's commit and command line) and, per completed
 file, its number, forest range, forest and halo counts, byte size, SHA-256, wall time, worker
-and invocation. Only the parent process writes it, atomically, after every completed file.
+and invocation. Only the parent process writes it, atomically, after every completed file, and
+others read it only after a run. An entry stays while its file does: an intact recorded file
+never loses its entry, whatever happens to the parent, and a file moved aside for a rebuild has
+no file on disk, so its entry is dropped when the job fails and, if the parent dies first, by
+the next run's sweep.
 
 **Resume.** A rerun with the same inputs skips every selected file whose on-disk SHA-256
 equals its manifest entry's and redoes the rest. A file of a planned name that the manifest
 does not record as complete (a run killed between the rename and the manifest write), and any
 ``.partial``, are moved aside to ``<name>.stale-<timestamp>`` and logged with their sizes, never
-deleted, and the file is rebuilt.
+deleted, and the file is rebuilt. The entries of planned files that are absent from the output
+are dropped at the start.
 """
 
+import contextlib
+import errno
+import fcntl
 import hashlib
 import json
 import multiprocessing
 import os
+import signal
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -57,13 +88,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import HorizontalDataset  # noqa: E402
 from vertical.assemble import DEFAULT_WINDOW_ROWS, ForestAssembler  # noqa: E402
+from vertical.common import (  # noqa: E402
+    fsync_directory,
+    require_positive_int,
+    write_json_atomic,
+)
 from vertical.plan import (  # noqa: E402
     FILE_PLAN_NAME,
     dataset_identity,
     forest_totals,
     read_file_plan,
+    record_binding,
 )
-from vertical.record import record_digest, record_layout  # noqa: E402
+from vertical.record import record_layout  # noqa: E402
 
 #: The manifest's file name inside a conversion's output directory.
 MANIFEST_NAME = "manifest.json"
@@ -71,6 +108,18 @@ MANIFEST_NAME = "manifest.json"
 #: The ``format`` and ``version`` a manifest declares.
 MANIFEST_FORMAT = "mimic-vertical-conversion-manifest"
 MANIFEST_VERSION = 1
+
+#: The lock file a running ``convert`` holds inside its output directory.
+LOCK_NAME = ".convert.lock"
+
+#: The suffix of the lock file beside each file (``<name>.<k>.lock``).
+FILE_LOCK_SUFFIX = ".lock"
+
+#: Tries to lock a file whose lock file keeps being replaced under it.
+FILE_LOCK_ATTEMPTS = 5
+
+#: The ``errno`` values with which a filesystem says it cannot lock at all.
+_UNSUPPORTED_LOCK_ERRNOS = (errno.ENOLCK, errno.ENOSYS, errno.EOPNOTSUPP, errno.ENOTSUP)
 
 #: The suffix of a file being written; it is renamed away only once verified.
 PARTIAL_SUFFIX = ".partial"
@@ -146,12 +195,6 @@ def check_tree_name(tree_name) -> str:
     return tree_name
 
 
-def _require_positive(name: str, value) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or int(value) < 1:
-        raise ConverterError("{} must be a positive integer, got {!r}".format(name, value))
-    return int(value)
-
-
 def parse_file_selection(text: str) -> List[int]:
     """The file numbers of ``a,b-c`` (single numbers and inclusive ranges), ascending and
     distinct.
@@ -220,18 +263,8 @@ class FileJob:
     expected_sha256: Optional[str]
     #: the timestamp of moved-aside names
     stamp: str
-
-
-class _RangeTotals:
-    """The plan's totals of one file's forests, indexed by ``ForestIndex`` as the assembler
-    indexes its expected totals (by slices within the file's range)."""
-
-    def __init__(self, first: int, counts: np.ndarray):
-        self.first = first
-        self.counts = counts
-
-    def __getitem__(self, key: slice) -> np.ndarray:
-        return self.counts[key.start - self.first : key.stop - self.first]
+    #: whether the file is written under its own lock (the directory could be locked)
+    lock_files: bool = True
 
 
 def _blocks(path, block_bytes: int = VERIFY_BLOCK_BYTES) -> Iterator[memoryview]:
@@ -255,20 +288,6 @@ def sha256_file(path, block_bytes: int = VERIFY_BLOCK_BYTES) -> str:
     return digest.hexdigest()
 
 
-def _fsync_directory(path: Path) -> None:
-    """fsync a directory so a rename inside it is durable (POSIX)."""
-    try:
-        descriptor = os.open(str(path), os.O_RDONLY)
-    except OSError:  # pragma: no cover - platforms without directory fds
-        return
-    try:
-        os.fsync(descriptor)
-    except OSError:  # pragma: no cover - some filesystems refuse directory fsync
-        pass
-    finally:
-        os.close(descriptor)
-
-
 def move_aside(path: Path, stamp: str) -> Path:
     """Rename ``path`` to ``<path>.stale-<stamp>`` (with ``.<n>`` added if that name is taken),
     logging both names and the size; nothing is deleted."""
@@ -283,22 +302,24 @@ def move_aside(path: Path, stamp: str) -> Path:
     return target
 
 
-def _reread(path: Path, block_bytes: int = VERIFY_BLOCK_BYTES) -> Iterator[memoryview]:
-    """The bytes of a written file, re-read from disk in blocks into one reused buffer."""
-    return _blocks(path, block_bytes)
-
-
 def _write_partial(job: FileJob, assembler: ForestAssembler, partial: Path) -> str:
     """Write the file's header and every forest's records to ``partial``; returns the SHA-256
     of the bytes written. Each forest's records are written before the next is assembled."""
     counts = np.asarray(job.counts, dtype=np.int64)
-    header = np.concatenate(([counts.size, job.n_halos], counts)).astype(HEADER_DTYPE).tobytes()
+    values = np.concatenate(([counts.size, job.n_halos], counts))
+    largest = int(values.max())
+    if largest > np.iinfo(HEADER_DTYPE).max:
+        raise ConverterError(
+            "{}: the header holds {}, which does not fit {}; the file is not written".format(
+                partial, largest, HEADER_DTYPE
+            )
+        )
+    header = values.astype(HEADER_DTYPE).tobytes()
     digest = hashlib.sha256()
-    expected = _RangeTotals(job.first_forest, counts)
     with open(partial, "xb", buffering=WRITE_BUFFER_BYTES) as handle:
         handle.write(header)
         digest.update(header)
-        for forest in assembler.forests(job.first_forest, job.last_forest + 1, expected):
+        for forest in assembler.forests(job.first_forest, job.last_forest + 1, counts):
             view = forest.records.view(np.uint8)
             handle.write(view)
             digest.update(view)
@@ -321,7 +342,7 @@ def _verify(job: FileJob, partial: Path, final: Path, record_bytes: int, written
     digest = hashlib.sha256()
     header = bytearray()
     size = 0
-    for block in _reread(partial):
+    for block in _blocks(partial):
         if len(header) < head:
             header += block[: head - len(header)]
         digest.update(block)
@@ -367,22 +388,102 @@ def _verify(job: FileJob, partial: Path, final: Path, record_bytes: int, written
     return size
 
 
+class _LockHeld(Exception):
+    """Another open file description holds the lock."""
+
+
+def _lock(handle) -> bool:
+    """Take an exclusive, non-blocking ``flock`` on an open file; ``True`` if taken, ``False``
+    if the filesystem cannot lock.
+
+    Raises:
+        _LockHeld: if another holder has it.
+        OSError: for any other failure of the call.
+    """
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        if error.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+            raise _LockHeld() from error
+        if error.errno in _UNSUPPORTED_LOCK_ERRNOS:
+            return False
+        raise
+    return True
+
+
+@contextlib.contextmanager
+def _file_lock(final: Path, job: FileJob) -> Iterator[None]:
+    """Hold file ``job.number``'s lock (``<name>.<k>.lock``) for the block, when the job asks
+    for it.
+
+    When the block returns normally (the file was completed or skipped) the lock file is
+    unlinked while the lock is still held, so a process that opened the path earlier and locks
+    it afterwards holds a detached inode, which the inode recheck sends to a fresh attempt. A
+    lock file that exists is therefore one some process is still writing the file under or did
+    not finish: if the block raises, the file stays, and the next run that completes the file
+    removes it.
+
+    Raises:
+        ConverterError: if another process holds the lock, naming the file.
+    """
+    if not job.lock_files:
+        yield
+        return
+    path = final.with_name(final.name + FILE_LOCK_SUFFIX)
+    for _ in range(FILE_LOCK_ATTEMPTS):
+        with open(path, "a") as handle:
+            try:
+                locked = _lock(handle)
+            except _LockHeld as error:
+                raise ConverterError(
+                    "file {}: {} is being written by another process ({} is locked); wait for "
+                    "it or kill it".format(job.number, final.name, path.name)
+                ) from error
+            # A lock on a file that was unlinked (and perhaps recreated) after it was opened
+            # excludes nobody: the lock counts only while the path still names this file.
+            if not locked or _same_file(handle, path):
+                yield
+                path.unlink()
+                return
+    raise ConverterError(
+        "file {}: {} keeps being replaced, so it cannot be locked".format(job.number, path.name)
+    )
+
+
+def _same_file(handle, path: Path) -> bool:
+    """Whether ``path`` still names the file ``handle`` has open."""
+    try:
+        named = os.stat(path)
+    except FileNotFoundError:
+        return False
+    opened = os.fstat(handle.fileno())
+    return (named.st_dev, named.st_ino) == (opened.st_dev, opened.st_ino)
+
+
 def convert_file(job: FileJob) -> Dict[str, object]:
     """Write, verify and rename one file; the worker's whole job.
 
-    A leftover ``.partial`` is moved aside first. An existing final file whose SHA-256 equals
-    ``job.expected_sha256`` is kept and the file skipped; any other is moved aside and rebuilt.
+    The file's lock is held throughout (see :func:`_file_lock`). A leftover ``.partial`` is
+    moved aside first. An existing final file whose SHA-256 equals ``job.expected_sha256`` is
+    kept and the file skipped; any other is moved aside and rebuilt.
 
     Returns:
         ``{"number", "skipped"}`` and, for a written file, its manifest ``entry``.
 
     Raises:
-        ConverterError: a refusal of the dataset or of a forest in the file's range.
+        ConverterError: a refusal of the dataset or of a forest in the file's range, or of the
+            file because another process holds its lock.
         VerificationError: a failed check of the written file, which stays ``.partial``.
     """
+    final = Path(job.output) / file_name(job.tree_name, job.number)
+    with _file_lock(final, job):
+        return _convert_locked_file(job, final)
+
+
+def _convert_locked_file(job: FileJob, final: Path) -> Dict[str, object]:
+    """The body of :func:`convert_file`, run under the file's lock."""
     started = time.monotonic()
-    output = Path(job.output)
-    final = output / file_name(job.tree_name, job.number)
+    output = final.parent
     partial = final.with_name(final.name + PARTIAL_SUFFIX)
     if partial.exists() or partial.is_symlink():
         move_aside(partial, job.stamp)
@@ -396,7 +497,7 @@ def convert_file(job: FileJob) -> Dict[str, object]:
     written = _write_partial(job, assembler, partial)
     size = _verify(job, partial, final, int(assembler.dtype.itemsize), written)
     os.rename(str(partial), str(final))
-    _fsync_directory(output)
+    fsync_directory(output)
     entry = {
         "number": job.number,
         "name": final.name,
@@ -413,19 +514,6 @@ def convert_file(job: FileJob) -> Dict[str, object]:
 
 
 # ---- the manifest -----------------------------------------------------------
-
-
-def write_json_atomic(path: Path, document) -> None:
-    """Write ``document`` to ``path`` through a fsynced sibling temporary file and a rename,
-    so a crash leaves the previous file or this one, never a torn one."""
-    tmp = path.with_name(path.name + ".tmp")
-    text = json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(text)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(str(tmp), str(path))
-    _fsync_directory(path.parent)
 
 
 def converter_identity() -> Dict[str, object]:
@@ -452,28 +540,25 @@ def converter_identity() -> Dict[str, object]:
 
 def _manifest_binding(
     dataset: HorizontalDataset,
+    identity: Dict[str, object],
     halo_properties,
     record_dtype: np.dtype,
     plan_path: Path,
     plan: Dict[str, object],
     tree_name: str,
 ) -> Dict[str, object]:
-    """The manifest's description of the conversion it records, before any file."""
-    identity = dataset_identity(dataset)
-    identity["links_adjacent"] = dataset.links_adjacent
-    identity["directory"] = str(dataset.directory)
-    layout = record_layout(record_dtype)
-    record = {"layout": layout, "digest": record_digest(layout)}
-    if isinstance(halo_properties, (str, Path)):
-        record["halo_properties"] = str(halo_properties)
-        record["halo_properties_md5"] = hashlib.md5(Path(halo_properties).read_bytes()).hexdigest()
-    else:
-        record["halo_properties"] = None
-        record["halo_properties_md5"] = None
+    """The manifest's description of the conversion it records, before any file: the dataset's
+    ``identity`` (:func:`vertical.plan.dataset_identity`, computed once by the caller), the
+    record and the plan."""
+    record = {"halo_properties": None, "halo_properties_md5": None}
+    record.update(record_binding(halo_properties))
+    record["layout"] = record_layout(record_dtype)
     return {
         "format": MANIFEST_FORMAT,
         "version": MANIFEST_VERSION,
-        "dataset": identity,
+        "dataset": dict(
+            identity, links_adjacent=dataset.links_adjacent, directory=str(dataset.directory)
+        ),
         "record": record,
         "plan": {
             "md5": hashlib.md5(plan_path.read_bytes()).hexdigest(),
@@ -537,14 +622,6 @@ def _load_manifest(path: Path, binding: Dict[str, object]) -> Dict[str, object]:
     return manifest
 
 
-def _set_entry(manifest: Dict[str, object], entry: Optional[Dict[str, object]], number: int):
-    """Replace (or, with ``entry`` ``None``, drop) file ``number``'s manifest entry."""
-    files = [item for item in manifest["files"] if item["number"] != number]
-    if entry is not None:
-        files.append(entry)
-    manifest["files"] = sorted(files, key=lambda item: item["number"])
-
-
 # ---- the run ----------------------------------------------------------------
 
 
@@ -569,26 +646,72 @@ def _failure(job: FileJob, error: Exception) -> _Failure:
     )
 
 
-def _run_jobs(jobs: Iterator[FileJob], workers: int) -> Iterator[Tuple[FileJob, object]]:
+def _ignore_interrupts() -> None:
+    """Worker process initializer: only the parent decides what an interrupt means (see
+    :func:`_run_jobs`), so SIGINT, which a terminal sends to the whole process group, is
+    ignored here; the parent stops workers with SIGTERM."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+#: Seconds a terminated worker is given to exit before it is killed.
+TERMINATE_JOIN_SECONDS = 30
+
+
+def _terminate_workers(executor) -> None:
+    """Terminate the pool's worker processes and wait until none is alive: ``terminate`` each,
+    ``join`` each for :data:`TERMINATE_JOIN_SECONDS`, and ``kill`` and join any still running.
+    The processes are listed before anything is shut down, because the executor forgets them
+    once it is shut down."""
+    processes = list((getattr(executor, "_processes", None) or {}).values())
+    for process in processes:
+        process.terminate()
+    for process in processes:
+        process.join(TERMINATE_JOIN_SECONDS)
+        if process.is_alive():
+            process.kill()
+            process.join()
+
+
+#: Seconds between looks at the stop request while the parent waits for its workers.
+STOP_POLL_SECONDS = 0.5
+
+
+def _run_jobs(
+    jobs: Iterator[FileJob], workers: int, stop: Callable[[], bool]
+) -> Iterator[Tuple[FileJob, object]]:
     """Run ``convert_file`` over ``jobs``, yielding ``(job, result or _Failure)`` as each
     completes: in this process for one worker, else in ``workers`` spawned processes with at
     most ``workers`` jobs submitted at a time, in ``jobs`` order. Every ``Exception`` of a job
-    is that job's failure; a ``BaseException`` that is not one (``KeyboardInterrupt``)
-    propagates. When a worker process dies, the jobs in flight fail, the death is logged once
-    and no further job is submitted."""
+    is that job's failure. When a worker process dies, the jobs in flight fail, the death is
+    logged once and no further job is submitted.
+
+    Once ``stop()`` is true (the first signal; the parent polls it every
+    :data:`STOP_POLL_SECONDS` while it waits) no further job is submitted, the jobs in flight
+    are completed and yielded, and then ``KeyboardInterrupt`` is raised. A ``KeyboardInterrupt``
+    from outside (the second signal, which may land anywhere) ends the run at once: the
+    generator's cleanup terminates the workers and reaps them.
+    """
     if workers == 1:
-        for job in jobs:
+        while not stop():
+            job = next(jobs, None)
+            if job is None:
+                return
             try:
                 outcome = convert_file(job)
             except Exception as error:
                 outcome = _failure(job, error)
             yield job, outcome
-        return
+        _log("stop requested: no further file is started")
+        raise KeyboardInterrupt
     executor = ProcessPoolExecutor(
-        max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+        max_workers=workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_ignore_interrupts,
     )
     pending = {}
     broken = False
+    exhausted = False
+    stopping = False
 
     def break_pool() -> None:
         nonlocal broken
@@ -601,8 +724,10 @@ def _run_jobs(jobs: Iterator[FileJob], workers: int) -> Iterator[Tuple[FileJob, 
 
     def submit_next() -> Optional[FileJob]:
         """Submit the next job; returns it if the pool refused it (a worker died)."""
+        nonlocal exhausted
         job = next(jobs, None)
         if job is None:
+            exhausted = True
             return None
         try:
             pending[executor.submit(convert_file, job)] = job
@@ -614,14 +739,22 @@ def _run_jobs(jobs: Iterator[FileJob], workers: int) -> Iterator[Tuple[FileJob, 
     def not_started(job: FileJob) -> _Failure:
         return _Failure(False, "file {}: not started: a worker process died".format(job.number))
 
+    drained = False
     try:
-        for _ in range(workers):
-            dropped = submit_next()
-            if dropped is not None:
-                yield dropped, not_started(dropped)
+        while True:
+            if not stopping and stop():
+                stopping = True
+                _log(
+                    "stop requested: no further file is started; waiting for the {} file(s) in "
+                    "flight (signal again to terminate them)".format(len(pending))
+                )
+            while not (exhausted or broken or stop()) and len(pending) < workers:
+                dropped = submit_next()
+                if dropped is not None:
+                    yield dropped, not_started(dropped)
+            if not pending:
                 break
-        while pending:
-            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            done, _ = wait(pending, timeout=STOP_POLL_SECONDS, return_when=FIRST_COMPLETED)
             for future in done:
                 job = pending.pop(future)
                 try:
@@ -634,12 +767,270 @@ def _run_jobs(jobs: Iterator[FileJob], workers: int) -> Iterator[Tuple[FileJob, 
                 except Exception as error:
                     outcome = _failure(job, error)
                 yield job, outcome
-                if not broken:
-                    dropped = submit_next()
-                    if dropped is not None:
-                        yield dropped, not_started(dropped)
+        drained = True
     finally:
+        if not drained:
+            _terminate_workers(executor)
         executor.shutdown(wait=True, cancel_futures=True)
+    if stopping or stop():
+        raise KeyboardInterrupt
+
+
+@contextlib.contextmanager
+def _one_run_lock(output: Path) -> Iterator[bool]:
+    """Hold an exclusive, non-blocking ``flock`` on ``<output>/.convert.lock`` for the block,
+    so one ``convert`` runs per output directory; yields whether locking is enforced.
+
+    On a filesystem that cannot lock, a warning naming the lock file is logged once and the
+    block runs without it, yielding ``False``.
+
+    Raises:
+        ConverterError: naming the lock file, if another process holds it or the lock fails for
+            any other reason.
+    """
+    path = output / LOCK_NAME
+    with open(path, "a") as handle:
+        try:
+            enforced = _lock(handle)
+        except _LockHeld as error:
+            raise ConverterError(
+                "{}: another convert holds this output directory's lock; run one convert "
+                "per output directory at a time".format(path)
+            ) from error
+        except OSError as error:
+            raise ConverterError(
+                "{}: cannot lock the output directory: {}".format(path, error)
+            ) from error
+        if not enforced:
+            _log(
+                "WARNING: {}: the filesystem cannot lock; one convert per output directory and "
+                "one writer per file are not enforced here".format(path)
+            )
+        yield enforced
+
+
+class _StopRequests:
+    """SIGINT and SIGTERM, counted, for the block it guards (a context manager).
+
+    The first signal only sets :meth:`requested`, for the job loop to see; the second raises
+    ``KeyboardInterrupt`` wherever it lands. The previous handlers are restored on exit. Outside
+    the main thread, where Python cannot install a handler, no signal is intercepted.
+    """
+
+    SIGNALS = (signal.SIGINT, signal.SIGTERM)
+
+    def __init__(self) -> None:
+        self.count = 0
+        self._previous: Dict[int, object] = {}
+
+    def requested(self) -> bool:
+        return self.count > 0
+
+    def _handle(self, signum, frame) -> None:
+        self.count += 1
+        if self.count > 1:
+            raise KeyboardInterrupt
+
+    def __enter__(self) -> "_StopRequests":
+        if threading.current_thread() is threading.main_thread():
+            for number in self.SIGNALS:
+                self._previous[number] = signal.signal(number, self._handle)
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        for number, previous in self._previous.items():
+            signal.signal(number, previous if previous is not None else signal.SIG_DFL)
+
+
+class _Ledger:
+    """The manifest as the parent keeps it during a run. Every change is written to disk
+    before ``manifest`` is replaced, so memory never runs ahead of the file, whatever
+    interrupts the write."""
+
+    def __init__(self, manifest: Dict[str, object], output: Path, tree_name: str):
+        self.manifest = manifest
+        self.output = output
+        self.tree_name = tree_name
+        self.path = output / MANIFEST_NAME
+
+    def _commit(self, **changes) -> None:
+        manifest = dict(self.manifest, **changes)
+        write_json_atomic(self.path, manifest)
+        self.manifest = manifest
+
+    def reload(self) -> None:
+        """Read the manifest back from disk, which is never behind memory (a signal can land
+        between a write and the assignment that follows it)."""
+        self.manifest = json.loads(self.path.read_text(encoding="utf-8"))
+
+    def _files_without(self, number: int) -> List[Dict[str, object]]:
+        return [entry for entry in self.manifest["files"] if entry["number"] != number]
+
+    def stands(self, number: int) -> bool:
+        """Whether file ``number`` is in the output."""
+        final = self.output / file_name(self.tree_name, number)
+        return final.exists() or final.is_symlink()
+
+    def recorded_sha256(self) -> Dict[int, str]:
+        """The SHA-256 of every recorded file, by number."""
+        return {entry["number"]: entry["sha256"] for entry in self.manifest["files"]}
+
+    def drop_absent(self, numbers: Sequence[int]) -> None:
+        """Drop the entries of the files among ``numbers`` that are not in the output, saving
+        only if there are any."""
+        absent = {number for number in numbers if not self.stands(number)}
+        files = [entry for entry in self.manifest["files"] if entry["number"] not in absent]
+        if len(files) != len(self.manifest["files"]):
+            self._commit(files=files)
+
+    def start_run(self, run: Dict[str, object]) -> int:
+        """Record an invocation and save; returns its index."""
+        runs = list(self.manifest["runs"]) + [run]
+        self._commit(runs=runs)
+        return len(runs) - 1
+
+    def record(self, number: int, entry: Dict[str, object]) -> None:
+        files = self._files_without(number) + [entry]
+        self._commit(files=sorted(files, key=lambda item: item["number"]))
+
+    def forget(self, number: int) -> None:
+        """Drop file ``number``'s entry, if it has one."""
+        if number in self.recorded_sha256():
+            self._commit(files=self._files_without(number))
+
+
+def _select_files(planned: Sequence[Dict[str, object]], only_files) -> List[int]:
+    """The file numbers to convert: ``only_files`` (distinct, ascending) or every planned file.
+
+    Raises:
+        ConverterError: for a selection that is empty or names a file the plan lacks.
+    """
+    if only_files is None:
+        return [entry["number"] for entry in planned]
+    selected = sorted(set(int(number) for number in only_files))
+    outside = [number for number in selected if not 0 <= number < len(planned)]
+    if not selected or outside:
+        raise ConverterError(
+            "--only-files {}: the plan's files are 0 to {}".format(
+                outside or "selects nothing", len(planned) - 1
+            )
+        )
+    return selected
+
+
+def _check_plan_totals(plan_path: Path, planned: Sequence[Dict[str, object]], totals) -> None:
+    """Every planned file's halo count is the sum of the dataset's totals over its forests.
+
+    Raises:
+        ConverterError: naming the first file whose count differs.
+    """
+    for entry in planned:
+        found = int(totals[entry["first_forest"] : entry["last_forest"] + 1].sum())
+        if found != entry["n_halos"]:
+            raise ConverterError(
+                "{}: file {} plans {} halos; its forests hold {}".format(
+                    plan_path, entry["number"], entry["n_halos"], found
+                )
+            )
+
+
+def _log_memory_bound(
+    assembler: ForestAssembler,
+    bound: Dict[str, int],
+    largest: int,
+    workers: int,
+    totals_bytes: int,
+) -> None:
+    """Print the per-worker memory bound and what it is made of."""
+    _log(
+        "memory bound per worker: {} bytes ({}): the assembler's {} for --window-rows {} over {} "
+        "slabs, {} B per row and {} B per record, with the plan's largest forest of {} halos; "
+        "the {} re-read buffer, the {} write buffer and {} B of header for the plan's most "
+        "forests in a file; {} worker(s): {}; the forest totals held here: {} (8 B per "
+        "forest)".format(
+            bound["total"],
+            _size(bound["total"]),
+            _size(bound["assembler"]),
+            assembler.window_rows,
+            len(assembler.dataset.snapshots),
+            assembler.row_bytes,
+            assembler.dtype.itemsize,
+            largest,
+            _size(bound["reread_block"]),
+            _size(bound["write_buffer"]),
+            bound["header"],
+            workers,
+            _size(workers * bound["total"]),
+            _size(totals_bytes),
+        )
+    )
+
+
+def _jobs(
+    order: Sequence[int],
+    planned: Sequence[Dict[str, object]],
+    totals: np.ndarray,
+    recorded: Dict[int, str],
+    shared: Dict[str, object],
+    submitted: List[int],
+) -> Iterator[FileJob]:
+    """The jobs of the files ``order``, each built and its number appended to ``submitted``
+    only when it is taken for submission. A job carries the manifest's SHA-256 of its file
+    (``recorded``, by number) and counts that are a view of the totals (a worker process
+    receives a copy of that slice alone)."""
+    for number in order:
+        entry = planned[number]
+        submitted.append(number)
+        yield FileJob(
+            number=number,
+            first_forest=entry["first_forest"],
+            last_forest=entry["last_forest"],
+            n_halos=entry["n_halos"],
+            counts=totals[entry["first_forest"] : entry["last_forest"] + 1],
+            expected_sha256=recorded.get(number),
+            **shared,
+        )
+
+
+def _record_outcomes(
+    jobs: Iterator[FileJob],
+    workers: int,
+    ledger: _Ledger,
+    run_index: int,
+    stop: Callable[[], bool],
+) -> Tuple[List[Tuple[int, str]], List[Tuple[int, str]], bool]:
+    """Run ``jobs`` and record each file as it completes; returns the refusals, the
+    verification failures (each ``(file number, message)``) and whether a stop was requested
+    or forced. A file that fails and is no longer in the output (it was moved aside for a
+    rebuild) loses its entry; every other entry stays."""
+    refused = []
+    unverified = []
+    interrupted = False
+    try:
+        for job, outcome in _run_jobs(jobs, workers, stop):
+            if isinstance(outcome, _Failure):
+                (unverified if outcome.verification else refused).append(
+                    (job.number, outcome.message)
+                )
+                _log("FAILED file {}: {}".format(job.number, outcome.message))
+                if not ledger.stands(job.number):
+                    ledger.forget(job.number)
+            elif not outcome["skipped"]:
+                entry = dict(outcome["entry"], run=run_index)
+                ledger.record(job.number, entry)
+                _log(
+                    "file {}: {} forests, {} halos, {} bytes in {:.1f} s (worker {})".format(
+                        job.number,
+                        entry["n_forests"],
+                        entry["n_halos"],
+                        entry["bytes"],
+                        entry["wall_seconds"],
+                        entry["worker"],
+                    )
+                )
+    except KeyboardInterrupt:
+        interrupted = True
+    return refused, unverified, interrupted
 
 
 def convert(
@@ -653,6 +1044,10 @@ def convert(
     command_line: Sequence[str] = (),
 ) -> int:
     """Convert the planned files of ``output`` (or the selected ones) and record them.
+
+    The parent holds ``<output>/.convert.lock`` for the run, and while files are converted the
+    first SIGINT or SIGTERM is a request to stop and the second terminates the workers (see the
+    module docstring).
 
     Args:
         dataset_dir: the version 3 dataset directory.
@@ -668,159 +1063,94 @@ def convert(
     Returns:
         :data:`EXIT_OK` when every selected file is complete, :data:`EXIT_VERIFICATION` when a
         file failed its verification and none was refused, :data:`EXIT_REFUSED` when a file
-        was refused. Every file that completes is recorded either way.
+        was refused, a worker died or an interrupted run left a file incomplete. Every file that
+        completes is recorded either way.
 
     Raises:
-        ConverterError: a refusal before any file is attempted.
+        ConverterError: a refusal before any file is attempted, including another ``convert``
+            holding the output directory's lock.
     """
     check_tree_name(tree_name)
-    workers = _require_positive("workers", workers)
-    window_rows = _require_positive("window_rows", window_rows)
+    workers = require_positive_int("workers", workers)
+    window_rows = require_positive_int("window_rows", window_rows)
     output = Path(output)
     dataset = HorizontalDataset(dataset_dir)
-    plan = read_file_plan(output, dataset, halo_properties)
+    identity = dataset_identity(dataset)
+    plan = read_file_plan(output, dataset, halo_properties, identity)
     planned = plan["files"]
-    if only_files is None:
-        selected = [entry["number"] for entry in planned]
-    else:
-        selected = sorted(set(int(number) for number in only_files))
-        outside = [number for number in selected if not 0 <= number < len(planned)]
-        if not selected or outside:
-            raise ConverterError(
-                "--only-files {}: the plan's files are 0 to {}".format(
-                    outside or "selects nothing", len(planned) - 1
-                )
-            )
+    selected = _select_files(planned, only_files)
     assembler = ForestAssembler(dataset, halo_properties, window_rows)
-    manifest_path = output / MANIFEST_NAME
-    binding = _manifest_binding(
-        dataset, halo_properties, assembler.dtype, output / FILE_PLAN_NAME, plan, tree_name
-    )
-    manifest = _load_manifest(manifest_path, binding)
+    plan_path = output / FILE_PLAN_NAME
+    with _one_run_lock(output) as lock_files:
+        binding = _manifest_binding(
+            dataset, identity, halo_properties, assembler.dtype, plan_path, plan, tree_name
+        )
+        ledger = _Ledger(_load_manifest(output / MANIFEST_NAME, binding), output, tree_name)
 
-    _log("deriving every forest's halo total from {}".format(dataset.directory))
-    totals = forest_totals(dataset)
-    for entry in planned:
-        found = int(totals[entry["first_forest"] : entry["last_forest"] + 1].sum())
-        if found != entry["n_halos"]:
-            raise ConverterError(
-                "{}: file {} plans {} halos; its forests hold {}".format(
-                    output / FILE_PLAN_NAME, entry["number"], entry["n_halos"], found
-                )
+        _log("deriving every forest's halo total from {}".format(dataset.directory))
+        totals = forest_totals(dataset)
+        _check_plan_totals(plan_path, planned, totals)
+        largest = int(totals.max()) if totals.size else 0
+        bound = worker_memory_bound(
+            assembler, largest, max((entry["n_forests"] for entry in planned), default=0)
+        )
+        _log_memory_bound(assembler, bound, largest, workers, totals.nbytes)
+
+        ledger.drop_absent([entry["number"] for entry in planned])
+        run_index = ledger.start_run(
+            dict(
+                converter_identity(),
+                command_line=list(command_line),
+                started_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                workers=workers,
+                window_rows=window_rows,
             )
-    largest = int(totals.max()) if totals.size else 0
-    bound = worker_memory_bound(
-        assembler, largest, max((entry["n_forests"] for entry in planned), default=0)
-    )
-    _log(
-        "memory bound per worker: {} bytes ({}): the assembler's {} for --window-rows {} over {} "
-        "slabs, {} B per row and {} B per record, with the plan's largest forest of {} halos; "
-        "the {} re-read buffer, the {} write buffer and {} B of header for the plan's most "
-        "forests in a file; {} worker(s): {}; the forest totals held here: {} (8 B per "
-        "forest)".format(
-            bound["total"],
-            _size(bound["total"]),
-            _size(bound["assembler"]),
-            window_rows,
-            len(dataset.snapshots),
-            assembler.row_bytes,
-            assembler.dtype.itemsize,
-            largest,
-            _size(bound["reread_block"]),
-            _size(bound["write_buffer"]),
-            bound["header"],
-            workers,
-            _size(workers * bound["total"]),
-            _size(totals.nbytes),
         )
-    )
-
-    for number in selected:
-        name = file_name(tree_name, number)
-        if not (output / name).exists():
-            _set_entry(manifest, None, number)
-    manifest["runs"].append(
-        dict(
-            converter_identity(),
-            command_line=list(command_line),
-            started_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            workers=workers,
-            window_rows=window_rows,
-        )
-    )
-    run_index = len(manifest["runs"]) - 1
-    write_json_atomic(manifest_path, manifest)
-
-    recorded = {entry["number"]: entry["sha256"] for entry in manifest["files"]}
-    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    properties = (
-        str(halo_properties)
-        if isinstance(halo_properties, (str, Path))
-        else tuple(dict(entry) for entry in halo_properties)
-    )
-    order = sorted(selected, key=lambda number: (-planned[number]["n_halos"], number))
-
-    def job_of(number: int) -> FileJob:
-        """File ``number``'s job, built when it is submitted; its counts are a view of the
-        totals (a worker process receives a copy of that slice alone)."""
-        entry = planned[number]
-        return FileJob(
+        shared = dict(
             dataset=str(dataset.directory),
-            halo_properties=properties,
+            halo_properties=(
+                str(halo_properties)
+                if isinstance(halo_properties, (str, Path))
+                else tuple(dict(entry) for entry in halo_properties)
+            ),
             window_rows=window_rows,
             output=str(output),
             tree_name=tree_name,
-            number=number,
-            first_forest=entry["first_forest"],
-            last_forest=entry["last_forest"],
-            n_halos=entry["n_halos"],
-            counts=totals[entry["first_forest"] : entry["last_forest"] + 1],
-            expected_sha256=recorded.get(number),
-            stamp=stamp,
+            stamp=time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
+            lock_files=lock_files,
         )
-
-    _log(
-        "converting {} file(s) of {} into {} with {} worker(s), the largest first".format(
-            len(order), len(planned), output, workers
-        )
-    )
-
-    refused = []
-    unverified = []
-    for job, outcome in _run_jobs((job_of(number) for number in order), workers):
-        if isinstance(outcome, _Failure):
-            (unverified if outcome.verification else refused).append((job.number, outcome.message))
-            _log("FAILED file {}: {}".format(job.number, outcome.message))
-            # The entry goes only with its file: a job that failed before it moved its file
-            # aside (a worker death, say) leaves the rerun's SHA-256 check to decide.
-            final = output / file_name(tree_name, job.number)
-            if job.number in recorded and not (final.exists() or final.is_symlink()):
-                _set_entry(manifest, None, job.number)
-                write_json_atomic(manifest_path, manifest)
-            continue
-        if outcome["skipped"]:
-            continue
-        entry = dict(outcome["entry"], run=run_index)
-        _set_entry(manifest, entry, job.number)
-        write_json_atomic(manifest_path, manifest)
+        order = sorted(selected, key=lambda number: (-planned[number]["n_halos"], number))
         _log(
-            "file {}: {} forests, {} halos, {} bytes in {:.1f} s (worker {})".format(
-                job.number,
-                entry["n_forests"],
-                entry["n_halos"],
-                entry["bytes"],
-                entry["wall_seconds"],
-                entry["worker"],
+            "converting {} file(s) of {} into {} with {} worker(s), the largest first".format(
+                len(order), len(planned), output, workers
             )
         )
+        submitted: List[int] = []
+        with _StopRequests() as stops:
+            refused, unverified, interrupted = _record_outcomes(
+                _jobs(order, planned, totals, ledger.recorded_sha256(), shared, submitted),
+                workers,
+                ledger,
+                run_index,
+                stops.requested,
+            )
+        # A forced stop can leave the entry of a file that was moved aside for a rebuild, and
+        # memory one write behind the disk.
+        ledger.reload()
+        ledger.drop_absent([entry["number"] for entry in planned])
 
     wanted = set(selected)
-    complete = sum(1 for entry in manifest["files"] if entry["number"] in wanted)
+    complete = sum(1 for entry in ledger.manifest["files"] if entry["number"] in wanted)
     _log("{} of {} selected file(s) complete".format(complete, len(selected)))
     for number, message in refused + unverified:
         _log("  file {} failed: {}".format(number, message))
+    never = sorted(wanted.difference(submitted))
+    if never:
+        _log("{} file(s) never started: {}".format(len(never), ", ".join(map(str, never))))
+    if interrupted and complete < len(selected):
+        _log("interrupted: the run is incomplete")
     # Exit 0 means every selected file is complete, whatever stopped the others.
-    if refused or (complete < len(selected) and not unverified):
+    if refused or (complete < len(selected) and (interrupted or not unverified)):
         return EXIT_REFUSED
     if unverified:
         return EXIT_VERIFICATION
