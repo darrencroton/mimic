@@ -58,6 +58,14 @@ stage 1 checks its presence and its snapshot list, stage 2 its provenance,
 stage 3 the horizontal run file's ``dataset_variant``, and each leg runs that
 variant and checks that the horizontal run read the named dataset.
 
+A package naming a vertical dataset of its own (``GatePackage.vertical_dataset``,
+an L-Halo conversion of the horizontal dataset) has it used in the same way on the
+vertical side: stage 1 checks that it holds the files of the pinned range and its
+conversion manifest, stage 2 proves the inventory from that manifest, stage 3
+diffs each horizontal run file against the **committed** vertical one and checks
+the vertical run file's ``vertical_dataset_variant`` separately, and each leg runs
+that variant and checks that the vertical run read the named dataset.
+
 Worktrees and scratch outputs are removed on every exit path, including an
 interrupt; an interrupt first records a FAIL marker for the stage in flight.
 """
@@ -65,6 +73,7 @@ interrupt; an interrupt first records a FAIL marker for the stage in flight.
 from __future__ import annotations
 
 import atexit
+import hashlib
 import json
 import os
 import re
@@ -139,6 +148,19 @@ DATASET_OVERRIDE_KEYS = ("input.simulation_dir", "input.snapshot_list_file")
 #: The only functional keys the vertical range override may change.
 RANGE_KEYS = ("input.first_file", "input.last_file")
 
+#: The keys the vertical run file gains when the gate names a vertical dataset
+#: other than the package's own (``GatePackage.vertical_dataset``), and only then.
+VERTICAL_DATASET_KEYS = ("input.simulation_dir", *RANGE_KEYS)
+
+#: The conversion manifest an L-Halo conversion of a horizontal dataset carries
+#: beside its files (convert/mimic-convert/vertical/writer.py MANIFEST_NAME,
+#: MANIFEST_FORMAT and MANIFEST_VERSION).
+VERTICAL_MANIFEST = "manifest.json"
+VERTICAL_MANIFEST_FORMAT = ("mimic-vertical-conversion-manifest", 1)
+
+#: Rows of ``forests.h5`` ``ForestID`` hashed at a time (8 MiB as int64).
+FOREST_ID_BLOCK_ROWS = 1 << 20
+
 #: The committed comparator; pinned to HEAD.
 COMPARATOR_RELATIVE = Path("scripts") / "compare_cross_format_identity.py"
 COMPARATOR_SCRIPT = REPO_ROOT / COMPARATOR_RELATIVE
@@ -178,7 +200,11 @@ class GatePackage:
             runs a scratch copy overriding exactly the two range keys.
         format_version: The horizontal dataset's ``header/format_version``.
         source_format: The vertical package's ``input.tree_type``, also the
-            expected header ``source_format``.
+            expected header ``source_format`` unless ``header_source_format``
+            names another.
+        header_source_format: The expected header ``source_format`` when it is
+            not the vertical package's tree type, as for a vertical dataset
+            converted from the horizontal one; None means ``source_format``.
         column_mapping_sha256: The pinned conversion digest, the expected header
             ``column_mapping_sha256``.
         links_adjacent, halos, forests, gapped_descendants, max_descendant_span:
@@ -203,6 +229,13 @@ class GatePackage:
             (DATASET_OVERRIDE_KEYS), and records its package's declared file
             range rather than ``file_range``, since it reads the files the
             snapshot list names.
+        vertical_dataset: (directory, first_file, last_file) of a vertical
+            dataset converted from the horizontal one, to gate in place of the
+            vertical package's own ``snapshots``; ``file_range`` must be this
+            range. The vertical side then runs ``vertical_dataset_variant`` of
+            its committed run file, which sets VERTICAL_DATASET_KEYS to exactly
+            these values, and the inventory is proved from the directory's
+            conversion manifest (VERTICAL_MANIFEST), so ``manifest`` must be None.
     """
 
     vertical: str
@@ -226,6 +259,8 @@ class GatePackage:
     require_halos_only_before_sage16: bool = False
     manifest: Path | None = None
     horizontal_dataset: tuple[Path, Path] | None = None
+    vertical_dataset: tuple[Path, int, int] | None = None
+    header_source_format: str | None = None
     build_timeout_s: int = 3600
     run_timeout_s: int = 8 * 3600
     compare_timeout_s: int = 2 * 3600
@@ -247,6 +282,12 @@ class GatePackage:
         if self.horizontal_dataset is not None:
             return Path(self.horizontal_dataset[1])
         return package_path(self.horizontal, self.alist)
+
+    def vertical_snapshots(self) -> Path:
+        """The vertical dataset directory: the override's, else the package's ``snapshots``."""
+        if self.vertical_dataset is not None:
+            return Path(self.vertical_dataset[0])
+        return package_path(self.vertical, "snapshots")
 
 
 # --------------------------------------------------------------------------
@@ -526,6 +567,8 @@ def dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path, Path]) -
 
     The section is appended, so the file must not have one of its own; the
     result is verified to be the given file plus exactly DATASET_OVERRIDE_KEYS.
+    Paths are written as double-quoted YAML scalars (a JSON string is one), so a
+    name holding ``#`` or ``: `` reaches the run file intact.
     """
     text = run_file.read_text()
     if "input" in (yaml.safe_load(text) or {}):
@@ -537,7 +580,9 @@ def dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path, Path]) -
     variant.write_text(
         text
         + ("" if text.endswith("\n") else "\n")
-        + f"input:\n  simulation_dir: {directory}\n  snapshot_list_file: {snapshot_list}\n"
+        + "input:\n"
+        + f"  simulation_dir: {json.dumps(str(directory), ensure_ascii=False)}\n"
+        + f"  snapshot_list_file: {json.dumps(str(snapshot_list), ensure_ascii=False)}\n"
     )
     base = flatten_keys(yaml.safe_load(text) or {})
     written = flatten_keys(yaml.safe_load(variant.read_text()) or {})
@@ -546,6 +591,39 @@ def dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path, Path]) -
         key: str(value) for key, value in zip(DATASET_OVERRIDE_KEYS, dataset)
     }:
         raise AssertionError(f"{variant} is not {run_file} plus exactly {DATASET_OVERRIDE_KEYS}")
+    return variant
+
+
+def vertical_dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path, int, int]) -> Path:
+    """Write ``run_file`` with an input section reading ``dataset`` (directory, first, last).
+
+    The vertical counterpart of ``dataset_variant``: the section is appended, so
+    the file must not have one of its own, and the result is verified to be the
+    given file plus exactly VERTICAL_DATASET_KEYS set to those values. The
+    directory is written as a double-quoted YAML scalar, as ``dataset_variant``
+    writes its paths.
+    """
+    text = run_file.read_text()
+    if "input" in (yaml.safe_load(text) or {}):
+        raise AssertionError(
+            f"{run_file} has an input section of its own; the vertical dataset variant opens one"
+        )
+    directory, first, last = dataset
+    variant = scratch / f"{run_file.stem}_dataset.yaml"
+    variant.write_text(
+        text
+        + ("" if text.endswith("\n") else "\n")
+        + "input:\n"
+        + f"  simulation_dir: {json.dumps(str(directory), ensure_ascii=False)}\n"
+        + f"  first_file: {first}\n  last_file: {last}\n"
+    )
+    base = flatten_keys(yaml.safe_load(text) or {})
+    written = flatten_keys(yaml.safe_load(variant.read_text()) or {})
+    added = {key: written[key] for key in set(written) - set(base)}
+    if {k: v for k, v in written.items() if k in base} != base or added != dict(
+        zip(VERTICAL_DATASET_KEYS, (str(directory), int(first), int(last)))
+    ):
+        raise AssertionError(f"{variant} is not {run_file} plus exactly {VERTICAL_DATASET_KEYS}")
     return variant
 
 
@@ -1104,7 +1182,10 @@ class ParityGate:
         return REPO_ROOT / "models" / model / "input" / f"{model}_{simulation}.yaml"
 
     def effective_vertical_run_file(self, run_file: Path, scratch: Path) -> Path:
-        """The vertical run file the gate executes: committed, or its range override."""
+        """The vertical run file the gate executes: committed, its range override, or its
+        vertical dataset variant when the package names a vertical dataset."""
+        if self.package.vertical_dataset is not None:
+            return vertical_dataset_variant(run_file, scratch, self.package.vertical_dataset)
         if self.package.override_vertical_range:
             return range_override_variant(run_file, scratch, self.package.file_range)
         return run_file
@@ -1135,6 +1216,13 @@ class ParityGate:
         first, last = pkg.file_range
         if last < first:
             raise AssertionError(f"file_range {pkg.file_range}: last_file is before first_file")
+        if pkg.vertical_dataset is not None:
+            held = tuple(int(value) for value in pkg.vertical_dataset[1:])
+            if tuple(pkg.file_range) != held:
+                raise AssertionError(
+                    f"file_range {pkg.file_range} is not the range {held} the named vertical "
+                    f"dataset {pkg.vertical_dataset[0]} holds"
+                )
         committed_ranges = {}
         for model in pkg.models:
             run_file = self.committed_run_file(model, pkg.vertical)
@@ -1175,21 +1263,39 @@ class ParityGate:
         """Both datasets resolve, with named paths on failure; HEAD is captured once."""
         pkg = self.package
         banner(f"Stage 1: preconditions ({pkg.horizontal}; {pkg.evidence})")
+        if pkg.vertical_dataset is not None and pkg.manifest is not None:
+            raise AssertionError(
+                f"the package pins both a conversion manifest ({pkg.manifest}) and a vertical "
+                f"dataset ({pkg.vertical_dataset[0]}): the first proves the inventory of a "
+                f"conversion from the vertical side, the second of one from the horizontal side"
+            )
 
         inventory = self.read_vertical_inventory()
-        vertical_data = assert_dataset_present(pkg.vertical, inventory["files"])
+        if pkg.vertical_dataset is None:
+            vertical_data = assert_dataset_present(pkg.vertical, inventory["files"])
+            named = ""
+        else:
+            vertical_data = assert_dataset_present(
+                pkg.vertical, (*inventory["files"], VERTICAL_MANIFEST), pkg.vertical_snapshots()
+            )
+            named = f"the named dataset (with its {VERTICAL_MANIFEST}) "
         log(
-            f"  {pkg.vertical}: {vertical_data} -> {vertical_data.resolve()} "
+            f"  {pkg.vertical}: {named}{vertical_data} -> {vertical_data.resolve()} "
             f"({len(inventory['files'])} source file(s): {', '.join(inventory['files'])})"
         )
         committed = ", ".join(
             f"{model} {first}-{last}"
             for model, (first, last) in inventory["committed_ranges"].items()
         )
+        if pkg.vertical_dataset is not None:
+            how = ", set with the named dataset in a scratch copy"
+        elif pkg.override_vertical_range:
+            how = ", overridden in a scratch copy"
+        else:
+            how = ""
         log(
             f"  file range: {pkg.file_range[0]}-{pkg.file_range[1]} on both sides (committed "
-            f"vertical run file range {committed}"
-            f"{', overridden in a scratch copy' if pkg.override_vertical_range else ''})"
+            f"vertical run file range {committed}{how})"
         )
 
         required = self.expected_snapshot_files()
@@ -1241,6 +1347,9 @@ class ParityGate:
                 f"exactly the {len(expected_names)} the a_list names"
             )
 
+        header_format = (
+            pkg.source_format if pkg.header_source_format is None else pkg.header_source_format
+        )
         halos = gapped = max_span = populated = 0
         forests_total = set()
         for name in names:
@@ -1252,7 +1361,7 @@ class ParityGate:
                     "format_version": (int(header["format_version"]), pkg.format_version),
                     "links_adjacent": (int(header["links_adjacent"]), pkg.links_adjacent),
                     "snapshot_number": (int(header["snapshot_number"]), snapshot),
-                    "source_format": (decoded(header["source_format"]), pkg.source_format),
+                    "source_format": (decoded(header["source_format"]), header_format),
                     "column_mapping_sha256": (
                         decoded(header["column_mapping_sha256"]),
                         pkg.column_mapping_sha256,
@@ -1281,7 +1390,7 @@ class ParityGate:
 
         log(
             f"  {len(names)} version {pkg.format_version} files ({populated} populated) "
-            f"from {pkg.source_format}, column_mapping_sha256 {pkg.column_mapping_sha256}, "
+            f"from {header_format}, column_mapping_sha256 {pkg.column_mapping_sha256}, "
             f"links_adjacent {pkg.links_adjacent}"
         )
         if len(forests_total) != 1:
@@ -1305,6 +1414,14 @@ class ParityGate:
             raise AssertionError(
                 f"{directory / FORESTS_FILE}: {rows.size} forests, expected {pkg.forests}"
             )
+
+        if pkg.vertical_dataset is not None:
+            # The ordinals name the files the horizontal dataset was converted
+            # from, not the vertical files converted from it: the vertical
+            # dataset's own manifest proves what those hold.
+            self._prove_inventory_from_manifest(directory, forests, halos)
+            self.done.add("dataset")
+            return
 
         if pkg.manifest is not None:
             if pkg.source_format != "consistent_trees_ascii":
@@ -1334,6 +1451,98 @@ class ParityGate:
         )
         self.done.add("dataset")
 
+    def _prove_inventory_from_manifest(self, directory: Path, forests: int, halos: int) -> None:
+        """Prove the vertical side reads exactly the files converted from this dataset.
+
+        The vertical dataset's ``manifest.json`` must record the conversion of exactly
+        this horizontal dataset (the SHA-256 of its ``forests.h5`` ForestID column, its
+        column mapping, forest total and halo total) into exactly the files the vertical
+        side reads, tiling forests 0..n-1 in ForestIndex order. Anything else is an
+        AssertionError naming the manifest.
+
+        Args:
+            directory: The horizontal dataset's snapshot directory, holding ``forests.h5``.
+            forests: The forest total the dataset's snapshot headers agree on.
+            halos: The halo total summed over the dataset's snapshot files.
+        """
+        pkg = self.package
+        inventory = self.vertical_inventory
+        manifest = pkg.vertical_snapshots() / VERTICAL_MANIFEST
+        identity = ("forest_id_sha256", "column_mapping_sha256", "n_forests_total")
+        try:
+            document = json.loads(manifest.read_text())
+            found_format = (document["format"], document["version"])
+            recorded = {name: document["dataset"][name] for name in (*identity, "total_halos")}
+            entries = [
+                (
+                    str(entry["name"]),
+                    int(entry["first_forest"]),
+                    int(entry["last_forest"]),
+                    int(entry["n_halos"]),
+                )
+                for entry in document["files"]
+            ]
+            planned_files = int(document["plan"]["n_files"])
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise AssertionError(
+                f"{manifest}: not a readable vertical conversion manifest ({error})"
+            ) from None
+        if found_format != VERTICAL_MANIFEST_FORMAT:
+            raise AssertionError(
+                f"{manifest}: format {found_format}, expected {VERTICAL_MANIFEST_FORMAT}"
+            )
+
+        digest = hashlib.sha256()
+        with h5py.File(directory / FORESTS_FILE, "r") as handle:
+            column = handle[FOREST_ID]
+            for start in range(0, int(column.shape[0]), FOREST_ID_BLOCK_ROWS):
+                block = column[start : start + FOREST_ID_BLOCK_ROWS]
+                digest.update(numpy.ascontiguousarray(block, dtype="<i8").tobytes())
+        horizontal_identity = {
+            "forest_id_sha256": digest.hexdigest(),
+            "column_mapping_sha256": pkg.column_mapping_sha256,
+            "n_forests_total": forests,
+            "total_halos": halos,
+        }
+        differing = [
+            name for name in horizontal_identity if recorded[name] != horizontal_identity[name]
+        ]
+        if differing:
+            raise AssertionError(
+                f"{manifest}: records the conversion of another dataset: "
+                + "; ".join(
+                    f"{name} {recorded[name]!r}, the horizontal dataset's is "
+                    f"{horizontal_identity[name]!r}"
+                    for name in differing
+                )
+            )
+
+        names = [entry[0] for entry in entries]
+        if names != inventory["files"] or len(entries) != planned_files:
+            raise AssertionError(
+                f"{manifest}: records {len(names)} complete file(s) of a {planned_files}-file "
+                f"plan ({', '.join(names[:3])}{', ...' if len(names) > 3 else ''}); the "
+                f"vertical side reads exactly {len(inventory['files'])}, "
+                f"{inventory['files'][0]}..{inventory['files'][-1]}"
+            )
+        starts = [entry[1] for entry in entries]
+        stops = [entry[2] + 1 for entry in entries]
+        if (
+            starts != [0, *stops[:-1]]
+            or stops[-1] != forests
+            or sum(entry[3] for entry in entries) != halos
+        ):
+            raise AssertionError(
+                f"{manifest}: its files' forest ranges and halo counts do not hold the "
+                f"dataset's {forests} forests and {halos} halos in ForestIndex order"
+            )
+        log(
+            f"  conversion inventory from {manifest}: the conversion of this dataset "
+            f"({', '.join(horizontal_identity)} equal), into exactly the vertical side's "
+            f"{len(names)} files {names[0]}..{names[-1]}, holding forests 0..{forests - 1} "
+            f"in order"
+        )
+
     # ---- stage 3 ---------------------------------------------------------
 
     def stage_run_files(self) -> None:
@@ -1357,25 +1566,37 @@ class ParityGate:
             effective = self.effective_vertical_run_file(
                 vertical_path, self.scratch_dir("run-files", "check", model)
             )
-            if effective != vertical_path:
+            # The horizontal file is diffed against the vertical file the
+            # vertical side runs, except that a named vertical dataset's keys
+            # are the vertical side's alone: its variant is verified as the
+            # committed file plus exactly those keys, and the horizontal file
+            # is diffed against the committed one.
+            base, what = effective, "the effective vertical run file"
+            if pkg.vertical_dataset is not None:
+                base, what = vertical_path, f"the committed {vertical_path.name}"
+                log(
+                    f"  {model}: vertical side runs {effective.name} = {vertical_path.name} "
+                    f"plus exactly {list(VERTICAL_DATASET_KEYS)} set to {pkg.vertical_dataset}"
+                )
+            elif effective != vertical_path:
                 log(
                     f"  {model}: vertical side runs {effective.name} = {vertical_path.name} "
                     f"with only {list(RANGE_KEYS)} set to {pkg.file_range}"
                 )
-            assert_horizontal_run_file_diff(effective, horizontal_path, pkg.horizontal)
+            assert_horizontal_run_file_diff(base, horizontal_path, pkg.horizontal)
             log(
-                f"  {model}: {horizontal_path.name} differs from the effective vertical run "
-                f"file in exactly {list(AUTHORIZED_KEY_CHANGES)}"
+                f"  {model}: {horizontal_path.name} differs from {what} in exactly "
+                f"{list(AUTHORIZED_KEY_CHANGES)}"
             )
             if pkg.horizontal_dataset is not None:
                 scratch = self.scratch_dir("run-files", "check", model)
                 variant = dataset_variant(horizontal_path, scratch, pkg.horizontal_dataset)
                 assert_horizontal_run_file_diff(
-                    effective, variant, pkg.horizontal, pkg.horizontal_dataset
+                    base, variant, pkg.horizontal, pkg.horizontal_dataset
                 )
                 log(
-                    f"  {model}: its dataset variant differs from the effective vertical run "
-                    f"file in exactly {[*AUTHORIZED_KEY_CHANGES, *DATASET_OVERRIDE_KEYS]}"
+                    f"  {model}: its dataset variant differs from {what} in exactly "
+                    f"{[*AUTHORIZED_KEY_CHANGES, *DATASET_OVERRIDE_KEYS]}"
                 )
         self.done.add("run-files")
 
@@ -1548,7 +1769,7 @@ class ParityGate:
                 f"LastFile) {recorded}, the package pins {expected}"
             )
         directory = vertical_run.worktree / strings.get("SimulationDir", "")
-        main_directory = package_path(pkg.vertical, "snapshots")
+        main_directory = pkg.vertical_snapshots()
         if directory.resolve() != main_directory.resolve():
             raise AssertionError(
                 f"{vertical_run.master}: the vertical run read {directory} "

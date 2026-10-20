@@ -1,0 +1,40 @@
+# Shin-Uchuu Simulation Metadata — L-Halo binary format (cut dataset)
+#
+# `snapshots/` is a symlink to your local copy of the cut Shin-Uchuu merger trees
+# in L-Halo binary files, `shin-uchuu-cut.0` onwards, written from the horizontal
+# HDF5 version 3 dataset of simulations/shin-uchuu/ by
+# convert/mimic-convert/write_vertical_trees.py (see README.md). Each file is an
+# L-Halo header followed by its forests' records in the layout halo_properties.yaml
+# declares. The per-file reader opens shin-uchuu-cut.<n> for every n in
+# first_file..last_file.
+
+input:
+  first_file: 0
+  # The last file of the dataset `snapshots/` points at: the last file number in
+  # that conversion's file_plan.json. Every file of the range must be present, or
+  # the forests that follow a missing file take other UniqueGalaxyIDs.
+  last_file: 360
+  tree_name: shin-uchuu-cut
+  tree_type: lhalo_binary
+  simulation_dir: simulations/shin-uchuu-lhalo/snapshots
+  snapshot_list_file: simulations/shin-uchuu-lhalo/shin-uchuu.a_list
+
+simulation:
+  # Must match simulations/shin-uchuu/ and simulations/shin-uchuu-ascii/ exactly,
+  # or UniqueGalaxyID diverges between the packages. The full catalog's
+  # max_halo_rank_in_forest is 12,646,607,900, which 2e10 satisfies.
+  unique_galaxy_id_multiplier: 20000000000
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 140.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    # 8.97e5 Msun/h in the reference basis unit (1e10 Msun/h). Confirmed for
+    # Shin-Uchuu specifically; keep in sync with the sibling packages.
+    value: 0.0000897
+    units: 1e10 Msun/h
+    h_convention: carried

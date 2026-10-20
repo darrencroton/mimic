@@ -591,6 +591,41 @@ class ComparatorDefectTests(unittest.TestCase):
         self.assertEqual(code, acc.EXIT_ERROR)
         self.assertIn("truncated", err)
 
+    def test_a_dataset_of_another_route_compares_with_its_conversions_dump(self):
+        # The converted rows relabelled as an ASCII-route dataset: the lhalo_binary dump of the
+        # same rows is then a vertical conversion of it read by another reader.
+        dataset = self.copy_dataset()
+        for path in sorted(dataset.glob("snapshot_*.h5")):
+            with h5py.File(path, "r+") as handle:
+                header = handle["header"].attrs
+                header.create(
+                    "source_format",
+                    "consistent_trees_ascii",
+                    dtype=h5py.string_dtype("ascii", header.get_id("source_format").dtype.itemsize),
+                )
+        argv = [
+            "compare",
+            "--record",
+            self.work / "record.json",
+            "--dataset",
+            dataset,
+            "--dump",
+            self.dump,
+            "--source-format",
+            "lhalo_binary",
+            "--report",
+            self.work / "report.json",
+        ]
+        code, out, err = run_harness(argv + ["--dataset-source-format", "consistent_trees_ascii"])
+        self.assertEqual(code, acc.EXIT_PASS, out + err)
+        report = json.loads((self.work / "report.json").read_text())
+        self.assertEqual(report["matched_rows"], len(self.synthetic.halos))
+        self.assertEqual(report["dump"]["reader"], "lhalo_binary")
+        self.assertEqual(report["dataset"]["source_format"], "consistent_trees_ascii")
+        code, _out, err = run_harness(argv)
+        self.assertEqual(code, acc.EXIT_ERROR)
+        self.assertIn("dataset source_format 'consistent_trees_ascii' is not 'lhalo_binary'", err)
+
     # -- dropped, duplicated and extra rows -----------------------------------
 
     def test_dropped_row_is_detected(self):

@@ -230,12 +230,52 @@ def _rewrite_simulation_config(param_file, input_dir):
         yaml.dump(run_config, handle, default_flow_style=False, sort_keys=False)
 
 
+#: The record tests/data/input/trees_063.0 is written in: mini-Millennium's catalogue record.
+FIXTURE_HALO_PROPERTIES = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
+
+
+def _fixture_record_mismatch(param_file):
+    """
+    Why the selected package cannot read the L-Halo fixture's records, or None if it can.
+
+    The lhalo_binary reader reads records straight into the package's generated
+    struct RawHalo, whose layout is the package's ordered (name, type) field list, so
+    the fixture is readable only by a package declaring the fixture's own list.
+    """
+    with Path(param_file).open() as handle:
+        package = yaml.safe_load(handle)["simulation"]["name"]
+
+    def fields(path):
+        with path.open() as handle:
+            entries = yaml.safe_load(handle)["halo_properties"]
+        return [(entry["name"], entry["type"]) for entry in entries]
+
+    expected = fields(FIXTURE_HALO_PROPERTIES)
+    declared = fields(REPO_ROOT / "simulations" / package / "halo_properties.yaml")
+    if declared == expected:
+        return None
+    index = next(
+        (i for i, pair in enumerate(zip(declared, expected)) if pair[0] != pair[1]),
+        min(len(declared), len(expected)),
+    )
+    found = declared[index] if index < len(declared) else "no entry"
+    wanted = expected[index] if index < len(expected) else "no entry"
+    return (
+        f"the L-Halo fixture tests/data/input/trees_063.0 is in mini-Millennium's "
+        f"{len(expected)}-field record, and {package}'s record differs at field {index}: "
+        f"{found} where the fixture has {wanted}"
+    )
+
+
 def test_lhalo_two_file_prefix_offset_encoding():
     """File 1 IDs use file 0's tree-count prefix, not the old file-number stride."""
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
     if _tree_type_for_param(core_input_file("test_binary.yaml")) != "lhalo_binary":
         raise TestNotApplicable("L-Halo prefix-offset fixture requires a lhalo_binary package")
+    mismatch = _fixture_record_mismatch(core_input_file("test_binary.yaml"))
+    if mismatch is not None:
+        raise TestNotApplicable(mismatch)
 
     temp_dir = Path(tempfile.mkdtemp(prefix="mimic_unique_id_"))
     try:

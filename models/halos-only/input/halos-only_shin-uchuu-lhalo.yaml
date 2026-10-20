@@ -1,0 +1,18 @@
+# Mimic halos-only Shin-Uchuu (L-Halo binary, cut dataset) Run Configuration
+
+model:
+  name: halos-only
+
+simulation:
+  name: shin-uchuu-lhalo
+
+output:
+  output_filename: halos
+  output_directory: output/halos-only-shin-uchuu-lhalo
+  output_format: hdf5
+  snapshot_list: [69, 48, 44, 37, 32, 30, 27, 24]
+
+SubSteps: 1
+
+modules:
+  parameters: {}

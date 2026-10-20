@@ -813,3 +813,23 @@ def write_cut_table(path, table: dict, forests: Sequence[ForestSpec] = ()) -> Pa
     ]
     path.write_text("\n".join(lines) + "\n")
     return path
+
+
+# ---------------------------------------------------------------------------
+# Many small forests
+# ---------------------------------------------------------------------------
+
+
+def small_forests(count: int, first_id: int = 100000) -> List[ForestSpec]:
+    """``count`` forests of one tree each, in ascending forest id from ``first_id`` in steps
+    of ten: the even-numbered ones a lone halo at the final snapshot, the odd-numbered ones a
+    main branch of two halos (snapshots 5 and 4), so half the forests are absent from every
+    slab but the last."""
+    forests = []
+    for index in range(count):
+        root = first_id + 10 * index
+        halos = [HaloSpec(halo_id=root, snap=5, mvir=1.0e12, num_prog=index % 2)]
+        if index % 2:
+            halos.append(HaloSpec(halo_id=root + 1, snap=4, mvir=9.0e11, desc_id=root))
+        forests.append(ForestSpec(forest_id=root, trees=[TreeSpec(root_id=root, halos=halos)]))
+    return forests

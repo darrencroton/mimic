@@ -1435,10 +1435,28 @@ def _uncomparable_report(findings, source_format, defect):
     }
 
 
-def compare_dataset(dataset_dir, dump_path, source_format, budget_bytes, spill_dir, block_rows):
-    """Compare a version 3 dataset directory against a source dump file."""
-    if source_format not in SOURCE_FORMATS:
-        raise AcceptanceError("unknown source format {!r}".format(source_format))
+def compare_dataset(
+    dataset_dir,
+    dump_path,
+    source_format,
+    budget_bytes,
+    spill_dir,
+    block_rows,
+    dataset_source_format=None,
+):
+    """Compare a version 3 dataset directory against a source dump file.
+
+    The dump must have been written by the ``source_format`` reader. The dataset header's
+    ``source_format`` must be ``dataset_source_format``, which defaults to ``source_format``;
+    naming another route compares a dataset with a vertical conversion of it that another reader
+    reads (a Consistent-Trees ASCII dataset with an ``lhalo_binary`` dump of its L-Halo files).
+    The comparison keys on (forest, rank) either way.
+    """
+    if dataset_source_format is None:
+        dataset_source_format = source_format
+    for name in (source_format, dataset_source_format):
+        if name not in SOURCE_FORMATS:
+            raise AcceptanceError("unknown source format {!r}".format(name))
     dump = SourceDump(dump_path)
     if dump.reader != source_format:
         raise AcceptanceError(
@@ -1453,9 +1471,11 @@ def compare_dataset(dataset_dir, dump_path, source_format, budget_bytes, spill_d
         dataset = V3Dataset(dataset_dir, findings)
     except DatasetDefect as defect:
         return _uncomparable_report(findings, source_format, defect)
-    if dataset.source_format != source_format:
+    if dataset.source_format != dataset_source_format:
         raise AcceptanceError(
-            "dataset source_format {!r} is not {!r}".format(dataset.source_format, source_format)
+            "dataset source_format {!r} is not {!r}".format(
+                dataset.source_format, dataset_source_format
+            )
         )
     report = compare_streams(
         dump.blocks(block_rows),
@@ -1474,7 +1494,11 @@ def compare_dataset(dataset_dir, dump_path, source_format, budget_bytes, spill_d
         "forests": dump.forests,
         "ignored_columns": dump.ignored_columns,
     }
-    report["dataset"] = {"path": str(dataset.directory), "rows": dataset.total_rows}
+    report["dataset"] = {
+        "path": str(dataset.directory),
+        "rows": dataset.total_rows,
+        "source_format": dataset.source_format,
+    }
     return report
 
 
@@ -2597,6 +2621,7 @@ def cmd_compare(args):
             budget,
             args.spill_dir,
             block_rows,
+            args.dataset_source_format,
         ),
         args.command_line,
     )
@@ -2703,6 +2728,13 @@ def build_parser():
 
     compare = sub.add_parser("compare", parents=[common, limits], help="dataset vs source dump")
     compare.add_argument("--dump", required=True)
+    compare.add_argument(
+        "--dataset-source-format",
+        choices=SOURCE_FORMATS,
+        help="the dataset header's source_format (default: --source-format), for a dataset of "
+        "one route compared with a vertical conversion of it read by another reader; the dump's "
+        "reader is still checked against --source-format",
+    )
     compare.set_defaults(handler=cmd_compare)
 
     extras = sub.add_parser(
