@@ -20,7 +20,7 @@ The subset holds 8,000,198 tree roots in 6,011,205 whole forests (2.54% of the f
 **Setting up the snapshots symlink:**
 
 ```bash
-ln -s /path/to/shin-uchuu-subset-ascii simulations/shin-uchuu-ascii/snapshots
+ln -s /path/to/shin-uchuu-ascii simulations/shin-uchuu-ascii/snapshots
 ```
 
 `snapshots/` is machine-local and gitignored (`.gitignore` matches `simulations/*/snapshots`).

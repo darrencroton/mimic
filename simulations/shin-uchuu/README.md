@@ -14,7 +14,7 @@ This package's dataset is not primary data: it is produced offline from the full
 ## Setting up the snapshots symlink
 
 ```bash
-ln -s /path/to/shin-uchuu-snapshot simulations/shin-uchuu/snapshots
+ln -s /path/to/shin-uchuu-horizontal simulations/shin-uchuu/snapshots
 ```
 
 `snapshots/` is machine-local and gitignored (`.gitignore` matches `simulations/*/snapshots`); it must hold `snapshot_000.h5` … `snapshot_069.h5` and `forests.h5`.
