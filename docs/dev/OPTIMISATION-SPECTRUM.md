@@ -8,7 +8,7 @@
 
 **Ordering rule**: expected value = (upside × confidence) ÷ (cost + scientific risk). Every entry is labelled **measured**, **estimated**, or **speculative**.
 
-**Status**: Options catalogue — **step 4, the next task**, in [`MIMIC-DEVELOPMENT-PATHWAY.md`](MIMIC-DEVELOPMENT-PATHWAY.md) → "The Ordered Road". Not a plan, and nothing here is authorised to be built. Promoting any of it requires a frozen implementation plan first.
+**Status**: Options catalogue — **step 4, the next task**, in [`MIMIC-DEVELOPMENT-PATHWAY.md`](MIMIC-DEVELOPMENT-PATHWAY.md) → "The Ordered Road". Not a plan, and nothing here is authorised to be built. The frozen implementation plan for Tier A is [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md) (2026-10-20), which re-measured `main` on both drivers, re-verified every Tier A claim against the source (its "Frozen Facts and Evidence" lists the corrections to this document) and takes items 1, 2, 5, 10, 12, 13 and the partition-file half of 14; items 3, 4, 6, 7, 8, 9, 11, 15 and the master-file half of 14 are not taken, for the reasons in its decisions table. The plan's closing slice annotates this document with the outcomes.
 
 ---
 

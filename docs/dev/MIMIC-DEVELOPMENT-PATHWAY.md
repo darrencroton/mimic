@@ -11,7 +11,7 @@ The architectural direction is governed by [`docs/VISION.md`](../VISION.md): a p
 
 Roadmap steps 1 to 3 are complete (Shin-Uchuu end to end, snapshot-global modules, distributed snapshot operations), and so are the work that grew around them: the HOD and SHAM packages, chunked slab streaming, the Shin-Uchuu version 3 datasets and the cut, vertical Shin-Uchuu. The last release is v1.5 (2026-10-17); `main` carries the cut, vertical Shin-Uchuu above it, described in `CHANGELOG.md`'s Unreleased section, and the next release is the owner's call.
 
-**Next task: step 4, performance**, starting from [`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md) in a fresh session. See [Step 4](#step-4-performance-next).
+**Next task: step 4, performance.** The implementation plan is frozen: [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md) (4.1 and 4.2, ten Mode B slices on one feature branch), written on 2026-10-20 against a fresh profile of `main`. Start its run in a fresh session. See [Step 4](#step-4-performance-next).
 
 ---
 
@@ -40,7 +40,7 @@ flowchart TD
 
 | Step | Work | Owned by | Gate or next action |
 |---|---|---|---|
-| **4** | **Performance** — measured hot spots, bit-identical output | [`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md), on the evidence in [`BENCHMARK-SAGE16-MINI-MILLENNIUM.md`](BENCHMARK-SAGE16-MINI-MILLENNIUM.md) | **Next.** Re-measure, then freeze an implementation plan for Tier A (see [Step 4](#step-4-performance-next)) |
+| **4** | **Performance** — measured hot spots, bit-identical output | [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md) (4.1, 4.2), from the catalogue [`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md) and the method of [`BENCHMARK-SAGE16-MINI-MILLENNIUM.md`](BENCHMARK-SAGE16-MINI-MILLENNIUM.md) | **Next.** Run the plan (see [Step 4](#step-4-performance-next)); 4.3 gets its own plan after it closes |
 | **5** | **Emulator** — is a model package well-posed, and what constrains what | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Run its calibrated-variance spike, outside the product tree |
 | **6** | **Coupled rate formulation** — declared transfers, one integrated system | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md), with [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) as its settled input | Run its measurement spike (new files under `models/` only, no core change). The spike sets priority, solver family and the attribution baseline; it is not a veto |
 | **7** | **Model builder** — paper to tested model package | [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) | Refresh the brief against the current baseline; its re-review has been due since 2026-08-12 |
@@ -64,7 +64,7 @@ flowchart TD
 
 ## Step 4: Performance (next)
 
-[`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md) is an options catalogue of 40 entries, each classified by VISION principle, scientific risk and cost, and ordered by expected value. It is not a plan. Its measurements date from 2026-08-20 (commit `48ffc244`, the default vertical `sage16` mini-Millennium run, 3.32 s), before the dispatcher and drivers changed, so they are perishable.
+[`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md) is an options catalogue of 40 entries, each classified by VISION principle, scientific risk and cost, and ordered by expected value. It is not a plan. Its measurements date from 2026-08-20 (commit `48ffc244`, the default vertical `sage16` mini-Millennium run, 3.32 s, a different machine). **4.1 is done** (2026-10-20): `main` at `5daa24ee` was re-profiled on both drivers with `scripts/profiling/` (vertical 2.6335 ± 0.0427 s, horizontal 2.7251 ± 0.0403 s; module dispatch 30.0% and 28.4%, the logging predicate 3.3% and 3.1%), every Tier A code claim was re-verified against the source, and the plan's "Frozen Facts and Evidence" holds the tables and the corrections. **4.2 is the frozen plan** [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md): a reusable bit-identity gate against a reference commit, a diagnostic decomposition of the dispatch cost, then the `DEBUG_LOG` gate, per-call compaction of the dispatch loop, the vertical output-buffer seed, the HDF5 create-close-reopen, one exact module-local saving, an approval-gated build-flag evaluation, and a closing re-measurement that hands 4.3 its baseline. Spectrum items 3, 4, 6, 7, 8, 9, 11, 15 and the master-file half of 14 are not taken, with the measured or verified reason in the plan's decisions table.
 
 | # | Work | Notes |
 |---|---|---|
@@ -86,7 +86,8 @@ flowchart TD
 | Document | Role |
 |---|---|
 | `MIMIC-DEVELOPMENT-PATHWAY.md` | This index: the road ahead, the next task, and a one-line changelog of finished work |
-| [`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md) | Step 4 (next): the options catalogue |
+| [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md) | Step 4 (next): the frozen implementation plan for 4.1 and 4.2 |
+| [`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md) | Step 4: the options catalogue the plan draws on |
 | [`BENCHMARK-SAGE16-MINI-MILLENNIUM.md`](BENCHMARK-SAGE16-MINI-MILLENNIUM.md) | Step 4 input: the component-level CPU profile the spectrum is built on. Perishable: one machine, one dataset, one commit |
 | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Step 5: requirements brief |
 | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md) | Step 6: requirements brief |
