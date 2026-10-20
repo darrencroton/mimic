@@ -5,7 +5,7 @@ This package runs Mimic's vertical driver on the **cut** Shin-Uchuu merger trees
 - `simulation_info.yaml`: input paths (`tree_name: shin-uchuu-cut`, files `shin-uchuu-cut.0` onwards), snapshot list path, cosmology, units, box size, particle mass and the identity multiplier
 - `halo_properties.yaml`: the on-disk L-Halo record, which generates `struct RawHalo` (see [The record](#the-record))
 - `shin-uchuu.a_list`: 70 snapshot scale factors (a=0.04773 to a=0.99998), a copy of the sibling packages' list
-- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults for the halo plots (spatial distribution over the 140 Mpc/h box, halo mass function limits); `mimic-plot.py` discovers it from `simulations/<simulation.name>/`
+- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults for the halo plots (spatial distribution over the 140 Mpc/h box; halo mass function limits from `models/sage16/plots/profiles/shin-uchuu-lhalo_plot_profile.yaml`, the model-level profile `mimic-plot.py` loads by simulation name); `mimic-plot.py` discovers it from `simulations/<simulation.name>/`
 - `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked)
 - `_tests/`: a committed test-sized fixture, the record-layout and reader unit tests and the fixture's halo-level identity test (see [Tests](#tests))
 
@@ -49,7 +49,7 @@ mimic_venv/bin/python convert/mimic-convert/write_vertical_trees.py plan \
 mimic_venv/bin/python convert/mimic-convert/write_vertical_trees.py convert \
     --input /path/to/shin-uchuu-dataset \
     --halo-properties simulations/shin-uchuu-lhalo/halo_properties.yaml \
-    --output /path/to/shin-uchuu-lhalo --tree-name shin-uchuu-cut --workers 8
+    --output /path/to/shin-uchuu-lhalo --tree-name shin-uchuu-cut --workers 2
 ln -s /path/to/shin-uchuu-lhalo simulations/shin-uchuu-lhalo/snapshots
 ```
 
@@ -59,7 +59,7 @@ ln -s /path/to/shin-uchuu-lhalo simulations/shin-uchuu-lhalo/snapshots
 
 `snapshots/` is machine-local and gitignored (`.gitignore` matches `simulations/*/snapshots`).
 
-The converter prints its per-worker memory bound before it starts: about 20 GB for a file whose largest forest holds 1.25 million halos and about 86 GB for the file of the dataset's 126-million-halo forest, at 70 slabs and the default `--window-rows` (the converter manual gives the terms). Output does not depend on the worker count or the window. It exits 0 when every selected file is complete, 1 when a file fails verification and 2 on any refusal or other failure.
+The converter prints its per-worker memory bound before it starts: about 20 GB for a file whose largest forest holds 1.25 million halos and about 84 GB for the file of the dataset's 126-million-halo forest, at 70 slabs and the default `--window-rows` (the converter manual gives the terms). On a rotational disk one or two workers saturate the conversion, which is seek-bound, and more can be slower (the converter manual gives the rest). Output does not depend on the worker count or the window. It exits 0 when every selected file is complete, 1 when a file fails verification and 2 on any refusal or other failure.
 
 ## How the production dataset was made
 
