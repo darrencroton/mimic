@@ -2,15 +2,17 @@
 
 **Purpose:** everything the SAGE26 repository needs to read the cut Shin-Uchuu merger trees that Mimic's `write_vertical_trees.py` writes for the `shin-uchuu-lhalo` package, and to compare SAGE26's galaxies with Mimic's. It is written for whoever implements the reader in SAGE26. It is a brief, not an implementation: nothing here was built or run in SAGE26, and no claim below about SAGE26 goes beyond what its source states at the commit pinned next.
 
-**Owner:** the Mimic project; written under [`MIMIC-SHIN-UCHUU-CUT-VERTICAL-IMPLEMENTATION-PLAN.md`](MIMIC-SHIN-UCHUU-CUT-VERTICAL-IMPLEMENTATION-PLAN.md) (Slice 8, Decision 9). Archive it when the SAGE26 work is done or dropped.
+**Owner:** the Mimic project. Written 2026-10-18 under the cut-vertical implementation plan (since executed and archived; its evidence is [`MIMIC-SHIN-UCHUU-CUT-VERTICAL-ACCEPTANCE.md`](MIMIC-SHIN-UCHUU-CUT-VERTICAL-ACCEPTANCE.md)) and brought up to date on 2026-10-20 against the production dataset and the current SAGE26. Archive it when the SAGE26 work is done or dropped.
+
+**Self-contained by design.** The work is done in a SAGE26 checkout, not in Mimic. Besides this brief it needs three things: the dataset (section 1, "Where the data is"), the snapshot list `shin-uchuu.a_list` (section 2, the parameter-file keys), and, for the first validation, either the subset conversion or the production dataset's smallest file (section 5).
 
 ---
 
 ## The SAGE26 source this brief read
 
-- Repository `https://github.com/sage-home/SAGE26`, commit **`e1174dda14838ec4b8e30f1452212e8d907d6a58`** (committed 2026-10-08 13:49 +1100). On 2026-10-18, `git ls-remote` showed this commit was still the remote `HEAD`, so the brief reads the current SAGE26.
-- The clone was read only, at `/Volumes/LaCie/data/uchuu/shin-uchuu-cut-vertical-rehearsal/sage26-clone` (clean working tree). Nothing in it was built or run.
-- Every `src/...:line` citation in this brief is a path and line in that clone at that commit. Citations of Mimic files name the Mimic repository path.
+- Repository `https://github.com/sage-home/SAGE26`, commit **`11b1ae851524baadb76cfd17e0b38f8a89c07224`** (committed 2026-10-19 17:18 +1100), the remote `HEAD` on 2026-10-20. The brief was first written against `e1174dda` (2026-10-08); the one commit between them removes `fix_flybys` from the Consistent-Trees ASCII and Genesis readers (a forest may now keep several FoF hosts at z = 0 there, and their `MostBoundID` is no longer sign-flipped), which touches neither the `lhalo_binary` reader this brief copies nor any struct, output field or parameter key it cites. Every citation below was re-read at `11b1ae85`.
+- The clone was read only; nothing in it was built or run.
+- Every `src/...:line` citation in this brief is a path and line in that commit. Citations of Mimic files name the Mimic repository path; where a Mimic citation names a function or constant rather than a line, it is because that file is maintained and the name is the stable anchor.
 
 **Struct sizes.** Where the brief gives a SAGE26 struct size, it was worked out by hand from the declaration, assuming natural alignment on an LP64 host (`int`/`float` 4 bytes, `long long`/`double`/`uint64_t` 8 bytes). It was not measured with `sizeof` in SAGE26, because nothing there was compiled. A Python `ctypes` replica of the two declarations agrees: `struct GALAXY` 2,184 B and `struct halo_data` 104 B.
 
@@ -21,7 +23,8 @@
 ### Files
 
 - **Names.** `<dir>/shin-uchuu-cut.<k>` for `k` from 0 to the last file, with no extension. Mimic's reader opens `<simulation_dir>/<tree_name>.<filenr>` (`src/io/vertical/binary.c`, `.file_extension = ""` at `:231`). SAGE26 forms `"%s/%s.%d%s"` from `SimulationDir`, `TreeName`, the file number and `TreeExtension` (`src/io/read_tree_lhalo_binary.c:62-65`). `TreeExtension` is empty for every non-HDF5 tree type (`src/core_read_parameter_file.c:431-449`), so `TreeName shin-uchuu-cut` gives the right names.
-- **Range.** The production plan, made with the default caps, has **361 files, 0 to 360**: 22,503,649,037 halos in 244,953,607 forests (`MIMIC-SHIN-UCHUU-CUT-VERTICAL-ACCEPTANCE.md`, "The production file plan"). Use every file. The forests are numbered across files, so a missing file shifts every later forest's global number (section 4).
+- **Range.** The production dataset has **361 files, 0 to 360**: 22,503,649,037 halos in 244,953,607 forests, 1,981,300,932,572 B in all, made with the default caps (`MIMIC-SHIN-UCHUU-CUT-VERTICAL-ACCEPTANCE.md`, "Production"). Use every file. The forests are numbered across files, so a missing file shifts every later forest's global number (section 4).
+- **Where the data is.** The production dataset, with its `file_plan.json` and `manifest.json`, is on NT at `/fred/oz214/dcroton/shin-uchuu/vertical-trees-lhalo-cut/` (361 files; the copy was verified on NT with `sha256sum -c`, 363 of 363 OK) and locally at `/Volumes/LaCie/data/uchuu/shin-uchuu-cut-vertical/dataset/` on the Mac Studio. `file_plan.json` (md5 `071b080f67ed9d2557c934605fc32859`) lists every file's `first_forest`, `last_forest`, `n_forests` and `n_halos`; `manifest.json` adds each file's bytes and SHA-256 and the record's layout and digest. Mimic's `sage16` run on this dataset is bitwise identical to its cut horizontal run (2,059,547,378 galaxies over ten output snapshots), so the files are the dataset's trees, proved at production scale.
 - **Endianness.** Every value is little-endian, as the converter writes it (the record's dtype is `<i4`/`<f4`/`<i8`, `convert/mimic-convert/vertical/record.py`). SAGE26 reads raw bytes into host-order structs (`src/io/read_tree_lhalo_binary.c:393`), so it must run on a little-endian host or swap the bytes.
 
 ### The header
@@ -64,12 +67,12 @@ Sources for the units and meanings: `simulations/shin-uchuu-lhalo/halo_propertie
 ### Order and links
 
 - **Forest order.** Files hold contiguous ranges of `ForestIndex` in file-number order. Within a file, forests ascend in `ForestIndex`. So a forest's global number is `first_forest` of its file (from `file_plan.json`) plus its position in the file.
-- **Within-forest order.** A forest's records are in `HaloRankInForest` order, the "reference vertical-driver order": descending snapshot first, then FoF-group runs with the central first, then the progenitor-chain insertion order (`convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md:97`; `convert/mimic-convert/rewriter/__init__.py:34-35`). A halo's index in its forest is its rank. The converter refuses any forest whose ranks are not exactly 0..n−1 (`convert/mimic-convert/vertical/assemble.py:17-18`).
-- **Links.** All five links are forest-local `int32` indices into the forest's own records. Only −1 means "none". `FirstHaloInFOFgroup` is never −1 and points to the halo itself for a central. FoF links stay within one snapshot. The converter verifies every link as it writes it (`convert/mimic-convert/vertical/assemble.py:29-31`; `HORIZONTAL-HDF5-FORMAT.md:316-336`). This is the L-Halo link convention SAGE26 already walks (`src/core_build_model.c:94-160`; `src/model_misc.c:69-70` asserts that a new galaxy's halo is its own `FirstHaloInFOFgroup`).
+- **Within-forest order.** A forest's records are in `HaloRankInForest` order: a halo's index in its forest is its rank, and the converter places every record at its rank after checking that a forest's ranks are a permutation of 0..n−1 (`convert/mimic-convert/vertical/assemble.py`, `ForestAssembler`). For this dataset, whose trees came through the Consistent-Trees ASCII route, that order is the "reference vertical-driver order": descending snapshot first, then FoF-group runs with the central first, then the progenitor-chain insertion order (`convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md:97`; `convert/mimic-convert/rewriter/__init__.py:34-35`), so `SnapNum` never increases along a forest's records.
+- **Links.** All five links are forest-local `int32` indices into the forest's own records. Only −1 means "none". `FirstHaloInFOFgroup` is never −1 and points to the halo itself for a central. FoF links stay within one snapshot. The converter maps each link from the horizontal dataset's global row to the target's rank and refuses a link that leaves its forest (`convert/mimic-convert/vertical/assemble.py`, `_map_links`; `HORIZONTAL-HDF5-FORMAT.md:316-336`). This is the L-Halo link convention SAGE26 already walks (`src/core_build_model.c:94-160`; `src/model_misc.c:69-70` asserts that a new galaxy's halo is its own `FirstHaloInFOFgroup`).
 
 ### The file cut and the identity multiplier
 
-- **Cut rule.** A new file starts when adding the next forest would take the file above **100,000,000 halos** or **1,000,000 forests**. A forest larger than the halo cap sits in a file of its own: file 0 holds the 126,380,326-halo super-forest (`ForestIndex` 0) alone. The caps are converter options, with these defaults (`convert/mimic-convert/vertical/plan.py:52-53`). The hard refusals are a file above `INT32_MAX` halos or forests (`:56`).
+- **Cut rule.** A new file starts when adding the next forest would take the file above **100,000,000 halos** or **1,000,000 forests**. A forest larger than the halo cap sits in a file of its own: file 0 holds the 126,380,326-halo super-forest (`ForestIndex` 0) alone. The caps are converter options, with these defaults (`convert/mimic-convert/vertical/plan.py`, `DEFAULT_MAX_HALOS_PER_FILE` and `DEFAULT_MAX_FORESTS_PER_FILE`). The hard refusals are a file above `INT32_MAX` halos or forests (`plan.py`, `INT32_MAX`).
 - **Identity multiplier.** Mimic's `UniqueGalaxyID` for this dataset uses the multiplier **2 × 10¹⁰** (`simulations/shin-uchuu-lhalo/simulation_info.yaml`, `unique_galaxy_id_multiplier: 20000000000`). It is the same multiplier as the horizontal `shin-uchuu` package, so the two packages' ids agree. SAGE26 does not use this number. It matters only for joining output (section 4).
 
 ### Do not use SAGE26's `lhalo_binary` reader unchanged
@@ -126,7 +129,7 @@ SAGE26's own source shows the model never reads any of these five fields. Outsid
 | `M_Mean200` | `-1.0f` | The dataset has no M200b. A negative sentinel cannot be mistaken for a mass. Copying `Mvir` would label an M200c value as M200b |
 | `M_TopHat` | `-1.0f` | The dataset has no top-hat mass, for the same reason. (SAGE26's Consistent-Trees HDF5 reader puts M200c here, `src/io/read_tree_consistentrees_hdf5.c:586`. In this dataset M200c is already `Mvir`.) |
 | `FileNr` | the file number being read | It is known exactly, and the reader already records it per forest (`src/io/read_tree_lhalo_binary.c:300`). The Consistent-Trees readers use −1 only because they have no such number (`src/io/read_tree_consistentrees_hdf5.c:635`) |
-| `SubhaloIndex` | `-1` | The dataset has no subhalo index into a group catalogue. −1 is the convention of SAGE26's HDF5 readers (`src/io/read_tree_consistentrees_hdf5.c:636`; `src/io/read_tree_lhalo_hdf5.c:486`; `src/io/read_tree_genesis_hdf5.c:972`) |
+| `SubhaloIndex` | `-1` | The dataset has no subhalo index into a group catalogue. −1 is the convention of SAGE26's HDF5 readers (`src/io/read_tree_consistentrees_hdf5.c:636`; `src/io/read_tree_lhalo_hdf5.c:486`; `src/io/read_tree_genesis_hdf5.c:970`) |
 | `SubHalfMass` | `-1.0f` | Not in the dataset. The same readers set `-1.0f` (`src/io/read_tree_consistentrees_hdf5.c:637`; `src/io/read_tree_lhalo_hdf5.c:487`) |
 
 ### Forest distribution
@@ -151,7 +154,7 @@ These are SAGE26's required and optional keys (`src/core_read_parameter_file.c:1
 | `SimulationDir` | the directory holding the files | the subset conversion's directory |
 | `FirstFile` / `LastFile` | `0` / `360` | `0` / `32` |
 | `NumSimulationTreeFiles` | `361` | `33` |
-| `FileWithSnapList` | `simulations/shin-uchuu-lhalo/shin-uchuu.a_list` (70 scale factors, snapshots 0 to 69) | same |
+| `FileWithSnapList` | `shin-uchuu.a_list`: 70 scale factors (a = 0.04773 to 0.99998), snapshots 0 to 69. The file is `simulations/shin-uchuu-lhalo/shin-uchuu.a_list` in the Mimic repository; take a copy beside the dataset | same |
 | `LastSnapshotNr` | `69` | `69` |
 | `Hubble_h`, `Omega`, `OmegaLambda` | `0.6774`, `0.3089`, `0.6911` | same |
 | `BoxSize` | `140.0` (Mpc/h) | same |
@@ -198,7 +201,7 @@ The proposed reader's temporary per-forest buffer (section 2: nhalos × 88 B, ab
 
 ### int32 forest-local indices
 
-SAGE26 holds every halo link as `int` (`src/core_simulation.h:20-24`), walks forests with `int halonr` (`src/sage.c:356`; `src/core_build_model.c:94-98`), and keeps galaxy counts and indices as `int`/`int32_t` (`src/sage.c:331`, `:344`, `:347`; `src/core_allvars.h:113-115`). Its counts table is `int32` on disk, promoted in memory (`src/io/read_tree_lhalo_binary.c:265-275`). The largest forest-local index is 126,380,325, about 17 times below `INT32_MAX`. The dataset's link type is `int32` too, and the converter refuses a rank the type cannot hold (`convert/mimic-convert/vertical/assemble.py:212`, `:284-287`).
+SAGE26 holds every halo link as `int` (`src/core_simulation.h:20-24`), walks forests with `int halonr` (`src/sage.c:356`; `src/core_build_model.c:94-98`), and keeps galaxy counts and indices as `int`/`int32_t` (`src/sage.c:331`, `:344`, `:347`; `src/core_allvars.h:113-115`). Its counts table is `int32` on disk, promoted in memory (`src/io/read_tree_lhalo_binary.c:265-275`). The largest forest-local index is 126,380,325, about 17 times below `INT32_MAX`. The dataset's link type is `int32` too, and the converter refuses a rank the type cannot hold (`convert/mimic-convert/vertical/assemble.py`, `ForestAssembler.link_limit`).
 
 ---
 
@@ -246,18 +249,16 @@ Without a birth mapping, the honest comparison is between host halos at an outpu
 
 ## 5. What SAGE26 should run first
 
-**The Stage R cut subset conversion, before the production dataset.** It was recorded in `MIMIC-SHIN-UCHUU-CUT-VERTICAL-ACCEPTANCE.md` ("Rehearsal", "The subset conversions"):
+**A small conversion before the production dataset.** Two candidates; the first is the better test bed, the second is reachable from anywhere.
 
-- **33 files**, `shin-uchuu-cut.0` to `shin-uchuu-cut.32`, made with `--max-halos-per-file 12500000` and the default forest cap. In all, **406,668,896 halos in 7,206,195 forests**; the largest forest has 1,250,835 halos (`ForestIndex` 4,310,475).
-- The plan is `/Volumes/LaCie/data/uchuu/shin-uchuu-cut-vertical-rehearsal/conv/subset-w1/file_plan.json` (md5 `0b2d1af9183ab871931f8a0f823cb1e2`). It lists every file's `first_forest`, `last_forest`, `n_forests` and `n_halos`. File 0 holds forests 0 to 236,265 (236,266 forests, 12,434,838 halos). File 32 holds forests 6,897,711 to 7,206,194 (308,484 forests, 7,497,046 halos).
-- Its `manifest.json` adds each file's bytes and SHA-256.
-- The halo-level check proved this conversion halo by halo, link by link and bit by bit against the horizontal dataset. Mimic's vertical `halos-only` and `sage16` runs on it are bitwise identical to the horizontal runs.
+- **The Stage R cut subset conversion**, recorded in `MIMIC-SHIN-UCHUU-CUT-VERTICAL-ACCEPTANCE.md` ("Rehearsal", "The subset conversions"): **33 files**, `shin-uchuu-cut.0` to `shin-uchuu-cut.32`, made with `--max-halos-per-file 12500000` and the default forest cap, **406,668,896 halos in 7,206,195 forests**, the largest forest 1,250,835 halos (`ForestIndex` 4,310,475). It is on the Mac Studio only, at `/Volumes/LaCie/data/uchuu/shin-uchuu-cut-vertical-rehearsal/conv/subset-w1/` (35.8 GB; no NT copy), with its `file_plan.json` (md5 `0b2d1af9183ab871931f8a0f823cb1e2`: file 0 holds forests 0 to 236,265, 236,266 forests and 12,434,838 halos; file 32 holds forests 6,897,711 to 7,206,194, 308,484 forests and 7,497,046 halos) and `manifest.json` (each file's bytes and SHA-256). The halo-level check proved it halo by halo, link by link and bit by bit against the horizontal dataset, and Mimic's vertical `halos-only` and `sage16` runs on it are bitwise identical to the horizontal runs. A session elsewhere needs it copied to NT first.
+- **The production dataset's last file alone**, `shin-uchuu-cut.360` (22,272 forests, 79,630 halos, the smallest file of the plan; `first_forest` 244,931,335), which is on NT. It exercises the reader, the header and the record on real data in seconds, but it holds only small forests, so it says nothing about the memory question; run the subset, or the next-smallest production files, for that.
 
 The checks for SAGE26, in order:
 
-1. **Header totals.** For every file, the header's `ntrees` and `totNHalos` equal `n_forests` and `n_halos` in `file_plan.json`. Over the run, SAGE26's `totnforests` and `totnhalos` (`src/io/read_tree_lhalo_binary.c:155-156`) equal 7,206,195 and 406,668,896.
+1. **Header totals.** For every file, the header's `ntrees` and `totNHalos` equal `n_forests` and `n_halos` in `file_plan.json`. Over the run, SAGE26's `totnforests` and `totnhalos` (`src/io/read_tree_lhalo_binary.c:155-156`) equal 7,206,195 and 406,668,896 on the subset (22,272 and 79,630 on file 360 alone, with `FirstFile`, `LastFile` and `NumSimulationTreeFiles` set for that one file).
 2. **A record spot-check.** For a few halos, the converted `Mvir` × 10¹⁰ equals the stored `M_Crit200` to float32 rounding. `MostBoundID` and `SnapNum` read back exactly. Every link is −1 or inside its forest. Every `FirstHaloInFOFgroup` of a central is its own index.
-3. **A complete SAGE26 run** on all 33 files, with `NumSimulationTreeFiles 33`. Measure its peak memory on the 1,250,835-halo forest. Scaled by halo count, this is the first real evidence for the super-forest estimate in section 3.
+3. **A complete SAGE26 run** on all 33 subset files, with `NumSimulationTreeFiles 33`. Measure its peak memory on the 1,250,835-halo forest. Scaled by halo count, this is the first real evidence for the super-forest estimate in section 3.
 4. **The id relations** on its output: `GalaxyIndex ÷ 10¹⁵` is the file, `first_forest[file] + SAGETreeIndex` is a `ForestIndex` in range, and `SAGEHaloIndex` is below that forest's halo count.
 
 Only then convert or read the production dataset (361 files, the super-forest alone in file 0).
