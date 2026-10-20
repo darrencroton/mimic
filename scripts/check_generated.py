@@ -373,7 +373,10 @@ def main():
         print("=" * 70)
         print()
         print("ACTION REQUIRED:")
-        print(f"  Run: make MODEL={os.environ.get('MODEL') or '<MODEL>'} generate")
+        print(
+            f"  Run: make MODEL={os.environ.get('MODEL') or '<MODEL>'} "
+            f"SIMULATION={os.environ.get('SIMULATION') or '<SIMULATION>'} generate"
+        )
         print()
         print("This will refresh ignored build artifacts from property and module metadata.")
         print()

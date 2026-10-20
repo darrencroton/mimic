@@ -33,6 +33,7 @@ from framework.parity_gate import (  # noqa: E402
     RunOutput,
     assert_horizontal_run_file_diff,
     assert_manifest_inventory,
+    dataset_variant,
     dynamic_variant,
     flatten_keys,
     functional_lines,
@@ -357,6 +358,28 @@ def test_vertical_dataset_variant_adds_three_keys_and_refuses_an_input_section()
         assert _refuses(refused), "a run file with an input section of its own was accepted"
 
 
+def test_dataset_variants_write_paths_that_yaml_would_otherwise_split():
+    """A directory named with ``#``, ``: `` (a YAML comment and a mapping separator when
+    written bare) and a character outside the Basic Multilingual Plane reaches the parsed run
+    file exactly, from both dataset variants."""
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp)
+        awkward = Path("/data/run #3: subset 🌌/trees")
+        alist = Path("/data/run #3: subset 🌌/snapshots.a_list")
+        bare = VERTICAL.replace("input:\n  first_file: 0\n  last_file: 3\n", "")
+        horizontal = _write(scratch, "horizontal.yaml", bare)
+        vertical = _write(scratch, "vertical.yaml", bare)
+        variant = dataset_variant(horizontal, scratch, (awkward, alist))
+        keys = flatten_keys(yaml.safe_load(variant.read_text()))
+        assert (keys["input.simulation_dir"], keys["input.snapshot_list_file"]) == (
+            str(awkward),
+            str(alist),
+        ), keys
+        variant = vertical_dataset_variant(vertical, scratch, (awkward, 0, 7))
+        keys = flatten_keys(yaml.safe_load(variant.read_text()))
+        assert [keys[key] for key in VERTICAL_DATASET_KEYS] == [str(awkward), 0, 7], keys
+
+
 def test_a_named_vertical_dataset_is_used_by_every_stage():
     """A package naming a vertical dataset has it read in place of the vertical package's own.
 
@@ -531,6 +554,7 @@ if __name__ == "__main__":
                 test_manifest_inventory_proves_a_two_file_conversion,
                 test_a_named_dataset_is_used_by_every_stage,
                 test_vertical_dataset_variant_adds_three_keys_and_refuses_an_input_section,
+                test_dataset_variants_write_paths_that_yaml_would_otherwise_split,
                 test_a_named_vertical_dataset_is_used_by_every_stage,
                 test_run_files_diff_against_the_committed_vertical_file_only_with_a_vertical_dataset,
                 test_header_source_format_is_pinned_apart_from_the_tree_type,

@@ -567,6 +567,8 @@ def dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path, Path]) -
 
     The section is appended, so the file must not have one of its own; the
     result is verified to be the given file plus exactly DATASET_OVERRIDE_KEYS.
+    Paths are written as double-quoted YAML scalars (a JSON string is one), so a
+    name holding ``#`` or ``: `` reaches the run file intact.
     """
     text = run_file.read_text()
     if "input" in (yaml.safe_load(text) or {}):
@@ -578,7 +580,9 @@ def dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path, Path]) -
     variant.write_text(
         text
         + ("" if text.endswith("\n") else "\n")
-        + f"input:\n  simulation_dir: {directory}\n  snapshot_list_file: {snapshot_list}\n"
+        + "input:\n"
+        + f"  simulation_dir: {json.dumps(str(directory), ensure_ascii=False)}\n"
+        + f"  snapshot_list_file: {json.dumps(str(snapshot_list), ensure_ascii=False)}\n"
     )
     base = flatten_keys(yaml.safe_load(text) or {})
     written = flatten_keys(yaml.safe_load(variant.read_text()) or {})
@@ -595,7 +599,9 @@ def vertical_dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path,
 
     The vertical counterpart of ``dataset_variant``: the section is appended, so
     the file must not have one of its own, and the result is verified to be the
-    given file plus exactly VERTICAL_DATASET_KEYS set to those values.
+    given file plus exactly VERTICAL_DATASET_KEYS set to those values. The
+    directory is written as a double-quoted YAML scalar, as ``dataset_variant``
+    writes its paths.
     """
     text = run_file.read_text()
     if "input" in (yaml.safe_load(text) or {}):
@@ -607,7 +613,9 @@ def vertical_dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path,
     variant.write_text(
         text
         + ("" if text.endswith("\n") else "\n")
-        + f"input:\n  simulation_dir: {directory}\n  first_file: {first}\n  last_file: {last}\n"
+        + "input:\n"
+        + f"  simulation_dir: {json.dumps(str(directory), ensure_ascii=False)}\n"
+        + f"  first_file: {first}\n  last_file: {last}\n"
     )
     base = flatten_keys(yaml.safe_load(text) or {})
     written = flatten_keys(yaml.safe_load(variant.read_text()) or {})
@@ -1411,82 +1419,7 @@ class ParityGate:
             # The ordinals name the files the horizontal dataset was converted
             # from, not the vertical files converted from it: the vertical
             # dataset's own manifest proves what those hold.
-            inventory = self.vertical_inventory
-            manifest = pkg.vertical_snapshots() / VERTICAL_MANIFEST
-            identity = ("forest_id_sha256", "column_mapping_sha256", "n_forests_total")
-            try:
-                document = json.loads(manifest.read_text())
-                found_format = (document["format"], document["version"])
-                recorded = {name: document["dataset"][name] for name in (*identity, "total_halos")}
-                entries = [
-                    (
-                        str(entry["name"]),
-                        int(entry["first_forest"]),
-                        int(entry["last_forest"]),
-                        int(entry["n_halos"]),
-                    )
-                    for entry in document["files"]
-                ]
-                planned_files = int(document["plan"]["n_files"])
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                raise AssertionError(
-                    f"{manifest}: not a readable vertical conversion manifest ({error})"
-                ) from None
-            if found_format != VERTICAL_MANIFEST_FORMAT:
-                raise AssertionError(
-                    f"{manifest}: format {found_format}, expected {VERTICAL_MANIFEST_FORMAT}"
-                )
-
-            digest = hashlib.sha256()
-            with h5py.File(directory / FORESTS_FILE, "r") as handle:
-                column = handle[FOREST_ID]
-                for start in range(0, int(column.shape[0]), FOREST_ID_BLOCK_ROWS):
-                    block = column[start : start + FOREST_ID_BLOCK_ROWS]
-                    digest.update(numpy.ascontiguousarray(block, dtype="<i8").tobytes())
-            horizontal_identity = {
-                "forest_id_sha256": digest.hexdigest(),
-                "column_mapping_sha256": pkg.column_mapping_sha256,
-                "n_forests_total": forests,
-                "total_halos": halos,
-            }
-            differing = [
-                name for name in horizontal_identity if recorded[name] != horizontal_identity[name]
-            ]
-            if differing:
-                raise AssertionError(
-                    f"{manifest}: records the conversion of another dataset: "
-                    + "; ".join(
-                        f"{name} {recorded[name]!r}, the horizontal dataset's is "
-                        f"{horizontal_identity[name]!r}"
-                        for name in differing
-                    )
-                )
-
-            names = [entry[0] for entry in entries]
-            if names != inventory["files"] or len(entries) != planned_files:
-                raise AssertionError(
-                    f"{manifest}: records {len(names)} complete file(s) of a {planned_files}-file "
-                    f"plan ({', '.join(names[:3])}{', ...' if len(names) > 3 else ''}); the "
-                    f"vertical side reads exactly {len(inventory['files'])}, "
-                    f"{inventory['files'][0]}..{inventory['files'][-1]}"
-                )
-            starts = [entry[1] for entry in entries]
-            stops = [entry[2] + 1 for entry in entries]
-            if (
-                starts != [0, *stops[:-1]]
-                or stops[-1] != forests
-                or sum(entry[3] for entry in entries) != halos
-            ):
-                raise AssertionError(
-                    f"{manifest}: its files' forest ranges and halo counts do not hold the "
-                    f"dataset's {forests} forests and {halos} halos in ForestIndex order"
-                )
-            log(
-                f"  conversion inventory from {manifest}: the conversion of this dataset "
-                f"({', '.join(horizontal_identity)} equal), into exactly the vertical side's "
-                f"{len(names)} files {names[0]}..{names[-1]}, holding forests 0..{forests - 1} "
-                f"in order"
-            )
+            self._prove_inventory_from_manifest(directory, forests, halos)
             self.done.add("dataset")
             return
 
@@ -1517,6 +1450,98 @@ class ParityGate:
             f"exactly the vertical side's {inventory['files'][0]}..{inventory['files'][-1]}"
         )
         self.done.add("dataset")
+
+    def _prove_inventory_from_manifest(self, directory: Path, forests: int, halos: int) -> None:
+        """Prove the vertical side reads exactly the files converted from this dataset.
+
+        The vertical dataset's ``manifest.json`` must record the conversion of exactly
+        this horizontal dataset (the SHA-256 of its ``forests.h5`` ForestID column, its
+        column mapping, forest total and halo total) into exactly the files the vertical
+        side reads, tiling forests 0..n-1 in ForestIndex order. Anything else is an
+        AssertionError naming the manifest.
+
+        Args:
+            directory: The horizontal dataset's snapshot directory, holding ``forests.h5``.
+            forests: The forest total the dataset's snapshot headers agree on.
+            halos: The halo total summed over the dataset's snapshot files.
+        """
+        pkg = self.package
+        inventory = self.vertical_inventory
+        manifest = pkg.vertical_snapshots() / VERTICAL_MANIFEST
+        identity = ("forest_id_sha256", "column_mapping_sha256", "n_forests_total")
+        try:
+            document = json.loads(manifest.read_text())
+            found_format = (document["format"], document["version"])
+            recorded = {name: document["dataset"][name] for name in (*identity, "total_halos")}
+            entries = [
+                (
+                    str(entry["name"]),
+                    int(entry["first_forest"]),
+                    int(entry["last_forest"]),
+                    int(entry["n_halos"]),
+                )
+                for entry in document["files"]
+            ]
+            planned_files = int(document["plan"]["n_files"])
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise AssertionError(
+                f"{manifest}: not a readable vertical conversion manifest ({error})"
+            ) from None
+        if found_format != VERTICAL_MANIFEST_FORMAT:
+            raise AssertionError(
+                f"{manifest}: format {found_format}, expected {VERTICAL_MANIFEST_FORMAT}"
+            )
+
+        digest = hashlib.sha256()
+        with h5py.File(directory / FORESTS_FILE, "r") as handle:
+            column = handle[FOREST_ID]
+            for start in range(0, int(column.shape[0]), FOREST_ID_BLOCK_ROWS):
+                block = column[start : start + FOREST_ID_BLOCK_ROWS]
+                digest.update(numpy.ascontiguousarray(block, dtype="<i8").tobytes())
+        horizontal_identity = {
+            "forest_id_sha256": digest.hexdigest(),
+            "column_mapping_sha256": pkg.column_mapping_sha256,
+            "n_forests_total": forests,
+            "total_halos": halos,
+        }
+        differing = [
+            name for name in horizontal_identity if recorded[name] != horizontal_identity[name]
+        ]
+        if differing:
+            raise AssertionError(
+                f"{manifest}: records the conversion of another dataset: "
+                + "; ".join(
+                    f"{name} {recorded[name]!r}, the horizontal dataset's is "
+                    f"{horizontal_identity[name]!r}"
+                    for name in differing
+                )
+            )
+
+        names = [entry[0] for entry in entries]
+        if names != inventory["files"] or len(entries) != planned_files:
+            raise AssertionError(
+                f"{manifest}: records {len(names)} complete file(s) of a {planned_files}-file "
+                f"plan ({', '.join(names[:3])}{', ...' if len(names) > 3 else ''}); the "
+                f"vertical side reads exactly {len(inventory['files'])}, "
+                f"{inventory['files'][0]}..{inventory['files'][-1]}"
+            )
+        starts = [entry[1] for entry in entries]
+        stops = [entry[2] + 1 for entry in entries]
+        if (
+            starts != [0, *stops[:-1]]
+            or stops[-1] != forests
+            or sum(entry[3] for entry in entries) != halos
+        ):
+            raise AssertionError(
+                f"{manifest}: its files' forest ranges and halo counts do not hold the "
+                f"dataset's {forests} forests and {halos} halos in ForestIndex order"
+            )
+        log(
+            f"  conversion inventory from {manifest}: the conversion of this dataset "
+            f"({', '.join(horizontal_identity)} equal), into exactly the vertical side's "
+            f"{len(names)} files {names[0]}..{names[-1]}, holding forests 0..{forests - 1} "
+            f"in order"
+        )
 
     # ---- stage 3 ---------------------------------------------------------
 

@@ -54,6 +54,7 @@ from framework import (  # noqa: E402
 PACKAGE = "shin-uchuu-lhalo"
 FIXTURE = REPO_ROOT / "simulations" / PACKAGE / "_tests" / "data" / "worked_ascii_lhalo"
 FIXTURE_FILES = (0, 1)
+FIXTURE_HALOS = 13
 SOURCE_DATASET = REPO_ROOT / "simulations" / "shin-uchuu" / "_tests" / "data" / "worked_ascii"
 BUILD_SCRIPT = REPO_ROOT / "tests" / "unit" / "tools" / "build_topology_dump.sh"
 HARNESS = REPO_ROOT / "convert" / "mimic-convert" / "tests" / "run_generalisation_acceptance.py"
@@ -187,6 +188,9 @@ def test_fixture_matches_its_source_halo_by_halo():
             f"compare exited {code} with verdict {result.get('verdict')!r}, failed checks "
             f"{result.get('failed_checks')}:\n{output[-3000:]}"
         )
+        # A compare of an empty dump would also pass; the fixture holds 13 halos (7 + 4 + 2).
+        matched = result.get("matched_rows")
+        assert matched == FIXTURE_HALOS, f"compare matched {matched} halos, not {FIXTURE_HALOS}"
         print(f"  compare PASS: {result.get('matched_rows')} halos matched")
     finally:
         shutil.rmtree(work, ignore_errors=True)
