@@ -403,7 +403,7 @@ All paths are relative to `convert/mimic-convert/`.
 
 ## Tests
 
-The converter suite runs with `make tests-converter`, which is also how `make tests` and CI run it:
+The converter suite runs with `make tests-converter`, which is also how CI runs it; `make tests` does not. Run it when a change touches this directory or a Mimic file the suite reads or builds ([Testing](../../docs/DEVELOPER-GUIDE.md#testing)):
 
 ```bash
 make tests-converter                                             # the converter suite, as CI runs it

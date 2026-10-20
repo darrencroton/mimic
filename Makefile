@@ -497,7 +497,7 @@ help:
 	@echo "  make lint-parameters    - Verify parameter usage matches declarations"
 	@echo ""
 	@echo "Test targets:"
-	@echo "  make tests             - Run all tests"
+	@echo "  make tests              - Run check-docs, validate-modules and the unit, integration, scientific tiers"
 	@echo "  make tests-unit         - Run unit tests only"
 	@echo "  make tests-integration  - Run integration tests only"
 	@echo "  make tests-scientific   - Run scientific tests only"
@@ -507,9 +507,9 @@ help:
 	@echo "  make tests-snapshot-global-hod - Run the hod_populate unit and end-to-end tests under MODEL=hod on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
 	@echo "  make tests-distributed  - Run the distributed horizontal gate: the MPI collectives control test, serial-versus-MPI identity at -np 1, 2, 3, 4 and 8 for halos-only, sage16, sham and hod, chunked legs (input.forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3 for halos-only, sage16 and hod, with the sham/hod chunked refusal); needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; a few minutes; rebuild with make afterwards"
-	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
-	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
-	@echo "  make test-clean                   - Clean test artifacts"
+	@echo "  make tests-converter    - Run the converter self-tests (manual, ~6 min; not run by make tests)"
+	@echo "  make tests summary      - Run make tests with concise warning/failure/skip output"
+	@echo "  make test-clean         - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
 	@echo "  make dump-ctrees-topology-tool - Build the reference-topology dump harness (convert/mimic-convert)"
 	@echo ""
@@ -736,7 +736,7 @@ define RUN_SUMMARY_AWARE_RECORD
 endef
 
 tests:
-	@echo "Cleaning and building once for all tests..."
+	@echo "Cleaning and building once for the test tiers..."
 	@. scripts/lib/colors.sh; \
 	output_file=$$(mktemp); \
 	if ! { $(MAKE) clean && $(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate-test-registry; } > "$$output_file" 2>&1; then \
@@ -754,7 +754,6 @@ tests:
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules,validate-modules)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-converter || { grep -q '^converter:' build/.test_failures 2>/dev/null || grep -qx converter build/.test_failures 2>/dev/null || echo "converter" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-scientific || { grep -q '^scientific:' build/.test_failures 2>/dev/null || grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
@@ -779,10 +778,11 @@ tests:
 	fi
 
 # Converter self-tests: stdlib-unittest suite for convert/mimic-convert/ (the
-# external ctrees -> horizontal-HDF5 converter). Independent of MODEL/SIMULATION
-# and of the C build. Unlike $(PYTHON), this always prefers mimic_venv when it
-# exists: the suite needs the venv stack (pandas, h5py) even when the venv is
-# not activated in the calling shell.
+# external merger-tree converters). Independent of MODEL/SIMULATION and of the C
+# build. Manual: `make tests` does not run it; CI does (when to run it: the Testing
+# section of docs/DEVELOPER-GUIDE.md). Unlike $(PYTHON), this always prefers
+# mimic_venv when it exists: the suite needs the venv stack (pandas, h5py) even
+# when the venv is not activated in the calling shell.
 CONVERTER_PYTHON := $(shell if [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
 tests-converter:
 	@. scripts/lib/colors.sh; \

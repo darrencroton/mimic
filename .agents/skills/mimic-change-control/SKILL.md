@@ -39,12 +39,13 @@ Classify by what the change touches. Run gates in the order listed; each column'
 | Module physics (C) | `models/<m>/modules/**/*.c`, `models/<m>/shared/` | build clean (`make clean && make`) → `make validate-modules` → `make lint-parameters` → all three tiers (unit, integration, scientific) → physics baseline verdict (see non-negotiable F) |
 | Core/framework | `src/core/`, `src/io/`, `src/util/`, `src/module_system/` (never `*/generated/`) | `make clean && make` → `make check-generated` → all three tiers → baseline comparisons must pass or be deliberately regenerated with justification |
 | Simulation package | `simulations/<s>/` (halo_properties.yaml, simulation_info.yaml, a_list, fixtures) | `make MODEL=<m> SIMULATION=<s> generate` → `make MODEL=<m> SIMULATION=<s> check-generated` → `make MODEL=<m> SIMULATION=<s>` → `make MODEL=<m> SIMULATION=<s> tests` (same selector everywhere) |
+| Converter | `convert/mimic-convert/`, or a Mimic file its suite reads or builds (`src/`, `scripts/`, simulation metadata and fixtures; full list under Testing in `docs/DEVELOPER-GUIDE.md`) | `make tests-converter` (~6 min, delegate it) on top of the other classes' gates; `make tests` does not run it |
 | Plotting | `plot/mimic-plot/`, `models/<m>/plots/` | plot tests under `plot/mimic-plot/tests/` → run `mimic-plot` on real output → see the `mimic-plots-and-analysis` skill |
 | Docs only | `*.md`, `docs/` | `make check-docs` → no hard-wrapped prose → `make check-format` (harmless, CI runs it anyway) |
 | Generated output | any `*/generated/*`, `tests/generated/` | never edited directly — regenerate via `make generate` and commit alongside the metadata change that produced it |
 | Baselines | `tests/data/output/baseline/`, `models/sage16/modules/_tests/baseline/` | only via documented regeneration procedures (non-negotiable F), never hand-edited, justification in the commit message |
 
-Every class additionally passes through the pre-commit checklist (section 3). Long-running tiers (unit and integration, up to ~3 min each with large output) should be delegated to a subagent that captures a log and returns a pass/fail summary; scientific is fast (~30 s). Capture pattern:
+Core, property-metadata and simulation-package changes usually also fall in the Converter class. Every class additionally passes through the pre-commit checklist (section 3). Long-running tiers (unit and integration, up to ~3 min each with large output) should be delegated to a subagent that captures a log and returns a pass/fail summary; scientific is fast (~30 s). Capture pattern:
 
 ```bash
 mkdir -p archive/test-logs   # archive/ is a gitignored local dir; create it if absent
@@ -52,7 +53,7 @@ make tests-unit > archive/test-logs/tests-unit.log 2>&1; rc=$?
 echo "exit_code=$rc"
 ```
 
-Treat any non-zero exit code as failure regardless of what the log text looks like. `make tests` runs everything (clean + build + check-docs + validate-modules + all tiers); append the `summary` goal to any test target to filter output down to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS and NA are suppressed; NA means not applicable to the selected pair).
+Treat any non-zero exit code as failure regardless of what the log text looks like. `make tests` runs the core suite (clean + build + check-docs + validate-modules + the three tiers; not `tests-converter`); append the `summary` goal to any test target to filter output down to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS and NA are suppressed; NA means not applicable to the selected pair).
 
 ## 2. Non-negotiables
 
@@ -127,26 +128,36 @@ Structural work is planned under the owner's development pathway in `docs/dev/`;
 
 ## 6. What CI runs (`.github/workflows/ci.yml`)
 
-Single job on `ubuntu-latest`, triggered on push/PR to `main` and `develop`, with default selectors. Steps in order — this is exactly what gates you remotely:
+Two jobs on `ubuntu-latest`, triggered on push/PR to `main` and `develop`. This is exactly what gates you remotely.
+
+Job `test` (Build and Test), default selectors, steps in order:
 
 1. `make check-format`
 2. `make clean && make`
 3. `make check-generated`
 4. `make check-docs`
 5. `make validate-modules`
-6. `make tests-unit`
-7. `make tests-integration`
-8. `make tests-scientific` with `MIMIC_BASELINE_RTOL=1e-3` — the physics baseline was generated on macOS and Linux libm/compiler reproduces it only to ~7e-4 relative, so CI relaxes the gate above that measured noise floor; the strict 1e-6 default still applies locally, and diffs in (1e-6, 1e-3] surface as warnings.
+6. `make tests-converter` (not part of `make tests`)
+7. `make tests-unit`
+8. `make tests-integration`
+9. `make tests-scientific` with `MIMIC_BASELINE_RTOL=1e-3` — the physics baseline was generated on macOS and Linux libm/compiler reproduces it only to ~7e-4 relative, so CI relaxes the gate above that measured noise floor; the strict 1e-6 default still applies locally, and diffs in (1e-6, 1e-3] surface as warnings.
+
+Job `horizontal-v3` (45 min timeout), needs no real dataset:
+
+1. `make tests-horizontal-v3`
+2. `make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-integration`, requiring four named horizontal-run cases to PASS
+3. `make tests-snapshot-global`
+4. `make tests-distributed` with `MPIRUN="mpirun --oversubscribe"`
 
 Notes: `make` runs `lint-parameters` automatically as pre-build validation, so CI's build step covers it. Memory-leak gating happens inside the test suites themselves (C unit tests call `check_memory_leaks()` in-process; integration tests assert against each run's captured output). If local validation followed section 1, CI holds no surprises except the Linux-vs-macOS tolerance band.
 
 ## Provenance and maintenance
 
-Verified against the live repo on 2026-07-03. Re-verify before relying on volatile specifics:
+Verified against the live repo on 2026-07-03; §6 re-verified against `ci.yml` on 2026-10-20. Re-verify before relying on volatile specifics:
 
 ```bash
 grep -n 'DEFAULT_MODEL\|DEFAULT_SIMULATION' Makefile             # current default selectors
-grep -n 'name:' .github/workflows/ci.yml | head -20              # CI step list still as documented
+grep -n 'name:' .github/workflows/ci.yml                        # CI jobs and step list still as documented
 rg -n 'SAGE parity' models/sage16/ src/core/ | wc -l             # parity-comment count
 rg -n 'weaken errors into warnings|Never simplify failing' docs/STYLE-GUIDE.md
 rg -n 'Repository Boundaries' docs/STYLE-GUIDE.md

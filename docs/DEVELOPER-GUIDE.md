@@ -1283,7 +1283,7 @@ Commands, routes, field selection and restart behaviour are in the converter man
 
 ## Testing
 
-Mimic uses three test tiers. Every tier runs the core tests, selected-simulation tests under `simulations/<SIMULATION>/_tests/`, and, for full-validation simulations, tests declared by the selected model package. Empty generated lists are valid; if a simulation or model has no tests in a tier, that tier still runs the core tests and exits successfully. Unit and integration tiers can each take about three minutes; scientific validation is usually shorter, around tens of seconds for the shipped configuration. The quick-reference version of this section is [tests/README.md](../tests/README.md).
+Mimic uses three test tiers, plus a separate converter suite. Every tier runs the core tests, selected-simulation tests under `simulations/<SIMULATION>/_tests/`, and, for full-validation simulations, tests declared by the selected model package. Empty generated lists are valid; if a simulation or model has no tests in a tier, that tier still runs the core tests and exits successfully. Unit and integration tiers can each take about three minutes; scientific validation is usually shorter, around tens of seconds for the shipped configuration. The quick-reference version of this section is [tests/README.md](../tests/README.md).
 
 | Tier | Command | Scope |
 | --- | --- | --- |
@@ -1292,11 +1292,13 @@ Mimic uses three test tiers. Every tier runs the core tests, selected-simulation
 | Scientific | `make tests-scientific` | Core scientific contracts plus selected-simulation and selected-model scientific regressions |
 | Converter | `make tests-converter` | The converter's stdlib-unittest suite (`convert/mimic-convert/tests/`), run through `tests/framework/unittest_runner.py` so each test case emits a marker |
 
-Run everything:
+Run `check-docs`, `validate-modules` and the three tiers:
 
 ```bash
 make tests
 ```
+
+`make tests` does not run the converter suite, which takes about 6 min; CI does. Run `make tests-converter` by hand when a change touches `convert/mimic-convert/` or a Mimic file the suite reads, builds or runs through: `src/` (drift guards read `src/core/core_properties.yaml` and `src/io/vertical/read_ctrees_hdf5.c`; the acceptance tests compile core, util and vertical-reader sources through `tests/unit/tools/build_topology_dump.sh`), `scripts/`, the `Makefile`, `models/halos-only/`, `tests/unit/tools/`, `tests/framework/` (the marker runner), or a simulation package's metadata or `_tests/` fixtures.
 
 To see only warnings, failures, skipped tests (those that should run but cannot), and final suite outcomes, add the `summary` goal modifier (e.g. `make tests summary`).
 

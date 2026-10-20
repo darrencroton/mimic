@@ -44,13 +44,14 @@ make clean                    # Remove build artifacts
 
 ./mimic models/sage16/input/sage16_mini-millennium.yaml   # Run (see mimic-run-and-operate for flags)
 
-make tests                    # Full suite: validate-modules, converter tests, then unit/integration/scientific
+make tests                    # Core suite: check-docs, validate-modules, then unit/integration/scientific
 make tests summary            # Same, showing only warnings/failures/skips/outcomes
+make tests-converter          # Converter self-tests (~6 min); manual, not part of make tests
 ```
 
 **MODEL/SIMULATION invariant (footgun):** Mimic builds one model set and one simulation package at a time. Use the **same** `MODEL=` and `SIMULATION=` for `generate`, `validate-modules`, tests, and `make` — mixing selectors produces silently inconsistent output. Missing packages fail loudly (`Unknown MODEL` / `Unknown SIMULATION`). Defaults are `sage16` / `mini-millennium`.
 
-**Testing note:** Unit and integration tiers take up to ~3 min and produce large output — **delegate them to a subagent** that captures logs and returns a pass/fail summary; act on that in the main context. Scientific tests are fast (~30 s). Never run multiple test suites in parallel. Details, markers, and baselines: `mimic-validation-and-qa`.
+**Testing note:** Unit and integration tiers take up to ~3 min and produce large output — **delegate them to a subagent** that captures logs and returns a pass/fail summary; act on that in the main context. Scientific tests are fast (~30 s). The converter suite is manual: run `make tests-converter` when a change touches `convert/mimic-convert/` or a Mimic file it reads or builds (the list is under Testing in `docs/DEVELOPER-GUIDE.md`). Never run multiple test suites in parallel. Details, markers, and baselines: `mimic-validation-and-qa`.
 
 ---
 
