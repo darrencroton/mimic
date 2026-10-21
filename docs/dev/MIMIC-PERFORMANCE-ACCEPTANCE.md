@@ -11,6 +11,7 @@
 1. [Baseline](#baseline)
 2. [Slice 1: The reference identity gate](#slice-1-the-reference-identity-gate)
 3. [Slice 2: Dispatch cost decomposition and health read](#slice-2-dispatch-cost-decomposition-and-health-read)
+4. [Slice 3: `DEBUG_LOG` tests the level first](#slice-3-debug_log-tests-the-level-first)
 
 ---
 
@@ -177,3 +178,34 @@ The other in-file duplicates are in the phase-query and validation helpers (line
 **Cost.** No tracked change but this section. Scratch: eight worktrees under `output/perf-slice2/` (kept for Slice 3's comparison; registered with `git worktree`, not committed), and evidence under `archive/performance/slice-002/`. The main tree's default build was rebuilt afterwards: `make` and `make check-generated` exit 0.
 
 **Findings.** (1) The `DEBUG_LOG` ceiling is 7.6% / 6.5% at 12 to 15 SE, above the plan's 3.5 to 6%, because compiling the macro out removes all 103 sites; Slice 3 keeps the macro and should expect to land below this ceiling, by the residual cost of a level test per site. (2) Every post-callback safety `dispatch_events_range` call on the default run returns early (46,426,014 of 46,426,014), and every `commit_created_records` returns at `staged == 0` (no record is created), which supports Slice 4's skip-when-nothing-pending. (3) The two drivers dispatch the identical callback sequence counts, so per-callback figures carry across drivers. No go or no-go for Slice 5 is drawn here.
+
+---
+
+## Slice 3: `DEBUG_LOG` tests the level first
+
+**What changed.** `DEBUG_LOG` (`src/util/error.h`) tests an inline predicate, `debug_log_enabled()`, over the exported `mimic_log_level` before anything else, and its armed branch reads the exported `mimic_debug_log_rate_limiting` flag directly. With debug output off the macro makes no function call and evaluates none of its arguments; the per-site budget (`DEBUG_LOG_MAX_CALLS`) is spent only by a message that is emitted. `src/util/error.c` exports the two variables (renamed from the static `current_log_level` and `debug_log_rate_limiting_enabled`); `set_log_level`, `get_log_level`, `enable_`/`disable_`/`is_debug_log_rate_limiting_enabled` keep their signatures and behaviour. No call site changed. New unit test `tests/unit/test_debug_log_gate.c` (four cases, output redirected through `set_log_output`): above DEBUG a side-effecting argument is never evaluated and nothing is written, armed or not, at INFO and at FATAL; at DEBUG disarmed every call emits once; at DEBUG armed a site emits `DEBUG_LOG_MAX_CALLS` messages and exactly one suppression line; and a site called 50 times above DEBUG and then at DEBUG still emits its full budget plus the one suppression line, evaluating its argument only for the emitted messages. `docs/DEVELOPER-GUIDE.md` (Logging Macros) and `CHANGELOG.md` (a developer-facing line, no budget claim) describe it. The code commit is `f6502a90`; this record follows in a later commit, `docs/dev/` not being a runtime path.
+
+**Gate result** (2026-10-21, `make tests-reference-identity REFERENCE_COMMIT=5daa24ee` at `f6502a90`). Exit 0; eleven markers all `PASS`, of which the eight `test_leg_` markers are the legs; no FAIL, ERROR, SKIP or NA; `HEAD build flags: none`; all eight legs report zero galaxy differences and the permitted provenance differences only. Evidence: `archive/reference-identity/20261021T051059Z-ref5daa24ee-headf6502a90/evidence.json` (machine-local). The `--debug` output of the default vertical run is also unchanged: 616 lines before and after, 27 `suppressed` lines before and after, and a diff showing only the version string (`-dirty`), start time, run-time stamps, the `error.c` line number in the start-up message (93 to 96) and peak RSS.
+
+**Other validation.** `make tests summary` exit 0 (unit 603 passed, 27 n/a; integration 257 passed, 12 n/a; scientific 47 passed); `make tests-converter` exit 0 (1655 passed); `make check-docs` and `make check-format` pass; the differential `lint` verdict is `pass`. `tests/unit/run_tests.sh` builds every unit test, `test_debug_log_gate` included, with `error.c` in its `UTIL_SRCS`.
+
+### Wall-time pair (measured, n = 14, repeats 1 to 14 of 15, the plan's protocol from the main tree)
+
+`before` is the default build at `978de076` (source equal to `5daa24ee`'s), `after` the same tree with this slice, both built and run in the main tree, back to back, nothing else running.
+
+| | Vertical | Horizontal |
+|---|---|---|
+| Before | 2.7804 ± 0.0124 s (min 2.7515, max 2.8029) | 2.8763 ± 0.0114 s (min 2.8510, max 2.8898) |
+| After | 2.6004 ± 0.0136 s (min 2.5844, max 2.6389) | 2.7085 ± 0.0101 s (min 2.6962, max 2.7329) |
+| Saving (difference of means) | 0.1800 s, 6.47% | 0.1678 s, 5.83% |
+| SE of the difference | 0.0049 s (36.5 SE) | 0.0041 s (41.2 SE) |
+
+Every repeat exited 0. The after mean is below the before mean on both drivers, so the no-regression bound (at most before plus 2 SE) holds with a large margin. **Against Slice 2's ceiling** (`DEBUG_LOG` compiled out: 7.61% vertical, 6.47% horizontal) the slice recovers 6.47 of 7.61 points (85%) on the vertical driver and 5.83 of 6.47 (90%) on the horizontal one; the remainder is the level test left at each of the 103 sites and the still-present macro code at each, as Slice 2 predicted. The before means are 2.2% (vertical) and 3.5% (horizontal) above Slice 2's `base` pair and 5.6% above the plan's baseline table on both drivers, so the machine's absolute level drifts between sessions and builds in different trees; only the within-session differences are comparable, and the after means are within 1.3% of the baseline table.
+
+### Profile after (measured, 20 repeats, `attribute.py --skip-first`, vertical)
+
+`sample_runs.sh` 20 repeats (19 reports, 41,880 self-samples), `--wall-mean-s 2.6004`; `source_attribution.mapped_fraction` 1.0, `Unattributed` 0.03%. `is_debug_log_rate_limiting_enabled` is in no report (zero of the 19 sample files name it), it is absent from the 60-line hot-line table, and `error.c` has no self-time row at all in the per-file attribution (0.00%, against 3.30% at the baseline). `module_registry.c` is 28.10% (30.00% at the baseline), of which the by-galaxy `process()` call line (1603) is 2.63% and the loop and mode-test lines 1586, 1587, 1591 are 1.91, 1.50, 1.32% in the hot-line table. The Utilities component is 2.76% (numeric 1.25%, kernel `read` 1.20%, memory 0.08%). Evidence: `archive/performance/slice-003/agg.json` (machine-local).
+
+**Cost.** `git diff --stat 978de076..f6502a90`: 5 files, 275 lines added and 23 removed; code: `error.h` +31 -11, `error.c` +15 -12 (renames and two comments), the new test 226 lines, documentation 3 lines. Differential `code-health` (`--base 978de076`, Lizard 1.23.0 covered): `error.h` 97 to 102 code lines with one new function (`debug_log_enabled`, CCN 1); `error.c` unchanged in structure (19 functions, CCN sum 45, max 16 as before); the test file is 142 code lines, 10 functions, CCN sum 20, max 3, and two six-line duplicate blocks inside it (the site loops and their line-count asserts), left as they are because each scenario's setup is its own contract. No new dependency, include edge or file in `src/`. Verdict: a 23-line change to one header and its translation unit buys 5.8 to 6.5% of the default run on both drivers at 36 to 41 SE, with no call site touched and the output byte-identical.
+
+**Findings.** (1) The exported-variable design needs no new symbol beyond the two variables and the inline predicate in `error.h`; `error.c` was already in the unit runner's `UTIL_SRCS` and in the converter suite's standalone links, and both builds passed. (2) `make tests` fails two cases of `tests/integration/test_parity_gate_helpers.py` when the process's `TMPDIR` lies inside the repository tree (this run's `TMPDIR` is the slice directory under `.pm/`): the failing messages show the helper's worktree re-rooting a path that sits inside the repository, and the horizontal run then reads the original snapshot list. With `TMPDIR` outside the repository the same target exits 0 (257 integration cases passed), and the test file passes on its own. It was not re-run at the starting commit; the test exercises the `tests/framework/parity_gate.py` helpers, not logging, and the failure follows `TMPDIR`, so it is recorded as a property of the supervised environment rather than fixed, `parity_gate.py` being outside this slice's surface. (3) `scripts/profiling/nm_index.json` (a gitignored, machine-local cache) still lists the logging accessors; it is regenerated by the harness and holds no claim.
