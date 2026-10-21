@@ -2,11 +2,13 @@
  * @file    test_debug_log_gate.c
  * @brief   Unit tests for the DEBUG_LOG level gate and per-site rate-limit budget
  *
- * DEBUG_LOG has two contracts, both asserted here against log output redirected
+ * DEBUG_LOG has two contracts, asserted here against log output redirected
  * through set_log_output():
  *
  *   1. With the log level above DEBUG it does nothing: its arguments are not
- *      evaluated, no line is written, and it reaches no function in error.c.
+ *      evaluated and no line is written. (That it also calls no function in
+ *      error.c follows from the macro text in error.h, which tests the inline
+ *      predicate first; this test does not observe calls into error.c.)
  *   2. With the level at DEBUG, a call site armed for rate limiting emits its first
  *      DEBUG_LOG_MAX_CALLS messages and then exactly one suppression line; the
  *      budget is consumed only by a message that is emitted, so calls made while
@@ -20,6 +22,7 @@
 #include "../framework/test_framework.h"
 #include "../../src/util/error.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -60,13 +63,15 @@ static void count_lines(int *lines, int *suppression_lines) {
   fseek(capture, 0, SEEK_END);
 }
 
-/** @brief Discard everything captured so far */
-static void reset_capture(void) {
+/** @brief Discard everything captured so far; returns 0, or -1 after printing why it failed */
+static int reset_capture(void) {
   fflush(capture);
   if (ftruncate(fileno(capture), 0) != 0) {
-    return;
+    printf("cannot truncate the log capture file: %s\n", strerror(errno));
+    return -1;
   }
   rewind(capture);
+  return 0;
 }
 
 /**
@@ -78,7 +83,7 @@ int test_disabled_path_is_free(void) {
 
   set_log_level(LOG_LEVEL_INFO);
   disable_debug_log_rate_limiting();
-  reset_capture();
+  TEST_ASSERT(reset_capture() == 0, "the log capture file must be reset before each scenario");
   argument_evaluations = 0;
 
   for (int i = 0; i < 100; i++) {
@@ -120,7 +125,7 @@ int test_enabled_unarmed_emits_every_call(void) {
 
   set_log_level(LOG_LEVEL_DEBUG);
   disable_debug_log_rate_limiting();
-  reset_capture();
+  TEST_ASSERT(reset_capture() == 0, "the log capture file must be reset before each scenario");
   argument_evaluations = 0;
 
   const int calls = 3 * DEBUG_LOG_MAX_CALLS;
@@ -145,7 +150,7 @@ int test_armed_budget_then_one_suppression_line(void) {
 
   set_log_level(LOG_LEVEL_DEBUG);
   enable_debug_log_rate_limiting();
-  reset_capture();
+  TEST_ASSERT(reset_capture() == 0, "the log capture file must be reset before each scenario");
   argument_evaluations = 0;
 
   /* A site no earlier test has called: its static budget is untouched. */
@@ -173,7 +178,7 @@ int test_disabled_calls_do_not_spend_the_budget(void) {
    * DEBUG: the earlier tests called it unarmed (no budget) or disabled (no budget). */
   set_log_level(LOG_LEVEL_INFO);
   enable_debug_log_rate_limiting();
-  reset_capture();
+  TEST_ASSERT(reset_capture() == 0, "the log capture file must be reset before each scenario");
   argument_evaluations = 0;
 
   for (int i = 0; i < 10 * DEBUG_LOG_MAX_CALLS; i++) {
