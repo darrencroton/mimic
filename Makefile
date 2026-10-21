@@ -320,7 +320,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-reference-identity tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -506,6 +506,7 @@ help:
 	@echo "  make tests-snapshot-global-sham - Run the sham_rank_match unit and end-to-end tests under MODEL=sham on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-hod - Run the hod_populate unit and end-to-end tests under MODEL=hod on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
+	@echo "  make tests-reference-identity REFERENCE_COMMIT=<hash> - Require byte-identical galaxy output between an ancestor commit and HEAD on real mini-Millennium (manual, 8 legs; the byte gate for performance work; REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS/_LDFLAGS gate a candidate build)"
 	@echo "  make tests-distributed  - Run the distributed horizontal gate: the MPI collectives control test, serial-versus-MPI identity at -np 1, 2, 3, 4 and 8 for halos-only, sage16, sham and hod, chunked legs (input.forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3 for halos-only, sage16 and hod, with the sham/hod chunked refusal); needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; a few minutes; rebuild with make afterwards"
 	@echo "  make tests-converter    - Run the converter self-tests (manual, ~6 min; not run by make tests)"
 	@echo "  make tests summary      - Run make tests with concise warning/failure/skip output"
@@ -919,6 +920,12 @@ tests-distributed:
 # (REFERENCE_COMMIT=<hash> overrides it); writes build/snapshot_global_identity.log itself.
 tests-snapshot-global-identity:
 	@$(PYTHON) tests/manual/test_snapshot_disabled_identity.py
+
+# Manual byte identity of HEAD against a required ancestor commit (REFERENCE_COMMIT=<hash>) on the
+# real mini-Millennium data, both drivers, both models, fixed and dynamic timestepping; writes
+# build/reference_identity.log itself.
+tests-reference-identity:
+	@$(PYTHON) tests/manual/test_reference_identity.py
 
 # Reference source-dump harness: read-only, loads forests through the selected
 # vertical reader and dumps their literal link fields and core payload for the

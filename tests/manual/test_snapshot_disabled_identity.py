@@ -45,17 +45,15 @@ injected defect and accepts each control.
 
 from __future__ import annotations
 
-import contextlib
 import datetime
 import io
 import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -70,12 +68,26 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 # The per-ID Galaxies comparison is the one cross-format implementation, imported unchanged.
 import compare_cross_format_identity as comparator  # noqa: E402
-from framework import check_no_memory_leaks, run_test_suite  # noqa: E402
+from framework import check_no_memory_leaks, parity_gate, run_test_suite  # noqa: E402
 from framework.parity_gate import (  # noqa: E402
-    ParityGate,
+    ERROR_CAP,
+    NAMED_DATASETS,
+    RUN_END_TIME,
+    WORKTREE_ROOT,
+    MetadataDelta,
+    OutputRun,
+    Report,
+    attribute_signature,
+    attribute_text,
     build_pair,
+    cached_worktree,
+    canonical_bytes,
+    git,
+    links_of,
     point_output_at,
     run_logged,
+    runtime_tree_differences,
+    worktree_env,
 )
 
 #: The pre-feature reference: the last commit before the snapshot-global feature touched a
@@ -90,9 +102,6 @@ REFERENCE_COMMIT_DEFAULT = "501bac12f654d9622b797bc9b26c536e5385aca2"
 FEATURE_PATHS = ("src", "scripts", "models")
 FEATURE_SYMBOLS = r"process_snapshot|PROCESSING_MODE_SNAPSHOT|SnapshotContext|post_snapshot"
 
-#: Everything a leg's worktree builds or reads, for the uncommitted-edit check.
-RUNTIME_PATHS = (*FEATURE_PATHS, "simulations", "Makefile")
-
 #: The shipped SAGE run file every leg derives from.
 TEMPLATE = "models/sage16/input/sage16_mini-millennium.yaml"
 
@@ -106,15 +115,6 @@ MASTER = f"{OUTPUT_BASENAME}.hdf5"
 MODELS = ("halos-only", "sage16")
 SCHEMES = ("fixed", "dynamic")
 TREES = ("reference", "feature")
-
-#: Datasets the contract names for byte equality, relative to ``RunProperties``.
-NAMED_DATASETS = ("Parameters", "FieldMetadata", "EnabledModules", "EventContracts", "Redshifts")
-
-#: ``RunProperties/Version`` attributes that necessarily differ between two builds.
-VERSION_ATTRIBUTES = ("version", "git_commit", "git_branch", "git_date", "build_date")
-
-#: ``RunProperties`` attribute that necessarily differs between two runs.
-RUN_END_TIME = "RunEndTime"
 
 #: The modules line and the one line the feature-empty leg adds after it.
 MODULES_LINE = b"\nmodules:\n"
@@ -144,19 +144,12 @@ SCHEMA_DESCRIPTION_LABEL = (
     "metadata/output_schema.json: pinned UniqueGalaxyID description and its source_md5"
 )
 
-#: Errors kept per comparison in evidence.json and logged per failed leg; the count is exact.
-ERROR_CAP = 200
-
 #: Worktree registrations of this test above which a clean-up reminder is raised.
 REGISTRATION_WARNING = 50
 
 BUILD_TIMEOUT_S = 3600
 RUN_TIMEOUT_S = 3600
-GIT_TIMEOUT_S = 600
 
-# Always under the repository's gitignored output/ (created if absent): the documented cache
-# location and clean-up procedure assume it, so no fallback to the system tmp directory.
-WORKTREE_ROOT = REPO_ROOT / "output" / "snapshot-global-identity" / "worktrees"
 ARCHIVE_ROOT = REPO_ROOT / "archive" / "snapshot-global-identity"
 LOG_PATH = REPO_ROOT / "build" / "snapshot_global_identity.log"
 
@@ -197,15 +190,6 @@ def leg_name(model: str, fixture: Fixture, scheme: str) -> str:
     return f"{model}__{fixture.name}__{scheme}".replace("-", "_")
 
 
-def git(*args: str, check: bool = True, cwd: Path = REPO_ROOT) -> subprocess.CompletedProcess:
-    completed = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT_S
-    )
-    if check and completed.returncode != 0:
-        raise AssertionError(f"git {' '.join(args)} failed: {completed.stderr.strip()}")
-    return completed
-
-
 def has_feature_symbols(commit: str) -> bool:
     """True when the commit's src/, scripts/ or models/ name any feature symbol."""
     completed = git("grep", "-q", "-E", FEATURE_SYMBOLS, commit, "--", *FEATURE_PATHS, check=False)
@@ -227,16 +211,8 @@ def required_paths(commit: str) -> list[str]:
     return paths
 
 
-def resolve_reference() -> tuple[str, str, str]:
-    """(reference, HEAD, source) after every check that protects the result."""
-    explicit = os.environ.get("REFERENCE_COMMIT") or None
-    value = explicit or REFERENCE_COMMIT_DEFAULT
-    completed = git("rev-parse", "--verify", f"{value}^{{commit}}", check=False)
-    if completed.returncode != 0:
-        raise AssertionError(f"reference {value!r} is not a commit in this repository")
-    reference, head = completed.stdout.strip(), git("rev-parse", "HEAD").stdout.strip()
-    if git("merge-base", "--is-ancestor", reference, head, check=False).returncode != 0:
-        raise AssertionError(f"reference {reference} is not an ancestor of HEAD {head}")
+def check_feature_pair(reference: str, head: str) -> None:
+    """The reference carries no feature symbol, HEAD does, and both carry every selected path."""
     if has_feature_symbols(reference):
         raise AssertionError(f"reference {reference} already contains a feature symbol")
     if not has_feature_symbols(head):
@@ -245,56 +221,15 @@ def resolve_reference() -> tuple[str, str, str]:
         for path in required_paths(commit):
             if git("cat-file", "-e", f"{commit}:{path}", check=False).returncode != 0:
                 raise AssertionError(f"{commit} lacks {path}, which the legs select")
+
+
+def resolve_reference() -> tuple[str, str, str]:
+    """(reference, HEAD, source) after every check that protects the result."""
+    explicit = os.environ.get("REFERENCE_COMMIT") or None
+    reference, head = parity_gate.resolve_reference(
+        explicit or REFERENCE_COMMIT_DEFAULT, (check_feature_pair,)
+    )
     return reference, head, "REFERENCE_COMMIT" if explicit else "pinned default"
-
-
-def runtime_tree_differences() -> list[str]:
-    """Uncommitted or untracked edits to anything the worktrees build and run from.
-
-    The legs build HEAD, so such an edit would not be tested. Module test envelopes are excluded.
-    """
-    changed = git("diff", "--name-only", "HEAD", "--", *RUNTIME_PATHS).stdout.split()
-    untracked = git(
-        "ls-files", "--others", "--exclude-standard", "--", *RUNTIME_PATHS
-    ).stdout.split()
-    return [
-        path
-        for path in changed + untracked
-        if not (path.startswith("models/") and "/_tests/" in path)
-    ]
-
-
-def worktree_env(worktree: Path, model: str, simulation: str) -> dict:
-    """The gates' worktree environment, minus the caller's make state.
-
-    ``make TEST_BUILD=yes tests-snapshot-global-identity`` would otherwise reach both worktree
-    builds through MAKEFLAGS, and the evidence would describe a build other than the one claimed.
-    """
-    env = ParityGate.worktree_env(worktree, model, simulation)
-    for key in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL"):
-        env.pop(key, None)
-    return env
-
-
-def cached_worktree(commit: str, model: str, simulation: str) -> Path:
-    """The worktree for one commit and pair, created only when missing and never removed."""
-    path = WORKTREE_ROOT / f"{commit[:12]}__{model}__{simulation}"
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        git("worktree", "add", "--detach", str(path), commit)
-        ParityGate.link_machine_local(path)
-        log(f"  created worktree {path}")
-    else:
-        log(f"  reusing worktree {path}")
-    head = git("rev-parse", "HEAD", cwd=path, check=False)
-    dirty = git("diff", "--quiet", "HEAD", cwd=path, check=False).returncode
-    if head.returncode != 0 or head.stdout.strip() != commit or dirty != 0:
-        raise AssertionError(
-            f"FATAL: cached worktree {path} is not a clean checkout of {commit} "
-            f"(HEAD {head.stdout.strip() or 'unreadable'}, tracked edits: {dirty != 0}); it is not "
-            "reused. Move it to cold storage, run `git worktree prune`, and re-run."
-        )
-    return path
 
 
 def registration_warning() -> str | None:
@@ -378,183 +313,6 @@ def check_run_file(text: str, shipped: dict, model: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class OutputRun:
-    """A finished run's output directory, the path prefixes its files may embed, and the
-    property-metadata digest its build generated (``build/generated/property_hash.txt`` of
-    the producing worktree), which its ``output_schema.json`` must carry as ``source_md5``."""
-
-    directory: Path
-    prefixes: tuple[str, ...]
-    source_md5: str | None = None
-
-    def normalized(self, text: str) -> str:
-        for prefix in sorted(self.prefixes, key=len, reverse=True):
-            text = text.replace(prefix, "<PREFIX>")
-        return text
-
-    def embeds_prefix(self, text: str) -> bool:
-        return any(prefix in text for prefix in self.prefixes)
-
-
-@dataclass
-class Report:
-    """The outcome of one comparison: failures, named permitted differences and counts."""
-
-    errors: list[str] = field(default_factory=list)
-    permitted: list[str] = field(default_factory=list)
-    datasets_compared: list[str] = field(default_factory=list)
-    files: int = 0
-    links: int = 0
-    snapshots: int = 0
-    galaxies: int = 0
-    fields: int = 0
-    galaxy_differences: int = 0
-
-    def error(self, message: str) -> None:
-        self.errors.append(message)
-
-    def allow(self, message: str) -> None:
-        if message not in self.permitted:
-            self.permitted.append(message)
-
-    def summary(self) -> dict:
-        return {
-            "errors": len(self.errors),
-            "permitted_differences": sorted(self.permitted),
-            "named_datasets_compared": sorted(set(self.datasets_compared)),
-            "files": self.files,
-            "master_links": self.links,
-            "output_snapshots": self.snapshots,
-            "galaxies": self.galaxies,
-            "fields": self.fields,
-            "galaxy_differences": self.galaxy_differences,
-        }
-
-
-def relative_files(root: Path) -> list[str]:
-    return sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
-
-
-def attribute_signature(value, stored=None) -> tuple:
-    """(dtype, shape, bytes) of an attribute; strings carry their HDF5 encoding.
-
-    With ``stored`` (the attribute's HDF5 id) the dtype and shape are the stored ones: a scalar
-    fixed-length string otherwise comes back sized to its content.
-    """
-    array = numpy.asarray(value)
-    shape = tuple(stored.shape) if stored is not None else array.shape
-    info = h5py.check_string_dtype(stored.dtype) if stored is not None else None
-    encoding = f":{info.encoding}" if info is not None else ""
-    if array.dtype.kind == "O":
-        items = [item.encode() if isinstance(item, str) else bytes(item) for item in array.ravel()]
-        return ("O" + encoding, shape, b"\0".join(items))
-    dtype = stored.dtype.str if stored is not None else array.dtype.str
-    return (dtype + encoding, shape, array.tobytes())
-
-
-def attribute_text(signature: tuple) -> str:
-    """The attribute's text when it is a string, else empty (for path-prefix reasoning)."""
-    dtype, _shape, payload = signature
-    if dtype.startswith(("O", "|S", "<U")):
-        return payload.decode(errors="replace").rstrip("\0")
-    return ""
-
-
-def dtype_signature(dtype: numpy.dtype):
-    """A dtype's full layout: for a compound, its size and each field's name, base type, shape
-    and offset, so field-by-field byte equality means the same record."""
-    if not dtype.names:
-        return dtype.str
-    fields = []
-    for name in dtype.names:
-        item, offset = dtype.fields[name][:2]
-        base, shape = item.subdtype if item.subdtype is not None else (item, ())
-        fields.append((name, base.str, tuple(shape), offset))
-    return (dtype.itemsize, tuple(fields))
-
-
-def canonical_bytes(array: numpy.ndarray) -> bytes:
-    """Dataset content as bytes, field by field so compound padding is never compared."""
-    if array.dtype.names:
-        return b"".join(canonical_bytes(array[name]) for name in array.dtype.names)
-    if array.dtype.kind == "O":
-        return b"\0".join(
-            item.encode() if isinstance(item, str) else bytes(item) for item in array.ravel()
-        )
-    return numpy.ascontiguousarray(array).tobytes()
-
-
-def objects_of(handle: h5py.File) -> dict[str, h5py.HLObject]:
-    found: dict[str, h5py.HLObject] = {"/": handle["/"]}
-    handle.visititems(lambda name, obj: found.__setitem__(name, obj))
-    return found
-
-
-def links_of(handle: h5py.File) -> dict[str, tuple]:
-    """Every link by name: its type, and for soft and external links its target."""
-    found: dict[str, tuple] = {}
-
-    def visit(name, link):
-        found[name] = (
-            type(link).__name__,
-            getattr(link, "filename", ""),
-            getattr(link, "path", ""),
-        )
-
-    handle.visititems_links(visit)
-    return found
-
-
-def permitted_attribute(path: str, name: str) -> str | None:
-    """The label of an attribute that may differ in value (never in dtype or shape), or None."""
-    if path == "RunProperties/Version" and name in VERSION_ATTRIBUTES:
-        return f"RunProperties/Version@{name}"
-    if path == "RunProperties" and name == RUN_END_TIME:
-        return f"RunProperties@{RUN_END_TIME}"
-    return None
-
-
-def compare_attributes(where: str, path: str, a, b, base: OutputRun, other: OutputRun, report):
-    names_a, names_b = set(a.attrs), set(b.attrs)
-    if names_a != names_b:
-        report.error(
-            f"{where}:{path}: attribute names differ (only baseline {sorted(names_a - names_b)}, "
-            f"only candidate {sorted(names_b - names_a)})"
-        )
-    for name in sorted(names_a & names_b):
-        left = attribute_signature(a.attrs[name], a.attrs.get_id(name))
-        right = attribute_signature(b.attrs[name], b.attrs.get_id(name))
-        if left == right:
-            continue
-        same_type = left[:2] == right[:2]
-        label = permitted_attribute(path, name)
-        if label is not None:
-            if same_type:
-                report.allow(label)
-            else:
-                report.error(
-                    f"{where}:{path}@{name}: permitted attribute changed dtype or shape "
-                    f"({left[:2]} != {right[:2]}); only its value may differ"
-                )
-            continue
-        text_a, text_b = attribute_text(left), attribute_text(right)
-        if (
-            path == "RunProperties"
-            and same_type
-            and text_a
-            and text_b
-            and base.embeds_prefix(text_a)
-            and other.embeds_prefix(text_b)
-            and base.normalized(text_a) == other.normalized(text_b)
-        ):
-            report.allow(f"path-valued attribute {path}@{name} (path prefix only)")
-            continue
-        report.error(
-            f"{where}:{path}@{name}: {left[:2]} {left[2][:60]!r} != {right[:2]} {right[2][:60]!r}"
-        )
-
-
 def pinned_description_delta(left: numpy.ndarray, right: numpy.ndarray) -> bool:
     """Two FieldMetadata tables that differ only in the pinned description cell (before -> after)."""
     if left.dtype != right.dtype or left.shape != right.shape or left.dtype.names is None:
@@ -606,155 +364,44 @@ def pinned_schema_delta(left: bytes, right: bytes, base: OutputRun, other: Outpu
     return before == after
 
 
-def compare_hdf5_file(rel: str, base: OutputRun, other: OutputRun, report: Report) -> None:
-    """Links, objects, attributes and non-Galaxies dataset bytes of one HDF5 file pair."""
-    with h5py.File(base.directory / rel, "r") as fa, h5py.File(other.directory / rel, "r") as fb:
-        links_a, links_b = links_of(fa), links_of(fb)
-        report.links += sum(1 for kind, _, _ in links_a.values() if kind == "ExternalLink")
-        for name in sorted(set(links_a) | set(links_b)):
-            if links_a.get(name) != links_b.get(name):
-                report.error(
-                    f"{rel}:{name}: external link or link type differs "
-                    f"({links_a.get(name)} != {links_b.get(name)})"
-                )
-        objects_a, objects_b = objects_of(fa), objects_of(fb)
-        if set(objects_a) != set(objects_b):
-            report.error(
-                f"{rel}: HDF5 objects differ (only baseline "
-                f"{sorted(set(objects_a) - set(objects_b))}, only candidate "
-                f"{sorted(set(objects_b) - set(objects_a))})"
-            )
-        for path in sorted(set(objects_a) & set(objects_b)):
-            left, right = objects_a[path], objects_b[path]
-            if isinstance(left, h5py.Dataset) != isinstance(right, h5py.Dataset):
-                report.error(f"{rel}:{path}: one side is a group, the other a dataset")
-                continue
-            compare_attributes(rel, path, left, right, base, other, report)
-            if not isinstance(left, h5py.Dataset):
-                continue
-            if dtype_signature(left.dtype) != dtype_signature(right.dtype):
-                report.error(f"{rel}:{path}: dataset dtype differs")
-            elif left.shape != right.shape:
-                report.error(f"{rel}:{path}: shape {left.shape} != {right.shape}")
-            elif not path.endswith("/Galaxies"):  # Galaxies are compared per ID
-                leaf = path.removeprefix("RunProperties/")
-                if path.startswith("RunProperties/") and leaf in NAMED_DATASETS:
-                    report.datasets_compared.append(leaf)
-                if canonical_bytes(left[()]) != canonical_bytes(right[()]):
-                    if leaf == "FieldMetadata" and pinned_description_delta(left[()], right[()]):
-                        report.allow(DESCRIPTION_LABEL)
-                    else:
-                        report.error(f"{rel}:{path}: dataset bytes differ")
+def dataset_delta(leaf: str, left: numpy.ndarray, right: numpy.ndarray) -> str | None:
+    """The one permitted dataset delta: the pinned UniqueGalaxyID description in FieldMetadata."""
+    if leaf == "FieldMetadata" and pinned_description_delta(left, right):
+        return DESCRIPTION_LABEL
+    return None
 
 
-def compare_galaxies(base: OutputRun, other: OutputRun, report: Report) -> None:
-    """Per-ID byte identity through the cross-format comparator; its report lines are errors."""
-    left = comparator.scan_run(str(base.directory / OUTPUT_BASENAME))
-    right = comparator.scan_run(str(other.directory / OUTPUT_BASENAME))
-    labels = ("baseline", "candidate")
+def metadata_delta(empty_leg: bool) -> MetadataDelta:
+    """The battery's two metadata allowances: the added empty list and the pinned schema delta."""
 
-    def captured(call) -> tuple[int, str]:
-        buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
-            failures = call()
-        return failures, " | ".join(line.strip() for line in buffer.getvalue().splitlines())
+    def judge(rel: str, left: bytes, right: bytes, base: OutputRun, other: OutputRun, report):
+        if rel == f"metadata/{RUN_FILE_NAME}" and empty_leg:
+            if MODULES_LINE in left and right == with_empty_list(left):
+                report.allow(EMPTY_LIST_LABEL)
+            else:
+                report.error(f"{rel}: differs from the baseline in more than the added empty list")
+            return True
+        if rel == "metadata/output_schema.json" and left != right:
+            if pinned_schema_delta(left, right, base, other):
+                report.allow(SCHEMA_DESCRIPTION_LABEL)
+            else:
+                report.error(f"{rel}: output schema differs")
+            return True
+        return False
 
-    for label, index in zip(labels, (left, right)):
-        failures, text = captured(
-            lambda i=index, n=label: comparator.report_run_duplicates(n, i, ERROR_CAP)
-        )
-        if failures:
-            report.error(f"galaxies: {text}")
-            report.galaxy_differences += failures
-    if report.galaxy_differences:
-        return
-    if left.signature != right.signature:
-        report.error("galaxies: Galaxies record schema differs")
-        return
-    if left.snapshots != right.snapshots:
-        report.error(
-            f"galaxies: output snapshots differ (only baseline "
-            f"{sorted(left.snapshots - right.snapshots)}, only candidate "
-            f"{sorted(right.snapshots - left.snapshots)})"
-        )
-    shared = sorted(left.snapshots & right.snapshots)
-    report.snapshots, report.fields = len(shared), len(left.dtype.names)
-    for snap in shared:
-        records_left = comparator.read_snapshot(left, snap)
-        records_right = comparator.read_snapshot(right, snap)
-        failures, text = captured(
-            lambda s=snap, a=records_left, b=records_right: comparator.compare_snapshot(
-                s, a, b, labels, ERROR_CAP
-            ).failures
-        )
-        if failures:
-            report.error(f"galaxies: {text}")
-            report.galaxy_differences += failures
-        else:
-            report.galaxies += records_left.size
-
-
-def compare_metadata_file(rel: str, base: OutputRun, other: OutputRun, empty_leg: bool, report):
-    left, right = (base.directory / rel).read_bytes(), (other.directory / rel).read_bytes()
-    if rel == "metadata/version_info.json":
-        if left != right:
-            report.allow(rel)
-        for label, raw in (("baseline", left), ("candidate", right)):
-            if not isinstance(json.loads(raw), dict):
-                report.error(f"{rel}: {label} is not a JSON object")
-        return
-    if rel == f"metadata/{RUN_FILE_NAME}" and empty_leg:
-        if MODULES_LINE in left and right == with_empty_list(left):
-            report.allow(EMPTY_LIST_LABEL)
-        else:
-            report.error(f"{rel}: differs from the baseline in more than the added empty list")
-        return
-    if left == right:
-        return
-    if rel == "metadata/output_schema.json":
-        if pinned_schema_delta(left, right, base, other):
-            report.allow(SCHEMA_DESCRIPTION_LABEL)
-        else:
-            report.error(f"{rel}: output schema differs")
-        return
-    text_left, text_right = left.decode(errors="replace"), right.decode(errors="replace")
-    if (
-        base.embeds_prefix(text_left)
-        and other.embeds_prefix(text_right)
-        and base.normalized(text_left) == other.normalized(text_right)
-    ):
-        report.allow(f"{rel}: path prefix only")
-    else:
-        report.error(f"{rel}: content differs beyond the path prefix")
+    return judge
 
 
 def compare_outputs(base: OutputRun, other: OutputRun, empty_leg: bool = False) -> Report:
     """Compare a candidate run with the baseline; every failure is in ``Report.errors``."""
-    report = Report()
-    files_left, files_right = relative_files(base.directory), relative_files(other.directory)
-    if files_left != files_right:
-        report.error(
-            f"file sets differ (only baseline {sorted(set(files_left) - set(files_right))}, "
-            f"only candidate {sorted(set(files_right) - set(files_left))})"
-        )
-    shared = sorted(set(files_left) & set(files_right))
-    report.files = len(shared)
-    if empty_leg and f"metadata/{RUN_FILE_NAME}" not in shared:
-        report.error(f"the empty-list leg has no copied run YAML metadata/{RUN_FILE_NAME}")
-    for rel in shared:
-        if rel.endswith(".hdf5"):
-            compare_hdf5_file(rel, base, other, report)
-        elif rel.startswith("metadata/"):
-            compare_metadata_file(rel, base, other, empty_leg, report)
-        elif (base.directory / rel).read_bytes() != (other.directory / rel).read_bytes():
-            report.error(f"{rel}: content differs")
-    try:
-        compare_galaxies(base, other, report)
-    except comparator.ComparisonError as error:
-        report.error(f"galaxy comparison could not read an output: {error}")
-    if report.galaxies <= 0 and not report.errors:
-        report.error("no galaxies compared")
-    return report
+
+    def require_run_yaml(shared: list[str], report: Report) -> None:
+        if empty_leg and f"metadata/{RUN_FILE_NAME}" not in shared:
+            report.error(f"the empty-list leg has no copied run YAML metadata/{RUN_FILE_NAME}")
+
+    return parity_gate.compare_outputs(
+        base, other, dataset_delta, metadata_delta(empty_leg), require_run_yaml
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -833,7 +480,7 @@ class Identity:
             commit = self.commits[tree]
             for model in MODELS:
                 for simulation in (fixture.simulation for fixture in FIXTURES):
-                    worktree = cached_worktree(commit, model, simulation)
+                    worktree = cached_worktree(commit, model, simulation, log_line=log)
                     key = f"{tree}__{model}__{simulation}"
                     started = time.monotonic()
                     env = worktree_env(worktree, model, simulation)

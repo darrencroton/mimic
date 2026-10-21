@@ -1300,6 +1300,8 @@ make tests
 
 `make tests` does not run the converter suite, which takes about 6 min; CI does. Run `make tests-converter` by hand when a change touches `convert/mimic-convert/` or a Mimic file the suite reads, builds or runs through: `src/` (drift guards read `src/core/core_properties.yaml` and `src/io/vertical/read_ctrees_hdf5.c`; the acceptance tests compile core, util and vertical-reader sources through `tests/unit/tools/build_topology_dump.sh`), `scripts/`, the `Makefile`, `models/halos-only/`, `tests/unit/tools/`, `tests/framework/` (the marker runner), or a simulation package's metadata or `_tests/` fixtures.
 
+A change that must not move a result (an optimisation, a build-flag change, a refactor) is gated by `make tests-reference-identity REFERENCE_COMMIT=<hash>`, a manual test that builds an ancestor commit and HEAD and requires per-`UniqueGalaxyID` byte identity, with the same files, HDF5 objects, attributes and metadata, on real mini-Millennium under both drivers, both models and fixed and dynamic timestepping; it needs the `snapshots` data links and no uncommitted edit under `src/`, `models/`, `simulations/`, `scripts/` or the `Makefile` ([tests/README.md](../tests/README.md) describes it).
+
 To see only warnings, failures, skipped tests (those that should run but cannot), and final suite outcomes, add the `summary` goal modifier (e.g. `make tests summary`).
 
 Summary mode works by filtering for structured result markers. Every test emits one of:
