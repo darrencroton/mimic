@@ -33,6 +33,7 @@
 #include "fof_workspace.h"
 #include "galaxy_pool.h"
 #include "globals.h"
+#include "output_buffer.h"
 #include "types.h"
 #include "proto.h"
 #include "run_profile.h"
@@ -160,26 +161,33 @@ void load_unit(int unit) {
    * All allocations use MEM_HALOS except InputTreeHalos (MEM_TREES).
    */
 
-  MaxProcessedHalos = (int64_t)MAXHALOFAC * InputTreeNHalos[unit];
-  if (MaxProcessedHalos < MIN_HALO_ARRAY_GROWTH)
-    MaxProcessedHalos = MIN_HALO_ARRAY_GROWTH;
+  /* The output buffer is seeded by the rule the horizontal driver shares. */
+  if (!output_buffer_seed_capacity(InputTreeNHalos[unit], &MaxProcessedHalos))
+    FATAL_ERROR("Tree %d of the open partition holds %d halos, too many for its output buffer "
+                "seed to be counted in int64_t",
+                unit, InputTreeNHalos[unit]);
 
-  int64_t fof_capacity = INITIAL_FOF_HALOS;
-  const int64_t fof_from_processed = (int64_t)(0.1 * (double)MaxProcessedHalos);
-  if (fof_from_processed > fof_capacity)
-    fof_capacity = fof_from_processed;
-  /* Never seed above the ceiling fof_workspace_reserve() enforces on growth. */
+  /* The FoF workspace seed is its own rule, not derived from the output seed:
+   * half the forest's halos, floored at INITIAL_FOF_HALOS and never above the
+   * ceiling fof_workspace_reserve() enforces on growth. Changing it changes
+   * which trees grow the workspace. */
+  int64_t fof_capacity = (int64_t)InputTreeNHalos[unit] / 2;
+  if (fof_capacity < INITIAL_FOF_HALOS)
+    fof_capacity = INITIAL_FOF_HALOS;
   if (fof_capacity > MAX_HALO_ARRAY_SIZE)
     fof_capacity = MAX_HALO_ARRAY_SIZE;
 
   HaloAux = mymalloc_cat(sizeof(struct HaloAuxData) * InputTreeNHalos[unit], MEM_HALOS);
 
+  /* Not zero-filled: no row at or past NumProcessedHalos is ever read.
+   * marshal_workspace_to_output_buffer() writes each row whole, by struct copy,
+   * before it counts it, and grows the buffer through myrealloc_cat without
+   * zeroing the tail; every reader is bounded by that count -- save_halos() and
+   * save_halos_hdf5() loop to NumProcessedHalos, and gather_progenitor_galaxies()
+   * reads only a progenitor's marshalled FirstHalo/NHalos range. The NULL galaxy
+   * pointers the dispatch loop tests are on the FoF workspace, zero-filled below.
+   * `C` notes the seeded capacity whether or not it becomes resident. */
   ProcessedHalos = mymalloc_cat((size_t)MaxProcessedHalos * sizeof(struct Halo), MEM_HALOS);
-  memset(ProcessedHalos, 0,
-         (size_t)MaxProcessedHalos * sizeof(struct Halo)); /* NULL galaxy pointers */
-  /* The memset above makes the whole allocation resident immediately, so the
-   * seeded capacity counts towards the run memory profile even for a unit that
-   * marshals nothing. */
   run_profile_note_output_buffer(0, MaxProcessedHalos, sizeof(struct Halo));
 
   struct FoFWorkspace *ws = &VerticalFoFWorkspace;

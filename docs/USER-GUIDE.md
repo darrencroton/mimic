@@ -151,8 +151,8 @@ During tree processing Mimic prints a banner line summarising the configured inp
 
 ```text
 Run memory profile (GB = 1e9 B):
-  Peak process RSS: 0.065 GB
-  Output buffer capacity C: 74345 records at 176 B = 0.013 GB
+  Peak process RSS: 0.037 GB
+  Output buffer capacity C: 15869 records at 184 B = 0.003 GB
   Output population P: 14648 records
   Galaxy pool high-water G: 15525 galaxies at 176 B = 0.003 GB
   Galaxy pool allocated: 24576 slots in 2 chunks = 0.004 GB (36.8% chunk slack)
@@ -162,7 +162,7 @@ Run memory profile (GB = 1e9 B):
 | Line | Meaning |
 | --- | --- |
 | Peak process RSS | The largest resident memory the process reached, from the operating system. This is the number to plan a large run against — it includes everything, whereas the lines below cover only the two structures whose size cannot be derived from the input count |
-| Output buffer capacity `C` | Records the output buffer was sized to hold. It is allocated ahead of need and grows geometrically, so it normally exceeds `P` by a wide margin |
+| Output buffer capacity `C` | Records the output buffer was sized to hold. It is seeded at the input size plus 5% headroom (at least 1,000 records) and grows geometrically if the output outgrows that, so it is at least `P` and normally only modestly above it |
 | Output population `P` | The largest population any one live buffer reached: galaxies emitted plus orphans carried forward. Scoped to whatever the driver keeps live — one snapshot for horizontal input, one tree for vertical — not a run-wide total |
 | Galaxy pool high-water `G` | The most galaxies live at once. It can exceed `P`, because galaxies consumed by mergers are allocated but never written |
 | Galaxy pool allocated | What the pool holds resident, and how much of that is unused slack in its last chunk |

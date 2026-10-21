@@ -8,7 +8,10 @@
  * marshal_workspace_to_output_buffer() transfers surviving workspace halos
  * (excluding Type 3) into the driver-owned output buffer, growing it when
  * needed, and fills each segment's output_first/output_count fields.
+ * output_buffer_seed_capacity() is the seed rule both drivers size it by.
  */
+
+#include <stdint.h>
 
 #include "types.h"
 
@@ -57,5 +60,39 @@ struct OutputBufferSegment {
  */
 void marshal_workspace_to_output_buffer(const struct FoFWorkspace *ws, struct OutputBuffer *buffer,
                                         struct OutputBufferSegment *segments, int64_t nsegments);
+
+/*
+ * The output buffer's seed capacity for a unit of `nhalos` input halos (a tree
+ * under the vertical driver, a snapshot slab under the horizontal driver): the
+ * halos plus OUTPUT_SEED_HEADROOM of them, the headroom floored at
+ * MIN_HALO_ARRAY_GROWTH, clamped at MAX_HALO_ARRAY_SIZE unless `nhalos` is
+ * already past it, when only the minimum growth increment is added. A buffer
+ * whose output outgrows the seed grows in marshal_workspace_to_output_buffer().
+ * Returns 0 on int64_t overflow, which only `nhalos` within
+ * MIN_HALO_ARRAY_GROWTH of INT64_MAX can reach; the caller treats it as fatal.
+ *
+ * Inline in the header so a harness that links a driver's loader without
+ * output_buffer.c still links the rule.
+ */
+static inline int output_buffer_seed_capacity(int64_t nhalos, int64_t *capacity) {
+  if (nhalos > MAX_HALO_ARRAY_SIZE) {
+    if (MIN_HALO_ARRAY_GROWTH > INT64_MAX - nhalos) {
+      return 0;
+    }
+    *capacity = nhalos + MIN_HALO_ARRAY_GROWTH;
+    return 1;
+  }
+
+  int64_t seed_headroom = (int64_t)((double)nhalos * OUTPUT_SEED_HEADROOM);
+  if (seed_headroom < MIN_HALO_ARRAY_GROWTH) {
+    seed_headroom = MIN_HALO_ARRAY_GROWTH;
+  }
+  int64_t seed_capacity = nhalos + seed_headroom;
+  if (seed_capacity > MAX_HALO_ARRAY_SIZE) {
+    seed_capacity = MAX_HALO_ARRAY_SIZE;
+  }
+  *capacity = seed_capacity;
+  return 1;
+}
 
 #endif /* CORE_OUTPUT_BUFFER_H */
