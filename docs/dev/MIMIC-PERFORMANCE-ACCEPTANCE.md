@@ -13,6 +13,7 @@
 3. [Slice 2: Dispatch cost decomposition and health read](#slice-2-dispatch-cost-decomposition-and-health-read)
 4. [Slice 3: `DEBUG_LOG` tests the level first](#slice-3-debug_log-tests-the-level-first)
 5. [Slice 4: Init-time phase plans in `execute_phase`, measured against the guards](#slice-4-init-time-phase-plans-in-execute_phase-measured-against-the-guards)
+6. [Slice 5: Dispatch residual (no-go)](#slice-5-dispatch-residual-no-go)
 
 ---
 
@@ -260,3 +261,55 @@ Every repeat exited 0. The after mean is below the before mean on both drivers, 
 **Cost.** `git diff --stat 614e7ff4..0b76a45b`: 5 files, 184 lines added and 57 removed; `module_registry.c` +166 −51 (of the added lines, 43 are comments and 13 blank), `module_registry.h` +6 (documentation), and 12 documentation lines in the guide, skill and changelog. Differential `code-health` (`health.py analyze --base 614e7ff4`, Lizard 1.23.0; `module_registry.c` and `.h` are byte-identical between `614e7ff4` and Slice 2's `74d9376d`, so Slice 2's figures are this slice's baseline): `module_registry.c` 1,322 to 1,386 code lines, 67 to 71 functions; **`execute_phase` CCN 17 to 16** (below its baseline), `dispatch_events_range` 14 to 12, `module_system_init` (6), `free_phase_configuration` (16), `module_system_cleanup` (4) and the begin/end pair (2, 2) unchanged in CCN; four new helpers, `build_phase_plan_visitor` 6, `find_phase_plan` 4, `collect_phase_mode` 3, `release_phase_plans` 2. **The file's CCN sum rises from 351 to 363** (+12: +15 in the new helpers, −3 in the two dispatch functions); the maximum stays 17 (`module_emit_event`). Duplicate windows touching the file fall from 10 signatures to 9: the removed one is the `execute_phase` unresolved-entry block. No new include, dependency or file. **Justification of the rise:** the +12 is startup-only code (building, finding and releasing the plans), run once per initialisation and once per `execute_phase` call for the lookup, against a measured saving over the guards alone of 2.94% (vertical) and 2.24% (horizontal) at 7 to 11 SE, and of 4.6% / 4.3% over `before_head`; the hot path itself lost complexity (CCN −3) and its duplicated block. Verdict: a 115-line net change to one translation unit takes about 4.5% off the default run on both drivers at 17 to 22 SE, removes every per-call mode test and the duplicated unresolved-entry block, and keeps the output byte-identical, at the price of a small read-only startup table with one owner and one release path.
 
 **Findings.** (1) The guards alone measured −1.68% (V) and −2.15% (H); the plan's extra saving over them (−2.94% / −2.24%) is the per-call mode re-scan of PASS 1 and PASS 2 that the guards leave in place. (2) The plan lookup is now a visible line (1.31%): a linear search over at most three keys on the default run, measured inside the totals above; Slice 5 measures what remains. (3) `execute_phase` now raises `FATAL_ERROR` for a non-empty phase configuration it has no plan for, including when called with an empty workspace or a NULL context, where it previously returned; every caller in the tree passes a phase that has been through `module_system_init()`, and no test needed a change. (4) The supervised environment's `python3` lacks PyYAML; the fuzzer must be run with `mimic_venv/bin/python3`. (5) Scratch worktrees `output/perf-slice4-r6/*` (registered with `git worktree`, not committed) and evidence under `archive/performance/slice-004-r6/` are kept, machine-local.
+
+---
+
+## Slice 5: Dispatch residual (no-go)
+
+**Verdict: no-go.** The per-callback bookkeeping in `module_registry.c` that the plan names as removable is below the 2% threshold on the default run. No source file changed; this section is the slice's only tracked change.
+
+### Profile at `before_head` (measured, 20 repeats, `attribute.py --skip-first`, vertical)
+
+`before_head` is `75e2a9bb`, whose `src/`, `models/`, `simulations/`, `scripts/` and `Makefile` equal Slice 4's code commit `0b76a45b`. The default build was rebuilt in the main tree (`make -j16`, exit 0; the binary carries the plan's `FATAL_ERROR` string), `nm_index.py` refreshed, then `run_wall.py` 15 repeats (repeats 1 to 14: 2.3491 ± 0.0467 s, min 2.3180, max 2.5079) and `sample_runs.sh` 20 repeats (19 reports, 33,311 self-samples), attributed with `--wall-mean-s 2.3491`; `source_attribution.mapped_fraction` 1.0, `Unattributed` 0.02%.
+
+| Component | Share |
+|---|---|
+| Physics modules | 51.76% ± 0.39 |
+| Core execution, of which `module_registry.c` | 30.61% ± 0.30, 25.27% ± 0.28 (594 ms equivalent) |
+| Math library | 5.15% |
+| Output I/O | 4.69% |
+| Runtime/system | 3.60% |
+| Utilities, of which `numeric.c` | 3.16%, 1.59% |
+| Vertical input I/O | 0.81% |
+
+`module_registry.c` is 25.27% against Slice 4's after-profile 25.79% (`archive/performance/slice-004-r6/agg.json`), the same code within the sampling error. Its hottest lines: the by-galaxy `process()` call (1715) 3.92%, the by-galaxy list loop (1707) 2.58%, the function entry (1648) 1.60%, the full-halo list loop (1667) 1.55%, the function exit (1725) 1.51%, the plan lookup (1653) 1.23%, the by-galaxy `DEBUG_LOG` level test (1710) 1.21%; `execute_module_pipeline`'s phase loop (1810, 1811, 1817) is 1.62% together. Evidence: `archive/performance/slice-005/agg.json`, the per-line decomposition `registry_lines.out` and the caller attribution of `numeric.c` `narrow_callers.out` (machine-local).
+
+### The 2% threshold applied to the named lines
+
+Line numbers are `before_head`'s. Each share is self-time as a percentage of the run's self-samples. `narrow_int64_to_int_checked()` is a cross-unit call into `src/util/numeric.c`, so its own time is attributed there and is added back to its caller line below. The objdump of `execute_phase` (`archive/performance/slice-005/execute_phase.dis`) names the instructions on each line.
+
+| Named candidate | Lines | Share on those lines | Removable without contract change |
+|---|---|---|---|
+| `workspace_callback_count()` per full-halo module | 1670 | 0.102%, plus 0.862% in `narrow_int64_to_int_checked` called from 1670: **0.964%** | All of it: the count is already narrowed into `phase_event_state.ngal` once per phase (1664) and after each commit (`commit_created_records`). The per-phase call at 1664 (0.985% + 0.357%, shared with the inlined `begin_phase_event_dispatch`) is once per phase and not a candidate |
+| `record_creation.ctx` / `.ws` stores per module | 1678, 1679 (one `stp`) | **0.000%** (no sample) | All of it, for no measurable gain |
+| `enter_callback` / `leave_callback` per callback | 1680 and 1682 (full-halo), 1714 and 1716 (by-galaxy) | 0.925% + 0.000% + 0.648% + 0.934% = 2.507% | Only the save of the prior state (one `ldp` per callback, inside 1680 and 1714) and its restore (one `stp`, the whole of 1682 and 1716). The other instructions on 1680 and 1714 load the module's name and store the kind and the name, which `module_registry_running_callback()` must report during every callback. 1716's `stp` is the first instruction after the indirect call returns, so its samples include the return's own cost, which no layout removes |
+
+**Sum.** With the save counted as its line's instruction share (one of five on 1680 and on 1714) and 1716's post-return samples as return cost: 0.964 + 0 + 0.185 + 0.130 = **1.28%**. Counting 1716 in full as removable: **2.21%**. The profile alone therefore brackets the threshold, so the decision was settled by measuring the removal itself.
+
+### Counterfactual: every named removal at its maximum (measured, interleaved)
+
+A scratch build of `before_head` with all three candidates removed as far as possible (`archive/performance/slice-005/counterfactual-max-removal.patch`, machine-local): `ngal` read from `phase_event_state.ngal`; the two `record_creation` stores once per phase; no per-callback save or restore of the running-callback state in either pass, the kind and name still stored before every callback and the outer state restored once at the end of `execute_phase`. This goes beyond what the contract keeps (the header documents `RUNNING_CALLBACK_NONE` outside any callback, and this leaves the last callback's state set between callbacks), so it bounds the saving from above. Both builds are in scratch worktrees `output/perf-slice5/{base,cut}-v` at `75e2a9bb` (`make -j16 MODEL=sage16 SIMULATION=mini-millennium`, 0 warnings each; the two `module_registry.o` differ, and the cut `execute_phase` makes one call fewer). Harness `archive/performance/slice-005/s5-counterfactual.py`: the repository root as the working directory, binaries by absolute path with `-q`, round 0 a discarded warm-up, the starting build alternating each round; every run exited 0; nothing else ran.
+
+| Session | `before_head` | Maximal removal | Difference |
+|---|---|---|---|
+| 1 (n = 40) | 2.3526 ± 0.0528 s (min 2.3117, max 2.5599) | 2.2973 ± 0.0215 s (min 2.2687, max 2.4058) | −0.0553 s, −2.35%, SE 0.0090 (−6.1 SE) |
+| 2 (n = 60) | 2.3372 ± 0.0127 s (min 2.3145, max 2.3920) | 2.3025 ± 0.0306 s (min 2.2774, max 2.4521) | −0.0346 s, −1.48%, SE 0.0043 (−8.1 SE) |
+| Pooled (n = 100) | 2.3433 ± 0.0354 s | 2.3005 ± 0.0273 s | **−0.0429 s, −1.83%, SE 0.0045 (0.19%)**; medians −1.77% |
+
+Session 1's mean is lifted by four slow `before_head` runs (2.456 to 2.560 s); its paired median difference is −1.86%.
+
+**Decision.** The removable bookkeeping is 1.28% by the profile's instruction-level reading, and every named removal taken to its maximum, beyond what the contract allows, measures 1.83% ± 0.19% (pooled) and 1.77% by medians. Both are below 2%, so the slice closes with no code change, as the plan's rule prescribes. The saving is real (about 10 SE) but small; a later plan that wants it would take the narrowing hoist (about 1%, contract-neutral) on its own.
+
+**Cost.** `git diff --stat 75e2a9bb..HEAD`: this file only. No source, test, generated or build file changed, so no byte gate, suite, converter or distributed run is required (the plan's criterion 3 applies only when code changes). Scratch: the two worktrees `output/perf-slice5/{base,cut}-v` (registered with `git worktree`, not committed) and evidence under `archive/performance/slice-005/` (machine-local). The main tree's default build is the unchanged `before_head` source.
+
+**Findings.** (1) The dispatch residual is now dominated by the indirect `process()` calls and the loops that drive them (lines 1715, 1707, 1667: 8.05%), not by bookkeeping; what remains removable without changing the dispatch contract is under 2% of the run. (2) The one candidate with a clean, contract-neutral gain is the per-module `workspace_callback_count()` in PASS 1 (0.96% by profile), which duplicates the count `begin_phase_event_dispatch` and `commit_created_records` already keep. (3) Sessions differ: the same pair measured −2.35% and −1.48% in consecutive sessions, so a threshold decision near 2% needs more than one session.
