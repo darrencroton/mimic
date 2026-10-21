@@ -14,6 +14,7 @@
 4. [Slice 3: `DEBUG_LOG` tests the level first](#slice-3-debug_log-tests-the-level-first)
 5. [Slice 4: Init-time phase plans in `execute_phase`, measured against the guards](#slice-4-init-time-phase-plans-in-execute_phase-measured-against-the-guards)
 6. [Slice 5: Dispatch residual (no-go)](#slice-5-dispatch-residual-no-go)
+7. [Slice 6: The vertical output buffer's seed and zero-fill](#slice-6-the-vertical-output-buffers-seed-and-zero-fill)
 
 ---
 
@@ -313,3 +314,55 @@ Session 1's mean is lifted by four slow `before_head` runs (2.456 to 2.560 s); i
 **Cost.** `git diff --stat 75e2a9bb..HEAD`: this file only. No source, test, generated or build file changed, so no byte gate, suite, converter or distributed run is required (the plan's criterion 3 applies only when code changes). Scratch: the two worktrees `output/perf-slice5/{base,cut}-v` (registered with `git worktree`, not committed) and evidence under `archive/performance/slice-005/` (machine-local). The main tree's default build is the unchanged `before_head` source.
 
 **Findings.** (1) The dispatch residual is now dominated by the indirect `process()` calls and the loops that drive them (lines 1715, 1707, 1667: 8.05%), not by bookkeeping; what remains removable without changing the dispatch contract is under 2% of the run. (2) The one candidate with a clean, contract-neutral gain is the per-module `workspace_callback_count()` in PASS 1 (0.96% by profile), which duplicates the count `begin_phase_event_dispatch` and `commit_created_records` already keep. (3) Sessions differ: the same pair measured −2.35% and −1.48% in consecutive sessions, so a threshold decision near 2% needs more than one session.
+
+---
+
+## Slice 6: The vertical output buffer's seed and zero-fill
+
+**Status: done, under delegated plan decision D4.** The slice first stopped on its profile criterion's `__bzero` bound (under 0.5% of the vertical run), which the contract makes unreachable because the FoF-workspace zero-fill it keeps costs 0.93% on its own; PM resolved it by D4 (under Findings) with no change to the code. Measured 2026-10-22, `before_head` `75b63649`; the code commit is `da2ba01c`, and this record follows in a later commit.
+
+**What changed.** `output_buffer_seed_capacity()`, a `static inline` function in `src/core/output_buffer.h`, is the seed rule both drivers call: the input halos plus `OUTPUT_SEED_HEADROOM` (5%, the renamed `HORIZONTAL_OUTPUT_SEED_HEADROOM`) of them, the headroom floored at `MIN_HALO_ARRAY_GROWTH`, clamped at `MAX_HALO_ARRAY_SIZE` unless the input is already past it, when only the minimum increment is added; 0 on `int64_t` overflow, tested inline with the arithmetic of `horizontal_checked_sum`. It is `horizontal_output_seed_capacity()` moved and renamed; the horizontal driver's footprint calls it in its place and keeps `horizontal_checked_sum` for its other terms. `load_unit()` seeds `ProcessedHalos` by it, with the overflow return a `FATAL_ERROR` naming the tree and its halo count, no longer zero-fills it (a comment at the allocation names the growth path and the bounded readers), and seeds the FoF workspace by its own rule, `InputTreeNHalos / 2` floored at `INITIAL_FOF_HALOS` and clamped at `MAX_HALO_ARRAY_SIZE`, with its zero-fill unchanged. `MAXHALOFAC` is deleted. The FoF rule equals the former one (a tenth of the floored five-fold output seed, through `double`) for every non-negative `int` halo count: an exhaustive scratch comparison over 0 to 2,147,483,647 found no difference.
+
+**Gate result** (2026-10-22, `make tests-reference-identity REFERENCE_COMMIT=5daa24ee` at `da2ba01c`). Exit 0; eleven markers all `PASS`, of which exactly eight are `test_leg_` markers (`halos-only` and `sage16`, vertical and horizontal, fixed and dynamic); no FAIL, ERROR or SKIP; `HEAD build flags: none`; all eight legs passed in 37 s. Evidence: `archive/reference-identity/20261021T220159Z-ref5daa24ee-headda2ba01c/evidence.json` (machine-local).
+
+**Other validation** (the code's final source before the commit, `TMPDIR` outside the repository): `make tests summary` exit 0 (unit 603 passed, 27 n/a; integration 257 passed, 12 n/a; scientific 47 passed, one `WARN test_zero_values`); `make tests-converter` exit 0 (1655 passed); `make tests-distributed` exit 0 (264 checks, no skips), then `make` exit 0; `make check-docs`, `make check-format` and the differential `lint` (verdict `pass`) are clean. `rg -n "MAXHALOFAC|HORIZONTAL_OUTPUT_SEED_HEADROOM" .` outside `docs/dev/` and `archive/` finds only the changelog line that records the removal.
+
+### Memory profile and FoF growth (measured, default runs)
+
+| | `before_head` | After |
+|---|---|---|
+| Vertical `C` / `P` | 74,345 / 14,648 | **15,869** / 14,648 |
+| Vertical peak RSS | 0.071 GB | 0.037 GB |
+| Vertical `Growing FoF workspace` lines | 0 | 0 |
+| Horizontal `C` / `P` | 39,694 / 37,425 | 39,694 / 37,425 |
+
+`C` after is the largest tree's seed (14,869 halos plus the 1,000-record floor), so no tree's output outgrew its seed; galaxy pool, `R` and the retention pool are unchanged. Galaxy output of the before and after binaries compared with `scripts/compare_cross_format_identity.py --compare-created`: 187,832 galaxies over 8 snapshots, all 42 fields byte-identical, under both drivers.
+
+### Wall-time pair (measured, n = 14, repeats 1 to 14 of 15, the plan's protocol from the repository root)
+
+`before` and `after` are default builds (`SIMULATION=mini-millennium` and `mini-millennium-horizontal`) of `before_head` and of the slice, each copied to `./mimic` in turn and timed with `run_wall.py` back to back, vertical before and after, then horizontal before and after; nothing else ran.
+
+| | Vertical | Horizontal |
+|---|---|---|
+| Before | 2.4004 ± 0.1202 s (min 2.3313, max 2.7963) | 2.4553 ± 0.0205 s (min 2.4263, max 2.5023) |
+| After | 2.3056 ± 0.0278 s (min 2.2641, max 2.3646) | 2.4393 ± 0.0155 s (min 2.4127, max 2.4707) |
+| Difference of means | −0.0948 s, −3.95% | −0.0160 s, −0.65% |
+| SE of the difference | 0.0330 s (−2.9 SE) | 0.0069 s (−2.3 SE) |
+
+Every repeat exited 0, and the no-regression bound holds on both drivers. The vertical before mean carries one slow repeat (2.7963 s); without it the before mean is 2.3700 s and the saving 2.7%, in line with the 1.29% of `__bzero` removed plus the page faults of the untouched four-fifths of the old seed. The horizontal driver's seed arithmetic is unchanged, so its −0.65% is session drift or code layout, not attributed to the slice.
+
+### Profile after (measured, 20 repeats, `attribute.py --skip-first`, vertical)
+
+`sample_runs.sh` 20 repeats of the after build (19 reports, 33,463 self-samples), `--wall-mean-s 2.3056`; `source_attribution.mapped_fraction` 1.0, `Unattributed` 0.02%. **`__bzero` is 0.97% ± 0.05** (324 samples), against 2.29% (762) in Slice 5's profile of the same `before_head` source (`archive/performance/slice-005/agg.json`). By the parent frame of each `__bzero` sample:
+
+| Caller | `before_head` | After |
+|---|---|---|
+| `load_unit`, `ProcessedHalos` `memset` | 430 samples, 1.29% | gone |
+| `load_unit`, FoF-workspace `memset` | 323 samples, 0.97% | 312 samples, 0.93% |
+| libhdf5 | 9 samples | 12 samples |
+
+**Finding: the plan's `__bzero` figure was not all the output buffer's.** The baseline's 2.14% (2.29% at `before_head`) was split 1.29 / 0.97 between the two zero-fills, so removing the output buffer's leaves the FoF workspace's 0.93%, which the slice must keep (non-goal: no change to the FoF workspace's seed value or zero-fill). The criterion's literal bound of 0.5% therefore cannot be met inside the contract; D4 below resolves it. The FoF zero-fill costs nearly as much as the output one, although it covers a tenth of the bytes, because it touches fresh pages each tree; the measurement does not separate page-fault cost from the fill itself. Evidence: `archive/performance/slice-006/` (machine-local: `agg.json`, the `samples/`, the wall JSON, the before/after binaries and outputs, `compare-{v,h}.out`).
+
+**Cost.** `git diff --numstat` against `75b63649`: `output_buffer.h` +37, `horizontal_driver.c` +8 −30, `interface.c` +22 −14, `constants.h` +6 −10, the test +1 −1, documentation +9 −8; 74 code lines added and 55 removed. Differential `code-health` (`health.py analyze --base 75b63649`, Lizard 1.23.0; CCN sums by `lizard` per file): `horizontal_driver.c` 270 to 266 (the seed function, CCN 4, leaves it), `output_buffer.h` 0 to 5 (`output_buffer_seed_capacity`, its overflow test now inline), `interface.c` 19 to 19 (`load_unit` unchanged in CCN); code lines `horizontal_driver.c` −15, `output_buffer.h` +20, `interface.c` −1, `constants.h` −1. No new include cycle; `interface.c` gains one include of `output_buffer.h`. The health tool also lists two `horizontal_driver.c` functions at lines 1238 and 1283 as cyclomatic deltas; `lizard` by function name shows neither changed, so they are line-shift artefacts of the tool's matching. Verdict: a net 19-line change replaces two seed rules with one, halves the vertical run's peak RSS on mini-Millennium (the seed falls to 21% of the old one on trees of 20,000 halos or more; on trees under 250 halos it is up to 250 records larger, the 1,000-record floor now being added to the halos rather than replacing them), removes the larger of the two zero-fills, and keeps the output byte-identical; the literal profile bound is unreachable while the FoF zero-fill stays (D4).
+
+**Findings.** (1) **Delegated plan decision D4** (PM, under the owner's delegated authority), recorded verbatim: "Criterion 6's '< 0.5% to \_\_bzero (the FoF-workspace zero-fill remains)' was written against the frozen fact that the baseline \_\_bzero was the output-buffer seed's zero-fill. Measured at before_head it is split 1.29% (ProcessedHalos memset) and 0.97% (the FoF-workspace memset the contract keeps unchanged), so the literal bound cannot be met inside the contract. PM ruled that the bound applies to the zero-fill this slice removes: the ProcessedHalos memset contributes no \_\_bzero samples after the slice (it no longer exists), and total \_\_bzero fell from 2.29% to 0.97%, all of the remainder being the kept FoF zero-fill. Recommended amendment: 'the profile attributes no \_\_bzero to the ProcessedHalos allocation; total \_\_bzero is recorded before and after.'" Under D4 the criterion is met: no `__bzero` sample has `load_unit`'s `ProcessedHalos` allocation as its parent after the slice, and total `__bzero` is 2.29% before and 0.97% after. (2) The FoF-workspace zero-fill (0.93%) is the remaining `__bzero` cost of the vertical run; changing it is outside this plan. (3) Renaming the shared function also updated one comment's identifier inside `horizontal_acquire_generation()`, which named the old function. (4) A comment-only edit to `interface.c` landed while `make tests` was running; the converter and distributed suites, the format check and lint ran after it, and the byte gate ran at the commit.
