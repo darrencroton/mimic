@@ -1045,18 +1045,18 @@ def resolve_reference(
     return reference, head
 
 
-def runtime_tree_differences(paths: tuple[str, ...] = RUNTIME_PATHS) -> list[str]:
+def runtime_tree_differences(
+    paths: tuple[str, ...] = RUNTIME_PATHS, exempt: Callable[[str], bool] | None = None
+) -> list[str]:
     """Uncommitted or untracked edits to anything the worktrees build and run from.
 
-    The legs build HEAD, so such an edit would not be tested. Module test envelopes are excluded.
+    The legs build HEAD, so such an edit would not be tested. Every edit under ``paths`` counts
+    unless ``exempt(path)`` is true: a caller that tolerates some paths (the battery tolerates
+    module test envelopes) says so itself.
     """
     changed = git("diff", "--name-only", "HEAD", "--", *paths).stdout.split()
     untracked = git("ls-files", "--others", "--exclude-standard", "--", *paths).stdout.split()
-    return [
-        path
-        for path in changed + untracked
-        if not (path.startswith("models/") and "/_tests/" in path)
-    ]
+    return [path for path in changed + untracked if exempt is None or not exempt(path)]
 
 
 def worktree_env(worktree: Path, model: str, simulation: str) -> dict:
@@ -1123,10 +1123,16 @@ def head_worktree(
         ParityGate.link_machine_local(path)
         log_line(f"  created worktree {path}")
     else:
-        if git("diff", "--quiet", "HEAD", cwd=path, check=False).returncode != 0:
+        status = git("diff", "--quiet", "HEAD", cwd=path, check=False)
+        if status.returncode != 0:
+            reason = (
+                "has tracked edits"
+                if status.returncode == 1
+                else f"is unreadable as a git worktree ({status.stderr.strip() or 'no message'})"
+            )
             raise AssertionError(
-                f"FATAL: HEAD worktree {path} has tracked edits; it is not reused. Move it to "
-                "cold storage, run `git worktree prune`, and re-run."
+                f"FATAL: HEAD worktree {path} {reason}; it is not reused. Move it to cold "
+                "storage, run `git worktree prune`, and re-run."
             )
         git("checkout", "--detach", head, cwd=path)
         log_line(f"  reusing worktree {path}, detached to {head}")

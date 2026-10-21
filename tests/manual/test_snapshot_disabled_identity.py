@@ -211,6 +211,11 @@ def required_paths(commit: str) -> list[str]:
     return paths
 
 
+def module_test_envelope(path: str) -> bool:
+    """A module's own test envelope: its edit does not change what the legs build or run."""
+    return path.startswith("models/") and "/_tests/" in path
+
+
 def check_feature_pair(reference: str, head: str) -> None:
     """The reference carries no feature symbol, HEAD does, and both carry every selected path."""
     if has_feature_symbols(reference):
@@ -445,7 +450,7 @@ class Identity:
         reference, head, source = resolve_reference()
         log(f"HEAD (feature tree): {head}")
         log(f"reference ({source}): {reference}")
-        edits = runtime_tree_differences()
+        edits = runtime_tree_differences(exempt=module_test_envelope)
         if edits:
             raise AssertionError(f"runtime paths differ from HEAD (uncommitted): {edits}")
         shipped = {

@@ -35,7 +35,7 @@ only that worktree's own ``build/``, as ``make clean`` does).
 Two optional environment variables, ``REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS`` and
 ``REFERENCE_IDENTITY_HEAD_EXTRA_LDFLAGS``, are passed as ``EXTRA_CFLAGS``/``EXTRA_LDFLAGS`` to the
 HEAD build only and named in the log, so a candidate build flag can be gated against the
-reference without committing it. A HEAD worktree whose last build used other flags (or none) is
+reference without committing it; any ``EXTRA_CFLAGS``/``EXTRA_LDFLAGS`` of the caller's own are dropped from both builds. A HEAD worktree whose last build used other flags (or none) is
 cleaned and rebuilt, so flags never leak between runs.
 
 Runs, logs and ``evidence.json`` are archived under ``archive/reference-identity/<stamp>/``. The
@@ -227,8 +227,29 @@ def assert_snapshots_link(worktree: Path, simulation: str) -> None:
     if target != main.resolve():
         raise AssertionError(
             f"worktree {worktree}: simulations/{simulation}/snapshots resolves to "
-            f"{target or 'nothing (no usable link)'}, the main tree's resolves to {main.resolve()}"
+            f"{target or 'nothing (no usable link)'}, the main tree's resolves to {main.resolve()}; "
+            f"relink it to the main tree's target, or move the worktree directory to cold storage, "
+            "run `git worktree prune`, and re-run"
         )
+
+
+def first_line(error: BaseException) -> str:
+    """The first line of an error's message, or its type name when it has none."""
+    return str(error).splitlines()[0] if str(error) else type(error).__name__
+
+
+def build_env(worktree: Path, model: str, simulation: str, flags: dict[str, str]) -> dict:
+    """The worktree environment for a build: no ``EXTRA_*`` flags from the caller, then ``flags``.
+
+    ``make tests-reference-identity EXTRA_CFLAGS=...`` (or an exported variable) would otherwise
+    reach both builds while the log named no HEAD flags; only the ``REFERENCE_IDENTITY_HEAD_*``
+    values may reach, and only HEAD.
+    """
+    env = worktree_env(worktree, model, simulation)
+    for _, variable in HEAD_FLAG_VARIABLES:
+        env.pop(variable, None)
+    env.update(flags)
+    return env
 
 
 def head_flags() -> dict[str, str]:
@@ -298,8 +319,7 @@ class ReferenceIdentity:
         try:
             stage()
         except BaseException as error:
-            first = str(error).splitlines()[0] if str(error) else type(error).__name__
-            self.prerequisite_failure = self.prerequisite_failure or first
+            self.prerequisite_failure = self.prerequisite_failure or first_line(error)
             raise
 
     def test_reference_commit_resolution(self) -> None:
@@ -310,7 +330,7 @@ class ReferenceIdentity:
         reference, head = resolve_reference(reference_request(), (check_selected_paths,))
         log(f"HEAD: {head}")
         log(f"reference (REFERENCE_COMMIT): {reference}")
-        edits = runtime_tree_differences()
+        edits = runtime_tree_differences()  # no exemption: any edit counts
         if edits:
             raise AssertionError(
                 f"runtime paths {', '.join(RUNTIME_PATHS)} differ from HEAD (uncommitted): {edits}"
@@ -358,11 +378,11 @@ class ReferenceIdentity:
                     else:
                         worktree = head_worktree(commit, model, simulation, log_line=log)
                     started = time.monotonic()
-                    env = worktree_env(worktree, model, simulation)
                     if tree == "reference":
+                        env = build_env(worktree, model, simulation, {})
                         build_pair(worktree, model, simulation, env, logs, key, BUILD_TIMEOUT_S)
                     else:
-                        env.update(flags)
+                        env = build_env(worktree, model, simulation, flags)
                         build_head_pair(worktree, model, simulation, env, logs, key, flags)
                     self.evidence["timings_s"][f"build:{key}"] = round(
                         time.monotonic() - started, 1
@@ -441,8 +461,7 @@ class ReferenceIdentity:
         try:
             self.run_leg(leg)
         except BaseException as error:
-            first = str(error).splitlines()[0] if str(error) else type(error).__name__
-            self.verdicts[leg.name] = f"FAIL: {first}"
+            self.verdicts[leg.name] = f"FAIL: {first_line(error)}"
             raise
         finally:
             self.evidence["legs"].setdefault(leg.name, {})["verdict"] = self.verdicts.get(leg.name)
@@ -496,7 +515,7 @@ class ReferenceIdentity:
             stages.append(stage)
         return stages
 
-    def test_leg_verdicts(self) -> None:
+    def test_verdicts(self) -> None:
         verdicts = {leg.name: self.verdicts.get(leg.name, "did not run") for leg in LEGS}
         for name, verdict in verdicts.items():
             log(f"  {name}: {verdict}")
@@ -513,7 +532,7 @@ class ReferenceIdentity:
             self.test_reference_commit_resolution,
             self.test_builds_name_their_commits,
             *self.leg_stages(),
-            self.test_leg_verdicts,
+            self.test_verdicts,
         ]
 
 
