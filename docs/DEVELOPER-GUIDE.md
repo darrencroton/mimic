@@ -1706,6 +1706,8 @@ Used throughout module `init()`, `process()`, and cleanup paths; see [Broken Mod
 | `ERROR_LOG` | always | Errors before returning failure |
 | `FATAL_ERROR` | always | Fatal errors that exit |
 
+`DEBUG_LOG` tests the log level inline before anything else: when debug output is off it makes no call and **does not evaluate its arguments**, so an argument must never carry a side effect the program relies on. Under rate limiting, which the drivers arm around their processing loop, each call site emits its first `DEBUG_LOG_MAX_CALLS` messages and one suppression line; only an emitted message spends that budget.
+
 ### Physical Constants
 
 Do not duplicate the physical constants table in documentation. The source of truth is `src/module_system/physical_constants.h`. Runtime-derived unit quantities are computed in `src/core/init.c` from generated fixed reference-unit metadata, while simulation catalog values are converted at the reader boundary.

@@ -74,21 +74,41 @@ const char *get_io_error_name(IOErrorCode code);
 void log_io_error(LogLevel level, IOErrorCode code, const char *file, const char *func, int line,
                   const char *operation, const char *filename, const char *format, ...);
 
+// Logging state read inline by DEBUG_LOG. Owned by error.c: write it only through
+// set_log_level() and enable_/disable_debug_log_rate_limiting(), never directly.
+extern LogLevel mimic_log_level;
+extern int mimic_debug_log_rate_limiting;
+
+/**
+ * @brief   True when DEBUG messages are emitted (the log level is DEBUG)
+ *
+ * Inline over exported state, so DEBUG_LOG costs one load and compare when debug
+ * output is off: no call into error.c and no evaluation of the message arguments.
+ */
+static inline int debug_log_enabled(void) { return mimic_log_level <= LOG_LEVEL_DEBUG; }
+
 // General logging convenience macros
+
+// DEBUG_LOG tests the level first. When debug output is off it makes no call and
+// evaluates none of its arguments, so an argument must never carry a side effect the
+// program relies on. The per-site rate-limit budget (DEBUG_LOG_MAX_CALLS) is consumed
+// only by a message that is emitted.
 #define DEBUG_LOG(...)                                                                             \
   do {                                                                                             \
-    if (!is_debug_log_rate_limiting_enabled()) {                                                   \
-      log_message(LOG_LEVEL_DEBUG, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__);                 \
-    } else {                                                                                       \
-      static int _debug_call_count = 0;                                                            \
-      static int _debug_suppressed = 0;                                                            \
-      if (_debug_call_count < DEBUG_LOG_MAX_CALLS) {                                               \
+    if (debug_log_enabled()) {                                                                     \
+      if (!mimic_debug_log_rate_limiting) {                                                        \
         log_message(LOG_LEVEL_DEBUG, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__);               \
-        _debug_call_count++;                                                                       \
-      } else if (!_debug_suppressed) {                                                             \
-        log_message(LOG_LEVEL_DEBUG, __FILE__, __FUNCTION__, __LINE__,                             \
-                    "(further debug output from this location suppressed)");                       \
-        _debug_suppressed = 1;                                                                     \
+      } else {                                                                                     \
+        static int _debug_call_count = 0;                                                          \
+        static int _debug_suppressed = 0;                                                          \
+        if (_debug_call_count < DEBUG_LOG_MAX_CALLS) {                                             \
+          log_message(LOG_LEVEL_DEBUG, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__);             \
+          _debug_call_count++;                                                                     \
+        } else if (!_debug_suppressed) {                                                           \
+          log_message(LOG_LEVEL_DEBUG, __FILE__, __FUNCTION__, __LINE__,                           \
+                      "(further debug output from this location suppressed)");                     \
+          _debug_suppressed = 1;                                                                   \
+        }                                                                                          \
       }                                                                                            \
     }                                                                                              \
   } while (0)
