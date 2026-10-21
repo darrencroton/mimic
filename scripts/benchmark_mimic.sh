@@ -14,6 +14,7 @@
 #   ./scripts/benchmark_mimic.sh custom.yaml                  # Same, positional shorthand
 #   ./scripts/benchmark_mimic.sh --compress                   # Benchmark HDF5 compression overhead
 #   EXTRA_CFLAGS="-O3 -march=native" ./scripts/benchmark_mimic.sh  # Release-optimised build
+#   EXTRA_CFLAGS="-flto" EXTRA_LDFLAGS="-flto" ./scripts/benchmark_mimic.sh  # Link-time optimisation
 #
 # REQUIREMENTS:
 #   - Can be run from any directory
@@ -27,7 +28,7 @@
 # ENVIRONMENT VARIABLES & EXAMPLES:
 #   See `./scripts/benchmark_mimic.sh --help` — the help text is the single
 #   source of truth for the MIMIC_FLAGS / MAKE_FLAGS / MPI_RUN_COMMAND /
-#   EXTRA_CFLAGS / MIMIC_EXECUTABLE variables, worked examples, and result
+#   EXTRA_CFLAGS / EXTRA_LDFLAGS / MIMIC_EXECUTABLE variables, worked examples, and result
 #   comparison tips (kept there so this header cannot drift out of sync).
 #
 
@@ -179,6 +180,9 @@ ENVIRONMENT VARIABLES:
                         (e.g., MIMIC_FLAGS="--compress")
   EXTRA_CFLAGS          Additional compiler flags for benchmarking/profiling builds only
                         (e.g., EXTRA_CFLAGS="-O3 -march=native")
+  EXTRA_LDFLAGS         Additional linker flags for benchmarking/profiling builds only, the
+                        link-step counterpart of EXTRA_CFLAGS (e.g., EXTRA_LDFLAGS="-flto"
+                        alongside EXTRA_CFLAGS="-flto")
   MAKE_FLAGS            Additional make flags (e.g., "USE-HDF5=no USE-MPI=yes")
   MPI_RUN_COMMAND       MPI launch command (e.g., "mpirun -np 4")
   MIMIC_EXECUTABLE      Override mimic executable path
@@ -210,6 +214,9 @@ EXAMPLES:
 
   # Release-optimised build benchmark
   EXTRA_CFLAGS="-O3 -march=native" ./scripts/benchmark_mimic.sh
+
+  # Link-time optimisation build benchmark (the flag goes to both compile and link)
+  EXTRA_CFLAGS="-flto" EXTRA_LDFLAGS="-flto" ./scripts/benchmark_mimic.sh
 
 COMPARING RESULTS:
   # Simple diff
@@ -435,10 +442,10 @@ cd "${ROOT_DIR}" || error_exit "Could not change to Mimic root directory"
 verbose_log "Cleaning previous build..."
 make clean > /dev/null 2>&1 || true
 
-verbose_log "Building Mimic with flags: ${MAKE_FLAGS}${EXTRA_CFLAGS:+ EXTRA_CFLAGS=${EXTRA_CFLAGS}}"
+verbose_log "Building Mimic with flags: ${MAKE_FLAGS}${EXTRA_CFLAGS:+ EXTRA_CFLAGS=${EXTRA_CFLAGS}}${EXTRA_LDFLAGS:+ EXTRA_LDFLAGS=${EXTRA_LDFLAGS}}"
 # -j takes the bare core count and MAKE_FLAGS must word-split into argv entries.
 # shellcheck disable=SC2046,SC2086
-make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} ${EXTRA_CFLAGS:+EXTRA_CFLAGS="${EXTRA_CFLAGS}"} || error_exit "Build failed"
+make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} ${EXTRA_CFLAGS:+EXTRA_CFLAGS="${EXTRA_CFLAGS}"} ${EXTRA_LDFLAGS:+EXTRA_LDFLAGS="${EXTRA_LDFLAGS}"} || error_exit "Build failed"
 
 echo "Build successful."
 echo
@@ -679,6 +686,7 @@ cat > "${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}" << EOF
     "simulation": "${SELECTED_SIMULATION}",
     "build_flags": "$BUILD_FLAGS",
     "extra_cflags": "${EXTRA_CFLAGS:-none}",
+    "extra_ldflags": "${EXTRA_LDFLAGS:-none}",
     "runtime_flags": "${MIMIC_FLAGS:-none}",
     "build_system": "GNU Make",
     "mimic_executable": "$MIMIC_EXECUTABLE"
@@ -708,6 +716,7 @@ echo "Model Set: $SELECTED_MODEL"
 echo "Simulation Package: $SELECTED_SIMULATION"
 echo "Build Flags: $BUILD_FLAGS"
 echo "Extra CFLAGS: ${EXTRA_CFLAGS:-none}"
+echo "Extra LDFLAGS: ${EXTRA_LDFLAGS:-none}"
 echo "Runtime Flags: ${MIMIC_FLAGS:-none}"
 echo "Git Commit: $GIT_COMMIT"
 echo "Git Branch: $GIT_BRANCH"
