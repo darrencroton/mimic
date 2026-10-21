@@ -29,14 +29,17 @@ The reference is built in a worktree cached per ``(commit, model, simulation)`` 
 shape), verified a clean checkout. HEAD is built in one reusable worktree per pair
 (``head__<model>__<simulation>``), detached to HEAD and rebuilt incrementally on every run, so
 commits do not accumulate worktrees. Every worktree's ``snapshots`` links must resolve to the main
-tree's targets. Nothing is ever removed by this test (a clean rebuild of a HEAD worktree removes
+tree's targets. A worktree holding an untracked file under the runtime paths (it would be
+compiled or run), or a HEAD worktree that is not a registered worktree of this repository, is
+refused. Nothing is ever removed by this test (a clean rebuild of a HEAD worktree removes
 only that worktree's own ``build/``, as ``make clean`` does).
 
 Two optional environment variables, ``REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS`` and
 ``REFERENCE_IDENTITY_HEAD_EXTRA_LDFLAGS``, are passed as ``EXTRA_CFLAGS``/``EXTRA_LDFLAGS`` to the
 HEAD build only and named in the log, so a candidate build flag can be gated against the
-reference without committing it; any ``EXTRA_CFLAGS``/``EXTRA_LDFLAGS`` of the caller's own are dropped from both builds. A HEAD worktree whose last build used other flags (or none) is
-cleaned and rebuilt, so flags never leak between runs.
+reference without committing it; any ``EXTRA_CFLAGS``/``EXTRA_LDFLAGS`` of the caller's own are
+dropped from both builds. A HEAD worktree whose last build used other flags (or none) is cleaned
+and rebuilt, so flags never leak between runs.
 
 Runs, logs and ``evidence.json`` are archived under ``archive/reference-identity/<stamp>/``. The
 console output is also written to ``build/reference_identity.log``. Every leg emits one
@@ -71,6 +74,7 @@ from framework.parity_gate import (  # noqa: E402
     WORKTREE_ROOT,
     OutputRun,
     assert_dataset_present,
+    assert_untracked_free,
     attribute_signature,
     attribute_text,
     build_pair,
@@ -227,9 +231,9 @@ def assert_snapshots_link(worktree: Path, simulation: str) -> None:
     if target != main.resolve():
         raise AssertionError(
             f"worktree {worktree}: simulations/{simulation}/snapshots resolves to "
-            f"{target or 'nothing (no usable link)'}, the main tree's resolves to {main.resolve()}; "
-            f"relink it to the main tree's target, or move the worktree directory to cold storage, "
-            "run `git worktree prune`, and re-run"
+            f"{target or 'nothing (no usable link)'}, the main tree's resolves to "
+            f"{main.resolve()}; relink it to the main tree's target, or move the worktree "
+            "directory to cold storage, run `git worktree prune`, and re-run"
         )
 
 
@@ -375,6 +379,7 @@ class ReferenceIdentity:
                     key = f"{tree}__{model}__{simulation}"
                     if tree == "reference":
                         worktree = cached_worktree(commit, model, simulation, log_line=log)
+                        assert_untracked_free(worktree)
                     else:
                         worktree = head_worktree(commit, model, simulation, log_line=log)
                     started = time.monotonic()

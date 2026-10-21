@@ -530,7 +530,9 @@ class Identity:
         digest_file = worktree / "build" / "generated" / "property_hash.txt"
         if not digest_file.is_file():
             raise AssertionError(f"{tree}/{variant} {leg}: no generated digest at {digest_file}")
-        output = OutputRun(directory, tuple(prefixes), digest_file.read_text().strip())
+        output = OutputRun(
+            directory, tuple(prefixes), digest_file.read_text().strip(), OUTPUT_BASENAME
+        )
         return RunRecord(tree, variant, output, elapsed, attributes)
 
     def check_provenance(self, record: RunRecord, model, fixture, scheme) -> None:
@@ -1072,7 +1074,9 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> tuple[int, int]:
         for role in ("base", "candidate"):
             directory = scratch / f"{number:02d}_{role}"
             shutil.copytree(source.directory, directory)
-            runs.append(OutputRun(directory, (f"{directory}_prefix",), source.source_md5))
+            runs.append(
+                OutputRun(directory, (f"{directory}_prefix",), source.source_md5, OUTPUT_BASENAME)
+            )
         case.change(*runs)
         report = compare_outputs(*runs, empty_leg=case.empty_leg)
         if case.needle is None:

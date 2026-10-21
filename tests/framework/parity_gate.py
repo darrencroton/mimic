@@ -1103,6 +1103,48 @@ def cached_worktree(
     return path
 
 
+def untracked_runtime_files(worktree: Path, paths: tuple[str, ...] = RUNTIME_PATHS) -> list[str]:
+    """Untracked, non-ignored files under ``paths`` in a worktree.
+
+    The Makefile compiles every source it finds under ``src/`` and ``models/``, so such a file
+    would be built into the executable although the checkout reads as clean.
+    """
+    untracked = git("ls-files", "--others", "--exclude-standard", "--", *paths, cwd=worktree)
+    return untracked.stdout.split()
+
+
+def assert_untracked_free(worktree: Path, paths: tuple[str, ...] = RUNTIME_PATHS) -> None:
+    """The worktree holds no untracked file under ``paths``, so its build is its commit's."""
+    found = untracked_runtime_files(worktree, paths)
+    if found:
+        raise AssertionError(
+            f"FATAL: worktree {worktree} holds untracked file(s) under {', '.join(paths)}: "
+            f"{found}; they would be built or run, so the executable would not be its commit's. "
+            "Move them to cold storage and re-run."
+        )
+
+
+def assert_own_worktree(path: Path) -> None:
+    """``path`` is a registered worktree of this repository, before anything mutates it.
+
+    Git discovers upward from a directory that is not a worktree (no or broken ``.git`` file),
+    and a checkout there would act on the enclosing repository, possibly the main checkout.
+    """
+    top = git("rev-parse", "--show-toplevel", cwd=path, check=False)
+    common = git("rev-parse", "--git-common-dir", cwd=path, check=False)
+    ours = git("rev-parse", "--git-common-dir").stdout.strip()
+    found_top = Path(top.stdout.strip()).resolve() if top.returncode == 0 else None
+    found_common = (path / common.stdout.strip()).resolve() if common.returncode == 0 else None
+    if found_top != path.resolve() or found_common != (REPO_ROOT / ours).resolve():
+        raise AssertionError(
+            f"FATAL: HEAD worktree {path} is not a registered worktree of this repository "
+            f"(git top level {found_top or 'unreadable'}, common git dir "
+            f"{found_common or 'unreadable'}, expected {path.resolve()} and "
+            f"{(REPO_ROOT / ours).resolve()}); it is not reused. Move it to cold storage, run "
+            "`git worktree prune`, and re-run."
+        )
+
+
 def head_worktree(
     head: str,
     model: str,
@@ -1113,8 +1155,9 @@ def head_worktree(
     """The one reusable worktree for a pair, detached to ``head`` on every call.
 
     Unlike ``cached_worktree`` it is keyed by pair, not commit, so successive HEADs share it and
-    commits do not accumulate worktrees; it is never removed. A tracked edit in it is refused
-    rather than carried onto the new commit.
+    commits do not accumulate worktrees; it is never removed. It must be a registered worktree of
+    this repository, and a tracked edit or an untracked source in it is refused rather than carried
+    onto the new commit or built.
     """
     path = root / f"head__{model}__{simulation}"
     if not path.exists():
@@ -1123,6 +1166,7 @@ def head_worktree(
         ParityGate.link_machine_local(path)
         log_line(f"  created worktree {path}")
     else:
+        assert_own_worktree(path)
         status = git("diff", "--quiet", "HEAD", cwd=path, check=False)
         if status.returncode != 0:
             reason = (
@@ -1137,6 +1181,7 @@ def head_worktree(
         git("checkout", "--detach", head, cwd=path)
         log_line(f"  reusing worktree {path}, detached to {head}")
     assert_clean_checkout(path, head)
+    assert_untracked_free(path)
     return path
 
 
