@@ -130,6 +130,18 @@ calc() {
     fi
 }
 
+# Escape a value for embedding between double quotes in the result JSON: backslash and
+# double quote, plus the newline, carriage return and tab a flag string may carry.
+json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
 # Set default parameter file if not specified
 if [[ -z "$PARAM_FILE" ]]; then
     PARAM_FILE="${ROOT_DIR}/models/${DEFAULT_MODEL}/input/${DEFAULT_MODEL}_${DEFAULT_SIMULATION}.yaml"
@@ -632,17 +644,6 @@ fi
 OS_VERSION=${OS_VERSION:-unknown}
 BUILD_FLAGS="${MAKE_FLAGS:-none}"
 
-# Escape a value for embedding between double quotes in the result JSON: backslash and
-# double quote, plus the newline, carriage return and tab a flag string may carry.
-json_escape() {
-    local value="$1"
-    value="${value//\\/\\\\}"
-    value="${value//\"/\\\"}"
-    value="${value//$'\n'/\\n}"
-    value="${value//$'\r'/\\r}"
-    value="${value//$'\t'/\\t}"
-    printf '%s' "$value"
-}
 EXTRA_CFLAGS_JSON=$(json_escape "${EXTRA_CFLAGS:-none}")
 EXTRA_LDFLAGS_JSON=$(json_escape "${EXTRA_LDFLAGS:-none}")
 
