@@ -632,6 +632,20 @@ fi
 OS_VERSION=${OS_VERSION:-unknown}
 BUILD_FLAGS="${MAKE_FLAGS:-none}"
 
+# Escape a value for embedding between double quotes in the result JSON: backslash and
+# double quote, plus the newline, carriage return and tab a flag string may carry.
+json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+EXTRA_CFLAGS_JSON=$(json_escape "${EXTRA_CFLAGS:-none}")
+EXTRA_LDFLAGS_JSON=$(json_escape "${EXTRA_LDFLAGS:-none}")
+
 # Verify output was created - find any output file
 if [[ -d "${OUTPUT_DIR}" ]]; then
     OUTPUT_FILE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f -newer "${OUTPUT_MARKER}" 2>/dev/null | head -1)
@@ -685,8 +699,8 @@ cat > "${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}" << EOF
     "model": "${SELECTED_MODEL}",
     "simulation": "${SELECTED_SIMULATION}",
     "build_flags": "$BUILD_FLAGS",
-    "extra_cflags": "${EXTRA_CFLAGS:-none}",
-    "extra_ldflags": "${EXTRA_LDFLAGS:-none}",
+    "extra_cflags": "${EXTRA_CFLAGS_JSON}",
+    "extra_ldflags": "${EXTRA_LDFLAGS_JSON}",
     "runtime_flags": "${MIMIC_FLAGS:-none}",
     "build_system": "GNU Make",
     "mimic_executable": "$MIMIC_EXECUTABLE"
