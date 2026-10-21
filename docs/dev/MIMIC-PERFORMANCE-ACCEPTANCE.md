@@ -266,7 +266,7 @@ Every repeat exited 0. The after mean is below the before mean on both drivers, 
 
 ## Slice 5: Dispatch residual (no-go)
 
-**Verdict: no-go.** The per-callback bookkeeping in `module_registry.c` that the plan names as removable is below the 2% threshold on the default run. No source file changed; this section is the slice's only tracked change.
+**Verdict: no-go.** The per-callback bookkeeping in `module_registry.c` that the plan names as removable is below the 2% threshold on the default run (measured 2026-10-21). No source file changed; this section is the slice's only tracked change. Differential `lint` (verdict `pass`), `make check-docs` and `make check-format` passed on it.
 
 ### Profile at `before_head` (measured, 20 repeats, `attribute.py --skip-first`, vertical)
 
@@ -292,7 +292,7 @@ Line numbers are `before_head`'s. Each share is self-time as a percentage of the
 |---|---|---|---|
 | `workspace_callback_count()` per full-halo module | 1670 | 0.102%, plus 0.862% in `narrow_int64_to_int_checked` called from 1670: **0.964%** | All of it: the count is already narrowed into `phase_event_state.ngal` once per phase (1664) and after each commit (`commit_created_records`). The per-phase call at 1664 (0.985% + 0.357%, shared with the inlined `begin_phase_event_dispatch`) is once per phase and not a candidate |
 | `record_creation.ctx` / `.ws` stores per module | 1678, 1679 (one `stp`) | **0.000%** (no sample) | All of it, for no measurable gain |
-| `enter_callback` / `leave_callback` per callback | 1680 and 1682 (full-halo), 1714 and 1716 (by-galaxy) | 0.925% + 0.000% + 0.648% + 0.934% = 2.507% | Only the save of the prior state (one `ldp` per callback, inside 1680 and 1714) and its restore (one `stp`, the whole of 1682 and 1716). The other instructions on 1680 and 1714 load the module's name and store the kind and the name, which `module_registry_running_callback()` must report during every callback. 1716's `stp` is the first instruction after the indirect call returns, so its samples include the return's own cost, which no layout removes |
+| `enter_callback` / `leave_callback` per callback | 1680 and 1682 (full-halo), 1714 and 1716 (by-galaxy) | 0.925% + 0.000% + 0.648% + 0.934% = 2.507% | Only the save of the prior state (one `ldp` per callback, inside 1680 and 1714) and its restore (one `stp`, the whole of 1682 and 1716). The other instructions on 1680 and 1714 load the module's name and store the kind and the name, which `module_registry_running_callback()` must report during every callback. 1716's `stp` is the first instruction after the indirect call returns, so its samples may include the return's own cost, which no layout removes; that attribution is uncertain (the identical post-return `stp` in PASS 1, line 1682, has no sample, so it is likely a sampler artefact), and the decision rests on the counterfactual below, not on it |
 
 **Sum.** With the save counted as its line's instruction share (one of five on 1680 and on 1714) and 1716's post-return samples as return cost: 0.964 + 0 + 0.185 + 0.130 = **1.28%**. Counting 1716 in full as removable: **2.21%**. The profile alone therefore brackets the threshold, so the decision was settled by measuring the removal itself.
 
