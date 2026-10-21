@@ -53,7 +53,10 @@ run YAML
   → module_system_init()                   builds the pipeline; FATAL on unknown module,
                                            ERROR on unsupported mode, ERROR on per-event module
                                            with no subscription, ERROR unless event producer is
-                                           full-halo in the SAME phase as its consumers
+                                           full-halo in the SAME phase as its consumers; last,
+                                           after every init(), builds each non-empty FoF
+                                           phase's per-mode dispatch lists (fixed until
+                                           module_system_cleanup())
   → run_processing_driver()                src/core/vertical_driver.c — the vertical driver
       per tree:
       → build_halo_tree()                  depth-first walk; MaxTreeDepth guard (default 500)
@@ -66,10 +69,12 @@ run YAML
                                            takes the driver's struct FoFWorkspace
           → execute_module_pipeline()      pre_timestep once → for each substep, each named
                                            phase in YAML order → post_timestep once.
-                                           Within a phase: full-halo modules first (YAML
-                                           order); events dispatched IMMEDIATELY to
-                                           subscribed per-event consumers; then by-galaxy
-                                           modules galaxy-major. Records a full-halo
+                                           Within a phase (execute_phase(), walking the
+                                           phase's startup dispatch lists): full-halo
+                                           modules first (YAML order); events dispatched
+                                           IMMEDIATELY to subscribed per-event consumers;
+                                           then by-galaxy modules galaxy-major, the galaxy
+                                           loop entered only when the phase has one. Records a full-halo
                                            module creates (module_create_record()) are
                                            appended to the workspace when its callback
                                            returns, before the next module (its events

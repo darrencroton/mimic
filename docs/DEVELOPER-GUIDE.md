@@ -518,7 +518,7 @@ Inside each phase:
 2. Events emitted by full-halo modules are dispatched immediately to matching `process_per_event` consumers in YAML order.
 3. All `process_by_galaxy` modules run in galaxy-major order: for each galaxy, each by-galaxy module runs in YAML order.
 
-That means mode grouping takes precedence over raw YAML line position. If a by-galaxy module appears before a full-halo module in the same phase, it still runs after full-halo/event work.
+That means mode grouping takes precedence over raw YAML line position. If a by-galaxy module appears before a full-halo module in the same phase, it still runs after full-halo/event work. Each phase's dispatch lists are fixed at startup: once every module's `init()` has succeeded, `module_system_init()` splits each non-empty FoF phase's entries into its full-halo, per-event and by-galaxy lists, in YAML order, and `execute_phase()` walks those lists, so the phase configuration must not change between `module_system_init()` and `module_system_cleanup()`.
 
 Phase selection guide:
 

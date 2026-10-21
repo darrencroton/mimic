@@ -194,6 +194,12 @@ int module_system_init(void);
  * were delivered as it emitted them, against the committed rows), and the
  * event-dispatch view and ctx->central_galaxy are refreshed.
  *
+ * Dispatch walks the per-mode lists module_system_init() built once for this
+ * phase configuration array (FATAL_ERROR if it has none, or if num_modules no
+ * longer matches them), entering the galaxy loop only when the phase has a
+ * by-galaxy module and making the post-callback safety dispatch only when an
+ * event is still pending.
+ *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip phase)
  * @param   ctx            Module execution context (redshift, time, substep info)
