@@ -74,12 +74,12 @@ run YAML
                                            modules first (YAML order); events dispatched
                                            IMMEDIATELY to subscribed per-event consumers;
                                            then by-galaxy modules galaxy-major, the galaxy
-                                           loop entered only when the phase has one. Records a full-halo
-                                           module creates (module_create_record()) are
-                                           appended to the workspace when its callback
-                                           returns, before the next module (its events
-                                           were delivered as emitted, against committed
-                                           rows only).
+                                           loop entered only when the phase has one.
+                                           Records a full-halo module creates
+                                           (module_create_record()) are appended to the
+                                           workspace when its callback returns, before the
+                                           next module (its events were delivered as
+                                           emitted, against committed rows only).
       → marshal_workspace_to_output_buffer()  each subhalo slice, then the records created
                                            on hosts in that slice
       (horizontal driver only, once per snapshot after every FoF group:
