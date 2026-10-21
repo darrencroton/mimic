@@ -10,6 +10,7 @@
 
 1. [Baseline](#baseline)
 2. [Slice 1: The reference identity gate](#slice-1-the-reference-identity-gate)
+3. [Slice 2: Dispatch cost decomposition and health read](#slice-2-dispatch-cost-decomposition-and-health-read)
 
 ---
 
@@ -77,3 +78,102 @@ The `sage16` fixed legs report `P` of 14,648 (vertical, one tree) and 37,425 (ho
 **Cost.** One new test file, one moved-and-parameterised helper block in `tests/framework/parity_gate.py` (about 500 lines moved out of the battery, with three optional hooks in the comparison for the battery-only pinned-description and empty-list allowances), one Makefile target, documentation. No C change, no comparator change.
 
 **Findings.** (1) The comparator's default mode excludes created rows (`UniqueGalaxyID` below zero) from the byte comparison and only counts them; the two models on mini-Millennium create none, so nothing is unchecked here, but a later plan whose slice creates records must use the comparator's `--compare-created`. (2) The gate refuses a runtime tree with uncommitted edits by design, so a slice's gate run is taken at its commit; a fix after a failed gate is a new commit.
+
+---
+
+## Slice 2: Dispatch cost decomposition and health read
+
+**What changed.** No tracked file but this record. Four scratch variants of `74d9376d` (the slice's starting commit; `src/` equals `5daa24ee`'s), each a detached worktree under `output/perf-slice2/` with its own build per simulation package (`MODEL=sage16`, `SIMULATION=mini-millennium` and `mini-millennium-horizontal`) and its `snapshots` links pointed at the main tree's real data: `base` (the default `-g -O2` build, unmodified), `nodbg` (`DEBUG_LOG` in `src/util/error.h` replaced by `do { } while (0)`, nothing else changed), `noinl` (the default source built with `EXTRA_CFLAGS="-fno-inline"`) and `count` (untimed: static counters and an `atexit` report added to `execute_phase`, `dispatch_events_range` and `module_emit_event` in `src/core/module_registry.c`). Measured 2026-10-21 on the plan's machine with nothing else running; each wall pair was taken back to back. Evidence: `archive/performance/slice-002/` (machine-local).
+
+### Callback counts (measured, untimed `count` build)
+
+The two drivers dispatch exactly the same callbacks on the default run; every count below was identical vertical and horizontal.
+
+| Count | Default run |
+|---|---|
+| Full-halo callbacks | 46,426,014 |
+| Per-event callbacks | 48,044 (24,022 events emitted, each delivered to two consumers; no unsubscribed consumer skipped) |
+| By-galaxy callbacks | 171,932,057 |
+| All module callbacks | 218,406,115 |
+| `execute_phase` calls / of which empty (early return) | 30,040,362 / 1,365,471 |
+| PASS 1 module-loop iterations / failing the full-halo mode test | 223,937,244 / 177,511,230 (79.3%) |
+| PASS 2 rows visited / skipped (`galaxy == NULL` or `Type == 3`) | 32,857,209 / 77,867 |
+| PASS 2 module-loop iterations / failing the by-galaxy mode test | 256,204,525 / 84,272,468 (32.9%, 7.8 iterations per row visited) |
+| `dispatch_events_range` calls / early returns | 46,450,036 / 46,426,014 (every post-callback safety dispatch returned early; the 24,022 that ran are the immediate deliveries) |
+
+The `DEBUG_LOG` sites in `module_registry.c` are reached once per callback (line 1554 per full-halo, 1598 per by-galaxy, the per-event site per delivery), so the dispatch path alone evaluates the rate-limit predicate 218,406,115 times a run; the module-side `DEBUG_LOG` sites were not counted.
+
+### `DEBUG_LOG`-off wall pair (measured, n = 14, repeats 1 to 14 of 15)
+
+| | Vertical | Horizontal |
+|---|---|---|
+| `base` (default build) | 2.7201 ± 0.0337 s (min 2.6401, max 2.7634) | 2.7786 ± 0.0336 s (min 2.7195, max 2.8488) |
+| `nodbg` (`DEBUG_LOG` compiled out) | 2.5130 ± 0.0546 s (min 2.4475, max 2.6855) | 2.5988 ± 0.0313 s (min 2.5224, max 2.6381) |
+| Saving (difference of means) | 0.2071 s, 7.61% | 0.1798 s, 6.47% |
+| SE of the difference | 0.0171 s (12.1 SE) | 0.0123 s (14.6 SE) |
+
+Every repeat exited 0 and reported `P` of 14,648 (vertical) and 37,425 (horizontal). The `nodbg` galaxies are byte-identical to `base` on both drivers (`scripts/compare_cross_format_identity.py` default mode, exit 0, 187,832 galaxies over 8 snapshots, 42 fields). This is the ceiling Slice 3 can reach, and it is above the plan's 3.5 to 6% estimate: compiling the macro out removes every one of the 103 sites (module and core) and their argument evaluation, not only the predicate call the profile attributes to `error.c`. The `base` means are 3.3% (vertical) and 2.0% (horizontal) above the plan's baseline table; the scratch builds live on `/Volumes/Internal` through `output/`, and the pair's two sides share that placement, so the difference is the comparison and the absolute level is not.
+
+### `-fno-inline` profile of `module_registry.c` (measured; a ranking, not `-O2` percentages)
+
+`sample_runs.sh` 20 repeats, `attribute.py --skip-first --wall-mean-s` (19 reports per driver; 50,262 vertical and 52,075 horizontal self-samples). `source_attribution.mapped_fraction` 1.0 on both; `Unattributed` 0.03% (vertical) and 0.30% (horizontal). The `-fno-inline` build's own wall mean, the `--wall-mean-s` argument: 3.0463 ± 0.0550 s vertical, 3.1233 ± 0.0344 s horizontal, so suppressing inlining costs about 12% and inflates every helper's share by its call overhead. `module_registry.c` totals 29.47% (vertical) and 28.13% (horizontal), against 30.00% / 28.40% at `-O2`. The per-function self-samples were summed from the reports with the harness's own parser (`parse_sample.py`); they equal the harness's `module_registry.c` total exactly. `attribute.py`'s hot-line list stops at 60 entries, which is why it was not used for this table.
+
+| Function | Vertical % (ms) | Horizontal % (ms) | Hottest lines, vertical % |
+|---|---|---|---|
+| `execute_phase` (self) | 17.21 (524) | 16.69 (521) | 1598 `DEBUG_LOG` by-galaxy 2.56, 1603 by-galaxy `process()` 2.05, 1586 PASS 2 module loop 1.62, 1540 PASS 1 mode test 1.33, 1581 galaxy loop 1.23, 1587 PASS 2 mode test 0.88, 1591 `resolved` load 0.87, 1554 `DEBUG_LOG` full-halo 0.73 |
+| `enter_callback` | 2.84 (86) | 2.48 (77) | 127 2.22 |
+| `leave_callback` | 2.34 (71) | 2.28 (71) | 132 2.34 |
+| `dispatch_events_range` | 1.98 (60) | 1.99 (62) | 1041 1.08, 971 0.90 (entry and early return) |
+| `end_phase_event_dispatch` | 1.63 (50) | 1.47 (46) | 961 0.86, 948 0.51 |
+| `commit_created_records` | 1.47 (45) | 1.37 (43) | 1465 0.67, 1484 0.53 (the `staged == 0` early return) |
+| `begin_phase_event_dispatch` | 0.96 (29) | 0.94 (29) | 940 0.71 |
+| `execute_module_pipeline` | 0.64 (20) | 0.59 (18) | 1705 0.30 |
+| `update_context_for_substep` | 0.35 (11) | 0.27 (9) | 1669 0.28 |
+| `begin_record_creation_step` | 0.04 (1) | 0.05 (2) | |
+| `workspace_callback_count` | 0.01 (0) | 0.00 (0) | |
+| `module_emit_event`, `find_module_by_id`, `ensure_phase_event_capacity` | 0.00 | 0.00 | |
+| `is_debug_log_rate_limiting_enabled` (`error.c`, for reference) | 5.68 (173) | 5.75 (180) | `error.c:211` |
+
+### Decomposition (qualitative ranking from the `-fno-inline` profile; each share measured in that build, its `-O2` equivalent estimated)
+
+The `module_registry.c` self-time plus the predicate in `error.c`, grouped by what the line does (vertical / horizontal, % of the `-fno-inline` profile):
+
+1. **Per-callback bookkeeping**, 14.80 / 13.91%: `enter_`/`leave_callback`, `begin_`/`end_phase_event_dispatch`, the always-early safety `dispatch_events_range`, `commit_created_records`, which returns at its `staged == 0` test on every call because the default run creates no record (the comparator counts zero created rows), the per-callback state stores and result test, and `execute_phase`'s entry test. Largest under `-fno-inline` because every helper became a call; at `-O2` these fold into stores in `execute_phase` and the share is smaller (estimated), but the counts show the work: 46.4 million safety dispatches and 46.4 million commits that find nothing to do, and 30.0 million begin/end pairs.
+2. **Logging macro**, 8.97 / 8.85%: the predicate call (5.68 / 5.75%) plus the two dispatch sites (1598, 1554). Measured directly at `-O2` by the wall pair above: 7.6% / 6.5% of the run for all 103 sites.
+3. **Mode re-scan**, 4.55 / 4.39%: the PASS 1 and PASS 2 module loops and their mode tests (lines 1539, 1540, 1586, 1587), with 79.3% of PASS 1 and 32.9% of PASS 2 iterations failing the test (counted); plus the galaxy loop and row filter (1581, 1582) at 1.80 / 1.90%, which also runs in the phases that dispatch no by-galaxy module (two of four on the shipped run file, per the plan), and the `resolved` load and check (1544, 1591) at 1.02 / 1.04%.
+4. **Indirect call**, 2.55 / 2.48%: the `mod->process()` call lines (1563, 1603); the irreducible cost of the module ABI.
+5. **Pipeline and substep loop**, 0.99 / 0.86%, and line 0, 0.47 / 0.45%.
+
+### Per-callback cost
+
+| Figure | Vertical | Horizontal | Label |
+|---|---|---|---|
+| Default run wall ÷ by-galaxy callbacks | 15.82 ns (2.7201 s; 15.32 ns on the baseline's 2.6335 s) | 16.16 ns (2.7786 s; 15.85 ns on 2.7251 s) | measured |
+| `DEBUG_LOG`-off saving ÷ by-galaxy callbacks | 1.205 ± 0.099 ns | 1.046 ± 0.072 ns | measured |
+| The same saving ÷ all 218,406,115 callbacks | 0.948 ns | 0.823 ns | measured (an upper bound for the dispatch sites, since the saving includes the module sites) |
+| `module_registry.c` at `-O2` ÷ all callbacks | 3.62 ns (30.00% of 2.6335 s) | 3.54 ns (28.40% of 2.7251 s) | estimated (baseline share × baseline wall ÷ counted callbacks) |
+
+### `code-health` read of `src/core/module_registry.c` (the baseline for Slice 4's differential)
+
+`health.py analyze --all --json` at `74d9376d` (absolute mode; Lizard 1.23.0 covers C cyclomatic complexity; duplication is the skill's stdlib lexical scan with a 6-line minimum window). Evidence: `archive/performance/slice-002/health_all.json` (machine-local).
+
+| Measure | Value |
+|---|---|
+| Lines (physical / code / comment / blank) | 1,998 / 1,322 / 451 / 225 |
+| Functions | 67 |
+| Cyclomatic complexity, sum / mean / median / max | 351 / 5.24 / 4 / 17 |
+| Functions at CCN 10 or more / above 15 | 11 / 3 |
+| `execute_phase` CCN | 17 (joint maximum with `module_emit_event`; `free_phase_configuration` 16) |
+| `dispatch_events_range` CCN | 14 |
+| `begin_`/`end_phase_event_dispatch`, `commit_created_records`, `execute_module_pipeline` CCN | 2, 2, 3, 3 |
+| `enter_`/`leave_callback`, `workspace_callback_count` CCN | 1, 1, 1 |
+| Repository context (all functions Lizard measured in the run) | 2,285 functions, CCN 90th percentile 8, 99th percentile 20 |
+| Duplicate windows touching the file | 10 signatures: 7 within the file, 4 with another file (one is both) |
+| Duplicate inside `execute_phase` | lines 1541 and 1588, 8 lines: the unresolved-entry `FATAL_ERROR` block repeated in PASS 1 and PASS 2 |
+| Include fan-out / fan-in | 12 / 0 |
+
+The other in-file duplicates are in the phase-query and validation helpers (lines 521/562, 537/576, 591/711, 628/698, 379/447/1968, 1944/1976) and in the parameter getters, outside the dispatch path. Interpretation: `execute_phase`'s CCN of 17 lies between the repository's 90th (8) and 99th (20) percentiles, high for a dispatcher whose contract is six sentences; the repeated unresolved-entry block is the one duplicate Slice 4's single compaction pass removes by design.
+
+**Cost.** No tracked change but this section. Scratch: eight worktrees under `output/perf-slice2/` (kept for Slice 3's comparison; registered with `git worktree`, not committed), and evidence under `archive/performance/slice-002/`. The main tree's default build was rebuilt afterwards: `make` and `make check-generated` exit 0.
+
+**Findings.** (1) The `DEBUG_LOG` ceiling is 7.6% / 6.5% at 12 to 15 SE, above the plan's 3.5 to 6%, because compiling the macro out removes all 103 sites; Slice 3 keeps the macro and should expect to land below this ceiling, by the residual cost of a level test per site. (2) Every post-callback safety `dispatch_events_range` call on the default run returns early (46,426,014 of 46,426,014), and every `commit_created_records` returns at `staged == 0` (no record is created), which supports Slice 4's skip-when-nothing-pending. (3) The two drivers dispatch the identical callback sequence counts, so per-callback figures carry across drivers. No go or no-go for Slice 5 is drawn here.
