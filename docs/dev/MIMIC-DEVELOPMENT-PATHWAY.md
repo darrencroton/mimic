@@ -1,6 +1,6 @@
 # Mimic Development Pathway
 
-**Status:** Active planning index for `docs/dev/` · last revised 2026-10-22.
+**Status:** Active planning index for `docs/dev/` · last revised 2026-10-23.
 **Scope:** The work still to do, in order, and the document that owns each piece. Finished work leaves `docs/dev/` for `archive/dev-plans/` and is summarised in one line under [Changelog](#changelog).
 
 The architectural direction is governed by [`docs/VISION.md`](../VISION.md): a physics-agnostic core with runtime-configurable physics modules, metadata as structural truth, explicit validation, bounded memory, and reproducible output provenance. Durable facts about what Mimic is and does live in the guides, the package READMEs, the converter manual and format specification, the skills and the code; nothing outside `docs/dev/` cites anything in it.
@@ -11,7 +11,7 @@ The architectural direction is governed by [`docs/VISION.md`](../VISION.md): a p
 
 Roadmap steps 1 to 4 are complete (Shin-Uchuu end to end, snapshot-global modules, distributed snapshot operations, and performance Tier A), and so is the work that grew around them: the HOD and SHAM packages, chunked slab streaming, the Shin-Uchuu version 3 datasets and the cut, vertical Shin-Uchuu. The last release is v1.5 (2026-10-17); `main` carries the cut, vertical Shin-Uchuu and the Tier A performance work above it, described in `CHANGELOG.md`'s Unreleased section, and the next release is the owner's call.
 
-**Next: step 5, the model builder prototype (decided 2026-10-22).** A Campaign Manager one level above ai-agent-coder's Project Manager turns a brief into a charter the owner approves, designs and runs the campaign, and validates it with its own instruments; importing SAGE26 as `models/sage26` is the exercise it is built and tested against. Under the brief's recommendation most of the build happens in ai-agent-coder, and the first acceptance target is P0, design only. See [Step 5](#step-5-model-builder-prototype-next).
+**Next: step 5, the model builder prototype (decided 2026-10-22, design revised 2026-10-23).** ai-agent-coder's Project Manager gains a *campaign mode*. A parent PM delivers, by itself, against a dossier whose agreed part the owner approves, through small plans run by ordinary child PMs in their own worktrees and through read-only tasks, until every agreed target passes. Importing SAGE26 as `models/sage26` is the exercise it is built and tested against. Almost all of the build happens in ai-agent-coder; the next action is its implementation plan. See [Step 5](#step-5-model-builder-prototype-next).
 
 ---
 
@@ -22,7 +22,7 @@ Five steps remain. The numbered order is the **planned order**, not a dependency
 ```mermaid
 flowchart TD
     DONE["Delivered<br/>v1.5 + unreleased: dual driver, version 3 input,<br/>snapshot-global modules, MPI, chunked sweeps,<br/>HOD and SHAM, Shin-Uchuu horizontal and vertical,<br/>performance Tier A"]
-    S5["5 · Model builder prototype<br/>a Campaign Manager above PM,<br/>tested on importing SAGE26"]
+    S5["5 · Model builder prototype<br/>PM campaign mode,<br/>tested on importing SAGE26"]
     S6["6 · Emulator<br/>is this model package well-posed?"]
     S7["7 · Coupled rate formulation<br/>declared transfers, one integrated system"]
     S8["8 · Model builder<br/>paper to tested model package"]
@@ -42,7 +42,7 @@ flowchart TD
 
 | Step | Work | Owned by | Gate or next action |
 |---|---|---|---|
-| **5** | **Model builder prototype** — a Campaign Manager above PM that plans, runs and validates a campaign, tested on importing SAGE26 as `models/sage26` | [`MIMIC-MODEL-BUILDER-PROTOTYPE.md`](MIMIC-MODEL-BUILDER-PROTOTYPE.md), under step 8's brief as its requirements anchor | **Next.** Settle the open owner decisions, then plan the Campaign Manager in ai-agent-coder (see [Step 5](#step-5-model-builder-prototype-next)) |
+| **5** | **Model builder prototype** — PM campaign mode: a parent PM that plans, runs and validates a campaign against an owner-approved dossier through child PMs and read-only tasks, tested on importing SAGE26 as `models/sage26` | [`MIMIC-MODEL-BUILDER-PROTOTYPE.md`](MIMIC-MODEL-BUILDER-PROTOTYPE.md), under step 8's brief as its requirements anchor | **Next.** Write the campaign-mode implementation plan in ai-agent-coder (see [Step 5](#step-5-model-builder-prototype-next)) |
 | **6** | **Emulator** — is a model package well-posed, and what constrains what | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Run its calibrated-variance spike, outside the product tree. It needs no repository change, so it can run alongside step 5 |
 | **7** | **Coupled rate formulation** — declared transfers, one integrated system | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md), with [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) as its settled input | Run its measurement spike (new files under `models/` only, no core change). The spike sets priority, solver family and the attribution baseline; it is not a veto |
 | **8** | **Model builder** — paper to tested model package | [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) | Its re-review, due since 2026-08-12, starts from the step 5 brief and ends step 5, after its retrospective. Novel models still need a science gate, with step 6 the candidate |
@@ -68,21 +68,26 @@ flowchart TD
 
 ## Step 5: Model Builder Prototype (next)
 
-[`MIMIC-MODEL-BUILDER-PROTOTYPE.md`](MIMIC-MODEL-BUILDER-PROTOTYPE.md) is the design brief. It adds a **Campaign Manager (CM)**, an agent seat plus a small `cm.py` toolkit, one level above ai-agent-coder's Project Manager (PM). PM carries out one frozen plan. The CM turns a brief into a charter the owner approves once, designs the campaign as a graph of nodes, writes and independently reviews each node's plan, runs it under PM, validates the result with its own instruments, and asks the owner only where the charter requires. Importing SAGE26 as `models/sage26` is the exercise it is built and tested against. It is a first working version of step 8's builder for the reference-port class, and [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) stays its requirements anchor.
+[`MIMIC-MODEL-BUILDER-PROTOTYPE.md`](MIMIC-MODEL-BUILDER-PROTOTYPE.md) is the design brief, revised on 2026-10-23 after a design review. ai-agent-coder's Project Manager (PM) gains a **campaign mode**. A parent PM keeps a **dossier**: a small git repository whose `agreed.md` (goals, targets and tolerances, protected paths, reserved decisions, budgets) only the owner changes. It delivers against that dossier by itself, through three kinds of node:
+- **change nodes:** small implementation plans run by ordinary child PMs in their own worktrees, then merged;
+- **evidence nodes:** 1–2 slice plans whose deliverable is a committed report, read and never merged;
+- **task nodes:** hand-written, read-only `orchestrator` tasks.
+
+Validation, diagnosis and plan review are just nodes. Worktrees and parallel sessions are designed in, and the first tests run serially. Importing SAGE26 as `models/sage26` is the exercise it is built and tested against. It is a first working version of step 8's builder for the reference-port class, and [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) stays its requirements anchor. The parent seat may take its own name ("Campaign Manager" is the candidate); the brief leaves that open.
 
 | # | Work | Where | Notes |
 |---|---|---|---|
-| **5.1** | **Owner decisions** | The owner | The brief's Decisions 1 and 6 are settled (start now, as step 5). Open: 2, where the CM lives; 3, how much plan approval is delegated in v0; 4, serial or parallel nodes; 5, upstream repositories; 7, seats and a spend ceiling for P3, which waits on 5.2's costs. Also the environment: the isolation (container or VM) and the notification channel |
-| **5.2** | **Groundwork** | The owner's machine | The replay corpus gathered from `archive/`, each campaign with its starting commit; the step 4 run's costs, from the PM run report and ledger named in `archive/dev-plans/HANDOFF-performance-tier-a-2026-10-22.md` and from the harness; the answer key kept outside every repository |
-| **5.3** | **Build the CM** | ai-agent-coder (Decision 2's recommendation), then `.agents/builder/` here | In the brief's build order: an implementation plan for `cm.py` and the `campaign-manager` skill, run under PM; `cm.py` tested offline against a stub PM and stub instruments; PM's machine-facing adjustments (launch without a human present, a machine-readable outcome, a completion signal); the `plan-review`, `recon` and `diagnose` skills; then the minimal Mimic domain profile and the instrument contracts for the existing gates |
-| **5.4** | **P0 and P0r** | The campaign directory | Design only: brief, intake questions, charter, dossier and graph, then stop, scored against the held-out answer key. P0r replays archived campaigns against their human-approved answers. The first acceptance target |
-| **5.5** | **P1 to P3** | A campaign integration branch here | One `implement` node end to end; then the first `instrument` nodes, a science gate and a `diagnose` cycle; then the full campaign over several days, ending in the independent science audit, the owner's sign-off and the retrospective, then step 8's re-review. Each of the brief's fault injections must be seen before P3 |
+| **5.1** | **Implementation plan** | ai-agent-coder | Written from the brief's *What Changes*: protected paths in PM (`init --policy`, enforced by `check-plan`, `grant` and the floor), a small child-launch script reusing PM's session plumbing, the campaign-mode reference and dossier template, the launcher and plan-defect fixes in `implementation-plan`, and a deliberate ai-agent-coder VISION revision. About 200–300 lines of Python |
+| **5.2** | **Groundwork** | The owner's machine | The replay corpus gathered from `archive/`, each campaign with its starting commit; the step 4 run's costs, from the PM run report and ledger named in `archive/dev-plans/HANDOFF-performance-tier-a-2026-10-22.md` and from the harness; the answer key moved out of the Obsidian vault, beyond the reach of any agent running a campaign; the environment (container or VM, the notification channel) |
+| **5.3** | **Stages 1 and 2** | A scratch repository, then a Mimic branch | Stage 1: a two-target scratch campaign (a change node, an unmerged evidence node, a parent restart between them). Stage 2: a minimal Mimic campaign (an empty `models/sage26` that builds, and `sage16` unchanged). Both settle whether a child PM runs unattended reliably, the least certain part of the design. This repository gains the small policy file (protected paths, ignored output directories, exclusive resources) |
+| **5.4** | **P0 and P0r** | The campaign dossier | Design only: the parent builds its evidence and first work table for the SAGE26 import, then stops, scored against the held-out answer key. P0r replays archived campaigns against their human-approved answers |
+| **5.5** | **The import** | A campaign integration branch here | Serial first, then parallel once the serial loop is boring, ending in the independent science audit, the owner's sign-off and the retrospective, then step 8's re-review. Each of the brief's fault injections must be seen first. The open owner decisions (the seat's name, reserved classes, upstream policy, seats and a spend ceiling) are settled in `agreed.md` |
 
-**First action.** Settle Decisions 2 to 5 and the environment, with 5.2 alongside (Decision 7 waits on its costs), then write the CM's implementation plan in ai-agent-coder with the `implementation-plan` skill.
+**First action.** Write the campaign-mode implementation plan in ai-agent-coder with the `implementation-plan` skill, with 5.2 alongside.
 
-**Hold-out discipline binds this index too.** The exercise tests the CM only if it finds the obstacles itself. No document here names them, and the answer key stays outside every repository. The test charters exclude the builder's own design documents, and should exclude this index as well, since its step 5 section and residuals describe the repository's known limits. Do not pre-solve campaign content: fixing a gap, residual or upstream issue the import would hit, or doing any of the exercise's work by hand, removes test signal.
+**Hold-out discipline binds this index too.** The exercise tests the builder only if it finds the obstacles itself. No document here names them, and the answer key stays outside every repository. The test campaigns' `agreed.md` exclusions name the builder's design documents, this index (whose step 5 section and residuals describe the repository's known limits) and the Obsidian vault. Do not pre-solve campaign content: fixing a gap, residual or upstream issue the import would hit, or doing any of the exercise's work by hand, removes test signal.
 
-**What lands in this repository.** The domain profile under `.agents/builder/` and the instrument contracts for the existing gates, then whatever the campaign itself lands, node by node, on its integration branch; merging that branch to `main` is the owner's. Under Decision 2's recommendation the CM, its toolkit and its skills live in ai-agent-coder; the campaign directory lives outside both repositories.
+**What lands in this repository.** The small policy file, then whatever the campaign itself lands, node by node, on its integration branch; merging that branch to `main` is the owner's. Campaign mode lives in ai-agent-coder's `project-manager` skill, and each campaign's dossier lives outside both repositories.
 
 ---
 
@@ -91,7 +96,7 @@ flowchart TD
 | Document | Role |
 |---|---|
 | `MIMIC-DEVELOPMENT-PATHWAY.md` | This index: the road ahead, the next task, and a one-line changelog of finished work |
-| [`MIMIC-MODEL-BUILDER-PROTOTYPE.md`](MIMIC-MODEL-BUILDER-PROTOTYPE.md) | Step 5: design brief for the prototype (a Campaign Manager above PM), the `sage16` → `sage26` exercise and its hold-out discipline, the build order and test stages, and the sequencing case |
+| [`MIMIC-MODEL-BUILDER-PROTOTYPE.md`](MIMIC-MODEL-BUILDER-PROTOTYPE.md) | Step 5: design brief for the prototype (PM campaign mode), the `sage16` → `sage26` exercise and its hold-out discipline, the test stages and evaluation, the open owner decisions, and the design review's findings |
 | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Step 6: requirements brief |
 | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md) | Step 7: requirements brief |
 | [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) | Step 7 input: all 18 `sage16` prescriptions classified rate, jump, algebraic or forcing |
@@ -191,5 +196,6 @@ One line per finished piece of work. The record of each lives in its archived do
 | 2026-10-20 | **Data reorganised** on the Mac and NT into one layout per machine, every conversion copied to NT with SHA-256 verification; `docs/dev/` cut to the work still to do and this pathway rewritten | `MIMIC-DEVELOPMENT-PATHWAY-2026-10-20-before-rewrite.md` (the full previous pathway, with every dated outcome) |
 | 2026-10-20 → 10-22 | **Step 4, the Tier A performance plan** (4.1 and 4.2): a byte gate against any ancestor commit, `DEBUG_LOG` level-first, init-time dispatch plans, the vertical output-buffer seed, no build flag adopted; mini-Millennium 11.8% (vertical) and 10.3% (horizontal) faster, the Shin-Uchuu super-forest 165 GB to 71 GB, every galaxy byte-identical on the mini-Millennium gate; a post-run review and its hardening follow-up; merged to `main` | `MIMIC-PERFORMANCE-{IMPLEMENTATION-PLAN,ACCEPTANCE,REVIEW}.md` and `HANDOFF-performance-tier-a-2026-10-22.md` (in `archive/dev-plans/`); `MIMIC-PERFORMANCE-REFERENCE.md` and `OPTIMISATION-SPECTRUM.md` stay in `docs/dev/` as references |
 | 2026-10-20 → 10-22 | **Model builder prototype brief** written on `claude/sage26-import-strategy-5i8npo` while step 4 ran, merged to `main` and adopted as step 5; the road renumbered (emulator 6, coupled rate 7, model builder 8, embedded engine 9) and step 4 folded into the delivered work, with 4.3 an open candidate | (kept: `MIMIC-MODEL-BUILDER-PROTOTYPE.md` is the step 5 brief) |
+| 2026-10-22 → 10-23 | **Step 5 redesigned as PM campaign mode**: the separate Campaign Manager seat and `cm.py` replaced by a parent PM delivering against an owner-approved dossier through child PMs in worktrees and read-only tasks; brainstormed with Codex, then reviewed by a Codex and Fable panel against the ai-agent-coder code; the brief rewritten in place | `MIMIC-MODEL-BUILDER-PROTOTYPE-2026-10-22-campaign-manager-design.md`, `MIMIC-MODEL-BUILDER-SETUPS-2026-10-23.md` (in `archive/dev-plans/`) |
 
 **History decision, standing: `f81e2385` is not squashed into `13c0c9a7`** (2026-08-14). It is cited by SHA in archived records, the two commits are not adjacent, and the boundary is the evidence for the rule now in the validation skill (run the full suite as the last action). `git bisect skip` covers the two red commits.
