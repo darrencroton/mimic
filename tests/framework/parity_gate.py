@@ -73,7 +73,10 @@ interrupt; an interrupt first records a FAIL marker for the stage in flight.
 from __future__ import annotations
 
 import atexit
+import contextlib
+import fcntl
 import hashlib
+import io
 import json
 import os
 import re
@@ -83,7 +86,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -680,7 +683,7 @@ def scratch_parent() -> Path:
 
 
 # --------------------------------------------------------------------------
-# Worktree services (shared with tests/manual/test_snapshot_disabled_identity.py)
+# Worktree services (shared with the manual identity tests under tests/manual/)
 # --------------------------------------------------------------------------
 
 
@@ -745,10 +748,16 @@ def point_output_at(worktree: Path, output_root: Path) -> None:
     """Point the worktree's ``output`` at a per-run scratch root.
 
     Run files name a relative output_directory, so redirecting ``output`` selects a scratch
-    root while the run file stays byte for byte the one tested.
+    root while the run file stays byte for byte the one tested. Only a symlink is replaced: a real
+    ``output`` directory or file may hold output of its own, so it is refused, never removed.
     """
     link = worktree / "output"
-    if link.is_symlink() or link.exists():
+    if link.exists() and not link.is_symlink():
+        raise AssertionError(
+            f"{link} is a real directory or file, not a symlink this harness made, so it is not "
+            "replaced; move it to cold storage and re-run"
+        )
+    if link.is_symlink():
         link.unlink()
     link.symlink_to(output_root)
 
@@ -977,6 +986,732 @@ def assert_snapshot_coverage(run: RunOutput, counts: dict[int, int], expected: s
             f"{run.key}: output snapshot(s) {empty} hold no galaxies; an empty snapshot "
             f"compares equal to an empty snapshot and is not evidence of anything"
         )
+
+
+# --------------------------------------------------------------------------
+# Identity-gate services (shared with tests/manual/test_snapshot_disabled_identity.py and
+# tests/manual/test_reference_identity.py): reference resolution, cached worktrees, and the
+# per-run output comparison
+# --------------------------------------------------------------------------
+
+#: Everything a worktree builds or reads, for the uncommitted-edit check.
+RUNTIME_PATHS = ("src", "scripts", "models", "simulations", "Makefile")
+
+#: The gates' worktree cache, under the repository's gitignored ``output/`` (created if absent):
+#: the documented cache location and clean-up procedure assume it, so no fallback to the system
+#: tmp directory.
+WORKTREE_ROOT = REPO_ROOT / "output" / "snapshot-global-identity" / "worktrees"
+
+GIT_TIMEOUT_S = 600
+
+#: Datasets the contract names for byte equality, relative to ``RunProperties``.
+NAMED_DATASETS = ("Parameters", "FieldMetadata", "EnabledModules", "EventContracts", "Redshifts")
+
+#: ``RunProperties/Version`` attributes that necessarily differ between two builds.
+VERSION_ATTRIBUTES = ("version", "git_commit", "git_branch", "git_date", "build_date")
+
+#: ``RunProperties`` attribute that necessarily differs between two runs.
+RUN_END_TIME = "RunEndTime"
+
+#: Errors kept per comparison in the evidence and logged per failed leg; the count is exact.
+ERROR_CAP = 200
+
+#: ``dataset_delta(leaf, left, right)``: the label of a permitted difference between two datasets.
+DatasetDelta = Callable[[str, numpy.ndarray, numpy.ndarray], "str | None"]
+
+#: ``metadata_delta(rel, left, right, base, other, report)``: True when it judged the file itself.
+MetadataDelta = Callable[..., bool]
+
+
+def git(*args: str, check: bool = True, cwd: Path = REPO_ROOT) -> subprocess.CompletedProcess:
+    """Run git in ``cwd`` (the main tree by default); a failure is an AssertionError."""
+    completed = subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT_S
+    )
+    if check and completed.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)} failed: {completed.stderr.strip()}")
+    return completed
+
+
+def resolve_reference(
+    value: str,
+    commit_checks: tuple[Callable[[str, str], None], ...] = (),
+    repo: Path = REPO_ROOT,
+) -> tuple[str, str]:
+    """(reference, HEAD) once ``value`` names an ancestor of HEAD and every check passes.
+
+    ``commit_checks`` are the caller's own tests of the pair (each called with the reference and
+    HEAD hashes, raising AssertionError), run after the ancestry test.
+    """
+    completed = git("rev-parse", "--verify", f"{value}^{{commit}}", check=False, cwd=repo)
+    if completed.returncode != 0:
+        raise AssertionError(f"reference {value!r} is not a commit in this repository")
+    reference, head = completed.stdout.strip(), git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+    if git("merge-base", "--is-ancestor", reference, head, check=False, cwd=repo).returncode != 0:
+        raise AssertionError(f"reference {reference} is not an ancestor of HEAD {head}")
+    for check in commit_checks:
+        check(reference, head)
+    return reference, head
+
+
+def _nul_separated(completed: subprocess.CompletedProcess) -> list[str]:
+    """The paths of a ``-z`` git listing, so a path holding whitespace stays one entry."""
+    return [path for path in completed.stdout.split("\0") if path]
+
+
+def runtime_tree_differences(
+    paths: tuple[str, ...] = RUNTIME_PATHS,
+    exempt: Callable[[str], bool] | None = None,
+    repo: Path = REPO_ROOT,
+) -> list[str]:
+    """Uncommitted or untracked edits to anything the worktrees build and run from.
+
+    The legs build HEAD, so such an edit would not be tested. Every edit under ``paths`` counts
+    unless ``exempt(path)`` is true: a caller that tolerates some paths (the battery tolerates
+    module test envelopes) says so itself.
+    """
+    changed = git("diff", "--name-only", "-z", "HEAD", "--", *paths, cwd=repo)
+    untracked = git("ls-files", "-z", "--others", "--exclude-standard", "--", *paths, cwd=repo)
+    found = _nul_separated(changed) + _nul_separated(untracked)
+    return [path for path in found if exempt is None or not exempt(path)]
+
+
+def worktree_env(worktree: Path, model: str, simulation: str) -> dict:
+    """The gates' worktree environment, minus the caller's make state and extra build flags.
+
+    ``make TEST_BUILD=yes tests-snapshot-global-identity`` would otherwise reach both worktree
+    builds through MAKEFLAGS, and ``EXTRA_CFLAGS``/``EXTRA_LDFLAGS`` of the caller's own would
+    reach them through the environment, so the evidence would describe a build other than the
+    one claimed. A caller that gates a candidate flag adds it back explicitly.
+    """
+    env = ParityGate.worktree_env(worktree, model, simulation)
+    for key in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "EXTRA_CFLAGS", "EXTRA_LDFLAGS"):
+        env.pop(key, None)
+    return env
+
+
+#: The Makefile's build-mode markers, relative to a worktree, by the flag variable each records:
+#: ``.last_compile_mode`` is a prerequisite of every object and ``.last_exec_mode`` of the link,
+#: and each is rewritten only when its content changes, so a flag change rebuilds and relinks.
+BUILD_MODE_MARKERS = {
+    "EXTRA_CFLAGS": Path("build") / ".last_compile_mode",
+    "EXTRA_LDFLAGS": Path("build") / ".last_exec_mode",
+}
+
+
+def assert_build_flags(worktree: Path, flags: dict[str, str]) -> dict[str, str]:
+    """The worktree's last build recorded exactly ``flags`` (an absent variable is empty).
+
+    Reads the Makefile's own markers, which also record ``CC``, ``USE-HDF5`` and ``USE-MPI``, and
+    returns each marker's full content keyed by its path relative to the worktree, for the
+    evidence.
+    """
+    contents = {}
+    for variable, marker in BUILD_MODE_MARKERS.items():
+        path = worktree / marker
+        if not path.is_file():
+            raise AssertionError(
+                f"no build mode marker at {path}: the build did not complete, or the commit's "
+                "Makefile predates the markers (15d7e8c4, 2026-06-12)"
+            )
+        text = path.read_text()
+        recorded = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+        # A marker written by a Makefile older than the variable's line records it as absent,
+        # which means the build received no such flag.
+        if recorded.get(variable, "") != flags.get(variable, ""):
+            raise AssertionError(
+                f"build mode marker {path} records {variable}={recorded.get(variable, '')!r}, "
+                f"not {flags.get(variable, '')!r}; it reads {text.splitlines()}"
+            )
+        contents[marker.as_posix()] = text
+    return contents
+
+
+@contextlib.contextmanager
+def worktree_root_lock(root: Path = WORKTREE_ROOT):
+    """Hold an exclusive lock on the shared worktree root for a whole gate or battery run.
+
+    The identity gate and the battery share ``root``, its cached worktrees and HEAD worktrees, and
+    each repoints a worktree's ``output`` per run, so two runs at once would build and run in each
+    other's checkouts. The lock is not waited for: a second run is refused, naming the root.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / ".lock").open("a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise AssertionError(
+                f"another identity gate or battery is using {root}; wait for it"
+            ) from None
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def assert_clean_checkout(path: Path, commit: str) -> None:
+    """The worktree at ``path`` is at ``commit`` with no tracked edit."""
+    head = git("rev-parse", "HEAD", cwd=path, check=False)
+    dirty = git("diff", "--quiet", "HEAD", cwd=path, check=False).returncode
+    if head.returncode != 0 or head.stdout.strip() != commit or dirty != 0:
+        raise AssertionError(
+            f"FATAL: cached worktree {path} is not a clean checkout of {commit} "
+            f"(HEAD {head.stdout.strip() or 'unreadable'}, tracked edits: {dirty != 0}); it is not "
+            "reused. Move it to cold storage, run `git worktree prune`, and re-run."
+        )
+
+
+def _add_missing_worktree(
+    path: Path, commit: str, log_line: Callable[[str], None], repo: Path
+) -> bool:
+    """Add a detached worktree of ``repo`` at ``path`` on ``commit`` when nothing is there.
+
+    Returns True when it created one. A dangling symlink counts as present, so it is refused by
+    ``assert_own_worktree`` rather than written through.
+    """
+    if path.exists() or path.is_symlink():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    git("worktree", "add", "--detach", str(path), commit, cwd=repo)
+    ParityGate.link_machine_local(path)
+    log_line(f"  created worktree {path}")
+    return True
+
+
+def cached_worktree(
+    commit: str,
+    model: str,
+    simulation: str,
+    root: Path = WORKTREE_ROOT,
+    log_line: Callable[[str], None] = log,
+    repo: Path = REPO_ROOT,
+) -> Path:
+    """The worktree for one commit and pair, created only when missing and never removed."""
+    path = root / f"{commit[:12]}__{model}__{simulation}"
+    if not _add_missing_worktree(path, commit, log_line, repo):
+        log_line(f"  reusing worktree {path}")
+    assert_own_worktree(path, root, repo=repo)
+    assert_clean_checkout(path, commit)
+    return path
+
+
+def assert_untracked_free(worktree: Path, paths: tuple[str, ...] = RUNTIME_PATHS) -> None:
+    """The worktree holds no untracked, non-ignored file under ``paths``.
+
+    The Makefile compiles every source it finds under ``src/`` and ``models/``, so such a file
+    would be built into the executable although the checkout reads as clean.
+    """
+    listing = git("ls-files", "-z", "--others", "--exclude-standard", "--", *paths, cwd=worktree)
+    found = _nul_separated(listing)
+    if found:
+        raise AssertionError(
+            f"FATAL: worktree {worktree} holds untracked file(s) under {', '.join(paths)}: "
+            f"{found}; they would be built or run, so the executable would not be its commit's. "
+            "Move them to cold storage and re-run."
+        )
+
+
+#: ``_worktree_problem``'s finding for the main checkout, whose remedy is never to move it.
+MAIN_CHECKOUT = "it is the main checkout, not a linked worktree"
+
+
+def _worktree_problem(path: Path, root: Path, repo: Path) -> str | None:
+    """Why ``path`` is not a linked worktree of ``repo`` under ``root``, or None when it is."""
+    resolved = path.resolve()
+    if path.is_symlink():
+        return f"it is a symlink (to {resolved})"
+    if not path.is_dir():
+        return "it is not a directory"
+    if not resolved.is_relative_to(root.resolve()):
+        return f"it is not under the worktree root {root.resolve()}"
+    listing = git("worktree", "list", "--porcelain", cwd=repo).stdout.splitlines()
+    registered = {
+        Path(line[len("worktree ") :]).resolve() for line in listing if line.startswith("worktree ")
+    }
+    if resolved not in registered:
+        return f"`git worktree list` of {repo} does not name it"
+    top = git("rev-parse", "--show-toplevel", cwd=path, check=False)
+    if top.returncode != 0 or Path(top.stdout.strip()).resolve() != resolved:
+        found = top.stdout.strip() if top.returncode == 0 else "unreadable"
+        return f"its git top level is {found}, not itself"
+    ours = (repo / git("rev-parse", "--git-common-dir", cwd=repo).stdout.strip()).resolve()
+    common = git("rev-parse", "--git-common-dir", cwd=path, check=False)
+    if common.returncode != 0 or (path / common.stdout.strip()).resolve() != ours:
+        found = common.stdout.strip() if common.returncode == 0 else "unreadable"
+        return f"its common git dir is {found}, not {ours}"
+    git_dir = git("rev-parse", "--absolute-git-dir", cwd=path, check=False)
+    if git_dir.returncode != 0 or Path(git_dir.stdout.strip()).resolve() == ours:
+        return MAIN_CHECKOUT
+    return None
+
+
+def assert_own_worktree(path: Path, root: Path = WORKTREE_ROOT, repo: Path = REPO_ROOT) -> None:
+    """``path`` is a linked worktree of ``repo`` under ``root`` (see ``_worktree_problem``)."""
+    problem = _worktree_problem(path, root, repo)
+    if problem is not None:
+        remedy = (
+            "Never move the main checkout: choose a worktree root that does not lead to it."
+            if problem == MAIN_CHECKOUT
+            else "Move it to cold storage, run `git worktree prune`, and re-run."
+        )
+        raise AssertionError(
+            f"FATAL: worktree {path} is not a linked worktree of {repo} under {root}: {problem}; "
+            f"it is not used. {remedy}"
+        )
+
+
+def head_worktree(
+    head: str,
+    model: str,
+    simulation: str,
+    root: Path = WORKTREE_ROOT,
+    log_line: Callable[[str], None] = log,
+    repo: Path = REPO_ROOT,
+) -> Path:
+    """The one reusable worktree for a pair, detached to ``head`` on every call.
+
+    Unlike ``cached_worktree`` it is keyed by pair, not commit, so successive HEADs share it and
+    commits do not accumulate worktrees; it is never removed. It must be a linked worktree of
+    this repository under ``root``, and a tracked edit or an untracked source in it is refused,
+    before the checkout and after it, rather than carried onto the new commit or built.
+    """
+    path = root / f"head__{model}__{simulation}"
+    created = _add_missing_worktree(path, head, log_line, repo)
+    assert_own_worktree(path, root, repo=repo)
+    if not created:
+        status = git("diff", "--quiet", "HEAD", cwd=path, check=False)
+        if status.returncode != 0:
+            reason = (
+                "has tracked edits"
+                if status.returncode == 1
+                else f"is unreadable as a git worktree ({status.stderr.strip() or 'no message'})"
+            )
+            raise AssertionError(
+                f"FATAL: HEAD worktree {path} {reason}; it is not reused. Move it to cold "
+                "storage, run `git worktree prune`, and re-run."
+            )
+        assert_untracked_free(path)
+        git("checkout", "--detach", head, cwd=path)
+        log_line(f"  reusing worktree {path}, detached to {head}")
+    assert_clean_checkout(path, head)
+    assert_untracked_free(path)
+    return path
+
+
+@dataclass(frozen=True)
+class OutputRun:
+    """A finished run's output directory, the path prefixes its files may embed, and the
+    property-metadata digest its build generated (``build/generated/property_hash.txt`` of
+    the producing worktree), which its ``output_schema.json`` must carry as ``source_md5``.
+    ``basename`` is the run's ``output_filename``, the stem of its master and partition files."""
+
+    directory: Path
+    prefixes: tuple[str, ...]
+    source_md5: str | None = None
+    basename: str = "model"
+
+    def normalized(self, text: str) -> str:
+        for prefix in sorted(self.prefixes, key=len, reverse=True):
+            text = text.replace(prefix, "<PREFIX>")
+        return text
+
+    def embeds_prefix(self, text: str) -> bool:
+        return any(prefix in text for prefix in self.prefixes)
+
+
+@dataclass
+class Report:
+    """The outcome of one comparison: failures, named permitted differences and counts."""
+
+    errors: list[str] = field(default_factory=list)
+    permitted: list[str] = field(default_factory=list)
+    datasets_compared: list[str] = field(default_factory=list)
+    files: int = 0
+    links: int = 0
+    snapshots: int = 0
+    galaxies: int = 0
+    fields: int = 0
+    galaxy_differences: int = 0
+
+    def error(self, message: str) -> None:
+        self.errors.append(message)
+
+    def allow(self, message: str) -> None:
+        if message not in self.permitted:
+            self.permitted.append(message)
+
+    def summary(self) -> dict:
+        return {
+            "errors": len(self.errors),
+            "permitted_differences": sorted(self.permitted),
+            "named_datasets_compared": sorted(set(self.datasets_compared)),
+            "files": self.files,
+            "master_links": self.links,
+            "output_snapshots": self.snapshots,
+            "galaxies": self.galaxies,
+            "fields": self.fields,
+            "galaxy_differences": self.galaxy_differences,
+        }
+
+
+def relative_files(root: Path) -> list[str]:
+    return sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
+
+
+def attribute_signature(value, stored=None) -> tuple:
+    """(dtype, shape, bytes) of an attribute; strings carry their HDF5 encoding.
+
+    With ``stored`` (the attribute's HDF5 id) the dtype and shape are the stored ones: a scalar
+    fixed-length string otherwise comes back sized to its content.
+    """
+    array = numpy.asarray(value)
+    shape = tuple(stored.shape) if stored is not None else array.shape
+    info = h5py.check_string_dtype(stored.dtype) if stored is not None else None
+    encoding = f":{info.encoding}" if info is not None else ""
+    if array.dtype.kind == "O":
+        items = [item.encode() if isinstance(item, str) else bytes(item) for item in array.ravel()]
+        return ("O" + encoding, shape, b"\0".join(items))
+    dtype = stored.dtype.str if stored is not None else array.dtype.str
+    return (dtype + encoding, shape, array.tobytes())
+
+
+def attribute_text(signature: tuple) -> str:
+    """The attribute's text when it is a string, else empty (for path-prefix reasoning)."""
+    dtype, _shape, payload = signature
+    if dtype.startswith(("O", "|S", "<U")):
+        return payload.decode(errors="replace").rstrip("\0")
+    return ""
+
+
+def dtype_signature(dtype: numpy.dtype):
+    """A dtype's full layout: for a compound, its size and each field's name, base type, shape
+    and offset, so field-by-field byte equality means the same record."""
+    if not dtype.names:
+        return dtype.str
+    fields = []
+    for name in dtype.names:
+        item, offset = dtype.fields[name][:2]
+        base, shape = item.subdtype if item.subdtype is not None else (item, ())
+        fields.append((name, base.str, tuple(shape), offset))
+    return (dtype.itemsize, tuple(fields))
+
+
+def canonical_bytes(array: numpy.ndarray) -> bytes:
+    """Dataset content as bytes, field by field so compound padding is never compared."""
+    if array.dtype.names:
+        return b"".join(canonical_bytes(array[name]) for name in array.dtype.names)
+    if array.dtype.kind == "O":
+        return b"\0".join(
+            item.encode() if isinstance(item, str) else bytes(item) for item in array.ravel()
+        )
+    return numpy.ascontiguousarray(array).tobytes()
+
+
+def objects_of(handle: h5py.File) -> dict[str, h5py.HLObject]:
+    found: dict[str, h5py.HLObject] = {"/": handle["/"]}
+    handle.visititems(lambda name, obj: found.__setitem__(name, obj))
+    return found
+
+
+def links_of(handle: h5py.File) -> dict[str, tuple]:
+    """Every link by name: its type, and for soft and external links its target."""
+    found: dict[str, tuple] = {}
+
+    def visit(name, link):
+        found[name] = (
+            type(link).__name__,
+            getattr(link, "filename", ""),
+            getattr(link, "path", ""),
+        )
+
+    handle.visititems_links(visit)
+    return found
+
+
+def permitted_attribute(path: str, name: str) -> str | None:
+    """The label of an attribute that may differ in value (never in dtype or shape), or None."""
+    if path == "RunProperties/Version" and name in VERSION_ATTRIBUTES:
+        return f"RunProperties/Version@{name}"
+    if path == "RunProperties" and name == RUN_END_TIME:
+        return f"RunProperties@{RUN_END_TIME}"
+    return None
+
+
+def compare_attributes(where: str, path: str, a, b, base: OutputRun, other: OutputRun, report):
+    names_a, names_b = set(a.attrs), set(b.attrs)
+    if names_a != names_b:
+        report.error(
+            f"{where}:{path}: attribute names differ (only baseline {sorted(names_a - names_b)}, "
+            f"only candidate {sorted(names_b - names_a)})"
+        )
+    for name in sorted(names_a & names_b):
+        left = attribute_signature(a.attrs[name], a.attrs.get_id(name))
+        right = attribute_signature(b.attrs[name], b.attrs.get_id(name))
+        if left == right:
+            continue
+        same_type = left[:2] == right[:2]
+        label = permitted_attribute(path, name)
+        if label is not None:
+            if same_type:
+                report.allow(label)
+            else:
+                report.error(
+                    f"{where}:{path}@{name}: permitted attribute changed dtype or shape "
+                    f"({left[:2]} != {right[:2]}); only its value may differ"
+                )
+            continue
+        text_a, text_b = attribute_text(left), attribute_text(right)
+        if (
+            path == "RunProperties"
+            and same_type
+            and text_a
+            and text_b
+            and base.embeds_prefix(text_a)
+            and other.embeds_prefix(text_b)
+            and base.normalized(text_a) == other.normalized(text_b)
+        ):
+            report.allow(f"path-valued attribute {path}@{name} (path prefix only)")
+            continue
+        report.error(
+            f"{where}:{path}@{name}: {left[:2]} {left[2][:60]!r} != {right[:2]} {right[2][:60]!r}"
+        )
+
+
+def compare_hdf5_file(
+    rel: str,
+    base: OutputRun,
+    other: OutputRun,
+    report: Report,
+    dataset_delta: DatasetDelta | None = None,
+    strict_galaxies: bool = False,
+) -> None:
+    """Links, objects, attributes and dataset bytes of one HDF5 file pair.
+
+    ``dataset_delta(leaf, left, right)`` names a permitted difference between two non-Galaxies
+    datasets (``leaf`` is the path without any ``RunProperties/`` prefix), or returns None.
+    ``Galaxies`` datasets are compared per ID by ``compare_galaxies``; with ``strict_galaxies``
+    their bytes must also be equal here, so row order inside a partition is checked too. Dataset
+    creation properties (chunking, compression, fill value) are not compared.
+    """
+    with h5py.File(base.directory / rel, "r") as fa, h5py.File(other.directory / rel, "r") as fb:
+        links_a, links_b = links_of(fa), links_of(fb)
+        report.links += sum(1 for kind, _, _ in links_a.values() if kind == "ExternalLink")
+        for name in sorted(set(links_a) | set(links_b)):
+            if links_a.get(name) != links_b.get(name):
+                report.error(
+                    f"{rel}:{name}: external link or link type differs "
+                    f"({links_a.get(name)} != {links_b.get(name)})"
+                )
+        objects_a, objects_b = objects_of(fa), objects_of(fb)
+        if set(objects_a) != set(objects_b):
+            report.error(
+                f"{rel}: HDF5 objects differ (only baseline "
+                f"{sorted(set(objects_a) - set(objects_b))}, only candidate "
+                f"{sorted(set(objects_b) - set(objects_a))})"
+            )
+        for path in sorted(set(objects_a) & set(objects_b)):
+            left, right = objects_a[path], objects_b[path]
+            if isinstance(left, h5py.Dataset) != isinstance(right, h5py.Dataset):
+                report.error(f"{rel}:{path}: one side is a group, the other a dataset")
+                continue
+            compare_attributes(rel, path, left, right, base, other, report)
+            if not isinstance(left, h5py.Dataset):
+                continue
+            if dtype_signature(left.dtype) != dtype_signature(right.dtype):
+                report.error(f"{rel}:{path}: dataset dtype differs")
+            elif left.shape != right.shape:
+                report.error(f"{rel}:{path}: shape {left.shape} != {right.shape}")
+            elif path.endswith("/Galaxies"):  # compared per ID; strictly, row order too
+                if strict_galaxies and canonical_bytes(left[()]) != canonical_bytes(right[()]):
+                    report.error(f"{rel}:{path}: Galaxies bytes differ (row order or content)")
+            else:
+                leaf = path.removeprefix("RunProperties/")
+                if path.startswith("RunProperties/") and leaf in NAMED_DATASETS:
+                    report.datasets_compared.append(leaf)
+                if canonical_bytes(left[()]) != canonical_bytes(right[()]):
+                    label = dataset_delta(leaf, left[()], right[()]) if dataset_delta else None
+                    if label is not None:
+                        report.allow(label)
+                    else:
+                        report.error(f"{rel}:{path}: dataset bytes differ")
+
+
+#: The comparator's ``--compare-created`` pairing: tree and created rows (``UniqueGalaxyID < 0``)
+#: alike by id. Created ids are driver-specific, and both runs of every comparison here come from
+#: one driver and layout, the case the comparator documents for it.
+CREATED_BY_ID = comparator.Matching("id", "id")
+
+
+def compare_galaxies(base: OutputRun, other: OutputRun, report: Report) -> None:
+    """Per-ID byte identity of tree and created rows through the cross-format comparator.
+
+    Its report lines are errors; ``report.galaxies`` counts the rows it actually compared.
+    """
+    left = comparator.scan_run(str(base.directory / base.basename))
+    right = comparator.scan_run(str(other.directory / other.basename))
+    labels = ("baseline", "candidate")
+
+    def captured(call) -> tuple:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            value = call()
+        return value, " | ".join(line.strip() for line in buffer.getvalue().splitlines())
+
+    for label, index in zip(labels, (left, right)):
+        failures, text = captured(
+            lambda i=index, n=label: comparator.report_run_duplicates(n, i, ERROR_CAP)
+        )
+        if failures:
+            report.error(f"galaxies: {text}")
+            report.galaxy_differences += failures
+    if report.galaxy_differences:
+        return
+    if left.signature != right.signature:
+        report.error("galaxies: Galaxies record schema differs")
+        return
+    if left.snapshots != right.snapshots:
+        report.error(
+            f"galaxies: output snapshots differ (only baseline "
+            f"{sorted(left.snapshots - right.snapshots)}, only candidate "
+            f"{sorted(right.snapshots - left.snapshots)})"
+        )
+    shared = sorted(left.snapshots & right.snapshots)
+    report.snapshots, report.fields = len(shared), len(left.dtype.names)
+    for snap in shared:
+        records_left = comparator.read_snapshot(left, snap)
+        records_right = comparator.read_snapshot(right, snap)
+        result, text = captured(
+            lambda s=snap, a=records_left, b=records_right: comparator.compare_snapshot(
+                s, a, b, labels, ERROR_CAP, CREATED_BY_ID
+            )
+        )
+        if result.failures:
+            report.error(f"galaxies: {text}")
+            report.galaxy_differences += result.failures
+        else:
+            report.galaxies += result.tree_rows + result.created_compared
+
+
+def compare_metadata_file(
+    rel: str,
+    base: OutputRun,
+    other: OutputRun,
+    report: Report,
+    metadata_delta: MetadataDelta | None = None,
+):
+    """One metadata file pair: identical, a named provenance or path-prefix difference, or an error.
+
+    ``metadata_delta(rel, left, right, base, other, report)`` may judge a file itself (recording
+    its own allowance or error) and return True, ahead of the identical-bytes and path-prefix
+    rules.
+    """
+    left, right = (base.directory / rel).read_bytes(), (other.directory / rel).read_bytes()
+    if rel == "metadata/version_info.json":
+        if left != right:
+            report.allow(rel)
+        for label, raw in (("baseline", left), ("candidate", right)):
+            if not isinstance(json.loads(raw), dict):
+                report.error(f"{rel}: {label} is not a JSON object")
+        return
+    if metadata_delta is not None and metadata_delta(rel, left, right, base, other, report):
+        return
+    if left == right:
+        return
+    text_left, text_right = left.decode(errors="replace"), right.decode(errors="replace")
+    if (
+        base.embeds_prefix(text_left)
+        and other.embeds_prefix(text_right)
+        and base.normalized(text_left) == other.normalized(text_right)
+    ):
+        report.allow(f"{rel}: path prefix only")
+    else:
+        report.error(f"{rel}: content differs beyond the path prefix")
+
+
+def compare_outputs(
+    base: OutputRun,
+    other: OutputRun,
+    dataset_delta: DatasetDelta | None = None,
+    metadata_delta: MetadataDelta | None = None,
+    check_shared: Callable[[list[str], Report], None] | None = None,
+    strict_galaxies: bool = False,
+) -> Report:
+    """Compare a candidate run with the baseline; every failure is in ``Report.errors``.
+
+    With no hook, only the named provenance attributes and the path prefixes may differ.
+    ``check_shared`` sees the files both runs wrote, right after the file-set comparison.
+    ``strict_galaxies`` also requires byte-equal ``Galaxies`` datasets (see
+    ``compare_hdf5_file``).
+    """
+    report = Report()
+    files_left, files_right = relative_files(base.directory), relative_files(other.directory)
+    if files_left != files_right:
+        report.error(
+            f"file sets differ (only baseline {sorted(set(files_left) - set(files_right))}, "
+            f"only candidate {sorted(set(files_right) - set(files_left))})"
+        )
+    shared = sorted(set(files_left) & set(files_right))
+    report.files = len(shared)
+    if check_shared is not None:
+        check_shared(shared, report)
+    for rel in shared:
+        if rel.endswith(".hdf5"):
+            compare_hdf5_file(rel, base, other, report, dataset_delta, strict_galaxies)
+        elif rel.startswith("metadata/"):
+            compare_metadata_file(rel, base, other, report, metadata_delta)
+        elif (base.directory / rel).read_bytes() != (other.directory / rel).read_bytes():
+            report.error(f"{rel}: content differs")
+    try:
+        compare_galaxies(base, other, report)
+    except comparator.ComparisonError as error:
+        report.error(f"galaxy comparison could not read an output: {error}")
+    if report.galaxies <= 0 and not report.errors:
+        report.error("no galaxies compared")
+    return report
+
+
+class Tee(io.TextIOBase):
+    """Write to every stream at once (the console, a log file, a capture buffer)."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, text: str) -> int:
+        for stream in self.streams:
+            stream.write(text)
+            stream.flush()
+        return len(text)
+
+    def flush(self) -> None:
+        for stream in self.streams:
+            stream.flush()
+
+
+def run_manual_gate(stages: list[Callable], title: str, log_path: Path, target: str) -> int:
+    """Run a manual gate's stages with the console also written to ``log_path``.
+
+    Returns 0 only when every stage passed: any FAIL, ERROR, SKIP or NA marker fails (a WARN is
+    surfaced, not fatal). There is no ``abort_on_failure``: once the builds succeed the legs are
+    independent, each checks its own prerequisites, and the verdict stage names every leg's
+    outcome; a failed resolution or build leaves the legs nothing to run.
+    """
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    console = sys.stdout
+    with log_path.open("w") as handle:
+        buffer = io.StringIO()
+        sys.stdout = Tee(console, handle, buffer)
+        try:
+            status = run_test_suite(stages, title)
+            if re.search(r"^MIMIC_RESULT: (SKIP|NA)\b", buffer.getvalue(), flags=re.MULTILINE):
+                print("FAIL: a stage was skipped or not applicable; every stage must run")
+                status = 1
+            if "MIMIC_RESULT: WARN" in buffer.getvalue():
+                print("WARN: see the MIMIC_RESULT: WARN line(s) above (not a failure)")
+            verdict = "PASS" if status == 0 else "FAIL"
+            print(f"{verdict}: {target} (log: {log_path})")
+        finally:
+            sys.stdout = console
+    return status
 
 
 def _stage_name(model: str, scheme: str) -> str:

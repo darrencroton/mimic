@@ -53,7 +53,10 @@ run YAML
   → module_system_init()                   builds the pipeline; FATAL on unknown module,
                                            ERROR on unsupported mode, ERROR on per-event module
                                            with no subscription, ERROR unless event producer is
-                                           full-halo in the SAME phase as its consumers
+                                           full-halo in the SAME phase as its consumers; last,
+                                           after every init(), builds each non-empty FoF
+                                           phase's per-mode dispatch lists (fixed until
+                                           module_system_cleanup())
   → run_processing_driver()                src/core/vertical_driver.c — the vertical driver
       per tree:
       → build_halo_tree()                  depth-first walk; MaxTreeDepth guard (default 500)
@@ -66,15 +69,17 @@ run YAML
                                            takes the driver's struct FoFWorkspace
           → execute_module_pipeline()      pre_timestep once → for each substep, each named
                                            phase in YAML order → post_timestep once.
-                                           Within a phase: full-halo modules first (YAML
-                                           order); events dispatched IMMEDIATELY to
-                                           subscribed per-event consumers; then by-galaxy
-                                           modules galaxy-major. Records a full-halo
-                                           module creates (module_create_record()) are
-                                           appended to the workspace when its callback
-                                           returns, before the next module (its events
-                                           were delivered as emitted, against committed
-                                           rows only).
+                                           Within a phase (execute_phase(), walking the
+                                           phase's startup dispatch lists): full-halo
+                                           modules first (YAML order); events dispatched
+                                           IMMEDIATELY to subscribed per-event consumers;
+                                           then by-galaxy modules galaxy-major, the galaxy
+                                           loop entered only when the phase has one.
+                                           Records a full-halo module creates
+                                           (module_create_record()) are appended to the
+                                           workspace when its callback returns, before the
+                                           next module (its events were delivered as
+                                           emitted, against committed rows only).
       → marshal_workspace_to_output_buffer()  each subhalo slice, then the records created
                                            on hosts in that slice
       (horizontal driver only, once per snapshot after every FoF group:
@@ -88,7 +93,7 @@ Two structures carry the state and are easy to confuse:
 
 | Structure | Role | Lifetime |
 |---|---|---|
-| `struct FoFWorkspace` (src/core/fof_workspace.h) | Per-FoF-group processing scratch: the halos and galaxies modules actually operate on, with the borrowed galaxy pool, the published created-record identity space, and the record-creation bookkeeping (`base_count`, the owned `created_host` map). One descriptor per driver, its rows grown only by `fof_workspace_reserve()` (during the pipeline only by the record-creation commit, between callbacks); the four workspace functions (`process_halo_evolution`, `execute_module_pipeline`, `execute_phase`, `marshal_workspace_to_output_buffer`) take the descriptor, and `execute_phase` re-reads `ws->halos`/`ws->count` at every full-halo and by-galaxy callback | Rows: one FoF group at one snapshot, allocated per unit by `load_unit()`/`free_unit_halos()` (vertical) or once per run (horizontal). Descriptor: a run-lifetime static behind `vertical_fof_workspace()` (vertical, see `src/include/globals.h`) or part of the driver's per-run state (horizontal) |
+| `struct FoFWorkspace` (src/core/fof_workspace.h) | Per-FoF-group processing scratch: the halos and galaxies modules actually operate on, with the borrowed galaxy pool, the published created-record identity space, and the record-creation bookkeeping (`base_count`, the owned `created_host` map). One descriptor per driver, its rows grown only by `fof_workspace_reserve()` (during the pipeline only by the record-creation commit, between callbacks); the four workspace functions (`process_halo_evolution`, `execute_module_pipeline`, `execute_phase`, `marshal_workspace_to_output_buffer`) take the descriptor, and `execute_phase` hands every full-halo and by-galaxy callback the current `ws->halos`/`ws->count` (the full-halo pass re-reads them after each commit of created records, the only mid-phase change) | Rows: one FoF group at one snapshot, allocated per unit by `load_unit()`/`free_unit_halos()` (vertical) or once per run (horizontal). Descriptor: a run-lifetime static behind `vertical_fof_workspace()` (vertical, see `src/include/globals.h`) or part of the driver's per-run state (horizontal) |
 | `ProcessedHalos` | Per-tree output buffer AND the source of already-processed progenitor state for inheritance | One tree |
 
 `ProcessedHalos` is dual-purpose by design: the driver backs the output buffer with it, and `inherit_descendant_halos` reads progenitor galaxies back out of it. Any change to one role must preserve the other.
@@ -126,6 +131,7 @@ All allocation goes through `mymalloc_cat` / `myrealloc_cat` / `myfree` (src/uti
 | Horizontal retained generation (raw slab, aux, processed output buffer, galaxy pool) | several | The horizontal driver alone, in a pool keyed by snapshot number; released once the snapshot at its retention horizon (largest `DescendantSnapshot` its halos name) is processed, and on the failure path by an `atexit` handler. The reader holds no retention state |
 | `HaloAux`, FoF workspace rows (`struct FoFWorkspace.halos`) and its `created_host` map, `ProcessedHalos` | `MEM_HALOS` | Driver, freed per tree (the horizontal driver's workspace descriptor lives for the run and is released by `fof_workspace_destroy()` at teardown) |
 | Record-creation scratch (staging blocks, staged-host map, per-host ordinals) | `MEM_HALOS` | `module_registry.c`; run-persistent, grow-to-high-water, allocated only once a record is created; released at driver teardown by `module_release_record_creation_scratch()` (vertical through `free_vertical_driver_scratch()`, horizontal in `horizontal_teardown()`) |
+| Per-phase dispatch plans (`struct PhasePlan`: the full-halo, per-event and by-galaxy module lists of each non-empty FoF phase) | `MEM_UTILITY` | `module_registry.c`, file-static table keyed by the phase's `struct PhaseModuleConfig *` array; built as the last step of a successful `module_system_init()`, read-only during processing, released by `release_phase_plans()` from `free_phase_configuration()` (so by `module_system_cleanup()`) and at the entry of `module_system_init()` when an earlier initialisation left a table without a cleanup |
 | `GalaxyData` | pool-managed | Galaxy pool; bulk-reset per tree, never individually freed |
 | Module-private allocations | module's choice of category | The module itself — allocate in `init()`/`process()`, free in `cleanup()`; nothing outlives `cleanup()` |
 | Per-task slab rows and partition tables (distributed horizontal run) | `MEM_TREES` slab; `MEM_HALOS` tables | Each task owns only its row range of every retained generation, so the retention accounting and `retention_memory_ceiling_mb` are per task; `forest_cuts` and `row_cuts` are created by `horizontal_partition_create()` on every task (task 0 fills them, `MPI_Bcast` shares them) and the per-forest weights are task 0's alone, freed before any generation is sized |

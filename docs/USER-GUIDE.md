@@ -65,6 +65,8 @@ make USE-MPI=yes                              # build with MPI support
 make info                                     # show detected compiler, libraries, and selected packages
 ```
 
+The default build compiles with `-g -O2` and the warning set `-Wall -Wextra -Wshadow -Wformat-security -Wundef`, with no link-time optimisation and no `-march` flag, so the executable runs on any CPU of its architecture; `make info` prints the exact compile and link flags. `EXTRA_CFLAGS` and `EXTRA_LDFLAGS` append compiler and linker flags for benchmarking, profiling and sanitizer builds. Candidate flag sets were measured on mini-Millennium and none beat `-O2` by a resolved margin on both drivers (see the [changelog](../CHANGELOG.md)), so none is in the default.
+
 A Mimic executable is compiled against **one model package and one simulation package at a time**. `MODEL` selects which `models/<model>/` package contributes galaxy properties, physics modules, and plots; `SIMULATION` selects which `simulations/<simulation>/` package contributes catalogue halo properties. A model package can intentionally provide no galaxy physics: `halos-only` is the shipped package for dark-matter halo catalogue exploration. The defaults are `DEFAULT_MODEL` (`sage16`) and `DEFAULT_SIMULATION` (`mini-millennium`) near the top of the `Makefile`, so plain `make` builds the shipped full-physics example. Override them per invocation, or edit the defaults if you mainly work with a different pair. If a selected package does not exist, the build stops with an `Unknown MODEL` or `Unknown SIMULATION` error rather than silently mis-building.
 
 This pairing is enforced at runtime too: a run file whose `model.name` or `simulation.name` does not match the executable fails at startup, so you can't accidentally analyse output produced by the wrong physics. Mimic derives package paths from those names: `models/<model>` and `simulations/<simulation>`. If you want to mix modules from different model families, create a new `models/<model>/` package and reconcile property names, parameters, units, dependencies, tests, and plots there — see the [Developer Guide](DEVELOPER-GUIDE.md#module-communication).
@@ -151,8 +153,8 @@ During tree processing Mimic prints a banner line summarising the configured inp
 
 ```text
 Run memory profile (GB = 1e9 B):
-  Peak process RSS: 0.065 GB
-  Output buffer capacity C: 74345 records at 176 B = 0.013 GB
+  Peak process RSS: 0.037 GB
+  Output buffer capacity C: 15869 records at 184 B = 0.003 GB
   Output population P: 14648 records
   Galaxy pool high-water G: 15525 galaxies at 176 B = 0.003 GB
   Galaxy pool allocated: 24576 slots in 2 chunks = 0.004 GB (36.8% chunk slack)
@@ -162,7 +164,7 @@ Run memory profile (GB = 1e9 B):
 | Line | Meaning |
 | --- | --- |
 | Peak process RSS | The largest resident memory the process reached, from the operating system. This is the number to plan a large run against — it includes everything, whereas the lines below cover only the two structures whose size cannot be derived from the input count |
-| Output buffer capacity `C` | Records the output buffer was sized to hold. It is allocated ahead of need and grows geometrically, so it normally exceeds `P` by a wide margin |
+| Output buffer capacity `C` | Records the output buffer was sized to hold. It is seeded at the input size plus 5% headroom (at least 1,000 records) and grows geometrically if the output outgrows that, so it is at least `P` and normally only modestly above it |
 | Output population `P` | The largest population any one live buffer reached: galaxies emitted plus orphans carried forward. Scoped to whatever the driver keeps live — one snapshot for horizontal input, one tree for vertical — not a run-wide total |
 | Galaxy pool high-water `G` | The most galaxies live at once. It can exceed `P`, because galaxies consumed by mergers are allocated but never written |
 | Galaxy pool allocated | What the pool holds resident, and how much of that is unused slack in its last chunk |

@@ -19,10 +19,6 @@
 
 /* Numerical constants for the simulation */
 #define NDIM 3
-/* Initial ProcessedHalos allocation = MAXHALOFAC * InputTreeNHalos. This is a
- * starting estimate only; the buffer grows dynamically via myrealloc_cat when
- * orphan halos cause the actual output count to exceed this multiple. */
-#define MAXHALOFAC 5
 #define ABSOLUTEMAXSNAPS 1000            /* The largest number of snapshots for any simulation */
 #define MAX_STRING_LEN 1024              /* Max length of a string containing a name */
 #define MAX_MODEL_PARAMS 256             /* Max modules.parameters entries in the input file */
@@ -45,12 +41,12 @@
 #define MAX_CREATED_RECORDS_PER_HOST 1024
 
 /* Memory allocation parameters */
-#define HALO_ARRAY_GROWTH_FACTOR 1.5         /* Factor to grow arrays by (1.5 = 50% growth) */
-#define MIN_HALO_ARRAY_GROWTH 1000           /* Minimum growth increment regardless of factor */
-#define MAX_HALO_ARRAY_SIZE 1000000000       /* Upper limit to prevent excessive allocation */
-#define HORIZONTAL_OUTPUT_SEED_HEADROOM 0.05 /* Horizontal output seed = slab + this fraction */
-#define INITIAL_FOF_HALOS 1000               /* Initial size for FOF halo arrays */
-#define MEMORY_REPORT_THRESHOLD_MB 10.0      /* Report if > 10 MB allocated */
+#define HALO_ARRAY_GROWTH_FACTOR 1.5    /* Factor to grow arrays by (1.5 = 50% growth) */
+#define MIN_HALO_ARRAY_GROWTH 1000      /* Minimum growth increment regardless of factor */
+#define MAX_HALO_ARRAY_SIZE 1000000000  /* Upper limit to prevent excessive allocation */
+#define OUTPUT_SEED_HEADROOM 0.05       /* Output buffer seed = input halos + this fraction */
+#define INITIAL_FOF_HALOS 1000          /* Initial size for FOF halo arrays */
+#define MEMORY_REPORT_THRESHOLD_MB 10.0 /* Report if > 10 MB allocated */
 
 /* Data type IDs */
 #define DOUBLE 1

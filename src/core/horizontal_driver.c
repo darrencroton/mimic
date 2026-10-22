@@ -1492,27 +1492,6 @@ static int horizontal_checked_sum(int64_t a, int64_t b, int64_t *sum) {
   return 1;
 }
 
-/* The output buffer's seed capacity for a slab of `nhalos`: the slab plus
- * proportional headroom (see horizontal_acquire_generation()), clamped at
- * MAX_HALO_ARRAY_SIZE unless the slab is already past it. 0 on int64_t overflow,
- * which only a slab within MIN_HALO_ARRAY_GROWTH of INT64_MAX rows can reach. */
-static int horizontal_output_seed_capacity(int64_t nhalos, int64_t *capacity) {
-  if (nhalos > MAX_HALO_ARRAY_SIZE) {
-    return horizontal_checked_sum(nhalos, MIN_HALO_ARRAY_GROWTH, capacity);
-  }
-
-  int64_t seed_headroom = (int64_t)((double)nhalos * HORIZONTAL_OUTPUT_SEED_HEADROOM);
-  if (seed_headroom < MIN_HALO_ARRAY_GROWTH) {
-    seed_headroom = MIN_HALO_ARRAY_GROWTH;
-  }
-  int64_t seed_capacity = nhalos + seed_headroom;
-  if (seed_capacity > MAX_HALO_ARRAY_SIZE) {
-    seed_capacity = MAX_HALO_ARRAY_SIZE;
-  }
-  *capacity = seed_capacity;
-  return 1;
-}
-
 /* Size a generation of `nhalos` rows before anything is allocated for it. The
  * aux array always holds at least one row, as horizontal_acquire_generation()
  * allocates it; `new_pool` says whether horizontal_take_pool() will have to
@@ -1527,7 +1506,7 @@ static int horizontal_generation_footprint(int64_t nhalos, int64_t slab_row_byte
   return horizontal_checked_bytes(nhalos, (size_t)slab_row_bytes, &fp->slab_bytes) &&
          horizontal_checked_bytes(nhalos > 0 ? nhalos : 1, sizeof(struct HorizontalHaloAux),
                                   &fp->aux_bytes) &&
-         horizontal_output_seed_capacity(nhalos, &fp->output_capacity) &&
+         output_buffer_seed_capacity(nhalos, &fp->output_capacity) &&
          horizontal_checked_bytes(fp->output_capacity, sizeof(struct Halo), &fp->output_bytes) &&
          (!new_pool || galaxy_pool_initial_resident_bytes(0, &fp->pool_bytes)) &&
          horizontal_checked_sum(fp->slab_bytes, fp->aux_bytes, &slab_and_aux) &&
@@ -1749,13 +1728,12 @@ static void horizontal_return_pool(struct HorizontalDriverState *state, struct G
  * so a failure anywhere after that point is released by the failure path, and
  * every buffer is recorded on the generation as soon as it exists.
  *
- * The output buffer is seeded with proportional headroom rather than a flat
- * increment: the output-to-slab ratio sits just under 1.0 and rises with scale,
- * so a flat increment leaves a large run a fraction of a percent from a growth
- * that reallocs the whole buffer. The vertical driver's MAXHALOFAC over-allocation
- * is not copied -- at slab scale a five-fold reservation is hundreds of
- * megabytes -- and the seed adds no proportional headroom to a
- * slab already past MAX_HALO_ARRAY_SIZE, only the minimum growth increment.
+ * The output buffer is seeded by output_buffer_seed_capacity(), the rule the
+ * vertical driver shares: proportional headroom rather than a flat increment,
+ * because the output-to-slab ratio sits just under 1.0 and rises with scale, so
+ * a flat increment leaves a large run a fraction of a percent from a growth that
+ * reallocs the whole buffer. The seed adds no proportional headroom to a slab
+ * already past MAX_HALO_ARRAY_SIZE, only the minimum growth increment.
  */
 static struct HorizontalGeneration *
 horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapnum) {
@@ -1836,7 +1814,7 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
   /* Output count is the slab plus the orphans carried forward from earlier
    * snapshots; seed for that and let the marshaller grow if it is exceeded.
    * Seeding policy and its rationale are on the function comment above; the seed
-   * is the one the footprint was sized with (horizontal_output_seed_capacity()). */
+   * is the one the footprint was sized with (output_buffer_seed_capacity()). */
   gen->processed.count = 0;
   gen->processed.capacity = footprint.output_capacity;
   gen->processed.halos =

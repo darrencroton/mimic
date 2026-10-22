@@ -184,15 +184,23 @@ int module_system_init(void);
  *
  * Called from execute_module_pipeline() for each phase.
  *
- * Full-halo and by-galaxy callbacks receive the workspace's current rows:
- * ws->halos and ws->count are read at the start of each callback, never from a
- * copy taken earlier in the phase. Per-event consumers address rows through
- * the phase's event-dispatch view, set from the descriptor when the phase
- * begins. When a full-halo callback returns, records it created through
- * module_create_record() are appended to the workspace before the next module
- * runs and before the safety dispatch of any undelivered event (its events
- * were delivered as it emitted them, against the committed rows), and the
- * event-dispatch view and ctx->central_galaxy are refreshed.
+ * Full-halo and by-galaxy callbacks receive the workspace's current rows. The
+ * by-galaxy pass reads ws->halos and ws->count at each callback; the full-halo
+ * pass reads them before its first callback and again after every commit of
+ * created records, the only point at which the workspace changes during a
+ * phase. Per-event consumers address rows through the phase's event-dispatch
+ * view, set from the descriptor when the phase begins. When a full-halo
+ * callback returns, records it created through module_create_record() are
+ * appended to the workspace before the next module runs and before the safety
+ * dispatch of any undelivered event (its events were delivered as it emitted
+ * them, against the committed rows), and the event-dispatch view and
+ * ctx->central_galaxy are refreshed.
+ *
+ * Dispatch walks the per-mode lists module_system_init() built once for this
+ * phase configuration array (FATAL_ERROR if it has none, or if num_modules no
+ * longer matches them), entering the galaxy loop only when the phase has a
+ * by-galaxy module and making the post-callback safety dispatch only when an
+ * event is still pending.
  *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip phase)

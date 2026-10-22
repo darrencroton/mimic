@@ -40,8 +40,9 @@
  * model. Add locking before any shared-memory migration.
  * ============================================================================ */
 
-// Default log level: show everything except debug messages
-static LogLevel current_log_level = LOG_LEVEL_INFO;
+// Default log level: show everything except debug messages. Exported (declared in
+// error.h) so the DEBUG_LOG macro can test it inline; written only by set_log_level().
+LogLevel mimic_log_level = LOG_LEVEL_INFO;
 
 // Default output file pointer: stderr for warnings and errors, stdout for info
 // and debug
@@ -53,8 +54,10 @@ static int verbose_format = 0;
 // Verbose prefix flag: adds timestamp/file:line context to messages (--debug only)
 static int verbose_prefix = 0;
 
-// Debug log rate limiting flag: only enabled during intensive processing phases
-static int debug_log_rate_limiting_enabled = 0;
+// Debug log rate limiting flag: only enabled during intensive processing phases.
+// Exported (declared in error.h) so the armed DEBUG_LOG path makes no call; written
+// only by enable_/disable_debug_log_rate_limiting().
+int mimic_debug_log_rate_limiting = 0;
 
 // Level names for printing
 static const char *level_names[] = {"DEBUG", "INFO", "WARNING", "ERROR", "FATAL"};
@@ -139,14 +142,14 @@ const char *get_io_error_name(IOErrorCode code) {
  * - LOG_LEVEL_ERROR
  * - LOG_LEVEL_FATAL   (least verbose)
  */
-void set_log_level(LogLevel min_level) { current_log_level = min_level; }
+void set_log_level(LogLevel min_level) { mimic_log_level = min_level; }
 
 /**
  * @brief   Gets the current log level
  *
  * @return  Current minimum log level
  */
-LogLevel get_log_level(void) { return current_log_level; }
+LogLevel get_log_level(void) { return mimic_log_level; }
 
 /**
  * @brief   Enables or disables verbose formatting
@@ -192,7 +195,7 @@ int get_verbose_prefix(void) { return verbose_prefix; }
  *
  * Typically enabled during TREE_PROCESSING phase and disabled for other phases.
  */
-void enable_debug_log_rate_limiting(void) { debug_log_rate_limiting_enabled = 1; }
+void enable_debug_log_rate_limiting(void) { mimic_debug_log_rate_limiting = 1; }
 
 /**
  * @brief   Disables rate limiting for DEBUG_LOG output
@@ -201,14 +204,7 @@ void enable_debug_log_rate_limiting(void) { debug_log_rate_limiting_enabled = 1;
  * every time they are called. This is appropriate for configuration, module
  * initialization, and other non-loop contexts.
  */
-void disable_debug_log_rate_limiting(void) { debug_log_rate_limiting_enabled = 0; }
-
-/**
- * @brief   Checks if DEBUG_LOG rate limiting is currently enabled
- *
- * @return  1 if rate limiting is enabled, 0 otherwise
- */
-int is_debug_log_rate_limiting_enabled(void) { return debug_log_rate_limiting_enabled; }
+void disable_debug_log_rate_limiting(void) { mimic_debug_log_rate_limiting = 0; }
 
 /**
  * @brief   Sets the output file for logging
@@ -341,7 +337,7 @@ static void emit_log(LogLevel level, const char *file, int line, const char *pre
     filename = filename ? filename + 1 : file;
     log_line_append(&text, "%s[%s] %s - %s:%d - ", colour_start, time_str, level_names[level],
                     filename, line);
-  } else if (current_log_level >= LOG_LEVEL_WARNING || level >= LOG_LEVEL_WARNING) {
+  } else if (mimic_log_level >= LOG_LEVEL_WARNING || level >= LOG_LEVEL_WARNING) {
     /* Quiet mode or warnings/errors: show level prefix */
     log_line_append(&text, "%s%s: ", colour_start, level_names[level]);
   } else {
@@ -383,7 +379,7 @@ void log_message(LogLevel level, const char *file, const char *func, int line, c
                  ...) {
   (void)func;
 
-  if (level < current_log_level) {
+  if (level < mimic_log_level) {
     return;
   }
 
@@ -405,7 +401,7 @@ void log_io_error(LogLevel level, IOErrorCode code, const char *file, const char
                   const char *operation, const char *filename, const char *format, ...) {
   (void)func;
 
-  if (level < current_log_level) {
+  if (level < mimic_log_level) {
     return;
   }
 

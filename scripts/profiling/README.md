@@ -11,7 +11,7 @@ Component-level CPU attribution for a Mimic run, along the architectural boundar
 ## Preconditions
 
 1. **Check the input data actually loads.** `simulations/<sim>/snapshots` is a gitignored symlink. If it points somewhere wrong the run still exits 0, processes zero trees, and finishes in ~0.08 s — a silent no-op that looks like a fast run. `run_wall.py` warns when a repeat reports no galaxy-pool high-water, which is the symptom; confirm a real run before trusting any timing.
-2. **Build with symbols.** The default `make` already uses `-g -O2`, which is what the reference run used. Record any deviation.
+2. **Build with symbols.** The default `make` uses `-g -O2` plus the warning set (`-Wall -Wextra -Wshadow -Wformat-security -Wundef`), with no link-time optimisation and no `-march` flag, which is what the reference run used. Record any deviation, including `EXTRA_CFLAGS` and `EXTRA_LDFLAGS`: `-flto` in particular moves code between translation units, so the per-component and per-line attribution below describes a different binary.
 3. **Serialise everything.** Never run two `mimic` processes at once, and do not use the machine for anything else while measuring.
 
 ## Scripts

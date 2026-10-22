@@ -71,8 +71,8 @@ struct PhaseEventDispatchState {
   int event_capacity;         /**< Slots allocated in `events`; high-water, never shrinks */
   int event_count;
   int last_dispatched_event;
-  struct PhaseModuleConfig *phase_config;
-  int num_modules;
+  struct Module *const *per_event; /**< The phase plan's per-event list (NULL when inactive) */
+  int num_per_event;
   struct ModuleContext *ctx;
   struct Halo *halos;
   int ngal;
@@ -95,8 +95,8 @@ static struct PhaseEventDispatchState phase_event_state = {.events = NULL,
                                                            .event_capacity = 0,
                                                            .event_count = 0,
                                                            .last_dispatched_event = 0,
-                                                           .phase_config = NULL,
-                                                           .num_modules = 0,
+                                                           .per_event = NULL,
+                                                           .num_per_event = 0,
                                                            .ctx = NULL,
                                                            .halos = NULL,
                                                            .ngal = 0,
@@ -770,6 +770,135 @@ static int validate_event_subscriptions(struct PhaseModuleConfig *config, int nu
   return 0;
 }
 
+static void free_phase_event_buffer(void);
+
+/* ── Phase plans: each FoF phase's dispatch lists, built once at startup ── */
+
+/**
+ * @brief   The resolved modules of one FoF phase, split by processing mode
+ *
+ * Built by module_system_init() after every module's init() has succeeded and
+ * released by release_phase_plans(). Between the two its contents are
+ * read-only, so execute_phase() walks only the entries of the mode it is
+ * dispatching instead of re-testing every entry's mode on every call. The
+ * three lists share one allocation of `num_entries` slots, in YAML order
+ * within each mode; a module listed twice in the phase appears twice.
+ */
+struct PhasePlan {
+  const struct PhaseModuleConfig *phase_config; /**< Key: the phase's configuration array */
+  int num_entries;                              /**< The phase's entry count at build time */
+  struct Module **modules;                      /**< Owns the three lists below */
+  struct Module *const *full_halo;
+  int num_full_halo;
+  struct Module *const *per_event;
+  int num_per_event;
+  struct Module *const *by_galaxy;
+  int num_by_galaxy;
+};
+
+/** pre_timestep, every named substep phase and post_timestep; post_snapshot has no plan */
+#define MAX_PHASE_PLANS (MAX_SUBSTEP_PHASES + 2)
+
+static struct PhasePlan phase_plans[MAX_PHASE_PLANS];
+static int num_phase_plans = 0;
+
+/**
+ * @brief   Release every phase plan
+ *
+ * Called by free_phase_configuration() before the phase arrays the plans are
+ * keyed by are freed, and by module_system_init() for a table a previous
+ * successful initialisation left populated.
+ */
+static void release_phase_plans(void) {
+  int abandoned = 0;
+  for (int p = 0; p < num_phase_plans; p++) {
+    /* A test-tier memory reset between init and cleanup must not abort the
+     * process on a stale pointer; ./mimic never resets the memory system. */
+    if (is_tracked_memory_block(phase_plans[p].modules)) {
+      myfree(phase_plans[p].modules);
+    } else {
+      abandoned++;
+    }
+    phase_plans[p] = (struct PhasePlan){0};
+  }
+  if (abandoned > 0) {
+    WARNING_LOG("Phase plan table held %d pointer(s) the memory system no longer tracks (memory "
+                "system reset without module_system_cleanup()); dropping them",
+                abandoned);
+  }
+  num_phase_plans = 0;
+}
+
+/**
+ * @brief   Append the given phase's entries of one processing mode to a plan list
+ *
+ * @return  Number of entries appended
+ */
+static int collect_phase_mode(const struct PhaseModuleConfig *modules, int num_modules,
+                              enum ProcessingMode mode, struct Module **out) {
+  int count = 0;
+  for (int i = 0; i < num_modules; i++) {
+    if (modules[i].processing_mode == mode) {
+      out[count++] = modules[i].resolved;
+    }
+  }
+  return count;
+}
+
+static void build_phase_plan_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
+                                     int num_modules, void *userdata) {
+  (void)userdata;
+  if (num_modules == 0 || strcmp(phase_name, POST_SNAPSHOT_PHASE_NAME) == 0) {
+    return; /* Empty phases need no plan; post_snapshot runs through execute_post_snapshot() */
+  }
+  if (num_phase_plans >= MAX_PHASE_PLANS) {
+    FATAL_ERROR("Too many FoF phases to plan (max %d)", MAX_PHASE_PLANS);
+  }
+  for (int i = 0; i < num_modules; i++) {
+    if (modules[i].resolved == NULL) {
+      FATAL_ERROR("Module '%s' in phase '%s' was not resolved — cannot build the phase's "
+                  "dispatch plan",
+                  modules[i].module_name, phase_name);
+    }
+  }
+
+  struct Module **slots = mymalloc_cat((size_t)num_modules * sizeof(struct Module *), MEM_UTILITY);
+  const int num_full_halo =
+      collect_phase_mode(modules, num_modules, PROCESSING_MODE_FULL_HALO, slots);
+  const int num_per_event =
+      collect_phase_mode(modules, num_modules, PROCESSING_MODE_PER_EVENT, slots + num_full_halo);
+  const int num_by_galaxy = collect_phase_mode(modules, num_modules, PROCESSING_MODE_BY_GALAXY,
+                                               slots + num_full_halo + num_per_event);
+
+  phase_plans[num_phase_plans++] = (struct PhasePlan){
+      .phase_config = modules,
+      .num_entries = num_modules,
+      .modules = slots,
+      .full_halo = slots,
+      .num_full_halo = num_full_halo,
+      .per_event = slots + num_full_halo,
+      .num_per_event = num_per_event,
+      .by_galaxy = slots + num_full_halo + num_per_event,
+      .num_by_galaxy = num_by_galaxy,
+  };
+}
+
+/**
+ * @brief   Find the plan of a phase configuration array
+ *
+ * @return  The plan, or NULL when the array has none or its entry count has
+ *          changed since the plan was built
+ */
+static const struct PhasePlan *find_phase_plan(const struct PhaseModuleConfig *phase_config,
+                                               int num_modules) {
+  for (int p = 0; p < num_phase_plans; p++) {
+    if (phase_plans[p].phase_config == phase_config) {
+      return phase_plans[p].num_entries == num_modules ? &phase_plans[p] : NULL;
+    }
+  }
+  return NULL;
+}
+
 /* ── for_each_phase visitors used by module_system_init ─────────────────── */
 
 static void build_pipeline_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
@@ -811,7 +940,9 @@ static void validate_events_visitor(const char *phase_name, struct PhaseModuleCo
  * Validates multi-phase pipeline configuration and initializes all referenced
  * modules. Modules are initialized in the order they appear across all phases
  * (pre_timestep, named substep phases, post_timestep, post_snapshot), with
- * duplicates initialized only once.
+ * duplicates initialized only once. Once every init() has returned 0, it
+ * builds each non-empty FoF phase's dispatch plan, which execute_phase()
+ * requires; the phase configuration must not change until cleanup.
  *
  * @return  0 on success, non-zero if initialization fails
  */
@@ -819,6 +950,11 @@ int module_system_init(void) {
   int validation_failed = 0;
 
   VERBOSE_LOG("Initializing multi-phase module system");
+
+  /* Plans and an event buffer left by an earlier initialisation that was not
+   * cleaned up; both releases tolerate a memory-system reset in between. */
+  release_phase_plans();
+  free_phase_event_buffer();
 
   /* Build execution pipeline by collecting all unique modules across phases */
   num_pipeline_modules = 0;
@@ -865,6 +1001,9 @@ int module_system_init(void) {
     }
   }
 
+  /* Last, so a failed initialisation leaves no plan */
+  for_each_phase(build_phase_plan_visitor, NULL);
+
   VERBOSE_LOG("Module system initialized successfully");
   return 0;
 }
@@ -909,13 +1048,23 @@ static void ensure_phase_event_capacity(int required) {
 
 /**
  * @brief   Release the run-persistent phase event buffer
+ *
+ * Called by module_system_cleanup(), and by module_system_init() for a buffer
+ * a previous initialisation left without a cleanup.
  */
 static void free_phase_event_buffer(void) {
   if (phase_event_state.events == NULL) {
     return;
   }
 
-  myfree(phase_event_state.events);
+  /* A test-tier memory reset between init and cleanup must not abort the
+   * process on a stale pointer; ./mimic never resets the memory system. */
+  if (is_tracked_memory_block(phase_event_state.events)) {
+    myfree(phase_event_state.events);
+  } else {
+    WARNING_LOG("Phase event buffer held a pointer the memory system no longer tracks (memory "
+                "system reset without module_system_cleanup()); dropping it");
+  }
   phase_event_state.events = NULL;
   phase_event_state.event_capacity = 0;
 }
@@ -923,12 +1072,12 @@ static void free_phase_event_buffer(void) {
 /**
  * @brief   Initialize per-phase event dispatch state
  */
-static void begin_phase_event_dispatch(struct PhaseModuleConfig *phase_config, int num_modules,
-                                       struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+static void begin_phase_event_dispatch(const struct PhasePlan *plan, struct ModuleContext *ctx,
+                                       struct Halo *halos, int ngal) {
   phase_event_state.event_count = 0;
   phase_event_state.last_dispatched_event = 0;
-  phase_event_state.phase_config = phase_config;
-  phase_event_state.num_modules = num_modules;
+  phase_event_state.per_event = plan->per_event;
+  phase_event_state.num_per_event = plan->num_per_event;
   phase_event_state.ctx = ctx;
   phase_event_state.halos = halos;
   phase_event_state.ngal = ngal;
@@ -951,8 +1100,8 @@ static void end_phase_event_dispatch(void) {
 
   phase_event_state.event_count = 0;
   phase_event_state.last_dispatched_event = 0;
-  phase_event_state.phase_config = NULL;
-  phase_event_state.num_modules = 0;
+  phase_event_state.per_event = NULL;
+  phase_event_state.num_per_event = 0;
   phase_event_state.ctx = NULL;
   phase_event_state.halos = NULL;
   phase_event_state.ngal = 0;
@@ -991,17 +1140,8 @@ static void dispatch_events_range(int start_index, int end_index) {
 
     struct Halo *target_halo = &phase_event_state.halos[event->target_index];
 
-    for (int i = 0; i < phase_event_state.num_modules; i++) {
-      if (phase_event_state.phase_config[i].processing_mode != PROCESSING_MODE_PER_EVENT) {
-        continue;
-      }
-
-      struct Module *mod = phase_event_state.phase_config[i].resolved;
-      if (mod == NULL) {
-        FATAL_ERROR("Module '%s' was not resolved — module_system_init() must run "
-                    "before event dispatch",
-                    phase_event_state.phase_config[i].module_name);
-      }
+    for (int i = 0; i < phase_event_state.num_per_event; i++) {
+      struct Module *mod = phase_event_state.per_event[i];
 
       /* Subscription routing: only dispatch to consumers subscribed to this event */
       bool subscribed = false;
@@ -1460,11 +1600,14 @@ int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo 
  * cache of the workspace's address or count the phase holds is refreshed
  * (ctx->central_galaxy and the event-dispatch view), since growing the rows
  * may move them.
+ *
+ * @return  true when rows were appended (ws->halos and ws->count may have
+ *          changed), false when the callback staged none
  */
-static void commit_created_records(struct ModuleContext *ctx, struct FoFWorkspace *ws) {
+static bool commit_created_records(struct ModuleContext *ctx, struct FoFWorkspace *ws) {
   const int64_t staged = record_creation.staged_count;
   if (staged == 0) {
-    return;
+    return false;
   }
 
   const int64_t first = ws->count;
@@ -1481,6 +1624,7 @@ static void commit_created_records(struct ModuleContext *ctx, struct FoFWorkspac
   ctx->central_galaxy = &ws->halos[ctx->central_index];
   phase_event_state.halos = ws->halos;
   phase_event_state.ngal = workspace_callback_count(ws);
+  return true;
 }
 
 /** @brief Start a FoF step: per-host ordinals count from zero again */
@@ -1520,36 +1664,44 @@ void module_release_record_creation_scratch(void) {
  * 2. Event dispatch to PROCESSING_MODE_PER_EVENT modules
  * 3. PROCESSING_MODE_BY_GALAXY modules (galaxy-major loop)
  *
+ * Each pass walks the phase's plan (built by module_system_init()), so no
+ * entry's mode is tested here; the galaxy loop is entered only when the plan
+ * has a by-galaxy entry, and the safety dispatch runs only for pending events.
+ *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip)
  * @param   ctx            Module execution context
- * @param   ws             FoF workspace; its halos and count are read afresh at
- *                         the start of every full-halo and by-galaxy callback
+ * @param   ws             FoF workspace; the full-halo pass reads its halos and
+ *                         count before its first callback and again after every
+ *                         commit of created records, the only point at which the
+ *                         workspace changes during a phase; the by-galaxy pass
+ *                         reads them at every callback
  */
 void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                    struct ModuleContext *ctx, struct FoFWorkspace *ws) {
-  if (num_modules == 0 || ctx == NULL || ws == NULL || ws->halos == NULL || ws->count <= 0) {
-    return; /* Empty phase or nothing to process */
+  if (num_modules == 0) {
+    return; /* Empty phase */
   }
 
-  begin_phase_event_dispatch(phase_config, num_modules, ctx, ws->halos,
-                             workspace_callback_count(ws));
+  const struct PhasePlan *plan = find_phase_plan(phase_config, num_modules);
+  if (plan == NULL) {
+    FATAL_ERROR("Phase whose first entry is module '%s' (%d module(s)) has no dispatch plan — "
+                "module_system_init() must run before execute_phase(), and the phase must not "
+                "change after it",
+                phase_config[0].module_name, num_modules);
+  }
+
+  if (ctx == NULL || ws == NULL || ws->halos == NULL || ws->count <= 0) {
+    return; /* Nothing to process */
+  }
+
+  begin_phase_event_dispatch(plan, ctx, ws->halos, workspace_callback_count(ws));
 
   /* PASS 1: PROCESSING_MODE_FULL_HALO modules (always first) */
-  for (int i = 0; i < num_modules; i++) {
-    if (phase_config[i].processing_mode != PROCESSING_MODE_FULL_HALO) {
-      continue;
-    }
-
-    struct Module *mod = phase_config[i].resolved;
-    if (mod == NULL) {
-      FATAL_ERROR("Module '%s' was not resolved — module_system_init() must run "
-                  "before execute_phase()",
-                  phase_config[i].module_name);
-    }
-
-    struct Halo *halos = ws->halos;
-    const int ngal = workspace_callback_count(ws);
+  struct Halo *halos = ws->halos;
+  int ngal = workspace_callback_count(ws);
+  for (int i = 0; i < plan->num_full_halo; i++) {
+    struct Module *mod = plan->full_halo[i];
 
     DEBUG_LOG("Executing module: %s (full array, ngal=%d, substep %d/%d, z=%.3f)", mod->name, ngal,
               ctx->substep_number + 1, ctx->num_substeps, ctx->redshift);
@@ -1571,29 +1723,28 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
 
     /* Records the callback created join the workspace now, before the safety
      * dispatch below and before the next module runs. */
-    commit_created_records(ctx, ws);
+    if (commit_created_records(ctx, ws)) {
+      /* A commit is the only mid-phase change to ws->halos or ws->count, so
+       * re-reading here keeps every later callback on the current rows. */
+      halos = ws->halos;
+      ngal = workspace_callback_count(ws);
+    }
 
     /* Safety dispatch for any events not yet dispatched during emission. */
-    dispatch_events_range(phase_event_state.last_dispatched_event, phase_event_state.event_count);
+    if (phase_event_state.last_dispatched_event < phase_event_state.event_count) {
+      dispatch_events_range(phase_event_state.last_dispatched_event, phase_event_state.event_count);
+    }
   }
 
-  /* PASS 2: PROCESSING_MODE_BY_GALAXY modules (after full-halo/event work) */
-  for (int64_t g = 0; g < ws->count; g++) {
+  /* PASS 2: PROCESSING_MODE_BY_GALAXY modules (after full-halo/event work); entered only
+   * when the phase has a by-galaxy entry */
+  for (int64_t g = 0; plan->num_by_galaxy > 0 && g < ws->count; g++) {
     if (ws->halos[g].galaxy == NULL || ws->halos[g].Type == 3) {
       continue;
     }
 
-    for (int i = 0; i < num_modules; i++) {
-      if (phase_config[i].processing_mode != PROCESSING_MODE_BY_GALAXY) {
-        continue;
-      }
-
-      struct Module *mod = phase_config[i].resolved;
-      if (mod == NULL) {
-        FATAL_ERROR("Module '%s' was not resolved — module_system_init() must run "
-                    "before execute_phase()",
-                    phase_config[i].module_name);
-      }
+    for (int i = 0; i < plan->num_by_galaxy; i++) {
+      struct Module *mod = plan->by_galaxy[i];
 
       DEBUG_LOG("Executing module: %s (galaxy %" PRId64 "/%" PRId64 ", substep %d/%d, z=%.3f)",
                 mod->name, g, ws->count, ctx->substep_number + 1, ctx->num_substeps, ctx->redshift);
@@ -1713,6 +1864,9 @@ void execute_module_pipeline(struct ModuleContext *ctx, struct FoFWorkspace *ws)
  * @return  0 on success, non-zero if any module cleanup fails
  */
 static void free_phase_configuration(void) {
+  /* Before the phase arrays the plans are keyed by */
+  release_phase_plans();
+
   if (MimicConfig.pre_timestep) {
     for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
       if (MimicConfig.pre_timestep[i].module_name) {

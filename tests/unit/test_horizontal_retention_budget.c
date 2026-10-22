@@ -352,7 +352,7 @@ static int64_t output_seed_records(int64_t nhalos) {
   if (nhalos > MAX_HALO_ARRAY_SIZE) {
     return nhalos + MIN_HALO_ARRAY_GROWTH;
   }
-  int64_t headroom = (int64_t)((double)nhalos * HORIZONTAL_OUTPUT_SEED_HEADROOM);
+  int64_t headroom = (int64_t)((double)nhalos * OUTPUT_SEED_HEADROOM);
   if (headroom < MIN_HALO_ARRAY_GROWTH) {
     headroom = MIN_HALO_ARRAY_GROWTH;
   }
