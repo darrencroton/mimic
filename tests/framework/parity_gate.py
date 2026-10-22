@@ -1110,7 +1110,10 @@ def assert_build_flags(worktree: Path, flags: dict[str, str]) -> dict[str, str]:
     for variable, marker in BUILD_MODE_MARKERS.items():
         path = worktree / marker
         if not path.is_file():
-            raise AssertionError(f"no build mode marker at {path}: the build did not complete")
+            raise AssertionError(
+                f"no build mode marker at {path}: the build did not complete, or the commit's "
+                "Makefile predates the markers (15d7e8c4, 2026-06-12)"
+            )
         text = path.read_text()
         recorded = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
         # A marker written by a Makefile older than the variable's line records it as absent,
@@ -1243,15 +1246,7 @@ def _worktree_problem(path: Path, root: Path, repo: Path) -> str | None:
 
 
 def assert_own_worktree(path: Path, root: Path = WORKTREE_ROOT, repo: Path = REPO_ROOT) -> None:
-    """``path`` is a linked worktree of ``repo`` under ``root``, before anything uses it.
-
-    Checked in order: ``path`` is not a symlink and is a directory; it resolves under ``root``;
-    ``git worktree list --porcelain`` of ``repo`` names it (both sides resolved); git run in it
-    reports it as its own top level (git discovers upward, so a stray directory would act on an
-    enclosing repository) with ``repo``'s common git dir; and its own git dir
-    (``--absolute-git-dir``) is not that common dir, so it is a linked worktree and never the
-    main checkout.
-    """
+    """``path`` is a linked worktree of ``repo`` under ``root`` (see ``_worktree_problem``)."""
     problem = _worktree_problem(path, root, repo)
     if problem is not None:
         remedy = (
@@ -1646,8 +1641,7 @@ def compare_outputs(
     With no hook, only the named provenance attributes and the path prefixes may differ.
     ``check_shared`` sees the files both runs wrote, right after the file-set comparison.
     ``strict_galaxies`` also requires byte-equal ``Galaxies`` datasets (see
-    ``compare_hdf5_file``). HDF5 creation properties (chunking, compression, fill value) are not
-    compared.
+    ``compare_hdf5_file``).
     """
     report = Report()
     files_left, files_right = relative_files(base.directory), relative_files(other.directory)

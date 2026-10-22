@@ -188,9 +188,9 @@ int module_system_init(void);
  * by-galaxy pass reads ws->halos and ws->count at each callback; the full-halo
  * pass reads them before its first callback and again after every commit of
  * created records, the only point at which the workspace changes during a
- * phase. Per-event consumers address rows through
- * the phase's event-dispatch view, set from the descriptor when the phase
- * begins. When a full-halo callback returns, records it created through
+ * phase. Per-event consumers address rows through the phase's event-dispatch
+ * view, set from the descriptor when the phase begins. When a full-halo
+ * callback returns, records it created through
  * module_create_record() are appended to the workspace before the next module
  * runs and before the safety dispatch of any undelivered event (its events
  * were delivered as it emitted them, against the committed rows), and the

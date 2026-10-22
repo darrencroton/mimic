@@ -609,6 +609,19 @@ int validate_memory_block(void *ptr) {
 }
 
 /**
+ * @brief   Whether the current tracking table holds a block at @p ptr
+ *
+ * @param   ptr     Pointer to test (NULL is not tracked)
+ * @return  1 if tracked, 0 otherwise
+ *
+ * Membership only: unlike validate_memory_block() it does not inspect the
+ * block's guards, so a caller releasing state that may predate a memory-system
+ * reset can skip what the table has forgotten while a tracked but corrupt block
+ * still reaches myfree()'s guard check.
+ */
+int is_tracked_memory_block(void *ptr) { return find_block_index(ptr) != -1; }
+
+/**
  * @brief   Validate all tracked memory blocks
  *
  * @return  1 if all blocks are valid, 0 if any corruption detected

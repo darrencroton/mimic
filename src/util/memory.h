@@ -51,6 +51,7 @@ void print_memory_brief(void);
 size_t memory_category_bytes(MemoryCategory category);
 void check_memory_leaks(void);
 int validate_memory_block(void *ptr);
+int is_tracked_memory_block(void *ptr);
 int validate_all_memory(void);
 void cleanup_memory_system(void);
 

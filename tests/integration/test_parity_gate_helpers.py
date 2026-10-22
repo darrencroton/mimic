@@ -47,6 +47,7 @@ from framework.parity_gate import (  # noqa: E402
     dynamic_variant,
     flatten_keys,
     functional_lines,
+    head_worktree,
     package_path,
     point_output_at,
     range_override_variant,
@@ -623,6 +624,11 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
 
 
+def _git_output(repo: Path, *args: str) -> str:
+    done = subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+    return done.stdout.strip()
+
+
 def _throwaway_repo(parent: Path) -> Path:
     """A committed repository with one runtime source and one non-runtime document."""
     repo = parent / "repo"
@@ -679,6 +685,18 @@ def test_assert_own_worktree_accepts_only_a_registered_linked_worktree_under_the
             for what, (path, under, needle) in refused.items():
                 refusal = _refusal(partial(assert_own_worktree, path, under, repo=repo))
                 assert needle in refusal, f"{what}: {refusal or 'accepted'}"
+            # The refusal happens before head_worktree checks out anything: a cache entry that
+            # is a symlink to the main checkout leaves that checkout's HEAD where it was.
+            (root / "head__m__s").symlink_to(repo)
+            head_before = _git_output(repo, "rev-parse", "HEAD")
+            refusal = _refusal(
+                partial(
+                    head_worktree, "HEAD", "m", "s", root=root, log_line=lambda _: None, repo=repo
+                )
+            )
+            assert "is a symlink" in refusal, refusal or "accepted"
+            assert _git_output(repo, "rev-parse", "HEAD") == head_before
+            assert _git_output(repo, "symbolic-ref", "HEAD").startswith("refs/heads/")
     finally:
         shutil.rmtree(parent)
 

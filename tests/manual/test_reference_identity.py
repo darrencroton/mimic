@@ -8,7 +8,8 @@ A manual acceptance test (tests/manual/ is never globbed into ``make tests``)::
 
 It is the byte gate for any change that must not move a result: an optimisation, a build-flag
 change, a refactor. ``REFERENCE_COMMIT`` is required (there is no pinned default: this is an
-instrument, not a feature's own gate) and must be an ancestor of HEAD. Eight legs,
+instrument, not a feature's own gate) and must be an ancestor of HEAD whose Makefile writes the
+build-mode markers the gate asserts (``15d7e8c4``, 2026-06-12, or later). Eight legs,
 {halos-only, sage16} x {vertical, horizontal mini-Millennium} x {fixed, dynamic}: each is the
 committed run file ``models/<model>/input/<model>_mini-millennium.yaml`` (or ``..._horizontal``)
 with only ``output_directory`` redirected, and the dynamic leg is ``dynamic_variant()`` of it. The

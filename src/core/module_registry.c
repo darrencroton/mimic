@@ -814,7 +814,7 @@ static void release_phase_plans(void) {
   for (int p = 0; p < num_phase_plans; p++) {
     /* A test-tier memory reset between init and cleanup must not abort the
      * process on a stale pointer; ./mimic never resets the memory system. */
-    if (validate_memory_block(phase_plans[p].modules)) {
+    if (is_tracked_memory_block(phase_plans[p].modules)) {
       myfree(phase_plans[p].modules);
     } else {
       abandoned++;
@@ -1059,7 +1059,7 @@ static void free_phase_event_buffer(void) {
 
   /* A test-tier memory reset between init and cleanup must not abort the
    * process on a stale pointer; ./mimic never resets the memory system. */
-  if (validate_memory_block(phase_event_state.events)) {
+  if (is_tracked_memory_block(phase_event_state.events)) {
     myfree(phase_event_state.events);
   } else {
     WARNING_LOG("Phase event buffer held a pointer the memory system no longer tracks (memory "
