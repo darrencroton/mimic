@@ -19,9 +19,12 @@ the data it verifies must not report success on an empty comparison.
 Per leg, both runs must record the leg's model, simulation, commit and timestep scheme in
 ``RunProperties``; then the one output comparison shared with the snapshot-global battery
 (``tests/framework/parity_gate.py``) must find the same files, HDF5 objects, master-file links,
-attributes and ``metadata/`` files, byte-equal datasets, and per-``UniqueGalaxyID`` byte identity
-of every Galaxies field through the unchanged ``scripts/compare_cross_format_identity.py`` in its
-default mode. The only permitted differences are named provenance (``RunProperties/Version`` build
+attributes and ``metadata/`` files, byte-equal datasets including every partition's ``Galaxies``
+(so row order inside a partition is checked), and per-``UniqueGalaxyID`` byte identity of every
+Galaxies field, created rows included, through the unchanged
+``scripts/compare_cross_format_identity.py`` with its ``--compare-created`` pairing (both runs of a
+leg come from one driver). HDF5 creation properties (chunking, compression, fill value) are not
+compared. The only permitted differences are named provenance (``RunProperties/Version`` build
 attributes, ``RunEndTime``, ``metadata/version_info.json``, worktree or scratch path prefixes).
 
 The reference is built in a worktree cached per ``(commit, model, simulation)`` under
@@ -29,17 +32,26 @@ The reference is built in a worktree cached per ``(commit, model, simulation)`` 
 shape), verified a clean checkout. HEAD is built in one reusable worktree per pair
 (``head__<model>__<simulation>``), detached to HEAD and rebuilt incrementally on every run, so
 commits do not accumulate worktrees. Every worktree's ``snapshots`` links must resolve to the main
-tree's targets. A worktree holding an untracked file under the runtime paths (it would be
-compiled or run), or a HEAD worktree that is not a registered worktree of this repository, is
-refused. Nothing is ever removed by this test (a clean rebuild of a HEAD worktree removes
-only that worktree's own ``build/``, as ``make clean`` does).
+tree's targets. A cache entry that is a symlink, lies outside the cache, or is not a linked
+worktree registered with this repository is refused, as is a worktree holding an untracked file
+under the runtime paths (it would be compiled or run). The runtime paths (``src``, ``scripts``,
+``models``, ``simulations``, ``Makefile``) must also carry no uncommitted edit in the main tree;
+the gate's own Python (``tests/framework/``, ``tests/manual/``) is outside that refusal because it
+is the instrument, while the comparator under ``scripts/`` is inside it. Each worktree's
+``output`` points at a run's archived output only while that run executes and at the archive's
+``scratch-output/`` afterwards, so a later manual ``./mimic`` there never writes into evidence. The
+run holds an exclusive lock on the worktree cache (shared with the snapshot-global battery) and
+refuses to start while another holds it. Nothing is ever removed by this test.
 
 Two optional environment variables, ``REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS`` and
 ``REFERENCE_IDENTITY_HEAD_EXTRA_LDFLAGS``, are passed as ``EXTRA_CFLAGS``/``EXTRA_LDFLAGS`` to the
 HEAD build only and named in the log, so a candidate build flag can be gated against the
 reference without committing it; any ``EXTRA_CFLAGS``/``EXTRA_LDFLAGS`` of the caller's own are
-dropped from both builds. A HEAD worktree whose last build used other flags (or none) is cleaned
-and rebuilt, so flags never leak between runs.
+dropped from both builds. The Makefile records each build's flags in its own mode markers
+(``build/.last_compile_mode``, ``build/.last_exec_mode``) and recompiles and relinks when they
+change, so flags never leak between runs; after every build the gate asserts that the markers
+carry exactly the requested ``EXTRA_CFLAGS``/``EXTRA_LDFLAGS`` (empty for the reference) and
+records both files in ``evidence.json``.
 
 Runs, logs and ``evidence.json`` are archived under ``archive/reference-identity/<stamp>/``. The
 console output is also written to ``build/reference_identity.log``. Every leg emits one
@@ -49,7 +61,6 @@ console output is also written to ``build/reference_identity.log``. Every leg em
 from __future__ import annotations
 
 import datetime
-import io
 import json
 import os
 import re
@@ -67,19 +78,19 @@ REPO_ROOT = TESTS_DIR.parent
 sys.path.insert(0, str(TESTS_DIR))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from framework import check_no_memory_leaks, run_test_suite  # noqa: E402
+from framework import check_no_memory_leaks  # noqa: E402
 from framework.parity_gate import (  # noqa: E402
     ERROR_CAP,
     RUNTIME_PATHS,
     WORKTREE_ROOT,
     OutputRun,
+    assert_build_flags,
     assert_dataset_present,
     assert_untracked_free,
-    attribute_signature,
-    attribute_text,
     build_pair,
     cached_worktree,
     compare_outputs,
+    decoded,
     dynamic_variant,
     git,
     head_worktree,
@@ -87,9 +98,11 @@ from framework.parity_gate import (  # noqa: E402
     read_run_file_output,
     resolve_reference,
     run_logged,
+    run_manual_gate,
     runtime_tree_differences,
     snapshot_list_entries,
     worktree_env,
+    worktree_root_lock,
 )
 
 MODELS = ("halos-only", "sage16")
@@ -110,9 +123,6 @@ HEAD_FLAG_VARIABLES = (
     ("REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS", "EXTRA_CFLAGS"),
     ("REFERENCE_IDENTITY_HEAD_EXTRA_LDFLAGS", "EXTRA_LDFLAGS"),
 )
-
-#: Where a HEAD worktree records the flags its ``build/`` was made with.
-FLAGS_STAMP = Path("build") / ".reference_identity_flags"
 
 #: Run-log lines worth keeping beside a leg's verdict: the dataset's population and the memory
 #: profile's output-population and peak figures.
@@ -243,15 +253,11 @@ def first_line(error: BaseException) -> str:
 
 
 def build_env(worktree: Path, model: str, simulation: str, flags: dict[str, str]) -> dict:
-    """The worktree environment for a build: no ``EXTRA_*`` flags from the caller, then ``flags``.
+    """The worktree environment for a build (which drops the caller's ``EXTRA_*``), plus ``flags``.
 
-    ``make tests-reference-identity EXTRA_CFLAGS=...`` (or an exported variable) would otherwise
-    reach both builds while the log named no HEAD flags; only the ``REFERENCE_IDENTITY_HEAD_*``
-    values may reach, and only HEAD.
+    Only the ``REFERENCE_IDENTITY_HEAD_*`` values may reach a build, and only HEAD's.
     """
     env = worktree_env(worktree, model, simulation)
-    for _, variable in HEAD_FLAG_VARIABLES:
-        env.pop(variable, None)
     env.update(flags)
     return env
 
@@ -260,26 +266,6 @@ def head_flags() -> dict[str, str]:
     """The candidate build flags for HEAD from the environment (empty when none are set)."""
     flags = {variable: os.environ.get(source, "") for source, variable in HEAD_FLAG_VARIABLES}
     return {variable: value for variable, value in flags.items() if value}
-
-
-def build_head_pair(
-    worktree: Path, model: str, simulation: str, env: dict, logs: Path, key: str, flags: dict
-) -> None:
-    """Build a HEAD worktree incrementally, or from clean when its last build used other flags."""
-    stamp = worktree / FLAGS_STAMP
-    wanted = json.dumps(flags, sort_keys=True)
-    if not stamp.is_file() or stamp.read_text() != wanted:
-        run_logged(
-            ["make", "clean"],
-            worktree,
-            env,
-            logs / f"{key}-clean.log",
-            f"{key}: make clean (build flags {wanted})",
-            BUILD_TIMEOUT_S,
-        )
-        stamp.parent.mkdir(parents=True, exist_ok=True)
-        stamp.write_text(wanted)
-    build_pair(worktree, model, simulation, env, logs, key, BUILD_TIMEOUT_S)
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +292,7 @@ class ReferenceIdentity:
         self.worktrees: dict[tuple[str, str, str], Path] = {}
         self.verdicts: dict[str, str] = {}
         self.prerequisite_failure: str | None = None
-        self.evidence: dict = {"legs": {}, "timings_s": {}}
+        self.evidence: dict = {"legs": {}, "timings_s": {}, "build_modes": {}}
 
     def scratch(self, *parts: str) -> Path:
         assert self.root is not None, "the resolution stage has not created the archive root"
@@ -380,26 +366,39 @@ class ReferenceIdentity:
                     if tree == "reference":
                         worktree = cached_worktree(commit, model, simulation, log_line=log)
                         assert_untracked_free(worktree)
+                        tree_flags = {}
                     else:
                         worktree = head_worktree(commit, model, simulation, log_line=log)
+                        tree_flags = flags
                     started = time.monotonic()
-                    if tree == "reference":
-                        env = build_env(worktree, model, simulation, {})
-                        build_pair(worktree, model, simulation, env, logs, key, BUILD_TIMEOUT_S)
-                    else:
-                        env = build_env(worktree, model, simulation, flags)
-                        build_head_pair(worktree, model, simulation, env, logs, key, flags)
+                    env = build_env(worktree, model, simulation, tree_flags)
+                    build_pair(worktree, model, simulation, env, logs, key, BUILD_TIMEOUT_S)
                     self.evidence["timings_s"][f"build:{key}"] = round(
                         time.monotonic() - started, 1
                     )
+                    markers = assert_build_flags(worktree, tree_flags)
+                    self.evidence["build_modes"][key] = {"worktree": str(worktree), **markers}
                     self.worktrees[(tree, model, simulation)] = worktree
         self.save_evidence()
 
     def execute(self, tree: str, leg: Leg, run_file: Path) -> RunRecord:
-        """Run one executable from its worktree into its own archived output root."""
+        """Run one executable from its worktree into its own archived output root.
+
+        Afterwards, whatever the outcome, the worktree's ``output`` points at this run's scratch
+        directory, so a later manual ``./mimic`` there never writes into archived evidence.
+        """
         worktree = self.worktrees[(tree, leg.model, leg.simulation)]
         output_root = self.scratch("runs", f"{tree}__{leg.name}")
         point_output_at(worktree, output_root)
+        try:
+            return self.run_and_read(tree, leg, run_file, worktree, output_root)
+        finally:
+            point_output_at(worktree, self.scratch("scratch-output"))
+
+    def run_and_read(
+        self, tree: str, leg: Leg, run_file: Path, worktree: Path, output_root: Path
+    ) -> RunRecord:
+        """Run ``./mimic`` in ``worktree`` (its ``output`` at ``output_root``) and read the run."""
         log_path = self.scratch("logs") / f"{tree}__{leg.name}-run.log"
         elapsed = run_logged(
             ["./mimic", str(run_file)],
@@ -430,12 +429,16 @@ class ReferenceIdentity:
                 ("RunProperties", "ModelName"),
                 ("RunProperties", "SimulationName"),
             ):
-                attributes[name] = attribute_text(attribute_signature(handle[path].attrs[name]))
+                attributes[name] = decoded(handle[path].attrs[name])
         digest_file = worktree / "build" / "generated" / "property_hash.txt"
         if not digest_file.is_file():
             raise AssertionError(f"{tree} {leg.name}: no generated digest at {digest_file}")
-        prefixes = {str(worktree), str(worktree.resolve()), str(output_root)}
-        prefixes.add(str(output_root.resolve()))
+        prefixes = {
+            str(worktree),
+            str(worktree.resolve()),
+            str(output_root),
+            str(output_root.resolve()),
+        }
         output = OutputRun(directory, tuple(prefixes), digest_file.read_text().strip(), basename)
         return RunRecord(tree, output, elapsed, attributes, profile)
 
@@ -490,7 +493,9 @@ class ReferenceIdentity:
             self.check_provenance(record, leg)
         evidence["run_seconds"] = {t: round(r.elapsed_s, 1) for t, r in records.items()}
         evidence["profile"] = {t: r.profile for t, r in records.items()}
-        report = compare_outputs(records["reference"].output, records["head"].output)
+        report = compare_outputs(
+            records["reference"].output, records["head"].output, strict_galaxies=True
+        )
         evidence["compare"] = {**report.summary(), "error_lines": report.errors[:ERROR_CAP]}
         log(
             f"  {leg.name}: {report.galaxies} galaxies over {report.snapshots} snapshot(s), "
@@ -546,45 +551,11 @@ class ReferenceIdentity:
 # ---------------------------------------------------------------------------
 
 
-class Tee(io.TextIOBase):
-    """Write to the console and the log file at once."""
-
-    def __init__(self, *streams):
-        self.streams = streams
-
-    def write(self, text: str) -> int:
-        for stream in self.streams:
-            stream.write(text)
-            stream.flush()
-        return len(text)
-
-    def flush(self) -> None:
-        for stream in self.streams:
-            stream.flush()
-
-
 def main() -> int:
-    """Run every stage; any FAIL, ERROR, SKIP or NA marker fails (a WARN is surfaced, not fatal)."""
-    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    console = sys.stdout
-    with LOG_PATH.open("w") as handle:
-        buffer = io.StringIO()
-        sys.stdout = Tee(console, handle, buffer)
-        try:
-            # No abort_on_failure: once the builds succeed the legs are independent, each checks
-            # its own prerequisites (naming the data it needs), and the verdict stage names every
-            # leg's outcome. A failed resolution or build leaves the legs nothing to run.
-            status = run_test_suite(ReferenceIdentity().stages(), "Reference identity")
-            if re.search(r"^MIMIC_RESULT: (SKIP|NA)\b", buffer.getvalue(), flags=re.MULTILINE):
-                print("FAIL: a stage was skipped or not applicable; every stage must run")
-                status = 1
-            if "MIMIC_RESULT: WARN" in buffer.getvalue():
-                print("WARN: see the MIMIC_RESULT: WARN line(s) above (not a failure)")
-            verdict = "PASS" if status == 0 else "FAIL"
-            print(f"{verdict}: tests-reference-identity (log: {LOG_PATH})")
-        finally:
-            sys.stdout = console
-    return status
+    """Run every stage while holding the worktree-root lock; see ``run_manual_gate``."""
+    with worktree_root_lock():
+        stages = ReferenceIdentity().stages()
+        return run_manual_gate(stages, "Reference identity", LOG_PATH, "tests-reference-identity")
 
 
 if __name__ == "__main__":

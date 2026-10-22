@@ -646,6 +646,9 @@ BUILD_FLAGS="${MAKE_FLAGS:-none}"
 
 EXTRA_CFLAGS_JSON=$(json_escape "${EXTRA_CFLAGS:-none}")
 EXTRA_LDFLAGS_JSON=$(json_escape "${EXTRA_LDFLAGS:-none}")
+BUILD_FLAGS_JSON=$(json_escape "$BUILD_FLAGS")
+MIMIC_FLAGS_JSON=$(json_escape "${MIMIC_FLAGS:-none}")
+MIMIC_EXECUTABLE_JSON=$(json_escape "$MIMIC_EXECUTABLE")
 
 # Verify output was created - find any output file
 if [[ -d "${OUTPUT_DIR}" ]]; then
@@ -699,12 +702,12 @@ cat > "${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}" << EOF
   "configuration": {
     "model": "${SELECTED_MODEL}",
     "simulation": "${SELECTED_SIMULATION}",
-    "build_flags": "$BUILD_FLAGS",
+    "build_flags": "${BUILD_FLAGS_JSON}",
     "extra_cflags": "${EXTRA_CFLAGS_JSON}",
     "extra_ldflags": "${EXTRA_LDFLAGS_JSON}",
-    "runtime_flags": "${MIMIC_FLAGS:-none}",
+    "runtime_flags": "${MIMIC_FLAGS_JSON}",
     "build_system": "GNU Make",
-    "mimic_executable": "$MIMIC_EXECUTABLE"
+    "mimic_executable": "${MIMIC_EXECUTABLE_JSON}"
   },
   "overall_performance": {
     "wall_time_seconds": $REAL_TIME,

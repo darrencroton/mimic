@@ -770,6 +770,8 @@ static int validate_event_subscriptions(struct PhaseModuleConfig *config, int nu
   return 0;
 }
 
+static void free_phase_event_buffer(void);
+
 /* ── Phase plans: each FoF phase's dispatch lists, built once at startup ── */
 
 /**
@@ -808,9 +810,21 @@ static int num_phase_plans = 0;
  * successful initialisation left populated.
  */
 static void release_phase_plans(void) {
+  int abandoned = 0;
   for (int p = 0; p < num_phase_plans; p++) {
-    myfree(phase_plans[p].modules);
+    /* A test-tier memory reset between init and cleanup must not abort the
+     * process on a stale pointer; ./mimic never resets the memory system. */
+    if (validate_memory_block(phase_plans[p].modules)) {
+      myfree(phase_plans[p].modules);
+    } else {
+      abandoned++;
+    }
     phase_plans[p] = (struct PhasePlan){0};
+  }
+  if (abandoned > 0) {
+    WARNING_LOG("Phase plan table held %d pointer(s) the memory system no longer tracks (memory "
+                "system reset without module_system_cleanup()); dropping them",
+                abandoned);
   }
   num_phase_plans = 0;
 }
@@ -937,8 +951,10 @@ int module_system_init(void) {
 
   VERBOSE_LOG("Initializing multi-phase module system");
 
-  /* Plans left by an earlier successful initialisation that was not cleaned up */
+  /* Plans and an event buffer left by an earlier initialisation that was not
+   * cleaned up; both releases tolerate a memory-system reset in between. */
   release_phase_plans();
+  free_phase_event_buffer();
 
   /* Build execution pipeline by collecting all unique modules across phases */
   num_pipeline_modules = 0;
@@ -1032,13 +1048,23 @@ static void ensure_phase_event_capacity(int required) {
 
 /**
  * @brief   Release the run-persistent phase event buffer
+ *
+ * Called by module_system_cleanup(), and by module_system_init() for a buffer
+ * a previous initialisation left without a cleanup.
  */
 static void free_phase_event_buffer(void) {
   if (phase_event_state.events == NULL) {
     return;
   }
 
-  myfree(phase_event_state.events);
+  /* A test-tier memory reset between init and cleanup must not abort the
+   * process on a stale pointer; ./mimic never resets the memory system. */
+  if (validate_memory_block(phase_event_state.events)) {
+    myfree(phase_event_state.events);
+  } else {
+    WARNING_LOG("Phase event buffer held a pointer the memory system no longer tracks (memory "
+                "system reset without module_system_cleanup()); dropping it");
+  }
   phase_event_state.events = NULL;
   phase_event_state.event_capacity = 0;
 }
@@ -1574,11 +1600,14 @@ int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo 
  * cache of the workspace's address or count the phase holds is refreshed
  * (ctx->central_galaxy and the event-dispatch view), since growing the rows
  * may move them.
+ *
+ * @return  true when rows were appended (ws->halos and ws->count may have
+ *          changed), false when the callback staged none
  */
-static void commit_created_records(struct ModuleContext *ctx, struct FoFWorkspace *ws) {
+static bool commit_created_records(struct ModuleContext *ctx, struct FoFWorkspace *ws) {
   const int64_t staged = record_creation.staged_count;
   if (staged == 0) {
-    return;
+    return false;
   }
 
   const int64_t first = ws->count;
@@ -1595,6 +1624,7 @@ static void commit_created_records(struct ModuleContext *ctx, struct FoFWorkspac
   ctx->central_galaxy = &ws->halos[ctx->central_index];
   phase_event_state.halos = ws->halos;
   phase_event_state.ngal = workspace_callback_count(ws);
+  return true;
 }
 
 /** @brief Start a FoF step: per-host ordinals count from zero again */
@@ -1641,8 +1671,11 @@ void module_release_record_creation_scratch(void) {
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip)
  * @param   ctx            Module execution context
- * @param   ws             FoF workspace; its halos and count are read afresh at
- *                         the start of every full-halo and by-galaxy callback
+ * @param   ws             FoF workspace; the full-halo pass reads its halos and
+ *                         count before its first callback and again after every
+ *                         commit of created records, the only point at which the
+ *                         workspace changes during a phase; the by-galaxy pass
+ *                         reads them at every callback
  */
 void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                    struct ModuleContext *ctx, struct FoFWorkspace *ws) {
@@ -1652,9 +1685,10 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
 
   const struct PhasePlan *plan = find_phase_plan(phase_config, num_modules);
   if (plan == NULL) {
-    FATAL_ERROR("Phase of %d module(s) has no dispatch plan — module_system_init() must run "
-                "before execute_phase(), and the phase must not change after it",
-                num_modules);
+    FATAL_ERROR("Phase whose first entry is module '%s' (%d module(s)) has no dispatch plan — "
+                "module_system_init() must run before execute_phase(), and the phase must not "
+                "change after it",
+                phase_config[0].module_name, num_modules);
   }
 
   if (ctx == NULL || ws == NULL || ws->halos == NULL || ws->count <= 0) {
@@ -1664,10 +1698,10 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
   begin_phase_event_dispatch(plan, ctx, ws->halos, workspace_callback_count(ws));
 
   /* PASS 1: PROCESSING_MODE_FULL_HALO modules (always first) */
+  struct Halo *halos = ws->halos;
+  int ngal = workspace_callback_count(ws);
   for (int i = 0; i < plan->num_full_halo; i++) {
     struct Module *mod = plan->full_halo[i];
-    struct Halo *halos = ws->halos;
-    const int ngal = workspace_callback_count(ws);
 
     DEBUG_LOG("Executing module: %s (full array, ngal=%d, substep %d/%d, z=%.3f)", mod->name, ngal,
               ctx->substep_number + 1, ctx->num_substeps, ctx->redshift);
@@ -1689,7 +1723,12 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
 
     /* Records the callback created join the workspace now, before the safety
      * dispatch below and before the next module runs. */
-    commit_created_records(ctx, ws);
+    if (commit_created_records(ctx, ws)) {
+      /* A commit is the only mid-phase change to ws->halos or ws->count, so
+       * re-reading here keeps every later callback on the current rows. */
+      halos = ws->halos;
+      ngal = workspace_callback_count(ws);
+    }
 
     /* Safety dispatch for any events not yet dispatched during emission. */
     if (phase_event_state.last_dispatched_event < phase_event_state.event_count) {

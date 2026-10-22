@@ -46,7 +46,6 @@ injected defect and accepts each control.
 from __future__ import annotations
 
 import datetime
-import io
 import json
 import os
 import re
@@ -68,7 +67,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 # The per-ID Galaxies comparison is the one cross-format implementation, imported unchanged.
 import compare_cross_format_identity as comparator  # noqa: E402
-from framework import check_no_memory_leaks, parity_gate, run_test_suite  # noqa: E402
+from framework import check_no_memory_leaks, parity_gate  # noqa: E402
 from framework.parity_gate import (  # noqa: E402
     ERROR_CAP,
     NAMED_DATASETS,
@@ -86,8 +85,10 @@ from framework.parity_gate import (  # noqa: E402
     links_of,
     point_output_at,
     run_logged,
+    run_manual_gate,
     runtime_tree_differences,
     worktree_env,
+    worktree_root_lock,
 )
 
 #: The pre-feature reference: the last commit before the snapshot-global feature touched a
@@ -1107,44 +1108,15 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
-class Tee(io.TextIOBase):
-    """Write to the console and the log file at once."""
-
-    def __init__(self, *streams):
-        self.streams = streams
-
-    def write(self, text: str) -> int:
-        for stream in self.streams:
-            stream.write(text)
-            stream.flush()
-        return len(text)
-
-    def flush(self) -> None:
-        for stream in self.streams:
-            stream.flush()
-
-
 def main() -> int:
-    """Run every stage; any FAIL, ERROR, SKIP or NA marker fails (a WARN is surfaced, not fatal)."""
-    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    console = sys.stdout
-    with LOG_PATH.open("w") as handle:
-        buffer = io.StringIO()
-        sys.stdout = Tee(console, handle, buffer)
-        try:
-            # No abort_on_failure: once the builds succeed the legs are independent, each
-            # checks its own prerequisites, and the verdict stage names every leg's outcome.
-            status = run_test_suite(Identity().stages(), "Snapshot-global disabled-mode identity")
-            if re.search(r"^MIMIC_RESULT: (SKIP|NA)\b", buffer.getvalue(), flags=re.MULTILINE):
-                print("FAIL: a stage was skipped or not applicable; every stage must run")
-                status = 1
-            if "MIMIC_RESULT: WARN" in buffer.getvalue():
-                print("WARN: see the MIMIC_RESULT: WARN line(s) above (not a failure)")
-            verdict = "PASS" if status == 0 else "FAIL"
-            print(f"{verdict}: tests-snapshot-global-identity (log: {LOG_PATH})")
-        finally:
-            sys.stdout = console
-    return status
+    """Run every stage while holding the worktree-root lock; see ``run_manual_gate``."""
+    with worktree_root_lock():
+        return run_manual_gate(
+            Identity().stages(),
+            "Snapshot-global disabled-mode identity",
+            LOG_PATH,
+            "tests-snapshot-global-identity",
+        )
 
 
 if __name__ == "__main__":

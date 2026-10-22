@@ -207,13 +207,6 @@ void enable_debug_log_rate_limiting(void) { mimic_debug_log_rate_limiting = 1; }
 void disable_debug_log_rate_limiting(void) { mimic_debug_log_rate_limiting = 0; }
 
 /**
- * @brief   Checks if DEBUG_LOG rate limiting is currently enabled
- *
- * @return  1 if rate limiting is enabled, 0 otherwise
- */
-int is_debug_log_rate_limiting_enabled(void) { return mimic_debug_log_rate_limiting; }
-
-/**
  * @brief   Sets the output file for logging
  *
  * @param   output_file    New file handle for log output

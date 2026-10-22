@@ -3,13 +3,19 @@
 Parity-gate helpers: the pure functions of tests/framework/parity_gate.py every
 cross-format gate uses to prove its two runs share one input, the inventory
 proof from a conversion manifest, the use of a named horizontal or vertical
-dataset by every stage, and the scratch-tree removal the gates share.
+dataset by every stage, the scratch-tree removal the gates share, and the
+identity-gate services: the output comparison on synthetic runs, the runtime-edit
+and worktree refusals on a throwaway git repository created under TMPDIR (which
+must lie outside this repository), the build-mode marker check, the worktree-root
+lock and the output repointing.
 Needs no dataset or build. Run with: python3 tests/integration/test_parity_gate_helpers.py
 """
 
 import hashlib
 import json
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from dataclasses import replace
@@ -29,17 +35,24 @@ from framework.parity_gate import (  # noqa: E402
     REPO_ROOT,
     VERTICAL_DATASET_KEYS,
     GatePackage,
+    OutputRun,
     ParityGate,
     RunOutput,
+    assert_build_flags,
     assert_horizontal_run_file_diff,
     assert_manifest_inventory,
+    assert_own_worktree,
+    compare_outputs,
     dataset_variant,
     dynamic_variant,
     flatten_keys,
     functional_lines,
     package_path,
+    point_output_at,
     range_override_variant,
+    runtime_tree_differences,
     vertical_dataset_variant,
+    worktree_root_lock,
 )
 
 VERTICAL = """# vertical run file
@@ -543,6 +556,177 @@ def test_remove_tree_retries_once_then_refuses_a_tree_that_remains():
                 raise AssertionError("a tree that remained after the retry was not reported")
 
 
+# --------------------------------------------------------------------------
+# Identity-gate services
+# --------------------------------------------------------------------------
+
+GALAXY_DTYPE = numpy.dtype([("UniqueGalaxyID", "<i8"), ("Mvir", "<f4")])
+
+#: Three galaxies of one snapshot; the last is a created row (UniqueGalaxyID < 0).
+GALAXY_ROWS = [(1, 1.0), (2, 2.0), (-1, 3.0)]
+
+#: Git isolated from the user's and the system's configuration, with a fixed identity.
+GIT_ENV = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "Parity Gate Test",
+    "GIT_AUTHOR_EMAIL": "parity-gate-test@example.invalid",
+    "GIT_COMMITTER_NAME": "Parity Gate Test",
+    "GIT_COMMITTER_EMAIL": "parity-gate-test@example.invalid",
+}
+
+
+def _write_run(directory: Path, rows, partition: bool = True) -> OutputRun:
+    """A one-snapshot run: a master file linking one partition file's Galaxies."""
+    directory.mkdir(parents=True)
+    with h5py.File(directory / "model.hdf5", "w") as master:
+        master.create_group("RunProperties").attrs["ModelName"] = numpy.bytes_("test")
+        master["Snap000/File0/Galaxies"] = h5py.ExternalLink("model_0.hdf5", "Snap000/Galaxies")
+    if partition:
+        with h5py.File(directory / "model_0.hdf5", "w") as handle:
+            handle.create_group("RunProperties").attrs["ModelName"] = numpy.bytes_("test")
+            handle["Snap000/Galaxies"] = numpy.array(rows, dtype=GALAXY_DTYPE)
+    return OutputRun(directory, (str(directory),))
+
+
+def _flipped(rows, index: int):
+    """``rows`` with the lowest mantissa bit of row ``index``'s Mvir flipped."""
+    array = numpy.array(rows, dtype=GALAXY_DTYPE)
+    array["Mvir"][index : index + 1].view("<u4")[0] ^= 1
+    return array.tolist()
+
+
+def test_compare_outputs_checks_galaxy_bytes_created_rows_row_order_and_partitions():
+    """Identical runs pass, counting the created row; a flipped bit in a tree or a created row
+    and a missing partition file fail; swapped rows pass per ID and fail only when strict."""
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp)
+        base = _write_run(scratch / "base", GALAXY_ROWS)
+        report = compare_outputs(base, _write_run(scratch / "same", GALAXY_ROWS))
+        assert not report.errors, report.errors
+        assert report.galaxies == len(GALAXY_ROWS), report.summary()
+        for name, index in (("tree", 1), ("created", 2)):
+            flipped = _write_run(scratch / f"flipped-{name}", _flipped(GALAXY_ROWS, index))
+            report = compare_outputs(base, flipped)
+            assert report.galaxy_differences, f"a flipped {name}-row bit passed: {report.errors}"
+        swapped = _write_run(scratch / "swapped", [GALAXY_ROWS[1], GALAXY_ROWS[0], GALAXY_ROWS[2]])
+        report = compare_outputs(base, swapped)
+        assert not report.errors, f"swapped rows failed the per-ID comparison: {report.errors}"
+        report = compare_outputs(base, swapped, strict_galaxies=True)
+        assert any("Galaxies bytes differ" in line for line in report.errors), report.errors
+        missing = _write_run(scratch / "missing", GALAXY_ROWS, partition=False)
+        report = compare_outputs(base, missing)
+        assert any("file sets differ" in line for line in report.errors), report.errors
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+
+def _throwaway_repo(parent: Path) -> Path:
+    """A committed repository with one runtime source and one non-runtime document."""
+    repo = parent / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    (repo / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+    (repo / "docs" / "notes.md").write_text("notes\n")
+    _git(repo, "init", "--quiet")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "--quiet", "--no-gpg-sign", "-m", "initial")
+    return repo
+
+
+def test_runtime_tree_differences_reports_tracked_and_untracked_edits_unless_exempt():
+    """A tracked edit and an untracked file (its name holding a space) under the runtime paths
+    are each one entry, an edit outside them is not reported, and ``exempt`` removes one."""
+    parent = Path(tempfile.mkdtemp()).resolve()
+    try:
+        with mock.patch.dict(os.environ, GIT_ENV):
+            repo = _throwaway_repo(parent)
+            (repo / "src" / "main.c").write_text("int main(void) { return 1; }\n")
+            (repo / "models").mkdir()
+            (repo / "models" / "new module.c").write_text("\n")
+            (repo / "docs" / "notes.md").write_text("edited\n")
+            found = runtime_tree_differences(repo=repo)
+            assert sorted(found) == ["models/new module.c", "src/main.c"], found
+            kept = runtime_tree_differences(
+                exempt=lambda path: path.startswith("models/"), repo=repo
+            )
+            assert kept == ["src/main.c"], kept
+    finally:
+        shutil.rmtree(parent)
+
+
+def test_assert_own_worktree_accepts_only_a_registered_linked_worktree_under_the_root():
+    """A linked worktree under the root is accepted; a plain directory, a symlink to the main
+    checkout, a worktree outside the root and the main checkout itself are refused."""
+    parent = Path(tempfile.mkdtemp()).resolve()
+    try:
+        with mock.patch.dict(os.environ, GIT_ENV):
+            repo = _throwaway_repo(parent)
+            root = parent / "worktrees"
+            _git(repo, "worktree", "add", "--quiet", "--detach", str(root / "linked"), "HEAD")
+            assert_own_worktree(root / "linked", root, repo=repo)
+            (root / "plain").mkdir()
+            (root / "link").symlink_to(repo)
+            _git(repo, "worktree", "add", "--quiet", "--detach", str(parent / "outside"), "HEAD")
+            refused = {
+                "a plain directory": (root / "plain", root, "does not name it"),
+                "a symlink to the main checkout": (root / "link", root, "is a symlink"),
+                "a worktree outside the root": (parent / "outside", root, "not under"),
+                "the main checkout": (repo, parent, "the main checkout"),
+            }
+            for what, (path, under, needle) in refused.items():
+                refusal = _refusal(partial(assert_own_worktree, path, under, repo=repo))
+                assert needle in refusal, f"{what}: {refusal or 'accepted'}"
+    finally:
+        shutil.rmtree(parent)
+
+
+def test_build_flag_check_reads_the_makefile_mode_markers():
+    """Markers carrying the requested flags pass and return both files; another value, or a
+    missing marker, is refused with the lines it does carry."""
+    compile_mode = "TEST_BUILD=no\nCC=cc\nEXTRA_CFLAGS={}\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        worktree = Path(tmp)
+        refusal = _refusal(partial(assert_build_flags, worktree, {}))
+        assert "no build mode marker" in refusal, refusal or "accepted"
+        (worktree / "build").mkdir()
+        (worktree / "build" / ".last_exec_mode").write_text("TEST_BUILD=no\nEXTRA_LDFLAGS=\n")
+        (worktree / "build" / ".last_compile_mode").write_text(compile_mode.format("-O3"))
+        found = assert_build_flags(worktree, {"EXTRA_CFLAGS": "-O3"})
+        assert sorted(found) == ["build/.last_compile_mode", "build/.last_exec_mode"], found
+        (worktree / "build" / ".last_compile_mode").write_text(compile_mode.format("-O2"))
+        refusal = _refusal(partial(assert_build_flags, worktree, {"EXTRA_CFLAGS": "-O3"}))
+        assert "EXTRA_CFLAGS=-O2" in refusal, refusal or "accepted"
+
+
+def test_worktree_root_lock_refuses_a_second_holder():
+    """While one run holds the worktree-root lock a second is refused, and afterwards it is free."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "worktrees"
+        with worktree_root_lock(root):
+            refusal = _refusal(lambda: worktree_root_lock(root).__enter__())
+            assert "another identity gate or battery" in refusal, refusal or "accepted"
+        with worktree_root_lock(root):
+            pass
+
+
+def test_point_output_at_replaces_only_its_own_symlink():
+    """A worktree's ``output`` symlink is repointed; a real directory there is refused, kept."""
+    with tempfile.TemporaryDirectory() as tmp:
+        worktree, first, second = (Path(tmp) / name for name in ("worktree", "first", "second"))
+        for directory in (worktree, first, second):
+            directory.mkdir()
+        point_output_at(worktree, first)
+        point_output_at(worktree, second)
+        assert (worktree / "output").resolve() == second.resolve()
+        (worktree / "output").unlink()
+        (worktree / "output").mkdir()
+        refusal = _refusal(partial(point_output_at, worktree, first))
+        assert "real directory" in refusal and (worktree / "output").is_dir(), refusal
+
+
 if __name__ == "__main__":
     sys.exit(
         run_test_suite(
@@ -560,6 +744,12 @@ if __name__ == "__main__":
                 test_header_source_format_is_pinned_apart_from_the_tree_type,
                 test_the_vertical_manifest_proves_the_inventory,
                 test_remove_tree_retries_once_then_refuses_a_tree_that_remains,
+                test_compare_outputs_checks_galaxy_bytes_created_rows_row_order_and_partitions,
+                test_runtime_tree_differences_reports_tracked_and_untracked_edits_unless_exempt,
+                test_assert_own_worktree_accepts_only_a_registered_linked_worktree_under_the_root,
+                test_build_flag_check_reads_the_makefile_mode_markers,
+                test_worktree_root_lock_refuses_a_second_holder,
+                test_point_output_at_replaces_only_its_own_symlink,
             ],
             "Parity-gate run-file helpers (test_parity_gate_helpers.py)",
         )

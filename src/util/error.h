@@ -51,7 +51,6 @@ void set_verbose_prefix(int enable);
 int get_verbose_prefix(void);
 void enable_debug_log_rate_limiting(void);
 void disable_debug_log_rate_limiting(void);
-int is_debug_log_rate_limiting_enabled(void);
 FILE *set_log_output(FILE *output_file);
 
 // Both GCC and Clang define __GNUC__; expands to nothing elsewhere.

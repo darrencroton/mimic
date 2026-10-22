@@ -179,14 +179,10 @@ void load_unit(int unit) {
 
   HaloAux = mymalloc_cat(sizeof(struct HaloAuxData) * InputTreeNHalos[unit], MEM_HALOS);
 
-  /* Not zero-filled: no row at or past NumProcessedHalos is ever read.
-   * marshal_workspace_to_output_buffer() writes each row whole, by struct copy,
-   * before it counts it, and grows the buffer through myrealloc_cat without
-   * zeroing the tail; every reader is bounded by that count -- save_halos() and
-   * save_halos_hdf5() loop to NumProcessedHalos, and gather_progenitor_galaxies()
-   * reads only a progenitor's marshalled FirstHalo/NHalos range. The NULL galaxy
-   * pointers the dispatch loop tests are on the FoF workspace, zero-filled below.
-   * `C` notes the seeded capacity whether or not it becomes resident. */
+  /* Not zero-filled: no row at or past NumProcessedHalos is read, the marshaller writes each row
+   * whole before counting it, and growth does not zero the tail. The NULL-galaxy tests are on the
+   * FoF workspace, zero-filled below. Readers: Developer Guide, "Why `ProcessedHalos` must grow".
+   * The profile notes the seeded capacity whether or not it becomes resident. */
   ProcessedHalos = mymalloc_cat((size_t)MaxProcessedHalos * sizeof(struct Halo), MEM_HALOS);
   run_profile_note_output_buffer(0, MaxProcessedHalos, sizeof(struct Halo));
 
