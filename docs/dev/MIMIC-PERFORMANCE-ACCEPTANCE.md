@@ -2,7 +2,7 @@
 
 **Purpose:** The evidence of record for [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md): the baseline every slice is measured against, and one dated section per slice with its gate result, wall-time pair, cost line and findings. Nothing outside `docs/dev/` may cite this file.
 
-**Status:** Open. Created by Slice 1 (2026-10-21); each later slice appends its section, and the closing slice adds the re-profile, the super-forest measurement and the spectrum annotation.
+**Status:** Closed by Slice 9 (2026-10-22). Created by Slice 1 (2026-10-21); each slice appended its section, and Slice 9 added the closing profile, the composite, the research-scale and super-forest measurements, the cross-format gate and the hand-over.
 
 ---
 
@@ -15,6 +15,8 @@
 5. [Slice 4: Init-time phase plans in `execute_phase`, measured against the guards](#slice-4-init-time-phase-plans-in-execute_phase-measured-against-the-guards)
 6. [Slice 5: Dispatch residual (no-go)](#slice-5-dispatch-residual-no-go)
 7. [Slice 6: The vertical output buffer's seed and zero-fill](#slice-6-the-vertical-output-buffers-seed-and-zero-fill)
+8. [Slice 8: Build flags, measured and gated](#slice-8-build-flags-measured-and-gated)
+9. [Slice 9: Close out, re-measure and hand over](#slice-9-close-out-re-measure-and-hand-over)
 
 ---
 
@@ -340,7 +342,7 @@ Session 1's mean is lifted by four slow `before_head` runs (2.456 to 2.560 s); i
 
 ### Wall-time pair (measured, n = 14, repeats 1 to 14 of 15, the plan's protocol from the repository root)
 
-`before` and `after` are default builds (`SIMULATION=mini-millennium` and `mini-millennium-horizontal`) of `before_head` and of the slice, each copied to `./mimic` in turn and timed with `run_wall.py` back to back, vertical before and after, then horizontal before and after; nothing else ran.
+Every ± below is the standard deviation σ of the 14 repeats. `before` and `after` are default builds (`SIMULATION=mini-millennium` and `mini-millennium-horizontal`) of `before_head` and of the slice, each copied to `./mimic` in turn and timed with `run_wall.py` back to back, vertical before and after, then horizontal before and after; nothing else ran.
 
 | | Vertical | Horizontal |
 |---|---|---|
@@ -363,7 +365,7 @@ Every repeat exited 0, and the no-regression bound holds on both drivers. The ve
 
 **Finding: the plan's `__bzero` figure was not all the output buffer's.** The baseline's 2.14% (2.29% at `before_head`) was split 1.29 / 0.97 between the two zero-fills, so removing the output buffer's leaves the FoF workspace's 0.93%, which the slice must keep (non-goal: no change to the FoF workspace's seed value or zero-fill). The criterion's literal bound of 0.5% therefore cannot be met inside the contract; D4 below resolves it. The FoF zero-fill costs nearly as much as the output one, although it covers a tenth of the bytes, because it touches fresh pages each tree; the measurement does not separate page-fault cost from the fill itself. Evidence: `archive/performance/slice-006/` (machine-local: `agg.json`, the `samples/`, the wall JSON, the before/after binaries and outputs, `compare-{v,h}.out`).
 
-**Cost.** `git diff --numstat` against `75b63649`: `output_buffer.h` +37, `horizontal_driver.c` +8 −30, `interface.c` +22 −14, `constants.h` +6 −10, the test +1 −1, documentation +9 −8; 74 code lines added and 55 removed. Differential `code-health` (`health.py analyze --base 75b63649`, Lizard 1.23.0; CCN sums by `lizard` per file): `horizontal_driver.c` 270 to 266 (the seed function, CCN 4, leaves it), `output_buffer.h` 0 to 5 (`output_buffer_seed_capacity`, its overflow test now inline), `interface.c` 19 to 19 (`load_unit` unchanged in CCN); code lines `horizontal_driver.c` −15, `output_buffer.h` +20, `interface.c` −1, `constants.h` −1. No new include cycle; `interface.c` gains one include of `output_buffer.h`. The health tool also lists two `horizontal_driver.c` functions at lines 1238 and 1283 as cyclomatic deltas; `lizard` by function name shows neither changed, so they are line-shift artefacts of the tool's matching. Verdict: a net 19-line change replaces two seed rules with one, halves the vertical run's peak RSS on mini-Millennium (the seed falls to 21% of the old one on trees of 20,000 halos or more; on trees under 250 halos it is up to 250 records larger, the 1,000-record floor now being added to the halos rather than replacing them), removes the larger of the two zero-fills, and keeps the output byte-identical; the literal profile bound is unreachable while the FoF zero-fill stays (D4).
+**Cost.** `git diff --numstat` against `75b63649`: `output_buffer.h` +37, `horizontal_driver.c` +8 −30, `interface.c` +22 −14, `constants.h` +6 −10, the test +1 −1, documentation (two guides, the diagnostics skill and the changelog) +8 −7; 74 code lines added and 55 removed. Differential `code-health` (`health.py analyze --base 75b63649`, Lizard 1.23.0; CCN sums by `lizard` per file): `horizontal_driver.c` 270 to 266 (the seed function, CCN 4, leaves it), `output_buffer.h` 0 to 5 (`output_buffer_seed_capacity`, its overflow test now inline), `interface.c` 19 to 19 (`load_unit` unchanged in CCN); code lines `horizontal_driver.c` −15, `output_buffer.h` +20, `interface.c` −1, `constants.h` −1. No new include cycle; `interface.c` gains one include of `output_buffer.h`. The health tool also lists two `horizontal_driver.c` functions at lines 1238 and 1283 as cyclomatic deltas; `lizard` by function name shows neither changed, so they are line-shift artefacts of the tool's matching. Verdict: a net 19-line change replaces two seed rules with one, halves the vertical run's peak RSS on mini-Millennium (the seed falls to 21% of the old one on trees of 20,000 halos or more; on trees under 250 halos it is up to 250 records larger, the 1,000-record floor now being added to the halos rather than replacing them), removes the larger of the two zero-fills, and keeps the output byte-identical; the literal profile bound is unreachable while the FoF zero-fill stays (D4).
 
 **Findings.** (1) **Delegated plan decision D4** (PM, under the owner's delegated authority), recorded verbatim: "Criterion 6's '< 0.5% to \_\_bzero (the FoF-workspace zero-fill remains)' was written against the frozen fact that the baseline \_\_bzero was the output-buffer seed's zero-fill. Measured at before_head it is split 1.29% (ProcessedHalos memset) and 0.97% (the FoF-workspace memset the contract keeps unchanged), so the literal bound cannot be met inside the contract. PM ruled that the bound applies to the zero-fill this slice removes: the ProcessedHalos memset contributes no \_\_bzero samples after the slice (it no longer exists), and total \_\_bzero fell from 2.29% to 0.97%, all of the remainder being the kept FoF zero-fill. Recommended amendment: 'the profile attributes no \_\_bzero to the ProcessedHalos allocation; total \_\_bzero is recorded before and after.'" Under D4 the criterion is met: no `__bzero` sample has `load_unit`'s `ProcessedHalos` allocation as its parent after the slice, and total `__bzero` is 2.29% before and 0.97% after. (2) The FoF-workspace zero-fill (0.93%) is the remaining `__bzero` cost of the vertical run; changing it is outside this plan. (3) Renaming the shared function also updated one comment's identifier inside `horizontal_acquire_generation()`, which named the old function. (4) A comment-only edit to `interface.c` landed while `make tests` was running; the converter and distributed suites, the format check and lint ran after it, and the byte gate ran at the commit.
 
@@ -410,4 +412,161 @@ At `ccfc6113`, default build, no extra flags, `TMPDIR` outside the repository: `
 
 **Cost.** `git diff --numstat 3be425e3..09c407bf` outside `docs/dev/`: `scripts/benchmark_mimic.sh` +28 −4, `scripts/profiling/README.md` +1 −1, `docs/USER-GUIDE.md` +2, `CHANGELOG.md` +2, the two skills +1 −1 each; 35 lines added and 7 removed, no source, test or Makefile line. Of these, the PM correction commit `dbe8ff0e` (after the drift audit and two code reviews) is +18 −4 (excluding the record): a `json_escape` helper so `extra_cflags` and `extra_ldflags` stay valid JSON for a flag with quotes or a backslash, probed with `json.loads` on unset, simple, multiple, quote-and-backslash and newline-and-tab values; the build skill's unit-test sentence (the unit-test build appends `EXTRA_CFLAGS`/`EXTRA_LDFLAGS`); and the outlier wording below. The gate (exit 0, `HEAD build flags: none`, 8 of 8), `make tests summary` (603/257/47) and `make tests-converter` (1655) were re-run at `dbe8ff0e`, exit 0 each; the later commit `09c407bf` only moves `json_escape` within the script (body unchanged, probe re-run) and rewords finding 2, so those three were not repeated. Wall pairs: the table above. Verdict: the slice buys a script option and a recorded, repeatable measurement of six flag sets and adopts nothing, because no set resolved a saving on both drivers; the default build every user and CI builds is unchanged.
 
-**Findings.** (1) Builds take 1 to 3 s on this machine, so a repeat session of the two near-miss sets is cheap. (2) The `-fno-math-errno` horizontal result (+6.41%) rests on after runs with two elevated repeats within repeats 1 to 14 (3.035 s and 3.144 s; the minimum, 2.4005 s, is below the before minimum), the two elevated repeats inflate the figure, but the other twelve after-runs still average 2.5083 s against the before mean of 2.4351 s (about +3%), so the horizontal result is not explained away by the outliers; the set fails the rule on the vertical driver in any case. (3) The compile and exec markers (`build/.last_compile_mode`, `build/.last_exec_mode`) already track `EXTRA_CFLAGS` and `EXTRA_LDFLAGS`, so an extra-flag build after a default build recompiles and relinks without `make clean`; the sets were built from a clean tree anyway.
+**Findings.** (1) Builds take 1 to 3 s on this machine, so a repeat session of the two near-miss sets is cheap. (2) The `-fno-math-errno` horizontal result (+6.41%) rests on after runs with two elevated repeats within repeats 1 to 14 (3.035 s and 3.144 s; the minimum, 2.4005 s, is below the before minimum). The two elevated repeats inflate the figure, but the other twelve after-runs still average 2.5083 s against the before mean of 2.4351 s (about +3%), so the horizontal result is not explained away by the outliers. The set fails the rule on the vertical driver in any case. (3) The compile and exec markers (`build/.last_compile_mode`, `build/.last_exec_mode`) already track `EXTRA_CFLAGS` and `EXTRA_LDFLAGS`, so an extra-flag build after a default build recompiles and relinks without `make clean`; the sets were built from a clean tree anyway.
+
+---
+
+## Slice 9: Close out, re-measure and hand over
+
+**Status: done.** Measured 2026-10-22 at `e481658a` (HEAD, the slice's starting commit; `src/`, `models/`, `simulations/`, `scripts/` and `Makefile` are those of Slice 8's code commit, so this is the plan's closing code). No code changed in this slice. Every measurement below was taken on the plan's machine (Mac Studio, Apple M3 Ultra, macOS 27.0.1, `cc -g -O2`, HDF5 1.14.6, libyaml 0.2.5, MPI off) with this slice's own jobs the only ones started on it; the machine is shared, and the load average read 2.6 to 12.7 around the timings (the high end during this slice's own builds), which the interleaved designs below are built to absorb. Method, scripts and raw JSON: `archive/performance/slice-009/` (machine-local); scratch worktrees `output/perf-slice9/{base,head}-{v,h,uv,uh}` (registered with `git worktree`, not committed), `base` at `5daa24ee` and `head` at `e481658a`, each built `make -j16 MODEL=sage16 SIMULATION=<package>` with 0 warnings for `mini-millennium`, `mini-millennium-horizontal`, `mini-uchuu` and `mini-uchuu-horizontal`.
+
+### The wall-time composite on mini-Millennium (measured, interleaved, n = 40 per build per driver)
+
+Decision 14: both builds were timed in the same session, interleaved, from the repository root with each binary invoked by absolute path (`archive/performance/slice-009/s9-interleave.py`: `-q`, round 0 a discarded warm-up, then 40 rounds in which each driver's two builds ran back to back, the first build alternating each round). Every run exited 0 and reported a galaxy-pool high-water of 15,525 (vertical) and 38,743 (horizontal) for both builds. SE is the two σ in quadrature over √40.
+
+| | Vertical (`sage16_mini-millennium.yaml`) | Horizontal (`sage16_mini-millennium-horizontal.yaml`) |
+|---|---|---|
+| `5daa24ee`, mean ± σ (min, max) | 2.6138 ± 0.0254 s (2.5766, 2.7371) | 2.7307 ± 0.0194 s (2.6944, 2.7737) |
+| HEAD, mean ± σ (min, max) | 2.3058 ± 0.0338 s (2.2734, 2.4786) | 2.4501 ± 0.0213 s (2.3972, 2.4967) |
+| HEAD − `5daa24ee` | **−0.3080 s, −11.78%**, SE 0.0067 s (−46.0 SE) | **−0.2807 s, −10.28%**, SE 0.0046 s (−61.6 SE) |
+| Medians | 2.6108 s and 2.3000 s (−11.91%) | 2.7257 s and 2.4523 s (−10.03%) |
+| The 2026-10-20 baseline table (n = 14, `5daa24ee`, a different session) | 2.6335 ± 0.0427 s | 2.7251 ± 0.0403 s |
+| This session's `5daa24ee` against that table | −0.75% | +0.21% |
+| HEAD against that table | −12.44% | −10.09% |
+
+The same-session `5daa24ee` build reproduces the baseline table to within 0.8%, so the table and the interleaved comparison agree. The composite saving is 11.8% (vertical) and 10.3% (horizontal), against the plan's stated expectation of about 10% and 8%: both figures are above it mainly because Slice 4 was assumed to deliver the guards' 2.3% and its init-time plan measured 4.4% to 4.6%, and, vertically, Slice 6 measured 2.7% to 3.95% against the assumed 2%.
+
+**The per-slice ratios multiplied, against the composite.** Each ratio is that slice's own after mean over its before mean, from the acceptance record's sections (Slice 3 and Slice 6 the protocol pairs, Slice 4 the interleaved comparison; Slices 5 and 8 changed no code and adopted nothing, ratio 1).
+
+| | Vertical | Horizontal |
+|---|---|---|
+| Slice 3 (`DEBUG_LOG`) | 0.9353 (−6.47%) | 0.9417 (−5.83%) |
+| Slice 4 (phase plans, interleaved n = 40) | 0.9544 (−4.56%) | 0.9565 (−4.35%) |
+| Slice 5 (no-go), Slice 8 (none adopted) | 1 | 1 |
+| Slice 6 (vertical buffer, protocol pair) | 0.9605 (−3.95%) | 0.9935 (−0.65%) |
+| **Product** | **0.8573 (−14.27%)** | **0.8949 (−10.51%)** |
+| Composite, measured above | 0.8822 (−11.78%) | 0.8972 (−10.28%) |
+
+The horizontal product (−10.51%) agrees with the composite (−10.28%) to 0.2 points. The vertical product is 2.5 points more than the composite, which is the range the individual sections' own caveats cover rather than a discrepancy in the code: Slice 6's vertical before-mean carried one slow repeat (2.7963 s; without it the saving is 2.72% and the product 0.8683, −13.17%), Slice 4's protocol pair gave −4.94% against its interleaved −4.56% (product with the protocol pair: −14.60%), and each ratio was measured in a different session against that session's own before-build, whose absolute level drifts by several percent (Slice 3's before-means were 5.6% above the baseline table on both drivers, Slice 6's vertical before-mean 8.9% below it). The composite is a single session with both builds interleaved and is the binding figure; the product is a consistency check, not a second measurement.
+
+### Closing profile (measured, 20 repeats, `attribute.py --skip-first`)
+
+HEAD's default build in the main tree (`make -j16`, exit 0, 0 warnings; the binary carries the plan's `FATAL_ERROR` string), `nm_index.py` refreshed, `run_wall.py` 15 repeats (repeats 1 to 14: vertical 2.3003 ± 0.0216 s, min 2.2729, max 2.3356; horizontal 2.4469 ± 0.0298 s, min 2.3953, max 2.4890), then `sample_runs.sh` 20 repeats and `attribute.py --skip-first --wall-mean-s <those means>`: 19 reports, 32,418 (vertical) and 34,416 (horizontal) self-samples; `source_attribution.mapped_fraction` 1.0 on both; `Unattributed` 0.03% (vertical) and 0.36% (horizontal, 0.35 of it one `memcpy` stub under the horizontal reader, as in the research-scale profile). **No build flag was adopted, so the closing profile is an `-O2` attribution like the baseline's and its per-unit shares compare with it directly.** Had LTO been adopted, per-unit attribution would be blurred and Slice 6's after-profile would be the last `-O2` attribution; it was not. The run memory profile of the two default runs is unchanged from Slice 6: vertical `C` 15,869, `P` 14,648, peak RSS 0.036 GB; horizontal `C` 39,694, `P` 37,425, peak RSS 0.176 GB. Evidence: `archive/performance/slice-009/agg-{v,h}.json`, `tables-{v,h}.txt`, `samples-{v,h}/`.
+
+**Components** (percent of self-samples, ± Poisson; the baseline table's share beside each; in brackets the milliseconds equivalent at the profile session's wall mean against the baseline share at the baseline's wall, to show where time went).
+
+| Component | Vertical closing | Vertical baseline | Horizontal closing | Horizontal baseline |
+|---|---|---|---|---|
+| Physics modules | 52.27 ± 0.40 (1202 ms) | 46.11 (1214 ms) | 52.65 ± 0.39 (1288 ms) | 48.02 (1309 ms) |
+| Core execution | 31.24 ± 0.31 (719 ms) | 34.55 (910 ms) | 29.17 ± 0.29 (714 ms) | 32.80 (894 ms) |
+| of which `module_registry.c` | 26.01 ± 0.28 (598 ms) | 30.00 (790 ms) | 24.21 ± 0.27 (592 ms) | 28.40 (774 ms) |
+| Math library | 5.21 ± 0.13 (120 ms) | 4.65 (122 ms) | 5.31 ± 0.12 (130 ms) | 4.64 (126 ms) |
+| Output I/O | 4.45 ± 0.12 (102 ms) | 4.31 (114 ms) | 2.86 ± 0.09 (70 ms) | 2.75 (75 ms) |
+| of which kernel `__open` via libhdf5 | 2.09 | 2.36 | 2.24 | 2.21 |
+| Utilities | 3.28 ± 0.10 (75 ms) | 5.86 (154 ms) | 3.14 ± 0.10 (77 ms) | 5.67 (155 ms) |
+| of which `error.c` | no self-time row (0.00) | 3.30 | no self-time row (0.00) | 3.13 |
+| Runtime/system | 2.35 ± 0.09 (54 ms) | 3.34 (88 ms) | 2.62 ± 0.09 (64 ms) | 2.44 (66 ms) |
+| of which `__bzero` | 1.07 | 2.14 | 0.27 | 0.28 |
+| Input I/O | 0.98 ± 0.06 (23 ms) | 0.90 (24 ms) | 3.66 ± 0.10 (90 ms) | 3.16 (86 ms) |
+| Model shared helpers / Unattributed | 0.18 / 0.03 | not tabulated | 0.22 / 0.36 | not tabulated |
+
+The physics modules take the same absolute time as before (1202 against 1214 ms vertical, 1288 against 1309 ms horizontal: their share rose because the whole run shrank), and the time that left is core execution (about 190 ms vertical, 180 ms horizontal), utilities (about 78 ms on each: the logging predicate) and, vertically, the zero-fill (about 34 ms of runtime/system). That is the plan's design confirmed from the profile: nothing was removed from the physics, and the dispatch, logging and buffer overheads it targeted fell by the saving the composite measures. Other utilities rows: `numeric.c` 1.70% / 1.63%, kernel `read` 1.24% / 1.17%, `memory.c` 0.10% / 0.10%; other core rows: inheritance 1.63% / 1.63%, `build_model.c` 1.20% (vertical), `horizontal_driver.c` 1.32% (horizontal). Horizontal runtime/system carries `_platform_memmove` at 2.18%, the slab handling the research-scale profile found.
+
+**Hot lines** (percent of self-samples; per-line attribution inside a translation unit is soft under `-O2`).
+
+| Rank | Vertical | % | Horizontal | % |
+|---|---|---|---|---|
+| 1 | `sage_radio_mode_heating.c:248` | 4.99 | `sage_radio_mode_heating.c:248` | 6.20 |
+| 2 | `sage_calculate_cooling_budget.c:132` | 4.99 | `sage_calculate_cooling_budget.c:132` | 5.31 |
+| 3 | `module_registry.c:1715` (the by-galaxy `process()` call) | 3.95 | `module_registry.c:1715` | 3.48 |
+| 4 | `module_registry.c:1707` (the by-galaxy list loop) | 2.52 | `cooling_tables.c:0` | 2.69 |
+| 5 | `cooling_tables.c:0` | 2.17 | `module_registry.c:1707` | 2.48 |
+| 6 | kernel `read` | 2.12 | kernel `__open` | 2.34 |
+| 7 | kernel `__open` | 2.09 | `cooling_tables.c:154` | 2.27 |
+| 8 | libm `log10` | 2.02 | `_platform_memmove` | 2.18 |
+| 9 | `cooling_tables.c:154` | 1.92 | libm `log10` | 2.09 |
+| 10 | `module_registry.c:1648` (the function entry) | 1.55 | `module_registry.c:1648` | 1.58 |
+
+The baseline's leaders `error.c:211` (3.30%) and the mode-test lines `module_registry.c:1586`, `:1587` and `:1591` (1.83, 1.35 and 1.11%) are gone; `module_registry.c:1598`'s `DEBUG_LOG` is now a level test (line 1710, 1.23% in the horizontal profile). The remaining dispatch lines are the indirect `process()` call and the loops that drive it, as Slice 5 found.
+
+**Libm payers** (percent of the run; the Math library component totals 5.21% vertical and 5.31% horizontal, of which the three modules below are all but about 0.5 points).
+
+| Payer | Vertical | Horizontal |
+|---|---|---|
+| `sage_calculate_cooling_budget` | 3.43 | 3.59 |
+| `sage_apply_metal_enrichment` | 0.93 | 0.88 |
+| `sage_reionization` | 0.33 | 0.36 |
+| core: `virial.c` / output buffer and marshalling / `build_model.c` / `horizontal_driver.c` | 0.23 / 0.15 / 0.13 / none | 0.22 / 0.12 / none / 0.12 |
+
+Libm's share rose (4.65% to 5.21% vertical, 4.64% to 5.31% horizontal) while its absolute time stayed within a few milliseconds (120 against 122 ms, 130 against 126 ms), for the same reason as the physics: the denominator fell. The three payers are unchanged physics, which is why spectrum items 3, 4 and 6 are the remaining opportunity in this layer and are a step 6 question.
+
+### The research-scale composite on mini-Uchuu (measured, sequential in one session)
+
+`sage16` on all 128 mini-Uchuu files (1,451,359,554 halos), the run files of [`MIMIC-PERFORMANCE-REFERENCE.md`](MIMIC-PERFORMANCE-REFERENCE.md): the shipped `sage16_mini-uchuu.yaml` with `last_file` raised from 3 to 127 (a scratch copy; nothing else changed) and `sage16_mini-uchuu-horizontal.yaml` as shipped, each with only `output_directory` redirected to its own directory under `output/perf-slice9/` (about 53 GB of output per run). Per driver, in this order and with nothing else started on the machine: HEAD built in the main tree for the package (`make clean && make -j16 MODEL=sage16 SIMULATION=mini-uchuu` or `mini-uchuu-horizontal`, 0 warnings), `scripts/profiling/run_wall.py` with 4 repeats, of which repeat 0 is the warm-up (it reads the tree files before the page cache is warm) and repeats 1 to 3 are the three timed repeats, then the `5daa24ee` build for the same package copied over `./mimic` (so both are launched by the same mechanism, the repository root as the working directory) and timed once with `run_wall.py`, as the same-session drift check. The vertical pair ran 2026-10-22 from 10:37 to 13:22, the horizontal pair from 13:22 to 16:13 (Australian Eastern time). Every run exited 0. Driver script and raw JSON: `archive/performance/slice-009/s9-uchuu-driver.sh`, `wall_mu_{v,h}_{head,base}.json`.
+
+| | Vertical (`mini-uchuu`) | Horizontal (`mini-uchuu-horizontal`) |
+|---|---|---|
+| HEAD, timed repeats 1 to 3 | 1891.6, 1925.9, 1955.8 s | 1986.6, 1985.4, 1978.9 s |
+| HEAD, mean ± σ (min, max) | **1924.4 ± 32.1 s** (1891.6, 1955.8); 32.1 min | **1983.6 ± 4.2 s** (1978.9, 1986.6); 33.1 min |
+| HEAD warm-up (not in the mean) | 1886.8 s | 2061.1 s |
+| Reference (`MIMIC-PERFORMANCE-REFERENCE.md`, `8613bded`), mean of 3 | 2167.0 s, σ 7.1 s | 2267.1 s, σ 73.1 s (the other two repeats average 2225.0 s) |
+| HEAD against the reference | −242.6 s, **−11.19%** | −283.5 s, **−12.50%** (−10.85% against the two clean repeats) |
+| `5daa24ee`, same session, one run (drift check) | 2173.3 s | 2293.2 s |
+| `5daa24ee` against the reference (the drift) | +0.29% | +1.15% (+3.07% against the two clean repeats) |
+| HEAD against the same-session `5daa24ee` | **−248.9 s, −11.45%** | **−309.6 s, −13.50%** |
+| Halos per second, HEAD / `5daa24ee` | 754,183 / 667,825 | 731,672 / 632,897 |
+
+The same-session `5daa24ee` run reproduces the reference's wall to 0.3% (vertical) and 1.2% (horizontal), so the machine did not drift between the two measurements and the comparison against the reference stands. The savings against the reference (11.2% and 12.5%) and against the same-session build (11.5% and 13.5%) are of the size of the mini-Millennium composite (11.8% and 10.3%), as the research-scale measurement predicted for per-galaxy costs: the reference found the dispatch and logging shares at mini-Uchuu (30.8% and 3.7% vertical, 29.6% and 3.6% horizontal) equal to or slightly above mini-Millennium's (30.0% and 3.3%, 28.4% and 3.1%). The horizontal figure is 2 to 3 points above mini-Millennium's; this slice did not investigate why and claims no cause. The vertical HEAD repeats rise across the three (1891.6, 1925.9, 1955.8 s, 64 s from first to last) while the horizontal ones are flat (σ 4.2 s), and the reference's three vertical repeats were flat (σ 7.1 s); the cause of the vertical rise is not established (the machine is shared), the σ of 32.1 s is stated as measured and nothing is trimmed. One `5daa24ee` run per driver is the drift check the plan asks for, not a paired design, so the 11.45% and 13.50% against it carry that run's own noise (one σ of the vertical HEAD repeats is 1.7% of their mean).
+
+**Memory profile** (the run memory profile's terms, against the reference's 1.82 GB and 3,853,400 vertical, 55 to 63 GB and 41,788,163 horizontal).
+
+| | Vertical | Horizontal |
+|---|---|---|
+| HEAD peak RSS (run profile), timed repeats | 0.704, 0.681, 0.668 GB (warm-up 0.682) | 55.201, 55.200, 55.291 GB (warm-up 65.310) |
+| `5daa24ee` peak RSS, one run | 1.946 GB | 74.846 GB |
+| Reference peak RSS | 1.82 GB (timed 1.76 to 1.94) | 55.1 to 55.2 GB timed, 63.4 GB warm-up |
+| Output buffer capacity `C`: HEAD / `5daa24ee` / reference | **809,214** (0.149 GB) / 3,853,400 / 3,853,400 | 41,788,163 / 41,788,163 / 41,788,163 |
+| Largest live-buffer population `P`, all three | 743,295 | 39,452,969 |
+| Galaxy pool high-water `G`, all three | 786,875 | 40,831,220 |
+| Retained generations `R`, retention pool, all three | not applicable | at most 2; at most 43.193 GB |
+
+**Vertical:** the seed is now the largest forest's 770,680 halos plus 5%, 809,214 records, against five times the forest before: `C` falls 4.76-fold and the output buffer from 0.709 to 0.149 GB. Peak RSS falls from 1.946 GB (this session's `5daa24ee`) and 1.82 GB (the reference) to 0.67 to 0.70 GB, about 2.7 to 2.8-fold. That fall (about 1.2 GB) is larger than the buffer's own (0.56 GB), and this slice did not decompose the remainder. `P` and `G` are unchanged, as the byte gate requires. **Horizontal:** `C`, `P`, `G`, `R` and the retention pool are identical to the reference and to `5daa24ee` to the record, as expected, since Slice 6 changed only the vertical driver (the horizontal seed rule is the one the driver already used). The horizontal peak RSS is not a result of the plan: HEAD's timed repeats (55.2 GB) equal the reference's, its warm-up read 65.3 GB (the reference's 63.4 GB), and the single `5daa24ee` run read 74.8 GB with the same accounted terms. That spread (55 to 75 GB) is consistent with the reference's own caveat that peak RSS under the macOS allocator includes its large-block cache, which was not investigated here; no horizontal memory claim is made. Evidence: the `stdout_tail` memory block of each run in the JSON files above.
+
+### The super-forest on `shin-uchuu-lhalo` file 0 (measured)
+
+`sage16` on file 0 of the cut vertical Shin-Uchuu dataset alone, the file that holds the 126,380,326-halo super-forest, with `MallocLargeCache=0` (the macOS allocator's large-block cache disabled, the condition of the recorded 164.8 GB): a scratch copy of `sage16_shin-uchuu-lhalo.yaml` that adds an `input:` section with `first_file: 0` and `last_file: 0` after the `simulation:` block and redirects `output_directory` to `output/perf-slice9/shin-file0` (the shipped file has no `input:` section and would process all 361 files; the edited keys were printed and checked before the run, and the run was refused otherwise). HEAD built in the main tree (`make clean && make -j16 MODEL=sage16 SIMULATION=shin-uchuu-lhalo`, 0 warnings; the binary's version string carries `-dirty` because this slice's documentation edits were uncommitted, with `src/`, `models/`, `simulations/`, `scripts/` and `Makefile` equal to `e481658a`), `MallocLargeCache=0 /usr/bin/time -l ./mimic output/perf-slice9/runfiles/shin-file0.yaml -q` from the repository root, serial, nothing else started on the machine, exit 0, 2026-10-22 16:13 to 16:16. Evidence: `archive/performance/slice-009/shin-run.out`, `shin-run.time`.
+
+| | `5daa24ee`-era seed (the recorded figure) | HEAD (measured) |
+|---|---|---|
+| Peak process RSS (run profile) | 164.8 GB | **70.956 GB** (`/usr/bin/time -l`: maximum resident set size 70,955,646,976 B; peak memory footprint 70,982,895,680 B) |
+| Wall | not recorded | **165.41 s** real (133.99 s user, 5.31 s system) |
+| Output buffer capacity `C` | 116.27 GB at the 5× seed (631,901,630 records at 184 B) | **132,699,342 records** at 184 B = **24.417 GB** (the forest's 126,380,326 halos plus 5%) |
+| Largest live-buffer population `P` | 121,907,647 records | 121,907,647 records (unchanged) |
+| Galaxy pool high-water `G` | not recorded | 128,809,345 galaxies at 176 B = 22.670 GB (0.9% chunk slack) |
+
+The run's output population `P` equals the recorded 121,907,647 records exactly. That is a count, not an identity check: the file's galaxies were not compared against a `5daa24ee` run, so no identity claim is made for this run (the byte gate covers mini-Millennium). Peak RSS fell by 93.8 GB, to 43.1% of the recorded figure (a 2.32-fold fall), against the pathway's estimate of "about 70 GB (not measured)" and the plan's projection that the output seed would fall from 116 GB to about 24 GB: the measured seed is 24.4 GB and the measured peak is 70.96 GB. Of that peak, the output buffer is 24.4 GB, the galaxy pool 22.9 GB allocated, and the remainder (about 23.7 GB) is the input forest (126,380,326 halos at 88 B is 11.1 GB), the FoF workspace and everything else, which this slice did not decompose. A reader sizing a production machine for this file now needs about 71 GB resident for `sage16` under the vertical driver, not 165 GB.
+
+### The micro-Uchuu ASCII cross-format identity gate (measured)
+
+`make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-scientific` (with `TMPDIR` outside the repository), 2026-10-22 16:17 to 16:24, 6 min 40 s, **exit 0**: `Scientific Test Summary: passed=56 failed=0 skipped=0 n/a=0 warned=1` (the one warning is `test_zero_values`, 2 fields with zero values, a non-failing marker that the suite has carried since Slice 4). The package's own gate builds `halos-only` and `sage16` at HEAD (`e481658a`, "every worktree is built at this commit") for the vertical micro-Uchuu ASCII package (Consistent-Trees ASCII, `consistent_trees_ascii`) and the horizontal one, runs both on the real micro-Uchuu data and compares the vertical run with the horizontal run, per `UniqueGalaxyID`, every galaxy field byte for byte over eight output snapshots (49, 28, 23, 16, 12, 10, 8, 7), with identical `UniqueGalaxyID` sets and no duplicates. This is the real-data evidence, on a dataset and a reader the byte gate does not touch, for the plan's shared dispatch (`execute_phase` and the phase plans), logging and writer changes: both drivers still produce the same galaxies for the same trees.
+
+| Leg | Verdict | Galaxies compared | Fields | Output snapshots |
+|---|---|---|---|---|
+| `halos-only` fixed | **PASS** | 4,409,643 | 20 | 8 (7: 83,876; 8: 131,622; 10: 257,895; 12: 391,661; 16: 598,585; 23: 822,183; 28: 937,126; 49: 1,186,695) |
+| `halos-only` dynamic | **PASS** | 4,409,643 | 20 | 8 (the same) |
+| `sage16` fixed | **PASS** | 3,112,186 | 42 | 8 (7: 83,222; 8: 129,830; 10: 248,785; 12: 364,383; 16: 509,568; 23: 603,671; 28: 615,207; 49: 557,520) |
+| `sage16` dynamic | **PASS** | 3,112,152 | 42 | 8 (23: 603,668; 28: 615,200; 49: 557,496; the others as fixed) |
+
+All four legs compared the vertical run (five partitions) against the horizontal run (eight partitions); `stage_leg_verdicts` and `stage_tree_path_preservation` also pass. Log: `archive/performance/slice-009/gate.log` (the full `make` output; machine-local), with the gate's own per-stage logs under `output/mimic-micro-uchuu-ascii-horizontal-gate-879qfwax/logs/` (machine-local). The gate compares HEAD's vertical run with HEAD's horizontal run, not either with `5daa24ee`: it adds the agreement of the two drivers on a second dataset and reader, and makes no identity claim against `5daa24ee` on micro-Uchuu (the byte gate, `make tests-reference-identity`, covers HEAD against `5daa24ee` on mini-Millennium). It builds in its own worktrees and left the main tree's build as it was.
+
+### Hand-over, validation and cost
+
+**Documents written in this slice.** This section; [`MIMIC-PERFORMANCE-REFERENCE.md`](MIMIC-PERFORMANCE-REFERENCE.md) gains a dated after-the-plan section holding the mini-Uchuu composite, the memory profile and the super-forest figure; [`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md) gains a dated outcome section and an outcome note under each of items 1 to 15; [`MIMIC-DEVELOPMENT-PATHWAY.md`](MIMIC-DEVELOPMENT-PATHWAY.md) shows steps 4.1 and 4.2 done with the new baseline, step 4.3 as an unscheduled candidate and the next step as the owner's decision, stating the plan's Decision 12 recommendation (the emulator or the coupled-rate spike, with 4.3 left for a machine where memory rather than cores is the bound) without taking it, a rewritten vertical-seed residual with the measured 70.96 GB, and a changelog row; `CHANGELOG.md` Unreleased carries one performance entry in place of the six it held (the byte gate, `DEBUG_LOG`, the phase plans, the output buffer, the build flags and the benchmark script's `EXTRA_LDFLAGS`), with measured savings per driver, the memory profile change, the gate, the build-flag results and what is not claimed; its Shin-Uchuu line now says the 165 GB was measured before the seed changed. Every number in that entry traces to a table in this record: the per-change savings to Slices 3, 4 and 6, the mini-Millennium composite to the first table of this section, the mini-Uchuu figures to the research-scale tables, the super-forest to its table, and the six flag results to Slice 8's table.
+
+**Skills swept.** `mimic-architecture-contract` gains the one missing ownership row (the phase plans: `MEM_UTILITY`, owned by `module_registry.c`, released by `release_phase_plans()`); `mimic-diagnostics-and-tooling` gains the placement and interleaving rule for comparing two builds (§7); `mimic-validation-and-qa` (the reference-identity gate row), `mimic-build-and-env` (the default build and `EXTRA_LDFLAGS`) and the profile-block description in `mimic-diagnostics-and-tooling` (`C` as the shared seed rule: 15,869 against `P` 14,648) were read against the code and are consistent; `mimic-run-and-operate` does not describe the run memory profile block, so there was nothing to bring up to date. `docs/USER-GUIDE.md` (the `C` row and the default build) and `docs/DEVELOPER-GUIDE.md` (the seed rule, the dispatch-list paragraph, `DEBUG_LOG`, the gate) were read against the code and are consistent.
+
+**Validation at the slice's final tree** (default build restored: `make clean && make -j16`, exit 0, `make info` shows sage16, mini-millennium and `-g -O2` plus the warning set): `make check-generated` exit 0, `make check-format` exit 0, `make check-docs` exit 0, `TMPDIR=<outside the repository> make tests summary` exit 0 (unit 603 passed, 27 n/a; integration 257 passed, 12 n/a; scientific 47 passed, one `WARN test_zero_values`), the same counts as Slice 8. The tests were run outside the supervised `TMPDIR` for the reason recorded in Slice 3's findings. No source, test, generated or build file changed in this slice, so no byte gate or converter suite is required.
+
+**Cost.** Documentation only: no source line. The measurement work took about 5 h 40 min of unattended machine time for the mini-Uchuu runs (ten runs of 31 to 38 min), 3 min for the super-forest, 7 min for the gate and 25 min for the mini-Millennium composite and both profiles. Scratch: eight worktrees `output/perf-slice9/{base,head}-{v,h,uv,uh}` (registered with `git worktree`, not committed), four mini-Uchuu output directories under `output/perf-slice9/` (about 53 GB each) and the Shin-Uchuu file-0 output (5.1 GB), and the evidence under `archive/performance/slice-009/` (all machine-local, left for the owner to clear).
+
+**Findings.** (1) The plan expected the cross-format gate to take hours; it took 6 min 40 s. (2) The frozen plan links to the pathway's `#step-4-performance-next` anchor, so the pathway's step 4 heading keeps its old title ("Performance (next)") with a sentence saying 4.1 and 4.2 are done; renaming it would break the plan's link, and the plan is bound by its hash. (3) **Statements outside this slice's authorised surface that the super-forest measurement makes stale**, left for the owner or a later slice: `simulations/shin-uchuu-lhalo/README.md` line 110 and `.agents/skills/mimic-simulations-and-readers/SKILL.md` line 52 still describe the removed 5× seed and the 164.8 GB peak, and `.agents/skills/mimic-docs-and-writing/SKILL.md` line 74 repeats the 165 GB figure; the measured figures to restate are 70.96 GB peak, 165.4 s wall, `C` 132,699,342 records (24.4 GB) and `P` 121,907,647 for `sage16` on file 0 with `MallocLargeCache=0`. (4) The vertical mini-Uchuu HEAD repeats rose across the three (1891.6, 1925.9, 1955.8 s) and the horizontal peak RSS varied from 55 to 75 GB between runs with identical accounted terms; both are recorded as measured and neither is explained. (5) The physics modules are 52% of the closing profile and 1202 ms of the vertical run, unchanged in absolute time from the baseline's 1214 ms. The largest remaining dispatch lines are the indirect `process()` call and the loops that drive it (lines 1715, 1707 and 1667: 3.95 + 2.52 + 1.39 = 7.86% of the vertical run), and Slice 5 measured the removable bookkeeping around them under its 2% threshold, so no further Tier A-style gain is left in dispatch without changing its contract.

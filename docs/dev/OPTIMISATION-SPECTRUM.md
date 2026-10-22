@@ -8,7 +8,7 @@
 
 **Ordering rule**: expected value = (upside × confidence) ÷ (cost + scientific risk). Every entry is labelled **measured**, **estimated**, or **speculative**.
 
-**Status**: Options catalogue — **step 4, the next task**, in [`MIMIC-DEVELOPMENT-PATHWAY.md`](MIMIC-DEVELOPMENT-PATHWAY.md) → "The Ordered Road". Not a plan, and nothing here is authorised to be built. The frozen implementation plan for Tier A is [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md) (2026-10-20), which re-measured `main` on both drivers, re-verified every Tier A claim against the source (its "Frozen Facts and Evidence" lists the corrections to this document) and takes items 1, 2, 5, 10, 12 and 13; items 3, 4, 6, 7, 8, 9, 11, 14 and 15 are not taken, for the reasons in its decisions table (item 14 after a research-scale measurement, [`MIMIC-PERFORMANCE-REFERENCE.md`](MIMIC-PERFORMANCE-REFERENCE.md), put it at 0.05% of a full mini-Uchuu run). The plan's closing slice annotates this document with the outcomes.
+**Status**: Options catalogue, annotated with the outcome of the Tier A plan on 2026-10-22 (see [Outcome of the Tier A plan](#outcome-of-the-tier-a-plan-2026-10-22) and the dated outcome note under each of items 1 to 15). Pathway steps 4.1 and 4.2 are done: items 1, 2, 10 and 12 were taken, item 13 was measured and no flag set adopted, and items 3, 4, 5, 6, 7, 8, 9, 11, 14 and 15 were not taken, each for a measured or verified reason recorded below. The plan was [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md) (2026-10-20, revision 6), whose evidence of record is [`MIMIC-PERFORMANCE-ACCEPTANCE.md`](MIMIC-PERFORMANCE-ACCEPTANCE.md); the research-scale companion is [`MIMIC-PERFORMANCE-REFERENCE.md`](MIMIC-PERFORMANCE-REFERENCE.md). The catalogue's own measurements (2026-08-20, commit `48ffc244`, a different machine) are superseded where the outcome section says so, and the unannotated text below is left as written. Nothing outside Tier A is authorised by this document; the next step after step 4.2 is the owner's decision in the pathway.
 
 ---
 
@@ -31,14 +31,41 @@
 
 ## Table of Contents
 
-1. [Structural Facts That Drive The Ordering](#structural-facts-that-drive-the-ordering)
-2. [Tier A: Bit-Identical, Cheap](#tier-a-bit-identical-cheap)
-3. [Tier B: Bit-Identical, Structural](#tier-b-bit-identical-structural)
-4. [Tier C: Changes Results](#tier-c-changes-results)
-5. [Tier D: Rejected, With Evidence](#tier-d-rejected-with-evidence)
-6. [Composition and Dependencies](#composition-and-dependencies)
-7. [Missing Instruments](#missing-instruments)
-8. [Corrections To Earlier Claims](#corrections-to-earlier-claims)
+1. [Outcome of the Tier A plan (2026-10-22)](#outcome-of-the-tier-a-plan-2026-10-22)
+2. [Structural Facts That Drive The Ordering](#structural-facts-that-drive-the-ordering)
+3. [Tier A: Bit-Identical, Cheap](#tier-a-bit-identical-cheap)
+4. [Tier B: Bit-Identical, Structural](#tier-b-bit-identical-structural)
+5. [Tier C: Changes Results](#tier-c-changes-results)
+6. [Tier D: Rejected, With Evidence](#tier-d-rejected-with-evidence)
+7. [Composition and Dependencies](#composition-and-dependencies)
+8. [Missing Instruments](#missing-instruments)
+9. [Corrections To Earlier Claims](#corrections-to-earlier-claims)
+
+---
+
+## Outcome of the Tier A plan (2026-10-22)
+
+Pathway steps 4.1 and 4.2 ran as [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md) (eight Mode B slices, `feature/performance-tier-a`); the evidence of every figure here is [`MIMIC-PERFORMANCE-ACCEPTANCE.md`](MIMIC-PERFORMANCE-ACCEPTANCE.md), and the research-scale figures are in [`MIMIC-PERFORMANCE-REFERENCE.md`](MIMIC-PERFORMANCE-REFERENCE.md). Every figure is one machine (Apple M3 Ultra) and one build (`-g -O2`); bit-identity is gated against `5daa24ee` on mini-Millennium, both drivers, `halos-only` and `sage16`, fixed and dynamic timesteps, on macOS arm64 Clang only.
+
+| Item | Outcome | Measured |
+|---|---|---|
+| 1. `DEBUG_LOG` level-first | **Taken** (Slice 3) | −6.47% vertical, −5.83% horizontal (36 to 41 SE) |
+| 2. Phase plans | **Taken**, init-time form (Slice 4) | −4.56% vertical, −4.34% horizontal against the code before it (interleaved, n = 40) |
+| 10. `ProcessedHalos` zero-fill | **Taken** (Slice 6) | −3.95% vertical in the protocol pair (−2.7% without one slow repeat) |
+| 12. `MAXHALOFAC` | **Taken** (Slice 6) | vertical `C` 74,345 to 15,869, peak RSS 0.071 to 0.037 GB; mini-Uchuu 1.82 to 0.67 GB; Shin-Uchuu super-forest 164.8 to 70.96 GB |
+| 13. Build flags | **Measured, none adopted** (Slice 8) | six sets, all byte-identical, none more than 2 SE faster on both drivers |
+| 3, 4, 6, 9 | Not taken | cached or reassociated state, no profile evidence, or each under the noise (see each item) |
+| 5 | Not taken | the owner deleted the slice (Decision 11); 0.6% |
+| 7, 8 | Not taken | an unquantified return for a contract change; one store under the noise (Slice 5 measured the remaining dispatch bookkeeping at 1.83% ± 0.19%, under its 2% threshold: no-go) |
+| 11 | Not taken | allocator share 0.35% once the zero-fill went |
+| 14 | Not taken | 0.05% (vertical) and 0.02% (horizontal) of a full mini-Uchuu run: paid per partition file, not per halo |
+| 15 | Not taken | about 0.1%; the two `popen` calls run at the end of the run |
+
+**The composite** (measured once, at the close): on mini-Millennium with `sage16`, the plan's closing code against a same-session `5daa24ee` build, interleaved from the repository root, n = 40 per build per driver, is **11.78% faster vertical and 10.28% faster horizontal** (2.6138 to 2.3058 s and 2.7307 to 2.4501 s, 46 and 62 SE); on the full mini-Uchuu box (128 files, three repeats) it is **11.19% and 12.50% faster than the reference run** (2167.0 to 1924.4 s and 2267.1 to 1983.6 s), 11.45% and 13.50% against a same-session `5daa24ee` run. The spectrum's estimate for Tier A was 15 to 25%; the plan's own estimate, after re-measuring, was about 10% and 8%. The product of the per-slice ratios (14.3% vertical, 10.5% horizontal) exceeds the vertical composite by 2.5 points and matches the horizontal one to 0.2; the single-session composite is the binding figure. Module dispatch fell from 30.0% to 26.0% of the vertical run and the logging predicate from 3.3% to no self-time, while the physics modules took the same absolute time as before (52% of the closing profile): what remains is the physics, which is a step 6 question, and the indirect `process()` call and its loops (Slice 5).
+
+**Measurements superseded.** The 2026-08-20 profile (3.3229 s, commit `48ffc244`, a different machine) by the 2026-10-20 baseline and the 2026-10-22 closing profile; item 1's "4.15% measured" (the predicate's self-time) by the 6.47% / 5.83% the gate achieved; item 2's "4 to 7% estimated" and its "called from no test" (it is called from `test_event_buffer_growth.c`) by the measured 4.4 to 4.6% and the kept signature; item 10's "3.14 of the measured 3.15% `__bzero`" by the measured 1.29% (`ProcessedHalos`) plus 0.97% (the FoF workspace's, kept); item 12's "74,345 against 14,648" by `C` 15,869; item 13's "3 to 8% claimed" by six measurements that adopted nothing; item 16's "6 to 9×" is not re-measured here, but `mpirun` was measured at 13.8× (vertical) and 13.5× (horizontal) at 16 ranks on the full mini-Uchuu box (the plan's Decision 12 recommends not planning item 16 as performance work; the pathway leaves the choice to the owner).
+
+**Not done in this plan, and not claimed:** items 16 to 40 (thread-per-forest, batched dispatch, SoA, the Tier C and D items) are untouched and unmeasured by it; the plan adds no dispatch mode, no threading and no physics change; and bit-identity is proven on macOS arm64 Clang only (no build flag was adopted).
 
 ---
 
@@ -76,6 +103,8 @@ The singleton majority is uniform, coupling-free, and perfectly batchable; the f
 Items 1–12, 14 and 15 change no output byte. **Two carve-outs**: item 4's precomputed reciprocal is reassociation-only, and item 13 (build flags) is possibly FP-perturbing and must be promoted separately against the physics baseline. Together, plausibly ~15–25% of runtime for days-to-weeks of work. (estimated)
 
 ### 1. Gate `DEBUG_LOG` at the call site so the predicate is inlinable
+**Outcome (2026-10-22): taken (Slice 3).** `DEBUG_LOG` tests an inline `debug_log_enabled()` over exported `mimic_log_level` before any call; the armed branch reads the exported rate-limit flag directly. Measured on mini-Millennium with `sage16`: 6.47% faster vertical and 5.83% faster horizontal (36 to 41 SE), 85 to 90% of the 7.61% / 6.47% ceiling with the macro compiled out; the spectrum's 4.15% was the predicate's own self-time and understated the win, because the macro sites also cost. `error.c` has no self-time in the closing profile (3.30% at the baseline). Byte-identical output; `--debug` output unchanged apart from the version string, times and one line number.
+
 `src/util/error.h:78-94` calls the cross-TU `is_debug_log_rate_limiting_enabled()` (`error.c:211`) *before* any log-level test. Fix: reorder to test the level first via an `extern` variable, and/or make the predicate `static inline` in the header. **Upside: 4.15% measured** (the predicate's own self-time), plus an unquantified share of the 6.14% attributed to `module_registry.c:882`. Principles 1 and 7 compatible — logging stays core-owned, modules still see only the macro. Cost: trivial.
 
 **Two caveats.** Arguments *are* evaluated for the first `DEBUG_LOG_MAX_CALLS = 5` calls per site, and outside the armed window (module `init()` sites) they are evaluated every time — the "never evaluated" property holds only in the steady state inside the driver's armed region. And level-first ordering changes observable `--debug` behaviour: Today each call site burns its 5-message budget even at levels where nothing prints, because the counters increment outside the level test. Level-first means budgets are consumed only when messages emit — arguably a bug fix, but grep the integration tests for suppression-message assertions first.
@@ -83,11 +112,15 @@ Items 1–12, 14 and 15 change no output byte. **Two carve-outs**: item 4's prec
 **Archaeology**: commit `7638d4da` (2025-11-26) introduced this macro claiming *"No performance impact when debug mode not enabled."* The profile falsifies that claim. This is why the cost went unnoticed for nine months.
 
 ### 2. Precompute mode-partitioned phase plans at `module_system_init`
+**Outcome (2026-10-22): taken, in its init-time form (Slice 4).** `module_system_init()` builds one plan per non-empty FoF phase (full-halo, per-event and by-galaxy lists in YAML order), and `execute_phase()` walks them with the two guards (no galaxy loop when the phase has no by-galaxy module, no event dispatch when none is pending). Measured against the guards alone in an interleaved comparison (n = 40): the plan is a further 2.94% (vertical) and 2.24% (horizontal) faster, and 4.56% / 4.34% faster than the code before it, against the spectrum's estimated 4 to 7%; the guards alone were 1.68% / 2.15%. The spectrum's "called from no test" is wrong (`tests/unit/test_event_buffer_growth.c` calls `execute_phase`), and the signature was kept. The unresolved-entry `FATAL_ERROR` moved from every dispatch to startup, as the spectrum predicted. `module_registry.c` fell from 30.00% to 26.01% of the vertical run.
+
 `execute_phase` (`src/core/module_registry.c:865-891`) re-scans all configured modules per galaxy and filters on `processing_mode`. Measured waste per FoF-snapshot: `54·L` inner iterations that do nothing but fail a mode test — **33% of all PASS-2 iterations** — plus 130 wasted PASS-1 iterations, and two of the four configured phases run the entire per-galaxy loop while dispatching nothing at all. Fix: build per-(phase, mode) compact arrays once at startup from the runtime YAML, exactly as `PhaseModuleConfig.resolved` already does.
 
 **Upside: 4-7% (estimated** from exact iteration counts × an assumed cost ratio). Principle 2 **compatible and reinforcing** — derived state computed *from* the runtime configuration, no compile-time binding. Principle 4 compatible provided YAML order within each mode and the galaxy-major law (`module_registry.h:127-136`) are preserved. Principle 7 *improved*: the "not resolved" `FATAL_ERROR` moves from per-dispatch to startup. Cost: moderate — and unusually low, because **`execute_phase` is called from one function (three call sites, `module_registry.c:928/935/941`) and from no test**, so its signature is free to change — though it is a published API at `module_registry.h:145` whose documented driver-neutral contract must move with it.
 
 ### 3. Hoist substep-invariant scalars out of the substep loop
+**Outcome (2026-10-22): not taken.** A value cached across callbacks is mutable module state (or a new transport property) that step 4.3 would have to instance per thread and step 6 deletes or restructures; the radio-mode "run constant" claim is false (`black_hole_mass` multiplies first, `sage_radio_mode_heating.c:147-149`). The physics modules remain 52% of both closing profiles; this is where the remaining physics-side time is, and it is a step 6 question.
+
 Halo properties other than `Type` are read-only to modules, so `Vvir`, `Rvir`, `Mvir`, `Vmax`, `dT` and `DiskScaleRadius` (written only in `pre_timestep`, `sage_set_disk_scale_radius.c:99`) are fixed across all 10 substeps. Verified instances recomputed per galaxy per substep:
 
 | site | invariant recomputed |
@@ -103,39 +136,63 @@ Halo properties other than `Type` are read-only to modules, so `Vvir`, `Rvir`, `
 **Upside: 3-6% (estimated)**. Bit-identical **only if** the hoisted expression is textually identical and evaluated in the same association order. Cost: days per site, plus one architectural decision about *where* the cached value lives — module-local memo, a declared transport property written by a `pre_timestep` module (the sanctioned mechanism, Principle 3), or core-provided per-galaxy scratch. **Prefer the first or third**: step 6 deletes transport-scratch properties and requires side-effect-free rate evaluation, so a new declared transport property is work thrown away and a contract to unwind. The `pre_timestep` phase already runs exactly once per snapshot interval (`module_registry.c:928`) and is the natural hook.
 
 ### 4. Restructure the cooling-table lookup (exact, not a surrogate)
+**Outcome (2026-10-22): not taken.** The exact parts are a duplicated temperature bracket inside a small static helper the compiler likely merges at `-O2`, with no profile evidence it survives; the reciprocal and cached-temperature parts reassociate or depend on item 3. In the closing vertical profile `cooling_tables.c` line 154 is 1.92% and its unattributed `:0` remainder 2.17%, with `log10` 2.02% and `__exp10` 0.81% in libm; a later plan should re-measure before spending on it.
+
 `cooling_tables.c:137-165`. Four separable changes: replace the linear metallicity scan at `:154` (the measured hot line) with a direct index or branchless select over the fixed 8-entry grid; cache the temperature-side interpolation, which per item 3 is invariant across substeps; make it `static inline` or enable LTO so it stops being a cross-TU call with a PLT stub; precompute the 7 bracket reciprocals at init. **Upside: 1.5-4.5% (estimated)** against its measured 3.25% self + 1.88% `log10` + 0.76% `__exp10`. First three are bit-identical; the reciprocal is reassociation-only. Cost: medium-low.
 
 ### 5. Short-circuit `exp()` when `FracZleaveDisk == 0.0`
+**Outcome (2026-10-22): not taken.** The owner deleted the slice (plan Decision 11): 0.6% for no other benefit. `exp` is 0.71% (vertical) and 0.74% (horizontal) of the closing profiles, `sage_apply_metal_enrichment` its main payer (0.93% / 0.88% of libm time).
+
 `sage_apply_metal_enrichment.c:107-114` and `shared/sage_starburst_physics.h:134-142` compute an `exp()` and multiply it by zero for every star-forming galaxy every substep, because the shipped config sets `FracZleaveDisk: 0.0`. **Upside: 0.5-0.9% (estimated)** with the current parameter. Bit-identical (`0.0 · finite = 0.0`). Cost: an hour. Best saving-to-effort ratio in the catalogue.
 
 ### 6. Hoist the redshift-only part of the reionization modifier out of the halo loop
+**Outcome (2026-10-22): not taken.** Same reason as item 3 (a value cached across callbacks is mutable module state); `sage_reionization` is 0.33% to 0.36% of the closing libm payers.
+
 `sage_reionization.c:37-96` is called per halo, but everything from `:39` to `:91` (`f_of_a`, `Mjeans`, `Mfiltering`, `Vchar`, `omegaZ`, `deltacritZ`, `HubbleZ`, `Mchar`) depends only on redshift and cosmology — not on `mvir`, which enters only at `:92-94`. Removes ~7 `sqrt` + 1 `pow` per halo. **Upside: ~0.7% (estimated)** against 0.56% self + 0.31% libm. Bit-identical. Cost: an hour.
 
 ### 7. Arm event-dispatch state only for phases that have consumers
+**Outcome (2026-10-22): not taken.** It changes `module_emit_event`'s behaviour for a contract violation (`module_registry.c:1060-1070`) for an unquantified return. Slice 4's plan already skips the post-callback event dispatch when none is pending, and Slice 5 measured what bookkeeping remains in `execute_phase` at 1.83% ± 0.19% (every named removal taken to its maximum, beyond the contract), under its 2% threshold: no-go.
+
 `begin_/end_phase_event_dispatch` (`module_registry.c:599-632`) write 10 scalar fields each on every phase entry and exit — 21 phase entries per FoF-snapshot (`post_timestep` is empty and returns at `:827` before `begin`) — including for phases with no producer and no consumer, which is knowable at startup. Part of the unattributed residual inside `execute_phase`'s 27%. Bit-identical, compliant, days. (estimated, unquantified)
 
 ### 8. Hoist `ctx->active_event = NULL` out of the inner loop
+**Outcome (2026-10-22): not taken.** One store per callback is unmeasurable against the 1.6% run-to-run noise (Slice 5 measured the remaining dispatch bookkeeping, a set that does not include this store, at 1.83% ± 0.19% with every removal taken to its maximum). The store stays in the dispatch loops.
+
 `module_registry.c:885` stores to escaped memory once per dispatch; it is already NULL there (set by `begin_phase_event_dispatch`, restored by `dispatch_events_range` after every batch, and PASS 2 runs strictly after event dispatch). ≲1%, bit-identical, trivial — but **document the invariant at the hoisted store**, since `module_interface.h:236-238` contractually promises `active_event == NULL` for by-galaxy calls.
 
 ### 9. Remove redundant per-call recomputation in core and shared helpers
+**Outcome (2026-10-22): not taken.** The module-side change breaks a tested no-central contract (`test_unit_sage_apply_infall.c:648-668`) and the core fusions are each under 1%, below the noise.
+
 `mimic_find_fof_central_index()` scans (`sage_apply_infall.c:47`, `sage_resolve_mergers_and_disruption.c:151`) duplicate what `ctx->central_galaxy` already holds (`halo_evolution.c:84`). `mimic_tree_get_FirstHaloInFOFgroup` is recomputed for the same `halonr` in `build_halo_tree_from_view` (`build_model.c:116`, `:137`, and `:161` inside the per-subhalo loop). Two O(ngal) passes plus a linear central search per FoF-snapshot are fusable (`halo_evolution.c:155-174`, `build_model.c:163-165`). Also: `sage_radio_mode_heating.c:68-71` recomputes *exactly* the `x` that `sage_calculate_cooling_budget.c:48-49` just computed with the same inputs. Each ≲1%, bit-identical, trivial.
 
 ### 10. Eliminate or narrow the tree-load zero-fill
+**Outcome (2026-10-22): taken for `ProcessedHalos` (Slice 6).** The vertical `ProcessedHalos` `memset` is gone: every reader is bounded by a count, so its zeros are never read. The spectrum's "3.14 of the measured 3.15% `__bzero`" was wrong: the baseline's `__bzero` was split 1.29% (`ProcessedHalos`) and 0.97% (the FoF workspace's `memset`, which has `galaxy == NULL` readers and stays); `__bzero` is 1.07% in the closing vertical profile. Wall: 3.95% faster vertical in the slice's protocol pair (2.7% without one slow repeat). The FoF workspace's zero-fill is the remaining `__bzero` cost of the vertical run.
+
 `src/io/vertical/interface.c:163-166` and `:171-172` `memset` the whole `ProcessedHalos` and `FoFWorkspace` allocations per tree. `ProcessedHalos` is sized `MAXHALOFAC(5) × InputTreeNHalos` (`src/include/constants.h:25`), so 5× the eventual population is zeroed every tree. This is **3.14 of the measured 3.15% `__bzero`** — three times the vertical reader's own code. **Gated on a correctness audit**: the zeroing is what guarantees `workspace[p].galaxy` reads NULL for untouched halos, which `marshal_workspace_to_output_buffer` relies on, and other `struct Halo` fields may depend on zero-init as an implicit `init_source` default. Narrow it correctly and it is bit-identical; get it wrong and it silently changes results. Cost: small patch, non-trivial verification.
 
 ### 11. Reuse tree-scoped buffers instead of alloc/clear/free per tree
+**Outcome (2026-10-22): not taken.** The allocator's share is 0.35% once the zero-fill is gone; the closing profile's allocator and malloc-zone frames total 0.63% of the vertical run and 0.10% of the horizontal one.
+
 `interface.c:131-179` allocates fresh per tree; `:189-202` frees per tree. Grow-to-high-water reuse is the idiom the codebase already endorses (`galaxy_pool.c:12-22`, `build_model.c:339-350`). Folds into item 10's saving plus part of the 0.86% allocator share. **1-3% combined (estimated)**. Principle 5 still satisfied — high-water-bounded reuse is bounded — but the per-tree cleanup contract in `free_unit_halos`'s docstring must be revised deliberately. Needs a test for a size-decreasing tree sequence.
 
 ### 12. Retune `MAXHALOFAC`
+**Outcome (2026-10-22): taken (Slice 6).** `MAXHALOFAC` is deleted and both drivers seed the output buffer through one rule, `output_buffer_seed_capacity()`: the input halos plus 5% headroom, at least 1,000 records. The default vertical run's `C` fell from 74,345 to 15,869 and its peak RSS from 0.071 to 0.037 GB; the full-scale figures (mini-Uchuu and the Shin-Uchuu super-forest) are in the acceptance record's closing section. The FoF workspace keeps its own seed (half the tree's halos).
+
 Output buffer capacity 74,345 vs population 14,648 — 5× over-allocation, which currently costs *time* through item 10's memset, not just RSS. Trades initial clear cost against `myrealloc_cat` frequency. Bit-identical (pure sizing constant), trivial to change, but it is shared code affecting every simulation package, so it needs re-benchmarking across tree-size distributions.
 
 ### 13. Enable LTO; evaluate `-O3` and `-fno-math-errno`
+**Outcome (2026-10-22): measured, nothing adopted (Slice 8).** Six sets (`-fno-math-errno`; `-flto`; `-O3`; `-fno-math-errno -flto`; `-fno-math-errno -O3`; all three) were each byte-identical against the `-O2` reference and none was more than 2 SE faster on both drivers, so the default stays `-g -O2`. `EXTRA_LDFLAGS` has a hook in `scripts/benchmark_mimic.sh` (the Makefile hook already existed). Item 1's win is what LTO would also have bought, which is a likely reason `-flto` finds nothing more. Bit-identity of any future set is proven on macOS arm64 Clang only.
+
 `Makefile:153` is `-g -O2`; `LDFLAGS` is initialised empty (`:166`) and accumulates only `-L` paths, and the link line (`:376`) passes no `CFLAGS`, so **there is no hook for link-time optimisation flags** — an `EXTRA_LDFLAGS` hook is the clean fix. LTO is the one flag with a *named* mechanism here: it inlines `is_debug_log_rate_limiting_enabled` across the TU boundary and lets the compiler prove it reads one global, and it also collapses the 0.94% of PLT stubs and lets `get_metaldependent_cooling_rate` inline. **3-8% claimed, genuinely unquantified**, and **not additive with item 1** — LTO's main win here *is* item 1. `-fno-math-errno` is bit-identical and cheap and deserves evaluation given libm is 4.7% of the run. There is **no `make release` target**, so adopting any of these as a default is a Makefile design decision, not a flag flip. Treat `-O3` and LTO as *possibly* FP-perturbing (inlining changes FMA-contraction opportunities) and gate on the baseline.
 
 ### 14. Collapse the HDF5 create/close/reopen sequence
+**Outcome (2026-10-22): not taken.** The cost is paid per partition file, not per halo: 2.4% on mini-Millennium but 0.05% (vertical) and 0.02% (horizontal) on the full mini-Uchuu box ([`MIMIC-PERFORMANCE-REFERENCE.md`](MIMIC-PERFORMANCE-REFERENCE.md)); the master file's reopen of every partition is provenance rank 0 cannot carry in memory under MPI. Kernel `__open` is still 2.09% / 2.24% of the closing mini-Millennium profiles, which is that fixed per-file cost on a small run.
+
 `src/io/output/hdf5.c:79-146` creates each per-filenr file, closes it, then reopens it; `master_hdf5.c:114,197` reopens every finished file again to read `TotHalosPerSnap` back out. Up to 3 opens × 8 files, against a measured 61 ms in `__open`. Small here; **scales with file count, not row count**, so it is an early warning for Uchuu-scale runs with thousands of files. Principle 6 constrains the master-file half: that reopen is provenance work, and removing it means carrying the count forward in memory instead.
 
 ### 15. Remove the two startup `popen` calls
+**Outcome (2026-10-22): not taken.** The two `popen` calls run at the end of the run, not at startup (`src/core/main.c:508-510`), and the profile attributes about 0.1% to them (`__wait4_nocancel` 0.04% in the closing vertical profile).
+
 `src/util/version.c:135` shells out to `sw_vers -productVersion`; `:239` shells out to `md5 -q` on the run YAML. **1.35% (45 ms) measured**, all of it in the per-snapshot fixed cost — a real 1.35% of this 3.3 s benchmark, and noise on a 3-hour run. `sysctlbyname("kern.osproductversion")` replaces the first cleanly. The second needs an in-tree MD5 producing a **byte-identical digest** to `md5`/`md5sum`, or Principle 6's cross-platform provenance comparability breaks. Metadata-only risk, but under Principle 6 that is not a lesser category.
 
 ---

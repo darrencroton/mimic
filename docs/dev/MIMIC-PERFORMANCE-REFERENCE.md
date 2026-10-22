@@ -2,7 +2,7 @@
 
 **Purpose:** The measured cost model of Mimic at research scale: where a full-box `sage16` run spends its time and memory under each driver, how that compares with the mini-Millennium profile the optimisation work was planned on, how the run scales under MPI, and the per-halo and per-callback rates that let a new run be estimated before it starts. It is the research-scale companion of [`BENCHMARK-SAGE16-MINI-MILLENNIUM.md`](BENCHMARK-SAGE16-MINI-MILLENNIUM.md) and the evidence [`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`](MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md) draws on.
 
-**Status:** Measurement record, 2026-10-21. It reports where time and memory go and proposes no change. Every number is perishable (one machine, one commit, one dataset) and nothing outside `docs/dev/` may cite it; re-measure before acting on any of it.
+**Status:** Measurement record, 2026-10-21, with an after-the-plan section added 2026-10-22 ([After the Tier A plan](#after-the-tier-a-plan-2026-10-22)); every section above it describes `8613bded`, before the plan's changes. It reports where time and memory go and proposes no change. Every number is perishable (one machine, one commit, one dataset) and nothing outside `docs/dev/` may cite it; re-measure before acting on any of it.
 
 ---
 
@@ -19,6 +19,7 @@
 9. [Structurally Notable Findings](#structurally-notable-findings)
 10. [Caveats and Blind Spots](#caveats-and-blind-spots)
 11. [Reproducing This Measurement](#reproducing-this-measurement)
+12. [After the Tier A plan (2026-10-22)](#after-the-tier-a-plan-2026-10-22)
 
 ---
 
@@ -294,3 +295,26 @@ make MODEL=sage16 SIMULATION=mini-millennium && make check-generated
 ```
 
 Run the two drivers one after the other, never together, and leave the machine alone while they run. Each run writes about 53 GB of output; the four run directories of the profile pass (both drivers, `SubSteps` 10 and 1) took 208 GB and the two of the MPI pass about 160 GB more, under `output/perf-mini-uchuu/`, left in place for the owner to clear. For the MPI pass: `make USE-MPI=yes MODEL=sage16 SIMULATION=<pair>`, then `mpirun -np N ./mimic <run file> -q` per count, and `make MODEL=sage16 SIMULATION=mini-millennium` afterwards to restore the non-MPI default build. `nm_index.json` indexes the last build made, so regenerate it before attributing a different pair.
+
+---
+
+## After the Tier A plan (2026-10-22)
+
+The same measurement, repeated on the plan's closing code: the branch `feature/performance-tier-a` at `e481658a`, whose code changes against the `8613bded` of the sections above are the `DEBUG_LOG` level-first gate, the init-time dispatch plans, the vertical output-buffer seed (`MAXHALOFAC` removed, no zero-fill of `ProcessedHalos`), and, for the benchmark script only, an `EXTRA_LDFLAGS` pass-through; the default build is unchanged (`-g -O2`, no flag set was adopted), and every galaxy is byte-identical to `5daa24ee` on the mini-Millennium gate. The method is [What Was Measured](#what-was-measured)'s: `sage16` on all 128 mini-Uchuu files, the vertical run file's `last_file` raised to 127 in a scratch copy, `scripts/profiling/run_wall.py`, one warm-up repeat and three timed repeats per driver, run alone on the same machine and build configuration, and, as a drift check, one run of a `5daa24ee` build (built for `mini-uchuu` and `mini-uchuu-horizontal`) in the same session. The record of the measurement, its scripts and the whole plan's evidence is `MIMIC-PERFORMANCE-ACCEPTANCE.md`, Slice 9.
+
+| Metric | Vertical, before the plan | Vertical, after | Horizontal, before the plan | Horizontal, after |
+|---|---|---|---|---|
+| Wall, mean of 3 | 2167.0 s, σ 7.1 s | **1924.4 s**, σ 32.1 s (min 1891.6, max 1955.8) | 2267.1 s, σ 73.1 s | **1983.6 s**, σ 4.2 s (min 1978.9, max 1986.6) |
+| Change in wall | | **−11.19%** (−242.6 s) | | **−12.50%** (−283.5 s) |
+| Same-session `5daa24ee`, one run | | 2173.3 s (+0.29% against the 2167.0 s) | | 2293.2 s (+1.15% against the 2267.1 s) |
+| Change against the same-session `5daa24ee` | | −11.45% | | −13.50% |
+| Halos per second | 669,700 | 754,183 | 640,200 | 731,672 |
+| Peak process RSS | 1.82 GB | **0.67 to 0.70 GB** | 55 to 63 GB | 55.2 GB timed, 65.3 GB warm-up (a same-session `5daa24ee` run read 74.8 GB: allocator variance, no claim) |
+| Output buffer capacity `C` | 3,853,400 records (0.71 GB) | **809,214** records (0.15 GB): the largest forest plus 5% | 41,788,163 | 41,788,163 (unchanged) |
+| Largest live-buffer population `P` | 743,295 | 743,295 | 39,452,969 | 39,452,969 |
+| Galaxy pool high-water `G` | 786,875 | 786,875 | 40,831,220 | 40,831,220 |
+| Retained generations `R` / retention pool | not applicable | not applicable | at most 2 / at most 43.19 GB | at most 2 / at most 43.19 GB |
+
+The per-galaxy costs the plan targeted held at research scale, as the sections above predicted: the saving on the full box (11.2% and 12.5% against the reference, 11.5% and 13.5% against a same-session build) is the size of the mini-Millennium composite (11.8% and 10.3%). The output buffer's seed is what changed the vertical memory profile: `C` is no longer five times the largest forest, and peak RSS fell by about 1.1 to 1.3 GB. The horizontal driver's memory profile is unchanged. **The Shin-Uchuu super-forest** (`sage16` on `shin-uchuu-lhalo` file 0, `MallocLargeCache=0`): peak RSS **70.96 GB**, against the 164.8 GB recorded before the plan; wall 165.4 s; `C` 132,699,342 records (24.4 GB, against 116.3 GB at the old seed); `P` 121,907,647, unchanged.
+
+**What was not re-measured.** The research-scale component profile, the hot-line list and the MPI scaling table of the sections above were not repeated: the closing component profile in the acceptance record is mini-Millennium's (both drivers, 20 samples each), and the sections above remain the research-scale profile of the code before the plan, where `module_registry.c` was 30.82% (vertical) and 29.60% (horizontal) and the logging predicate 3.71% and 3.56%. They no longer describe HEAD (on mini-Millennium `module_registry.c` is 26.01% and 24.21% and `error.c` has no self-time), and the cost model above is the old code's. One `5daa24ee` run per driver is a drift check, not a paired design, and the vertical σ of 32.1 s is wider than the reference's 7.1 s.
