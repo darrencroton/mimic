@@ -3,7 +3,7 @@
 **Status:** Long-term planning brief, not an implementation plan.
 **Date:** 2026-06-05
 **Context:** This work is downstream of Mimic v1.0 and a working science-gate prototype. The current brief is conservative about waiting for the dual-driver migration; after v1.0 is tagged, re-review whether the model builder should wait for the horizontal driver or proceed from the stable v1.0 module, metadata, and validation seams. **That re-review is now due (2026-08-12):** both triggers have fired — v1.0 is tagged and the horizontal driver landed with its identity gate green — so the brief should be refreshed against the tagged baseline rather than left waiting.
-**Prototype proposed (2026-10-20):** [`MIMIC-MODEL-BUILDER-PROTOTYPE.md`](MIMIC-MODEL-BUILDER-PROTOTYPE.md) proposes building this brief's workflow now as a prototype, tested on importing SAGE26, and is the starting point for the re-review above.
+**Prototype adopted (2026-10-22):** this brief is pathway step 8. [`MIMIC-MODEL-BUILDER-PROTOTYPE.md`](MIMIC-MODEL-BUILDER-PROTOTYPE.md), written 2026-10-20, builds its workflow first as a prototype for the reference-port class, tested on importing SAGE26; it is pathway step 5, the next task, and the starting point for the re-review above.
 
 ---
 

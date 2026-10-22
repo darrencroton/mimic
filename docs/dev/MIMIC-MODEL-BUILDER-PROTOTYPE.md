@@ -1,8 +1,8 @@
 # Mimic Model Builder Prototype
 
-**Status:** Proposal and design brief, not an implementation plan. Written 2026-10-20 for the owner to extend; nothing here is frozen.
-**Scope:** A first working version of the model builder of [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) (pathway step 7). Given a brief, it works out what to do, designs a complete campaign, writes its own implementation plans, has them carried out by the existing ai-agent-coder tools, validates the results with a validation layer of its own, asks the human when it must, and runs for days. Importing SAGE26 into Mimic as a new model package (`sage16` → `sage26`) is the exercise it is built and tested against.
-**Relationship to the pathway:** It proposes starting step 7 now, as a prototype, in parallel with step 4. The long-term brief stays the requirements anchor, and this document is the starting point for that brief's overdue re-review. [Sequencing Against the Pathway](#sequencing-against-the-pathway) sets out the case and what would change it.
+**Status:** Design brief, not an implementation plan. Written 2026-10-20 for the owner to extend, adopted on 2026-10-22 as pathway step 5, the next task, and brought up to date with step 4's close the same day. Nothing here is frozen.
+**Scope:** A first working version of the model builder of [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) (pathway step 8). Given a brief, it works out what to do, designs a complete campaign, writes its own implementation plans, has them carried out by the existing ai-agent-coder tools, validates the results with a validation layer of its own, asks the human when it must, and runs for days. Importing SAGE26 into Mimic as a new model package (`sage16` → `sage26`) is the exercise it is built and tested against.
+**Relationship to the pathway:** It is step 5: a first version of step 8, built ahead of the emulator (step 6) and the coupled rate formulation (step 7). The long-term brief stays the requirements anchor, and this document is the starting point for that brief's overdue re-review. [Sequencing Against the Pathway](#sequencing-against-the-pathway) sets out the case, which the owner accepted on 2026-10-22.
 
 ---
 
@@ -11,7 +11,7 @@
 - **What it is.** A **Campaign Manager (CM)**: a supervising agent seat plus a small deterministic toolkit (`cm.py`) that sits one level above ai-agent-coder's Project Manager (PM). PM supervises a frozen plan's slices. CM supervises a campaign: a graph of nodes, each carried out by one frozen plan run under PM. CM writes those plans itself, under a **charter** the human approves once. Everything specific to Mimic lives in a **domain pack** in this repository, so the CM stays generic.
 - **Why this shape.** ai-agent-coder already guarantees that a plan is carried out with a mechanical floor, recorded judgement and independent review. What it explicitly refuses to do is write or repair plans ("not a planner-free autopilot"). The builder is precisely that missing layer. The design repeats PM's proven pattern one level up rather than inventing a new one.
 - **Validation is CM's own, not PM's.** PM proves each change is right against its contract. CM proves the campaign advanced: it runs declared instruments with fixed thresholds at each node's final commit, enforces a ratchet so nothing that passed can regress, and checks that each instrument detects an injected error before it is trusted.
-- **Recommendation: start now.** Nothing still to come on the pathway is a prerequisite. Step 4 is complementary and should run in parallel. The emulator and the coupled rate formulation both benefit more from the builder than the builder from them. Two unplanned pieces are worth doing early: PM's machine-facing adjustments, which the CM needs, and a **replay benchmark** built from the archived records of past campaigns, which tests the CM's planning against known human-approved answers without running anything.
+- **Decided: start now, as step 5** (2026-10-22). Nothing still to come on the pathway is a prerequisite. Step 4 has closed and left two things the prototype uses: a byte gate against any ancestor commit and a measured PM run on this repository. The emulator and the coupled rate formulation both benefit more from the builder than the builder from them. Of the [unplanned work worth doing first](#unplanned-work-worth-doing-first), two pieces matter most: PM's machine-facing adjustments, which the CM needs, and a **replay benchmark** built from the archived records of past campaigns, which tests the CM's planning against known human-approved answers without running anything.
 - **First acceptance target: P0, design only.** Brief → charter → dossier → campaign graph, then stop, scored against a held-out answer key. Cheap, repeatable, no product code.
 
 ---
@@ -30,7 +30,7 @@
 
 **Non-goals for the prototype.**
 
-- **No science gates for novel models.** The exercise has a reference implementation to compare against, which is the strongest gate available. Gates for models built from a paper alone (emulator, digitised figures, invariants as acceptance) stay with step 5 and the long-term brief. The instrument contract below is written so they can join later.
+- **No science gates for novel models.** The exercise has a reference implementation to compare against, which is the strongest gate available. Gates for models built from a paper alone (emulator, digitised figures, invariants as acceptance) stay with the emulator (step 6) and the long-term brief (step 8). The instrument contract below is written so they can join later.
 - **No calibration.** SAGE26's parameters are already calibrated; the exercise imports them.
 - **No parallel execution of PM runs.** Read-only work fans out; code-changing nodes run one at a time.
 - **No changes to upstream repositories or remotes** beyond what the charter permits.
@@ -116,7 +116,7 @@ The human writes a short brief: the goal, the pinned sources, the target, what "
 |---|---|
 | Goal and definition of done | Validation targets with thresholds, not prose |
 | Pinned references | Source commits, datasets, reference configurations |
-| Node classes | For each class: an **envelope** (the paths its plans may touch) and an approval policy |
+| Node classes | For each class: an **envelope** (the paths its plans may touch) and an approval policy. For this exercise, for example `model` (`models/sage26/`), `core` (`src/`) and `instrument` (the instruments' paths) |
 | Question policy | What must be asked, what may be decided and recorded, what is never asked |
 | Budgets | Wall-clock time, spend, PM attempts, diagnose-and-fix cycles per node |
 | Seats | Which model fills which seat |
@@ -166,7 +166,7 @@ For each ready node, one at a time:
 6. **Pass:** merge into the integration branch, re-run the ratchet, update the graph.
 7. **Fail:** a `diagnose` node, then a fix plan, then validation again, within the charter's cycle budget; when the budget is spent, a question to the human that carries the diagnostic dossier.
 
-Step 7 is how a parity campaign's root causes get found without the owner doing the bisection.
+Loop step 7 is how a parity campaign's root causes get found without the owner doing the bisection.
 
 ### Acceptance and retrospective
 
@@ -325,7 +325,7 @@ The prototype is only tested if it finds the exercise's obstacles itself. So:
 
 ### The replay benchmark
 
-`archive/` holds the records of every finished campaign on this repository: briefs, implementation plans, reviews, acceptances and handoffs (the dual driver, the converter generalisation, HOD and SHAM, chunked streaming, distribution, the Shin-Uchuu work). Each is a human-approved answer to "given this brief, what campaign?". Giving the CM a past campaign's brief, against a worktree at that campaign's starting commit, and comparing its charter, graph and first plans with what was actually approved, tests planning quality with no execution cost. HOD and SHAM is the nearest analogue to the exercise: new model packages with new tests, plots and READMEs. The corpus is machine-local and gitignored, so this is work for the owner's machine.
+`archive/` holds the records of every finished campaign on this repository: briefs, implementation plans, reviews, acceptances and handoffs (the dual driver, the converter generalisation, HOD and SHAM, chunked streaming, distribution, the Shin-Uchuu work, the Tier A performance plan). Each is a human-approved answer to "given this brief, what campaign?". Giving the CM a past campaign's brief, against a worktree at that campaign's starting commit, and comparing its charter, graph and first plans with what was actually approved, tests planning quality with no execution cost. HOD and SHAM is the nearest analogue to the exercise: new model packages with new tests, plots and READMEs. The corpus is machine-local and gitignored, so this is work for the owner's machine.
 
 ### Fault injection
 
@@ -346,17 +346,17 @@ Human minutes per node; questions asked and the share that were necessary; PM st
 
 ## Sequencing Against the Pathway
 
-The question is whether any work still to come should be done before the prototype starts. The test applied to each item: what would it give the prototype if done first, and what does waiting for it cost?
+The question was whether any work still to come should be done before the prototype starts. The test applied to each item: what would it give the prototype if done first, and what does waiting for it cost? The owner's answer (2026-10-22) is that nothing should: the prototype is step 5, and the emulator, the coupled rate formulation, the model builder and the embedded engine are renumbered 6 to 9.
 
 | Pathway item | What doing it first would give the prototype | Cost of waiting for it | Verdict |
 |---|---|---|---|
-| **4 · Performance** (frozen plan, ten Mode B slices) | A reusable bit-identity gate against any ancestor commit (`make tests-reference-identity REFERENCE_COMMIT=<hash>`, its Slice 1), which becomes the campaign's "existing packages unchanged" ratchet for free; a measured PM run on this repository to calibrate campaign budgets; core changes landed before any campaign core node could conflict with them | None: it runs unattended under PM while the CM is built in ai-agent-coder | **Run now, in parallel.** P0 can start at any time; P1 onwards starts from step 4's merged result |
-| **4.3 · Thread-per-forest** | Nothing: a mini-Millennium run takes about 3 s, and the campaign's cost is agent time | Weeks to months | Do not wait |
-| **5 · Emulator** | A well-posedness instrument for novel models. Irrelevant to a reference port, which has a stronger gate | Its spike, then a research-grade model-discrepancy budget; months to its gate | **After.** The import strengthens the emulator's own case: its brief says its value depends on Mimic hosting several distinct model structures, and its gate item 4 needs two real pipelines to compare. Its spike needs no repository change and can run alongside anything |
-| **6 · Coupled rate formulation** | `sage26` could be ported straight into the target formulation, avoiding a second migration | Months, plus its measurement spike | **After.** The builder turns migrating each package into a campaign, which is a good second exercise (no reference implementation, so it exercises the non-parity side of the validation layer). Recon can classify the imported prescriptions as rate, jump, algebraic or forcing as a by-product, extending [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md). The comparison instrument built for the exercise also serves step 6's attribution gate |
-| **7 · Model builder** | This document | — | Pulled forward as a prototype |
-| **8 · Embedded engine** | Nothing | — | Unrelated |
-| **Open candidates** (full Uchuu, laptop acceptance, the `halos-only`-gated routes, provenance for version 3 inputs) | Nothing | — | Independent |
+| **4 · Performance** (done 2026-10-22: eight Mode B slices and a hardening follow-up, merged) | What it gave: a reusable bit-identity gate against any ancestor commit (`make tests-reference-identity REFERENCE_COMMIT=<hash>`, covering `halos-only` and `sage16` under both drivers and both timestep schemes), which becomes the campaign's "existing packages unchanged" ratchet for free; a measured PM run on this repository to calibrate campaign budgets; its core changes, landed before any campaign core node could conflict with them | None | **Done.** P0 can start at any time; P1 onwards starts from current `main` |
+| **4.3 · Thread-per-forest** (an unscheduled candidate) | Nothing: a mini-Millennium run takes about 2.3 s, and the campaign's cost is agent time | Weeks to months | Do not wait |
+| **6 · Emulator** | A well-posedness instrument for novel models. Irrelevant to a reference port, which has a stronger gate | Its spike, then a research-grade model-discrepancy budget; months to its gate | **After.** The import strengthens the emulator's own case: its brief says its value depends on Mimic hosting several distinct model structures, and its gate item 4 needs two real pipelines to compare. Its spike needs no repository change and can run alongside anything |
+| **7 · Coupled rate formulation** | `sage26` could be ported straight into the target formulation, avoiding a second migration | Months, plus its measurement spike | **After.** The builder turns migrating each package into a campaign, which is a good second exercise (no reference implementation, so it exercises the non-parity side of the validation layer). Recon can classify the imported prescriptions as rate, jump, algebraic or forcing as a by-product, extending [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md). The comparison instrument built for the exercise also serves step 7's attribution gate |
+| **8 · Model builder** | This document is its first version | — | Built first as the step 5 prototype |
+| **9 · Embedded engine** | Nothing | — | Unrelated |
+| **Open candidates** (further performance work, full Uchuu, laptop acceptance, the `halos-only`-gated routes, provenance for version 3 inputs) | Nothing | — | Independent |
 
 **The long-term brief's preconditions** are better met now than its text says. v1.0 is tagged and the dual driver landed. The orchestration tools now exist (ai-agent-coder). The remaining one, a science-gate prototype validated on a trusted model, is exactly what the exercise builds for the reference-port class: comparison against a reference implementation, with injected-error self-tests. The novel-model class stays open, with the emulator as its candidate.
 
@@ -364,7 +364,7 @@ The question is whether any work still to come should be done before the prototy
 
 1. **The PM adjustments.** The CM cannot drive PM unattended without them, and they help any unattended PM run. Small.
 2. **The replay corpus.** Gather the archived briefs, plans and acceptances into a form the CM can be pointed at, each with its starting commit. Cheap, and it multiplies the evaluation power of P0.
-3. **Cost measurement on the step 4 run.** Record agent time and spend per slice from PM's ledger and the harness, so the charter's budgets are grounded rather than guessed.
+3. **Cost measurement from the step 4 run.** The run is finished; its PM run report and ledger are named in `archive/dev-plans/HANDOFF-performance-tier-a-2026-10-22.md`. Extract agent time and spend per slice from them and from the harness, so the charter's budgets are grounded rather than guessed.
 4. **The environment.** Decide the isolation (container or VM), the notification channel and the spend ceiling. These are owner decisions the CM cannot make.
 
 ### Not worth doing first
@@ -375,10 +375,10 @@ Anything that pre-solves the exercise: fixing gaps, residuals or upstream issues
 
 | Track | Where | Work |
 |---|---|---|
-| **A** | mimic, unattended | Run step 4 under PM now; record its costs |
+| **A** | mimic's step 4 records | Step 4 is done; extract its costs (item 3 above) |
 | **B** | ai-agent-coder | Build the CM: the plan, `cm.py` against stubs, the PM adjustments, the three skills; then the mimic domain profile |
 | **C** | The owner's machine | The replay corpus, the answer key kept safe, the environment decisions |
-| **Then** | — | P0 and P0r; P1 once step 4 has merged; P2; P3 |
+| **Then** | — | P0 and P0r; P1 from current `main`; P2; P3 |
 
 ---
 
@@ -389,7 +389,7 @@ Anything that pre-solves the exercise: fixing gaps, residuals or upstream issues
 - **CM seat quality and cost.** The CM seat is trusted in the way the PM seat is, and a weak model there weakens the whole judgement layer. Multi-day campaigns with an hourly heartbeat need a spend ceiling grounded in measured costs.
 - **Evaluation contamination.** A builder that has read the answer is not tested. Mitigation: the hold-out discipline above.
 - **Scope creep in the prototype itself.** ai-agent-coder's principle of minimising the whole system applies: no mechanism for a hypothetical need, and `cm.py` stays small by reusing `pm_lib`.
-- **Owner attention across three tracks.** Track A is unattended by design; track C is short; track B is where the attention goes.
+- **Owner attention across three tracks.** Track A is a short extraction now that step 4 is done; track C is short; track B is where the attention goes.
 
 ---
 
@@ -397,13 +397,13 @@ Anything that pre-solves the exercise: fixing gaps, residuals or upstream issues
 
 | # | Decision | Recommendation |
 |---|---|---|
-| 1 | Start now, or after another pathway step | Start now, on the three tracks above |
+| 1 | Start now, or after another pathway step | **Decided 2026-10-22:** start now, on the three tracks above |
 | 2 | Where the CM lives | ai-agent-coder as Rung 3, with a deliberate VISION revision; the domain pack here |
 | 3 | How much plan approval is delegated in v0 | The human approves the charter, the first graph, and every `instrument` and `core` plan; `model`-class plans are approved after an independent plan review |
 | 4 | Serial or parallel nodes | Serial PM runs; parallel read-only work |
 | 5 | Upstream repositories | The CM may draft a patch and ask; it never applies one |
-| 6 | Whether the prototype becomes a numbered pathway step | The owner's call; this document proposes it without reordering the road |
-| 7 | Seats and a spend ceiling for P3 | Set after step 4's measured costs are known |
+| 6 | Whether the prototype becomes a numbered pathway step | **Decided 2026-10-22:** it is step 5, ahead of the emulator and the coupled rate formulation, and the later steps are renumbered |
+| 7 | Seats and a spend ceiling for P3 | Set from the step 4 run's measured costs (unplanned item 3) |
 
 ---
 
