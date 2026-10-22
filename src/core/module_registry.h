@@ -190,11 +190,11 @@ int module_system_init(void);
  * created records, the only point at which the workspace changes during a
  * phase. Per-event consumers address rows through the phase's event-dispatch
  * view, set from the descriptor when the phase begins. When a full-halo
- * callback returns, records it created through
- * module_create_record() are appended to the workspace before the next module
- * runs and before the safety dispatch of any undelivered event (its events
- * were delivered as it emitted them, against the committed rows), and the
- * event-dispatch view and ctx->central_galaxy are refreshed.
+ * callback returns, records it created through module_create_record() are
+ * appended to the workspace before the next module runs and before the safety
+ * dispatch of any undelivered event (its events were delivered as it emitted
+ * them, against the committed rows), and the event-dispatch view and
+ * ctx->central_galaxy are refreshed.
  *
  * Dispatch walks the per-mode lists module_system_init() built once for this
  * phase configuration array (FATAL_ERROR if it has none, or if num_modules no
