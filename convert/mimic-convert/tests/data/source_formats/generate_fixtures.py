@@ -110,24 +110,9 @@ def main():
     ]
     write_file(OUT_DIR / "valid_big_endian.bin", 2, [3, 2], tree0_be + tree1_be, byte_order=">")
 
-    with open(OUT_DIR / "truncated_header.bin", "wb") as f:
-        f.write(struct.pack("<i", 2))  # only Ntrees, missing totNHalos
-
     with open(OUT_DIR / "truncated_counts.bin", "wb") as f:
         f.write(struct.pack("<ii", 3, 5))
         f.write(struct.pack("<i", 2))  # only one of three counts
-
-    with open(OUT_DIR / "bad_count_total.bin", "wb") as f:
-        f.write(struct.pack("<ii", 2, 99))  # wrong total
-        f.write(struct.pack("<ii", 3, 2))
-        for r in tree0 + tree1:
-            f.write(r)
-
-    with open(OUT_DIR / "truncated_payload.bin", "wb") as f:
-        f.write(struct.pack("<ii", 2, 5))
-        f.write(struct.pack("<ii", 3, 2))
-        for r in (tree0 + tree1)[:-1]:
-            f.write(r)
 
     with open(OUT_DIR / "negative_counts.bin", "wb") as f:
         f.write(struct.pack("<ii", -1, 5))

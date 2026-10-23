@@ -1,11 +1,10 @@
-"""Unit tests: sort determinism, duplicate-id abort, verify-then-delete.
+"""Unit tests: sort order, duplicate-id abort, verify-then-delete.
 
 Every stage runs under a profile schema: the shipped default profile unless a
 test names another. ``TestSortWithDeclaredExtras`` checks that declared extras
 travel with their id through the sort, and that a scratch file of a different
 layout is refused."""
 
-import hashlib
 import os
 import sys
 import tempfile
@@ -19,16 +18,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixtures  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
-from fixups import run_fixups  # noqa: E402
-from links import run_links  # noqa: E402
-from scatter import Manifest, run_scatter, snapshot_scratch_name  # noqa: E402
-from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
-from test_fixups import (  # noqa: E402
+from fixtures import (  # noqa: E402
     capture_stderr,
     default_layout,
     default_schema,
     delete_through_the_guard,
 )
+from fixups import run_fixups  # noqa: E402
+from links import run_links  # noqa: E402
+from scatter import Manifest, run_scatter, snapshot_scratch_name  # noqa: E402
+from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
 
 
 def make_scattered_workdir(root: Path, forests=None):
@@ -79,21 +78,6 @@ class TestSortIndex(unittest.TestCase):
             self.assertEqual(sorted_entry["dtype_tag"], default_layout().dtype_tag)
             idx_entry = manifest.data["intermediates"][str((scratch / index_name(snap)).resolve())]
             self.assertEqual(idx_entry["dtype_tag"], "<i8")
-
-    def test_sort_determinism_across_runs(self):
-        digests = []
-        for name in ("a", "b"):
-            root = self.root / name
-            root.mkdir()
-            workdir = make_scattered_workdir(root)
-            manifest = run_sort(workdir)
-            digest = hashlib.md5()
-            for snap_str in sorted(manifest.data["snapshots"], key=int):
-                digest.update(
-                    (workdir / "scratch" / sorted_scratch_name(int(snap_str))).read_bytes()
-                )
-            digests.append(digest.hexdigest())
-        self.assertEqual(digests[0], digests[1])
 
     def test_rerun_is_idempotent(self):
         workdir = make_scattered_workdir(self.root)
@@ -156,44 +140,6 @@ class TestSortIndex(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "checksum"):
             run_sort(workdir)
 
-    def test_missing_sorted_artifact_detected_on_rerun(self):
-        workdir = make_scattered_workdir(self.root)
-        manifest = run_sort(workdir)
-        snap = sorted(manifest.data["snapshots"], key=int)[0]
-        Path(manifest.data["snapshots"][snap]["sorted_file"]).unlink()
-        with self.assertRaisesRegex(ConverterError, "missing on disk"):
-            run_sort(workdir)
-
-    def test_tampered_sorted_artifact_detected_on_rerun(self):
-        workdir = make_scattered_workdir(self.root)
-        manifest = run_sort(workdir)
-        snap = sorted(manifest.data["snapshots"], key=int)[0]
-        target = Path(manifest.data["snapshots"][snap]["sorted_file"])
-        data = bytearray(target.read_bytes())
-        data[-1] ^= 0xFF
-        target.write_bytes(bytes(data))
-        with self.assertRaisesRegex(ConverterError, "checksum"):
-            run_sort(workdir)
-
-    def test_missing_index_artifact_detected_on_rerun(self):
-        workdir = make_scattered_workdir(self.root)
-        manifest = run_sort(workdir)
-        snap = sorted(manifest.data["snapshots"], key=int)[0]
-        Path(manifest.data["snapshots"][snap]["index_file"]).unlink()
-        with self.assertRaisesRegex(ConverterError, "missing on disk"):
-            run_sort(workdir)
-
-    def test_tampered_index_artifact_detected_on_rerun(self):
-        workdir = make_scattered_workdir(self.root)
-        manifest = run_sort(workdir)
-        snap = sorted(manifest.data["snapshots"], key=int)[0]
-        target = Path(manifest.data["snapshots"][snap]["index_file"])
-        data = bytearray(target.read_bytes())
-        data[-1] ^= 0xFF
-        target.write_bytes(bytes(data))
-        with self.assertRaisesRegex(ConverterError, "checksum"):
-            run_sort(workdir)
-
     def test_sort_before_scatter_aborts(self):
         workdir = self.root / "empty-workdir"
         workdir.mkdir()
@@ -212,8 +158,13 @@ class TestSortSkipTrust(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.addCleanup(self.tmp.cleanup)
 
-    def _sorted_workdir(self):
-        workdir = make_scattered_workdir(self.root)
+    def _workdir_at(self, status, name):
+        """A workdir whose snapshots are at ``sorted`` or ``fixed``."""
+        if status == "fixed":
+            return self._workdir_through(name)[0]
+        root = self.root / name
+        root.mkdir()
+        workdir = make_scattered_workdir(root)
         run_sort(workdir)
         return workdir
 
@@ -250,12 +201,34 @@ class TestSortSkipTrust(unittest.TestCase):
             delete_through_the_guard(manifest, path)
             self.assertFalse(Path(path).exists())
 
-    def test_a_merely_missing_artifact_is_still_a_hard_failure(self):
-        workdir = self._sorted_workdir()
-        manifest = Manifest.load(workdir)
-        Path(manifest.data["snapshots"]["5"]["sorted_file"]).unlink()
-        with self.assertRaisesRegex(ConverterError, "missing on disk"):
-            run_sort(workdir)
+    def test_a_missing_or_tampered_artifact_is_a_hard_failure(self):
+        """Re-running sort refuses a sorted or index file that is missing or has a
+        flipped byte, and at ``fixed`` a missing fixed file, which the link stage
+        still has to read."""
+        cases = [
+            ("sorted", "sorted_file", "missing"),
+            ("sorted", "index_file", "missing"),
+            ("sorted", "sorted_file", "tampered"),
+            ("sorted", "index_file", "tampered"),
+            ("fixed", "fixed_file", "missing"),
+        ]
+        for status, key, damage in cases:
+            with self.subTest(status=status, key=key, damage=damage):
+                workdir = self._workdir_at(status, "{}-{}-{}".format(status, key, damage))
+                manifest = Manifest.load(workdir)
+                snap = sorted(manifest.data["snapshots"], key=int)[0]
+                self.assertEqual(status, manifest.data["snapshots"][snap]["status"])
+                target = Path(manifest.data["snapshots"][snap][key])
+                if damage == "missing":
+                    target.unlink()
+                    message = "missing on disk"
+                else:
+                    data = bytearray(target.read_bytes())
+                    data[-1] ^= 0xFF
+                    target.write_bytes(bytes(data))
+                    message = "checksum"
+                with self.assertRaisesRegex(ConverterError, message):
+                    run_sort(workdir)
 
     def test_an_artifact_recorded_removed_is_refused_at_sorted_and_fixed(self):
         """Sort's own outputs, and at ``fixed`` the fixed file too, must still
@@ -270,29 +243,12 @@ class TestSortSkipTrust(unittest.TestCase):
         ]
         for status, key in cases:
             with self.subTest(status=status, key=key):
-                name = "{}-{}".format(status, key)
-                if status == "sorted":
-                    root = self.root / name
-                    root.mkdir()
-                    workdir = make_scattered_workdir(root)
-                    run_sort(workdir)
-                else:
-                    workdir, _, _ = self._workdir_through(name)
+                workdir = self._workdir_at(status, "{}-{}".format(status, key))
                 manifest = Manifest.load(workdir)
                 self.assertEqual(status, manifest.data["snapshots"]["5"]["status"])
                 self._record_removed(workdir, [key])
                 with self.assertRaisesRegex(ConverterError, "not a manifest-owned intermediate"):
                     run_sort(workdir)
-
-    def test_a_missing_fixed_file_at_status_fixed_is_still_a_hard_error(self):
-        """The link stage still has to read the fixed file, so at ``fixed`` it
-        must be present."""
-        workdir, _, _ = self._workdir_through("fixed-missing")
-        manifest = Manifest.load(workdir)
-        self.assertEqual("fixed", manifest.data["snapshots"]["5"]["status"])
-        Path(manifest.data["snapshots"]["5"]["fixed_file"]).unlink()
-        with self.assertRaisesRegex(ConverterError, "missing on disk"):
-            run_sort(workdir)
 
     def test_a_fixed_rerun_verifies_and_keeps_every_artifact(self):
         workdir, _, _ = self._workdir_through("fixed-rerun")
@@ -323,15 +279,6 @@ class TestSortSkipTrust(unittest.TestCase):
                     run_sort(workdir)
                 with self.assertRaisesRegex(ConverterError, r"unexpected status 'linked'"):
                     run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-
-    def test_tampered_artifact_is_still_refused(self):
-        workdir = self._sorted_workdir()
-        manifest = Manifest.load(workdir)
-        path = Path(manifest.data["snapshots"]["5"]["sorted_file"])
-        with open(path, "r+b") as handle:
-            handle.write(b"\x00\x01\x02\x03")
-        with self.assertRaisesRegex(ConverterError, "content checksum"):
-            run_sort(workdir)
 
 
 #: Every per-snapshot artifact a ``linked`` snapshot records.

@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 """Read-only source inspection CLI for the converter.
 
-Two subcommands:
-
-  inspect  -- explicit --source-format/--simulation-info/--a-list inspection
-              of one source: per-file/per-snapshot counts, link-span summary,
-              identity bounds, available fields/types/units.
-  survey   -- reachability sweep of all five named simulation packages
-              (mini-Millennium, Millennium, micro-Uchuu, mini-Uchuu, full
-              Uchuu), each against its declared adapter route, plus a full
-              inspection of whichever ones are reachable.
+The one subcommand, ``inspect``, takes an explicit --source-format,
+--simulation-info and --a-list and reports one source: per-file/per-snapshot
+counts, link-span summary, identity bounds, available fields/types/units.
 
 Never writes into a source directory; every open is read-only. It inspects a
 source as the simulation package declares it, independently of any mapping
@@ -31,19 +25,6 @@ import ctrees_parser  # noqa: E402
 from adapters import source_inventory as si  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from scatter import load_a_list  # noqa: E402
-
-#: The five simulation packages the converter supports, and their simulation_info.yaml
-#: paths relative to the repository root. Declared here rather than discovered,
-#: so "all five requested packages have a declared adapter route" is a fact
-#: about this file, not a side effect of what happens to exist under
-#: simulations/ on a given checkout.
-NAMED_PACKAGES = {
-    "mini-millennium": "simulations/mini-millennium/simulation_info.yaml",
-    "millennium": "simulations/millennium/simulation_info.yaml",
-    "micro-uchuu": "simulations/micro-uchuu/simulation_info.yaml",
-    "mini-uchuu": "simulations/mini-uchuu/simulation_info.yaml",
-    "uchuu": "simulations/uchuu/simulation_info.yaml",
-}
 
 #: tree_type -> adapter route name (three adapters -- ASCII retained,
 #: L-Halo binary added, Consistent-Trees forests-HDF5 added).
@@ -112,8 +93,7 @@ def _protected_paths_for_lhalo(sim_info: si.SimulationInfo):
 def _protected_paths_for_ascii(sim_info: si.SimulationInfo):
     """The files the ASCII route reads: the index files (forests.list,
     locations.dat) and every tree_*.dat file `inspect_ascii_source` would
-    open. No named package uses this route, but `inspect --source-format
-    consistent_trees_ascii` can name any package."""
+    open."""
     if sim_info.tree_type != "consistent_trees_ascii":
         return []
     sim_dir = Path(sim_info.simulation_dir)
@@ -375,121 +355,6 @@ def _file_errors(report) -> List[str]:
     return [entry["name"] for entry in report.get("files") or [] if entry.get("error")]
 
 
-# Per-package isolation boundaries (cmd_survey's three try blocks below, and
-# _named_package_protected_paths) each catch bare `Exception`, not an
-# enumerated tuple. The library calls inside them sit on untrusted per-package
-# binary/HDF5/YAML input and raise a wide spread of types (KeyError/IndexError
-# from a malformed dataset, a transient OSError during reachability,
-# yaml.YAMLError from broken YAML, ValueError/TypeError from a malformed
-# first_file), and there is no exception type for which "crash and discard
-# every other package's results" is the right behavior here.
-
-
-def _named_package_protected_paths(root: Path):
-    """Every path `survey` might read from, across all five named packages:
-    each simulation_info.yaml, and (best-effort, since a package's YAML may
-    itself be malformed) its simulation_dir, snapshot_list_file, and every
-    file its declared route's own `_protected_source_paths` enumerates
-    (external-link targets for forests-HDF5, tree files for
-    L-Halo, index/tree files for ASCII) -- any of those can legally or
-    accidentally resolve outside simulation_dir via an HDF5 ExternalLink or
-    a filesystem symlink. Catches bare `Exception`, not an enumerated tuple:
-    this helper runs before any per-package try/except loop even starts, on
-    the same untrusted per-package YAML/HDF5 input as the rest of this
-    tool, so a malformed package here must degrade to "that package
-    contributes no protected paths", never abort the safety check (and
-    therefore the whole --json write) for every other package."""
-    protected = []
-    for rel_path in NAMED_PACKAGES.values():
-        sim_info_path = root / rel_path
-        protected.append(sim_info_path)
-        try:
-            sim_info = si.load_simulation_info(sim_info_path)
-            _anchor_simulation_dir(sim_info)
-            protected.append(sim_info.simulation_dir)
-            protected.append(root / sim_info.snapshot_list_file)
-            protected.extend(_protected_source_paths(sim_info))
-        except Exception:
-            continue
-    return protected
-
-
-def cmd_survey(args):
-    root = _repo_root()
-    if args.json:
-        _check_json_output_safe(args.json, _named_package_protected_paths(root))
-    results = {}
-    any_error = False
-    for name, rel_path in NAMED_PACKAGES.items():
-        sim_info_path = root / rel_path
-        entry = {"simulation_info": str(sim_info_path)}
-        try:
-            sim_info = si.load_simulation_info(sim_info_path)
-            _anchor_simulation_dir(sim_info)
-        except Exception as exc:
-            entry["error"] = str(exc)
-            any_error = True
-            results[name] = entry
-            continue
-        adapter = ADAPTER_ROUTES.get(sim_info.tree_type)
-        entry["tree_type"] = sim_info.tree_type
-        entry["adapter_route"] = adapter
-        if adapter is None:
-            entry["error"] = "no declared adapter route for tree_type {!r}".format(
-                sim_info.tree_type
-            )
-            any_error = True
-            results[name] = entry
-            continue
-        try:
-            if adapter == "lhalo_binary":
-                reach = si.check_lhalo_reachability(sim_info)
-            elif adapter == "ctrees_hdf5":
-                reach = si.check_hdf5_reachability(sim_info)
-            else:
-                reach = si.SourceReachability.observed(
-                    sim_info,
-                    Path(sim_info.simulation_dir).exists(),
-                    0,
-                    [],
-                    0,
-                    [
-                        "ASCII reachability uses forests.list/locations.dat, "
-                        "not first_file/last_file"
-                    ],
-                )
-        except Exception as exc:
-            # A transient filesystem error here (e.g. a path vanishing
-            # between exists() and stat()) must not abort the whole survey
-            # and discard every other package's already-gathered results.
-            entry["reachability_error"] = str(exc)
-            any_error = True
-            results[name] = entry
-            continue
-        entry["reachability"] = reach.__dict__
-        if reach.exists and reach.present_file_count > 0 and not args.reachability_only:
-            try:
-                entry["inspection"] = inspect_one(
-                    sim_info.tree_type,
-                    sim_info_path,
-                    root / sim_info.snapshot_list_file,
-                    args.byte_order,
-                    not args.no_link_scan,
-                )
-                if _file_errors(entry["inspection"]):
-                    any_error = True
-            except Exception as exc:
-                entry["inspection_error"] = str(exc)
-                any_error = True
-        results[name] = entry
-
-    text = json.dumps(results, indent=2, sort_keys=True, default=str)
-    if args.json:
-        Path(args.json).write_text(text + "\n")
-    print(text)
-    return 1 if any_error else 0
-
-
 def build_parser():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -510,15 +375,6 @@ def build_parser():
     )
     inspect_p.add_argument("--json", help="also write the report to this path")
     inspect_p.set_defaults(func=cmd_inspect)
-
-    survey_p = sub.add_parser("survey", help="reachability sweep of all five named packages")
-    survey_p.add_argument("--byte-order", choices=("little", "big"), default="little")
-    survey_p.add_argument("--no-link-scan", action="store_true", help="skip full link-span scans")
-    survey_p.add_argument(
-        "--reachability-only", action="store_true", help="report reachability only, skip inspection"
-    )
-    survey_p.add_argument("--json", help="also write the report to this path")
-    survey_p.set_defaults(func=cmd_survey)
 
     return parser
 

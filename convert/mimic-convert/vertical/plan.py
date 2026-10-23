@@ -243,18 +243,18 @@ def dataset_identity(dataset: HorizontalDataset) -> Dict[str, object]:
     }
 
 
-def record_binding(halo_properties: Union[str, Path, Sequence[dict]]) -> Dict[str, object]:
-    """The record digest, with the YAML's path and md5 when it is a file (information only)."""
-    binding = {"digest": record_digest(record_layout(record_dtype(halo_properties)))}
-    if isinstance(halo_properties, (str, Path)):
-        binding["halo_properties"] = str(halo_properties)
-        binding["halo_properties_md5"] = hashlib.md5(Path(halo_properties).read_bytes()).hexdigest()
-    return binding
+def record_binding(halo_properties: Union[str, Path]) -> Dict[str, object]:
+    """The record digest, with the YAML's path and md5 (information only)."""
+    return {
+        "digest": record_digest(record_layout(record_dtype(halo_properties))),
+        "halo_properties": str(halo_properties),
+        "halo_properties_md5": hashlib.md5(Path(halo_properties).read_bytes()).hexdigest(),
+    }
 
 
 def make_file_plan(
     dataset: HorizontalDataset,
-    halo_properties: Union[str, Path, Sequence[dict]],
+    halo_properties: Union[str, Path],
     max_halos_per_file: int = DEFAULT_MAX_HALOS_PER_FILE,
     max_forests_per_file: int = DEFAULT_MAX_FORESTS_PER_FILE,
     block_rows: int = DEFAULT_BLOCK_ROWS,
@@ -353,7 +353,7 @@ def _check_files(path: Path, plan: Dict[str, object]) -> None:
 def read_file_plan(
     directory,
     dataset: HorizontalDataset,
-    halo_properties: Union[str, Path, Sequence[dict]],
+    halo_properties: Union[str, Path],
     identity: Optional[Dict[str, object]] = None,
 ) -> Dict[str, object]:
     """Read ``<directory>/file_plan.json`` and check it binds this dataset and record.
@@ -361,7 +361,7 @@ def read_file_plan(
     Args:
         directory: the output directory holding the plan.
         dataset: the open dataset.
-        halo_properties: the package's ``halo_properties.yaml`` path, or its parsed list.
+        halo_properties: the package's ``halo_properties.yaml`` path.
         identity: the dataset's :func:`dataset_identity`, when the caller has it already (it
             hashes the whole forest sidecar); derived here otherwise.
 

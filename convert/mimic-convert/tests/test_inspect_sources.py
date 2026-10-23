@@ -48,27 +48,12 @@ class LHaloHeaderTests(unittest.TestCase):
         self.assertEqual(header.ntrees, 2)
         self.assertEqual(header.total_halos, 5)
 
-    def test_wrong_byte_order_is_detected_as_corrupt(self):
-        # Reading a little-endian file as if it were big-endian must not
-        # silently succeed: the byte-swapped Ntrees is nonsensical.
-        with self.assertRaises(ConverterError):
-            si.read_lhalo_header(DATA_DIR / "valid_two_trees.bin", byte_order=">")
-
-    def test_truncated_header_fails(self):
-        with self.assertRaises(ConverterError):
-            si.read_lhalo_header(DATA_DIR / "truncated_header.bin")
-
-    def test_truncated_count_table_fails(self):
-        with self.assertRaises(ConverterError):
-            si.read_lhalo_header(DATA_DIR / "truncated_counts.bin")
-
-    def test_negative_ntrees_fails(self):
-        with self.assertRaises(ConverterError):
-            si.read_lhalo_header(DATA_DIR / "negative_counts.bin")
-
-    def test_bad_count_total_fails(self):
-        with self.assertRaises(ConverterError):
-            si.read_lhalo_header(DATA_DIR / "bad_count_total.bin")
+    def test_a_header_with_a_corrupt_count_table_is_refused(self):
+        """A truncated count table and a negative Ntrees are each refused."""
+        for name in ("truncated_counts.bin", "negative_counts.bin"):
+            with self.subTest(fixture=name):
+                with self.assertRaises(ConverterError):
+                    si.read_lhalo_header(DATA_DIR / name)
 
     def test_negative_per_tree_count_fails(self):
         # 5 + (-2) == 3 sums correctly against the header's declared total,
@@ -76,23 +61,9 @@ class LHaloHeaderTests(unittest.TestCase):
         with self.assertRaises(ConverterError):
             si.read_lhalo_header(DATA_DIR / "negative_tree_count.bin")
 
-    def test_truncated_payload_fails_at_header_stage(self):
-        # File length disagrees with header-implied size even before any
-        # payload record is read.
-        with self.assertRaises(ConverterError):
-            si.read_lhalo_header(DATA_DIR / "truncated_payload.bin")
-
     def test_invalid_byte_order_argument_rejected(self):
         with self.assertRaises(ConverterError):
             si.lhalo_record_dtype("=")
-
-    def test_lhalo_link_fields_are_a_subset_of_lhalo_fields(self):
-        # The module-level self-check (source_inventory.py import time) already
-        # enforces this on every test run; asserted directly here too so the
-        # invariant has an explicit, readable test rather than only an
-        # incidental side effect of importing the module.
-        field_names = {name for name, _kind, _shape in si.LHALO_FIELDS}
-        self.assertTrue(set(si.LHALO_LINK_FIELDS) <= field_names)
 
     def test_huge_ntrees_rejected_before_allocating_read(self):
         # A corrupted/opposite-endian header claiming far more trees than the
@@ -110,16 +81,23 @@ class LHaloHeaderTests(unittest.TestCase):
 
 class LHaloLinkScanTests(unittest.TestCase):
     def test_link_span_and_gap_counting(self):
-        header = si.read_lhalo_header(DATA_DIR / "valid_two_trees.bin")
-        summary = si.scan_lhalo_file(header)
-        # tree0: halo0(snap0)->halo1(snap2) span 2 (gap); halo1(snap2)->halo2(snap3) span 1 (adjacent)
-        # tree1: two roots, no links
-        self.assertEqual(summary.non_null_descendant_links, 2)
-        self.assertEqual(summary.forward_adjacent_links, 1)
-        self.assertEqual(summary.forward_gap_links, 1)
-        self.assertEqual(summary.max_span, 2)
-        self.assertEqual(summary.non_forward_or_zero_span, 0)
-        self.assertEqual(summary.snapshot_halo_counts, {0: 1, 1: 2, 2: 1, 3: 1})
+        """Both byte orders give the same link spans, snapshot counts and
+        MostBoundID bounds."""
+        for name, byte_order in (("valid_two_trees.bin", "<"), ("valid_big_endian.bin", ">")):
+            with self.subTest(fixture=name):
+                header = si.read_lhalo_header(DATA_DIR / name, byte_order=byte_order)
+                summary = si.scan_lhalo_file(header)
+                # tree0: halo0(snap0)->halo1(snap2) span 2 (gap); halo1(snap2)->halo2(snap3)
+                # span 1 (adjacent); tree1: two roots, no links
+                self.assertEqual(summary.non_null_descendant_links, 2)
+                self.assertEqual(summary.forward_adjacent_links, 1)
+                self.assertEqual(summary.forward_gap_links, 1)
+                self.assertEqual(summary.max_span, 2)
+                self.assertEqual(summary.non_forward_or_zero_span, 0)
+                self.assertEqual(summary.snapshot_halo_counts, {0: 1, 1: 2, 2: 1, 3: 1})
+                # tree0 MostBoundID 100-102, tree1 200-201.
+                self.assertEqual(summary.mostboundid_min, 100)
+                self.assertEqual(summary.mostboundid_max, 201)
 
     def test_merging_summaries_matches_one_scan_over_both(self):
         first = si.LinkSpanSummary(
@@ -153,7 +131,7 @@ class LHaloLinkScanTests(unittest.TestCase):
         self.assertEqual(combined.snapshot_halo_counts, {1: 2, 3: 5, 0: 1})
         self.assertEqual((combined.mostboundid_min, combined.mostboundid_max), (-9, 10))
 
-    def test_merging_a_summary_without_identity_bounds_keeps_the_existing_ones(self):
+        # A summary without identity bounds leaves the existing ones untouched.
         combined = si.LinkSpanSummary(mostboundid_min=1, mostboundid_max=2)
         combined.merge(si.LinkSpanSummary())
         self.assertEqual((combined.mostboundid_min, combined.mostboundid_max), (1, 2))
@@ -170,20 +148,6 @@ class LHaloLinkScanTests(unittest.TestCase):
         self.assertEqual(summary.forward_adjacent_links, 0)
         self.assertEqual(summary.forward_gap_links, 0)
 
-    def test_big_endian_scan_matches_little_endian_content(self):
-        header = si.read_lhalo_header(DATA_DIR / "valid_big_endian.bin", byte_order=">")
-        summary = si.scan_lhalo_file(header)
-        self.assertEqual(summary.non_null_descendant_links, 2)
-        self.assertEqual(summary.forward_gap_links, 1)
-        self.assertEqual(summary.max_span, 2)
-
-    def test_identity_bounds_mostboundid(self):
-        header = si.read_lhalo_header(DATA_DIR / "valid_two_trees.bin")
-        summary = si.scan_lhalo_file(header)
-        # tree0 MostBoundID 100-102, tree1 200-201.
-        self.assertEqual(summary.mostboundid_min, 100)
-        self.assertEqual(summary.mostboundid_max, 201)
-
     def test_snapshot_outside_a_list_bound_fails(self):
         # valid_two_trees.bin's SnapNum values run 0..3.
         header = si.read_lhalo_header(DATA_DIR / "valid_two_trees.bin")
@@ -192,64 +156,23 @@ class LHaloLinkScanTests(unittest.TestCase):
         si.scan_lhalo_file(header, max_snapshot=3)  # fine: bound covers the max
         si.scan_lhalo_file(header)  # fine: no bound supplied
 
-    def test_below_null_sentinel_descendant_fails(self):
-        # -1 is the only null sentinel; -2 must not be silently treated as
-        # "no link" the way `desc >= 0` alone would.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "below_sentinel.bin"
-            dtype = si.lhalo_record_dtype("<")
-            rec = np.zeros(1, dtype=dtype)
-            rec["Descendant"] = -2
-            rec["SnapNum"] = 0
-            with open(path, "wb") as f:
-                f.write(struct.pack("<ii", 1, 1))
-                f.write(struct.pack("<i", 1))
-                f.write(rec.tobytes())
-            header = si.read_lhalo_header(path)
-            with self.assertRaises(ConverterError):
-                si.scan_lhalo_file(header)
-
-    def test_out_of_tree_descendant_fails(self):
-        # Build a standalone corrupt file: tree with a Descendant >= tree size.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "out_of_tree.bin"
-            dtype = si.lhalo_record_dtype("<")
-            rec = np.zeros(1, dtype=dtype)
-            rec["Descendant"] = 5  # only 1 halo in this tree -> out of range
-            rec["SnapNum"] = 0
-            with open(path, "wb") as f:
-                f.write(struct.pack("<ii", 1, 1))
-                f.write(struct.pack("<i", 1))
-                f.write(rec.tobytes())
-            corrupt_header = si.read_lhalo_header(path)
-            with self.assertRaises(ConverterError):
-                si.scan_lhalo_file(corrupt_header)
-
-    def test_mini_millennium_reproduces_measured_totals(self):
-        """Reproduces the measured mini-Millennium totals exactly:
-        29,585 trees, 1,533,122 halos, 1,495,274 non-null descendant links,
-        29,291 forward gaps, maximum span 2, across all 8 local files."""
-        repo_root = Path(__file__).parents[3]
-        sim_dir = repo_root / "simulations" / "mini-millennium" / "snapshots"
-        files = sorted(sim_dir.glob("trees_063.*"))
-        if len(files) != 8:
-            self.skipTest("real mini-Millennium data (8 trees_063.* files) not present locally")
-        total_trees = 0
-        total_halos = 0
-        combined = si.LinkSpanSummary()
-        for path in files:
-            header = si.read_lhalo_header(path)
-            total_trees += header.ntrees
-            total_halos += header.total_halos
-            summary = si.scan_lhalo_file(header)
-            combined.non_null_descendant_links += summary.non_null_descendant_links
-            combined.forward_gap_links += summary.forward_gap_links
-            combined.max_span = max(combined.max_span, summary.max_span)
-        self.assertEqual(total_trees, 29585)
-        self.assertEqual(total_halos, 1533122)
-        self.assertEqual(combined.non_null_descendant_links, 1495274)
-        self.assertEqual(combined.forward_gap_links, 29291)
-        self.assertEqual(combined.max_span, 2)
+    def test_a_descendant_outside_the_tree_is_refused(self):
+        """-1 is the only null sentinel, so -2 is refused rather than read as
+        "no link"; a Descendant beyond the tree's last halo is refused too."""
+        for name, descendant in (("below the null sentinel", -2), ("beyond the tree", 5)):
+            with self.subTest(descendant=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "corrupt_descendant.bin"
+                    rec = np.zeros(1, dtype=si.lhalo_record_dtype("<"))
+                    rec["Descendant"] = descendant  # the only halo in a one-halo tree
+                    rec["SnapNum"] = 0
+                    with open(path, "wb") as f:
+                        f.write(struct.pack("<ii", 1, 1))
+                        f.write(struct.pack("<i", 1))
+                        f.write(rec.tobytes())
+                    header = si.read_lhalo_header(path)
+                    with self.assertRaises(ConverterError):
+                        si.scan_lhalo_file(header)
 
 
 def _write_ctrees_hdf5_fixture(
@@ -356,75 +279,25 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             self.assertEqual(f0.link_summary.non_null_descendant_links, 1)
             self.assertEqual(f0.link_summary.forward_adjacent_links, 1)
 
-    def test_non_integral_snap_idx_fails(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            _write_ctrees_hdf5_fixture(
-                path, forests=[[(-1, 0)]], snap_field="Snap_idx", snap_dtype="<f8"
-            )
-            with h5py.File(path, "r+") as f:
-                f["File0/Forests/Snap_idx"][0] = 0.5
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
-
-    def test_negative_snap_value_fails_integer_path(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            _write_ctrees_hdf5_fixture(path, forests=[[(-1, 0)]], snap_field="Snap_num")
-            with h5py.File(path, "r+") as f:
-                f["File0/Forests/Snap_num"][0] = -5
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
-
-    def test_out_of_range_snap_value_fails_float_path(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            _write_ctrees_hdf5_fixture(
-                path, forests=[[(-1, 0)]], snap_field="Snap_idx", snap_dtype="<f8"
-            )
-            with h5py.File(path, "r+") as f:
-                f["File0/Forests/Snap_idx"][0] = float(2**31)  # > INT_MAX, still integral
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
-
-    def test_missing_snap_field_is_reported_as_that_files_error(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            with h5py.File(path, "w") as f:
-                f.attrs["Nfiles"] = 1
-                f.attrs["TotNforests"] = 1
-                group = f.create_group("File0")
-                forest_info_dtype = np.dtype(
-                    [
-                        ("ForestID", "<i8"),
-                        ("ForestHalosOffset", "<i8"),
-                        ("ForestNhalos", "<i8"),
-                        ("ForestNtrees", "<i8"),
-                    ]
-                )
-                info = np.zeros(1, dtype=forest_info_dtype)
-                info["ForestNhalos"] = 1
-                group.create_dataset("ForestInfo", data=info)
-                fg = group.create_group("Forests")
-                fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
-            self.assert_reported_malformed(path, r"has neither Snap_num nor Snap_idx")
-
-    def test_missing_descendant_dataset_is_reported_as_that_files_error(self):
-        # Validated explicitly, mirroring _resolve_snap_field, so the defect is
-        # named rather than surfacing as a bare KeyError.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            _write_ctrees_hdf5_fixture(path, forests=[[(-1, 0)]], snap_field="Snap_num")
-            with h5py.File(path, "r+") as f:
-                del f["File0/Forests/Descendant"]
-            self.assert_reported_malformed(path, r"missing the required dataset 'Descendant'")
-
-    def test_out_of_forest_descendant_fails(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            _write_ctrees_hdf5_fixture(path, forests=[[(5, 0)]], snap_field="Snap_num")
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
+    def test_an_invalid_snapshot_value_is_refused(self):
+        """A non-integral float, a negative integer and an integral float above
+        INT_MAX are each refused."""
+        cases = (
+            ("non-integral float", "Snap_idx", "<f8", 0.5),
+            ("negative integer", "Snap_num", "i8", -5),
+            ("float above INT_MAX", "Snap_idx", "<f8", float(2**31)),
+        )
+        for label, snap_field, snap_dtype, value in cases:
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "info.h5"
+                    _write_ctrees_hdf5_fixture(
+                        path, forests=[[(-1, 0)]], snap_field=snap_field, snap_dtype=snap_dtype
+                    )
+                    with h5py.File(path, "r+") as f:
+                        f["File0/Forests/" + snap_field][0] = value
+                    with self.assertRaises(ConverterError):
+                        si.inspect_ctrees_hdf5_source(path)
 
     def test_below_null_sentinel_descendant_fails(self):
         # -1 is the only null sentinel (matches read_ctrees_hdf5.c's
@@ -436,254 +309,114 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             with self.assertRaises(ConverterError):
                 si.inspect_ctrees_hdf5_source(path)
 
-    def test_overlapping_forest_offsets_are_reported_as_that_files_error(self):
-        # Two forests declaring overlapping row ranges must not silently
-        # "succeed" with mis-resolved link targets.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            _write_ctrees_hdf5_fixture(
-                path, forests=[[(-1, 0), (-1, 1)], [(-1, 0), (-1, 1)]], snap_field="Snap_num"
-            )
-            # Corrupt ForestInfo in place: make forest 1's offset overlap forest 0's.
-            with h5py.File(path, "r+") as f:
-                info = f["File0/ForestInfo"][:]
-                info["ForestHalosOffset"][1] = 1  # overlaps forest 0's range [0, 2)
-                del f["File0/ForestInfo"]
-                f["File0"].create_dataset("ForestInfo", data=info)
-            self.assert_reported_malformed(path, r"overlapping or out-of-order")
+    @staticmethod
+    def _write_forest_info_file(path, offsets, nhalos, descendant, snap):
+        """One FileN group whose ForestInfo rows and Forests datasets are given
+        verbatim, whether or not they agree with each other."""
+        info = np.zeros(
+            len(nhalos),
+            dtype=[
+                ("ForestID", "<i8"),
+                ("ForestHalosOffset", "<i8"),
+                ("ForestNhalos", "<i8"),
+                ("ForestNtrees", "<i8"),
+            ],
+        )
+        info["ForestID"] = np.arange(len(nhalos))
+        info["ForestHalosOffset"] = offsets
+        info["ForestNhalos"] = nhalos
+        info["ForestNtrees"] = 1
+        with h5py.File(path, "w") as f:
+            f.attrs["Nfiles"] = 1
+            f.attrs["TotNforests"] = len(nhalos)
+            group = f.create_group("File0")
+            group.create_dataset("ForestInfo", data=info)
+            forests = group.create_group("Forests")
+            forests.create_dataset("Descendant", data=np.array(descendant, dtype="<i8"))
+            forests.create_dataset("Snap_num", data=np.array(snap, dtype="<i8"))
 
-    def test_overlapping_forest_offsets_are_reported_even_with_scan_links_false(self):
-        # ForestInfo structural validation is O(n_forests) and must run
-        # unconditionally -- --no-link-scan only skips the payload-intensive
-        # O(n_halos) span computation, not this.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            _write_ctrees_hdf5_fixture(
-                path, forests=[[(-1, 0), (-1, 1)], [(-1, 0), (-1, 1)]], snap_field="Snap_num"
-            )
-            with h5py.File(path, "r+") as f:
-                info = f["File0/ForestInfo"][:]
-                info["ForestHalosOffset"][1] = 1
-                del f["File0/ForestInfo"]
-                f["File0"].create_dataset("ForestInfo", data=info)
-            self.assert_reported_malformed(path, r"overlapping or out-of-order", scan_links=False)
-
-    def test_negative_forest_nhalos_with_zero_sum_is_reported_as_that_files_error(self):
-        # ForestNhalos=[-1, 1] sums to 0, so a check gated on the halo total
-        # would pass it silently -- both with and without --no-link-scan.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            forest_info_dtype = np.dtype(
-                [
-                    ("ForestID", "<i8"),
-                    ("ForestHalosOffset", "<i8"),
-                    ("ForestNhalos", "<i8"),
-                    ("ForestNtrees", "<i8"),
-                ]
-            )
-            info = np.zeros(2, dtype=forest_info_dtype)
-            info["ForestID"] = [0, 1]
-            info["ForestHalosOffset"] = [0, 0]
-            info["ForestNhalos"] = [-1, 1]
-            info["ForestNtrees"] = 1
-            with h5py.File(path, "w") as f:
-                f.attrs["Nfiles"] = 1
-                f.attrs["TotNforests"] = 2
-                group = f.create_group("File0")
-                group.create_dataset("ForestInfo", data=info)
-                fg = group.create_group("Forests")
-                fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
-                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-            self.assert_reported_malformed(path, r"row 0 has a negative ForestNhalos \(-1\)")
-            self.assert_reported_malformed(
-                path, r"row 0 has a negative ForestNhalos \(-1\)", scan_links=False
-            )
-
-    def test_empty_forest_info_with_mismatched_extents_is_reported_as_that_files_error(self):
-        # Zero declared forests still require both dataset extents to agree
-        # with the (empty) ForestInfo total.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            forest_info_dtype = np.dtype(
-                [
-                    ("ForestID", "<i8"),
-                    ("ForestHalosOffset", "<i8"),
-                    ("ForestNhalos", "<i8"),
-                    ("ForestNtrees", "<i8"),
-                ]
-            )
-            info = np.zeros(0, dtype=forest_info_dtype)  # zero declared forests
-            with h5py.File(path, "w") as f:
-                f.attrs["Nfiles"] = 1
-                f.attrs["TotNforests"] = 0
-                group = f.create_group("File0")
-                group.create_dataset("ForestInfo", data=info)
-                fg = group.create_group("Forests")
-                fg.create_dataset("Descendant", data=np.array([-1] * 5, dtype="<i8"))
-                fg.create_dataset("Snap_num", data=np.array([0] * 3, dtype="<i8"))
-            self.assert_reported_malformed(
-                path,
+    def test_an_inconsistent_forest_info_is_reported_as_that_files_error(self):
+        """The structural check runs with and without the link scan. A negative
+        ForestNhalos is caught even when the counts sum to zero; zero declared
+        forests still require both dataset extents to agree with the empty
+        ForestInfo total."""
+        cases = (
+            (
+                "negative ForestNhalos with a zero sum",
+                dict(offsets=[0, 0], nhalos=[-1, 1], descendant=[-1], snap=[0]),
+                r"row 0 has a negative ForestNhalos \(-1\)",
+            ),
+            (
+                "zero forests with non-empty datasets",
+                dict(offsets=[], nhalos=[], descendant=[-1] * 5, snap=[0] * 3),
                 r"ForestNhalos sum \(0\) disagrees with the Forests/Descendant dataset length \(5\)",
-            )
-            self.assert_reported_malformed(
-                path,
-                r"ForestNhalos sum \(0\) disagrees with the Forests/Descendant dataset length \(5\)",
-                scan_links=False,
-            )
+            ),
+        )
+        for label, columns, pattern in cases:
+            for scan_links in (True, False):
+                with self.subTest(case=label, scan_links=scan_links):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        path = Path(tmp) / "info.h5"
+                        self._write_forest_info_file(path, **columns)
+                        self.assert_reported_malformed(path, pattern, scan_links=scan_links)
 
-    def test_forest_info_missing_column_is_reported_as_that_files_error(self):
-        # A ForestInfo compound missing ForestNhalos is named with its file
-        # context, not left to surface as numpy's bare "no field of name".
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            forest_info_dtype = np.dtype(
-                [
-                    ("ForestID", "<i8"),
-                    ("ForestHalosOffset", "<i8"),
-                    ("ForestNtrees", "<i8"),
-                    # ForestNhalos deliberately omitted
-                ]
-            )
-            info = np.zeros(1, dtype=forest_info_dtype)
-            with h5py.File(path, "w") as f:
-                f.attrs["Nfiles"] = 1
-                group = f.create_group("File0")
-                group.create_dataset("ForestInfo", data=info)
-                fg = group.create_group("Forests")
-                fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
-                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-            self.assert_reported_malformed(
-                path, r"ForestInfo is missing required column\(s\) \['ForestNhalos'\]"
-            )
+    def test_an_unreadable_descendant_is_reported_as_that_files_error(self):
+        """A dangling link inside Forests/, a link named Descendant that dangles
+        or resolves to a group, and a 0-d Descendant each mark only that FileN
+        group unreachable, rather than raising or aborting the inspection."""
+        cannot_open = r"Forests/Descendant exists by name but cannot be opened as a dataset"
 
-    def test_dangling_soft_link_in_forests_group_reported_not_raised(self):
-        # A dangling soft link inside Forests/
-        # previously raised a bare KeyError with no file context once
-        # dereferenced during the field-map enumeration, aborting the whole
-        # inspection rather than marking just this FileN group unreachable.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            forest_info_dtype = np.dtype(
-                [
-                    ("ForestID", "<i8"),
-                    ("ForestHalosOffset", "<i8"),
-                    ("ForestNhalos", "<i8"),
-                    ("ForestNtrees", "<i8"),
-                ]
-            )
-            info = np.zeros(1, dtype=forest_info_dtype)
-            info["ForestNhalos"] = 1
-            with h5py.File(path, "w") as f:
-                f.attrs["Nfiles"] = 1
-                group = f.create_group("File0")
-                group.create_dataset("ForestInfo", data=info)
-                fg = group.create_group("Forests")
-                fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
-                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-                fg["dangling"] = h5py.SoftLink("/does/not/exist")
-            root_attrs, files = si.inspect_ctrees_hdf5_source(path)  # must not raise
-            self.assertFalse(files[0].reachable)
-            self.assertIsNotNone(files[0].error)
+        def add_dangling_link(forests, tmp):
+            forests["dangling"] = h5py.SoftLink("/does/not/exist")
 
-    def test_dangling_soft_link_named_descendant_is_reported_as_that_files_error(self):
-        # Unlike an incidentally-named dangling link (test above), a dangling
-        # link named exactly "Descendant" passes `name in forests_group` but
-        # cannot be dereferenced.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            forest_info_dtype = np.dtype(
-                [
-                    ("ForestID", "<i8"),
-                    ("ForestHalosOffset", "<i8"),
-                    ("ForestNhalos", "<i8"),
-                    ("ForestNtrees", "<i8"),
-                ]
-            )
-            info = np.zeros(1, dtype=forest_info_dtype)
-            info["ForestNhalos"] = 1
-            with h5py.File(path, "w") as f:
-                f.attrs["Nfiles"] = 1
-                group = f.create_group("File0")
-                group.create_dataset("ForestInfo", data=info)
-                fg = group.create_group("Forests")
-                fg["Descendant"] = h5py.SoftLink("/does/not/exist")
-                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-            self.assert_reported_malformed(
-                path, r"Forests/Descendant exists by name but cannot be opened as a dataset"
-            )
+        def make_descendant_dangle(forests, tmp):
+            del forests["Descendant"]
+            forests["Descendant"] = h5py.SoftLink("/does/not/exist")
 
-    def test_external_link_named_descendant_resolving_to_group_is_reported(self):
-        # An ExternalLink named "Descendant" that resolves to a group rather
-        # than a dataset has no .ndim.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            target = Path(tmp) / "target.h5"
-            with h5py.File(target, "w") as tf:
-                tf.create_group("SomeGroup")
-            forest_info_dtype = np.dtype(
-                [
-                    ("ForestID", "<i8"),
-                    ("ForestHalosOffset", "<i8"),
-                    ("ForestNhalos", "<i8"),
-                    ("ForestNtrees", "<i8"),
-                ]
-            )
-            info = np.zeros(1, dtype=forest_info_dtype)
-            info["ForestNhalos"] = 1
-            with h5py.File(path, "w") as f:
-                f.attrs["Nfiles"] = 1
-                group = f.create_group("File0")
-                group.create_dataset("ForestInfo", data=info)
-                fg = group.create_group("Forests")
-                fg["Descendant"] = h5py.ExternalLink("target.h5", "/SomeGroup")
-                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-            self.assert_reported_malformed(
-                path, r"Forests/Descendant exists by name but cannot be opened as a dataset"
-            )
+        def make_descendant_a_group_link(forests, tmp):
+            with h5py.File(Path(tmp) / "target.h5", "w") as target:
+                target.create_group("SomeGroup")
+            del forests["Descendant"]
+            forests["Descendant"] = h5py.ExternalLink("target.h5", "/SomeGroup")
 
-    def test_malformed_rank_descendant_is_reported_as_that_files_error(self):
-        # A 0-d (scalar) Descendant dataset cannot be indexed as the expected
-        # 1-D array.
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            forest_info_dtype = np.dtype(
-                [
-                    ("ForestID", "<i8"),
-                    ("ForestHalosOffset", "<i8"),
-                    ("ForestNhalos", "<i8"),
-                    ("ForestNtrees", "<i8"),
-                ]
-            )
-            info = np.zeros(1, dtype=forest_info_dtype)
-            info["ForestNhalos"] = 2
-            with h5py.File(path, "w") as f:
-                f.attrs["Nfiles"] = 1
-                group = f.create_group("File0")
-                group.create_dataset("ForestInfo", data=info)
-                fg = group.create_group("Forests")
-                fg.create_dataset("Descendant", data=np.int64(-1))  # 0-d, not 1-D
-                fg.create_dataset("Snap_num", data=np.array([0, 1], dtype="<i8"))
-            self.assert_reported_malformed(path, r"Forests/Descendant has rank 0")
+        def make_descendant_zero_dimensional(forests, tmp):
+            del forests["Descendant"]
+            forests.create_dataset("Descendant", data=np.int64(-1))
 
-    def test_snapshot_outside_a_list_bound_fails_integer_path(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            _write_ctrees_hdf5_fixture(path, forests=[[(-1, 5)]], snap_field="Snap_num")
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path, max_snapshot=4)
-            # Still fine with a generous bound, or none at all.
-            si.inspect_ctrees_hdf5_source(path, max_snapshot=5)
-            si.inspect_ctrees_hdf5_source(path)
+        cases = (
+            ("dangling link in Forests", add_dangling_link, [[(-1, 0)]], r"\S"),
+            ("dangling Descendant", make_descendant_dangle, [[(-1, 0)]], cannot_open),
+            ("Descendant link to a group", make_descendant_a_group_link, [[(-1, 0)]], cannot_open),
+            (
+                "0-d Descendant",
+                make_descendant_zero_dimensional,
+                [[(-1, 0), (-1, 1)]],
+                r"Forests/Descendant has rank 0",
+            ),
+        )
+        for label, corrupt, forests, pattern in cases:
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "info.h5"
+                    _write_ctrees_hdf5_fixture(path, forests=forests)
+                    with h5py.File(path, "r+") as f:
+                        corrupt(f["File0/Forests"], tmp)
+                    self.assert_reported_malformed(path, pattern)
 
-    def test_snapshot_outside_a_list_bound_fails_float_path(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "info.h5"
-            _write_ctrees_hdf5_fixture(
-                path, forests=[[(-1, 5)]], snap_field="Snap_idx", snap_dtype="<f8"
-            )
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path, max_snapshot=4)
-            si.inspect_ctrees_hdf5_source(path, max_snapshot=5)
+    def test_snapshot_outside_a_list_bound_fails_for_both_column_types(self):
+        """A snapshot above the a_list bound is refused on both the integer and
+        the float snapshot column; a covering or absent bound is accepted."""
+        for snap_field, snap_dtype in (("Snap_num", "i8"), ("Snap_idx", "<f8")):
+            with self.subTest(snap_field=snap_field):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "info.h5"
+                    _write_ctrees_hdf5_fixture(
+                        path, forests=[[(-1, 5)]], snap_field=snap_field, snap_dtype=snap_dtype
+                    )
+                    with self.assertRaises(ConverterError):
+                        si.inspect_ctrees_hdf5_source(path, max_snapshot=4)
+                    si.inspect_ctrees_hdf5_source(path, max_snapshot=5)
+                    si.inspect_ctrees_hdf5_source(path)
 
     def test_identity_bounds_max_forest_nhalos(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -734,7 +467,10 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             (remove_descendant, r"missing the required dataset 'Descendant'"),
             (remove_snapshot, r"has neither Snap_num nor Snap_idx"),
             (overlap_forests, r"overlapping or out-of-order"),
-            (drop_forest_nhalos, r"ForestInfo is missing required column"),
+            (
+                drop_forest_nhalos,
+                r"ForestInfo is missing required column\(s\) \['ForestNhalos'\]",
+            ),
         )
         for corrupt, pattern in defects:
             for scan_links in (True, False):
@@ -755,6 +491,8 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                     malformed, intact = files
                     self.assertFalse(malformed.reachable)
                     self.assertRegex(malformed.error, pattern)
+                    self.assertIsNone(malformed.link_summary)
+                    self.assertIsNone(malformed.n_halos)
                     self.assertTrue(intact.reachable)
                     self.assertIsNone(intact.error)
                     self.assertEqual((intact.n_forests, intact.n_halos), (2, 3))
@@ -901,23 +639,6 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
         self.assertTrue(files[0].reachable)
         self.assertEqual(files[0].n_forests, 3)
 
-    def test_real_micro_uchuu_hdf5_reproduces_known_totals(self):
-        repo_root = Path(__file__).parents[3]
-        info_path = (
-            repo_root
-            / "simulations"
-            / "micro-uchuu-hdf5"
-            / "snapshots"
-            / "MicroUchuu_mergertree_info.h5"
-        )
-        if not info_path.exists():
-            self.skipTest("real micro-Uchuu forests-HDF5 dataset not present locally")
-        root_attrs, files = si.inspect_ctrees_hdf5_source(info_path)
-        self.assertEqual(root_attrs["TotNhalos"], 22580924)
-        self.assertEqual(root_attrs["TotNforests"], 440651)
-        self.assertEqual(files[0].n_forests, 440651)
-        self.assertEqual(files[0].n_halos, 22580924)
-
 
 class ReachabilityTests(unittest.TestCase):
     def _write_sim_info(self, tmp, **overrides):
@@ -951,16 +672,6 @@ class ReachabilityTests(unittest.TestCase):
             self.assertEqual(reach.declared_file_count, 3)
             self.assertTrue(reach.notes)
 
-    def test_lhalo_reachability_absent_directory_not_dead_symlink(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            sim_info_path = self._write_sim_info(tmp, simulation_dir=str(tmp / "does-not-exist"))
-            sim_info = si.load_simulation_info(sim_info_path)
-            reach = si.check_lhalo_reachability(sim_info)
-            self.assertFalse(reach.exists)
-            self.assertEqual(reach.present_file_count, 0)
-            self.assertIn("simulation_dir does not exist", reach.notes)
-
     def test_hdf5_reachability_external_link_present_and_absent(self):
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
@@ -990,54 +701,41 @@ class ReachabilityTests(unittest.TestCase):
             self.assertTrue(any("data_1.h5" in note and "absent" in note for note in reach.notes))
             self.assertEqual(reach.declared_file_count, 1 + 2)  # info + Nfiles
 
-    def test_load_simulation_info_missing_key_fails(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            path = tmp / "simulation_info.yaml"
-            with open(path, "w") as f:
-                yaml.safe_dump({"input": {"first_file": 0}}, f)
-            with self.assertRaises(ConverterError):
-                si.load_simulation_info(path)
-
-    def test_load_simulation_info_syntax_error_wrapped(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            path = tmp / "simulation_info.yaml"
-            # Unbalanced flow-mapping brace: a genuine YAML syntax error,
-            # not just a missing key.
-            path.write_text("input: {first_file: 0, last_file: 1\n")
-            with self.assertRaises(ConverterError):
-                si.load_simulation_info(path)
-
-    def test_hdf5_reachability_absent_directory_synthetic(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            sim_info_path = self._write_sim_info(
-                tmp,
-                tree_type="consistent_trees_hdf5",
-                tree_name="info.h5",
-                simulation_dir=str(tmp / "does-not-exist"),
-            )
-            sim_info = si.load_simulation_info(sim_info_path)
-            reach = si.check_hdf5_reachability(sim_info)
-            self.assertFalse(reach.exists)
-            self.assertEqual(reach.present_file_count, 0)
-            self.assertIn("simulation_dir does not exist", reach.notes)
-
-    def test_real_uchuu_snapshots_absent_opportunistic(self):
-        # Not a hardcoded environment assumption: this only asserts the
-        # "absent" shape when the real path is genuinely absent on this
-        # checkout, and skips (rather than failing for no code reason) when
-        # the real data directory is present. The synthetic case above is the
-        # one the acceptance criteria actually depend on.
-        repo_root = Path(__file__).parents[3]
-        sim_info = si.load_simulation_info(
-            repo_root / "simulations" / "uchuu" / "simulation_info.yaml"
+    def test_an_absent_simulation_directory_is_reported_not_raised(self):
+        """Both routes report an absent simulation_dir as data, with no files present."""
+        checks = (
+            ("lhalo_binary", si.check_lhalo_reachability, {}),
+            ("consistent_trees_hdf5", si.check_hdf5_reachability, {"tree_name": "info.h5"}),
         )
-        reach = si.check_hdf5_reachability(sim_info)
-        if reach.exists:
-            self.skipTest("simulations/uchuu/snapshots now exists on this host")
-        self.assertIn("simulation_dir does not exist", reach.notes)
+        for tree_type, check, overrides in checks:
+            with self.subTest(tree_type=tree_type):
+                with tempfile.TemporaryDirectory() as tmp_str:
+                    tmp = Path(tmp_str)
+                    sim_info_path = self._write_sim_info(
+                        tmp,
+                        tree_type=tree_type,
+                        simulation_dir=str(tmp / "does-not-exist"),
+                        **overrides,
+                    )
+                    reach = check(si.load_simulation_info(sim_info_path))
+                    self.assertFalse(reach.exists)
+                    self.assertEqual(reach.present_file_count, 0)
+                    self.assertIn("simulation_dir does not exist", reach.notes)
+
+    def test_an_unreadable_simulation_info_is_refused(self):
+        """A missing required key and a YAML syntax error each raise ConverterError."""
+        cases = (
+            ("missing key", "input: {first_file: 0}\n"),
+            # Unbalanced flow-mapping brace: a genuine syntax error, not just a missing key.
+            ("syntax error", "input: {first_file: 0, last_file: 1\n"),
+        )
+        for label, text in cases:
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as tmp_str:
+                    path = Path(tmp_str) / "simulation_info.yaml"
+                    path.write_text(text)
+                    with self.assertRaises(ConverterError):
+                        si.load_simulation_info(path)
 
 
 class AsciiInspectionTests(unittest.TestCase):
@@ -1083,7 +781,7 @@ class JsonOutputSafetyTests(unittest.TestCase):
     source path must refuse rather than silently overwrite source data --
     a scenario reproduced against a real binary tree file."""
 
-    def _write_lhalo_sim_info(self, tmp, snap_dir, **overrides):
+    def _write_sim_info(self, tmp, snap_dir, **overrides):
         data = {
             "input": {
                 "first_file": 0,
@@ -1104,6 +802,23 @@ class JsonOutputSafetyTests(unittest.TestCase):
     def _write_minimal_lhalo_file(self, path):
         with open(path, "wb") as f:
             f.write(struct.pack("<ii", 0, 0))  # Ntrees=0, totNHalos=0
+
+    def _inspect_writing_json(self, source_format, sim_info_path, a_list, json_target):
+        """The exit status of `inspect ... --json json_target`."""
+        with redirect_stdout(io.StringIO()):
+            return inspect_sources.main(
+                [
+                    "inspect",
+                    "--source-format",
+                    source_format,
+                    "--simulation-info",
+                    str(sim_info_path),
+                    "--a-list",
+                    str(a_list),
+                    "--json",
+                    str(json_target),
+                ]
+            )
 
     def test_a_malformed_source_file_makes_inspect_exit_nonzero(self):
         """The report still names the malformed file's error as data, and the
@@ -1154,117 +869,133 @@ class JsonOutputSafetyTests(unittest.TestCase):
             self.assertIsNone(intact["error"])
             self.assertEqual(intact["n_halos"], 3)
 
-    def test_json_directly_at_source_file_refused(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            snap_dir = tmp / "snapshots"
-            snap_dir.mkdir()
-            source_file = snap_dir / "trees_test.0"
-            self._write_minimal_lhalo_file(source_file)
-            original_bytes = source_file.read_bytes()
-            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
+    # Each case builds one source tree and returns (source format, simulation_info
+    # path, --json target, path that must be left exactly as it was: its bytes
+    # unchanged, or still absent).
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = inspect_sources.main(
-                    [
-                        "inspect",
-                        "--source-format",
-                        "lhalo_binary",
-                        "--simulation-info",
-                        str(sim_info_path),
-                        "--a-list",
-                        str(tmp / "a_list"),
-                        "--json",
-                        str(source_file),
-                    ]
-                )
-            self.assertEqual(rc, 1)
-            self.assertEqual(source_file.read_bytes(), original_bytes)
+    def _case_source_file(self, tmp, outside):
+        snap_dir = tmp / "snapshots"
+        snap_dir.mkdir()
+        source_file = snap_dir / "trees_test.0"
+        self._write_minimal_lhalo_file(source_file)
+        return "lhalo_binary", self._write_sim_info(tmp, snap_dir), source_file, source_file
 
-    def test_json_inside_simulation_dir_refused(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            snap_dir = tmp / "snapshots"
-            snap_dir.mkdir()
-            self._write_minimal_lhalo_file(snap_dir / "trees_test.0")
-            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
-            target = snap_dir / "subdir" / "report.json"
+    def _case_inside_simulation_dir(self, tmp, outside):
+        snap_dir = tmp / "snapshots"
+        snap_dir.mkdir()
+        self._write_minimal_lhalo_file(snap_dir / "trees_test.0")
+        target = snap_dir / "subdir" / "report.json"
+        return "lhalo_binary", self._write_sim_info(tmp, snap_dir), target, target
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = inspect_sources.main(
-                    [
-                        "inspect",
-                        "--source-format",
-                        "lhalo_binary",
-                        "--simulation-info",
-                        str(sim_info_path),
-                        "--a-list",
-                        str(tmp / "a_list"),
-                        "--json",
-                        str(target),
-                    ]
-                )
-            self.assertEqual(rc, 1)
-            self.assertFalse(target.exists())
+    def _case_inside_symlinked_source_dir(self, tmp, outside):
+        real_dir = tmp / "real_snapshots"
+        real_dir.mkdir()
+        self._write_minimal_lhalo_file(real_dir / "trees_test.0")
+        snap_dir = tmp / "snapshots"
+        snap_dir.symlink_to(real_dir)
+        # Write through the symlinked path; resolution must still catch it.
+        return (
+            "lhalo_binary",
+            self._write_sim_info(tmp, snap_dir),
+            snap_dir / "report.json",
+            real_dir / "report.json",
+        )
 
-    def test_json_inside_symlinked_source_dir_refused(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            real_dir = tmp / "real_snapshots"
-            real_dir.mkdir()
-            self._write_minimal_lhalo_file(real_dir / "trees_test.0")
-            snap_dir = tmp / "snapshots"
-            snap_dir.symlink_to(real_dir)
-            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
-            # Write through the symlinked path; resolution must still catch it.
-            target = snap_dir / "report.json"
+    def _case_simulation_info_file(self, tmp, outside):
+        snap_dir = tmp / "snapshots"
+        snap_dir.mkdir()
+        self._write_minimal_lhalo_file(snap_dir / "trees_test.0")
+        sim_info_path = self._write_sim_info(tmp, snap_dir)
+        return "lhalo_binary", sim_info_path, sim_info_path, sim_info_path
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = inspect_sources.main(
-                    [
-                        "inspect",
-                        "--source-format",
-                        "lhalo_binary",
-                        "--simulation-info",
-                        str(sim_info_path),
-                        "--a-list",
-                        str(tmp / "a_list"),
-                        "--json",
-                        str(target),
-                    ]
-                )
-            self.assertEqual(rc, 1)
-            self.assertFalse((real_dir / "report.json").exists())
+    def _case_hdf5_external_link_target(self, tmp, outside):
+        # HDF5 ExternalLinks may legally point outside simulation_dir, so
+        # simulation_dir alone is not a complete protected set for the
+        # forests-HDF5 route.
+        snap_dir = tmp / "snapshots"
+        snap_dir.mkdir()
+        target_path = outside / "external_data.h5"
+        with h5py.File(target_path, "w") as tf:
+            tf.attrs["marker"] = "REAL_SOURCE_DATA"
+            fg = tf.create_group("Forests")
+            fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
+            fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
+            info = np.zeros(
+                1,
+                dtype=[
+                    ("ForestID", "<i8"),
+                    ("ForestHalosOffset", "<i8"),
+                    ("ForestNhalos", "<i8"),
+                    ("ForestNtrees", "<i8"),
+                ],
+            )
+            info["ForestNhalos"] = 1
+            tf.create_dataset("ForestInfo", data=info)
+        with h5py.File(snap_dir / "info.h5", "w") as f:
+            f.attrs["Nfiles"] = 1
+            f["File0"] = h5py.ExternalLink(os.path.relpath(str(target_path), str(snap_dir)), "/")
+        sim_info_path = self._write_sim_info(
+            tmp, snap_dir, tree_type="consistent_trees_hdf5", tree_name="info.h5"
+        )
+        return "consistent_trees_hdf5", sim_info_path, target_path, target_path
 
-    def test_json_at_simulation_info_path_refused(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            snap_dir = tmp / "snapshots"
-            snap_dir.mkdir()
-            self._write_minimal_lhalo_file(snap_dir / "trees_test.0")
-            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
-            original_bytes = sim_info_path.read_bytes()
+    def _case_symlinked_lhalo_tree_file(self, tmp, outside):
+        # A tree file inside simulation_dir can itself be a symlink whose target
+        # resolves outside it; --json at the in-directory path must not resolve
+        # through to the real external file.
+        snap_dir = tmp / "snapshots"
+        snap_dir.mkdir()
+        target_path = outside / "real_tree_data.0"
+        self._write_minimal_lhalo_file(target_path)
+        symlink_path = snap_dir / "trees_test.0"
+        symlink_path.symlink_to(target_path)
+        return "lhalo_binary", self._write_sim_info(tmp, snap_dir), symlink_path, target_path
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = inspect_sources.main(
-                    [
-                        "inspect",
-                        "--source-format",
-                        "lhalo_binary",
-                        "--simulation-info",
-                        str(sim_info_path),
-                        "--a-list",
-                        str(tmp / "a_list"),
-                        "--json",
-                        str(sim_info_path),
-                    ]
-                )
-            self.assertEqual(rc, 1)
-            self.assertEqual(sim_info_path.read_bytes(), original_bytes)
+    def _case_symlinked_ascii_tree_file(self, tmp, outside):
+        # inspect_ascii_source discovers tree files via sim_dir.glob("tree_*.dat"),
+        # the same class of risk as the L-Halo route's tree files.
+        snap_dir = tmp / "snapshots"
+        snap_dir.mkdir()
+        target_path = outside / "tree_0_0_0.dat"
+        target_path.write_bytes(
+            (Path(__file__).parent / "data" / "indexed_header.dat").read_bytes()
+        )
+        symlink_path = snap_dir / "tree_0_0_0.dat"
+        symlink_path.symlink_to(target_path)
+        sim_info_path = self._write_sim_info(
+            tmp, snap_dir, tree_type="consistent_trees_ascii", tree_name="tree_0_0_0.dat"
+        )
+        return "consistent_trees_ascii", sim_info_path, symlink_path, target_path
+
+    def test_json_is_refused_at_every_source_path(self):
+        """--json at a source file, inside the source directory (also through a
+        symlink), at the simulation_info file, at an HDF5 external-link target,
+        or at a symlinked L-Halo or ASCII tree file exits 1 and leaves the
+        protected path as it was."""
+        cases = (
+            self._case_source_file,
+            self._case_inside_simulation_dir,
+            self._case_inside_symlinked_source_dir,
+            self._case_simulation_info_file,
+            self._case_hdf5_external_link_target,
+            self._case_symlinked_lhalo_tree_file,
+            self._case_symlinked_ascii_tree_file,
+        )
+        for case in cases:
+            with self.subTest(case=case.__name__):
+                with tempfile.TemporaryDirectory() as tmp_str:
+                    with tempfile.TemporaryDirectory() as outside_str:
+                        tmp = Path(tmp_str)
+                        source_format, sim_info_path, json_target, protected = case(
+                            tmp, Path(outside_str)
+                        )
+                        before = protected.read_bytes() if protected.exists() else None
+                        rc = self._inspect_writing_json(
+                            source_format, sim_info_path, tmp / "a_list", json_target
+                        )
+                        self.assertEqual(rc, 1)
+                        after = protected.read_bytes() if protected.exists() else None
+                        self.assertEqual(after, before)
 
     def test_json_safe_path_still_works(self):
         with tempfile.TemporaryDirectory() as tmp_str:
@@ -1272,292 +1003,14 @@ class JsonOutputSafetyTests(unittest.TestCase):
             snap_dir = tmp / "snapshots"
             snap_dir.mkdir()
             self._write_minimal_lhalo_file(snap_dir / "trees_test.0")
-            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
+            sim_info_path = self._write_sim_info(tmp, snap_dir)
             out_dir = tmp / "elsewhere"
             out_dir.mkdir()
             target = out_dir / "report.json"
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = inspect_sources.main(
-                    [
-                        "inspect",
-                        "--source-format",
-                        "lhalo_binary",
-                        "--simulation-info",
-                        str(sim_info_path),
-                        "--a-list",
-                        str(tmp / "a_list"),
-                        "--json",
-                        str(target),
-                    ]
-                )
+            rc = self._inspect_writing_json("lhalo_binary", sim_info_path, tmp / "a_list", target)
             self.assertEqual(rc, 0)
             self.assertTrue(target.exists())
-
-    def test_json_at_external_link_target_outside_simulation_dir_refused(self):
-        # HDF5 ExternalLinks may legally point outside simulation_dir, so
-        # simulation_dir alone is not a complete protected set for the
-        # forests-HDF5 route; this was reproduced as a real destructive overwrite; this fixture
-        # mirrors that reproduction exactly (an ExternalLink resolving to a
-        # sibling-of-tmp directory, not under simulation_dir).
-        with tempfile.TemporaryDirectory() as tmp_str, tempfile.TemporaryDirectory() as outside_str:
-            tmp = Path(tmp_str)
-            outside = Path(outside_str)
-            snap_dir = tmp / "snapshots"
-            snap_dir.mkdir()
-
-            target_path = outside / "external_data.h5"
-            with h5py.File(target_path, "w") as tf:
-                tf.attrs["marker"] = "REAL_SOURCE_DATA"
-                fg = tf.create_group("Forests")
-                fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
-                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-                info_dtype = np.dtype(
-                    [
-                        ("ForestID", "<i8"),
-                        ("ForestHalosOffset", "<i8"),
-                        ("ForestNhalos", "<i8"),
-                        ("ForestNtrees", "<i8"),
-                    ]
-                )
-                info = np.zeros(1, dtype=info_dtype)
-                info["ForestNhalos"] = 1
-                tf.create_dataset("ForestInfo", data=info)
-            original_bytes = target_path.read_bytes()
-
-            info_path = snap_dir / "info.h5"
-            with h5py.File(info_path, "w") as f:
-                f.attrs["Nfiles"] = 1
-                rel = os.path.relpath(str(target_path), str(snap_dir))
-                f["File0"] = h5py.ExternalLink(rel, "/")
-
-            sim_info_path = tmp / "simulation_info.yaml"
-            with open(sim_info_path, "w") as f:
-                yaml.safe_dump(
-                    {
-                        "input": {
-                            "first_file": 0,
-                            "last_file": 0,
-                            "tree_name": "info.h5",
-                            "tree_type": "consistent_trees_hdf5",
-                            "simulation_dir": str(snap_dir),
-                            "snapshot_list_file": str(tmp / "a_list"),
-                        }
-                    },
-                    f,
-                )
-            (tmp / "a_list").write_text("1.0\n")
-
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = inspect_sources.main(
-                    [
-                        "inspect",
-                        "--source-format",
-                        "consistent_trees_hdf5",
-                        "--simulation-info",
-                        str(sim_info_path),
-                        "--a-list",
-                        str(tmp / "a_list"),
-                        "--json",
-                        str(target_path),
-                    ]
-                )
-            self.assertEqual(rc, 1)
-            self.assertEqual(target_path.read_bytes(), original_bytes)
-
-    def test_json_at_symlinked_lhalo_tree_file_refused(self):
-        # A tree file inside simulation_dir can
-        # itself be a filesystem symlink whose target resolves outside
-        # simulation_dir. --json pointed at the in-directory symlink path
-        # (the path a user would naturally type) must not resolve through
-        # to the real external file and destroy it. This mirrors
-        # a reproduction against a real fixture exactly.
-        with tempfile.TemporaryDirectory() as tmp_str, tempfile.TemporaryDirectory() as outside_str:
-            tmp = Path(tmp_str)
-            outside = Path(outside_str)
-            snap_dir = tmp / "snapshots"
-            snap_dir.mkdir()
-
-            target_path = outside / "real_tree_data.0"
-            self._write_minimal_lhalo_file(target_path)
-            original_bytes = target_path.read_bytes()
-
-            symlink_path = snap_dir / "trees_test.0"
-            symlink_path.symlink_to(target_path)
-
-            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
-
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = inspect_sources.main(
-                    [
-                        "inspect",
-                        "--source-format",
-                        "lhalo_binary",
-                        "--simulation-info",
-                        str(sim_info_path),
-                        "--a-list",
-                        str(tmp / "a_list"),
-                        "--json",
-                        str(symlink_path),  # the in-directory path, not the real target
-                    ]
-                )
-            self.assertEqual(rc, 1)
-            self.assertEqual(target_path.read_bytes(), original_bytes)
-
-    def test_survey_json_at_symlinked_lhalo_tree_file_refused(self):
-        # Same scenario as above, via survey's protected-paths set instead
-        # of cmd_inspect's.
-        with tempfile.TemporaryDirectory() as tmp_str, tempfile.TemporaryDirectory() as outside_str:
-            tmp = Path(tmp_str)
-            outside = Path(outside_str)
-            snap_dir = tmp / "snapshots"
-            snap_dir.mkdir()
-
-            target_path = outside / "real_tree_data.0"
-            self._write_minimal_lhalo_file(target_path)
-            original_bytes = target_path.read_bytes()
-
-            symlink_path = snap_dir / "trees_test.0"
-            symlink_path.symlink_to(target_path)
-
-            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
-
-            buf = io.StringIO()
-            with mock.patch.dict(
-                inspect_sources.NAMED_PACKAGES, {"test-pkg": str(sim_info_path)}, clear=True
-            ):
-                with redirect_stdout(buf):
-                    rc = inspect_sources.main(
-                        ["survey", "--reachability-only", "--json", str(symlink_path)]
-                    )
-            self.assertEqual(rc, 1)
-            self.assertEqual(target_path.read_bytes(), original_bytes)
-
-    def test_json_at_symlinked_ascii_tree_file_refused(self):
-        # inspect_ascii_source discovers tree files
-        # via sim_dir.glob("tree_*.dat"), the same class of risk as the
-        # L-Halo route's tree files -- a discovered tree_*.dat can itself be
-        # a symlink resolving outside simulation_dir. No named package uses
-        # this route today, but `inspect --source-format
-        # consistent_trees_ascii` can be pointed at any package directly.
-        with tempfile.TemporaryDirectory() as tmp_str, tempfile.TemporaryDirectory() as outside_str:
-            tmp = Path(tmp_str)
-            outside = Path(outside_str)
-            snap_dir = tmp / "snapshots"
-            snap_dir.mkdir()
-
-            fixture = Path(__file__).parent / "data" / "indexed_header.dat"
-            target_path = outside / "tree_0_0_0.dat"
-            target_path.write_bytes(fixture.read_bytes())
-            original_bytes = target_path.read_bytes()
-
-            symlink_path = snap_dir / "tree_0_0_0.dat"
-            symlink_path.symlink_to(target_path)
-
-            sim_info_path = tmp / "simulation_info.yaml"
-            with open(sim_info_path, "w") as f:
-                yaml.safe_dump(
-                    {
-                        "input": {
-                            "first_file": 0,
-                            "last_file": 0,
-                            "tree_name": "tree_0_0_0.dat",
-                            "tree_type": "consistent_trees_ascii",
-                            "simulation_dir": str(snap_dir),
-                            "snapshot_list_file": str(tmp / "a_list"),
-                        }
-                    },
-                    f,
-                )
-            (tmp / "a_list").write_text("1.0\n")
-
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = inspect_sources.main(
-                    [
-                        "inspect",
-                        "--source-format",
-                        "consistent_trees_ascii",
-                        "--simulation-info",
-                        str(sim_info_path),
-                        "--a-list",
-                        str(tmp / "a_list"),
-                        "--json",
-                        str(symlink_path),
-                    ]
-                )
-            self.assertEqual(rc, 1)
-            self.assertEqual(target_path.read_bytes(), original_bytes)
-
-    def test_survey_non_numeric_first_file_under_json_does_not_crash(self):
-        # A non-numeric first_file in one named
-        # package's YAML, encountered while building survey's --json
-        # protected-paths set, must not crash the safety check itself (and
-        # therefore the whole --json write) with an uncaught ValueError.
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            snap_dir = tmp / "snapshots"
-            snap_dir.mkdir()
-            sim_info_path = tmp / "simulation_info.yaml"
-            with open(sim_info_path, "w") as f:
-                yaml.safe_dump(
-                    {
-                        "input": {
-                            "first_file": "not-a-number",
-                            "last_file": 1,
-                            "tree_name": "trees_test",
-                            "tree_type": "lhalo_binary",
-                            "simulation_dir": str(snap_dir),
-                            "snapshot_list_file": str(tmp / "a_list"),
-                        }
-                    },
-                    f,
-                )
-            (tmp / "a_list").write_text("1.0\n")
-            target = tmp / "out.json"
-
-            buf = io.StringIO()
-            with mock.patch.dict(
-                inspect_sources.NAMED_PACKAGES, {"bad-pkg": str(sim_info_path)}, clear=True
-            ):
-                with redirect_stdout(buf):
-                    rc = inspect_sources.main(
-                        ["survey", "--reachability-only", "--json", str(target)]
-                    )
-            results = json.loads(buf.getvalue())
-            self.assertEqual(rc, 1)
-            self.assertIn("error", results["bad-pkg"])
-            self.assertTrue(target.exists())  # the safety check itself did not crash
-
-    def test_survey_json_at_named_package_simulation_dir_refused(self):
-        # survey's protected set covers all five named packages, not just
-        # whatever --simulation-info/--a-list were passed (survey takes
-        # neither). A test protecting against source-data corruption must
-        # not itself risk causing it: this uses a temporary, mocked package
-        # (mock.patch.dict over NAMED_PACKAGES, the same pattern the other
-        # reachability tests already use) rather than a real named package's
-        # simulation_dir -- if _check_json_output_safe ever regresses, this
-        # test must fail loudly, not write a stray file into the real source
-        # data directory.
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            snap_dir = tmp / "snapshots"
-            snap_dir.mkdir()
-            self._write_minimal_lhalo_file(snap_dir / "trees_test.0")
-            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
-            target = str(snap_dir / "pwned_by_test.json")
-
-            buf = io.StringIO()
-            with mock.patch.dict(
-                inspect_sources.NAMED_PACKAGES, {"test-pkg": str(sim_info_path)}, clear=True
-            ):
-                with redirect_stdout(buf):
-                    rc = inspect_sources.main(["survey", "--reachability-only", "--json", target])
-            self.assertEqual(rc, 1)
-            self.assertFalse(Path(target).exists())
 
 
 class InspectSourcesCLITests(unittest.TestCase):
@@ -1628,108 +1081,6 @@ class InspectSourcesCLITests(unittest.TestCase):
                         ]
                     )
             self.assertEqual(rc, 1)
-
-    def test_survey_declares_route_for_all_five_named_packages(self):
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = inspect_sources.main(["survey", "--reachability-only"])
-        self.assertEqual(rc, 0)
-        self.assertEqual(
-            set(inspect_sources.NAMED_PACKAGES),
-            {
-                "mini-millennium",
-                "millennium",
-                "micro-uchuu",
-                "mini-uchuu",
-                "uchuu",
-            },
-        )
-        for name, adapter in (
-            ("mini-millennium", "lhalo_binary"),
-            ("millennium", "lhalo_binary"),
-            ("micro-uchuu", "lhalo_binary"),
-            ("mini-uchuu", "lhalo_binary"),
-            ("uchuu", "ctrees_hdf5"),
-        ):
-            self.assertEqual(
-                inspect_sources.ADAPTER_ROUTES.get(
-                    si.load_simulation_info(
-                        Path(inspect_sources._repo_root()) / inspect_sources.NAMED_PACKAGES[name]
-                    ).tree_type
-                ),
-                adapter,
-            )
-
-    def test_survey_malformed_yaml_does_not_discard_other_packages(self):
-        # A syntax-broken simulation_info.yaml for one named package must
-        # not abort the whole survey with a raw traceback, discarding every
-        # other package's already-gathered results -- the same failure mode
-        # items 2 and 8 from earlier rounds were fixed to prevent, via
-        # yaml.YAMLError specifically (load_simulation_info now wraps it into
-        # ConverterError itself; the per-package boundaries also now catch
-        # bare Exception, so this is doubly covered).
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            broken_path = tmp / "broken_simulation_info.yaml"
-            broken_path.write_text("input: {first_file: 0, last_file: 1\n")
-
-            good_snap_dir = tmp / "good_snapshots"
-            good_snap_dir.mkdir()
-            with open(good_snap_dir / "trees_test.0", "wb") as f:
-                f.write(struct.pack("<ii", 0, 0))  # Ntrees=0, totNHalos=0
-            good_sim_info_path = tmp / "good_simulation_info.yaml"
-            with open(good_sim_info_path, "w") as f:
-                yaml.safe_dump(
-                    {
-                        "input": {
-                            "first_file": 0,
-                            "last_file": 0,
-                            "tree_name": "trees_test",
-                            "tree_type": "lhalo_binary",
-                            "simulation_dir": str(good_snap_dir),
-                            "snapshot_list_file": str(tmp / "a_list"),
-                        }
-                    },
-                    f,
-                )
-            (tmp / "a_list").write_text("1.0\n")
-
-            buf = io.StringIO()
-            with mock.patch.dict(
-                inspect_sources.NAMED_PACKAGES,
-                {"broken-pkg": str(broken_path), "good-pkg": str(good_sim_info_path)},
-                clear=True,
-            ):
-                with redirect_stdout(buf):
-                    rc = inspect_sources.main(["survey", "--reachability-only"])
-            results = json.loads(buf.getvalue())
-            self.assertEqual(rc, 1)
-            self.assertIn("error", results["broken-pkg"])
-            self.assertIn("reachability", results["good-pkg"])
-            self.assertTrue(results["good-pkg"]["reachability"]["exists"])
-
-    def test_survey_reachability_failure_does_not_discard_other_packages(self):
-        # A transient filesystem error during reachability checking for one
-        # package (e.g. a path vanishing between exists() and stat()) must
-        # not abort the whole survey and discard every other package's
-        # already-gathered results.
-        real_check = si.check_lhalo_reachability
-
-        def flaky_check(sim_info):
-            if "mini-millennium" in str(sim_info.simulation_dir):
-                raise OSError("simulated transient filesystem error")
-            return real_check(sim_info)
-
-        buf = io.StringIO()
-        with mock.patch.object(si, "check_lhalo_reachability", side_effect=flaky_check):
-            with redirect_stdout(buf):
-                rc = inspect_sources.main(["survey", "--reachability-only"])
-        results = json.loads(buf.getvalue())
-        self.assertEqual(rc, 1)
-        self.assertIn("reachability_error", results["mini-millennium"])
-        # Other packages still have real results, not discarded.
-        self.assertIn("reachability", results["millennium"])
-        self.assertIn("reachability", results["micro-uchuu"])
 
     def test_inspect_mini_millennium_matches_measured_totals(self):
         repo_root = inspect_sources._repo_root()

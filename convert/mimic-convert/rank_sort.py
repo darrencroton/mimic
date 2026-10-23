@@ -55,10 +55,9 @@ buffer, once in the ready block gathered out of those buffers) and the rank
 pass derives int64 and bool scratch from the ready block. Both per-record costs
 are counted, not estimated — see :data:`GEN_BYTES_PER_RECORD` and
 :data:`MERGE_BYTES_PER_RECORD` — and every allocation is reported to a meter
-whose high-water marks come back as ``peak_resident_bytes`` and
-``peak_resident_records``, so a caller can *assert* the bound rather than trust
-it. Run generation and merging do not overlap, so each phase gets the whole
-budget.
+whose high-water mark comes back as ``peak_resident_bytes``, so a caller can
+*assert* the bound rather than trust it. Run generation and merging do not
+overlap, so each phase gets the whole budget.
 
 **What the budget does not cover.** Four rounds of review each found one more
 allocation the meter did not count, so the exclusions are enumerated here in
@@ -67,7 +66,7 @@ number a test asserts the total against:
 
 1. **The ranks backing store.** A memory-mapped file, not a heap allocation:
    ``8 * total_records`` bytes on disk, whose resident pages are page cache the
-   kernel may reclaim. Reported as ``ranks_bytes``.
+   kernel may reclaim.
 2. **The per-forest group boundaries.** 16 bytes per observed forest in the
    accumulator, capacity doubling. O(number of forests), never O(number of
    records) — and they ARE the output the caller asked for.
@@ -230,24 +229,21 @@ class RankSortResult:
 
     ``forest_ids`` are the observed forests in ascending order and
     ``forest_counts`` their halo counts in the same order — the per-forest group
-    boundaries, equivalent to the ``starts`` array the in-memory formulation
-    derives (see :meth:`forest_starts`). ``ranks_path`` holds ``total_records``
-    int64 ranks indexed by global input position.
+    boundaries. ``ranks_path`` holds ``total_records`` int64 ranks indexed by
+    global input position.
 
-    ``peak_spill_bytes`` is the high-water mark of live spill bytes on disk, and
-    ``ranks_bytes`` the size of the backing store, for the pass's storage
-    envelope. **Consume the reported figure, never a ``total * 48`` formula.**
-    It equals the whole key set at 48 B/record only when ``n_merge_passes`` is
-    zero; every merge pass holds its inputs and its output at once, and the
-    peak was measured at 1.13x to 1.55x the key set across ordinary
-    multi-pass configurations.
+    ``peak_spill_bytes`` is the high-water mark of live spill bytes on disk, for
+    the pass's storage envelope. **Consume the reported figure, never a
+    ``total * 48`` formula.** It equals the whole key set at 48 B/record only
+    when ``n_merge_passes`` is zero; every merge pass holds its inputs and its
+    output at once, and the peak was measured at 1.13x to 1.55x the key set
+    across ordinary multi-pass configurations.
 
-    ``peak_resident_bytes`` and ``peak_resident_records`` are measured
-    high-water marks of the working memory and the record buffers this module
-    held; the first is bounded by ``budget_bytes`` and the second by
-    ``budget_records``. ``run_records`` is how many records one generated run
-    holds and ``merge_records`` how many a merge buffers at once — both derived
-    from the budget, and reported so a caller can see what a budget bought.
+    ``peak_resident_bytes`` is the measured high-water mark of the working
+    memory this module held, bounded by ``budget_bytes``. ``run_records`` is how
+    many records one generated run holds and ``merge_records`` how many a merge
+    buffers at once — both derived from the budget, and reported so a caller can
+    see what a budget bought.
     """
 
     total_records: int
@@ -256,42 +252,14 @@ class RankSortResult:
     forest_counts: np.ndarray
     max_rank: int
     ranks_path: str
-    ranks_bytes: int
     peak_spill_bytes: int
     peak_resident_bytes: int
-    peak_resident_records: int
     budget_bytes: int
-    budget_records: int
     run_records: int
     merge_records: int
     n_runs: int
     n_merge_passes: int
     merge_fanin: int
-
-    def forest_starts(self) -> np.ndarray:
-        """Offset of each forest's first record in the merged key order."""
-        starts = np.zeros(self.forest_counts.size, dtype=np.int64)
-        if starts.size:
-            np.cumsum(self.forest_counts[:-1], out=starts[1:])
-        return starts
-
-
-def open_ranks(ranks_path, mode: str = "r") -> np.ndarray:
-    """Open a ranks backing store written by :func:`rank_forests`.
-
-    Returns an int64 array indexed by global input position — a memory map for
-    a non-empty store, so a caller resident-set stays bounded by the slices it
-    touches.
-    """
-    ranks_path = Path(ranks_path)
-    size = ranks_path.stat().st_size
-    if size % RANK_DTYPE.itemsize:
-        raise RankSortError(
-            "{}: {} bytes is not a whole number of int64 ranks".format(ranks_path, size)
-        )
-    if size == 0:
-        return np.empty(0, dtype=RANK_DTYPE)
-    return np.memmap(str(ranks_path), dtype=RANK_DTYPE, mode=mode, shape=(size // 8,))
 
 
 def rank_forests(
@@ -342,12 +310,9 @@ def rank_forests(
             forest_counts=forest_counts,
             max_rank=max_rank,
             ranks_path=str(ranks_path),
-            ranks_bytes=total * RANK_DTYPE.itemsize,
             peak_spill_bytes=spills.peak_bytes,
             peak_resident_bytes=residency.peak_bytes,
-            peak_resident_records=residency.peak_records,
             budget_bytes=budget_bytes,
-            budget_records=budget_bytes // SPILL_RECORD_NBYTES,
             run_records=run_records,
             merge_records=merge_records,
             n_runs=n_runs,
@@ -1221,8 +1186,8 @@ def _verify_ranks(
     ``[0, 1, 2, 0, 1]``, and the second moment is what separates them. **It is
     still four aggregates, not a proof of density**: a corruption contrived to
     preserve all four would pass. Density itself rests on how ``_assign_ranks``
-    constructs the ranks, and on the oracle-equality and per-forest density
-    tests in ``tests/test_rank_sort.py``.
+    constructs the ranks, and on the oracle-equality tests in
+    ``tests/test_rank_sort.py``, which also check per-forest density directly.
 
     No spill file is removed until this passes.
     """
@@ -1716,10 +1681,6 @@ class KeyedSorter:
         if self._state != "closed":
             self._state = "closed"
             self._spills.cleanup()
-
-    @property
-    def spill_directory(self) -> Path:
-        return self._spills.directory
 
     # ---- generation --------------------------------------------------------
 

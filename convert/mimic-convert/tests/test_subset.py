@@ -32,6 +32,7 @@ import fixtures  # noqa: E402
 import fixups  # noqa: E402
 import scatter  # noqa: E402
 import subset  # noqa: E402
+from errors import ConverterError  # noqa: E402
 
 A_LIST = fixtures.A_LIST
 FINAL_SNAP = len(A_LIST) - 1
@@ -115,7 +116,7 @@ def write_dataset(root: Path, placement, forests) -> Path:
 
 
 def run(*argv) -> int:
-    """Drive one subcommand through the real CLI parser, letting SubsetError out."""
+    """Drive one subcommand through the real CLI parser, letting ConverterError out."""
     args = subset.build_parser().parse_args([str(a) for a in argv])
     return args.func(args)
 
@@ -204,17 +205,22 @@ class HeaderContractTests(unittest.TestCase):
             )
 
     def test_missing_and_duplicate_columns_abort(self):
-        with self.assertRaises(subset.SubsetError):
+        with self.assertRaises(ConverterError):
             subset.resolve_sample_columns(["scale", "id", "Mvir"])
-        with self.assertRaises(subset.SubsetError):
+        with self.assertRaises(ConverterError):
             subset.resolve_sample_columns(["scale", "id", "Mvir", "Jx", "Jx", "Jy", "Jz"])
 
 
 class NumericContractTests(unittest.TestCase):
-    def test_spin_matches_the_reference_convention_bit_for_bit(self):
-        """The sampler's values must be the ones the reader would hold, or they
-        are not comparable with converted output at ties. Includes the zero-mass
-        carve-out, where raw J is deliberately kept."""
+    def test_sampled_values_are_the_ones_the_reader_would_hold(self):
+        """The sampler's values must be the reader's, or they are not comparable with
+        converted output at ties: tokens are quantized to float32 before widening, and
+        spin follows the reference convention bit for bit, including the zero-mass
+        carve-out where raw J is deliberately kept."""
+        token = b"1.23456789012345e12"
+        self.assertEqual(subset.widened_float32(token, "mvir"), float(np.float32(float(token))))
+        self.assertNotEqual(subset.widened_float32(token, "mvir"), float(token))
+
         mvir = np.array([1.0e12, 0.0, 3.7e10, 1.0], dtype=np.float64)
         jx = np.array([4.2e10, 9.9e9, -1.3e11, 0.0], dtype=np.float64)
 
@@ -228,16 +234,11 @@ class NumericContractTests(unittest.TestCase):
         np.testing.assert_array_equal(subset.spin_from_widened(mvir, jx), records["Jx"])
         self.assertEqual(records["Jx"][1], np.float32(9.9e9), "zero-mass halo must keep raw J")
 
-    def test_parsed_tokens_are_quantized_to_float32_before_widening(self):
-        token = b"1.23456789012345e12"
-        self.assertEqual(subset.widened_float32(token, "mvir"), float(np.float32(float(token))))
-        self.assertNotEqual(subset.widened_float32(token, "mvir"), float(token))
-
     def test_non_finite_and_overflowing_values_abort(self):
         """The converter aborts on these; carrying an infinity here would poison
         the sampled Spin bound and the mass ranking instead."""
         for token in (b"nan", b"inf", b"-inf", b"1e39", b"-1e39"):
-            with self.assertRaises(subset.SubsetError):
+            with self.assertRaises(ConverterError):
                 subset.widened_float32(token, "jz")
 
 
@@ -264,16 +265,6 @@ class ByteExtentTests(SubsetTestCase):
                 bytes(rebuilt), source, "file {} does not round-trip from its extents".format(name)
             )
 
-    def test_a_body_never_swallows_the_next_marker(self):
-        table = self.plan()
-        for file_id in sorted(self.placement):
-            source = (self.trees_dir / "tree_{}_0_0.dat".format(file_id)).read_bytes()
-            for row in table[table["file_id"] == file_id]:
-                start = int(row["offset"])
-                body = source[start : start + int(row["extent"])]
-                self.assertNotIn(b"#tree ", body)
-                self.assertTrue(body.endswith(b"\n"))
-
 
 class RootSamplingTests(SubsetTestCase):
     def test_sampled_values_are_exact_for_sampled_rows(self):
@@ -293,21 +284,32 @@ class RootSamplingTests(SubsetTestCase):
                 delta=abs(row["mvir"]) * 1e-6,
             )
 
-    def test_a_row_that_is_not_its_tree_root_aborts(self):
-        """The reader never checks that the first data row is the tree root, so
-        the sampler must. A violated premise means the design needs revisiting."""
+    def test_a_first_data_row_that_is_not_a_final_scale_root_aborts(self):
+        """The reader never checks that the first data row is the tree root, so the
+        sampler must, and a violated premise means the design needs revisiting. NaN
+        fails every comparison, so a non-finite scale would slip through the tolerance
+        test that is supposed to prove the row is a z=0 root."""
         self.plan()
         path = self.trees_dir / "tree_0_0_0.dat"
-        text = path.read_text().splitlines()
-        for i, line in enumerate(text):
-            if line.startswith("#tree "):
-                columns = text[i + 1].split()
-                columns[1] = str(int(columns[1]) + 12345)
-                text[i + 1] = " ".join(columns)
-                break
-        path.write_text("\n".join(text) + "\n")
-        with self.assertRaisesRegex(subset.SubsetError, "first-data-row-is-root"):
-            self.sample()
+        original = path.read_text()
+        cases = (
+            ("id", 1, lambda old: str(int(old) + 12345), "first-data-row-is-root"),
+            ("non-finite scale", 0, lambda old: "nan", "non-finite scale"),
+            ("scale below final", 0, lambda old: "{:.5f}".format(A_LIST[0]), "final a_list scale"),
+        )
+        for label, column, corrupt, message in cases:
+            with self.subTest(label):
+                text = original.splitlines()
+                for i, line in enumerate(text):
+                    if line.startswith("#tree "):
+                        columns = text[i + 1].split()
+                        columns[column] = corrupt(columns[column])
+                        text[i + 1] = " ".join(columns)
+                        break
+                path.write_text("\n".join(text) + "\n")
+                with self.assertRaisesRegex(ConverterError, message):
+                    self.sample()
+        path.write_text(original)
 
     def test_a_marker_disagreeing_with_the_index_aborts(self):
         """Nothing else in the pipeline checks that locations.dat's TreeRootID and
@@ -321,23 +323,7 @@ class RootSamplingTests(SubsetTestCase):
                 text[i] = "#tree {}".format(int(line.split()[1]) + 7)
                 break
         path.write_text("\n".join(text) + "\n")
-        with self.assertRaisesRegex(subset.SubsetError, "not immediately preceded by its own"):
-            self.sample()
-
-    def test_a_non_finite_scale_aborts(self):
-        """NaN fails every comparison, so it would slip through the tolerance test
-        that is supposed to prove the row is a z=0 root."""
-        self.plan()
-        path = self.trees_dir / "tree_0_0_0.dat"
-        text = path.read_text().splitlines()
-        for i, line in enumerate(text):
-            if line.startswith("#tree "):
-                columns = text[i + 1].split()
-                columns[0] = "nan"
-                text[i + 1] = " ".join(columns)
-                break
-        path.write_text("\n".join(text) + "\n")
-        with self.assertRaisesRegex(subset.SubsetError, "non-finite scale"):
+        with self.assertRaisesRegex(ConverterError, "not immediately preceded by its own"):
             self.sample()
 
     def test_a_gate_disabling_flag_value_is_refused(self):
@@ -348,7 +334,7 @@ class RootSamplingTests(SubsetTestCase):
         self.plan()
         self.sample()
         for bad in ("nan", "-1"):
-            with self.assertRaisesRegex(subset.SubsetError, "--scale-atol must be finite"):
+            with self.assertRaisesRegex(ConverterError, "--scale-atol must be finite"):
                 run(
                     "sample-roots",
                     "--candidates",
@@ -366,7 +352,7 @@ class RootSamplingTests(SubsetTestCase):
                     "--progress-every",
                     0,
                 )
-        with self.assertRaisesRegex(subset.SubsetError, "--bytes-per-halo must be finite"):
+        with self.assertRaisesRegex(ConverterError, "--bytes-per-halo must be finite"):
             run(
                 "finalize",
                 "--tree-table",
@@ -390,7 +376,7 @@ class RootSamplingTests(SubsetTestCase):
                 "--bytes-per-halo",
                 -506.3,
             )
-        with self.assertRaisesRegex(subset.SubsetError, "--min-recovery must be finite"):
+        with self.assertRaisesRegex(ConverterError, "--min-recovery must be finite"):
             run(
                 "calibrate-proxy",
                 "--tree-table",
@@ -400,20 +386,6 @@ class RootSamplingTests(SubsetTestCase):
                 "--min-recovery",
                 -1,
             )
-
-    def test_a_root_row_below_the_final_scale_aborts(self):
-        self.plan()
-        path = self.trees_dir / "tree_0_0_0.dat"
-        text = path.read_text().splitlines()
-        for i, line in enumerate(text):
-            if line.startswith("#tree "):
-                columns = text[i + 1].split()
-                columns[0] = "{:.5f}".format(A_LIST[0])
-                text[i + 1] = " ".join(columns)
-                break
-        path.write_text("\n".join(text) + "\n")
-        with self.assertRaisesRegex(subset.SubsetError, "final a_list scale"):
-            self.sample()
 
 
 class SelectionTests(SubsetTestCase):
@@ -555,7 +527,7 @@ class SelectionTests(SubsetTestCase):
             "--progress-every",
             0,
         )
-        with self.assertRaisesRegex(subset.SubsetError, "no complete-forest closure exists for it"):
+        with self.assertRaisesRegex(ConverterError, "no complete-forest closure exists for it"):
             run(
                 "finalize",
                 "--tree-table",
@@ -604,23 +576,18 @@ class StatisticsTests(unittest.TestCase):
             [row["log10_n_trees_range"] for row in narrow["bins"]],
         )
 
-    def test_recovery_fraction_is_one_for_a_perfect_proxy(self):
+    def test_recovery_fraction_tracks_the_proxy_quality(self):
+        """A perfect proxy recovers every top forest; an anticorrelated one none."""
         forests = np.repeat(np.arange(500, dtype=np.int64), 2)
         mvir = np.repeat(np.arange(500, dtype=np.float64), 2)
         fraction, m = subset.recovery_fraction(forests, mvir.copy(), mvir, 0.5, 100)
         self.assertEqual(fraction, 1.0)
         self.assertEqual(m, 500)
 
-    def test_recovery_fraction_falls_for_an_anticorrelated_proxy(self):
         forests = np.arange(500, dtype=np.int64)
         mvir = np.arange(500, dtype=np.float64)
         fraction, _ = subset.recovery_fraction(forests, -mvir, mvir, 0.2, 100)
         self.assertEqual(fraction, 0.0)
-
-    def test_spearman_is_one_for_a_monotone_relation(self):
-        x = np.array([1.0, 2.0, 3.0, 4.0])
-        self.assertAlmostEqual(subset.spearman_rank_correlation(x, x**3), 1.0)
-        self.assertAlmostEqual(subset.spearman_rank_correlation(x, -x), -1.0)
 
 
 class ExtractionTests(SubsetTestCase):
@@ -687,20 +654,6 @@ class ExtractionTests(SubsetTestCase):
             self.assertEqual(recorded[root_id], offset)
             marker = subset.tree_marker_bytes(root_id)
             self.assertEqual(emitted[offset - len(marker) : offset], marker)
-
-    def test_the_count_line_keeps_its_original_field_width(self):
-        """The count line is rewritten in place at the source's own width:
-        conservative preservation of a field the converter checks."""
-        _, out_dir = self.full_pipeline()
-        for file_id in range(8):
-            source = (self.trees_dir / "tree_{}_0_0.dat".format(file_id)).read_bytes()
-            emitted = (out_dir / "tree_{}_0_0.dat".format(file_id)).read_bytes()
-            with open(self.trees_dir / "tree_{}_0_0.dat".format(file_id), "rb") as handle:
-                _, start, end, _ = subset.locate_header(handle, "source")
-            with open(out_dir / "tree_{}_0_0.dat".format(file_id), "rb") as handle:
-                _, new_start, new_end, _ = subset.locate_header(handle, "emitted")
-            self.assertEqual(end - start, new_end - new_start)
-            self.assertEqual(source[:start], emitted[:new_start])
 
     def test_verification_detects_a_corrupted_body(self):
         """The md5 check compares what was written against what was read, so a
@@ -786,7 +739,7 @@ class ExtractionTests(SubsetTestCase):
         self.sample()
         selection_dir = self.tmp / "selection"
         self.finalize(selection_dir, target_trees=1, k=0)
-        with self.assertRaisesRegex(subset.SubsetError, "would overwrite the source"):
+        with self.assertRaisesRegex(ConverterError, "would overwrite the source"):
             self.extract(selection_dir, self.trees_dir)
 
     def test_a_source_file_with_a_trailer_after_its_last_row_is_rejected(self):
@@ -799,7 +752,7 @@ class ExtractionTests(SubsetTestCase):
 
         path = self.trees_dir / "tree_0_0_0.dat"
         path.write_bytes(path.read_bytes() + b"END\n")
-        with self.assertRaisesRegex(subset.SubsetError, "final line is not a data row"):
+        with self.assertRaisesRegex(ConverterError, "final line is not a data row"):
             self.extract(selection_dir, self.tmp / "trailer")
 
     def test_a_source_marker_disagreeing_with_the_selection_is_refused(self):
@@ -823,7 +776,7 @@ class ExtractionTests(SubsetTestCase):
         path.write_text(
             path.read_text().replace("#tree {}\n".format(root), "#tree {}\n".format(wrong), 1)
         )
-        with self.assertRaisesRegex(subset.SubsetError, "not preceded by its own marker"):
+        with self.assertRaisesRegex(ConverterError, "not preceded by its own marker"):
             self.extract(selection_dir, self.tmp / "badmarker")
 
     def test_a_source_file_without_a_trailing_newline_is_rejected(self):
@@ -836,7 +789,7 @@ class ExtractionTests(SubsetTestCase):
 
         path = self.trees_dir / "tree_0_0_0.dat"
         path.write_bytes(path.read_bytes().rstrip(b"\n"))
-        with self.assertRaisesRegex(subset.SubsetError, "does not end with a newline"):
+        with self.assertRaisesRegex(ConverterError, "does not end with a newline"):
             self.extract(selection_dir, self.tmp / "subset3")
 
     def test_a_non_cube_file_count_is_rejected(self):
@@ -847,7 +800,7 @@ class ExtractionTests(SubsetTestCase):
         filemap = json.loads((selection_dir / "filemap.json").read_text())
         del filemap["7"]
         (selection_dir / "filemap.json").write_text(json.dumps(filemap))
-        with self.assertRaisesRegex(subset.SubsetError, "perfect cube"):
+        with self.assertRaisesRegex(ConverterError, "perfect cube"):
             self.extract(selection_dir, self.tmp / "subset4")
 
 

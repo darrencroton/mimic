@@ -205,16 +205,9 @@ class SourceInventory:
     """The adapter's deterministic total order over the whole source.
 
     ``SourceHaloID`` is a prefix sum of halo counts in this order, starting at
-    1 so every id is positive. Two properties matter and are enforced
-    here:
-
-    - **The order is total and explicit.** Units are held in ascending
-      ``(source_file_ordinal, unit_ordinal)``; duplicates are rejected.
-    - **Sampling never compacts identity.** ``selected`` narrows which units a
-      run converts, but the prefix sums are always computed over *every* unit
-      of the parent inventory, so a sampled run's ids match the unsampled
-      run's exactly. Comparing compacted sample identities against an
-      unsampled reference is precisely the mistake this prevents.
+    1 so every id is positive. The order is total and explicit: units are held
+    in ascending ``(source_file_ordinal, unit_ordinal)`` and duplicates are
+    rejected.
 
     Identity is relative to the selected source representation: an L-Halo
     packaging and a forests-HDF5 packaging of the same simulation can
@@ -239,7 +232,6 @@ class SourceInventory:
     def __init__(
         self,
         units: Sequence[SourceUnit],
-        selected: Optional[Sequence[Tuple[int, int]]] = None,
         physical_units: bool = True,
     ):
         ordered = tuple(units)
@@ -281,14 +273,6 @@ class SourceInventory:
             (unit.source_file_ordinal, unit.unit_ordinal): position
             for position, unit in enumerate(ordered)
         }
-        if selected is None:
-            self.selected: Tuple[Tuple[int, int], ...] = tuple(sorted(self._index))
-        else:
-            chosen = tuple(sorted(set(tuple(key) for key in selected)))
-            unknown = [key for key in chosen if key not in self._index]
-            if unknown:
-                raise ConverterError("selected units {} are not in the inventory".format(unknown))
-            self.selected = chosen
 
     def base_id(self, source_file_ordinal: int, unit_ordinal: int) -> int:
         """The ``SourceHaloID`` of row 0 of one unit."""

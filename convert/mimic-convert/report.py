@@ -110,9 +110,8 @@ def recommended_multiplier(max_rank: int, n_forests_total: int) -> int:
 # counts, index bounds, resource measurements, the validation outcomes, and
 # its runtime status: that the current Mimic consumes format version 3, which
 # routes a parity gate has actually validated, and what still limits it. It
-# carries the consumer payload-metadata fragment, labelled insufficient for
-# runtime execution. It writes into the conversion workdir only: no
-# simulation package, halo_properties.yaml or run file is created or changed.
+# writes into the conversion workdir only: no simulation package,
+# halo_properties.yaml or run file is created or changed.
 
 REPORT_V3_KIND = "mimic-generic-conversion-report"
 
@@ -296,17 +295,6 @@ def build_report_v3(manifest, battery, dataset_dir) -> dict:
             == _V3_CONSUMED_FORMAT_VERSIONS,
             "limitations": _v3_limitations(measured, schema),
         },
-        "consumer_metadata_fragment": {
-            "sufficient_for_runtime_execution": False,
-            "label": (
-                "Payload types, native units and core-role bindings only. Insufficient to enable "
-                "runtime execution: it does not describe the reader-owned target-snapshot and "
-                "SourceHaloID arrays, gapped-link retention state, or the package's "
-                "simulation_info.yaml and a_list, and no simulation package was written from it."
-            ),
-            "simulation_packages_written": False,
-            "fragment": schema.consumer_metadata_fragment(),
-        },
         "validation": [outcome.as_dict() for outcome in battery.outcomes],
         "validation_passed": not battery.failed,
     }
@@ -435,25 +423,6 @@ def render_text_v3(report: dict) -> str:
         ),
     ]
     lines += ["  - {}".format(text) for text in report["runtime_compatibility"]["limitations"]]
-    fragment = report["consumer_metadata_fragment"]
-    lines += ["", "consumer payload-metadata fragment (INSUFFICIENT for runtime execution):"]
-    lines.append("  {}".format(fragment["label"]))
-    for entry in fragment["fragment"]["halo_properties"]:
-        lines.append(
-            "  {:<16} {:<10} {:<22} h:{:<8} core role: {}".format(
-                entry["name"],
-                entry["type"],
-                entry["units"],
-                entry["h_convention"],
-                entry["provides_core_role"] or "-",
-            )
-        )
-    for entry in fragment["fragment"]["format_table_fields"]:
-        lines.append(
-            "  {:<16} {:<10} {:<33} core role: {}".format(
-                entry["name"], entry["type"], "(format table)", entry["provides_core_role"] or "-"
-            )
-        )
     lines += ["", "validation outcomes:"]
     for outcome in report["validation"]:
         text = "  {}: {}".format(outcome["name"], outcome["status"])

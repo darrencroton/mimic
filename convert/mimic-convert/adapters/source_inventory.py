@@ -1,7 +1,11 @@
 """Read-only source inspection helpers for the converter.
 
 Pure inspection: every function here opens sources for reading only, and none
-writes into a source directory. Used by convert/mimic-convert/inspect_sources.py.
+writes into a source directory. Used by convert/mimic-convert/inspect_sources.py
+(the inspection CLI), by convert_trees.py (``load_simulation_info`` and
+``MissingDependencyError``), and by the adapters: lhalo_binary.py
+(``read_lhalo_header``, ``LHaloHeader``) and ctrees_hdf5.py (``pin_source_file``,
+``SourceFileIdentity``, ``MissingDependencyError``).
 
 L-Halo binary layout is the shipped 104-byte record (src/include/generated/
 raw_halo_defs.h -> struct RawHalo), with an explicit caller-supplied byte
@@ -90,23 +94,6 @@ LHALO_FIELDS: Tuple[Tuple[str, str, Tuple[int, ...]], ...] = (
     ("SubhaloIndex", "i4", ()),
     ("SubHalfMass", "f4", ()),
 )
-
-#: The five stored local links the binary adapter must preserve.
-LHALO_LINK_FIELDS = (
-    "Descendant",
-    "FirstProgenitor",
-    "NextProgenitor",
-    "FirstHaloInFOFgroup",
-    "NextHaloInFOFgroup",
-)
-
-_LHALO_FIELD_NAMES = frozenset(name for name, _kind, _shape in LHALO_FIELDS)
-if not set(LHALO_LINK_FIELDS) <= _LHALO_FIELD_NAMES:  # pragma: no cover - defends future edits
-    raise AssertionError(
-        "LHALO_LINK_FIELDS names not present in LHALO_FIELDS: {}".format(
-            set(LHALO_LINK_FIELDS) - _LHALO_FIELD_NAMES
-        )
-    )
 
 LHALO_RECORD_BYTES = 104
 

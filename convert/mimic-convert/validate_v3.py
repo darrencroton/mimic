@@ -65,7 +65,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from conversion_manifest import ConversionManifest, IdentitySchemeError, sha256_file  # noqa: E402
+from conversion_manifest import ConversionManifest, sha256_file  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from hdf5_writer_v3 import (  # noqa: E402
     CHUNK_1D,
@@ -718,22 +718,15 @@ def sidecar_structure(path: Path) -> List[str]:
 def load_manifest(manifest_path: Path):
     """The generic conversion manifest the dataset claims, loaded with its
     own integrity checks (configuration digest, embedded schema identity).
-    Every path that validates or reports a conversion loads it here, so an
-    ASCII conversion that predates the forest-rank identity scheme is
-    refused (:class:`IdentitySchemeError`) before anything else is read."""
-    manifest = ConversionManifest.load(Path(manifest_path).parent)
-    manifest.require_current_identity_scheme()
-    return manifest
+    Every path that validates or reports a conversion loads it here."""
+    return ConversionManifest.load(Path(manifest_path).parent)
 
 
 def try_load_manifest(manifest_path: Path):
     """``(manifest, None)``, or ``(None, error)`` when the manifest does not
-    load; the error is a manifest-binding failure, never a refusal. An
-    outdated identity scheme is refused, not returned."""
+    load; the error is a manifest-binding failure."""
     try:
         return load_manifest(manifest_path), None
-    except IdentitySchemeError:
-        raise
     except (ConverterError, OSError, ValueError, KeyError) as exc:
         return None, exc
 

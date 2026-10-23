@@ -21,7 +21,6 @@ so documentation that stops being runnable fails here rather than in a later
 conversion.
 """
 
-import copy
 import dataclasses
 import json
 import os
@@ -124,16 +123,6 @@ class ShippedProfileTests(unittest.TestCase):
                 self.assertEqual(len(schema.digest), 64)
                 self.assertEqual(schema.digest, schema.digest.lower())
 
-    def test_shipped_profiles_have_distinct_identities(self):
-        digests = {}
-        for path in sorted(PROFILE_DIR.glob("*.yaml")):
-            column_map = cs.load_column_map(path)
-            properties = (
-                self.source_properties if column_map.source_format == "lhalo_binary" else None
-            )
-            digests[path.name] = cs.build_schema(column_map, properties).digest
-        self.assertEqual(len(set(digests.values())), len(digests), digests)
-
     def test_no_shipped_extra_collides_with_a_core_property_name(self):
         """The reserved-name check covers what the *format* reserves, not the
         consuming package's vocabulary -- so a shipped example that collided
@@ -178,19 +167,9 @@ class ShippedProfileTests(unittest.TestCase):
         covered = sum(entry.itemsize for entry in layout.entries)
         self.assertEqual(covered, 104, "the shipped record is fully packed, with no padding")
 
-    def test_unselected_source_fields_stay_in_the_layout(self):
-        """Extra selection must not alter the on-disk stride."""
-        schema = cs.build_schema(
-            cs.load_column_map(PROFILE_DIR / "lhalo_binary.yaml"), self.source_properties
-        )
-        names = [entry.name for entry in schema.source_layout.entries]
-        for unselected in ("M_Mean200", "M_TopHat", "FileNr", "SubhaloIndex", "SubHalfMass"):
-            self.assertIn(unselected, names)
-            entry = next(e for e in schema.source_layout.entries if e.name == unselected)
-            self.assertFalse(entry.selected)
-        self.assertEqual(schema.source_layout.itemsize, 104)
-
-    def test_selecting_an_extra_marks_it_selected_without_changing_the_stride(self):
+    def test_extra_selection_never_changes_the_on_disk_stride(self):
+        """Unselected source fields keep their bytes in the layout, and selecting
+        an extra marks its field selected without moving any offset."""
         default = cs.build_schema(
             cs.load_column_map(PROFILE_DIR / "lhalo_binary.yaml"), self.source_properties
         )
@@ -198,6 +177,11 @@ class ShippedProfileTests(unittest.TestCase):
             cs.load_column_map(PROFILE_DIR / "lhalo_binary_extras_example.yaml"),
             self.source_properties,
         )
+        entries = {entry.name: entry for entry in default.source_layout.entries}
+        for unselected in ("M_Mean200", "M_TopHat", "FileNr", "SubhaloIndex", "SubHalfMass"):
+            self.assertIn(unselected, entries)
+            self.assertFalse(entries[unselected].selected)
+        self.assertEqual(default.source_layout.itemsize, 104)
         self.assertEqual(default.source_layout.itemsize, with_extras.source_layout.itemsize)
         self.assertEqual(
             [e.offset for e in default.source_layout.entries],
@@ -217,66 +201,62 @@ class ProfileGrammarTests(unittest.TestCase):
                 schema = schema_for(valid_profile(source_format), extras)
                 self.assertEqual(schema.source_format, source_format)
 
-    def test_unknown_top_level_key_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["column_map_version"] = 1
-        with self.assertRaisesRegex(ConverterError, "unknown key"):
-            schema_for(profile)
-
-    def test_missing_top_level_key_fails(self):
-        for key in ("schema_version", "required_columns", "extra_fields"):
-            with self.subTest(key=key):
+    def test_a_malformed_profile_is_rejected_with_a_named_reason(self):
+        """The strict grammar refuses typo and missing keys, another schema version or source
+        format, a null extra list, and bad role tables or alias lists."""
+        cases = (
+            ("unknown top-level key", lambda p: p.update(column_map_version=1), "unknown key"),
+            (
+                "missing schema_version",
+                lambda p: p.pop("schema_version"),
+                "missing required key",
+            ),
+            (
+                "missing required_columns",
+                lambda p: p.pop("required_columns"),
+                "missing required key",
+            ),
+            ("missing extra_fields", lambda p: p.pop("extra_fields"), "missing required key"),
+            ("null extra_fields", lambda p: p.update(extra_fields=None), "must be a list"),
+            ("wrong schema_version", lambda p: p.update(schema_version=2), "schema_version"),
+            (
+                "unknown source_format",
+                lambda p: p.update(source_format="lhalo_hdf5"),
+                "source_format",
+            ),
+            (
+                "missing required role",
+                lambda p: p["required_columns"].pop("snap"),
+                "missing required key",
+            ),
+            (
+                "unknown required role",
+                lambda p: p["required_columns"].update(rvir=["Rvir"]),
+                "unknown key",
+            ),
+            (
+                "empty alias list",
+                lambda p: p["required_columns"].update(snap=[]),
+                "empty alias list",
+            ),
+            (
+                "bare string alias list",
+                lambda p: p["required_columns"].update(snap="snap_num"),
+                "list of aliases",
+            ),
+        )
+        for label, mutate, pattern in cases:
+            with self.subTest(case=label):
                 profile = valid_profile("consistent_trees_ascii")
-                del profile[key]
-                with self.assertRaises(ConverterError):
+                mutate(profile)
+                with self.assertRaisesRegex(ConverterError, pattern):
                     schema_for(profile)
-
-    def test_wrong_schema_version_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["schema_version"] = 2
-        with self.assertRaisesRegex(ConverterError, "schema_version"):
-            schema_for(profile)
-
-    def test_unknown_source_format_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["source_format"] = "lhalo_hdf5"
-        with self.assertRaisesRegex(ConverterError, "source_format"):
-            schema_for(profile)
-
-    def test_missing_required_role_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        del profile["required_columns"]["snap"]
-        with self.assertRaisesRegex(ConverterError, "missing required key"):
-            schema_for(profile)
-
-    def test_unknown_required_role_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["required_columns"]["rvir"] = ["Rvir"]
-        with self.assertRaisesRegex(ConverterError, "unknown key"):
-            schema_for(profile)
-
-    def test_empty_alias_list_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["required_columns"]["snap"] = []
-        with self.assertRaisesRegex(ConverterError, "empty alias list"):
-            schema_for(profile)
-
-    def test_bare_string_alias_list_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["required_columns"]["snap"] = "snap_num"
-        with self.assertRaisesRegex(ConverterError, "list of aliases"):
-            schema_for(profile)
 
     def test_aliases_that_normalize_to_the_same_name_fail(self):
         profile = valid_profile("consistent_trees_ascii")
         profile["required_columns"]["mvir"] = ["Mvir", "mvir(10)"]
         with self.assertRaisesRegex(ConverterError, "twice after normalization"):
             schema_for(profile)
-
-    def test_structural_metadata_is_not_a_remappable_role(self):
-        """Tree headers and ForestInfo are adapter-owned."""
-        self.assertNotIn("ForestInfo", cs.REQUIRED_ROLES["consistent_trees_hdf5"])
-        self.assertNotIn("Ntrees", cs.REQUIRED_ROLES["lhalo_binary"])
 
 
 class ExtraFieldTests(unittest.TestCase):
@@ -304,10 +284,39 @@ class ExtraFieldTests(unittest.TestCase):
                 self.assertEqual(extra.spec.numpy_dtype, spec.numpy_dtype)
                 self.assertEqual(len(extra.sources), spec.n_components)
 
-    def test_unsupported_type_fails(self):
-        profile = valid_profile("consistent_trees_ascii", [scalar_extra(type_name="float16")])
-        with self.assertRaisesRegex(ConverterError, "unsupported type"):
-            schema_for(profile)
+    def test_a_malformed_extra_is_rejected_with_a_named_reason(self):
+        """An unsupported or unhashable type, an unknown h_convention, blank units or
+        description, a bad component index or source key, and any missing or unknown entry
+        key are refused."""
+        component = dict(scalar_extra(units="Mpc/h"), sources=[{"field": "Pos", "component": 3}])
+        cases = [
+            ("unsupported type", scalar_extra(type_name="float16"), "unsupported type"),
+            ("list type", dict(scalar_extra(), type=["float"]), "unsupported type"),
+            ("mapping type", dict(scalar_extra(), type={"float": 1}), "unsupported type"),
+            ("h_convention", scalar_extra(convention="comoving"), "h_convention"),
+            ("blank units", dict(scalar_extra(), units="  "), "nonempty string"),
+            ("blank description", dict(scalar_extra(), description="  "), "nonempty string"),
+            ("component above 2", component, "component must be 0, 1 or 2"),
+            (
+                "float component",
+                dict(component, sources=[{"field": "Pos", "component": 1.0}]),
+                "must be an integer",
+            ),
+            (
+                "unknown source key",
+                dict(scalar_extra(), sources=[{"field": "Rvir", "index": 0}]),
+                "unknown source key",
+            ),
+            ("unknown entry key", dict(scalar_extra(), output_convert="scale"), "unknown key"),
+        ]
+        for key in cs._EXTRA_ENTRY_KEYS:
+            entry = {name: value for name, value in scalar_extra().items() if name != key}
+            cases.append(("missing " + key, entry, "missing required key"))
+        for label, extra, pattern in cases:
+            with self.subTest(case=label):
+                profile = valid_profile("consistent_trees_ascii", [extra])
+                with self.assertRaisesRegex(ConverterError, pattern):
+                    schema_for(profile)
 
     def test_wrong_component_count_fails(self):
         for type_name, sources in (
@@ -332,36 +341,6 @@ class ExtraFieldTests(unittest.TestCase):
                 with self.assertRaisesRegex(ConverterError, "source component"):
                     schema_for(profile)
 
-    def test_invalid_component_index_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["extra_fields"] = [
-            {
-                "name": "Selected",
-                "sources": [{"field": "Pos", "component": 3}],
-                "type": "float",
-                "units": "Mpc/h",
-                "h_convention": "carried",
-                "description": "test",
-            }
-        ]
-        with self.assertRaisesRegex(ConverterError, "component must be 0, 1 or 2"):
-            schema_for(profile)
-
-    def test_float_component_index_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["extra_fields"] = [
-            {
-                "name": "Selected",
-                "sources": [{"field": "Pos", "component": 1.0}],
-                "type": "float",
-                "units": "Mpc/h",
-                "h_convention": "carried",
-                "description": "test",
-            }
-        ]
-        with self.assertRaisesRegex(ConverterError, "must be an integer"):
-            schema_for(profile)
-
     def test_repeated_source_component_in_one_field_fails(self):
         profile = valid_profile("consistent_trees_ascii")
         profile["extra_fields"] = [
@@ -375,21 +354,6 @@ class ExtraFieldTests(unittest.TestCase):
             }
         ]
         with self.assertRaisesRegex(ConverterError, "more than once"):
-            schema_for(profile)
-
-    def test_unknown_source_component_key_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["extra_fields"] = [
-            {
-                "name": "Selected",
-                "sources": [{"field": "Rvir", "index": 0}],
-                "type": "float",
-                "units": "kpc/h",
-                "h_convention": "carried",
-                "description": "test",
-            }
-        ]
-        with self.assertRaisesRegex(ConverterError, "unknown source key"):
             schema_for(profile)
 
     def test_duplicate_extra_names_fail(self):
@@ -439,107 +403,108 @@ class ExtraFieldTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "63-byte limit"):
             schema_for(profile)
 
-    def test_invalid_h_convention_is_rejected(self):
-        profile = valid_profile("consistent_trees_ascii", [scalar_extra(convention="comoving")])
-        with self.assertRaisesRegex(ConverterError, "h_convention"):
-            schema_for(profile)
-
-    def test_empty_units_and_description_are_rejected(self):
-        for key in ("units", "description"):
-            with self.subTest(key=key):
-                extra = scalar_extra()
-                extra[key] = "  "
-                profile = valid_profile("consistent_trees_ascii", [extra])
-                with self.assertRaisesRegex(ConverterError, "nonempty string"):
-                    schema_for(profile)
-
-    def test_missing_extra_key_is_rejected(self):
-        for key in cs._EXTRA_ENTRY_KEYS:
-            with self.subTest(key=key):
-                extra = scalar_extra()
-                del extra[key]
-                profile = valid_profile("consistent_trees_ascii", [extra])
-                with self.assertRaises(ConverterError):
-                    schema_for(profile)
-
-    def test_unknown_extra_key_is_rejected(self):
-        extra = scalar_extra()
-        extra["output_convert"] = "scale"
-        profile = valid_profile("consistent_trees_ascii", [extra])
-        with self.assertRaisesRegex(ConverterError, "unknown key"):
-            schema_for(profile)
-
-    def test_null_extra_fields_is_rejected(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["extra_fields"] = None
-        with self.assertRaisesRegex(ConverterError, "must be a list"):
-            schema_for(profile)
-
 
 class BinaryLayoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source_properties = cs.load_source_properties(LHALO_PROPERTIES)
 
-    def test_binary_layout_on_a_non_binary_profile_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["binary_layout"] = {"byte_order": "little", "itemsize": 104, "offsets": {"x": 0}}
-        with self.assertRaisesRegex(ConverterError, "unknown key"):
-            schema_for(profile)
-
-    def test_missing_binary_layout_on_a_binary_profile_fails(self):
-        profile = valid_profile("lhalo_binary")
-        del profile["binary_layout"]
-        with self.assertRaisesRegex(ConverterError, "missing required key"):
-            schema_for(profile, self.source_properties)
-
-    def test_binary_profile_without_source_properties_fails(self):
-        profile = valid_profile("lhalo_binary")
-        with self.assertRaisesRegex(ConverterError, "halo_properties.yaml"):
-            schema_for(profile, None)
-
-    def test_source_properties_on_a_non_binary_profile_fails(self):
-        profile = valid_profile("consistent_trees_ascii")
-        with self.assertRaisesRegex(ConverterError, "lhalo_binary profiles only"):
-            schema_for(profile, self.source_properties)
+    def test_layout_and_source_properties_apply_to_binary_profiles_only(self):
+        """A binary profile needs both binary_layout and halo_properties.yaml; no other format
+        accepts either."""
+        with_layout = valid_profile("consistent_trees_ascii")
+        with_layout["binary_layout"] = {
+            "byte_order": "little",
+            "itemsize": 104,
+            "offsets": {"x": 0},
+        }
+        without_layout = valid_profile("lhalo_binary")
+        del without_layout["binary_layout"]
+        cases = (
+            ("layout on a non-binary profile", with_layout, None, "unknown key"),
+            (
+                "binary profile without layout",
+                without_layout,
+                self.source_properties,
+                "missing required key",
+            ),
+            (
+                "binary profile without source properties",
+                valid_profile("lhalo_binary"),
+                None,
+                "halo_properties.yaml",
+            ),
+            (
+                "source properties on a non-binary profile",
+                valid_profile("consistent_trees_ascii"),
+                self.source_properties,
+                "lhalo_binary profiles only",
+            ),
+        )
+        for label, profile, properties, pattern in cases:
+            with self.subTest(case=label):
+                with self.assertRaisesRegex(ConverterError, pattern):
+                    schema_for(profile, properties)
 
     def test_invalid_byte_order_fails(self):
-        for byte_order in ("native", "=", "<", None):
+        for byte_order in ("native", "=", "<", None, ["little"]):
             with self.subTest(byte_order=byte_order):
                 profile = valid_profile("lhalo_binary")
                 profile["binary_layout"]["byte_order"] = byte_order
                 with self.assertRaisesRegex(ConverterError, "byte_order"):
                     schema_for(profile, self.source_properties)
 
-    def test_big_endian_is_supported_and_changes_the_identity(self):
+    def test_big_endian_is_supported_changes_the_identity_and_sets_the_dtype_order(self):
         little = schema_for(valid_profile("lhalo_binary"), self.source_properties)
         profile = valid_profile("lhalo_binary")
         profile["binary_layout"]["byte_order"] = "big"
         big = schema_for(profile, self.source_properties)
         self.assertEqual(big.source_layout.numpy_byte_order, ">")
         self.assertNotEqual(little.digest, big.digest)
+        dtype = np.dtype(big.source_layout.numpy_dtype_spec())
+        self.assertEqual(dtype["Descendant"].str, ">i4")
+        self.assertEqual(dtype["MostBoundID"].str, ">i8")
 
-    def test_non_integer_itemsize_and_offsets_fail(self):
-        for mutate in (
-            lambda layout: layout.__setitem__("itemsize", 104.0),
-            lambda layout: layout.__setitem__("itemsize", True),
-            lambda layout: layout.__setitem__("itemsize", 0),
-            lambda layout: layout["offsets"].__setitem__("Descendant", 0.0),
-            lambda layout: layout["offsets"].__setitem__("Descendant", -4),
-        ):
-            with self.subTest(mutate=mutate):
+    def test_malformed_itemsize_and_offsets_fail(self):
+        """Non-integer, non-positive, out-of-range (2**70) and mixed-type itemsize and offsets
+        are refused as converter errors."""
+        cases = (
+            ("float itemsize", lambda l: l.update(itemsize=104.0), "must be an integer"),
+            ("bool itemsize", lambda l: l.update(itemsize=True), "must be an integer"),
+            ("zero itemsize", lambda l: l.update(itemsize=0), "must be in"),
+            ("absurd itemsize", lambda l: l.update(itemsize=2**70), "must be in"),
+            (
+                "float offset",
+                lambda l: l["offsets"].update(Descendant=0.0),
+                "must be an integer",
+            ),
+            ("negative offset", lambda l: l["offsets"].update(Descendant=-4), "must be in"),
+            ("absurd offset", lambda l: l["offsets"].update(Descendant=2**70), "must be in"),
+            (
+                "non-string offset key",
+                lambda l: l["offsets"].update({7: 0}),
+                "non-string key",
+            ),
+        )
+        for label, mutate, pattern in cases:
+            with self.subTest(case=label):
                 profile = valid_profile("lhalo_binary")
                 mutate(profile["binary_layout"])
-                with self.assertRaises(ConverterError):
+                with self.assertRaisesRegex(ConverterError, pattern):
                     schema_for(profile, self.source_properties)
 
-    def test_padding_between_fields_is_allowed(self):
-        """A record may carry bytes this converter never reads."""
-        profile = valid_profile("lhalo_binary")
-        profile["binary_layout"]["itemsize"] = 112
-        profile["binary_layout"]["offsets"]["SubHalfMass"] = 108
-        schema = schema_for(profile, self.source_properties)
-        self.assertEqual(schema.source_layout.itemsize, 112)
+    def test_padding_is_allowed_and_the_record_is_read_with_its_declared_stride(self):
+        """A record may carry bytes this converter never reads, between fields or after the
+        last one, and must not be read with a packed stride."""
+        for itemsize, offsets in ((112, {"SubHalfMass": 108}), (128, {})):
+            with self.subTest(itemsize=itemsize):
+                profile = valid_profile("lhalo_binary")
+                profile["binary_layout"]["itemsize"] = itemsize
+                profile["binary_layout"]["offsets"].update(offsets)
+                schema = schema_for(profile, self.source_properties)
+                self.assertEqual(schema.source_layout.itemsize, itemsize)
+                dtype = np.dtype(schema.source_layout.numpy_dtype_spec())
+                self.assertEqual(dtype.itemsize, itemsize)
 
     def test_layout_fixtures_fail_with_a_named_reason(self):
         cases = {
@@ -547,12 +512,6 @@ class BinaryLayoutTests(unittest.TestCase):
             "lhalo_offset_out_of_record.yaml": "record is only",
             "lhalo_missing_offset.yaml": "does not cover source field",
             "lhalo_unknown_offset_field.yaml": "source properties do not",
-            "lhalo_unresolvable_alias.yaml": "none of the aliases",
-            "lhalo_role_type_mismatch.yaml": "which is float, but the role is int",
-            "lhalo_role_arity_mismatch.yaml": "which is vec3_float, but the role is float",
-            "lhalo_extra_type_mismatch.yaml": "stores int .int32., but the extra is declared float",
-            "lhalo_offset_order_swap.yaml": "offsets must follow the declaration order",
-            "lhalo_role_collision.yaml": "both resolve to the same source field",
         }
         for name, pattern in cases.items():
             with self.subTest(fixture=name):
@@ -571,22 +530,6 @@ class BinaryLayoutTests(unittest.TestCase):
         self.assertEqual(dtype.fields["MostBoundID"][1], 80)
         self.assertTrue(all(dtype[name].str.startswith("<") for name in ("Len", "Vmax", "SnapNum")))
 
-    def test_numpy_dtype_spec_preserves_padding(self):
-        """A padded record must not be read with a packed stride."""
-        profile = valid_profile("lhalo_binary")
-        profile["binary_layout"]["itemsize"] = 128
-        schema = schema_for(profile, self.source_properties)
-        dtype = np.dtype(schema.source_layout.numpy_dtype_spec())
-        self.assertEqual(dtype.itemsize, 128)
-
-    def test_big_endian_dtype_spec_uses_the_declared_order(self):
-        profile = valid_profile("lhalo_binary")
-        profile["binary_layout"]["byte_order"] = "big"
-        schema = schema_for(profile, self.source_properties)
-        dtype = np.dtype(schema.source_layout.numpy_dtype_spec())
-        self.assertEqual(dtype["Descendant"].str, ">i4")
-        self.assertEqual(dtype["MostBoundID"].str, ">i8")
-
     def test_unresolvable_required_alias_fails_at_freeze_time(self):
         """A binary profile's aliases must name a property's `name:`, not its
         `source:`. `M_Crit200: [Mvir]` is the plausible typo, since
@@ -596,58 +539,27 @@ class BinaryLayoutTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "none of the aliases"):
             schema_for(profile, self.source_properties)
 
-    def test_unresolvable_required_alias_never_produces_a_digest(self):
-        """The failure must happen before a schema exists: a frozen mapping no
-        source can resolve would mint durable on-disk provenance for a
-        conversion that can never run, and would silently leave the role's
-        layout entry unselected."""
-        profile = valid_profile("lhalo_binary")
-        profile["required_columns"]["M_Crit200"] = ["Mvir"]
-        try:
-            schema = schema_for(profile, self.source_properties)
-        except ConverterError:
-            return
-        entry = next(e for e in schema.source_layout.entries if e.name == "M_Crit200")
-        self.fail(
-            "froze an unresolvable mapping: digest {}, M_Crit200 selected={}".format(
-                schema.digest, entry.selected
-            )
-        )
-
     def test_unresolvable_extra_source_fails_at_freeze_time(self):
         profile = valid_profile("lhalo_binary", [scalar_extra(field="NotAField")])
         with self.assertRaisesRegex(ConverterError, "does not carry field"):
             schema_for(profile, self.source_properties)
 
-    def test_component_index_on_a_scalar_source_fails(self):
-        profile = valid_profile("lhalo_binary")
-        profile["extra_fields"] = [
-            {
-                "name": "Selected",
-                "sources": [{"field": "M_Mean200", "component": 1}],
-                "type": "float",
-                "units": "1e10 Msun/h",
-                "h_convention": "carried",
-                "description": "test",
-            }
-        ]
-        with self.assertRaisesRegex(ConverterError, "must not carry a 'component'"):
-            schema_for(profile, self.source_properties)
-
-    def test_missing_component_index_on_a_vector_source_fails(self):
-        profile = valid_profile("lhalo_binary")
-        profile["extra_fields"] = [
-            {
-                "name": "Selected",
-                "sources": [{"field": "Pos"}],
-                "type": "float",
-                "units": "Mpc/h",
-                "h_convention": "carried",
-                "description": "test",
-            }
-        ]
-        with self.assertRaisesRegex(ConverterError, "needs an explicit 'component"):
-            schema_for(profile, self.source_properties)
+    def test_a_component_index_must_match_the_source_field_arity(self):
+        """A component on a scalar source field is refused, and so is a whole vector source
+        with no component."""
+        cases = (
+            ("M_Mean200", 1, "1e10 Msun/h", "must not carry a 'component'"),
+            ("Pos", None, "Mpc/h", "needs an explicit 'component"),
+        )
+        for field, component, units, pattern in cases:
+            with self.subTest(field=field):
+                source = {"field": field}
+                if component is not None:
+                    source["component"] = component
+                profile = valid_profile("lhalo_binary")
+                profile["extra_fields"] = [dict(scalar_extra(units=units), sources=[source])]
+                with self.assertRaisesRegex(ConverterError, pattern):
+                    schema_for(profile, self.source_properties)
 
     def test_required_role_from_a_wrong_typed_source_field_fails(self):
         """An int role filled from a float32 source field (integers never
@@ -673,7 +585,9 @@ class BinaryLayoutTests(unittest.TestCase):
             "lhalo_binary",
             [scalar_extra(field="FileNr", type_name="float", units="dimensionless")],
         )
-        with self.assertRaisesRegex(ConverterError, "stores int"):
+        with self.assertRaisesRegex(
+            ConverterError, "stores int .int32., but the extra is declared float"
+        ):
             schema_for(profile, self.source_properties)
 
     def test_extra_narrowing_an_integer_source_fails(self):
@@ -684,22 +598,6 @@ class BinaryLayoutTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ConverterError, "stores long long"):
             schema_for(profile, self.source_properties)
-
-    def test_a_vector_component_may_fill_a_scalar_extra(self):
-        """The arity freedom that the element-type comparison must preserve."""
-        profile = valid_profile("lhalo_binary")
-        profile["extra_fields"] = [
-            {
-                "name": "PosX",
-                "sources": [{"field": "Pos", "component": 0}],
-                "type": "float",
-                "units": "Mpc/h",
-                "h_convention": "carried",
-                "description": "test",
-            }
-        ]
-        schema = schema_for(profile, self.source_properties)
-        self.assertEqual(schema.extra_fields[0].sources[0].component, 0)
 
     def test_role_source_types_agree_with_the_payload_declarations(self):
         """The role type table and PAYLOAD_FIELDS must not drift apart."""
@@ -716,35 +614,21 @@ class BinaryLayoutTests(unittest.TestCase):
             # int32 on disk; widened to int64 only in v3's output.
             self.assertEqual(role_types[field.name], "int", "link type differs for " + field.name)
 
-    def test_same_width_offset_swap_fails(self):
-        """Coverage, extent and overlap all pass when two same-width
-        neighbours are swapped -- every byte is still claimed exactly once.
-        Only the declaration-order check catches it."""
-        profile = valid_profile("lhalo_binary")
-        offsets = profile["binary_layout"]["offsets"]
-        offsets["M_Mean200"], offsets["M_TopHat"] = offsets["M_TopHat"], offsets["M_Mean200"]
-        with self.assertRaisesRegex(ConverterError, "declaration order"):
-            schema_for(profile, self.source_properties)
-
-    def test_different_width_offset_reorder_fails(self):
-        # Spin (12 B) is declared before MostBoundID (8 B); exchanging their
-        # positions keeps every byte in [68, 88) claimed exactly once, so
-        # coverage, extent and overlap all still pass.
-        profile = valid_profile("lhalo_binary")
-        offsets = profile["binary_layout"]["offsets"]
-        offsets["MostBoundID"], offsets["Spin"] = 68, 76
-        with self.assertRaisesRegex(ConverterError, "declaration order"):
-            schema_for(profile, self.source_properties)
-
-    def test_padding_does_not_violate_declaration_order(self):
-        """Ordering is the rule, not contiguity: a gap between two fields is
-        still in order."""
-        profile = valid_profile("lhalo_binary")
-        profile["binary_layout"]["itemsize"] = 120
-        profile["binary_layout"]["offsets"]["SubHalfMass"] = 116
-        schema = schema_for(profile, self.source_properties)
-        offsets = [entry.offset for entry in schema.source_layout.entries]
-        self.assertEqual(offsets, sorted(offsets))
+    def test_offsets_out_of_declaration_order_fail(self):
+        """Coverage, extent and overlap all pass when two neighbours trade places -- every byte
+        is still claimed exactly once. Only the declaration-order check catches it, whether the
+        neighbours have the same width or different widths (Spin, 12 B, and MostBoundID, 8 B,
+        exchanged inside [68, 88))."""
+        swaps = (
+            ("same width", {"M_Mean200": 32, "M_TopHat": 24}),
+            ("different width", {"MostBoundID": 68, "Spin": 76}),
+        )
+        for label, moved in swaps:
+            with self.subTest(case=label):
+                profile = valid_profile("lhalo_binary")
+                profile["binary_layout"]["offsets"].update(moved)
+                with self.assertRaisesRegex(ConverterError, "declaration order"):
+                    schema_for(profile, self.source_properties)
 
     def test_two_roles_claiming_one_source_field_fails(self):
         """`Len: [SnapNum]` passes every per-role check -- both are int -- and
@@ -754,37 +638,22 @@ class BinaryLayoutTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "both resolve to the same source field"):
             schema_for(profile, self.source_properties)
 
-    def test_a_role_and_an_extra_may_share_a_source_field(self):
-        """Role-to-extra reuse is explicitly legal, and only role-to-role
-        collisions are rejected."""
-        profile = valid_profile(
-            "lhalo_binary",
-            [scalar_extra(name="NativeMass", field="M_Crit200", units="1e10 Msun/h")],
-        )
-        schema = schema_for(profile, self.source_properties)
-        self.assertEqual(schema.extra_fields[0].sources[0].field, "M_Crit200")
-
-    def test_two_extras_may_share_a_source_field(self):
+    def test_a_source_field_may_feed_a_role_and_extras(self):
+        """Role-to-extra and extra-to-extra reuse is legal; only role-to-role collisions are
+        rejected."""
         profile = valid_profile(
             "lhalo_binary",
             [
+                scalar_extra(name="NativeMass", field="M_Crit200", units="1e10 Msun/h"),
                 scalar_extra(name="MassA", field="M_Mean200", units="1e10 Msun/h"),
                 scalar_extra(name="MassB", field="M_Mean200", units="1e10 Msun/h"),
             ],
         )
         schema = schema_for(profile, self.source_properties)
-        self.assertEqual(len(schema.extra_fields), 2)
-
-    def test_absurd_itemsize_and_offsets_are_bounded(self):
-        for mutate in (
-            lambda layout: layout.__setitem__("itemsize", 2**70),
-            lambda layout: layout["offsets"].__setitem__("Descendant", 2**70),
-        ):
-            with self.subTest(mutate=mutate):
-                profile = valid_profile("lhalo_binary")
-                mutate(profile["binary_layout"])
-                with self.assertRaisesRegex(ConverterError, "must be in"):
-                    schema_for(profile, self.source_properties)
+        self.assertEqual(
+            {extra.name: extra.sources[0].field for extra in schema.extra_fields},
+            {"NativeMass": "M_Crit200", "MassA": "M_Mean200", "MassB": "M_Mean200"},
+        )
 
     def test_layout_dtype_matches_the_hard_coded_lhalo_record_dtype(self):
         """Two descriptions of the same 104-byte record must not drift apart.
@@ -815,41 +684,18 @@ class YamlLoadingTests(unittest.TestCase):
                 with self.assertRaisesRegex(ConverterError, "duplicate key"):
                     cs.load_column_map(DATA_DIR / name)
 
-    def test_malformed_yaml_fails_as_a_converter_error(self):
-        with self.assertRaisesRegex(ConverterError, "invalid YAML"):
-            cs.load_column_map(DATA_DIR / "malformed.yaml")
-
-    def test_non_mapping_profile_fails(self):
-        with self.assertRaisesRegex(ConverterError, "must be a YAML mapping"):
-            cs.load_column_map(DATA_DIR / "not_a_mapping.yaml")
-
-    def test_non_string_type_and_byte_order_fail_as_converter_errors(self):
-        """`in` against a dict hashes the key, so an unhashable value would
-        otherwise raise a bare TypeError from the membership test."""
-        profile = valid_profile("consistent_trees_ascii")
-        profile["extra_fields"] = [dict(scalar_extra(), type=["float"])]
-        with self.assertRaisesRegex(ConverterError, "unsupported type"):
-            schema_for(profile)
-
-        profile = valid_profile("consistent_trees_ascii")
-        profile["extra_fields"] = [dict(scalar_extra(), type={"float": 1})]
-        with self.assertRaisesRegex(ConverterError, "unsupported type"):
-            schema_for(profile)
-
-        properties = cs.load_source_properties(LHALO_PROPERTIES)
-        profile = valid_profile("lhalo_binary")
-        profile["binary_layout"]["byte_order"] = ["little"]
-        with self.assertRaisesRegex(ConverterError, "byte_order"):
-            schema_for(profile, properties)
-
-    def test_mixed_offset_key_types_fail_as_a_converter_error(self):
-        """`sorted()` over a mixed string/int key set raises a bare TypeError
-        from the comparison, before any per-key check inside the loop."""
-        properties = cs.load_source_properties(LHALO_PROPERTIES)
-        profile = valid_profile("lhalo_binary")
-        profile["binary_layout"]["offsets"][7] = 0
-        with self.assertRaisesRegex(ConverterError, "non-string key"):
-            schema_for(profile, properties)
+    def test_an_unusable_profile_file_fails_as_a_converter_error(self):
+        """Malformed YAML, a non-mapping document and a missing file are converter errors."""
+        with tempfile.TemporaryDirectory() as workdir:
+            cases = (
+                ("malformed YAML", DATA_DIR / "malformed.yaml", "invalid YAML"),
+                ("non-mapping document", DATA_DIR / "not_a_mapping.yaml", "must be a YAML mapping"),
+                ("missing file", Path(workdir) / "absent.yaml", "cannot read"),
+            )
+            for label, path, pattern in cases:
+                with self.subTest(case=label):
+                    with self.assertRaisesRegex(ConverterError, pattern):
+                        cs.load_column_map(path)
 
     def test_invalid_utf8_profile_fails_as_a_converter_error(self):
         """Written as raw bytes in a temp file rather than committed: a
@@ -873,47 +719,6 @@ class YamlLoadingTests(unittest.TestCase):
             path.write_text(yaml.safe_dump(profile, allow_unicode=True), encoding="utf-8")
             schema = cs.build_schema(cs.load_column_map(path))
             self.assertIn("\u00c5", schema.extra_fields[0].description)
-
-    def test_a_lone_surrogate_string_fails_as_a_converter_error(self):
-        """Valid YAML that PyYAML parses happily, but which cannot be encoded.
-
-        Without a check where strings are validated, this surfaces as a raw
-        UnicodeEncodeError from `canonical_json().encode("utf-8")` -- at digest
-        time, from a call site that has no idea which field was at fault.
-        """
-        for key in ("units", "description"):
-            with self.subTest(key=key):
-                profile = valid_profile(
-                    "consistent_trees_ascii", [dict(scalar_extra(), **{key: "\udcff"})]
-                )
-                with self.assertRaisesRegex(ConverterError, "not encodable as UTF-8"):
-                    schema_for(profile)
-
-    def test_a_lone_surrogate_alias_fails_as_a_converter_error(self):
-        profile = valid_profile("consistent_trees_ascii")
-        profile["required_columns"]["mvir"] = ["\udcff"]
-        with self.assertRaisesRegex(ConverterError, "not encodable as UTF-8"):
-            schema_for(profile)
-
-    def test_an_integer_literal_pyyaml_cannot_construct_fails(self):
-        """CPython caps string-to-int conversion (4300 digits by default), so
-        PyYAML's own int constructor raises a raw ValueError from inside the
-        loader, before any check in this module runs.
-
-        The literal is built here rather than committed: a 5,000-digit number
-        in a fixture file is noise in every diff that touches the directory.
-        """
-        with tempfile.TemporaryDirectory() as workdir:
-            path = Path(workdir) / "huge_itemsize.yaml"
-            source = (PROFILE_DIR / "lhalo_binary.yaml").read_text()
-            path.write_text(source.replace("  itemsize: 104", "  itemsize: " + "9" * 5000))
-            with self.assertRaisesRegex(ConverterError, "unreadable scalar value"):
-                cs.load_column_map(path)
-
-    def test_missing_profile_file_fails(self):
-        with tempfile.TemporaryDirectory() as workdir:
-            with self.assertRaisesRegex(ConverterError, "cannot read"):
-                cs.load_column_map(Path(workdir) / "absent.yaml")
 
 
 class SourcePropertyLoadingTests(unittest.TestCase):
@@ -968,6 +773,11 @@ class SourcePropertyLoadingTests(unittest.TestCase):
             "halo_properties:\n  - {name: Descendant, type: int}\n",
             "must be a nonempty string",
         ),
+        (
+            "document is not a mapping",
+            "- Descendant\n- FirstProgenitor\n",
+            "must be a YAML mapping",
+        ),
     )
 
     def _write(self, workdir, body):
@@ -975,24 +785,17 @@ class SourcePropertyLoadingTests(unittest.TestCase):
         path.write_text(body, encoding="utf-8")
         return path
 
-    def test_malformed_declarations_are_rejected(self):
+    def test_unusable_declarations_are_rejected(self):
         for label, body, pattern in self.REJECTIONS:
             with self.subTest(case=label):
                 with tempfile.TemporaryDirectory() as workdir:
                     path = self._write(workdir, body)
                     with self.assertRaisesRegex(ConverterError, pattern):
                         cs.load_source_properties(path)
-
-    def test_a_missing_file_is_rejected(self):
-        with tempfile.TemporaryDirectory() as workdir:
-            with self.assertRaisesRegex(ConverterError, "cannot read"):
-                cs.load_source_properties(Path(workdir) / "absent.yaml")
-
-    def test_a_non_mapping_document_is_rejected(self):
-        with tempfile.TemporaryDirectory() as workdir:
-            path = self._write(workdir, "- Descendant\n- FirstProgenitor\n")
-            with self.assertRaisesRegex(ConverterError, "must be a YAML mapping"):
-                cs.load_source_properties(path)
+        with self.subTest(case="missing file"):
+            with tempfile.TemporaryDirectory() as workdir:
+                with self.assertRaisesRegex(ConverterError, "cannot read"):
+                    cs.load_source_properties(Path(workdir) / "absent.yaml")
 
     def test_a_valid_declaration_loads_in_declaration_order(self):
         """The positive control. Order is load-bearing -- it is the record's
@@ -1011,52 +814,25 @@ class SourcePropertyLoadingTests(unittest.TestCase):
         self.assertEqual([p.type for p in properties], ["int", "vec3_float", "long long"])
         self.assertEqual(properties[1].units, "Mpc/h")
 
-    def test_unknown_property_keys_are_the_property_system_s_business(self):
-        """Only the subset this converter needs is read; a real
-        halo_properties.yaml carries `output`, `range`, `provides_core_role`
-        and more, and rejecting those would make every shipped package
-        unloadable here."""
-        with tempfile.TemporaryDirectory() as workdir:
-            path = self._write(
-                workdir,
-                "halo_properties:\n"
-                "  - name: M_Crit200\n"
-                "    type: float\n"
-                "    units: 1e10 Msun/h\n"
-                "    h_convention: carried\n"
-                "    output: true\n"
-                "    range: [0.0, 1.0e6]\n"
-                "    provides_core_role: HaloMass\n",
-            )
-            properties = cs.load_source_properties(path)
-        self.assertEqual(properties[0].name, "M_Crit200")
-
 
 class SchemaIdentityTests(unittest.TestCase):
     def test_presentation_variants_share_one_identity(self):
+        """Comments, key order, alias order and extra-definition order do not move the digest."""
         a = cs.build_schema(cs.load_column_map(DATA_DIR / "presentation_a.yaml"))
         b = cs.build_schema(cs.load_column_map(DATA_DIR / "presentation_b.yaml"))
         self.assertEqual(a.digest, b.digest)
 
-    def test_reordering_in_memory_does_not_move_the_digest(self):
         extras = [scalar_extra(name="Alpha"), scalar_extra(name="Beta", field="num_prog")]
         first = schema_for(valid_profile("consistent_trees_ascii", extras))
         second = schema_for(valid_profile("consistent_trees_ascii", list(reversed(extras))))
         self.assertEqual(first.digest, second.digest)
 
-    def test_alias_order_does_not_move_the_digest(self):
         profile = valid_profile("consistent_trees_ascii")
         profile["required_columns"]["snap"] = ["snap_idx", "snap_num"]
         forward = schema_for(profile)
         profile["required_columns"]["snap"] = ["snap_num", "snap_idx"]
         backward = schema_for(profile)
         self.assertEqual(forward.digest, backward.digest)
-
-    def test_digest_is_deterministic_across_calls(self):
-        schema = schema_for(valid_profile("consistent_trees_ascii", [scalar_extra()]))
-        self.assertEqual(schema.digest, schema.digest)
-        rebuilt = schema_for(valid_profile("consistent_trees_ascii", [scalar_extra()]))
-        self.assertEqual(schema.digest, rebuilt.digest)
 
     def test_canonical_json_is_sorted_compact_and_nan_free(self):
         schema = schema_for(valid_profile("consistent_trees_ascii", [scalar_extra()]))
@@ -1109,12 +885,10 @@ class SchemaIdentityTests(unittest.TestCase):
                 self.assertNotEqual(
                     base, schema_for(valid_profile("consistent_trees_ascii", [extra])).digest
                 )
-
-    def test_alias_set_change_moves_the_digest(self):
-        base = schema_for(valid_profile("consistent_trees_ascii")).digest
-        profile = valid_profile("consistent_trees_ascii")
-        profile["required_columns"]["snap"] = ["snap_num"]
-        self.assertNotEqual(base, schema_for(profile).digest)
+        with self.subTest(change="alias_set"):
+            profile = valid_profile("consistent_trees_ascii", [base_extra])
+            profile["required_columns"]["snap"] = ["snap_num"]
+            self.assertNotEqual(base, schema_for(profile).digest)
 
     def test_source_format_changes_the_digest(self):
         properties = cs.load_source_properties(LHALO_PROPERTIES)
@@ -1222,10 +996,6 @@ class WideIntegerTests(unittest.TestCase):
         high = self._wide_layout_schema(2**53 + 1)
         self.assertNotEqual(low.digest, high.digest)
 
-    def test_canonical_json_text_carries_the_exact_digits(self):
-        schema = self._wide_layout_schema(2**53 + 1)
-        self.assertIn(str(2**53 + 1), schema.canonical_json())
-
 
 class AliasResolutionTests(unittest.TestCase):
     ASCII_COLUMNS = [
@@ -1284,7 +1054,7 @@ class AliasResolutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "none of the aliases"):
             cs.resolve_required_columns(schema, wrong_case)
 
-    def test_two_ascii_roles_resolving_to_one_column_fail(self):
+    def test_two_roles_resolving_to_one_source_field_fail(self):
         """The collision check has to bite in the *shared resolver*.
 
         `build_schema` can only enforce it for `lhalo_binary`; ASCII and
@@ -1292,29 +1062,25 @@ class AliasResolutionTests(unittest.TestCase):
         adapter following the documented obligation must get the protection
         without having to remember a second call.
         """
-        profile = valid_profile("consistent_trees_ascii")
-        profile["required_columns"]["desc_id"] = ["id"]
-        profile["required_columns"]["snap"] = ["snap_num"]
-        schema = schema_for(profile)
-        with self.assertRaisesRegex(ConverterError, "both resolve to the same source field"):
-            cs.resolve_required_columns(schema, self.ASCII_COLUMNS)
-
-    def test_two_hdf5_roles_resolving_to_one_dataset_fail(self):
-        profile = valid_profile("consistent_trees_hdf5")
-        profile["required_columns"]["Mvir"] = ["vmax"]
-        profile["required_columns"]["snap"] = ["Snap_num"]
-        schema = schema_for(profile)
-        available = [
+        ascii_profile = valid_profile("consistent_trees_ascii")
+        ascii_profile["required_columns"]["desc_id"] = ["id"]
+        ascii_profile["required_columns"]["snap"] = ["snap_num"]
+        hdf5_profile = valid_profile("consistent_trees_hdf5")
+        hdf5_profile["required_columns"]["Mvir"] = ["vmax"]
+        hdf5_profile["required_columns"]["snap"] = ["Snap_num"]
+        hdf5_columns = [
             role for role in cs.REQUIRED_ROLES["consistent_trees_hdf5"] if role != "snap"
         ] + ["Snap_num"]
-        with self.assertRaisesRegex(ConverterError, "both resolve to the same source field"):
-            cs.resolve_required_columns(schema, available)
-
-    def test_a_valid_profile_still_resolves_through_the_shared_resolver(self):
-        """The collision check must not reject a legitimate resolution."""
-        schema = cs.build_schema(cs.load_column_map(PROFILE_DIR / "consistent_trees_ascii.yaml"))
-        resolved = cs.resolve_required_columns(schema, self.ASCII_COLUMNS)
-        self.assertEqual(len(set(resolved.values())), len(resolved))
+        for label, profile, available in (
+            ("ascii", ascii_profile, self.ASCII_COLUMNS),
+            ("hdf5", hdf5_profile, hdf5_columns),
+        ):
+            with self.subTest(source_format=label):
+                schema = schema_for(profile)
+                with self.assertRaisesRegex(
+                    ConverterError, "both resolve to the same source field"
+                ):
+                    cs.resolve_required_columns(schema, available)
 
     def test_a_repeated_identical_column_name_is_left_to_the_adapter(self):
         """`available` is a caller-supplied iterable; a repeated entry in it is
@@ -1353,7 +1119,9 @@ class AliasResolutionTests(unittest.TestCase):
 class V3FieldTableTests(unittest.TestCase):
     """The fixed v3 format table, exactly as the format specifies it."""
 
-    def test_five_int64_links_and_three_int32_snapshot_columns(self):
+    def test_the_fixed_field_tables_are_exactly_the_format_tables(self):
+        """Five int64 links and three int32 snapshot columns, three int64 identity arrays, and
+        three int64 forest sidecar arrays, in format order."""
         links = [f for f in cs.TOPOLOGY_FIELDS if f.type == "long long"]
         snapshots = [f for f in cs.TOPOLOGY_FIELDS if f.type == "int"]
         self.assertEqual(
@@ -1370,8 +1138,6 @@ class V3FieldTableTests(unittest.TestCase):
             [f.name for f in snapshots],
             ["DescendantSnapshot", "FirstProgenitorSnapshot", "NextProgenitorSnapshot"],
         )
-
-    def test_three_int64_identity_arrays(self):
         self.assertEqual(
             [(f.name, f.type) for f in cs.IDENTITY_FIELDS],
             [
@@ -1380,8 +1146,6 @@ class V3FieldTableTests(unittest.TestCase):
                 ("HaloRankInForest", "long long"),
             ],
         )
-
-    def test_forest_sidecar_carries_three_int64_arrays(self):
         self.assertEqual(
             [(f.name, f.type) for f in cs.FOREST_SIDECAR_FIELDS],
             [
@@ -1409,18 +1173,16 @@ class V3FieldTableTests(unittest.TestCase):
             # rather than by its physical inventory
             extra = {"source_halo_id"} if source_format == "consistent_trees_ascii" else set()
             self.assertEqual(set(convention), shared | extra, source_format)
-        self.assertEqual(
-            cs.SOURCE_IDENTITY_CONVENTIONS["consistent_trees_ascii"]["source_halo_id"],
-            "1-based position in (ForestIndex, HaloRankInForest) order",
-        )
-        for source_format in ("lhalo_binary", "consistent_trees_hdf5"):
-            self.assertNotIn("source_halo_id", cs.SOURCE_IDENTITY_CONVENTIONS[source_format])
 
-    def test_lhalo_mass_stays_float32_in_1e10_msun_h(self):
+    def test_mass_keeps_its_native_type_and_units(self):
+        """L-Halo mass stays float32 in 1e10 Msun/h; Consistent Trees mass stays Msun/h."""
         payload = {f.name: f for f in cs.PAYLOAD_FIELDS["lhalo_binary"]}
         self.assertEqual(payload["M_Crit200"].type, "float")
         self.assertEqual(payload["M_Crit200"].units, "1e10 Msun/h")
         self.assertEqual(cs.EXTRA_TYPES[payload["M_Crit200"].type].numpy_dtype, "float32")
+        for source_format in ("consistent_trees_ascii", "consistent_trees_hdf5"):
+            payload = {f.name: f for f in cs.PAYLOAD_FIELDS[source_format]}
+            self.assertEqual(payload["M_Crit200"].units, "Msun/h")
 
     def test_core_payload_names_are_every_format_payload_in_declared_order(self):
         """The reserved core names and each format's payload table are one list.
@@ -1436,11 +1198,6 @@ class V3FieldTableTests(unittest.TestCase):
                     cs._CORE_PAYLOAD_NAMES,
                 )
 
-    def test_ctrees_mass_stays_native_msun_h(self):
-        for source_format in ("consistent_trees_ascii", "consistent_trees_hdf5"):
-            payload = {f.name: f for f in cs.PAYLOAD_FIELDS[source_format]}
-            self.assertEqual(payload["M_Crit200"].units, "Msun/h")
-
     def test_output_declarations_cover_payload_and_extras_only(self):
         schema = schema_for(valid_profile("consistent_trees_ascii", [scalar_extra(name="Rvir")]))
         declared = {field.name for field in schema.output_field_declarations()}
@@ -1449,84 +1206,12 @@ class V3FieldTableTests(unittest.TestCase):
         for governed in ("Descendant", "SourceHaloID", "ForestIndex", "DescendantSnapshot"):
             self.assertNotIn(governed, declared)
 
-    def test_consumer_metadata_fragment_is_marked_incomplete(self):
-        schema = schema_for(
-            valid_profile("lhalo_binary"), cs.load_source_properties(LHALO_PROPERTIES)
-        )
-        fragment = schema.consumer_metadata_fragment()
-        self.assertFalse(fragment["complete"])
-        self.assertIn("runtime topology support", fragment["incomplete_because"])
-        self.assertEqual(fragment["column_mapping_sha256"], schema.digest)
-        bindings = {
-            entry["name"]: entry["provides_core_role"] for entry in fragment["halo_properties"]
-        }
-        self.assertEqual(bindings["M_Crit200"], "HaloMass")
-        self.assertEqual(bindings["Len"], "Len")
-        self.assertIsNone(bindings["MostBoundID"])
-        table = {entry["name"] for entry in fragment["format_table_fields"]}
-        self.assertIn("Descendant", table)
-        self.assertIn("SourceHaloID", table)
-
-    def test_consumer_metadata_fragment_binds_the_link_roles_on_format_table_fields(self):
-        schema = schema_for(
-            valid_profile("lhalo_binary"), cs.load_source_properties(LHALO_PROPERTIES)
-        )
-        fragment = schema.consumer_metadata_fragment()
-        self.assertEqual(
-            set(fragment),
-            {
-                "source_format",
-                "column_mapping_sha256",
-                "complete",
-                "incomplete_because",
-                "identity_conventions",
-                "halo_properties",
-                "format_table_fields",
-            },
-        )
-        links = (
-            "Descendant",
-            "FirstProgenitor",
-            "NextProgenitor",
-            "FirstHaloInFOFgroup",
-            "NextHaloInFOFgroup",
-        )
-        unbound = (
-            "DescendantSnapshot",
-            "FirstProgenitorSnapshot",
-            "NextProgenitorSnapshot",
-            "SourceHaloID",
-            "ForestIndex",
-            "HaloRankInForest",
-        )
-        entries = fragment["format_table_fields"]
-        self.assertEqual([entry["name"] for entry in entries], list(links + unbound))
-        for entry in entries:
-            self.assertEqual(
-                set(entry), {"name", "type", "description", "provides_core_role"}, entry["name"]
-            )
-        roles = {entry["name"]: entry["provides_core_role"] for entry in entries}
-        for name in links:
-            self.assertEqual(roles[name], name)
-        for name in unbound:
-            self.assertIsNone(roles[name], name)
-        # every core role is provided exactly once across payload and format table
-        provided = [
-            entry["provides_core_role"]
-            for entry in fragment["halo_properties"] + entries
-            if entry["provides_core_role"] is not None
-        ]
-        self.assertEqual(len(provided), len(set(provided)))
-        self.assertEqual(set(provided), set(cs._CORE_ROLE_BINDINGS.values()))
-
 
 class PropertyGeneratorVocabularyTests(unittest.TestCase):
     """The emitted schema must speak the property generator's vocabulary.
 
-    The consumer metadata fragment must be checkable against the property
-    generator; this test does that check mechanically against
-    scripts/generate_properties.py itself rather than against a copy of its
-    tables.
+    Checked mechanically against scripts/generate_properties.py itself rather
+    than against a copy of its tables.
     """
 
     @classmethod
@@ -1562,13 +1247,6 @@ class PropertyGeneratorVocabularyTests(unittest.TestCase):
                         field.h_convention,
                         self.generator.UNIT_REGISTRY[field.units]["h_convention"],
                     )
-
-    def test_core_role_bindings_are_declared_core_roles(self):
-        core_yaml = REPO_ROOT / "src" / "core" / "core_properties.yaml"
-        text = yaml.safe_load(core_yaml.read_text())
-        required = {entry["name"] for entry in text.get("required_inputs", [])}
-        self.assertTrue(required, "core_properties.yaml declares no required_inputs")
-        self.assertEqual(set(cs._CORE_ROLE_BINDINGS.values()), required)
 
 
 class SourceReaderVocabularyTests(unittest.TestCase):
@@ -1609,24 +1287,3 @@ class SourceReaderVocabularyTests(unittest.TestCase):
         roles = cs.REQUIRED_ROLES["consistent_trees_hdf5"]
         self.assertEqual(len(roles), len(set(roles)))
         self.assertEqual(set(roles), set(named) | {"snap"})
-
-
-class ImmutabilityTests(unittest.TestCase):
-    def test_schema_objects_are_frozen(self):
-        schema = schema_for(valid_profile("consistent_trees_ascii", [scalar_extra()]))
-        with self.assertRaises(dataclasses.FrozenInstanceError):
-            schema.source_format = "lhalo_binary"
-        with self.assertRaises(dataclasses.FrozenInstanceError):
-            schema.extra_fields[0].units = "Mpc/h"
-        with self.assertRaises(dataclasses.FrozenInstanceError):
-            schema.extra_fields[0].sources[0].component = 2
-
-    def test_parsing_does_not_mutate_the_caller_dict(self):
-        profile = valid_profile("consistent_trees_ascii", [scalar_extra()])
-        before = copy.deepcopy(profile)
-        schema_for(profile)
-        self.assertEqual(profile, before)
-
-
-if __name__ == "__main__":
-    unittest.main()

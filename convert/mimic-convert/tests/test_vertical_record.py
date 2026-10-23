@@ -8,10 +8,12 @@ the property generator knows; the generator's own type table for the set of acce
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[2]
@@ -34,7 +36,23 @@ def offsets(dtype):
     return {name: dtype.fields[name][1] for name in dtype.names}
 
 
-class RecordLayoutTests(unittest.TestCase):
+class RecordTestCase(unittest.TestCase):
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.scratch = Path(scratch.name)
+
+    def properties_file(self, entries):
+        """A ``halo_properties.yaml`` declaring ``entries``, as a path."""
+        path = self.scratch / "halo_properties.yaml"
+        path.write_text(yaml.safe_dump({"halo_properties": entries}))
+        return path
+
+    def dtype_of(self, entries):
+        return record_dtype(self.properties_file(entries))
+
+
+class RecordLayoutTests(RecordTestCase):
     def test_shin_uchuu_record_is_88_bytes_with_a_trailing_pad(self):
         dtype = record_dtype(SHIN_UCHUU)
         self.assertEqual(dtype.itemsize, 88)
@@ -79,33 +97,27 @@ class RecordLayoutTests(unittest.TestCase):
             {"name": "e", "type": "float"},
             {"name": "f", "type": "vec3_float"},
         ]
-        dtype = record_dtype(entries)
+        dtype = self.dtype_of(entries)
         self.assertEqual(offsets(dtype), {"a": 0, "b": 8, "c": 16, "d": 32, "e": 40, "f": 44})
         self.assertEqual(dtype.itemsize, 56)
         self.assertEqual(dtype["c"].shape, (3,))
         self.assertEqual(dtype["f"].base, np.dtype("<f4"))
 
-    def test_a_parsed_list_derives_the_same_record_as_its_file(self):
-        import yaml
-
-        entries = yaml.safe_load(SHIN_UCHUU.read_text())["halo_properties"]
-        self.assertEqual(record_dtype(entries), record_dtype(SHIN_UCHUU))
-
     def test_an_unknown_type_is_refused_naming_the_entry(self):
         entries = [{"name": "Len", "type": "int"}, {"name": "Mass", "type": "unsigned"}]
         with self.assertRaisesRegex(ConverterError, r"'Mass' has type 'unsigned'"):
-            record_dtype(entries)
+            self.dtype_of(entries)
         with self.assertRaisesRegex(ConverterError, r"'Pos' has type \['float', 3\]"):
-            record_dtype([{"name": "Pos", "type": ["float", 3]}])
+            self.dtype_of([{"name": "Pos", "type": ["float", 3]}])
         with self.assertRaisesRegex(ConverterError, r"'Len' is declared twice"):
-            record_dtype([{"name": "Len", "type": "int"}] * 2)
+            self.dtype_of([{"name": "Len", "type": "int"}] * 2)
         with self.assertRaisesRegex(ConverterError, "entry 0 has no name"):
-            record_dtype([{"type": "int"}])
+            self.dtype_of([{"type": "int"}])
         with self.assertRaisesRegex(ConverterError, "no halo_properties list"):
             record_dtype(REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "simulation_info.yaml")
 
 
-class RecordDigestTests(unittest.TestCase):
+class RecordDigestTests(RecordTestCase):
     def test_the_layout_is_json_and_its_digest_is_stable(self):
         layout = record_layout(record_dtype(SHIN_UCHUU))
         self.assertEqual(json.loads(json.dumps(layout)), layout)
@@ -125,13 +137,13 @@ class RecordDigestTests(unittest.TestCase):
 
     def test_the_digest_changes_with_a_type_or_an_order_but_not_a_description(self):
         base = [{"name": "a", "type": "int"}, {"name": "b", "type": "float"}]
-        digest = record_digest(record_layout(record_dtype(base)))
+        digest = record_digest(record_layout(self.dtype_of(base)))
         retyped = [{"name": "a", "type": "int"}, {"name": "b", "type": "int"}]
         reordered = list(reversed(base))
         described = [dict(entry, description="text") for entry in base]
-        self.assertNotEqual(record_digest(record_layout(record_dtype(retyped))), digest)
-        self.assertNotEqual(record_digest(record_layout(record_dtype(reordered))), digest)
-        self.assertEqual(record_digest(record_layout(record_dtype(described))), digest)
+        self.assertNotEqual(record_digest(record_layout(self.dtype_of(retyped))), digest)
+        self.assertNotEqual(record_digest(record_layout(self.dtype_of(reordered))), digest)
+        self.assertEqual(record_digest(record_layout(self.dtype_of(described))), digest)
 
 
 if __name__ == "__main__":

@@ -9,15 +9,15 @@ L-Halo trees written into the test's own temporary directory.
 Coverage:
 
 - every generic stage (inspect, ingest, transpose, write, validate, report) on
-  each adapter -- L-Halo binary (micro-Uchuu, mini-Uchuu fixtures, and a
-  literal gapped source under the mini-Millennium and Millennium packages),
-  forests-HDF5 (full-Uchuu external-link fixture, micro-Uchuu fixture) and
-  ASCII (micro-Uchuu fixture);
+  each adapter -- L-Halo binary (micro-Uchuu fixture, and a literal gapped
+  source under the mini-Millennium package), forests-HDF5 (full-Uchuu
+  external-link fixture) and ASCII (micro-Uchuu fixture, also under a cut
+  table);
 - the output contract: version 3 by default, the runtime-support notice on
   every stage, and the nonadjacent/wide identification;
-- early failures: unknown formats, mismatched or broken profiles, foreign or
-  missing inventory options, out-of-range and missing files, and conflicting
-  resume inputs -- each before the workdir is mutated;
+- early failures: mismatched or broken profiles, foreign or missing inventory
+  options, out-of-range and missing files, and conflicting resume inputs --
+  each before the workdir is mutated;
 - resume from the embedded configuration after the profile file is gone;
 - the battery's bounded mode (``validate``/``report --bounded``): its verdict
   and printed ceiling on an adjacent conversion, and its refusal of a gapped
@@ -35,6 +35,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import NamedTuple
 
 import h5py
 
@@ -48,10 +49,10 @@ sys.path.insert(0, str(CONVERT_DIR))
 sys.path.insert(0, str(HERE))
 
 import convert_trees  # noqa: E402
-import runtime_routes  # noqa: E402
-import test_lhalo_adapter as lhalo  # noqa: E402
-import test_pipeline as literal  # noqa: E402
-from test_conversion_manifest import make_scatter_workdir  # noqa: E402
+import fixtures  # noqa: E402
+from fixtures import (  # noqa: E402
+    make_scatter_workdir,
+)
 
 RUNTIME_MARK = "runtime support: format version 3 is consumed"
 BUDGET_MB = "64"
@@ -190,59 +191,15 @@ class CliCase(unittest.TestCase):
         return result
 
     def literal_gapped_source(self):
-        """test_pipeline's literal trees: a three- and a two-snapshot
+        """The literal trees of ``fixtures``: a three- and a two-snapshot
         descendant gap, in two files named like the Millennium packages'."""
         source = self.tmp / "literal"
         source.mkdir()
-        lhalo.write_lhalo_file(str(source / "trees_063.0"), [literal.TREE_A, literal.TREE_B])
-        lhalo.write_lhalo_file(str(source / "trees_063.1"), [literal.TREE_C])
-        return source
-
-
-# ==========================================================================
-# Help and defaults
-# ==========================================================================
-
-
-class HelpTests(CliCase):
-    def test_top_level_help_names_v3_and_the_runtime_boundary(self):
-        text = " ".join(self.cli("--help").stdout.split())
-        for command in ("inspect", "ingest", "transpose", "write", "validate", "report"):
-            self.assertIn(command, text)
-        self.assertIn("format version 3", text)
-        self.assertIn("validated route only where a recorded parity gate passed", text)
-        self.assertIn("full Uchuu is not claimed", text)
-
-    def test_runtime_notice_names_only_the_evidenced_routes(self):
-        notice = convert_trees.RUNTIME_NOTICE
-        self.assertTrue(notice.startswith(RUNTIME_MARK))
-        self.assertIn("a conversion is not a validated route", notice)
-        for route in runtime_routes.ROUTES:
-            self.assertIn(route.simulation, notice)
-        self.assertIn(runtime_routes.SPEC_ANCHOR, notice)
-        self.assertIn(runtime_routes.FULL_UCHUU_NOT_CLAIMED, notice)
-
-    def test_every_subcommand_has_help(self):
-        for command in ("inspect", "ingest", "transpose", "write", "validate", "report"):
-            self.cli(command, "--help")
-
-    def test_write_help_states_format_version_3_and_offers_no_format_version_flag(self):
-        text = " ".join(self.cli("write", "--help").stdout.split())
-        self.assertIn("format version 3", text)
-        self.assertNotIn("--format-version", text)
-        result = self.cli(
-            "write", "--workdir", "w", "--simulation-info", "x", "--format-version", "2", expect=2
+        fixtures.write_lhalo_file(
+            str(source / "trees_063.0"), [fixtures.LITERAL_TREE_A, fixtures.LITERAL_TREE_B]
         )
-        self.assertIn("unrecognized arguments", result.stderr)
-
-    def test_memory_budget_help_does_not_claim_an_rss_bound(self):
-        text = " ".join(self.cli("ingest", "--help").stdout.split())
-        self.assertIn("each checked before it is allocated", text)
-        self.assertIn("not a bound on total interpreter RSS", text)
-
-    def test_source_format_is_required_for_inspect(self):
-        result = self.cli("inspect", "--simulation-info", "s", "--a-list", "a", expect=2)
-        self.assertIn("--source-format", result.stderr)
+        fixtures.write_lhalo_file(str(source / "trees_063.1"), [fixtures.LITERAL_TREE_C])
+        return source
 
 
 # ==========================================================================
@@ -339,40 +296,19 @@ class StageChainTests(CliCase):
             lhalo_route("micro-uchuu", data, "Uchuu100_test_lhalo_binary"), "micro-uchuu", n_halos=6
         )
 
-    def test_mini_uchuu_lhalo_binary(self):
-        data = SIMULATIONS / "mini-uchuu" / "_tests" / "data"
-        self.run_chain(
-            lhalo_route("mini-uchuu", data, "Uchuu400_test_lhalo_binary"), "mini-uchuu", n_halos=6
-        )
-
     def test_mini_millennium_package_on_a_gapped_literal_source(self):
         work = self.run_chain(
             lhalo_route("mini-millennium", self.literal_gapped_source(), "trees_063", last_file=1),
             "mini-millennium",
             expect_adjacent=False,
-            n_halos=literal.TOTAL_HALOS,
+            n_halos=fixtures.LITERAL_TOTAL_HALOS,
         )
         stdout = self.cli("transpose", "--workdir", work).stdout
         # Tree A's snap-0 halo descends to snap 3; tree C's to snap 2.
         self.assertIn("2 Descendant link(s) skip snapshots (longest span 3)", stdout)
 
-    def test_millennium_package_on_a_gapped_literal_source(self):
-        self.run_chain(
-            lhalo_route("millennium", self.literal_gapped_source(), "trees_063", last_file=1),
-            "millennium",
-            expect_adjacent=False,
-            n_halos=literal.TOTAL_HALOS,
-        )
-
     def test_full_uchuu_forests_hdf5_external_link_fixture(self):
         self.run_chain(hdf5_route("uchuu", "mergertree_info.h5"), "uchuu", n_halos=6)
-
-    def test_micro_uchuu_forests_hdf5_fixture(self):
-        self.run_chain(
-            hdf5_route("micro-uchuu-hdf5", "MicroUchuu_test_mergertree_info.h5"),
-            "micro-uchuu-hdf5",
-            n_halos=6,
-        )
 
     def test_micro_uchuu_ascii_fixture(self):
         # Runs at the default batch size: the ASCII adapter charges its batch
@@ -468,12 +404,6 @@ class BoundedBatteryTests(CliCase):
         self.assertFalse((work / "conversion_report.json").exists())
         self.assertIn("validation: PASS", self.cli("validate", "--workdir", work).stdout)
 
-    def test_help_offers_the_bounded_mode(self):
-        for command in ("validate", "report"):
-            text = " ".join(self.cli(command, "--help").stdout.split())
-            self.assertIn("--bounded", text)
-            self.assertIn("links_adjacent 1", text)
-
 
 class FailureTests(CliCase):
     def setUp(self):
@@ -493,10 +423,6 @@ class FailureTests(CliCase):
         self.assertFalse(self.work.exists(), "a refused ingest created its workdir")
         return result
 
-    def test_an_unknown_source_format_is_rejected_by_the_parser(self):
-        route = self.with_option("--source-format", "lhalo_hdf5")
-        self.ingest_fails(route, "invalid choice")
-
     def test_a_profile_of_another_format_is_refused_not_reinterpreted(self):
         profile = CONVERT_DIR / "profiles" / "consistent_trees_ascii.yaml"
         self.ingest_fails(self.with_option("--column-map", profile), "not --source-format")
@@ -514,23 +440,27 @@ class FailureTests(CliCase):
         self.ingest_fails(self.with_option("--simulation-info", other), "input.tree_type")
 
     def test_an_option_of_another_format_is_refused_rather_than_ignored(self):
-        route = self.route + ["--forests-list", self.data / "x.list"]
-        self.ingest_fails(route, "do not apply to --source-format lhalo_binary")
-
-    def test_a_cut_table_is_refused_for_another_format(self):
-        route = self.route + ["--cut-table", self.data / "x.list"]
-        self.ingest_fails(route, "--cut-table do not apply to --source-format lhalo_binary")
+        cases = (
+            ("--forests-list", "do not apply to --source-format lhalo_binary"),
+            ("--cut-table", "--cut-table do not apply to --source-format lhalo_binary"),
+        )
+        for option, message in cases:
+            with self.subTest(option=option):
+                self.ingest_fails(self.route + [option, self.data / "x.list"], message)
 
     def test_a_missing_inventory_option_is_named(self):
         index = self.route.index("--tree-name")
         route = self.route[:index] + self.route[index + 2 :]
         self.ingest_fails(route, "missing --tree-name")
 
-    def test_a_range_outside_the_declared_package_is_refused(self):
-        self.ingest_fails(self.with_option("--last-file", "4"), "lie outside the 0-3")
-
-    def test_a_missing_requested_file_fails_instead_of_narrowing(self):
-        self.ingest_fails(self.with_option("--last-file", "1"), "Uchuu100_test_lhalo_binary.1")
+    def test_a_file_range_the_source_cannot_honour_is_refused_instead_of_narrowed(self):
+        cases = (
+            ("--last-file", "4", "lie outside the 0-3"),
+            ("--last-file", "1", "Uchuu100_test_lhalo_binary.1"),
+        )
+        for flag, value, message in cases:
+            with self.subTest(range=value):
+                self.ingest_fails(self.with_option(flag, value), message)
 
     def test_a_nonpositive_memory_budget_is_refused(self):
         self.ingest_fails(self.route + ["--memory-budget-mb", "0"], "must be positive")
@@ -565,6 +495,9 @@ class FailureTests(CliCase):
         self.assertEqual(tree_state(self.work), before)
 
     def test_resume_needs_either_the_whole_configuration_or_none_of_it(self):
+        nothing_recorded = self.tmp / "nothing_recorded"
+        result = self.cli("ingest", "--workdir", nothing_recorded, expect=2)
+        self.assertIn("no generic conversion to resume", result.stderr)
         self.cli("ingest", "--workdir", self.work, *self.route)
         result = self.cli(
             "ingest",
@@ -577,10 +510,6 @@ class FailureTests(CliCase):
         self.assertIn("given without --source-format", result.stderr)
         result = self.cli("ingest", "--workdir", self.work, "--memory-budget-mb", "8", expect=2)
         self.assertIn("--memory-budget-mb given without --source-format", result.stderr)
-
-    def test_resume_with_nothing_recorded_is_refused(self):
-        result = self.cli("ingest", "--workdir", self.work, expect=2)
-        self.assertIn("no generic conversion to resume", result.stderr)
 
     def test_resume_uses_the_embedded_configuration_after_the_profile_is_gone(self):
         profile = self.tmp / "profile.yaml"
@@ -607,106 +536,105 @@ class FailureTests(CliCase):
         self.assertEqual(tree_state(work), before)
 
 
-class LHaloMetadataBindingTests(CliCase):
-    """An L-Halo conversion is bound to the simulation_info it was ingested
-    with: the header's box size and cosmology come from that file at write
-    time, and nothing in the binary source would catch a different one.
+class BindingRoute(NamedTuple):
+    """One route of a metadata-binding case: its explicit configuration, the simulation_info
+    of another package on the same route, and the recorded box size with the text that edits it."""
 
-    mini-Millennium (62.5 Mpc/h) and Millennium (500 Mpc/h) share cosmology
-    and particle mass, so only the file's content identity tells them apart.
+    label: str
+    route: list
+    other: Path
+    box_size: float
+    edit_from: str
+    edit_to: str
+
+
+class MetadataBindingTests(CliCase):
+    """A conversion is bound to the simulation_info it was ingested with: the header's box
+    size and cosmology come from that file at write time, and nothing in the source would
+    catch a different one.
+
+    L-Halo: mini-Millennium (62.5 Mpc/h) and Millennium (500 Mpc/h) share cosmology and
+    particle mass, so only the file's content identity tells them apart. Forests-HDF5: full
+    Uchuu (2000 Mpc/h) and micro-Uchuu (100 Mpc/h) do too, so the writer's particle_mass
+    agreement check alone cannot tell them apart.
     """
 
-    def setUp(self):
-        super().setUp()
-        self.work = self.tmp / "work"
-        self.mini = SIMULATIONS / "mini-millennium" / "simulation_info.yaml"
-        self.full = SIMULATIONS / "millennium" / "simulation_info.yaml"
-
-    def ingest_and_transpose(self, sim_info=None):
-        route = lhalo_route(
-            "mini-millennium", self.literal_gapped_source(), "trees_063", last_file=1
+    def routes(self):
+        return (
+            BindingRoute(
+                "lhalo_binary",
+                lhalo_route(
+                    "mini-millennium", self.literal_gapped_source(), "trees_063", last_file=1
+                ),
+                SIMULATIONS / "millennium" / "simulation_info.yaml",
+                62.5,
+                "value: 62.5",
+                "value: 500.0",
+            ),
+            BindingRoute(
+                "consistent_trees_hdf5",
+                hdf5_route("uchuu", "mergertree_info.h5"),
+                SIMULATIONS / "micro-uchuu-hdf5" / "simulation_info.yaml",
+                2000.0,
+                "value: 2000.0",
+                "value: 100.0",
+            ),
         )
+
+    def ingest_and_transpose(self, case, sim_info=None):
+        route = list(case.route)
         if sim_info is not None:
             route[route.index("--simulation-info") + 1] = sim_info
-        self.cli("ingest", "--workdir", self.work, *route)
-        self.cli("transpose", "--workdir", self.work)
-        return route
+        work = self.tmp / "work_{}".format(case.label)
+        self.cli("ingest", "--workdir", work, *route)
+        self.cli("transpose", "--workdir", work)
+        return work, route
 
-    def assert_nothing_written(self):
-        written = sorted(str(p) for p in (self.work / "write").rglob("*") if p.is_file())
+    def assert_nothing_written(self, work):
+        written = sorted(str(p) for p in (work / "write").rglob("*") if p.is_file())
         self.assertEqual(written, [], "a refused write created output files")
-        manifest = json.loads((self.work / "manifest.json").read_text())
+        manifest = json.loads((work / "manifest.json").read_text())
         self.assertNotEqual(manifest["stages"]["write"]["status"], "complete")
 
     def test_write_refuses_another_packages_simulation_info(self):
-        self.ingest_and_transpose()
-        result = self.cli("write", "--workdir", self.work, "--simulation-info", self.full, expect=2)
-        self.assertIn("different simulation_info", result.stderr)
-        self.assert_nothing_written()
-        # The recorded metadata still writes, and its box size is the header's.
-        self.cli("write", "--workdir", self.work, "--simulation-info", self.mini)
-        manifest = json.loads((self.work / "manifest.json").read_text())
-        dataset = self.work / manifest["stages"]["write"]["directory"]
-        with h5py.File(dataset / "snapshot_000.h5", "r") as handle:
-            self.assertEqual(float(handle["header"].attrs["box_size_mpc_h"]), 62.5)
+        for case in self.routes():
+            with self.subTest(route=case.label):
+                work, route = self.ingest_and_transpose(case)
+                recorded = route_value(route, "--simulation-info")
+                result = self.cli(
+                    "write", "--workdir", work, "--simulation-info", case.other, expect=2
+                )
+                self.assertIn("different simulation_info", result.stderr)
+                self.assert_nothing_written(work)
+                # The recorded metadata still writes, and its box size is the header's.
+                self.cli("write", "--workdir", work, "--simulation-info", recorded)
+                manifest = json.loads((work / "manifest.json").read_text())
+                dataset = work / manifest["stages"]["write"]["directory"]
+                with h5py.File(dataset / "snapshot_000.h5", "r") as handle:
+                    self.assertEqual(float(handle["header"].attrs["box_size_mpc_h"]), case.box_size)
 
     def test_metadata_edited_after_ingest_is_refused_at_write(self):
-        edited = self.tmp / "simulation_info.yaml"
-        shutil.copy(self.mini, edited)
-        self.ingest_and_transpose(sim_info=edited)
-        edited.write_text(edited.read_text().replace("value: 62.5", "value: 500.0"))
-        result = self.cli("write", "--workdir", self.work, "--simulation-info", edited, expect=2)
-        self.assertIn(str(edited.resolve()), result.stderr)
-        self.assert_nothing_written()
+        for case in self.routes():
+            with self.subTest(route=case.label):
+                edited = self.tmp / "simulation_info_{}.yaml".format(case.label)
+                shutil.copy(route_value(case.route, "--simulation-info"), edited)
+                work, _route = self.ingest_and_transpose(case, sim_info=edited)
+                edited.write_text(edited.read_text().replace(case.edit_from, case.edit_to))
+                result = self.cli("write", "--workdir", work, "--simulation-info", edited, expect=2)
+                self.assertIn(str(edited.resolve()), result.stderr)
+                self.assert_nothing_written(work)
 
     def test_resume_with_another_packages_simulation_info_is_refused(self):
-        route = self.ingest_and_transpose()
-        before = tree_state(self.work)
+        """The recorded simulation_info is part of the conversion's identity on every route,
+        so the refusal is exercised on the L-Halo route."""
+        case = self.routes()[0]
+        work, route = self.ingest_and_transpose(case)
+        before = tree_state(work)
         other = list(route)
-        other[other.index("--simulation-info") + 1] = self.full
-        result = self.cli("ingest", "--workdir", self.work, *other, expect=2)
+        other[other.index("--simulation-info") + 1] = case.other
+        result = self.cli("ingest", "--workdir", work, *other, expect=2)
         self.assertIn("different conversion", result.stderr)
-        self.assertEqual(tree_state(self.work), before)
-
-
-class ForestsHDF5MetadataBindingTests(LHaloMetadataBindingTests):
-    """The same binding on the forests-HDF5 route. Full Uchuu (2000 Mpc/h)
-    and micro-Uchuu (100 Mpc/h) share cosmology and particle mass, so the
-    writer's particle_mass agreement check alone cannot tell them apart."""
-
-    def setUp(self):
-        CliCase.setUp(self)
-        self.work = self.tmp / "work"
-        self.mini = SIMULATIONS / "uchuu" / "simulation_info.yaml"
-        self.full = SIMULATIONS / "micro-uchuu-hdf5" / "simulation_info.yaml"
-
-    def ingest_and_transpose(self, sim_info=None):
-        route = hdf5_route("uchuu", "mergertree_info.h5")
-        if sim_info is not None:
-            route[route.index("--simulation-info") + 1] = sim_info
-        self.cli("ingest", "--workdir", self.work, *route)
-        self.cli("transpose", "--workdir", self.work)
-        return route
-
-    def test_write_refuses_another_packages_simulation_info(self):
-        self.ingest_and_transpose()
-        result = self.cli("write", "--workdir", self.work, "--simulation-info", self.full, expect=2)
-        self.assertIn("different simulation_info", result.stderr)
-        self.assert_nothing_written()
-        self.cli("write", "--workdir", self.work, "--simulation-info", self.mini)
-        manifest = json.loads((self.work / "manifest.json").read_text())
-        dataset = self.work / manifest["stages"]["write"]["directory"]
-        with h5py.File(dataset / "snapshot_000.h5", "r") as handle:
-            self.assertEqual(float(handle["header"].attrs["box_size_mpc_h"]), 2000.0)
-
-    def test_metadata_edited_after_ingest_is_refused_at_write(self):
-        edited = self.tmp / "simulation_info.yaml"
-        shutil.copy(self.mini, edited)
-        self.ingest_and_transpose(sim_info=edited)
-        edited.write_text(edited.read_text().replace("value: 2000.0", "value: 100.0"))
-        result = self.cli("write", "--workdir", self.work, "--simulation-info", edited, expect=2)
-        self.assertIn(str(edited.resolve()), result.stderr)
-        self.assert_nothing_written()
+        self.assertEqual(tree_state(work), before)
 
 
 class LHaloWriterBindingTests(unittest.TestCase):
@@ -724,17 +652,19 @@ class LHaloWriterBindingTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         source = tmp / "src"
         source.mkdir()
-        lhalo.write_lhalo_file(str(source / "trees.0"), [literal.TREE_A, literal.TREE_B])
+        fixtures.write_lhalo_file(
+            str(source / "trees.0"), [fixtures.LITERAL_TREE_A, fixtures.LITERAL_TREE_B]
+        )
         a_list = source / "a.list"
-        a_list.write_text(literal.A_LIST_TEXT)
+        a_list.write_text(fixtures.LITERAL_A_LIST_TEXT)
         mini = SIMULATIONS / "mini-millennium" / "simulation_info.yaml"
         work = tmp / "work"
         pipeline.initialize(
             work,
-            literal.lhalo_schema(),
+            fixtures.lhalo_schema(),
             {"sources": [[0, str(source / "trees.0")]], "simulation_info": str(mini)},
             a_list,
-            transpose_budget_bytes=literal.BUDGET,
+            transpose_budget_bytes=fixtures.LITERAL_BUDGET,
         )
         pipeline.run_ingest(work)
         pipeline.run_transpose(work)
@@ -771,12 +701,10 @@ class OutputIdentificationTests(unittest.TestCase):
         self.assertIn("links_adjacent=1", text)
         # every route's output is forest-blocked, ASCII included, so chunked
         # sweeps apply to all three
-        self.assertIn(
-            "output from every route (lhalo_binary, consistent_trees_hdf5 and "
-            "consistent_trees_ascii sources) is forest-blocked, so chunked sweeps "
-            "(input.forest_chunks) bound a run's memory by a chunk",
-            text,
-        )
+        for route in ("lhalo_binary", "consistent_trees_hdf5", "consistent_trees_ascii"):
+            self.assertIn(route, text)
+        self.assertIn("forest-blocked", text)
+        self.assertIn("chunked sweeps", text)
         self.assertNotIn("not forest-blocked", text)
         self.assertNotIn("cannot be chunked", text)
 

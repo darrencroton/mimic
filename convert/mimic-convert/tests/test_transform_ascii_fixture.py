@@ -17,8 +17,8 @@ forests the cut tests use:
   in every ``/halos`` column, header attribute and sidecar value: the
   transformed source carries exactly the cut topology to a reader that knows
   nothing of a cut;
-- a source whose hosts cannot be resolved under the original partition, and a
-  used output directory, are refused.
+- a source whose hosts cannot be resolved under the original partition, and an
+  output directory that is not empty, are refused without writing.
 """
 
 import io
@@ -27,7 +27,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,10 +37,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "too
 import fixtures  # noqa: E402
 import transform_ascii_fixture  # noqa: E402
 from column_schema import build_schema, load_column_map  # noqa: E402
-from ctrees_parser import parse_file  # noqa: E402
 from errors import ConverterError  # noqa: E402
-from test_ascii_adapter import CUT_FIXTURES, convert_under_cut  # noqa: E402
-from test_rewriter import assert_datasets_equal, companions, cut_layout  # noqa: E402
+from fixtures import (  # noqa: E402
+    CUT_FIXTURES,
+    assert_datasets_equal,
+    convert_under_cut,
+    cut_companions,
+    cut_layout,
+    parse_file,
+)
 
 #: The shipped default profile's schema, which every parse here runs under.
 SCHEMA = build_schema(
@@ -65,7 +70,7 @@ def write_source(root: Path, forest, layout, table) -> Path:
     """A fixture forest beside the companions, in ``layout``'s files, with its
     ``forests.list``, the run metadata and the cut table."""
     root.mkdir(parents=True)
-    forests = [companions()[0], forest, companions()[1]]
+    forests = [cut_companions()[0], forest, cut_companions()[1]]
     for index, trees in enumerate(layout):
         fixtures.write_ctrees_file(root / "tree_{}.dat".format(index), trees)
     fixtures.write_forests_list(root / "forests.list", forests)
@@ -212,27 +217,17 @@ class TransformTests(unittest.TestCase):
                     transform(root / "src", root / "out")
                 self.assertFalse((root / "out").exists(), "a refusal wrote its output")
 
-    def test_a_used_output_directory_and_the_exit_status(self):
+    def test_a_used_output_directory_is_refused_untouched(self):
         forest = fixtures.severed_satellite_forest()
-        root = self.root / "cli"
-        write_source(
-            root / "src", forest, cut_layout(forest, 1), fixtures.severed_satellite_cut_table()
-        )
+        root = self.root / "used"
+        table = fixtures.severed_satellite_cut_table()
+        write_source(root / "src", forest, cut_layout(forest, 1), table)
         (root / "out").mkdir()
         (root / "out" / "kept").write_text("x")
-        argv = ["--forests-list", str(root / "src" / "forests.list")]
-        argv += ["--cut-table", str(root / "src" / "cut.list"), "--output-dir", str(root / "out")]
-        argv += [str(path) for path in sorted((root / "src").glob("tree_*.dat"))]
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            self.assertEqual(transform_ascii_fixture.main(argv), 2)
-        self.assertIn("the output directory is not empty", stderr.getvalue())
-        self.assertEqual(sorted(path.name for path in (root / "out").iterdir()), ["kept"])
-        argv[argv.index(str(root / "out"))] = str(root / "fresh")
-        with redirect_stdout(io.StringIO()) as stdout:
-            self.assertEqual(transform_ascii_fixture.main(argv), 0)
-        self.assertIn('"promoted_per_snapshot": {"4": 1}', stdout.getvalue())
-        self.assertTrue((root / "fresh" / "tree_0_0_0.dat").is_file())
+        with self.assertRaisesRegex(ConverterError, "the output directory is not empty"):
+            transform(root / "src", root / "out")
+        self.assertEqual([path.name for path in (root / "out").iterdir()], ["kept"])
+        self.assertEqual((root / "out" / "kept").read_text(), "x")
 
 
 if __name__ == "__main__":

@@ -15,9 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
-import h5py
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
@@ -27,8 +25,11 @@ sys.path.insert(0, str(HERE))
 
 import fixtures  # noqa: E402
 from errors import ConverterError  # noqa: E402
+from fixtures import (  # noqa: E402
+    convert_ascii,
+    edit_column,
+)
 from horizontal_dataset import HorizontalDataset  # noqa: E402
-from test_forest_census import convert_ascii  # noqa: E402
 from vertical.plan import (  # noqa: E402
     FILE_PLAN_NAME,
     INT32_MAX,
@@ -46,16 +47,6 @@ WORKED_ASCII = REPO_ROOT / "simulations" / "shin-uchuu" / "_tests" / "data" / "w
 
 #: The fixture's forests by ForestIndex: 1100, 1200, 1300 (ends at snapshot 2) and 1400.
 TOTALS = [8, 6, 2, 3]
-
-
-def edit_column(dataset_dir, snap, name, edit):
-    """Rewrite one ``/halos`` column of one slab in place with ``edit(values)``."""
-    path = Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap)
-    with h5py.File(path, "r+") as handle:
-        column = handle["halos"][name]
-        values = column[...]
-        edit(values)
-        column[...] = values
 
 
 def cuts(files):
@@ -81,7 +72,7 @@ class FixtureDataset(unittest.TestCase):
 
     def mutated(self, *edits):
         """A copy of the dataset with each ``(snap, column, edit)`` applied."""
-        target = self.work / "dataset"
+        target = Path(tempfile.mkdtemp(dir=self.work)) / "dataset"
         shutil.copytree(self.dataset_dir, target)
         for snap, name, edit in edits:
             edit_column(target, snap, name, edit)
@@ -143,26 +134,33 @@ class ForestTotalsTests(FixtureDataset):
         ):
             forest_totals(self.mutated((2, "SourceHaloID", lower)))
 
-    def test_a_first_minimum_other_than_one_is_refused(self):
+    def test_totals_that_are_not_those_of_dense_ids_are_refused(self):
+        """The first SourceHaloID of forest 0 must be 1, and the totals must sum to the dataset's
+        halo count."""
+
         def raise_first(values):
             values[0] = 2  # forest 0's rank 0 at snapshot 5
 
-        with self.assertRaisesRegex(
-            ConverterError, r"forest 0's first SourceHaloID is 2, not 1 \(the totals need .* dense"
-        ):
-            forest_totals(self.mutated((5, "SourceHaloID", raise_first)))
-
-    def test_totals_that_do_not_sum_to_the_halo_total_are_refused(self):
         def shift_last(values):
             values[-1] += 100  # forest 3's row in each slab it occupies
 
-        dataset = self.mutated(*[(snap, "SourceHaloID", shift_last) for snap in (3, 4, 5)])
-        with self.assertRaisesRegex(
-            ConverterError,
-            r"forest totals do not sum to the dataset's 19 halos: forests 0 to 2 hold 116, "
-            r"leaving -97 for forest 3 \(the totals need SourceHaloID to be the dense 1-based",
-        ):
-            forest_totals(dataset)
+        cases = [
+            (
+                "a first minimum other than one",
+                [(5, "SourceHaloID", raise_first)],
+                r"forest 0's first SourceHaloID is 2, not 1 \(the totals need .* dense",
+            ),
+            (
+                "totals that do not sum to the halo total",
+                [(snap, "SourceHaloID", shift_last) for snap in (3, 4, 5)],
+                r"forest totals do not sum to the dataset's 19 halos: forests 0 to 2 hold 116, "
+                r"leaving -97 for forest 3 \(the totals need SourceHaloID to be the dense 1-based",
+            ),
+        ]
+        for label, edits, message in cases:
+            with self.subTest(label):
+                with self.assertRaisesRegex(ConverterError, message):
+                    forest_totals(self.mutated(*edits))
 
 
 class CutFilesTests(unittest.TestCase):
@@ -182,13 +180,13 @@ class CutFilesTests(unittest.TestCase):
                 self.assertEqual(cuts(cut_files(np.array(TOTALS), halo_cap, forest_cap)), expected)
         self.assertEqual(cut_files([], 10, 10), [])
 
-    def test_caps_at_the_int_limit_are_accepted(self):
+    def test_caps_and_totals_are_accepted_at_the_int_limit_and_refused_beyond_it(self):
+        """INT32_MAX itself is a valid cap and total; a zero, boolean or over-limit cap, an empty
+        or over-limit forest, and a non-integer array are refused by name."""
         self.assertEqual(
             cuts(cut_files([INT32_MAX, 1], INT32_MAX, INT32_MAX)),
             [(0, 0, 0, 1, INT32_MAX), (1, 1, 1, 1, 1)],
         )
-
-    def test_refusals(self):
         refusals = [
             ((TOTALS, INT32_MAX + 1, 10), r"max_halos_per_file must be at most 2147483647, got"),
             ((TOTALS, 10, INT32_MAX + 1), r"max_forests_per_file must be at most 2147483647"),
@@ -354,13 +352,9 @@ class FilePlanTests(FixtureDataset):
         self.assertEqual(read_file_plan(self.work, dataset, SHIN_UCHUU_RECORD), plan)
 
     def test_make_file_plan_refuses_a_bad_cap_before_reading_the_dataset(self):
-        dataset = HorizontalDataset(self.dataset_dir)
-        with mock.patch.multiple(
-            dataset, read_rows=mock.DEFAULT, iter_columns=mock.DEFAULT
-        ) as reads:
-            with self.assertRaisesRegex(ConverterError, r"max_forests_per_file must be a positive"):
-                make_file_plan(dataset, SHIN_UCHUU_RECORD, 10, 0)
-        self.assertFalse(reads["read_rows"].called or reads["iter_columns"].called)
+        """A dataset that cannot be touched at all is never reached: the cap is checked first."""
+        with self.assertRaisesRegex(ConverterError, r"max_forests_per_file must be a positive"):
+            make_file_plan(object(), SHIN_UCHUU_RECORD, 10, 0)
 
 
 if __name__ == "__main__":

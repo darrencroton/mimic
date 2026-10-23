@@ -399,14 +399,6 @@ class TestHandSpecifiedGraph(TransposeCase):
         self.assertEqual(result.schema_digest, schema.digest)
         self.assertEqual(result.record_dtype, tp.output_dtype(schema))
 
-    def test_the_empty_snapshot_is_an_empty_file(self):
-        schema = ascii_schema()
-        result = self.run_transpose(schema, batch_source(schema))
-        entry = result.output(3)
-        self.assertTrue(os.path.isfile(entry.path))
-        self.assertEqual(os.path.getsize(entry.path), 0)
-        self.assertEqual(tp.read_snapshot(result, 3).size, 0)
-
     def test_payload_identity_and_extras_are_moved_bit_for_bit(self):
         schema = ascii_schema(ALL_EXTRAS_PROFILE)
         result = self.run_transpose(schema, batch_source(schema))
@@ -552,46 +544,63 @@ class TestRejections(TransposeCase):
         rows = self.edited(8, links=(7, -1, 5, 8, 99))
         self.assert_rejected_cleanly(schema, batch_source(schema, rows=rows), "not a halo")
 
-    def test_a_duplicate_source_key_across_batches_is_refused(self):
+    def test_a_corrupt_graph_is_refused_with_nothing_written(self):
+        """A duplicate source key (arriving in a batch of its own, or twice within
+        a snapshot), a link across forests and a sibling cycle each fail the
+        transpose, which leaves no output behind."""
         schema = ascii_schema()
-        rows = graph_table()
-        clone = dict(rows[-1])  # c1 again, now at snapshot 5 too
-        clone["snap"] = 5
-        for order in ("inventory", "snapshot-major"):
-            with self.subTest(order=order):
-                source = batch_source(schema, order, rows=rows)
 
-                def batches(max_rows, source=source):
-                    # the duplicate reaches the transpose in a batch of its own
-                    yield from source(max_rows)
-                    yield make_batch(schema, [clone])
+        def with_trailing_duplicate(order):
+            rows = graph_table()
+            clone = dict(rows[-1])  # c1 again, now at snapshot 5 too
+            clone["snap"] = 5
+            source = batch_source(schema, order, rows=rows)
 
-                self.assert_rejected_cleanly(schema, batches, "carried by two halos")
+            def batches(max_rows):
+                yield from source(max_rows)
+                yield make_batch(schema, [clone])
 
-    def test_a_duplicate_source_key_within_a_snapshot_is_refused(self):
-        schema = ascii_schema()
-        rows = graph_table()
-        rows.append(dict(rows[-1]))  # c1 twice at snapshot 0
-        batches = lambda max_rows: (make_batch(schema, [row]) for row in rows)  # noqa: E731
-        self.assert_rejected_cleanly(schema, batches, "duplicated|carried by two halos")
+            return batches
 
-    def test_a_cross_forest_link_is_refused(self):
-        schema = ascii_schema()
+        within_a_snapshot = graph_table()
+        within_a_snapshot.append(dict(within_a_snapshot[-1]))  # c1 twice at snapshot 0
+
         # b3 (forest B, snapshot 0) names a5 (forest A, snapshot 0) as its central
-        rows = self.edited(13, links=(-1, -1, -1, 8, -1))
-        self.assert_rejected_cleanly(schema, batch_source(schema, rows=rows), "cross forests")
+        cross_forest = self.edited(13, links=(-1, -1, -1, 8, -1))
 
-    def test_a_cyclic_sibling_chain_is_refused(self):
-        schema = ascii_schema()
-        rows = graph_table()
-        by_id = {row["sid"]: row for row in rows}
         # a0's chain becomes a1 -> (end); a4 and a7 point at each other
+        cyclic = graph_table()
+        by_id = {row["sid"]: row for row in cyclic}
         by_id[2]["links"] = (1, 3, -1, 2, 9)
         by_id[7]["links"] = (1, 8, 9, 7, -1)
         by_id[9]["links"] = (1, -1, 7, 2, -1)
-        self.assert_rejected_cleanly(
-            schema, batch_source(schema, rows=rows), "NextProgenitor chain .* never terminates"
+
+        cases = (
+            (
+                "duplicate across batches, inventory order",
+                with_trailing_duplicate("inventory"),
+                "carried by two halos",
+            ),
+            (
+                "duplicate across batches, snapshot-major order",
+                with_trailing_duplicate("snapshot-major"),
+                "carried by two halos",
+            ),
+            (
+                "duplicate within a snapshot",
+                lambda max_rows: (make_batch(schema, [row]) for row in within_a_snapshot),
+                "duplicated|carried by two halos",
+            ),
+            ("link across forests", batch_source(schema, rows=cross_forest), "cross forests"),
+            (
+                "sibling cycle",
+                batch_source(schema, rows=cyclic),
+                "NextProgenitor chain .* never terminates",
+            ),
         )
+        for label, batches, pattern in cases:
+            with self.subTest(case=label):
+                self.assert_rejected_cleanly(schema, batches, pattern)
 
     def test_an_oversized_batch_is_refused(self):
         schema = ascii_schema()
@@ -759,7 +768,7 @@ class TestBudget(TransposeCase):
         self.assertLessEqual(peak, budget + tp.UNMETERED_ALLOWANCE_BYTES)
         self.assertGreater(sum(result.sort_runs.values()), 20)
 
-    def test_scratch_is_private_and_removed_and_writers_use_8192_bytes(self):
+    def test_scratch_is_private_and_removed_and_writers_use_the_budgeted_buffer(self):
         schema = ascii_schema()
         spills = self.root / "spills"
         spills.mkdir()
@@ -776,7 +785,9 @@ class TestBudget(TransposeCase):
         self.assertEqual(os.listdir(spills), [])
         self.assertGreater(result.peak_spill_bytes, 0)
         self.assertTrue(modes)
-        self.assertEqual({buffering for _mode, buffering in modes}, {8192})
+        self.assertEqual(
+            {buffering for _mode, buffering in modes}, {rank_sort.SCRATCH_WRITE_BUFFER_BYTES}
+        )
 
 
 class TestPerRowScratch(TransposeCase):

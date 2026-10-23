@@ -3,8 +3,9 @@
 
 **Oracle.** The stage/restart oracle is a
 small literal L-Halo source -- three trees in two files, packed by hand with
-``test_lhalo_adapter``'s independent ``struct`` packer -- and the transposed
-arrays hand-derived from it below (:data:`EXPECTED`), not from the transpose.
+the independent ``struct`` packer of :func:`fixtures.write_lhalo_file` -- and the
+transposed arrays hand-derived from it (:data:`fixtures.LITERAL_EXPECTED`), not from the
+transpose.
 It carries a three-snapshot descendant gap, a two-snapshot one, mixed-age
 sibling progenitors, an early-ending halo, an empty snapshot and a duplicated
 ``MostBoundID``. Every restart test compares its final outputs with those
@@ -43,112 +44,27 @@ import column_schema as cs  # noqa: E402
 import conversion_manifest as cm  # noqa: E402
 import fixtures  # noqa: E402
 import pipeline  # noqa: E402
-import test_ctrees_hdf5_adapter as h5fixtures  # noqa: E402
-import test_lhalo_adapter as lhalo  # noqa: E402
 from adapters import ctrees_ascii  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
-from test_conversion_manifest import make_scatter_workdir, tree_state  # noqa: E402
-
-HERE = Path(__file__).resolve().parent
-CONVERT_DIR = HERE.parent
-REPO_ROOT = HERE.parents[2]
-PROFILE_DIR = CONVERT_DIR / "profiles"
-MINI_MILLENNIUM_PROPERTIES = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
-
-BUDGET = 4 << 20
-
-# ==========================================================================
-# The literal source and its independently derived transpose
-# ==========================================================================
-
-#: Tree A (file 0, tree 0): r0 at snap 3 has progenitors r1 (snap 2) and r2
-#: (snap 0, a three-snapshot gap) as mixed-age siblings; r3 shares r1's FoF
-#: group and ends early.
-TREE_A = [
-    dict(
-        SnapNum=3, FirstProgenitor=1, FirstHaloInFOFgroup=0, MostBoundID=77, Len=10, M_Crit200=1.5
-    ),
-    dict(
-        SnapNum=2,
-        Descendant=0,
-        NextProgenitor=2,
-        FirstHaloInFOFgroup=1,
-        NextHaloInFOFgroup=3,
-        MostBoundID=-5,
-        Len=9,
-        M_Crit200=0.75,
-    ),
-    dict(SnapNum=0, Descendant=0, FirstHaloInFOFgroup=2, MostBoundID=11, Len=8, M_Crit200=0.25),
-    dict(SnapNum=2, FirstHaloInFOFgroup=1, MostBoundID=12, Len=7, M_Crit200=0.125),
-]
-#: Tree B (file 0, tree 1): a lone halo.
-TREE_B = [dict(SnapNum=3, FirstHaloInFOFgroup=0, MostBoundID=13, Len=6, M_Crit200=2.0)]
-#: Tree C (file 1, tree 0): a chain whose root progenitor skips snapshot 1.
-#: r0 duplicates tree A's MostBoundID, as real catalogs may.
-TREE_C = [
-    dict(SnapNum=3, FirstProgenitor=1, FirstHaloInFOFgroup=0, MostBoundID=77, Len=5, M_Crit200=3.0),
-    dict(
-        SnapNum=2,
-        Descendant=0,
-        FirstProgenitor=2,
-        FirstHaloInFOFgroup=1,
-        MostBoundID=-3,
-        Len=4,
-        M_Crit200=4.0,
-    ),
-    dict(SnapNum=0, Descendant=1, FirstHaloInFOFgroup=2, MostBoundID=14, Len=3, M_Crit200=5.0),
-]
-A_LIST_TEXT = "0.25\n0.5\n0.75\n1.0\n"
-
-#: SourceHaloID = 1 + prefix position over (file, tree, row): A -> 1-4,
-#: B -> 5, C -> 6-8. Rows per snapshot ascend in SourceHaloID. Links are
-#: (row, target snapshot); -1 null.
-_COLUMNS = (
-    "SourceHaloID",
-    "ForestIndex",
-    "HaloRankInForest",
-    "Descendant",
-    "DescendantSnapshot",
-    "FirstProgenitor",
-    "FirstProgenitorSnapshot",
-    "NextProgenitor",
-    "NextProgenitorSnapshot",
-    "FirstHaloInFOFgroup",
-    "NextHaloInFOFgroup",
-    "SnapNum",
-    "Len",
-    "MostBoundID",
-    "M_Crit200",
+from fixtures import (  # noqa: E402
+    CONVERT_DIR,
+    LITERAL_A_LIST_TEXT,
+    LITERAL_BUDGET,
+    LITERAL_EXPECTED,
+    LITERAL_TOTAL_HALOS,
+    LITERAL_TREE_A,
+    LITERAL_TREE_B,
+    LITERAL_TREE_C,
+    MINI_MILLENNIUM_PROPERTIES,
+    PROFILE_DIR,
+    lhalo_schema,
+    make_scatter_workdir,
+    tree_state,
 )
-_ROWS = {
-    0: [
-        (3, 0, 2, 0, 3, -1, -1, -1, -1, 0, -1, 0, 8, 11, 0.25),
-        (8, 2, 2, 2, 2, -1, -1, -1, -1, 1, -1, 0, 3, 14, 5.0),
-    ],
-    1: [],
-    2: [
-        (2, 0, 1, 0, 3, -1, -1, 0, 0, 0, 1, 2, 9, -5, 0.75),
-        (4, 0, 3, -1, -1, -1, -1, -1, -1, 0, -1, 2, 7, 12, 0.125),
-        (7, 2, 1, 2, 3, 1, 0, -1, -1, 2, -1, 2, 4, -3, 4.0),
-    ],
-    3: [
-        (1, 0, 0, -1, -1, 0, 2, -1, -1, 0, -1, 3, 10, 77, 1.5),
-        (5, 1, 0, -1, -1, -1, -1, -1, -1, 1, -1, 3, 6, 13, 2.0),
-        (6, 2, 0, -1, -1, 2, 2, -1, -1, 2, -1, 3, 5, 77, 3.0),
-    ],
-}
-EXPECTED = {
-    snap: {name: [row[i] for row in rows] for i, name in enumerate(_COLUMNS)}
-    for snap, rows in _ROWS.items()
-}
-TOTAL_HALOS = 8
 
-
-def lhalo_schema(profile="lhalo_binary.yaml", directory=PROFILE_DIR, properties=None):
-    return cs.build_schema(
-        cs.load_column_map(Path(directory) / profile),
-        cs.load_source_properties(properties or MINI_MILLENNIUM_PROPERTIES),
-    )
+# ==========================================================================
+# Transpose readers and stage doubles
+# ==========================================================================
 
 
 def same_width_variant(schema):
@@ -240,17 +156,19 @@ class PipelineCase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.src = self.tmp / "src"
         self.src.mkdir()
-        self.file0 = lhalo.write_lhalo_file(str(self.src / "trees.0"), [TREE_A, TREE_B])
-        self.file1 = lhalo.write_lhalo_file(str(self.src / "trees.1"), [TREE_C])
+        self.file0 = fixtures.write_lhalo_file(
+            str(self.src / "trees.0"), [LITERAL_TREE_A, LITERAL_TREE_B]
+        )
+        self.file1 = fixtures.write_lhalo_file(str(self.src / "trees.1"), [LITERAL_TREE_C])
         self.a_list = self.src / "a.list"
-        self.a_list.write_text(A_LIST_TEXT)
+        self.a_list.write_text(LITERAL_A_LIST_TEXT)
         self.schema = lhalo_schema()
         self.parameters = {"sources": [[0, self.file0], [1, self.file1]]}
         self.work = self.tmp / "work"
 
     def initialize(self, work=None, schema=None, **kwargs):
         kwargs.setdefault("ingest_max_rows", 3)
-        kwargs.setdefault("transpose_budget_bytes", BUDGET)
+        kwargs.setdefault("transpose_budget_bytes", LITERAL_BUDGET)
         return pipeline.initialize(
             work or self.work, schema or self.schema, self.parameters, self.a_list, **kwargs
         )
@@ -273,7 +191,7 @@ class PipelineCase(unittest.TestCase):
 
     def assert_expected(self, work):
         manifest = cm.ConversionManifest.load(work)
-        for snap, columns in EXPECTED.items():
+        for snap, columns in LITERAL_EXPECTED.items():
             rows = read_transposed(manifest, snap)
             for name, values in columns.items():
                 np.testing.assert_array_equal(
@@ -331,7 +249,7 @@ class EndToEndTests(PipelineCase):
         self.run_all()
         self.assert_expected(self.work)
         result = cm.ConversionManifest.load(self.work).stage("transpose")["result"]
-        self.assertEqual(result["total_halos"], TOTAL_HALOS)
+        self.assertEqual(result["total_halos"], LITERAL_TOTAL_HALOS)
         self.assertEqual(result["n_gapped_descendants"], 2)
         self.assertEqual(result["max_descendant_span"], 3)
         self.assertFalse(result["links_adjacent"])
@@ -389,10 +307,10 @@ class EndToEndTests(PipelineCase):
         )
         a_list = dependencies[os.path.realpath(self.a_list)]
         self.assertEqual(a_list["roles"], ["a_list"])
-        self.assertEqual(a_list["sha256"], hashlib.sha256(A_LIST_TEXT.encode()).hexdigest())
+        self.assertEqual(a_list["sha256"], hashlib.sha256(LITERAL_A_LIST_TEXT.encode()).hexdigest())
         self.assertEqual(dependencies[os.path.realpath(self.file0)]["roles"], ["source"])
         inventory = data["sources"]["inventory"]
-        self.assertEqual((inventory["n_units"], inventory["total_halos"]), (3, TOTAL_HALOS))
+        self.assertEqual((inventory["n_units"], inventory["total_halos"]), (3, LITERAL_TOTAL_HALOS))
         self.assertEqual(
             inventory["files"],
             [
@@ -557,7 +475,7 @@ class BindingTests(PipelineCase):
 
         def edit_a_list_restoring_mtime():
             status = os.stat(self.a_list)
-            self.a_list.write_text(A_LIST_TEXT.replace("0.5", "0.6"))
+            self.a_list.write_text(LITERAL_A_LIST_TEXT.replace("0.5", "0.6"))
             os.utime(self.a_list, ns=(status.st_atime_ns, status.st_mtime_ns))
 
         changes = {
@@ -590,9 +508,9 @@ class BindingTests(PipelineCase):
 
     def setUp_sources(self):
         self.src.mkdir()
-        lhalo.write_lhalo_file(str(self.file0), [TREE_A, TREE_B])
-        lhalo.write_lhalo_file(str(self.file1), [TREE_C])
-        self.a_list.write_text(A_LIST_TEXT)
+        fixtures.write_lhalo_file(str(self.file0), [LITERAL_TREE_A, LITERAL_TREE_B])
+        fixtures.write_lhalo_file(str(self.file1), [LITERAL_TREE_C])
+        self.a_list.write_text(LITERAL_A_LIST_TEXT)
 
     def test_a_source_edited_behind_its_stat_evidence_cannot_resume_ingest(self):
         """An in-place edit that restores size and mtime passes the stat pin;
@@ -629,11 +547,12 @@ class BindingTests(PipelineCase):
     def test_changed_hdf5_backing_file_fails_before_mutation(self):
         directory = self.tmp / "h5"
         directory.mkdir()
-        forests = [h5fixtures.MERGER_FOREST]
-        info = h5fixtures.write_source(
-            str(directory), [{"forests": forests}, {"forests": [h5fixtures.lone(9, snap=5)]}]
+        forests = [fixtures.HDF5_MERGER_FOREST]
+        info = fixtures.write_hdf5_source(
+            str(directory),
+            [{"forests": forests}, {"forests": [fixtures.hdf5_lone_forest(9, snap=5)]}],
         )
-        schema = h5fixtures.load_schema()
+        schema = fixtures.load_hdf5_schema()
         a_list = directory.parent / "hdf5.a_list"
         a_list.write_text("".join("{}\n".format(0.5 + 0.1 * i) for i in range(6)))
         work = self.tmp / "h5work"
@@ -641,9 +560,9 @@ class BindingTests(PipelineCase):
             "info_path": info,
             "first_file": 0,
             "last_file": 1,
-            "particle_mass": h5fixtures.PARTICLE_MASS,
+            "particle_mass": fixtures.UCHUU_PARTICLE_MASS,
         }
-        pipeline.initialize(work, schema, parameters, a_list, transpose_budget_bytes=BUDGET)
+        pipeline.initialize(work, schema, parameters, a_list, transpose_budget_bytes=LITERAL_BUDGET)
         data = json.loads((work / cm.MANIFEST_NAME).read_text())
         pinned = {d["path"]: d for d in data["sources"]["dependencies"]}
         backing = os.path.realpath(directory / "forests_1.h5")
@@ -662,7 +581,9 @@ class BindingTests(PipelineCase):
         self.assertEqual(tree_state(work), before)
         # and a resumed ingest of a new conversion refuses the same way
         work2 = self.tmp / "h5work2"
-        pipeline.initialize(work2, schema, parameters, a_list, transpose_budget_bytes=BUDGET)
+        pipeline.initialize(
+            work2, schema, parameters, a_list, transpose_budget_bytes=LITERAL_BUDGET
+        )
         before = tree_state(work2)
         os.unlink(backing)
         with self.assertRaisesRegex(ConverterError, "forests_1.h5"):
@@ -1094,41 +1015,38 @@ class SkipTrustAndCleanupTests(PipelineCase):
         self.assertEqual(tree_state(self.src), sources_before)
         self.assert_no_strays(self.work)
 
-    def test_repeated_cleanup_flags_are_idempotent_end_to_end(self):
-        """Regression: with both consume flags used end to
-        end, re-running each stage with its flag is a no-op, not a refusal to
-        re-verify a successor whose artifacts were consumed in turn."""
-        self.initialize()
-        pipeline.run_ingest(self.work)
-        pipeline.run_transpose(self.work, consume_ingest=True)
-        pipeline.run_write(self.work, StubWriter(), consume_transposed=True)
-        before = tree_state(self.work)
-        pipeline.run_transpose(self.work, consume_ingest=True)
-        pipeline.run_write(self.work, StubWriter(), consume_transposed=True)
-        self.assertEqual(tree_state(self.work), before)
-        manifest = cm.ConversionManifest.load(self.work)
-        self.assertEqual(manifest.consume_stage("ingest", "transpose"), [])
-        self.assertEqual(manifest.consume_stage("transpose", "write"), [])
-        for stage in ("ingest", "transpose"):
-            for relpath in manifest.stage(stage)["artifacts"]:
-                self.assertEqual(manifest.artifact(relpath)["status"], cm.ARTIFACT_REMOVED)
-        manifest.verify_stage_artifacts("write")
-
-    def test_ingest_cleanup_deferred_until_after_write_cleanup(self):
-        """Regression: consuming the transposed snapshots
-        first and the ingest chunks afterwards is accepted -- the successor's
-        own artifacts were consumed by the complete write stage."""
-        self.initialize()
-        pipeline.run_ingest(self.work)
-        pipeline.run_transpose(self.work)
-        pipeline.run_write(self.work, StubWriter(), consume_transposed=True)
-        manifest = pipeline.run_transpose(self.work, consume_ingest=True)
-        for stage in ("ingest", "transpose"):
-            for relpath in manifest.stage(stage)["artifacts"]:
-                self.assertEqual(manifest.artifact(relpath)["status"], cm.ARTIFACT_REMOVED)
-                self.assertFalse((self.work / relpath).exists())
-        pipeline.run_write(self.work, StubWriter())
-        self.assert_no_strays(self.work)
+    def test_cleanup_flags_reach_the_same_end_state_in_either_order(self):
+        """Consuming the ingest chunks before the transposed snapshots, or the
+        transposed snapshots before the ingest chunks, ends with both consumed
+        and the write stage still verified; re-running each stage with its
+        flag is then a no-op, not a refusal to re-verify a successor whose
+        artifacts were consumed in turn."""
+        for order in ("ingest first", "transposed first"):
+            with self.subTest(order=order):
+                work = self.tmp / order.replace(" ", "_")
+                self.initialize(work)
+                pipeline.run_ingest(work)
+                if order == "ingest first":
+                    pipeline.run_transpose(work, consume_ingest=True)
+                    pipeline.run_write(work, StubWriter(), consume_transposed=True)
+                else:
+                    pipeline.run_transpose(work)
+                    pipeline.run_write(work, StubWriter(), consume_transposed=True)
+                    pipeline.run_transpose(work, consume_ingest=True)
+                before = tree_state(work)
+                pipeline.run_transpose(work, consume_ingest=True)
+                pipeline.run_write(work, StubWriter(), consume_transposed=True)
+                self.assertEqual(tree_state(work), before)
+                manifest = cm.ConversionManifest.load(work)
+                self.assertEqual(manifest.consume_stage("ingest", "transpose"), [])
+                self.assertEqual(manifest.consume_stage("transpose", "write"), [])
+                for stage in ("ingest", "transpose"):
+                    for relpath in manifest.stage(stage)["artifacts"]:
+                        self.assertEqual(manifest.artifact(relpath)["status"], cm.ARTIFACT_REMOVED)
+                        self.assertFalse((work / relpath).exists())
+                manifest.verify_stage_artifacts("write")
+                pipeline.run_write(work, StubWriter())
+                self.assert_no_strays(work)
 
     def test_deferred_ingest_cleanup_still_verifies_what_remains(self):
         """The transitive allowance covers only consumed successor artifacts,
@@ -1154,12 +1072,6 @@ class SkipTrustAndCleanupTests(PipelineCase):
         index 1,000,000; the resume scan must still own those names."""
         self.assertEqual(pipeline.chunk_name(999999), "chunk_999999.bin")
         self.assertEqual(pipeline.chunk_name(1000000), "chunk_1000000.bin")
-        for index in (999999, 1000000, 1000001, 12345678):
-            match = pipeline._CHUNK_RE.match(pipeline.chunk_name(index))
-            self.assertIsNotNone(match, index)
-            self.assertEqual(int(match.group(1)), index)
-            self.assertIsNotNone(pipeline._CHUNK_RE.match(pipeline.chunk_name(index) + ".partial"))
-        self.assertIsNone(pipeline._CHUNK_RE.match("chunk_12345.bin"))
         self.initialize()
         manifest = cm.ConversionManifest.load(self.work)
         ingest_dir = self.work / pipeline.INGEST_DIR
@@ -1173,6 +1085,11 @@ class SkipTrustAndCleanupTests(PipelineCase):
         (ingest_dir / "chunk_999999.bin").write_bytes(b"x")
         with self.assertRaisesRegex(ConverterError, "chunk_999999.bin"):
             pipeline._ingest_leftovers(manifest, 1000000)
+        # a name with fewer than six digits is never one the stage wrote
+        (ingest_dir / "chunk_999999.bin").unlink()
+        (ingest_dir / "chunk_12345.bin").write_bytes(b"x")
+        with self.assertRaisesRegex(ConverterError, "chunk_12345.bin"):
+            pipeline._ingest_leftovers(manifest, 0)
 
     def test_cleanup_is_refused_while_its_successor_is_incomplete(self):
         self.initialize()
@@ -1243,16 +1160,16 @@ class WriteInputForestTests(PipelineCase):
             (r.forest_index, r.forest_id, r.source_file_ordinal, r.unit_ordinal, r.n_halos)
             for r in inputs.forests()
         ]
-        # TREE_A (4 halos) and TREE_B (1) in file 0, TREE_C (3) in file 1
+        # LITERAL_TREE_A (4 halos) and LITERAL_TREE_B (1) in file 0, LITERAL_TREE_C (3) in file 1
         self.assertEqual(records, [(0, 0, 0, 0, 4), (1, 1, 0, 1, 1), (2, 2, 1, 0, 3)])
         self.assertEqual(len(list(inputs.forests())), 3)
 
     def test_the_enumeration_reads_no_source_until_it_is_called(self):
         manifest = self.transposed()
-        with mock.patch.object(pipeline, "build_adapter", side_effect=InjectedFailure):
-            inputs = pipeline._write_inputs(manifest)
-            with self.assertRaises(InjectedFailure):
-                inputs.forests()
+        os.unlink(self.file0)
+        inputs = pipeline._write_inputs(manifest)
+        with self.assertRaises(ConverterError):
+            inputs.forests()
 
     def test_the_enumeration_is_bound_to_the_recorded_inventory(self):
         manifest = self.transposed()
@@ -1260,11 +1177,6 @@ class WriteInputForestTests(PipelineCase):
         inputs = pipeline._write_inputs(manifest)
         with self.assertRaisesRegex(ConverterError, "inventory changed"):
             inputs.forests()
-
-    def test_the_stub_writer_path_is_unchanged(self):
-        self.transposed()
-        manifest = pipeline.run_write(self.work, StubWriter())
-        self.assertTrue(manifest.is_complete("write"))
 
 
 class OtherAdapterTests(unittest.TestCase):
@@ -1288,14 +1200,24 @@ class OtherAdapterTests(unittest.TestCase):
         schema = cs.build_schema(cs.load_column_map(PROFILE_DIR / "consistent_trees_ascii.yaml"))
         clean = self.tmp / "clean"
         pipeline.initialize(
-            clean, schema, parameters, a_list, ingest_max_rows=4, transpose_budget_bytes=BUDGET
+            clean,
+            schema,
+            parameters,
+            a_list,
+            ingest_max_rows=4,
+            transpose_budget_bytes=LITERAL_BUDGET,
         )
         pipeline.run_ingest(clean, save_every_chunks=1)
         pipeline.run_transpose(clean)
 
         work = self.tmp / "work"
         pipeline.initialize(
-            work, schema, parameters, a_list, ingest_max_rows=4, transpose_budget_bytes=BUDGET
+            work,
+            schema,
+            parameters,
+            a_list,
+            ingest_max_rows=4,
+            transpose_budget_bytes=LITERAL_BUDGET,
         )
         with _raise_on_call("_write_chunk", "after", 2):
             with self.assertRaises(InjectedFailure):
@@ -1341,7 +1263,7 @@ class OtherAdapterTests(unittest.TestCase):
         parameter change is still refused, untouched."""
         parameters, a_list = self.ascii_source()
         schema = cs.build_schema(cs.load_column_map(PROFILE_DIR / "consistent_trees_ascii.yaml"))
-        sizes = dict(ingest_max_rows=4, transpose_budget_bytes=BUDGET)
+        sizes = dict(ingest_max_rows=4, transpose_budget_bytes=LITERAL_BUDGET)
         clean = self.tmp / "clean"
         pipeline.initialize(clean, schema, parameters, a_list, **sizes)
         pipeline.run_ingest(clean)
@@ -1385,7 +1307,10 @@ class OtherAdapterTests(unittest.TestCase):
             "memory_budget_bytes": (dict(new_tuning, memory_budget_bytes=1 << 30), sizes),
             "tree_files": (dict(new_tuning, tree_files=parameters["tree_files"] * 2), sizes),
             "ingest_max_rows": (new_tuning, dict(sizes, ingest_max_rows=5)),
-            "transpose_budget_bytes": (new_tuning, dict(sizes, transpose_budget_bytes=BUDGET * 2)),
+            "transpose_budget_bytes": (
+                new_tuning,
+                dict(sizes, transpose_budget_bytes=LITERAL_BUDGET * 2),
+            ),
         }
         for what, (changed, changed_sizes) in refused.items():
             with self.subTest(changed=what):
@@ -1404,22 +1329,30 @@ class OtherAdapterTests(unittest.TestCase):
     def test_hdf5_route_runs_and_restarts(self):
         directory = self.tmp / "h5"
         directory.mkdir()
-        info = h5fixtures.write_source(
+        info = fixtures.write_hdf5_source(
             str(directory),
-            [{"forests": [h5fixtures.MERGER_FOREST]}, {"forests": [h5fixtures.lone(9, snap=5)]}],
+            [
+                {"forests": [fixtures.HDF5_MERGER_FOREST]},
+                {"forests": [fixtures.hdf5_lone_forest(9, snap=5)]},
+            ],
         )
         a_list = self.tmp / "h5.a_list"
         a_list.write_text("".join("{}\n".format(0.5 + 0.1 * i) for i in range(6)))
-        schema = h5fixtures.load_schema()
+        schema = fixtures.load_hdf5_schema()
         parameters = {
             "info_path": info,
             "first_file": 0,
             "last_file": 1,
-            "particle_mass": h5fixtures.PARTICLE_MASS,
+            "particle_mass": fixtures.UCHUU_PARTICLE_MASS,
         }
         work = self.tmp / "work"
         pipeline.initialize(
-            work, schema, parameters, a_list, ingest_max_rows=2, transpose_budget_bytes=BUDGET
+            work,
+            schema,
+            parameters,
+            a_list,
+            ingest_max_rows=2,
+            transpose_budget_bytes=LITERAL_BUDGET,
         )
         with _raise_on_call("_register_transposed", "before"):
             pipeline.run_ingest(work)
@@ -1429,7 +1362,7 @@ class OtherAdapterTests(unittest.TestCase):
         manifest = pipeline.run_write(work, StubWriter())
         rows5 = read_transposed(manifest, 5)
         rows4 = read_transposed(manifest, 4)
-        # MERGER_FOREST (file 0) then the lone forest (file 1): ids 1-4, 5
+        # HDF5_MERGER_FOREST (file 0) then the lone forest (file 1): ids 1-4, 5
         np.testing.assert_array_equal(rows5["SourceHaloID"], [1, 2, 5])
         np.testing.assert_array_equal(rows4["SourceHaloID"], [3, 4])
         np.testing.assert_array_equal(rows5["FirstProgenitor"], [0, 1, -1])

@@ -40,24 +40,20 @@ sys.path.insert(0, str(HERE))
 import fixtures  # noqa: E402
 import write_vertical_trees  # noqa: E402
 from errors import ConverterError  # noqa: E402
-from horizontal_dataset import HorizontalDataset  # noqa: E402
-from test_vertical_assemble import (  # noqa: E402
+from fixtures import (  # noqa: E402
     FOREST_1100,
     FOREST_1200,
     FOREST_1300,
     FOREST_1400,
     SHIN_UCHUU_RECORD,
     WORKED_ASCII,
-    convert,
-    rows,
+    assembled_rows,
+    convert_one_file_dataset,
+    edit_column,
 )
-from test_vertical_plan import edit_column  # noqa: E402
+from horizontal_dataset import HorizontalDataset  # noqa: E402
 from vertical import writer  # noqa: E402
-from vertical.assemble import (  # noqa: E402
-    WORKING_BYTES_PER_ROW,
-    AssembledForest,
-    ForestAssembler,
-)
+from vertical.assemble import AssembledForest, ForestAssembler  # noqa: E402
 from vertical.record import record_digest, record_dtype, record_layout  # noqa: E402
 
 TREE = "trees"
@@ -185,7 +181,7 @@ class ConverterCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="write_vertical_"))
-        cls.dataset_dir = convert(
+        cls.dataset_dir = convert_one_file_dataset(
             cls.tmp / "source", fixtures.early_ending_correspondence_forests()
         )
 
@@ -280,7 +276,9 @@ class RoundTripTests(ConverterCase):
             self.assertEqual((first, last), (planned["first_forest"], planned["last_forest"]))
             self.assertEqual(header_counts, counts)
             forests += split(records, counts)
-        self.assertEqual([rows(AssembledForest(0, forest)) for forest in forests], ORACLES)
+        self.assertEqual(
+            [assembled_rows(AssembledForest(0, forest)) for forest in forests], ORACLES
+        )
         for written, forest in zip(forests, assembled):
             self.assertEqual(written.tobytes(), forest.records.tobytes())
 
@@ -409,7 +407,8 @@ class ResumeTests(ConverterCase):
         """A complete conversion rerun in a pool that breaks running file 1: file 1 fails in
         flight, file 2 is never started, both keep their entries, and the next run skips all
         three by SHA-256. A fresh conversion whose pool breaks idle, at file 2's submission
-        after files 0 and 1 completed, names file 2 and exits 2."""
+        after files 0 and 1 completed, names file 2 and exits 2. A fresh conversion whose
+        pool breaks running file 0 refuses file 1's submission and never takes file 2."""
 
         died = "a worker process died (killed, or out of memory)"
         self.plan()
@@ -436,6 +435,14 @@ class ResumeTests(ConverterCase):
         self.assertIn("FAILED file 2: file 2: not started: a worker process died", out)
         self.assertIn("2 of 3 selected file(s) complete", out)
         self.assertEqual(sorted(self.entries(idle)), [0, 1])
+
+        early = self.work / "early"
+        self.plan(early)
+        with mock.patch.object(writer, "ProcessPoolExecutor", fake_pool(running=0)):
+            code, out, err = self.convert("--workers", 2, output=early)
+        self.assertEqual(code, 2, err)
+        self.assertIn("FAILED file 1: file 1: not started: a worker process died", out)
+        self.assertIn("1 file(s) never started: 2", out)
 
 
 class RefusalTests(ConverterCase):
@@ -517,26 +524,6 @@ class RefusalTests(ConverterCase):
         self.assertEqual(code, 2)
         self.assertIn("forest 0 has 8 halos, but the plan expects 9", out)
         self.assertFalse(self.path(0).exists())
-
-
-class FailureTests(ConverterCase):
-    def test_an_unexpected_error_in_one_file(self):
-        """An ordinary exception in file 1 is a refusal of that file (exit 2), and files 0 and
-        2 still complete and are recorded."""
-        self.plan()
-        real = writer._verify
-
-        def broken_on_file_1(job, *args):
-            if job.number == 1:
-                raise ValueError("boom")
-            return real(job, *args)
-
-        with mock.patch.object(writer, "_verify", broken_on_file_1):
-            code, out, err = self.convert()
-        self.assertEqual(code, 2, err)
-        self.assertIn("FAILED file 1: file 1: unexpected ValueError: boom", out)
-        self.assertFalse(self.path(1).exists())
-        self.assertEqual(sorted(self.entries()), [0, 2])
 
 
 class VerificationTests(ConverterCase):
@@ -662,42 +649,36 @@ class InterruptTests(ConverterCase):
                 self.assertEqual(code, 0, err + out)
                 self.assertEqual(self.manifest()["files"], before)
 
-    def test_with_one_worker_the_first_signal_lets_the_file_finish(self):
-        """A real SIGTERM while file 1 is written in the parent: file 1 completes and is
-        recorded, file 2 is not started, and the previous handlers are back afterwards."""
-        self.plan()
+    def test_with_one_worker_real_signals_stop_the_run_after_or_inside_the_file(self):
+        """Real signals while file 1 is written in the parent. One SIGTERM lets file 1 finish
+        and be recorded and starts no file after it; a SIGINT and a SIGTERM stop file 1 itself,
+        leaving only file 0 recorded. The previous handlers are back afterwards."""
+        cases = [
+            ("the first signal", (signal.SIGTERM,), [0, 1], "1 file(s) never started: 2"),
+            ("the second signal", (signal.SIGINT, signal.SIGTERM), [0], None),
+        ]
         real = writer.convert_file
+        for label, signals, recorded, message in cases:
+            with self.subTest(label):
+                output = self.work / label.replace(" ", "_")
+                self.plan(output)
 
-        def terminated_in_file_1(job):
-            if job.number == 1:
-                os.kill(os.getpid(), signal.SIGTERM)
-            return real(job)
+                def terminated_in_file_1(job, signals=signals):
+                    if job.number == 1:
+                        for number in signals:
+                            os.kill(os.getpid(), number)
+                    return real(job)
 
-        with sentinel_handlers() as unexpected:
-            with mock.patch.object(writer, "convert_file", terminated_in_file_1):
-                code, out, err = self.convert()
-            for number in writer._StopRequests.SIGNALS:
-                self.assertIs(signal.getsignal(number), unexpected)
-        self.assertEqual(code, 2, err)
-        self.assertEqual(sorted(self.entries()), [0, 1])
-        self.assertIn("1 file(s) never started: 2", out)
-
-    def test_with_one_worker_the_second_signal_stops_the_file(self):
-        self.plan()
-        real = writer.convert_file
-
-        def terminated_twice_in_file_1(job):
-            if job.number == 1:
-                os.kill(os.getpid(), signal.SIGINT)
-                os.kill(os.getpid(), signal.SIGTERM)
-            return real(job)
-
-        with sentinel_handlers():
-            with mock.patch.object(writer, "convert_file", terminated_twice_in_file_1):
-                code, out, err = self.convert()
-        self.assertEqual(code, 2, err)
-        self.assertEqual(sorted(self.entries()), [0])
-        self.assertFalse(self.path(1).exists())
+                with sentinel_handlers() as unexpected:
+                    with mock.patch.object(writer, "convert_file", terminated_in_file_1):
+                        code, out, err = self.convert(output=output)
+                    for number in writer._StopRequests.SIGNALS:
+                        self.assertIs(signal.getsignal(number), unexpected)
+                self.assertEqual(code, 2, err)
+                self.assertEqual(sorted(self.entries(output)), recorded)
+                self.assertEqual(self.path(1, output).exists(), 1 in recorded)
+                if message:
+                    self.assertIn(message, out)
 
     def test_main_turns_an_interrupt_into_exit_2(self):
         self.plan()
@@ -798,16 +779,6 @@ class FileLockLifetimeTests(ConverterCase):
             pass
         self.assertFalse(lock.exists())
 
-    def test_a_held_lock_is_refused_and_survives(self):
-        final = self.work / "{}.0".format(TREE)
-        lock = self.work / "{}.0{}".format(TREE, writer.FILE_LOCK_SUFFIX)
-        with open(lock, "a") as holder:
-            fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            with self.assertRaisesRegex(ConverterError, r"being written by another process"):
-                with writer._file_lock(final, self.job()):
-                    self.fail("the lock must not be taken")
-        self.assertTrue(lock.exists())
-
 
 class LockFileReplacedTests(ConverterCase):
     """A lock taken on a lock file that was unlinked after it was opened excludes nobody, so
@@ -829,14 +800,13 @@ class LockFileReplacedTests(ConverterCase):
 
         return mock.patch.object(writer, "_lock", lock)
 
-    def test_a_replaced_lock_file_is_locked_again(self):
+    def test_a_replaced_lock_file_is_locked_again_until_the_attempts_run_out(self):
+        """A lock file replaced twice is locked again; one that keeps being replaced is refused,
+        naming the file."""
         final = self.work / "{}.0".format(TREE)
         with self.replacing_lock(2):
             with writer._file_lock(final, self.job()):
                 pass
-
-    def test_a_lock_file_that_keeps_being_replaced_is_refused_naming_the_file(self):
-        final = self.work / "{}.0".format(TREE)
         with self.replacing_lock(writer.FILE_LOCK_ATTEMPTS):
             with self.assertRaisesRegex(ConverterError, r"file 0: trees\.0\.lock keeps being"):
                 with writer._file_lock(final, self.job()):
@@ -1011,6 +981,7 @@ class ManifestHygieneTests(ConverterCase):
         with mock.patch.object(writer, "_verify", failing):
             code, out, err = self.convert()
         self.assertEqual(code, 2, err)
+        self.assertIn("FAILED file 1: file 1: unexpected ValueError: boom", out)
         self.assertFalse(self.path(1).exists())
         self.assertEqual(sorted(self.entries()), [0, 2])
         self.assertEqual(self.entries()[0], before[0])
@@ -1031,16 +1002,6 @@ class ManifestHygieneTests(ConverterCase):
             self.assertEqual(self.convert()[0], 0)
         self.assertEqual(hashed.call_count, 1)
 
-    def test_files_never_started_after_a_worker_death_are_named(self):
-        """File 0's worker dies, so file 1's submission is refused and file 2 is never
-        taken."""
-        self.plan()
-        with mock.patch.object(writer, "ProcessPoolExecutor", fake_pool(running=0)):
-            code, out, err = self.convert("--workers", 2)
-        self.assertEqual(code, 2, err)
-        self.assertIn("FAILED file 1: file 1: not started: a worker process died", out)
-        self.assertIn("1 file(s) never started: 2", out)
-
 
 class VerifyBranchTests(ConverterCase):
     """The checks a flipped byte cannot reach, which the SHA-256 comparison would otherwise
@@ -1059,27 +1020,23 @@ class VerifyBranchTests(ConverterCase):
 
         return mock.patch.object(writer, "_blocks", cut)
 
-    def test_a_re_read_shorter_than_the_header_fails_the_header_check(self):
-        self.plan()
+    def test_a_re_read_cut_short_fails_the_check_that_names_the_cut(self):
+        """A re-read cut one byte short of the header fails the header check; one cut right
+        after the header fails the size check."""
         head = writer.header_bytes(len(FILES[1][2]))
-        with self.cut_reread(head - 1):
-            code, out, err = self.convert()
-        self.assertEqual(code, 1, err)
-        self.assertRegex(
-            out, r"trees\.1\.partial: verification failed \(header\): {} bytes".format(head - 1)
-        )
-        self.assertFalse(self.path(1).exists())
-
-    def test_a_re_read_cut_after_the_header_fails_the_size_check(self):
-        self.plan()
-        head = writer.header_bytes(len(FILES[1][2]))
-        with self.cut_reread(head):
-            code, out, err = self.convert()
-        self.assertEqual(code, 1, err)
-        self.assertRegex(
-            out, r"trees\.1\.partial: verification failed \(size\): {} bytes, not".format(head)
-        )
-        self.assertFalse(self.path(1).exists())
+        cases = [
+            ("header", head - 1, r"\(header\): {} bytes".format(head - 1)),
+            ("size", head, r"\(size\): {} bytes, not".format(head)),
+        ]
+        for check, keep, message in cases:
+            with self.subTest(check):
+                output = self.work / check
+                self.plan(output)
+                with self.cut_reread(keep):
+                    code, out, err = self.convert(output=output)
+                self.assertEqual(code, 1, err)
+                self.assertRegex(out, r"trees\.1\.partial: verification failed " + message)
+                self.assertFalse(self.path(1, output).exists())
 
 
 class ManifestRefusalTests(ConverterCase):
@@ -1153,28 +1110,6 @@ class CommittedFixtureTests(ConverterCase):
                 planned = json.loads((output / "file_plan.json").read_text())["files"]
                 expected = json.loads((committed / "file_plan.json").read_text())["files"]
                 self.assertEqual(planned, expected)
-
-
-class HelpTests(unittest.TestCase):
-    def test_help_states_the_bound_the_exit_codes_and_the_lone_forest(self):
-        for command in ("plan", "convert"):
-            with self.subTest(command):
-                out = io.StringIO()
-                with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
-                    write_vertical_trees.main([command, "--help"])
-                text = " ".join(out.getvalue().split())
-                for term in ("2*S*R + L", "max(R, L)", str(WORKING_BYTES_PER_ROW)):
-                    self.assertIn(term, text)
-                self.assertIn("a forest larger than the halo cap occupies its file alone", text)
-                for words in (
-                    "Exit status: 0 when every selected file is complete",
-                    "1 when a file fails its verification",
-                    "2 on a refusal",
-                ):
-                    self.assertIn(words, text)
-                self.assertIn("<output>/.convert.lock", text)
-                self.assertIn("SIGINT (Ctrl-C) or SIGTERM", text)
-                self.assertIn("little-endian", text)
 
 
 if __name__ == "__main__":

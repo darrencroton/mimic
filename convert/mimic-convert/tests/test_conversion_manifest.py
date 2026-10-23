@@ -28,74 +28,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import column_schema as cs  # noqa: E402
 import conversion_manifest as cm  # noqa: E402
-import fixtures  # noqa: E402
 import scatter  # noqa: E402
 from adapters.base import SourceInventory, SourceUnit  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
-from sort_index import run_sort  # noqa: E402
-
-HERE = Path(__file__).resolve().parent
-REPO_ROOT = HERE.parents[2]
-PROFILE_DIR = REPO_ROOT / "convert" / "mimic-convert" / "profiles"
-MINI_MILLENNIUM_PROPERTIES = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
-
-
-def load_profile(name):
-    column_map = cs.load_column_map(PROFILE_DIR / name)
-    properties = None
-    if column_map.source_format == "lhalo_binary":
-        properties = cs.load_source_properties(MINI_MILLENNIUM_PROPERTIES)
-    return cs.build_schema(column_map, properties)
-
+from fixtures import (  # noqa: E402
+    MINI_MILLENNIUM_PROPERTIES,
+    PROFILE_DIR,
+    load_profile,
+    make_scatter_workdir,
+    tree_state,
+)
 
 SHIPPED_PROFILES = sorted(p.name for p in PROFILE_DIR.glob("*.yaml"))
-
-
-def sha256_of(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-def tree_state(root):
-    """Every file and directory under ``root`` with size, mtime and hash."""
-    state = {}
-    for base, dirs, files in os.walk(root):
-        for name in dirs:
-            state[os.path.relpath(os.path.join(base, name), root) + "/"] = None
-        for name in files:
-            path = os.path.join(base, name)
-            status = os.lstat(path)
-            state[os.path.relpath(path, root)] = (
-                status.st_size,
-                status.st_mtime_ns,
-                sha256_of(path),
-            )
-    return state
-
-
-def make_scatter_workdir(root):
-    """A directory whose top-level manifest is a current scatter manifest.
-
-    The Consistent-Trees ASCII route keeps exactly this state in its
-    preparation directory (``pipeline.ASCII_PREPARATION_DIR``): the scatter
-    and sort stages run here in the layout of the shipped profile, over the canned fixture forests written under ``root/inputs``.
-    Returns ``root/workdir``, every snapshot recorded ``sorted``.
-    """
-    root = Path(root)
-    inputs = root / "inputs"
-    inputs.mkdir(parents=True)
-    forests = fixtures.standard_forests()
-    tree = fixtures.write_ctrees_file(inputs / "tree_0_0_0.dat", fixtures.all_trees(forests))
-    workdir = root / "workdir"
-    scatter.run_scatter(
-        tree_files=[tree],
-        forests_list_path=fixtures.write_forests_list(inputs / "forests.list", forests),
-        a_list_path=fixtures.write_a_list(inputs / "fixture.a_list"),
-        workdir=workdir,
-        simulation_info_path=fixtures.write_simulation_info(inputs / "simulation_info.yaml"),
-        schema=load_profile("consistent_trees_ascii.yaml"),
-    )
-    run_sort(workdir)
-    return workdir
 
 
 def configuration_for(schema, **extra):
@@ -141,40 +85,39 @@ class SchemaRecordTests(TempCase):
             cm.schema_record(load_profile("consistent_trees_hdf5.yaml"))["source_layout_sha256"]
         )
 
-    def test_rebuild_needs_no_profile_or_properties_file(self):
-        profile = self.tmp / "profile.yaml"
-        properties = self.tmp / "halo_properties.yaml"
-        shutil.copy(PROFILE_DIR / "lhalo_binary_extras_example.yaml", profile)
-        shutil.copy(MINI_MILLENNIUM_PROPERTIES, properties)
-        schema = cs.build_schema(cs.load_column_map(profile), cs.load_source_properties(properties))
-        record = cm.schema_record(schema)
-        profile.unlink()
-        properties.unlink()
-        self.assertEqual(cm.schema_from_record(record, "<test>").digest, schema.digest)
+    def test_a_tampered_embedded_schema_is_refused(self):
+        """A hand-edited schema fails its re-hash, a schema the parser no longer accepts is
+        refused by the parser, and a forged layout digest disagrees with the layout."""
 
-    def test_an_edited_embedded_schema_is_refused(self):
-        schema = load_profile("lhalo_binary_extras_example.yaml")
-        record = json.loads(json.dumps(cm.schema_record(schema)))
-        record["canonical"]["extra_fields"][0]["units"] = "edited units"
-        with self.assertRaisesRegex(ConverterError, "re-hashes"):
-            cm.schema_from_record(record, "<test>")
+        def edit_units(record):
+            record["canonical"]["extra_fields"][0]["units"] = "edited units"
 
-    def test_an_invalid_embedded_schema_is_refused_by_the_parser(self):
-        schema = load_profile("consistent_trees_hdf5_extras_example.yaml")
-        record = json.loads(json.dumps(cm.schema_record(schema)))
-        record["canonical"]["extra_fields"][0]["type"] = "complex"
-        with self.assertRaisesRegex(ConverterError, "no longer validates"):
-            cm.schema_from_record(record, "<test>")
+        def edit_type(record):
+            record["canonical"]["extra_fields"][0]["type"] = "complex"
 
-    def test_a_forged_layout_digest_is_refused(self):
-        record = json.loads(json.dumps(cm.schema_record(load_profile("lhalo_binary.yaml"))))
-        record["source_layout_sha256"] = "0" * 64
-        with self.assertRaisesRegex(ConverterError, "disagrees"):
-            cm.schema_from_record(record, "<test>")
+        def forge_layout_digest(record):
+            record["source_layout_sha256"] = "0" * 64
+
+        cases = (
+            ("edited units", "lhalo_binary_extras_example.yaml", edit_units, "re-hashes"),
+            (
+                "invalid type",
+                "consistent_trees_hdf5_extras_example.yaml",
+                edit_type,
+                "no longer validates",
+            ),
+            ("forged layout digest", "lhalo_binary.yaml", forge_layout_digest, "disagrees"),
+        )
+        for label, profile, tamper, pattern in cases:
+            with self.subTest(case=label):
+                record = json.loads(json.dumps(cm.schema_record(load_profile(profile))))
+                tamper(record)
+                with self.assertRaisesRegex(ConverterError, pattern):
+                    cm.schema_from_record(record, "<test>")
 
 
 class DtypeDescriptorTests(unittest.TestCase):
-    def test_round_trip_keeps_order_offsets_shapes_and_byte_order(self):
+    def test_descriptor_keeps_order_offsets_shapes_and_byte_order(self):
         dtype = np.dtype(
             {
                 "names": ["a", "Pos", "b"],
@@ -195,22 +138,12 @@ class DtypeDescriptorTests(unittest.TestCase):
                 "itemsize": 32,
             },
         )
-        self.assertEqual(cm.dtype_from_descriptor(descriptor), dtype)
 
     def test_same_width_different_types_have_different_descriptors(self):
         first = np.dtype([("x", "<i4")])
         second = np.dtype([("x", "<f4")])
         self.assertEqual(first.itemsize, second.itemsize)
         self.assertNotEqual(cm.dtype_descriptor(first), cm.dtype_descriptor(second))
-
-    def test_malformed_descriptor_is_named(self):
-        with self.assertRaisesRegex(ConverterError, "malformed dtype descriptor"):
-            cm.dtype_from_descriptor({"fields": [{"name": "x"}], "itemsize": 4})
-
-
-# ==========================================================================
-# Inventory and dependency evidence
-# ==========================================================================
 
 
 class InventoryRecordTests(unittest.TestCase):
@@ -223,6 +156,7 @@ class InventoryRecordTests(unittest.TestCase):
         self.assertEqual(record, cm.inventory_record(SourceInventory(units)))
         self.assertEqual(record["n_units"], 3)
         self.assertEqual(record["total_halos"], 8)
+        self.assertEqual(record["n_selected_units"], 3)
         self.assertEqual(record["selected_halos"], 8)
         self.assertEqual(
             record["files"],
@@ -235,6 +169,14 @@ class InventoryRecordTests(unittest.TestCase):
             np.array([[0, 0, 3], [0, 1, 0], [2, 0, 5]], dtype="<i8").tobytes()
         ).hexdigest()
         self.assertEqual(record["units_sha256"], expected)
+        keys = hashlib.sha256(np.array([[0, 0], [0, 1], [2, 0]], dtype="<i8").tobytes())
+        self.assertEqual(record["selected_sha256"], keys.hexdigest())
+
+        # moving one halo between units keeps the total but moves the digest
+        first = cm.inventory_record(SourceInventory(self.units([((0, 0), 3), ((0, 1), 2)])))
+        second = cm.inventory_record(SourceInventory(self.units([((0, 0), 2), ((0, 1), 3)])))
+        self.assertEqual(first["total_halos"], second["total_halos"])
+        self.assertNotEqual(first["units_sha256"], second["units_sha256"])
 
     def test_a_non_physical_inventory_records_no_files(self):
         """The ASCII route's per-forest inventory (``physical_units=False``,
@@ -258,19 +200,6 @@ class InventoryRecordTests(unittest.TestCase):
         self.assertEqual({**physical, "files": []}, record)
         explicit = SourceInventory(units, physical_units=True)
         self.assertEqual(cm.inventory_record(explicit), physical)
-
-    def test_moving_one_halo_between_units_changes_the_digest(self):
-        first = cm.inventory_record(SourceInventory(self.units([((0, 0), 3), ((0, 1), 2)])))
-        second = cm.inventory_record(SourceInventory(self.units([((0, 0), 2), ((0, 1), 3)])))
-        self.assertEqual(first["total_halos"], second["total_halos"])
-        self.assertNotEqual(first["units_sha256"], second["units_sha256"])
-
-    def test_sampling_is_recorded_without_compacting_identity(self):
-        units = self.units([((0, 0), 3), ((0, 1), 2), ((1, 0), 4)])
-        record = cm.inventory_record(SourceInventory(units, selected=[(1, 0)]))
-        self.assertEqual(record["total_halos"], 9)
-        self.assertEqual(record["n_selected_units"], 1)
-        self.assertEqual(record["selected_halos"], 4)
 
 
 class DependencyTests(TempCase):
@@ -507,6 +436,7 @@ class ManifestLifecycleTests(TempCase):
         original = self.with_artifact_and_inventory()
         chunk = "artifacts['ingest/a.bin']"
         edits = {
+            "the top level (missing ['tuning']": lambda d: d.pop("tuning"),
             "configuration": lambda d: d.update(configuration=[]),
             "tuning": lambda d: d.update(tuning=None),
             "stages.ingest": lambda d: d["stages"].update(ingest=[]),
@@ -572,22 +502,6 @@ class ManifestLifecycleTests(TempCase):
                     cm.ConversionManifest.load(self.work)
         self.manifest.path.write_text(original)
         self.assertEqual(cm.ConversionManifest.load(self.work).inventory["n_units"], 2)
-
-    def test_a_manifest_written_before_tuning_was_recorded_is_refused_by_name(self):
-        """A version 3 manifest without a ``tuning`` record predates the
-        tuning split; it is refused as such, not as a malformed file."""
-        original = self.with_artifact_and_inventory()
-        data = json.loads(original)
-        del data["tuning"]
-        self.manifest.path.write_text(json.dumps(data))
-        with self.assertRaisesRegex(
-            ConverterError,
-            "^{}: this manifest was written before tuning was recorded".format(
-                re.escape(str(self.work / cm.MANIFEST_NAME))
-            ),
-        ):
-            cm.ConversionManifest.load(self.work)
-        self.manifest.path.write_text(original)
 
     def test_an_unreadable_manifest_is_refused_naming_it(self):
         work = self.tmp / "unreadable"
@@ -794,21 +708,22 @@ class VersionDispatchTests(TempCase):
         with self.assertRaisesRegex(ConverterError, "no manifest"):
             cm.ConversionManifest.load(self.tmp)
 
-    def test_version_1_is_permanently_rejected_by_both_owners(self):
+    def test_version_1_is_refused_by_both_owners(self):
         work = self.write_manifest({"manifest_version": 1})
-        with self.assertRaisesRegex(ConverterError, "permanently"):
-            cm.classify_manifest(work)
-        with self.assertRaisesRegex(ConverterError, "permanently"):
-            cm.ConversionManifest.load(work)
+        for call in (cm.classify_manifest, cm.ConversionManifest.load):
+            with self.assertRaisesRegex(ConverterError, r"unknown manifest \(version 1, kind None"):
+                call(work)
         with self.assertRaisesRegex(ConverterError, "version 1 != supported 2"):
             scatter.Manifest.load(work)
 
     def test_unknown_versions_fail(self):
-        for version in (0, 4, "3", "2", True, None, 3.0):
+        for version in (0, 1, 4, "3", "2", True, None, 3.0):
             with self.subTest(version=version):
                 work = self.write_manifest({"manifest_version": version})
                 with self.assertRaises(ConverterError):
                     cm.classify_manifest(work)
+                with self.assertRaises(ConverterError):
+                    cm.ConversionManifest.load(work)
         work = self.write_manifest({"manifest_version": 3, "manifest_kind": "someone-else"})
         with self.assertRaisesRegex(ConverterError, "unknown manifest"):
             cm.classify_manifest(work)
@@ -834,13 +749,6 @@ class ScatterManifestBoundaryTests(TempCase):
     def setUp(self):
         super().setUp()
         self.work = make_scatter_workdir(self.tmp / "scattered")
-
-    def test_the_fixture_is_a_sorted_scatter_manifest(self):
-        data = json.loads((self.work / cm.MANIFEST_NAME).read_text())
-        self.assertEqual(data["manifest_version"], scatter.MANIFEST_VERSION)
-        self.assertNotIn("manifest_kind", data)
-        self.assertIn("scratch_layout", data)
-        self.assertEqual({entry["status"] for entry in data["snapshots"].values()}, {"sorted"})
 
     def test_classified_as_scatter_and_loaded_by_the_scatter_owner_unchanged(self):
         before = (self.work / cm.MANIFEST_NAME).read_bytes()

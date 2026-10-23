@@ -32,24 +32,29 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
 import fixtures  # noqa: E402
-import test_rewriter  # noqa: E402
 from errors import ConverterError  # noqa: E402
+from fixtures import (  # noqa: E402
+    FOREST_1100,
+    FOREST_1200,
+    FOREST_1300,
+    FOREST_1400,
+    SHIN_UCHUU_RECORD,
+    WORKED_ASCII,
+    assembled_rows,
+    convert_one_file_dataset,
+    edit_column,
+)
 from horizontal_dataset import HorizontalDataset  # noqa: E402
-from test_forest_census import convert_ascii  # noqa: E402
-from test_vertical_plan import edit_column  # noqa: E402
 from vertical.assemble import (  # noqa: E402
     DEFAULT_WINDOW_ROWS,
     LINK_FIELDS,
     LINK_SNAPSHOT_COLUMNS,
-    AssembledForest,
     ForestAssembler,
     memory_bound,
 )
 from vertical.record import record_dtype  # noqa: E402
 
-SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "halo_properties.yaml"
 MINI_MILLENNIUM_RECORD = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
-WORKED_ASCII = REPO_ROOT / "simulations" / "shin-uchuu" / "_tests" / "data" / "worked_ascii"
 MM_HORIZONTAL = REPO_ROOT / "simulations" / "mini-millennium-horizontal"
 MM_HORIZONTAL_RECORD = MM_HORIZONTAL / "halo_properties.yaml"
 MM_HORIZONTAL_DATA = MM_HORIZONTAL / "_tests" / "data"
@@ -67,29 +72,6 @@ PAYLOAD_FIELDS = (
     "SnapNum",
 )
 
-# The correspondence dataset's forests by rank: (MostBoundID, Descendant, FirstProgenitor,
-# NextProgenitor, FirstHaloInFOFgroup, NextHaloInFOFgroup, SnapNum). Snapshots descend; within
-# snapshot 4 of forest 1100 the FoF groups are [1101, 1121], [1102], [1111].
-FOREST_1100 = [
-    (1100, -1, 3, -1, 0, 1, 5),
-    (1110, -1, 6, -1, 0, -1, 5),
-    (1120, -1, 4, -1, 2, -1, 5),
-    (1101, 0, 7, 5, 3, 4, 4),
-    (1121, 2, -1, -1, 3, -1, 4),
-    (1102, 0, -1, -1, 5, -1, 4),
-    (1111, 1, -1, -1, 6, -1, 4),
-    (1103, 3, -1, -1, 7, -1, 3),
-]
-FOREST_1200 = [
-    (1200, -1, 2, -1, 0, 1, 5),
-    (1210, -1, 3, -1, 0, -1, 5),
-    (1201, 0, 4, -1, 2, 3, 4),
-    (1211, 1, 5, -1, 2, -1, 4),
-    (1202, 2, -1, -1, 4, -1, 3),
-    (1212, 3, -1, -1, 5, -1, 3),
-]
-FOREST_1300 = [(1300, -1, 1, -1, 0, -1, 2), (1301, 0, -1, -1, 1, -1, 1)]
-FOREST_1400 = [(1400, -1, 1, -1, 0, -1, 5), (1401, 0, 2, -1, 1, -1, 4), (1402, 1, -1, -1, 2, -1, 3)]
 
 #: Forest 2700: 2750's progenitors in chain order 2753, 2751, 2752 (ranks 3, 4, 5).
 FOREST_2700 = [
@@ -131,22 +113,6 @@ WORKED_10 = [
 ]
 
 
-def rows(forest: AssembledForest):
-    """A forest's records as the oracle tuples."""
-    return [
-        (
-            int(record["MostBoundID"]),
-            *(int(record[name]) for name in LINK_FIELDS),
-            int(record["SnapNum"]),
-        )
-        for record in forest.records
-    ]
-
-
-def convert(root, forests):
-    return convert_ascii(root, [fixtures.all_trees(forests)], forests)["dataset"]
-
-
 def retype_column(dataset_dir, snap, name, dtype):
     """Rewrite one ``/halos`` column of one slab with another dtype, values unchanged."""
     path = Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap)
@@ -162,7 +128,7 @@ class CorrespondenceDataset(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="vertical_assemble_"))
-        cls.dataset_dir = convert(
+        cls.dataset_dir = convert_one_file_dataset(
             cls.tmp / "source", fixtures.early_ending_correspondence_forests()
         )
         cls.dataset = HorizontalDataset(cls.dataset_dir)
@@ -196,19 +162,19 @@ class AssemblyTests(CorrespondenceDataset):
             with self.subTest(window_rows=window_rows):
                 forests = self.assembled(0, 4, window_rows=window_rows)
                 self.assertEqual([forest.forest for forest in forests], [0, 1, 2, 3])
-                self.assertEqual(rows(forests[0]), FOREST_1100)
-                self.assertEqual(rows(forests[1]), FOREST_1200)
+                self.assertEqual(assembled_rows(forests[0]), FOREST_1100)
+                self.assertEqual(assembled_rows(forests[1]), FOREST_1200)
                 self.assertEqual(forests[0].records.dtype, record_dtype(SHIN_UCHUU_RECORD))
                 self.assertIsNotNone(forests[0].records.base)
 
     def test_a_forest_absent_from_some_slabs(self):
         """Forest 1300 has blocks in snapshots 2 and 1 only; the others contribute nothing."""
-        self.assertEqual(rows(self.assembled(2, 3)[0]), FOREST_1300)
+        self.assertEqual(assembled_rows(self.assembled(2, 3)[0]), FOREST_1300)
 
     def test_the_last_forest_and_a_range_starting_mid_dataset(self):
-        self.assertEqual([rows(forest) for forest in self.assembled(3, 4)], [FOREST_1400])
+        self.assertEqual([assembled_rows(forest) for forest in self.assembled(3, 4)], [FOREST_1400])
         self.assertEqual(
-            [(forest.forest, rows(forest)) for forest in self.assembled(1, 3)],
+            [(forest.forest, assembled_rows(forest)) for forest in self.assembled(1, 3)],
             [(1, FOREST_1200), (2, FOREST_1300)],
         )
 
@@ -426,18 +392,20 @@ class TopologyTests(unittest.TestCase):
     @staticmethod
     def assembled(dataset_dir, first, stop):
         assembler = ForestAssembler(HorizontalDataset(dataset_dir), SHIN_UCHUU_RECORD)
-        return [rows(forest) for forest in assembler.forests(first, stop)]
+        return [assembled_rows(forest) for forest in assembler.forests(first, stop)]
 
     def test_a_progenitor_chain_of_three(self):
-        dataset_dir = convert(self.tmp / "head", [fixtures.progenitor_head_forest()])
+        dataset_dir = convert_one_file_dataset(
+            self.tmp / "head", [fixtures.progenitor_head_forest()]
+        )
         self.assertEqual(self.assembled(dataset_dir, 0, 1), [FOREST_2700])
 
     def test_a_promoted_halo_and_its_former_group(self):
         forest = fixtures.three_piece_forest()
         root = self.tmp / "three"
-        source = test_rewriter.cut_source(root, forest, test_rewriter.cut_layout(forest, 3))
-        table = test_rewriter.write_table(root, "cut", fixtures.three_piece_cut_table(), source)
-        test_rewriter.cut(source, root / "out", root / "scratch", table)
+        source = fixtures.cut_source(root, forest, fixtures.cut_layout(forest, 3))
+        table = fixtures.write_table(root, "cut", fixtures.three_piece_cut_table(), source)
+        fixtures.rewrite_cut(source, root / "out", root / "scratch", table)
         pieces = self.assembled(root / "out" / "dataset", 1, 5)
         self.assertEqual(pieces[0], PIECE_2500)
         self.assertEqual(pieces[2], PIECE_8001)
@@ -529,7 +497,9 @@ class ManyForestsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="vertical_assemble_many_"))
-        cls.dataset = HorizontalDataset(convert(cls.tmp / "many", fixtures.small_forests(1000)))
+        cls.dataset = HorizontalDataset(
+            convert_one_file_dataset(cls.tmp / "many", fixtures.small_forests(1000))
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -537,7 +507,7 @@ class ManyForestsTests(unittest.TestCase):
 
     def consume(self, stop, window_rows=2048):
         assembler = ForestAssembler(self.dataset, SHIN_UCHUU_RECORD, window_rows)
-        return [rows(forest) for forest in assembler.forests(0, stop)]
+        return [assembled_rows(forest) for forest in assembler.forests(0, stop)]
 
     @staticmethod
     def calls_during(function):
@@ -587,7 +557,8 @@ class ManyForestsTests(unittest.TestCase):
     def test_no_slab_reads_a_row_past_the_range(self):
         """Over the range [100, 400) each slab's windows tile exactly its rows of the range:
         none starts before the range's first row or reads at or past its first row of the
-        stop. Every other read is a one-row probe of ``ForestIndex``."""
+        stop. Every other read is a one-row probe of ``ForestIndex``. The forests are the same
+        at every window size."""
         first, stop = 100, 400
         bounds = {}
         for snap in self.dataset.snapshots:
@@ -596,14 +567,22 @@ class ManyForestsTests(unittest.TestCase):
                 int(np.searchsorted(forest, first, "left")),
                 int(np.searchsorted(forest, stop, "left")),
             )
-        expected = self.consume(1000)[first:stop]
+        everything = self.consume(1000)
+        self.assertEqual(len(everything), 1000)
+        self.assertEqual(everything[0], [(100000, -1, -1, -1, 0, -1, 5)])
+        self.assertEqual(
+            everything[1], [(100010, -1, 1, -1, 0, -1, 5), (100011, 0, -1, -1, 1, -1, 4)]
+        )
+        expected = everything[first:stop]
         for window_rows in (1, 7, 2048):
             with self.subTest(window_rows=window_rows):
                 assembler = ForestAssembler(self.dataset, SHIN_UCHUU_RECORD, window_rows)
                 with mock.patch.object(
                     self.dataset, "read_rows", wraps=self.dataset.read_rows
                 ) as reads:
-                    assembled = [rows(forest) for forest in assembler.forests(first, stop)]
+                    assembled = [
+                        assembled_rows(forest) for forest in assembler.forests(first, stop)
+                    ]
                 self.assertEqual(assembled, expected)
                 windows = collections.defaultdict(list)
                 for call in reads.call_args_list:
@@ -620,17 +599,6 @@ class ManyForestsTests(unittest.TestCase):
                     self.assertTrue(all(a[1] == b[0] for a, b in zip(read, read[1:])), snap)
                     self.assertTrue(all(end - start <= window_rows for start, end in read), snap)
                 self.assertTrue(sum(len(read) for read in windows.values()) >= 2)
-
-    def test_every_window_size_gives_the_same_forests(self):
-        expected = self.consume(1000)
-        self.assertEqual(len(expected), 1000)
-        self.assertEqual(expected[0], [(100000, -1, -1, -1, 0, -1, 5)])
-        self.assertEqual(
-            expected[1], [(100010, -1, 1, -1, 0, -1, 5), (100011, 0, -1, -1, 1, -1, 4)]
-        )
-        for window_rows in (1, 64, 1000):
-            with self.subTest(window_rows=window_rows):
-                self.assertEqual(self.consume(1000, window_rows), expected)
 
 
 if __name__ == "__main__":

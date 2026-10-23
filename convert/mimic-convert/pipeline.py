@@ -396,9 +396,9 @@ def _ascii_parameters(parameters: Mapping) -> Dict[str, object]:
     )
     # The SourceHaloID convention this conversion assigns, recorded so that it
     # is inside the configuration digest: a workdir prepared under the earlier
-    # physical (file, unit, row) ids records none and is refused by
-    # ``initialize`` as a different conversion. Optional, so that recorded
-    # parameters re-validate, but no other value is accepted.
+    # physical (file, unit, row) ids records none, so ``initialize`` refuses it
+    # as a different conversion and every stage as recorded under other
+    # parameters. A caller may omit it, but no other value is accepted.
     if merged["identity_scheme"] != "forest-rank":
         raise ConverterError(
             "consistent_trees_ascii identity_scheme must be 'forest-rank' (SourceHaloID is the "
@@ -780,11 +780,40 @@ def initialize(
     return manifest
 
 
+def _require_current_parameters(manifest: ConversionManifest) -> None:
+    """Refuse a workdir whose recorded adapter parameters are not the ones
+    this converter records for them, such as an ASCII conversion recorded
+    before ``identity_scheme`` existed: its products were made under another
+    convention, so no stage may build on them. Read-only."""
+    adapter = manifest.configuration["adapter"]
+    route = _route(adapter["source_format"])
+    recorded = adapter["parameters"]
+    try:
+        current = route.parameters(recorded)
+    except ConverterError as exc:
+        raise ConverterError(
+            "{}: the recorded adapter parameters do not validate under this converter ({}); "
+            "convert again in a fresh workdir".format(manifest.path, exc)
+        ) from exc
+    for name in route.tuning:
+        current.pop(name)
+    if canonical_json(current) != canonical_json(recorded):
+        changed = sorted(
+            name for name in set(current) | set(recorded) if current.get(name) != recorded.get(name)
+        )
+        raise ConverterError(
+            "{}: the recorded {} parameters differ from the ones this converter records for them "
+            "(in {}); the workdir is not resumed -- convert again in a fresh workdir".format(
+                manifest.path, adapter["source_format"], changed
+            )
+        )
+
+
 def _open_for_stage(workdir, schema: Optional[CanonicalSchema]) -> ConversionManifest:
     """Load and bind a manifest for a stage; every check here is read-only,
     so a refused resume leaves the workdir exactly as it was."""
     manifest = ConversionManifest.load(workdir)
-    manifest.require_current_identity_scheme()
+    _require_current_parameters(manifest)
     manifest.require_schema(schema)
     recomputed = _record_dtypes(manifest.schema)
     recorded = manifest.configuration["record_dtypes"]

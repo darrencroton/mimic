@@ -71,7 +71,6 @@ import os
 import shutil
 import sys
 import tempfile
-import weakref
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, Iterator, Optional, Tuple
@@ -654,48 +653,27 @@ def _load_fixed(manifest: Manifest, snap: int) -> np.ndarray:
     return records
 
 
-def _remove_identity_store(directory: Path, store_bytes: Optional[int] = None) -> bool:
-    """Remove one identity store, reporting a removal that did not happen, and
-    raising NOTHING whatever goes wrong.
+def _remove_identity_store(directory: Path, store_bytes: Optional[int] = None) -> None:
+    """Remove one identity store; if the directory is still there afterwards, log
+    a WARNING naming it and its size.
 
-    Returns True only when the directory is CONFIRMED gone. That return value is
-    what lets ownership be released exactly when the bytes are, rather than when
-    an attempt was made — see :meth:`HorizontalIdentity.close`.
-
-    Every phase of the store's ownership routes through here — the identity
-    pass's own failure handler, :meth:`HorizontalIdentity.close`, and the
-    lifetime finalizer that backs both — so the two halves of the guarantee
-    cannot drift apart: the bytes are removed if they can be, and if they
-    cannot, that fact is on the record.
-
-    It must not raise, for two independent reasons. It runs while an exception
-    is already propagating, where a second failure would replace the traceback
-    that explains the run; and it runs from a finalizer, where an exception is
-    unraisable anyway. Hence the broad ``except``: reporting is best-effort by
-    construction, and a closed stderr or a failing ``stat`` must not turn
-    cleanup into a new failure. ``BaseException`` is deliberately NOT caught, so
-    a KeyboardInterrupt still gets out.
-
-    ``store_bytes`` is what the store holds when that is known; ``None`` means
-    the pass failed before it could know, and the message then says the size is
-    unknown rather than printing a number that would be wrong.
+    Raises no ordinary exception: it runs on the way out of a failing stage, where
+    a second failure would replace the traceback that explains the run, so
+    reporting is best-effort. ``store_bytes`` is ``None`` when the pass failed
+    before the size was known, and the message then says so.
     """
     try:
         shutil.rmtree(directory, ignore_errors=True)
-        if not directory.exists():
-            return True
-        size = "{} byte(s)".format(store_bytes) if store_bytes is not None else "size unknown"
-        _log(
-            "links: WARNING — could not remove the identity store {} ({}); "
-            "remove it by hand before trusting the workdir's storage envelope".format(
-                directory, size
+        if directory.exists():
+            size = "{} byte(s)".format(store_bytes) if store_bytes is not None else "size unknown"
+            _log(
+                "links: WARNING — could not remove the identity store {} ({}); "
+                "remove it by hand before trusting the workdir's storage envelope".format(
+                    directory, size
+                )
             )
-        )
     except Exception:
         pass
-    # anything short of a confirmed absence — a removal that failed, a stat that
-    # failed, a report that failed — leaves the store still needing an owner
-    return False
 
 
 #: Snapshots the identity accessor keeps resident. Two, because the link stage
@@ -707,37 +685,16 @@ RESIDENT_SNAPSHOTS = 2
 
 class HorizontalIdentity:
     """Per-snapshot ``(ForestIndex, HaloRankInForest)`` accessor backed by two
-     on-disk int64 arrays indexed by global position.
+    on-disk int64 arrays indexed by global position.
 
-     ``identity[snap]`` returns that snapshot's two int64 arrays in slab order —
-     element for element what the ``{snap: (forest_index, ranks)}`` dict handed
-     the link stage before. What changed is residency: the dict was a pair of
-     views into arrays covering every snapshot (16 B/halo, 366 GB at production),
-     while this holds at most :data:`RESIDENT_SNAPSHOTS` snapshots at a time.
+    ``identity[snap]`` returns that snapshot's two int64 arrays in slab order,
+    holding at most :data:`RESIDENT_SNAPSHOTS` snapshots in memory at a time.
 
-     The accessor owns its backing directory, and owns it from the instant it
-     exists rather than from the instant a caller acquires it: :meth:`close`
-     releases it deterministically, the identity pass removes it on every failure
-     path before this object exists, and a ``weakref.finalize`` registered in
-     ``__init__`` releases it if ``close`` is never called — or was called and
-     did not succeed. **From the moment the directory exists there is no
-     reachable in-process path, normal, exceptional or asynchronous, on which
-     nothing owns it.** What makes that true rather than nearly true is the
-     detach rule: ``weakref.finalize`` is ONE-SHOT and marks itself dead before
-     it calls the function, so ``close`` removes the store directly and detaches
-     the finalizer only once the directory is confirmed gone. A removal that
-     fails, or is interrupted part-way by an asynchronous exception, therefore
-     leaves the store still owned, and the next holder — a later ``close``,
-     object destruction, or interpreter exit — retries it and reports again if it
-     fails again. (The one exception is outside Python's reach: a signal whose
-     default disposition kills the process, such as an un-handled SIGTERM or a
-     SIGKILL, leaves the store for the operator, as it leaves every other
-     temporary file.) The reported byte counts are for the storage envelope
-    : ``peak_spill_bytes`` is what the merge core held on disk at
-     its high-water mark, ``store_bytes`` what the two identity arrays occupy.
-     ``n_runs``, ``n_merge_passes`` and ``merge_records`` report what the budget
-     bought inside the core, so a caller — or a test — can tell whether the spill
-     and merge paths were exercised at all.
+    The accessor owns its backing directory: use it as a context manager (or call
+    :meth:`close`) so the directory is removed. ``peak_spill_bytes`` is what the
+    merge core held on disk at its high-water mark and ``store_bytes`` what the
+    two identity arrays occupy; ``n_runs``, ``n_merge_passes`` and
+    ``merge_records`` report what the budget bought inside the core.
     """
 
     def __init__(
@@ -761,16 +718,6 @@ class HorizontalIdentity:
         self.merge_records = int(merge_records)
         self._layout = dict(layout)
         self._resident = OrderedDict()
-        # Ownership is bound to this object's LIFETIME, not to a caller reaching
-        # close() or a ``with``: those are two separate statements in the caller
-        # and an asynchronous exception can land between them. Registering here
-        # means the store is owned from the instant the accessor exists, so
-        # there is no reachable path — normal, exceptional or asynchronous — on
-        # which nothing owns it. The finalizer holds no reference to ``self``
-        # (a Path and an int), or it could never become unreachable.
-        self._finalizer = weakref.finalize(
-            self, _remove_identity_store, self.directory, self.store_bytes
-        )
 
     def __contains__(self, snap) -> bool:
         return int(snap) in self._layout
@@ -800,27 +747,12 @@ class HorizontalIdentity:
     def close(self) -> None:
         """Drop the resident arrays and remove the backing directory.
 
-        Raises no ordinary exception, deliberately: it runs on the way out of a
-        FAILING link stage as well as a successful one, and an unlink error must
-        not mask the failure that got the stage here. A removal that did not
-        happen is reported through the module's log rather than passed over in
-        silence — these are ``store_bytes`` that the storage envelope assumes
-        are gone — and the store keeps its owner so the attempt is retried.
-
-        Idempotent: a second call re-attempts nothing that already succeeded (an
-        absent directory confirms as gone) and logs nothing.
+        Raises no ordinary exception, since it runs on the way out of a failing
+        link stage too; a directory that could not be removed is logged with its
+        size. Idempotent: an absent directory logs nothing.
         """
         self._resident.clear()
-        if _remove_identity_store(self.directory, self.store_bytes):
-            # Ownership is given up only once the bytes are CONFIRMED gone.
-            # ``weakref.finalize`` is one-shot and marks itself dead BEFORE it
-            # calls, so releasing through it — or detaching unconditionally —
-            # would hand a failed or interrupted removal to nobody: no later
-            # close(), no destruction and no interpreter exit would retry it.
-            # Leaving it alive is what keeps the chain unbroken, at the price of
-            # a second WARNING if the retry fails as well, which is a fact worth
-            # printing twice rather than losing.
-            self._finalizer.detach()
+        _remove_identity_store(self.directory, self.store_bytes)
 
     def __enter__(self) -> "HorizontalIdentity":
         return self
@@ -1042,18 +974,9 @@ def compute_identity(
         )
         return identity, n_forests_total, max_rank
     except BaseException:
-        # EVERY statement between the mkdtemp above and this return is inside
-        # this guard, the setup lines, the success log and the return itself
-        # included: the store is this call's to remove until the caller holds
-        # the accessor, and the caller cannot hold it before the return
-        # completes. Logging is the case that made the rule explicit — a bare
-        # print raises BrokenPipeError on a closed pipe and ENOSPC on a full
-        # volume, which is exactly what this storage-constrained pass invites,
-        # and stranding the store then would leave 16 B/halo of scratch that
-        # nothing else in the converter owns. Removal goes through the shared
-        # helper so this branch reports a failed removal exactly as close()
-        # does, and so that cleaning up after a failure cannot raise and
-        # replace the exception that explains the run.
+        # the store is this call's to remove until the caller holds the accessor,
+        # so every failure between the mkdtemp and the return, including a failing
+        # log statement, removes it
         _remove_identity_store(directory, store_bytes)
         raise
 
@@ -1234,9 +1157,6 @@ def run_links(workdir, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES) -> Mani
             )
 
     identity, n_forests_total, max_rank = compute_identity(manifest, budget_bytes=budget_bytes)
-    # ``with`` is the deterministic release, not the ownership: the accessor
-    # owns its store from construction (see HorizontalIdentity), so an exception
-    # landing between the call above and this line cannot strand it
     with identity:
         recorded = manifest.data.get("links")
         computed = {"n_forests_total": n_forests_total, "max_halo_rank_in_forest": max_rank}

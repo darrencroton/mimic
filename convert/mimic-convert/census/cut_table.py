@@ -75,7 +75,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from census.common import INT64_MAX, examples  # noqa: E402
 from errors import ConverterError  # noqa: E402
-from subset import SubsetError, load_forests_list  # noqa: E402
+from source_index import load_forests_list  # noqa: E402
 
 #: The table's header line, as ``forests.list`` carries it.
 TABLE_HEADER = "#TreeRootID ForestID\n"
@@ -397,7 +397,7 @@ def read_cut_table(
     """
     try:
         roots, ids = load_forests_list(path)
-    except (SubsetError, OverflowError) as exc:
+    except (ConverterError, OverflowError) as exc:
         # an id beyond int64 overflows the shared loader's int64 arrays
         raise ConverterError("{}: malformed cut table ({})".format(path, exc)) from exc
     check_table(roots, ids, index_roots, index_forest_ids, tree_totals, what=str(path))

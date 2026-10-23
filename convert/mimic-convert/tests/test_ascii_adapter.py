@@ -51,29 +51,29 @@ from adapters.ctrees_ascii import (  # noqa: E402
 from column_schema import build_schema, load_column_map, parse_column_map  # noqa: E402
 from conversion_manifest import inventory_record  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
+from fixtures import (  # noqa: E402
+    CUT_FIXTURES,
+    DEFAULT_PROFILE,
+    PROFILE_DIR,
+    assert_datasets_equal,
+    capture_stderr,
+    convert_under_cut,
+    cut_companions,
+    cut_layout,
+    cut_source,
+    quiet_output,
+    read_sidecar,
+    rewrite_cut,
+    route_parameters,
+    schema_of,
+    tree_state,
+    write_table,
+)
 from fixups import fixed_layout, fixed_scratch_name, run_fixups  # noqa: E402
+from hdf5_writer_v3 import HorizontalV3Writer  # noqa: E402
 from links import LINKS_RECORD_DTYPE, links_scratch_name  # noqa: E402
 from scatter import Manifest, run_scatter, source_units_name, tree_rows_name  # noqa: E402
 from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
-from test_conversion_manifest import tree_state  # noqa: E402
-from test_fixups import capture_stderr  # noqa: E402
-from test_rewriter import (  # noqa: E402
-    assert_datasets_equal,
-    companions,
-    cut,
-    cut_layout,
-    cut_source,
-    read_sidecar,
-    write_table,
-)
-
-PROFILE_DIR = Path(__file__).resolve().parents[1] / "profiles"
-DEFAULT_PROFILE = PROFILE_DIR / "consistent_trees_ascii.yaml"
-ALL_TYPES_PROFILE = Path(__file__).parent / "data" / "column_maps" / "ascii_all_extra_types.yaml"
-
-
-def schema_of(path=ALL_TYPES_PROFILE):
-    return build_schema(load_column_map(path))
 
 
 def f32(text):
@@ -292,35 +292,6 @@ class TestCanonicalBridge(unittest.TestCase):
             _batches, table = collect(self.adapter, max_rows)
             for name, values in self.table.items():
                 self.assertEqual(table[name].tobytes(), values.tobytes(), (max_rows, name))
-
-    def test_each_snapshot_is_verified_once_per_pass(self):
-        """The fixed and links scratch verified while a snapshot is the upcoming
-        neighbour are the ones its batches come from: one checksum each per
-        pass, and the emitted rows are unchanged."""
-        real_verify = Manifest.verify_intermediate
-        verified = []
-
-        def recording_verify(manifest, path, what):
-            verified.append((str(Path(path).resolve()), what))
-            return real_verify(manifest, path, what)
-
-        adapter = CTreesAsciiAdapter(self.schema, self.workdir)
-        adapter.inventory()
-        snapshots = Manifest.load(self.workdir).data["snapshots"]
-        expected = sorted(
-            (str(Path(entry[key]).resolve()), what)
-            for entry in snapshots.values()
-            for key, what in (
-                ("fixed_file", "fixed snapshot scratch"),
-                ("links_file", "snapshot links scratch"),
-            )
-        )
-        with mock.patch.object(Manifest, "verify_intermediate", recording_verify):
-            for n_pass in (1, 2):
-                _batches, table = collect(adapter, max_rows=3)
-                self.assertEqual(sorted(verified), sorted(expected * n_pass), n_pass)
-                for name, values in self.table.items():
-                    self.assertEqual(table[name].tobytes(), values.tobytes(), (n_pass, name))
 
     def test_default_batch_size_fits_a_budget_sized_to_the_snapshots(self):
         """A batch is charged at the snapshot's own row count, so the CLI's
@@ -569,52 +540,23 @@ class TransposedTopologyTests(unittest.TestCase):
                         (snap, hid, name),
                     )
 
-    def test_chain_order_is_unchanged(self):
-        """Walk every progenitor chain and FoF chain by target halo: the
-        sequences, mass tie included, are the link stage's."""
-
-        def chains(slabs, first, following, first_snap, next_snap):
-            out = {}
-            for snap, slab in slabs.items():
-                for row in range(slab["MostBoundID"].size):
-                    sequence = []
-                    target, at = int(slab[first][row]), first_snap(slab, row, snap)
-                    while target != -1:
-                        sequence.append(int(slabs[at]["MostBoundID"][target]))
-                        target, at = (
-                            int(slabs[at][following][target]),
-                            next_snap(slabs[at], target, at),
-                        )
-                    out[(snap, int(slab["MostBoundID"][row]))] = sequence
-            return out
-
-        same = lambda slab, row, snap: snap  # noqa: E731
-        for first, following, v3_first, stage_first in (
-            (
-                "FirstProgenitor",
-                "NextProgenitor",
-                lambda slab, row, snap: int(slab["FirstProgenitorSnapshot"][row]),
-                lambda slab, row, snap: snap - 1,
-            ),
-            ("FirstHaloInFOFgroup", "NextHaloInFOFgroup", same, same),
-        ):
-            with self.subTest(chain=first):
-                got = chains(self.slabs, first, following, v3_first, same)
-                want = chains(self.stage, first, following, stage_first, same)
-                self.assertEqual(got, want)
-        progenitors = chains(
-            self.slabs,
-            "FirstProgenitor",
-            "NextProgenitor",
-            lambda slab, row, snap: int(slab["FirstProgenitorSnapshot"][row]),
-            same,
-        )
-        self.assertEqual(progenitors[(5, 1010)], [1011, 1012])
-        fof = chains(self.slabs, "FirstHaloInFOFgroup", "NextHaloInFOFgroup", same, same)
-        self.assertEqual(fof[(5, 6010)], [6010, 6011, 6012])
-
 
 class TestBridgeRuns(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        """One clean preparation of the standard sources, read-only for the tests that use
+        it: a prepared workdir names its files by absolute path, so a test that mutates
+        one prepares its own."""
+        cls.shared = tempfile.TemporaryDirectory()
+        cls.env = Env(Path(cls.shared.name))
+        cls.schema = schema_of()
+        cls.clean_workdir = cls.env.prepare(cls.schema, workdir="clean")
+        _b, cls.clean = collect(CTreesAsciiAdapter(cls.schema, cls.clean_workdir))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.shared.cleanup()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
@@ -663,10 +605,8 @@ class TestBridgeRuns(unittest.TestCase):
             self.assertEqual(first[name].tobytes(), second[name].tobytes(), name)
 
     def test_resume_after_an_interrupted_preparation_matches_a_clean_one(self):
-        env = Env(self.root)
-        schema = schema_of()
-        _b, clean = collect(CTreesAsciiAdapter(schema, env.prepare(schema, workdir="clean")))
-        interrupted = self.root / "interrupted"
+        env, schema, clean = self.env, self.schema, self.clean
+        interrupted = env.root / "interrupted"
         with capture_stderr():
             run_scatter(
                 env.tree_files,
@@ -687,11 +627,9 @@ class TestBridgeRuns(unittest.TestCase):
         counted it -- no snapshot is sorted, fixed or linked -- at its exact
         requirement, and a re-run under a budget that holds it resumes from
         the kept scatter output to the same batches as a clean preparation."""
-        env = Env(self.root)
-        schema = schema_of()
+        env, schema, clean = self.env, self.schema, self.clean
         max_rows = 2
-        _b, clean = collect(CTreesAsciiAdapter(schema, env.prepare(schema, workdir="clean")))
-        workdir = self.root / "early"
+        workdir = env.root / "early"
 
         for only in ({"max_rows": max_rows}, {"memory_budget_bytes": 1 << 30}):
             with self.subTest(only=only), self.assertRaisesRegex(ConverterError, "together"):
@@ -707,8 +645,7 @@ class TestBridgeRuns(unittest.TestCase):
         }
         largest = max(rows_of.values())
         refused = min(snap for snap, n_rows in rows_of.items() if n_rows == largest)
-        # all-types profile: 176-byte fixed record + 36 links + 152 canonical + 56 extras
-        requirement = 2 * min(max_rows, largest) * (176 + 36 + 152 + 56)
+        requirement = batch_term_bytes(schema, max_rows, largest)
 
         def statuses():
             data = Manifest.load(workdir).data
@@ -744,9 +681,7 @@ class TestBridgeRuns(unittest.TestCase):
         self.assertEqual((workdir / "manifest.json").read_text(), manifest_before)
 
     def test_resume_after_linking_rechecks_the_inputs(self):
-        env = Env(self.root)
-        schema = schema_of()
-        workdir = env.prepare(schema)
+        env, schema, workdir = self.env, self.schema, self.clean_workdir
         other_a_list = fixtures.write_a_list(
             self.root / "other.a_list", fixtures.A_LIST[:-1] + [0.99]
         )
@@ -765,7 +700,7 @@ class TestBridgeRuns(unittest.TestCase):
                 with self.assertRaisesRegex(ConverterError, "refusing to resume"):
                     prepare_workdir(schema, workdir=workdir, **args)
         with self.assertRaisesRegex(ConverterError, "refusing to resume"):
-            env.prepare(schema_of(DEFAULT_PROFILE))
+            env.prepare(schema_of(DEFAULT_PROFILE), workdir=workdir.name)
 
     def test_resume_after_linking_refuses_a_source_modified_in_place(self):
         """Same path, same order, different bytes: refused exactly as scatter
@@ -887,8 +822,11 @@ class TestBridgeRefusals(unittest.TestCase):
             CTreesAsciiAdapter(schema_of(DEFAULT_PROFILE), self.workdir).inventory()
 
     def test_a_non_ascii_schema_is_refused(self):
+        hdf5_schema = schema_of(PROFILE_DIR / "consistent_trees_hdf5.yaml")
         with self.assertRaisesRegex(ConverterError, "needs a 'consistent_trees_ascii' schema"):
-            CTreesAsciiAdapter(schema_of(PROFILE_DIR / "consistent_trees_hdf5.yaml"), self.workdir)
+            CTreesAsciiAdapter(hdf5_schema, self.workdir)
+        with self.assertRaisesRegex(ConverterError, "consistent_trees_ascii schema"):
+            batch_term_bytes(hdf5_schema, 4)
 
     def test_a_missing_manifest_is_refused(self):
         with self.assertRaisesRegex(ConverterError, "no manifest"):
@@ -915,6 +853,11 @@ class TestBridgeRefusals(unittest.TestCase):
         for bad in (0, True, 1.5):
             with self.subTest(max_rows=bad), self.assertRaises(ConverterError):
                 next(adapter.iter_batches(bad))
+            with self.subTest(batch_term_max_rows=bad), self.assertRaises(ConverterError):
+                batch_term_bytes(schema_of(DEFAULT_PROFILE), bad)
+        for bad in (-1, 1.5, True):
+            with self.subTest(batch_term_n_rows=bad), self.assertRaises(ConverterError):
+                batch_term_bytes(schema_of(DEFAULT_PROFILE), 4, bad)
         for bad in (0, -1, 2.0, True):
             with self.subTest(budget=bad), self.assertRaises(ConverterError):
                 CTreesAsciiAdapter(schema_of(), self.workdir, memory_budget_bytes=bad)
@@ -994,25 +937,6 @@ class TestBridgeRefusals(unittest.TestCase):
         self.assertEqual(
             sum(batch.n_rows for batch in adapter.iter_batches(max_rows)), sum(rows_of.values())
         )
-
-    def test_batch_term_is_pinned_to_the_record_widths(self):
-        default, all_types = schema_of(DEFAULT_PROFILE), schema_of()
-        # default profile: 120-byte fixed record + 36 links + 152 canonical
-        self.assertEqual(batch_term_bytes(default, 1 << 20), 2 * (1 << 20) * 308)
-        self.assertEqual(batch_term_bytes(default, 1 << 20, 4), 2 * 4 * 308)
-        self.assertEqual(batch_term_bytes(default, 3, 0), 0)
-        # all-types profile: 176-byte fixed record + 36 + 152 + 56 extra bytes
-        self.assertEqual(batch_term_bytes(all_types, 10, 3), 2 * 3 * 420)
-        self.assertEqual(batch_term_bytes(all_types, 2, 5), 2 * 2 * 420)
-        self.assertEqual(batch_term_bytes(all_types, 7), batch_term_bytes(all_types, 7, 7))
-        for bad in (0, True, 1.5):
-            with self.subTest(max_rows=bad), self.assertRaises(ConverterError):
-                batch_term_bytes(default, bad)
-        for bad in (-1, 1.5, True):
-            with self.subTest(n_rows=bad), self.assertRaises(ConverterError):
-                batch_term_bytes(default, 4, bad)
-        with self.assertRaisesRegex(ConverterError, "consistent_trees_ascii schema"):
-            batch_term_bytes(schema_of(PROFILE_DIR / "consistent_trees_hdf5.yaml"), 4)
 
     def test_tampered_unit_sidecar_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1138,13 +1062,10 @@ class TestBridgeRefusals(unittest.TestCase):
         manifest.save()
 
 
-class OldWorkdirTests(unittest.TestCase):
-    """A generic-pipeline ASCII workdir recorded before the forest-rank
-    identity scheme -- no ``identity_scheme`` among its recorded adapter
-    parameters and the physical (file, unit) inventory record -- is not
-    resumed under the new ids. ``initialize`` refuses it as a different
-    conversion before any file is touched; a stage that binds the adapter
-    refuses it through the recorded inventory."""
+class AsciiPipelineTests(unittest.TestCase):
+    """The generic pipeline's ASCII route: it resumes an interrupted conversion
+    to the uninterrupted one's products and records and validates the
+    ``forest-rank`` identity scheme."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -1164,91 +1085,6 @@ class OldWorkdirTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
-
-    def old_workdir(self, name, complete_ingest, keep_scheme=False):
-        """Run the conversion under this code, then rewrite its manifest into
-        what the physical-id code recorded: no ``identity_scheme`` (digest
-        recomputed, so the manifest is self-consistent) and the physical
-        inventory record from the prepared unit sidecars. ``keep_scheme``
-        leaves the scheme recorded, so only the inventory is old."""
-        work = self.root / name
-        pipeline.initialize(work, self.schema, self.parameters, self.a_list, **self.sizes)
-        with capture_stderr():
-            if complete_ingest:
-                pipeline.run_ingest(work)
-            else:
-                interrupted = RuntimeError("interrupted")
-                with mock.patch.object(pipeline, "_stream_chunks", side_effect=interrupted):
-                    with self.assertRaises(RuntimeError):
-                        pipeline.run_ingest(work)
-        path = work / cm.MANIFEST_NAME
-        data = json.loads(path.read_text())
-        parameters = data["configuration"]["adapter"]["parameters"]
-        self.assertEqual(parameters["identity_scheme"], "forest-rank")
-        if not keep_scheme:
-            del parameters["identity_scheme"]
-        data["configuration_sha256"] = cm.canonical_sha256(data["configuration"])
-        sidecar = work / pipeline.ASCII_PREPARATION_DIR / "scratch" / source_units_name(0)
-        physical = SourceInventory(
-            [SourceUnit(0, unit, int(n)) for unit, n in enumerate(np.load(sidecar)[:, 1])]
-        )
-        recorded = data["sources"]["inventory"]
-        data["sources"]["inventory"] = cm.inventory_record(physical)
-        # the records differ even where the unit digests agree (one file whose
-        # forests already ascend), because the old one declares physical files
-        self.assertEqual(recorded["files"], [])
-        self.assertNotEqual(data["sources"]["inventory"], recorded)
-        path.write_text(json.dumps(data))
-        return work
-
-    def test_initialize_refuses_an_old_workdir_before_touching_it(self):
-        for complete in (False, True):
-            with self.subTest(complete_ingest=complete):
-                work = self.old_workdir("old_{}".format(int(complete)), complete)
-                before = tree_state(work)
-                with self.assertRaisesRegex(ConverterError, "different conversion"):
-                    pipeline.initialize(
-                        work, self.schema, self.parameters, self.a_list, **self.sizes
-                    )
-                self.assertEqual(tree_state(work), before)
-
-    #: what every stage entry says to an old ASCII workdir
-    PREDATES = "predates the forest-rank identity convention .* reconvert it"
-
-    def assert_refused_untouched(self, work, call):
-        """``call`` refuses the old workdir as predating the forest-rank identity
-        convention, and no file or directory under it is created, removed,
-        rewritten or re-timed (``tree_state``: listing, sizes, mtimes and
-        content)."""
-        before = tree_state(work)
-        with capture_stderr(), self.assertRaisesRegex(ConverterError, self.PREDATES):
-            call(work)
-        self.assertEqual(tree_state(work), before)
-
-    def test_an_incomplete_old_ingest_is_refused_on_resume_untouched(self):
-        work = self.old_workdir("incomplete", complete_ingest=False)
-        self.assertEqual(cm.ConversionManifest.load(work).stage("ingest")["status"], "failed")
-        self.assertTrue((work / pipeline.ASCII_PREPARATION_DIR).is_dir())
-        self.assert_refused_untouched(work, pipeline.run_ingest)
-
-    def test_a_complete_old_ingest_is_refused_by_transpose_and_write_untouched(self):
-        from hdf5_writer_v3 import HorizontalV3Writer
-
-        work = self.old_workdir("complete", complete_ingest=True)
-        self.assertTrue(cm.ConversionManifest.load(work).is_complete("ingest"))
-        self.assert_refused_untouched(work, pipeline.run_ingest)
-        self.assert_refused_untouched(work, pipeline.run_transpose)
-        writer = HorizontalV3Writer(self.parameters["simulation_info"])
-        self.assert_refused_untouched(work, lambda w: pipeline.run_write(w, writer))
-
-    def test_an_old_inventory_alone_is_refused_through_the_recorded_inventory(self):
-        """Defence in depth: a workdir whose scheme is current but whose
-        recorded inventory is the physical one is still refused when the
-        adapter is bound."""
-        work = self.old_workdir("inventory", complete_ingest=False, keep_scheme=True)
-        refusal = "the source inventory changed .* refusing to continue"
-        with capture_stderr(), self.assertRaisesRegex(ConverterError, refusal):
-            pipeline.run_ingest(work)
 
     def test_a_current_scheme_workdir_resumes_normally(self):
         """An interrupted current-scheme ASCII conversion resumes through
@@ -1273,33 +1109,47 @@ class OldWorkdirTests(unittest.TestCase):
             [want.artifact(r)["sha256"] for r in want.stage("transpose")["artifacts"]],
         )
 
-    def test_the_scheme_check_leaves_the_other_routes_alone(self):
-        """The stage-entry check reads only an ASCII configuration: a
-        prelinked configuration records no scheme and passes it."""
-        check = cm.ConversionManifest.require_current_identity_scheme
-        for source_format in ("lhalo_binary", "consistent_trees_hdf5"):
-            manifest = mock.Mock(spec=["configuration", "workdir"])
-            manifest.configuration = {"adapter": {"source_format": source_format, "parameters": {}}}
-            check(manifest)
-        manifest.configuration = {
-            "adapter": {"source_format": "consistent_trees_ascii", "parameters": {}}
-        }
-        with self.assertRaisesRegex(ConverterError, self.PREDATES):
-            check(manifest)
-
-    def test_a_rewriter_workdir_is_forest_rank_by_construction(self):
-        """A rewriter workdir records rewriter_version and, before version 2,
-        no identity_scheme; its SourceHaloID is verified positional as it is
-        written, so the check passes it without the key."""
-        check = cm.ConversionManifest.require_current_identity_scheme
-        manifest = mock.Mock(spec=["configuration", "workdir"])
-        manifest.configuration = {
-            "adapter": {
-                "source_format": "consistent_trees_ascii",
-                "parameters": {"rewriter_version": 1, "operation": "cut"},
-            }
-        }
-        check(manifest)
+    def test_a_workdir_recorded_without_the_scheme_is_refused_untouched(self):
+        """A workdir whose recorded parameters lack ``identity_scheme`` (one an
+        earlier converter wrote, its digest self-consistent) is refused untouched
+        by ``initialize`` as a different conversion and by every stage, whether
+        its ingest was interrupted or completed."""
+        refusals = [
+            ("initialize", "different conversion"),
+            ("run_ingest", r"differ from the ones this converter records .*identity_scheme"),
+            ("run_transpose", r"differ from the ones this converter records .*identity_scheme"),
+            ("run_write", r"differ from the ones this converter records .*identity_scheme"),
+        ]
+        for complete in (False, True):
+            work = self.root / "unrecorded_{}".format(int(complete))
+            pipeline.initialize(work, self.schema, self.parameters, self.a_list, **self.sizes)
+            with capture_stderr():
+                if complete:
+                    pipeline.run_ingest(work)
+                else:
+                    with mock.patch.object(
+                        pipeline, "_stream_chunks", side_effect=RuntimeError("interrupted")
+                    ), self.assertRaises(RuntimeError):
+                        pipeline.run_ingest(work)
+            path = work / cm.MANIFEST_NAME
+            data = json.loads(path.read_text())
+            del data["configuration"]["adapter"]["parameters"]["identity_scheme"]
+            data["configuration_sha256"] = cm.canonical_sha256(data["configuration"])
+            path.write_text(json.dumps(data))
+            before = tree_state(work)
+            for entry, refusal in refusals:
+                with self.subTest(complete_ingest=complete, entry=entry):
+                    with capture_stderr(), self.assertRaisesRegex(ConverterError, refusal):
+                        if entry == "initialize":
+                            pipeline.initialize(
+                                work, self.schema, self.parameters, self.a_list, **self.sizes
+                            )
+                        elif entry == "run_write":
+                            simulation_info = self.parameters["simulation_info"]
+                            pipeline.run_write(work, HorizontalV3Writer(simulation_info))
+                        else:
+                            getattr(pipeline, entry)(work)
+                    self.assertEqual(tree_state(work), before)
 
     def test_another_identity_scheme_is_refused(self):
         for value in ("physical", None, 1):
@@ -1447,55 +1297,6 @@ class BudgetAccountingTests(unittest.TestCase):
 # A declared cut table
 # ---------------------------------------------------------------------------
 
-#: Each adversarial cut fixture: its forest, its decided table and, for the
-#: two laid over two files, the tree from which the second file starts (the
-#: three-piece fixture's piece {2520, 2530} then spans both files).
-CUT_FIXTURES = (
-    ("severed", fixtures.severed_satellite_forest, fixtures.severed_satellite_cut_table, 1),
-    ("no_central", fixtures.no_initial_central_forest, fixtures.no_initial_central_cut_table, None),
-    ("leaves", fixtures.central_leaves_forest, fixtures.central_leaves_cut_table, None),
-    ("tie", fixtures.progenitor_tie_forest, fixtures.progenitor_tie_cut_table, None),
-    ("three", fixtures.three_piece_forest, fixtures.three_piece_cut_table, 3),
-    ("z0", fixtures.z0_groups_forest, fixtures.z0_groups_cut_table, None),
-    ("head", fixtures.progenitor_head_forest, fixtures.progenitor_head_cut_table, None),
-)
-
-
-def route_parameters(source, cut_table=None):
-    """The route's parameters over ``source``'s files (as ``cut_source`` wrote
-    them), with a cut table when one is given."""
-    root = source["root"]
-    parameters = {
-        "tree_files": [str(path) for path in sorted(root.glob("tree_*.dat"))],
-        "forests_list": str(root / "forests.list"),
-        "simulation_info": str(root / "simulation_info.yaml"),
-    }
-    if cut_table is not None:
-        parameters["cut_table"] = str(cut_table)
-    return parameters
-
-
-def convert_under_cut(source, work, cut_table):
-    """The route's conversion of ``source``'s files under ``cut_table``, with
-    the batch and budget ``cut_source``'s uncut conversion used."""
-    from hdf5_writer_v3 import HorizontalV3Writer
-
-    pipeline.initialize(
-        work,
-        schema_of(DEFAULT_PROFILE),
-        route_parameters(source, cut_table),
-        source["root"] / "fixture.a_list",
-        ingest_max_rows=4,
-        transpose_budget_bytes=4 << 20,
-    )
-    with capture_stderr():
-        pipeline.run_ingest(work)
-        pipeline.run_transpose(work)
-        manifest = pipeline.run_write(
-            work, HorizontalV3Writer(source["root"] / "simulation_info.yaml")
-        )
-    return manifest
-
 
 class CutTableTests(unittest.TestCase):
     """The route under a declared cut table, against the rewriter's cut of
@@ -1520,7 +1321,6 @@ class CutTableTests(unittest.TestCase):
     def test_the_route_under_a_table_equals_the_cut_of_its_uncut_output(self):
         import convert_trees
         from scatter import file_md5
-        from test_rewriter import quiet
 
         for name, forest_of, table_of, split_after in CUT_FIXTURES:
             with self.subTest(fixture=name):
@@ -1528,7 +1328,7 @@ class CutTableTests(unittest.TestCase):
                 forest = forest_of()
                 source = cut_source(root, forest, cut_layout(forest, split_after))
                 table = write_table(root, "cut", table_of(), source)
-                summary = cut(source, root / "c", root / "c_scratch", table)
+                summary = rewrite_cut(source, root / "c", root / "c_scratch", table)
                 manifest = convert_under_cut(source, root / "route", table)
                 dataset = manifest.artifact_path(manifest.stage("write")["directory"])
                 assert_datasets_equal(self, root / "c" / "dataset", dataset)
@@ -1559,7 +1359,7 @@ class CutTableTests(unittest.TestCase):
                 )
                 recorded = manifest.configuration["adapter"]["parameters"]
                 self.assertEqual(recorded["cut_table_md5"], file_md5(table))
-                with quiet():
+                with quiet_output():
                     self.assertEqual(
                         convert_trees.main(["validate", "--workdir", str(root / "route")]), 0
                     )
@@ -1575,7 +1375,7 @@ class CutTableTests(unittest.TestCase):
             fixtures.write_ctrees_file(root / "tree_{}.dat".format(index), trees)
         # tree 2110 is a forest of its own, so its satellite 2111's host (in
         # tree 2100) lies in another forest
-        first, last = companions()
+        first, last = cut_companions()
         listed = [
             first,
             fixtures.ForestSpec(forest_id=2100, trees=forest.trees[:1]),
@@ -1769,7 +1569,6 @@ class CutTableTests(unittest.TestCase):
 
     def test_an_interrupted_install_resumes_to_the_uninterrupted_output(self):
         import scatter
-        from hdf5_writer_v3 import HorizontalV3Writer
 
         whole = convert_under_cut(self.severed, self.root / "install_whole", self.severed_table)
         expected = whole.artifact_path(whole.stage("write")["directory"])

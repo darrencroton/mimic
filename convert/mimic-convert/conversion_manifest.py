@@ -26,8 +26,8 @@ and refuses it (``scatter.Manifest`` accepts exactly
 ``scatter.MANIFEST_VERSION``), and this module pointed at a directory holding
 a scatter manifest classifies it as :data:`MANIFEST_SCATTER`, which
 :meth:`ConversionManifest.load` and ``pipeline.initialize`` refuse. A distinct name would let either loader
-treat the other's directory as empty and start writing into it. Version 1 and
-every unknown version fail in both.
+treat the other's directory as empty and start writing into it. Every unknown
+version fails in both.
 
 **Resume derives everything from the manifest.** :meth:`ConversionManifest.load`
 rebuilds the schema from its embedded canonical record through the real
@@ -112,7 +112,6 @@ __all__ = [
     "canonical_sha256",
     "classify_manifest",
     "dtype_descriptor",
-    "dtype_from_descriptor",
     "finite_float",
     "inventory_record",
     "merge_dependencies",
@@ -122,9 +121,9 @@ __all__ = [
     "sha256_file",
 ]
 
-#: The generic manifest's version. 1 was the fix_flybys-era scatter manifest
-#: and 2 is the current scatter manifest (``scatter.MANIFEST_VERSION``), so the
-#: generic format starts at 3 and never shares a number with either.
+#: The generic manifest's version. 2 is the scatter manifest
+#: (``scatter.MANIFEST_VERSION``), so the generic format is 3 and never shares
+#: a number with it.
 MANIFEST_VERSION = 3
 
 #: Distinguishes a generic manifest from any other JSON that might claim
@@ -202,8 +201,7 @@ def canonical_sha256(document) -> str:
 
 def dtype_descriptor(dtype) -> Dict[str, object]:
     """A structured dtype as explicit fields: name, byte-ordered base type,
-    shape and offset, plus the itemsize. Round-trips through
-    :func:`dtype_from_descriptor` to an equal dtype."""
+    shape and offset, plus the itemsize."""
     dtype = np.dtype(dtype)
     if dtype.names is None:
         raise ConverterError("dtype_descriptor needs a structured dtype, got {}".format(dtype))
@@ -220,25 +218,6 @@ def dtype_descriptor(dtype) -> Dict[str, object]:
             }
         )
     return {"fields": fields, "itemsize": int(dtype.itemsize)}
-
-
-def dtype_from_descriptor(descriptor: Mapping, what: str = "dtype") -> np.dtype:
-    try:
-        fields = descriptor["fields"]
-        formats = [
-            (field["base"], tuple(field["shape"])) if field["shape"] else field["base"]
-            for field in fields
-        ]
-        return np.dtype(
-            {
-                "names": [field["name"] for field in fields],
-                "formats": formats,
-                "offsets": [field["offset"] for field in fields],
-                "itemsize": descriptor["itemsize"],
-            }
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ConverterError("{}: malformed dtype descriptor ({})".format(what, exc)) from exc
 
 
 # ==========================================================================
@@ -397,7 +376,8 @@ def inventory_record(inventory) -> Dict[str, object]:
     Not the unit list itself -- a forest-level inventory can hold hundreds of
     millions of units -- but its exact digest: SHA-256 over every unit's
     ``(source_file_ordinal, unit_ordinal, n_halos)`` as little-endian int64 in
-    inventory order, plus the selected keys'. Two inventories with equal
+    inventory order, plus the digest of the unit keys alone (the record's
+    ``selected_*`` fields, which cover the whole inventory). Two inventories with equal
     records assign every ``SourceHaloID`` and enumerate every forest
     identically; a per-file summary keeps the record readable.
 
@@ -409,12 +389,15 @@ def inventory_record(inventory) -> Dict[str, object]:
     """
     physical = inventory.physical_units
     digest = hashlib.sha256()
+    keys_digest = hashlib.sha256()
     files: Dict[int, List[int]] = {}
     block: List[Tuple[int, int, int]] = []
 
     def flush() -> None:
         if block:
-            digest.update(np.asarray(block, dtype="<i8").tobytes())
+            rows = np.asarray(block, dtype="<i8")
+            digest.update(rows.tobytes())
+            keys_digest.update(rows[:, :2].tobytes())
             block.clear()
 
     for unit in inventory.units:
@@ -426,29 +409,13 @@ def inventory_record(inventory) -> Dict[str, object]:
         if len(block) >= 65536:
             flush()
     flush()
-    selected = hashlib.sha256()
-    selected_halos = 0
-    for start in range(0, len(inventory.selected), 65536):
-        keys = inventory.selected[start : start + 65536]
-        selected.update(np.asarray(keys, dtype="<i8").reshape(-1).tobytes())
-    # Both sequences ascend in (file, unit) (SourceInventory enforces it), so
-    # one merge walk sums the selected units without an O(units) lookup table.
-    position = 0
-    for unit in inventory.units:
-        if position == len(inventory.selected):
-            break
-        if (unit.source_file_ordinal, unit.unit_ordinal) == tuple(inventory.selected[position]):
-            selected_halos += unit.n_halos
-            position += 1
-    if position != len(inventory.selected):  # pragma: no cover - SourceInventory guarantees it
-        raise ConverterError("inventory selects units it does not contain")
     return {
         "n_units": len(inventory.units),
         "total_halos": int(inventory.total_halos),
         "units_sha256": digest.hexdigest(),
-        "n_selected_units": len(inventory.selected),
-        "selected_halos": int(selected_halos),
-        "selected_sha256": selected.hexdigest(),
+        "n_selected_units": len(inventory.units),
+        "selected_halos": int(inventory.total_halos),
+        "selected_sha256": keys_digest.hexdigest(),
         "files": [
             {"source_file_ordinal": ordinal, "n_units": counts[0], "n_halos": counts[1]}
             for ordinal, counts in sorted(files.items())
@@ -485,8 +452,8 @@ def classify_manifest(workdir) -> str:
 
     Returns :data:`MANIFEST_ABSENT`, :data:`MANIFEST_GENERIC` or
     :data:`MANIFEST_SCATTER` (a current scatter manifest: the ASCII
-    preparation's state). Version 1 (the fix_flybys-era scatter manifest) and
-    every unknown version raise: neither owner may resume them.
+    preparation's state). Every unknown version raises: neither owner may
+    resume it.
     """
     path = Path(workdir) / MANIFEST_NAME
     if not path.exists():
@@ -497,11 +464,6 @@ def classify_manifest(workdir) -> str:
         return MANIFEST_SCATTER
     if version == MANIFEST_VERSION and document.get("manifest_kind") == MANIFEST_KIND:
         return MANIFEST_GENERIC
-    if version == 1:
-        raise ConverterError(
-            "{}: manifest version 1 predates the fix_flybys removal and is permanently "
-            "rejected; convert again into a fresh workdir".format(path)
-        )
     raise ConverterError(
         "{}: unknown manifest (version {!r}, kind {!r}); only scatter version {} and generic "
         "version {} are supported".format(
@@ -664,16 +626,6 @@ def _check_sources(sources, path: Path) -> None:
 def _check_shape(data: Mapping, path: Path) -> None:
     """Every record type the stages, the validator and the report index, so
     a malformed manifest is refused here naming its path and key."""
-    if (
-        isinstance(data, dict)
-        and "tuning" not in data
-        and set(data) == set(_TOP_LEVEL_KEYS) - {"tuning"}
-    ):
-        raise ConverterError(
-            "{}: this manifest was written before tuning was recorded separately from the "
-            "configuration (a version 3 manifest without a tuning record); it is not resumed. "
-            "Start the conversion again in a fresh workdir".format(path)
-        )
     _require_mapping(data, path, "the top level", exact=_TOP_LEVEL_KEYS)
     _require_mapping(data["configuration"], path, "configuration", required=("schema",))
     _require_str(data["configuration_sha256"], path, "configuration_sha256")
@@ -699,11 +651,6 @@ def _empty_stage() -> Dict[str, object]:
     }
 
 
-class IdentitySchemeError(ConverterError):
-    """A Consistent-Trees ASCII conversion recorded before the forest-rank
-    identity convention: refused before its dataset is read, resumed or judged."""
-
-
 class ConversionManifest:
     """One generic workdir's frozen configuration, sources and stage state.
 
@@ -712,32 +659,6 @@ class ConversionManifest:
     configuration digest has been checked. Nothing is written except by
     :meth:`save` and the transition methods that call it.
     """
-
-    def require_current_identity_scheme(self) -> None:
-        """Refuse an ASCII conversion whose recorded adapter parameters lack
-        ``identity_scheme: forest-rank``: its SourceHaloID is not the halo's
-        (ForestIndex, HaloRankInForest) position, so it is neither resumed nor
-        validated but reconverted. The other routes record no scheme, and a
-        rewriter workdir is forest-rank by construction. Read-only.
-
-        Raises:
-            IdentitySchemeError: naming the workdir.
-        """
-        adapter = self.configuration["adapter"]
-        if adapter["source_format"] != "consistent_trees_ascii":
-            return
-        # A rewriter workdir (its parameters carry rewriter_version) is forest-rank by
-        # construction: every slab's SourceHaloID is verified as forest base + rank as it
-        # is written, whether or not the rewriter that wrote it recorded the scheme.
-        if "rewriter_version" in adapter["parameters"]:
-            return
-        if adapter["parameters"].get("identity_scheme") != "forest-rank":
-            raise IdentitySchemeError(
-                "{}: this ASCII workdir predates the forest-rank identity convention (SourceHaloID "
-                "is the halo's position in (ForestIndex, HaloRankInForest) order, recorded as "
-                "identity_scheme 'forest-rank'); it is neither resumed nor validated -- reconvert "
-                "it in a fresh workdir".format(self.workdir)
-            )
 
     def __init__(self, workdir, data: Dict[str, object], schema: CanonicalSchema):
         self.workdir = Path(workdir).resolve()
@@ -814,7 +735,7 @@ class ConversionManifest:
     def load(cls, workdir) -> "ConversionManifest":
         """Load and validate a generic manifest. Writes nothing.
 
-        Refuses a scatter, version-1 or unknown manifest, one whose records do
+        Refuses a scatter or unknown manifest, one whose records do
         not have the shapes the stages index (named by key), one whose
         configuration digest does not match its configuration, and one whose
         embedded schema does not rebuild to its recorded digest. Every refusal

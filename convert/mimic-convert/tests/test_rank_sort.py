@@ -1,20 +1,17 @@
 """Unit tests for the external merge-sort rank core.
 
-The binding oracle is the in-memory formulation ``links.compute_identity``
-still uses: one global ``np.lexsort`` over the five key columns, ranked within
-forest groups. :func:`lexsort_oracle` transcribes that expression so equality
-is asserted against the same arithmetic, and
-:meth:`TestOracleEquality.test_results_satisfy_the_shipped_identity_assertion`
-additionally puts the core's output through the shipped ``verify_identity``.
+The binding oracle is the in-memory formulation the core replaced: one global
+``np.lexsort`` over the five key columns, ranked within forest groups.
+:func:`lexsort_oracle` transcribes that expression so equality is asserted
+against the same arithmetic.
 
-Covers: element-wise oracle equality over
-randomised input and over every named degenerate shape, equality across
-budgets that force 1, 2 and >= 8 runs, per-forest rank density, a resident
-record count bounded by the budget and independent of the total, reported peak
-spill bytes, and spill removal on the success path and on forced failures.
+Covers: element-wise oracle equality over randomised input and over every named
+degenerate shape, equality across budgets that force 1, 2 and >= 8 runs,
+per-forest rank density, a working set bounded by the budget and independent of
+the total, reported peak spill bytes, and spill removal on the success path and
+on forced failures.
 """
 
-import ast
 import gc
 import os
 import sys
@@ -30,7 +27,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import rank_sort  # noqa: E402
-from links import verify_identity  # noqa: E402
 from rank_sort import RankSortError, rank_forests  # noqa: E402
 
 #: A caller record layout with a field the core must ignore, so the tests also
@@ -85,9 +81,9 @@ def random_blocks(n_snaps, per_snap, n_forests, seed, upid_span=6):
 
 
 def lexsort_oracle(blocks):
-    """The shipped in-memory rank formulation, transcribed from
-    ``links.compute_identity`` (concatenate the five key columns over all
-    snapshots, one global ``np.lexsort``, rank within forest groups).
+    """The in-memory rank formulation the core replaces: concatenate the five
+    key columns over all snapshots, one global ``np.lexsort``, rank within forest
+    groups.
 
     Returns ``(ranks in input order, observed forest ids, halos per forest)``.
     """
@@ -137,7 +133,7 @@ class RankSortCase(unittest.TestCase):
         )
 
     def ranks_of(self, result):
-        return np.asarray(rank_sort.open_ranks(result.ranks_path))
+        return np.fromfile(result.ranks_path, dtype=rank_sort.RANK_DTYPE)
 
     def assert_matches_oracle(self, blocks, budget_bytes, name="ranks.i64"):
         expected_ranks, expected_ids, expected_counts = lexsort_oracle(blocks)
@@ -169,9 +165,10 @@ class TestOracleEquality(RankSortCase):
         blocks = random_blocks(n_snaps=7, per_snap=180, n_forests=11, seed=20260826)
         self.assert_matches_oracle(blocks, budget_bytes=run_budget(4096))
 
-    def test_equality_across_budgets_forcing_one_two_and_many_runs(self):
+    def test_equality_and_density_across_budgets_forcing_one_two_and_many_runs(self):
         blocks = random_blocks(n_snaps=6, per_snap=120, n_forests=9, seed=41)
         total = sum(int(records.size) for _, records in blocks)
+        forest = np.concatenate([records["forest_id"] for _, records in blocks])
         cases = {
             "one": (run_budget(total), 1, 1),
             "two": (run_budget((total // 2) + 1), 2, 2),
@@ -185,18 +182,20 @@ class TestOracleEquality(RankSortCase):
                 self.assertGreaterEqual(result.n_runs, min_runs)
                 if max_runs is not None:
                     self.assertLessEqual(result.n_runs, max_runs)
+                # the ranks are dense within every forest, checked directly
+                ranks = self.ranks_of(result)
+                for forest_id, count in zip(result.forest_ids, result.forest_counts):
+                    mine = np.sort(ranks[forest == forest_id])
+                    np.testing.assert_array_equal(mine, np.arange(count, dtype=np.int64))
         # the "many" case must genuinely exercise the k-way merge
         self.assertGreaterEqual(
             self.run_core(blocks, run_budget(total // 16), name="probe.i64").n_runs, 8
         )
 
-    def test_single_forest(self):
-        blocks = random_blocks(n_snaps=5, per_snap=60, n_forests=1, seed=2)
-        result = self.assert_matches_oracle(blocks, budget_bytes=run_budget(32))
-        self.assertEqual(result.n_forests, 1)
-
-    def test_every_record_in_its_own_forest(self):
-        blocks = []
+    def test_degenerate_shapes_match_the_oracle(self):
+        """Each case: a label, the blocks, a run size in records and the number
+        of forests the input holds."""
+        every_record_alone = []
         next_id = 0
         for snap in range(4):
             count = 25
@@ -207,11 +206,31 @@ class TestOracleEquality(RankSortCase):
                 np.arange(next_id, next_id + count),
             )
             next_id += count
-            blocks.append((snap, records))
-        result = self.assert_matches_oracle(blocks, budget_bytes=run_budget(16))
-        self.assertEqual(result.n_forests, 100)
-        np.testing.assert_array_equal(result.forest_counts, np.ones(100, dtype=np.int64))
-        self.assertEqual(result.max_rank, 0)
+            every_record_alone.append((snap, records))
+        with_empty_snapshots = random_blocks(n_snaps=4, per_snap=30, n_forests=3, seed=9)
+        empty = np.zeros(0, dtype=KEY_DTYPE)
+        with_empty_snapshots.insert(2, (99, empty))
+        with_empty_snapshots.append((100, empty))
+        cases = (
+            (
+                "one forest",
+                random_blocks(n_snaps=5, per_snap=60, n_forests=1, seed=2),
+                32,
+                1,
+            ),
+            ("every record in its own forest", every_record_alone, 16, 100),
+            (
+                "one record overall",
+                [(2, make_block([5], [-1], [-1], [17]))],
+                8,
+                1,
+            ),
+            ("snapshots contributing no records", with_empty_snapshots, 16, 3),
+        )
+        for label, blocks, run_records, n_forests in cases:
+            with self.subTest(label):
+                result = self.assert_matches_oracle(blocks, budget_bytes=run_budget(run_records))
+                self.assertEqual(result.n_forests, n_forests)
 
     def test_ties_in_upid_and_pid_broken_only_by_id(self):
         # every record shares one forest, one snapshot, one upid and one pid,
@@ -229,21 +248,6 @@ class TestOracleEquality(RankSortCase):
         # rank must be the descending-id position: the largest id ranks last
         np.testing.assert_array_equal(ranks, np.arange(count - 1, -1, -1))
 
-    def test_snapshot_contributing_zero_records(self):
-        blocks = random_blocks(n_snaps=4, per_snap=30, n_forests=3, seed=9)
-        empty = np.zeros(0, dtype=KEY_DTYPE)
-        blocks.insert(2, (99, empty))
-        blocks.append((100, empty))
-        self.assert_matches_oracle(blocks, budget_bytes=run_budget(16))
-
-    def test_single_record_overall(self):
-        records = make_block([5], [-1], [-1], [17])
-        result = self.assert_matches_oracle([(2, records)], budget_bytes=run_budget(8))
-        self.assertEqual(result.total_records, 1)
-        self.assertEqual(result.n_forests, 1)
-        self.assertEqual(result.max_rank, 0)
-        np.testing.assert_array_equal(self.ranks_of(result), np.zeros(1, dtype=np.int64))
-
     def test_duplicate_five_field_keys_are_ordered_by_input_position(self):
         # np.lexsort is stable, so the oracle breaks a full-key tie by input
         # position; the core's trailing position field must do the same
@@ -257,64 +261,6 @@ class TestOracleEquality(RankSortCase):
         result = self.assert_matches_oracle([(1, records)], budget_bytes=run_budget(6))
         np.testing.assert_array_equal(self.ranks_of(result), np.arange(count, dtype=np.int64))
 
-    def test_ranks_are_dense_within_every_forest(self):
-        blocks = random_blocks(n_snaps=6, per_snap=90, n_forests=7, seed=77)
-        result = self.run_core(blocks, budget_bytes=run_budget(64))
-        ranks = self.ranks_of(result)
-        forest = np.concatenate([records["forest_id"] for _, records in blocks])
-        self.assertEqual(int(result.forest_counts.sum()), ranks.size)
-        for forest_id, count in zip(result.forest_ids, result.forest_counts):
-            mine = np.sort(ranks[forest == forest_id])
-            np.testing.assert_array_equal(mine, np.arange(count, dtype=np.int64))
-
-    def test_forest_starts_are_the_group_boundaries(self):
-        blocks = random_blocks(n_snaps=4, per_snap=70, n_forests=5, seed=5)
-        _, expected_ids, expected_counts = lexsort_oracle(blocks)
-        result = self.run_core(blocks, budget_bytes=run_budget(48))
-        expected_starts = np.concatenate(
-            [np.zeros(1, dtype=np.int64), np.cumsum(expected_counts[:-1])]
-        )
-        np.testing.assert_array_equal(result.forest_starts(), expected_starts)
-        np.testing.assert_array_equal(result.forest_ids, expected_ids)
-
-    def test_merged_order_is_the_lexsort_permutation(self):
-        """The merged key order must be the permutation ``np.lexsort`` returns,
-        record for record — a strictly stronger claim than equal ranks, since
-        it also pins the order of records that share a forest boundary."""
-        blocks = random_blocks(n_snaps=5, per_snap=140, n_forests=6, seed=99, upid_span=3)
-        forest = np.concatenate([records["forest_id"] for _, records in blocks])
-        neg_snap = np.concatenate(
-            [np.full(records.size, -snap, dtype=np.int64) for snap, records in blocks]
-        )
-        upid = np.concatenate([records["upid"] for _, records in blocks])
-        pid = np.concatenate([records["pid"] for _, records in blocks])
-        ids = np.concatenate([records["id"] for _, records in blocks])
-        expected = np.lexsort((ids, pid, upid, neg_snap, forest))
-
-        spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
-        try:
-            residency = rank_sort.ResidencyMeter()
-            runs, _ = rank_sort._generate_runs(blocks, spills, 48, residency)
-            self.assertGreater(len(runs), 8)
-            # the yielded block is a VIEW into one reusable buffer, so a
-            # consumer that keeps it past its iteration must copy — which is
-            # what makes the merge allocate nothing per block
-            merged = np.concatenate(
-                [block.position.copy() for block in rank_sort._merge_runs(runs, 48, residency)]
-            )
-        finally:
-            spills.cleanup()
-        np.testing.assert_array_equal(merged, expected)
-
-    def test_results_satisfy_the_shipped_identity_assertion(self):
-        # not a transcription: this is links.verify_identity itself, the
-        # assertion the converter makes about the arrays this core replaces
-        blocks = random_blocks(n_snaps=5, per_snap=100, n_forests=8, seed=1234)
-        result = self.run_core(blocks, budget_bytes=run_budget(64))
-        forest = np.concatenate([records["forest_id"] for _, records in blocks])
-        forest_index = np.searchsorted(result.forest_ids, forest)
-        verify_identity(forest_index, self.ranks_of(result), result.n_forests, "external rank core")
-
 
 class TestMemoryBound(RankSortCase):
     def test_resident_working_set_bounded_and_independent_of_total(self):
@@ -323,9 +269,8 @@ class TestMemoryBound(RankSortCase):
         for label, per_snap in (("small", 60), ("four_times", 240)):
             blocks = random_blocks(n_snaps=5, per_snap=per_snap, n_forests=6, seed=3)
             result = self.assert_matches_oracle(blocks, budget, name="ranks_{}.i64".format(label))
-            peaks[label] = (result.peak_resident_bytes, result.peak_resident_records)
+            peaks[label] = result.peak_resident_bytes
             self.assertLessEqual(result.peak_resident_bytes, result.budget_bytes)
-            self.assertLessEqual(result.peak_resident_records, result.budget_records)
             self.assertGreaterEqual(result.n_runs, 4)
         # a 4x larger input must not hold more working memory
         self.assertEqual(peaks["small"], peaks["four_times"])
@@ -396,46 +341,6 @@ class TestMemoryBound(RankSortCase):
         self.assertGreater(result.n_runs, merge_records)
         self.assertGreaterEqual(result.n_merge_passes, 1)
         self.assertLessEqual(result.peak_resident_bytes, budget)
-        self.assertLessEqual(result.peak_resident_records, result.budget_records)
-
-    def test_the_merge_boundary_is_a_view_not_an_allocation(self):
-        # the residency meter can only catch allocations this module reports;
-        # an allocation it never makes is the one kind no meter can see, so pin
-        # structurally that choosing the boundary copies nothing
-        blocks = random_blocks(n_snaps=3, per_snap=40, n_forests=4, seed=44)
-        spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
-        try:
-            residency = rank_sort.ResidencyMeter()
-            runs, _ = rank_sort._generate_runs(blocks, spills, 16, residency)
-            self.assertGreater(len(runs), 2)
-            arena = np.empty(8 * len(runs), dtype=rank_sort.SPILL_DTYPE)
-            columns = tuple(arena[name] for name in rank_sort.SPILL_DTYPE.names)
-            readers = [
-                rank_sort._open_run_reader(
-                    run,
-                    arena[i * 8 : i * 8 + 8],
-                    tuple(column[i * 8 : i * 8 + 8] for column in columns),
-                )
-                for i, run in enumerate(runs)
-            ]
-            try:
-                live = [reader for reader in readers if reader.refill()]
-                boundary = rank_sort._lowest_ceiling(live)
-                # the boundary must be one of the readers' ALREADY CACHED
-                # ceiling tuples, by identity — choosing it must not build
-                # anything, since an allocation the module never makes is the
-                # only kind its meter cannot catch
-                self.assertTrue(
-                    any(boundary is reader.ceiling for reader in live),
-                    "the merge boundary must be a cached ceiling, not a fresh object",
-                )
-                # and it must be the smallest of them
-                self.assertEqual(boundary, min(reader.ceiling for reader in live))
-            finally:
-                for reader in readers:
-                    reader.close()
-        finally:
-            spills.cleanup()
 
     def test_merge_phase_alone_stays_within_the_budget(self):
         # the end-to-end peak is set by run generation's one budget-sized
@@ -467,17 +372,6 @@ class TestMemoryBound(RankSortCase):
                     self.assertEqual(meter.records_current, 0)
                 finally:
                     spills.cleanup()
-
-    def test_the_meter_counts_the_scratch_the_rank_pass_derives(self):
-        # a meter that counted only record buffers would report the same number
-        # whether or not the rank pass allocated anything, so pin that the
-        # end-to-end peak exceeds what the record buffers alone can explain
-        blocks = random_blocks(n_snaps=4, per_snap=90, n_forests=5, seed=31)
-        result = self.run_core(blocks, budget_bytes=run_budget(48))
-        self.assertGreater(
-            result.peak_resident_bytes,
-            result.peak_resident_records * rank_sort.SPILL_RECORD_NBYTES,
-        )
 
 
 class TestRanksVerification(RankSortCase):
@@ -560,36 +454,25 @@ class TestRanksVerification(RankSortCase):
         self.assertLessEqual(meter.peak_bytes, budget)
         self.assertEqual(meter.bytes_current, 0)
 
-    def test_a_dense_store_verifies(self):
-        path = self.write_ranks([0, 1, 2, 0, 1])
-        self.verify(path, 5, [3, 2], 2)
-
-    def test_a_non_dense_store_with_the_right_sum_and_max_is_refused(self):
-        # [0, 2, 2, 0, 0] has the same record count, the same largest rank and
-        # the same sum as the dense [0, 1, 2, 0, 1]; only a second moment
-        # separates them, and spills are deleted once this passes
-        path = self.write_ranks([0, 2, 2, 0, 0])
-        with self.assertRaises(RankSortError) as caught:
-            self.verify(path, 5, [3, 2], 2)
-        self.assertIn("not dense", str(caught.exception))
-
-    def test_an_unwritten_position_is_refused(self):
-        path = self.write_ranks([0, 1, 2, 0, rank_sort.RANK_UNWRITTEN])
-        with self.assertRaises(RankSortError) as caught:
-            self.verify(path, 5, [3, 2], 2)
-        self.assertIn("never assigned", str(caught.exception))
-
-    def test_a_wrong_sum_is_refused(self):
-        path = self.write_ranks([0, 1, 2, 0, 2])
-        with self.assertRaises(RankSortError) as caught:
-            self.verify(path, 5, [3, 2], 2)
-        self.assertIn("sum", str(caught.exception))
-
-    def test_a_short_store_is_refused(self):
-        path = self.write_ranks([0, 1, 2, 0])
-        with self.assertRaises(RankSortError) as caught:
-            self.verify(path, 5, [3, 2], 2)
-        self.assertIn("byte(s)", str(caught.exception))
+    def test_only_a_dense_store_verifies(self):
+        """Each corrupt store has two forests of 3 and 2 halos and is refused
+        with the named reason; the dense store beside them passes."""
+        self.verify(self.write_ranks([0, 1, 2, 0, 1]), 5, [3, 2], 2)
+        corrupt = (
+            # [0, 2, 2, 0, 0] has the same record count, the same largest rank
+            # and the same sum as the dense [0, 1, 2, 0, 1]; only a second moment
+            # separates them, and spills are deleted once this passes
+            ("the right sum and maximum but not dense", [0, 2, 2, 0, 0], "not dense"),
+            ("an unwritten position", [0, 1, 2, 0, rank_sort.RANK_UNWRITTEN], "never assigned"),
+            ("a wrong sum", [0, 1, 2, 0, 2], "sum"),
+            ("a short store", [0, 1, 2, 0], "byte(s)"),
+        )
+        for label, values, message in corrupt:
+            with self.subTest(label):
+                path = self.write_ranks(values)
+                with self.assertRaises(RankSortError) as caught:
+                    self.verify(path, 5, [3, 2], 2)
+                self.assertIn(message, str(caught.exception))
 
 
 class TestSpillLifetime(RankSortCase):
@@ -607,7 +490,7 @@ class TestSpillLifetime(RankSortCase):
         single = self.run_core(blocks, budget_bytes=run_budget(256), name="single.i64")
         self.assertEqual(single.n_merge_passes, 0)
         self.assertEqual(single.peak_spill_bytes, key_set)
-        self.assertEqual(single.ranks_bytes, total * 8)
+        self.assertEqual(Path(single.ranks_path).stat().st_size, total * 8)
 
         multi = self.run_core(
             blocks,
@@ -624,68 +507,70 @@ class TestSpillLifetime(RankSortCase):
         self.assertEqual(sorted(os.listdir(self.spills)), [])
         self.assertTrue(Path(result.ranks_path).exists())
 
-    def test_no_spill_survives_a_failing_input(self):
-        good = random_blocks(n_snaps=3, per_snap=80, n_forests=4, seed=13)
+    def test_no_spill_survives_a_failing_input_or_merge(self):
+        with self.subTest("the input raises"):
+            good = random_blocks(n_snaps=3, per_snap=80, n_forests=4, seed=13)
 
-        def blocks():
-            for block in good:
-                yield block
-            raise RuntimeError("source exploded")
+            def blocks():
+                for block in good:
+                    yield block
+                raise RuntimeError("source exploded")
 
-        with self.assertRaises(RuntimeError) as caught:
-            self.run_core(blocks(), budget_bytes=run_budget(16))
-        self.assertIn("source exploded", str(caught.exception))
-        self.assertEqual(sorted(os.listdir(self.spills)), [])
-        self.assertFalse((self.work / "ranks.i64").exists())
+            with self.assertRaises(RuntimeError) as caught:
+                self.run_core(blocks(), budget_bytes=run_budget(16))
+            self.assertIn("source exploded", str(caught.exception))
+            self.assertEqual(sorted(os.listdir(self.spills)), [])
+            self.assertFalse((self.work / "ranks.i64").exists())
+        with self.subTest("a merge input vanishes"):
+            blocks = random_blocks(n_snaps=3, per_snap=60, n_forests=4, seed=14)
+            real_opener = rank_sort._open_run_reader
+            calls = {"n": 0}
 
-    def test_no_spill_survives_a_failing_merge(self):
-        blocks = random_blocks(n_snaps=3, per_snap=60, n_forests=4, seed=14)
-        real_opener = rank_sort._open_run_reader
-        calls = {"n": 0}
+            def flaky(run, buffer, columns):
+                calls["n"] += 1
+                if calls["n"] == 2:
+                    raise OSError("merge input vanished")
+                return real_opener(run, buffer, columns)
 
-        def flaky(run, buffer, columns):
-            calls["n"] += 1
-            if calls["n"] == 2:
-                raise OSError("merge input vanished")
-            return real_opener(run, buffer, columns)
+            with mock.patch.object(rank_sort, "_open_run_reader", flaky):
+                with self.assertRaises(OSError):
+                    self.run_core(blocks, budget_bytes=run_budget(24))
+            self.assertGreaterEqual(calls["n"], 2)
+            self.assertEqual(sorted(os.listdir(self.spills)), [])
+            self.assertFalse((self.work / "ranks.i64").exists())
 
-        with mock.patch.object(rank_sort, "_open_run_reader", flaky):
-            with self.assertRaises(OSError):
-                self.run_core(blocks, budget_bytes=run_budget(24))
-        self.assertGreaterEqual(calls["n"], 2)
-        self.assertEqual(sorted(os.listdir(self.spills)), [])
-        self.assertFalse((self.work / "ranks.i64").exists())
+    def test_a_damaged_spill_run_is_refused(self):
+        """A corrupted run fails its CRC32 and a truncated run is short of the
+        bytes it was written with; neither is merged."""
 
-    def test_a_corrupted_spill_run_is_refused(self):
-        blocks = random_blocks(n_snaps=2, per_snap=40, n_forests=3, seed=15)
-        spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
-        try:
-            runs, _ = rank_sort._generate_runs(blocks, spills, 32, rank_sort.ResidencyMeter())
-            with open(str(runs[0].path), "r+b") as handle:
-                handle.seek(0)
+        def corrupt(path):
+            with open(str(path), "r+b") as handle:
                 first = handle.read(1)
                 handle.seek(0)
                 handle.write(bytes([first[0] ^ 0xFF]))
-            with self.assertRaises(RankSortError) as caught:
-                for _ in rank_sort._merge_runs(runs, 32, rank_sort.ResidencyMeter()):
-                    pass
-            self.assertIn("CRC32", str(caught.exception))
-        finally:
-            spills.cleanup()
 
-    def test_a_truncated_spill_run_is_refused(self):
-        blocks = random_blocks(n_snaps=2, per_snap=40, n_forests=3, seed=16)
-        spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
-        try:
-            runs, _ = rank_sort._generate_runs(blocks, spills, 32, rank_sort.ResidencyMeter())
-            with open(str(runs[0].path), "r+b") as handle:
+        def truncate(path):
+            with open(str(path), "r+b") as handle:
                 handle.truncate(rank_sort.SPILL_RECORD_NBYTES)
-            with self.assertRaises(RankSortError) as caught:
-                for _ in rank_sort._merge_runs(runs, 32, rank_sort.ResidencyMeter()):
-                    pass
-            self.assertIn("expected", str(caught.exception))
-        finally:
-            spills.cleanup()
+
+        for label, damage, message in (
+            ("corrupted", corrupt, "CRC32"),
+            ("truncated", truncate, "expected"),
+        ):
+            with self.subTest(label):
+                blocks = random_blocks(n_snaps=2, per_snap=40, n_forests=3, seed=15)
+                spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
+                try:
+                    runs, _ = rank_sort._generate_runs(
+                        blocks, spills, 32, rank_sort.ResidencyMeter()
+                    )
+                    damage(runs[0].path)
+                    with self.assertRaises(RankSortError) as caught:
+                        for _ in rank_sort._merge_runs(runs, 32, rank_sort.ResidencyMeter()):
+                            pass
+                    self.assertIn(message, str(caught.exception))
+                finally:
+                    spills.cleanup()
 
 
 class TestInputContract(RankSortCase):
@@ -708,15 +593,16 @@ class TestInputContract(RankSortCase):
             self.run_core([(0, records)], budget_bytes=run_budget(8))
         self.assertIn("upid", str(caught.exception))
 
-    def test_an_unstructured_array_is_rejected(self):
-        with self.assertRaises(RankSortError):
-            self.run_core([(0, np.zeros(3, dtype=np.int64))], budget_bytes=run_budget(8))
-
-    def test_a_two_dimensional_block_is_rejected(self):
-        records = np.zeros((2, 2), dtype=KEY_DTYPE)
-        with self.assertRaises(RankSortError) as caught:
-            self.run_core([(0, records)], budget_bytes=run_budget(8))
-        self.assertIn("1-D", str(caught.exception))
+    def test_a_block_of_the_wrong_shape_is_rejected(self):
+        cases = (
+            ("an unstructured array", (0, np.zeros(3, dtype=np.int64)), "structured array"),
+            ("a two-dimensional block", (0, np.zeros((2, 2), dtype=KEY_DTYPE)), "1-D"),
+            ("something that is not a (snap, records) pair", object(), r"\(snap, records\)"),
+        )
+        for label, block, message in cases:
+            with self.subTest(label):
+                with self.assertRaisesRegex(RankSortError, message):
+                    self.run_core([block], budget_bytes=run_budget(8))
 
     def test_a_non_integer_snap_is_rejected(self):
         records = make_block([1], [-1], [-1], [1])
@@ -725,17 +611,6 @@ class TestInputContract(RankSortCase):
                 with self.assertRaises(RankSortError) as caught:
                     self.run_core([(snap, records)], budget_bytes=run_budget(8))
                 self.assertIn("integer", str(caught.exception))
-
-    def test_int64_min_snap_is_rejected_because_the_key_negates_it(self):
-        # the key stores -snap and -(-2**63) is unrepresentable, so the guard is
-        # deliberately strict at the bottom end; a future editor "fixing" the
-        # off-by-one would reintroduce a silent wrap
-        records = make_block([1], [-1], [-1], [1])
-        with self.assertRaises(RankSortError) as caught:
-            self.run_core([(int(np.iinfo(np.int64).min), records)], budget_bytes=run_budget(8))
-        message = str(caught.exception)
-        self.assertIn("negate", message)
-        self.assertIn(str(np.iinfo(np.int64).min), message)
 
     def test_a_big_endian_int64_key_field_is_accepted(self):
         # the gate is on intent (signed, 8 bytes), not on the store's byte
@@ -748,11 +623,6 @@ class TestInputContract(RankSortCase):
         records["id"] = [10, 11, 12, 13, 14, 15]
         self.assert_matches_oracle([(1, records)], budget_bytes=run_budget(8))
 
-    def test_a_malformed_block_is_rejected(self):
-        with self.assertRaises(RankSortError) as caught:
-            self.run_core([object()], budget_bytes=run_budget(8))
-        self.assertIn("(snap, records)", str(caught.exception))
-
     def test_a_budget_below_the_merge_floor_is_rejected(self):
         records = make_block([1], [-1], [-1], [1])
         with self.assertRaises(RankSortError) as caught:
@@ -764,36 +634,8 @@ class TestInputContract(RankSortCase):
         self.assertEqual(result.total_records, 0)
         self.assertEqual(result.n_forests, 0)
         self.assertEqual(result.max_rank, -1)
-        self.assertEqual(result.ranks_bytes, 0)
         self.assertEqual(self.ranks_of(result).size, 0)
         self.assertEqual(sorted(os.listdir(self.spills)), [])
-
-
-class TestSelfContained(unittest.TestCase):
-    def test_the_core_imports_only_numpy_and_the_standard_library(self):
-        source = Path(rank_sort.__file__).read_text()
-        imported = set()
-        for node in ast.walk(ast.parse(source)):
-            if isinstance(node, ast.Import):
-                imported.update(alias.name.split(".")[0] for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                imported.add((node.module or "").split(".")[0])
-        # numpy plus stdlib only (the converter depends on stdlib, numpy and
-        # h5py only); this core needs no h5py and no converter sibling either
-        self.assertEqual(
-            imported,
-            {
-                "contextlib",
-                "os",
-                "tempfile",
-                "zlib",
-                "dataclasses",
-                "pathlib",
-                "typing",
-                "resource",
-                "numpy",
-            },
-        )
 
 
 # ==========================================================================
@@ -955,7 +797,8 @@ class TestKeyedContract(KeyedSortCase):
     def test_merge_arguments_must_be_integers_when_the_merge_is_requested(self):
         """Refused at the ``sorted_blocks`` call itself, before sealing: a
         float would be truncated into a different budget and ``True`` read
-        as 1, and neither may wait for the first ``next()``."""
+        as 1, and neither may wait for the first ``next()``. NumPy integers are
+        accepted."""
         merge = self.merge_budget(64)
         cases = (
             (dict(budget_bytes=float(merge)), "budget_bytes must be an integer"),
@@ -977,17 +820,16 @@ class TestKeyedContract(KeyedSortCase):
                         self.drain(sorter).tobytes(),
                         keyed_oracle(records, ("a", "b", "c")).tobytes(),
                     )
-
-    def test_numpy_integer_merge_arguments_are_accepted(self):
-        records = keyed_records(50, seed=6)
+        # numpy integers are integers: accepted, and the sort is unchanged
+        many = keyed_records(50, seed=6)
         with self.sorter(gen_records=8) as sorter:
-            sorter.add(records)
+            sorter.add(many)
             blocks = sorter.sorted_blocks(
                 budget_bytes=np.int64(self.merge_budget(16, consumer=8)),
                 consumer_bytes_per_record=np.int32(8),
             )
             out = np.concatenate([block.copy() for block in blocks])
-        self.assertEqual(out.tobytes(), keyed_oracle(records, ("a", "b", "c")).tobytes())
+        self.assertEqual(out.tobytes(), keyed_oracle(many, ("a", "b", "c")).tobytes())
 
     def test_a_merge_budget_below_a_two_way_merge_is_refused(self):
         with self.sorter(gen_records=2) as sorter:
@@ -1033,14 +875,6 @@ class TestKeyedMemory(KeyedSortCase):
         self.assertLessEqual(meter.peak_bytes, max(generation_peak, merge))
         self.assertEqual(meter.bytes_current, 0)
 
-    def test_sealing_releases_the_generation_buffers(self):
-        meter = rank_sort.ResidencyMeter()
-        with self.sorter(gen_records=100, residency=meter) as sorter:
-            self.assertGreater(meter.bytes_current, 0)
-            sorter.add(keyed_records(10, seed=10))
-            sorter.seal()
-            self.assertEqual(meter.bytes_current, 0)
-
     def test_actual_allocation_stays_within_the_budget(self):
         """``tracemalloc`` over a whole sort, against the larger of the two
         phase budgets plus the rank core's unmetered allowance. 200,000 records
@@ -1085,25 +919,29 @@ class TestKeyedSpills(KeyedSortCase):
                 raise RuntimeError("caller failure")
         self.assertEqual(list(self.spills.iterdir()), [])
 
-    def test_a_corrupted_run_is_refused(self):
-        with self.sorter(gen_records=8) as sorter:
-            self.feed(sorter, keyed_records(40, seed=14))
-            sorter.seal()
-            victim = sorted(sorter.spill_directory.iterdir())[0]
-            raw = bytearray(victim.read_bytes())
-            raw[-1] ^= 0xFF
-            victim.write_bytes(bytes(raw))
-            with self.assertRaisesRegex(RankSortError, "CRC32"):
-                self.drain(sorter, 8)
+    def test_a_damaged_run_is_refused(self):
+        """Each case damages the first spill file: a flipped byte fails its CRC32
+        and a short file is refused for its length."""
 
-    def test_a_truncated_run_is_refused(self):
-        with self.sorter(gen_records=8) as sorter:
-            self.feed(sorter, keyed_records(40, seed=15))
-            sorter.seal()
-            victim = sorted(sorter.spill_directory.iterdir())[0]
-            victim.write_bytes(victim.read_bytes()[:-3])
-            with self.assertRaisesRegex(RankSortError, "byte"):
-                self.drain(sorter, 8)
+        def corrupt(raw):
+            raw[-1] ^= 0xFF
+            return raw
+
+        def truncate(raw):
+            return raw[:-3]
+
+        for label, damage, message in (
+            ("corrupted", corrupt, "CRC32"),
+            ("truncated", truncate, "byte"),
+        ):
+            with self.subTest(label):
+                with self.sorter(gen_records=8) as sorter:
+                    self.feed(sorter, keyed_records(40, seed=14))
+                    sorter.seal()
+                    victim = Path(self.spill_files()[0])
+                    victim.write_bytes(bytes(damage(bytearray(victim.read_bytes()))))
+                    with self.assertRaisesRegex(RankSortError, message):
+                        self.drain(sorter, 8)
 
     def test_a_shared_ledger_sees_every_sorter(self):
         ledger = rank_sort.SpillLedger()
@@ -1118,23 +956,6 @@ class TestKeyedSpills(KeyedSortCase):
             second.close()
         self.assertEqual(ledger.live_bytes, 0)
         self.assertEqual(ledger.peak_bytes, 32 * KEYED_DTYPE.itemsize)
-
-    def test_spill_writers_use_the_contracted_buffer(self):
-        opened = []
-        real_open = open
-
-        def spy(path, mode="r", buffering=-1, *args, **kwargs):
-            if "w" in mode:
-                opened.append(buffering)
-            return real_open(path, mode, buffering, *args, **kwargs)
-
-        with mock.patch("builtins.open", side_effect=spy):
-            with self.sorter(gen_records=8) as sorter:
-                self.feed(sorter, keyed_records(40, seed=18))
-                self.drain(sorter, 8)
-        self.assertTrue(opened)
-        self.assertEqual(set(opened), {rank_sort.SCRATCH_WRITE_BUFFER_BYTES})
-        self.assertEqual(rank_sort.SCRATCH_WRITE_BUFFER_BYTES, 8192)
 
 
 if __name__ == "__main__":

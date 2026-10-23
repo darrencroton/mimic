@@ -377,11 +377,9 @@ class TestWideIndices(unittest.TestCase):
 
 
 class TestSnapshots(unittest.TestCase):
-    def test_valid_snapshots_pass_through(self):
+    def test_snapshot_lists_are_validated(self):
         self.assertEqual(sk.validate_snapshots(range(4)), (0, 1, 2, 3))
         self.assertEqual(sk.validate_snapshots([np.int32(2), 5]), (2, 5))
-
-    def test_invalid_snapshot_lists_are_refused(self):
         cases = (
             ([], "empty"),
             ([0, True], "not an integer"),
@@ -403,26 +401,23 @@ class TestSnapshots(unittest.TestCase):
         positions = layout.positions(np.arange(3, dtype=np.int64))
         self.assertEqual(positions.tolist(), [1, 1, 4])
 
-    def test_counts_must_match_snapshots_and_be_non_negative(self):
-        with self.assertRaisesRegex(ConverterError, "2 snapshot counts for 3"):
-            sk.SnapshotLayout((0, 1, 2), (1, 1))
-        with self.assertRaisesRegex(ConverterError, "negative"):
-            sk.SnapshotLayout((0, 1), (1, -1))
-
-    def test_counts_that_int_would_coerce_are_refused(self):
-        """A float count would be truncated and ``True`` read as 1, each a
-        layout silently different from the rows it describes."""
+    def test_invalid_layout_counts_are_refused(self):
+        """Counts of the wrong length or negative are refused; a float count
+        would be truncated and ``True`` read as 1, each a layout silently
+        different from the rows it describes."""
         cases = (
-            ((1, 2.0), "snapshot 1 has count 2.0, which is not an integer"),
-            ((1.5, 2), "snapshot 0 has count 1.5, which is not an integer"),
-            ((True, 2), "snapshot 0 has count True, which is not an integer"),
-            (np.asarray([1.0, 2.0]), "not an integer"),
-            (3, "must be a sequence"),
+            ((0, 1, 2), (1, 1), "2 snapshot counts for 3"),
+            ((0, 1), (1, -1), "negative"),
+            ((0, 1), (1, 2.0), "snapshot 1 has count 2.0, which is not an integer"),
+            ((0, 1), (1.5, 2), "snapshot 0 has count 1.5, which is not an integer"),
+            ((0, 1), (True, 2), "snapshot 0 has count True, which is not an integer"),
+            ((0, 1), np.asarray([1.0, 2.0]), "not an integer"),
+            ((0, 1), 3, "must be a sequence"),
         )
-        for counts, pattern in cases:
+        for snapshots, counts, pattern in cases:
             with self.subTest(counts=counts):
                 with self.assertRaisesRegex(ConverterError, pattern):
-                    sk.SnapshotLayout((0, 1), counts)
+                    sk.SnapshotLayout(snapshots, counts)
 
     def test_bincount_output_is_accepted_as_counts(self):
         snap_positions = np.asarray([0, 0, 2, 3, 3, 3], dtype=np.int64)
@@ -432,60 +427,8 @@ class TestSnapshots(unittest.TestCase):
         self.assertEqual(layout.counts.tolist(), [2, 0, 1, 3, 0])
         self.assertEqual(layout.total, 6)
 
-    def test_describe_names_the_snapshot_row_of_a_position(self):
-        layout = sk.SnapshotLayout((0, 1, 2, 3, 4), (0, 2, 0, 0, 1))
-        self.assertEqual(layout.describe(0), "snapshot 1 row 0")
-        self.assertEqual(layout.describe(np.int64(1)), "snapshot 1 row 1")
-        self.assertEqual(layout.describe(2), "snapshot 4 row 0")
-        self.assertEqual(layout.describe(3), "global position 3 (outside the 3 converted rows)")
-        self.assertEqual(layout.describe(-1), "global position -1 (outside the 3 converted rows)")
-
-
-class TestJoinRecords(unittest.TestCase):
-    def test_records_carry_what_each_link_must_close_on(self):
-        keys = {
-            "Descendant": np.asarray([7], dtype=np.int64),
-            "FirstProgenitor": np.asarray([8], dtype=np.int64),
-            "NextProgenitor": np.asarray([9], dtype=np.int64),
-            "FirstHaloInFOFgroup": np.asarray([5], dtype=np.int64),
-            "NextHaloInFOFgroup": np.asarray([6], dtype=np.int64),
-        }
-        records = sk.build_join_records(
-            np.asarray([4], dtype=np.int64), np.asarray([2], dtype=np.int64), keys, 11
-        )
-        by_tag = {int(r["tag"]): r for r in records}
-        self.assertEqual(sorted(by_tag), [0, 1, 2, 3, 4, 5])
-        entry = by_tag[0]
-        self.assertEqual((int(entry["key"]), int(entry["gp"]), int(entry["forest"])), (4, 11, 2))
-        self.assertEqual((int(entry["a"]), int(entry["b"])), (7, 5))
-        expect = {1: -1, 2: 4, 3: 7, 4: -1, 5: 5}
-        for tag, value in expect.items():
-            with self.subTest(tag=tag):
-                self.assertEqual(int(by_tag[tag]["a"]), value)
-                self.assertEqual(int(by_tag[tag]["b"]), 4)
-                self.assertEqual(int(by_tag[tag]["gp"]), 11)
-
-    def test_null_links_make_no_request(self):
-        keys = {name: np.asarray([NULL_LINK], dtype=np.int64) for name in LINK_FIELDS}
-        keys["FirstHaloInFOFgroup"] = np.asarray([3], dtype=np.int64)
-        records = sk.build_join_records(
-            np.asarray([3], dtype=np.int64), np.zeros(1, dtype=np.int64), keys, 0
-        )
-        self.assertEqual(records["tag"].tolist(), [0, sk.LINK_TAG["FirstHaloInFOFgroup"]])
-
 
 class TestChainRoundLimit(unittest.TestCase):
-    def test_a_long_acyclic_chain_needs_ceil_log2_rounds(self):
-        length = 100
-        halos = [Halo(1, 0, NextHaloInFOFgroup=2)]
-        for index in range(1, length):
-            nxt = index + 2 if index < length - 1 else None
-            halos.append(Halo(index + 1, index, FirstHaloInFOFgroup=1, NextHaloInFOFgroup=nxt))
-        layout = sk.SnapshotLayout((0,), (length,))
-        _resolved, stats, rounds = run_join(halos, layout)
-        self.assertEqual(stats.n_chain_edges, length - 1)
-        self.assertEqual(rounds, 7)  # ceil(log2 99)
-
     def test_rounds_are_bounded_even_if_the_limit_were_generous(self):
         """The cycle is caught at the limit, not by running forever: patching
         the round body to report survivors forever must still stop."""

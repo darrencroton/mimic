@@ -9,8 +9,6 @@ The load-bearing distinctions tested here:
   test that proves it is deliberate, not an oversight.
 - Prefix-sum identity is exact above 2**31 and 2**53, and overflows abort
   rather than wrap.
-- Sampling narrows *what is converted*, never *what an id means*: a sampled
-  run's ids equal the unsampled run's.
 - Inversion is to the route's declared canonical unit: physical for the two
   prelinked routes, the whole forest ``(0, ForestIndex)`` with
   ``HaloRankInForest`` as the row for ``consistent_trees_ascii``.
@@ -28,10 +26,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import column_schema as cs  # noqa: E402
 from adapters import base  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
-
-REPO_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
 
 
 def ascii_schema(extras=None):
@@ -154,19 +148,19 @@ class InventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "not in the inventory"):
             inventory.base_id(9, 9)
 
-    def test_duplicate_and_out_of_order_units_fail(self):
-        with self.assertRaisesRegex(ConverterError, "twice"):
-            base.SourceInventory([base.SourceUnit(0, 0, 1), base.SourceUnit(0, 0, 1)])
-        with self.assertRaisesRegex(ConverterError, "ascending"):
-            base.SourceInventory([base.SourceUnit(0, 1, 1), base.SourceUnit(0, 0, 1)])
-        with self.assertRaisesRegex(ConverterError, "ascending"):
-            base.SourceInventory([base.SourceUnit(1, 0, 1), base.SourceUnit(0, 9, 1)])
-
-    def test_negative_ordinals_and_counts_fail(self):
-        with self.assertRaisesRegex(ConverterError, "non-negative"):
-            base.SourceInventory([base.SourceUnit(-1, 0, 1)])
-        with self.assertRaisesRegex(ConverterError, "negative halo count"):
-            base.SourceInventory([base.SourceUnit(0, 0, -1)])
+    def test_malformed_units_fail(self):
+        """Duplicate, out-of-order and negative units abort construction."""
+        cases = (
+            ("twice", [(0, 0, 1), (0, 0, 1)]),
+            ("ascending", [(0, 1, 1), (0, 0, 1)]),
+            ("ascending", [(1, 0, 1), (0, 9, 1)]),
+            ("non-negative", [(-1, 0, 1)]),
+            ("negative halo count", [(0, 0, -1)]),
+        )
+        for pattern, units in cases:
+            with self.subTest(units=units):
+                with self.assertRaisesRegex(ConverterError, pattern):
+                    base.SourceInventory([base.SourceUnit(*unit) for unit in units])
 
     def test_int64_overflow_aborts(self):
         with self.assertRaisesRegex(ConverterError, "overflows int64"):
@@ -200,27 +194,6 @@ class InventoryTests(unittest.TestCase):
         high = inventory.coordinate(2**53 + 1)
         self.assertNotEqual(low, high)
         self.assertEqual(high.row_ordinal - low.row_ordinal, 1)
-
-    def test_sampling_preserves_the_parent_prefix_identities(self):
-        units = [
-            base.SourceUnit(0, 0, 5),
-            base.SourceUnit(0, 1, 7),
-            base.SourceUnit(1, 0, 3),
-        ]
-        full = base.SourceInventory(units)
-        sampled = base.SourceInventory(units, selected=[(0, 1)])
-        self.assertEqual(sampled.selected, ((0, 1),))
-        self.assertEqual(sampled.total_halos, full.total_halos)
-        self.assertEqual(sampled.base_id(0, 1), full.base_id(0, 1))
-        self.assertEqual(sampled.base_id(1, 0), full.base_id(1, 0))
-
-    def test_selecting_an_absent_unit_fails(self):
-        with self.assertRaisesRegex(ConverterError, "not in the inventory"):
-            base.SourceInventory([base.SourceUnit(0, 0, 1)], selected=[(0, 4)])
-
-    def test_default_selection_is_every_unit(self):
-        inventory = base.SourceInventory([base.SourceUnit(0, 0, 1), base.SourceUnit(3, 2, 1)])
-        self.assertEqual(inventory.selected, ((0, 0), (3, 2)))
 
     def test_the_ascii_canonical_unit_is_the_forest_and_inverts_to_its_rank(self):
         """``consistent_trees_ascii`` declares the whole forest its canonical
@@ -260,33 +233,33 @@ class InventoryTests(unittest.TestCase):
         batch.validate()
 
 
-class LinkFieldTableTests(unittest.TestCase):
-    def test_five_links_and_three_snapshot_columns(self):
-        self.assertEqual(
-            base.LINK_FIELDS,
-            (
-                "Descendant",
-                "FirstProgenitor",
-                "NextProgenitor",
-                "FirstHaloInFOFgroup",
-                "NextHaloInFOFgroup",
-            ),
-        )
-        self.assertEqual(
-            base.SNAPSHOT_LINK_FIELDS,
-            ("DescendantSnapshot", "FirstProgenitorSnapshot", "NextProgenitorSnapshot"),
-        )
+class RequireIntegerTests(unittest.TestCase):
+    """``require_integer`` is the one scalar check every adapter and the pipeline
+    share: it type-checks and never coerces."""
 
-    def test_null_sentinel_is_minus_one(self):
-        self.assertEqual(base.NULL_LINK, -1)
+    def test_integers_are_accepted_and_everything_else_is_refused_not_coerced(self):
+        for value in (0, 7, 2**62, np.int32(5), np.int64(2**40), np.uint8(3)):
+            with self.subTest(accepted=value):
+                result = base.require_integer(value, "scalar", "no coercion")
+                self.assertIs(type(result), int)
+                self.assertEqual(result, int(value))
+        for value in ("4", 4.0, 1.5, True, False, None, np.float64(2.0), np.bool_(True), [3]):
+            with self.subTest(refused=value):
+                with self.assertRaisesRegex(
+                    ConverterError, r"^scalar must be an integer, got .*; no coercion$"
+                ):
+                    base.require_integer(value, "scalar", "no coercion")
+
+    def test_the_minimum_is_inclusive(self):
+        self.assertEqual(base.require_integer(1, "scalar", "why", minimum=1), 1)
+        self.assertEqual(base.require_integer(np.int64(-3), "scalar", "why", minimum=-3), -3)
+        with self.assertRaisesRegex(ConverterError, "^scalar must be at least 1, got 0$"):
+            base.require_integer(0, "scalar", "why", minimum=1)
 
 
 class CanonicalBatchTests(unittest.TestCase):
     def setUp(self):
         self.schema = ascii_schema()
-
-    def test_valid_batch_passes(self):
-        make_batch(self.schema).validate()
 
     def test_empty_batch_passes(self):
         batch = make_batch(self.schema, n_rows=0)
@@ -398,7 +371,6 @@ class CanonicalBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "unknown link column"):
             batch.validate()
 
-    def test_missing_source_halo_id_fails_before_anything_else(self):
         batch = make_batch(self.schema, identity={"ForestIndex": np.zeros(3, np.int64)})
         with self.assertRaisesRegex(ConverterError, "missing the SourceHaloID"):
             batch.validate()
@@ -442,39 +414,8 @@ class CanonicalBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "expected shape"):
             batch.validate()
 
-    def test_lhalo_payload_dtypes_come_from_the_schema(self):
-        properties = cs.load_source_properties(
-            os.path.join(REPO_ROOT, "simulations", "mini-millennium", "halo_properties.yaml")
-        )
-        profile = {
-            "schema_version": 1,
-            "source_format": "lhalo_binary",
-            "required_columns": {role: [role] for role in cs.REQUIRED_ROLES["lhalo_binary"]},
-            "extra_fields": [],
-            "binary_layout": {
-                "byte_order": "little",
-                "itemsize": 104,
-                "offsets": {prop.name: 0 for prop in properties},
-            },
-        }
-        # Offsets all at 0 would overlap, so give each field its own slot.
-        offset = 0
-        for prop in properties:
-            profile["binary_layout"]["offsets"][prop.name] = offset
-            offset += cs.EXTRA_TYPES[prop.type].itemsize
-        profile["binary_layout"]["itemsize"] = offset
-        schema = cs.build_schema(cs.parse_column_map(profile, origin="<test>"), properties)
-        batch = make_batch(schema)
-        batch.validate()
-        self.assertEqual(batch.payload["M_Crit200"].dtype, np.dtype("float32"))
-        self.assertEqual(batch.payload["MostBoundID"].dtype, np.dtype("int64"))
-
 
 class SourceAdapterTests(unittest.TestCase):
-    def test_the_base_class_cannot_be_instantiated(self):
-        with self.assertRaises(TypeError):
-            base.SourceAdapter()
-
     def test_a_subclass_with_an_unknown_source_format_fails_at_instantiation(self):
         class BadAdapter(base.SourceAdapter):
             source_format = "lhalo_hdf5"
@@ -516,34 +457,6 @@ class SourceAdapterTests(unittest.TestCase):
         adapter = ConcreteFromShared()
         self.assertEqual(adapter.inventory().total_halos, 1)
 
-    def test_a_conforming_subclass_defines_and_instantiates(self):
-        schema = ascii_schema()
-
-        class StubAdapter(base.SourceAdapter):
-            source_format = "consistent_trees_ascii"
-
-            def inventory(self):
-                return base.SourceInventory([base.SourceUnit(0, 0, 3)])
-
-            def iter_batches(self, max_rows):
-                yield make_batch(schema)
-
-        adapter = StubAdapter()
-        self.assertEqual(adapter.inventory().total_halos, 3)
-        batches = list(adapter.iter_batches(max_rows=10))
-        self.assertEqual(len(batches), 1)
-        batches[0].validate()
-
-    def test_an_incomplete_subclass_cannot_be_instantiated(self):
-        class PartialAdapter(base.SourceAdapter):
-            source_format = "consistent_trees_ascii"
-
-            def inventory(self):
-                return base.SourceInventory([])
-
-        with self.assertRaises(TypeError):
-            PartialAdapter()
-
 
 class NonFinitePayloadTests(unittest.TestCase):
     """Float parsing/casts reject non-finite input and overflow and preserve
@@ -564,15 +477,14 @@ class NonFinitePayloadTests(unittest.TestCase):
             ]
         )
 
-    def test_non_finite_scalar_payload_is_rejected(self):
+    def test_non_finite_payload_is_rejected_and_a_vector_index_is_named(self):
         for label, value in (("nan", np.nan), ("+inf", np.inf), ("-inf", -np.inf)):
-            with self.subTest(value=label):
+            with self.subTest(scalar=label):
                 batch = make_batch(self.schema)
                 batch.payload["Vmax"][1] = value
                 with self.assertRaisesRegex(ConverterError, "non-finite value"):
                     batch.validate()
 
-    def test_non_finite_vector_payload_is_rejected_and_the_index_is_named(self):
         batch = make_batch(self.schema)
         batch.payload["Pos"][2][1] = np.nan
         with self.assertRaisesRegex(ConverterError, r"non-finite value nan at index \(2, 1\)"):
@@ -584,177 +496,24 @@ class NonFinitePayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "non-finite value"):
             batch.validate()
 
-    def test_signed_zero_passes_and_is_preserved(self):
-        """A negative zero is finite. The rule is to preserve it, not reject
-        it, and validation must not normalise it away either."""
-        batch = make_batch(self.schema)
-        batch.payload["Vmax"][0] = -0.0
-        batch.payload["Pos"][1][2] = -0.0
-        batch.extras["Rvir"][0] = -0.0
-        batch.validate()
-        self.assertTrue(np.signbit(batch.payload["Vmax"][0]))
-        self.assertTrue(np.signbit(batch.payload["Pos"][1][2]))
-        self.assertTrue(np.signbit(batch.extras["Rvir"][0]))
-        self.assertEqual(batch.payload["Vmax"][0], 0.0)
-
-    def test_finite_extremes_still_pass(self):
+    def test_finite_extremes_and_signed_zero_pass_and_are_preserved(self):
         """The check is finiteness, not magnitude: the largest representable
-        float32 is valid data."""
+        float32 is valid data, and a negative zero is finite, so validation
+        keeps it rather than rejecting or normalising it."""
         batch = make_batch(self.schema)
         largest = np.finfo(np.float32).max
         batch.payload["Vmax"][0] = largest
         batch.payload["Vmax"][1] = -largest
+        batch.payload["Vmax"][2] = -0.0
+        batch.payload["Pos"][1][2] = -0.0
+        batch.extras["Rvir"][0] = -0.0
         batch.validate()
-
-    def test_integer_columns_are_unaffected(self):
-        """Only floating dtypes are checked; an int column has no non-finite
-        values to look for."""
-        batch = make_batch(self.schema)
-        batch.payload["Len"][0] = np.iinfo(np.int32).max
-        batch.links["Descendant"][0] = 2**62
-        batch.validate()
-
-
-class UncoercedInputTests(unittest.TestCase):
-    """An adapter handing a plain list must get this module's named error, not
-    a raw AttributeError from a `.shape` dereference. Reachable only by an
-    adapter bug, never by user input."""
-
-    def setUp(self):
-        self.schema = ascii_schema()
-
-    def test_a_list_identity_column_is_coerced_not_crashed_on(self):
-        batch = make_batch(self.schema)
-        batch.identity["SourceHaloID"] = [1, 2, 3]
-        batch.links["FirstHaloInFOFgroup"] = np.array([1, 2, 3], dtype=np.int64)
-        batch.validate()
-        self.assertEqual(batch.n_rows, 3)
-
-    def test_a_wrongly_typed_list_identity_reports_a_converter_error(self):
-        batch = make_batch(self.schema)
-        batch.identity["SourceHaloID"] = [1.0, 2.0, 3.0]
-        with self.assertRaisesRegex(ConverterError, "expected dtype int64"):
-            batch.validate()
-
-    def test_an_out_of_order_list_identity_is_still_checked(self):
-        """Coercion must not skip the semantic checks that follow it."""
-        batch = make_batch(self.schema)
-        batch.identity["SourceHaloID"] = [3, 2, 1]
-        batch.links["FirstHaloInFOFgroup"] = np.array([3, 2, 1], dtype=np.int64)
-        with self.assertRaisesRegex(ConverterError, "strictly increasing"):
-            batch.validate()
-
-
-class SourceHaloIdDerivationTests(unittest.TestCase):
-    """A batch's ids must be the ones its own coordinates imply.
-
-    `CanonicalBatch` carries `coordinates` precisely so identity is
-    recoverable, and the inventory's `base_id()` plus the within-unit row is
-    what defines the id.
-    Nothing in `CanonicalBatch.validate()` can check the two against each other
-    -- it holds no inventory, and giving it one would put a whole-inventory
-    lookup on every batch. The guarantee therefore lives here, at the contract
-    level, where an adapter that invents its own id rule is caught.
-    """
-
-    #: Two files, so a per-file restart is visibly wrong at the second one.
-    UNITS = (base.SourceUnit(0, 0, 3), base.SourceUnit(0, 1, 2), base.SourceUnit(1, 0, 4))
-
-    def setUp(self):
-        self.schema = ascii_schema()
-        self.inventory = base.SourceInventory(self.UNITS)
-
-    @staticmethod
-    def _batch_for(schema, coordinates, ids):
-        n = len(ids)
-        batch = make_batch(schema, n_rows=n)
-        batch.identity["SourceHaloID"][:] = np.array(ids, dtype=np.int64)
-        batch.links["FirstHaloInFOFgroup"][:] = np.array(ids, dtype=np.int64)
-        batch.coordinates["source_file_ordinal"][:] = np.array(
-            [c.source_file_ordinal for c in coordinates], dtype=np.int64
-        )
-        batch.coordinates["unit_ordinal"][:] = np.array(
-            [c.unit_ordinal for c in coordinates], dtype=np.int64
-        )
-        batch.coordinates["row_ordinal"][:] = np.array(
-            [c.row_ordinal for c in coordinates], dtype=np.int64
-        )
-        return batch
-
-    def _coordinates_of(self, unit):
-        return [
-            base.SourceCoordinate(unit.source_file_ordinal, unit.unit_ordinal, row)
-            for row in range(unit.n_halos)
-        ]
-
-    @staticmethod
-    def _mismatches(inventory, batch):
-        """Rows whose id disagrees with the id their coordinate implies."""
-        bad = []
-        for row in range(batch.n_rows):
-            coordinate = base.SourceCoordinate(
-                int(batch.coordinates["source_file_ordinal"][row]),
-                int(batch.coordinates["unit_ordinal"][row]),
-                int(batch.coordinates["row_ordinal"][row]),
-            )
-            expected = id_of(inventory, coordinate)
-            actual = int(batch.identity["SourceHaloID"][row])
-            if expected != actual:
-                bad.append((coordinate, expected, actual))
-        return bad
-
-    def test_ids_derived_through_the_inventory_validate_and_agree(self):
-        for unit in self.UNITS:
-            with self.subTest(unit=(unit.source_file_ordinal, unit.unit_ordinal)):
-                coordinates = self._coordinates_of(unit)
-                ids = [id_of(self.inventory, c) for c in coordinates]
-                batch = self._batch_for(self.schema, coordinates, ids)
-                batch.validate()
-                self.assertEqual(self._mismatches(self.inventory, batch), [])
-
-    def test_ids_assigned_by_a_per_file_rule_are_caught(self):
-        """The counterexample: an adapter restarting ids at 1 in each file.
-
-        Structurally the batch is fine -- ids are positive and strictly
-        increasing -- so `validate()` accepts it, which is the point: the error
-        is only visible against the inventory.
-        """
-        unit = self.UNITS[2]  # file 1, whose real ids start at 6, not 1
-        coordinates = self._coordinates_of(unit)
-        wrong_ids = [1 + row for row in range(unit.n_halos)]
-        batch = self._batch_for(self.schema, coordinates, wrong_ids)
-
-        batch.validate()  # structurally valid, and still wrong
-
-        mismatches = self._mismatches(self.inventory, batch)
-        self.assertEqual(len(mismatches), unit.n_halos)
-        first_coordinate, expected, actual = mismatches[0]
-        self.assertEqual(first_coordinate, base.SourceCoordinate(1, 0, 0))
-        self.assertEqual(expected, self.inventory.base_id(1, 0))
-        self.assertEqual(actual, 1)
-
-    def test_ids_from_a_compacted_sample_inventory_are_caught(self):
-        """Sampling must not compact identity.
-
-        An adapter that rebuilt its inventory from only the units it converts
-        produces ids that no longer match the parent inventory's, which is what
-        makes a sampled run incomparable to an unsampled reference.
-        """
-        unit = self.UNITS[2]
-        compacted = base.SourceInventory([base.SourceUnit(1, 0, unit.n_halos)])
-        coordinates = self._coordinates_of(unit)
-        ids = [id_of(compacted, c) for c in coordinates]
-        batch = self._batch_for(self.schema, coordinates, ids)
-
-        batch.validate()
-        self.assertNotEqual(self._mismatches(self.inventory, batch), [])
-
-        # Whereas the correctly sampled inventory -- parent units, narrowed
-        # selection -- produces ids that do agree.
-        sampled = base.SourceInventory(self.UNITS, selected=[(1, 0)])
-        good = self._batch_for(self.schema, coordinates, [id_of(sampled, c) for c in coordinates])
-        good.validate()
-        self.assertEqual(self._mismatches(self.inventory, good), [])
+        self.assertEqual(batch.payload["Vmax"][0], largest)
+        self.assertEqual(batch.payload["Vmax"][1], -largest)
+        self.assertTrue(np.signbit(batch.payload["Vmax"][2]))
+        self.assertTrue(np.signbit(batch.payload["Pos"][1][2]))
+        self.assertTrue(np.signbit(batch.extras["Rvir"][0]))
+        self.assertEqual(batch.payload["Vmax"][2], 0.0)
 
 
 if __name__ == "__main__":

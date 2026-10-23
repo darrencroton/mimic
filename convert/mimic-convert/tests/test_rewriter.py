@@ -24,7 +24,7 @@ spanning both, converted to version 3 by the generic pipeline:
   identity and links stated literally, the sidecar rows, the header bounds,
   the per-snapshot counts and the pieces; the untouched forests and every
   descendant relation against the input; the identity table against the
-  no-op, byte for byte; every table invariant refused before any write; the
+  no-op, byte for byte; an invalid cut table refused before any write; the
   record's binding by md5; resume, block-size independence and the CLI.
 """
 
@@ -52,16 +52,24 @@ import rewrite_trees  # noqa: E402
 from census import cut_table  # noqa: E402
 from conversion_manifest import sha256_file  # noqa: E402
 from errors import ConverterError  # noqa: E402
-from hdf5_writer_v3 import V3_SIDECAR_DATASETS  # noqa: E402
+from fixtures import (  # noqa: E402
+    N_FIXTURE_SNAPSHOTS,
+    REWRITE_MULTIPLIER,
+    assert_datasets_equal,
+    convert_ascii,
+    cut_companions,
+    cut_layout,
+    cut_source,
+    dataset_files,
+    quiet_output,
+    read_sidecar,
+    read_slab_file,
+    rewrite_cut,
+    rewrite_quietly,
+    write_table,
+)
 from rewriter import passes as rewriter_passes  # noqa: E402
 from rewriter import run as rewriter_run  # noqa: E402
-from rewriter.inputs import RewriteRequest  # noqa: E402
-from rewriter.run import run_rewrite  # noqa: E402
-from test_forest_census import convert_ascii  # noqa: E402
-
-N_SNAPSHOTS = len(fixtures.A_LIST)
-MULTIPLIER = 10**9
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -77,84 +85,6 @@ def two_file_layout():
         [multi.trees[0], multi.trees[1], multi.trees[2], spanning.trees[0]],
         [single.trees[0], spanning.trees[1]],
     ]
-
-
-@contextlib.contextmanager
-def quiet():
-    with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
-        yield
-
-
-def request(operation, source: dict, input_dir, output_dir, scratch_dir, **overrides):
-    """A request over one route's files (``source`` as the converter helpers
-    return it, plus ``root``)."""
-    values = dict(
-        operation=operation,
-        input_dir=Path(input_dir),
-        output_dir=Path(output_dir),
-        scratch_dir=Path(scratch_dir),
-        simulation_info=source["root"] / "simulation_info.yaml",
-        a_list=source["root"] / "fixture.a_list",
-        forests_list=source["forests_list"],
-        locations=source["locations"],
-        multiplier=MULTIPLIER,
-    )
-    values.update(overrides)
-    return RewriteRequest(**values)
-
-
-def rewrite(operation, source, input_dir, output_dir, scratch_dir, **overrides):
-    with quiet():
-        return run_rewrite(
-            request(operation, source, input_dir, output_dir, scratch_dir, **overrides)
-        )
-
-
-def read_file(path):
-    with h5py.File(path, "r") as handle:
-        halos = {name: handle["halos"][name][...] for name in handle["halos"]}
-        header = {name: value for name, value in handle["header"].attrs.items()}
-        schema = {
-            name: {key: group.attrs[key] for key in group.attrs}
-            for name, group in handle["schema"].items()
-        }
-    return halos, header, schema
-
-
-def read_sidecar(path):
-    with h5py.File(path, "r") as handle:
-        return {name: handle[name][...] for name in handle}
-
-
-def dataset_files(directory):
-    return sorted(entry.name for entry in Path(directory).iterdir())
-
-
-def assert_datasets_equal(test, expected_dir, actual_dir):
-    """Every /halos column (values and dtype), header attribute, /schema
-    attribute and sidecar value of two version 3 datasets."""
-    test.assertEqual(dataset_files(expected_dir), dataset_files(actual_dir))
-    for snap in range(N_SNAPSHOTS):
-        name = "snapshot_{:03d}.h5".format(snap)
-        halos_a, header_a, schema_a = read_file(Path(expected_dir) / name)
-        halos_b, header_b, schema_b = read_file(Path(actual_dir) / name)
-        test.assertEqual(sorted(halos_a), sorted(halos_b), name)
-        for column in halos_a:
-            test.assertEqual(halos_a[column].dtype, halos_b[column].dtype, (name, column))
-            test.assertEqual(halos_a[column].shape, halos_b[column].shape, (name, column))
-            test.assertEqual(halos_a[column].tobytes(), halos_b[column].tobytes(), (name, column))
-        test.assertEqual(sorted(header_a), sorted(header_b), name)
-        for attr in header_a:
-            test.assertEqual(header_a[attr], header_b[attr], (name, attr))
-            test.assertEqual(np.asarray(header_a[attr]).dtype, np.asarray(header_b[attr]).dtype)
-        test.assertEqual(schema_a, schema_b, name)
-    sidecar_a = read_sidecar(Path(expected_dir) / "forests.h5")
-    sidecar_b = read_sidecar(Path(actual_dir) / "forests.h5")
-    test.assertEqual(sorted(sidecar_a), list(V3_SIDECAR_DATASETS))
-    test.assertEqual(sorted(sidecar_b), list(V3_SIDECAR_DATASETS))
-    for name in V3_SIDECAR_DATASETS:
-        test.assertEqual(sidecar_a[name].dtype, sidecar_b[name].dtype)
-        np.testing.assert_array_equal(sidecar_a[name], sidecar_b[name], name)
 
 
 def assert_bytes_equal(test, expected_dir, actual_dir):
@@ -174,7 +104,7 @@ def outcomes(workdir):
 
 def ascii_source(root: Path, layout, forests=None) -> dict:
     """A version 3 conversion of the correspondence forests (or ``forests``)
-    over ``layout``'s tree files, as :func:`test_forest_census.convert_ascii`
+    over ``layout``'s tree files, as :func:`fixtures.convert_ascii`
     returns it, plus ``root``."""
     forests = fixtures.correspondence_forests() if forests is None else forests
     source = convert_ascii(root, layout, forests)
@@ -193,7 +123,7 @@ class TestNoop(unittest.TestCase):
         cls.root = Path(tempfile.mkdtemp(prefix="rewriter_noop_"))
         cls.source = ascii_source(cls.root / "v3", two_file_layout())
         cls.out = cls.root / "noop"
-        cls.summary = rewrite(
+        cls.summary = rewrite_quietly(
             "noop", cls.source, cls.source["dataset"], cls.out, cls.root / "scratch"
         )
 
@@ -211,10 +141,10 @@ class TestNoop(unittest.TestCase):
         )
         # a rewriter-written input is reproduced byte for byte
         second = self.root / "noop2"
-        again = rewrite("noop", self.source, self.out / "dataset", second, self.root / "s2")
+        again = rewrite_quietly("noop", self.source, self.out / "dataset", second, self.root / "s2")
         self.assertTrue(again["byte_comparison"]["all_equal"])
         assert_bytes_equal(self, self.out / "dataset", second / "dataset")
-        with quiet():
+        with quiet_output():
             self.assertEqual(convert_trees.main(["report", "--workdir", str(second)]), 0)
         recorded, _report = outcomes(second)
         self.assertEqual(recorded["manifest-binding"], "PASS")
@@ -224,7 +154,7 @@ class TestNoop(unittest.TestCase):
     def test_workdir_layout_and_scratch_are_as_declared(self):
         self.assertEqual(
             dataset_files(self.out / "dataset"),
-            ["forests.h5"] + ["snapshot_{:03d}.h5".format(s) for s in range(N_SNAPSHOTS)],
+            ["forests.h5"] + ["snapshot_{:03d}.h5".format(s) for s in range(N_FIXTURE_SNAPSHOTS)],
         )
         beside = dataset_files(self.out)
         for name in (
@@ -237,7 +167,7 @@ class TestNoop(unittest.TestCase):
         self.assertEqual(dataset_files(self.root / "scratch"), [])
 
     def test_validate_and_report_apply_the_binding_and_conservation_checks(self):
-        with quiet():
+        with quiet_output():
             self.assertEqual(convert_trees.main(["validate", "--workdir", str(self.out)]), 0)
             self.assertEqual(convert_trees.main(["report", "--workdir", str(self.out)]), 0)
         recorded, report = outcomes(self.out)
@@ -283,7 +213,7 @@ class TestNoop(unittest.TestCase):
 
     def test_output_is_independent_of_the_block_size_and_repeatable(self):
         for name, block_rows in (("blocks_2", 2), ("blocks_3", 3)):
-            rewrite(
+            rewrite_quietly(
                 "noop",
                 self.source,
                 self.source["dataset"],
@@ -304,7 +234,7 @@ class TestNoop(unittest.TestCase):
             renumbered.append(" ".join((root, "7" if file_id == "0" else "3", offset, name)))
         source["locations"] = self.root / "locations_sparse.dat"
         source["locations"].write_text("\n".join(renumbered) + "\n")
-        rewrite(
+        rewrite_quietly(
             "noop",
             source,
             self.source["dataset"],
@@ -319,16 +249,15 @@ class TestNoop(unittest.TestCase):
         self.assertEqual(int(by_root[1400]["file_id"]), 3)
         self.assertEqual(int(by_root[1400]["source_file_ordinal"]), 1)
 
-    def test_cli_runs_the_noop(self):
-        out = self.root / "cli"
-        argv = [
+    def cli_argv(self, input_dir, name):
+        return [
             "noop",
             "--input",
-            str(self.source["dataset"]),
+            str(input_dir),
             "--output",
-            str(out),
+            str(self.root / (name + "_out")),
             "--scratch",
-            str(self.root / "cli_scratch"),
+            str(self.root / (name + "_scratch")),
             "--simulation-info",
             str(self.source["root"] / "simulation_info.yaml"),
             "--a-list",
@@ -338,57 +267,96 @@ class TestNoop(unittest.TestCase):
             "--locations",
             str(self.source["locations"]),
         ]
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(rewrite_trees.main(argv), 0)
-        self.assertIn("noop: COMPLETE", stdout.getvalue())
-        assert_bytes_equal(self, self.out / "dataset", out / "dataset")
 
     def copy_v3(self, name):
         copy = self.root / name
         shutil.copytree(self.source["dataset"], copy)
         return copy
 
-    def test_noop_refuses_a_stored_source_halo_id_that_is_not_derived(self):
-        copy = self.copy_v3("wrong_sid")
-        with h5py.File(copy / "snapshot_005.h5", "r+") as handle:
-            handle["halos"]["SourceHaloID"][2] = handle["halos"]["SourceHaloID"][2] + 100
-        with self.assertRaisesRegex(
-            ConverterError, "snapshot_005.h5: 1 row.* stored SourceHaloID differs .* row 2 "
-        ):
-            rewrite(
-                "noop", self.source, copy, self.root / "wrong_sid_out", self.root / "wrong_sid_s"
-            )
+    def test_the_command_line_exits_0_on_success_and_2_on_a_refusal(self):
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(rewrite_trees.main(self.cli_argv(self.source["dataset"], "cli")), 0)
+        self.assertIn("noop: COMPLETE", stdout.getvalue())
+        assert_bytes_equal(self, self.out / "dataset", self.root / "cli_out" / "dataset")
 
-    def test_noop_refuses_a_row_order_that_is_not_the_derived_one(self):
-        # rows 0 and 1 of the final slab swapped and every link into them
-        # remapped (the topology is unchanged, only the storage order), so the
-        # stored order is not the (ForestIndex, HaloRankInForest) order
-        copy = self.copy_v3("swapped")
-        swap = {0: 1, 1: 0}
-        with h5py.File(copy / "snapshot_005.h5", "r+") as handle:
-            for name, dataset in handle["halos"].items():
-                values = dataset[...]
-                values[[0, 1]] = values[[1, 0]]
-                if name in ("FirstHaloInFOFgroup", "NextHaloInFOFgroup", "NextProgenitor"):
-                    values = np.array(
-                        [swap.get(int(v), int(v)) for v in values], dtype=values.dtype
+        copy = self.copy_v3("cli_version2")
+        for path in copy.glob("snapshot_*.h5"):
+            with h5py.File(path, "r+") as handle:
+                kind = handle["header"].attrs.get_id("format_version").dtype
+                handle["header"].attrs.modify("format_version", np.array(2, dtype=kind))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(rewrite_trees.main(self.cli_argv(copy, "cli_refused")), 2)
+        self.assertIn("format_version 2 is not supported", stderr.getvalue())
+        self.assertFalse((self.root / "cli_refused_out").exists())
+
+    def test_noop_refuses_a_stored_value_that_is_not_the_derived_one(self):
+        """SourceHaloID and HaloRankInForest are derived from the forest and the row; a
+        stored value that differs, or a row order that is not the derived one although
+        the topology is unchanged, is refused."""
+
+        def wrong_source_halo_id(copy):
+            with h5py.File(copy / "snapshot_005.h5", "r+") as handle:
+                handle["halos"]["SourceHaloID"][2] = handle["halos"]["SourceHaloID"][2] + 100
+
+        def wrong_rank(copy):
+            with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
+                handle["halos"]["HaloRankInForest"][1] = handle["halos"]["HaloRankInForest"][1] + 7
+
+        def swapped_rows(copy):
+            # rows 0 and 1 of the final slab swapped and every link into them
+            # remapped (the topology is unchanged, only the storage order)
+            swap = {0: 1, 1: 0}
+            with h5py.File(copy / "snapshot_005.h5", "r+") as handle:
+                for name, dataset in handle["halos"].items():
+                    values = dataset[...]
+                    values[[0, 1]] = values[[1, 0]]
+                    if name in ("FirstHaloInFOFgroup", "NextHaloInFOFgroup", "NextProgenitor"):
+                        values = np.array(
+                            [swap.get(int(v), int(v)) for v in values], dtype=values.dtype
+                        )
+                    dataset[...] = values
+            with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
+                dataset = handle["halos"]["Descendant"]
+                dataset[...] = np.array(
+                    [swap.get(int(v), int(v)) for v in dataset[...]], dtype=dataset.dtype
+                )
+
+        cases = (
+            (
+                "source_halo_id",
+                wrong_source_halo_id,
+                "snapshot_005.h5: 1 row.* stored SourceHaloID differs .* row 2 ",
+            ),
+            (
+                "rank",
+                wrong_rank,
+                "snapshot_004.h5: 1 row.* HaloRankInForest differs from the reference",
+            ),
+            (
+                "row_order",
+                swapped_rows,
+                "snapshot_005.h5: the stored row order is not .* the first at row 0",
+            ),
+        )
+        for name, corrupt, message in cases:
+            with self.subTest(name):
+                copy = self.copy_v3(name)
+                corrupt(copy)
+                with self.assertRaisesRegex(ConverterError, message):
+                    rewrite_quietly(
+                        "noop",
+                        self.source,
+                        copy,
+                        self.root / (name + "_out"),
+                        self.root / (name + "_s"),
                     )
-                dataset[...] = values
-        with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
-            dataset = handle["halos"]["Descendant"]
-            dataset[...] = np.array(
-                [swap.get(int(v), int(v)) for v in dataset[...]], dtype=dataset.dtype
-            )
-        with self.assertRaisesRegex(
-            ConverterError, "snapshot_005.h5: the stored row order is not .* the first at row 0"
-        ):
-            rewrite("noop", self.source, copy, self.root / "swapped_out", self.root / "swapped_s")
 
     def test_noop_refuses_a_digest_that_is_not_the_default_profiles(self):
         copy = self.copy_v3("other_digest")
         other = "0" * 64
-        for snap in range(N_SNAPSHOTS):
+        for snap in range(N_FIXTURE_SNAPSHOTS):
             with h5py.File(copy / "snapshot_{:03d}.h5".format(snap), "r+") as handle:
                 handle["header"].attrs.modify(
                     "column_mapping_sha256", np.array(other.encode(), dtype="S64")
@@ -396,7 +364,9 @@ class TestNoop(unittest.TestCase):
         with self.assertRaisesRegex(
             ConverterError, "column_mapping_sha256 {} is not the shipped".format(other)
         ):
-            rewrite("noop", self.source, copy, self.root / "digest_out", self.root / "digest_s")
+            rewrite_quietly(
+                "noop", self.source, copy, self.root / "digest_out", self.root / "digest_s"
+            )
         self.assertFalse((self.root / "digest_out").exists())
         self.assertFalse((self.root / "digest_s").exists())
 
@@ -408,7 +378,9 @@ class TestNoop(unittest.TestCase):
         with self.assertRaisesRegex(
             ConverterError, "omega_matter is 0.3089 but .*snapshot_003.h5 records 0.25"
         ):
-            rewrite("noop", self.source, copy, self.root / "later_out", self.root / "later_s")
+            rewrite_quietly(
+                "noop", self.source, copy, self.root / "later_out", self.root / "later_s"
+            )
         self.assertFalse((self.root / "later_out").exists())
         copy = self.copy_v3("later_digest")
         with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
@@ -416,7 +388,9 @@ class TestNoop(unittest.TestCase):
                 "column_mapping_sha256", np.array(("1" * 64).encode(), dtype="S64")
             )
         with self.assertRaisesRegex(ConverterError, "snapshot_004.h5: column_mapping_sha256 1"):
-            rewrite("noop", self.source, copy, self.root / "later_out", self.root / "later_s")
+            rewrite_quietly(
+                "noop", self.source, copy, self.root / "later_out", self.root / "later_s"
+            )
         self.assertFalse((self.root / "later_out").exists())
 
 
@@ -431,7 +405,7 @@ class TestResume(unittest.TestCase):
         cls.root = Path(tempfile.mkdtemp(prefix="rewriter_resume_"))
         cls.source = ascii_source(cls.root / "v3", two_file_layout())
         cls.reference = cls.root / "reference"
-        rewrite(
+        rewrite_quietly(
             "noop",
             cls.source,
             cls.source["dataset"],
@@ -459,27 +433,29 @@ class TestResume(unittest.TestCase):
 
         with mock.patch.object(rewriter_run, "verify_slab", failing):
             with self.assertRaisesRegex(RuntimeError, "injected failure"):
-                rewrite("noop", self.source, input_dir, out, scratch)
+                rewrite_quietly("noop", self.source, input_dir, out, scratch)
         state = json.loads((out / "rewrite_state.json").read_text())
         self.assertEqual(
             sorted(int(snap) for snap in state["verified"]),
-            list(range(N_SNAPSHOTS - after, N_SNAPSHOTS)),
+            list(range(N_FIXTURE_SNAPSHOTS - after, N_FIXTURE_SNAPSHOTS)),
         )
         return out, scratch
 
     def test_resume_after_an_injected_failure_equals_an_uninterrupted_run(self):
         for after in (1, 3):
             out, scratch = self.interrupted("after_{}".format(after), after)
-            summary = rewrite(
+            summary = rewrite_quietly(
                 "noop", self.source, self.source["dataset"], out, scratch, resume=True
             )
             self.assertTrue(summary["resumed"])
-            self.assertEqual(summary["slabs_written_this_run"], N_SNAPSHOTS - after)
+            self.assertEqual(summary["slabs_written_this_run"], N_FIXTURE_SNAPSHOTS - after)
             assert_bytes_equal(self, self.reference / "dataset", out / "dataset")
-            with quiet():
+            with quiet_output():
                 self.assertEqual(convert_trees.main(["validate", "--workdir", str(out)]), 0)
             # a completed run re-verifies and returns
-            again = rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
+            again = rewrite_quietly(
+                "noop", self.source, self.source["dataset"], out, scratch, resume=True
+            )
             self.assertEqual(again["configuration_sha256"], summary["configuration_sha256"])
 
     def test_resume_after_a_failure_in_the_cleanup_window(self):
@@ -488,7 +464,7 @@ class TestResume(unittest.TestCase):
         # the checkpoint, and after both but before the state is saved
         def before_drop(original):
             def failing(run, snap, state):
-                if len(state.data["verified"]) == 2 and snap == N_SNAPSHOTS - 1:
+                if len(state.data["verified"]) == 2 and snap == N_FIXTURE_SNAPSHOTS - 1:
                     raise RuntimeError("injected failure")
                 return original(run, snap, state)
 
@@ -496,7 +472,7 @@ class TestResume(unittest.TestCase):
 
         def after_drop_before_checkpoint(original):
             def failing(run, snap, state):
-                if len(state.data["verified"]) == 2 and snap == N_SNAPSHOTS - 2:
+                if len(state.data["verified"]) == 2 and snap == N_FIXTURE_SNAPSHOTS - 2:
                     raise RuntimeError("injected failure")
                 return original(run, snap, state)
 
@@ -507,7 +483,7 @@ class TestResume(unittest.TestCase):
                 if (
                     len(state.data["verified"]) == 2
                     and state.data["status"] == "running"
-                    and str(N_SNAPSHOTS - 1) not in state.data["remaps"]
+                    and str(N_FIXTURE_SNAPSHOTS - 1) not in state.data["remaps"]
                 ):
                     raise RuntimeError("injected failure")
                 return original(state)
@@ -525,15 +501,16 @@ class TestResume(unittest.TestCase):
             original = getattr(owner, attribute)
             with mock.patch.object(owner, attribute, wrap(original)):
                 with self.assertRaisesRegex(RuntimeError, "injected failure"):
-                    rewrite("noop", self.source, self.source["dataset"], out, scratch)
+                    rewrite_quietly("noop", self.source, self.source["dataset"], out, scratch)
             state = json.loads((out / "rewrite_state.json").read_text())
             self.assertEqual(
-                sorted(int(s) for s in state["verified"]), [N_SNAPSHOTS - 2, N_SNAPSHOTS - 1]
+                sorted(int(s) for s in state["verified"]),
+                [N_FIXTURE_SNAPSHOTS - 2, N_FIXTURE_SNAPSHOTS - 1],
             )
-            summary = rewrite(
+            summary = rewrite_quietly(
                 "noop", self.source, self.source["dataset"], out, scratch, resume=True
             )
-            self.assertEqual(summary["slabs_written_this_run"], N_SNAPSHOTS - 2, attribute)
+            self.assertEqual(summary["slabs_written_this_run"], N_FIXTURE_SNAPSHOTS - 2, attribute)
             assert_bytes_equal(self, self.reference / "dataset", out / "dataset")
 
     def test_resume_after_a_failure_in_the_finalisation(self):
@@ -550,11 +527,13 @@ class TestResume(unittest.TestCase):
 
         with mock.patch.object(rewriter_run, "write_json_atomic", failing):
             with self.assertRaisesRegex(RuntimeError, "injected failure"):
-                rewrite("noop", self.source, self.source["dataset"], out, scratch)
+                rewrite_quietly("noop", self.source, self.source["dataset"], out, scratch)
         state = json.loads((out / "rewrite_state.json").read_text())
-        self.assertEqual(len(state["verified"]), N_SNAPSHOTS)
+        self.assertEqual(len(state["verified"]), N_FIXTURE_SNAPSHOTS)
         self.assertEqual(state["status"], "running")
-        summary = rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
+        summary = rewrite_quietly(
+            "noop", self.source, self.source["dataset"], out, scratch, resume=True
+        )
         self.assertEqual(summary["slabs_written_this_run"], 0)
         assert_bytes_equal(self, self.reference / "dataset", out / "dataset")
         self.assertEqual(
@@ -580,12 +559,12 @@ class TestResume(unittest.TestCase):
         (linked / "snapshot_005.h5").unlink()
         (linked / "snapshot_005.h5").symlink_to(target_b)
         with self.assertRaisesRegex(ConverterError, "slab_b.h5 .* is read now but was not pinned"):
-            rewrite("noop", self.source, linked, out, scratch, resume=True)
+            rewrite_quietly("noop", self.source, linked, out, scratch, resume=True)
 
     def test_a_completed_run_reverifies_the_inventory(self):
         out = self.root / "inventory_check"
         scratch = self.root / "inventory_check_scratch"
-        rewrite("noop", self.source, self.source["dataset"], out, scratch)
+        rewrite_quietly("noop", self.source, self.source["dataset"], out, scratch)
         inventory = out / "tree_inventory.npy"
         held = inventory.read_bytes()
         changed = np.load(inventory)
@@ -594,14 +573,14 @@ class TestResume(unittest.TestCase):
         with self.assertRaisesRegex(
             ConverterError, "tree_inventory.npy: differs from the tree inventory"
         ):
-            rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
+            rewrite_quietly("noop", self.source, self.source["dataset"], out, scratch, resume=True)
         inventory.unlink()
         with self.assertRaisesRegex(
             ConverterError, "tree_inventory.npy: the tree inventory .* is missing"
         ):
-            rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
+            rewrite_quietly("noop", self.source, self.source["dataset"], out, scratch, resume=True)
         inventory.write_bytes(held)
-        rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
+        rewrite_quietly("noop", self.source, self.source["dataset"], out, scratch, resume=True)
 
     def test_resume_refuses_a_changed_input_of_the_same_size(self):
         private = self.root / "private_input"
@@ -614,19 +593,19 @@ class TestResume(unittest.TestCase):
             handle["halos"]["M_Crit200"][0] = handle["halos"]["M_Crit200"][0] * 2 + 1
         self.assertEqual(target.stat().st_size, size)
         with self.assertRaisesRegex(ConverterError, "changed since this conversion pinned it"):
-            rewrite("noop", self.source, private, out, scratch, resume=True)
+            rewrite_quietly("noop", self.source, private, out, scratch, resume=True)
 
     def test_resume_refuses_a_changed_configuration(self):
         out, scratch = self.interrupted("changed_config", 1)
         with self.assertRaisesRegex(ConverterError, "another configuration"):
-            rewrite(
+            rewrite_quietly(
                 "noop",
                 self.source,
                 self.source["dataset"],
                 out,
                 scratch,
                 resume=True,
-                multiplier=MULTIPLIER * 2,
+                multiplier=REWRITE_MULTIPLIER * 2,
             )
 
     def test_a_fresh_run_refuses_a_used_output_or_scratch(self):
@@ -634,7 +613,7 @@ class TestResume(unittest.TestCase):
             ConverterError,
             "already holds a manifest.json .* remove the directory or choose an empty one",
         ):
-            rewrite(
+            rewrite_quietly(
                 "noop",
                 self.source,
                 self.source["dataset"],
@@ -644,7 +623,7 @@ class TestResume(unittest.TestCase):
         (self.root / "used_scratch").mkdir()
         (self.root / "used_scratch" / "stale").write_text("x")
         with self.assertRaisesRegex(ConverterError, "not empty"):
-            rewrite(
+            rewrite_quietly(
                 "noop",
                 self.source,
                 self.source["dataset"],
@@ -674,14 +653,14 @@ class TestRefusals(unittest.TestCase):
         out = overrides.pop("output_dir", self.root / "refused_out_{}".format(self.n_refused))
         scratch = self.root / "refused_scratch_{}".format(self.n_refused)
         with self.assertRaisesRegex(ConverterError, pattern):
-            rewrite(operation, source, input_dir, out, scratch, **overrides)
+            rewrite_quietly(operation, source, input_dir, out, scratch, **overrides)
         self.assertFalse(out.exists(), "a refusal must write nothing")
         self.assertFalse(scratch.exists(), "a refusal must write nothing")
 
     def copy_v3_with_header(self, name, **attrs):
         copy = self.root / name
         shutil.copytree(self.source["dataset"], copy)
-        for snap in range(N_SNAPSHOTS):
+        for snap in range(N_FIXTURE_SNAPSHOTS):
             with h5py.File(copy / "snapshot_{:03d}.h5".format(snap), "r+") as handle:
                 for key, value in attrs.items():
                     kind = handle["header"].attrs.get_id(key).dtype
@@ -695,13 +674,16 @@ class TestRefusals(unittest.TestCase):
             self.refused(pattern, "noop", self.source, copy)
             self.refused(pattern, "cut", self.source, copy, cut_table=self.source["forests_list"])
 
-    def test_gapped_dataset(self):
-        copy = self.copy_v3_with_header("gapped", links_adjacent=0)
-        self.refused("links_adjacent 0", "noop", self.source, copy)
-
-    def test_other_source_format(self):
-        copy = self.copy_v3_with_header("lhalo", source_format=b"lhalo_binary")
-        self.refused("source_format 'lhalo_binary'", "noop", self.source, copy)
+    def test_a_dataset_the_rewriter_cannot_read_is_refused(self):
+        """A gapped dataset (the rewriter recomputes links assuming adjacency) and one of
+        another source format."""
+        for name, attrs, pattern in (
+            ("gapped", {"links_adjacent": 0}, "links_adjacent 0"),
+            ("lhalo", {"source_format": b"lhalo_binary"}, "source_format 'lhalo_binary'"),
+        ):
+            with self.subTest(name):
+                copy = self.copy_v3_with_header(name, **attrs)
+                self.refused(pattern, "noop", self.source, copy)
 
     def test_missing_or_inconsistent_index_files(self):
         self.refused(
@@ -743,22 +725,6 @@ class TestRefusals(unittest.TestCase):
             a_list=other,
         )
 
-    def test_a_multiplier_that_cannot_encode_the_bounds(self):
-        self.refused(
-            "cannot encode the output's bounds",
-            "noop",
-            self.source,
-            self.source["dataset"],
-            multiplier=4,
-        )
-        self.refused(
-            "cannot encode the output's bounds",
-            "noop",
-            self.source,
-            self.source["dataset"],
-            multiplier=2**62,
-        )
-
     def test_two_file_ids_sharing_a_name_are_refused(self):
         shared = self.root / "locations_shared.dat"
         shared.write_text(self.source["locations"].read_text().replace("tree_1.dat", "tree_0.dat"))
@@ -786,48 +752,36 @@ class TestRefusals(unittest.TestCase):
             locations=locations,
         )
 
-    def test_paths_and_metadata(self):
-        self.refused(
-            "contain one another",
-            "noop",
-            self.source,
-            self.source["dataset"],
-            output_dir=self.source["dataset"] / "inside",
-        )
+    def test_a_request_that_contradicts_its_inputs_is_refused(self):
+        """An output inside the input, a box size that disagrees with the simulation
+        info, and a multiplier that cannot encode the bounds (too small, beyond int64)."""
         other = self.root / "other_info.yaml"
         other.write_text(
             fixtures.write_simulation_info(self.root / "tmp_info.yaml")
             .read_text()
             .replace("100.0", "200.0")
         )
-        self.refused(
-            "box_size_mpc_h is 200.0 but .*records 100.0",
-            "noop",
-            self.source,
-            self.source["dataset"],
-            simulation_info=other,
-        )
-
-    def test_an_object_the_format_does_not_define_is_refused_by_name(self):
-        # the passes write only the format's objects, so an extra /halos
-        # column would be dropped silently; it is refused before any write
-        copy = self.root / "extra_column"
-        shutil.copytree(self.source["dataset"], copy)
-        with h5py.File(copy / "snapshot_002.h5", "r+") as handle:
-            n = handle["halos"]["Vmax"].shape[0]
-            handle["halos"].create_dataset("ExtraColumn", data=np.zeros(n, dtype="<f4"))
-        self.refused(
-            "snapshot_002.h5: /halos holds object\\(s\\) \\['ExtraColumn'\\] that the format "
-            "does not define",
-            "noop",
-            self.source,
-            copy,
-        )
-
-    def test_an_attribute_or_schema_object_the_format_does_not_define_is_refused(self):
-        # the passes write datasets without attributes and schema groups with
-        # exactly the declaration attributes, so each of these would be dropped
         cases = (
+            ("contain one another", {"output_dir": self.source["dataset"] / "inside"}),
+            ("box_size_mpc_h is 200.0 but .*records 100.0", {"simulation_info": other}),
+            ("cannot encode the output's bounds", {"multiplier": 4}),
+            ("cannot encode the output's bounds", {"multiplier": 2**62}),
+        )
+        for pattern, overrides in cases:
+            with self.subTest(pattern, **{k: str(v) for k, v in overrides.items()}):
+                self.refused(pattern, "noop", self.source, self.source["dataset"], **overrides)
+
+    def test_an_object_the_format_does_not_define_is_refused(self):
+        """The passes write only the format's objects: datasets without attributes and
+        schema groups with exactly the declaration attributes. An extra /halos column, an
+        attribute or a schema child would each be dropped silently, so each is refused
+        before any write."""
+        cases = (
+            (
+                "extra_column",
+                "snapshot_002.h5",
+                "/halos holds object\\(s\\) \\['ExtraColumn'\\]",
+            ),
             ("halos_attr", "snapshot_002.h5", "/halos/Vmax holds attribute\\(s\\) \\['note'\\]"),
             ("schema_child", "snapshot_002.h5", "/schema/Vmax holds object\\(s\\) \\['extra'\\]"),
             ("sidecar_attr", "forests.h5", "/ForestID holds attribute\\(s\\) \\['note'\\]"),
@@ -837,7 +791,10 @@ class TestRefusals(unittest.TestCase):
                 copy = self.root / name
                 shutil.copytree(self.source["dataset"], copy)
                 with h5py.File(copy / file_name, "r+") as handle:
-                    if name == "halos_attr":
+                    if name == "extra_column":
+                        n = handle["halos"]["Vmax"].shape[0]
+                        handle["halos"].create_dataset("ExtraColumn", data=np.zeros(n, dtype="<f4"))
+                    elif name == "halos_attr":
                         handle["halos"]["Vmax"].attrs["note"] = "x"
                     elif name == "schema_child":
                         handle["schema"]["Vmax"].create_dataset("extra", data=np.zeros(1))
@@ -879,7 +836,7 @@ class TestRefusals(unittest.TestCase):
             with self.assertRaisesRegex(
                 ConverterError, "snapshot_005.h5.tmp: /halos/Vmax rows \\[0, .*differ"
             ):
-                rewrite(
+                rewrite_quietly(
                     "noop",
                     self.source,
                     self.source["dataset"],
@@ -890,41 +847,6 @@ class TestRefusals(unittest.TestCase):
             dataset_files(self.root / "corrupt_out" / "dataset"),
             ["forests.h5", "snapshot_005.h5.tmp"],
         )
-
-    def test_a_rank_that_is_not_the_derived_one_is_refused(self):
-        copy = self.root / "wrong_rank"
-        shutil.copytree(self.source["dataset"], copy)
-        with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
-            handle["halos"]["HaloRankInForest"][1] = handle["halos"]["HaloRankInForest"][1] + 7
-        with self.assertRaisesRegex(
-            ConverterError, "snapshot_004.h5: 1 row.* HaloRankInForest differs from the reference"
-        ):
-            rewrite("noop", self.source, copy, self.root / "rank_out", self.root / "rank_s")
-
-    def test_cli_exit_status_is_2_for_a_refusal(self):
-        copy = self.copy_v3_with_header("cli_version2", format_version=2)
-        argv = [
-            "noop",
-            "--input",
-            str(copy),
-            "--output",
-            str(self.root / "cli_out"),
-            "--scratch",
-            str(self.root / "cli_scratch"),
-            "--simulation-info",
-            str(self.source["root"] / "simulation_info.yaml"),
-            "--a-list",
-            str(self.source["root"] / "fixture.a_list"),
-            "--forests-list",
-            str(self.source["forests_list"]),
-            "--locations",
-            str(self.source["locations"]),
-        ]
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(rewrite_trees.main(argv), 2)
-        self.assertIn("format_version 2 is not supported", stderr.getvalue())
-        self.assertFalse((self.root / "cli_out").exists())
 
 
 # ---------------------------------------------------------------------------
@@ -949,11 +871,13 @@ def topology(dataset_dir):
     row's MostBoundID, -1 for none), so links read the same whatever the
     rows' positions."""
     columns = {}
-    for snap in range(N_SNAPSHOTS):
-        halos, _header, _schema = read_file(Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap))
+    for snap in range(N_FIXTURE_SNAPSHOTS):
+        halos, _header, _schema = read_slab_file(
+            Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap)
+        )
         columns[snap] = halos
     rows = {}
-    for snap in range(N_SNAPSHOTS):
+    for snap in range(N_FIXTURE_SNAPSHOTS):
         halos = columns[snap]
         if halos["MostBoundID"].size == 0:
             continue
@@ -977,47 +901,13 @@ def rows_by_id(dataset_dir):
     """Every halo's payload and link targets (as ids) keyed by MostBoundID."""
     by_id = {}
     for snap, slab in topology(dataset_dir).items():
-        halos, _header, _schema = read_file(Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap))
+        halos, _header, _schema = read_slab_file(
+            Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap)
+        )
         for row, entry in enumerate(slab):
             payload = tuple(halos[name][row].tobytes() for name in PAYLOAD_COLUMNS)
             by_id[entry[0]] = (snap, entry, payload)
     return by_id
-
-
-def companions():
-    """The two untouched forests every cut fixture is laid beside: 1400
-    (before the fixture forest) and 8000 (after it, so its SourceHaloID
-    prefix moves while its ForestIndex, ranks and links do not)."""
-    return fixtures.correspondence_single_tree_forest(), fixtures.interleaved_forest_8000()
-
-
-def cut_source(root: Path, forest, layout):
-    first, last = companions()
-    source = convert_ascii(root, layout, [first, forest, last])
-    source["root"] = root
-    source["forests"] = [first, forest, last]
-    return source
-
-
-def cut_layout(forest, split_after=None):
-    """One file holding everything, or two files with the fixture forest's
-    trees from ``split_after`` on in the second (so a piece can span files)."""
-    first, last = companions()
-    if split_after is None:
-        return [[first.trees[0]] + forest.trees + [last.trees[0]]]
-    return [
-        [first.trees[0]] + forest.trees[:split_after],
-        forest.trees[split_after:] + [last.trees[0]],
-    ]
-
-
-def write_table(root: Path, name: str, table: dict, source) -> Path:
-    return fixtures.write_cut_table(root / (name + ".list"), table, source["forests"])
-
-
-def cut(source, out, scratch, table, input_dir=None, **overrides):
-    input_dir = source["dataset"] if input_dir is None else input_dir
-    return rewrite("cut", source, input_dir, out, scratch, cut_table=table, **overrides)
 
 
 class TestCutFixtures(unittest.TestCase):
@@ -1041,7 +931,7 @@ class TestCutFixtures(unittest.TestCase):
         path = write_table(root, "cut", table, source)
         source["cut_table"] = path
         out = root / "out"
-        summary = cut(source, out, root / "scratch", path)
+        summary = rewrite_cut(source, out, root / "scratch", path)
         self.check_common(source, out, summary)
         return source, out, summary
 
@@ -1077,15 +967,17 @@ class TestCutFixtures(unittest.TestCase):
         for slab in rows.values():
             for entry in slab:
                 self.assertEqual(entry[3], bases[entry[1]] + entry[2], entry)
-        with quiet():
+        with quiet_output():
             self.assertEqual(convert_trees.main(["validate", "--workdir", str(out)]), 0)
 
     def assert_cut(self, out, summary, rows, sidecar, n_forests, max_rank, counts, pieces):
         self.assertEqual(topology(out / "dataset"), rows)
         held = read_sidecar(out / "dataset" / "forests.h5")
         self.assertEqual({name: held[name].tolist() for name in held}, sidecar)
-        for snap in range(N_SNAPSHOTS):
-            _halos, header, _schema = read_file(out / "dataset" / "snapshot_{:03d}.h5".format(snap))
+        for snap in range(N_FIXTURE_SNAPSHOTS):
+            _halos, header, _schema = read_slab_file(
+                out / "dataset" / "snapshot_{:03d}.h5".format(snap)
+            )
             self.assertEqual(int(header["n_forests_total"]), n_forests)
             self.assertEqual(int(header["max_halo_rank_in_forest"]), max_rank)
         self.assertEqual(summary["n_forests_total"], n_forests)
@@ -1101,7 +993,7 @@ class TestCutFixtures(unittest.TestCase):
             )
             for entry in summary["cut"]["per_snapshot"]
         }
-        expected = {snap: (0, 0, 0, 0, 0, 0) for snap in range(N_SNAPSHOTS)}
+        expected = {snap: (0, 0, 0, 0, 0, 0) for snap in range(N_FIXTURE_SNAPSHOTS)}
         expected.update(counts)
         self.assertEqual(per_snapshot, expected)
         written = np.load(out / "cut_pieces.npy")
@@ -1155,8 +1047,8 @@ class TestCutFixtures(unittest.TestCase):
         self.assertEqual(topology(source["dataset"])[4][2], (2111, 1, 3, 7, 2110, -1, -1, 2101, -1))
         # the satellite's row and its descendant's row both move, and the
         # descendant still resolves to the same halo
-        halos, _header, _schema = read_file(out / "dataset" / "snapshot_004.h5")
-        above, _header, _schema = read_file(out / "dataset" / "snapshot_005.h5")
+        halos, _header, _schema = read_slab_file(out / "dataset" / "snapshot_004.h5")
+        above, _header, _schema = read_slab_file(out / "dataset" / "snapshot_005.h5")
         self.assertEqual(int(halos["MostBoundID"][4]), 2111)
         self.assertEqual(int(above["MostBoundID"][int(halos["Descendant"][4])]), 2110)
         self.assertEqual(int(halos["DescendantSnapshot"][4]), 5)
@@ -1395,7 +1287,7 @@ class TestCutFixtures(unittest.TestCase):
         )
         # the manifest and the report carry the cut: the table, the
         # per-snapshot counts and the pieces
-        with quiet():
+        with quiet_output():
             self.assertEqual(convert_trees.main(["report", "--workdir", str(out)]), 0)
         recorded, report = outcomes(out)
         self.assertEqual(recorded["manifest-binding"], "PASS")
@@ -1502,15 +1394,15 @@ class TestCutTableAndRefusals(unittest.TestCase):
         scratch = self.root / "refused_scratch_{}".format(self.n_refused)
         input_dir = overrides.pop("input_dir", None)
         with self.assertRaisesRegex(ConverterError, pattern):
-            cut(source, out, scratch, table, input_dir=input_dir, **overrides)
+            rewrite_cut(source, out, scratch, table, input_dir=input_dir, **overrides)
         self.assertFalse(out.exists(), "a refusal must write nothing")
         self.assertFalse(scratch.exists(), "a refusal must write nothing")
 
     def test_the_identity_table_produces_the_noops_output(self):
         noop_out = self.root / "noop"
-        rewrite("noop", self.source, self.source["dataset"], noop_out, self.root / "ns")
+        rewrite_quietly("noop", self.source, self.source["dataset"], noop_out, self.root / "ns")
         cut_out = self.root / "identity_cut"
-        summary = cut(self.source, cut_out, self.root / "ics", self.source["forests_list"])
+        summary = rewrite_cut(self.source, cut_out, self.root / "ics", self.source["forests_list"])
         assert_bytes_equal(self, noop_out / "dataset", cut_out / "dataset")
         self.assertEqual((summary["cut"]["split_forests"], summary["cut"]["fresh_pieces"]), (0, 0))
         self.assertEqual(summary["cut"]["pieces"]["count"], 0)
@@ -1526,33 +1418,19 @@ class TestCutTableAndRefusals(unittest.TestCase):
             sha256_file(cut_out / "tree_inventory.npy"),
         )
 
-    def test_every_table_invariant_is_refused_before_any_write(self):
+    def test_an_invalid_cut_table_is_refused_before_any_write(self):
+        """The invariants are those of ``census.cut_table.read_cut_table``, tested there
+        in full; here a table missing an index root, a piece mixing two forests, a
+        malformed table and an absent file are each refused with nothing written."""
         source = self.severed
         forests = source["forests"]
         cases = (
             # a root of the index files absent from the table
             ({2000: None}, "1 tree root\\(s\\) of the index files missing \\(e.g. \\[2000\\]"),
-            # a table root absent from the index files
-            ({9999: 9999}, "1 not in the index files \\(e.g. \\[9999\\]"),
             # a piece joining trees of two forests
             (
                 {2110: 8001, 2000: 8001},
                 "1 piece\\(s\\) mix trees of several forests \\(e.g. id 8001\\)",
-            ),
-            # a fresh id at or below the catalogue's maximum
-            (
-                {2110: 1400},
-                "at or below the catalogue's maximum 8000 that is not their forest's own "
-                "\\(e.g. root 2110 of forest 2100 given 1400\\)",
-            ),
-            # a forest keeping no piece with its own id
-            ({2100: 8001, 2110: 8002}, "keep no piece with their own id \\(e.g. \\[2100\\]"),
-            # the smaller piece keeping the id
-            ({2100: 8001, 2110: 2100}, "not kept by their largest piece \\(e.g. forest 2100\\)"),
-            # fresh ids not contiguous from the maximum plus one
-            (
-                {2110: 8002},
-                "not contiguous from the catalogue's maximum 8000 plus one \\(id 8002 where 8001",
             ),
         )
         for at, (changes, message) in enumerate(cases):
@@ -1576,14 +1454,6 @@ class TestCutTableAndRefusals(unittest.TestCase):
                 + "".join("{} {}\n".format(root, forest) for root, forest in sorted(rows.items()))
             )
             self.refused(message, source, path)
-        # fresh ids out of descending piece size: {2520, 2530} (4 halos) after {2500} (2)
-        path = write_table(
-            self.root / "three",
-            "order",
-            {2500: 8001, 2510: 2500, 2520: 8002, 2530: 8002},
-            self.three,
-        )
-        self.refused("fresh ids do not follow descending piece size", self.three, path)
         malformed = self.root / "severed" / "malformed.list"
         malformed.write_text(self.severed_table.read_text().replace("2110 8001", "2110 8001 7"))
         self.refused("malformed cut table", source, malformed)
@@ -1592,7 +1462,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
     def test_the_cut_table_option_belongs_to_cut_alone(self):
         self.refused("cut needs --cut-table", self.severed, None)
         with self.assertRaisesRegex(ConverterError, "noop refuses --cut-table"):
-            rewrite(
+            rewrite_quietly(
                 "noop",
                 self.source,
                 self.source["dataset"],
@@ -1601,7 +1471,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
                 cut_table=self.source["forests_list"],
             )
         with self.assertRaisesRegex(ConverterError, "noop refuses --cut-table-record"):
-            rewrite(
+            rewrite_quietly(
                 "noop",
                 self.source,
                 self.source["dataset"],
@@ -1636,7 +1506,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
     def test_the_record_is_bound_by_md5_not_by_the_datasets_identity(self):
         record = self.record("record")
         out = self.root / "severed" / "with_record"
-        summary = cut(
+        summary = rewrite_cut(
             self.severed,
             out,
             self.root / "severed" / "with_record_s",
@@ -1656,7 +1526,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
         self.assertEqual(parameters["cut_table_record_sha256"], sha256_file(record))
         self.assertEqual(summary["cut"]["rule"], "the z = 0 FoF groups of every forest")
         self.assertEqual(summary["cut"]["record_dataset"]["n_forests_total"], 999)
-        with quiet():
+        with quiet_output():
             self.assertEqual(convert_trees.main(["report", "--workdir", str(out)]), 0)
         _recorded, report = outcomes(out)
         self.assertEqual(report["format"]["writer"]["cut"]["rule"], parameters["cut_rule"])
@@ -1665,7 +1535,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
             {role for entry in report["source"]["dependencies"] for role in entry["roles"]},
         )
         # the same table and dataset without a record: a different configuration
-        plain = cut(
+        plain = rewrite_cut(
             self.severed,
             self.root / "severed" / "plain",
             self.root / "severed" / "plain_s",
@@ -1703,10 +1573,10 @@ class TestCutTableAndRefusals(unittest.TestCase):
     def test_resume_block_size_and_the_cli(self):
         source = self.severed
         reference = self.root / "severed" / "reference"
-        cut(source, reference, self.root / "severed" / "reference_s", self.severed_table)
+        rewrite_cut(source, reference, self.root / "severed" / "reference_s", self.severed_table)
         for name, block_rows in (("blocks_2", 2), ("blocks_3", 3)):
             out = self.root / "severed" / name
-            cut(
+            rewrite_cut(
                 source,
                 out,
                 self.root / "severed" / (name + "_s"),
@@ -1728,15 +1598,15 @@ class TestCutTableAndRefusals(unittest.TestCase):
 
         with mock.patch.object(rewriter_run, "verify_slab", failing):
             with self.assertRaisesRegex(RuntimeError, "injected failure"):
-                cut(source, out, scratch, self.severed_table)
+                rewrite_cut(source, out, scratch, self.severed_table)
         # a different table is a different configuration
         other = write_table(self.root / "severed", "other", {2100: 2100, 2110: 2100}, source)
         with self.assertRaisesRegex(ConverterError, "another configuration"):
-            cut(source, out, scratch, other, resume=True)
-        summary = cut(source, out, scratch, self.severed_table, resume=True)
-        self.assertEqual(summary["slabs_written_this_run"], N_SNAPSHOTS - 2)
+            rewrite_cut(source, out, scratch, other, resume=True)
+        summary = rewrite_cut(source, out, scratch, self.severed_table, resume=True)
+        self.assertEqual(summary["slabs_written_this_run"], N_FIXTURE_SNAPSHOTS - 2)
         assert_bytes_equal(self, reference / "dataset", out / "dataset")
-        again = cut(source, out, scratch, self.severed_table, resume=True)
+        again = rewrite_cut(source, out, scratch, self.severed_table, resume=True)
         self.assertEqual(again["cut"]["table"]["md5"], summary["cut"]["table"]["md5"])
         # the CLI
         cli_out = self.root / "severed" / "cli"
@@ -1769,7 +1639,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
         # the input's max_halo_rank_in_forest is 4 (forest 2100 holds 5 halos)
         # and the cut's is 2: a multiplier of 3 encodes the output alone
         with self.assertRaisesRegex(ConverterError, "cannot encode the output's bounds"):
-            rewrite(
+            rewrite_quietly(
                 "noop",
                 self.severed,
                 self.severed["dataset"],
@@ -1777,7 +1647,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
                 self.root / "severed" / "noop_3_s",
                 multiplier=3,
             )
-        summary = cut(
+        summary = rewrite_cut(
             self.severed,
             self.root / "severed" / "cut_3",
             self.root / "severed" / "cut_3_s",
@@ -1814,7 +1684,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
             "snapshot_004.h5: 2 halo\\(s\\) whose stored ForestIndex is not their tree's forest; "
             "examples \\(row, stored, tree's\\): \\[\\(2, 2, 1\\), \\(4, 1, 2\\)\\]",
         ):
-            cut(
+            rewrite_cut(
                 self.severed,
                 self.root / "severed" / "rehomed_out",
                 self.root / "severed" / "rehomed_s",
@@ -1826,7 +1696,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
         # file 1 holds only trees of forest 2500, which spans files 0 and 1,
         # so the input sidecar gives file 1 no conversion ordinal; the cut
         # would make {2520, 2530} a single-file piece of file 1
-        first, last = companions()
+        first, last = cut_companions()
         forest = fixtures.three_piece_forest()
         root = self.root / "no_ordinal"
         source = convert_ascii(
@@ -1848,29 +1718,13 @@ class TestCutTableAndRefusals(unittest.TestCase):
 
     def test_an_overflowing_multiplier_is_refused_before_pass_0(self):
         # the output holds at least the input's forests, so the overflow is
-        # known before pass 0 and the table's installation
-        with mock.patch.object(rewriter_run, "run_pass0", side_effect=AssertionError("pass 0 ran")):
-            self.refused(
-                "--multiplier {0}: cannot encode the output's bounds: multiplier {0} x "
-                "\\(n_forests_total 3 \\+ 1\\) overflows int64".format(2**62),
-                self.severed,
-                self.severed_table,
-                multiplier=2**62,
-            )
-
-    def test_a_digest_that_is_not_the_default_profiles_is_refused(self):
-        copy = self.root / "severed" / "other_digest"
-        shutil.copytree(self.severed["dataset"], copy)
-        for snap in range(N_SNAPSHOTS):
-            with h5py.File(copy / "snapshot_{:03d}.h5".format(snap), "r+") as handle:
-                handle["header"].attrs.modify(
-                    "column_mapping_sha256", np.array(("0" * 64).encode(), dtype="S64")
-                )
+        # known before pass 0 and the table's installation: nothing is written
         self.refused(
-            "snapshot_000.h5: column_mapping_sha256 0{64} is not the shipped",
+            "--multiplier {0}: cannot encode the output's bounds: multiplier {0} x "
+            "\\(n_forests_total 3 \\+ 1\\) overflows int64".format(2**62),
             self.severed,
             self.severed_table,
-            input_dir=copy,
+            multiplier=2**62,
         )
 
     def test_a_central_in_another_forest_of_the_input_is_refused(self):
@@ -1888,7 +1742,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
             "snapshot_004.h5: 1 halo\\(s\\) whose FoF central lies in another forest of the "
             "input; .* rows \\[{}\\]".format(row),
         ):
-            cut(
+            rewrite_cut(
                 self.severed,
                 self.root / "severed" / "foreign_out",
                 self.root / "severed" / "foreign_s",
@@ -1910,7 +1764,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
             "reference insertion order .* for 1 descendant\\(s\\) \\(0 NextProgenitor "
             "link\\(s\\) and 1 FirstProgenitor",
         ):
-            cut(
+            rewrite_cut(
                 self.severed,
                 self.root / "severed" / "phantom_out",
                 self.root / "severed" / "phantom_s",
@@ -2054,7 +1908,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
                 patched = corruption(getattr(owner, attribute))
                 with mock.patch.object(owner, attribute, patched):
                     with self.assertRaisesRegex(ConverterError, slab + "\\.tmp: " + rule):
-                        cut(source, out, self.root / (corruption.__name__ + "_s"), table)
+                        rewrite_cut(source, out, self.root / (corruption.__name__ + "_s"), table)
                 self.assertIn(slab + ".tmp", dataset_files(out / "dataset"))
                 self.assertNotIn(slab, dataset_files(out / "dataset"))
 
@@ -2080,7 +1934,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
             "reference insertion order .* for 1 descendant\\(s\\) \\(2 NextProgenitor link\\(s\\) "
             "and 1 FirstProgenitor",
         ):
-            cut(
+            rewrite_cut(
                 self.severed,
                 self.root / "severed" / "reversed_out",
                 self.root / "severed" / "reversed_s",
@@ -2106,10 +1960,8 @@ class TestProgenitorWalk(unittest.TestCase):
             self.heads if heads is None else np.asarray(heads, dtype=np.int64),
         )
 
-    def test_the_written_chains_pass(self):
+    def test_the_written_chains_pass_and_each_refusal_is_named(self):
         self.walk([1, -1, -1])
-
-    def test_each_refusal_is_named(self):
         cases = (
             ("a link outside the slab", [5, -1, -1], None, None),
             ("a chain reaches a progenitor of another descendant", [2, -1, -1], None, None),

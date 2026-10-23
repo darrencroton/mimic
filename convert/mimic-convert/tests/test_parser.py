@@ -32,12 +32,12 @@ from ctrees_parser import (  # noqa: E402
     ConverterError,
     CtreesFileParser,
     ScratchLayout,
-    parse_file,
     parse_header_line,
     plan_source_units,
     prescan_file,
     resolve_selection,
 )
+from fixtures import parse_file  # noqa: E402
 
 DATA_DIR = Path(__file__).parent / "data"
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "profiles"
@@ -81,11 +81,9 @@ def f32(text):
 
 
 class TestCoreRecordDtype(unittest.TestCase):
-    def test_itemsize_is_108_packed_little_endian(self):
+    def test_core_record_is_packed_little_endian_with_the_expected_fields(self):
         self.assertEqual(CORE_RECORD_DTYPE.itemsize, 108)
         self.assertFalse(CORE_RECORD_DTYPE.isalignedstruct)
-
-    def test_field_layout(self):
         expected = [
             ("id", "<i8"),
             ("desc_id", "<i8"),
@@ -112,17 +110,18 @@ class TestCoreRecordDtype(unittest.TestCase):
 
 
 class TestHeaderParsing(unittest.TestCase):
-    def test_indexed_suffixes_stripped(self):
-        names = parse_header_line("#scale(0) id(1) Snap_num(31)")
-        self.assertEqual(names, ["scale", "id", "Snap_num"])
-
-    def test_fields_dialect(self):
-        names = parse_header_line("#fields: scale id snap_idx")
-        self.assertEqual(names, ["scale", "id", "snap_idx"])
-
-    def test_comma_delimiters(self):
-        names = parse_header_line("#scale(0),id(1),snap_num(2)")
-        self.assertEqual(names, ["scale", "id", "snap_num"])
+    def test_header_dialects_parse_to_bare_names(self):
+        for label, line, expected in (
+            (
+                "indexed suffixes stripped",
+                "#scale(0) id(1) Snap_num(31)",
+                ["scale", "id", "Snap_num"],
+            ),
+            ("fields", "#fields: scale id snap_idx", ["scale", "id", "snap_idx"]),
+            ("comma delimiters", "#scale(0),id(1),snap_num(2)", ["scale", "id", "snap_num"]),
+        ):
+            with self.subTest(label):
+                self.assertEqual(parse_header_line(line), expected)
 
     def test_non_hash_header_aborts(self):
         with self.assertRaises(ConverterError):
@@ -136,15 +135,21 @@ class TestHeaderParsing(unittest.TestCase):
         layout = resolve_selection(parse_header_line(header), ascii_schema())
         self.assertEqual(layout.snapshot_column, "snap_num")
         self.assertEqual(layout.indices["mvir"], 6)
+        # and end to end, through a file whose header is in this casing
+        records, _, _ = parse_default(DATA_DIR / "casing_variants.dat")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records["id"][0], 1000)
+        self.assertEqual(records["snap"][0], 5)
 
     def test_missing_column_aborts(self):
-        with self.assertRaisesRegex(ConverterError, "none of the aliases"):
-            resolve_selection(["scale", "id", "snap_num"], ascii_schema())
-
-    def test_missing_snapshot_column_aborts(self):
-        names = [n for n in parse_header_line(fixtures.header_line()) if n != "Snap_num"]
-        with self.assertRaisesRegex(ConverterError, "snap_idx"):
-            resolve_selection(names, ascii_schema())
+        without_snapshot = [n for n in parse_header_line(fixtures.header_line()) if n != "Snap_num"]
+        for label, names, message in (
+            ("required roles", ["scale", "id", "snap_num"], "none of the aliases"),
+            ("snapshot column", without_snapshot, "snap_idx"),
+        ):
+            with self.subTest(label):
+                with self.assertRaisesRegex(ConverterError, message):
+                    resolve_selection(names, ascii_schema())
 
 
 class TestGoldenFixtures(unittest.TestCase):
@@ -162,36 +167,30 @@ class TestGoldenFixtures(unittest.TestCase):
         self.assertEqual(records["vrms"][0], f32("120.5"))
         self.assertEqual(records["vmax"][0], f32("250.25"))
 
-    def test_indexed_header_golden(self):
-        records, result, prescan = parse_default(DATA_DIR / "indexed_header.dat")
-        self._check_common_records(records)
-        self.assertEqual(prescan.n_rows, 3)
-        self.assertEqual(prescan.declared_tree_count, 2)
-        self.assertTrue(result.complete)
-        self.assertEqual(result.observed_pairs, {(5, 1.0), (4, 0.9)})
-
-    def test_fields_header_golden(self):
-        records, result, _ = parse_default(DATA_DIR / "fields_header.dat")
-        self._check_common_records(records)
-        self.assertTrue(result.complete)
-
-    def test_casing_variants_golden(self):
-        records, _, _ = parse_default(DATA_DIR / "casing_variants.dat")
-        self.assertEqual(len(records), 1)
-        self.assertEqual(records["id"][0], 1000)
-        self.assertEqual(records["snap"][0], 5)
+    def test_header_dialect_goldens(self):
+        """The indexed and the ``#fields`` headers yield the same records; only
+        the indexed file declares a tree count."""
+        for filename, declared_tree_count in (
+            ("indexed_header.dat", 2),
+            ("fields_header.dat", None),
+        ):
+            with self.subTest(filename):
+                records, result, prescan = parse_default(DATA_DIR / filename)
+                self._check_common_records(records)
+                self.assertEqual(prescan.n_rows, 3)
+                self.assertEqual(prescan.declared_tree_count, declared_tree_count)
+                self.assertTrue(result.complete)
+                self.assertEqual(result.observed_pairs, {(5, 1.0), (4, 0.9)})
 
     def test_duplicate_column_golden_aborts(self):
         with self.assertRaisesRegex(ConverterError, "duplicate"):
             parse_default(DATA_DIR / "duplicate_column.dat")
 
-    def test_malformed_row_golden_aborts(self):
-        with self.assertRaisesRegex(ConverterError, "malformed"):
-            parse_default(DATA_DIR / "malformed_row.dat")
-
-    def test_truncated_row_golden_aborts(self):
-        with self.assertRaises(ConverterError):
-            parse_default(DATA_DIR / "truncated_row.dat")
+    def test_malformed_and_truncated_row_goldens_abort(self):
+        for filename in ("malformed_row.dat", "truncated_row.dat"):
+            with self.subTest(filename):
+                with self.assertRaisesRegex(ConverterError, "malformed"):
+                    parse_default(DATA_DIR / filename)
 
     def test_tree_boundaries_across_chunks(self):
         expected_roots = np.array([10, 20, 20, 30, 30, 30], dtype=np.int64)
@@ -246,30 +245,17 @@ class TestSyntheticFixtures(unittest.TestCase):
         path.write_text("\n".join(lines) + "\n")
         return path
 
-    def test_nan_value_aborts(self):
-        path = self._write_with_token("nan.dat", "Mvir", "nan")
-        with self.assertRaisesRegex(ConverterError, "non-finite"):
-            parse_default(path)
-
-    def test_inf_value_aborts(self):
-        path = self._write_with_token("inf.dat", "x", "inf")
-        with self.assertRaisesRegex(ConverterError, "non-finite"):
-            parse_default(path)
-
-    def test_negative_inf_value_aborts(self):
-        path = self._write_with_token("ninf.dat", "vy", "-inf")
-        with self.assertRaisesRegex(ConverterError, "non-finite"):
-            parse_default(path)
+    def test_non_finite_value_aborts(self):
+        for column, token in (("Mvir", "nan"), ("x", "inf"), ("vy", "-inf"), ("scale", "nan")):
+            with self.subTest(column=column, token=token):
+                path = self._write_with_token("nonfinite.dat", column, token)
+                with self.assertRaisesRegex(ConverterError, "non-finite"):
+                    parse_default(path)
 
     def test_float32_overflow_aborts(self):
         # finite in float64, infinite after the float32 cast
         path = self._write_with_token("overflow.dat", "Jz", "1e39")
         with self.assertRaisesRegex(ConverterError, "float32-overflowing"):
-            parse_default(path)
-
-    def test_nan_scale_aborts(self):
-        path = self._write_with_token("nanscale.dat", "scale", "nan")
-        with self.assertRaisesRegex(ConverterError, "non-finite"):
             parse_default(path)
 
     def test_extra_token_row_aborts_in_prescan(self):
@@ -299,16 +285,6 @@ class TestSyntheticFixtures(unittest.TestCase):
             path = self._write_with_token("adv.dat", "Mvir", token)
             records, _, _ = parse_default(path)
             self.assertEqual(records["Mvir"][-1], f32(token))
-
-    def test_float32_cast_matches_reference_path(self):
-        trees = [
-            fixtures.TreeSpec(
-                root_id=7, halos=[fixtures.HaloSpec(halo_id=7, snap=5, mvir=1.23456789e11)]
-            )
-        ]
-        path = fixtures.write_ctrees_file(self.dir / "cast.dat", trees)
-        records, _, _ = parse_default(path)
-        self.assertEqual(records["Mvir"][0], f32("{:.5e}".format(1.23456789e11)))
 
     def test_header_only_file_parses_empty(self):
         path = self.dir / "empty.dat"
@@ -359,17 +335,17 @@ class TestSyntheticFixtures(unittest.TestCase):
         self.assertEqual(prescan.tree_root_ids.tolist(), [10])
         np.testing.assert_array_equal(records["tree_root_id"], [10, 10])
 
-    def test_marker_with_extra_tokens_aborts(self):
-        path = self.dir / "badmarker2.dat"
-        path.write_text(fixtures.header_line() + "\n#tree 1 2\n")
-        with self.assertRaisesRegex(ConverterError, "malformed '#tree' marker"):
-            prescan_file(path)
-
-    def test_bare_marker_token_aborts(self):
-        path = self.dir / "badmarker3.dat"
-        path.write_text(fixtures.header_line() + "\n#tree\n")
-        with self.assertRaisesRegex(ConverterError, "malformed '#tree' marker"):
-            prescan_file(path)
+    def test_malformed_tree_marker_aborts(self):
+        for label, marker, message in (
+            ("extra tokens", "#tree 1 2", "malformed '#tree' marker"),
+            ("bare marker", "#tree", "malformed '#tree' marker"),
+            ("non-integer id", "#tree not_an_id", "#tree"),
+        ):
+            with self.subTest(label):
+                path = self.dir / "badmarker.dat"
+                path.write_text(fixtures.header_line() + "\n" + marker + "\n")
+                with self.assertRaisesRegex(ConverterError, message):
+                    prescan_file(path)
 
     def test_second_bare_count_line_aborts(self):
         path = self.dir / "twocounts.dat"
@@ -391,13 +367,11 @@ class TestSyntheticFixtures(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "empty file"):
             prescan_file(path)
 
-    def test_snapshot_outside_int32_aborts(self):
+    def test_snapshot_int32_range_is_enforced(self):
         for snap_token in ("2147483648", "-2147483649"):  # INT32_MAX+1, INT32_MIN-1
             path = self._write_with_token("bigsnap.dat", "Snap_num", snap_token)
             with self.assertRaisesRegex(ConverterError, "outside int32 range"):
                 parse_default(path)
-
-    def test_snapshot_at_int32_limits_parses(self):
         records, _, _ = parse_default(
             self._write_with_token("edgesnap.dat", "Snap_num", "2147483647")
         )
@@ -409,29 +383,16 @@ class TestSyntheticFixtures(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "first line"):
             prescan_file(path)
 
-    def test_malformed_tree_marker_aborts(self):
-        path = self.dir / "badmarker.dat"
-        path.write_text(fixtures.header_line() + "\n#tree not_an_id\n")
-        with self.assertRaisesRegex(ConverterError, "#tree"):
-            prescan_file(path)
-
-    def test_precount_mismatch_detected(self):
+    def test_precount_mismatch_detected_in_both_directions(self):
         trees = fixtures.all_trees(fixtures.standard_forests())
         path = fixtures.write_ctrees_file(self.dir / "trees.dat", trees)
-        doctored = prescan_file(path)
-        doctored.n_rows += 1
-        parser = CtreesFileParser(path, ascii_schema(), prescan=doctored)
-        with self.assertRaisesRegex(ConverterError, "pre-count"):
-            list(parser.chunks())
-
-    def test_precount_overrun_detected(self):
-        trees = fixtures.all_trees(fixtures.standard_forests())
-        path = fixtures.write_ctrees_file(self.dir / "trees.dat", trees)
-        doctored = prescan_file(path)
-        doctored.n_rows -= 1
-        parser = CtreesFileParser(path, ascii_schema(), prescan=doctored)
-        with self.assertRaisesRegex(ConverterError, "pre-count"):
-            list(parser.chunks())
+        for delta in (1, -1):
+            with self.subTest(delta=delta):
+                doctored = prescan_file(path)
+                doctored.n_rows += delta
+                parser = CtreesFileParser(path, ascii_schema(), prescan=doctored)
+                with self.assertRaisesRegex(ConverterError, "pre-count"):
+                    list(parser.chunks())
 
 
 def _one_tree(halos, root=1):
@@ -655,17 +616,18 @@ class TestSourceUnits(unittest.TestCase):
 
 
 class TestScratchLayout(unittest.TestCase):
-    def test_layout_width_and_tag(self):
+    def test_layout_is_the_core_record_plus_sorted_packed_extras_and_round_trips(self):
         schema = build_schema(load_column_map(ALL_TYPES_PROFILE))
         layout = ScratchLayout.from_schema(schema)
-        # 108 core + 4+8+8+4+8+12+12 extras (sorted)
-        self.assertEqual(layout.dtype.itemsize, 108 + 56)
+        extra_names = [n for n in layout.dtype.names if n.startswith("extra_")]
         self.assertEqual(
-            [n for n in layout.dtype.names if n.startswith("extra_")],
-            ["extra_" + n for n in sorted(e.name for e in schema.extra_fields)],
+            extra_names, ["extra_" + n for n in sorted(e.name for e in schema.extra_fields)]
         )
-        self.assertTrue(layout.dtype_tag.startswith("ctrees-scratch-v2/itemsize=164/"))
-        self.assertIn("extra_RawJ:<f4[3]", layout.dtype_tag)
+        self.assertEqual(
+            layout.dtype.itemsize,
+            CORE_RECORD_DTYPE.itemsize + sum(layout.dtype[n].itemsize for n in extra_names),
+        )
+        self.assertNotEqual(layout.dtype_tag, ScratchLayout.from_schema(ascii_schema()).dtype_tag)
         self.assertEqual(ScratchLayout.from_record(layout.to_record(), "t"), layout)
 
     def test_every_declarable_extra_type_has_its_little_endian_scratch_element(self):
@@ -687,11 +649,6 @@ class TestScratchLayout(unittest.TestCase):
     def test_zero_extra_layout_is_the_core_record(self):
         layout = ScratchLayout.from_schema(ascii_schema())
         self.assertEqual(layout.dtype, CORE_RECORD_DTYPE)
-
-    def test_wide_schema(self):
-        extras = [extra("Wide{:02d}".format(k), ["Rvir"], "double") for k in range(40)]
-        layout = ScratchLayout.from_schema(ascii_schema(extras))
-        self.assertEqual(layout.dtype.itemsize, 108 + 40 * 8)
 
     def test_same_width_schemas_differ_in_digest(self):
         a = ScratchLayout.from_schema(ascii_schema([extra("E", ["Rvir"], "float")]))

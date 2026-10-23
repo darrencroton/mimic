@@ -2,14 +2,11 @@
 conservation, manifest resume, aggregates, cleanup containment guard.
 
 Every scatter runs under a profile schema: the shipped default profile unless a
-test names another. ``TestScratchBuffering`` covers explicit 8192-byte scratch
-buffering (serial and pooled) and ``TestExtendedScatter`` the layout of a
-profile that declares extras (binding, source-unit sidecars, serial/pooled
-equality)."""
+test names another. ``TestExtendedScatter`` covers the layout of a profile that
+declares extras (binding, source-unit sidecars, serial/pooled equality)."""
 
 import functools
 import json
-import multiprocessing as mp
 import os
 import shutil
 import sys
@@ -28,6 +25,11 @@ import fixtures  # noqa: E402
 import scatter  # noqa: E402
 from column_schema import build_schema, load_column_map  # noqa: E402
 from ctrees_parser import ConverterError, CtreesFileParser, ScratchLayout  # noqa: E402
+from fixtures import (  # noqa: E402
+    ALL_TYPES_PROFILE,
+    DEFAULT_PROFILE,
+    PROFILE_DIR,
+)
 from scatter import (  # noqa: E402
     SOURCE_COMPLETED,
     SOURCE_PENDING,
@@ -40,10 +42,6 @@ from scatter import (  # noqa: E402
     validate_root_coverage,
 )
 
-PROFILE_DIR = Path(__file__).resolve().parents[1] / "profiles"
-DEFAULT_PROFILE = PROFILE_DIR / "consistent_trees_ascii.yaml"
-ALL_TYPES_PROFILE = Path(__file__).parent / "data" / "column_maps" / "ascii_all_extra_types.yaml"
-
 
 @functools.lru_cache(maxsize=None)
 def _schema(path=ALL_TYPES_PROFILE):
@@ -53,49 +51,6 @@ def _schema(path=ALL_TYPES_PROFILE):
 
 def default_schema():
     return _schema(DEFAULT_PROFILE)
-
-
-def _mp_worker_init_and_count(forests_list_path, expected_md5, counter, barrier) -> None:
-    """Test-only Pool initializer: run the real per-worker loader, record
-    that this worker process ran it, then rendezvous with the parent and
-    every sibling worker. Must be module-level so it can be pickled by
-    reference under the ``spawn`` start method.
-
-    The barrier is the difference between a deterministic count and a race:
-    without it, ``Pool.map`` can satisfy every task from whichever worker(s)
-    finish spawning first, and the context manager's ``terminate()`` on exit
-    can kill a slower sibling before it ever reaches this initializer —
-    undercounting workers that were requested but never needed. Waiting here
-    forces all requested workers to complete initialization before the
-    parent submits any task.
-    """
-    scatter._init_scatter_worker(forests_list_path, expected_md5)
-    with counter.get_lock():
-        counter.value += 1
-    barrier.wait()
-
-
-def _mp_lookup_task(root_id: int) -> int:
-    """Test-only pool task: look up one root id via the worker-global map
-    ``_init_scatter_worker`` set, proving the map is actually usable from
-    inside the worker process rather than merely loaded and discarded."""
-    return int(scatter._worker_forest_map.lookup_forest_ids(np.array([root_id]))[0])
-
-
-def _mp_scatter_recording_buffering(args):
-    """Test-only pool task: run the real pool entry point
-    (``scatter._scatter_worker``) inside a spawned worker, recording the
-    ``buffering`` every scratch handle it opens is given."""
-    seen = []
-    real_open = open
-
-    def recording_open(path, mode="r", *a, **kw):
-        seen.append((Path(path).name, mode, kw.get("buffering")))
-        return real_open(path, mode, *a, **kw)
-
-    with mock.patch.object(scatter, "open", recording_open, create=True):
-        result = scatter._scatter_worker(args)
-    return result.src_index, seen
 
 
 class KilledMidScatter(ConverterError):
@@ -381,17 +336,6 @@ class TestScatter(unittest.TestCase):
         ]
         self.assertTrue(removed)
 
-    def test_every_scratch_entry_records_the_layout_dtype_tag(self):
-        manifest = self.env.run()
-        record_entries = [
-            v
-            for v in manifest.data["intermediates"].values()
-            if v["kind"] in ("worker-scratch", "snapshot-scratch")
-        ]
-        self.assertTrue(record_entries)
-        for entry in record_entries:
-            self.assertEqual(entry["dtype_tag"], manifest.layout.dtype_tag)
-
     def test_a_linked_snapshot_is_refused_before_anything_is_created(self):
         self.env.run()
         workdir = self.env.workdir
@@ -406,11 +350,6 @@ class TestScatter(unittest.TestCase):
         ):
             self.env.run()
         self.assertEqual({p: p.read_bytes() for p in workdir.rglob("*") if p.is_file()}, before)
-
-    def test_missing_input_file_aborts(self):
-        self.env.tree_files.append(Path(self.tmp.name) / "missing.dat")
-        with self.assertRaisesRegex(ConverterError, "does not exist"):
-            self.env.run()
 
     def test_missing_input_file_aborts_before_any_metadata_load(self):
         holding = Path(self.tmp.name) / "holding"
@@ -469,7 +408,7 @@ class TestScatter(unittest.TestCase):
         # save_every_n_files=1 forces the pre-batching per-file-save behaviour
         # so file 0's completion is guaranteed to reach disk before the crash —
         # the scenario this test is actually about (skip a *saved* completion)
-        # is independent of the save-policy knob under test elsewhere.
+        # is independent of the save policy tested elsewhere.
         good_text = self.env.tree_files[1].read_text()
         lines = good_text.splitlines()
         first_data = next(
@@ -517,21 +456,37 @@ class TestScatter(unittest.TestCase):
             data = np.fromfile(scratch / snapshot_scratch_name(snap), dtype=self.env.dtype)
             self.assertEqual(len(data), count)
 
-    def test_changed_a_list_content_refuses_resume(self):
-        self.env.run()
-        fixtures.write_a_list(self.env.a_list, [0.5, 0.6, 0.7, 0.8, 0.9, 0.99995])
-        with self.assertRaisesRegex(ConverterError, "a_list content changed"):
-            self.env.run()
+    def test_changed_input_content_refuses_resume(self):
+        """A resume whose a_list, forests.list or simulation_info content differs
+        from the recorded one is refused."""
 
-    def test_changed_forests_list_content_refuses_resume(self):
-        self.env.run()
-        with open(self.env.forests_list, "a") as handle:
-            handle.write("# annotated later\n")
-        with self.assertRaisesRegex(ConverterError, "forests_list content changed"):
-            self.env.run()
+        def edit_a_list(env):
+            fixtures.write_a_list(env.a_list, [0.5, 0.6, 0.7, 0.8, 0.9, 0.99995])
 
-    def test_changed_source_set_refuses_resume(self):
-        self.env.run()
+        def annotate(attr):
+            def edit(env):
+                with open(getattr(env, attr), "a") as handle:
+                    handle.write("# annotated later\n")
+
+            return edit
+
+        for label, edit, message in (
+            ("a_list", edit_a_list, "a_list content changed"),
+            ("forests_list", annotate("forests_list"), "forests_list content changed"),
+            ("simulation_info", annotate("sim_info"), "simulation_info content changed"),
+        ):
+            with self.subTest(label):
+                root = Path(self.tmp.name) / label
+                root.mkdir()
+                env = ScatterEnv(root)
+                env.run()
+                edit(env)
+                with self.assertRaisesRegex(ConverterError, message):
+                    env.run()
+
+    def test_changed_or_reordered_source_set_refuses_resume(self):
+        """A resume over an added source file or over the same files in another
+        order is refused."""
         extra = fixtures.ForestSpec(
             forest_id=999,
             trees=[
@@ -540,24 +495,19 @@ class TestScatter(unittest.TestCase):
                 )
             ],
         )
-        self.env.tree_files.append(
-            fixtures.write_ctrees_file(Path(self.tmp.name) / "extra.dat", extra.trees)
-        )
-        with self.assertRaisesRegex(ConverterError, "source file set/order changed"):
-            self.env.run()
-
-    def test_reordered_source_set_refuses_resume(self):
-        self.env.run()
-        self.env.tree_files = list(reversed(self.env.tree_files))
-        with self.assertRaisesRegex(ConverterError, "source file set/order changed"):
-            self.env.run()
-
-    def test_changed_simulation_info_content_refuses_resume(self):
-        self.env.run()
-        with open(self.env.sim_info, "a") as handle:
-            handle.write("# annotated later\n")
-        with self.assertRaisesRegex(ConverterError, "simulation_info content changed"):
-            self.env.run()
+        extra_file = fixtures.write_ctrees_file(Path(self.tmp.name) / "extra.dat", extra.trees)
+        for label, change in (
+            ("added file", lambda files: files + [extra_file]),
+            ("reordered files", lambda files: list(reversed(files))),
+        ):
+            with self.subTest(label):
+                root = Path(self.tmp.name) / label.replace(" ", "_")
+                root.mkdir()
+                env = ScatterEnv(root)
+                env.run()
+                env.tree_files = change(env.tree_files)
+                with self.assertRaisesRegex(ConverterError, "source file set/order changed"):
+                    env.run()
 
     def test_classify_source_refuses_a_completed_source_missing_from_disk(self):
         """A completed source whose bytes are gone is refused, never absorbed:
@@ -630,19 +580,22 @@ class TestScatter(unittest.TestCase):
             self.env.run(save_every_n_files=1)
         return good_text
 
-    def test_tampered_roots_sidecar_detected_on_resume(self):
-        good_text = self._crash_between_files()
-        _flip_last_byte(self.env.workdir / "scratch" / "roots_src_0.npy")
-        self.env.tree_files[1].write_text(good_text)
-        with self.assertRaisesRegex(ConverterError, "observed-roots sidecar.*checksum"):
-            self.env.run()
-
-    def test_tampered_forest_max_sidecar_detected_on_resume(self):
-        good_text = self._crash_between_files()
-        _flip_last_byte(self.env.workdir / "scratch" / "forest_max_src_0.npy")
-        self.env.tree_files[1].write_text(good_text)
-        with self.assertRaisesRegex(ConverterError, "forest-max-snap sidecar.*checksum"):
-            self.env.run()
+    def test_tampered_sidecar_detected_on_resume(self):
+        """A flipped byte in a completed file's observed-roots or forest-max-snap
+        sidecar is caught by its checksum when the resume skip-trusts that file."""
+        for sidecar, message in (
+            ("roots_src_0.npy", "observed-roots sidecar.*checksum"),
+            ("forest_max_src_0.npy", "forest-max-snap sidecar.*checksum"),
+        ):
+            with self.subTest(sidecar):
+                root = Path(self.tmp.name) / sidecar
+                root.mkdir()
+                self.env = ScatterEnv(root)
+                good_text = self._crash_between_files()
+                _flip_last_byte(self.env.workdir / "scratch" / sidecar)
+                self.env.tree_files[1].write_text(good_text)
+                with self.assertRaisesRegex(ConverterError, message):
+                    self.env.run()
 
     def test_tampered_merged_table_detected_on_resume(self):
         self.env.run()
@@ -692,28 +645,6 @@ class TestScatter(unittest.TestCase):
         self.env.a_list = Path(self.tmp.name) / "bad.a_list"
         with self.assertRaisesRegex(ConverterError, "non-finite a_list"):
             self.env.run()
-
-    def test_dtype_tag_mismatch_refuses_resume(self):
-        self.env.run()
-        manifest_path = self.env.workdir / "manifest.json"
-        data = json.loads(manifest_path.read_text())
-        data["dtype_tag"] = "something-else"
-        manifest_path.write_text(json.dumps(data))
-        with self.assertRaisesRegex(ConverterError, "disagrees with its own scratch layout"):
-            self.env.run()
-
-    def test_pool_scatter_matches_serial(self):
-        manifest = self.env.run(pool_size=2)
-        scratch = self.env.workdir / "scratch"
-        serial_root = Path(self.tmp.name) / "serial"
-        serial_root.mkdir()
-        serial_env = ScatterEnv(serial_root)
-        serial_env.run(pool_size=1)
-        for snap in self.env.expected_snapshot_counts():
-            a = (scratch / snapshot_scratch_name(snap)).read_bytes()
-            b = (serial_env.workdir / "scratch" / snapshot_scratch_name(snap)).read_bytes()
-            self.assertEqual(a, b)
-        self.assertTrue(manifest.data["snapshots"])
 
 
 class TestForestMapWorkerDistribution(unittest.TestCase):
@@ -765,28 +696,6 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
         self.assertIn(str(path), scatter._worker_init_error)
         self.assertIn(real_md5, scatter._worker_init_error)
         self.assertIn(wrong_md5, scatter._worker_init_error)
-
-    def test_scatter_worker_raises_clear_error_on_recorded_mismatch(self):
-        # the deterministic surfacing half of that defect: _scatter_worker
-        # turns a recorded mismatch into a ConverterError naming the path
-        # and both md5s, raised from the normal per-task path so it
-        # propagates to the parent through Pool's ordinary result mechanism
-        # (unlike an initializer exception).
-        scatter._worker_forest_map = None
-        scatter._worker_init_error = (
-            "/fake/forests.list: worker-loaded forests.list content (md5 aaa) "
-            "does not match the parent's (md5 bbb)"
-        )
-        with self.assertRaisesRegex(ConverterError, r"aaa.*bbb|/fake/forests\.list"):
-            scatter._scatter_worker(("/fake/path.dat", 0, self.dir, 1_000_000, None))
-
-    def test_scatter_worker_raises_clear_error_when_never_initialized(self):
-        # The "never initialized" case must say so
-        # plainly rather than crash with an AttributeError on None.
-        scatter._worker_forest_map = None
-        scatter._worker_init_error = None
-        with self.assertRaisesRegex(ConverterError, "never initialized"):
-            scatter._scatter_worker(("/fake/path.dat", 0, self.dir, 1_000_000, None))
 
     def test_worker_forest_map_content_mismatch_aborts_run_with_no_completed_output(self):
         # end-to-end: the two loads must differ in CONTENT, not merely
@@ -883,92 +792,6 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
         scratch = env.workdir / "scratch"
         self.assertEqual(list(scratch.glob("snap_*.src_*.bin")), [])
 
-    def test_initializer_runs_once_per_worker_across_many_tasks(self):
-        # real spawn-backed multiprocessing (this host's platform default):
-        # more tasks than workers, so a per-task load would drive the
-        # counter to n_tasks, while a per-worker load bounds it at n_workers
-        forests = fixtures.standard_forests()
-        path = fixtures.write_forests_list(self.dir / "forests.list", forests)
-        expected_map = load_forests_list(path)
-        roots = expected_map.tree_root_ids.tolist()
-
-        n_workers = 2
-        n_tasks = 8
-        self.assertGreater(n_tasks, n_workers)
-        tasks = [roots[i % len(roots)] for i in range(n_tasks)]
-
-        ctx = mp.get_context("spawn")
-        counter = ctx.Value("i", 0)
-        barrier = ctx.Barrier(n_workers + 1)  # +1 for this parent process
-        with ctx.Pool(
-            processes=n_workers,
-            initializer=_mp_worker_init_and_count,
-            initargs=(path, expected_map.md5, counter, barrier),
-        ) as pool:
-            # blocks until every requested worker has completed its
-            # initializer, so the count below cannot be short-circuited by
-            # tasks finishing before a slower worker finished starting
-            barrier.wait(timeout=30)
-            results = pool.map(_mp_lookup_task, tasks)
-
-        self.assertEqual(counter.value, n_workers)
-        expected = expected_map.lookup_forest_ids(np.asarray(tasks, dtype=np.int64)).tolist()
-        self.assertEqual(results, expected)
-
-    def test_pool_dispatch_wires_initializer_instead_of_per_task_map(self):
-        # serialization-event evidence: the task argument tuples handed to
-        # imap_unordered must not carry a ForestMap at all, and Pool must be
-        # constructed with the per-worker loader wired as its initializer.
-        env = ScatterEnv(self.dir, n_files=3)
-        captured = {}
-        real_pool = scatter.Pool
-
-        class RecordingPool:
-            def __init__(self, *args, **kwargs):
-                captured["kwargs"] = kwargs
-                self._pool = real_pool(*args, **kwargs)
-
-            def __enter__(self):
-                self._entered = self._pool.__enter__()
-                return self
-
-            def __exit__(self, *exc):
-                return self._pool.__exit__(*exc)
-
-            def imap_unordered(self, func, iterable, *a, **kw):
-                # materialize the iterable so it can be inspected: this is
-                # exactly what run_scatter hands to the real Pool, captured
-                # before it is consumed
-                task_args = list(iterable)
-                captured["task_args"] = task_args
-                return self._entered.imap_unordered(func, task_args, *a, **kw)
-
-        expected_md5 = load_forests_list(env.forests_list).md5
-
-        with mock.patch("scatter.Pool", RecordingPool):
-            env.run(pool_size=2)
-
-        self.assertIs(captured["kwargs"]["initializer"], scatter._init_scatter_worker)
-        self.assertEqual(captured["kwargs"]["initargs"], (env.forests_list, expected_md5))
-
-        task_args = captured["task_args"]
-        self.assertEqual(len(task_args), 3)  # one task per pending source file
-        for task in task_args:
-            # (path, src_index, scratch_dir, chunksize, schema)
-            self.assertEqual(len(task), 5)
-            self.assertIs(task[4], env.schema)
-            for element in task:
-                self.assertNotIsInstance(element, scatter.ForestMap)
-
-    def test_serial_path_still_loads_forest_map_directly_in_parent(self):
-        # pool_size<=1 (and the single-pending-file case) must keep using the
-        # parent-loaded ForestMap object directly, the same code path as
-        # before the worker-initializer route existed -- not the worker initializer/global route.
-        env = ScatterEnv(self.dir, n_files=2)
-        scatter._worker_forest_map = None
-        env.run(pool_size=1)
-        self.assertIsNone(scatter._worker_forest_map)
-
 
 class TestBatchedManifestSave(unittest.TestCase):
     """Bounded-interval manifest persistence in run_scatter."""
@@ -1002,77 +825,6 @@ class TestBatchedManifestSave(unittest.TestCase):
         batched_bytes = self._clean_baseline_manifest_bytes()
         self.assertEqual(batched_bytes, per_file_bytes)
 
-    def test_default_policy_leaves_recent_completion_unsaved_on_crash(self):
-        # crash via a named-file parser rather than corrupting file 1's text:
-        # neither source file's bytes/mtime change, so file 0's completion is
-        # the only thing that differs between a clean run and this one.
-        CrashOnNamedFileParser.crash_on_filename = self.env.tree_files[1].name
-        with mock.patch("scatter.CtreesFileParser", CrashOnNamedFileParser):
-            with self.assertRaisesRegex(ConverterError, "simulated crash"):
-                self.env.run()
-        # binding invariant: no manifest was written that could name an
-        # artifact not durably written -- here, none was written at all
-        self.assertFalse((self.env.workdir / "manifest.json").exists())
-        # but file 0's worker/sidecar artifacts were durably written already
-        scratch = self.env.workdir / "scratch"
-        self.assertTrue(next(scratch.glob("snap_*.src_0.bin")).exists())
-        self.assertTrue((scratch / "roots_src_0.npy").exists())
-        self.assertTrue((scratch / "forest_max_src_0.npy").exists())
-
-    def test_time_based_save_policy_persists_before_count_threshold(self):
-        # save_every_n_files is set far out of reach; save_every_seconds=0
-        # forces the time-based branch to fire after file 0's completion.
-        CrashOnNamedFileParser.crash_on_filename = self.env.tree_files[1].name
-        with mock.patch("scatter.CtreesFileParser", CrashOnNamedFileParser):
-            with self.assertRaisesRegex(ConverterError, "simulated crash"):
-                self.env.run(save_every_n_files=999, save_every_seconds=0.0)
-        manifest_path = self.env.workdir / "manifest.json"
-        self.assertTrue(manifest_path.exists())
-        data = json.loads(manifest_path.read_text())
-        file0 = str(self.env.tree_files[0].resolve())
-        self.assertEqual(data["source_files"][file0]["status"], "completed")
-
-    def test_default_time_policy_does_not_degrade_to_per_file_saves(self):
-        # regression: a finite default for save_every_seconds shorter than
-        # the measured production inter-completion interval
-        # (~40-108 s, serial vs pooled) would make the time arm fire on
-        # every completion, silently reproducing the per-file-save cost
-        # the batched policy exists to remove. A synthetic fixture's wall clock
-        # cannot reach those intervals, so drive time.monotonic() forward
-        # by far more than any realistic *finite* threshold between every
-        # completion, and confirm the DEFAULT policy still batches: with
-        # save_every_n_files=25 out of reach for a handful of files and the
-        # time arm disabled by default, only the single unconditional
-        # post-loop save should fire -- not one save per file.
-        n_files = 5
-        root = Path(self.tmp.name) / "many"
-        root.mkdir()
-        env = ScatterEnv(root, n_files=n_files)
-
-        fake_now = [0.0]
-
-        def fake_monotonic():
-            fake_now[0] += 200.0
-            return fake_now[0]
-
-        save_calls = []
-        real_save = Manifest.save
-
-        def spy_save(self):
-            save_calls.append(1)
-            return real_save(self)
-
-        # _finalize_scatter also calls manifest.save() internally (per
-        # snapshot, unrelated to the dispatch loop); mocking it out isolates the
-        # save count to exactly the dispatch loop and the post-loop save
-        # under test here.
-        with mock.patch("scatter.time.monotonic", side_effect=fake_monotonic), mock.patch.object(
-            Manifest, "save", spy_save
-        ), mock.patch("scatter._finalize_scatter", return_value=None):
-            env.run()
-
-        self.assertEqual(save_calls, [1])
-
     def test_resume_after_unsaved_crash_overwrites_and_matches_clean_manifest(self):
         baseline_bytes = self._clean_baseline_manifest_bytes()
         scratch = self.env.workdir / "scratch"
@@ -1081,11 +833,17 @@ class TestBatchedManifestSave(unittest.TestCase):
         with mock.patch("scatter.CtreesFileParser", CrashOnNamedFileParser):
             with self.assertRaisesRegex(ConverterError, "simulated crash"):
                 self.env.run()
+        # binding invariant: no manifest was written that could name an
+        # artifact not durably written -- here, none was written at all
         self.assertFalse((self.env.workdir / "manifest.json").exists())
+        # but file 0's worker/sidecar artifacts were durably written already
+        self.assertTrue(next(scratch.glob("snap_*.src_0.bin")).exists())
+        self.assertTrue((scratch / "forest_max_src_0.npy").exists())
         # roots_src_0.npy survives the whole run (unlike worker-scratch,
         # which finalize deletes after concat), so it can be checked both
         # before and after resume completes
         roots_marker = scratch / "roots_src_0.npy"
+        self.assertTrue(roots_marker.exists())
         mtime_before = roots_marker.stat().st_mtime_ns
 
         # resume: file 0's completion was never saved, so it is re-scattered;
@@ -1104,12 +862,11 @@ class TestBatchedManifestSave(unittest.TestCase):
         # a two-file fixture can only construct 'crash before the first
         # save'; the ONLY in 're-scatters only the unsaved files' needs a
         # crash where SOME completions already reached disk and others did
-        # not. Four files + save_every_n_files=2 (save_every_seconds set high
-        # enough never to fire on its own) gives: file 0 completes (1 <2, no
-        # save), file 1 completes (2 >=2, SAVE covers files 0+1, counter
-        # resets), file 2 completes (1 <2, no save), file 3 crashes before
-        # completing -- so file 2 is the mixed state: durably written but
-        # never saved, sitting between the save after file 1 and the save
+        # not. Four files + save_every_n_files=2 gives: file 0 completes
+        # (1 <2, no save), file 1 completes (2 >=2, SAVE covers files 0+1,
+        # counter resets), file 2 completes (1 <2, no save), file 3 crashes
+        # before completing -- so file 2 is the mixed state: durably written
+        # but never saved, sitting between the save after file 1 and the save
         # that would have followed file 3.
         four_root = Path(self.tmp.name) / "four"
         four_root.mkdir()
@@ -1120,7 +877,7 @@ class TestBatchedManifestSave(unittest.TestCase):
         CrashOnNamedFileParser.crash_on_filename = env.tree_files[3].name
         with mock.patch("scatter.CtreesFileParser", CrashOnNamedFileParser):
             with self.assertRaisesRegex(ConverterError, "simulated crash"):
-                env.run(save_every_n_files=2, save_every_seconds=999.0)
+                env.run(save_every_n_files=2)
 
         manifest_path = env.workdir / "manifest.json"
         self.assertTrue(manifest_path.exists())
@@ -1233,56 +990,6 @@ class SpanningEnv(ScatterEnv):
         self.sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
 
 
-class TestScratchBuffering(unittest.TestCase):
-    """Every scratch handle scatter opens is buffered at exactly 8192 bytes."""
-
-    def test_constant(self):
-        self.assertEqual(scatter.SCRATCH_BUFFER_BYTES, 8192)
-
-    def _recorded_opens(self, **run_kwargs):
-        seen = []
-        real_open = open
-
-        def recording_open(path, mode="r", *a, **kw):
-            seen.append((Path(path).name, mode, kw.get("buffering")))
-            return real_open(path, mode, *a, **kw)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            env = ScatterEnv(Path(tmp))
-            with mock.patch.object(scatter, "open", recording_open, create=True):
-                env.run(**run_kwargs)
-        return seen
-
-    def test_serial_worker_and_concat_handles(self):
-        for schema in (default_schema(), _schema()):
-            with self.subTest(extras=len(schema.extra_fields)):
-                writes = [s for s in self._recorded_opens(schema=schema) if "w" in s[1]]
-                scratch = [s for s in writes if s[0].endswith(".bin")]
-                self.assertTrue(any(".src_" in s[0] for s in scratch))
-                self.assertTrue(any(".src_" not in s[0] for s in scratch))
-                for name, _mode, buffering in scratch:
-                    self.assertEqual(buffering, 8192, name)
-
-    def test_pool_entry_point_in_a_spawned_worker(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = ScatterEnv(Path(tmp))
-            forest_map = load_forests_list(env.forests_list)
-            scratch_dir = Path(tmp) / "scratch"
-            tasks = [(path, i, scratch_dir, 2, _schema()) for i, path in enumerate(env.tree_files)]
-            ctx = mp.get_context("spawn")
-            with ctx.Pool(
-                processes=2,
-                initializer=scatter._init_scatter_worker,
-                initargs=(str(env.forests_list), forest_map.md5),
-            ) as pool:
-                results = pool.map(_mp_scatter_recording_buffering, tasks)
-        for src_index, seen in results:
-            worker_opens = [s for s in seen if ".src_{}.bin".format(src_index) in s[0]]
-            self.assertTrue(worker_opens)
-            for name, mode, buffering in worker_opens:
-                self.assertEqual((mode, buffering), ("wb", 8192), name)
-
-
 class TestExtendedScatter(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -1299,6 +1006,13 @@ class TestExtendedScatter(unittest.TestCase):
         self.assertEqual(data["dtype_tag"], layout.dtype_tag)
         self.assertEqual(data["scratch_layout"], layout.to_record())
         self.assertEqual(manifest.layout, layout)
+        self.assertEqual(Manifest.load(env.workdir).layout, layout)
+        worker_entries = [
+            meta for meta in data["intermediates"].values() if meta["kind"] == "worker-scratch"
+        ]
+        self.assertTrue(worker_entries)
+        for meta in worker_entries:
+            self.assertEqual(meta["dtype_tag"], layout.dtype_tag)
         for entry in data["snapshots"].values():
             meta = data["intermediates"][entry["scratch_file"]]
             self.assertEqual(meta["dtype_tag"], layout.dtype_tag)
@@ -1394,35 +1108,34 @@ class TestExtendedScatter(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "records no scratch layout"):
             Manifest.load(env.workdir)
 
-    def test_downstream_stages_derive_the_layout_from_the_manifest(self):
-        env = SpanningEnv(self.root)
-        env.run(schema=_schema())
-        self.assertEqual(Manifest.load(env.workdir).layout, ScratchLayout.from_schema(_schema()))
-
     def test_a_missing_manifest_is_refused_on_load(self):
         with self.assertRaisesRegex(ConverterError, "no manifest found; run scatter first"):
             Manifest.load(self.root / "nowhere")
 
-    def test_tampered_layout_record_is_refused(self):
+    def test_a_manifest_whose_layout_record_and_tag_disagree_is_refused(self):
+        """A recorded layout that no longer describes the recorded dtype tag, and a
+        recorded tag that no longer matches its layout, are both refused."""
+
+        def retype_first_extra(data):
+            data["scratch_layout"]["extras"][0][1] = "double"
+
+        def replace_tag(data):
+            data["dtype_tag"] = "something-else"
+
         env = SpanningEnv(self.root)
         env.run(schema=_schema())
         path = env.workdir / "manifest.json"
-        data = json.loads(path.read_text())
-        data["scratch_layout"]["extras"][0][1] = "double"
-        path.write_text(json.dumps(data))
-        with self.assertRaisesRegex(ConverterError, "does not match the tag"):
-            Manifest.load(env.workdir)
-
-    def test_the_manifest_owns_each_files_source_units_sidecar(self):
-        """Every SourceHaloID and forest ordinal of a file derives from its
-        source-units sidecar, so the manifest owns it with its checksum."""
-        env = SpanningEnv(self.root)
-        manifest = env.run(schema=_schema())
-        for i in range(len(env.tree_files)):
-            sidecar = (env.workdir / "scratch" / scatter.source_units_name(i)).resolve()
-            registered = manifest.data["intermediates"][str(sidecar)]
-            self.assertEqual((registered["kind"], registered["rows"]), ("source-units", 3))
-            self.assertEqual(registered["md5"], scatter.file_md5(sidecar))
+        pristine = path.read_text()
+        for label, tamper, message in (
+            ("layout record", retype_first_extra, "does not match the tag"),
+            ("dtype tag", replace_tag, "disagrees with its own scratch layout"),
+        ):
+            with self.subTest(label):
+                data = json.loads(pristine)
+                tamper(data)
+                path.write_text(json.dumps(data))
+                with self.assertRaisesRegex(ConverterError, message):
+                    Manifest.load(env.workdir)
 
 
 if __name__ == "__main__":

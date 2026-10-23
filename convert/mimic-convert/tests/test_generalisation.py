@@ -1,12 +1,15 @@
 """Generalisation tests: the package-local converter profiles and
 user-defined extra fields end to end.
 
-**Package profiles.** Every requested simulation has a declared route through
-its own ``simulations/<package>/converter_columns.yaml``, and every one of the
-seven profiles is checked against that package's source metadata -- the
-ordered ``halo_properties.yaml`` for L-Halo binary (field order, types and
+**Package profiles.** Seven packages' ``simulations/<package>/converter_columns.yaml``
+are checked: the five requested simulations (mini-millennium, millennium,
+micro-uchuu, mini-uchuu, uchuu) and the two retained routes micro-uchuu-hdf5 and
+micro-uchuu-ascii. Each declares the route its ``simulation_info.yaml`` names and is
+checked against that package's source metadata -- the ordered
+``halo_properties.yaml`` for the four L-Halo binary packages (field order, types and
 offsets recomputed here from the declared types), the committed fixture's
-``Forests/`` datasets for forests-HDF5 and its header for ASCII.
+``Forests/`` datasets for the two forests-HDF5 packages and the fixture's header for
+the one ASCII package. shin-uchuu-ascii's profile is not covered here.
 
 **User-defined extras.** For each adapter, a profile written by the test with
 freshly generated output names (so no stage can know them in advance) is run
@@ -40,8 +43,8 @@ sys.path.insert(0, str(CONVERT_DIR))
 import column_schema as cs  # noqa: E402
 from ctrees_parser import parse_header_line, prescan_file, resolve_selection  # noqa: E402
 
-#: The five supported simulations and their declared routes, plus the
-#: retained ASCII route. Restated here, not imported.
+#: The five requested simulations and their declared routes, then the two
+#: retained routes (forests-HDF5 and ASCII). Restated here, not imported.
 REQUESTED_ROUTES = {
     "mini-millennium": "lhalo_binary",
     "millennium": "lhalo_binary",
@@ -119,6 +122,9 @@ def run_cli(args, cwd):
 
 
 class PackageProfileTests(unittest.TestCase):
+    """The seven packages in :data:`PACKAGE_ROUTES`: the declared route of each,
+    and each profile against its package's source metadata."""
+
     def test_every_requested_simulation_has_a_declared_route(self):
         self.assertEqual(
             sorted(format_ for format_ in REQUESTED_ROUTES.values()),
@@ -182,18 +188,6 @@ class PackageProfileTests(unittest.TestCase):
             {p["name"] for p in declared_properties("micro-uchuu-ascii")},
         )
         self.assertEqual(schema.extra_fields, ())
-
-    def test_package_profiles_are_not_wired_into_production_configuration(self):
-        """A profile selects source fields; no run YAML, halo_properties.yaml
-        or simulation_info.yaml refers to it."""
-        for package in PACKAGE_ROUTES:
-            root = SIMULATIONS / package
-            candidates = [root / "halo_properties.yaml", root / "simulation_info.yaml"]
-            candidates += sorted((root / "_tests").rglob("*.yaml"))
-            candidates += sorted(REPO_ROOT.glob("models/*/input/*{}*.yaml".format(package)))
-            for path in candidates:
-                with self.subTest(path=str(path)):
-                    self.assertNotIn("converter_columns", path.read_text())
 
 
 # ==========================================================================

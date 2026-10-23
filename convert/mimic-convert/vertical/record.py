@@ -23,7 +23,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Sequence, Union
+from typing import Dict, List, Union
 
 import numpy as np
 import yaml
@@ -43,28 +43,24 @@ RECORD_TYPES = {
 }
 
 
-def _halo_properties(source: Union[str, Path, Sequence[dict]]) -> List[dict]:
-    """The ``halo_properties`` list of a YAML path, or the list itself."""
-    if isinstance(source, (str, Path)):
-        path = Path(source)
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                data = yaml.safe_load(handle)
-        except (OSError, yaml.YAMLError) as error:
-            raise ConverterError(
-                "{}: cannot read halo properties: {}".format(path, error)
-            ) from error
-        if not isinstance(data, dict) or not isinstance(data.get("halo_properties"), list):
-            raise ConverterError("{}: no halo_properties list".format(path))
-        return data["halo_properties"]
-    return list(source)
+def _halo_properties(source: Union[str, Path]) -> List[dict]:
+    """The ``halo_properties`` list of a ``halo_properties.yaml`` path."""
+    path = Path(source)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError) as error:
+        raise ConverterError("{}: cannot read halo properties: {}".format(path, error)) from error
+    if not isinstance(data, dict) or not isinstance(data.get("halo_properties"), list):
+        raise ConverterError("{}: no halo_properties list".format(path))
+    return data["halo_properties"]
 
 
-def record_dtype(source: Union[str, Path, Sequence[dict]]) -> np.dtype:
+def record_dtype(source: Union[str, Path]) -> np.dtype:
     """The package's L-Halo record as a C-aligned numpy structured dtype.
 
     Args:
-        source: a ``halo_properties.yaml`` path, or its parsed ``halo_properties`` list.
+        source: a ``halo_properties.yaml`` path.
 
     Returns:
         One field per entry, named by its ``name``, in declaration order; ``itemsize`` includes

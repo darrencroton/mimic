@@ -1,21 +1,80 @@
-"""Synthetic ctrees ASCII fixture generator for converter tests.
+"""Shared fixtures for the converter tests.
 
-Hand-specified tiny forests with known topology: multi-tree
-forests, multi-progenitor halos, mass ties, multiple independent FoF groups at
-a forest's maximum snapshot, unresolvable-satellite forests, early-dying
-forests, zero-mass halos, and sub-subhalos whose pid differs from their
-ultimate host. The fix-up and link tests reuse these topologies.
+The one module every test module imports its builders from; no test module
+imports another. It holds, in order:
+
+* the shipped-profile and repository paths;
+* the synthetic Consistent-Trees ASCII catalogue builders: hand-specified tiny
+  forests with known topology (multi-tree forests, multi-progenitor halos,
+  mass ties, multiple independent FoF groups at a forest's maximum snapshot,
+  unresolvable-satellite forests, early-dying forests, zero-mass halos,
+  sub-subhalos whose pid differs from their ultimate host, and the adversarial
+  cut fixtures with their decided tables), which the fix-up, link and rewriter
+  tests reuse;
+* the L-Halo binary builders (the hand-packed oracle layout and file writer);
+* the forests-HDF5 builders (hand-laid forests and the source writer);
+* the hand-specified literal gapped graph (three trees, its expected
+  per-snapshot columns, and its L-Halo schema loader);
+* the workdir and conversion builders that run a fixture through the pipeline
+  stages (scatter, fix-ups, ingest, transpose, write, rewrite) and the
+  vertical-assembly oracle forests;
+* small assertion and capture helpers.
 
 Snapshot numbering follows the a_list convention: SnapNum indexes A_LIST.
 """
 
+import contextlib
+import functools
+import hashlib
+import io
 import os
+import struct
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable, List, Optional, Sequence, Tuple
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import h5py
+import numpy as np
+
+CONVERT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(CONVERT_DIR))
+
+import column_schema as cs  # noqa: E402
+import pipeline  # noqa: E402
+import scatter  # noqa: E402
+from adapters.ctrees_ascii import prepare_workdir  # noqa: E402
+from column_schema import build_schema, load_column_map  # noqa: E402
+from ctrees_parser import (  # noqa: E402
+    DEFAULT_CHUNKSIZE,
+    CtreesFileParser,
+    ParseResult,
+    PreScan,
+    ScratchLayout,
+)
+from fixups import fixed_layout  # noqa: E402
+from hdf5_writer_v3 import V3_SIDECAR_DATASETS, HorizontalV3Writer  # noqa: E402
+from rewriter.inputs import RewriteRequest  # noqa: E402
+from rewriter.run import run_rewrite  # noqa: E402
+from sort_index import run_sort  # noqa: E402
+from vertical.assemble import LINK_FIELDS, AssembledForest  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Paths and shipped profiles
+# ---------------------------------------------------------------------------
+
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[2]
+PROFILE_DIR = CONVERT_DIR / "profiles"
+#: the shipped Consistent-Trees ASCII profile every ASCII-route test parses under
+DEFAULT_PROFILE = PROFILE_DIR / "consistent_trees_ascii.yaml"
+ALL_TYPES_PROFILE = HERE / "data" / "column_maps" / "ascii_all_extra_types.yaml"
+MINI_MILLENNIUM_PROPERTIES = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
+
+# ---------------------------------------------------------------------------
+# Synthetic Consistent-Trees ASCII catalogue builders
+# ---------------------------------------------------------------------------
 
 #: canonical fixture a_list: scale factor per snapshot number
 A_LIST = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
@@ -221,13 +280,13 @@ def write_a_list(path, a_list: Sequence[float] = A_LIST) -> Path:
     return path
 
 
-def write_simulation_info(path) -> Path:
+def write_simulation_info(path, particle_mass: float = 0.0325, box: float = 100.0) -> Path:
     path = Path(path)
     path.write_text(
         "simulation:\n"
         "  cosmology: {omega_matter: 0.3089, omega_lambda: 0.6911, hubble_h: 0.6774}\n"
-        "  box_size: {value: 100.0, units: Mpc/h}\n"
-        "  particle_mass: {value: 0.0325, units: 1e10 Msun/h}\n"
+        "  box_size: {value: %r, units: Mpc/h}\n"
+        "  particle_mass: {value: %r, units: 1e10 Msun/h}\n" % (box, particle_mass)
     )
     return path
 
@@ -833,3 +892,928 @@ def small_forests(count: int, first_id: int = 100000) -> List[ForestSpec]:
             halos.append(HaloSpec(halo_id=root + 1, snap=4, mvir=9.0e11, desc_id=root))
         forests.append(ForestSpec(forest_id=root, trees=[TreeSpec(root_id=root, halos=halos)]))
     return forests
+
+
+# ---------------------------------------------------------------------------
+# L-Halo binary builders (hand-packed from struct RawHalo)
+# ---------------------------------------------------------------------------
+
+
+#: (name, struct code, component count, hand-declared byte offset). Written
+#: out by hand from struct RawHalo (src/include/generated/raw_halo_defs.h),
+#: not derived from the profile this adapter loads.
+LHALO_ORACLE_LAYOUT = (
+    ("Descendant", "i", 1, 0),
+    ("FirstProgenitor", "i", 1, 4),
+    ("NextProgenitor", "i", 1, 8),
+    ("FirstHaloInFOFgroup", "i", 1, 12),
+    ("NextHaloInFOFgroup", "i", 1, 16),
+    ("Len", "i", 1, 20),
+    ("M_Mean200", "f", 1, 24),
+    ("M_Crit200", "f", 1, 28),
+    ("M_TopHat", "f", 1, 32),
+    ("Pos", "f", 3, 36),
+    ("Vel", "f", 3, 48),
+    ("VelDisp", "f", 1, 60),
+    ("Vmax", "f", 1, 64),
+    ("Spin", "f", 3, 68),
+    ("MostBoundID", "q", 1, 80),
+    ("SnapNum", "i", 1, 88),
+    ("FileNr", "i", 1, 92),
+    ("SubhaloIndex", "i", 1, 96),
+    ("SubHalfMass", "f", 1, 100),
+)
+
+
+LHALO_ORACLE_RECORD_BYTES = 104
+
+
+_LHALO_ORACLE_FORMAT = "".join(code * n for _name, code, n, _offset in LHALO_ORACLE_LAYOUT)
+
+
+#: Every field's default, so a fixture row declares only what it means to say.
+#: A lone halo that is its own FoF central with no links is the simplest
+#: structurally valid row.
+_LHALO_DEFAULTS = {
+    "Descendant": -1,
+    "FirstProgenitor": -1,
+    "NextProgenitor": -1,
+    "FirstHaloInFOFgroup": 0,
+    "NextHaloInFOFgroup": -1,
+    "Len": 1,
+    "M_Mean200": 0.0,
+    "M_Crit200": 0.0,
+    "M_TopHat": 0.0,
+    "Pos": (0.0, 0.0, 0.0),
+    "Vel": (0.0, 0.0, 0.0),
+    "VelDisp": 0.0,
+    "Vmax": 0.0,
+    "Spin": (0.0, 0.0, 0.0),
+    "MostBoundID": 0,
+    "SnapNum": 0,
+    "FileNr": 0,
+    "SubhaloIndex": 0,
+    "SubHalfMass": 0.0,
+}
+
+
+def pack_lhalo_record(row, byte_order="<"):
+    """Pack one halo by hand, in the oracle's own declared field order."""
+    values = dict(_LHALO_DEFAULTS)
+    values.update(row)
+    flat = []
+    for name, _code, n_components, _offset in LHALO_ORACLE_LAYOUT:
+        value = values[name]
+        if n_components == 1:
+            flat.append(value)
+        else:
+            flat.extend(value)
+    packed = struct.pack(byte_order + _LHALO_ORACLE_FORMAT, *flat)
+    assert len(packed) == LHALO_ORACLE_RECORD_BYTES, len(packed)
+    return packed
+
+
+def write_lhalo_file(path, trees, byte_order="<", trailing=b"", drop_records=0):
+    """Write one L-Halo file: Ntrees, totNHalos, per-tree counts, records.
+
+    ``trailing`` and ``drop_records`` exist so a test can produce a file whose
+    payload disagrees with its own header in either direction.
+    """
+    counts = [len(tree) for tree in trees]
+    records = [pack_lhalo_record(row, byte_order) for tree in trees for row in tree]
+    if drop_records:
+        records = records[:-drop_records]
+    with open(path, "wb") as handle:
+        handle.write(struct.pack(byte_order + "i", len(trees)))
+        handle.write(struct.pack(byte_order + "i", sum(counts)))
+        for count in counts:
+            handle.write(struct.pack(byte_order + "i", count))
+        for record in records:
+            handle.write(record)
+        handle.write(trailing)
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Forests-HDF5 builders (hand-laid forests and the source writer)
+# ---------------------------------------------------------------------------
+
+
+#: The package value (simulations/*uchuu*/simulation_info.yaml), 1e10 Msun/h.
+UCHUU_PARTICLE_MASS = 0.0327
+
+
+HDF5_LINKS = (
+    "Descendant",
+    "FirstProgenitor",
+    "NextProgenitor",
+    "FirstHaloInFOFgroup",
+    "NextHaloInFOFgroup",
+)
+
+
+HDF5_FLOATS = ("Mvir", "x", "y", "z", "vx", "vy", "vz", "Jx", "Jy", "Jz", "vrms", "vmax")
+
+
+_HDF5_ROW_DEFAULTS = {
+    "Descendant": -1,
+    "FirstProgenitor": -1,
+    "NextProgenitor": -1,
+    "NextHaloInFOFgroup": -1,
+    "Mvir": 3.27e10,
+    "x": 1.5,
+    "y": 2.5,
+    "z": 3.5,
+    "vx": 10.0,
+    "vy": 20.0,
+    "vz": 30.0,
+    "Jx": 0.0,
+    "Jy": 0.0,
+    "Jz": 0.0,
+    "vrms": 50.0,
+    "vmax": 100.0,
+    "snap": 0,
+}
+
+
+def hdf5_halo(**values):
+    """One forest-local row; FirstHaloInFOFgroup defaults to the row itself."""
+    return values
+
+
+def hdf5_forest(forest_id, *rows):
+    return {"id": forest_id, "rows": list(rows)}
+
+
+def hdf5_lone_forest(forest_id, **values):
+    """A one-halo forest: its own FoF central with no links."""
+    return hdf5_forest(forest_id, hdf5_halo(**values))
+
+
+def pack_hdf5_file(forests, order=None, first_id=1):
+    """Lay out one file's forests contiguously in ``order`` (storage order).
+
+    Returns the per-halo columns and the ForestInfo rows in *ForestInfo row
+    order* (the order of ``forests``), with each forest's offset wherever
+    ``order`` put it. Written by hand from the format description, not from
+    the adapter.
+    """
+    order = list(range(len(forests))) if order is None else list(order)
+    assert sorted(order) == list(range(len(forests)))
+    columns = {name: [] for name in HDF5_LINKS + HDF5_FLOATS + ("id", "snap")}
+    offsets = [0] * len(forests)
+    cursor = 0
+    next_id = first_id
+    for index in order:
+        offsets[index] = cursor
+        for local, row in enumerate(forests[index]["rows"]):
+            values = dict(_HDF5_ROW_DEFAULTS)
+            values["FirstHaloInFOFgroup"] = local
+            values["id"] = next_id
+            next_id += 1
+            values.update(row)
+            for name in columns:
+                columns[name].append(values[name])
+        cursor += len(forests[index]["rows"])
+    info = [
+        (entry["id"], offsets[index], len(entry["rows"]), 1) for index, entry in enumerate(forests)
+    ]
+    return columns, info
+
+
+FOREST_INFO_DTYPE = np.dtype(
+    [
+        ("ForestID", "<i8"),
+        ("ForestHalosOffset", "<i8"),
+        ("ForestNhalos", "<i8"),
+        ("ForestNtrees", "<i8"),
+    ]
+)
+
+
+def _write_file_group(group, forests, order, snap_name, snap_float, first_id, extra_columns):
+    columns, info = pack_hdf5_file(forests, order, first_id)
+    group.attrs["Nforests"] = np.int64(len(forests))
+    group.attrs["Nhalos"] = np.int64(len(columns["id"]))
+    group.attrs["contiguous-halo-props"] = np.int8(1)
+    group.create_dataset("ForestInfo", data=np.array(info, dtype=FOREST_INFO_DTYPE))
+    params = group.create_group("simulation_params")
+    params.attrs["Boxsize"] = 100.0
+    data = group.create_group("Forests")
+    for name in HDF5_LINKS + ("id",):
+        data.create_dataset(name, data=np.array(columns[name], dtype="<i8"))
+    for name in HDF5_FLOATS:
+        data.create_dataset(name, data=np.array(columns[name], dtype="<f8"))
+    snap_dtype = "<f8" if snap_float else "<i8"
+    data.create_dataset(snap_name, data=np.array(columns["snap"], dtype=snap_dtype))
+    for name, values in (extra_columns or {}).items():
+        data.create_dataset(name, data=np.asarray(values))
+    return len(columns["id"])
+
+
+def write_hdf5_source(
+    directory,
+    files,
+    layout="external",
+    snap_name="Snap_num",
+    snap_float=False,
+    extra_columns=None,
+    root_totals=True,
+):
+    """Write a forests-HDF5 source by hand. ``files`` is a list of dicts with
+    ``forests`` and optional ``order``/``extra_columns``.
+
+    ``layout="external"`` is the full-Uchuu organisation (``info.h5`` with one
+    ``ExternalLink`` per ``File<N>`` to ``forests_<N>.h5``); ``"internal"`` is
+    the micro-Uchuu fixture's (``File<N>`` groups inside ``info.h5``).
+    """
+    info_path = os.path.join(directory, "info.h5")
+    total_forests = 0
+    total_halos = 0
+    next_id = 1
+    with h5py.File(info_path, "w") as info:
+        info.attrs["Nfiles"] = np.int64(len(files))
+        for ordinal, spec in enumerate(files):
+            extras = spec.get("extra_columns", extra_columns)
+            if layout == "external":
+                name = "forests_{}.h5".format(ordinal)
+                with h5py.File(os.path.join(directory, name), "w") as data:
+                    n = _write_file_group(
+                        data,
+                        spec["forests"],
+                        spec.get("order"),
+                        snap_name,
+                        snap_float,
+                        next_id,
+                        extras,
+                    )
+                info["File{}".format(ordinal)] = h5py.ExternalLink(name, "/")
+            else:
+                group = info.create_group("File{}".format(ordinal))
+                n = _write_file_group(
+                    group,
+                    spec["forests"],
+                    spec.get("order"),
+                    snap_name,
+                    snap_float,
+                    next_id,
+                    extras,
+                )
+            next_id += n
+            total_halos += n
+            total_forests += len(spec["forests"])
+        if root_totals:
+            info.attrs["TotNforests"] = np.int64(total_forests)
+            info.attrs["TotNhalos"] = np.int64(total_halos)
+    return info_path
+
+
+def load_hdf5_schema(name="consistent_trees_hdf5.yaml"):
+    return cs.build_schema(cs.load_column_map(os.path.join(PROFILE_DIR, name)))
+
+
+#: A four-halo forest with a real merger: two z=0 halos (rows 0, 1) in one
+#: FoF group, each with one progenitor at the previous snapshot (rows 2, 3).
+HDF5_MERGER_FOREST = hdf5_forest(
+    7,
+    hdf5_halo(snap=5, FirstProgenitor=2, NextHaloInFOFgroup=1),
+    hdf5_halo(snap=5, FirstProgenitor=3, FirstHaloInFOFgroup=0),
+    hdf5_halo(snap=4, Descendant=0),
+    hdf5_halo(snap=4, Descendant=1),
+)
+
+
+# ---------------------------------------------------------------------------
+# The hand-specified literal gapped graph (three trees, eight halos)
+# ---------------------------------------------------------------------------
+
+
+LITERAL_BUDGET = 4 << 20
+
+
+#: Tree A (file 0, tree 0): r0 at snap 3 has progenitors r1 (snap 2) and r2
+#: (snap 0, a three-snapshot gap) as mixed-age siblings; r3 shares r1's FoF
+#: group and ends early.
+LITERAL_TREE_A = [
+    dict(
+        SnapNum=3, FirstProgenitor=1, FirstHaloInFOFgroup=0, MostBoundID=77, Len=10, M_Crit200=1.5
+    ),
+    dict(
+        SnapNum=2,
+        Descendant=0,
+        NextProgenitor=2,
+        FirstHaloInFOFgroup=1,
+        NextHaloInFOFgroup=3,
+        MostBoundID=-5,
+        Len=9,
+        M_Crit200=0.75,
+    ),
+    dict(SnapNum=0, Descendant=0, FirstHaloInFOFgroup=2, MostBoundID=11, Len=8, M_Crit200=0.25),
+    dict(SnapNum=2, FirstHaloInFOFgroup=1, MostBoundID=12, Len=7, M_Crit200=0.125),
+]
+
+
+#: Tree B (file 0, tree 1): a lone halo.
+LITERAL_TREE_B = [dict(SnapNum=3, FirstHaloInFOFgroup=0, MostBoundID=13, Len=6, M_Crit200=2.0)]
+
+
+#: Tree C (file 1, tree 0): a chain whose root progenitor skips snapshot 1.
+#: r0 duplicates tree A's MostBoundID, as real catalogs may.
+LITERAL_TREE_C = [
+    dict(SnapNum=3, FirstProgenitor=1, FirstHaloInFOFgroup=0, MostBoundID=77, Len=5, M_Crit200=3.0),
+    dict(
+        SnapNum=2,
+        Descendant=0,
+        FirstProgenitor=2,
+        FirstHaloInFOFgroup=1,
+        MostBoundID=-3,
+        Len=4,
+        M_Crit200=4.0,
+    ),
+    dict(SnapNum=0, Descendant=1, FirstHaloInFOFgroup=2, MostBoundID=14, Len=3, M_Crit200=5.0),
+]
+
+
+LITERAL_A_LIST_TEXT = "0.25\n0.5\n0.75\n1.0\n"
+
+
+#: SourceHaloID = 1 + prefix position over (file, tree, row): A -> 1-4,
+#: B -> 5, C -> 6-8. Rows per snapshot ascend in SourceHaloID. Links are
+#: (row, target snapshot); -1 null.
+_LITERAL_COLUMNS = (
+    "SourceHaloID",
+    "ForestIndex",
+    "HaloRankInForest",
+    "Descendant",
+    "DescendantSnapshot",
+    "FirstProgenitor",
+    "FirstProgenitorSnapshot",
+    "NextProgenitor",
+    "NextProgenitorSnapshot",
+    "FirstHaloInFOFgroup",
+    "NextHaloInFOFgroup",
+    "SnapNum",
+    "Len",
+    "MostBoundID",
+    "M_Crit200",
+)
+
+
+_LITERAL_ROWS = {
+    0: [
+        (3, 0, 2, 0, 3, -1, -1, -1, -1, 0, -1, 0, 8, 11, 0.25),
+        (8, 2, 2, 2, 2, -1, -1, -1, -1, 1, -1, 0, 3, 14, 5.0),
+    ],
+    1: [],
+    2: [
+        (2, 0, 1, 0, 3, -1, -1, 0, 0, 0, 1, 2, 9, -5, 0.75),
+        (4, 0, 3, -1, -1, -1, -1, -1, -1, 0, -1, 2, 7, 12, 0.125),
+        (7, 2, 1, 2, 3, 1, 0, -1, -1, 2, -1, 2, 4, -3, 4.0),
+    ],
+    3: [
+        (1, 0, 0, -1, -1, 0, 2, -1, -1, 0, -1, 3, 10, 77, 1.5),
+        (5, 1, 0, -1, -1, -1, -1, -1, -1, 1, -1, 3, 6, 13, 2.0),
+        (6, 2, 0, -1, -1, 2, 2, -1, -1, 2, -1, 3, 5, 77, 3.0),
+    ],
+}
+
+
+LITERAL_EXPECTED = {
+    snap: {name: [row[i] for row in rows] for i, name in enumerate(_LITERAL_COLUMNS)}
+    for snap, rows in _LITERAL_ROWS.items()
+}
+
+
+LITERAL_TOTAL_HALOS = 8
+
+
+def lhalo_schema(profile="lhalo_binary.yaml", directory=PROFILE_DIR, properties=None):
+    return cs.build_schema(
+        cs.load_column_map(Path(directory) / profile),
+        cs.load_source_properties(properties or MINI_MILLENNIUM_PROPERTIES),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Workdir and conversion builders
+# ---------------------------------------------------------------------------
+
+
+# Shipped-profile schemas, the scatter/fix-up workdirs and the ASCII route's conversions
+
+
+def load_profile(name):
+    column_map = cs.load_column_map(PROFILE_DIR / name)
+    properties = None
+    if column_map.source_format == "lhalo_binary":
+        properties = cs.load_source_properties(MINI_MILLENNIUM_PROPERTIES)
+    return cs.build_schema(column_map, properties)
+
+
+def schema_of(path=ALL_TYPES_PROFILE):
+    return build_schema(load_column_map(path))
+
+
+@functools.lru_cache(maxsize=None)
+def default_schema():
+    """The shipped default Consistent-Trees ASCII profile's schema, built once:
+    every stage test runs on the layout it selects unless it names another."""
+    return build_schema(load_column_map(DEFAULT_PROFILE))
+
+
+def default_layout():
+    return ScratchLayout.from_schema(default_schema())
+
+
+def make_fixed(rows):
+    """Build an id-sorted fixed-record array (the default layout's) from per-halo dicts."""
+    records = np.zeros(len(rows), dtype=fixed_layout(default_layout())[0])
+    records["desc_id"] = -1
+    records["desc_scale"] = -1.0
+    records["pid"] = -1
+    records["upid"] = -1
+    for i, row in enumerate(rows):
+        for key, value in row.items():
+            records[key][i] = value
+        if "MostBoundID" not in row:
+            records["MostBoundID"][i] = row["id"]
+    order = np.argsort(records["id"], kind="stable")
+    return records[order]
+
+
+def prepare_standard_forests(root: Path, schema, chunksize: int = 2):
+    """Prepare the standard fixture forests over two files in ``schema``'s
+    layout, up to and including links; returns the workdir manifest."""
+    forests = standard_forests()
+    files = [
+        write_ctrees_file(root / "tree_0.dat", all_trees(forests[:3])),
+        write_ctrees_file(root / "tree_1.dat", all_trees(forests[3:])),
+    ]
+    forests_list = write_forests_list(root / "forests.list", forests)
+    a_list = write_a_list(root / "test.a_list")
+    sim_info = write_simulation_info(root / "simulation_info.yaml")
+    with capture_stderr():
+        return prepare_workdir(
+            schema, files, forests_list, a_list, sim_info, root / "workdir", chunksize=chunksize
+        )
+
+
+def make_scatter_workdir(root):
+    """A directory whose top-level manifest is a current scatter manifest.
+
+    The Consistent-Trees ASCII route keeps exactly this state in its
+    preparation directory (``pipeline.ASCII_PREPARATION_DIR``): the scatter
+    and sort stages run here in the layout of the shipped profile, over the
+    canned fixture forests written under ``root/inputs``.
+    Returns ``root/workdir``, every snapshot recorded ``sorted``.
+    """
+    root = Path(root)
+    inputs = root / "inputs"
+    inputs.mkdir(parents=True)
+    forests = standard_forests()
+    tree = write_ctrees_file(inputs / "tree_0_0_0.dat", all_trees(forests))
+    workdir = root / "workdir"
+    scatter.run_scatter(
+        tree_files=[tree],
+        forests_list_path=write_forests_list(inputs / "forests.list", forests),
+        a_list_path=write_a_list(inputs / "fixture.a_list"),
+        workdir=workdir,
+        simulation_info_path=write_simulation_info(inputs / "simulation_info.yaml"),
+        schema=load_profile("consistent_trees_ascii.yaml"),
+    )
+    run_sort(workdir)
+    return workdir
+
+
+def parse_file(
+    path, schema, chunksize: int = DEFAULT_CHUNKSIZE
+) -> Tuple[np.ndarray, ParseResult, PreScan]:
+    """Parse a whole file into one array of ``schema``'s scratch layout
+    (small-file convenience)."""
+    parser = CtreesFileParser(path, schema, chunksize=chunksize)
+    parts = list(parser.chunks())
+    if parts:
+        records = np.concatenate(parts)
+    else:
+        records = np.zeros(0, dtype=parser.dtype)
+    return records, parser.result, parser.prescan
+
+
+def write_locations(path, tree_files):
+    """``locations.dat`` for ``tree_files`` (``FileID`` = list position): each
+    ``#tree`` marker's root with the byte offset of its block's first data row."""
+    lines = ["#TreeRootID FileID Offset Filename"]
+    for file_id, tree_file in enumerate(tree_files):
+        position = 0
+        for line in Path(tree_file).read_bytes().splitlines(keepends=True):
+            position += len(line)
+            if line.startswith(b"#tree "):
+                root = int(line.split()[1])
+                lines.append("{} {} {} {}".format(root, file_id, position, Path(tree_file).name))
+    Path(path).write_text("\n".join(lines) + "\n")
+    return Path(path)
+
+
+def convert_ascii(root: Path, file_trees, forests):
+    """Convert fixture trees, ``file_trees[i]`` written to ``tree_<i>.dat``, to a
+    version 3 dataset; returns the paths the census needs."""
+    root.mkdir(parents=True)
+    tree_files = [
+        write_ctrees_file(root / "tree_{}.dat".format(i), trees_of_file)
+        for i, trees_of_file in enumerate(file_trees)
+    ]
+    forests_list = write_forests_list(root / "forests.list", forests)
+    locations = write_locations(root / "locations.dat", tree_files)
+    sim_info = write_simulation_info(root / "simulation_info.yaml")
+    a_list = write_a_list(root / "fixture.a_list")
+    work = root / "work"
+    pipeline.initialize(
+        work,
+        build_schema(load_column_map(DEFAULT_PROFILE)),
+        {
+            "tree_files": [str(path) for path in tree_files],
+            "forests_list": str(forests_list),
+            "simulation_info": str(sim_info),
+        },
+        a_list,
+        ingest_max_rows=4,
+        transpose_budget_bytes=4 << 20,
+    )
+    with capture_stderr():
+        pipeline.run_ingest(work)
+        pipeline.run_transpose(work)
+        manifest = pipeline.run_write(work, HorizontalV3Writer(sim_info))
+    return {
+        "dataset": manifest.artifact_path(manifest.stage("write")["directory"]),
+        "forests_list": forests_list,
+        "locations": locations,
+        "preparation_manifest": manifest.artifact_path(pipeline.ASCII_PREPARATION_DIR)
+        / "manifest.json",
+    }
+
+
+#: Each adversarial cut fixture: its forest, its decided table and, for the
+#: two laid over two files, the tree from which the second file starts (the
+#: three-piece fixture's piece {2520, 2530} then spans both files).
+CUT_FIXTURES = (
+    ("severed", severed_satellite_forest, severed_satellite_cut_table, 1),
+    ("no_central", no_initial_central_forest, no_initial_central_cut_table, None),
+    ("leaves", central_leaves_forest, central_leaves_cut_table, None),
+    ("tie", progenitor_tie_forest, progenitor_tie_cut_table, None),
+    ("three", three_piece_forest, three_piece_cut_table, 3),
+    ("z0", z0_groups_forest, z0_groups_cut_table, None),
+    ("head", progenitor_head_forest, progenitor_head_cut_table, None),
+)
+
+
+def route_parameters(source, cut_table=None):
+    """The route's parameters over ``source``'s files (as ``cut_source`` wrote
+    them), with a cut table when one is given."""
+    root = source["root"]
+    parameters = {
+        "tree_files": [str(path) for path in sorted(root.glob("tree_*.dat"))],
+        "forests_list": str(root / "forests.list"),
+        "simulation_info": str(root / "simulation_info.yaml"),
+    }
+    if cut_table is not None:
+        parameters["cut_table"] = str(cut_table)
+    return parameters
+
+
+def convert_under_cut(source, work, cut_table):
+    """The route's conversion of ``source``'s files under ``cut_table``, with
+    the batch and budget ``cut_source``'s uncut conversion used."""
+    pipeline.initialize(
+        work,
+        schema_of(DEFAULT_PROFILE),
+        route_parameters(source, cut_table),
+        source["root"] / "fixture.a_list",
+        ingest_max_rows=4,
+        transpose_budget_bytes=4 << 20,
+    )
+    with capture_stderr():
+        pipeline.run_ingest(work)
+        pipeline.run_transpose(work)
+        manifest = pipeline.run_write(
+            work, HorizontalV3Writer(source["root"] / "simulation_info.yaml")
+        )
+    return manifest
+
+
+# The literal gapped L-Halo source converted to version 3
+
+
+def v3_source_values(sid: int) -> dict:
+    """Every non-topology L-Halo field of the literal halo with this
+    SourceHaloID, as a literal function of it. Spin's last component is a
+    signed zero, which must survive."""
+    return {
+        "M_Mean200": sid + 0.5,
+        "M_TopHat": -0.25 * sid,
+        "SubHalfMass": 1024.0 * sid + 0.125,
+        "FileNr": -sid,
+        "SubhaloIndex": 100 + sid,
+        "Pos": (sid + 0.25, 2.0 * sid, 3.0 * sid),
+        "Vel": (float(sid), -float(sid), 0.5),
+        "Spin": (0.125 * sid, 1.0, -0.0),
+        "VelDisp": 10.0 + sid,
+        "Vmax": 20.0 + sid,
+    }
+
+
+def v3_literal_trees():
+    """The literal graph's three trees (SourceHaloID A -> 1-4, B -> 5,
+    C -> 6-8) with every other field set by :func:`v3_source_values`."""
+    trees = []
+    sid = 1
+    for tree in (LITERAL_TREE_A, LITERAL_TREE_B, LITERAL_TREE_C):
+        rows = []
+        for row in tree:
+            values = dict(row)
+            values.update(v3_source_values(sid))
+            rows.append(values)
+            sid += 1
+        trees.append(rows)
+    return trees
+
+
+def make_v3_conversion(
+    root, profile="lhalo_binary_extras_example.yaml", *, write=True, block_rows=2
+):
+    """The literal gapped L-Halo source through initialize, ingest,
+    transpose and (unless ``write`` is False) the v3 write stage, streaming in
+    ``block_rows``-row blocks so even eight halos cross block boundaries."""
+    root = Path(root)
+    src = root / "src"
+    src.mkdir(parents=True)
+    tree_a, tree_b, tree_c = v3_literal_trees()
+    file0 = write_lhalo_file(str(src / "trees.0"), [tree_a, tree_b])
+    file1 = write_lhalo_file(str(src / "trees.1"), [tree_c])
+    a_list = src / "a.list"
+    a_list.write_text(LITERAL_A_LIST_TEXT)
+    sim_info = write_simulation_info(src / "simulation_info.yaml")
+    work = root / "work"
+    schema = lhalo_schema(profile)
+    pipeline.initialize(
+        work,
+        schema,
+        {"sources": [[0, file0], [1, file1]]},
+        a_list,
+        ingest_max_rows=3,
+        transpose_budget_bytes=LITERAL_BUDGET,
+    )
+    pipeline.run_ingest(work)
+    pipeline.run_transpose(work)
+    conversion = SimpleNamespace(
+        work=work, a_list=a_list, sim_info=sim_info, schema=schema, manifest=None, dataset=None
+    )
+    if write:
+        manifest = pipeline.run_write(work, HorizontalV3Writer(sim_info, block_rows=block_rows))
+        conversion.manifest = manifest
+        conversion.dataset = manifest.artifact_path(manifest.stage("write")["directory"])
+    return conversion
+
+
+# Rewriter requests, dataset readers and the cut-fixture layouts
+
+N_FIXTURE_SNAPSHOTS = len(A_LIST)
+
+
+REWRITE_MULTIPLIER = 10**9
+
+
+def rewrite_request(operation, source: dict, input_dir, output_dir, scratch_dir, **overrides):
+    """A request over one route's files (``source`` as the converter helpers
+    return it, plus ``root``)."""
+    values = dict(
+        operation=operation,
+        input_dir=Path(input_dir),
+        output_dir=Path(output_dir),
+        scratch_dir=Path(scratch_dir),
+        simulation_info=source["root"] / "simulation_info.yaml",
+        a_list=source["root"] / "fixture.a_list",
+        forests_list=source["forests_list"],
+        locations=source["locations"],
+        multiplier=REWRITE_MULTIPLIER,
+    )
+    values.update(overrides)
+    return RewriteRequest(**values)
+
+
+def rewrite_quietly(operation, source, input_dir, output_dir, scratch_dir, **overrides):
+    with quiet_output():
+        return run_rewrite(
+            rewrite_request(operation, source, input_dir, output_dir, scratch_dir, **overrides)
+        )
+
+
+def read_slab_file(path):
+    with h5py.File(path, "r") as handle:
+        halos = {name: handle["halos"][name][...] for name in handle["halos"]}
+        header = {name: value for name, value in handle["header"].attrs.items()}
+        schema = {
+            name: {key: group.attrs[key] for key in group.attrs}
+            for name, group in handle["schema"].items()
+        }
+    return halos, header, schema
+
+
+def read_sidecar(path):
+    with h5py.File(path, "r") as handle:
+        return {name: handle[name][...] for name in handle}
+
+
+def dataset_files(directory):
+    return sorted(entry.name for entry in Path(directory).iterdir())
+
+
+def cut_companions():
+    """The two untouched forests every cut fixture is laid beside: 1400
+    (before the fixture forest) and 8000 (after it, so its SourceHaloID
+    prefix moves while its ForestIndex, ranks and links do not)."""
+    return correspondence_single_tree_forest(), interleaved_forest_8000()
+
+
+def cut_source(root: Path, forest, layout):
+    first, last = cut_companions()
+    source = convert_ascii(root, layout, [first, forest, last])
+    source["root"] = root
+    source["forests"] = [first, forest, last]
+    return source
+
+
+def cut_layout(forest, split_after=None):
+    """One file holding everything, or two files with the fixture forest's
+    trees from ``split_after`` on in the second (so a piece can span files)."""
+    first, last = cut_companions()
+    if split_after is None:
+        return [[first.trees[0]] + forest.trees + [last.trees[0]]]
+    return [
+        [first.trees[0]] + forest.trees[:split_after],
+        forest.trees[split_after:] + [last.trees[0]],
+    ]
+
+
+def write_table(root: Path, name: str, table: dict, source) -> Path:
+    return write_cut_table(root / (name + ".list"), table, source["forests"])
+
+
+def rewrite_cut(source, out, scratch, table, input_dir=None, **overrides):
+    input_dir = source["dataset"] if input_dir is None else input_dir
+    return rewrite_quietly("cut", source, input_dir, out, scratch, cut_table=table, **overrides)
+
+
+# Vertical-assembly oracles and the dataset-editing helper
+
+SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "halo_properties.yaml"
+
+
+WORKED_ASCII = REPO_ROOT / "simulations" / "shin-uchuu" / "_tests" / "data" / "worked_ascii"
+
+
+# The correspondence dataset's forests by rank: (MostBoundID, Descendant, FirstProgenitor,
+# NextProgenitor, FirstHaloInFOFgroup, NextHaloInFOFgroup, SnapNum). Snapshots descend; within
+# snapshot 4 of forest 1100 the FoF groups are [1101, 1121], [1102], [1111].
+FOREST_1100 = [
+    (1100, -1, 3, -1, 0, 1, 5),
+    (1110, -1, 6, -1, 0, -1, 5),
+    (1120, -1, 4, -1, 2, -1, 5),
+    (1101, 0, 7, 5, 3, 4, 4),
+    (1121, 2, -1, -1, 3, -1, 4),
+    (1102, 0, -1, -1, 5, -1, 4),
+    (1111, 1, -1, -1, 6, -1, 4),
+    (1103, 3, -1, -1, 7, -1, 3),
+]
+
+
+FOREST_1200 = [
+    (1200, -1, 2, -1, 0, 1, 5),
+    (1210, -1, 3, -1, 0, -1, 5),
+    (1201, 0, 4, -1, 2, 3, 4),
+    (1211, 1, 5, -1, 2, -1, 4),
+    (1202, 2, -1, -1, 4, -1, 3),
+    (1212, 3, -1, -1, 5, -1, 3),
+]
+
+
+FOREST_1300 = [(1300, -1, 1, -1, 0, -1, 2), (1301, 0, -1, -1, 1, -1, 1)]
+
+
+FOREST_1400 = [(1400, -1, 1, -1, 0, -1, 5), (1401, 0, 2, -1, 1, -1, 4), (1402, 1, -1, -1, 2, -1, 3)]
+
+
+def assembled_rows(forest: AssembledForest):
+    """A forest's records as the oracle tuples."""
+    return [
+        (
+            int(record["MostBoundID"]),
+            *(int(record[name]) for name in LINK_FIELDS),
+            int(record["SnapNum"]),
+        )
+        for record in forest.records
+    ]
+
+
+def convert_one_file_dataset(root, forests):
+    return convert_ascii(root, [all_trees(forests)], forests)["dataset"]
+
+
+def edit_column(dataset_dir, snap, name, edit):
+    """Rewrite one ``/halos`` column of one slab in place with ``edit(values)``."""
+    path = Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap)
+    with h5py.File(path, "r+") as handle:
+        column = handle["halos"][name]
+        values = column[...]
+        edit(values)
+        column[...] = values
+
+
+# ---------------------------------------------------------------------------
+# Assertion and capture helpers
+# ---------------------------------------------------------------------------
+
+
+def sha256_of(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def tree_state(root):
+    """Every file and directory under ``root`` with size, mtime and hash."""
+    state = {}
+    for base, dirs, files in os.walk(root):
+        for name in dirs:
+            state[os.path.relpath(os.path.join(base, name), root) + "/"] = None
+        for name in files:
+            path = os.path.join(base, name)
+            status = os.lstat(path)
+            state[os.path.relpath(path, root)] = (
+                status.st_size,
+                status.st_mtime_ns,
+                sha256_of(path),
+            )
+    return state
+
+
+class _Captured:
+    """Everything written to stderr inside a :func:`capture_stderr` block, as
+    ``.text``; readable inside the block as well as after it."""
+
+    def __init__(self, buffer):
+        self._buffer = buffer
+
+    @property
+    def text(self) -> str:
+        return self._buffer.getvalue()
+
+
+@contextlib.contextmanager
+def capture_stderr():
+    """Capture the converter's stderr log lines for one block.
+
+    Every stage reports its progress, its deletions and its skips through
+    ``_log``, and the operator relies on those messages as much as on the
+    bytes, so the tests read them rather than inferring them.
+    """
+    buffer = io.StringIO()
+    with contextlib.redirect_stderr(buffer):
+        yield _Captured(buffer)
+
+
+@contextlib.contextmanager
+def quiet_output():
+    with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        yield
+
+
+def delete_through_the_guard(manifest, path):
+    """Delete ``path`` through the manifest's containment guard and save the
+    record, as a stage that consumes an intermediate does."""
+    manifest.remove_intermediate(path)
+    manifest.save()
+
+
+def assert_datasets_equal(test, expected_dir, actual_dir):
+    """Every /halos column (values and dtype), header attribute, /schema
+    attribute and sidecar value of two version 3 datasets."""
+    test.assertEqual(dataset_files(expected_dir), dataset_files(actual_dir))
+    for snap in range(N_FIXTURE_SNAPSHOTS):
+        name = "snapshot_{:03d}.h5".format(snap)
+        halos_a, header_a, schema_a = read_slab_file(Path(expected_dir) / name)
+        halos_b, header_b, schema_b = read_slab_file(Path(actual_dir) / name)
+        test.assertEqual(sorted(halos_a), sorted(halos_b), name)
+        for column in halos_a:
+            test.assertEqual(halos_a[column].dtype, halos_b[column].dtype, (name, column))
+            test.assertEqual(halos_a[column].shape, halos_b[column].shape, (name, column))
+            test.assertEqual(halos_a[column].tobytes(), halos_b[column].tobytes(), (name, column))
+        test.assertEqual(sorted(header_a), sorted(header_b), name)
+        for attr in header_a:
+            test.assertEqual(header_a[attr], header_b[attr], (name, attr))
+            test.assertEqual(np.asarray(header_a[attr]).dtype, np.asarray(header_b[attr]).dtype)
+        test.assertEqual(schema_a, schema_b, name)
+    sidecar_a = read_sidecar(Path(expected_dir) / "forests.h5")
+    sidecar_b = read_sidecar(Path(actual_dir) / "forests.h5")
+    test.assertEqual(sorted(sidecar_a), list(V3_SIDECAR_DATASETS))
+    test.assertEqual(sorted(sidecar_b), list(V3_SIDECAR_DATASETS))
+    for name in V3_SIDECAR_DATASETS:
+        test.assertEqual(sidecar_a[name].dtype, sidecar_b[name].dtype)
+        np.testing.assert_array_equal(sidecar_a[name], sidecar_b[name], name)

@@ -52,6 +52,18 @@ from adapters.ctrees_hdf5 import (  # noqa: E402
     CTreesHDF5Adapter,
 )
 from adapters.topology import VALIDATION_BYTES_PER_HALO  # noqa: E402
+from fixtures import (  # noqa: E402
+    FOREST_INFO_DTYPE,
+    HDF5_FLOATS,
+    HDF5_LINKS,
+    HDF5_MERGER_FOREST,
+    UCHUU_PARTICLE_MASS,
+    hdf5_forest,
+    hdf5_halo,
+    hdf5_lone_forest,
+    load_hdf5_schema,
+    write_hdf5_source,
+)
 
 REPO_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -71,9 +83,6 @@ REAL_MICRO_UCHUU = os.path.join(
     REPO_ROOT, "simulations", "micro-uchuu-hdf5", "snapshots", "MicroUchuu_mergertree_info.h5"
 )
 
-#: The package value (simulations/*uchuu*/simulation_info.yaml), 1e10 Msun/h.
-PARTICLE_MASS = 0.0327
-
 
 # ==========================================================================
 # Independent oracle
@@ -85,7 +94,7 @@ def f32(value):
     return struct.unpack("<f", struct.pack("<f", value))[0]
 
 
-def expected_len(mvir, particle_mass=PARTICLE_MASS):
+def expected_len(mvir, particle_mass=UCHUU_PARTICLE_MASS):
     """C: ``(int)round((double)(float)Mvir * 1e-10 / PartMass)``."""
     particles = f32(mvir) * 1e-10 / particle_mass
     return int(Decimal(particles).quantize(Decimal(1), rounding=ROUND_HALF_UP))
@@ -98,179 +107,6 @@ def expected_spin(j, mvir):
     if mass == 0.0:
         return angular
     return f32(angular * (1.0 / mass))
-
-
-LINKS = (
-    "Descendant",
-    "FirstProgenitor",
-    "NextProgenitor",
-    "FirstHaloInFOFgroup",
-    "NextHaloInFOFgroup",
-)
-FLOATS = ("Mvir", "x", "y", "z", "vx", "vy", "vz", "Jx", "Jy", "Jz", "vrms", "vmax")
-
-_ROW_DEFAULTS = {
-    "Descendant": -1,
-    "FirstProgenitor": -1,
-    "NextProgenitor": -1,
-    "NextHaloInFOFgroup": -1,
-    "Mvir": 3.27e10,
-    "x": 1.5,
-    "y": 2.5,
-    "z": 3.5,
-    "vx": 10.0,
-    "vy": 20.0,
-    "vz": 30.0,
-    "Jx": 0.0,
-    "Jy": 0.0,
-    "Jz": 0.0,
-    "vrms": 50.0,
-    "vmax": 100.0,
-    "snap": 0,
-}
-
-
-def halo(**values):
-    """One forest-local row; FirstHaloInFOFgroup defaults to the row itself."""
-    return values
-
-
-def forest(forest_id, *rows):
-    return {"id": forest_id, "rows": list(rows)}
-
-
-def lone(forest_id, **values):
-    """A one-halo forest: its own FoF central with no links."""
-    return forest(forest_id, halo(**values))
-
-
-def pack_file(forests, order=None, first_id=1):
-    """Lay out one file's forests contiguously in ``order`` (storage order).
-
-    Returns the per-halo columns and the ForestInfo rows in *ForestInfo row
-    order* (the order of ``forests``), with each forest's offset wherever
-    ``order`` put it. Written by hand from the format description, not from
-    the adapter.
-    """
-    order = list(range(len(forests))) if order is None else list(order)
-    assert sorted(order) == list(range(len(forests)))
-    columns = {name: [] for name in LINKS + FLOATS + ("id", "snap")}
-    offsets = [0] * len(forests)
-    cursor = 0
-    next_id = first_id
-    for index in order:
-        offsets[index] = cursor
-        for local, row in enumerate(forests[index]["rows"]):
-            values = dict(_ROW_DEFAULTS)
-            values["FirstHaloInFOFgroup"] = local
-            values["id"] = next_id
-            next_id += 1
-            values.update(row)
-            for name in columns:
-                columns[name].append(values[name])
-        cursor += len(forests[index]["rows"])
-    info = [
-        (entry["id"], offsets[index], len(entry["rows"]), 1) for index, entry in enumerate(forests)
-    ]
-    return columns, info
-
-
-FOREST_INFO_DTYPE = np.dtype(
-    [
-        ("ForestID", "<i8"),
-        ("ForestHalosOffset", "<i8"),
-        ("ForestNhalos", "<i8"),
-        ("ForestNtrees", "<i8"),
-    ]
-)
-
-
-def _write_file_group(group, forests, order, snap_name, snap_float, first_id, extra_columns):
-    columns, info = pack_file(forests, order, first_id)
-    group.attrs["Nforests"] = np.int64(len(forests))
-    group.attrs["Nhalos"] = np.int64(len(columns["id"]))
-    group.attrs["contiguous-halo-props"] = np.int8(1)
-    group.create_dataset("ForestInfo", data=np.array(info, dtype=FOREST_INFO_DTYPE))
-    params = group.create_group("simulation_params")
-    params.attrs["Boxsize"] = 100.0
-    data = group.create_group("Forests")
-    for name in LINKS + ("id",):
-        data.create_dataset(name, data=np.array(columns[name], dtype="<i8"))
-    for name in FLOATS:
-        data.create_dataset(name, data=np.array(columns[name], dtype="<f8"))
-    snap_dtype = "<f8" if snap_float else "<i8"
-    data.create_dataset(snap_name, data=np.array(columns["snap"], dtype=snap_dtype))
-    for name, values in (extra_columns or {}).items():
-        data.create_dataset(name, data=np.asarray(values))
-    return len(columns["id"])
-
-
-def write_source(
-    directory,
-    files,
-    layout="external",
-    snap_name="Snap_num",
-    snap_float=False,
-    extra_columns=None,
-    root_totals=True,
-):
-    """Write a forests-HDF5 source by hand. ``files`` is a list of dicts with
-    ``forests`` and optional ``order``/``extra_columns``.
-
-    ``layout="external"`` is the full-Uchuu organisation (``info.h5`` with one
-    ``ExternalLink`` per ``File<N>`` to ``forests_<N>.h5``); ``"internal"`` is
-    the micro-Uchuu fixture's (``File<N>`` groups inside ``info.h5``).
-    """
-    info_path = os.path.join(directory, "info.h5")
-    total_forests = 0
-    total_halos = 0
-    next_id = 1
-    with h5py.File(info_path, "w") as info:
-        info.attrs["Nfiles"] = np.int64(len(files))
-        for ordinal, spec in enumerate(files):
-            extras = spec.get("extra_columns", extra_columns)
-            if layout == "external":
-                name = "forests_{}.h5".format(ordinal)
-                with h5py.File(os.path.join(directory, name), "w") as data:
-                    n = _write_file_group(
-                        data,
-                        spec["forests"],
-                        spec.get("order"),
-                        snap_name,
-                        snap_float,
-                        next_id,
-                        extras,
-                    )
-                info["File{}".format(ordinal)] = h5py.ExternalLink(name, "/")
-            else:
-                group = info.create_group("File{}".format(ordinal))
-                n = _write_file_group(
-                    group,
-                    spec["forests"],
-                    spec.get("order"),
-                    snap_name,
-                    snap_float,
-                    next_id,
-                    extras,
-                )
-            next_id += n
-            total_halos += n
-            total_forests += len(spec["forests"])
-        if root_totals:
-            info.attrs["TotNforests"] = np.int64(total_forests)
-            info.attrs["TotNhalos"] = np.int64(total_halos)
-    return info_path
-
-
-def group_path(directory, ordinal, layout="external"):
-    """(file, group) holding ``File<ordinal>``'s contents, for corruption."""
-    if layout == "external":
-        return os.path.join(directory, "forests_{}.h5".format(ordinal)), "/"
-    return os.path.join(directory, "info.h5"), "/File{}".format(ordinal)
-
-
-def load_schema(name="consistent_trees_hdf5.yaml"):
-    return cs.build_schema(cs.load_column_map(os.path.join(PROFILE_DIR, name)))
 
 
 def schema_from(extra_fields, snap_aliases=("Snap_num", "Snap_idx")):
@@ -291,9 +127,13 @@ def adapter_for(info_path, schema=None, first_file=0, last_file=None, **kwargs):
     if last_file is None:
         with h5py.File(info_path, "r") as handle:
             last_file = int(handle.attrs["Nfiles"]) - 1
-    kwargs.setdefault("particle_mass", PARTICLE_MASS)
+    kwargs.setdefault("particle_mass", UCHUU_PARTICLE_MASS)
     return CTreesHDF5Adapter(
-        schema or load_schema(), info_path, first_file=first_file, last_file=last_file, **kwargs
+        schema or load_hdf5_schema(),
+        info_path,
+        first_file=first_file,
+        last_file=last_file,
+        **kwargs,
     )
 
 
@@ -314,17 +154,6 @@ class TempDirCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ctrees_hdf5_adapter_")
         self.addCleanup(shutil.rmtree, self.tmp)
-
-
-#: A four-halo forest with a real merger: two z=0 halos (rows 0, 1) in one
-#: FoF group, each with one progenitor at the previous snapshot (rows 2, 3).
-MERGER_FOREST = forest(
-    7,
-    halo(snap=5, FirstProgenitor=2, NextHaloInFOFgroup=1),
-    halo(snap=5, FirstProgenitor=3, FirstHaloInFOFgroup=0),
-    halo(snap=4, Descendant=0),
-    halo(snap=4, Descendant=1),
-)
 
 
 # ==========================================================================
@@ -445,19 +274,6 @@ class CommittedFixtureTests(unittest.TestCase):
         pinned = [d.identity for d in adapter.dependencies() if d.identity.path == data_path][0]
         self.assertEqual(pinned.size_bytes, size)
 
-    def test_full_uchuu_fixture_without_its_data_file_fails_before_any_row(self):
-        tmp = tempfile.mkdtemp(prefix="uchuu_fixture_")
-        self.addCleanup(shutil.rmtree, tmp)
-        shutil.copy(UCHUU_FIXTURE, tmp)
-        adapter = adapter_for(os.path.join(tmp, "mergertree_info.h5"), last_file=0)
-        batches = adapter.iter_batches(10)
-        with self.assertRaisesRegex(ConverterError, "external link .*unresolved"):
-            next(batches)
-        # With the data file restored beside it, the same copy converts.
-        shutil.copy(os.path.join(UCHUU_FIXTURE_DIR, "mergertree_0.h5"), tmp)
-        table, _ = collect(adapter_for(os.path.join(tmp, "mergertree_info.h5")))
-        self.assertEqual(table["identity"]["SourceHaloID"].shape[0], 6)
-
 
 # ==========================================================================
 # Value conventions
@@ -467,9 +283,11 @@ class CommittedFixtureTests(unittest.TestCase):
 class ConventionTests(TempDirCase):
     """ctrees conventions, in the C reader's order, against scalar oracles."""
 
-    def convert(self, rows, particle_mass=PARTICLE_MASS, **source):
-        info = write_source(
-            self.tmp, [{"forests": [lone(i + 1, **row) for i, row in enumerate(rows)]}], **source
+    def convert(self, rows, particle_mass=UCHUU_PARTICLE_MASS, **source):
+        info = write_hdf5_source(
+            self.tmp,
+            [{"forests": [hdf5_lone_forest(i + 1, **row) for i, row in enumerate(rows)]}],
+            **source,
         )
         table, _ = collect(adapter_for(info, particle_mass=particle_mass))
         return table["payload"]
@@ -509,8 +327,7 @@ class ConventionTests(TempDirCase):
         self.assertEqual(
             payload["Spin"][0].tolist(), [14.528943061828613, -14.528943061828613, 0.0]
         )
-
-    def test_spin_matches_the_oracle_across_magnitudes(self):
+        # across magnitudes, against the scalar oracle
         rows = [
             dict(Mvir=m, Jx=jx, Jy=jy, Jz=jz)
             for m, jx, jy, jz in (
@@ -533,21 +350,18 @@ class ConventionTests(TempDirCase):
         # Signed zero survives as data.
         self.assertTrue(np.signbit(payload["M_Crit200"][1]))
 
-    def test_len_rounds_half_away_from_zero_like_c(self):
+    def test_len_is_the_c_readers_rounded_count_of_the_narrowed_mass(self):
         # 1.25e9 * 1e-10 / 0.25 is exactly 0.5 in double arithmetic: C's
         # round() gives 1, a round-half-to-even implementation would give 0.
         self.assertEqual(f32(1.25e9) * 1e-10 / 0.25, 0.5)
         payload = self.convert([dict(Mvir=1.25e9)], particle_mass=0.25)
         self.assertEqual(payload["Len"].tolist(), [1])
-
-    def test_len_is_derived_from_the_narrowed_mass(self):
         # 1249999937 narrows to 1250000000.0, so C derives exactly 0.5 -> 1;
         # deriving from the float64 value would give 0.4999999748 -> 0.
         self.assertEqual(f32(1249999937.0), 1250000000.0)
         payload = self.convert([dict(Mvir=1249999937.0)], particle_mass=0.25)
         self.assertEqual(payload["Len"].tolist(), [1])
-
-    def test_len_matches_the_oracle(self):
+        # across magnitudes, against the scalar oracle
         masses = [3.27e8, 3.27e10, 1.23456789e12, 9.99e14, 6.54e9 + 1234.5]
         payload = self.convert([dict(Mvir=m) for m in masses])
         self.assertEqual(payload["Len"].dtype, np.int32)
@@ -584,14 +398,6 @@ class ConventionTests(TempDirCase):
         with self.assertRaisesRegex(ConverterError, "Spin = J / Mvir overflows float32"):
             self.convert([dict(Mvir=1e-30, Jx=1e30)], particle_mass=1.0)
 
-    def test_particle_mass_must_be_positive_and_finite(self):
-        info = write_source(self.tmp, [{"forests": [lone(1)]}])
-        for bad in (0.0, -0.0327, float("nan"), float("inf"), True, "0.0327", None):
-            with self.assertRaises(ConverterError, msg=repr(bad)):
-                adapter_for(info, particle_mass=bad)
-        adapter_for(info, particle_mass=np.float64(0.0327))
-        adapter_for(info, particle_mass=1)
-
 
 # ==========================================================================
 # Snapshots
@@ -600,15 +406,10 @@ class ConventionTests(TempDirCase):
 
 class SnapshotTests(TempDirCase):
     def write(self, snaps, snap_name="Snap_num", snap_float=False):
-        rows = [lone(i + 1, snap=s) for i, s in enumerate(snaps)]
-        return write_source(
+        rows = [hdf5_lone_forest(i + 1, snap=s) for i, s in enumerate(snaps)]
+        return write_hdf5_source(
             self.tmp, [{"forests": rows}], snap_name=snap_name, snap_float=snap_float
         )
-
-    def test_integer_snapshots(self):
-        info = self.write([0, 7, 49])
-        table, _ = collect(adapter_for(info, max_snapshot=49))
-        self.assertEqual(table["payload"]["SnapNum"].tolist(), [0, 7, 49])
 
     def test_integral_float_snapshots(self):
         info = self.write([0.0, 7.0, 49.0], snap_name="Snap_idx", snap_float=True)
@@ -617,26 +418,38 @@ class SnapshotTests(TempDirCase):
         self.assertEqual(table["payload"]["SnapNum"].dtype, np.int32)
 
     def test_nonintegral_float_snapshot_fails(self):
-        info = self.write([3.0, 48.5], snap_name="Snap_idx", snap_float=True)
-        with self.assertRaisesRegex(
-            ConverterError, r"row 0: snapshot value 48\.5 is not an integer"
-        ):
-            collect(adapter_for(info))
-
-    def test_nonfinite_float_snapshot_fails(self):
-        info = self.write([float("nan")], snap_name="Snap_idx", snap_float=True)
-        with self.assertRaisesRegex(ConverterError, "is not an integer"):
-            collect(adapter_for(info))
+        """A float snapshot column must hold integers: a fraction and NaN are refused."""
+        cases = (
+            ([3.0, 48.5], r"row 0: snapshot value 48\.5 is not an integer"),
+            ([float("nan")], "is not an integer"),
+        )
+        for snaps, message in cases:
+            with self.subTest(snaps=snaps):
+                tmp = tempfile.mkdtemp(dir=self.tmp)
+                info = write_hdf5_source(
+                    tmp,
+                    [
+                        {
+                            "forests": [
+                                hdf5_lone_forest(i + 1, snap=snap) for i, snap in enumerate(snaps)
+                            ]
+                        }
+                    ],
+                    snap_name="Snap_idx",
+                    snap_float=True,
+                )
+                with self.assertRaisesRegex(ConverterError, message):
+                    collect(adapter_for(info))
 
     def test_negative_and_out_of_range_snapshots_fail(self):
         with self.assertRaisesRegex(ConverterError, r"snapshot value -1 is outside \[0, "):
             collect(adapter_for(self.write([-1])))
         tmp = tempfile.mkdtemp(dir=self.tmp)
-        info = write_source(tmp, [{"forests": [lone(1, snap=50)]}])
+        info = write_hdf5_source(tmp, [{"forests": [hdf5_lone_forest(1, snap=50)]}])
         with self.assertRaisesRegex(ConverterError, r"outside \[0, 49\]"):
             collect(adapter_for(info, max_snapshot=49))
         tmp = tempfile.mkdtemp(dir=self.tmp)
-        info = write_source(tmp, [{"forests": [lone(1, snap=2**31)]}])
+        info = write_hdf5_source(tmp, [{"forests": [hdf5_lone_forest(1, snap=2**31)]}])
         with self.assertRaisesRegex(ConverterError, r"outside \[0, 2147483647\]"):
             collect(adapter_for(info))
 
@@ -655,21 +468,19 @@ class SnapshotTests(TempDirCase):
             adapter_for(info).inventory()
 
     def test_spelling_is_resolved_per_file(self):
-        write_source(self.tmp, [{"forests": [lone(1, snap=3)]}, {"forests": [lone(2, snap=4)]}])
+        write_hdf5_source(
+            self.tmp,
+            [
+                {"forests": [hdf5_lone_forest(1, snap=3)]},
+                {"forests": [hdf5_lone_forest(2, snap=4)]},
+            ],
+        )
         with h5py.File(os.path.join(self.tmp, "forests_1.h5"), "r+") as handle:
             values = handle["Forests/Snap_num"][()]
             del handle["Forests/Snap_num"]
             handle["Forests"].create_dataset("Snap_idx", data=values.astype("<f8"))
         table, _ = collect(adapter_for(os.path.join(self.tmp, "info.h5")))
         self.assertEqual(table["payload"]["SnapNum"].tolist(), [3, 4])
-
-    def test_a_4_byte_snapshot_column_fails(self):
-        info = self.write([1])
-        with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r+") as handle:
-            del handle["Forests/Snap_num"]
-            handle["Forests"].create_dataset("Snap_num", data=np.array([1], dtype="<i4"))
-        with self.assertRaisesRegex(ConverterError, "stored as <i4"):
-            adapter_for(info).inventory()
 
 
 # ==========================================================================
@@ -682,11 +493,11 @@ class TopologyTests(TempDirCase):
         # ForestInfo row order is [A, B, C] but storage order is [C, A, B],
         # so every forest sits at a nonzero offset that differs from its row.
         forests = [
-            MERGER_FOREST,
-            lone(8, snap=2),
-            forest(9, halo(snap=1, Descendant=1), halo(snap=2, FirstProgenitor=0)),
+            HDF5_MERGER_FOREST,
+            hdf5_lone_forest(8, snap=2),
+            hdf5_forest(9, hdf5_halo(snap=1, Descendant=1), hdf5_halo(snap=2, FirstProgenitor=0)),
         ]
-        info = write_source(self.tmp, [{"forests": forests, "order": [2, 0, 1]}])
+        info = write_hdf5_source(self.tmp, [{"forests": forests, "order": [2, 0, 1]}])
         with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r") as handle:
             table_info = handle["ForestInfo"][()]
         self.assertEqual(table_info["ForestHalosOffset"].tolist(), [2, 6, 0])
@@ -705,17 +516,17 @@ class TopologyTests(TempDirCase):
     def test_chain_order_and_forward_gaps_survive_exactly(self):
         # Three progenitors of row 0 in a stored, non-mass order, one of them
         # two snapshots back (a forward gap), plus a three-member FoF chain.
-        gapped = forest(
+        gapped = hdf5_forest(
             11,
-            halo(snap=9, FirstProgenitor=3, NextHaloInFOFgroup=2),
-            halo(snap=9, FirstHaloInFOFgroup=0),
-            halo(snap=9, FirstHaloInFOFgroup=0, NextHaloInFOFgroup=1),
-            halo(snap=8, Descendant=0, NextProgenitor=5, Mvir=1e10),
-            halo(snap=8, NextHaloInFOFgroup=6),
-            halo(snap=7, Descendant=0, NextProgenitor=6, Mvir=9e12),
-            halo(snap=8, Descendant=0, Mvir=5e11, FirstHaloInFOFgroup=4),
+            hdf5_halo(snap=9, FirstProgenitor=3, NextHaloInFOFgroup=2),
+            hdf5_halo(snap=9, FirstHaloInFOFgroup=0),
+            hdf5_halo(snap=9, FirstHaloInFOFgroup=0, NextHaloInFOFgroup=1),
+            hdf5_halo(snap=8, Descendant=0, NextProgenitor=5, Mvir=1e10),
+            hdf5_halo(snap=8, NextHaloInFOFgroup=6),
+            hdf5_halo(snap=7, Descendant=0, NextProgenitor=6, Mvir=9e12),
+            hdf5_halo(snap=8, Descendant=0, Mvir=5e11, FirstHaloInFOFgroup=4),
         )
-        info = write_source(self.tmp, [{"forests": [lone(1), gapped]}])
+        info = write_hdf5_source(self.tmp, [{"forests": [hdf5_lone_forest(1), gapped]}])
         table, _ = collect(adapter_for(info))
         links = table["links"]
         base = 2  # forest 1 starts after the lone forest's id 1
@@ -732,47 +543,18 @@ class TopologyTests(TempDirCase):
 
     def test_link_equal_to_the_forest_size_is_out_of_forest(self):
         # Global row 4 exists (the next forest), but the value is forest-local.
-        bad = forest(1, halo(snap=1), halo(snap=0, Descendant=2))
-        info = write_source(self.tmp, [{"forests": [bad, lone(2), lone(3)]}])
+        bad = hdf5_forest(1, hdf5_halo(snap=1), hdf5_halo(snap=0, Descendant=2))
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [bad, hdf5_lone_forest(2), hdf5_lone_forest(3)]}]
+        )
         with self.assertRaisesRegex(ConverterError, "points to row 2, outside this 2-halo tree"):
             collect(adapter_for(info))
 
-    def test_link_below_the_null_sentinel_fails(self):
-        info = write_source(self.tmp, [{"forests": [lone(1, NextProgenitor=-2)]}])
-        with self.assertRaisesRegex(ConverterError, "only -1 is the null sentinel"):
-            collect(adapter_for(info))
-
-    def test_null_fof_central_fails(self):
-        info = write_source(self.tmp, [{"forests": [lone(1, FirstHaloInFOFgroup=-1)]}])
-        with self.assertRaisesRegex(ConverterError, "never null"):
-            collect(adapter_for(info))
-
-    def test_non_forward_descendant_fails(self):
-        info = write_source(
-            self.tmp, [{"forests": [forest(1, halo(snap=3), halo(snap=3, Descendant=0))]}]
-        )
-        with self.assertRaisesRegex(ConverterError, "not forward"):
-            collect(adapter_for(info))
-
-    def test_inconsistent_progenitor_round_trip_fails(self):
-        info = write_source(
-            self.tmp, [{"forests": [forest(1, halo(snap=3, FirstProgenitor=1), halo(snap=2))]}]
-        )
-        with self.assertRaisesRegex(ConverterError, "round trip is inconsistent"):
-            collect(adapter_for(info))
-
-    def test_invalid_fof_membership_fails(self):
-        info = write_source(
-            self.tmp, [{"forests": [forest(1, halo(snap=3), halo(snap=2, FirstHaloInFOFgroup=0))]}]
-        )
-        with self.assertRaisesRegex(ConverterError, "FoF links stay in the current snapshot"):
-            collect(adapter_for(info))
-
     def test_an_invalid_forest_emits_nothing_after_it(self):
-        bad = forest(2, halo(snap=3), halo(snap=3, Descendant=0))
-        info = write_source(self.tmp, [{"forests": [lone(1), bad]}])
+        bad = hdf5_forest(2, hdf5_halo(snap=3), hdf5_halo(snap=3, Descendant=0))
+        info = write_hdf5_source(self.tmp, [{"forests": [hdf5_lone_forest(1), bad]}])
         seen = []
-        with self.assertRaises(ConverterError):
+        with self.assertRaisesRegex(ConverterError, "not forward"):
             for batch in adapter_for(info).iter_batches(1):
                 seen.extend(batch.identity["SourceHaloID"].tolist())
         self.assertEqual(seen, [1])
@@ -780,18 +562,18 @@ class TopologyTests(TempDirCase):
 
 class InventoryTests(TempDirCase):
     def three_files(self, layout="external", directory=None):
-        return write_source(
+        return write_hdf5_source(
             directory or self.tmp,
             [
-                {"forests": [lone(10), lone(11)]},
-                {"forests": [MERGER_FOREST]},
+                {"forests": [hdf5_lone_forest(10), hdf5_lone_forest(11)]},
+                {"forests": [HDF5_MERGER_FOREST]},
                 {
                     "forests": [
-                        lone(30),
-                        forest(
+                        hdf5_lone_forest(30),
+                        hdf5_forest(
                             31,
-                            halo(snap=1, NextHaloInFOFgroup=1),
-                            halo(snap=1, FirstHaloInFOFgroup=0),
+                            hdf5_halo(snap=1, NextHaloInFOFgroup=1),
+                            hdf5_halo(snap=1, FirstHaloInFOFgroup=0),
                         ),
                     ]
                 },
@@ -842,12 +624,6 @@ class InventoryTests(TempDirCase):
         with self.assertRaisesRegex(ConverterError, "/File1: does not exist"):
             adapter_for(info).inventory()
 
-    def test_bad_file_ranges_fail(self):
-        info = self.three_files()
-        for first, last in ((2, 1), (-1, 0), (0.0, 1), (True, 1)):
-            with self.assertRaises(ConverterError, msg=(first, last)):
-                adapter_for(info, first_file=first, last_file=last)
-
     def test_root_and_file_totals_are_cross_checked(self):
         info = self.three_files()
         with h5py.File(info, "r+") as handle:
@@ -871,13 +647,15 @@ class InventoryTests(TempDirCase):
         for name, value, message in cases:
             with self.subTest(name=name, value=value):
                 tmp = tempfile.mkdtemp(dir=self.tmp)
-                info = write_source(tmp, [{"forests": [lone(1), lone(2)]}])
+                info = write_hdf5_source(
+                    tmp, [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}]
+                )
                 with h5py.File(os.path.join(tmp, "forests_0.h5"), "r+") as handle:
                     handle.attrs[name] = value
                 with self.assertRaisesRegex(ConverterError, message):
                     adapter_for(info).inventory()
         tmp = tempfile.mkdtemp(dir=self.tmp)
-        info = write_source(tmp, [{"forests": [lone(1)]}])
+        info = write_hdf5_source(tmp, [{"forests": [hdf5_lone_forest(1)]}])
         with h5py.File(info, "r+") as handle:
             del handle.attrs["Nfiles"]
         with self.assertRaisesRegex(ConverterError, "missing required attribute 'Nfiles'"):
@@ -885,13 +663,15 @@ class InventoryTests(TempDirCase):
 
     def test_real_bool_contiguous_flag_is_accepted(self):
         # The real micro-Uchuu data file stores it as an HDF5 boolean enum.
-        info = write_source(self.tmp, [{"forests": [lone(1)]}])
+        info = write_hdf5_source(self.tmp, [{"forests": [hdf5_lone_forest(1)]}])
         with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r+") as handle:
             handle.attrs["contiguous-halo-props"] = np.True_
         collect(adapter_for(info))
 
     def test_the_same_file_group_twice_fails(self):
-        info = write_source(self.tmp, [{"forests": [lone(1)]}, {"forests": [lone(2)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(1)]}, {"forests": [hdf5_lone_forest(2)]}]
+        )
         with h5py.File(info, "r+") as handle:
             del handle["File1"]
             handle["File1"] = h5py.ExternalLink("forests_0.h5", "/")
@@ -908,24 +688,43 @@ class InventoryTests(TempDirCase):
                 info,
                 first_file=0,
                 last_file=0,
-                particle_mass=PARTICLE_MASS,
+                particle_mass=UCHUU_PARTICLE_MASS,
             )
         with self.assertRaisesRegex(ConverterError, "missing or not a regular file"):
             adapter_for(os.path.join(self.tmp, "absent.h5"), last_file=0)
         with self.assertRaisesRegex(ConverterError, "not a filesystem path"):
             adapter_for(3.5, last_file=0)
-        adapter = adapter_for(info)
-        for bad in (0, -1, 1.0, True):
-            with self.assertRaises(ConverterError):
-                next(adapter.iter_batches(bad))
-        for bad in (-1, 1.5):
-            with self.assertRaises(ConverterError):
-                adapter_for(info, max_snapshot=bad)
         with self.assertRaisesRegex(ConverterError, "not an HDF5|cannot open"):
             not_hdf5 = os.path.join(self.tmp, "text.h5")
             with open(not_hdf5, "w") as handle:
                 handle.write("not hdf5")
             adapter_for(not_hdf5, last_file=0).inventory()
+
+    def test_bad_scalar_arguments_are_refused(self):
+        info = self.three_files()
+        adapter = adapter_for(info)
+        for first, last in ((2, 1), (-1, 0), (0.0, 1), (True, 1)):
+            with self.subTest(first_file=first, last_file=last):
+                with self.assertRaises(ConverterError):
+                    adapter_for(info, first_file=first, last_file=last)
+        for bad in (0, -1, 1.0, True):
+            with self.subTest(max_rows=bad):
+                with self.assertRaises(ConverterError):
+                    next(adapter.iter_batches(bad))
+        for bad in (-1, 1.5):
+            with self.subTest(max_snapshot=bad):
+                with self.assertRaises(ConverterError):
+                    adapter_for(info, max_snapshot=bad)
+        for bad in (0, -1, 1.5, True):
+            with self.subTest(memory_budget_bytes=bad):
+                with self.assertRaises(ConverterError):
+                    adapter_for(info, memory_budget_bytes=bad)
+        for bad in (0.0, -0.0327, float("nan"), float("inf"), True, "0.0327", None):
+            with self.subTest(particle_mass=bad):
+                with self.assertRaises(ConverterError):
+                    adapter_for(info, particle_mass=bad)
+        adapter_for(info, particle_mass=np.float64(0.0327))
+        adapter_for(info, particle_mass=1)
 
 
 # ==========================================================================
@@ -962,7 +761,9 @@ class ForestTableTests(TempDirCase):
             ch.validate_forest_table([0, big - 1], [big, 6], big + 6, "t")
 
     def corrupt_info(self, mutate):
-        info = write_source(self.tmp, [{"forests": [lone(1), lone(2), lone(3)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2), hdf5_lone_forest(3)]}]
+        )
         with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r+") as handle:
             table = handle["ForestInfo"][()]
             del handle["ForestInfo"]
@@ -1008,7 +809,9 @@ class ForestTableTests(TempDirCase):
             adapter_for(info).inventory()
 
     def test_dataset_extents_must_agree(self):
-        info = write_source(self.tmp, [{"forests": [lone(1), lone(2)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}]
+        )
         with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r+") as handle:
             del handle["Forests/vmax"]
             handle["Forests"].create_dataset("vmax", data=np.zeros(3))
@@ -1023,13 +826,19 @@ class ForestTableTests(TempDirCase):
 
 class DependencyTests(TempDirCase):
     def test_a_missing_backing_file_fails_before_any_row(self):
-        info = write_source(self.tmp, [{"forests": [lone(1)]}, {"forests": [lone(2)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(1)]}, {"forests": [hdf5_lone_forest(2)]}]
+        )
         os.rename(os.path.join(self.tmp, "forests_1.h5"), os.path.join(self.tmp, "moved.h5"))
         batches = adapter_for(info).iter_batches(1)
         with self.assertRaisesRegex(
             ConverterError, r"/File1: external link to 'forests_1.h5' is unresolved"
         ):
             next(batches)
+        # with the data file restored beside the info file, the same source converts
+        os.rename(os.path.join(self.tmp, "moved.h5"), os.path.join(self.tmp, "forests_1.h5"))
+        table, _ = collect(adapter_for(info))
+        self.assertEqual(table["identity"]["SourceHaloID"].tolist(), [1, 2])
 
     def test_a_same_named_file_elsewhere_is_never_substituted(self):
         # The data file is absent beside the info file but present in the
@@ -1038,7 +847,7 @@ class DependencyTests(TempDirCase):
         elsewhere = os.path.join(self.tmp, "elsewhere")
         os.makedirs(source)
         os.makedirs(elsewhere)
-        info = write_source(source, [{"forests": [lone(1)]}])
+        info = write_hdf5_source(source, [{"forests": [hdf5_lone_forest(1)]}])
         os.rename(os.path.join(source, "forests_0.h5"), os.path.join(elsewhere, "forests_0.h5"))
         cwd = os.getcwd()
         os.chdir(elsewhere)
@@ -1048,19 +857,22 @@ class DependencyTests(TempDirCase):
         finally:
             os.chdir(cwd)
 
-    def test_an_external_link_resolved_somewhere_else_fails(self):
-        source = os.path.join(self.tmp, "source")
+        # A copy found through HDF5_EXT_PREFIX, though the declared file is present
+        # beside the info file, is a file the info file did not declare.
+        source = os.path.join(self.tmp, "declared")
         other = os.path.join(self.tmp, "other")
         os.makedirs(source)
         os.makedirs(other)
-        info = write_source(source, [{"forests": [lone(1)]}])
+        info = write_hdf5_source(source, [{"forests": [hdf5_lone_forest(1)]}])
         shutil.copy(os.path.join(source, "forests_0.h5"), other)
         with mock.patch.dict(os.environ, {"HDF5_EXT_PREFIX": other}):
             with self.assertRaisesRegex(ConverterError, "resolved to .*other.*not the declared"):
                 adapter_for(info).inventory()
 
     def test_a_nested_external_link_pins_every_file(self):
-        info = write_source(self.tmp, [{"forests": [lone(1), lone(2)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}]
+        )
         data = os.path.join(self.tmp, "forests_0.h5")
         with h5py.File(data, "r+") as handle:
             mvir = handle["Forests/Mvir"][()]
@@ -1085,7 +897,9 @@ class DependencyTests(TempDirCase):
         for present in (False, True):
             with self.subTest(source_present=present):
                 tmp = tempfile.mkdtemp(dir=self.tmp)
-                info = write_source(tmp, [{"forests": [lone(1), lone(2)]}])
+                info = write_hdf5_source(
+                    tmp, [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}]
+                )
                 data = os.path.join(tmp, "forests_0.h5")
                 if present:
                     with h5py.File(os.path.join(tmp, "vsrc.h5"), "w") as handle:
@@ -1099,7 +913,9 @@ class DependencyTests(TempDirCase):
                     adapter_for(info).inventory()
 
     def test_unallocated_storage_fails_rather_than_reading_fill_values(self):
-        info = write_source(self.tmp, [{"forests": [lone(1), lone(2)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}]
+        )
         with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r+") as handle:
             del handle["Forests/vrms"]
             handle["Forests"].create_dataset("vrms", shape=(2,), dtype="<f8")
@@ -1109,7 +925,9 @@ class DependencyTests(TempDirCase):
             adapter_for(info).inventory()
 
     def test_a_partially_allocated_chunked_dataset_fails(self):
-        info = write_source(self.tmp, [{"forests": [lone(i) for i in range(1, 5)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(i) for i in range(1, 5)]}]
+        )
         with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r+") as handle:
             del handle["Forests/x"]
             dataset = handle["Forests"].create_dataset("x", shape=(4,), dtype="<f8", chunks=(2,))
@@ -1118,7 +936,9 @@ class DependencyTests(TempDirCase):
             adapter_for(info).inventory()
 
     def test_fully_written_chunked_and_compressed_datasets_are_accepted(self):
-        info = write_source(self.tmp, [{"forests": [lone(i) for i in range(1, 5)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(i) for i in range(1, 5)]}]
+        )
         with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r+") as handle:
             del handle["Forests/x"]
             handle["Forests"].create_dataset(
@@ -1128,7 +948,9 @@ class DependencyTests(TempDirCase):
         self.assertEqual(table["payload"]["Pos"][:, 0].tolist(), [1.0, 2.0, 3.0, 4.0])
 
     def test_hdf5_external_raw_storage_fails(self):
-        info = write_source(self.tmp, [{"forests": [lone(1), lone(2)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}]
+        )
         raw = os.path.join(self.tmp, "raw.bin")
         with open(raw, "wb") as handle:
             handle.write(np.array([5.0, 6.0], dtype="<f8").tobytes())
@@ -1139,7 +961,7 @@ class DependencyTests(TempDirCase):
             adapter_for(info).inventory()
 
     def test_soft_links_on_the_read_path_fail(self):
-        info = write_source(self.tmp, [{"forests": [lone(1)]}], layout="internal")
+        info = write_hdf5_source(self.tmp, [{"forests": [hdf5_lone_forest(1)]}], layout="internal")
         with h5py.File(info, "r+") as handle:
             handle["File0/Forests/Alias"] = h5py.SoftLink("/File0/Forests/vmax")
             handle.move("File0/Forests/vmax", "File0/Forests/vmax_real")
@@ -1148,7 +970,7 @@ class DependencyTests(TempDirCase):
             adapter_for(info).inventory()
 
     def test_a_group_where_a_dataset_belongs_fails(self):
-        info = write_source(self.tmp, [{"forests": [lone(1)]}])
+        info = write_hdf5_source(self.tmp, [{"forests": [hdf5_lone_forest(1)]}])
         with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r+") as handle:
             del handle["Forests/vz"]
             handle["Forests"].create_group("vz")
@@ -1156,7 +978,7 @@ class DependencyTests(TempDirCase):
             adapter_for(info).inventory()
 
     def test_a_dependency_changed_after_inventory_fails(self):
-        info = write_source(self.tmp, [{"forests": [lone(1)]}])
+        info = write_hdf5_source(self.tmp, [{"forests": [hdf5_lone_forest(1)]}])
         adapter = adapter_for(info)
         adapter.inventory()
         data = os.path.join(self.tmp, "forests_0.h5")
@@ -1184,11 +1006,13 @@ class DependencyTests(TempDirCase):
             si.pin_source_file(self.tmp)
 
     def test_dependency_objects_name_everything_read(self):
-        info = write_source(self.tmp, [{"forests": [lone(1)]}])
+        info = write_hdf5_source(self.tmp, [{"forests": [hdf5_lone_forest(1)]}])
         adapter = adapter_for(info)
         objects = [o for d in adapter.dependencies() for o in d.objects]
         expected = {"/", "/File0", "/File0/ForestInfo", "/File0/Forests"}
-        expected.update("/File0/Forests/" + name for name in LINKS + FLOATS + ("id", "Snap_num"))
+        expected.update(
+            "/File0/Forests/" + name for name in HDF5_LINKS + HDF5_FLOATS + ("id", "Snap_num")
+        )
         self.assertEqual(set(objects), expected)
         self.assertEqual(len(objects), len(expected))
 
@@ -1200,7 +1024,9 @@ class DependencyTests(TempDirCase):
 
 class DtypeTests(TempDirCase):
     def replace(self, name, values, dtype):
-        info = write_source(self.tmp, [{"forests": [lone(1), lone(2)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}]
+        )
         with h5py.File(os.path.join(self.tmp, "forests_0.h5"), "r+") as handle:
             del handle["Forests/" + name]
             handle["Forests"].create_dataset(name, data=np.asarray(values, dtype=dtype))
@@ -1215,6 +1041,7 @@ class DtypeTests(TempDirCase):
             ("Descendant", [-1.0, -1.0], "<f8", "stored as <f8"),
             ("id", [1, 2], "<u8", "stored as <u8"),
             ("id", [1, 2], ">i8", "stored as >i8"),
+            ("Snap_num", [1, 2], "<i4", "stored as <i4"),
         )
         for name, values, dtype, message in cases:
             with self.subTest(name=name, dtype=dtype):
@@ -1250,11 +1077,13 @@ class ExtraFieldTests(TempDirCase):
             "Spin": np.array([0.0312345678901, 0.05], dtype="<f8"),
             "pid": np.array([-1, 2**61 + 3], dtype="<i8"),
         }
-        info = write_source(
-            self.tmp, [{"forests": [lone(1), lone(2)]}], extra_columns=extra_columns
+        info = write_hdf5_source(
+            self.tmp,
+            [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}],
+            extra_columns=extra_columns,
         )
         table, _ = collect(
-            adapter_for(info, load_schema("consistent_trees_hdf5_extras_example.yaml"))
+            adapter_for(info, load_hdf5_schema("consistent_trees_hdf5_extras_example.yaml"))
         )
         extras = table["extras"]
         self.assertEqual(extras["CatalogRvir"].dtype, np.float64)
@@ -1264,7 +1093,7 @@ class ExtraFieldTests(TempDirCase):
 
     def test_an_extra_reusing_a_role_keeps_its_pre_convention_value(self):
         j, mvir = 5405231842636.223, 372032027743.45966
-        info = write_source(self.tmp, [{"forests": [lone(1, Jx=j, Mvir=mvir)]}])
+        info = write_hdf5_source(self.tmp, [{"forests": [hdf5_lone_forest(1, Jx=j, Mvir=mvir)]}])
         schema = schema_from(
             [
                 self.extra("RawJx", [{"field": "Jx"}], "double"),
@@ -1283,8 +1112,10 @@ class ExtraFieldTests(TempDirCase):
             "A": np.array([[1.5, 2.5, 3.5], [4.5, 5.5, 6.5]], dtype="<f4"),
             "n": np.array([7, -8], dtype="<i4"),
         }
-        info = write_source(
-            self.tmp, [{"forests": [lone(1), lone(2)]}], extra_columns=extra_columns
+        info = write_hdf5_source(
+            self.tmp,
+            [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}],
+            extra_columns=extra_columns,
         )
         schema = schema_from(
             [
@@ -1317,8 +1148,10 @@ class ExtraFieldTests(TempDirCase):
 
     def test_extra_type_and_arity_mismatches_fail(self):
         extra_columns = {"A": np.zeros((2, 3), dtype="<f8"), "n": np.array([1, 2], dtype="<i8")}
-        info = write_source(
-            self.tmp, [{"forests": [lone(1), lone(2)]}], extra_columns=extra_columns
+        info = write_hdf5_source(
+            self.tmp,
+            [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}],
+            extra_columns=extra_columns,
         )
         cases = (
             (
@@ -1346,9 +1179,9 @@ class ExtraFieldTests(TempDirCase):
                     adapter_for(info, schema_from(extras)).inventory()
 
     def test_non_finite_extra_values_fail(self):
-        info = write_source(
+        info = write_hdf5_source(
             self.tmp,
-            [{"forests": [lone(1), lone(2)]}],
+            [{"forests": [hdf5_lone_forest(1), hdf5_lone_forest(2)]}],
             extra_columns={"R": np.array([1.0, np.nan])},
         )
         schema = schema_from([self.extra("R2", [{"field": "R"}], "double")])
@@ -1366,7 +1199,7 @@ class ExtraFieldTests(TempDirCase):
 def chain_forest(n):
     """A linear main-branch chain of n halos across n snapshots."""
     rows = [
-        halo(
+        hdf5_halo(
             snap=n - 1 - i,
             FirstProgenitor=i + 1 if i + 1 < n else -1,
             Descendant=i - 1,
@@ -1374,13 +1207,19 @@ def chain_forest(n):
         )
         for i in range(n)
     ]
-    return forest(99, *rows)
+    return hdf5_forest(99, *rows)
 
 
 class ChunkingTests(TempDirCase):
     def test_a_forest_larger_than_the_chunk_is_split_and_unchanged(self):
-        info = write_source(
-            self.tmp, [{"forests": [lone(1), chain_forest(9), lone(2)], "order": [2, 1, 0]}]
+        info = write_hdf5_source(
+            self.tmp,
+            [
+                {
+                    "forests": [hdf5_lone_forest(1), chain_forest(9), hdf5_lone_forest(2)],
+                    "order": [2, 1, 0],
+                }
+            ],
         )
         reference, _ = collect(adapter_for(info), max_rows=1000)
         for max_rows in (1, 2, 3, 4, 7):
@@ -1400,7 +1239,7 @@ class ChunkingTests(TempDirCase):
         )
 
     def test_topology_reads_are_chunked_within_a_forest(self):
-        info = write_source(self.tmp, [{"forests": [chain_forest(10)]}])
+        info = write_hdf5_source(self.tmp, [{"forests": [chain_forest(10)]}])
         with mock.patch.object(ch, "TOPOLOGY_READ_CHUNK_ROWS", 3):
             reads = []
             original = CTreesHDF5Adapter._read
@@ -1447,7 +1286,7 @@ class ChunkingTests(TempDirCase):
             "Snap_num": Synthetic(lambda rows: np.full(rows.shape, 3)),
             "id": Synthetic(lambda rows: rows * 3),
         }
-        for role in FLOATS:
+        for role in HDF5_FLOATS:
             datasets[role] = Synthetic(lambda rows: np.full(rows.shape, 3.27e10))
         plan = ch._FilePlan(
             ordinal=5,
@@ -1464,8 +1303,8 @@ class ChunkingTests(TempDirCase):
             dtypes={},
         )
         adapter = CTreesHDF5Adapter.__new__(CTreesHDF5Adapter)
-        adapter.schema = load_schema()
-        adapter.particle_mass = PARTICLE_MASS
+        adapter.schema = load_hdf5_schema()
+        adapter.particle_mass = UCHUU_PARTICLE_MASS
         adapter.max_snapshot = None
         columns = adapter._columns(
             datasets, plan, 0, offset, n_halos, base_id, start, 4, "synthetic"
@@ -1529,7 +1368,7 @@ def numbered(forest_id, first_id, forest_spec):
     """``forest_spec`` with every row's catalog ``id`` set explicitly, so the
     stored ids do not depend on where the forest sits in the datasets."""
     rows = [dict(row, id=first_id + index) for index, row in enumerate(forest_spec["rows"])]
-    return forest(forest_id, *rows)
+    return hdf5_forest(forest_id, *rows)
 
 
 class ReadWindowTests(TempDirCase):
@@ -1539,11 +1378,11 @@ class ReadWindowTests(TempDirCase):
 
     def mixed_forests(self):
         return [
-            numbered(1, 100, lone(1)),
+            numbered(1, 100, hdf5_lone_forest(1)),
             numbered(2, 200, chain_forest(9)),
-            numbered(3, 300, MERGER_FOREST),
-            forest(4),
-            numbered(5, 500, lone(5)),
+            numbered(3, 300, HDF5_MERGER_FOREST),
+            hdf5_forest(4),
+            numbered(5, 500, hdf5_lone_forest(5)),
             numbered(6, 600, chain_forest(4)),
         ]
 
@@ -1560,7 +1399,7 @@ class ReadWindowTests(TempDirCase):
                     )
 
     def test_windows_smaller_than_a_forest_fall_back_for_that_forest_only(self):
-        info = write_source(
+        info = write_hdf5_source(
             self.tmp,
             [
                 {
@@ -1568,7 +1407,7 @@ class ReadWindowTests(TempDirCase):
                     "extra_columns": {"pid": np.arange(19, dtype="<i8") * 7 - 3},
                 },
                 {
-                    "forests": [numbered(7, 700, lone(7))],
+                    "forests": [numbered(7, 700, hdf5_lone_forest(7))],
                     "extra_columns": {"pid": np.array([11], dtype="<i8")},
                 },
             ],
@@ -1602,8 +1441,8 @@ class ReadWindowTests(TempDirCase):
         forests = self.mixed_forests()
         for name in ("ordered", "shuffled"):
             os.makedirs(os.path.join(self.tmp, name))
-        ordered = write_source(os.path.join(self.tmp, "ordered"), [{"forests": forests}])
-        shuffled = write_source(
+        ordered = write_hdf5_source(os.path.join(self.tmp, "ordered"), [{"forests": forests}])
+        shuffled = write_hdf5_source(
             os.path.join(self.tmp, "shuffled"),
             [{"forests": forests, "order": list(reversed(range(len(forests))))}],
         )
@@ -1630,7 +1469,9 @@ class ReadWindowTests(TempDirCase):
 
     def test_each_dataset_is_read_once_per_window(self):
         n_forests, window_rows = 50, 16
-        info = write_source(self.tmp, [{"forests": [lone(i) for i in range(1, n_forests + 1)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(i) for i in range(1, n_forests + 1)]}]
+        )
         reads = []
         original = CTreesHDF5Adapter._read
 
@@ -1650,7 +1491,7 @@ class ReadWindowTests(TempDirCase):
     def test_batches_own_their_memory_rather_than_viewing_a_window(self):
         """A batch that viewed its read window would keep the whole window
         alive until the batch is written."""
-        info = write_source(
+        info = write_hdf5_source(
             self.tmp,
             [{"forests": self.mixed_forests()}],
             extra_columns={
@@ -1659,7 +1500,7 @@ class ReadWindowTests(TempDirCase):
                 "pid": np.arange(19),
             },
         )
-        schema = load_schema("consistent_trees_hdf5_extras_example.yaml")
+        schema = load_hdf5_schema("consistent_trees_hdf5_extras_example.yaml")
         for max_rows in (1, 5, 1000):
             with self.subTest(max_rows=max_rows):
                 for batch in adapter_for(info, schema).iter_batches(max_rows):
@@ -1668,7 +1509,7 @@ class ReadWindowTests(TempDirCase):
                             self.assertTrue(values.flags.owndata, (group, name))
 
     def test_the_window_is_sized_from_the_budget(self):
-        info = write_source(self.tmp, [{"forests": self.mixed_forests()}])
+        info = write_hdf5_source(self.tmp, [{"forests": self.mixed_forests()}])
         adapter = adapter_for(info)
         adapter.inventory()
         plan = adapter._plans[0]
@@ -1687,7 +1528,7 @@ class ReadWindowTests(TempDirCase):
         self.assertEqual(adapter._window_rows(plan), 0)
 
     def test_a_window_held_forest_is_charged_the_window_as_its_read_buffer(self):
-        info = write_source(self.tmp, [{"forests": self.mixed_forests()}])
+        info = write_hdf5_source(self.tmp, [{"forests": self.mixed_forests()}])
         adapter = adapter_for(info)
         charged = []
         real_check = ch.check_validation_budget
@@ -1712,7 +1553,9 @@ class ReadWindowTests(TempDirCase):
 
 class BudgetTests(TempDirCase):
     def test_an_over_budget_inventory_fails_before_forest_info_is_read(self):
-        info = write_source(self.tmp, [{"forests": [lone(i) for i in range(1, 11)]}])
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [hdf5_lone_forest(i) for i in range(1, 11)]}]
+        )
         with mock.patch.object(h5py.Dataset, "fields", side_effect=AssertionError("read")):
             with self.assertRaisesRegex(ConverterError, "inventory of 10 forests"):
                 adapter_for(
@@ -1724,7 +1567,7 @@ class BudgetTests(TempDirCase):
 
     def test_forest_validation_budget_is_exact_at_its_boundary(self):
         n = 50
-        info = write_source(self.tmp, [{"forests": [chain_forest(n)]}])
+        info = write_hdf5_source(self.tmp, [{"forests": [chain_forest(n)]}])
         need = (
             n * VALIDATION_BYTES_PER_HALO
             + n * TOPOLOGY_READ_BUFFER_BYTES_PER_ROW
@@ -1752,45 +1595,53 @@ class BudgetTests(TempDirCase):
         )
 
     def test_an_emission_buffer_over_the_budget_is_refused_before_any_forest_is_read(self):
+        """The emission term is checked once, before the first forest, and the extras a
+        schema selects widen both its raw and its canonical widths: the extras example reads
+        three more 8-byte datasets and emits three more 8-byte columns."""
         n = 1000
-        info = write_source(self.tmp, [{"forests": [chain_forest(n)]}])
-        need = self.emission_need(n)
-        self.assertGreater(need - 1, INVENTORY_BASE_BYTES + INVENTORY_BYTES_PER_UNIT)
-        adapter = adapter_for(info, memory_budget_bytes=need - 1)
-        with mock.patch.object(
-            CTreesHDF5Adapter, "_read", staticmethod(mock.Mock(side_effect=AssertionError("read")))
-        ):
-            with self.assertRaises(ConverterError) as caught:
-                list(adapter.iter_batches(n))
-        message = str(caught.exception)
-        self.assertIn(
-            "emission (batches of 1000 rows, 152 B/row raw read plus 152 B/row canonical", message
+        extra_columns = {"Rvir": np.ones(n), "Spin": np.zeros(n), "pid": np.arange(n)}
+        info = write_hdf5_source(
+            self.tmp, [{"forests": [chain_forest(n)]}], extra_columns=extra_columns
         )
-        self.assertIn("--ingest-max-rows", message)
-        self.assertIn("memory_budget_bytes", message)
+        cases = (
+            ("default profile", load_hdf5_schema(), 0, 152),
+            (
+                "extras example",
+                load_hdf5_schema("consistent_trees_hdf5_extras_example.yaml"),
+                24,
+                176,
+            ),
+        )
+        for label, schema, extra_width, width in cases:
+            with self.subTest(label):
+                need = self.emission_need(n, extra_raw=extra_width, extra_canonical=extra_width)
+                self.assertGreater(need - 1, INVENTORY_BASE_BYTES + INVENTORY_BYTES_PER_UNIT)
+                adapter = adapter_for(info, schema, memory_budget_bytes=need - 1)
+                with mock.patch.object(
+                    CTreesHDF5Adapter,
+                    "_read",
+                    staticmethod(mock.Mock(side_effect=AssertionError("read"))),
+                ):
+                    with self.assertRaises(ConverterError) as caught:
+                        list(adapter.iter_batches(n))
+                message = str(caught.exception)
+                self.assertIn(
+                    "emission (batches of 1000 rows, {w} B/row raw read plus {w} B/row "
+                    "canonical".format(w=width),
+                    message,
+                )
+                self.assertIn("--ingest-max-rows", message)
+                self.assertIn("memory_budget_bytes", message)
+                collect(adapter_for(info, schema, memory_budget_bytes=need), n)
 
     def test_an_emission_buffer_at_the_budget_is_accepted(self):
         n = 1000
-        info = write_source(self.tmp, [{"forests": [chain_forest(n)]}])
+        info = write_hdf5_source(self.tmp, [{"forests": [chain_forest(n)]}])
         table, batches = collect(adapter_for(info, memory_budget_bytes=self.emission_need(n)), n)
         self.assertEqual([batch.n_rows for batch in batches], [n])
         self.assertEqual(table["identity"]["SourceHaloID"].tolist(), list(range(1, n + 1)))
         # Far above the source's halo count, the term is charged for its rows.
         collect(adapter_for(info, memory_budget_bytes=self.emission_need(n)), 100 * n)
-
-    def test_the_extras_widen_both_emission_widths(self):
-        """The extras example reads three more 8-byte datasets and emits three
-        8-byte columns."""
-        n = 1000
-        extra_columns = {"Rvir": np.ones(n), "Spin": np.zeros(n), "pid": np.arange(n)}
-        info = write_source(self.tmp, [{"forests": [chain_forest(n)]}], extra_columns=extra_columns)
-        schema = load_schema("consistent_trees_hdf5_extras_example.yaml")
-        need = self.emission_need(n, extra_raw=24, extra_canonical=24)
-        with self.assertRaisesRegex(
-            ConverterError, "176 B/row raw read plus 176 B/row canonical columns"
-        ):
-            list(adapter_for(info, schema, memory_budget_bytes=need - 1).iter_batches(n))
-        collect(adapter_for(info, schema, memory_budget_bytes=need), n)
 
     def test_the_default_batch_size_fits_the_default_budget_for_the_shipped_profiles(self):
         """Pins the figures at the CLI defaults: ``--ingest-max-rows`` 1 << 20
@@ -1805,19 +1656,13 @@ class BudgetTests(TempDirCase):
             ("consistent_trees_hdf5_extras_example.yaml", 176, 738_197_504),
         ):
             with self.subTest(profile=profile):
-                schema = load_schema(profile)
+                schema = load_hdf5_schema(profile)
                 self.assertEqual(topology.canonical_row_bytes(schema), width)
                 self.assertEqual(2 * rows * (width + width), figure)
                 self.assertLessEqual(figure, ch.DEFAULT_MEMORY_BUDGET_BYTES)
                 topology.check_emission_budget(
                     schema, rows, rows, width, ch.DEFAULT_MEMORY_BUDGET_BYTES
                 )
-
-    def test_non_positive_or_fractional_budgets_are_rejected(self):
-        info = write_source(self.tmp, [{"forests": [lone(1)]}])
-        for bad in (0, -1, 1.5, True):
-            with self.assertRaises(ConverterError):
-                adapter_for(info, memory_budget_bytes=bad)
 
 
 class BudgetAccountingTests(TempDirCase):
@@ -1853,7 +1698,7 @@ class BudgetAccountingTests(TempDirCase):
             for name, values in links.items():
                 data.create_dataset(name, data=values)
             data.create_dataset("id", data=np.arange(n, dtype="<i8"))
-            for name in FLOATS:
+            for name in HDF5_FLOATS:
                 data.create_dataset(name, data=np.full(n, 3.27e10))
             snaps = np.arange(n - 1, -1, -1)
             data.create_dataset("Snap_idx", data=snaps.astype("<f8" if snap_float else "<i8"))
@@ -1970,11 +1815,11 @@ def write_many_lone_forests(path, n_forests):
         table["ForestNtrees"] = 1
         group.create_dataset("ForestInfo", data=table)
         data = group.create_group("Forests")
-        for name in LINKS:
+        for name in HDF5_LINKS:
             fill = 0 if name == "FirstHaloInFOFgroup" else -1
             data.create_dataset(name, data=np.full(n_forests, fill, dtype="<i8"))
         data.create_dataset("id", data=rows)
-        for name in FLOATS:
+        for name in HDF5_FLOATS:
             data.create_dataset(name, data=np.full(n_forests, 3.27e10))
         data.create_dataset("Snap_num", data=np.zeros(n_forests, dtype="<i8"))
 
@@ -2009,13 +1854,16 @@ class RealMicroUchuuTests(unittest.TestCase):
         with h5py.File(REAL_MICRO_UCHUU, "r") as handle:
             info = handle["File0/ForestInfo"][()]
             forests = handle["File0/Forests"]
-            raw = {name: forests[name][:n_rows] for name in LINKS + FLOATS + ("id", "Snap_num")}
+            raw = {
+                name: forests[name][:n_rows]
+                for name in HDF5_LINKS + HDF5_FLOATS + ("id", "Snap_num")
+            }
         offsets = info["ForestHalosOffset"]
         counts = info["ForestNhalos"]
         self.assertEqual(int(offsets[0]), 0)
         forest_of_row = np.repeat(np.arange(len(counts)), counts)[:n_rows]
         base = offsets[forest_of_row] + 1  # ForestInfo is in storage order here
-        for name in LINKS:
+        for name in HDF5_LINKS:
             local = raw[name]
             expected = np.where(local >= 0, base + local, -1)
             np.testing.assert_array_equal(batch.links[name], expected, err_msg=name)

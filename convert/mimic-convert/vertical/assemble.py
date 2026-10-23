@@ -45,6 +45,7 @@ stop. The assembler holds no other per-forest state.
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -173,8 +174,8 @@ class ForestAssembler:
 
     Args:
         dataset: the open dataset.
-        halo_properties: the package's ``halo_properties.yaml`` path, or its parsed list; the
-            record is :func:`vertical.record.record_dtype` of it.
+        halo_properties: the package's ``halo_properties.yaml`` path; the record is
+            :func:`vertical.record.record_dtype` of it.
         window_rows: rows per window read from each slab.
 
     Raises:
@@ -188,7 +189,7 @@ class ForestAssembler:
     def __init__(
         self,
         dataset: HorizontalDataset,
-        halo_properties: Union[str, "os.PathLike[str]", Sequence[dict]],
+        halo_properties: Union[str, Path],
         window_rows: int = DEFAULT_WINDOW_ROWS,
     ):
         self.dataset = dataset

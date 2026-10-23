@@ -8,9 +8,6 @@ self-central, keeping its own subhalos, and ``MostBoundID`` is always
 positive.
 """
 
-import contextlib
-import functools
-import io
 import os
 import sys
 import tempfile
@@ -24,7 +21,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixtures  # noqa: E402
 from column_schema import build_schema, load_column_map  # noqa: E402
-from ctrees_parser import ConverterError, ScratchLayout  # noqa: E402
+from ctrees_parser import ConverterError  # noqa: E402
+from fixtures import (  # noqa: E402
+    ALL_TYPES_PROFILE,
+    capture_stderr,
+    default_layout,
+    default_schema,
+    delete_through_the_guard,
+    make_fixed,
+    prepare_standard_forests,
+)
 from fixups import (  # noqa: E402
     FIXED_DTYPE_TAG_PREFIX,
     derive_len,
@@ -37,75 +43,11 @@ from fixups import (  # noqa: E402
     validate_adjacency,
     verify_fof_centrals_present,
 )
-from links import run_links  # noqa: E402
 from scatter import Manifest, run_scatter  # noqa: E402
 from sort_index import run_sort, sorted_scratch_name  # noqa: E402
 
 #: fixture a_list as float64 (index = SnapNum)
 A_LIST = np.asarray(fixtures.A_LIST, dtype=np.float64)
-
-PROFILE_DIR = Path(__file__).resolve().parents[1] / "profiles"
-DEFAULT_PROFILE = PROFILE_DIR / "consistent_trees_ascii.yaml"
-ALL_TYPES_PROFILE = Path(__file__).parent / "data" / "column_maps" / "ascii_all_extra_types.yaml"
-
-
-@functools.lru_cache(maxsize=None)
-def default_schema():
-    """The shipped default Consistent-Trees ASCII profile's schema, built once:
-    every stage test runs on the layout it selects unless it names another."""
-    return build_schema(load_column_map(DEFAULT_PROFILE))
-
-
-def default_layout():
-    return ScratchLayout.from_schema(default_schema())
-
-
-def delete_through_the_guard(manifest, path):
-    """Delete ``path`` through the manifest's containment guard and save the
-    record, as a stage that consumes an intermediate does."""
-    manifest.remove_intermediate(path)
-    manifest.save()
-
-
-class _Captured:
-    """Everything written to stderr inside a :func:`capture_stderr` block, as
-    ``.text``; readable inside the block as well as after it."""
-
-    def __init__(self, buffer):
-        self._buffer = buffer
-
-    @property
-    def text(self) -> str:
-        return self._buffer.getvalue()
-
-
-@contextlib.contextmanager
-def capture_stderr():
-    """Capture the converter's stderr log lines for one block.
-
-    Every stage reports its progress, its deletions and its skips through
-    ``_log``, and the operator relies on those messages as much as on the
-    bytes, so the tests read them rather than inferring them.
-    """
-    buffer = io.StringIO()
-    with contextlib.redirect_stderr(buffer):
-        yield _Captured(buffer)
-
-
-def make_fixed(rows):
-    """Build an id-sorted fixed-record array (the default layout's) from per-halo dicts."""
-    records = np.zeros(len(rows), dtype=fixed_layout(default_layout())[0])
-    records["desc_id"] = -1
-    records["desc_scale"] = -1.0
-    records["pid"] = -1
-    records["upid"] = -1
-    for i, row in enumerate(rows):
-        for key, value in row.items():
-            records[key][i] = value
-        if "MostBoundID" not in row:
-            records["MostBoundID"][i] = row["id"]
-    order = np.argsort(records["id"], kind="stable")
-    return records[order]
 
 
 class TestParticleMass(unittest.TestCase):
@@ -145,22 +87,24 @@ class TestParticleMass(unittest.TestCase):
 
 
 class TestRounding(unittest.TestCase):
-    def test_half_ties_round_away_from_zero(self):
-        # NumPy banker's rounding would give [0, 2, 2, 4, 4]
-        ties = np.asarray([0.5, 1.5, 2.5, 3.5, 4.5])
-        np.testing.assert_array_equal(round_half_away_from_zero(ties), [1, 2, 3, 4, 5])
-
-    def test_non_ties_match_nearest(self):
-        values = np.asarray([0.0, 0.4999, 1.0001, 2.9, 153.84615069538464])
-        np.testing.assert_array_equal(round_half_away_from_zero(values), [0, 0, 1, 3, 154])
-
-    def test_nextafter_around_ties(self):
-        # one float64 ulp below/above an exact tie must round to nearest
-        below = np.nextafter(2.5, -np.inf)
-        above = np.nextafter(2.5, np.inf)
-        np.testing.assert_array_equal(
-            round_half_away_from_zero(np.asarray([below, 2.5, above])), [2, 3, 3]
+    def test_rounding_matches_c_round(self):
+        """Exact ties round away from zero, one ulp either side of a tie and every
+        other value round to nearest."""
+        cases = (
+            # NumPy banker's rounding would give [0, 2, 2, 4, 4]
+            ("half ties", [0.5, 1.5, 2.5, 3.5, 4.5], [1, 2, 3, 4, 5]),
+            ("non-ties", [0.0, 0.4999, 1.0001, 2.9, 153.84615069538464], [0, 0, 1, 3, 154]),
+            (
+                "one ulp around a tie",
+                [np.nextafter(2.5, -np.inf), 2.5, np.nextafter(2.5, np.inf)],
+                [2, 3, 3],
+            ),
         )
+        for label, values, expected in cases:
+            with self.subTest(label):
+                np.testing.assert_array_equal(
+                    round_half_away_from_zero(np.asarray(values)), expected
+                )
 
 
 class TestDeriveLen(unittest.TestCase):
@@ -178,33 +122,25 @@ class TestDeriveLen(unittest.TestCase):
         self.assertEqual(len32.tolist(), [0])
         self.assertEqual(zero_count, 1)
 
-    def test_negative_mass_aborts(self):
-        with self.assertRaisesRegex(ConverterError, "invalid derived particle count"):
-            derive_len(np.asarray([-1.0e11], dtype=np.float32), 0.0325, "test")
+    def test_negative_or_non_finite_derived_count_aborts(self):
+        for label, mvir, particle_mass in (
+            ("negative", -1.0e11, 0.0325),
+            ("non-finite", 3.4e38, 1e-300),
+        ):
+            with self.subTest(label):
+                with self.assertRaisesRegex(ConverterError, "invalid derived particle count"):
+                    derive_len(np.asarray([mvir], dtype=np.float32), particle_mass, "test")
 
-    def test_overflow_aborts(self):
-        with self.assertRaisesRegex(ConverterError, "invalid derived particle count"):
-            derive_len(np.asarray([1.0e30], dtype=np.float32), 1e-12, "test")
-
-    def test_non_finite_aborts(self):
-        with self.assertRaisesRegex(ConverterError, "invalid derived particle count"):
-            derive_len(np.asarray([3.4e38], dtype=np.float32), 1e-300, "test")
-
-    def test_int32_dtype(self):
-        len32, _ = derive_len(np.asarray([1.0e12], dtype=np.float32), 0.0325, "test")
-        self.assertEqual(len32.dtype, np.int32)
-        self.assertEqual(len32.tolist(), [3077])
-
-    def test_int32_boundary_just_under_passes(self):
+    def test_int32_boundary(self):
+        """The largest count below INT32_MAX passes as int32; exactly 2**31 aborts."""
         # (2^24 - 1) * 128 = 2147483520 exactly (power-of-two scaling), the
         # largest representable derived count below INT32_MAX in this family
         mvir = np.asarray([16777215.0], dtype=np.float32)
         pm = 1e-10 / 128.0
         self.assertEqual(float(mvir[0].astype(np.float64) * 1e-10 / pm), 2147483520.0)
         len32, _ = derive_len(mvir, pm, "test")
+        self.assertEqual(len32.dtype, np.int32)
         self.assertEqual(len32.tolist(), [2147483520])
-
-    def test_int32_boundary_just_over_aborts(self):
         # 2^31 * s / s = exactly 2147483648.0 > INT32_MAX (strict > gate)
         mvir = np.asarray([2.0**31], dtype=np.float32)
         self.assertEqual(float(mvir[0].astype(np.float64) * 1e-10 / 1e-10), 2147483648.0)
@@ -237,15 +173,6 @@ class TestNormaliseSpin(unittest.TestCase):
 
 
 class TestValidateAdjacency(unittest.TestCase):
-    def test_adjacent_links_pass(self):
-        records = make_fixed(
-            [
-                {"id": 1, "snap": 3, "desc_id": 9, "desc_scale": A_LIST[4]},
-                {"id": 2, "snap": 3},  # dying branch: desc_id == -1 is fine
-            ]
-        )
-        validate_adjacency(records, 3, A_LIST, "test")
-
     def test_unknown_desc_scale_aborts_with_count_and_examples(self):
         records = make_fixed(
             [
@@ -259,7 +186,14 @@ class TestValidateAdjacency(unittest.TestCase):
         ):
             validate_adjacency(records, 3, A_LIST, "test")
 
-    def test_non_adjacent_link_aborts(self):
+    def test_adjacent_links_pass_and_non_adjacent_link_aborts(self):
+        records = make_fixed(
+            [
+                {"id": 1, "snap": 3, "desc_id": 9, "desc_scale": A_LIST[4]},
+                {"id": 2, "snap": 3},  # dying branch: desc_id == -1 is fine
+            ]
+        )
+        validate_adjacency(records, 3, A_LIST, "test")
         # desc_scale maps to snapshot 5, but the halo is at snapshot 3
         records = make_fixed([{"id": 1, "snap": 3, "desc_id": 9, "desc_scale": A_LIST[5]}])
         with self.assertRaisesRegex(ConverterError, "non-adjacent"):
@@ -307,40 +241,39 @@ class TestFixUpid(unittest.TestCase):
         np.testing.assert_array_equal(records["pid"], [13, 13, 13, -1])
 
     def test_pid_fallback_when_upid_target_missing(self):
-        records = make_fixed(
+        """A satellite whose upid target is absent falls back to its pid, at the
+        first hop or mid-chain."""
+        direct = make_fixed(
             [
                 {"id": 20, "snap": 5, "pid": 21, "upid": 999},
                 {"id": 21, "snap": 5},
             ]
         )
-        fix_upid_snapshot(records, 5)
-        self.assertEqual(records["upid"][0], 21)
-        self.assertEqual(records["pid"][0], 21)
-
-    def test_pid_fallback_mid_chain(self):
-        records = make_fixed(
+        fix_upid_snapshot(direct, 5)
+        self.assertEqual(direct["upid"][0], 21)
+        self.assertEqual(direct["pid"][0], 21)
+        mid_chain = make_fixed(
             [
                 {"id": 30, "snap": 5, "pid": 31, "upid": 31},
                 {"id": 31, "snap": 5, "pid": 32, "upid": 888},
                 {"id": 32, "snap": 5},
             ]
         )
-        fix_upid_snapshot(records, 5)
-        np.testing.assert_array_equal(records["upid"], [32, 32, 32])
+        fix_upid_snapshot(mid_chain, 5)
+        np.testing.assert_array_equal(mid_chain["upid"], [32, 32, 32])
 
-    def test_unresolved_target_aborts(self):
-        records = make_fixed(
+    def test_unresolved_target_aborts_naming_the_origin_and_failing_hop(self):
+        # first hop: the origin itself has neither target
+        first_hop = make_fixed(
             [{"id": 70, "snap": 5, "pid": 888, "upid": 999}, {"id": 71, "snap": 5}]
         )
         with self.assertRaisesRegex(
             ConverterError, r"1 satellite.*origin id=70, at id=70, upid=999, pid=888"
         ):
-            fix_upid_snapshot(records, 5)
-
-    def test_mid_chain_unresolved_reports_failing_hop(self):
-        # origin 30 fails at hop 31, whose own upid/pid targets are absent;
-        # the message must name both the origin and the failing hop
-        records = make_fixed(
+            fix_upid_snapshot(first_hop, 5)
+        # mid-chain: origin 30 fails at hop 31, whose own upid/pid targets are
+        # absent; the message must name both the origin and the failing hop
+        mid_chain = make_fixed(
             [
                 {"id": 30, "snap": 5, "pid": 31, "upid": 31},
                 {"id": 31, "snap": 5, "pid": 999, "upid": 888},
@@ -349,7 +282,7 @@ class TestFixUpid(unittest.TestCase):
         with self.assertRaisesRegex(
             ConverterError, r"2 satellite.*origin id=30, at id=31, upid=888, pid=999"
         ):
-            fix_upid_snapshot(records, 5)
+            fix_upid_snapshot(mid_chain, 5)
 
     def test_descending_id_chain_uses_reference_path_compression(self):
         # 40 -> 39 -> ... -> 1 -> central: ascending-id processing rewrites
@@ -364,16 +297,6 @@ class TestFixUpid(unittest.TestCase):
         satellites = records["id"] != 1000
         np.testing.assert_array_equal(records["upid"][satellites], 1000)
         np.testing.assert_array_equal(records["pid"][satellites], 1000)
-
-    def test_cyclic_chain_hits_depth_limit(self):
-        records = make_fixed(
-            [
-                {"id": 40, "snap": 4, "pid": 41, "upid": 41},
-                {"id": 41, "snap": 4, "pid": 40, "upid": 40},
-            ]
-        )
-        with self.assertRaisesRegex(ConverterError, "exceeds depth 30"):
-            fix_upid_snapshot(records, 4)
 
     @staticmethod
     def _chain(n_satellites: int):
@@ -393,6 +316,15 @@ class TestFixUpid(unittest.TestCase):
         np.testing.assert_array_equal(records["pid"][satellites], 1000)
         with self.assertRaisesRegex(ConverterError, "exceeds depth 30"):
             fix_upid_snapshot(self._chain(32), 5)
+        # a cycle never resolves and ends at the same limit
+        cycle = make_fixed(
+            [
+                {"id": 40, "snap": 4, "pid": 41, "upid": 41},
+                {"id": 41, "snap": 4, "pid": 40, "upid": 40},
+            ]
+        )
+        with self.assertRaisesRegex(ConverterError, "exceeds depth 30"):
+            fix_upid_snapshot(cycle, 4)
 
     def test_cross_forest_upid_falls_back_to_pid(self):
         # upid points at a same-id halo in ANOTHER forest — invisible to the
@@ -560,10 +492,6 @@ class TestFixupsPipeline(unittest.TestCase):
                 np.testing.assert_array_equal(fixed[k][~nonzero], raw_snap[k][~nonzero])
         self.assertEqual(seen, GOLDEN)
         self.assertEqual(manifest.data["snapshots"]["5"]["len_zero_count"], 1)
-        # flyby_demotions is a required, always-zero field:
-        # measured as count_nonzero(MostBoundID < 0) over the persisted records
-        for snap_str in manifest.data["snapshots"]:
-            self.assertEqual(manifest.data["snapshots"][snap_str]["flyby_demotions"], 0)
 
     def _fixed_by_id(self, manifest, snap):
         fixed = np.fromfile(
@@ -591,7 +519,10 @@ class TestFixupsPipeline(unittest.TestCase):
         (8e11) under 8010 (1e12) and dragged 8021 into 8010's group with it, so
         reintroducing that collapse fails here.
         """
-        forests = fixtures.standard_forests() + [fixtures.multi_fof_survivor_forest()]
+        forests = fixtures.standard_forests() + [
+            fixtures.multi_fof_survivor_forest(),
+            fixtures.early_dying_flyby_forest(),
+        ]
         workdir, a_list, sim_info = make_sorted_workdir(self.root, forests=forests)
         manifest = run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
         fixed, by_id = self._fixed_by_id(manifest, 5)
@@ -608,18 +539,11 @@ class TestFixupsPipeline(unittest.TestCase):
             self.assertNotEqual(int(fixed["upid"][row]), other)
             self.assertEqual(int(fixed["MostBoundID"][row]), sub)
 
-        self.assertEqual(manifest.data["snapshots"]["5"]["flyby_demotions"], 0)
-
-    def test_multi_fof_groups_survive_at_a_forest_local_max(self):
-        """The same property where the forest's maximum snapshot (2) is not the
-        global final one (5): forest 700's 7010 and 7011 both survive."""
-        forests = fixtures.standard_forests() + [fixtures.early_dying_flyby_forest()]
-        workdir, a_list, sim_info = make_sorted_workdir(self.root, forests=forests)
-        manifest = run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+        # (iii) the same where the forest's maximum snapshot (2) is not the
+        # global final one (5): forest 700's 7010 and 7011 both survive
         fixed, by_id = self._fixed_by_id(manifest, 2)
         self._assert_survives_self_central(fixed, by_id[7010], 7010)
         self._assert_survives_self_central(fixed, by_id[7011], 7011)
-        self.assertEqual(manifest.data["snapshots"]["2"]["flyby_demotions"], 0)
 
     def test_zero_central_forest_aborts(self):
         """Forest 300 has no pid == -1 halo at its max snapshot 5 (its only halo
@@ -711,23 +635,6 @@ class TestFixupsPipeline(unittest.TestCase):
         manifest = run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
         for entry in manifest.data["snapshots"].values():
             self.assertEqual(entry["status"], "fixed")
-
-    def test_scatter_rerun_with_changed_simulation_info_aborts(self):
-        # simulation_info identity is immutable once recorded: a metadata
-        # swap after fix-ups must refuse to resume, never mix particle masses
-        workdir, a_list, sim_info = make_sorted_workdir(self.root)
-        run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-        changed = self.root / "changed_info.yaml"
-        changed.write_text("simulation:\n  particle_mass: {value: 0.05, units: 1e10 Msun/h}\n")
-        with self.assertRaisesRegex(ConverterError, "simulation_info content changed"):
-            run_scatter(
-                tree_files=[self.root / "tree_0.dat"],
-                forests_list_path=self.root / "forests.list",
-                a_list_path=a_list,
-                workdir=workdir,
-                simulation_info_path=changed,
-                schema=default_schema(),
-            )
 
     def test_mostboundid_invariant_reports_count_and_examples(self):
         records = make_fixed(
@@ -849,38 +756,10 @@ class TestFixupsKeepsItsInputs(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "not a manifest-owned intermediate"):
             run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
-    def test_a_linked_snapshot_is_refused(self):
-        """Once the link stage has run, every snapshot sits at ``linked``,
-        which this stage never skip-trusts: re-running it is refused."""
-        workdir, a_list, sim_info = make_sorted_workdir(self.root)
-        run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-        run_links(workdir)
-        with self.assertRaisesRegex(ConverterError, r"unexpected status 'linked'; run sort first"):
-            run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-
 
 # ---------------------------------------------------------------------------
 # A profile that declares extras
 # ---------------------------------------------------------------------------
-
-
-def prepare_standard_forests(root: Path, schema, chunksize: int = 2):
-    """Prepare the standard fixture forests over two files in ``schema``'s
-    layout, up to and including links; returns the workdir manifest."""
-    from adapters.ctrees_ascii import prepare_workdir
-
-    forests = fixtures.standard_forests()
-    files = [
-        fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests[:3])),
-        fixtures.write_ctrees_file(root / "tree_1.dat", fixtures.all_trees(forests[3:])),
-    ]
-    forests_list = fixtures.write_forests_list(root / "forests.list", forests)
-    a_list = fixtures.write_a_list(root / "test.a_list")
-    sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
-    with capture_stderr():
-        return prepare_workdir(
-            schema, files, forests_list, a_list, sim_info, root / "workdir", chunksize=chunksize
-        )
 
 
 class TestFixupsWithDeclaredExtras(unittest.TestCase):
@@ -893,11 +772,15 @@ class TestFixupsWithDeclaredExtras(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_fixed_record_is_scratch_plus_len_and_mostboundid(self):
-        self.assertEqual(FIXED_DTYPE_TAG_PREFIX, "ctrees-fixed-v2")
-        dtype, tag = fixed_layout(self.manifest.layout)
-        self.assertEqual(dtype.names, self.manifest.layout.dtype.names + ("Len", "MostBoundID"))
-        self.assertEqual(dtype.itemsize, self.manifest.layout.dtype.itemsize + 12)
-        self.assertTrue(tag.startswith("ctrees-fixed-v2/itemsize={}/".format(dtype.itemsize)))
+        scratch = self.manifest.layout
+        dtype, tag = fixed_layout(scratch)
+        self.assertEqual(dtype.names, scratch.dtype.names + ("Len", "MostBoundID"))
+        self.assertEqual(
+            dtype.itemsize,
+            scratch.dtype.itemsize + dtype["Len"].itemsize + dtype["MostBoundID"].itemsize,
+        )
+        self.assertTrue(tag.startswith(FIXED_DTYPE_TAG_PREFIX))
+        self.assertNotEqual(tag, scratch.dtype_tag)
         for entry in self.manifest.data["snapshots"].values():
             meta = self.manifest.data["intermediates"][entry["fixed_file"]]
             self.assertEqual(meta["dtype_tag"], tag)

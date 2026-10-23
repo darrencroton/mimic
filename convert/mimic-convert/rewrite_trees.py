@@ -69,7 +69,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from errors import ConverterError  # noqa: E402
 from rewriter import OPERATION_CUT, OPERATION_NOOP  # noqa: E402
 from rewriter.inputs import RewriteRequest  # noqa: E402
-from subset import SubsetError  # noqa: E402
 from validate_v3 import DEFAULT_MULTIPLIER  # noqa: E402
 
 #: The exit status of every refusal and verification failure.
@@ -156,7 +155,7 @@ def main(argv=None) -> int:
 
     try:
         summary = run_rewrite(request_from_args(args))
-    except (ConverterError, SubsetError, OSError) as exc:
+    except (ConverterError, OSError) as exc:
         print("ERROR: {}".format(exc), file=sys.stderr)
         return EXIT_REFUSED
     print(

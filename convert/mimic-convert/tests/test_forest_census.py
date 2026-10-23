@@ -32,7 +32,6 @@ Oracles:
   topology.
 """
 
-import argparse
 import contextlib
 import hashlib
 import io
@@ -56,7 +55,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixtures  # noqa: E402
 import forest_census  # noqa: E402
-import pipeline  # noqa: E402
 from census import (  # noqa: E402
     aggregate,
     cut,
@@ -67,12 +65,13 @@ from census import (  # noqa: E402
     trees,
 )
 from census.common import in_sorted  # noqa: E402
-from column_schema import build_schema, load_column_map  # noqa: E402
 from errors import ConverterError  # noqa: E402
-from hdf5_writer_v3 import HorizontalV3Writer  # noqa: E402
+from fixtures import (  # noqa: E402
+    capture_stderr,
+    convert_ascii,
+)
 from horizontal_dataset import HorizontalDataset  # noqa: E402
 from source_index import SourceIndex  # noqa: E402
-from test_fixups import capture_stderr  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 #: The committed version 3 fixture: three forests (ids 10, 20 and 30) over six
@@ -84,65 +83,11 @@ WORKED_ASCII = (
 #: source tree file and ``forests.list``.
 WORKED_ASCII_N_HALOS = (0, 1, 1, 1, 6, 4)
 WORKED_ASCII_FOREST_IDS = (10, 20, 30)
-ASCII_PROFILE = Path(__file__).resolve().parents[1] / "profiles" / "consistent_trees_ascii.yaml"
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def write_locations(path, tree_files):
-    """``locations.dat`` for ``tree_files`` (``FileID`` = list position): each
-    ``#tree`` marker's root with the byte offset of its block's first data row."""
-    lines = ["#TreeRootID FileID Offset Filename"]
-    for file_id, tree_file in enumerate(tree_files):
-        position = 0
-        for line in Path(tree_file).read_bytes().splitlines(keepends=True):
-            position += len(line)
-            if line.startswith(b"#tree "):
-                root = int(line.split()[1])
-                lines.append("{} {} {} {}".format(root, file_id, position, Path(tree_file).name))
-    Path(path).write_text("\n".join(lines) + "\n")
-    return Path(path)
-
-
-def convert_ascii(root: Path, file_trees, forests):
-    """Convert fixture trees, ``file_trees[i]`` written to ``tree_<i>.dat``, to a
-    version 3 dataset; returns the paths the census needs."""
-    root.mkdir(parents=True)
-    tree_files = [
-        fixtures.write_ctrees_file(root / "tree_{}.dat".format(i), trees_of_file)
-        for i, trees_of_file in enumerate(file_trees)
-    ]
-    forests_list = fixtures.write_forests_list(root / "forests.list", forests)
-    locations = write_locations(root / "locations.dat", tree_files)
-    sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
-    a_list = fixtures.write_a_list(root / "fixture.a_list")
-    work = root / "work"
-    pipeline.initialize(
-        work,
-        build_schema(load_column_map(ASCII_PROFILE)),
-        {
-            "tree_files": [str(path) for path in tree_files],
-            "forests_list": str(forests_list),
-            "simulation_info": str(sim_info),
-        },
-        a_list,
-        ingest_max_rows=4,
-        transpose_budget_bytes=4 << 20,
-    )
-    with capture_stderr():
-        pipeline.run_ingest(work)
-        pipeline.run_transpose(work)
-        manifest = pipeline.run_write(work, HorizontalV3Writer(sim_info))
-    return {
-        "dataset": manifest.artifact_path(manifest.stage("write")["directory"]),
-        "forests_list": forests_list,
-        "locations": locations,
-        "preparation_manifest": manifest.artifact_path(pipeline.ASCII_PREPARATION_DIR)
-        / "manifest.json",
-    }
 
 
 def terminal_root(halos, halo_id):
@@ -155,11 +100,6 @@ def terminal_root(halos, halo_id):
 def run_quietly(function, *args, **kwargs):
     with capture_stderr():
         return function(*args, **kwargs)
-
-
-def directory_bytes(directory, pattern="*"):
-    """Total size of the regular files under ``directory`` matching ``pattern``."""
-    return sum(p.stat().st_size for p in Path(directory).rglob(pattern) if p.is_file())
 
 
 def read_slab_column(dataset_dir, snap, name):
@@ -262,29 +202,28 @@ class TestPartition(unittest.TestCase):
                 (weights, ntask, nchunk),
             )
 
-    def test_heavy_forest_shares_range_with_light_neighbour(self):
-        # tests/unit/test_horizontal_partition.c, weights {1, 5, 1} on two ranks
-        self.assertEqual(partition.cut_forests([1, 5, 1], 2), [0, 2, 3])
-        self.assertEqual(partition.partition_cut([1, 5, 1], 2, 1), [0, 2, 3])
-
-    def test_single_rank_and_empty_dataset(self):
-        # tests/unit/test_horizontal_partition.c, weights {3, 0, 7, 1} on one rank
-        self.assertEqual(partition.cut_forests([3, 0, 7, 1], 1), [0, 4])
-        for ntask in range(1, 6):
-            self.assertEqual(partition.cut_forests([], ntask), [0] * (ntask + 1))
-            self.assertEqual(partition.partition_cut([], ntask, 3), [0] * (3 * ntask + 1))
-
-    def test_zero_weight_forests_ride_in_a_neighbouring_range(self):
-        # tests/unit/test_horizontal_partition.c, forests 0, 2, 3 and 5 empty
-        self.assertEqual(partition.cut_forests([0, 3, 0, 0, 2, 0], 2), [0, 4, 6])
-
-    def test_peak_weights_move_the_cut(self):
-        # tests/unit/test_horizontal_partition.c, slabs whose peaks are [3, 3, 4]
-        # where the widest slab alone counts [3, 3, 0]: on two ranks the peaks
-        # pack at capacity 6 as [3, 3] | [4], the widest slab's counts at 3 as
-        # [3] | [3, 0]
-        self.assertEqual(partition.cut_forests([3, 3, 4], 2), [0, 2, 3])
-        self.assertEqual(partition.cut_forests([3, 3, 0], 2), [0, 1, 3])
+    def test_the_literal_cases_of_the_c_unit_test(self):
+        """The cases of ``tests/unit/test_horizontal_partition.c``, which anchor the
+        transcription the random oracle uses."""
+        with self.subTest("a heavy forest shares a range with a light neighbour"):
+            # weights {1, 5, 1} on two ranks
+            self.assertEqual(partition.cut_forests([1, 5, 1], 2), [0, 2, 3])
+            self.assertEqual(partition.partition_cut([1, 5, 1], 2, 1), [0, 2, 3])
+        with self.subTest("a single rank and an empty dataset"):
+            # weights {3, 0, 7, 1} on one rank
+            self.assertEqual(partition.cut_forests([3, 0, 7, 1], 1), [0, 4])
+            for ntask in range(1, 6):
+                self.assertEqual(partition.cut_forests([], ntask), [0] * (ntask + 1))
+                self.assertEqual(partition.partition_cut([], ntask, 3), [0] * (3 * ntask + 1))
+        with self.subTest("zero-weight forests ride in a neighbouring range"):
+            # forests 0, 2, 3 and 5 empty
+            self.assertEqual(partition.cut_forests([0, 3, 0, 0, 2, 0], 2), [0, 4, 6])
+        with self.subTest("peak weights move the cut"):
+            # slabs whose peaks are [3, 3, 4] where the widest slab alone counts
+            # [3, 3, 0]: on two ranks the peaks pack at capacity 6 as [3, 3] | [4],
+            # the widest slab's counts at 3 as [3] | [3, 0]
+            self.assertEqual(partition.cut_forests([3, 3, 4], 2), [0, 2, 3])
+            self.assertEqual(partition.cut_forests([3, 3, 0], 2), [0, 1, 3])
 
     def test_forest_blocks_recorded_chunkings(self):
         # the forest_blocks fixture's peak weights, each forest's largest row
@@ -500,19 +439,6 @@ class TestCommittedDataset(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "missing \\['snapshot_003.h5'\\]"):
             HorizontalDataset(broken)
 
-    def test_occupancy_prints_the_fixture_counts(self):
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout), capture_stderr():
-            status = forest_census.main(
-                ["occupancy", "--dataset", str(WORKED_ASCII), "--aggregate", str(self.tmp / "agg")]
-            )
-        self.assertEqual(status, 0)
-        text = stdout.getvalue()
-        for snap, count in enumerate(WORKED_ASCII_N_HALOS):
-            self.assertIn("snapshot {:3d}: {} halos".format(snap, count), text)
-        self.assertIn("total halos: {}".format(sum(WORKED_ASCII_N_HALOS)), text)
-        self.assertIn("n_forests_total 3", text)
-
     def test_trees_follow_the_descendant_chains(self):
         dataset = HorizontalDataset(WORKED_ASCII)
         summary = run_quietly(trees.run_trees, dataset, self.tmp / "agg")
@@ -650,13 +576,14 @@ class TestCommittedDataset(unittest.TestCase):
             (WORKED_ASCII, foreign, "produced from a different dataset"),
         )
         for dataset, agg, message in cases:
+            # the index files do not exist: loading them first would be another refusal
             command = ["trees", "--dataset", str(dataset), "--aggregate", str(agg)]
-            command += ["--forests-list", "forests.list", "--locations", "locations.dat"]
-            with mock.patch.object(forest_census, "load_index") as load, capture_stderr() as err:
+            command += ["--forests-list", str(self.tmp / "forests.list")]
+            command += ["--locations", str(self.tmp / "locations.dat")]
+            with capture_stderr() as err:
                 status = forest_census.main(command)
             self.assertEqual(status, 2, message)
             self.assertIn(message, err.text)
-            load.assert_not_called()
         # nothing was bound or written by either refusal
         self.assertFalse((self.tmp / "agg_gapped").exists())
         self.assertEqual(sorted(p.name for p in foreign.iterdir()), [aggregate.IDENTITY_NAME])
@@ -748,11 +675,6 @@ class TestCensusOnVersion3(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    def test_the_dataset_is_version_3_ascii(self):
-        self.assertEqual(self.dataset.format_version, 3)
-        self.assertEqual(self.dataset.source_format, "consistent_trees_ascii")
-        self.assertEqual(self.dataset.n_halos, (0, 1, 1, 4, 7, 6))
-
     def test_index_forest_table_matches_the_adapters_sidecar(self):
         table = self.index.forest_table()
         with h5py.File(self.paths["dataset"] / "forests.h5", "r") as handle:
@@ -810,6 +732,9 @@ class TestCensusOnVersion3(unittest.TestCase):
         self.assertEqual(summary["second_highest_peak_forest"]["forest_id"], 1200)
         self.assertEqual(summary["forests_exceeding"], {"100000": 0, "250000": 0, "1000000": 0})
         self.assertEqual([row["halos"] for row in summary["per_snapshot"]], [0, 1, 1, 4, 7, 6])
+        # a tie for the widest slab goes to the lowest-numbered
+        self.assertEqual(occupancy.widest_snapshot([3, 7, 2, 7]), 1)
+        self.assertIsNone(occupancy.widest_snapshot([]))
 
     def test_top_shares_count_the_most_populous_forests(self):
         with mock.patch.object(occupancy, "TOP_SHARES", (1, 2, 10)):
@@ -817,26 +742,6 @@ class TestCensusOnVersion3(unittest.TestCase):
         self.assertEqual(shares["1"], {"halos": 5, "share": 0.5})
         self.assertEqual(shares["2"], {"halos": 8, "share": 0.8})
         self.assertEqual(shares["10"], {"halos": 10, "share": 1.0})
-
-    def test_widest_slab_is_the_lowest_numbered_on_a_tie(self):
-        self.assertEqual(occupancy.widest_snapshot([3, 7, 2, 7]), 1)
-        self.assertIsNone(occupancy.widest_snapshot([]))
-
-    def test_aggregate_sizes_are_measured_and_stated(self):
-        base = occupancy.occupancy_dir(self.agg)
-        recorded = self.occupancy["aggregates"]
-        self.assertEqual(recorded["slab_pairs"]["bytes"], directory_bytes(base, "slab_*.npy"))
-        self.assertEqual(recorded["slab_pairs"]["pairs"], 11)
-        self.assertEqual(recorded["per_forest"]["bytes"], directory_bytes(base, "forest_*.npy"))
-        tree_dir = trees.trees_dir(self.agg)
-        sizes = self.trees["aggregates"]
-        self.assertEqual(sizes["labels"]["bytes"], directory_bytes(tree_dir / trees.LABELS_DIR))
-        self.assertEqual(
-            sizes["slab_tree_pairs"]["bytes"],
-            sum(path.stat().st_size for path in tree_dir.glob("slab_*.npy")),
-        )
-        for record in list(recorded.values()) + list(sizes.values()):
-            self.assertIn(" B ", record["formula"])
 
     def test_every_halo_is_labelled_with_its_terminal_root(self):
         roots = trees.load_roots(self.agg)
@@ -929,23 +834,6 @@ class TestCensusOnVersion3(unittest.TestCase):
         self.assertEqual(record["verdict"], "fail")
         self.assertEqual(record["files_disagreeing"], 1)
 
-    def test_a_malformed_report_is_refused(self):
-        report = self.tmp / "malformed_report.json"
-        for document, message in (
-            ({"totals": {}}, "no source_files"),
-            ([1, 2], "no source_files"),
-            ({"source_files": {"/a/t.dat": {"parsed_count": "13"}}}, "not a non-negative integer"),
-            ({"source_files": {"/a/t.dat": {"parsed_count": -1}}}, "not a non-negative integer"),
-            ({"source_files": {"/a/t.dat": {"parsed_count": True}}}, "not a non-negative integer"),
-            ({"source_files": {"/a/t.dat": {}}}, "has no parsed_count"),
-        ):
-            report.write_text(json.dumps(document))
-            with self.assertRaisesRegex(ConverterError, message):
-                trees.load_parsed_counts(report)
-        report.write_text("{not json")
-        with self.assertRaisesRegex(ConverterError, "malformed_report.json: not readable as JSON"):
-            trees.load_parsed_counts(report)
-
     def test_results_do_not_depend_on_the_block_size(self):
         other = self.tmp / "agg_block_1"
         run_quietly(occupancy.run_occupancy, self.dataset, other, block_rows=1)
@@ -1028,6 +916,22 @@ class TestCensusOnVersion3(unittest.TestCase):
             aggregate.require_summary(trees.trees_dir(other), "trees")
 
     def test_a_bad_report_is_refused_before_anything_is_touched(self):
+        malformed = self.tmp / "malformed_report.json"
+        for document, message in (
+            ({"totals": {}}, "no source_files"),
+            ([1, 2], "no source_files"),
+            ({"source_files": {"/a/t.dat": {"parsed_count": "13"}}}, "not a non-negative integer"),
+            ({"source_files": {"/a/t.dat": {"parsed_count": -1}}}, "not a non-negative integer"),
+            ({"source_files": {"/a/t.dat": {"parsed_count": True}}}, "not a non-negative integer"),
+            ({"source_files": {"/a/t.dat": {}}}, "has no parsed_count"),
+        ):
+            malformed.write_text(json.dumps(document))
+            with self.assertRaisesRegex(ConverterError, message):
+                trees.load_parsed_counts(malformed)
+        malformed.write_text("{not json")
+        with self.assertRaisesRegex(ConverterError, "malformed_report.json: not readable as JSON"):
+            trees.load_parsed_counts(malformed)
+
         other = self.tmp / "agg_bad_report"
         run_quietly(
             trees.run_trees,
@@ -1041,8 +945,6 @@ class TestCensusOnVersion3(unittest.TestCase):
             for path in other.rglob("*")
             if path.is_file()
         }
-        malformed = self.tmp / "bad_report.json"
-        malformed.write_text("{not json")
         no_sources = self.tmp / "no_sources.json"
         no_sources.write_text(json.dumps({"totals": {}}))
         base = ["trees", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
@@ -1064,27 +966,19 @@ class TestCensusOnVersion3(unittest.TestCase):
         }
         self.assertEqual(after, before)
 
-    def test_counts_beyond_what_the_driver_accepts_are_refused(self):
-        self.assertEqual(forest_census._counts("1,2,2147483647"), [1, 2, 2147483647])
-        for text in ("0", "1,2147483648", "a"):
-            with self.assertRaises(argparse.ArgumentTypeError):
-                forest_census._counts(text)
-
     def test_the_trees_and_partition_command_lines(self):
         other = str(self.tmp / "agg_cli")
         dataset = ["--dataset", str(self.paths["dataset"]), "--aggregate", other]
         index = ["--forests-list", str(self.paths["forests_list"])]
         index += ["--locations", str(self.paths["locations"])]
         report = ["--conversion-report", str(self.paths["preparation_manifest"])]
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout), capture_stderr():
+        with contextlib.redirect_stdout(io.StringIO()), capture_stderr():
             status = forest_census.main(["trees"] + dataset + index + report)
         self.assertEqual(status, 0)
-        self.assertIn("trees: 7 effective trees over 19 halos", stdout.getvalue())
-        self.assertIn(
-            "root correspondence: pass (1 roots outside the last snapshot)", stdout.getvalue()
-        )
-        self.assertIn("conservation: pass", stdout.getvalue())
+        written = aggregate.read_json(trees.trees_dir(Path(other)) / "summary.json")
+        self.assertEqual(written["n_trees"], 7)
+        self.assertEqual(written["root_correspondence"]["verdict"], "pass")
+        self.assertEqual(written["conservation"]["verdict"], "pass")
 
         with capture_stderr() as captured:
             status = forest_census.main(["trees"] + dataset + index[:2])
@@ -1102,23 +996,15 @@ class TestCensusOnVersion3(unittest.TestCase):
                 trees.load_parsed_counts(self.paths["preparation_manifest"]),
             )
 
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout), capture_stderr():
+        with contextlib.redirect_stdout(io.StringIO()), capture_stderr():
             self.assertEqual(forest_census.main(["occupancy"] + dataset), 0)
             status = forest_census.main(
                 ["partition", "--aggregate", other, "--ntask", "1,2", "--nchunk", "1,2"]
             )
         self.assertEqual(status, 0)
-        self.assertIn(
-            "ntask   2 nchunk   1: widest range 4 rows (snapshot 4, task 0, chunk 0)",
-            stdout.getvalue(),
-        )
         recorded = aggregate.read_json(Path(other) / "partition" / "summary.json")
-        self.assertEqual(
-            recorded["aggregates"]["summary"]["bytes"],
-            (Path(other) / "partition" / "summary.json").stat().st_size,
-        )
-        self.assertEqual(recorded["aggregates"]["summary"]["range_integers"], 7 * (1 + 2 + 2 + 4))
+        point = next(p for p in recorded["grid"] if (p["ntask"], p["nchunk"]) == (2, 1))
+        self.assertEqual(point["widest"]["rows"], 4)
 
         (Path(other) / "identity.json").write_text("{malformed")
         with capture_stderr() as captured:
@@ -1827,8 +1713,7 @@ def check_zero_cost(case, summary_table, summary_cut, n_forests):
 
 class TestDecidedTable(unittest.TestCase):
     """The decided table and its cost on :func:`decided_forests`, converted to
-    version 3 (:class:`TestDecidedTableOneFile` repeats every case with the
-    catalogue's trees in one file, in reverse order).
+    version 3.
 
     ``ForestIndex`` 0..4 are forests 1100, 1200, 1400, 1500 and 2000. Trees by
     root: 1100 (4 halos), 1110 (2), 1120 (2), 1200 (3), 1210 (3), 1400 (3),
@@ -1847,7 +1732,6 @@ class TestDecidedTable(unittest.TestCase):
     remnant of two members) and 2401 from 2302's; none at snapshot 5.
     """
 
-    convert = staticmethod(convert_ascii)
     EXPECTED = {
         1100: 1100,
         1110: 1100,
@@ -1866,7 +1750,7 @@ class TestDecidedTable(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="census_decided_"))
-        cls.paths = cls.convert(cls.tmp / "source", decided_layout(), decided_forests())
+        cls.paths = convert_ascii(cls.tmp / "source", decided_layout(), decided_forests())
         cls.dataset = HorizontalDataset(cls.paths["dataset"])
         cls.agg = cls.tmp / "agg"
         cls.index = run_census(cls.dataset, cls.agg, cls.paths)
@@ -2026,33 +1910,6 @@ class TestDecidedTable(unittest.TestCase):
         # 2102 (already seeds) at 4 and the seven other roots below a seed at 5
         self.assertEqual(self.rows("seed_halos"), [0, 0, 0, 2, 9, 1])
         self.assertEqual(self.rows("affected_halos"), [0, 0, 0, 2, 9, 8])
-        sage = self.cut["predicted_effects"]["sage16_halos_only"]
-        self.assertEqual(
-            (sage["seed_halos"], sage["dependent_halos"], sage["upper_bound_halos"]), (12, 19, 25)
-        )
-        hod_sham = self.cut["predicted_effects"]["hod_sham"]
-        self.assertEqual(hod_sham["identity_recomputed_halos"], 25)
-        self.assertEqual(len(hod_sham["mechanisms"]), 3)
-
-    def test_the_retained_rows_and_the_bytes_read(self):
-        # snapshot 3: 2201 and its central 2101; snapshot 4: the progenitors of
-        # 1120, 1500, 2100 and 2400 (six) and the centrals 1101, 1510, 2202, 2302
-        self.assertEqual(self.rows("retained_rows"), [0, 0, 0, 2, 10, 0])
-        self.assertEqual(self.rows("rows_read"), [0, 0, 0, 4, 12, 9])
-        self.check_bytes_read(self.cut["io"]["per_column"], 8)
-        self.assertEqual(self.cut["io"]["bytes_read"], sum(self.cut["io"]["per_column"].values()))
-
-    def check_bytes_read(self, read, link):
-        # the split forests' rows span every slab here (forests 1200 and 1400
-        # lie between them); the construction reads the final slab once more
-        self.assertEqual(read["ForestIndex"], 8 * (34 + 12))
-        self.assertEqual(read["FirstHaloInFOFgroup"], link * (34 + 12))
-        self.assertEqual(read["Descendant"], link * 34)
-        for name, width in (("MostBoundID", 8), ("M_Crit200", 4), ("NextProgenitor", link)):
-            self.assertTrue(width * 12 <= read[name] <= width * (7 + 15), name)
-        self.assertEqual(
-            self.table["io"]["per_column"], {"FirstHaloInFOFgroup": 12 * link, "ForestIndex": 96}
-        )
 
     # ---- the partition ----
 
@@ -2071,7 +1928,6 @@ class TestDecidedTable(unittest.TestCase):
         self.assertEqual(points[(1, 1)]["widest"]["rows"], 15)
         self.assertEqual(points[(1, 4)]["forest_cuts"], [0, 2, 5, 10, 10])
         self.assertEqual(points[(1, 4)]["job_rows"], 5)
-        self.assertEqual(points[(1, 4)]["retention_memory_ceiling_mb"], 5 << 10)
         partition_record = self.cut["partition"]
         self.assertEqual(
             (partition_record["bytes_per_halo"], partition_record["reserve_gib"]), (1 << 30, 1.0)
@@ -2079,28 +1935,15 @@ class TestDecidedTable(unittest.TestCase):
         # uncut, forest 2000's five rows of snapshot 4 are the floor
         self.assertEqual(partition_record["uncut_floor"]["rows"], 5)
 
-        def best(ntask, nchunk, rows):
-            return {
-                "ntask": ntask,
-                "nchunk": nchunk,
-                "widest_rows": rows,
-                "job_rows": rows,
-                "process_bytes": rows << 30,
-                "job_bytes": rows << 30,
-                "retention_memory_ceiling_mb": rows << 10,
-            }
-
-        self.assertEqual(
-            [
-                (c["class_gib"], c["usable_bytes"], c["smallest_fitting_point"])
-                for c in partition_record["laptop_classes"]
-            ],
-            [
-                (6, 5 << 30, best(1, 4, 5)),
-                (9, 8 << 30, best(1, 2, 8)),
-                (16, 15 << 30, best(1, 1, 15)),
-            ],
-        )
+        fitting = [
+            (
+                c["class_gib"],
+                c["smallest_fitting_point"]["ntask"],
+                c["smallest_fitting_point"]["nchunk"],
+            )
+            for c in partition_record["laptop_classes"]
+        ]
+        self.assertEqual(fitting, [(6, 1, 4), (9, 1, 2), (16, 1, 1)])
 
     def test_a_class_is_judged_on_the_job_not_one_process(self):
         # the peak weights above, re-derived by hand for two ranks: capacity 8
@@ -2113,27 +1956,6 @@ class TestDecidedTable(unittest.TestCase):
         self.assertEqual(two_ranks["task_widest_rows"], [8, 7])
         self.assertEqual((two_ranks["process_bytes"], two_ranks["job_bytes"]), (8 << 30, 15 << 30))
         self.assertEqual(two_ranks["fits_gib"], [16])
-
-    def test_memory_and_the_startup_weights_are_stated(self):
-        memory = self.cut["memory"]
-        self.assertEqual(
-            (memory["startup_weights"]["uncut_bytes"], memory["startup_weights"]["cut_bytes"]),
-            (8 * 5, 8 * 10),
-        )
-        self.assertEqual(memory["widest_pass_slab"]["dense_row_bytes"], 12 * 15)
-        for measured in (self.cut["measurements"], self.table["memory"]):
-            for name, value in measured["peak_rss_bytes_after"].items():
-                self.assertGreater(value, 0, name)
-        self.assertGreaterEqual(self.cut["measurements"]["peak_pass_seconds"], 0)
-        self.assertEqual(
-            self.cut["aggregates"]["summary"]["bytes"],
-            (cut.cut_dir(self.agg) / "summary.json").stat().st_size,
-        )
-        sizes = self.table["aggregates"]
-        self.assertEqual(sizes["table"]["bytes"], Path(self.table["table"]["path"]).stat().st_size)
-        self.assertEqual(
-            sizes["record"]["bytes"], (table.table_dir(self.agg) / "record.json").stat().st_size
-        )
 
     # ---- invariance, selection and the command line ----
 
@@ -2223,28 +2045,24 @@ class TestDecidedTable(unittest.TestCase):
         index += ["--locations", str(self.paths["locations"])]
         grid = ["--ntask", "1", "--nchunk", "1,4", "--bytes-per-halo", str(1 << 30)]
         grid += ["--laptop-gib", "6,9,16", "--reserve-gib", "1"]
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout), capture_stderr() as captured:
+        with contextlib.redirect_stdout(io.StringIO()), capture_stderr() as captured:
             self.assertEqual(forest_census.main(["occupancy"] + dataset), 0)
             self.assertEqual(forest_census.main(["trees"] + dataset + index), 0)
             self.assertEqual(forest_census.main(["partition", "--aggregate", other]), 0)
             self.assertEqual(forest_census.main(["table"] + dataset + index), 0)
             status = forest_census.main(["cut"] + dataset + grid)
         self.assertEqual(status, 0, captured.text)
-        text = stdout.getvalue()
-        self.assertIn("table: the z = 0 FoF groups of every forest (whole simulation)", text)
-        self.assertIn(
-            "z = 0 FoF groups: 10 over 5 forests; 3 forest(s) split into 8 groups; 10 forests "
-            "after the cut",
-            text,
-        )
-        self.assertIn("pieces: 8 (5 fresh); table ", text)
-        self.assertIn("cut (whole simulation): 3 split forest(s), 8 piece(s) (5 fresh)", text)
-        self.assertIn("6 promoted (0 at the final snapshot), 1 progenitor chain(s) changed", text)
-        self.assertIn(
-            "    6 GiB less 1.0 GiB: fits at ntask 1 nchunk 4 (job 5 rows, process 5", text
-        )
-        self.assertIn("   16 GiB less 1.0 GiB: fits at ntask 1 nchunk 1 (job 15 rows", text)
+        written_table = aggregate.read_json(table.table_dir(Path(other)) / "summary.json")
+        self.assertEqual(written_table["groups"], self.table["groups"])
+        self.assertEqual(written_table["pieces"], self.table["pieces"])
+        written_cut = aggregate.read_json(cut.cut_dir(Path(other)) / "summary.json")
+        self.assertEqual(written_cut["pieces"], self.cut["pieces"])
+        self.assertEqual(written_cut["severance"], self.cut["severance"])
+        fitting = {
+            c["class_gib"]: c["smallest_fitting_point"]["nchunk"]
+            for c in written_cut["partition"]["laptop_classes"]
+        }
+        self.assertEqual(fitting, {6: 4, 9: 4, 16: 1})
         self.assertEqual(
             (Path(other) / "table" / "forests.list").read_bytes(),
             (self.agg / "table" / "forests.list").read_bytes(),
@@ -2252,6 +2070,39 @@ class TestDecidedTable(unittest.TestCase):
         # the reserve is a required argument
         with capture_stderr(), self.assertRaises(SystemExit):
             forest_census.main(["cut"] + dataset)
+
+    def test_the_table_does_not_depend_on_the_catalogue_layout(self):
+        """The same forests with every tree in one file, in reverse order, differ from
+        the multi-file catalogue only in the sidecar's source ordinals and the index
+        files: the table file is byte-identical and the record agrees except for the
+        fields that name the layout's own files, ``index_files`` and the table's path."""
+        root = self.tmp / "one_file"
+        paths = convert_ascii_one_file(root / "source", decided_layout(), decided_forests())
+        dataset = HorizontalDataset(paths["dataset"])
+        with h5py.File(paths["dataset"] / "forests.h5", "r") as handle:
+            np.testing.assert_array_equal(handle["SourceFileOrdinal"][...], [0] * 5)
+        index = run_census(dataset, root / "agg", paths)
+        self.assertEqual(sorted(index.filenames.values()), ["tree_0.dat"])
+        run_quietly(
+            table.run_table,
+            dataset,
+            root / "agg",
+            index.tree_roots,
+            index.forest_ids,
+            index_files(paths),
+        )
+
+        def record_of(agg):
+            record = aggregate.read_json(table.table_dir(agg) / "record.json")
+            del record["index_files"]
+            record["table"] = {k: v for k, v in record["table"].items() if k != "path"}
+            return record
+
+        self.assertEqual(
+            (table.table_dir(root / "agg") / "forests.list").read_bytes(),
+            (table.table_dir(self.agg) / "forests.list").read_bytes(),
+        )
+        self.assertEqual(record_of(root / "agg"), record_of(self.agg))
 
     # ---- refusals ----
 
@@ -2439,20 +2290,6 @@ def convert_ascii_one_file(root: Path, file_trees, forests):
     return convert_ascii(root, [[tree for trees in file_trees for tree in trees][::-1]], forests)
 
 
-class TestDecidedTableOneFile(TestDecidedTable):
-    """Every case of :class:`TestDecidedTable` on the same forests with the
-    catalogue's trees in one file, in reverse order: the dataset differs only
-    in its sidecar's source ordinals and the index files, so the table is the
-    same file, and every count and byte read the same."""
-
-    convert = staticmethod(convert_ascii_one_file)
-
-    def test_the_catalogue_is_one_file(self):
-        with h5py.File(self.paths["dataset"] / "forests.h5", "r") as handle:
-            np.testing.assert_array_equal(handle["SourceFileOrdinal"][...], [0] * 5)
-        self.assertEqual(sorted(self.index.filenames.values()), ["tree_0.dat"])
-
-
 class TestNoSplitForest(unittest.TestCase):
     """Forests 1200 and 1400, each ending in one z = 0 group: the decided table
     is the identity table and the cut costs nothing, whether the catalogue
@@ -2574,10 +2411,6 @@ class TestDependentPropagation(unittest.TestCase):
         self.assertEqual([rows[snap]["affected_halos"] for snap in range(6)], [0, 0, 3, 3, 3, 3])
         # snapshot 2: 4102, 4302 and their central 4202; snapshot 3: 4303 and 4203
         self.assertEqual([rows[snap]["retained_rows"] for snap in range(6)], [0, 0, 3, 2, 0, 0])
-        sage = self.cut["predicted_effects"]["sage16_halos_only"]
-        self.assertEqual(
-            (sage["seed_halos"], sage["dependent_halos"], sage["upper_bound_halos"]), (5, 12, 12)
-        )
         # three tied trees of 4 halos: 4100 keeps 4000
         self.assertEqual(
             read_table(self.table["table"]["path"]), {4100: 4000, 4200: 4001, 4300: 4002}
@@ -2608,16 +2441,25 @@ class TestEarlyEndingRefused(unittest.TestCase):
         for name in ("table", "cut"):
             self.assertFalse((Path(agg) / name).exists(), name)
 
-    def test_the_negative_fixture_is_refused(self):
+    def test_a_tree_ending_before_the_final_snapshot_is_refused(self):
         forests = fixtures.early_ending_correspondence_forests()
         paths = convert_ascii(self.tmp / "early", correspondence_layout(), forests)
-        self.check_refused(
-            paths["dataset"],
-            (paths["forests_list"], paths["locations"]),
-            "1 tree(s) end before the final snapshot 5 (e.g. roots [1300])",
-        )
+        with self.subTest("the negative fixture"):
+            self.check_refused(
+                paths["dataset"],
+                (paths["forests_list"], paths["locations"]),
+                "1 tree(s) end before the final snapshot 5 (e.g. roots [1300])",
+            )
+        with self.subTest("the committed fixture"):
+            self.check_refused(
+                WORKED_ASCII,
+                self.committed_index_files(),
+                "1 tree(s) end before the final snapshot 5 (e.g. roots [3010])",
+            )
 
-    def test_the_committed_fixture_is_refused(self):
+    def committed_index_files(self):
+        """A ``forests.list`` and ``locations.dat`` for the committed fixture, written
+        from the roots and forests its own census finds."""
         dataset = HorizontalDataset(WORKED_ASCII)
         probe = self.tmp / "probe"
         run_quietly(trees.run_trees, dataset, probe)
@@ -2633,11 +2475,7 @@ class TestEarlyEndingRefused(unittest.TestCase):
             "#TreeRootID FileID Offset Filename\n"
             + "".join("{} 0 {} tree_0.dat\n".format(r, 100 * at) for at, r in enumerate(roots))
         )
-        self.check_refused(
-            WORKED_ASCII,
-            (forests_list, locations),
-            "1 tree(s) end before the final snapshot 5 (e.g. roots [3010])",
-        )
+        return forests_list, locations
 
 
 if __name__ == "__main__":

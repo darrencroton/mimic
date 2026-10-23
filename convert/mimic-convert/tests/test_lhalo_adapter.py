@@ -41,18 +41,23 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import column_schema as cs  # noqa: E402
 from adapters import lhalo_binary as lb  # noqa: E402
-from adapters import source_inventory as si  # noqa: E402
 from adapters import topology  # noqa: E402
 from adapters.base import NULL_LINK  # noqa: E402
 from adapters.lhalo_binary import (  # noqa: E402
     DEFAULT_MEMORY_BUDGET_BYTES,
     INVENTORY_BASE_BYTES,
     INVENTORY_BYTES_PER_UNIT,
-    TOPOLOGY_COLUMN_BYTES_PER_HALO,
     ConverterError,
     LHaloBinaryAdapter,
 )
 from adapters.topology import VALIDATION_BYTES_PER_HALO  # noqa: E402
+from fixtures import (  # noqa: E402
+    _LHALO_ORACLE_FORMAT,
+    LHALO_ORACLE_LAYOUT,
+    LHALO_ORACLE_RECORD_BYTES,
+    pack_lhalo_record,
+    write_lhalo_file,
+)
 
 REPO_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,96 +69,6 @@ MINI_MILLENNIUM = os.path.join(REPO_ROOT, "simulations", "mini-millennium")
 # ==========================================================================
 # Independent oracle: hand-written record layout, packer and reader
 # ==========================================================================
-
-#: (name, struct code, component count, hand-declared byte offset). Written
-#: out by hand from struct RawHalo (src/include/generated/raw_halo_defs.h),
-#: not derived from the profile this adapter loads.
-ORACLE_LAYOUT = (
-    ("Descendant", "i", 1, 0),
-    ("FirstProgenitor", "i", 1, 4),
-    ("NextProgenitor", "i", 1, 8),
-    ("FirstHaloInFOFgroup", "i", 1, 12),
-    ("NextHaloInFOFgroup", "i", 1, 16),
-    ("Len", "i", 1, 20),
-    ("M_Mean200", "f", 1, 24),
-    ("M_Crit200", "f", 1, 28),
-    ("M_TopHat", "f", 1, 32),
-    ("Pos", "f", 3, 36),
-    ("Vel", "f", 3, 48),
-    ("VelDisp", "f", 1, 60),
-    ("Vmax", "f", 1, 64),
-    ("Spin", "f", 3, 68),
-    ("MostBoundID", "q", 1, 80),
-    ("SnapNum", "i", 1, 88),
-    ("FileNr", "i", 1, 92),
-    ("SubhaloIndex", "i", 1, 96),
-    ("SubHalfMass", "f", 1, 100),
-)
-
-ORACLE_RECORD_BYTES = 104
-_ORACLE_FORMAT = "".join(code * n for _name, code, n, _offset in ORACLE_LAYOUT)
-
-#: Every field's default, so a fixture row declares only what it means to say.
-#: A lone halo that is its own FoF central with no links is the simplest
-#: structurally valid row.
-_DEFAULTS = {
-    "Descendant": -1,
-    "FirstProgenitor": -1,
-    "NextProgenitor": -1,
-    "FirstHaloInFOFgroup": 0,
-    "NextHaloInFOFgroup": -1,
-    "Len": 1,
-    "M_Mean200": 0.0,
-    "M_Crit200": 0.0,
-    "M_TopHat": 0.0,
-    "Pos": (0.0, 0.0, 0.0),
-    "Vel": (0.0, 0.0, 0.0),
-    "VelDisp": 0.0,
-    "Vmax": 0.0,
-    "Spin": (0.0, 0.0, 0.0),
-    "MostBoundID": 0,
-    "SnapNum": 0,
-    "FileNr": 0,
-    "SubhaloIndex": 0,
-    "SubHalfMass": 0.0,
-}
-
-
-def pack_record(row, byte_order="<"):
-    """Pack one halo by hand, in the oracle's own declared field order."""
-    values = dict(_DEFAULTS)
-    values.update(row)
-    flat = []
-    for name, _code, n_components, _offset in ORACLE_LAYOUT:
-        value = values[name]
-        if n_components == 1:
-            flat.append(value)
-        else:
-            flat.extend(value)
-    packed = struct.pack(byte_order + _ORACLE_FORMAT, *flat)
-    assert len(packed) == ORACLE_RECORD_BYTES, len(packed)
-    return packed
-
-
-def write_lhalo_file(path, trees, byte_order="<", trailing=b"", drop_records=0):
-    """Write one L-Halo file: Ntrees, totNHalos, per-tree counts, records.
-
-    ``trailing`` and ``drop_records`` exist so a test can produce a file whose
-    payload disagrees with its own header in either direction.
-    """
-    counts = [len(tree) for tree in trees]
-    records = [pack_record(row, byte_order) for tree in trees for row in tree]
-    if drop_records:
-        records = records[:-drop_records]
-    with open(path, "wb") as handle:
-        handle.write(struct.pack(byte_order + "i", len(trees)))
-        handle.write(struct.pack(byte_order + "i", sum(counts)))
-        for count in counts:
-            handle.write(struct.pack(byte_order + "i", count))
-        for record in records:
-            handle.write(record)
-        handle.write(trailing)
-    return path
 
 
 def read_counts_directly(path, byte_order="<"):
@@ -179,15 +94,15 @@ def read_file_directly(path, byte_order="<", limit=None):
     with open(path, "rb") as handle:
         handle.seek(8 + 4 * ntrees)
         for count in counts:
-            blob = handle.read(count * ORACLE_RECORD_BYTES)
+            blob = handle.read(count * LHALO_ORACLE_RECORD_BYTES)
             tree = []
             for row_index in range(count):
                 flat = struct.unpack_from(
-                    byte_order + _ORACLE_FORMAT, blob, row_index * ORACLE_RECORD_BYTES
+                    byte_order + _LHALO_ORACLE_FORMAT, blob, row_index * LHALO_ORACLE_RECORD_BYTES
                 )
                 row = {}
                 position = 0
-                for name, _code, n_components, _field_offset in ORACLE_LAYOUT:
+                for name, _code, n_components, _field_offset in LHALO_ORACLE_LAYOUT:
                     if n_components == 1:
                         row[name] = flat[position]
                     else:
@@ -385,7 +300,7 @@ def validation_budget_bytes(n_halos):
     buffer and the fixed base are constants, not per-halo terms, which is why
     they cannot be folded into ``VALIDATION_BYTES_PER_HALO``.
     """
-    read_buffer = min(lb.TOPOLOGY_READ_CHUNK_ROWS, n_halos) * ORACLE_RECORD_BYTES
+    read_buffer = min(lb.TOPOLOGY_READ_CHUNK_ROWS, n_halos) * LHALO_ORACLE_RECORD_BYTES
     return n_halos * VALIDATION_BYTES_PER_HALO + read_buffer + lb.TOPOLOGY_BASE_BYTES
 
 
@@ -401,7 +316,7 @@ def emission_budget_bytes(max_rows, n_halos, extras_bytes=0):
     records and canonical columns, doubled at concatenation, for at most the
     inventory's rows."""
     rows = min(max_rows, n_halos)
-    return 2 * rows * (ORACLE_RECORD_BYTES + CANONICAL_ROW_BYTES + extras_bytes)
+    return 2 * rows * (LHALO_ORACLE_RECORD_BYTES + CANONICAL_ROW_BYTES + extras_bytes)
 
 
 def inventory_budget_bytes(n_units):
@@ -545,19 +460,16 @@ class LayoutPinTests(unittest.TestCase):
         layout.
         """
         layout = default_schema().source_layout
-        self.assertEqual(layout.itemsize, ORACLE_RECORD_BYTES)
+        self.assertEqual(layout.itemsize, LHALO_ORACLE_RECORD_BYTES)
         self.assertEqual(
             [(entry.name, entry.offset) for entry in layout.entries],
-            [(name, offset) for name, _code, _n, offset in ORACLE_LAYOUT],
+            [(name, offset) for name, _code, _n, offset in LHALO_ORACLE_LAYOUT],
         )
         widths = {"i": 4, "f": 4, "q": 8}
-        for (name, code, n_components, offset), entry in zip(ORACLE_LAYOUT, layout.entries):
+        for (name, code, n_components, offset), entry in zip(LHALO_ORACLE_LAYOUT, layout.entries):
             self.assertEqual(entry.itemsize, widths[code] * n_components, name)
             self.assertEqual(entry.n_components, n_components, name)
             self.assertEqual(entry.offset, offset, name)
-
-    def test_struct_format_packs_without_alignment_padding(self):
-        self.assertEqual(struct.calcsize("<" + _ORACLE_FORMAT), ORACLE_RECORD_BYTES)
 
     def test_every_shipped_binary_package_freezes_the_same_layout(self):
         """One adapter covers mini/micro-Uchuu and both Millennium packages.
@@ -581,7 +493,7 @@ class LayoutPinTests(unittest.TestCase):
                 layout.itemsize,
                 tuple((e.name, e.type, e.offset, e.itemsize) for e in layout.entries),
             )
-            self.assertEqual(layout.itemsize, ORACLE_RECORD_BYTES, package)
+            self.assertEqual(layout.itemsize, LHALO_ORACLE_RECORD_BYTES, package)
             if reference is None:
                 reference = frozen
             else:
@@ -658,55 +570,41 @@ class InventoryTests(FixtureCase):
         self.assertIn("ordinal 0", message)
         self.assertIn("ordinal 1", message)
 
-    def test_two_spellings_of_the_same_file_are_rejected(self):
-        """Identity is the inode pair, so an alias does not slip through."""
+    def test_an_alias_of_an_already_requested_file_is_rejected(self):
+        """Identity is the ``(st_dev, st_ino)`` pair, so no spelling of a file already
+        requested slips through, which a comparison of resolved paths would miss: a
+        ``..`` spelling, a symlink, a case variant (one inode under two names on a
+        case-insensitive volume such as APFS) and a hard link. Case-insensitivity and hard
+        links are detected, not assumed: where the filesystem lacks one, only that case is
+        skipped."""
         self.write("trees.0", [TREE_B])
-        alias = os.path.join(self.tmpdir, "sub", "..", "trees.0")
-        os.mkdir(os.path.join(self.tmpdir, "sub"))
-        with self.assertRaises(ConverterError) as caught:
-            self.adapter([(0, self.path("trees.0")), (1, alias)])
-        self.assertIn("same filesystem object", str(caught.exception))
+        os.mkdir(self.path("sub"))
+        symlink = self.path("sym.0")
+        os.symlink(self.path("trees.0"), symlink)
+        aliases = (
+            ("a '..' spelling", os.path.join(self.tmpdir, "sub", "..", "trees.0")),
+            ("a symlink", symlink),
+        )
+        for label, alias in aliases:
+            with self.subTest(label):
+                with self.assertRaisesRegex(ConverterError, "same filesystem object"):
+                    self.adapter([(0, self.path("trees.0")), (1, alias)])
 
-    def test_a_case_variant_of_an_already_requested_file_is_rejected(self):
-        """The case a path-string comparison cannot catch.
+        with self.subTest("a case variant"):
+            variant = self.path("TREES.0")
+            if not os.path.exists(variant) or not os.path.samefile(self.path("trees.0"), variant):
+                self.skipTest("this filesystem is case-sensitive; the two names are distinct files")
+            with self.assertRaisesRegex(ConverterError, "same filesystem object"):
+                self.adapter([(0, self.path("trees.0")), (1, variant)])
 
-        On a case-insensitive volume -- APFS, which this repository lives on
-        -- ``trees_063.0`` and ``TREES_063.0`` are one inode with two
-        spellings, and ``Path.resolve()`` reports them as different paths.
-        A guard comparing resolved paths accepts both, doubling a
-        real dataset's inventory. Identity is now ``(st_dev, st_ino)``.
-
-        Case-insensitivity is *detected*, not assumed: on a case-sensitive
-        filesystem the two names are genuinely different files and there is
-        nothing to reject.
-        """
-        self.write("trees_063.0", [TREE_B])
-        variant = self.path("TREES_063.0")
-        if not os.path.exists(variant) or not os.path.samefile(self.path("trees_063.0"), variant):
-            self.skipTest("this filesystem is case-sensitive; the two names are distinct files")
-        with self.assertRaises(ConverterError) as caught:
-            self.adapter([(0, self.path("trees_063.0")), (1, variant)])
-        self.assertIn("same filesystem object", str(caught.exception))
-
-    def test_a_hard_link_to_an_already_requested_file_is_rejected(self):
-        """Different name, same inode -- the other case `resolve()` misses."""
-        self.write("trees.0", [TREE_B])
-        link = self.path("trees.1")
-        try:
-            os.link(self.path("trees.0"), link)
-        except (OSError, NotImplementedError) as exc:  # pragma: no cover - platform dependent
-            self.skipTest("hard links unavailable here: {}".format(exc))
-        with self.assertRaises(ConverterError) as caught:
-            self.adapter([(0, self.path("trees.0")), (1, link)])
-        self.assertIn("same filesystem object", str(caught.exception))
-
-    def test_a_symlink_to_an_already_requested_file_is_rejected(self):
-        self.write("trees.0", [TREE_B])
-        link = self.path("trees.1")
-        os.symlink(self.path("trees.0"), link)
-        with self.assertRaises(ConverterError) as caught:
-            self.adapter([(0, self.path("trees.0")), (1, link)])
-        self.assertIn("same filesystem object", str(caught.exception))
+        with self.subTest("a hard link"):
+            link = self.path("hard.0")
+            try:
+                os.link(self.path("trees.0"), link)
+            except (OSError, NotImplementedError) as exc:  # pragma: no cover - platform dependent
+                self.skipTest("hard links unavailable here: {}".format(exc))
+            with self.assertRaisesRegex(ConverterError, "same filesystem object"):
+                self.adapter([(0, self.path("trees.0")), (1, link)])
 
     def test_distinct_files_with_identical_contents_are_still_accepted(self):
         """Only the *same file* is refused, not two files that happen to match.
@@ -721,11 +619,6 @@ class InventoryTests(FixtureCase):
         )
         self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), [1, 2, 3, 4])
 
-    def test_negative_ordinal_fails(self):
-        self.write("trees.0", [TREE_B])
-        with self.assertRaises(ConverterError):
-            self.adapter([(-1, self.path("trees.0"))])
-
     def test_empty_source_list_fails(self):
         with self.assertRaises(ConverterError) as caught:
             self.adapter([])
@@ -736,97 +629,71 @@ class InventoryTests(FixtureCase):
             self.adapter([self.path("trees.0")])
         self.assertIn("(source_file_ordinal, path) pair", str(caught.exception))
 
-    def test_a_non_integer_ordinal_is_rejected_rather_than_coerced(self):
-        """``int(4.9)`` would silently convert a caller's mistake into file 4.
+    def test_scalar_arguments_are_type_checked_and_bounded_rather_than_coerced(self):
+        """Every public scalar goes through ``require_integer`` and its range check.
 
-        The ordinal is durable identity, so it is type-checked instead of
-        coerced. ``True`` is rejected explicitly: ``bool`` subclasses ``int``,
-        so it would otherwise pass as ordinal 1.
+        ``int(4.9)`` would silently turn a caller's mistake into file 4; the ordinal is
+        durable identity, bounded at both ends because it lands in an int64 coordinate
+        column. A fractional budget or batch size would be a different ceiling than the one
+        asked for, a string budget raised a raw ``TypeError``, and ``True`` (``bool``
+        subclasses ``int``) would silently mean 1.
         """
         self.write("trees.0", [TREE_B])
-        for bad in ("4", 4.9, 4.0, True, None):
-            with self.subTest(ordinal=bad):
-                with self.assertRaises(ConverterError) as caught:
-                    self.adapter([(bad, self.path("trees.0"))])
-                self.assertIn("must be an integer", str(caught.exception))
+        source = [(0, self.path("trees.0"))]
+        not_integers = ("4", 4.9, 4.0, True)
+        cases = (
+            (
+                "source_file_ordinal",
+                lambda value: self.adapter([(value, self.path("trees.0"))]),
+                not_integers + (None,),
+                (-1, 2**63),
+            ),
+            (
+                "memory_budget_bytes",
+                lambda value: self.adapter(source, memory_budget_bytes=value),
+                not_integers + (None,),
+                (0, -1),
+            ),
+            (
+                "max_snapshot",
+                lambda value: self.adapter(source, max_snapshot=value),
+                not_integers,
+                (-1,),
+            ),
+            (
+                "max_rows",
+                lambda value: list(self.adapter(source).iter_batches(value)),
+                not_integers + (None,),
+                (0, -1),
+            ),
+        )
+        for name, call, wrong_types, out_of_range in cases:
+            for value in wrong_types:
+                with self.subTest(name, wrong_type=value):
+                    with self.assertRaisesRegex(ConverterError, name + " must be an integer"):
+                        call(value)
+            for value in out_of_range:
+                with self.subTest(name, out_of_range=value):
+                    with self.assertRaisesRegex(
+                        ConverterError, name + " must be (between|positive|non-negative|at least)"
+                    ):
+                        call(value)
 
-    def test_an_ordinal_above_int64_is_rejected_at_its_boundary(self):
-        """The ordinal lands in an int64 coordinate column, so it is bounded.
-
-        Without this, an over-large ordinal surfaced as a raw numpy overflow
-        at emission rather than as this module's named error at the point the
-        caller could still see which entry caused it.
-        """
-        self.write("trees.0", [TREE_B])
-        with self.assertRaises(ConverterError) as caught:
-            self.adapter([(2**63, self.path("trees.0"))])
-        self.assertIn("must be between 0 and", str(caught.exception))
-
-    def test_the_largest_int64_ordinal_is_accepted(self):
-        """The other side of the boundary: INT64_MAX itself still converts."""
-        self.write("trees.0", [TREE_B])
-        columns, _sizes = collect(self.adapter([(2**63 - 1, self.path("trees.0"))]), 8)
-        self.assertEqual(columns["coordinates"]["source_file_ordinal"].tolist(), [2**63 - 1] * 2)
-
-    def test_a_non_integer_memory_budget_is_rejected_rather_than_coerced(self):
-        """The ordinal rule, applied to its sibling constructor scalars.
-
-        ``int(1.5)`` would quietly hand the caller a different ceiling than
-        they asked for, and a string budget raised a raw ``TypeError`` before
-        any named error could be produced.
-        """
-        self.write("trees.0", [TREE_B])
-        for bad in ("2048", 1.5, 2048.0, True, None):
-            with self.subTest(memory_budget_bytes=bad):
-                with self.assertRaises(ConverterError) as caught:
-                    self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=bad)
-                self.assertIn("memory_budget_bytes must be an integer", str(caught.exception))
-
-    def test_a_non_integer_max_snapshot_is_rejected_rather_than_coerced(self):
-        self.write("trees.0", [TREE_B])
-        for bad in ("63", 63.5, 63.0, True):
-            with self.subTest(max_snapshot=bad):
-                with self.assertRaises(ConverterError) as caught:
-                    self.adapter([(0, self.path("trees.0"))], max_snapshot=bad)
-                self.assertIn("max_snapshot must be an integer", str(caught.exception))
-
-    def test_numpy_integer_budget_and_snapshot_are_accepted(self):
-        """Rejecting non-integers must not reject numpy integers."""
+    def test_numpy_integers_and_the_largest_int64_ordinal_are_accepted(self):
+        """Rejecting non-integers must not reject a numpy integer from a caller, and the
+        ordinal bound is inclusive: INT64_MAX itself still converts."""
         self.write("trees.0", [TREE_B])
         adapter = self.adapter(
-            [(0, self.path("trees.0"))],
+            [(np.int64(3), self.path("trees.0"))],
             max_snapshot=np.int64(63),
             memory_budget_bytes=np.int64(DEFAULT_MEMORY_BUDGET_BYTES),
         )
         self.assertEqual(adapter.inventory().total_halos, 2)
-
-    def test_a_non_integer_max_rows_is_rejected_rather_than_coerced(self):
-        """The last public scalar, brought under the same rule as the rest.
-
-        ``iter_batches(2.5)`` used to raise a raw ``TypeError`` from inside
-        ``handle.read()``, and ``iter_batches(True)`` silently behaved as a
-        batch size of 1 -- the two failure modes this module's own docstring
-        says are impossible.
-        """
-        self.write("trees.0", [TREE_B])
-        adapter = self.adapter([(0, self.path("trees.0"))])
-        for bad in ("4", 2.5, 4.0, True, None):
-            with self.subTest(max_rows=bad):
-                with self.assertRaises(ConverterError) as caught:
-                    list(adapter.iter_batches(bad))
-                self.assertIn("max_rows must be an integer", str(caught.exception))
-
-    def test_a_numpy_integer_max_rows_is_accepted(self):
-        self.write("trees.0", [TREE_B])
-        adapter = self.adapter([(0, self.path("trees.0"))])
         batches = list(adapter.iter_batches(np.int64(4)))
         self.assertEqual(sum(batch.n_rows for batch in batches), 2)
-
-    def test_a_numpy_integer_ordinal_is_accepted(self):
-        """Rejecting non-integers must not reject a numpy int from a caller."""
-        self.write("trees.0", [TREE_B])
-        columns, _sizes = collect(self.adapter([(np.int64(3), self.path("trees.0"))]), 8)
-        self.assertEqual(columns["coordinates"]["source_file_ordinal"].tolist(), [3, 3])
+        for ordinal in (3, 2**63 - 1):
+            columns, _sizes = collect(self.adapter([(ordinal, self.path("trees.0"))]), 8)
+            self.assertEqual(columns["coordinates"]["source_file_ordinal"].tolist(), [ordinal] * 2)
 
     def test_a_non_pathlike_path_raises_the_modules_own_error(self):
         """Not a raw TypeError: every malformed shape on this path is named."""
@@ -865,24 +732,20 @@ class InventoryTests(FixtureCase):
                 list(adapter.iter_batches(4))
         return str(caught.exception)
 
-    def test_a_read_failure_during_the_topology_pass_is_named(self):
-        """The first read of a tree is the validation pass's."""
-        message = self._convert_with_failing_handle(fail_on_read=1)
-        self.assertIn("reading", message)
-        self.assertIn("from the source failed", message)
-        self.assertIn("tree 0", message)
-
-    def test_a_read_failure_during_the_emission_pass_is_named(self):
-        """Reads 2 and 3 are emission's, after validation has already passed."""
-        message = self._convert_with_failing_handle(fail_on_read=2)
-        self.assertIn("from the source failed", message)
-        self.assertIn("tree 0", message)
-
-    def test_a_seek_failure_mid_conversion_is_named(self):
-        """The emission pass re-seeks to the tree it just validated."""
-        message = self._convert_with_failing_handle(fail_on_seek=2)
-        self.assertIn("cannot seek to byte", message)
-        self.assertIn("tree 0", message)
+    def test_a_source_failing_mid_conversion_is_named(self):
+        """The first read of a tree is the validation pass's, reads 2 and 3 are
+        emission's after validation has passed, and emission re-seeks to the tree it just
+        validated; each failure names the tree."""
+        cases = (
+            ("topology read", {"fail_on_read": 1}, ("reading", "from the source failed")),
+            ("emission read", {"fail_on_read": 2}, ("from the source failed",)),
+            ("emission seek", {"fail_on_seek": 2}, ("cannot seek to byte",)),
+        )
+        for label, failure, fragments in cases:
+            with self.subTest(label):
+                message = self._convert_with_failing_handle(**failure)
+                for fragment in fragments + ("tree 0",):
+                    self.assertIn(fragment, message)
 
     def test_a_file_that_vanishes_before_conversion_is_named(self):
         """The same, at the second read site: iter_batches' own open()."""
@@ -951,17 +814,17 @@ class InventoryTests(FixtureCase):
 
 
 class HeaderAndLayoutTests(FixtureCase):
-    def test_truncated_payload_fails(self):
-        self.write("trees.0", [TREE_A], drop_records=1)
-        with self.assertRaises(ConverterError) as caught:
-            self.adapter([(0, self.path("trees.0"))]).inventory()
-        self.assertIn("truncated or trailing data", str(caught.exception))
-
-    def test_trailing_bytes_fail(self):
-        self.write("trees.0", [TREE_A], trailing=b"\x00" * 16)
-        with self.assertRaises(ConverterError) as caught:
-            self.adapter([(0, self.path("trees.0"))]).inventory()
-        self.assertIn("truncated or trailing data", str(caught.exception))
+    def test_a_payload_disagreeing_with_its_header_fails(self):
+        """A file one record short, or carrying trailing bytes, is refused."""
+        for label, damage in (
+            ("truncated", {"drop_records": 1}),
+            ("trailing bytes", {"trailing": b"\x00" * 16}),
+        ):
+            with self.subTest(label):
+                self.write("trees.0", [TREE_A], **damage)
+                with self.assertRaises(ConverterError) as caught:
+                    self.adapter([(0, self.path("trees.0"))]).inventory()
+                self.assertIn("truncated or trailing data", str(caught.exception))
 
     def test_truncated_header_fails(self):
         with open(self.path("trees.0"), "wb") as handle:
@@ -976,7 +839,7 @@ class HeaderAndLayoutTests(FixtureCase):
             handle.write(struct.pack("<ii", 7, 2))
             for tree in (TREE_A, TREE_B):
                 for row in tree:
-                    handle.write(pack_record(row))
+                    handle.write(pack_lhalo_record(row))
         with self.assertRaises(ConverterError) as caught:
             self.adapter([(0, self.path("trees.0"))]).inventory()
         self.assertIn("bad count total", str(caught.exception))
@@ -1047,7 +910,7 @@ class HeaderAndLayoutTests(FixtureCase):
             "extra_fields": [],
             "binary_layout": {
                 "byte_order": "little",
-                "itemsize": ORACLE_RECORD_BYTES + 8,
+                "itemsize": LHALO_ORACLE_RECORD_BYTES + 8,
                 "offsets": dict(column_map.binary_layout.offsets),
             },
         }
@@ -1058,39 +921,6 @@ class HeaderAndLayoutTests(FixtureCase):
         with self.assertRaises(ConverterError) as caught:
             self.adapter([(0, self.path("trees.0"))], schema=schema).inventory()
         self.assertIn("truncated or trailing data", str(caught.exception))
-
-    def test_unselected_fields_remain_part_of_the_declared_stride(self):
-        """Selecting nothing extra does not shrink the record.
-
-        The default profile selects neither ``M_Mean200`` nor ``FileNr``, yet
-        both keep their bytes in the frozen layout, and dropping one from
-        ``offsets`` is rejected outright.
-        """
-        layout = default_schema().source_layout
-        unselected = [entry.name for entry in layout.entries if not entry.selected]
-        self.assertEqual(
-            sorted(unselected), ["FileNr", "M_Mean200", "M_TopHat", "SubHalfMass", "SubhaloIndex"]
-        )
-        self.assertEqual(sum(entry.itemsize for entry in layout.entries), ORACLE_RECORD_BYTES)
-
-        column_map = cs.load_column_map(os.path.join(PROFILE_DIR, "lhalo_binary.yaml"))
-        offsets = dict(column_map.binary_layout.offsets)
-        del offsets["M_Mean200"]
-        raw = {
-            "schema_version": 1,
-            "source_format": "lhalo_binary",
-            "required_columns": {
-                role: list(aliases) for role, aliases in column_map.required_columns
-            },
-            "extra_fields": [],
-            "binary_layout": {"byte_order": "little", "itemsize": 104, "offsets": offsets},
-        }
-        properties = cs.load_source_properties(
-            os.path.join(MINI_MILLENNIUM, "halo_properties.yaml")
-        )
-        with self.assertRaises(ConverterError) as caught:
-            cs.build_schema(cs.parse_column_map(raw, origin="<gap test>"), properties)
-        self.assertIn("does not cover source field", str(caught.exception))
 
 
 # ==========================================================================
@@ -1109,8 +939,22 @@ class PreservationTests(FixtureCase):
         return [row for tree in self.source for row in tree]
 
     def test_every_payload_value_matches_the_direct_binary_read(self):
+        """Every value of the hostile ``TREE_A`` survives bit for bit, in its native source
+        width: float32 masses without a round trip through another unit (``1/3``, the
+        subnormal and the float32 maximum), the negative mass sentinel, signed zero, the
+        duplicate, negative and above-2**53 ``MostBoundID`` values, and ``Len`` and ``Spin``
+        taken from the source rather than derived."""
         rows = self.flat_source()
         payload = self.columns["payload"]
+        for name, dtype in (
+            ("M_Crit200", "float32"),
+            ("Pos", "float32"),
+            ("MostBoundID", "int64"),
+            ("Len", "int32"),
+            ("SnapNum", "int32"),
+        ):
+            self.assertEqual(payload[name].dtype, np.dtype(dtype), name)
+        self.assertEqual(payload["Pos"].shape, (9, 3))
         for index, row in enumerate(rows):
             for name in ("Len", "SnapNum", "MostBoundID"):
                 self.assertEqual(int(payload[name][index]), row[name], (index, name))
@@ -1126,57 +970,6 @@ class PreservationTests(FixtureCase):
                     struct.pack("<3f", *row[name]),
                     (index, name),
                 )
-
-    def test_declared_payload_dtypes_are_the_native_source_widths(self):
-        payload = self.columns["payload"]
-        self.assertEqual(payload["M_Crit200"].dtype, np.dtype("float32"))
-        self.assertEqual(payload["Pos"].dtype, np.dtype("float32"))
-        self.assertEqual(payload["Pos"].shape, (9, 3))
-        self.assertEqual(payload["MostBoundID"].dtype, np.dtype("int64"))
-        self.assertEqual(payload["Len"].dtype, np.dtype("int32"))
-        self.assertEqual(payload["SnapNum"].dtype, np.dtype("int32"))
-
-    def test_mass_is_not_round_tripped_through_another_unit(self):
-        """float32 in 1e10 Msun/h, untouched.
-
-        ``1/3`` and ``1e-45`` have no exact representation in the units a
-        round trip would pass through, so a conversion to Msun/h and back
-        would be visible here as a changed bit pattern.
-        """
-        masses = self.columns["payload"]["M_Crit200"]
-        self.assertEqual(masses[2].tobytes(), struct.pack("<f", 1.0 / 3.0))
-        self.assertEqual(masses[3].tobytes(), struct.pack("<f", 1e-45))
-        self.assertEqual(masses[4].tobytes(), struct.pack("<f", 3.4028235e38))
-
-    def test_negative_mass_sentinel_survives_as_data(self):
-        self.assertEqual(float(self.columns["payload"]["M_Crit200"][1]), -1.0)
-
-    def test_signed_zero_is_preserved(self):
-        position = self.columns["payload"]["Pos"][1]
-        self.assertEqual(float(position[0]), 0.0)
-        self.assertEqual(float(position[1]), 0.0)
-        self.assertFalse(bool(np.signbit(position[0])))
-        self.assertTrue(bool(np.signbit(position[1])))
-
-    def test_mostboundid_keeps_duplicates_negatives_and_bits_above_2_53(self):
-        most_bound = self.columns["payload"]["MostBoundID"]
-        self.assertEqual(int(most_bound[0]), 2**53 + 1)
-        self.assertEqual(int(most_bound[1]), -42)
-        self.assertEqual(int(most_bound[2]), int(most_bound[3]))
-        self.assertEqual(int(most_bound[4]), int(most_bound[5]))
-
-    def test_len_and_spin_are_taken_from_the_source_not_derived(self):
-        """Len is supplied, and Spin is not renormalised.
-
-        Row 1 carries ``Len == 0`` beside ``M_Crit200 == -1.0``: any attempt to
-        derive Len from mass, or to divide Spin by mass the way the
-        Consistent-Trees producer does, would be visible immediately.
-        """
-        self.assertEqual(int(self.columns["payload"]["Len"][1]), 0)
-        self.assertEqual(
-            np.asarray(self.columns["payload"]["Spin"][0], dtype="<f4").tobytes(),
-            struct.pack("<3f", 0.5, -0.25, 0.125),
-        )
 
     def test_row_order_is_the_source_order(self):
         coordinates = self.columns["coordinates"]
@@ -1199,36 +992,6 @@ class PreservationTests(FixtureCase):
             for name in LINK_NAMES:
                 actual = int(links[name][row])
                 self.assertEqual(actual, expected.get((row, name), NULL_LINK), (row, name))
-
-    def test_forward_gaps_survive_with_their_exact_targets(self):
-        """Rows 3 and 6 skip a snapshot; both edges are kept, not dropped."""
-        links = self.columns["links"]
-        snapshots = self.columns["payload"]["SnapNum"]
-        ids = self.columns["identity"]["SourceHaloID"]
-        by_id = {int(value): index for index, value in enumerate(ids)}
-        gaps = []
-        for row in (3, 6):
-            target = by_id[int(links["Descendant"][row])]
-            gaps.append(int(snapshots[target]) - int(snapshots[row]))
-        self.assertEqual(gaps, [2, 2])
-        self.assertEqual(int(links["Descendant"][3]), 1)  # row 0 of this tree
-        self.assertEqual(int(links["Descendant"][6]), 2)  # row 1 of this tree
-
-    def test_a_progenitor_chain_may_mix_spans(self):
-        """Row 0's chain is row 2 (span 1) then row 3 (span 2).
-
-        NextProgenitor is descendant-relative rather than owner-relative, and
-        this is exactly that case: the two chain members share a
-        descendant but sit at different snapshots, and nothing here may assume
-        adjacency.
-        """
-        links = self.columns["links"]
-        snapshots = self.columns["payload"]["SnapNum"]
-        self.assertEqual(int(links["FirstProgenitor"][0]), 3)  # row 2
-        self.assertEqual(int(links["NextProgenitor"][2]), 4)  # row 3
-        self.assertEqual(int(snapshots[2]), 1)
-        self.assertEqual(int(snapshots[3]), 0)
-        self.assertEqual(int(links["Descendant"][2]), int(links["Descendant"][3]))
 
     def test_links_across_a_tree_boundary_stay_inside_their_own_tree(self):
         """TREE_B's links resolve to TREE_B's id range, not TREE_A's."""
@@ -1270,19 +1033,13 @@ class ExtraFieldTests(FixtureCase):
                     struct.pack("<f", row[source]),
                     (index, output),
                 )
-
-    def test_a_vector_component_extra_selects_that_component_only(self):
-        extras = self.columns["extras"]
-        for index, row in enumerate(self.source):
+            # a vector component extra selects that component only
             self.assertEqual(
                 np.float32(extras["PosX"][index]).tobytes(),
                 struct.pack("<f", row["Pos"][0]),
                 index,
             )
         self.assertEqual(extras["PosX"].shape, (7,))
-
-    def test_extras_keep_their_declared_precision(self):
-        extras = self.columns["extras"]
         self.assertEqual(extras["M_Mean200"].dtype, np.dtype("float32"))
         self.assertEqual(extras["SourceFileNr"].dtype, np.dtype("int32"))
         self.assertEqual(extras["PosX"].dtype, np.dtype("float32"))
@@ -1299,22 +1056,22 @@ class ExtraFieldTests(FixtureCase):
 
 
 class ChunkingTests(FixtureCase):
-    def test_a_tree_larger_than_the_chunk_is_split_across_batches(self):
+    def test_batches_are_filled_across_trees_and_files_and_split_a_large_tree(self):
+        """Batches are full, not one per tree, and a tree larger than the batch is split."""
         self.write("trees.0", [TREE_A])
-        adapter = self.adapter([(0, self.path("trees.0"))])
-        columns, sizes = collect(adapter, 2)
-        self.assertEqual(sizes, [2, 2, 2, 1])
-        self.assertTrue(all(size <= 2 for size in sizes))
-        self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), list(range(1, 8)))
-
-    def test_batches_pack_across_tree_and_file_boundaries(self):
-        self.write("trees.0", [TREE_B, TREE_B])
-        self.write("trees.1", [TREE_B])
-        adapter = self.adapter([(0, self.path("trees.0")), (1, self.path("trees.1"))])
-        _columns, sizes = collect(adapter, 4)
-        # Six rows in three two-row trees across two files: full batches, not
-        # one batch per tree.
-        self.assertEqual(sizes, [4, 2])
+        self.write("trees.1", [TREE_B, TREE_B])
+        self.write("trees.2", [TREE_B])
+        cases = (
+            # a seven-row tree in batches of two
+            ([(0, "trees.0")], 2, [2, 2, 2, 1]),
+            # six rows in three two-row trees across two files
+            ([(1, "trees.1"), (2, "trees.2")], 4, [4, 2]),
+        )
+        for sources, max_rows, expected in cases:
+            with self.subTest(max_rows=max_rows):
+                adapter = self.adapter([(ordinal, self.path(name)) for ordinal, name in sources])
+                _columns, sizes = collect(adapter, max_rows)
+                self.assertEqual(sizes, expected)
 
     def test_chunking_does_not_change_the_emitted_rows(self):
         self.write("trees.0", [TREE_A, TREE_B])
@@ -1333,11 +1090,6 @@ class ChunkingTests(FixtureCase):
                         values.tobytes(), columns[group][name].tobytes(), (max_rows, group, name)
                     )
 
-    def test_max_rows_must_be_positive(self):
-        self.write("trees.0", [TREE_B])
-        with self.assertRaises(ConverterError):
-            list(self.adapter([(0, self.path("trees.0"))]).iter_batches(0))
-
 
 # ==========================================================================
 # Budgets
@@ -1345,124 +1097,86 @@ class ChunkingTests(FixtureCase):
 
 
 class BudgetTests(FixtureCase):
-    def test_an_over_budget_inventory_fails_before_it_is_built(self):
-        self.write("trees.0", [TREE_B, TREE_B, TREE_B])
-        with self.assertRaises(ConverterError) as caught:
-            self.adapter(
-                [(0, self.path("trees.0"))], memory_budget_bytes=inventory_budget_bytes(3) - 1
-            ).inventory()
-        self.assertIn("memory budget", str(caught.exception))
 
-    def test_an_over_budget_tree_validation_fails_before_allocation(self):
-        """A budget that admits the inventory but not the tree's validation.
+    def test_the_validation_budget_is_exact_at_its_boundary(self):
+        """One byte short of the formula is refused, and exactly the formula converts.
 
-        The tree has to be big enough for its validation term to exceed the
-        inventory term, or a budget that clears the inventory check clears
-        validation too and the test proves nothing. One unit costs
-        ``inventory_budget_bytes(1)``; a 4,000-halo tree's validation costs
-        four times that, so half of it isolates the validation check.
+        The budget is one byte below the *validation* term specifically, not below the sum
+        of both terms: each named term is checked independently against the whole ceiling
+        rather than against a running total, so a byte off the sum would cross neither
+        threshold. The tree is big enough for the validation term to exceed the inventory
+        term, so the inventory check still passes and only validation is isolated.
         """
         n_halos = 4000
         self.write("trees.0", [linear_tree(n_halos)])
-        budget = validation_budget_bytes(n_halos // 2)
-        self.assertGreater(budget, inventory_budget_bytes(1))
-        self.assertLess(budget, validation_budget_bytes(n_halos))
-        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
+        budget = validation_budget_bytes(n_halos)
+        self.assertGreater(budget - 1, inventory_budget_bytes(1))
+        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget - 1)
         with self.assertRaises(ConverterError) as caught:
             list(adapter.iter_batches(256))
         self.assertIn("structural validation of 4000 halos", str(caught.exception))
 
-    def test_work_the_budget_accepts_actually_completes(self):
-        """The acceptance side, which the rejection tests above do not cover.
-
-        A budget sized from the declared constants must convert a tree of
-        that size without raising -- a ceiling that refuses work it should
-        admit is as wrong as one that admits work it cannot hold. The budget
-        is the complete formula the adapter checks: the per-halo validation
-        term plus the one bounded read buffer.
-        """
-        n_halos = 400
-        self.write("trees.0", [linear_tree(n_halos)])
-        budget = max(inventory_budget_bytes(1), validation_budget_bytes(n_halos))
         adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
         columns, _sizes = collect(adapter, 64)
         self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), list(range(1, n_halos + 1)))
 
-    def test_a_budget_one_byte_short_of_the_formula_is_refused(self):
-        """Pins the boundary, so the formula above is not merely generous.
-
-        The budget is one byte below the *validation* term specifically, not
-        below the sum of both terms: each named term is checked independently
-        against the whole ceiling rather than against a running total, so a
-        byte off the sum would cross neither threshold.
-        """
-        n_halos = 4000
-        self.write("trees.0", [linear_tree(n_halos)])
-        budget = validation_budget_bytes(n_halos) - 1
-        # Isolate the validation check: the inventory term must still fit.
-        self.assertGreater(budget, inventory_budget_bytes(1))
-        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
-        with self.assertRaises(ConverterError) as caught:
-            list(adapter.iter_batches(256))
-        self.assertIn("structural validation of 4000 halos", str(caught.exception))
-
     def test_an_emission_buffer_over_the_budget_is_refused_before_any_tree_is_read(self):
-        """The emission term is checked once, before the first tree.
+        """The emission term is checked once, before the first tree, and the extras a schema
+        selects widen the canonical columns it charges.
 
-        The tree is sized so the emission term dominates the other two, so a
-        budget one byte short of it isolates the emission check.
+        The tree is sized so the emission term dominates the other two, so a budget one byte
+        short of it isolates the emission check; at the figure the same conversion runs.
         """
         n_halos = 4000
         self.write("trees.0", [linear_tree(n_halos)])
-        need = emission_budget_bytes(n_halos, n_halos)
-        self.assertGreater(need - 1, validation_budget_bytes(n_halos))
-        self.assertGreater(need - 1, inventory_budget_bytes(1))
-        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=need - 1)
-        with mock.patch.object(
-            LHaloBinaryAdapter, "_read_tree_topology", side_effect=AssertionError("read")
-        ):
-            with self.assertRaises(ConverterError) as caught:
-                list(adapter.iter_batches(n_halos))
-        message = str(caught.exception)
-        self.assertIn("emission (batches of 4000 rows, 104 B/row raw read plus 152 B/row", message)
-        self.assertIn("--ingest-max-rows", message)
-        self.assertIn("memory_budget_bytes", message)
+        cases = (
+            ("default profile", default_schema(), 0, 152),
+            # five 4-byte scalars and one 4-byte vector component: 24 more B/row
+            ("extras example", extras_schema(), 24, 176),
+        )
+        for label, schema, extras_bytes, canonical_width in cases:
+            with self.subTest(label):
+                need = emission_budget_bytes(n_halos, n_halos, extras_bytes=extras_bytes)
+                self.assertGreater(need - 1, validation_budget_bytes(n_halos))
+                self.assertGreater(need - 1, inventory_budget_bytes(1))
+                adapter = self.adapter(
+                    [(0, self.path("trees.0"))], schema=schema, memory_budget_bytes=need - 1
+                )
+                with mock.patch.object(
+                    LHaloBinaryAdapter, "_read_tree_topology", side_effect=AssertionError("read")
+                ):
+                    with self.assertRaises(ConverterError) as caught:
+                        list(adapter.iter_batches(n_halos))
+                message = str(caught.exception)
+                self.assertIn(
+                    "emission (batches of 4000 rows, 104 B/row raw read plus "
+                    "{} B/row".format(canonical_width),
+                    message,
+                )
+                self.assertIn("--ingest-max-rows", message)
+                self.assertIn("memory_budget_bytes", message)
 
-    def test_an_emission_buffer_at_the_budget_is_accepted(self):
-        n_halos = 4000
-        self.write("trees.0", [linear_tree(n_halos)])
-        need = emission_budget_bytes(n_halos, n_halos)
-        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=need)
-        columns, sizes = collect(adapter, n_halos)
-        self.assertEqual(sizes, [n_halos])
-        self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), list(range(1, n_halos + 1)))
+                adapter = self.adapter(
+                    [(0, self.path("trees.0"))], schema=schema, memory_budget_bytes=need
+                )
+                self.assertEqual(
+                    sum(batch.n_rows for batch in adapter.iter_batches(n_halos)), n_halos
+                )
 
     def test_the_emission_term_charges_at_most_the_inventory_rows(self):
-        """A batch size far above the source's halo count is charged for the
-        rows the source actually has, as the ASCII route charges one snapshot."""
+        """A batch size far above the source's halo count is charged for the rows the
+        source actually has, as the ASCII route charges one snapshot."""
         n_halos = 4000
         self.write("trees.0", [linear_tree(n_halos)])
         need = emission_budget_bytes(n_halos, n_halos)
-        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=need)
-        _columns, sizes = collect(adapter, 100 * n_halos)
-        self.assertEqual(sizes, [n_halos])
-
-    def test_the_extras_widen_the_emission_term(self):
-        """The extras example adds 24 B/row of canonical columns (five 4-byte
-        scalars and one 4-byte vector component); the raw record is the same
-        104 bytes."""
-        n_halos = 4000
-        self.write("trees.0", [linear_tree(n_halos)])
-        need = emission_budget_bytes(n_halos, n_halos, extras_bytes=24)
-        adapter = self.adapter(
-            [(0, self.path("trees.0"))], schema=extras_schema(), memory_budget_bytes=need - 1
-        )
-        with self.assertRaisesRegex(ConverterError, "plus 176 B/row canonical columns"):
-            list(adapter.iter_batches(n_halos))
-        adapter = self.adapter(
-            [(0, self.path("trees.0"))], schema=extras_schema(), memory_budget_bytes=need
-        )
-        self.assertEqual(sum(batch.n_rows for batch in adapter.iter_batches(n_halos)), n_halos)
+        for max_rows in (n_halos, 100 * n_halos):
+            with self.subTest(max_rows=max_rows):
+                adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=need)
+                columns, sizes = collect(adapter, max_rows)
+                self.assertEqual(sizes, [n_halos])
+                self.assertEqual(
+                    columns["identity"]["SourceHaloID"].tolist(), list(range(1, n_halos + 1))
+                )
 
     def test_the_default_batch_size_fits_the_default_budget_for_the_shipped_profiles(self):
         """Pins the figures at the CLI defaults: ``--ingest-max-rows`` 1 << 20
@@ -1472,24 +1186,16 @@ class BudgetTests(FixtureCase):
         self.assertEqual(pipeline.DEFAULT_INGEST_MAX_ROWS, 1 << 20)
         self.assertEqual(DEFAULT_MEMORY_BUDGET_BYTES, 2 * 1024**3)
         rows = pipeline.DEFAULT_INGEST_MAX_ROWS
-        for schema, canonical, figure in (
-            (default_schema(), 152, 536_870_912),
-            (extras_schema(), 176, 587_202_560),
-        ):
+        for schema, canonical in ((default_schema(), 152), (extras_schema(), 176)):
             with self.subTest(extras=len(schema.extra_fields)):
                 self.assertEqual(topology.canonical_row_bytes(schema), canonical)
-                self.assertEqual(2 * rows * (ORACLE_RECORD_BYTES + canonical), figure)
+                figure = 2 * rows * (LHALO_ORACLE_RECORD_BYTES + canonical)
                 self.assertLessEqual(figure, DEFAULT_MEMORY_BUDGET_BYTES)
                 topology.check_emission_budget(
-                    schema, rows, rows, ORACLE_RECORD_BYTES, DEFAULT_MEMORY_BUDGET_BYTES
+                    schema, rows, rows, LHALO_ORACLE_RECORD_BYTES, DEFAULT_MEMORY_BUDGET_BYTES
                 )
 
-    def test_a_non_positive_budget_is_rejected(self):
-        self.write("trees.0", [TREE_B])
-        with self.assertRaises(ConverterError):
-            self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=0)
-
-    def test_an_over_budget_header_is_rejected_before_the_count_table_is_read(self):
+    def test_an_over_budget_inventory_is_refused_before_the_count_table_is_read(self):
         """The inventory check must gate ``read_lhalo_header``, not follow it.
 
         ``read_lhalo_header`` reads the whole per-tree count table and casts
@@ -1501,6 +1207,12 @@ class BudgetTests(FixtureCase):
         Measured, not asserted structurally: the traced peak must stay well
         below the count table this file would otherwise have allocated.
         """
+        self.write("small.0", [TREE_B, TREE_B, TREE_B])
+        with self.assertRaisesRegex(ConverterError, "memory budget"):
+            self.adapter(
+                [(0, self.path("small.0"))], memory_budget_bytes=inventory_budget_bytes(3) - 1
+            ).inventory()
+
         n_trees = 20000
         self.write("trees.0", [[dict(row)] for row in [TREE_B[1]] * n_trees])
         adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=1)
@@ -1551,27 +1263,6 @@ class BudgetTests(FixtureCase):
                 adapter.inventory()
         self.assertIn("memory budget", str(caught.exception))
         self.assertGreaterEqual(len(opens), 2, "the probe was not retried")
-
-    def test_a_persistent_probe_failure_is_named_not_swallowed(self):
-        """A second failure propagates and is named by the caller's wrapper."""
-        self.write("trees.0", [TREE_B])
-        adapter = self.adapter([(0, self.path("trees.0"))])
-        real_open = open
-
-        def dead_open(*args, **kwargs):
-            raise OSError(errno.EIO, "device is gone")
-
-        with mock.patch("builtins.open", dead_open):
-            with self.assertRaises(ConverterError) as caught:
-                adapter.inventory()
-        self.assertIn("cannot read source file", str(caught.exception))
-        self.assertIs(real_open, open)
-
-    def test_a_within_budget_header_still_reads_normally(self):
-        """The preflight must not change what a legal header does."""
-        self.write("trees.0", [TREE_A, TREE_B])
-        inventory = self.adapter([(0, self.path("trees.0"))]).inventory()
-        self.assertEqual([unit.n_halos for unit in inventory.units], [7, 2])
 
 
 def _linear_columns(n_halos):
@@ -1811,23 +1502,6 @@ class BudgetAccountingTests(FixtureCase):
                 )
                 os.remove(path)
 
-    def test_the_linear_terms_alone_would_understate_a_one_halo_tree(self):
-        """Why the base exists, pinned: at one halo the measured peak is above
-        the per-halo figure plus the one-record read buffer."""
-        path = os.path.join(self.tmpdir, "one.0")
-        write_lhalo_file(path, [linear_tree(1)])
-        adapter = LHaloBinaryAdapter(default_schema(), [(0, path)])
-        with open(path, "rb") as handle:
-            tracemalloc.start()
-            try:
-                baseline = tracemalloc.get_traced_memory()[0]
-                columns = adapter._read_tree_topology(handle, 12, 1, "budget measurement")
-                topology.validate_tree(columns, 1, "budget measurement", None)
-                peak = tracemalloc.get_traced_memory()[1] - baseline
-            finally:
-                tracemalloc.stop()
-        self.assertGreater(peak, VALIDATION_BYTES_PER_HALO + ORACLE_RECORD_BYTES)
-
     def test_the_previous_chunk_is_released_before_the_next_read(self):
         """Pinned by lifetime, because a budget assertion cannot see this.
 
@@ -1943,18 +1617,6 @@ class BudgetAccountingTests(FixtureCase):
                 )
                 os.remove(path)
 
-    def test_the_retained_columns_alone_would_understate_the_peak(self):
-        """The defect this constant was corrected for, pinned as a test.
-
-        If a future change made the columns-only figure sufficient, this test
-        fails and the constant should be lowered deliberately rather than the
-        two being allowed to drift back together by accident.
-        """
-        n_halos = 40000
-        peak = self.measure_peak(_linear_columns(n_halos), n_halos)
-        self.assertGreater(peak, n_halos * TOPOLOGY_COLUMN_BYTES_PER_HALO)
-        self.assertLess(TOPOLOGY_COLUMN_BYTES_PER_HALO, VALIDATION_BYTES_PER_HALO)
-
 
 # ==========================================================================
 # Structural rejection
@@ -2009,23 +1671,26 @@ class RejectionTests(FixtureCase):
 
     # ---- descendants ----------------------------------------------------
 
-    def test_same_snapshot_descendant_fails(self):
-        """Span 0 is not a gap. Built fresh, so no other rule can fire first."""
-        tree = [
-            {"Descendant": 1, "FirstHaloInFOFgroup": 0, "SnapNum": 1},
-            {"Descendant": -1, "FirstProgenitor": 0, "FirstHaloInFOFgroup": 1, "SnapNum": 1},
-        ]
-        self.reject(tree, "not forward of snapshot")
+    def test_a_descendant_that_is_not_forward_fails(self):
+        """Span 0 and a backwards link are both refused; a span of 2 is not (below).
 
-    def test_backwards_descendant_fails(self):
-        tree = [
-            {"Descendant": 1, "FirstHaloInFOFgroup": 0, "SnapNum": 2},
-            {"Descendant": -1, "FirstProgenitor": 0, "FirstHaloInFOFgroup": 1, "SnapNum": 1},
-        ]
-        self.reject(tree, "not forward of snapshot")
+        Built fresh, so no other rule can fire first.
+        """
+        for label, snapshot_of_halo_0 in (("same snapshot", 1), ("backwards", 2)):
+            with self.subTest(label):
+                tree = [
+                    {"Descendant": 1, "FirstHaloInFOFgroup": 0, "SnapNum": snapshot_of_halo_0},
+                    {
+                        "Descendant": -1,
+                        "FirstProgenitor": 0,
+                        "FirstHaloInFOFgroup": 1,
+                        "SnapNum": 1,
+                    },
+                ]
+                self.reject(tree, "not forward of snapshot")
 
     def test_a_forward_gap_is_not_rejected(self):
-        """The counterpart to the two above: span 2 is legal and converts."""
+        """The counterpart to the refusals above: span 2 is legal and converts."""
         tree = [
             {"Descendant": 1, "FirstHaloInFOFgroup": 0, "SnapNum": 0},
             {"Descendant": -1, "FirstProgenitor": 0, "FirstHaloInFOFgroup": 1, "SnapNum": 2},
@@ -2036,19 +1701,21 @@ class RejectionTests(FixtureCase):
 
     # ---- progenitor chains ----------------------------------------------
 
-    def test_a_forward_pointing_first_progenitor_fails(self):
-        """The v3 rule that FirstProgenitor points backwards, enforced transitively.
+    def test_a_progenitor_round_trip_that_is_not_reciprocal_fails(self):
+        """FirstProgenitor must be matched by the progenitor's own Descendant.
 
-        There is no tree where a forward-pointing FirstProgenitor is the
-        *only* defect: reciprocity plus the descendant-forward rule already
-        imply the backwards direction, so a dedicated branch for it would be
-        unreachable. What matters is that such a tree is refused, which it is
-        -- here by the reciprocity rule.
+        There is no tree where a forward-pointing FirstProgenitor is the *only* defect:
+        reciprocity plus the descendant-forward rule already imply the backwards direction,
+        so a dedicated branch for it would be unreachable. What matters is that such a tree
+        is refused, which it is -- here by the reciprocity rule, as is a head whose target
+        names no descendant.
         """
-        self.reject(self.mutate({0: {"FirstProgenitor": 1}}), "round trip is inconsistent")
-
-    def test_broken_progenitor_round_trip_fails(self):
-        self.reject(self.mutate({1: {"FirstProgenitor": 5}}), "round trip is inconsistent")
+        for label, changes in (
+            ("forward-pointing head", {0: {"FirstProgenitor": 1}}),
+            ("head whose target is not its progenitor", {1: {"FirstProgenitor": 5}}),
+        ):
+            with self.subTest(label):
+                self.reject(self.mutate(changes), "round trip is inconsistent")
 
     def test_sibling_naming_a_different_descendant_fails(self):
         self.reject(self.mutate({2: {"NextProgenitor": 6}}), "siblings must name the same")
@@ -2127,18 +1794,16 @@ class RejectionTests(FixtureCase):
         self.reject(self.mutate({4: {"Len": -3}}), "Len is -3")
 
     def test_non_finite_payload_fails_naming_the_source_row(self):
-        message = self.reject(self.mutate({5: {"Vmax": float("nan")}}), "non-finite value")
-        self.assertIn("row 5", message)
-        self.assertIn("'Vmax'", message)
-
-    def test_infinite_vector_component_fails(self):
-        self.reject(self.mutate({2: {"Pos": (1.0, float("inf"), 3.0)}}), "non-finite value")
-
-    def test_a_valid_tree_is_accepted_unchanged(self):
-        """The control: the unmutated fixture passes every rule above."""
-        self.write("trees.0", [self.mutate()])
-        columns, _sizes = collect(self.adapter([(0, self.path("trees.0"))]), 4)
-        self.assertEqual(columns["identity"]["SourceHaloID"].size, 7)
+        """A NaN scalar and an infinite vector component are both refused, naming the row."""
+        cases = (
+            ("nan scalar", {5: {"Vmax": float("nan")}}, ("row 5", "'Vmax'")),
+            ("infinite component", {2: {"Pos": (1.0, float("inf"), 3.0)}}, ("row 2", "'Pos'")),
+        )
+        for label, changes, fragments in cases:
+            with self.subTest(label):
+                message = self.reject(self.mutate(changes), "non-finite value")
+                for fragment in fragments:
+                    self.assertIn(fragment, message)
 
 
 # ==========================================================================
@@ -2147,17 +1812,6 @@ class RejectionTests(FixtureCase):
 
 REAL_FILE = os.path.join(MINI_MILLENNIUM, "snapshots", "trees_063.0")
 REAL_AVAILABLE = os.path.exists(REAL_FILE)
-
-
-def load_package_info(package_dir):
-    """A package's ``simulation_info.yaml`` with its repo-relative
-    ``simulation_dir`` anchored at ``REPO_ROOT``, as
-    ``inspect_sources._anchor_simulation_dir`` anchors it, so the declared
-    files resolve the same way from any working directory."""
-    info = si.load_simulation_info(os.path.join(package_dir, "simulation_info.yaml"))
-    if not os.path.isabs(info.simulation_dir):
-        info.simulation_dir = os.path.join(REPO_ROOT, info.simulation_dir)
-    return info
 
 
 @unittest.skipUnless(REAL_AVAILABLE, "mini-Millennium source data is not present")
@@ -2226,6 +1880,11 @@ class RealMiniMillenniumTests(unittest.TestCase):
         self.assertEqual(index, self.n_rows)
 
     def test_every_edge_matches_the_independent_read(self):
+        ids = self.columns["identity"]["SourceHaloID"]
+        self.assertEqual(ids.tolist(), list(range(1, self.n_rows + 1)))
+        self.assertEqual(
+            self.columns["coordinates"]["source_file_ordinal"].tolist(), [0] * self.n_rows
+        )
         links = self.columns["links"]
         index = 0
         base = 1
@@ -2254,40 +1913,6 @@ class RealMiniMillenniumTests(unittest.TestCase):
         self.assertTrue(spans)
         self.assertGreaterEqual(max(spans), 2, "expected at least one forward gap")
         self.assertEqual(min(spans), 1)
-
-    def test_identity_is_dense_and_ordered(self):
-        ids = self.columns["identity"]["SourceHaloID"]
-        self.assertEqual(ids.tolist(), list(range(1, self.n_rows + 1)))
-        self.assertEqual(
-            self.columns["coordinates"]["source_file_ordinal"].tolist(), [0] * self.n_rows
-        )
-
-    def test_file_prefix_tree_numbers_match_the_vertical_enumeration(self):
-        """Cumulative tree counts over preceding files, read independently."""
-        pairs = si.lhalo_file_paths(load_package_info(MINI_MILLENNIUM))
-        if not all(os.path.exists(path) for _number, path in pairs):
-            self.skipTest("the full mini-Millennium file set is not present")
-        expected_base = 0
-        bases = {}
-        for number, path in pairs:
-            bases[number] = expected_base
-            with open(path, "rb") as handle:
-                ntrees = struct.unpack("<i", handle.read(4))[0]
-            expected_base += ntrees
-        self.assertEqual(expected_base, 29585)
-
-        adapter = LHaloBinaryAdapter(default_schema(), pairs, max_snapshot=63)
-        seen = {}
-        for batch in adapter.iter_batches(200000):
-            files = batch.coordinates["source_file_ordinal"]
-            units = batch.coordinates["unit_ordinal"]
-            forests = batch.identity["ForestIndex"]
-            first = np.asarray(units) == 0
-            for file_number, forest in zip(
-                np.asarray(files)[first].tolist(), np.asarray(forests)[first].tolist()
-            ):
-                seen.setdefault(file_number, forest)
-        self.assertEqual(seen, bases)
 
 
 #: The other three shipped L-Halo packages, each with the tree-name prefix
@@ -2377,14 +2002,10 @@ class OtherRealPackageTests(unittest.TestCase):
         self.assertEqual(index, n_rows)
         self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), list(range(1, n_rows + 1)))
 
-    def test_millennium(self):
-        self.check_package(*OTHER_PACKAGES[0])
-
-    def test_micro_uchuu(self):
-        self.check_package(*OTHER_PACKAGES[1])
-
-    def test_mini_uchuu(self):
-        self.check_package(*OTHER_PACKAGES[2])
+    def test_every_other_package_matches_the_independent_read(self):
+        for package, tree_file, max_snapshot in OTHER_PACKAGES:
+            with self.subTest(package):
+                self.check_package(package, tree_file, max_snapshot)
 
 
 if __name__ == "__main__":

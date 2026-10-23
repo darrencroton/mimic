@@ -4,8 +4,8 @@ convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, the forests.h5 sidecar, the
 header metadata loader, and the identity multiplier the conversion report
 recommends.
 
-The writer's oracle is ``test_pipeline``'s literal gapped L-Halo source and the
-transposed arrays hand-derived from it (``test_pipeline.EXPECTED``), extended
+The writer's oracle is the literal gapped L-Halo source of ``fixtures`` and the
+transposed arrays hand-derived from it (``fixtures.LITERAL_EXPECTED``), extended
 here with payload and extra values that are literal functions of each halo's
 SourceHaloID -- never the writer's own table or the transpose's output."""
 
@@ -16,7 +16,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 import h5py
 import numpy as np
@@ -26,12 +25,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixtures  # noqa: E402
 import pipeline  # noqa: E402
-import test_ctrees_hdf5_adapter as h5fixtures  # noqa: E402
-import test_lhalo_adapter as lhalo  # noqa: E402
-import test_pipeline as literal  # noqa: E402
 from column_schema import build_schema, load_column_map  # noqa: E402
 from conversion_manifest import ConversionManifest  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
+from fixtures import (  # noqa: E402
+    make_v3_conversion,
+    v3_source_values,
+)
 from hdf5_writer_v3 import (  # noqa: E402
     HEADER_ATTRS,
     V3_FORMAT_VERSION,
@@ -84,24 +84,6 @@ V3_LHALO_EXTRAS_PAYLOAD = {
 }
 
 
-def v3_source_values(sid: int) -> dict:
-    """Every non-topology L-Halo field of the literal halo with this
-    SourceHaloID, as a literal function of it. Spin's last component is a
-    signed zero, which must survive."""
-    return {
-        "M_Mean200": sid + 0.5,
-        "M_TopHat": -0.25 * sid,
-        "SubHalfMass": 1024.0 * sid + 0.125,
-        "FileNr": -sid,
-        "SubhaloIndex": 100 + sid,
-        "Pos": (sid + 0.25, 2.0 * sid, 3.0 * sid),
-        "Vel": (float(sid), -float(sid), 0.5),
-        "Spin": (0.125 * sid, 1.0, -0.0),
-        "VelDisp": 10.0 + sid,
-        "Vmax": 20.0 + sid,
-    }
-
-
 def v3_expected_extras(sid: int) -> dict:
     """The v3 dataset value of every payload/extra column for one halo:
     the literal source value, renamed and component-selected exactly as the
@@ -122,22 +104,6 @@ def v3_expected_extras(sid: int) -> dict:
     }
 
 
-def v3_literal_trees():
-    """test_pipeline's three literal trees (SourceHaloID A -> 1-4, B -> 5,
-    C -> 6-8) with every other field set by :func:`v3_source_values`."""
-    trees = []
-    sid = 1
-    for tree in (literal.TREE_A, literal.TREE_B, literal.TREE_C):
-        rows = []
-        for row in tree:
-            values = dict(row)
-            values.update(v3_source_values(sid))
-            rows.append(values)
-            sid += 1
-        trees.append(rows)
-    return trees
-
-
 def write_simulation_info(path, particle_mass: float = 0.0325, box: float = 100.0) -> Path:
     path = Path(path)
     path.write_text(
@@ -147,43 +113,6 @@ def write_simulation_info(path, particle_mass: float = 0.0325, box: float = 100.
         "  particle_mass: {value: %r, units: 1e10 Msun/h}\n" % (box, particle_mass)
     )
     return path
-
-
-def make_v3_conversion(
-    root, profile="lhalo_binary_extras_example.yaml", *, write=True, block_rows=2
-):
-    """The literal gapped L-Halo source through initialize, ingest,
-    transpose and (unless ``write`` is False) the v3 write stage, streaming in
-    ``block_rows``-row blocks so even eight halos cross block boundaries."""
-    root = Path(root)
-    src = root / "src"
-    src.mkdir(parents=True)
-    tree_a, tree_b, tree_c = v3_literal_trees()
-    file0 = lhalo.write_lhalo_file(str(src / "trees.0"), [tree_a, tree_b])
-    file1 = lhalo.write_lhalo_file(str(src / "trees.1"), [tree_c])
-    a_list = src / "a.list"
-    a_list.write_text(literal.A_LIST_TEXT)
-    sim_info = write_simulation_info(src / "simulation_info.yaml")
-    work = root / "work"
-    schema = literal.lhalo_schema(profile)
-    pipeline.initialize(
-        work,
-        schema,
-        {"sources": [[0, file0], [1, file1]]},
-        a_list,
-        ingest_max_rows=3,
-        transpose_budget_bytes=literal.BUDGET,
-    )
-    pipeline.run_ingest(work)
-    pipeline.run_transpose(work)
-    conversion = SimpleNamespace(
-        work=work, a_list=a_list, sim_info=sim_info, schema=schema, manifest=None, dataset=None
-    )
-    if write:
-        manifest = pipeline.run_write(work, HorizontalV3Writer(sim_info, block_rows=block_rows))
-        conversion.manifest = manifest
-        conversion.dataset = manifest.artifact_path(manifest.stage("write")["directory"])
-    return conversion
 
 
 class V3Case(unittest.TestCase):
@@ -220,7 +149,7 @@ class TestV3Emission(V3Case):
             self.assertEqual(empty["halos"][name].shape, (0, 3) if is_vec else (0,), name)
             self.assertEqual(empty["halos"][name].dtype.str, dtype, name)
 
-    def test_every_file_holds_exactly_the_c3_objects(self):
+    def test_every_file_holds_exactly_the_header_halos_and_schema_groups(self):
         header_names = set(HEADER_ATTRS) | {"source_format", "column_mapping_sha256"}
         for snap in range(4):
             handle = self.open(snapshot_h5_name(snap))
@@ -264,7 +193,7 @@ class TestV3Emission(V3Case):
             self.assertEqual(copy.read_bytes(), (self.conv.dataset / name).read_bytes(), name)
 
     def test_topology_and_identity_are_the_hand_derived_gapped_graph(self):
-        for snap, columns in literal.EXPECTED.items():
+        for snap, columns in fixtures.LITERAL_EXPECTED.items():
             halos = self.open(snapshot_h5_name(snap))["halos"]
             for name, values in columns.items():
                 if name == "M_Crit200":
@@ -282,14 +211,8 @@ class TestV3Emission(V3Case):
         snap2 = self.open(snapshot_h5_name(2))["halos"]
         np.testing.assert_array_equal(snap2["NextProgenitorSnapshot"][...], [0, -1, -1])
 
-    def test_signed_duplicated_mostboundid_is_carried_as_data(self):
-        snap3 = self.open(snapshot_h5_name(3))["halos"]
-        np.testing.assert_array_equal(snap3["MostBoundID"][...], [77, 13, 77])
-        snap2 = self.open(snapshot_h5_name(2))["halos"]
-        np.testing.assert_array_equal(snap2["MostBoundID"][...], [-5, 12, -3])
-
     def test_payload_and_extras_keep_native_units_precision_and_values(self):
-        for snap, columns in literal.EXPECTED.items():
+        for snap, columns in fixtures.LITERAL_EXPECTED.items():
             halos = self.open(snapshot_h5_name(snap))["halos"]
             wanted = [v3_expected_extras(sid) for sid in columns["SourceHaloID"]]
             for name in v3_expected_extras(1):
@@ -308,7 +231,7 @@ class TestV3Emission(V3Case):
             self.assertEqual(attrs["links_adjacent"], 0)
             self.assertEqual(attrs["snapshot_number"], snap)
             self.assertEqual(attrs["scale_factor"], scale)
-            self.assertEqual(attrs["n_halos"], len(literal.EXPECTED[snap]["SourceHaloID"]))
+            self.assertEqual(attrs["n_halos"], len(fixtures.LITERAL_EXPECTED[snap]["SourceHaloID"]))
             self.assertEqual(attrs["n_forests_total"], 3)
             self.assertEqual(attrs["max_halo_rank_in_forest"], 3)
             self.assertEqual(attrs["particle_mass_msun_h"], 0.0325e10)
@@ -391,12 +314,6 @@ class TestV3Emission(V3Case):
             [o.name for o in result.outcomes if o.status != "PASS"], [], result.outcomes
         )
 
-    def test_the_write_stage_records_the_writer_identity(self):
-        writer = self.conv.manifest.stage("write")["result"]["writer"]
-        self.assertEqual(writer["format_version"], V3_FORMAT_VERSION)
-        self.assertEqual(writer["header"]["particle_mass_msun_h"], 0.0325e10)
-        self.assertEqual(V3_FORMAT_VERSION, 3)
-
 
 class TestHeaderMetadata(unittest.TestCase):
     def setUp(self):
@@ -418,34 +335,30 @@ class TestHeaderMetadata(unittest.TestCase):
         path.write_text(text)
         return path
 
-    def test_wrong_box_units_abort(self):
-        path = self._write_info(
-            "simulation:\n"
-            "  cosmology: {omega_matter: 0.3, omega_lambda: 0.7, hubble_h: 0.7}\n"
-            "  box_size: {value: 100.0, units: kpc/h}\n"
-            "  particle_mass: {value: 0.0325, units: 1e10 Msun/h}\n"
+    def test_malformed_simulation_metadata_aborts(self):
+        """Wrong box or particle-mass units and a missing cosmology block are
+        each refused rather than stamped into a header."""
+        cosmology = "  cosmology: {omega_matter: 0.3, omega_lambda: 0.7, hubble_h: 0.7}\n"
+        box = "  box_size: {value: 100.0, units: Mpc/h}\n"
+        mass = "  particle_mass: {value: 0.0325, units: 1e10 Msun/h}\n"
+        cases = (
+            (
+                "box units",
+                cosmology + "  box_size: {value: 100.0, units: kpc/h}\n" + mass,
+                "box_size units",
+            ),
+            (
+                "particle mass units",
+                cosmology + box + "  particle_mass: {value: 3.25e8, units: Msun/h}\n",
+                "particle_mass units",
+            ),
+            ("cosmology", box + mass, "malformed simulation metadata"),
         )
-        with self.assertRaisesRegex(ConverterError, "box_size units"):
-            load_header_metadata(path)
-
-    def test_wrong_particle_mass_units_abort(self):
-        path = self._write_info(
-            "simulation:\n"
-            "  cosmology: {omega_matter: 0.3, omega_lambda: 0.7, hubble_h: 0.7}\n"
-            "  box_size: {value: 100.0, units: Mpc/h}\n"
-            "  particle_mass: {value: 3.25e8, units: Msun/h}\n"
-        )
-        with self.assertRaisesRegex(ConverterError, "particle_mass units"):
-            load_header_metadata(path)
-
-    def test_missing_cosmology_aborts(self):
-        path = self._write_info(
-            "simulation:\n"
-            "  box_size: {value: 100.0, units: Mpc/h}\n"
-            "  particle_mass: {value: 0.0325, units: 1e10 Msun/h}\n"
-        )
-        with self.assertRaisesRegex(ConverterError, "malformed simulation metadata"):
-            load_header_metadata(path)
+        for label, body, message in cases:
+            with self.subTest(case=label):
+                path = self._write_info("simulation:\n" + body)
+                with self.assertRaisesRegex(ConverterError, message):
+                    load_header_metadata(path)
 
 
 class TestIdentityMultiplier(unittest.TestCase):
@@ -453,64 +366,67 @@ class TestIdentityMultiplier(unittest.TestCase):
     report states (``report.identity_multiplier_window``,
     ``report.recommended_multiplier``)."""
 
-    def test_recommended_multiplier(self):
-        self.assertEqual(recommended_multiplier(5, 5), 10**9)
-        self.assertEqual(recommended_multiplier(10**9 - 1, 5), 10**9)
-        self.assertEqual(recommended_multiplier(10**9, 5), 10**10)
-        with self.assertRaisesRegex(ConverterError, "no valid identity multiplier"):
-            recommended_multiplier(10**17, 10**3)
+    @staticmethod
+    def reader_accepts(multiplier, max_rank, n_forests_total):
+        """The two conditions horizontal_identity_bounds_valid() applies at run
+        time (src/io/horizontal/interface.c), re-derived here rather than
+        reusing the implementation under test."""
+        return multiplier > max_rank and n_forests_total <= (2**63 - 1) // multiplier - 1
 
     def test_identity_multiplier_window_matches_the_reader_bounds(self):
-        # Cross-check against the two conditions horizontal_identity_bounds_valid()
-        # applies at run time (src/io/horizontal/interface.c), re-derived here
-        # rather than reusing the implementation under test. Figures are the
-        # projected Shin-Uchuu production dataset.
+        # Figures are the projected Shin-Uchuu production dataset.
         max_rank, n_forests_total = 12_834_657_129, 166_547_771
-
-        def reader_accepts(multiplier):
-            return multiplier > max_rank and n_forests_total <= (2**63 - 1) // multiplier - 1
 
         lower, upper = identity_multiplier_window(max_rank, n_forests_total)
         self.assertEqual((lower, upper), (12_834_657_130, 55_379_738_354))
-        self.assertTrue(reader_accepts(lower))
-        self.assertTrue(reader_accepts(upper))
-        self.assertFalse(reader_accepts(lower - 1))
-        self.assertFalse(reader_accepts(upper + 1))
+        self.assertTrue(self.reader_accepts(lower, max_rank, n_forests_total))
+        self.assertTrue(self.reader_accepts(upper, max_rank, n_forests_total))
+        self.assertFalse(self.reader_accepts(lower - 1, max_rank, n_forests_total))
+        self.assertFalse(self.reader_accepts(upper + 1, max_rank, n_forests_total))
 
-    def test_recommended_multiplier_searches_past_the_decade_ladder(self):
-        # Shin-Uchuu production: the window is 4.3e10 wide but holds no power of
-        # ten, so a decade-only search wrongly reports no valid multiplier.
-        self.assertEqual(
-            recommended_multiplier(max_rank=12_834_657_129, n_forests_total=166_547_771),
-            2 * 10**10,
+    def test_recommended_multiplier_picks_a_ladder_value_the_reader_accepts(self):
+        """Each recommendation lies in the window and is accepted by the reader;
+        a window holding no power of ten (Shin-Uchuu: 4.3e10 wide) still yields
+        one, and a window that is empty is refused."""
+        cases = (
+            ("rank far below the reader default", 5, 5, 10**9),
+            ("rank just below the default", 10**9 - 1, 5, 10**9),
+            ("rank at the default", 10**9, 5, 10**10),
+            ("no power of ten in the window", 12_834_657_129, 166_547_771, 2 * 10**10),
         )
+        for label, max_rank, n_forests_total, expected in cases:
+            with self.subTest(case=label):
+                self.assertEqual(recommended_multiplier(max_rank, n_forests_total), expected)
+                self.assertTrue(self.reader_accepts(expected, max_rank, n_forests_total))
+        with self.assertRaisesRegex(ConverterError, "no valid identity multiplier"):
+            recommended_multiplier(10**17, 10**3)
 
-    def test_window_floor_stays_positive_for_the_empty_dataset_sentinel(self):
-        # An all-empty dataset carries (n_forests_total 0, max_rank -1); the
-        # reader requires multiplier > 0, so the window must not offer 0.
-        lower, upper = identity_multiplier_window(max_rank=-1, n_forests_total=0)
-        self.assertEqual(lower, 1)
-        self.assertLessEqual(lower, upper)
+    def test_the_window_stays_usable_at_its_extremes(self):
+        with self.subTest("empty-dataset sentinel"):
+            # An all-empty dataset carries (n_forests_total 0, max_rank -1); the
+            # reader requires multiplier > 0, so the window must not offer 0.
+            lower, upper = identity_multiplier_window(max_rank=-1, n_forests_total=0)
+            self.assertEqual(lower, 1)
+            self.assertLessEqual(lower, upper)
 
-    def test_window_below_the_reader_default_still_yields_a_multiplier(self):
-        # Very many small forests put the ceiling under TREE_MUL_FAC (1e9).
-        # Flooring the window at the default would report it empty and abort a
-        # report the reader would have accepted -- the same defect on new input.
-        max_rank, n_forests_total = 5_000_000, 10**10
-        lower, upper = identity_multiplier_window(max_rank, n_forests_total)
-        self.assertLess(upper, 10**9)
-        self.assertLessEqual(lower, upper)
-        multiplier = recommended_multiplier(max_rank, n_forests_total)
-        self.assertGreater(multiplier, max_rank)
-        self.assertLessEqual(n_forests_total, (2**63 - 1) // multiplier - 1)
+        with self.subTest("ceiling below the reader default"):
+            # Very many small forests put the ceiling under TREE_MUL_FAC (1e9).
+            # Flooring the window at the default would report it empty and abort a
+            # report the reader would have accepted.
+            max_rank, n_forests_total = 5_000_000, 10**10
+            lower, upper = identity_multiplier_window(max_rank, n_forests_total)
+            self.assertLess(upper, 10**9)
+            self.assertLessEqual(lower, upper)
+            multiplier = recommended_multiplier(max_rank, n_forests_total)
+            self.assertGreater(multiplier, max_rank)
+            self.assertTrue(self.reader_accepts(multiplier, max_rank, n_forests_total))
 
-    def test_recommended_multiplier_falls_back_to_the_window_floor(self):
-        # A window too narrow to hold any 1/2/5 x 10**k value still yields one.
-        max_rank, n_forests_total = 12 * 10**17, 4
-        lower, upper = identity_multiplier_window(max_rank, n_forests_total)
-        multiplier = recommended_multiplier(max_rank, n_forests_total)
-        self.assertEqual(multiplier, lower)
-        self.assertLessEqual(multiplier, upper)
+        with self.subTest("window too narrow for a 1/2/5 value"):
+            max_rank, n_forests_total = 12 * 10**17, 4
+            lower, upper = identity_multiplier_window(max_rank, n_forests_total)
+            multiplier = recommended_multiplier(max_rank, n_forests_total)
+            self.assertEqual(multiplier, lower)
+            self.assertLessEqual(multiplier, upper)
 
 
 class _CorruptingWriter(HorizontalV3Writer):
@@ -580,13 +496,17 @@ class TestV3WriteVerification(unittest.TestCase):
         # nothing was consumed: every transposed snapshot is still verified present
         manifest.verify_stage_artifacts("transpose")
 
-    def test_corruption_in_an_extra_field_fails_the_stage(self):
-        writer = _CorruptingWriter(self.conv.sim_info, snapshot_h5_name(2), "SubHalfMass", 1)
-        self.assert_refused_before_success_or_cleanup(writer, "SubHalfMass")
-
-    def test_corruption_in_a_target_snapshot_column_fails_the_stage(self):
-        writer = _CorruptingWriter(self.conv.sim_info, snapshot_h5_name(0), "DescendantSnapshot")
-        self.assert_refused_before_success_or_cleanup(writer, "DescendantSnapshot")
+    def test_corruption_in_a_written_column_fails_the_stage(self):
+        """A flipped value in an extra field and in a target-snapshot column is
+        each caught by name."""
+        cases = (
+            (snapshot_h5_name(2), "SubHalfMass", 1),
+            (snapshot_h5_name(0), "DescendantSnapshot", 0),
+        )
+        for file_name, dataset, row in cases:
+            with self.subTest(dataset=dataset):
+                writer = _CorruptingWriter(self.conv.sim_info, file_name, dataset, row)
+                self.assert_refused_before_success_or_cleanup(writer, dataset)
 
     def test_a_changed_schema_attribute_fails_the_stage(self):
         def mutate(out_dir):
@@ -609,19 +529,19 @@ class TestV3WriteVerification(unittest.TestCase):
             "/ForestID rows .* differ from the forest enumeration",
         )
 
-    def test_a_scalar_chunk_shape_in_the_zero_halo_snapshot_fails_the_stage(self):
-        mutate = _rechunk_empty(snapshot_h5_name(1), "Vmax", (65537,))
-        self.assert_refused_before_success_or_cleanup(
-            _MutatingWriter(self.conv.sim_info, mutate),
-            r"snapshot_001\.h5: /halos/Vmax: chunks \(65537,\)",
+    def test_a_wrong_chunk_shape_in_the_zero_halo_snapshot_fails_the_stage(self):
+        """A zero-row scalar and a zero-row vec3 dataset re-created with other
+        chunks are each refused."""
+        cases = (
+            ("Vmax", (65537,), r"snapshot_001\.h5: /halos/Vmax: chunks \(65537,\)"),
+            ("Pos", (2, 2), r"snapshot_001\.h5: /halos/Pos: chunks \(2, 2\)"),
         )
-
-    def test_a_vector_chunk_shape_in_the_zero_halo_snapshot_fails_the_stage(self):
-        mutate = _rechunk_empty(snapshot_h5_name(1), "Pos", (2, 2))
-        self.assert_refused_before_success_or_cleanup(
-            _MutatingWriter(self.conv.sim_info, mutate),
-            r"snapshot_001\.h5: /halos/Pos: chunks \(2, 2\)",
-        )
+        for dataset, chunks, message in cases:
+            with self.subTest(dataset=dataset):
+                mutate = _rechunk_empty(snapshot_h5_name(1), dataset, chunks)
+                self.assert_refused_before_success_or_cleanup(
+                    _MutatingWriter(self.conv.sim_info, mutate), message
+                )
 
     def test_a_retry_after_refusal_writes_a_verified_dataset(self):
         writer = _CorruptingWriter(self.conv.sim_info, snapshot_h5_name(3), "Pos")
@@ -630,7 +550,10 @@ class TestV3WriteVerification(unittest.TestCase):
         self.assertTrue(manifest.is_complete("write"))
 
     def test_a_completed_write_is_not_claimed_by_different_physical_metadata(self):
-        pipeline.run_write(self.conv.work, HorizontalV3Writer(self.conv.sim_info))
+        manifest = pipeline.run_write(self.conv.work, HorizontalV3Writer(self.conv.sim_info))
+        writer = manifest.stage("write")["result"]["writer"]
+        self.assertEqual(writer["format_version"], V3_FORMAT_VERSION)
+        self.assertEqual(writer["header"]["particle_mass_msun_h"], 0.0325e10)
         pipeline.run_write(self.conv.work, HorizontalV3Writer(self.conv.sim_info))
         other = write_simulation_info(self.tmp / "other.yaml", box=62.5)
         with self.assertRaisesRegex(ConverterError, "completed by writer"):
@@ -669,26 +592,29 @@ class TestV3OtherRoutes(unittest.TestCase):
     def hdf5_conversion(self, simulation_info=None):
         directory = self.tmp / "h5"
         directory.mkdir()
-        info = h5fixtures.write_source(
+        info = fixtures.write_hdf5_source(
             str(directory),
-            [{"forests": [h5fixtures.MERGER_FOREST]}, {"forests": [h5fixtures.lone(9, snap=5)]}],
+            [
+                {"forests": [fixtures.HDF5_MERGER_FOREST]},
+                {"forests": [fixtures.hdf5_lone_forest(9, snap=5)]},
+            ],
         )
         a_list = self.tmp / "h5.a_list"
         a_list.write_text("".join("{}\n".format(0.5 + 0.1 * i) for i in range(6)))
         work = self.tmp / "h5work"
         pipeline.initialize(
             work,
-            h5fixtures.load_schema(),
+            fixtures.load_hdf5_schema(),
             {
                 "info_path": info,
                 "first_file": 0,
                 "last_file": 1,
-                "particle_mass": h5fixtures.PARTICLE_MASS,
+                "particle_mass": fixtures.UCHUU_PARTICLE_MASS,
                 **({} if simulation_info is None else {"simulation_info": str(simulation_info)}),
             },
             a_list,
             ingest_max_rows=2,
-            transpose_budget_bytes=literal.BUDGET,
+            transpose_budget_bytes=fixtures.LITERAL_BUDGET,
         )
         pipeline.run_ingest(work)
         pipeline.run_transpose(work)
@@ -696,7 +622,7 @@ class TestV3OtherRoutes(unittest.TestCase):
 
     def test_forests_hdf5_route_writes_an_adjacent_dataset_with_source_forest_ids(self):
         work, a_list = self.hdf5_conversion()
-        sim_info = write_simulation_info(self.tmp / "sim.yaml", h5fixtures.PARTICLE_MASS)
+        sim_info = write_simulation_info(self.tmp / "sim.yaml", fixtures.UCHUU_PARTICLE_MASS)
         manifest = pipeline.run_write(work, HorizontalV3Writer(sim_info))
         dataset = manifest.artifact_path(manifest.stage("write")["directory"])
         with h5py.File(dataset / snapshot_h5_name(5), "r") as handle:
@@ -710,7 +636,7 @@ class TestV3OtherRoutes(unittest.TestCase):
             np.testing.assert_array_equal(handle["SourceFileOrdinal"][...], [0, 1])
             np.testing.assert_array_equal(handle["SourceUnitOrdinal"][...], [0, 0])
             np.testing.assert_array_equal(
-                handle["ForestID"][...], [h5fixtures.MERGER_FOREST["id"], 9]
+                handle["ForestID"][...], [fixtures.HDF5_MERGER_FOREST["id"], 9]
             )
         result = run_battery_v3(dataset, a_list, manifest_path=manifest.path, budget_bytes=1 << 20)
         self.assertEqual([o.name for o in result.outcomes if o.status != "PASS"], [])
@@ -723,8 +649,12 @@ class TestV3OtherRoutes(unittest.TestCase):
 
     def test_forests_hdf5_route_refuses_simulation_info_it_was_not_recorded_against(self):
         # equal particle_mass, as Uchuu and micro-Uchuu share; only the box differs
-        recorded = write_simulation_info(self.tmp / "sim.yaml", h5fixtures.PARTICLE_MASS, box=100.0)
-        other = write_simulation_info(self.tmp / "other.yaml", h5fixtures.PARTICLE_MASS, box=62.5)
+        recorded = write_simulation_info(
+            self.tmp / "sim.yaml", fixtures.UCHUU_PARTICLE_MASS, box=100.0
+        )
+        other = write_simulation_info(
+            self.tmp / "other.yaml", fixtures.UCHUU_PARTICLE_MASS, box=62.5
+        )
         work, _a_list = self.hdf5_conversion(simulation_info=recorded)
         with self.assertRaisesRegex(
             ConverterError,
@@ -745,7 +675,7 @@ class TestV3OtherRoutes(unittest.TestCase):
             "simulation_info": str(fixtures.write_simulation_info(src / "simulation_info.yaml")),
         }
         a_list = fixtures.write_a_list(src / "fixture.a_list")
-        schema = build_schema(load_column_map(literal.PROFILE_DIR / "consistent_trees_ascii.yaml"))
+        schema = build_schema(load_column_map(fixtures.PROFILE_DIR / "consistent_trees_ascii.yaml"))
         work = self.tmp / "ascii_work"
         pipeline.initialize(
             work,
@@ -753,7 +683,7 @@ class TestV3OtherRoutes(unittest.TestCase):
             parameters,
             a_list,
             ingest_max_rows=4,
-            transpose_budget_bytes=literal.BUDGET,
+            transpose_budget_bytes=fixtures.LITERAL_BUDGET,
         )
         pipeline.run_ingest(work)
         pipeline.run_transpose(work)

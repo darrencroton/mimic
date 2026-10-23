@@ -90,6 +90,11 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from errors import ConverterError  # noqa: E402
+from source_index import load_forests_list, load_locations  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Constants and frozen artifact schemas
 # ---------------------------------------------------------------------------
@@ -171,9 +176,6 @@ SELECTION_DTYPE = np.dtype(
     ]
 )
 
-#: Rows accumulated in Python lists before flushing into numpy arrays.
-_PARSE_BLOCK_ROWS = 1_000_000
-
 #: Bytes copied per read/write during extraction.
 _COPY_CHUNK = 8 << 20
 
@@ -185,10 +187,6 @@ _HEADER_PROBE = 1 << 20
 #: Bytes read from the end of a source file to check its final line. Comfortably
 #: above the measured 506.3 B mean row width.
 _TAIL_PROBE = 1 << 16
-
-
-class SubsetError(RuntimeError):
-    """Fatal subset-selection failure: abort, never repair silently."""
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +204,7 @@ def decimal_digits(values: np.ndarray) -> np.ndarray:
     """
     arr = np.asarray(values, dtype=np.int64)
     if arr.size and int(arr.min()) < 0:
-        raise SubsetError("negative id encountered where a decimal width is needed")
+        raise ConverterError("negative id encountered where a decimal width is needed")
     return (np.searchsorted(_POW10, arr, side="right") + 1).astype(np.int64)
 
 
@@ -235,7 +233,7 @@ def parse_header_columns(header_line: str) -> List[str]:
     against each other so the duplication cannot drift silently.
     """
     if not header_line.startswith("#"):
-        raise SubsetError(
+        raise ConverterError(
             "ctrees header line must start with '#', got: {!r}".format(header_line[:80])
         )
     body = header_line.lstrip("#").strip()
@@ -244,7 +242,7 @@ def parse_header_columns(header_line: str) -> List[str]:
     names = [normalize_column_name(t) for t in re.split(r"[,\s]+", body) if t]
     names = [n for n in names if n]
     if not names:
-        raise SubsetError(
+        raise ConverterError(
             "ctrees header line contains no column names: {!r}".format(header_line[:80])
         )
     return names
@@ -261,7 +259,7 @@ def resolve_sample_columns(names: Sequence[str]) -> Dict[str, int]:
     wanted = ("scale", "id", "mvir", "jx", "jy", "jz")
     duplicates = sorted({w for w in wanted if lowered.count(w) > 1})
     if duplicates:
-        raise SubsetError(
+        raise ConverterError(
             "duplicate required column(s) in ctrees header: {}".format(", ".join(duplicates))
         )
     indices: Dict[str, int] = {}
@@ -272,7 +270,7 @@ def resolve_sample_columns(names: Sequence[str]) -> Dict[str, int]:
         except ValueError:
             missing.append(name)
     if missing:
-        raise SubsetError(
+        raise ConverterError(
             "missing required column(s) in ctrees header: {}".format(", ".join(sorted(missing)))
         )
     return indices
@@ -290,18 +288,18 @@ def read_a_list(path) -> np.ndarray:
             try:
                 values.append(float(line.split()[0]))
             except (ValueError, IndexError):
-                raise SubsetError(
+                raise ConverterError(
                     "{}:{}: non-numeric scale factor: {!r}".format(path, lineno, line)
                 )
     if not values:
-        raise SubsetError("{}: no scale factors found".format(path))
+        raise ConverterError("{}: no scale factors found".format(path))
     arr = np.asarray(values, dtype=np.float64)
     # checked before the ordering test, which a NaN would silently satisfy and
     # which would then disable every scale comparison made against this list
     if not np.all(np.isfinite(arr)):
-        raise SubsetError("{}: non-finite scale factor".format(path))
+        raise ConverterError("{}: non-finite scale factor".format(path))
     if np.any(np.diff(arr) <= 0.0):
-        raise SubsetError("{}: scale factors are not strictly ascending".format(path))
+        raise ConverterError("{}: scale factors are not strictly ascending".format(path))
     return arr
 
 
@@ -319,11 +317,11 @@ def widened_float32(token: bytes, column: str) -> float:
     """
     parsed = float(token)
     if not np.isfinite(parsed):
-        raise SubsetError("non-finite value in column '{}': {!r}".format(column, token))
+        raise ConverterError("non-finite value in column '{}': {!r}".format(column, token))
     with np.errstate(over="ignore"):
         narrowed = np.float32(parsed)
     if not np.isfinite(narrowed):
-        raise SubsetError("float32-overflowing value in column '{}': {!r}".format(column, token))
+        raise ConverterError("float32-overflowing value in column '{}': {!r}".format(column, token))
     return float(narrowed)
 
 
@@ -354,7 +352,7 @@ def require_gate_value(name: str, value: float, minimum: float, maximum: float) 
     makes every scale comparison vacuously true.
     """
     if not np.isfinite(value) or value < minimum or value > maximum:
-        raise SubsetError(
+        raise ConverterError(
             "{} must be finite and within [{}, {}], got {!r}".format(name, minimum, maximum, value)
         )
     return value
@@ -394,131 +392,10 @@ def _assert_unique_sorted(values: np.ndarray, what: str) -> np.ndarray:
     if ordered.size > 1:
         dup = np.nonzero(ordered[1:] == ordered[:-1])[0]
         if dup.size:
-            raise SubsetError(
+            raise ConverterError(
                 "{}: duplicate id(s); examples: {}".format(what, ordered[dup][:5].tolist())
             )
     return ordered
-
-
-# ---------------------------------------------------------------------------
-# Index-file loading (streaming, numpy-only)
-# ---------------------------------------------------------------------------
-
-
-def load_forests_list(path) -> Tuple[np.ndarray, np.ndarray]:
-    """Stream ``forests.list`` into ``(tree_root_id, forest_id)`` int64 arrays."""
-    path = Path(path)
-    root_blocks: List[np.ndarray] = []
-    forest_blocks: List[np.ndarray] = []
-    roots: List[int] = []
-    forests: List[int] = []
-
-    def flush() -> None:
-        if roots:
-            root_blocks.append(np.asarray(roots, dtype=np.int64))
-            forest_blocks.append(np.asarray(forests, dtype=np.int64))
-            del roots[:]
-            del forests[:]
-
-    with open(path, "rb") as handle:
-        for lineno, raw in enumerate(handle, start=1):
-            if not raw.strip() or raw[:1] == b"#":
-                continue
-            parts = raw.split()
-            if len(parts) != 2:
-                raise SubsetError(
-                    "{}:{}: expected 'TreeRootID ForestID', got: {!r}".format(
-                        path, lineno, raw[:80]
-                    )
-                )
-            try:
-                roots.append(int(parts[0]))
-                forests.append(int(parts[1]))
-            except ValueError:
-                raise SubsetError(
-                    "{}:{}: non-integer forests.list row: {!r}".format(path, lineno, raw[:80])
-                )
-            if len(roots) >= _PARSE_BLOCK_ROWS:
-                flush()
-    flush()
-    if not root_blocks:
-        raise SubsetError("{}: no forest rows found".format(path))
-    return np.concatenate(root_blocks), np.concatenate(forest_blocks)
-
-
-def load_locations(path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[int, str]]:
-    """Stream ``locations.dat`` into ``(tree_root_id, file_id, offset)`` plus the
-    ``file_id -> filename`` map.
-
-    The filename is checked on every row rather than only on a file id's first
-    appearance: a file id that changes name mid-file is corrupt input, and it
-    would silently mis-target the extractor.
-    """
-    path = Path(path)
-    root_blocks: List[np.ndarray] = []
-    file_blocks: List[np.ndarray] = []
-    offset_blocks: List[np.ndarray] = []
-    roots: List[int] = []
-    files: List[int] = []
-    offsets: List[int] = []
-    filemap: Dict[int, str] = {}
-
-    def flush() -> None:
-        if roots:
-            root_blocks.append(np.asarray(roots, dtype=np.int64))
-            file_blocks.append(np.asarray(files, dtype=np.int32))
-            offset_blocks.append(np.asarray(offsets, dtype=np.int64))
-            del roots[:]
-            del files[:]
-            del offsets[:]
-
-    with open(path, "rb") as handle:
-        for lineno, raw in enumerate(handle, start=1):
-            if not raw.strip() or raw[:1] == b"#":
-                continue
-            parts = raw.split()
-            if len(parts) != 4:
-                raise SubsetError(
-                    "{}:{}: expected 'TreeRootID FileID Offset Filename', got: {!r}".format(
-                        path, lineno, raw[:80]
-                    )
-                )
-            try:
-                root = int(parts[0])
-                file_id = int(parts[1])
-                offset = int(parts[2])
-            except ValueError:
-                raise SubsetError(
-                    "{}:{}: non-integer locations.dat row: {!r}".format(path, lineno, raw[:80])
-                )
-            if file_id < 0:
-                raise SubsetError("{}:{}: negative FileID {}".format(path, lineno, file_id))
-            if offset < 0:
-                raise SubsetError("{}:{}: negative offset {}".format(path, lineno, offset))
-            name = parts[3].decode("utf-8", "replace")
-            known = filemap.get(file_id)
-            if known is None:
-                filemap[file_id] = name
-            elif known != name:
-                raise SubsetError(
-                    "{}:{}: FileID {} maps to both {!r} and {!r}".format(
-                        path, lineno, file_id, known, name
-                    )
-                )
-            roots.append(root)
-            files.append(file_id)
-            offsets.append(offset)
-            if len(roots) >= _PARSE_BLOCK_ROWS:
-                flush()
-    flush()
-    if not root_blocks:
-        raise SubsetError("{}: no location rows found".format(path))
-    return (
-        np.concatenate(root_blocks),
-        np.concatenate(file_blocks),
-        np.concatenate(offset_blocks),
-        filemap,
-    )
 
 
 def load_filesizes(path) -> Dict[str, int]:
@@ -540,26 +417,26 @@ def load_filesizes(path) -> Dict[str, int]:
             else:
                 pieces = line.rsplit(None, 1)
                 if len(pieces) != 2:
-                    raise SubsetError(
+                    raise ConverterError(
                         "{}:{}: expected '<path><TAB><size>', got: {!r}".format(path, lineno, line)
                     )
                 name_part, size_part = pieces
             try:
                 size = int(size_part)
             except ValueError:
-                raise SubsetError("{}:{}: non-integer size {!r}".format(path, lineno, size_part))
+                raise ConverterError("{}:{}: non-integer size {!r}".format(path, lineno, size_part))
             name = os.path.basename(name_part.strip())
             if not name:
-                raise SubsetError("{}:{}: empty filename".format(path, lineno))
+                raise ConverterError("{}:{}: empty filename".format(path, lineno))
             if name in sizes and sizes[name] != size:
-                raise SubsetError(
+                raise ConverterError(
                     "{}:{}: conflicting sizes for {!r} ({} and {})".format(
                         path, lineno, name, sizes[name], size
                     )
                 )
             sizes[name] = size
     if not sizes:
-        raise SubsetError("{}: no file sizes found".format(path))
+        raise ConverterError("{}: no file sizes found".format(path))
     return sizes
 
 
@@ -611,7 +488,7 @@ def compute_tree_extents(
             )
             for i in idx
         ]
-        raise SubsetError(
+        raise ConverterError(
             "{} tree(s) have a non-positive byte extent; examples: {}".format(
                 int(bad.sum()), ", ".join(examples)
             )
@@ -640,7 +517,7 @@ def cmd_plan_candidates(args: argparse.Namespace) -> int:
     if loc_sorted.size != for_sorted.size or not np.array_equal(loc_sorted, for_sorted):
         only_loc = np.setdiff1d(loc_sorted, for_sorted, assume_unique=True)
         only_for = np.setdiff1d(for_sorted, loc_sorted, assume_unique=True)
-        raise SubsetError(
+        raise ConverterError(
             "index files disagree: {} root(s) only in locations.dat (e.g. {}), "
             "{} root(s) only in forests.list (e.g. {})".format(
                 only_loc.size,
@@ -664,7 +541,7 @@ def cmd_plan_candidates(args: argparse.Namespace) -> int:
         else:
             file_sizes[file_id] = size
     if missing_sizes:
-        raise SubsetError(
+        raise ConverterError(
             "{} file(s) referenced by locations.dat are absent from filesizes.tsv; "
             "examples: {}".format(len(missing_sizes), missing_sizes[:5])
         )
@@ -771,7 +648,7 @@ def read_marked_row(handle, offset: int, marker: bytes) -> bytes:
     fixed length. Returns the data row without its newline.
     """
     if offset < len(marker):
-        raise SubsetError(
+        raise ConverterError(
             "offset {} is too small to hold the preceding marker {!r}".format(offset, marker)
         )
     handle.seek(offset - len(marker))
@@ -785,7 +662,7 @@ def read_marked_row(handle, offset: int, marker: bytes) -> bytes:
         blob = b"".join(parts)
         if len(blob) >= len(marker):
             if not blob.startswith(marker):
-                raise SubsetError(
+                raise ConverterError(
                     "offset {} is not immediately preceded by its own marker: expected {!r}, "
                     "found {!r}".format(offset, marker, blob[: len(marker)])
                 )
@@ -793,7 +670,7 @@ def read_marked_row(handle, offset: int, marker: bytes) -> bytes:
             if newline >= 0:
                 return blob[len(marker) : newline]
         size = min(size * 2, 1 << 20)
-    raise SubsetError("no complete data row at offset {}".format(offset))
+    raise ConverterError("no complete data row at offset {}".format(offset))
 
 
 def read_ctrees_header_line(handle) -> str:
@@ -803,7 +680,7 @@ def read_ctrees_header_line(handle) -> str:
 def cmd_sample_roots(args: argparse.Namespace) -> int:
     candidates = np.load(args.candidates, allow_pickle=False)
     if candidates.dtype != CANDIDATES_DTYPE:
-        raise SubsetError(
+        raise ConverterError(
             "{}: unexpected dtype {} (expected {})".format(
                 args.candidates, candidates.dtype, CANDIDATES_DTYPE
             )
@@ -836,7 +713,7 @@ def cmd_sample_roots(args: argparse.Namespace) -> int:
                     handle.close()
                 name = filemap.get(file_id)
                 if name is None:
-                    raise SubsetError("no filename recorded for FileID {}".format(file_id))
+                    raise ConverterError("no filename recorded for FileID {}".format(file_id))
                 handle = open(trees_dir / os.path.basename(name), "rb")
                 open_file_id = file_id
                 header_names = parse_header_columns(read_ctrees_header_line(handle))
@@ -850,7 +727,7 @@ def cmd_sample_roots(args: argparse.Namespace) -> int:
             line = read_marked_row(handle, offset, tree_marker_bytes(root_id))
             tokens = line.split()
             if len(tokens) != n_columns:
-                raise SubsetError(
+                raise ConverterError(
                     "{} root {}: row at offset {} has {} token(s), header declares {}".format(
                         filemap[file_id], root_id, offset, len(tokens), n_columns
                     )
@@ -858,7 +735,7 @@ def cmd_sample_roots(args: argparse.Namespace) -> int:
 
             row_id = int(tokens[columns["id"]])
             if row_id != root_id:
-                raise SubsetError(
+                raise ConverterError(
                     "{} offset {}: row id {} != '#tree' marker root id {} -- the "
                     "first-data-row-is-root premise does not hold for this dataset".format(
                         filemap[file_id], offset, row_id, root_id
@@ -868,13 +745,13 @@ def cmd_sample_roots(args: argparse.Namespace) -> int:
             # NaN fails every comparison, so it would slip through the tolerance
             # test below; the production parser rejects a non-finite scale outright
             if not np.isfinite(row_scale):
-                raise SubsetError(
+                raise ConverterError(
                     "{} root {}: non-finite scale {!r}".format(
                         filemap[file_id], root_id, tokens[columns["scale"]]
                     )
                 )
             if abs(row_scale - final_scale) > args.scale_atol:
-                raise SubsetError(
+                raise ConverterError(
                     "{} root {}: row scale {!r} is not the final a_list scale {!r} "
                     "(atol {})".format(
                         filemap[file_id], root_id, row_scale, final_scale, args.scale_atol
@@ -915,7 +792,7 @@ def spearman_rank_correlation(x: np.ndarray, y: np.ndarray) -> float:
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
     if x.size != y.size:
-        raise SubsetError("spearman: mismatched lengths")
+        raise ConverterError("spearman: mismatched lengths")
     if x.size < 2:
         return float("nan")
     rx = _average_ranks(x)
@@ -997,7 +874,7 @@ def cmd_calibrate_proxy(args: argparse.Namespace) -> int:
     if positions.max(initial=0) >= sampled_roots.size or not np.array_equal(
         sampled_roots[np.clip(positions, 0, sampled_roots.size - 1)], table_roots
     ):
-        raise SubsetError(
+        raise ConverterError(
             "calibrate-proxy needs root values for EVERY tree in the table "
             "(sample-roots with --m 0 / all candidates); {:,} sampled vs {:,} trees".format(
                 sampled_roots.size, table_roots.size
@@ -1079,7 +956,7 @@ def half_decade_bins(n_trees: np.ndarray) -> np.ndarray:
     """Half-decade bin index on ``log10(n_trees)`` starting at ``n_trees = 1``."""
     counts = np.asarray(n_trees, dtype=np.float64)
     if np.any(counts < 1):
-        raise SubsetError("forest tree counts below 1 cannot be binned")
+        raise ConverterError("forest tree counts below 1 cannot be binned")
     return np.floor(2.0 * np.log10(counts) + 1e-12).astype(np.int64)
 
 
@@ -1181,11 +1058,11 @@ def forest_positions(forest_ids_sorted: np.ndarray, wanted: np.ndarray) -> np.nd
     counts, for a mapping ``searchsorted`` already provides for free.
     """
     if forest_ids_sorted.size == 0:
-        raise SubsetError("empty forest table")
+        raise ConverterError("empty forest table")
     pos = np.clip(np.searchsorted(forest_ids_sorted, wanted), 0, forest_ids_sorted.size - 1)
     if not np.array_equal(forest_ids_sorted[pos], wanted):
         missing = np.asarray(wanted)[forest_ids_sorted[pos] != np.asarray(wanted)]
-        raise SubsetError(
+        raise ConverterError(
             "{} forest id(s) absent from the forest table; examples: {}".format(
                 missing.size, missing[:5].tolist()
             )
@@ -1213,7 +1090,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     gate_b = est_halos <= args.max_halos_per_forest
     tractable = gate_a & gate_b
     if not tractable.any():
-        raise SubsetError("no forest passes both tractability gates")
+        raise ConverterError("no forest passes both tractability gates")
     _log(
         "tractable forests: {:,} of {:,} (Gate A excludes {:,}, Gate B excludes {:,})".format(
             int(tractable.sum()), n_forests, int((~gate_a).sum()), int((~gate_b).sum())
@@ -1236,12 +1113,12 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     join_order = np.argsort(root_values["tree_root_id"], kind="stable")
     sampled_roots = root_values["tree_root_id"][join_order]
     if sampled_roots.size == 0:
-        raise SubsetError("root_values.npy is empty")
+        raise ConverterError("root_values.npy is empty")
     positions = np.clip(
         np.searchsorted(sampled_roots, candidates["tree_root_id"]), 0, sampled_roots.size - 1
     )
     if not np.array_equal(sampled_roots[positions], candidates["tree_root_id"]):
-        raise SubsetError(
+        raise ConverterError(
             "root_values.npy does not cover every candidate root "
             "({:,} sampled vs {:,} candidates)".format(sampled_roots.size, candidates.size)
         )
@@ -1311,7 +1188,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     # asserts contiguity from 0 and a perfect-cube file count (module docstring above).
     file_of_tree = tree_table["file_id"]
     if np.any(np.diff(file_of_tree.astype(np.int64)) < 0):
-        raise SubsetError(
+        raise ConverterError(
             "{}: not sorted by file_id; regenerate it with plan-candidates".format(args.tree_table)
         )
     file_bounds = np.searchsorted(file_of_tree, np.arange(n_files + 1, dtype=np.int32))
@@ -1335,7 +1212,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
                 continue
             options = touching[tractable[touching] & ~selected[touching]]
             if options.size == 0:
-                raise SubsetError(
+                raise ConverterError(
                     "file id {} ({}) is touched only by intractable forests, so no "
                     "complete-forest closure exists for it. This is a blocker, not a "
                     "warning: adding a lone tree would create a partial forest, which "
@@ -1357,7 +1234,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
         covered = np.zeros(n_files, dtype=bool)
         covered[np.unique(file_of_tree[selected[forest_pos_of_tree]])] = True
         if not covered.all():
-            raise SubsetError(
+            raise ConverterError(
                 "file-coverage closure did not converge in {} rounds".format(
                     args.max_closure_rounds
                 )
@@ -1540,7 +1417,7 @@ def locate_header(handle, path: str) -> Tuple[bytes, int, int, int]:
         if found >= 0:
             pos = found + 1
     if pos < 0:
-        raise SubsetError(
+        raise ConverterError(
             "{}: no '#tree' marker within the first {} bytes".format(path, len(probe))
         )
     header = probe[:pos]
@@ -1555,21 +1432,23 @@ def locate_header(handle, path: str) -> Tuple[bytes, int, int, int]:
         stripped = line.strip()
         if stripped and not stripped.startswith(b"#"):
             if len(stripped.split()) != 1:
-                raise SubsetError(
+                raise ConverterError(
                     "{}: unexpected non-comment header line before the first '#tree' "
                     "marker: {!r}".format(path, line[:80])
                 )
             try:
                 int(stripped)
             except ValueError:
-                raise SubsetError("{}: non-integer tree-count line: {!r}".format(path, line[:80]))
+                raise ConverterError(
+                    "{}: non-integer tree-count line: {!r}".format(path, line[:80])
+                )
             if count_start >= 0:
-                raise SubsetError("{}: more than one bare tree-count line".format(path))
+                raise ConverterError("{}: more than one bare tree-count line".format(path))
             count_start = line_start
             count_end = line_end
         line_start = line_end + 1
     if count_start < 0:
-        raise SubsetError(
+        raise ConverterError(
             "{}: no bare tree-count line before the first '#tree' marker".format(path)
         )
     return header, count_start, count_end, pos
@@ -1588,17 +1467,17 @@ def _require_data_row_tail(handle, path: str, n_columns: int) -> None:
     handle.seek(0, os.SEEK_END)
     size = handle.tell()
     if size == 0:
-        raise SubsetError("{}: empty source file".format(path))
+        raise ConverterError("{}: empty source file".format(path))
     handle.seek(max(size - _TAIL_PROBE, 0))
     tail = handle.read()
     if not tail.endswith(b"\n"):
-        raise SubsetError(
+        raise ConverterError(
             "{}: does not end with a newline after its final data row -- the last "
             "tree's byte extent would be wrong".format(path)
         )
     last = tail.rstrip(b"\n").rsplit(b"\n", 1)[-1]
     if last.startswith(b"#") or len(last.split()) != n_columns:
-        raise SubsetError(
+        raise ConverterError(
             "{}: final line is not a data row ({} token(s), header declares {}): {!r} -- a "
             "trailer would be copied into the last tree's body".format(
                 path, len(last.split()), n_columns, last[:80]
@@ -1625,7 +1504,7 @@ def _extract_one_file(src_path: Path, dst_path: Path, rows: np.ndarray) -> _Extr
         width = count_end - count_start
         new_count = str(rows.size).encode("ascii")
         if len(new_count) > width:
-            raise SubsetError(
+            raise ConverterError(
                 "{}: rewritten tree count {} does not fit the original {}-byte count "
                 "field".format(src_path, rows.size, width)
             )
@@ -1650,7 +1529,7 @@ def _extract_one_file(src_path: Path, dst_path: Path, rows: np.ndarray) -> _Extr
                 # only in the science. Reading the marker leaves the handle exactly
                 # at the body, so it costs no extra seek.
                 if int(row["offset"]) < len(marker):
-                    raise SubsetError(
+                    raise ConverterError(
                         "{}: offset {} is too small to hold tree {}'s marker".format(
                             src_path, int(row["offset"]), root
                         )
@@ -1658,7 +1537,7 @@ def _extract_one_file(src_path: Path, dst_path: Path, rows: np.ndarray) -> _Extr
                 src.seek(int(row["offset"]) - len(marker))
                 found = src.read(len(marker))
                 if found != marker:
-                    raise SubsetError(
+                    raise ConverterError(
                         "{}: tree {} is not preceded by its own marker in the source: expected "
                         "{!r}, found {!r} -- locations.dat disagrees with the data".format(
                             src_path, root, marker, found
@@ -1671,7 +1550,7 @@ def _extract_one_file(src_path: Path, dst_path: Path, rows: np.ndarray) -> _Extr
                 while remaining > 0:
                     chunk = src.read(min(_COPY_CHUNK, remaining))
                     if not chunk:
-                        raise SubsetError(
+                        raise ConverterError(
                             "{}: unexpected EOF while copying tree {} ({} byte(s) "
                             "short)".format(src_path, root, remaining)
                         )
@@ -1819,7 +1698,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
     # index files with the subset, destroying an irreplaceable dataset. Resolved
     # so a symlink cannot smuggle the same directory past the comparison.
     if out_dir.exists() and out_dir.resolve() == src_dir.resolve():
-        raise SubsetError(
+        raise ConverterError(
             "--out is the source directory ({}); extraction would overwrite the source "
             "dataset".format(src_dir)
         )
@@ -1833,10 +1712,10 @@ def cmd_extract(args: argparse.Namespace) -> int:
 
     n_files = len(filemap)
     if sorted(filemap) != list(range(n_files)):
-        raise SubsetError("source file ids are not contiguous from 0 (count {})".format(n_files))
+        raise ConverterError("source file ids are not contiguous from 0 (count {})".format(n_files))
     cube_root = int(round(n_files ** (1.0 / 3.0)))
     if cube_root**3 != n_files:
-        raise SubsetError(
+        raise ConverterError(
             "file count {} is not a perfect cube ({}^3 = {}); read_locations() will "
             "reject it".format(n_files, cube_root, cube_root**3)
         )
@@ -1861,7 +1740,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
             name = os.path.basename(filemap[file_id])
             rows = selection[int(bounds[file_id]) : int(bounds[file_id + 1])]
             if rows.size == 0:
-                raise SubsetError(
+                raise ConverterError(
                     "file id {} ({}) has no selected trees; every source file must "
                     "contribute at least one, because read_locations() asserts file-id "
                     "contiguity and cubeness".format(file_id, name)
@@ -1936,7 +1815,7 @@ def _verify_index_files(out_dir: Path, expected_roots: np.ndarray) -> List[str]:
         try:
             if not np.array_equal(_assert_unique_sorted(roots, "subset " + label), expected):
                 failures.append("subset {} root set != selected root set".format(label))
-        except SubsetError as exc:
+        except ConverterError as exc:
             failures.append(str(exc))
     return failures
 
@@ -2031,12 +1910,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except SubsetError as exc:
+    except ConverterError as exc:
         _log("FATAL: {}".format(exc))
         return 2
     except (OSError, ValueError) as exc:
         # a missing artifact or an unparsable one is fatal in the same sense as a
-        # SubsetError, and shares its exit code so automation can tell a bad input
+        # ConverterError, and shares its exit code so automation can tell a bad input
         # from a gate that ran and failed. Anything else is a bug and keeps its
         # traceback.
         _log("FATAL: {}: {}".format(type(exc).__name__, exc))

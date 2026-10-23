@@ -475,17 +475,12 @@ def _inspect_prelinked(source_format: str, adapter) -> dict:
         entry = files.setdefault(unit.source_file_ordinal, {"units": 0, "halos": 0})
         entry["units"] += 1
         entry["halos"] += unit.n_halos
-    selected = set(inventory.selected)
     record = {
         "unit_kind": "tree" if source_format == "lhalo_binary" else "forest",
         "total_units": len(inventory.units),
         "total_halos": inventory.total_halos,
-        "selected_units": len(selected),
-        "selected_halos": sum(
-            unit.n_halos
-            for unit in inventory.units
-            if (unit.source_file_ordinal, unit.unit_ordinal) in selected
-        ),
+        "selected_units": len(inventory.units),
+        "selected_halos": inventory.total_halos,
         "files": [
             {"source_file_ordinal": ordinal, "units": entry["units"], "halos": entry["halos"]}
             for ordinal, entry in sorted(files.items())

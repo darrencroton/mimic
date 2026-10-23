@@ -3,9 +3,8 @@
 ``forests.list`` maps every tree root id to its forest id (``#TreeRootID
 ForestID``); ``locations.dat`` maps every tree root id to the file holding its
 ``#tree`` block and the byte offset of the block's first data row
-(``#TreeRootID FileID Offset Filename``). Both are streamed by the loaders
-``subset.py`` already owns (:func:`subset.load_forests_list`,
-:func:`subset.load_locations`) and joined here into one table sorted by tree
+(``#TreeRootID FileID Offset Filename``). Both are streamed by the loaders defined here
+(:func:`load_forests_list`, :func:`load_locations`) and joined into one table sorted by tree
 root, which :class:`SourceIndex` holds as aligned int64 arrays.
 
 The two files must list exactly the same tree roots, each once; a root present
@@ -58,7 +57,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -66,7 +65,130 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from census.common import examples  # noqa: E402
 from errors import ConverterError  # noqa: E402
-from subset import load_forests_list, load_locations  # noqa: E402
+
+#: Rows accumulated in Python lists before flushing into numpy arrays.
+_PARSE_BLOCK_ROWS = 1_000_000
+
+
+# ---------------------------------------------------------------------------
+# Index-file loaders (streaming, numpy-only)
+# ---------------------------------------------------------------------------
+
+
+def load_forests_list(path) -> Tuple[np.ndarray, np.ndarray]:
+    """Stream ``forests.list`` into ``(tree_root_id, forest_id)`` int64 arrays."""
+    path = Path(path)
+    root_blocks: List[np.ndarray] = []
+    forest_blocks: List[np.ndarray] = []
+    roots: List[int] = []
+    forests: List[int] = []
+
+    def flush() -> None:
+        if roots:
+            root_blocks.append(np.asarray(roots, dtype=np.int64))
+            forest_blocks.append(np.asarray(forests, dtype=np.int64))
+            del roots[:]
+            del forests[:]
+
+    with open(path, "rb") as handle:
+        for lineno, raw in enumerate(handle, start=1):
+            if not raw.strip() or raw[:1] == b"#":
+                continue
+            parts = raw.split()
+            if len(parts) != 2:
+                raise ConverterError(
+                    "{}:{}: expected 'TreeRootID ForestID', got: {!r}".format(
+                        path, lineno, raw[:80]
+                    )
+                )
+            try:
+                roots.append(int(parts[0]))
+                forests.append(int(parts[1]))
+            except ValueError as exc:
+                raise ConverterError(
+                    "{}:{}: non-integer forests.list row: {!r}".format(path, lineno, raw[:80])
+                ) from exc
+            if len(roots) >= _PARSE_BLOCK_ROWS:
+                flush()
+    flush()
+    if not root_blocks:
+        raise ConverterError("{}: no forest rows found".format(path))
+    return np.concatenate(root_blocks), np.concatenate(forest_blocks)
+
+
+def load_locations(path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[int, str]]:
+    """Stream ``locations.dat`` into ``(tree_root_id, file_id, offset)`` plus the
+    ``file_id -> filename`` map.
+
+    The filename is checked on every row rather than only on a file id's first
+    appearance: a file id that changes name mid-file is corrupt input, and it
+    would silently mis-target the extractor.
+    """
+    path = Path(path)
+    root_blocks: List[np.ndarray] = []
+    file_blocks: List[np.ndarray] = []
+    offset_blocks: List[np.ndarray] = []
+    roots: List[int] = []
+    files: List[int] = []
+    offsets: List[int] = []
+    filemap: Dict[int, str] = {}
+
+    def flush() -> None:
+        if roots:
+            root_blocks.append(np.asarray(roots, dtype=np.int64))
+            file_blocks.append(np.asarray(files, dtype=np.int32))
+            offset_blocks.append(np.asarray(offsets, dtype=np.int64))
+            del roots[:]
+            del files[:]
+            del offsets[:]
+
+    with open(path, "rb") as handle:
+        for lineno, raw in enumerate(handle, start=1):
+            if not raw.strip() or raw[:1] == b"#":
+                continue
+            parts = raw.split()
+            if len(parts) != 4:
+                raise ConverterError(
+                    "{}:{}: expected 'TreeRootID FileID Offset Filename', got: {!r}".format(
+                        path, lineno, raw[:80]
+                    )
+                )
+            try:
+                root = int(parts[0])
+                file_id = int(parts[1])
+                offset = int(parts[2])
+            except ValueError as exc:
+                raise ConverterError(
+                    "{}:{}: non-integer locations.dat row: {!r}".format(path, lineno, raw[:80])
+                ) from exc
+            if file_id < 0:
+                raise ConverterError("{}:{}: negative FileID {}".format(path, lineno, file_id))
+            if offset < 0:
+                raise ConverterError("{}:{}: negative offset {}".format(path, lineno, offset))
+            name = parts[3].decode("utf-8", "replace")
+            known = filemap.get(file_id)
+            if known is None:
+                filemap[file_id] = name
+            elif known != name:
+                raise ConverterError(
+                    "{}:{}: FileID {} maps to both {!r} and {!r}".format(
+                        path, lineno, file_id, known, name
+                    )
+                )
+            roots.append(root)
+            files.append(file_id)
+            offsets.append(offset)
+            if len(roots) >= _PARSE_BLOCK_ROWS:
+                flush()
+    flush()
+    if not root_blocks:
+        raise ConverterError("{}: no location rows found".format(path))
+    return (
+        np.concatenate(root_blocks),
+        np.concatenate(file_blocks),
+        np.concatenate(offset_blocks),
+        filemap,
+    )
 
 
 def _sorted_unique(values: np.ndarray, what: str) -> np.ndarray:
@@ -115,9 +237,8 @@ class SourceIndex:
         """Parse both index files and join them on the tree root id.
 
         Raises:
-            ConverterError: on a duplicated root in either file, or a root
-                listed by one file and not the other.
-            subset.SubsetError: on a malformed row (from the shared loaders).
+            ConverterError: on a malformed row, a duplicated root in either
+                file, or a root listed by one file and not the other.
         """
         forests_list, locations = Path(forests_list), Path(locations)
         # one file at a time, each sorted and its unsorted arrays released

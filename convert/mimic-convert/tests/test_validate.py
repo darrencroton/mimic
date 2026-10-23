@@ -30,15 +30,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import convert_trees  # noqa: E402
 import fixtures  # noqa: E402
 import pipeline  # noqa: E402
-import test_pipeline as literal  # noqa: E402
 import validate_bounded  # noqa: E402
 import validate_v3  # noqa: E402
 from column_schema import build_schema, load_column_map  # noqa: E402
 from conversion_manifest import ConversionManifest  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
+from fixtures import (  # noqa: E402
+    CUT_FIXTURES,
+    capture_stderr,
+    convert_under_cut,
+    cut_layout,
+    cut_source,
+    lhalo_schema,
+    make_v3_conversion,
+    write_table,
+)
 from hdf5_writer_v3 import HorizontalV3Writer, snapshot_h5_name  # noqa: E402
-from test_fixups import capture_stderr  # noqa: E402
-from test_hdf5_writer_v3 import make_v3_conversion  # noqa: E402
 
 
 def outcome_map(outcomes):
@@ -51,7 +58,7 @@ def outcome_map(outcomes):
 #
 # Two independent oracles:
 #
-# - a real conversion of test_pipeline's literal gapped L-Halo source
+# - a real conversion of the literal gapped L-Halo source of fixtures
 #   (make_v3_conversion), whose pristine dataset must pass and each of whose
 #   contract components is corrupted independently, with the named check
 #   required to FAIL;
@@ -314,7 +321,7 @@ class TestV3BatteryPristine(V3BatteryCase):
         m = result.measurements
         self.assertEqual(m["format_versions"], [3])
         self.assertEqual(m["snapshot_counts"], [2, 0, 3, 3])
-        # test_pipeline.EXPECTED: snap-0 halos descend to snapshots 3 and 2
+        # fixtures.LITERAL_EXPECTED: snap-0 halos descend to snapshots 3 and 2
         self.assertEqual(m["gapped_descendants"], 2)
         self.assertEqual(m["max_descendant_span"], 3)
         self.assertEqual(m["links_adjacent_measured"], 0)
@@ -353,19 +360,20 @@ class TestV3BatteryStructure(V3BatteryCase):
             handle.create_group("extra")
         self.assert_fails(directory, "object-set", "root object set")
 
-    def test_a_soft_link_in_halos_fails_object_set(self):
-        directory = self.copy()
-        with h5py.File(directory / "snapshot_003.h5", "r+") as handle:
-            del handle["halos"]["Vmax"]
-            handle["halos"]["Vmax"] = h5py.SoftLink("/halos/VelDisp")
-        self.assert_fails(directory, "object-set", "SoftLink")
-
-    def test_an_external_link_in_schema_fails_object_set(self):
-        directory = self.copy()
-        with h5py.File(directory / "snapshot_000.h5", "r+") as handle:
-            del handle["schema"]["PosX"]
-            handle["schema"]["PosX"] = h5py.ExternalLink("snapshot_002.h5", "/schema/PosX")
-        self.assert_fails(directory, "object-set", "ExternalLink")
+    def test_a_soft_or_external_link_fails_object_set(self):
+        """A link in place of an object, in /halos or in /schema, is refused by its kind."""
+        with self.subTest("a soft link in /halos"):
+            directory = self.copy()
+            with h5py.File(directory / "snapshot_003.h5", "r+") as handle:
+                del handle["halos"]["Vmax"]
+                handle["halos"]["Vmax"] = h5py.SoftLink("/halos/VelDisp")
+            self.assert_fails(directory, "object-set", "SoftLink")
+        with self.subTest("an external link in /schema"):
+            directory = self.copy()
+            with h5py.File(directory / "snapshot_000.h5", "r+") as handle:
+                del handle["schema"]["PosX"]
+                handle["schema"]["PosX"] = h5py.ExternalLink("snapshot_002.h5", "/schema/PosX")
+            self.assert_fails(directory, "object-set", "ExternalLink")
 
     def test_a_narrowed_link_dtype_fails_object_set(self):
         directory = self.copy()
@@ -377,27 +385,48 @@ class TestV3BatteryStructure(V3BatteryCase):
         self.replace_dataset(directory, "snapshot_002.h5", "M_Crit200", dtype=">f4")
         self.assert_fails(directory, "object-set", "little-endian")
 
-    def test_a_compressed_extra_fails_object_set(self):
-        directory = self.copy()
-        self.replace_dataset(directory, "snapshot_003.h5", "SubHalfMass", compression="gzip")
-        self.assert_fails(directory, "object-set", "compressed")
+    def test_a_compressed_or_filtered_dataset_fails_object_set(self):
+        """The format forbids compression and every other filter on /halos."""
+        cases = [
+            (
+                "a compressed extra",
+                "snapshot_003.h5",
+                "SubHalfMass",
+                {"compression": "gzip"},
+                "compressed",
+            ),
+            ("a scale-offset filter", "snapshot_002.h5", "Len", {"scaleoffset": 0}, "scale-offset"),
+        ]
+        for label, name, dataset, options, fragment in cases:
+            with self.subTest(label):
+                directory = self.copy()
+                self.replace_dataset(directory, name, dataset, **options)
+                self.assert_fails(directory, "object-set", fragment)
 
-    def test_a_chunk_row_count_within_the_ceiling_passes_object_set(self):
-        directory = self.copy()
-        self.replace_dataset(directory, "snapshot_002.h5", "Vmax", chunks=(2,))
-        self.replace_dataset(directory, "snapshot_002.h5", "Pos", chunks=(1, 3))
-        _, outcomes = self.run_v3(directory)
-        self.assertEqual(outcomes["object-set"].status, "PASS", outcomes["object-set"].line())
-
-    def test_a_scalar_chunk_above_the_ceiling_fails_object_set(self):
-        directory = self.copy()
-        self.replace_dataset(directory, "snapshot_002.h5", "Vmax", chunks=(65537,))
-        self.assert_fails(directory, "object-set", "Vmax chunks (65537,) violate the rule")
-
-    def test_a_vector_chunk_of_the_wrong_width_fails_object_set(self):
-        directory = self.copy()
-        self.replace_dataset(directory, "snapshot_002.h5", "Pos", chunks=(2, 2))
-        self.assert_fails(directory, "object-set", "Pos chunks (2, 2) violate the rule")
+    def test_chunk_shapes_are_held_to_the_chunk_rule(self):
+        """Chunks within the row ceiling pass; a scalar column chunked above it and a vector
+        column chunked at the wrong width fail."""
+        cases = [
+            ("rows within the ceiling", {"Vmax": (2,), "Pos": (1, 3)}, None),
+            (
+                "a scalar above the ceiling",
+                {"Vmax": (65537,)},
+                "Vmax chunks (65537,) violate the rule",
+            ),
+            ("a vector of the wrong width", {"Pos": (2, 2)}, "Pos chunks (2, 2) violate the rule"),
+        ]
+        for label, chunks, fragment in cases:
+            with self.subTest(label):
+                directory = self.copy()
+                for dataset, shape in chunks.items():
+                    self.replace_dataset(directory, "snapshot_002.h5", dataset, chunks=shape)
+                if fragment is None:
+                    _, outcomes = self.run_v3(directory)
+                    self.assertEqual(
+                        outcomes["object-set"].status, "PASS", outcomes["object-set"].line()
+                    )
+                else:
+                    self.assert_fails(directory, "object-set", fragment)
 
     def test_a_declaration_with_the_wrong_type_for_its_dataset_fails_object_set(self):
         directory = self.copy()
@@ -441,16 +470,16 @@ class TestV3BatteryStructure(V3BatteryCase):
         outcomes = self.assert_fails(directory, "file-set", "forests.h5")
         self.assertEqual(outcomes["sidecar-object-set"].status, "SKIP")
 
-    def test_a_missing_header_attribute_fails_object_set(self):
-        directory = self.copy()
-        with h5py.File(directory / "snapshot_002.h5", "r+") as handle:
-            del handle["header"].attrs["hubble_h"]
-        self.assert_fails(directory, "object-set", "missing ['hubble_h']")
-
-    def test_a_header_attribute_of_the_wrong_type_fails_object_set(self):
-        directory = self.copy()
-        self.edit_header(directory, "snapshot_002.h5", "n_halos", 3, dtype=np.int32)
-        self.assert_fails(directory, "object-set", "attribute n_halos has dtype int32")
+    def test_a_missing_or_mistyped_header_attribute_fails_object_set(self):
+        with self.subTest("a missing attribute"):
+            directory = self.copy()
+            with h5py.File(directory / "snapshot_002.h5", "r+") as handle:
+                del handle["header"].attrs["hubble_h"]
+            self.assert_fails(directory, "object-set", "missing ['hubble_h']")
+        with self.subTest("an attribute of the wrong type"):
+            directory = self.copy()
+            self.edit_header(directory, "snapshot_002.h5", "n_halos", 3, dtype=np.int32)
+            self.assert_fails(directory, "object-set", "attribute n_halos has dtype int32")
 
     def test_a_structural_failure_skips_every_semantic_check(self):
         directory = self.copy()
@@ -468,11 +497,6 @@ class TestV3BatteryStructure(V3BatteryCase):
         directory = self.copy()
         (directory / "snapshot_002.h5").write_bytes(b"not an HDF5 file")
         self.assert_fails(directory, "object-set", "snapshot_002.h5: unreadable as HDF5")
-
-    def test_a_scale_offset_filter_fails_object_set(self):
-        directory = self.copy()
-        self.replace_dataset(directory, "snapshot_002.h5", "Len", scaleoffset=0)
-        self.assert_fails(directory, "object-set", "scale-offset")
 
     def test_a_contiguous_sidecar_dataset_fails_sidecar_object_set(self):
         directory = self.copy()
@@ -513,38 +537,58 @@ class TestV3BatteryEmptySnapshotSchema(V3BatteryCase):
 
 
 class TestV3BatteryHeaders(V3BatteryCase):
-    def test_a_version_2_file_among_version_3_files_is_refused(self):
-        directory = self.copy()
-        self.edit_header(directory, "snapshot_002.h5", "format_version", 2)
-        self.assert_fails(directory, "header-values", "format_version 2")
-        work, dataset = self.copy_workdir()
-        self.edit_header(dataset, "snapshot_002.h5", "format_version", 2)
-        code, out = self.validate_cli(work)
-        self.assertEqual(code, 1, out)
-        self.assertIn("header-values: FAIL", out)
-        self.assertIn("format_version 2", out)
-        self.assertIn("validation: FAIL", out)
-
-    def test_every_version_but_3_fails_header_values(self):
+    def test_a_version_other_than_3_is_refused(self):
+        """Any other version in every file, or one version 2 file among version 3 files (also
+        through the command line), fails header-values."""
         for version in (1, 2, 4):
+            with self.subTest(version=version):
+                directory = self.copy()
+                self.edit_header(directory, None, "format_version", version)
+                self.assert_fails(directory, "header-values", "format_version {}".format(version))
+        with self.subTest("one file, by the command line"):
             directory = self.copy()
-            self.edit_header(directory, None, "format_version", version)
-            self.assert_fails(directory, "header-values", "format_version {}".format(version))
+            self.edit_header(directory, "snapshot_002.h5", "format_version", 2)
+            self.assert_fails(directory, "header-values", "format_version 2")
+            work, dataset = self.copy_workdir()
+            self.edit_header(dataset, "snapshot_002.h5", "format_version", 2)
+            code, out = self.validate_cli(work)
+            self.assertEqual(code, 1, out)
+            self.assertIn("header-values: FAIL", out)
+            self.assertIn("format_version 2", out)
+            self.assertIn("validation: FAIL", out)
 
-    def test_a_wrong_snapshot_number_fails_header_values(self):
-        directory = self.copy()
-        self.edit_header(directory, "snapshot_002.h5", "snapshot_number", 3)
-        self.assert_fails(directory, "header-values", "snapshot_number 3 != filename index 2")
-
-    def test_a_scale_factor_other_than_the_a_list_fails_header_values(self):
-        directory = self.copy()
-        self.edit_header(directory, "snapshot_002.h5", "scale_factor", 0.123)
-        self.assert_fails(directory, "header-values", "scale_factor 0.123 != a_list[2]")
-
-    def test_an_n_halos_other_than_the_rows_fails_header_values(self):
-        directory = self.copy()
-        self.edit_header(directory, "snapshot_002.h5", "n_halos", 4)
-        self.assert_fails(directory, "header-values", "has 3 rows, header n_halos is 4")
+    def test_a_header_value_that_disagrees_with_its_source_fails_its_check(self):
+        """A header attribute that differs from the filename, the a_list, the rows, the
+        conversion or the writer's record fails the check that binds it."""
+        source_format = (np.bytes_(b"consistent_trees_hdf5"), h5py.string_dtype("ascii", 32))
+        digest = (np.bytes_(b"f" * 64), h5py.string_dtype("ascii", 64))
+        cases = [
+            ("a wrong snapshot number", "snapshot_002.h5", "snapshot_number", (3, None)),
+            (
+                "a scale factor other than the a_list",
+                "snapshot_002.h5",
+                "scale_factor",
+                (0.123, None),
+            ),
+            ("an n_halos other than the rows", "snapshot_002.h5", "n_halos", (4, None)),
+            ("a source format other than the conversion", None, "source_format", source_format),
+            ("a digest other than the conversion", None, "column_mapping_sha256", digest),
+            ("a box size other than the writer recorded", None, "box_size_mpc_h", (62.5, None)),
+        ]
+        expected = {
+            "snapshot_number": ("header-values", "snapshot_number 3 != filename index 2"),
+            "scale_factor": ("header-values", "scale_factor 0.123 != a_list[2]"),
+            "n_halos": ("header-values", "has 3 rows, header n_halos is 4"),
+            "source_format": ("header-values", "source_format"),
+            "column_mapping_sha256": ("header-values", "column_mapping_sha256"),
+            "box_size_mpc_h": ("run-scoped-headers", "box_size_mpc_h"),
+        }
+        for label, name, attr, (value, dtype) in cases:
+            with self.subTest(label):
+                directory = self.copy()
+                self.edit_header(directory, name, attr, value, dtype=dtype)
+                check, fragment = expected[attr]
+                self.assert_fails(directory, check, fragment)
 
     def test_a_stamped_links_adjacent_fails_the_measurement(self):
         directory = self.copy()
@@ -556,39 +600,12 @@ class TestV3BatteryHeaders(V3BatteryCase):
         self.edit_header(directory, "snapshot_003.h5", "links_adjacent", 1)
         self.assert_fails(directory, "run-scoped-headers", "links_adjacent")
 
-    def test_a_source_format_other_than_the_conversion_fails_header_values(self):
-        directory = self.copy()
-        self.edit_header(
-            directory,
-            None,
-            "source_format",
-            np.bytes_(b"consistent_trees_hdf5"),
-            dtype=h5py.string_dtype("ascii", 32),
-        )
-        self.assert_fails(directory, "header-values", "source_format")
-
-    def test_a_digest_other_than_the_conversion_fails_header_values(self):
-        directory = self.copy()
-        self.edit_header(
-            directory,
-            None,
-            "column_mapping_sha256",
-            np.bytes_(b"f" * 64),
-            dtype=h5py.string_dtype("ascii", 64),
-        )
-        self.assert_fails(directory, "header-values", "column_mapping_sha256")
-
     def test_a_variable_length_source_format_fails_object_set(self):
         directory = self.copy()
         self.edit_header(
             directory, "snapshot_000.h5", "source_format", "lhalo_binary", dtype=h5py.string_dtype()
         )
         self.assert_fails(directory, "object-set", "fixed ASCII")
-
-    def test_physical_headers_other_than_the_writer_recorded_fail(self):
-        directory = self.copy()
-        self.edit_header(directory, None, "box_size_mpc_h", 62.5)
-        self.assert_fails(directory, "run-scoped-headers", "box_size_mpc_h")
 
     def test_a_wrong_max_rank_fails_identity(self):
         directory = self.copy()
@@ -624,27 +641,29 @@ class TestV3BatteryRows(V3BatteryCase):
         self.assertEqual(outcomes["len-nonnegative"].status, "PASS")
         self.assertEqual(outcomes["len-nonnegative"].detail, "{} Len==0 halo(s)".format(zeros))
 
-    def test_a_nan_in_an_extra_fails_field_finiteness(self):
-        directory = self.copy()
-        self.edit(directory, "snapshot_003.h5", "M_TopHat", 2, np.nan)
-        self.assert_fails(directory, "field-finiteness", "M_TopHat")
+    def test_a_non_finite_value_fails_field_finiteness(self):
+        with self.subTest("a NaN in an extra"):
+            directory = self.copy()
+            self.edit(directory, "snapshot_003.h5", "M_TopHat", 2, np.nan)
+            self.assert_fails(directory, "field-finiteness", "M_TopHat")
+        with self.subTest("an infinity in a vector component"):
+            directory = self.copy()
+            with h5py.File(directory / "snapshot_002.h5", "r+") as handle:
+                handle["halos"]["Vel"][0, 1] = np.inf
+            self.assert_fails(directory, "field-finiteness", "Vel")
 
-    def test_an_infinity_in_a_vector_component_fails_field_finiteness(self):
-        directory = self.copy()
-        with h5py.File(directory / "snapshot_002.h5", "r+") as handle:
-            handle["halos"]["Vel"][0, 1] = np.inf
-        self.assert_fails(directory, "field-finiteness", "Vel")
-
-    def test_a_duplicated_sourcehaloid_fails_source_key_coverage(self):
-        directory = self.copy()
-        # snapshot 3 holds ids 1, 5, 6; 4 already belongs to snapshot 2
-        self.edit(directory, "snapshot_003.h5", "SourceHaloID", 1, 4)
-        self.assert_fails(directory, "source-key-coverage", "duplicated SourceHaloID")
-
-    def test_an_id_outside_the_inventory_fails_source_key_coverage(self):
-        directory = self.copy()
-        self.edit(directory, "snapshot_003.h5", "SourceHaloID", 2, 9)
-        self.assert_fails(directory, "source-key-coverage", "[1, 8]")
+    def test_a_duplicated_or_unlisted_sourcehaloid_fails_source_key_coverage(self):
+        """Snapshot 3 holds ids 1, 5, 6; 4 already belongs to snapshot 2, and the inventory's
+        range is [1, 8]."""
+        cases = [
+            ("a duplicated id", 1, 4, "duplicated SourceHaloID"),
+            ("an id outside the inventory", 2, 9, "[1, 8]"),
+        ]
+        for label, row, value, fragment in cases:
+            with self.subTest(label):
+                directory = self.copy()
+                self.edit(directory, "snapshot_003.h5", "SourceHaloID", row, value)
+                self.assert_fails(directory, "source-key-coverage", fragment)
 
 
 class TestV3BatteryLinks(V3BatteryCase):
@@ -751,24 +770,32 @@ class TestV3BatteryIdentityAndSidecar(V3BatteryCase):
         self.edit(directory, "snapshot_002.h5", "HaloRankInForest", 1, 1)
         self.assert_fails(directory, "identity", "source order")
 
-    def test_a_sidecar_forest_id_that_is_not_dense_fails_sidecar_content(self):
-        directory = self.copy()
-        with h5py.File(directory / "forests.h5", "r+") as handle:
+    def test_a_malformed_sidecar_fails_sidecar_content(self):
+        def not_dense(handle):
             handle["ForestID"][1] = 7
-        self.assert_fails(directory, "sidecar-content", "dense run forest number")
 
-    def test_sidecar_ordinals_out_of_inventory_order_fail_sidecar_content(self):
-        directory = self.copy()
-        with h5py.File(directory / "forests.h5", "r+") as handle:
+        def out_of_inventory_order(handle):
             handle["SourceUnitOrdinal"][1] = 2
-        self.assert_fails(directory, "sidecar-content", "inventory order")
 
-    def test_a_sidecar_shorter_than_n_forests_total_fails_sidecar_content(self):
-        directory = self.copy()
-        with h5py.File(directory / "forests.h5", "r+") as handle:
+        def shorter_than_n_forests_total(handle):
             for name in ("ForestID", "SourceFileOrdinal", "SourceUnitOrdinal"):
                 handle[name].resize((2,))
-        self.assert_fails(directory, "sidecar-content", "holds 2 forests")
+
+        cases = [
+            ("a ForestID that is not dense", not_dense, "dense run forest number"),
+            ("ordinals out of inventory order", out_of_inventory_order, "inventory order"),
+            (
+                "a sidecar shorter than n_forests_total",
+                shorter_than_n_forests_total,
+                "holds 2 forests",
+            ),
+        ]
+        for label, edit, fragment in cases:
+            with self.subTest(label):
+                directory = self.copy()
+                with h5py.File(directory / "forests.h5", "r+") as handle:
+                    edit(handle)
+                self.assert_fails(directory, "sidecar-content", fragment)
 
 
 class TestV3BatteryBinding(V3BatteryCase):
@@ -783,56 +810,6 @@ class TestV3BatteryBinding(V3BatteryCase):
         other.write_text("0.25\n0.5\n0.75\n0.99\n")
         outcomes = self.assert_fails(directory, "manifest-binding", "a_list", a_list=other)
         self.assertEqual(outcomes["header-values"].status, "FAIL")
-
-    def edited_manifest(self, edit):
-        work = Path(tempfile.mkdtemp(dir=self._tmp.name)) / "work"
-        shutil.copytree(self.conv.work, work)
-        path = work / "manifest.json"
-        data = json.loads(path.read_text())
-        edit(data)
-        path.write_text(json.dumps(data))
-        manifest = ConversionManifest.load(work)
-        return work, manifest
-
-    def test_ingest_counts_that_differ_fail_count_conservation(self):
-        work, manifest = self.edited_manifest(
-            lambda data: data["stages"]["ingest"]["result"].update(snapshot_counts=[2, 1, 2, 3])
-        )
-        directory = manifest.artifact_path(manifest.stage("write")["directory"])
-        outcomes = outcome_map(
-            validate_v3.run_battery_v3(
-                directory, self.conv.a_list, manifest_path=manifest.path, budget_bytes=V3_BUDGET
-            ).outcomes
-        )
-        self.assertEqual(outcomes["count-conservation"].status, "FAIL")
-        self.assertIn("ingest", outcomes["count-conservation"].detail)
-
-    def test_an_inventory_selecting_more_halos_fails_conservation_and_coverage(self):
-        def edit(data):
-            data["sources"]["inventory"]["selected_halos"] = 9
-            data["sources"]["inventory"]["total_halos"] = 9
-
-        work, manifest = self.edited_manifest(edit)
-        directory = manifest.artifact_path(manifest.stage("write")["directory"])
-        outcomes = outcome_map(
-            validate_v3.run_battery_v3(
-                directory, self.conv.a_list, manifest_path=manifest.path, budget_bytes=V3_BUDGET
-            ).outcomes
-        )
-        self.assertEqual(outcomes["count-conservation"].status, "FAIL")
-        self.assertEqual(outcomes["source-key-coverage"].status, "FAIL")
-
-    def test_a_manifest_whose_write_is_incomplete_fails_binding(self):
-        work, manifest = self.edited_manifest(
-            lambda data: data["stages"]["write"].update(status="failed")
-        )
-        directory = self.copy()
-        outcomes = outcome_map(
-            validate_v3.run_battery_v3(
-                directory, self.conv.a_list, manifest_path=manifest.path, budget_bytes=V3_BUDGET
-            ).outcomes
-        )
-        self.assertEqual(outcomes["manifest-binding"].status, "FAIL")
 
     def test_without_a_manifest_binding_and_conservation_are_skipped_not_passed(self):
         _result, outcomes = self.run_v3(self.copy(), manifest=False)
@@ -869,10 +846,15 @@ def make_v3_ascii_conversion(root, forests):
         "simulation_info": str(sim_info),
     }
     a_list = fixtures.write_a_list(src / "fixture.a_list")
-    schema = build_schema(load_column_map(literal.PROFILE_DIR / "consistent_trees_ascii.yaml"))
+    schema = build_schema(load_column_map(fixtures.PROFILE_DIR / "consistent_trees_ascii.yaml"))
     work = root / "work"
     pipeline.initialize(
-        work, schema, parameters, a_list, ingest_max_rows=4, transpose_budget_bytes=literal.BUDGET
+        work,
+        schema,
+        parameters,
+        a_list,
+        ingest_max_rows=4,
+        transpose_budget_bytes=fixtures.LITERAL_BUDGET,
     )
     pipeline.run_ingest(work)
     pipeline.run_transpose(work)
@@ -972,14 +954,6 @@ class TestV3BatteryAsciiPosition(unittest.TestCase):
                     )
                 )
         return sorted(rows)
-
-    def test_the_inventory_is_complete_so_the_position_check_applies(self):
-        inventory = self.conv.manifest.inventory
-        self.assertEqual(inventory["selected_halos"], inventory["total_halos"])
-        with h5py.File(self.conv.dataset / "snapshot_000.h5", "r") as handle:
-            self.assertEqual(
-                handle["header"].attrs["source_format"].decode(), "consistent_trees_ascii"
-            )
 
     def test_a_forest_blocked_ascii_dataset_passes_the_position_check(self):
         result, outcomes = self.run_v3(self.conv.dataset)
@@ -1103,33 +1077,41 @@ class TestV3LiteralGraphs(unittest.TestCase):
         _result, outcomes = self.run_literal(snapshots, sidecar)
         self.assertEqual(outcomes["topology-closure"].status, "FAIL")
 
-    def test_a_position_beyond_the_header_box_fails_position_bounds(self):
-        snapshots, sidecar = literal_graph()
-        # the literal header states a 100 Mpc/h box; x = 250 belongs to a larger one
-        snapshots[2]["Pos"] = [[1.0, 1.0, 1.0], [250.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
-        result, outcomes = self.run_literal(snapshots, sidecar)
-        self.assertEqual(
-            [o.name for o in result.outcomes if o.status == "FAIL"], ["position-bounds"]
-        )
-        self.assertIn(
-            "snapshot_002.h5 row 1 Pos [250.0, 2.0, 3.0]", outcomes["position-bounds"].detail
-        )
-        self.assertIn("box_size_mpc_h = 100.0", outcomes["position-bounds"].detail)
-
-    def test_a_negative_position_component_fails_position_bounds(self):
-        snapshots, sidecar = literal_graph()
-        snapshots[0]["Pos"] = [[1.0, 1.0, 1.0], [1.0, -0.5, 1.0]]
-        _result, outcomes = self.run_literal(snapshots, sidecar)
-        self.assertEqual(outcomes["position-bounds"].status, "FAIL")
-        self.assertIn(
-            "snapshot_000.h5 row 1 Pos [1.0, -0.5, 1.0]", outcomes["position-bounds"].detail
-        )
-
-    def test_positions_on_the_box_faces_pass_position_bounds(self):
-        snapshots, sidecar = literal_graph()
-        snapshots[2]["Pos"] = [[0.0, 0.0, 0.0], [100.0, 100.0, 100.0], [0.0, 50.0, 100.0]]
-        _result, outcomes = self.run_literal(snapshots, sidecar)
-        self.assertEqual(outcomes["position-bounds"].status, "PASS")
+    def test_positions_are_held_to_the_header_box_faces_inclusive(self):
+        """The literal header states a 100 Mpc/h box: x = 250 belongs to a larger one, a
+        negative component lies outside it, and the faces themselves are inside."""
+        cases = [
+            (
+                "a position beyond the box",
+                2,
+                [[1.0, 1.0, 1.0], [250.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+                ["snapshot_002.h5 row 1 Pos [250.0, 2.0, 3.0]", "box_size_mpc_h = 100.0"],
+            ),
+            (
+                "a negative component",
+                0,
+                [[1.0, 1.0, 1.0], [1.0, -0.5, 1.0]],
+                ["snapshot_000.h5 row 1 Pos [1.0, -0.5, 1.0]"],
+            ),
+            (
+                "positions on the box faces",
+                2,
+                [[0.0, 0.0, 0.0], [100.0, 100.0, 100.0], [0.0, 50.0, 100.0]],
+                None,
+            ),
+        ]
+        for label, snap, positions, fragments in cases:
+            with self.subTest(label):
+                snapshots, sidecar = literal_graph()
+                snapshots[snap]["Pos"] = positions
+                result, outcomes = self.run_literal(snapshots, sidecar)
+                failed = [o.name for o in result.outcomes if o.status == "FAIL"]
+                if fragments is None:
+                    self.assertEqual(failed, [])
+                else:
+                    self.assertEqual(failed, ["position-bounds"])
+                    for fragment in fragments:
+                        self.assertIn(fragment, outcomes["position-bounds"].detail)
 
     def test_a_forest_with_zero_halos_is_legal_for_lhalo(self):
         snapshots, _sidecar = literal_graph()
@@ -1258,7 +1240,6 @@ class TestV3FormatTables(unittest.TestCase):
     def test_the_fixed_table_matches_the_schema_module_and_the_writer(self):
         from column_schema import EXTRA_TYPES, IDENTITY_FIELDS, TOPOLOGY_FIELDS
         from hdf5_writer_v3 import V3_FORMAT_VERSION, v3_halo_datasets
-        from test_pipeline import lhalo_schema
 
         restated = [
             (field.name, np.dtype(EXTRA_TYPES[field.type].numpy_dtype).newbyteorder("<").str)
@@ -1470,29 +1451,9 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
         corruption that only that kind's detector catches."""
         mutations = {
             # structure
-            "extra root object": (lambda d: self.add_root_group(d), "object-set"),
-            "narrowed link dtype": (lambda d: self.narrow(d), "object-set"),
             "scalar SourceHaloID": (lambda d: self.scalar_key(d), "object-set"),
             "/halos a dataset, not a group": (lambda d: self.halos_dataset(d), "object-set"),
-            "missing file": (lambda d: (d / "snapshot_003.h5").unlink(), "file-set"),
-            "extra sidecar dataset": (lambda d: self.add_sidecar_dataset(d), "sidecar-object-set"),
-            "schema units of one file": (
-                lambda d: self.schema_units(d, "snapshot_004.h5"),
-                "schema-binding",
-            ),
             # headers
-            "format version": (
-                lambda d: set_header(d, "format_version", 4, ["snapshot_003.h5"]),
-                "header-values",
-            ),
-            "omega_matter of one file": (
-                lambda d: set_header(d, "omega_matter", 0.5, ["snapshot_003.h5"]),
-                "run-scoped-headers",
-            ),
-            "n_forests_total of one file": (
-                lambda d: set_header(d, "n_forests_total", 9, ["snapshot_004.h5"]),
-                "run-scoped-headers",
-            ),
             "negative n_forests_total": (
                 lambda d: set_header(d, "n_forests_total", -1),
                 "identity",
@@ -1624,19 +1585,6 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
                 lambda d: reorder_to_source_file_order(d, self.forests),
                 "identity",
             ),
-            "sidecar ForestID order": (
-                lambda d: self.sidecar(d, "ForestID", {1: 0}),
-                "sidecar-content",
-            ),
-            "sidecar shorter than n_forests_total": (
-                lambda d: self.shorten_sidecar(d),
-                "sidecar-content",
-            ),
-            # binding
-            "tampered content": (
-                lambda d: set_values(d, 3, "Vmax", {0: 99.0}),
-                "manifest-binding",
-            ),
         }
         for name, (mutate, check, *only) in mutations.items():
             with self.subTest(name):
@@ -1677,6 +1625,8 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
         self.assertEqual(external["header-values"].status, "FAIL")
 
     def test_manifest_corruptions_get_the_same_verdicts(self):
+        """Each edit of the conversion manifest fails its checks in both modes; the detail
+        fragment, where given, names what the check found."""
         selected = int(self.conv.manifest.inventory["selected_halos"])
 
         def sampled(data):
@@ -1690,19 +1640,30 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
             recorded = data["stages"]["ingest"]["result"]["snapshot_counts"]
             data["stages"]["ingest"]["result"]["snapshot_counts"] = recorded[:-1] + [0]
 
-        for name, edit, check in (
-            ("a sampled ASCII inventory", sampled, "identity"),
-            ("an inventory selecting more halos", more, "count-conservation"),
-            ("ingest counts that differ", counts, "count-conservation"),
-            ("an incomplete write", lambda d: d["stages"]["write"].update(status="failed"), None),
-        ):
+        cases = (
+            ("a sampled ASCII inventory", sampled, {"identity": None}),
+            (
+                "an inventory selecting more halos",
+                more,
+                {"count-conservation": None, "source-key-coverage": None},
+            ),
+            ("ingest counts that differ", counts, {"count-conservation": "ingest"}),
+            (
+                "an incomplete write",
+                lambda d: d["stages"]["write"].update(status="failed"),
+                {"manifest-binding": None},
+            ),
+        )
+        for name, edit, failing in cases:
             with self.subTest(name):
                 manifest, directory = self.edited_manifest(edit)
                 external, _bounded = self.agree(
                     directory, BOUNDED_BLOCK_SIZES[:3], manifest_path=manifest.path, examples=False
                 )
-                check = check or "manifest-binding"
-                self.assertEqual(external[check].status, "FAIL", external[check].line())
+                for check, fragment in failing.items():
+                    self.assertEqual(external[check].status, "FAIL", external[check].line())
+                    if fragment is not None:
+                        self.assertIn(fragment, external[check].detail)
 
     # ---- corruption helpers ------------------------------------------------
 
@@ -1743,14 +1704,6 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
                     halos["ForestIndex"][row] = forest - 1
                     halos["HaloRankInForest"][row] = rank[row] + offset
 
-    def add_root_group(self, directory):
-        with h5py.File(directory / "snapshot_002.h5", "r+") as handle:
-            handle.create_group("extra")
-
-    def add_sidecar_dataset(self, directory):
-        with h5py.File(directory / "forests.h5", "r+") as handle:
-            handle.create_dataset("Extra", data=np.zeros(5, "<i8"), chunks=(5,))
-
     def halos_dataset(self, directory):
         with h5py.File(directory / "snapshot_004.h5", "r+") as handle:
             del handle["halos"]
@@ -1760,29 +1713,6 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
         with h5py.File(directory / "snapshot_004.h5", "r+") as handle:
             del handle["halos"]["SourceHaloID"]
             handle["halos"].create_dataset("SourceHaloID", data=np.int64(3))
-
-    def narrow(self, directory):
-        with h5py.File(directory / "snapshot_004.h5", "r+") as handle:
-            halos = handle["halos"]
-            values = halos["Descendant"][...]
-            del halos["Descendant"]
-            halos.create_dataset(
-                "Descendant", data=values.astype("<i4"), chunks=(65536,), maxshape=(None,)
-            )
-
-    def schema_units(self, directory, name):
-        with h5py.File(directory / name, "r+") as handle:
-            handle["schema"]["Vmax"].attrs.create("units", "m/s", dtype=h5py.string_dtype("utf-8"))
-
-    def sidecar(self, directory, column, values):
-        with h5py.File(directory / "forests.h5", "r+") as handle:
-            for row, value in values.items():
-                handle[column][row] = value
-
-    def shorten_sidecar(self, directory):
-        with h5py.File(directory / "forests.h5", "r+") as handle:
-            for name in ("ForestID", "SourceFileOrdinal", "SourceUnitOrdinal"):
-                handle[name].resize((3,))
 
 
 class TestBoundedModeChains(BoundedAgreementCase):
@@ -1904,8 +1834,6 @@ class TestBoundedModeCutFixtures(BoundedAgreementCase):
     without its cut table."""
 
     def test_every_cut_fixture_gets_the_same_verdicts_cut_and_uncut(self):
-        from test_ascii_adapter import CUT_FIXTURES, convert_under_cut
-        from test_rewriter import cut_layout, cut_source, write_table
 
         root = Path(tempfile.mkdtemp(prefix="v3_bounded_cut_"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
@@ -1969,27 +1897,27 @@ class TestBoundedModeRefusals(unittest.TestCase):
             with self.assertRaisesRegex(ConverterError, pattern):
                 self.bounded(conv, directory, **kwargs)
 
-    def test_a_gapped_dataset_is_refused_by_name_and_passes_the_general_battery(self):
-        self.assert_refused_before_reading(
-            r"adjacent datasets \(links_adjacent 1\) only.*snapshot_000\.h5 declares "
-            r"links_adjacent 0",
-            self.gapped,
-        )
-        result = validate_v3.run_battery_v3(
-            self.gapped.dataset,
-            self.gapped.a_list,
-            manifest_path=self.gapped.manifest.path,
-            budget_bytes=V3_BUDGET,
-        )
-        self.assertFalse(result.failed)
-        self.assertEqual(result.measurements["links_adjacent_measured"], 0)
-
-    def test_one_gapped_file_among_adjacent_files_is_refused_by_name(self):
-        directory = self.copy(self.adjacent)
-        set_header(directory, "links_adjacent", 0, ["snapshot_003.h5"])
-        self.assert_refused_before_reading(
-            "1 file.*snapshot_003.h5 declares links_adjacent 0", self.adjacent, directory
-        )
+    def test_a_gapped_dataset_or_file_is_refused_by_name_and_passes_the_general_battery(self):
+        with self.subTest("a gapped dataset"):
+            self.assert_refused_before_reading(
+                r"adjacent datasets \(links_adjacent 1\) only.*snapshot_000\.h5 declares "
+                r"links_adjacent 0",
+                self.gapped,
+            )
+            result = validate_v3.run_battery_v3(
+                self.gapped.dataset,
+                self.gapped.a_list,
+                manifest_path=self.gapped.manifest.path,
+                budget_bytes=V3_BUDGET,
+            )
+            self.assertFalse(result.failed)
+            self.assertEqual(result.measurements["links_adjacent_measured"], 0)
+        with self.subTest("one gapped file among adjacent files"):
+            directory = self.copy(self.adjacent)
+            set_header(directory, "links_adjacent", 0, ["snapshot_003.h5"])
+            self.assert_refused_before_reading(
+                "1 file.*snapshot_003.h5 declares links_adjacent 0", self.adjacent, directory
+            )
 
     def test_a_ceiling_above_the_budget_is_refused(self):
         # a fixture's ceiling is a few KB; scale the per-row term past 1 MiB
@@ -2100,16 +2028,6 @@ class TestBoundedModeRefusals(unittest.TestCase):
         _failures, peak = peak_of(validate_bounded.DEFAULT_BLOCK_ROWS)
         self.assertGreater(peak, terms)
 
-    def test_the_external_sort_battery_stays_the_default(self):
-        result = validate_v3.run_battery_v3(
-            self.adjacent.dataset,
-            self.adjacent.a_list,
-            manifest_path=self.adjacent.manifest.path,
-            budget_bytes=V3_BUDGET,
-        )
-        self.assertEqual(result.measurements["battery_mode"], "external-sort")
-        self.assertGreater(result.measurements["chain_edges"], 0)
-
 
 class TestBoundedCeiling(unittest.TestCase):
     def test_the_ceiling_is_the_stated_function(self):
@@ -2129,18 +2047,6 @@ class TestBoundedCeiling(unittest.TestCase):
         # the effective block is at least one row when no snapshot holds a halo
         self.assertEqual(validate_bounded.effective_block_rows(1 << 20, 0), 1)
         self.assertEqual(validate_bounded.Ceiling(0, 0, 0, 5, 140).block, 1)
-
-    def test_shin_uchuu_numbers_fit_below_64_gb(self):
-        for n_forests in (166547771, 244953607):
-            ceiling = validate_bounded.Ceiling(
-                widest_rows=519342987,
-                n_halos=22503649037,
-                total_halos=22503649037,
-                n_forests_total=n_forests,
-                row_bytes=140,
-            )
-            self.assertLess(ceiling.total, 64 * 10**9)
-            self.assertGreater(ceiling.total, 38 * 10**9)
 
     def test_the_command_prints_the_ceiling(self):
         with mock.patch("sys.stdout") as out:

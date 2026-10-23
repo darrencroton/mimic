@@ -869,17 +869,3 @@ class CtreesFileParser:
                     self.path, what, [r + row_offset for r in rows], [str(raw[r]) for r in rows]
                 )
             ) from None
-
-
-def parse_file(
-    path, schema, chunksize: int = DEFAULT_CHUNKSIZE
-) -> Tuple[np.ndarray, ParseResult, PreScan]:
-    """Parse a whole file into one array of ``schema``'s scratch layout
-    (small-file convenience)."""
-    parser = CtreesFileParser(path, schema, chunksize=chunksize)
-    parts = list(parser.chunks())
-    if parts:
-        records = np.concatenate(parts)
-    else:
-        records = np.zeros(0, dtype=parser.dtype)
-    return records, parser.result, parser.prescan

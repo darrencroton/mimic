@@ -333,8 +333,8 @@ def verify_fof_centrals_present(
         examples = missing[:5].tolist()
         raise ConverterError(
             "{}: snapshot {}: {} forest(s) whose maximum snapshot is this one have zero "
-            "pid == -1 (FoF central) record(s) here; corrupt input (reference fix_flybys "
-            "errors); example forest id(s): {}".format(context, snap, int(missing.size), examples)
+            "pid == -1 (FoF central) record(s) here; corrupt input; "
+            "example forest id(s): {}".format(context, snap, int(missing.size), examples)
         )
 
 
@@ -666,11 +666,6 @@ def fix_one_snapshot(
         fixed_path, "snapshot-fixed", rows=int(len(reread)), dtype_tag=fixed_tag
     )
     entry["fixed_file"] = str(fixed_path.resolve())
-    # Retained as a required field that must always read zero. fix_flybys
-    # is gone, so no stage can demote a flyby — but the count is measured from the
-    # records as persisted rather than written as a literal, so a zero here is
-    # positive evidence from the data. report.py fails loudly on a non-zero total.
-    entry["flyby_demotions"] = int(np.count_nonzero(reread["MostBoundID"] < 0))
     entry["len_zero_count"] = stats["len_zero_count"]
     if cut_map is not None:
         entry["cut_promotions"] = stats["cut_promotions"]

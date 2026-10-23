@@ -86,7 +86,6 @@ from census.trees import load_parsed_counts, prepare_trees, run_trees  # noqa: E
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from source_index import SourceIndex  # noqa: E402
-from subset import SubsetError  # noqa: E402
 
 
 def _log(message: str) -> None:
@@ -465,7 +464,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (ConverterError, SubsetError, OSError) as exc:
+    except (ConverterError, OSError) as exc:
         _log("FATAL: {}".format(exc))
         return 2
 

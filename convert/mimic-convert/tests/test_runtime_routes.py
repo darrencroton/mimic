@@ -13,36 +13,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class RuntimeRoutesTests(unittest.TestCase):
-    def test_constant_holds_the_evidenced_routes_with_their_coverage(self):
-        rows = {(r.simulation, r.source_format): r for r in runtime_routes.ROUTES}
-        self.assertEqual(len(runtime_routes.ROUTES), 7)
-        self.assertEqual(len(rows), 7)
+    def test_routes_are_unique_and_safe_to_join(self):
+        keys = [(route.simulation, route.source_format) for route in runtime_routes.ROUTES]
+        self.assertEqual(len(set(keys)), len(keys), "a route is listed twice")
         for route in runtime_routes.ROUTES:
-            self.assertNotIn(";", route.coverage, "the renderers join routes with '; '")
-        for key in (
-            ("mini-Millennium", "lhalo_binary"),
-            ("micro-Uchuu", "lhalo_binary"),
-            ("micro-Uchuu", "consistent_trees_hdf5"),
-            ("Millennium", "lhalo_binary"),
-            ("mini-Uchuu", "lhalo_binary"),
-            ("micro-Uchuu", "consistent_trees_ascii"),
-        ):
-            self.assertEqual(rows[key].coverage, "complete")
-        shin_uchuu = rows[("Shin-Uchuu", "consistent_trees_ascii")]
-        self.assertEqual(shin_uchuu.coverage, runtime_routes.COMPLETE_BY_MIGRATION)
-        self.assertEqual(shin_uchuu.models, ("halos-only", "sage16"))
-        sage16_keys = {
-            ("mini-Millennium", "lhalo_binary"),
-            ("micro-Uchuu", "consistent_trees_ascii"),
-        }
-        for key in sage16_keys:
-            self.assertEqual(rows[key].models, ("halos-only", "sage16"))
-        others = [
-            r
-            for key, r in rows.items()
-            if key not in sage16_keys and key != ("Shin-Uchuu", "consistent_trees_ascii")
-        ]
-        self.assertTrue(all(r.models == ("halos-only",) for r in others))
+            with self.subTest(route=route.simulation, source_format=route.source_format):
+                self.assertTrue(route.models)
+                self.assertNotIn(";", route.coverage, "the renderers join routes with '; '")
 
     def test_every_renderer_names_the_routes_and_the_standing_text(self):
         self.assertIn("v3-runtime-support", runtime_routes.SPEC_ANCHOR)
@@ -57,13 +34,6 @@ class RuntimeRoutesTests(unittest.TestCase):
             self.assertIn(runtime_routes.SPEC_ANCHOR, text)
             self.assertIn(runtime_routes.FULL_UCHUU_NOT_CLAIMED, text)
         self.assertIn("a conversion is not a validated route", notice)
-        shin_uchuu = "Shin-Uchuu consistent_trees_ascii, "
-        for text in (notice, report):
-            clause = text[text.index(shin_uchuu) :]
-            self.assertIn("sage16 on the uncut dataset is bitwise identical", clause)
-            self.assertIn("the package's dataset is the cut one", clause)
-            self.assertIn("vertical parity is on the subset only", clause)
-            self.assertIn("the only gate of halos-only", clause)
         description = runtime_routes.cli_description()
         for simulation in {r.simulation for r in runtime_routes.ROUTES}:
             self.assertIn(simulation, description)

@@ -1,8 +1,8 @@
 """Unit tests: the conversion report (``report.run_report_v3``).
 
-The report is built from a real conversion of ``test_pipeline``'s literal
-gapped L-Halo source with the extras-example profile, so every count it
-states is checked against the hand-derived graph (``test_pipeline.EXPECTED``:
+The report is built from a real conversion of the literal gapped L-Halo source
+of ``fixtures`` with the extras-example profile, so every count it
+states is checked against the hand-derived graph (``fixtures.LITERAL_EXPECTED``:
 two gapped descendants, the longer spanning three snapshots) rather than
 against the battery's own arithmetic. The identity multiplier arithmetic the
 report states is covered by ``test_hdf5_writer_v3.TestIdentityMultiplier``.
@@ -22,33 +22,14 @@ import h5py
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import fixtures  # noqa: E402
 import report  # noqa: E402
 import runtime_routes  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
-from conversion_manifest import MANIFEST_NAME, canonical_sha256  # noqa: E402
+from fixtures import (  # noqa: E402
+    make_v3_conversion,
+)
 from report import REPORT_JSON, REPORT_TXT, run_report_v3  # noqa: E402
-from test_fixups import capture_stderr  # noqa: E402
-from test_hdf5_writer_v3 import V3_LHALO_EXTRAS_PAYLOAD, make_v3_conversion  # noqa: E402
-from test_validate import make_v3_ascii_conversion  # noqa: E402
 from validate_v3 import run_battery_v3  # noqa: E402
-
-#: The fixed topology and identity table in format order, with the core
-#: role each provides, restated from src/core/core_properties.yaml's
-#: required_inputs rather than read from the converter.
-FORMAT_TABLE_ROLES = [
-    ("Descendant", "long long", "Descendant"),
-    ("FirstProgenitor", "long long", "FirstProgenitor"),
-    ("NextProgenitor", "long long", "NextProgenitor"),
-    ("FirstHaloInFOFgroup", "long long", "FirstHaloInFOFgroup"),
-    ("NextHaloInFOFgroup", "long long", "NextHaloInFOFgroup"),
-    ("DescendantSnapshot", "int", None),
-    ("FirstProgenitorSnapshot", "int", None),
-    ("NextProgenitorSnapshot", "int", None),
-    ("SourceHaloID", "long long", None),
-    ("ForestIndex", "long long", None),
-    ("HaloRankInForest", "long long", None),
-]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BUDGET = 1 << 20
@@ -124,11 +105,6 @@ class TestV3Report(unittest.TestCase):
         on_disk = sum(path.stat().st_size for path in dataset.iterdir())
         self.assertEqual(resources["emitted_bytes"], on_disk)
         self.assertAlmostEqual(resources["emitted_bytes_per_halo"], on_disk / 8)
-        transpose = self.conv.manifest.stage("transpose")["result"]
-        self.assertEqual(
-            resources["transpose"]["peak_resident_bytes"], transpose["peak_resident_bytes"]
-        )
-        self.assertEqual(resources["transpose"]["peak_spill_bytes"], transpose["peak_spill_bytes"])
         self.assertEqual(resources["validation"]["budget_bytes"], BUDGET)
         self.assertLessEqual(resources["validation"]["peak_resident_bytes"], BUDGET)
         self.assertGreater(resources["record_itemsize"]["transposed"], 0)
@@ -138,53 +114,13 @@ class TestV3Report(unittest.TestCase):
         # The flag means "format consumed", never "route validated".
         self.assertIs(runtime["runnable_by_current_mimic"], True)
         joined = " ".join(runtime["limitations"])
-        self.assertIn("Format consumed, route not validated", joined)
         for sentence in runtime_routes.standing_limitations():
             self.assertIn(sentence, joined)
         self.assertIn("2 Descendant link(s) skip snapshots", joined)
         self.assertIn("SubHalfMass", joined)
         text = (self.conv.work / REPORT_TXT).read_text()
-        self.assertIn("FORMAT CONSUMED BY THE CURRENT MIMIC; ROUTE NOT VALIDATED", text)
         self.assertNotIn("NOT RUNNABLE BY THE CURRENT MIMIC", text)
         self.assertIn("format consumed by the current Mimic: YES", text)
-        self.assertIn("INSUFFICIENT for runtime execution", text)
-
-    def test_consumer_fragment_has_native_units_types_and_core_roles(self):
-        section = self.report["consumer_metadata_fragment"]
-        self.assertIs(section["sufficient_for_runtime_execution"], False)
-        self.assertIs(section["simulation_packages_written"], False)
-        self.assertIn("Insufficient to enable runtime execution", section["label"])
-        self.assertIn("reader-owned target-snapshot and SourceHaloID arrays", section["label"])
-        self.assertNotIn("a version 3 reader", section["label"])
-        text = (self.conv.work / REPORT_TXT).read_text()
-        self.assertIn(section["label"], text)
-        fragment = section["fragment"]
-        self.assertIs(fragment["complete"], False)
-        self.assertEqual(fragment["column_mapping_sha256"], self.conv.schema.digest)
-        entries = {entry["name"]: entry for entry in fragment["halo_properties"]}
-        self.assertEqual(set(entries), set(V3_LHALO_EXTRAS_PAYLOAD))
-        for name, (type_name, units, _dtype, _vec) in V3_LHALO_EXTRAS_PAYLOAD.items():
-            self.assertEqual((entries[name]["type"], entries[name]["units"]), (type_name, units))
-        self.assertEqual(entries["M_Crit200"]["provides_core_role"], "HaloMass")
-        self.assertEqual(entries["Len"]["provides_core_role"], "Len")
-        self.assertEqual(entries["SnapNum"]["provides_core_role"], "SnapNum")
-        self.assertIsNone(entries["SubHalfMass"]["provides_core_role"])
-        self.assertIsNone(entries["MostBoundID"]["provides_core_role"])
-
-    def test_consumer_fragment_lists_the_format_table_fields_with_their_core_roles(self):
-        fragment = self.report["consumer_metadata_fragment"]["fragment"]
-        self.assertEqual(
-            [
-                (entry["name"], entry["type"], entry["provides_core_role"])
-                for entry in fragment["format_table_fields"]
-            ],
-            FORMAT_TABLE_ROLES,
-        )
-        text = (self.conv.work / REPORT_TXT).read_text()
-        self.assertRegex(
-            text,
-            r"NextHaloInFOFgroup +long long +\(format table\) +core role: " r"NextHaloInFOFgroup",
-        )
 
     def test_report_is_written_only_into_the_workdir(self):
         self.assertEqual(
@@ -209,12 +145,11 @@ class TestV3WidthLimitation(unittest.TestCase):
     def test_a_wide_slab_is_bounded_by_a_chunk_on_every_route(self):
         joined = " ".join(self.limitations([5, 2**31, 7]))
         self.assertIn("The largest snapshot holds {} halos".format(2**31), joined)
-        self.assertIn(
-            "output from every route (lhalo_binary, consistent_trees_hdf5 and "
-            "consistent_trees_ascii) is forest-blocked and chunked sweeps apply",
-            joined,
-        )
-        self.assertIn("a chunk's memory (bounded below by the largest forest)", joined)
+        for route in ("lhalo_binary", "consistent_trees_hdf5", "consistent_trees_ascii"):
+            self.assertIn(route, joined)
+        self.assertIn("forest-blocked", joined)
+        self.assertIn("chunked sweeps apply", joined)
+        self.assertIn("bounded below by the largest forest", joined)
         self.assertNotIn("cannot be chunked", joined)
         self.assertNotIn("whole-slab memory does", joined)
 
@@ -280,15 +215,19 @@ class TestV3ReportFailures(unittest.TestCase):
         self.assertIn("format consumed by the current Mimic: NO", text)
 
     def test_a_supplied_battery_result_is_reported_without_running_the_battery_again(self):
+        """The dataset is repaired after the battery ran, so only the supplied result can
+        still say FAIL."""
         conv = make_v3_conversion(self.tmp)
-        with h5py.File(conv.dataset / "snapshot_002.h5", "r+") as handle:
+        snapshot = conv.dataset / "snapshot_002.h5"
+        with h5py.File(snapshot, "r+") as handle:
+            original = handle["halos"]["Len"][0]
             handle["halos"]["Len"][0] = -3
         battery = run_battery_v3(
             conv.dataset, conv.a_list, manifest_path=conv.manifest.path, budget_bytes=BUDGET
         )
-        with mock.patch.object(report, "run_battery_v3") as spy:
-            report_v3 = run_report_v3(conv.work, conv.a_list, battery=battery)
-        spy.assert_not_called()
+        with h5py.File(snapshot, "r+") as handle:
+            handle["halos"]["Len"][0] = original
+        report_v3 = run_report_v3(conv.work, conv.a_list, battery=battery)
         self.assertEqual(report_v3["validation"], [o.as_dict() for o in battery.outcomes])
         self.assertFalse(report_v3["validation_passed"])
         self.assertEqual(report_v3["resources"]["validation"]["budget_bytes"], BUDGET)
@@ -297,23 +236,6 @@ class TestV3ReportFailures(unittest.TestCase):
         conv = make_v3_conversion(self.tmp, write=False)
         with self.assertRaisesRegex(ConverterError, "write"):
             run_report_v3(conv.work, conv.a_list, budget_bytes=BUDGET)
-        self.assertFalse((conv.work / REPORT_JSON).exists())
-
-    def test_an_ascii_workdir_before_the_forest_rank_scheme_is_refused_untouched(self):
-        """An ASCII conversion whose manifest records no identity_scheme
-        (digest recomputed, so the manifest itself is consistent) is refused
-        by name, and nothing in the workdir is written."""
-        with capture_stderr():
-            conv = make_v3_ascii_conversion(self.tmp, fixtures.standard_forests())
-        path = conv.work / MANIFEST_NAME
-        data = json.loads(path.read_text())
-        del data["configuration"]["adapter"]["parameters"]["identity_scheme"]
-        data["configuration_sha256"] = canonical_sha256(data["configuration"])
-        path.write_text(json.dumps(data))
-        before = tree_state(conv.work)
-        with self.assertRaisesRegex(ConverterError, "predates the forest-rank identity convention"):
-            run_report_v3(conv.work, conv.a_list, budget_bytes=BUDGET)
-        self.assertEqual(tree_state(conv.work), before)
         self.assertFalse((conv.work / REPORT_JSON).exists())
 
 

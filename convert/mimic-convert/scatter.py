@@ -43,7 +43,6 @@ import hashlib
 import json
 import os
 import sys
-import time
 from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
@@ -73,16 +72,8 @@ MANIFEST_VERSION = 2
 A_LIST_ATOL = 1e-4
 #: default scatter manifest save policy: bounds the worst-case
 #: re-scatter after an unclean interruption to at most this many completed
-#: source files. Measurements put the parent-side
-#: inter-completion interval at production scale at ~40 s (serial, 4.23 GB
-#: average source file at ~105 MB/s) to ~108.5 s (pooled, 39.0 MB/s scatter
-#: aggregate throughput) -- any finite default well below that would make
-#: the time arm fire on every completion and silently reproduce the
-#: per-file-save cost the count arm avoids. The time arm is therefore
-#: disabled by default (infinite) and the count arm alone bounds worst-case
-#: re-work. ``save_every_seconds`` is a test hook: no caller sets it.
+#: source files.
 DEFAULT_SAVE_EVERY_N_FILES = 25
-DEFAULT_SAVE_EVERY_SECONDS = float("inf")
 
 #: Explicit buffer size of every scratch file handle this module opens (8192
 #: bytes, pooled execution included). Default buffering follows the
@@ -812,7 +803,6 @@ def run_scatter(
     chunksize: int = 1_000_000,
     simulation_info_path=None,
     save_every_n_files: int = DEFAULT_SAVE_EVERY_N_FILES,
-    save_every_seconds: float = DEFAULT_SAVE_EVERY_SECONDS,
     cut_table_path=None,
 ) -> Manifest:
     """Phase 0 + Phase 1: map, scatter, concat, aggregates, manifest.
@@ -822,35 +812,29 @@ def run_scatter(
     A resume must pass the same schema.
 
     ``cut_table_path`` (default None, which changes nothing) names a cut forest
-    table in ``forests.list`` shape. Before any
-    source file is read, its tree roots must be exactly ``forests.list``'s;
-    its md5 is then bound into the provenance (a resume must name the same
-    table, or none when none was named), and every scattered file's per-tree
-    row counts are recorded (:func:`tree_rows_name`) for the table's
-    invariant check and :func:`install_cut`. The records themselves keep the
-    original forest ids. Loading the table costs what loading ``forests.list``
-    does (the parse's Python lists, then 24 B per tree of sorted int64
-    columns), and it is released before any file is scattered.
+    table in ``forests.list`` shape. Before any source file is read, its tree
+    roots must be exactly ``forests.list``'s; its md5 is then bound into the
+    provenance (a resume must name the same table, or none when none was
+    named), and every scattered file's per-tree row counts are recorded
+    (:func:`tree_rows_name`) for the table's invariant check and
+    :func:`install_cut`. The records themselves keep the original forest ids.
+    Loading the table costs what loading ``forests.list`` does (the parse's
+    Python lists, then 24 B per tree of sorted int64 columns), and it is
+    released before any file is scattered.
 
     Re-running skips source files whose manifest entry is completed and whose
     size/mtime still match. Per-file conservation (independent pre-count ==
     scattered rows) is enforced before a completion is recorded.
 
     Completed source entries accumulate in the in-memory manifest and are
-    persisted on a bounded-interval policy (``save_every_n_files`` and
-    ``save_every_seconds``, whichever is reached first) rather than after
-    every source file, plus one unconditional save once the dispatch loop
-    finishes and before ``_finalize_scatter`` runs. ``save_every_seconds``
-    defaults to infinite (disabled): at production scale the parent sees a
-    completion only every ~40-108 s (measured), so
-    any finite default in that range would make the time arm fire on every
-    completion and silently reproduce the per-file-save cost this policy
-    exists to remove — only ``save_every_n_files`` (default 25) bounds the
-    default worst-case re-work. Worker-scratch and sidecar artifacts are
-    always durably written before they are registered, so an interruption
-    between saves leaves at most unsaved-but-written artifacts on disk —
-    never a manifest entry naming something absent. A re-scatter of the
-    owning source file overwrites those deterministically.
+    persisted every ``save_every_n_files`` completions (default 25) rather
+    than after every source file, plus one unconditional save once the
+    dispatch loop finishes and before ``_finalize_scatter`` runs. This bounds
+    the worst-case re-work after an unclean interruption. Worker-scratch and
+    sidecar artifacts are always durably written before they are registered,
+    so an interruption between saves leaves at most unsaved-but-written
+    artifacts on disk — never a manifest entry naming something absent. A
+    re-scatter of the owning source file overwrites those deterministically.
 
     Every source file must be on disk: a missing one is refused before any
     metadata is loaded.
@@ -956,16 +940,13 @@ def run_scatter(
     # this way never lets the manifest name something absent from disk.
     save_every_n_files = max(1, int(save_every_n_files))
     pending_since_save = 0
-    last_save_monotonic = time.monotonic()
 
     def maybe_save_manifest() -> None:
-        nonlocal pending_since_save, last_save_monotonic
+        nonlocal pending_since_save
         pending_since_save += 1
-        elapsed = time.monotonic() - last_save_monotonic
-        if pending_since_save >= save_every_n_files or elapsed >= save_every_seconds:
+        if pending_since_save >= save_every_n_files:
             manifest.save()
             pending_since_save = 0
-            last_save_monotonic = time.monotonic()
 
     def record(result: FileScatterResult) -> None:
         validate_observed_pairs(result.observed_pairs, a_list, result.path)

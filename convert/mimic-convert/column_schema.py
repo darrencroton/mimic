@@ -1410,66 +1410,6 @@ class CanonicalSchema:
         )
         return tuple(declared)
 
-    def consumer_metadata_fragment(self) -> Dict[str, object]:
-        """Payload types/units/core-role bindings a future consumer needs.
-
-        ``halo_properties`` lists the payload a ``halo_properties.yaml`` would
-        declare; ``format_table_fields`` lists the format-owned topology and
-        identity fields with the core role each provides (the five links bind
-        the tree-link roles; the target-snapshot and identity fields bind
-        none). Deliberately incomplete, and says so: it does *not* describe the
-        runtime topology support v3 needs (retained gap state, wide slab
-        access), which belongs to the Mimic reader and driver that execute
-        the data, not to the converter that produces it.
-        """
-        return {
-            "source_format": self.source_format,
-            "column_mapping_sha256": self.digest,
-            "complete": False,
-            "incomplete_because": (
-                "runtime topology support for gapped links and int64 slab indices is not "
-                "described here: it belongs to the Mimic horizontal reader and driver that "
-                "execute the dataset, not to the converter schema that produced it"
-            ),
-            "identity_conventions": dict(SOURCE_IDENTITY_CONVENTIONS[self.source_format]),
-            "halo_properties": [
-                {
-                    "name": field.name,
-                    "type": field.type,
-                    "units": field.units,
-                    "h_convention": field.h_convention,
-                    "description": field.description,
-                    "provides_core_role": _CORE_ROLE_BINDINGS.get(field.name),
-                }
-                for field in self.output_field_declarations()
-            ],
-            "format_table_fields": [
-                {
-                    "name": field.name,
-                    "type": field.type,
-                    "description": field.description,
-                    "provides_core_role": _CORE_ROLE_BINDINGS.get(field.name),
-                }
-                for field in TOPOLOGY_FIELDS + IDENTITY_FIELDS
-            ],
-        }
-
-
-#: Core-role bindings a consumer needs for the required inputs in
-#: src/core/core_properties.yaml: the five links are format-table fields, the
-#: other three payload. Extras never bind a core role: a declaratively
-#: selected field is payload, not a pipeline input.
-_CORE_ROLE_BINDINGS = {
-    "Descendant": "Descendant",
-    "FirstProgenitor": "FirstProgenitor",
-    "NextProgenitor": "NextProgenitor",
-    "FirstHaloInFOFgroup": "FirstHaloInFOFgroup",
-    "NextHaloInFOFgroup": "NextHaloInFOFgroup",
-    "SnapNum": "SnapNum",
-    "Len": "Len",
-    "M_Crit200": "HaloMass",
-}
-
 
 def build_schema(
     column_map: ColumnMap, source_properties: Optional[Sequence[SourceProperty]] = None
