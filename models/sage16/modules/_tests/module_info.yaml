@@ -40,3 +40,4 @@ module:
       - test_integration_processing_mode_contracts.py
     scientific:
       - test_scientific_sage_physics_baseline.py
+      - test_scientific_compare_sage_mimic.py

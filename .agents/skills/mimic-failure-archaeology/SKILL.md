@@ -54,7 +54,7 @@ Full detail, evidence, and status for every incident is in `references/chronicle
 
 | # | Battle | One-line verdict |
 |---|---|---|
-| 1 | sage16 parity campaign (2026-06-11) | Six root causes found (dominant: SAGE's literal `1.414` for √2); result ≥98% bit-identical per property; a one-galaxy z=0 count difference vs original SAGE is EXPECTED, not a bug |
+| 1 | sage16 parity campaign (2026-06-11) | Six root causes found (dominant: SAGE's literal `1.414` for √2); halo properties bit-identical, baryonic properties within 1e-6 for 90–100% of galaxies at z=0; looser since the deliberate precision widening (incident 2), re-measured and accepted 2026-10-23 as scientifically close (population totals within 0.2%); a one-galaxy z=0 count difference vs original SAGE is EXPECTED, not a bug |
 | 2 | Precision policy (`bf0993fa`) | Core/simulation properties are double; float rounding masked a real bug (orphan Rvir/Vvir could freeze); sage16 keeps floats ONLY for parity |
 | 3 | Stale float locals (`6cbeafe4`) | Widening a struct field is incomplete until every local `float` copy is chased; found only by the FULL test suite |
 | 4 | ctrees catalog precision (`4a97d3d0`) | Investigated and settled: DON'T widen — ASCII source has ~7 sig figs; `ctrees_compat.h` is deliberately float. Cite this before reopening |

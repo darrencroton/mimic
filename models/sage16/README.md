@@ -16,6 +16,16 @@ References:
 - Croton et al. (2016), "Semi-Analytic Galaxy Evolution (SAGE): Model Calibration and Basic Results"
 - White & Frenk (1991), Sutherland & Dopita (1993), Kauffmann & Haehnelt (2000), Somerville et al. (2001), Mo, Mao & White (1998), Binney & Tremaine (1987)
 
+## Agreement with Original SAGE
+
+Measured on mini-Millennium against the original SAGE code (`sage-home/sage-model`, `master` at `b8424cf`), both run serially with identical parameters on the same trees, at the eight output snapshots of `sage16_mini-millennium.yaml`:
+
+- Halo properties (`Mvir`, `Rvir`, `Vvir`, `Vmax`, `VelDisp`, positions, velocities, spins) are bit-identical for every galaxy, and galaxies match one to one at every snapshot, except one z = 0 satellite that SAGE has and `sage16` does not (36,531 against 36,530).
+- Baryonic properties agree per galaxy to about one part in 10⁶ for most galaxies, not bit for bit: at z = 0, 83–99.9% of matched galaxies are within 1e-6 relative per reservoir and size property (`HotGas` lowest at 83%), and the 99th-percentile relative difference reaches up to 7.5e-3. The two codes differ in ways that compound, chiefly that Mimic carries core and halo properties in double precision where SAGE uses float.
+- The scientific outcomes agree: z = 0 global reservoir totals within 0.2%, and the stellar, cold-gas and black-hole mass functions within 1% in every 0.25 dex bin holding at least 20 galaxies.
+
+`tools/compare_sage_mimic.py` reproduces the comparison from the two codes' HDF5 output.
+
 ## Package Contents
 
 - `model_properties.yaml`: sage16 galaxy/model property metadata. Edit this when adding, removing, or changing model-owned galaxy properties, then run `make MODEL=sage16 generate`.
@@ -25,6 +35,7 @@ References:
 - `shared/`: Model-local helper headers (physics kernels, parity helpers, shared constants). These are not framework APIs; copy or reimplement them in another model package if needed. Event contracts are generated from each module's `module_info.yaml`.
 - `plots/figures/`: Model-specific diagnostic plot implementations for `mimic-plot.py`.
 - `plots/profiles/`: Plot profile YAML files, including mini-Millennium defaults used by the shipped run.
+- `tools/compare_sage_mimic.py`: Galaxy-by-galaxy comparison of `sage16` HDF5 output against original SAGE HDF5 output (matching, per-property bit-identical and within-tolerance fractions, relative-difference quantiles, JSON report).
 
 ## Runtime Pipeline
 

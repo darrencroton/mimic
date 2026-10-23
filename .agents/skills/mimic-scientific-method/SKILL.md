@@ -19,7 +19,7 @@ Do NOT use for:
 
 ## First actions
 
-1. Write down the claim you intend to make, as a sentence with a number in it, BEFORE running anything ("X is bit-identical for ≥98% of galaxies per property", "conservation holds to 0.1%", "runtime improves ≥20% on the default run").
+1. Write down the claim you intend to make, as a sentence with a number in it, BEFORE running anything ("X is within 1e-6 relative for ≥90% of galaxies per property", "conservation holds to 0.1%", "runtime improves ≥20% on the default run").
 2. Predict the numbers. If you cannot state what you expect to measure and why, you are not ready to run.
 3. Identify the comparison population and the matching key (section 1) — a comparison without stable identity is a plot, not evidence.
 4. Decide the tolerance and its justification (section 3) before seeing the result, not after.
@@ -29,10 +29,10 @@ Do NOT use for:
 The sage16-vs-SAGE parity campaign is the house method; reuse its structure for any two-run comparison:
 
 1. **Fix the configuration.** Audit that both runs use identical parameters, cosmology, snapshot lists, and input trees before comparing outputs. Configuration diffs masquerade as physics diffs.
-2. **Match objects by stable identity, never by array order.** Within one Mimic lineage, use `UniqueGalaxyID` per snapshot (the cross-run identity; independent of MPI layout). Across different codes without shared IDs, match by invariant physical tuples — the parity campaign matched on (Pos rounded to 4 dp, Len, Type), which was unique in both outputs with a 100% match rate. Report the match rate; unmatched objects are findings, not discards.
+2. **Match objects by stable identity, never by array order.** Within one Mimic lineage, use `UniqueGalaxyID` per snapshot (the cross-run identity; independent of MPI layout). Across different codes without shared IDs, match by invariant physical tuples — the parity campaign matched on (Pos, Len, Type) per snapshot, which was unique in both outputs with a 100% match rate. Report the match rate; unmatched objects are findings, not discards.
 3. **Compare per-property, per-object; aggregate second.** The strongest statistic is the fraction of matched objects bit-identical per property, then percentile relative differences (median, p99). Distribution-level agreement (mass functions) is the WEAKEST evidence — populations can agree while every galaxy is wrong.
 4. **Iterate fix-and-measure.** One change, full rerun, re-compare against the unchanged reference. Never batch fixes into one measurement — you lose attribution.
-5. **Explain the residuals or you are not done.** The parity endpoint was not "100%": it was ≥98% bit-identical per property, with residuals *identified* as (a) float-ULP noise (~1e-7 relative, p99 ~1e-6) at known float storage boundaries and (b) ~0.1% of galaxies flipping discrete threshold decisions (merge-vs-disrupt) under 1-ULP perturbation — chaotic amplification, equally "correct" in both codes, including an expected one-galaxy count difference at z=0. A residual you can name is a result; a residual you can't is an open bug.
+5. **Explain the residuals or you are not done.** The parity endpoint was not "100%": at z=0, 90–100% of galaxies were within 1e-6 per reservoir and size property (46–86% bit-identical), with residuals *identified* as (a) float-ULP noise (~1e-7 relative, p99 1e-6 to 1e-5) at known float storage boundaries and (b) ~0.1% of galaxies flipping discrete threshold decisions (merge-vs-disrupt) under 1-ULP perturbation — chaotic amplification, equally "correct" in both codes, including an expected one-galaxy count difference at z=0. A residual you can name is a result; a residual you can't is an open bug. Mimic's architecture takes precedence over bit-exactness with a reference code: when a deliberate framework choice loosens per-galaxy agreement, as the 2026-07-01 precision widening did for `sage16`, the claim rests on the scientific outcomes holding (population totals and distributions measured against the reference), and the owner decides whether they are close enough (`mimic-failure-archaeology`, incident 1).
 
 ## 2. Conservation, consistency, and sanity checks
 
@@ -86,7 +86,7 @@ Before accepting your own conclusion:
 4. **Adoption through change control** — gates, tests, and (if outputs changed) justified baseline regeneration in the same commit (`mimic-change-control`, `mimic-validation-and-qa`). Structural work is planned under the owner's development pathway in `docs/dev/`; plans are ephemeral and never a source of facts.
 5. **Or documented retirement** — a written negative result (point 3 above). Silence is the only unacceptable outcome: it guarantees the idea gets re-fought.
 
-Claims about Mimic made externally (papers, READMEs) follow the same bar: state what was measured (e.g. "≥98% of galaxies bit-identical per property against Croton et al. 2016 SAGE on mini-Millennium"), and label anything unmeasured as open/candidate — see `mimic-docs-and-writing`.
+Claims about Mimic made externally (papers, READMEs) follow the same bar: state what was measured (e.g. "83–99.9% of galaxies within 1e-6 per property and mass functions within 1%, against Croton et al. 2016 SAGE on mini-Millennium at z=0"), and never report a within-tolerance fraction as bit-identical, and label anything unmeasured as open/candidate — see `mimic-docs-and-writing`.
 
 ## 7. What the `hod` and `sham` packages claim, and what they do not
 

@@ -1,181 +1,56 @@
 #!/usr/bin/env python3
 """
-compare_sage_mimic.py
-=====================
+Compare native SAGE HDF5 output with Mimic `sage16` HDF5 output, galaxy by galaxy.
 
-Standalone galaxy-by-galaxy comparison of native sage-model HDF5 output against
-Mimic SAGE HDF5 output for one snapshot.
+A reporting tool: it prints a table and writes a JSON record of measured statistics, and
+leaves verdict thresholds to the caller.
 
-Purpose
--------
-sage-model and Mimic's `sage16` model are intended to implement identical SAGE
-physics.  This script checks that claim after both codes have been run on the
-same dark-matter halo merger trees.  It matches individual output galaxies,
-compares all mapped physical properties, reports every material discrepancy, and
-identifies the galaxies that concentrate the largest number of differences.
+Native layouts
+  SAGE : `model_<N>.hdf5` with `Snap_<snap>/<field>` datasets, or the master `model.hdf5`
+         with `Core_<N>/Snap_<snap>/<field>` external links into the shards.
+  Mimic: `model_<NNN>.hdf5` with a compound `Snap<snap:03d>/Galaxies` dataset, or the master
+         `model.hdf5` with `Snap<snap:03d>/File<NNN>/Galaxies` external links.
+  Shards are used when present; the master only if there are none.
 
-This is a reporting tool for human investigation.  It prints an overall verdict,
-but deliberately exits with normal process status after producing the report.
+Matching: the exact float32-bit tuple (Posx, Posy, Posz, Len, Type) is primary, cross-checked
+against SAGE `SimulationHaloIndex` <-> Mimic `MostBoundID`.  A key matches only when unique on
+both sides; duplicated keys are excluded and counted, and the agreement of the two keys is
+reported.  Every field present on both sides is then compared over the matched galaxies
+(explicit renames, vectors, a composite and a unit transform are mapped below); fields with no
+counterpart are listed.
+
+Statistics: frac_bit_identical (the wider float type is rounded to float32 first;
+frac_identical_unrounded is the exact-equality fraction without rounding), median/p99/max
+relative difference, frac_within_tol (rdiff <= RTOL or |a-b| <= ATOL), and exact equality for
+integer fields.  Within-tolerance and bit-identical fractions are different statistics: a
+one-ULP difference is within tolerance but not bit-identical.  Never quote one as the other.
 
 Usage
------
-    python3 compare_sage_mimic.py
+    python compare_sage_mimic.py --sage-dir DIR --mimic-dir DIR --snapshots 63 37 --out r.json
+    python compare_sage_mimic.py --sage-dir DIR --self-test --snapshots 63 --out self.json
 
-Edit the CONFIGURATION section below to change the snapshot number, tolerances,
-input directories, skipped fields, field mappings, unit transforms, or explicit
-sentinel-equivalence rules.  There is intentionally no command-line interface;
-the script is meant to be copied or edited as a standalone analysis artifact.
-
-Inputs
-------
-SAGE_DIR should point at native sage-model HDF5 output.  The loader accepts:
-  - shard files named `model_<N>.hdf5` containing `Snap_<snapshot>/<field>`
-  - a master file named `model.hdf5` containing `Core_<N>/Snap_<snapshot>/<field>`
-
-MIMIC_DIR should point at Mimic HDF5 output.  The loader accepts:
-  - shard files named `model_<NNN>.hdf5` containing `Snap<snapshot>/Galaxies`
-  - a master file named `model.hdf5` containing
-    `Snap<snapshot>/File<NNN>/Galaxies`
-
-When both shard and master files exist, shard files are preferred so the same
-galaxies are not double-counted.
-
-Matching
---------
-Matched galaxies are keyed by:
-  - SAGE `SimulationHaloIndex`
-  - Mimic `MostBoundID`
-
-Both keys must be unique.  If duplicate keys are present, the script aborts with
-example duplicate IDs because a duplicate would make the comparison ambiguous.
-Unmatched galaxies are reported with IDs and basic halo position/mass context.
-
-Property Comparison
--------------------
-Properties are compared after applying the mapping rules below:
-  - direct name matches
-  - simple renames in PROPERTY_RENAMES
-  - vector component mappings such as `Posx` -> `Pos[0]`
-  - composite mappings such as `SfrDisk + SfrBulge` -> `StarFormationRate`
-  - SAGE-only unit transforms in SAGE_VALUE_TRANSFORMS
-
-Floating-point properties use relative difference:
-    |sage - mimic| / max(|sage|, |mimic|, eps)
-
-Values below NEAR_ZERO_THRESHOLD are treated as zero before computing the
-relative difference.  Integer properties require exact equality.
-
-Two tolerances are reported:
-  - HIGH_TOLERANCE: strict parity threshold
-  - LOW_TOLERANCE: relaxed threshold for larger, investigation-grade differences
-
-Sentinels and Repeated Values
------------------------------
-Some sage-model fields can keep an internal unset sentinel and then convert that
-sentinel to physical units during output, while Mimic may preserve a cleaner
-output sentinel.  Those equivalent "both unset" cases should not be counted as
-physics differences.
-
-Only explicit rules, currently implemented in `explicit_sentinel_masks()`, can
-exclude a mismatch from pass/fail.  Frequency-based repeated-value detection is
-diagnostic only; it is never used to suppress failures.  This protects real
-categorical or common physical values, such as `Type = 0/1` or zero gas mass,
-from being accidentally treated as sentinels.
-
-Output
-------
-  1. Galaxy count and matching check
-  2. Property coverage: direct, renamed, vector, composite, unmatched, skipped
-  3. Per-property high/low tolerance comparison with top discrepant galaxies
-  4. Most problematic galaxies ranked by discrepancy count, including SAGE and
-     Mimic IDs so they can be found in the output data
-  5. Comprehensive summary with count, coverage, tolerance, repeated-value,
-     problematic-galaxy, and overall verdict sections
-
-Unmatched fields are reported but do not fail the overall verdict; they may be
-intentional approved schema differences between sage-model and Mimic.  Review
-the unmatched-field list whenever mappings or output schemas change.
+`--snapshots` takes numbers (space or comma separated) or `all`.  `--self-test` compares the
+SAGE directory with itself, so every property must be 100% bit-identical.  Exit status is 2 if
+the inputs cannot be read or any requested snapshot fails, else 0.
 """
 
+import argparse
 import glob
+import json
 import os
 import sys
-from collections import defaultdict
 
 import h5py
 import numpy as np
 
-# =============================================================================
-# CONFIGURATION — edit these values as needed
-# =============================================================================
+# The only tolerances: defaults for --rtol/--atol, and a reporting threshold for "large"
+RTOL = 1e-6
+ATOL = 1e-10
+LARGE_RDIFF = 1e-3
+N_LIST = 20  # cap on unmatched / worst galaxies listed in the JSON
 
-SNAPSHOT = 63  # Snapshot number to compare [63, 37, 32, 27, 23, 20, 18, 16]
-HIGH_TOLERANCE = 1e-6  # Strict: report count + top-10 worst violators per property
-LOW_TOLERANCE = 1e-3  # Relaxed: report count only
-
-# Values with |x| < NEAR_ZERO_THRESHOLD are treated as exactly zero before
-# computing relative differences.  This prevents floating-point noise around
-# zero (e.g. ±1e-22) from producing spurious max rel-diff ≈ 2.0 failures.
-NEAR_ZERO_THRESHOLD = 1e-15
-
-# Repeated-value diagnostics.
-# A value that appears in ≥ SENTINEL_MIN_FRACTION of galaxies AND at least
-# SENTINEL_MIN_COUNT times is reported as a repeated value.  This helps reveal
-# possible sentinel / uninitialised defaults, but does not affect pass/fail.
-SENTINEL_MIN_FRACTION = 0.01  # 1 % of galaxies
-SENTINEL_MIN_COUNT = 100  # absolute floor
-
-# Properties where repeated-value diagnostics are disabled.  These fields always
-# carry meaningful values for every galaxy, or are categorical by construction,
-# so a dominant repeated value is not evidence of an uninitialised default.
-REPEATED_VALUE_EXCLUDE_FIELDS = {
-    "Mvir",
-    "CentralMvir",
-    "Vvir",
-    "Rvir",
-    "Len",
-    "SnapNum",
-    "Type",
-    "dT",
-}
-
-# Explicit sentinel equivalence rules.  These rules are the only way a mismatch
-# can be excluded from pass/fail.  Repeated-value detection is diagnostic only.
-#
-# SAGE initialises merger times to -1 in internal time units and converts that
-# value on output; Mimic preserves its cleaner output sentinel of 0.  If both
-# sides are in those unset states, the property was not touched by either code
-# and should not count as a physics difference.  If only one side is unset, it
-# remains a violation.
-MERGER_TIME_FIELDS = {
-    "TimeOfLastMajorMerger",
-    "TimeOfLastMinorMerger",
-}
-
-SAGE_DIR = "sage-model/output/millennium"
-MIMIC_DIR = "mimic/output/sage16-mini-millennium"
-
-# ---------------------------------------------------------------------------
-# Fields to skip entirely (ID/index fields that differ by design)
-# ---------------------------------------------------------------------------
-SAGE_SKIP_FIELDS = {
-    "GalaxyIndex",
-    "SAGEHaloIndex",
-    "SAGETreeIndex",
-    "CentralGalaxyIndex",
-    "SimulationHaloIndex",  # used as the matching key — not compared as a value
-}
-
-MIMIC_SKIP_FIELDS = {
-    "UniqueGalaxyID",
-    "UniqueCentralGalaxyID",
-    "MostBoundID",  # used as the matching key — not compared as a value
-}
-
-# ---------------------------------------------------------------------------
-# Simple property renames:  sage_name → mimic_name
-# ---------------------------------------------------------------------------
-PROPERTY_RENAMES = {
+# SAGE name -> Mimic name
+RENAMES = {
     "DiskRadius": "DiskScaleRadius",
     "EjectedMass": "EjectedGas",
     "IntraClusterStars": "ICS",
@@ -183,19 +58,8 @@ PROPERTY_RENAMES = {
     "MetalsIntraClusterStars": "MetalsICS",
     "OutflowRate": "SupernovaOutflowRate",
 }
-
-# Field-specific unit transforms applied before comparison.  Native SAGE HDF5
-# writes merger times in Myr, while Mimic writes the same output fields in Gyr.
-SAGE_VALUE_TRANSFORMS = {
-    "TimeOfLastMajorMerger": (lambda values: values.astype(np.float64) / 1000.0, "SAGE Myr → Gyr"),
-    "TimeOfLastMinorMerger": (lambda values: values.astype(np.float64) / 1000.0, "SAGE Myr → Gyr"),
-}
-
-# ---------------------------------------------------------------------------
-# Vector component mappings:  sage_name → (mimic_field, component_index)
-# mimic stores Pos/Vel/Spin as shape-(N,3) arrays; sage uses separate x/y/z.
-# ---------------------------------------------------------------------------
-VECTOR_COMPONENTS = {
+# SAGE scalar name -> (Mimic vector field, component)
+VECTORS = {
     "Posx": ("Pos", 0),
     "Posy": ("Pos", 1),
     "Posz": ("Pos", 2),
@@ -206,1343 +70,668 @@ VECTOR_COMPONENTS = {
     "Spiny": ("Spin", 1),
     "Spinz": ("Spin", 2),
 }
-
-# ---------------------------------------------------------------------------
-# Composite sage → mimic:  tuple of sage fields (summed) → single mimic field
-# ---------------------------------------------------------------------------
-COMPOSITE_MAPPINGS = {
-    ("SfrDisk", "SfrBulge"): "StarFormationRate",
-}
-
-
-# =============================================================================
-# COLOUR HELPERS
-# =============================================================================
-
-_USE_COLOUR = sys.stdout.isatty()
+# SAGE rounds each term to float32 before summing, so this pair cannot be bit-comparable
+COMPOSITES = {("SfrDisk", "SfrBulge"): "StarFormationRate"}
+# SAGE writes Myr with a negative "unset" sentinel (-978028.5); Mimic writes Gyr with 0
+MERGER_TIME_FIELDS = ("TimeOfLastMajorMerger", "TimeOfLastMinorMerger")
+# Secondary matching key, also compared as an integer field
+ID_KEY = ("SimulationHaloIndex", "MostBoundID")
 
 
-def _c(text, code):
-    return f"\033[{code}m{text}\033[0m" if _USE_COLOUR else str(text)
+# --- File discovery and loading ---
+def _shard_sort_key(path):
+    """Sort `model_<N>.hdf5` numerically by N."""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    tail = stem.rsplit("_", 1)[-1]
+    return (int(tail), path) if tail.isdigit() else (10**9, path)
 
 
-def green(t):
-    return _c(t, "32")
+def discover_files(directory):
+    """Return (files, layout, warnings): shards if present, else the master file."""
+    shards = sorted(glob.glob(os.path.join(directory, "model_[0-9]*.hdf5")), key=_shard_sort_key)
+    master = os.path.join(directory, "model.hdf5")
+    warnings = []
+    if shards:
+        if os.path.exists(master):
+            try:
+                with h5py.File(master, "r") as f:
+                    n_core = sum(1 for k in f if k.startswith("Core_"))
+                    if n_core == 0:  # Mimic master: count File<NNN> groups of any snapshot
+                        for k in f:
+                            if k.startswith("Snap") and isinstance(f[k], h5py.Group):
+                                n_core = sum(1 for kk in f[k] if kk.startswith("File"))
+                                break
+                if n_core and n_core != len(shards):
+                    warnings.append(
+                        f"{directory}: master lists {n_core} cores/files but {len(shards)} shards found"
+                    )
+            except OSError as exc:
+                warnings.append(f"{directory}: cannot inspect master file ({exc})")
+        return shards, "shards", warnings
+    if os.path.exists(master):
+        return [master], "master", warnings
+    raise FileNotFoundError(f"no model_<N>.hdf5 or model.hdf5 in {directory}")
 
 
-def red(t):
-    return _c(t, "31")
+def available_snapshots(files, fmt):
+    """Snapshot numbers present in the given files (fmt: 'sage' or 'mimic')."""
+    found = set()
+    for path in files:
+        with h5py.File(path, "r") as f:
+            for key in f:
+                if fmt == "sage":
+                    if key.startswith("Snap_"):
+                        found.add(int(key[5:]))
+                    elif key.startswith("Core_"):
+                        found.update(int(k[5:]) for k in f[key] if k.startswith("Snap_"))
+                elif key.startswith("Snap") and key[4:].isdigit():
+                    found.add(int(key[4:]))
+    return sorted(found)
 
 
-def yellow(t):
-    return _c(t, "33")
-
-
-def bold(t):
-    return _c(t, "1")
-
-
-def cyan(t):
-    return _c(t, "36")
-
-
-def magenta(t):
-    return _c(t, "35")
-
-
-PASS_STR = green("✓ PASS")
-FAIL_STR = red("✗ FAIL")
-WARN_STR = yellow("⚠ WARN")
-
-
-# =============================================================================
-# DATA LOADING
-# =============================================================================
-
-
-def _sort_hdf5_files(paths):
-    """Sort HDF5 shards by filename, preserving numeric shard order."""
-
-    def key(path):
-        base = os.path.basename(path)
-        stem, _ = os.path.splitext(base)
-        parts = stem.rsplit("_", 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            return (parts[0], int(parts[1]))
-        return (stem, -1)
-
-    return sorted(paths, key=key)
-
-
-def _sage_output_files(directory):
-    """Return SAGE shard files, or the master file if no shards are present."""
-    shard_files = _sort_hdf5_files(glob.glob(os.path.join(directory, "model_[0-9]*.hdf5")))
-    master_file = os.path.join(directory, "model.hdf5")
-    return shard_files if shard_files else ([master_file] if os.path.exists(master_file) else [])
-
-
-def _mimic_output_files(directory):
-    """Return Mimic shard files, or the master file if no shards are present."""
-    shard_files = _sort_hdf5_files(glob.glob(os.path.join(directory, "model_[0-9]*.hdf5")))
-    master_file = os.path.join(directory, "model.hdf5")
-    return shard_files if shard_files else ([master_file] if os.path.exists(master_file) else [])
-
-
-def available_sage_snapshots(directory):
-    """Return sorted snapshot numbers available in SAGE HDF5 output."""
-    snapshots = set()
-    for fpath in _sage_output_files(directory):
-        with h5py.File(fpath, "r") as f:
-            for key in f.keys():
-                if key.startswith("Snap_"):
-                    snapshots.add(int(key.split("_", 1)[1]))
-                elif key.startswith("Core_"):
-                    for subkey in f[key].keys():
-                        if subkey.startswith("Snap_"):
-                            snapshots.add(int(subkey.split("_", 1)[1]))
-    return sorted(snapshots)
-
-
-def available_mimic_snapshots(directory):
-    """Return sorted snapshot numbers available in Mimic HDF5 output."""
-    snapshots = set()
-    for fpath in _mimic_output_files(directory):
-        with h5py.File(fpath, "r") as f:
-            for key in f.keys():
-                if key.startswith("Snap") and key[4:].isdigit():
-                    snapshots.add(int(key[4:]))
-    return sorted(snapshots)
-
-
-def _format_snapshot_list(snapshots):
-    if not snapshots:
-        return "(none)"
-    return ", ".join(str(s) for s in snapshots)
-
-
-def _mimic_metadata_config(directory):
-    """Return the copied Mimic run config from an output directory, if present."""
-    metadata_dir = os.path.join(directory, "metadata")
-    if not os.path.isdir(metadata_dir):
-        return None
-
-    configs = sorted(glob.glob(os.path.join(metadata_dir, "*.yaml")))
-    for path in configs:
-        if os.path.basename(path).startswith("sage16_"):
-            return path
-    return configs[0] if configs else None
-
-
-def _snapshot_list_line(config_path):
-    """Return the snapshot_list line from a Mimic YAML config, if present."""
-    if config_path is None:
-        return None
-    try:
-        with open(config_path, "r", encoding="utf-8") as handle:
-            for line in handle:
-                stripped = line.strip()
-                if stripped.startswith("snapshot_list:"):
-                    return stripped
-    except OSError:
-        return None
-    return None
-
-
-def _validate_field_group(grp, source):
-    """Return dataset field names and row count for a SAGE snapshot group."""
-    fields = [name for name in grp.keys() if isinstance(grp[name], h5py.Dataset)]
-    if not fields:
-        raise ValueError(f"No datasets found in SAGE snapshot group {source}")
-
-    lengths = {name: int(grp[name].shape[0]) for name in fields}
-    unique_lengths = set(lengths.values())
-    if len(unique_lengths) != 1:
-        bad = ", ".join(f"{name}={length}" for name, length in sorted(lengths.items()))
-        raise ValueError(f"Inconsistent dataset lengths in {source}: {bad}")
-
-    return fields, unique_lengths.pop()
-
-
-def load_sage(directory, snapshot):
-    """Load sage-model data for *snapshot* from shard or master HDF5 output."""
-    snap_key = f"Snap_{snapshot}"
-
-    files = _sage_output_files(directory)
-    if not files:
-        raise FileNotFoundError(f"No SAGE model_*.hdf5 or model.hdf5 files in {directory}")
-
-    arrays = defaultdict(list)
-    files_loaded = []
-    expected_fields = None
-
-    def append_group(grp, source):
-        nonlocal expected_fields
-        fields, n_rows = _validate_field_group(grp, source)
-        field_set = set(fields)
-        if expected_fields is None:
-            expected_fields = field_set
-        elif field_set != expected_fields:
-            missing = sorted(expected_fields - field_set)
-            extra = sorted(field_set - expected_fields)
-            raise ValueError(f"SAGE schema mismatch in {source}; missing={missing}, extra={extra}")
-
-        if n_rows == 0:
-            return False
-
-        for field in sorted(fields):
-            arrays[field].append(grp[field][...])
-        return True
-
-    for fpath in files:
-        with h5py.File(fpath, "r") as f:
-            loaded = False
-            if snap_key in f:
-                loaded = append_group(f[snap_key], f"{os.path.basename(fpath)}:{snap_key}")
+def load_sage(files, snapshot):
+    """Return ({field: ndarray in stored dtype}, n_files_with_data) for one snapshot."""
+    parts, used, schema = [], 0, None
+    for path in files:
+        with h5py.File(path, "r") as f:
+            groups = []
+            if f"Snap_{snapshot}" in f:
+                groups.append(f[f"Snap_{snapshot}"])
             else:
-                for core_name in sorted(k for k in f.keys() if k.startswith("Core_")):
-                    core = f[core_name]
-                    if snap_key in core:
-                        loaded = (
-                            append_group(
-                                core[snap_key],
-                                f"{os.path.basename(fpath)}:{core_name}/{snap_key}",
-                            )
-                            or loaded
-                        )
-            if loaded:
-                files_loaded.append(os.path.basename(fpath))
-
-    if not arrays:
-        raise ValueError(f"Snapshot '{snap_key}' not found in any file under {directory}")
-
-    data = {k: np.concatenate(v) for k, v in arrays.items()}
-    return data, files_loaded
-
-
-def load_mimic(directory, snapshot):
-    """Load mimic data for *snapshot* from shard or master HDF5 output."""
-    snap_key = f"Snap{snapshot:03d}"
-
-    files = _mimic_output_files(directory)
-    if not files:
-        raise FileNotFoundError(f"No Mimic model_*.hdf5 or model.hdf5 files in {directory}")
-
-    records = []
-    files_loaded = []
-    expected_dtype = None
-
-    def append_records(dataset, source):
-        nonlocal expected_dtype
-        data = dataset[...]
-        if expected_dtype is None:
-            expected_dtype = data.dtype
-        elif data.dtype != expected_dtype:
-            raise ValueError(f"Mimic schema mismatch in {source}")
-        if len(data) == 0:
-            return False
-        records.append(data)
-        return True
-
-    for fpath in files:
-        with h5py.File(fpath, "r") as f:
-            if snap_key not in f:
-                continue
-            grp = f[snap_key]
-            loaded = False
-            if "Galaxies" in grp:
-                loaded = append_records(
-                    grp["Galaxies"],
-                    f"{os.path.basename(fpath)}:{snap_key}/Galaxies",
+                groups.extend(
+                    f[c][f"Snap_{snapshot}"]
+                    for c in sorted(f)
+                    if c.startswith("Core_") and f"Snap_{snapshot}" in f[c]
                 )
-            else:
-                for file_name in sorted(k for k in grp.keys() if k.startswith("File")):
-                    file_grp = grp[file_name]
-                    if "Galaxies" in file_grp:
-                        loaded = (
-                            append_records(
-                                file_grp["Galaxies"],
-                                f"{os.path.basename(fpath)}:{snap_key}/{file_name}/Galaxies",
-                            )
-                            or loaded
-                        )
-            if loaded:
-                files_loaded.append(os.path.basename(fpath))
-
-    if not records:
-        raise ValueError(f"Snapshot '{snap_key}' not found in any file under {directory}")
-
-    data = np.concatenate(records)
-    return data, files_loaded
+            for g in groups:
+                names = sorted(k for k in g if isinstance(g[k], h5py.Dataset))
+                if schema is None:
+                    schema = names
+                elif names != schema:
+                    raise ValueError(f"SAGE field set differs between files ({path})")
+                lengths = {int(g[k].shape[0]) for k in names}
+                if len(lengths) != 1:
+                    raise ValueError(f"SAGE datasets of unequal length in {path}")
+                if lengths.pop() > 0:
+                    parts.append({k: g[k][...] for k in names})
+                    used += 1
+    if schema is None:
+        raise KeyError(f"Snap_{snapshot} not found")
+    if not parts:
+        return {k: np.empty(0) for k in schema}, 0
+    return {k: np.concatenate([p[k] for p in parts]) for k in schema}, used
 
 
-# =============================================================================
-# GALAXY MATCHING
-# =============================================================================
-
-
-def _duplicate_id_summary(ids, label):
-    unique, counts = np.unique(ids, return_counts=True)
-    duplicate_ids = unique[counts > 1]
-    if len(duplicate_ids) == 0:
-        return None
-
-    examples = []
-    for dup_id in duplicate_ids[:10]:
-        positions = np.where(ids == dup_id)[0][:5]
-        examples.append(f"{int(dup_id)} at rows {positions.tolist()}")
-    return (
-        f"{label} matching key contains {len(duplicate_ids)} duplicate IDs; "
-        f"examples: {', '.join(examples)}"
-    )
-
-
-def match_galaxies(sage_data, mimic_data):
-    """
-    Match galaxies using SimulationHaloIndex (sage) ↔ MostBoundID (mimic).
-
-    Returns
-    -------
-    sage_idx       : np.ndarray   — indices into sage_data for matched galaxies
-    mimic_idx      : np.ndarray   — indices into mimic_data for matched galaxies
-    common_ids     : list[int]    — shared halo IDs (same order as sage/mimic_idx)
-    sage_only_ids  : list[int]    — halo IDs in sage but not mimic
-    mimic_only_ids : list[int]    — halo IDs in mimic but not sage
-    """
-    sage_ids = sage_data["SimulationHaloIndex"].astype(np.int64)
-    mimic_ids = mimic_data["MostBoundID"].astype(np.int64)
-
-    duplicate_errors = [
-        msg
-        for msg in (
-            _duplicate_id_summary(sage_ids, "SAGE SimulationHaloIndex"),
-            _duplicate_id_summary(mimic_ids, "Mimic MostBoundID"),
-        )
-        if msg is not None
-    ]
-    if duplicate_errors:
-        raise ValueError("\n".join(duplicate_errors))
-
-    sage_id_map = {int(v): i for i, v in enumerate(sage_ids)}
-    mimic_id_map = {int(v): i for i, v in enumerate(mimic_ids)}
-
-    sage_id_set = set(sage_id_map)
-    mimic_id_set = set(mimic_id_map)
-
-    common_ids = sorted(sage_id_set & mimic_id_set)
-    sage_only_ids = sorted(sage_id_set - mimic_id_set)
-    mimic_only_ids = sorted(mimic_id_set - sage_id_set)
-
-    sage_idx = np.array([sage_id_map[gid] for gid in common_ids], dtype=np.intp)
-    mimic_idx = np.array([mimic_id_map[gid] for gid in common_ids], dtype=np.intp)
-
-    return sage_idx, mimic_idx, common_ids, sage_only_ids, mimic_only_ids
-
-
-# =============================================================================
-# BUILD COMPARISON TASKS
-# =============================================================================
-
-
-def apply_sage_transform(label, values):
-    """Apply any SAGE-to-Mimic output-unit transform for a comparison label."""
-    transform = SAGE_VALUE_TRANSFORMS.get(label)
-    if transform is None:
-        return values, None
-
-    func, note = transform
-    return func(values), note
-
-
-def explicit_sentinel_masks(label, sage_vals, mimic_vals):
-    """Return explicit sentinel masks for fields with known equivalent sentinels."""
-    if label in MERGER_TIME_FIELDS:
-        sage_f = np.asarray(sage_vals, dtype=np.float64)
-        mimic_f = np.asarray(mimic_vals, dtype=np.float64)
-        return sage_f < 0.0, np.isclose(mimic_f, 0.0, rtol=0.0, atol=NEAR_ZERO_THRESHOLD)
-
-    n = len(sage_vals)
-    return np.zeros(n, bool), np.zeros(n, bool)
-
-
-def build_comparison_tasks(sage_data, mimic_data, sage_idx, mimic_idx):
-    """
-    Construct the list of property comparisons to run.
-
-    Each task is a dict:
-        label            : str           display name
-        sage_vals        : np.ndarray    sage values for matched galaxies
-        mimic_vals       : np.ndarray    mimic values for matched galaxies
-        mapping          : str           how fields were matched
-        sage_sentinel_counts : dict      {value: count} dominant sage values
-        mimic_sentinel_counts: dict      dominant mimic values
-        sage_explicit_sentinel_mask : np.ndarray[bool]
-        mimic_explicit_sentinel_mask: np.ndarray[bool]
-
-    Repeated-value diagnostics run on the FULL arrays (all galaxies, not just
-    matched) for maximum statistical power.  Pass/fail sentinel exclusions only
-    use explicit per-field rules.
-
-    Also returns lists of unmatched field names for reporting.
-    """
-    tasks = []
-    sage_accounted = set(SAGE_SKIP_FIELDS)
-    mimic_accounted = set(MIMIC_SKIP_FIELDS)
-
-    mimic_field_names = set(mimic_data.dtype.names)
-    sage_field_names = set(sage_data.keys())
-
-    def _sent(label, sage_arr, mimic_arr):
-        """Return repeated-value diagnostic counts for SAGE and Mimic.
-        Returns empty dicts for fields excluded from repeated-value diagnostics."""
-        if label in REPEATED_VALUE_EXCLUDE_FIELDS:
-            return {}, {}
-        sc, _ = detect_sentinels(sage_arr)
-        mc, _ = detect_sentinels(mimic_arr)
-        return sc, mc
-
-    def _append_task(label, sage_full, mimic_full, mapping):
-        sage_full, transform_note = apply_sage_transform(label, sage_full)
-        if transform_note:
-            mapping = f"{mapping}; {transform_note}"
-
-        sc, mc = _sent(label, sage_full, mimic_full)
-        sage_vals = sage_full[sage_idx]
-        mimic_vals = mimic_full[mimic_idx]
-        sage_mask, mimic_mask = explicit_sentinel_masks(label, sage_vals, mimic_vals)
-        tasks.append(
-            {
-                "label": label,
-                "sage_vals": sage_vals,
-                "mimic_vals": mimic_vals,
-                "mapping": mapping,
-                "sage_sentinel_counts": sc,
-                "mimic_sentinel_counts": mc,
-                "sage_explicit_sentinel_mask": sage_mask,
-                "mimic_explicit_sentinel_mask": mimic_mask,
-            }
-        )
-
-    # --- Composite mappings (e.g. SfrDisk+SfrBulge → StarFormationRate) ---
-    for sage_tuple, mimic_name in COMPOSITE_MAPPINGS.items():
-        if all(s in sage_data for s in sage_tuple) and mimic_name in mimic_field_names:
-            sage_full = sum(sage_data[s].astype(np.float64) for s in sage_tuple)
-            mimic_full = mimic_data[mimic_name].astype(np.float64)
-            label = " + ".join(sage_tuple)
-            _append_task(label, sage_full, mimic_full, f"composite → {mimic_name}")
-            sage_accounted.update(sage_tuple)
-            mimic_accounted.add(mimic_name)
-
-    # --- Vector component mappings (Posx → Pos[0], etc.) ---
-    for sage_name, (mimic_field, comp) in VECTOR_COMPONENTS.items():
-        if sage_name in sage_data and mimic_field in mimic_field_names:
-            sage_full = sage_data[sage_name]
-            mimic_full = mimic_data[mimic_field][:, comp]
-            _append_task(sage_name, sage_full, mimic_full, f"vector → {mimic_field}[{comp}]")
-            sage_accounted.add(sage_name)
-            mimic_accounted.add(mimic_field)
-
-    # --- Simple renames ---
-    for sage_name, mimic_name in PROPERTY_RENAMES.items():
-        if sage_name in sage_data and mimic_name in mimic_field_names:
-            sage_full = sage_data[sage_name]
-            mimic_full = mimic_data[mimic_name]
-            _append_task(sage_name, sage_full, mimic_full, f"rename → {mimic_name}")
-            sage_accounted.add(sage_name)
-            mimic_accounted.add(mimic_name)
-
-    # --- Direct name matches ---
-    for field in sorted(sage_field_names - sage_accounted):
-        if field in mimic_field_names:
-            sage_full = sage_data[field]
-            mimic_full = mimic_data[field]
-            _append_task(field, sage_full, mimic_full, "direct")
-            sage_accounted.add(field)
-            mimic_accounted.add(field)
-
-    sage_unmatched = sorted(sage_field_names - sage_accounted)
-    mimic_unmatched = sorted(mimic_field_names - mimic_accounted)
-
-    return tasks, sage_unmatched, mimic_unmatched
-
-
-# =============================================================================
-# PROPERTY COMPARISON
-# =============================================================================
-
-
-def relative_diff(a, b, eps=1e-30):
-    """
-    Element-wise relative difference:  |a - b| / max(|a|, |b|, eps).
-
-    Values with |x| < NEAR_ZERO_THRESHOLD are zeroed first so that
-    floating-point noise around zero (e.g. ±1e-22) does not produce
-    spurious relative differences of ≈ 2.0.
-    Works for any numeric dtype; promotes to float64 internally.
-    """
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
-    if NEAR_ZERO_THRESHOLD > 0:
-        a = np.where(np.abs(a) < NEAR_ZERO_THRESHOLD, 0.0, a)
-        b = np.where(np.abs(b) < NEAR_ZERO_THRESHOLD, 0.0, b)
-    denom = np.maximum(np.abs(a), np.abs(b))
-    denom = np.maximum(denom, eps)
-    return np.abs(a - b) / denom
-
-
-def detect_sentinels(arr):
-    """
-    Find values that appear suspiciously often in *arr*.
-
-    These repeated values are diagnostics only.  They can reveal sentinel /
-    uninitialised defaults, but they are not used for pass/fail suppression.
-
-    Returns
-    -------
-    counts : dict  {float_value: int_count}   — dominant values and how often
-    value_set : set                           — the same values as a set for O(1) lookup
-    """
-    n = len(arr)
-    if n == 0:
-        return {}, set()
-
-    arr_f = np.asarray(arr, dtype=np.float64).ravel()
-    finite = arr_f[np.isfinite(arr_f)]
-    if len(finite) == 0:
-        return {}, set()
-
-    threshold = max(SENTINEL_MIN_COUNT, SENTINEL_MIN_FRACTION * n)
-    unique, counts = np.unique(finite, return_counts=True)
-
-    sent_counts = {float(v): int(c) for v, c in zip(unique, counts) if c >= threshold}
-    return sent_counts, set(sent_counts.keys())
-
-
-def compare_property(
-    sage_vals,
-    mimic_vals,
-    common_ids,
-    high_tol,
-    low_tol,
-    sage_explicit_sentinel_mask=None,
-    mimic_explicit_sentinel_mask=None,
-):
-    """
-    Compare two matched property arrays and return a statistics dict.
-
-    Sentinel classification (three categories):
-      sent-sent  : both sides are sentinel values → EXCLUDED from violation counts.
-                   The assumption is both codes left this at the initialisation
-                   default; the values are equivalent even if numerically different.
-      sent-real  : one side is a sentinel, the other is a real physics value →
-                   COUNTED as a violation; one code ran physics, the other didn't.
-      genuine    : neither side is a sentinel → COUNTED as a violation.
-
-    pass/fail is based on (sent-real + genuine) violations only.
-    """
-    n = len(sage_vals)
-    is_int = np.issubdtype(sage_vals.dtype, np.integer) and np.issubdtype(
-        mimic_vals.dtype, np.integer
-    )
-
-    if is_int:
-        rdiff = (sage_vals != mimic_vals).astype(np.float64)
-    else:
-        rdiff = relative_diff(sage_vals, mimic_vals)
-
-    # Build explicit sentinel membership masks.  Frequency-based repeated-value
-    # detection is diagnostic only and is deliberately not used here.
-    is_sage_sent = (
-        np.asarray(sage_explicit_sentinel_mask, dtype=bool)
-        if sage_explicit_sentinel_mask is not None
-        else np.zeros(n, bool)
-    )
-    is_mimic_sent = (
-        np.asarray(mimic_explicit_sentinel_mask, dtype=bool)
-        if mimic_explicit_sentinel_mask is not None
-        else np.zeros(n, bool)
-    )
-
-    is_both_sent = is_sage_sent & is_mimic_sent  # excluded
-    is_sent_real = (is_sage_sent | is_mimic_sent) & ~is_both_sent  # kept, annotated
-    # is_genuine    = ~is_sage_sent & ~is_mimic_sent        # kept, no annotation
-
-    reported_rdiff = rdiff[~is_both_sent]
-    max_rdiff = float(reported_rdiff.max()) if len(reported_rdiff) else 0.0
-    mean_rdiff = float(reported_rdiff.mean()) if len(reported_rdiff) else 0.0
-
-    viol_h = rdiff > high_tol
-    viol_l = rdiff > low_tol
-
-    n_high_sent_sent = int(np.sum(viol_h & is_both_sent))
-    n_high_sent_real = int(np.sum(viol_h & is_sent_real))
-    n_high_genuine = int(np.sum(viol_h & ~is_sage_sent & ~is_mimic_sent))
-    n_high_real = n_high_sent_real + n_high_genuine  # what counts for pass/fail
-
-    n_low_sent_sent = int(np.sum(viol_l & is_both_sent))
-    n_low_sent_real = int(np.sum(viol_l & is_sent_real))
-    n_low_genuine = int(np.sum(viol_l & ~is_sage_sent & ~is_mimic_sent))
-    n_low_real = n_low_sent_real + n_low_genuine
-
-    # Top-10 worst violators at high tolerance — exclude sent-sent rows
-    top_10 = []
-    if n_high_real > 0:
-        sage_f = np.asarray(sage_vals, dtype=np.float64)
-        mimic_f = np.asarray(mimic_vals, dtype=np.float64)
-        # Only consider non-sent-sent violations for the ranked list
-        eligible = viol_h & ~is_both_sent
-        eligible_idx = np.where(eligible)[0]
-        eligible_idx = eligible_idx[np.argsort(rdiff[eligible_idx])[::-1]]
-        for i in eligible_idx[:10]:
-            if is_sent_real[i]:
-                sent_kind = "sage_sent" if is_sage_sent[i] else "mimic_sent"
-            else:
-                sent_kind = None
-            top_10.append(
-                {
-                    "halo_id": common_ids[i],
-                    "sage_val": float(sage_vals[i]),
-                    "mimic_val": float(mimic_vals[i]),
-                    "rel_diff": float(rdiff[i]),
-                    "sent_kind": sent_kind,  # None, "sage_sent", or "mimic_sent"
-                }
+def load_mimic(files, snapshot):
+    """Return ({field: ndarray (vector fields are (N,3))}, n_files_with_data)."""
+    tag = f"Snap{snapshot:03d}"
+    parts, used, dtype = [], 0, None
+    found = False
+    for path in files:
+        with h5py.File(path, "r") as f:
+            if tag not in f:
+                continue
+            found = True
+            g = f[tag]
+            dsets = (
+                [g["Galaxies"]]
+                if "Galaxies" in g
+                else [
+                    g[k]["Galaxies"]
+                    for k in sorted(g)
+                    if k.startswith("File") and "Galaxies" in g[k]
+                ]
             )
+            for d in dsets:
+                if dtype is None:
+                    dtype = d.dtype
+                elif d.dtype != dtype:
+                    raise ValueError(f"Mimic record dtype differs between files ({path})")
+                if d.shape[0] > 0:
+                    parts.append(d[...])
+                    used += 1
+    if not found:
+        raise KeyError(f"{tag} not found")
+    rec = np.concatenate(parts) if parts else np.empty(0, dtype=dtype)
+    return {n: rec[n] for n in rec.dtype.names}, used
 
+
+# --- Matching ---
+def tuple_key(px, py, pz, length, typ):
+    """Exact matching key: float32 bit patterns of Pos, plus Len and Type (int32)."""
+    key = np.empty(
+        len(px), dtype=[("x", "<u4"), ("y", "<u4"), ("z", "<u4"), ("l", "<i4"), ("t", "<i4")]
+    )
+    for name, arr in (("x", px), ("y", py), ("z", pz)):
+        key[name] = np.ascontiguousarray(arr, dtype="<f4").view("<u4")
+    key["l"] = length
+    key["t"] = typ
+    return key
+
+
+def match_keys(ka, kb):
+    """Match rows whose key is unique on BOTH sides; return index arrays ia, ib and statistics."""
+    na, nb = len(ka), len(kb)
+    uniq, inv = np.unique(np.concatenate([ka, kb]), return_inverse=True)
+    inv = inv.ravel()
+    ca = np.bincount(inv[:na], minlength=len(uniq))
+    cb = np.bincount(inv[na:], minlength=len(uniq))
+    first_a = np.full(len(uniq), -1, dtype=np.int64)
+    first_b = np.full(len(uniq), -1, dtype=np.int64)
+    first_a[inv[:na][::-1]] = np.arange(na)[::-1]  # lowest row index wins
+    first_b[inv[na:][::-1]] = np.arange(nb)[::-1]
+    ok = (ca == 1) & (cb == 1)
+    ia, ib = first_a[ok], first_b[ok]
+    order = np.argsort(ia)
+    ia, ib = ia[order], ib[order]
     return {
-        "n_total": n,
-        # Real violation counts (sent-sent excluded)
-        "n_high_real": n_high_real,
-        "n_high_sent_real": n_high_sent_real,
-        "n_high_genuine": n_high_genuine,
-        "n_high_sent_sent": n_high_sent_sent,
-        "n_low_real": n_low_real,
-        "n_low_sent_real": n_low_sent_real,
-        "n_low_genuine": n_low_genuine,
-        "n_low_sent_sent": n_low_sent_sent,
-        "max_rdiff": max_rdiff,
-        "mean_rdiff": mean_rdiff,
-        "top_10": top_10,
-        "is_int": is_int,
+        "ia": ia,
+        "ib": ib,
+        "stats": {
+            "n_sage": na,
+            "n_mimic": nb,
+            "n_unique_keys_sage": int(np.sum(ca > 0)),
+            "n_unique_keys_mimic": int(np.sum(cb > 0)),
+            "n_duplicated_keys_sage": int(np.sum(ca > 1)),
+            "n_rows_in_duplicated_keys_sage": int(ca[ca > 1].sum()),
+            "n_duplicated_keys_mimic": int(np.sum(cb > 1)),
+            "n_rows_in_duplicated_keys_mimic": int(cb[cb > 1].sum()),
+            "is_unique": bool(np.all(ca <= 1) and np.all(cb <= 1)),
+            "n_matched": int(len(ia)),
+            "match_rate_sage": len(ia) / na if na else None,
+            "match_rate_mimic": len(ib) / nb if nb else None,
+            "n_sage_only": int(na - len(ia)),
+            "n_mimic_only": int(nb - len(ib)),
+        },
     }
 
 
-# =============================================================================
-# PER-GALAXY DISCREPANCY AGGREGATION
-# =============================================================================
+def key_agreement(m_tuple, m_id):
+    """Compare the (SAGE row -> Mimic row) assignments of the two matchings."""
+    a = dict(zip(m_tuple["ia"].tolist(), m_tuple["ib"].tolist()))
+    b = dict(zip(m_id["ia"].tolist(), m_id["ib"].tolist()))
+    both = a.keys() & b.keys()
+    same = sum(1 for k in both if a[k] == b[k])
+    return {
+        "n_matched_by_both": len(both),
+        "n_same_partner": same,
+        "n_different_partner": len(both) - same,
+        "n_matched_by_tuple_only": len(a.keys() - b.keys()),
+        "n_matched_by_id_only": len(b.keys() - a.keys()),
+    }
 
 
-def real_violation_masks(task, high_tol, low_tol):
-    """Return high/low real-violation masks and relative differences for a task."""
-    sage_vals = task["sage_vals"]
-    mimic_vals = task["mimic_vals"]
+# --- Field mapping ---
+def build_pairs(sage, mimic, self_test=False):
+    """Return (pairs, sage_only, mimic_only): comparable full-length arrays and unmapped fields."""
+    pairs = []
+    s_used, m_used = set(), set()
 
-    is_int = np.issubdtype(sage_vals.dtype, np.integer) and np.issubdtype(
-        mimic_vals.dtype, np.integer
+    def add(label, kind, s_names, m_name, a, b, note="", bit_comparable=True, sentinel=None):
+        pairs.append(
+            dict(
+                label=label,
+                kind=kind,
+                sage=list(s_names),
+                mimic=m_name,
+                a=a,
+                b=b,
+                note=note,
+                bit_comparable=bit_comparable,
+                sentinel=sentinel,
+            )
+        )
+        s_used.update(s_names)
+        m_used.add(m_name.split("[")[0])
+
+    if self_test:  # identity mapping over every SAGE field
+        for name in sorted(sage):
+            add(name, "identity", [name], name, sage[name], mimic[name])
+        return pairs, [], []
+
+    if ID_KEY[0] in sage and ID_KEY[1] in mimic:
+        add(ID_KEY[0], "id_key", [ID_KEY[0]], ID_KEY[1], sage[ID_KEY[0]], mimic[ID_KEY[1]])
+
+    for terms, m_name in COMPOSITES.items():
+        if all(t in sage for t in terms) and m_name in mimic:
+            total = sage[terms[0]].astype(np.float32)
+            for t in terms[1:]:
+                total = total + sage[t].astype(np.float32)
+            add(
+                " + ".join(terms),
+                "composite",
+                terms,
+                m_name,
+                total,
+                mimic[m_name],
+                note="float32 sum of SAGE terms; not bit-comparable by construction",
+                bit_comparable=False,
+            )
+
+    for s_name, (m_name, comp) in VECTORS.items():
+        if s_name in sage and m_name in mimic:
+            add(
+                s_name,
+                "vector",
+                [s_name],
+                f"{m_name}[{comp}]",
+                sage[s_name],
+                mimic[m_name][:, comp],
+            )
+    m_used.update(m for m, _ in VECTORS.values() if m in mimic)
+
+    # Sentinel (<0) maps to 0; otherwise float32 Myr / 1000 -> Gyr
+    for name in MERGER_TIME_FIELDS:
+        if name in sage and name in mimic:
+            raw = sage[name].astype(np.float32)
+            sentinel = raw < 0
+            conv = np.where(sentinel, np.float32(0.0), raw / np.float32(1000.0)).astype(np.float32)
+            add(
+                name,
+                "unit_transform",
+                [name],
+                name,
+                conv,
+                mimic[name],
+                note="SAGE Myr -> Gyr (float32 /1000); SAGE value<0 (sentinel) -> 0",
+                sentinel=sentinel,
+            )
+
+    for s_name, m_name in RENAMES.items():
+        if s_name in sage and m_name in mimic:
+            add(
+                s_name,
+                "rename",
+                [s_name],
+                m_name,
+                sage[s_name],
+                mimic[m_name],
+                note=f"renamed to {m_name}",
+            )
+
+    for name in sorted(set(sage) - s_used):
+        if name in mimic and name not in m_used:
+            add(name, "direct", [name], name, sage[name], mimic[name])
+
+    return pairs, sorted(set(sage) - s_used), sorted(set(mimic) - m_used)
+
+
+# --- Property comparison ---
+def _json_float(x):
+    """float -> JSON-safe value ('inf'/'nan' as strings)."""
+    x = float(x)
+    return x if np.isfinite(x) else ("inf" if np.isinf(x) and x > 0 else "nan")
+
+
+def _quantiles(r):
+    """Return (median, 99th percentile, max) of r, or Nones when r is empty."""
+    if len(r) == 0:
+        return None, None, None
+    with np.errstate(invalid="ignore"):  # percentile interpolation next to inf
+        return float(np.median(r)), float(np.percentile(r, 99)), float(np.max(r))
+
+
+def _bits(x):
+    """Integer bit patterns of a float array, with -0.0 normalised to +0.0."""
+    x = x + x.dtype.type(0.0)  # -0.0 + 0.0 = +0.0; NaN stays NaN
+    return x.view(np.uint32 if x.dtype.itemsize == 4 else np.uint64)
+
+
+def compare_pair(a, b, rtol, atol, sentinel=None, bit_comparable=True):
+    """Return (stats, outside-tolerance mask, not-bit-identical mask) for matched a (SAGE), b."""
+    n = len(a)
+    stats = {
+        "n": n,
+        "dtype_sage": str(a.dtype),
+        "dtype_mimic": str(b.dtype),
+        "bit_comparable": bit_comparable,
+    }
+    a_int, b_int = np.issubdtype(a.dtype, np.integer), np.issubdtype(b.dtype, np.integer)
+
+    if a_int and b_int:
+        eq = a == b
+        stats.update(
+            is_integer=True,
+            frac_bit_identical=float(eq.mean()) if n else None,
+            n_not_identical=int((~eq).sum()),
+            max_abs_diff=int(np.max(np.abs(a.astype(np.int64) - b.astype(np.int64)))) if n else 0,
+            frac_within_tol=float(eq.mean()) if n else None,
+        )
+        return stats, ~eq, ~eq
+
+    # An int/float mix is compared as float64
+    stats["is_integer"] = False
+    if a_int or b_int:
+        a, b = a.astype(np.float64), b.astype(np.float64)
+        stats["note_mixed_int_float"] = True
+    cmp_dtype = np.float32 if min(a.dtype.itemsize, b.dtype.itemsize) == 4 else np.float64
+    stats["compare_dtype"] = np.dtype(cmp_dtype).name
+    a_c, b_c = a.astype(cmp_dtype), b.astype(cmp_dtype)
+
+    eq_bits = (_bits(a_c) == _bits(b_c)) | (np.isnan(a_c) & np.isnan(b_c))
+    if a.dtype != b.dtype:  # exact equality without rounding the wider side
+        a64, b64 = a.astype(np.float64), b.astype(np.float64)
+        stats["frac_identical_unrounded"] = (
+            float(((a64 == b64) | (np.isnan(a64) & np.isnan(b64))).mean()) if n else None
+        )
+
+    x, y = a_c.astype(np.float64), b_c.astype(np.float64)
+    both_nan = np.isnan(x) & np.isnan(y)
+    equal = (x == y) | both_nan
+    with np.errstate(invalid="ignore", divide="ignore"):
+        diff = np.abs(x - y)
+        r = diff / np.maximum(np.abs(x), np.abs(y))
+    r[equal] = 0.0
+    nonfinite_mismatch = ~equal & ~np.isfinite(r)
+    r[nonfinite_mismatch] = np.inf
+    within = equal | (r <= rtol) | (diff <= atol)
+    differing = ~eq_bits
+
+    med, p99, mx = _quantiles(r)
+    med_d, p99_d, mx_d = _quantiles(r[differing])
+    stats.update(
+        frac_bit_identical=float(eq_bits.mean()) if n else None,
+        n_not_identical=int(differing.sum()),
+        median_rdiff=_json_float(med) if med is not None else None,
+        p99_rdiff=_json_float(p99) if p99 is not None else None,
+        max_rdiff=_json_float(mx) if mx is not None else None,
+        median_rdiff_differing=_json_float(med_d) if med_d is not None else None,
+        p99_rdiff_differing=_json_float(p99_d) if p99_d is not None else None,
+        max_rdiff_differing=_json_float(mx_d) if mx_d is not None else None,
+        frac_within_tol=float(within.mean()) if n else None,
+        n_outside_tol=int((~within).sum()),
+        n_rdiff_gt_large=int((r > LARGE_RDIFF).sum()),
+        n_nonfinite_mismatch=int(nonfinite_mismatch.sum()),
     )
-    if is_int:
-        rdiff = (sage_vals != mimic_vals).astype(np.float64)
-    else:
-        rdiff = relative_diff(sage_vals, mimic_vals)
-
-    n = len(sage_vals)
-    is_sage_sent = np.asarray(
-        task.get("sage_explicit_sentinel_mask", np.zeros(n, bool)),
-        dtype=bool,
-    )
-    is_mimic_sent = np.asarray(
-        task.get("mimic_explicit_sentinel_mask", np.zeros(n, bool)),
-        dtype=bool,
-    )
-    is_both_sent = is_sage_sent & is_mimic_sent
-
-    high_real = (rdiff > high_tol) & ~is_both_sent
-    low_real = (rdiff > low_tol) & ~is_both_sent
-    return high_real, low_real, rdiff
+    if sentinel is not None:  # SAGE-sentinel pairs that map onto Mimic's 0
+        sent_pair = sentinel & (b_c == 0)
+        stats["n_sentinel_pairs"] = int(sent_pair.sum())
+        stats["n_sage_sentinel"] = int(sentinel.sum())
+        rest = ~sent_pair
+        stats["frac_bit_identical_excl_sentinel_pairs"] = (
+            float(eq_bits[rest].mean()) if rest.any() else None
+        )
+    return stats, ~within, differing
 
 
-def _maybe_int(value):
-    """Convert scalar values to int strings where possible; return '-' if absent."""
-    if value is None:
-        return "-"
-    try:
-        return str(int(value))
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def _array_value(data, field, idx):
-    if field not in data:
-        return None
-    return data[field][idx]
-
-
-def _record_value(records, field, idx):
-    if field not in records.dtype.names:
-        return None
-    return records[field][idx]
-
-
-def build_problem_galaxy_summary(
-    tasks, common_ids, sage_idx, mimic_idx, sage_data, mimic_data, high_tol, low_tol, limit=10
-):
-    """Find matched galaxies with the largest cross-property discrepancy footprint."""
-    n = len(common_ids)
-    high_counts = np.zeros(n, dtype=np.int32)
-    low_counts = np.zeros(n, dtype=np.int32)
-    max_rdiff = np.zeros(n, dtype=np.float64)
-    high_props = defaultdict(list)
-    low_props = defaultdict(list)
-
-    for task in tasks:
-        high_real, low_real, rdiff = real_violation_masks(task, high_tol, low_tol)
-        high_idx = np.where(high_real)[0]
-        low_idx = np.where(low_real)[0]
-
-        high_counts[high_idx] += 1
-        low_counts[low_idx] += 1
-        np.maximum.at(max_rdiff, high_idx, rdiff[high_idx])
-
-        label = task["label"]
-        for i in high_idx:
-            high_props[int(i)].append(label)
-        for i in low_idx:
-            low_props[int(i)].append(label)
-
-    problem_idx = np.where(high_counts > 0)[0]
-    if len(problem_idx) == 0:
-        return [], 0
-
-    # Low-tolerance failures are the largest discrepancies, so rank those first;
-    # high-tolerance failures then capture broad but smaller drift.
-    ordered = sorted(
-        problem_idx,
-        key=lambda i: (
-            -int(low_counts[i]),
-            -int(high_counts[i]),
-            -float(max_rdiff[i]),
-            int(common_ids[i]),
-        ),
-    )
-
+# --- Per-snapshot driver ---
+def unmatched_rows(data, idx, sage_side):
+    """Describe up to N_LIST unmatched rows (position, Len, Type, Mvir, ID)."""
     rows = []
-    for i in ordered[:limit]:
-        si = int(sage_idx[i])
-        mi = int(mimic_idx[i])
-        low_set = set(low_props.get(int(i), []))
-        high_only = [p for p in high_props.get(int(i), []) if p not in low_set]
+    for i in idx[:N_LIST]:
+        if sage_side:
+            pos = [data["Posx"][i], data["Posy"][i], data["Posz"][i]]
+            ident = data["SimulationHaloIndex"][i]
+        else:
+            pos = list(data["Pos"][i])
+            ident = data["MostBoundID"][i]
         rows.append(
             {
-                "match_id": int(common_ids[i]),
-                "sage_row": si,
-                "mimic_row": mi,
-                "sage_galaxy_index": _array_value(sage_data, "GalaxyIndex", si),
-                "sage_tree_index": _array_value(sage_data, "SAGETreeIndex", si),
-                "sage_halo_index": _array_value(sage_data, "SAGEHaloIndex", si),
-                "mimic_unique_id": _record_value(mimic_data, "UniqueGalaxyID", mi),
-                "mimic_most_bound_id": _record_value(mimic_data, "MostBoundID", mi),
-                "high_count": int(high_counts[i]),
-                "low_count": int(low_counts[i]),
-                "max_rdiff": float(max_rdiff[i]),
-                "low_props": sorted(low_set),
-                "high_only_props": sorted(high_only),
+                "row": int(i),
+                "Type": int(data["Type"][i]),
+                "Len": int(data["Len"][i]),
+                "Mvir": float(data["Mvir"][i]),
+                "Pos": [float(p) for p in pos],
+                "halo_id": int(ident),
             }
         )
-
-    return rows, int(len(problem_idx))
-
-
-# =============================================================================
-# OUTPUT HELPERS
-# =============================================================================
-
-SEP_MAJOR = "=" * 80
-SEP_MINOR = "-" * 80
+    return rows
 
 
-def pct(n, total):
-    """Format as 'n (x.xx%)'"""
-    if total == 0:
-        return f"{n} (n/a)"
-    return f"{n} ({100.0 * n / total:.2f}%)"
+def count_by_type(types):
+    """Return {galaxy Type: count}."""
+    u, c = np.unique(types, return_counts=True)
+    return {int(k): int(v) for k, v in zip(u, c)}
 
 
-def print_property_result(label, mapping, stats, high_tol, low_tol):
-    """Print one block of per-property comparison output."""
-    n = stats["n_total"]
-    n_high_real = stats["n_high_real"]
-    n_low_real = stats["n_low_real"]
-    n_high_sr = stats["n_high_sent_real"]
-    n_high_gen = stats["n_high_genuine"]
-    n_high_ss = stats["n_high_sent_sent"]
-    n_low_sr = stats["n_low_sent_real"]
-    n_low_gen = stats["n_low_genuine"]
-    n_low_ss = stats["n_low_sent_sent"]
-    sage_sc = stats.get("sage_sentinel_counts", {})
-    mimic_sc = stats.get("mimic_sentinel_counts", {})
+def compare_snapshot(snap, sage_files, mimic_files, rtol, atol, self_test):
+    """Match and compare one snapshot; return the JSON-ready result dict."""
+    sage, n_sage_files = load_sage(sage_files, snap)
+    if self_test:
+        mimic, n_mimic_files = sage, n_sage_files
+        m_pos = [mimic[k] for k in ("Posx", "Posy", "Posz")]
+        m_id = mimic["SimulationHaloIndex"]
+    else:
+        mimic, n_mimic_files = load_mimic(mimic_files, snap)
+        m_pos = [mimic["Pos"][:, i] for i in range(3)]
+        m_id = mimic["MostBoundID"]
+    n_s, n_m = len(sage["Type"]), len(mimic["Type"])
+    res = {
+        "snapshot": snap,
+        "n_sage": n_s,
+        "n_mimic": n_m,
+        "count_difference": n_s - n_m,
+        "n_files_with_data": {"sage": n_sage_files, "mimic": n_mimic_files},
+        "counts_by_type": {
+            "sage": count_by_type(sage["Type"]),
+            "mimic": count_by_type(mimic["Type"]),
+        },
+    }
 
-    # Pass/fail based on real violations only (sent-sent excluded)
-    high_pass = n_high_real == 0
-    low_pass = n_low_real == 0
+    kt_s = tuple_key(sage["Posx"], sage["Posy"], sage["Posz"], sage["Len"], sage["Type"])
+    kt_m = tuple_key(m_pos[0], m_pos[1], m_pos[2], mimic["Len"], mimic["Type"])
+    m_tuple = match_keys(kt_s, kt_m)
+    m_idk = match_keys(sage["SimulationHaloIndex"].astype(np.int64), m_id.astype(np.int64))
+    if m_tuple["stats"]["is_unique"]:
+        primary, chosen = "tuple", m_tuple
+    elif m_idk["stats"]["is_unique"]:
+        primary, chosen = "halo_id", m_idk
+    else:
+        primary, chosen = "tuple_unique_rows_only", m_tuple
+    res["matching"] = {
+        "primary": primary,
+        "tuple": m_tuple["stats"],
+        "halo_id": m_idk["stats"],
+        "agreement_tuple_vs_halo_id": key_agreement(m_tuple, m_idk),
+    }
+    ia, ib = chosen["ia"], chosen["ib"]
+    matched_s = np.zeros(n_s, bool)
+    matched_s[ia] = True
+    matched_m = np.zeros(n_m, bool)
+    matched_m[ib] = True
+    res["unmatched"] = {
+        "sage_only": unmatched_rows(sage, np.flatnonzero(~matched_s), True),
+        "mimic_only": unmatched_rows(mimic, np.flatnonzero(~matched_m), self_test),
+    }
 
-    high_status = PASS_STR if high_pass else FAIL_STR
-    low_status = PASS_STR if low_pass else WARN_STR
-
-    mapping_note = f"  [{mapping}]" if mapping != "direct" else ""
-    print(f"\n  {bold(label)}{cyan(mapping_note)}")
-
-    # High tolerance line
-    print(f"    High tol ({high_tol:.0e}):  {pct(n_high_real, n):>18s}  {high_status}", end="")
-    parts = []
-    if n_high_gen > 0:
-        parts.append(f"{n_high_gen} genuine")
-    if n_high_sr > 0:
-        parts.append(yellow(f"{n_high_sr} sent-real"))
-    if n_high_ss > 0:
-        parts.append(f"{n_high_ss} sent-sent excl.")
-    if parts:
-        print(f"  ({', '.join(parts)})", end="")
-    print()
-
-    # Low tolerance line
-    print(f"    Low  tol ({low_tol:.0e}):  {pct(n_low_real,  n):>18s}  {low_status}", end="")
-    parts = []
-    if n_low_gen > 0:
-        parts.append(f"{n_low_gen} genuine")
-    if n_low_sr > 0:
-        parts.append(yellow(f"{n_low_sr} sent-real"))
-    if n_low_ss > 0:
-        parts.append(f"{n_low_ss} sent-sent excl.")
-    if parts:
-        print(f"  ({', '.join(parts)})", end="")
-    print()
-
-    print(f"    Max rel-diff: {stats['max_rdiff']:.3e}   Mean: {stats['mean_rdiff']:.3e}")
-
-    # Repeated-value diagnostic info
-    if sage_sc or mimic_sc:
-        print(f"    {yellow('Repeated values')} (diagnostic only; not used for pass/fail):")
-        for val, cnt in sorted(sage_sc.items(), key=lambda x: -x[1]):
-            print(f"      SAGE  : {val:<+20.6g}  {cnt:>6,} galaxies  ({100.0*cnt/n:.1f}%)")
-        for val, cnt in sorted(mimic_sc.items(), key=lambda x: -x[1]):
-            print(f"      Mimic : {val:<+20.6g}  {cnt:>6,} galaxies  ({100.0*cnt/n:.1f}%)")
-
-    if stats["top_10"]:
-        print(
-            f"    Top-{len(stats['top_10'])} worst non-sentinel-sentinel violators (high tolerance):"
+    pairs, sage_only, mimic_only = build_pairs(sage, mimic, self_test)
+    props, n_out = [], np.zeros(len(ia), np.int32)
+    n_notid = np.zeros(len(ia), np.int32)
+    out_names = [[] for _ in range(len(ia))]
+    for p in pairs:
+        sent = p["sentinel"][ia] if p["sentinel"] is not None else None
+        st, outside, notid = compare_pair(
+            p["a"][ia], p["b"][ib], rtol, atol, sent, p["bit_comparable"]
         )
-        print(f"      {'HaloID':>12s}  {'sage':>15s}  {'mimic':>15s}  {'rel_diff':>12s}")
-        for row in stats["top_10"]:
-            sk = row.get("sent_kind")
-            if sk == "sage_sent":
-                note = yellow("  ⚠ sage sentinel vs real")
-            elif sk == "mimic_sent":
-                note = yellow("  ⚠ real vs mimic sentinel")
-            else:
-                note = ""
-            print(
-                f"      {row['halo_id']:>12d}  "
-                f"{row['sage_val']:>15.6e}  "
-                f"{row['mimic_val']:>15.6e}  "
-                f"{row['rel_diff']:>12.3e}"
-                f"{note}"
-            )
+        st.update(
+            label=p["label"],
+            kind=p["kind"],
+            sage_fields=p["sage"],
+            mimic_field=p["mimic"],
+            note=p["note"],
+        )
+        props.append(st)
+        if p["bit_comparable"]:
+            n_notid += notid
+        n_out += outside
+        for g in np.flatnonzero(outside):
+            out_names[g].append(p["label"])
+    res["properties"] = props
+    res["sage_only_fields"] = sage_only
+    res["mimic_only_fields"] = mimic_only
+    worst = np.argsort(-n_out, kind="stable")[:N_LIST]
+    res["galaxies"] = {
+        "n_matched": int(len(ia)),
+        "n_with_any_property_outside_tol": int((n_out > 0).sum()),
+        "n_with_any_property_not_bit_identical": int((n_notid > 0).sum()),
+        "worst": [
+            {
+                "sage_row": int(ia[g]),
+                "mimic_row": int(ib[g]),
+                "Type": int(sage["Type"][ia[g]]),
+                "halo_id": int(sage["SimulationHaloIndex"][ia[g]]),
+                "n_properties_outside_tol": int(n_out[g]),
+                "properties": out_names[g],
+            }
+            for g in worst
+            if n_out[g] > 0
+        ],
+    }
+    return res
 
 
-# =============================================================================
-# REPEATED-VALUE OVERVIEW
-# =============================================================================
+# --- Output ---
+def fmt_pct(x):
+    """Format a fraction as a percentage column."""
+    return "   n/a " if x is None else f"{100.0 * x:7.3f}"
 
 
-def print_repeated_value_overview(all_stats, n_matched):
-    """
-    Print a ranked table of the top-10 repeated values found across all
-    properties, ordered by occurrence count.
-    """
-    rows = []
-    for s in all_stats:
-        for val, cnt in s.get("sage_sentinel_counts", {}).items():
-            rows.append((s["label"], "SAGE", val, cnt))
-        for val, cnt in s.get("mimic_sentinel_counts", {}).items():
-            rows.append((s["label"], "Mimic", val, cnt))
+def fmt_num(x):
+    """Format a statistic (number, 'inf'/'nan' string or None) for a table column."""
+    if x is None:
+        return "      -"
+    if isinstance(x, str):
+        return f"{x:>9s}"
+    return f"{x:9.2e}"
 
-    if not rows:
-        print("  No repeated values detected.")
-        return
 
-    rows.sort(key=lambda r: -r[3])
-
-    print(
-        f"  {'#':>3s}  {'Property':<35s}  {'Side':>5s}  {'Value':>18s}  "
-        f"{'Count':>8s}  {'Fraction':>8s}"
+def print_snapshot(res):
+    """Print the compact per-snapshot table."""
+    mt, mi, ag = (
+        res["matching"]["tuple"],
+        res["matching"]["halo_id"],
+        res["matching"]["agreement_tuple_vs_halo_id"],
     )
-    print(f"  {'---':>3s}  {'-'*35}  {'-'*5}  {'-'*18}  {'-'*8}  {'-'*8}")
-    for rank, (label, side, val, cnt) in enumerate(rows[:10], 1):
-        frac = 100.0 * cnt / max(n_matched, 1)
-        bar = "█" * int(frac / 5)  # 1 block per 5 %
+    print(
+        f"\n=== Snapshot {res['snapshot']}: SAGE {res['n_sage']:,}  Mimic {res['n_mimic']:,}  "
+        f"(diff {res['count_difference']:+d})   types SAGE {res['counts_by_type']['sage']} "
+        f"Mimic {res['counts_by_type']['mimic']}"
+    )
+    for name, m in (("tuple ", mt), ("haloID", mi)):
         print(
-            f"  {rank:>3d}  {label:<35s}  {side:>5s}  {val:>+18.6g}  "
-            f"{cnt:>8,}  {frac:>7.1f}%  {bar}"
+            f"  match {name}: matched {m['n_matched']:,}  rate SAGE {fmt_pct(m['match_rate_sage'])}% "
+            f"Mimic {fmt_pct(m['match_rate_mimic'])}%  dup keys S/M "
+            f"{m['n_duplicated_keys_sage']}/{m['n_duplicated_keys_mimic']}  "
+            f"unmatched S/M {m['n_sage_only']}/{m['n_mimic_only']}"
         )
-
-
-def print_problem_galaxy_summary(problem_galaxies):
-    """Print the top matched galaxies by cross-property discrepancy footprint."""
-    if not problem_galaxies:
-        print(f"  {PASS_STR}  No matched galaxies have property discrepancies.")
-        return
-
-    print("  Ranked by low-tolerance discrepancy count, then high-tolerance count.")
-    print("  MatchID is SAGE SimulationHaloIndex and Mimic MostBoundID.")
-    print()
-    for rank, row in enumerate(problem_galaxies, 1):
-        sage_loc = (
-            f"loaded_row={row['sage_row']}, GalaxyIndex={_maybe_int(row['sage_galaxy_index'])}, "
-            f"Tree:Halo={_maybe_int(row['sage_tree_index'])}:{_maybe_int(row['sage_halo_index'])}"
-        )
-        mimic_loc = (
-            f"loaded_row={row['mimic_row']}, UniqueGalaxyID={_maybe_int(row['mimic_unique_id'])}, "
-            f"MostBoundID={_maybe_int(row['mimic_most_bound_id'])}"
-        )
+    print(
+        f"  agreement: both {ag['n_matched_by_both']:,}  same partner {ag['n_same_partner']:,}  "
+        f"different {ag['n_different_partner']}  tuple-only {ag['n_matched_by_tuple_only']}  "
+        f"id-only {ag['n_matched_by_id_only']}   PRIMARY = {res['matching']['primary']}"
+    )
+    print(
+        f"  {'property':<28s}{'kind':<15s}{'%ident':>8s}{'median':>10s}{'p99':>10s}{'max':>10s}"
+        f"{'%in-tol':>9s}{'#out':>7s}"
+    )
+    for p in res["properties"]:
+        flag = "" if p["bit_comparable"] else " *"
         print(
-            f"  {rank:>2d}. MatchID={row['match_id']}  "
-            f"High={row['high_count']}  Low={row['low_count']}  "
-            f"MaxRelDiff={row['max_rdiff']:.3e}"
+            f"  {p['label']:<28s}{p['kind']:<15s}{fmt_pct(p['frac_bit_identical']):>8s}"
+            f"{fmt_num(p.get('median_rdiff')):>10s}{fmt_num(p.get('p99_rdiff')):>10s}"
+            f"{fmt_num(p.get('max_rdiff')):>10s}{fmt_pct(p['frac_within_tol']):>9s}"
+            f"{p.get('n_outside_tol', p['n_not_identical']):>7d}{flag}"
         )
-        print(f"      SAGE : {sage_loc}")
-        print(f"      Mimic: {mimic_loc}")
-        if row["low_props"]:
-            print(f"      Low-tol discrepant properties : {', '.join(row['low_props'])}")
-        if row["high_only_props"]:
-            print(f"      High-only discrepant properties: {', '.join(row['high_only_props'])}")
+    if res["sage_only_fields"]:
+        print(f"  SAGE-only fields : {', '.join(res['sage_only_fields'])}")
+    if res["mimic_only_fields"]:
+        print(f"  Mimic-only fields: {', '.join(res['mimic_only_fields'])}")
+    g = res["galaxies"]
+    print(
+        f"  galaxies: {g['n_with_any_property_outside_tol']:,}/{g['n_matched']:,} have a property "
+        f"outside tolerance; {g['n_with_any_property_not_bit_identical']:,} not fully bit-identical "
+        f"(* = not bit-comparable by construction, excluded from the latter)"
+    )
 
 
-def print_loading_failure(error):
-    """Print an actionable data-loading failure without a Python traceback."""
-    print(f"\n{SEP_MAJOR}")
-    print(bold("[ DATA LOADING FAILED ]"))
-    print(SEP_MAJOR)
-    print(f"  Requested snapshot : {SNAPSHOT}")
-    print(f"  Error              : {error}")
+def parse_snapshots(tokens):
+    """Parse --snapshots tokens into a list of ints, or 'all'."""
+    if len(tokens) == 1 and tokens[0].lower() == "all":
+        return "all"
+    out = []
+    for t in tokens:
+        out.extend(int(x) for x in t.split(",") if x.strip())
+    return out
+
+
+def main(argv=None):
+    """Command-line entry point; return the process exit status."""
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--sage-dir", required=True)
+    ap.add_argument("--mimic-dir")
+    ap.add_argument("--snapshots", nargs="+", required=True, help="numbers or 'all'")
+    ap.add_argument("--out", required=True, help="JSON output path")
+    ap.add_argument("--rtol", type=float, default=RTOL)
+    ap.add_argument("--atol", type=float, default=ATOL)
+    ap.add_argument(
+        "--self-test", action="store_true", help="compare the SAGE directory with itself"
+    )
+    args = ap.parse_args(argv)
+    if not args.self_test and not args.mimic_dir:
+        ap.error("--mimic-dir is required unless --self-test")
 
     try:
-        sage_snaps = available_sage_snapshots(SAGE_DIR)
+        sage_files, sage_layout, warns = discover_files(args.sage_dir)
+        if args.self_test:
+            mimic_files, mimic_layout = sage_files, sage_layout
+        else:
+            mimic_files, mimic_layout, w2 = discover_files(args.mimic_dir)
+            warns += w2
     except (OSError, ValueError) as exc:
-        sage_snaps = []
-        print(f"  SAGE snapshots     : unavailable ({exc})")
-    else:
-        print(f"  SAGE snapshots     : {_format_snapshot_list(sage_snaps)}")
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    for w in warns:
+        print(f"WARNING: {w}", file=sys.stderr)
 
-    try:
-        mimic_snaps = available_mimic_snapshots(MIMIC_DIR)
-    except (OSError, ValueError) as exc:
-        mimic_snaps = []
-        print(f"  Mimic snapshots    : unavailable ({exc})")
-    else:
-        print(f"  Mimic snapshots    : {_format_snapshot_list(mimic_snaps)}")
+    avail_s = available_snapshots(sage_files, "sage")
+    avail_m = avail_s if args.self_test else available_snapshots(mimic_files, "mimic")
+    wanted = parse_snapshots(args.snapshots)
+    if wanted == "all":
+        wanted = sorted(set(avail_s) & set(avail_m))
 
-    mimic_config = _mimic_metadata_config(MIMIC_DIR)
-    snapshot_line = _snapshot_list_line(mimic_config)
-    if snapshot_line:
-        print(f"  Mimic config       : {mimic_config}")
-        print(f"  Mimic snapshot_list: {snapshot_line}")
-
-    common = sorted(set(sage_snaps) & set(mimic_snaps))
-    print(f"  Common snapshots   : {_format_snapshot_list(common)}")
-    if common:
-        print(
-            "  Set SNAPSHOT to one of the common snapshots above, or rerun Mimic with this snapshot in snapshot_list."
-        )
-    else:
-        print(
-            "  No common snapshots are available; regenerate one or both outputs with matching snapshots."
-        )
-    print(SEP_MAJOR)
-
-
-# =============================================================================
-# MAIN
-# =============================================================================
-
-
-def main():
-    print(SEP_MAJOR)
-    print(bold("  SAGE vs Mimic Galaxy Comparison"))
-    print(f"  Snapshot : {SNAPSHOT}")
-    print(f"  High tol : {HIGH_TOLERANCE:.0e}   Low tol : {LOW_TOLERANCE:.0e}")
-    print(f"  SAGE dir : {SAGE_DIR}")
-    print(f"  Mimic dir: {MIMIC_DIR}")
-    print(SEP_MAJOR)
-
-    # -------------------------------------------------------------------------
-    # 1. Load data
-    # -------------------------------------------------------------------------
-    print(f"\n{bold('[ Loading data ]')}")
-    try:
-        sage_data, sage_files = load_sage(SAGE_DIR, SNAPSHOT)
-        mimic_data, mimic_files = load_mimic(MIMIC_DIR, SNAPSHOT)
-    except (FileNotFoundError, KeyError, OSError, ValueError) as exc:
-        print_loading_failure(exc)
-        return
-
-    sage_total = len(sage_data[next(iter(sage_data))])
-    mimic_total = len(mimic_data)
-
-    print(f"  SAGE  files: {sage_files}")
-    print(f"  Mimic files: {mimic_files}")
-    print(f"  SAGE  total galaxies : {sage_total:,}")
-    print(f"  Mimic total galaxies : {mimic_total:,}")
-
-    # -------------------------------------------------------------------------
-    # 2. Galaxy count check
-    # -------------------------------------------------------------------------
-    print(f"\n{SEP_MINOR}")
-    print(bold("[ 1. GALAXY COUNT CHECK ]"))
-    print(SEP_MINOR)
-
-    count_diff = sage_total - mimic_total
-    if count_diff == 0:
-        print(f"  {PASS_STR}  Counts match: {sage_total:,}")
-        count_ok = True
-    else:
-        print(
-            f"  {yellow('⚠ DISCREPANCY')}  SAGE={sage_total:,}  Mimic={mimic_total:,}  diff={count_diff:+d}"
-        )
-        count_ok = False
-
-    # -------------------------------------------------------------------------
-    # 3. Match galaxies
-    # -------------------------------------------------------------------------
-    sage_idx, mimic_idx, common_ids, sage_only, mimic_only = match_galaxies(sage_data, mimic_data)
-    n_matched = len(common_ids)
-
-    print(f"\n  Matched via SimulationHaloIndex ↔ MostBoundID")
-    print(f"    Matched galaxies : {n_matched:,}")
-
-    if sage_only:
-        print(f"    {yellow('⚠ IN SAGE ONLY')} ({len(sage_only)}):")
-        sage_id_map = {int(v): i for i, v in enumerate(sage_data["SimulationHaloIndex"])}
-        print(f"      {'HaloID':>12s}  {'Mvir':>10s}  {'x':>10s}  {'y':>10s}  {'z':>10s}")
-        for hid in sage_only[:20]:
-            idx = sage_id_map[hid]
-            mvir = float(sage_data["Mvir"][idx])
-            x = float(sage_data["Posx"][idx])
-            y = float(sage_data["Posy"][idx])
-            z = float(sage_data["Posz"][idx])
-            print(f"      {hid:>12d}  {mvir:>10.4f}  {x:>10.4f}  {y:>10.4f}  {z:>10.4f}")
-        if len(sage_only) > 20:
-            print(f"      ... and {len(sage_only) - 20} more")
-    if mimic_only:
-        print(f"    {yellow('⚠ IN Mimic ONLY')} ({len(mimic_only)}):")
-        mimic_id_map = {int(v): i for i, v in enumerate(mimic_data["MostBoundID"])}
-        print(f"      {'HaloID':>12s}  {'Mvir':>10s}  {'x':>10s}  {'y':>10s}  {'z':>10s}")
-        for hid in mimic_only[:20]:
-            idx = mimic_id_map[hid]
-            mvir = float(mimic_data["Mvir"][idx])
-            x = float(mimic_data["Pos"][idx, 0])
-            y = float(mimic_data["Pos"][idx, 1])
-            z = float(mimic_data["Pos"][idx, 2])
-            print(f"      {hid:>12d}  {mvir:>10.4f}  {x:>10.4f}  {y:>10.4f}  {z:>10.4f}")
-        if len(mimic_only) > 20:
-            print(f"      ... and {len(mimic_only) - 20} more")
-
-    if not sage_only and not mimic_only:
-        print(f"    {PASS_STR}  All galaxies matched perfectly.")
-
-    # -------------------------------------------------------------------------
-    # 4. Property coverage
-    # -------------------------------------------------------------------------
-    print(f"\n{SEP_MINOR}")
-    print(bold("[ 2. PROPERTY COVERAGE ]"))
-    print(SEP_MINOR)
-
-    tasks, sage_unmatched, mimic_unmatched = build_comparison_tasks(
-        sage_data, mimic_data, sage_idx, mimic_idx
-    )
-
-    print(f"  Comparable property pairs  : {len(tasks)}")
-
-    # Summarise mappings used
-    by_mapping = defaultdict(list)
-    for t in tasks:
-        by_mapping[t["mapping"]].append(t["label"])
-
-    for mapping_type, labels in sorted(by_mapping.items()):
-        print(
-            f"    {mapping_type:30s}: {len(labels):3d}  "
-            f"({', '.join(labels[:4])}" + (" ..." if len(labels) > 4 else "") + ")"
-        )
-
-    if sage_unmatched:
-        print(f"\n  {yellow('SAGE fields with no Mimic equivalent')} ({len(sage_unmatched)}):")
-        for f in sage_unmatched:
-            print(f"    - {f}")
-
-    if mimic_unmatched:
-        print(f"\n  {yellow('Mimic fields with no SAGE equivalent')} ({len(mimic_unmatched)}):")
-        for f in mimic_unmatched:
-            print(f"    - {f}")
-
+    report = {
+        "sage_dir": args.sage_dir,
+        "mimic_dir": args.mimic_dir,
+        "self_test": args.self_test,
+        "layout": {"sage": sage_layout, "mimic": mimic_layout},
+        "files": {
+            "sage": [os.path.basename(f) for f in sage_files],
+            "mimic": [os.path.basename(f) for f in mimic_files],
+        },
+        "warnings": warns,
+        "rtol": args.rtol,
+        "atol": args.atol,
+        "large_rdiff": LARGE_RDIFF,
+        "snapshots_available": {"sage": avail_s, "mimic": avail_m},
+        "snapshots": [],
+        "errors": [],
+    }
     print(
-        f"\n  Skipped SAGE fields  ({len(SAGE_SKIP_FIELDS)}): "
-        f"{', '.join(sorted(SAGE_SKIP_FIELDS))}"
+        f"SAGE : {args.sage_dir}  [{sage_layout}, {len(sage_files)} file(s)]  snapshots {avail_s[0]}..{avail_s[-1]}"
+        if avail_s
+        else f"SAGE : {args.sage_dir}  [no snapshots]"
     )
-    print(
-        f"  Skipped Mimic fields ({len(MIMIC_SKIP_FIELDS)}): "
-        f"{', '.join(sorted(MIMIC_SKIP_FIELDS))}"
-    )
-
-    # -------------------------------------------------------------------------
-    # 5. Per-property comparison
-    # -------------------------------------------------------------------------
-    print(f"\n{SEP_MINOR}")
-    print(bold("[ 3. PER-PROPERTY COMPARISON ]"))
-    print(f"     Comparing {n_matched:,} matched galaxies across {len(tasks)} properties")
-    print(SEP_MINOR)
-
-    all_stats = []
-    for task in tasks:
-        stats = compare_property(
-            task["sage_vals"],
-            task["mimic_vals"],
-            common_ids,
-            HIGH_TOLERANCE,
-            LOW_TOLERANCE,
-            sage_explicit_sentinel_mask=task.get("sage_explicit_sentinel_mask"),
-            mimic_explicit_sentinel_mask=task.get("mimic_explicit_sentinel_mask"),
-        )
-        stats["label"] = task["label"]
-        stats["mapping"] = task["mapping"]
-        stats["sage_sentinel_counts"] = task.get("sage_sentinel_counts", {})
-        stats["mimic_sentinel_counts"] = task.get("mimic_sentinel_counts", {})
-        all_stats.append(stats)
-
-    # Sort by max_rdiff descending so worst offenders appear first
-    all_stats.sort(key=lambda s: s["max_rdiff"], reverse=True)
-
-    for stats in all_stats:
-        print_property_result(
-            stats["label"], stats["mapping"], stats, HIGH_TOLERANCE, LOW_TOLERANCE
-        )
-
-    # -------------------------------------------------------------------------
-    # 6. Most problematic galaxies
-    # -------------------------------------------------------------------------
-    problem_galaxies, n_problem_galaxies = build_problem_galaxy_summary(
-        tasks,
-        common_ids,
-        sage_idx,
-        mimic_idx,
-        sage_data,
-        mimic_data,
-        HIGH_TOLERANCE,
-        LOW_TOLERANCE,
-    )
-
-    print(f"\n{SEP_MINOR}")
-    print(bold("[ 4. MOST PROBLEMATIC GALAXIES ]"))
-    print(SEP_MINOR)
-    print_problem_galaxy_summary(problem_galaxies)
-
-    # -------------------------------------------------------------------------
-    # 7. Comprehensive summary
-    # -------------------------------------------------------------------------
-    print(f"\n{SEP_MAJOR}")
-    print(bold("[ 5. COMPREHENSIVE SUMMARY ]"))
-    print(SEP_MAJOR)
-
-    n_props = len(all_stats)
-
-    # Aggregate counts using the new per-property fields
-    n_high_fail = sum(1 for s in all_stats if s["n_high_real"] > 0)
-    n_low_fail = sum(1 for s in all_stats if s["n_low_real"] > 0)
-    n_high_pass = n_props - n_high_fail
-    n_low_pass = n_props - n_low_fail
-
-    total_high_real = sum(s["n_high_real"] for s in all_stats)
-    total_high_genuine = sum(s["n_high_genuine"] for s in all_stats)
-    total_high_sent_real = sum(s["n_high_sent_real"] for s in all_stats)
-    total_high_sent_sent = sum(s["n_high_sent_sent"] for s in all_stats)
-
-    total_low_real = sum(s["n_low_real"] for s in all_stats)
-    total_low_genuine = sum(s["n_low_genuine"] for s in all_stats)
-    total_low_sent_real = sum(s["n_low_sent_real"] for s in all_stats)
-    total_low_sent_sent = sum(s["n_low_sent_sent"] for s in all_stats)
-
-    print(f"\n  Galaxy counts")
-    print(f"    SAGE total            : {sage_total:,}")
-    print(f"    Mimic total           : {mimic_total:,}")
-    print(
-        f"    Matched               : {n_matched:,}/{sage_total:,}  ({100.0*n_matched/max(sage_total,1):.4f}% of SAGE)"
-    )
-    print(f"    SAGE-only (unmatched) : {len(sage_only)}")
-    print(f"    Mimic-only (unmatched): {len(mimic_only)}")
-    count_status = (
-        PASS_STR
-        if count_ok and not sage_only and not mimic_only
-        else (yellow("⚠ WARN") if not count_ok or sage_only or mimic_only else PASS_STR)
-    )
-    print(f"    Count check           : {count_status}")
-
-    print(f"\n  Property coverage")
-    print(f"    Comparable pairs      : {n_props}")
-    print(
-        f"    Near-zero threshold   : {NEAR_ZERO_THRESHOLD:.0e}  (|value| below this treated as 0)"
-    )
-    print(
-        f"    Repeated-value flag   : >{SENTINEL_MIN_FRACTION*100:.0f}% of galaxies and >{SENTINEL_MIN_COUNT} occurrences"
-    )
-    print(
-        f"    SAGE unmatched fields : {len(sage_unmatched)}"
-        + (f"  ({', '.join(sage_unmatched)})" if sage_unmatched else "")
-    )
-    print(
-        f"    Mimic unmatched fields: {len(mimic_unmatched)}"
-        + (f"  ({', '.join(mimic_unmatched)})" if mimic_unmatched else "")
-    )
-
-    print(f"\n  Tolerance results")
-    print(f"    sent-sent = both sides are a sentinel (excluded from pass/fail)")
-    print(f"    sent-real = one side is a sentinel, the other is physics (counts as violation)")
-    print(f"    genuine   = neither side is a sentinel")
-
-    print(f"\n    High tolerance ({HIGH_TOLERANCE:.0e}):")
-    print(f"      Properties passing : {n_high_pass}/{n_props}  ({100.0*n_high_pass/n_props:.1f}%)")
-    print(f"      Properties failing : {n_high_fail}/{n_props}  ({100.0*n_high_fail/n_props:.1f}%)")
-    print(
-        f"      Real violations    : {total_high_real:,}  ({100.0*total_high_real/max(n_matched*n_props,1):.4f}% of all comparisons)"
-    )
-    print(f"        genuine          : {total_high_genuine:,}")
-    if total_high_sent_real > 0:
+    if not args.self_test:
         print(
-            f"        sent-real        : {total_high_sent_real:,}  {yellow('(one code ran physics, other did not)')}"
+            f"Mimic: {args.mimic_dir}  [{mimic_layout}, {len(mimic_files)} file(s)]  snapshots {avail_m}"
         )
-    if total_high_sent_sent > 0:
-        print(
-            f"      Excluded (sent-sent): {total_high_sent_sent:,}  {yellow('(explicit equivalent unset values)')}"
-        )
-
-    print(f"\n    Low tolerance ({LOW_TOLERANCE:.0e}):")
-    print(f"      Properties passing : {n_low_pass}/{n_props}  ({100.0*n_low_pass/n_props:.1f}%)")
-    print(f"      Properties failing : {n_low_fail}/{n_props}  ({100.0*n_low_fail/n_props:.1f}%)")
-    print(
-        f"      Real violations    : {total_low_real:,}  ({100.0*total_low_real/max(n_matched*n_props,1):.4f}% of all comparisons)"
-    )
-    print(f"        genuine          : {total_low_genuine:,}")
-    if total_low_sent_real > 0:
-        print(
-            f"        sent-real        : {total_low_sent_real:,}  {yellow('(one code ran physics, other did not)')}"
-        )
-    if total_low_sent_sent > 0:
-        print(
-            f"      Excluded (sent-sent): {total_low_sent_sent:,}  {yellow('(explicit equivalent unset values)')}"
-        )
-
-    print(f"\n  Most problematic galaxies")
-    if problem_galaxies:
-        worst = problem_galaxies[0]
-        print(f"    Galaxies with diffs    : {n_problem_galaxies:,}/{n_matched:,}")
-        print(
-            f"      Worst MatchID       : {worst['match_id']}  "
-            f"(High={worst['high_count']}, Low={worst['low_count']}, "
-            f"MaxRelDiff={worst['max_rdiff']:.3e})"
-        )
-        print(
-            f"      Worst SAGE IDs      : GalaxyIndex={_maybe_int(worst['sage_galaxy_index'])}, "
-            f"Tree:Halo={_maybe_int(worst['sage_tree_index'])}:{_maybe_int(worst['sage_halo_index'])}"
-        )
-        print(
-            f"      Worst Mimic IDs     : UniqueGalaxyID={_maybe_int(worst['mimic_unique_id'])}, "
-            f"MostBoundID={_maybe_int(worst['mimic_most_bound_id'])}"
-        )
-    else:
-        print(f"    {PASS_STR}  No matched galaxies have property discrepancies.")
-
-    # Repeated-value overview — top 10 by count
-    print(f"\n{SEP_MINOR}")
-    print(bold("  Top-10 repeated values (diagnostic only)"))
-    print(SEP_MINOR)
-    print_repeated_value_overview(all_stats, n_matched)
-
-    # All failing properties, ordered by n_high_real descending (badness)
-    failing = [s for s in all_stats if s["n_high_real"] > 0 or s["n_low_real"] > 0]
-    failing.sort(key=lambda s: (-s["n_high_real"], -s["n_low_real"], -s["max_rdiff"]))
-    passing = [s for s in all_stats if s["n_high_real"] == 0 and s["n_low_real"] == 0]
-
-    print(f"\n{SEP_MINOR}")
-    print(bold(f"  All failing properties ({len(failing)}) — ordered by high-tol real violations"))
-    print(SEP_MINOR)
-    if failing:
-        print(f"  Column key:")
-        print(f"    Hi/Lo real : violations at high/low tolerance that count toward pass/fail")
-        print(f"                 (= genuine + sent-real combined)")
-        print(
-            f"    Hi/Lo s-r  : subset of real where one side is a sentinel, the other is a physics value"
-        )
-        print(f"    Hi/Lo excl : sent-sent pairs excluded entirely (both sides at init default)")
-        print()
-        hdr = (
-            f"  {'Property':<35s}  {'MaxRdiff':>10s}  "
-            f"{'Hi real (%)':>14s}  {'Hi s-r':>8s}  {'Hi excl':>8s}  "
-            f"{'Lo real (%)':>14s}  {'Lo s-r':>8s}  {'Lo excl':>8s}"
-        )
-        print(hdr)
-        print(f"  {'-'*35}  {'-'*10}  {'-'*14}  {'-'*8}  {'-'*8}  {'-'*14}  {'-'*8}  {'-'*8}")
-        for s in failing:
-            hr = s["n_high_real"]
-            hsr = s["n_high_sent_real"]
-            hss = s["n_high_sent_sent"]
-            lr = s["n_low_real"]
-            lsr = s["n_low_sent_real"]
-            lss = s["n_low_sent_sent"]
-            n = s["n_total"]
-            hr_str = f"{hr:,} ({100.0*hr/n:.1f}%)"
-            lr_str = f"{lr:,} ({100.0*lr/n:.1f}%)"
-            hr_col = red(f"{hr_str:>14s}") if s["n_high_genuine"] > 0 else yellow(f"{hr_str:>14s}")
-            lr_col = yellow(f"{lr_str:>14s}") if lr > 0 else f"{lr_str:>14s}"
-            print(
-                f"  {s['label']:<35s}  {s['max_rdiff']:>10.3e}  "
-                f"{hr_col}  {hsr:>8,}  {hss:>8,}  "
-                f"{lr_col}  {lsr:>8,}  {lss:>8,}"
+    for snap in wanted:
+        try:
+            res = compare_snapshot(
+                snap, sage_files, mimic_files, args.rtol, args.atol, args.self_test
             )
-    else:
-        print(f"  {PASS_STR}  No failing properties!")
+        except (KeyError, ValueError, OSError) as exc:
+            msg = f"snapshot {snap}: {exc}"
+            print(f"ERROR: {msg}", file=sys.stderr)
+            report["errors"].append(msg)
+            continue
+        report["snapshots"].append(res)
+        print_snapshot(res)
 
-    if passing:
-        print(
-            f"\n  {PASS_STR}  Passing properties ({len(passing)}): "
-            + ", ".join(s["label"] for s in passing)
-        )
-
-    # Overall verdict
-    high_overall_pass = (n_high_fail == 0) and count_ok and not sage_only and not mimic_only
-    low_overall_pass = (n_low_fail == 0) and count_ok and not sage_only and not mimic_only
-
-    print(f"\n{SEP_MAJOR}")
-    print(bold("  OVERALL VERDICT"))
-    print(SEP_MAJOR)
-    if high_overall_pass:
-        print(
-            f"  {PASS_STR}  All galaxies matched; all properties agree within high tolerance ({HIGH_TOLERANCE:.0e})."
-        )
-        if total_high_sent_sent > 0:
-            print(f"       ({total_high_sent_sent:,} explicit sent-sent exclusions noted.)")
-    elif low_overall_pass:
-        print(
-            f"  {yellow('PARTIAL PASS')}  All galaxies matched; all properties agree within low tolerance ({LOW_TOLERANCE:.0e}),"
-        )
-        print(
-            f"               but {n_high_fail} propert{'y' if n_high_fail==1 else 'ies'} "
-            f"have real violations exceeding the high tolerance ({HIGH_TOLERANCE:.0e})."
-        )
-    else:
-        print(
-            f"  {FAIL_STR}  {n_low_fail} propert{'y' if n_low_fail==1 else 'ies'} "
-            f"have real violations exceeding even the low tolerance ({LOW_TOLERANCE:.0e})."
-        )
-        if not count_ok or sage_only or mimic_only:
-            print(f"       Galaxy count discrepancy also present — investigate unmatched galaxies.")
-    print(SEP_MAJOR)
-    print()
+    with open(args.out, "w") as fh:
+        json.dump(report, fh, indent=1, allow_nan=False)
+    print(f"\nWrote {args.out}")
+    return 2 if report["errors"] else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
