@@ -4,7 +4,7 @@ Guidance for AI coding assistants (Claude Code, Codex CLI, etc.) working in Mimi
 
 **Mimic is a physics-agnostic core with runtime-configurable physics modules.** The core owns execution, memory, I/O, metadata, and validation; physics modules own astrophysical prescriptions and are combined at runtime through YAML run files. See `docs/VISION.md` for the design principles.
 
-Depth lives in the project-local **skill library** (`.agents/skills/mimic-*`) and the guides under `docs/`. This file is the always-loaded map: it orients you and routes you to the skill that owns each task. **Load the narrowest skill set for the task before acting**, and always use `mimic-change-control` before deciding a change is done or committing.
+Depth lives in the project-local **skill library** (`.agents/skills/mimic-*`) and the guides under `docs/`. Claude Code discovers skills only under `.claude/skills/`, so a Claude Code checkout needs the gitignored link `mkdir -p .claude && ln -s ../.agents/skills .claude/skills` once; it reads this file itself, with no `CLAUDE.md`. This file is the always-loaded map: it orients you and routes you to the skill that owns each task. **Load the narrowest skill set for the task before acting**, and always use `mimic-change-control` before deciding a change is done or committing.
 
 ---
 
