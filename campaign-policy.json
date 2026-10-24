@@ -1,0 +1,8 @@
+{"schema": 1, "protected_paths": [
+  "Makefile",
+  "models/sage16",
+  "scripts/compare_cross_format_identity.py",
+  "simulations/mini-millennium-horizontal/_tests/scientific/test_cross_format_identity.py",
+  "tests/framework",
+  "tests/manual/test_reference_identity.py"
+]}
