@@ -1,0 +1,2 @@
+# Follow sourced scripts; their `# shellcheck source=` paths are relative to the repository root.
+external-sources=true

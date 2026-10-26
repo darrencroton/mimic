@@ -337,8 +337,10 @@ static void cleanup_outputs(const int *filenrs, int nfiles) {
     output_path_hdf5(path, sizeof(path), filenrs[i], -1);
     unlink(path);
   }
-  snprintf(path, sizeof(path), "%s/%s.hdf5", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
-  unlink(path);
+  if (snprintf(path, sizeof(path), "%s/%s.hdf5", MimicConfig.OutputDir,
+               MimicConfig.OutputFileBaseName) < (int)sizeof(path)) {
+    unlink(path);
+  }
   rmdir(MimicConfig.OutputDir);
 }
 
@@ -664,8 +666,9 @@ static void remove_temp_dir(const char *dir) {
         continue;
       }
       char path[512];
-      snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
-      unlink(path);
+      if (snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name) < (int)sizeof(path)) {
+        unlink(path);
+      }
     }
     closedir(handle);
   }
