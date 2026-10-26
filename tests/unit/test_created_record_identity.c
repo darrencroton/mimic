@@ -298,7 +298,7 @@ static int test_lhalo_binary_hook_on_mini_millennium(void) {
   scan_reader.load_unit = scan_only_load_unit;
   scan_reader.close_partition = scan_only_close_partition;
 
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_created_identity_XXXXXX");
   char *dir = mkdtemp(dir_template);
   TEST_ASSERT(dir != NULL, "mkdtemp should create an output directory");

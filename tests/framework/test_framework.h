@@ -306,31 +306,25 @@ static int test_fail_marked __attribute__((unused)) = 0;
 /*
  * Temporary-path templates for mkstemp/mkdtemp.
  *
- * Writes "<dir>/<name>" into buf, where <dir> is $TMPDIR when it is set and
- * non-empty, else /tmp, without a doubled '/'. `name` keeps its XXXXXX
- * suffix. Honouring TMPDIR lets the tests run where only TMPDIR is writable
- * (a sandbox). Returns buf, or NULL when the result does not fit, which the
- * following mkdtemp/mkstemp call then reports as a failure.
+ * Writes "<dir>/<name>" into buf, where <dir> is $TMPDIR when set and
+ * non-empty, else /tmp, so tests run where only TMPDIR is writable. `name`
+ * ends in XXXXXX. A result that does not fit leaves buf empty, which the
+ * following mkdtemp/mkstemp call rejects.
  *
  * Usage:
- *   char dir_template[4096];
- *   char *dir = mkdtemp(test_temp_template(dir_template, sizeof dir_template, "mimic_x_XXXXXX"));
+ *   char dir_template[256];
+ *   test_temp_template(dir_template, sizeof dir_template, "mimic_x_XXXXXX");
+ *   char *dir = mkdtemp(dir_template);
  */
-static inline char *test_temp_template(char *buf, size_t size, const char *name) {
+static inline void test_temp_template(char *buf, size_t size, const char *name) {
   const char *dir = getenv("TMPDIR");
   if (dir == NULL || dir[0] == '\0') {
     dir = "/tmp";
   }
-  size_t len = strlen(dir);
-  const char *sep = (len > 0 && dir[len - 1] == '/') ? "" : "/";
-  int written = snprintf(buf, size, "%s%s%s", dir, sep, name);
+  int written = snprintf(buf, size, "%s/%s", dir, name);
   if (written < 0 || (size_t)written >= size) {
-    if (size > 0) {
-      buf[0] = '\0';
-    }
-    return NULL;
+    buf[0] = '\0';
   }
-  return buf;
 }
 
 #endif /* TEST_FRAMEWORK_H */

@@ -347,7 +347,7 @@ static void cleanup_outputs(const int *filenrs, int nfiles) {
  * @brief   Master file links existing partitions and skips missing ones for enumerated readers
  */
 static int test_enumerated_master_links_existing_partitions_only(void) {
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_master_enum_XXXXXX");
   const int64_t file10_totals[] = {4, 5};
   const int64_t file11_totals[] = {99, 99};
@@ -407,7 +407,7 @@ static int test_enumerated_master_links_existing_partitions_only(void) {
  * @brief   Per-file master links all partitions without lifecycle hooks for L-Halo readers
  */
 static int test_per_file_master_links_match_lhalo_layout(void) {
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_master_lhalo_XXXXXX");
   const int64_t file0_totals[] = {3};
   const int64_t file1_totals[] = {8};
@@ -533,7 +533,7 @@ static int test_horizontal_output_partition_source_is_one_partition_per_output_s
  * is asserted to hold exactly its one File group.
  */
 static int test_snapshot_master_links_each_snapshot_to_its_own_partition(void) {
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_master_snapshot_XXXXXX");
   const int requested[] = {5, 1, 0};
   const int64_t totals[] = {7, 3, 0};
@@ -797,7 +797,7 @@ static int check_multi_task_snapshot_partitions(const char *dir_template) {
  */
 static int test_multi_task_snapshot_partitions_and_master_carry_task(void) {
   /* SETUP */
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_master_tasks_XXXXXX");
   TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
               "temporary output directory should be available");
@@ -878,7 +878,7 @@ static int check_writer_names_file_by_given_task(const char *dir_template) {
  */
 static int test_writer_names_file_by_given_task(void) {
   /* SETUP */
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_writer_task_XXXXXX");
   TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
               "temporary output directory should be available");

@@ -697,7 +697,7 @@ endef
 # show full output on failure so the developer can diagnose.
 define RUN_SUMMARY_AWARE
 	@if [ "$(TEST_SUMMARY)" = "1" ]; then \
-		output_file=$$(mktemp "$${TMPDIR:-/tmp}/mimic-make.XXXXXX"); \
+		output_file=$$(mktemp "$${TMPDIR:-/tmp}/mimic-make.XXXXXX") || exit 1; \
 		if $(1) > "$$output_file" 2>&1; then \
 			rm -f "$$output_file"; \
 		else \
@@ -718,7 +718,7 @@ endef
 define RUN_SUMMARY_AWARE_RECORD
 	@. scripts/lib/colors.sh; \
 	if [ "$(TEST_SUMMARY)" = "1" ]; then \
-		output_file=$$(mktemp "$${TMPDIR:-/tmp}/mimic-make.XXXXXX"); \
+		output_file=$$(mktemp "$${TMPDIR:-/tmp}/mimic-make.XXXXXX") || exit 1; \
 		if $(1) > "$$output_file" 2>&1; then \
 			rm -f "$$output_file"; \
 		else \
@@ -739,7 +739,7 @@ endef
 tests:
 	@echo "Cleaning and building once for the test tiers..."
 	@. scripts/lib/colors.sh; \
-	output_file=$$(mktemp "$${TMPDIR:-/tmp}/mimic-make.XXXXXX"); \
+	output_file=$$(mktemp "$${TMPDIR:-/tmp}/mimic-make.XXXXXX") || exit 1; \
 	if ! { $(MAKE) clean && $(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate-test-registry; } > "$$output_file" 2>&1; then \
 		cat "$$output_file"; \
 		rm -f "$$output_file"; \

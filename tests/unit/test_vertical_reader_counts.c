@@ -64,7 +64,7 @@ static int write_lhalo_binary_header(const char *simulation_dir, int output_id, 
  * untouched.
  */
 int test_lhalo_binary_count_partition_units(void) {
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_tree_counts_XXXXXX");
   char *dir = mkdtemp(dir_template);
   TEST_ASSERT(dir != NULL, "mkdtemp should create a temp directory");

@@ -473,7 +473,8 @@ verbose_log "Using Mimic executable: $MIMIC_EXECUTABLE"
 # Prepare benchmark run
 echo "Preparing benchmark run..."
 
-OUTPUT_MARKER=$(mktemp)
+OUTPUT_MARKER=$(mktemp "${TMPDIR:-/tmp}/mimic-benchmark-marker.XXXXXX") ||
+    error_exit "Could not create output marker file"
 if [[ -d "${OUTPUT_DIR}" ]]; then
     verbose_log "Existing output files in ${OUTPUT_DIR} may be overwritten by Mimic"
 fi
@@ -512,8 +513,10 @@ MIMIC_ARGS="${VERBOSITY_FLAG} ${MIMIC_FLAGS} ${RUN_PARAM_FILE}"
 verbose_log "Mimic runtime flags: ${VERBOSITY_FLAG} ${MIMIC_FLAGS}"
 
 # Platform-specific timing and memory measurement
-RUN_OUTPUT=$(mktemp)
-TIME_OUTPUT=$(mktemp)
+RUN_OUTPUT=$(mktemp "${TMPDIR:-/tmp}/mimic-benchmark-run.XXXXXX") ||
+    error_exit "Could not create run output file"
+TIME_OUTPUT=$(mktemp "${TMPDIR:-/tmp}/mimic-benchmark-time.XXXXXX") ||
+    error_exit "Could not create timing output file"
 
 set +e
 

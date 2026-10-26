@@ -90,7 +90,7 @@ static int write_text_file(const char *path, const char *contents) {
 int test_parse_header_column_mapping(void) {
   init_memory_system(0);
 
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_hdr_XXXXXX");
   char *dir = mkdtemp(dir_template);
   TEST_ASSERT(dir != NULL, "mkdtemp should create a temp directory");
@@ -143,7 +143,7 @@ int test_parse_header_column_mapping(void) {
 int test_read_forests_and_locations(void) {
   init_memory_system(0);
 
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_idx_XXXXXX");
   char *dir = mkdtemp(dir_template);
   TEST_ASSERT(dir != NULL, "mkdtemp should create a temp directory");
@@ -568,7 +568,7 @@ int test_weighted_forest_distribution(void) {
 int test_read_single_tree_rows(void) {
   init_memory_system(0);
 
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_rows_XXXXXX");
   char *dir = mkdtemp(dir_template);
   TEST_ASSERT(dir != NULL, "mkdtemp should create a temp directory");
@@ -1031,7 +1031,7 @@ static int ctrees_guard_unit = 0;
  * @return  0 on success, -1 on any failure.
  */
 static int write_ctrees_guard_catalogue(void) {
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_guard_XXXXXX");
   if (mkdtemp(dir_template) == NULL) {
     return -1;

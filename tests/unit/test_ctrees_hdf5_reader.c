@@ -402,7 +402,7 @@ static int assert_sequence_halo(const struct halo_data *halo, int source_index) 
  */
 int test_forestinfo_length_and_counts_are_validated(void) {
   init_memory_system(0);
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_info_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
 
@@ -448,7 +448,7 @@ int test_forestinfo_length_and_counts_are_validated(void) {
  */
 int test_forestinfo_cache_reads_members_by_name(void) {
   init_memory_system(0);
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_info_order_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
 
@@ -477,7 +477,7 @@ int test_forestinfo_cache_reads_members_by_name(void) {
  */
 int test_forest_slab_bounds_are_validated(void) {
   init_memory_system(0);
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_slab_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
 
@@ -504,7 +504,7 @@ int test_forest_slab_bounds_are_validated(void) {
  */
 int test_field_cache_validates_schema_at_open(void) {
   init_memory_system(0);
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_fields_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
 
@@ -534,7 +534,7 @@ int test_snapshot_values_are_strict(void) {
   init_memory_system(0);
   MimicConfig.LastSnapshotNr = 10;
 
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_snap_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
 
@@ -571,7 +571,7 @@ int test_window_refills_across_sequential_forests(void) {
   init_memory_system(0);
   MimicConfig.LastSnapshotNr = 10;
 
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_window_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
 
@@ -607,7 +607,7 @@ int test_giant_forest_uses_direct_read_path(void) {
   init_memory_system(0);
   MimicConfig.LastSnapshotNr = 10;
 
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_giant_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
 
@@ -641,7 +641,7 @@ int test_run_prepare_survives_repeated_range_staging(void) {
   MimicConfig.Hubble_h = 0.68;
   MimicConfig.BoxSize = 50.0;
 
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_stage_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
 
@@ -699,7 +699,7 @@ int test_prepare_builds_chunk_plan_from_forest_counts(void) {
   MimicConfig.Hubble_h = 0.68;
   MimicConfig.BoxSize = 50.0;
 
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_chunks_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
 
@@ -879,7 +879,7 @@ static void child_read_forestinfo_cache(const char *path) {
  */
 int test_forest_slab_guard_honours_configured_multiplier(void) {
   init_memory_system(0);
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_guard_slab_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
   char path[512];
@@ -922,7 +922,7 @@ int test_forest_slab_guard_honours_configured_multiplier(void) {
  */
 int test_forestinfo_guard_honours_configured_multiplier(void) {
   init_memory_system(0);
-  char dir_template[4096];
+  char dir_template[256];
   test_temp_template(dir_template, sizeof dir_template, "mimic_ctrees_h5_guard_info_XXXXXX");
   TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
   char path[512];

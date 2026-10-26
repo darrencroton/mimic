@@ -179,7 +179,7 @@ static void remove_staged_fixture(const char *dir) {
 
 /** @brief Copy the committed fixture into a fresh scratch directory. */
 static int stage_fixture(char *dir, size_t dir_size) {
-  char template_path[4096];
+  char template_path[256];
   test_temp_template(template_path, sizeof template_path, "mimic_horizontal_v3_XXXXXX");
   char *made = mkdtemp(template_path);
   if (made == NULL) {
@@ -754,7 +754,7 @@ static void child_open_run_small_multiplier(const char *dir) {
 
 /** @brief check_memory_leaks() output, captured through the log stream. */
 static int no_tracked_leaks(void) {
-  char log_template[4096];
+  char log_template[256];
   test_temp_template(log_template, sizeof log_template, "mimic_horizontal_v3_leak_XXXXXX");
   const int fd = mkstemp(log_template);
   if (fd < 0) {

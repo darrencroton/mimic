@@ -61,7 +61,14 @@ tally_log() {
 # /bin/sh has no pipefail, and MIMIC_FORCE_COLOR tells a Python test (tests/framework/runner.py)
 # that the pipe ends at a terminal, so it keeps its colour. Returns the command's exit status.
 run_tallied() {
-    _tally_log=$(mktemp "${TMPDIR:-/tmp}/mimic-tally.XXXXXX")
+    # Without scratch files the command cannot run: count it as one failure.
+    if ! _tally_log=$(mktemp "${TMPDIR:-/tmp}/mimic-tally.XXXXXX") ||
+        ! _tally_status_file=$(mktemp "${TMPDIR:-/tmp}/mimic-tally-status.XXXXXX"); then
+        rm -f "$_tally_log"
+        TALLY_FAIL_NAMES=""
+        tally_log /dev/null 1
+        return 1
+    fi
     if [ "${TEST_SUMMARY:-0}" = "1" ]; then
         "$@" > "$_tally_log" 2>&1
         _tally_status=$?
@@ -71,7 +78,6 @@ run_tallied() {
             cat "$_tally_log"
         fi
     else
-        _tally_status_file=$(mktemp "${TMPDIR:-/tmp}/mimic-tally-status.XXXXXX")
         _tally_color=""
         if [ -t 1 ] && [ -z "${NO_COLOR+x}" ]; then
             _tally_color=1
@@ -82,11 +88,10 @@ run_tallied() {
         # An interrupted run never writes its status: count it as a failure.
         _tally_status=$(cat "$_tally_status_file" 2>/dev/null)
         _tally_status=${_tally_status:-1}
-        rm -f "$_tally_status_file"
     fi
     TALLY_FAIL_NAMES=$(awk '/^MIMIC_RESULT: (FAIL|ERROR) / { print $3 }' "$_tally_log")
     tally_log "$_tally_log" "$_tally_status"
-    rm -f "$_tally_log"
+    rm -f "$_tally_log" "$_tally_status_file"
     return "$_tally_status"
 }
 
