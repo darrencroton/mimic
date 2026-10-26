@@ -303,4 +303,34 @@ static int test_fail_marked __attribute__((unused)) = 0;
  */
 #define TEST_NA_WITH(reason) (test_skip_reason = (reason), TEST_NA)
 
+/*
+ * Temporary-path templates for mkstemp/mkdtemp.
+ *
+ * Writes "<dir>/<name>" into buf, where <dir> is $TMPDIR when it is set and
+ * non-empty, else /tmp, without a doubled '/'. `name` keeps its XXXXXX
+ * suffix. Honouring TMPDIR lets the tests run where only TMPDIR is writable
+ * (a sandbox). Returns buf, or NULL when the result does not fit, which the
+ * following mkdtemp/mkstemp call then reports as a failure.
+ *
+ * Usage:
+ *   char dir_template[4096];
+ *   char *dir = mkdtemp(test_temp_template(dir_template, sizeof dir_template, "mimic_x_XXXXXX"));
+ */
+static inline char *test_temp_template(char *buf, size_t size, const char *name) {
+  const char *dir = getenv("TMPDIR");
+  if (dir == NULL || dir[0] == '\0') {
+    dir = "/tmp";
+  }
+  size_t len = strlen(dir);
+  const char *sep = (len > 0 && dir[len - 1] == '/') ? "" : "/";
+  int written = snprintf(buf, size, "%s%s%s", dir, sep, name);
+  if (written < 0 || (size_t)written >= size) {
+    if (size > 0) {
+      buf[0] = '\0';
+    }
+    return NULL;
+  }
+  return buf;
+}
+
 #endif /* TEST_FRAMEWORK_H */

@@ -114,7 +114,8 @@ static int read_int64_attr(hid_t obj_id, const char *name, int64_t *out) {
  *          TotHalosPerSnap
  */
 static int test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap(void) {
-  char dir_template[] = "/tmp/mimic_hdf5_attrs_tree_XXXXXX";
+  char dir_template[4096];
+  test_temp_template(dir_template, sizeof dir_template, "mimic_hdf5_attrs_tree_XXXXXX");
   char path[512];
 
   TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS, "temp dir should be created");
@@ -177,7 +178,8 @@ static int test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap(void) {
  *          never reads the vertical-only InputHalosPerSnap
  */
 static int test_horizontal_run_attrs_omit_ntrees_and_tree_halos_per_snap(void) {
-  char dir_template[] = "/tmp/mimic_hdf5_attrs_snap_XXXXXX";
+  char dir_template[4096];
+  test_temp_template(dir_template, sizeof dir_template, "mimic_hdf5_attrs_snap_XXXXXX");
   char path[512];
 
   TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS, "temp dir should be created");
@@ -332,8 +334,10 @@ static int read_partition_table(const char *path, struct HaloOutput **rows, hsiz
  *          visit wrote 1,300 rows or none
  */
 static int test_partition_written_in_two_visits_matches_one_visit(void) {
-  char one_dir[] = "/tmp/mimic_hdf5_one_visit_XXXXXX";
-  char two_dir[] = "/tmp/mimic_hdf5_two_visits_XXXXXX";
+  char one_dir[4096];
+  test_temp_template(one_dir, sizeof one_dir, "mimic_hdf5_one_visit_XXXXXX");
+  char two_dir[4096];
+  test_temp_template(two_dir, sizeof two_dir, "mimic_hdf5_two_visits_XXXXXX");
   char one_path[512], two_path[512];
 
   TEST_ASSERT(create_temp_output_dir(one_dir) == TEST_PASS, "temp dir should be created");

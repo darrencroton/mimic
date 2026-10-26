@@ -195,7 +195,8 @@ static void remove_skip_fixture(const char *dir) {
  * @brief   Forward run creates the output file; completed output survives remove_incomplete
  */
 static int test_output_claim_forward_path_creates_and_clears_file(void) {
-  char dir_template[] = "/tmp/mimic_enumerated_driver_forward_XXXXXX";
+  char dir_template[4096];
+  test_temp_template(dir_template, sizeof dir_template, "mimic_enumerated_driver_forward_XXXXXX");
   char output_path[512];
   char marker_path[512];
 
@@ -348,7 +349,8 @@ static int test_idle_rank_runs_lifecycle_without_opening_partition(void) {
  * @brief   Skipping a pre-existing output file preserves prepare/teardown but skips open/close
  */
 static int test_skip_existing_output_preserves_lifecycle(void) {
-  char dir_template[] = "/tmp/mimic_enumerated_driver_XXXXXX";
+  char dir_template[4096];
+  test_temp_template(dir_template, sizeof dir_template, "mimic_enumerated_driver_XXXXXX");
   char output_path[512];
 
   configure_driver_defaults();
@@ -385,7 +387,8 @@ static int test_skip_existing_output_preserves_lifecycle(void) {
  *          stopped run left partial, so it is redone and its marker removed
  */
 static int test_skip_redoes_partition_left_in_flight(void) {
-  char dir_template[] = "/tmp/mimic_enumerated_driver_inflight_XXXXXX";
+  char dir_template[4096];
+  test_temp_template(dir_template, sizeof dir_template, "mimic_enumerated_driver_inflight_XXXXXX");
   char output_path[512];
   char marker_path[512];
 
@@ -432,7 +435,8 @@ static int test_skip_redoes_partition_left_in_flight(void) {
  *          number as its unit
  */
 static int test_unknown_largest_unit_falls_back_to_multiplier(void) {
-  char dir_template[] = "/tmp/mimic_enumerated_driver_identity_XXXXXX";
+  char dir_template[4096];
+  test_temp_template(dir_template, sizeof dir_template, "mimic_enumerated_driver_identity_XXXXXX");
   char output_path[512];
 
   configure_driver_defaults();
@@ -485,7 +489,8 @@ static int test_unknown_largest_unit_falls_back_to_multiplier(void) {
  *          driver still loads every unit and tears the reader down normally
  */
 static int test_non_fitting_identity_space_does_not_stop_the_run(void) {
-  char dir_template[] = "/tmp/mimic_enumerated_driver_nofit_XXXXXX";
+  char dir_template[4096];
+  test_temp_template(dir_template, sizeof dir_template, "mimic_enumerated_driver_nofit_XXXXXX");
   char output_path[512];
 
   configure_driver_defaults();
