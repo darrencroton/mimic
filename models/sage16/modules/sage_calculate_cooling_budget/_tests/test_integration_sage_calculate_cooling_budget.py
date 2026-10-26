@@ -19,6 +19,7 @@ Date: 2025-11-13 (Updated 2025-12-18)
 """
 
 import os
+import shutil
 import sys
 
 import numpy as np
@@ -70,6 +71,7 @@ class TestSageCoolingIntegration:
         returncode, stdout, stderr = harness.run_mimic(param_file)
 
         assert returncode == 0, f"Mimic should run successfully\nStderr: {stderr}"
+        shutil.rmtree(temp_dir)
 
     def test_infall_cooling_pipeline(self):
         """Test sage_prepare_infall_budget → sage_calculate_cooling_budget pipeline integration"""
@@ -89,6 +91,7 @@ class TestSageCoolingIntegration:
         assert returncode == 0, f"Pipeline should run successfully\nStderr: {stderr}"
         # Check for no memory leaks
         assert harness.check_no_memory_leaks(stdout, stderr), "Should have no memory leaks"
+        shutil.rmtree(temp_dir)
 
     def test_memory_safety(self):
         """Test that sage_calculate_cooling_budget doesn't leak memory"""
@@ -106,6 +109,7 @@ class TestSageCoolingIntegration:
         returncode, stdout, stderr = harness.run_mimic(param_file)
         assert returncode == 0, f"Execution should succeed\nStderr: {stderr}"
         assert harness.check_no_memory_leaks(stdout, stderr), "Should have no memory leaks"
+        shutil.rmtree(temp_dir)
 
     def test_execution_completes(self):
         """Test that full pipeline execution completes without errors"""
@@ -124,6 +128,7 @@ class TestSageCoolingIntegration:
 
         returncode, stdout, stderr = harness.run_mimic(param_file)
         assert returncode == 0, f"Pipeline should complete\nStderr: {stderr}"
+        shutil.rmtree(temp_dir)
 
     def test_module_ordering_dependency(self):
         """Test that module system handles ordering correctly
@@ -163,6 +168,8 @@ class TestSageCoolingIntegration:
 
         returncode_wrong, stdout, stderr = harness.run_mimic(param_file_wrong)
         assert returncode_wrong == 0, f"Wrong order should still run\nStderr: {stderr}"
+        shutil.rmtree(temp_dir1)
+        shutil.rmtree(temp_dir2)
 
     def test_output_file_created(self):
         """Test that output files are created successfully
@@ -210,6 +217,8 @@ class TestSageCoolingIntegration:
             assert len(halos) > 0, "Should have at least one halo in output"
 
             print(f"✓ Output file created with {len(halos)} halos")
+
+        shutil.rmtree(temp_dir)
 
     def test_downstream_effects(self):
         """Test that sage_calculate_cooling_budget produces expected downstream effects
@@ -267,6 +276,8 @@ class TestSageCoolingIntegration:
             print(f"✓ HotGas range: [{hot_gas.min():.6f}, {hot_gas.max():.6f}]")
             print(f"✓ All {len(halos)} halos have valid HotGas values")
             print(f"✓ Module execution completed without corrupting data")
+
+        shutil.rmtree(temp_dir)
 
 
 def main():

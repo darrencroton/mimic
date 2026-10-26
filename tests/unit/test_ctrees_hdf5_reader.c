@@ -231,9 +231,9 @@ static int write_sequence_fields_to_group(hid_t forests, int64_t base_id, hsize_
     return -1;
   }
   int64_t link[4] = {-1, -1, -1, -1};
-  int64_t id[4];
-  int64_t snap[4];
-  double values[4];
+  int64_t id[4] = {0};
+  int64_t snap[4] = {0};
+  double values[4] = {0.0};
   int status = 0;
   for (hsize_t i = 0; i < n; i++) {
     id[i] = base_id + (int64_t)i;
