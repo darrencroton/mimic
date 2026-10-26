@@ -61,7 +61,7 @@ tally_log() {
 # /bin/sh has no pipefail, and MIMIC_FORCE_COLOR tells a Python test (tests/framework/runner.py)
 # that the pipe ends at a terminal, so it keeps its colour. Returns the command's exit status.
 run_tallied() {
-    _tally_log=$(mktemp)
+    _tally_log=$(mktemp "${TMPDIR:-/tmp}/mimic-tally.XXXXXX")
     if [ "${TEST_SUMMARY:-0}" = "1" ]; then
         "$@" > "$_tally_log" 2>&1
         _tally_status=$?
@@ -71,7 +71,7 @@ run_tallied() {
             cat "$_tally_log"
         fi
     else
-        _tally_status_file=$(mktemp)
+        _tally_status_file=$(mktemp "${TMPDIR:-/tmp}/mimic-tally-status.XXXXXX")
         _tally_color=""
         if [ -t 1 ] && [ -z "${NO_COLOR+x}" ]; then
             _tally_color=1
