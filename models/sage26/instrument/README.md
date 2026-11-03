@@ -5,6 +5,7 @@ This directory holds the instrument that measures a Mimic `sage26` run against t
 - `compare_sage26.py`: the comparator. It needs Python 3.9 or later with NumPy and h5py (the `mimic_venv` environment) and nothing else.
 - `field_map.yaml`: the pairing of every dataset SAGE26 writes with its Mimic property, or the reason it is left uncompared.
 - `README.md`: this file, the instrument's specification.
+- `controls/`: the known-good and known-bad controls that check the comparator and the map (see [Controls](#controls)).
 
 The comparison rules below are fixed by the owner's approval of the instrument plan and are reproduced verbatim. The comparator implements exactly these rules; where they leave a reading open, the PM's ruling recorded under [Readings settled by the PM](#readings-settled-by-the-pm) applies.
 
@@ -121,3 +122,69 @@ Fractions are reported as decimals for reading; the gates are decided only on th
 The instrument's `pass` is the numerical result of rules 1–11 only (rule 12). T1's further obligations, that every galaxy outside 1e-6 is accounted for by cause, that no systematic difference is left unexplained, that the result is measured core-aligned through the approved alignment set, and the unaligned per-galaxy and population comparisons, belong to the final T1 evidence node, which uses this instrument's JSON and outliers CSV as its inputs.
 
 The instrument compares output only. It does not read Mimic's or SAGE26's parameters, and it never corrects a difference: a core difference such as the particle mass (mini-Millennium's `particle_mass` is 0.0860657 in Mimic's `simulations/mini-millennium/simulation_info.yaml` and 0.086 in the T1 reference's header) shows up as an outlier, for the alignment set or the evidence node to explain.
+
+## Controls
+
+`controls/` holds the instrument's known-good and known-bad controls: inputs built so that the comparator's verdict is known in advance. Run them all from the worktree root:
+
+```bash
+sh models/sage26/instrument/controls/run_controls.sh
+```
+
+The script builds every control under a new directory `output/instrument-controls/run-<UTC stamp>/` (it writes nothing outside `output/instrument-controls/` and deletes nothing; old run directories can be removed by hand), runs `compare_sage26.py` on each with the `mimic_venv` Python, and prints each control's expected and actual verdict, exit status and the facts its expectation names. It prints the T1 reference's SHA-256 before and after the run. It exits 0 only when every control meets its expectation and the reference digest is unchanged, 1 when any control misses or the digest changed, and 2 when the controls cannot be built. `T1_REFERENCE` in the environment overrides the reference path.
+
+| File | Role |
+|---|---|
+| `run_controls.sh` | Builds and runs every control; the exit status is the overall result. |
+| `make_fixture.py` | The synthetic fixture and controls S0–S6. |
+| `alter_map.py` | The altered-map controls S7a–S7c. |
+| `to_mimic_layout.py` | G1: the T1 reference rewritten in Mimic's layout (also G1s63 and B6). |
+| `perturb.py` | The controls derived from G1's copy: B1–B5, B7–B10 and G2. |
+| `control_lib.py` | The shared writers and the controls' own evaluation of the expected counts. |
+| `run_control.py` | Runs the comparator on one control directory and checks its `expect.json`. |
+
+**Synthetic fixture.** `make_fixture.py` never reads `field_map.yaml`. Its literal table pairs each of the 81 SAGE26 datasets with its Mimic property, component, storage types and unit factor, written from SAGE26's writer field list (`src/io/save_gals_hdf5_fields.h`, expanded by `src/io/save_gals_hdf5.c`) and Mimic's metadata. Each float dataset f holds `float32((f + 1) (1000 + i) (1 + s / 128))` for galaxy i at snapshot s, so different fields and different vector components of one galaxy differ by at least 1/81 relative: a swapped field, a swapped component or a wrong factor in the map moves every affected pair outside tolerance. The fixture has 1000 galaxies at each of T1's eight snapshots, in 2 partition files; every perturbation acts on snapshot 63 and leaves the other seven as written.
+
+**Reference-derived controls.** `to_mimic_layout.py` writes T1's eight snapshots of the T1 reference in Mimic's layout using `field_map.yaml` (Mimic names and storage types, each value divided by its factor, vectors as 3-element float32 arrays), in 8 partition files. Rows are assigned to partitions in a documented shuffle: per snapshot N, the rows are permuted with `numpy.random.default_rng(20261103 + N).permutation(n)` and the permutation is cut into 8 contiguous near-equal chunks with `numpy.array_split`; partition p holds chunk p. `perturb.py` alters only the candidate side; "the first n galaxies" means by row order of the reference's `Snap_<N>`, and each count below is recomputed from the reference and checked against its stated value before anything is written.
+
+**Expectations.** Each control directory holds `expect.json`. For a `pass` or `fail` control it holds, besides the verdict, exit status, printed verdict line, `t1_eligible` and the exact list of failed thresholds, the control's own expected per-snapshot counts (`control_lib.evaluate`: rule 6's arithmetic and rule 8's thresholds, computed separately from the comparator, with the galaxy pairing known by construction rather than matched by key); every one must equal the comparator's JSON. For an `error` control it holds the message fragment that identifies the stopping rule, and the JSON must hold no verdict tables and no outliers CSV may be written.
+
+| Control | Input | Expected outcome |
+|---|---|---|
+| S0 | The fixture as written, its own reference digest | `pass (not T1-eligible)`: all eight T1 snapshots compared, every mapped property 100% bit-identical, `t1_eligible` false (not the T1 digest) |
+| S0e | S0 with the T1 reference's digest | `error` (rule 1) |
+| S1a / S1b | `StellarMass` within tolerance in 900 / 899 of 1000 pairs | `pass` / `fail` (both float gates of `StellarMass`) |
+| S1c / S1d | `Len` equal in 995 / 994 of 1000 pairs | `pass` / `fail` (`int:Len`) |
+| S1e / S1f | 1 / 2 candidate galaxies removed (N_cand = M = 999 / 998) | `pass` / `fail` (`count`, `matching_vs_n_ref`) |
+| S1g | N_ref = 1000, N_cand = 1001, M = 999 | `fail`, only `matching_vs_n_cand` |
+| S2a | Every `StellarMass` 5e-7 relative from its reference | `pass`, bit-identical fraction 0 |
+| S2b | `StellarMass` 2e-6 relative in 11% of galaxies | `fail` |
+| S3a | `HotGas` reference 0, candidate 5e-11 | `pass` (within; M_sig = 0) |
+| S3b | `HotGas` reference 0, candidate 2e-10 in 11% | `fail` (both gates; M_sig = 110) |
+| S3c | `HotGas` reference 1e-12, candidate 1e-12 (1 + 1e-5) | `fail` on `over_M` only: the relative rule applies (within 0), and the pairs are inside the band (M_sig = 0) |
+| S4a | Mimic float64 `Mvir` 0.4 float32 ulp above the reference | `pass`, 100% bit-identical after rounding, `within_tolerance_unrounded` 1000 |
+| S4b | Mimic float64 `Rvir` straddling 1e-6 before rounding: 150 just outside that round inside, 50 just inside that round outside | `pass`: `within_tolerance_unrounded` 850, gated `within_tolerance` 950 (after rounding) |
+| S5a | `ColdGas` NaN on both sides in 200 galaxies | `pass` (within) |
+| S5b | `ColdGas` NaN or +inf in the candidate only, 11% | `fail` |
+| S5c | The same infinity on both sides (+inf and −inf) | `pass` (within) |
+| S6 | `MostBoundID` above 2^60 differing only in the lowest bit in 6 galaxies (equal as float64) | `fail` (`int:SimulationHaloIndex`, 994 equal) |
+| S7a | Map with `ColdGas` and `StellarMass` swapped, on S0's files | not `pass` (`fail`) |
+| S7b | Map with `Posx` and `Posy` components swapped, on S0's files | not `pass` (`error`: no galaxy matches, M = 0) |
+| S7c | Map with `Mvir`'s factor changed to 1.001, on S0's files | not `pass` (`fail`) |
+| G1 | The T1 reference against its Mimic-layout copy | `pass`, `t1_eligible` true, M = N_ref = N_cand at every snapshot, every factor-1 mapping 100% bit-identical (the map has no other factor) |
+| G1s63 | G1 with `--snapshots 63` | `pass (not T1-eligible)` |
+| B1 | `StellarMass` × (1 + 1e-5) in the first 7307 non-zero galaxies at 63 | `fail`, only `StellarMass` at 63 (29227/36534 within) |
+| B2 | The first 62 rows removed at 27 | `fail`, only `count` and `matching_vs_n_ref` at 27 |
+| B3 | `Regime` 0 ↔ 1 in the first 359 galaxies at 32 | `fail`, only `int:Regime` at 32 (35523/35882 equal) |
+| B4 | `StellarMass` × (1 + 1e-4) in the first 4093 non-zero galaxies at 37 | `fail`, only `StellarMass` at 37 (33110/37203 within) |
+| G2 | The same in the first 3348 | `pass` (33855/37203 within) |
+| B5 | `ColdGas` removed from every partition | `error` |
+| B6 | G1 with a wrong `--reference-sha256` | `error` (rule 1) |
+| B7 | At 16, two Type 0 galaxies given a third's position | `pass`: three unmatched on each side (3 duplicate-key candidates), M = 3905 |
+| B8a / B8b / B8c | A partition file missing / an extra `model_008.hdf5` / one partition's `Snap063/Galaxies` without `HotGas` | `error` (rule 2) |
+| B9 | `Snap037` holding snapshot 32's rows | `error` (rule 3's `SnapNum` check) |
+| B10a | `HotGas` 0 for every galaxy at 63 | `fail` on the second gate only (34452/36534 within over M; 0/2082 over M_sig) |
+| B10b | `HotGas` 5e-11 for every galaxy at 63 | `fail` on the second gate only (34452/36534; 0/2082: the zero-reference pairs are inside the band and outside M_sig) |
+| B10c | `HotGas` 1e-3 in the first 2000 zero-reference galaxies at 63 | `fail` on the second gate only (34534/36534 over M; 2082/4082 over M_sig) |
+
+**Uncompared fields on the T1 reference.** G1's JSON carries rule 7's summaries for the eight uncompared fields at each snapshot. On the T1 reference `g_max` is zero at all eight snapshots, and `mergeType` and `mergeIntoID` equal their creation values (0 and −1) for every galaxy at snapshot 63 and differ from them only at the earlier snapshots (in 160 galaxies at 16 up to 1577 at 32): SAGE26 backpatches a galaxy's earlier record when it merges in the following step, and nothing at the final snapshot merges later.
