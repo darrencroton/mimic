@@ -1,0 +1,15 @@
+# Zero budget with tiny negative ejected metals: infallingGas < 0 fails at 0, so the ejected
+# branch is skipped and the negative metals are carried. A guard of infallingGas <= 0 would enter
+# it and floor the metals to 0 at :360.
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+
+i32 params.CGMrecipeOn 0
+
+f64 call.InfallingGas 0x0000000000000000  # 0  (the snapshot budget infall_recipe returned)
+i32 call.effective_steps 10
+i32 galaxy[0].Type 0
+f32 galaxy[0].EjectedMass 0x3f19999a  # 0.600000024
+f32 galaxy[0].MetalsEjectedMass 0xac0cbccc  # -1.99999999e-12
+f32 galaxy[0].HotGas 0x40400000  # 3
+f32 galaxy[0].MetalsHotGas 0x3cf5c28f  # 0.0299999993

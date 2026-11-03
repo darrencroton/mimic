@@ -22,7 +22,9 @@ module:
       - GlobalBaryonFraction
 
   tests:
-    unit: _tests/test_unit_sage26_satellite_stripping.c
+    unit:
+      - _tests/test_unit_sage26_satellite_stripping.c
+      - _tests/test_unit_sage26_satellite_stripping_oracle.c
     integration: _tests/test_integration_sage26_satellite_stripping.py
     scientific: []
 

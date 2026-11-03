@@ -1,0 +1,5 @@
+# SAGE26 oracle output for typical.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine get_disk_radius
+f64 return.r_disk 0x3f82813b314cda83  # 0.0090355514927129617
+f32 galaxy[0].DiskScaleRadius 0x3c1409da  # 0.00903555192

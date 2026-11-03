@@ -1,0 +1,17 @@
+# SAGE26 oracle output for central_only_positive.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine infall_recipe
+f64 return.InfallingGas 0x400c3e20b0698be6  # 3.5303357870302419
+f64 intermediate.reionization_modifier 0x3fee6c8198c65ff3  # 0.95074539030883753
+f64 intermediate.HaloBaryonFraction 0x3fc4b02f2a726a35  # 0.16162671635250239
+f32 galaxy[0].EjectedMass 0x3f19999a  # 0.600000024
+f32 galaxy[0].MetalsEjectedMass 0x3bc49ba6  # 0.00600000005
+f32 galaxy[0].ICS 0x3d4ccccd  # 0.0500000007
+f32 galaxy[0].MetalsICS 0x3a83126f  # 0.00100000005
+f32 galaxy[0].ICS_disrupt 0x3cf5c28f  # 0.0299999993
+f32 galaxy[0].ICS_accrete 0x3ca3d70a  # 0.0199999996
+f32 galaxy[0].ICS_sum_mt 0x3ecccccd  # 0.400000006
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[0].HotGas 0x40400000  # 3
+f32 galaxy[0].MetalsHotGas 0x3cf5c28f  # 0.0299999993

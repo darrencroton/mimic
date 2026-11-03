@@ -1,0 +1,8 @@
+# SAGE26 oracle output for hot_metals_above_gas.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+f64 intermediate.infallingGas_per_step 0xbfa999999999999a  # -0.050000000000000003
+f32 galaxy[0].EjectedMass 0x00000000  # 0
+f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[0].HotGas 0x3e19999a  # 0.150000006
+f32 galaxy[0].MetalsHotGas 0x3e800000  # 0.25

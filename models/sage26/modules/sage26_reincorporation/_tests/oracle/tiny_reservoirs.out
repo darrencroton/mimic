@@ -1,0 +1,10 @@
+# SAGE26 oracle output for tiny_reservoirs.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine reincorporate_gas
+f64 intermediate.deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426
+f64 intermediate.dt 0x3edb7d7ef7b52067  # 6.554178863034475e-06
+i32 intermediate.reincorporate_gas_called 1
+f32 galaxy[0].EjectedMass 0x2edba1c4  # 9.98770233e-11
+f32 galaxy[0].MetalsEjectedMass 0x2b8c907d  # 9.98770185e-13
+f32 galaxy[0].HotGas 0x31097289  # 2.00012296e-09
+f32 galaxy[0].MetalsHotGas 0x2d2ff189  # 1.00012299e-11

@@ -1,0 +1,17 @@
+# Tiny reservoirs over 30 substeps.
+format sage26-oracle-fixture 1
+routine reincorporate_gas
+
+f64 params.ReIncorporationFactor 0x3fc851eb851eb852  # 0.19
+i32 params.CGMrecipeOn 0
+
+f64 call.Age_galaxy_snap 0x3f29c5a70839ce61  # 0.00019662536589103426  (Age[galaxies[p].SnapNum])
+f64 call.halo_age 0x0000000000000000  # 0  (Age[halo_snapnum])
+i32 call.effective_steps 30
+i32 galaxy[0].Type 0
+f32 galaxy[0].Vvir 0x42a00000  # 80
+f32 galaxy[0].Rvir 0x3da3d70a  # 0.0799999982
+f32 galaxy[0].EjectedMass 0x2edbe6ff  # 1.00000001e-10
+f32 galaxy[0].MetalsEjectedMass 0x2b8cbccc  # 9.99999996e-13
+f32 galaxy[0].HotGas 0x3109705f  # 1.99999994e-09
+f32 galaxy[0].MetalsHotGas 0x2d2febff  # 9.99999996e-12

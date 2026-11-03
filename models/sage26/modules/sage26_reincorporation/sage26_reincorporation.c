@@ -1,10 +1,14 @@
 /**
  * @file    sage26_reincorporation.c
- * @brief   SAGE reincorporation module - returns ejected gas to hot halo in massive systems
+ * @brief   SAGE26 reincorporation module - returns ejected gas to hot halo in massive systems
  *
- * Massive halos (Vvir > Vcrit) recapture previously ejected gas back to the hot halo,
- * with rate proportional to (Vvir/Vcrit - 1) and inverse dynamical time. Metallicity
- * is preserved during the transfer from ejected to hot reservoir.
+ * Ports SAGE26's reincorporate_gas (model_reincorporation.c:44-66) on the R0 path
+ * (CGMrecipeOn 0): a central whose Vvir exceeds Vcrit = 354.53 * ReIncorporationFactor
+ * recaptures previously ejected gas into its hot halo at the rate
+ * (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir), with the ejected metallicity.
+ *
+ * Every floating-point expression is transcribed from SAGE26 with its operand
+ * order and types, so that compiler contraction treats both alike.
  *
  * Reference: Croton et al. (2006, 2016)
  */
@@ -19,10 +23,32 @@
 #include "module_system/parameter_helpers.h"
 
 // ============================================================================
-// MODULE PARAMETERS
+// MODULE PARAMETERS AND CONSTANTS
 // ============================================================================
 
 static double REINCORPORATION_FACTOR;
+
+/* SAGE26 model_reincorporation.c:28-34: SN ejecta leave the disk at ~501 km/s; a
+ * halo retains them when its escape velocity sqrt(2) * Vvir exceeds that, i.e.
+ * when Vvir > 501 / sqrt(2) ~ 354.53 km/s, scaled by ReIncorporationFactor. */
+static const double REINC_VCRIT_KMS = 354.53;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * @brief SAGE26 add_gas_to_hot_reservoir (model_misc.h:76-85), CGMrecipeOn 0 branch
+ *
+ * SAGE parity: the metal mass arrives as an argument already rounded to double,
+ * so the caller's product and this sum are two operations, as in SAGE26
+ * (model_reincorporation.c:64), not one fused multiply-add.
+ */
+static inline void add_gas_to_hot_reservoir(struct GalaxyData *central, const double gas,
+                                            const double metals) {
+  central->HotGas += gas;
+  central->MetalsHotGas += metals;
+}
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -34,7 +60,7 @@ int sage26_reincorporation_init(void) {
 
   VERBOSE_LOG("SAGE reincorporation module initialized");
   VERBOSE_LOG("  ReIncorporationFactor = %.3f", REINCORPORATION_FACTOR);
-  VERBOSE_LOG("  Critical velocity = %.2f km/s", 445.48 * REINCORPORATION_FACTOR);
+  VERBOSE_LOG("  Critical velocity = %.2f km/s", REINC_VCRIT_KMS * REINCORPORATION_FACTOR);
 
   return 0;
 }
@@ -45,7 +71,8 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
   struct Halo *central_halo;
   struct GalaxyData *gal;
 
-  /* SAGE parity: acts on the FOF central only (model_infall.c reincorporate_gas). */
+  /* SAGE parity: acts on the FOF central only, as SAGE26 calls reincorporate_gas
+   * for p == centralgal (core_build_model.c:486-492, model_reincorporation.c:44). */
   if (ctx == NULL || halos == NULL || ngal <= 0 || ctx->central_galaxy == NULL) {
     return 0;
   }
@@ -67,19 +94,22 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
 
   gal = central_halo->galaxy;
 
-  // Skip if no ejected gas to reincorporate (no-op in SAGE too: the
-  // reincorporated mass scales with EjectedMass, so zero stays zero)
+  // Skip if no ejected gas to reincorporate. SAGE26 has no such guard, but on
+  // R0's domain (no negative reservoirs) it is a no-op there too: the
+  // reincorporated mass scales with EjectedMass, so zero stays zero.
   if (gal->EjectedGas <= 0.0f) {
     return 0;
   }
 
-  const double Vvir = central_halo->Vvir;
-  const double Rvir = central_halo->Rvir;
+  // Vvir and Rvir are read as the floats SAGE26 holds (core_allvars.h:131-132)
+  const float Vvir = (float)central_halo->Vvir;
+  const float Rvir = (float)central_halo->Rvir;
 
-  // SN velocity 630 km/s → critical velocity = 630/sqrt(2) = 445.48 km/s
-  const double Vcrit = 445.48 * REINCORPORATION_FACTOR;
+  const double Vcrit = REINC_VCRIT_KMS * REINCORPORATION_FACTOR;
 
-  if (Vvir <= Vcrit) {
+  // SAGE26's guards: positive Vcrit, own Vvir above it, positive own Rvir
+  // (model_reincorporation.c:48)
+  if (!(Vcrit > 0.0 && Vvir > Vcrit && Rvir > 0.0)) {
     return 0;
   }
 
@@ -95,12 +125,14 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
     return -1;
   }
 
-  // Calculate reincorporation rate: (Vvir/Vcrit - 1) * M_eject / (Rvir/Vvir) * dt
+  /* (Vvir/Vcrit - 1) * M_eject / (Rvir/Vvir) * dt (model_reincorporation.c:50-52).
+   * SAGE parity: Rvir / Vvir is a float division, as SAGE26's float fields make
+   * it, before it enters the double expression. */
   double reincorporated = (Vvir / Vcrit - 1.0) * gal->EjectedGas / (Rvir / Vvir) * dt_obj;
 
   if (reincorporated < 0.0) {
     ERROR_LOG("Negative reincorporation: %.3e (Vvir=%.1f, Rvir=%.3f, EjectedGas=%.3e, dt=%.3e)",
-              reincorporated, Vvir, Rvir, gal->EjectedGas, dt_obj);
+              reincorporated, (double)Vvir, (double)Rvir, gal->EjectedGas, dt_obj);
     return -1;
   }
 
@@ -110,10 +142,11 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
 
   const double metallicity = mimic_get_metallicity(gal->EjectedGas, gal->MetalsEjectedGas);
 
+  // Remove from the ejected reservoir, add to the hot one (model_reincorporation.c:59-64)
   gal->EjectedGas -= reincorporated;
   gal->MetalsEjectedGas -= metallicity * reincorporated;
-  gal->HotGas += reincorporated;
-  gal->MetalsHotGas += metallicity * reincorporated;
+
+  add_gas_to_hot_reservoir(gal, reincorporated, metallicity * reincorporated);
 
   return 0;
 }

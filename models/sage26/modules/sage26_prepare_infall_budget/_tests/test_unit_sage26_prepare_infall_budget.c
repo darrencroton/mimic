@@ -22,7 +22,8 @@
  *   - test_physics_calculation_basic: Basic infall calculation
  *   - test_satellite_ejected_consolidation: Central gets satellite ejected gas
  *   - test_satellite_ics_consolidation: Central gets satellite ICS
- *   - test_orphan_hot_gas_retained: Type 2 orphan keeps its hot gas (SAGE parity)
+ *   - test_orphan_hot_gas_retained: Type 2 orphan keeps its hot gas (SAGE parity:
+ *     SAGE26 src/model_infall.c:79-117)
  *   - test_zero_mass_halo: Mvir=0 handled correctly
  *   - test_no_satellites: Single central works
  *   - test_multiple_satellites: Multiple satellites consolidated
@@ -489,8 +490,11 @@ int test_satellite_ics_consolidation(void) {
 /**
  * @test    test_orphan_hot_gas_retained
  * @brief   SAGE parity: Type 2 orphan hot gas is NOT consolidated to the
- *          central. SAGE infall_recipe consolidates only ejected gas + ICS;
- *          orphans keep their hot gas and cool it themselves until merging.
+ *          central. SAGE26 infall_recipe consolidates satellites' ejected gas,
+ *          ICS and CGM, never their hot gas (SAGE26 src/model_infall.c:79-117); with
+ *          the CGM recipe off it adds the group's CGM, zero here, to the
+ *          central's hot gas (:177-181). Orphans keep their hot gas and cool it
+ *          themselves until merging.
  *
  * Expected: Central keeps only its own hot gas; orphan retains its hot gas.
  */
@@ -526,7 +530,9 @@ int test_orphan_hot_gas_retained(void) {
 
   /* SAGE parity: hot gas is NOT consolidated. The central keeps only its own
    * hot gas, and the Type 2 orphan retains its hot gas (it cools it itself
-   * until it merges). SAGE infall_recipe consolidates only ejected gas + ICS. */
+   * until it merges). SAGE26 infall_recipe consolidates satellites' ejected
+   * gas, ICS and CGM (SAGE26 src/model_infall.c:79-117) and adds the group's CGM to
+   * the central's hot gas (:177-181); both CGM reservoirs are zero here. */
   TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->HotGas, 5.0, 0.01,
                            "Central keeps only its own hot gas");
   TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->MetalsHotGas, 0.1, 0.01,

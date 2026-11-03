@@ -21,7 +21,9 @@ module:
       - ReIncorporationFactor
 
   tests:
-    unit: _tests/test_unit_sage26_reincorporation.c
+    unit:
+      - _tests/test_unit_sage26_reincorporation.c
+      - _tests/test_unit_sage26_reincorporation_oracle.c
     integration: _tests/test_integration_sage26_reincorporation.py
     scientific: []
 
