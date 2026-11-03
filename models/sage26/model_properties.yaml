@@ -331,7 +331,7 @@ galaxy_properties:
     type: float
     units: Mpc/h
     description: Heating radius from past AGN feedback events
-    output: false
+    output: true
     init_source: default
     init_value: 0.0
     range: [0.0, 10.0]  # Comparable to virial radius
@@ -419,3 +419,322 @@ galaxy_properties:
     init_repeat: true  # Reset each snapshot
     range: [0.0, 1.0]
     sentinels: [0.0]
+
+  # =============================================================================
+  # SAGE26 OUTPUT CONTRACT
+  # The properties in the sections below mirror SAGE26 at 11b1ae851524baadb76cfd17e0b38f8a89c07224 and are filled by physics nodes; until then each holds its SAGE26 creation value.
+  # =============================================================================
+
+  # -----------------------------------------------------------------------------
+  # Gas accretion regime and circumgalactic medium (CGM)
+  # -----------------------------------------------------------------------------
+
+  - name: Regime
+    type: int
+    units: dimensionless
+    description: Gas accretion regime of the halo - 0 = CGM regime, 1 = hot-halo regime, -1 = not yet assigned
+    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_regime() (src/core_build_model.c:411), which runs only when CGMrecipeOn == 1 (default 1, src/core_read_parameter_file.c:102; gate at src/core_build_model.c:410), so with the CGM recipe off it stays -1. Created as -1 at src/model_misc.c:74; written verbatim at src/io/save_gals_hdf5.c:869. SAGE26 HDF5 label is Unitless with text 0 = CGM-regime, 1 = ICM-regime (the struct comment says hot-halo). Scaffold, holds -1 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: -1
+    range: [-1, 1]
+    sentinels: [-1]  # -1 = regime not yet assigned
+
+  - name: FFBRegime
+    type: int
+    units: dimensionless
+    description: Feedback-free-burst regime of the halo - 0 = normal halo, 1 = FFB halo
+    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_ffb_regime() (src/core_build_model.c:426), which runs only when EnhancedStarFormationOn >= 1 (default 1, src/core_read_parameter_file.c:106; gate at src/core_build_model.c:425), so with it off the value stays 0. Created as 0 at src/model_misc.c:75; written verbatim at src/io/save_gals_hdf5.c:870. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0
+    range: [0, 1]
+
+  - name: CGMgas
+    type: float
+    units: 1e10 Msun/h
+    description: Gas mass in the circumgalactic medium (CGM), the hot-phase reservoir of CGM-regime halos
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:130; written verbatim at src/io/save_gals_hdf5.c:913. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+
+  - name: MetalsCGMgas
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in the circumgalactic medium (CGM) gas
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:140; written verbatim at src/io/save_gals_hdf5.c:924. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= CGMgas
+
+  # -----------------------------------------------------------------------------
+  # Cooling diagnostics
+  # -----------------------------------------------------------------------------
+
+  - name: tcool
+    type: float
+    units: Internal
+    description: Cooling-time diagnostic, -1 until set. CGM path gives value = h^2 times the time in Gyr (not Gyr). Hot-halo path gives Rvir/Vvir times 1e10/h times SEC_PER_GIGAYEAR/UnitTime_in_s, not a time in Gyr. Conversion is an open question for the porting node
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment (cooled gas rate, Msun/Gyr) and the HDF5 label (Gyr, text cooling time of the CGM gas) both mislabel it. Created as -1.0 at src/model_misc.c:184; written verbatim at src/io/save_gals_hdf5.c:926. Set by cooling. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds, code mass is 1e10 Msun/h, and code density (src/core_init.c:97) carries h^2. CGM path (src/model_cooling_heating.c:333,345-349,356) divides x by UnitDensity_in_cgs * UnitTime_in_s and divides by rho_eff, a code density, so the code-unit tcool is h^2 times the physical time over UnitTime_in_s, and the written value tcool * UnitTime_in_s / SEC_PER_GIGAYEAR is h^2 times the cooling time in Gyr, not Gyr. The same function then adds tcool + tff at src/model_cooling_heating.c:364, two quantities with different h scalings (h^2 and h). Hot-halo path (src/model_cooling_heating.c:142-145) stores (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, a mass-rate-style factor applied to a time, so the stored hot-path number is not a Gyr time either and the two paths disagree. In the hot regime the regime-aware wrapper keeps the hot-path value and sets tff to -1 (src/model_cooling_heating.c:453-468); reset_cgm_diagnostics sets tcool 0 (src/model_cooling_heating.c:415). Unit is Internal until the porting node settles the conversion. Scaffold, holds -1 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = not yet set
+
+  - name: tff
+    type: float
+    units: Internal
+    description: Free-fall-time diagnostic, -1 until set. CGM path gives Gyr/h (h times the time in Gyr). Hot-halo path gives sqrt(2) Rvir/Vvir times 1e10/h times SEC_PER_GIGAYEAR/UnitTime_in_s, not Gyr. Conversion is an open question for the porting node
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment says free-fall time at the precipitation radius [Gyr] and the HDF5 label says Gyr. Created as -1.0 at src/model_misc.c:185; written verbatim at src/io/save_gals_hdf5.c:927. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds. CGM path (src/model_cooling_heating.c:353,357) stores the code-time tff * UnitTime_in_s / SEC_PER_GIGAYEAR, which is Gyr/h (h times the time in Gyr), not Gyr. Hot-halo path (src/model_cooling_heating.c:143,147) stores sqrt(2) * (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, the same disagreeing mass-rate-style conversion as tcool; the regime-aware hot regime resets it to -1 (src/model_cooling_heating.c:416,468). Unit is Internal until the porting node settles the conversion. Scaffold, holds -1 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = not yet set or reset
+
+  - name: RcoolToRvir
+    type: float
+    units: dimensionless
+    description: Ratio of the cooling radius to the halo virial radius at the last cooling evaluation, -1 if not evaluated
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as -1.0 at src/model_misc.c:182; written verbatim at src/io/save_gals_hdf5.c:929. Set by the hot-halo cooling recipe (src/model_cooling_heating.c:175, rcool is left uncapped so the ratio can exceed 1) and reset to -1 by reset_cgm_diagnostics (src/model_cooling_heating.c:417). Scaffold, holds -1 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = not evaluated
+
+  - name: CoolingRate
+    type: float
+    units: Internal
+    description: Cooling rate of the halo gas from the last cooling call of the snapshot, the true Msun/Gyr rate divided by little h, not Msun/Gyr. Unit is Internal as the registry has no label for it
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its HDF5 label says Msun/Gyr (text cooling rate of the CGM gas) but the written value is the true Msun/Gyr rate divided by little h, and it covers CGM and hot cooling together in the regime-aware recipe. Not set by init_galaxy (src/model_misc.c:65-198) and written by cooling on every call as (cooled mass / dt) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s (src/model_cooling_heating.c:310,382,499), so the last call wins; written verbatim at src/io/save_gals_hdf5.c:932. SAGE26 code mass is 1e10 Msun/h and one code time is UnitTime_in_s / h physical seconds (UnitLength_in_cm is Mpc/h, src/core_init.c:94, Hubble = HUBBLE * UnitTime_in_s at :106), so (m/dt) * 1.0e10 * SEC_PER_GIGAYEAR / UnitTime_in_s would be the true Msun/Gyr rate and the extra 1/Hubble_h in the formula divides it by h. Creation value here is 0, scaffold until a physics node fills it. Unit is Internal because the registry has no label for this quantity.
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  - name: mdot_cool
+    type: float
+    units: Msun/yr
+    description: Cooling rate of the hot halo gas onto the disk, converted to Msun/yr at write
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221), stored in 1e10 Msun/h per code time and set to hot_halo_cooling / dt (src/model_cooling_heating.c:282), reset to 0 each regime-aware call (src/model_cooling_heating.c:433). Created as 0.0 at src/model_misc.c:195. The writer converts it with UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS (src/io/save_gals_hdf5.c:996), so the written unit is Msun/yr although SAGE26's HDF5 label says 1.0e10 Msun/yr. This slice declares no output_convert, so the node that fills the field must add one as StarFormationRate does. Scaffold, holds 0 until then.
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  - name: mdot_stream
+    type: float
+    units: Msun/yr
+    description: Cooling rate of cold streams onto the disk, converted to Msun/yr at write
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221), stored in 1e10 Msun/h per code time and set to cold_stream_cooling / dt (src/model_cooling_heating.c:283), reset to 0 each regime-aware call (src/model_cooling_heating.c:434). Created as 0.0 at src/model_misc.c:196. The writer converts it with UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS (src/io/save_gals_hdf5.c:997), so the written unit is Msun/yr although SAGE26's HDF5 label says 1.0e10 Msun/yr. This slice declares no output_convert, so the node that fills the field must add one as StarFormationRate does. Scaffold, holds 0 until then.
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  # -----------------------------------------------------------------------------
+  # Cold gas phases and star formation
+  # -----------------------------------------------------------------------------
+
+  - name: H2gas
+    type: float
+    units: 1e10 Msun/h
+    description: Mass of molecular hydrogen (H2) in the cold gas reservoir
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:131; written verbatim at src/io/save_gals_hdf5.c:915. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= ColdGas
+
+  - name: H1gas
+    type: float
+    units: 1e10 Msun/h
+    description: Mass of atomic hydrogen (HI) in the cold gas reservoir
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:132; written verbatim at src/io/save_gals_hdf5.c:916. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= ColdGas
+
+  - name: H2DepletionTime_Gyr
+    type: float
+    units: Gyr
+    description: Molecular-gas depletion time from the K13 prescription, -1 if not applicable
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as -1.0f at src/model_misc.c:186; written verbatim at src/io/save_gals_hdf5.c:928. Assigned in two places, in the K13 H2 routine as M_gas_total / SFR_K13_total, or -1 when that SFR is not positive (src/model_h2_chemistry.c:283), and in the star formation routine, set to -1 when the depletion time is not positive (src/model_starformation_and_feedback.c:638). Scaffold, holds -1 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = not applicable
+
+  - name: SfrDisk
+    type: float
+    units: Msun/yr
+    description: Disk star formation rate averaged over the snapshot substeps, in Msun/yr
+    notes: SAGE26 holds a per-substep float array SfrDisk[STEPS] in struct GALAXY (src/core_allvars.h:158), in 1e10 Msun/h per code time, zeroed per substep at src/model_misc.c:145. The writer sums the substeps, each converted with UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS and divided by sfr_rate_divisor(SubstepsUsed), into one scalar (src/io/save_gals_hdf5.c:934-957), so the output is the mean rate in Msun/yr. Here it is one scalar float output filled by a later node, which must also add the output_convert that this slice does not declare. Scaffold, holds 0 until then.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
+
+  - name: SfrBulge
+    type: float
+    units: Msun/yr
+    description: Bulge (starburst) star formation rate averaged over the snapshot substeps, in Msun/yr
+    notes: SAGE26 holds a per-substep float array SfrBulge[STEPS] in struct GALAXY (src/core_allvars.h:159), in 1e10 Msun/h per code time, zeroed per substep at src/model_misc.c:146. The writer sums the substeps, each converted with UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS and divided by sfr_rate_divisor(SubstepsUsed), into one scalar (src/io/save_gals_hdf5.c:934-957), so the output is the mean rate in Msun/yr. Here it is one scalar float output filled by a later node, which must also add the output_convert that this slice does not declare. Scaffold, holds 0 until then.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
+
+  - name: SfrDiskZ
+    type: float
+    units: dimensionless
+    description: Mean metallicity (metal mass / cold gas mass) of the cold gas forming disk stars, averaged over the snapshot substeps
+    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrDiskColdGas[STEPS] and SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:160-161, zeroed at src/model_misc.c:147-148) as the sum over substeps of metals / gas, divided by sfr_metallicity_divisor(SubstepsUsed) (src/io/save_gals_hdf5.c:934-958). SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. Here it is one scalar float output filled by a later node. Scaffold, holds 0 until then.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 1.0]  # Metal mass fraction of cold gas
+
+  - name: SfrBulgeZ
+    type: float
+    units: dimensionless
+    description: Mean metallicity (metal mass / cold gas mass) of the cold gas forming bulge stars, averaged over the snapshot substeps
+    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrBulgeColdGas[STEPS] and SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:162-163, zeroed at src/model_misc.c:149-150) as the sum over substeps of metals / gas, divided by sfr_metallicity_divisor(SubstepsUsed) (src/io/save_gals_hdf5.c:934-959). SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. Here it is one scalar float output filled by a later node. Scaffold, holds 0 until then.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 1.0]  # Metal mass fraction of cold gas
+
+  - name: MassLoading
+    type: float
+    units: dimensionless
+    description: Supernova mass-loading factor eta, the ratio of reheated gas mass to stars formed in the current star formation episode
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:183; written verbatim at src/io/save_gals_hdf5.c:914. Assigned from eta_reheat only when SupernovaRecipeOn == 1 (default 1, src/core_read_parameter_file.c:94) and FIREmodeOn == 1 (default 1, src/core_read_parameter_file.c:103), at src/model_starformation_and_feedback.c:759-764 and, at the second site, only when fire_scaling_valid is set (src/model_starformation_and_feedback.c:928-932); otherwise it keeps its previous value (0 at creation, or stale). The HDF5 text calls it the ratio of outflow rate to star formation rate. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  # -----------------------------------------------------------------------------
+  # Bulge structure
+  # -----------------------------------------------------------------------------
+
+  - name: BulgeRadius
+    type: float
+    units: Mpc/h
+    description: Effective (half-mass) radius of the bulge, 0 for a galaxy with no bulge mass
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-326). SAGE26's default BulgeSizeOn=3 (src/core_read_parameter_file.c:107) takes the zero path when MergerBulgeMass + InstabilityBulgeMass <= 0 (src/model_misc.c:316-326), not the BulgeMass test of modes 1 and 2 (src/model_misc.c:253,279), and mode 0 zeroes it outright (src/model_misc.c:242-247). At creation those masses are zeroed at src/model_misc.c:123-124 before the :173 call, so the creation value 0 holds in every mode; written verbatim at src/io/save_gals_hdf5.c:972. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10.0]  # Comparable to virial radius
+
+  - name: MergerBulgeRadius
+    type: float
+    units: Mpc/h
+    description: Half-mass radius of the merger-built (classical) bulge, 0 for a galaxy with no bulge mass
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-326). SAGE26's default BulgeSizeOn=3 (src/core_read_parameter_file.c:107) takes the zero path when MergerBulgeMass + InstabilityBulgeMass <= 0 (src/model_misc.c:316-326), not the BulgeMass test of modes 1 and 2 (src/model_misc.c:253,279), and mode 0 zeroes it outright (src/model_misc.c:242-247). At creation those masses are zeroed at src/model_misc.c:123-124 before the :173 call, so the creation value 0 holds in every mode; written verbatim at src/io/save_gals_hdf5.c:973. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10.0]  # Comparable to virial radius
+
+  - name: InstabilityBulgeRadius
+    type: float
+    units: Mpc/h
+    description: Half-mass radius of the disk-instability-built (pseudo) bulge, 0 for a galaxy with no bulge mass
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-326). SAGE26's default BulgeSizeOn=3 (src/core_read_parameter_file.c:107) takes the zero path when MergerBulgeMass + InstabilityBulgeMass <= 0 (src/model_misc.c:316-326), not the BulgeMass test of modes 1 and 2 (src/model_misc.c:253,279), and mode 0 zeroes it outright (src/model_misc.c:242-247). At creation those masses are zeroed at src/model_misc.c:123-124 before the :173 call, so the creation value 0 holds in every mode; written verbatim at src/io/save_gals_hdf5.c:974. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10.0]  # Comparable to virial radius
+
+  - name: MergerBulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Stellar mass of the bulge built through mergers
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:123; written verbatim at src/io/save_gals_hdf5.c:975. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= BulgeMass
+
+  - name: InstabilityBulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Stellar mass of the bulge built through disk instabilities
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:124; written verbatim at src/io/save_gals_hdf5.c:976. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= BulgeMass
+
+  # -----------------------------------------------------------------------------
+  # Intracluster stars (ICS) assembly
+  # -----------------------------------------------------------------------------
+
+  - name: ICS_disrupt
+    type: float
+    units: 1e10 Msun/h
+    description: In-situ ICS, the cumulative satellite stellar mass stripped directly into this halo's ICS reservoir
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). It is the channel of last transfer, not of origin. Created as 0.0 at src/model_misc.c:162; written verbatim at src/io/save_gals_hdf5.c:1000. ICS_disrupt + ICS_accrete equals ICS in SAGE26 by construction. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= ICS
+
+  - name: ICS_accrete
+    type: float
+    units: 1e10 Msun/h
+    description: Ex-situ ICS, the cumulative already-formed ICS brought into this halo by infalling or merging satellites
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). It is the channel of last transfer, not of origin. Created as 0.0 at src/model_misc.c:163; written verbatim at src/io/save_gals_hdf5.c:1001. ICS_disrupt + ICS_accrete equals ICS in SAGE26 by construction. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= ICS
+
+  - name: ICS_sum_mt
+    type: float
+    units: Internal
+    description: Mass-weighted sum of m*t at ICS deposition, in 1e10 Msun/h times code time; divide by ICS_disrupt + ICS_accrete for the mean assembly lookback
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:164; written verbatim at src/io/save_gals_hdf5.c:1002; HDF5 label is 1.0e10 Msun/h * code_time. Unit is Internal because the registry has no mass-times-time label. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  # -----------------------------------------------------------------------------
+  # Satellite infall history
+  # -----------------------------------------------------------------------------
+
+  - name: infallStellarMass
+    type: float
+    units: 1e10 Msun/h
+    description: Stellar mass of the galaxy when it became a satellite; SAGE26 writes 0 for centrals (Type 0)
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as -1.0 at src/model_misc.c:192 (-1 = never a satellite) and set from StellarMass at infall (src/core_build_model.c:310,334). Output rule for the node that implements the field, not implemented here. The writer stores the member for Type != 0 and writes 0.0 for centrals (src/io/save_gals_hdf5.c:1004-1016), so the creation value -1 is scaffolding. Scaffold, holds -1 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: -1.0
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [-1.0]  # -1.0 = never a satellite
+
+  - name: TimeOfInfall
+    type: float
+    units: index
+    description: Snapshot number at which the galaxy last became a satellite (not a time); -1 = never; SAGE26 writes 0 for centrals (Type 0)
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221), a snapshot number stored as float (src/core_build_model.c:311). SAGE26's HDF5 label says Myr and the text says a time, but the writer stores the member unconverted (src/io/save_gals_hdf5.c:1010), so it holds a snapshot number. Created as -1.0 at src/model_misc.c:193. Output rule for the node that implements the field, not implemented here. The writer stores the member for Type != 0 and writes 0.0 for centrals (src/io/save_gals_hdf5.c:1004-1016), so the creation value -1 is scaffolding. Scaffold, holds -1 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = never a satellite
+
+  # -----------------------------------------------------------------------------
+  # Halo structure
+  # -----------------------------------------------------------------------------
+
+  - name: Concentration
+    type: float
+    units: dimensionless
+    description: NFW halo concentration. Default path (ConcentrationOn=3) inverts the NFW Vmax/Vvir relation, computed only while the galaxy is a FoF central (satellites keep the last value), 0 if Vmax/Vvir < 1. SAGE26's HDF5 text says Ishiyama+21 (mode 1 only)
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:93 and assigned from get_halo_concentration only when ConcentrationOn > 0, and only at src/core_build_model.c:290-294, inside the FoF-central branch (halonr == FirstHaloInFOFgroup, :283) and before Type is set to 0 at :300. Satellites (Type 1 or 2) therefore never recompute it and keep the value from their last central snapshot, which equals the infall-frozen Vmax/Vvir ratio, and the Type != 0 branch of get_halo_concentration (src/model_halo_properties.c:339-350, using infallVmax/infallVvir) fires only for a former satellite at the snapshot it becomes a FoF central again, using its stale infall values. Written verbatim at src/io/save_gals_hdf5.c:871. The value depends on ConcentrationOn (src/model_halo_properties.c:327-352). SAGE26 defaults it to 3 (src/core_read_parameter_file.c:105, input/millennium.par:57), where the Vmax/Vvir pair is inverted through the NFW relation (Vmax/Vvir)^2 = 0.2162 c / mu(c) by bisection with c in [1, 200], giving 0 when Vmax/Vvir < 1 (concentration_from_vmax_vvir, src/model_halo_properties.c:288-306). Mode 0 gives 0, mode 1 uses the Ishiyama+21 lookup table in Mvir and redshift, mode 2 uses Vmax/Vvir for all galaxy types. SAGE26's HDF5 text says NFW halo concentration parameter from Ishiyama+21 c-M relation (src/io/save_gals_hdf5_fields.h:237-238), which describes mode 1 only, not the default path. Scaffold, holds 0 until a physics node fills it.
+    output: true
+    init_source: default
+    init_value: 0.0
