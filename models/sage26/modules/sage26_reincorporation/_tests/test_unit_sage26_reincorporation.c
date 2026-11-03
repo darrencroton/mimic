@@ -78,7 +78,7 @@ static void setup_module_for_physics_test(void) {
   set_test_model_parameters();
 
   /* ReIncorporationFactor = 1.0 is default in test_stubs.c */
-  /* This gives Vcrit = 445.48 km/s */
+  /* This gives Vcrit = 354.53 km/s (SAGE26 model_reincorporation.c:34, :46) */
 
   sage26_reincorporation_init();
 }
@@ -229,13 +229,13 @@ int test_memory_safety(void) {
  * @brief   Test standard reincorporation calculation
  *
  * Physics: reincorporated = (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir) * dt
- * With ReIncorporationFactor = 1.0, Vcrit = 445.48 km/s
+ * With ReIncorporationFactor = 1.0, Vcrit = 354.53 km/s (SAGE26 model_reincorporation.c:34)
  */
 int test_physics_basic_reincorporation(void) {
   init_memory_system(0);
   setup_module_for_physics_test();
 
-  /* Create massive central halo (Vvir > Vcrit = 445.48 km/s) */
+  /* Create massive central halo (Vvir > Vcrit = 354.53 km/s) */
   struct Halo halo = create_test_halo(0, 500.0, 0.2);
   halo.galaxy->EjectedGas = 10.0;      /* 1e11 Msun/h */
   halo.galaxy->MetalsEjectedGas = 0.2; /* 2e9 Msun/h (2% metallicity) */
@@ -381,14 +381,14 @@ int test_physics_full_halo_nonzero_central_index(void) {
  * @test    test_physics_velocity_threshold
  * @brief   Test that reincorporation only occurs when Vvir > Vcrit
  *
- * With ReIncorporationFactor = 1.0, Vcrit = 445.48 km/s
+ * With ReIncorporationFactor = 1.0, Vcrit = 354.53 km/s (SAGE26 model_reincorporation.c:34)
  */
 int test_physics_velocity_threshold(void) {
   init_memory_system(0);
   setup_module_for_physics_test();
 
   /* Test halo below threshold (Vvir < Vcrit) */
-  struct Halo low_vvir = create_test_halo(0, 400.0, 0.2); /* Below 445.48 */
+  struct Halo low_vvir = create_test_halo(0, 300.0, 0.2); /* Below 354.53 */
   low_vvir.galaxy->EjectedGas = 10.0;
   low_vvir.galaxy->MetalsEjectedGas = 0.2;
   low_vvir.galaxy->HotGas = 5.0;
@@ -411,7 +411,7 @@ int test_physics_velocity_threshold(void) {
                            "HotGas should not change when Vvir < Vcrit");
 
   /* Test halo at threshold (Vvir = Vcrit) */
-  struct Halo at_threshold = create_test_halo(0, 445.48, 0.2);
+  struct Halo at_threshold = create_test_halo(0, 354.53, 0.2);
   at_threshold.galaxy->EjectedGas = 10.0;
   at_threshold.galaxy->HotGas = 5.0;
   ctx.central_galaxy = &at_threshold;

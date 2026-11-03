@@ -15,7 +15,9 @@ module:
       - GlobalBaryonFraction
 
   tests:
-    unit: _tests/test_unit_sage26_reionization.c
+    unit:
+      - _tests/test_unit_sage26_reionization.c
+      - _tests/test_unit_sage26_reionization_oracle.c
     integration: _tests/test_integration_sage26_reionization.py
     scientific: []
 

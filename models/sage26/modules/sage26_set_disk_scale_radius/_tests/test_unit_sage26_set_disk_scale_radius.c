@@ -19,7 +19,7 @@
  *   - test_disk_radius_zero_spin: Zero spin components
  *   - test_disk_radius_zero_vvir: Zero virial velocity fallback
  *   - test_disk_radius_zero_rvir: Zero virial radius fallback
- *   - test_disk_radius_small_vvir_rvir: Small virial properties fallback
+ *   - test_disk_radius_small_vvir_rvir: Tiny positive virial properties use the formula
  *   - test_disk_radius_type1_satellite_frozen: Type 1 satellite radius preserved
  *   - test_disk_radius_type2_skipped: Type 2 galaxy filtering
  *   - test_disk_radius_null_galaxy: Null pointer safety
@@ -120,15 +120,15 @@ static void setup_test_context(struct ModuleContext *ctx, double dt) {
  */
 static float calculate_expected_disk_radius(float spin_x, float spin_y, float spin_z, float vvir,
                                             float rvir) {
-  if (vvir > EPSILON_SMALL && rvir > EPSILON_SMALL) {
-    /* SAGE parity: double-precision arithmetic with the truncated 1.414 literal,
-     * matching SAGE model_misc.c get_disk_radius(). */
-    const double spin_mag =
-        sqrt((double)spin_x * spin_x + (double)spin_y * spin_y + (double)spin_z * spin_z);
+  if (vvir > 0.0 && rvir > 0.0) {
+    /* SAGE26 get_disk_radius (model_misc.c:203-228): float spin products and sum
+     * widened for the double sqrt, the truncated 1.414 literal, a positive-Vvir and
+     * positive-Rvir guard, and the double fallback 0.1 * Rvir. */
+    const double spin_mag = sqrt(spin_x * spin_x + spin_y * spin_y + spin_z * spin_z);
     const double lambda = spin_mag / (1.414 * vvir * rvir);
     return (float)((lambda / 1.414) * rvir);
   } else {
-    return 0.1f * rvir;
+    return (float)(0.1 * rvir);
   }
 }
 
@@ -342,7 +342,7 @@ int test_disk_radius_zero_vvir(void) {
   struct ModuleContext ctx;
   setup_test_context(&ctx, 0.01);
 
-  const float expected_rd = 0.1f * rvir; /* Fallback value */
+  const float expected_rd = (float)(0.1 * rvir); /* SAGE26 double fallback 0.1 * Rvir */
 
   /* ===== EXECUTE ===== */
   int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
@@ -402,10 +402,12 @@ int test_disk_radius_zero_rvir(void) {
 
 /**
  * @test    test_disk_radius_small_vvir_rvir
- * @brief   Test disk radius when Vvir and Rvir are very small (< EPSILON_SMALL)
+ * @brief   Test disk radius when Vvir and Rvir are tiny but positive
  *
- * Expected: Fallback → DiskScaleRadius = 0.1 * Rvir
- * Validates: Epsilon threshold logic
+ * Expected: SAGE26 guards only Vvir > 0 && Rvir > 0 (model_misc.c:206), so tiny
+ *           positive virial properties use the Mo, Mao & White formula, not the
+ *           0.1 * Rvir fallback
+ * Validates: SAGE26's positive guard (no epsilon threshold)
  */
 int test_disk_radius_small_vvir_rvir(void) {
   /* ===== SETUP ===== */
@@ -417,21 +419,23 @@ int test_disk_radius_small_vvir_rvir(void) {
   /* Create galaxy with very small virial properties */
   struct Halo halo;
   struct GalaxyData gal;
-  const float vvir = 1e-12f; /* < EPSILON_SMALL */
-  const float rvir = 1e-12f; /* < EPSILON_SMALL */
+  const float vvir = 1e-12f; /* tiny but positive */
+  const float rvir = 1e-12f; /* tiny but positive */
   setup_test_galaxy(&halo, &gal, 100.0f, 100.0f, 100.0f, vvir, rvir, 0);
 
   struct ModuleContext ctx;
   setup_test_context(&ctx, 0.01);
 
-  const float expected_rd = 0.1f * rvir; /* Fallback value */
+  const float expected_rd = calculate_expected_disk_radius(100.0f, 100.0f, 100.0f, vvir, rvir);
 
   /* ===== EXECUTE ===== */
   sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, (double)expected_rd, 1e-15,
-                           "Should use fallback for small virial properties");
+  TEST_ASSERT(expected_rd > 0.1f * rvir, "The formula, not the fallback, applies here");
+  TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, (double)expected_rd,
+                           1e-6 * (double)expected_rd,
+                           "Tiny positive virial properties should use the disk formula");
 
   /* ===== CLEANUP ===== */
   sage26_set_disk_scale_radius_cleanup();

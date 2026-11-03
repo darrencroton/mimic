@@ -11,7 +11,7 @@
  *
  * Validates:
  *   - Stripping calculation logic
- *   - Mass and metal conservation
+ *   - Mass conservation, and SAGE26's asymmetric metal transfer
  *   - Metallicity preservation
  *   - Edge cases (zero gas, boundary conditions, type filtering)
  *   - Substep distribution
@@ -300,18 +300,18 @@ static int test_metal_conservation(void) {
 }
 
 /**
- * @test    test_metal_conservation_all_regimes
- * @brief   Satellite metal loss must equal central metal gain in every clamp
- *          regime, including constructed unphysical M > G states where the
- *          metallicity cap (Z = 1) is active.
+ * @test    test_metal_transfer_all_regimes
+ * @brief   SAGE26's asymmetric stripping metal transfer in every clamp regime,
+ *          including constructed unphysical M > G states where the metallicity
+ *          cap (Z = 1) is active.
  *
- * Regression guard for the inherited SAGE metal-destruction bug (fixed
- * 2026-06-16). The pre-fix code credited the central with clamped-gas *
- * metallicity, destroying metals in the two capped-Z rows below; the fix
- * credits the central with the same strippedMetals debited from the satellite,
- * conserving metals everywhere.
+ * SAGE26 (model_infall.c:256-270) debits the satellite min(s * Z, M), the
+ * unclamped-gas metals capped at its own metals, but credits the central the
+ * clamped gas times the original Z. Metals are therefore conserved in the two
+ * normal-Z rows and destroyed in the two capped-Z rows, where the gas clamp
+ * engages with Z = 1. The package mirrors this source quirk exactly.
  */
-static int test_metal_conservation_all_regimes(void) {
+static int test_metal_transfer_all_regimes(void) {
   /* Each row drives a distinct branch of the stripping transfer. With
    * num_substeps = 1 and only HotGas + StellarMass carrying baryons, the
    * unclamped strip demand is s = HotGas + StellarMass - bf*Mvir. G = HotGas,
@@ -323,11 +323,13 @@ static int test_metal_conservation_all_regimes(void) {
     float stellar;
     double bf;
     double mvir;
+    double sat_lost;   /* min(s * Z, M) */
+    double cen_gained; /* min(s, G) * Z */
   } cases[] = {
-      {"no-clamp", 10.0f, 0.2f, 0.0f, 0.5, 10.0},
-      {"gas-clamp normal-Z", 10.0f, 0.2f, 20.0f, 0.5, 20.0},
-      {"cap both-clamps", 2.0f, 3.0f, 10.0f, 0.2, 10.0},
-      {"cap gas-clamp-only", 2.0f, 10.0f, 5.0f, 0.2, 10.0},
+      {"no-clamp", 10.0f, 0.2f, 0.0f, 0.5, 10.0, 0.1, 0.1},
+      {"gas-clamp normal-Z", 10.0f, 0.2f, 20.0f, 0.5, 20.0, 0.2, 0.2},
+      {"cap both-clamps", 2.0f, 3.0f, 10.0f, 0.2, 10.0, 3.0, 2.0},
+      {"cap gas-clamp-only", 2.0f, 10.0f, 5.0f, 0.2, 10.0, 5.0, 2.0},
   };
 
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
@@ -350,9 +352,10 @@ static int test_metal_conservation_all_regimes(void) {
     float sat_lost = sat_metals_before - halos[1].galaxy->MetalsHotGas;
     float cen_gained = halos[0].galaxy->MetalsHotGas - cen_metals_before;
 
-    if (!FLOAT_EQ(sat_lost, cen_gained, 1e-4)) {
-      printf("FAIL: metals not conserved in regime '%s' (lost=%.6f, gained=%.6f)\n", cases[i].label,
-             sat_lost, cen_gained);
+    if (!FLOAT_EQ(sat_lost, cases[i].sat_lost, 1e-4) ||
+        !FLOAT_EQ(cen_gained, cases[i].cen_gained, 1e-4)) {
+      printf("FAIL: regime '%s' lost=%.6f (expected %.6f), gained=%.6f (expected %.6f)\n",
+             cases[i].label, sat_lost, cases[i].sat_lost, cen_gained, cases[i].cen_gained);
       return TEST_FAIL;
     }
   }
@@ -390,7 +393,11 @@ static int test_metallicity_preservation(void) {
 
 /**
  * @test    test_zero_hot_gas_no_stripping
- * @brief   Satellites with zero hot gas should not be stripped
+ * @brief   Satellites with zero hot gas lose nothing
+ *
+ * SAGE26 strips every live Type 1 satellite, with no HotGas guard
+ * (core_build_model.c:493-498), but the gas clamp at zero hot gas and the zero
+ * metallicity it gives move no gas or metals (model_infall.c:256-270).
  */
 static int test_zero_hot_gas_no_stripping(void) {
   init_memory_system(0);
@@ -559,7 +566,7 @@ int main(void) {
   TEST_RUN(test_mass_conservation_max_dynamic_substeps);
   TEST_RUN(test_stripped_fraction_follows_geometric_formula);
   TEST_RUN(test_metal_conservation);
-  TEST_RUN(test_metal_conservation_all_regimes);
+  TEST_RUN(test_metal_transfer_all_regimes);
   TEST_RUN(test_metallicity_preservation);
   TEST_RUN(test_zero_hot_gas_no_stripping);
   TEST_RUN(test_clamping_to_available_gas);

@@ -17,11 +17,12 @@ SubSteps: 10
 modules:
 
   pre_timestep:
-    # Setup and snapshot budgets
-    - sage26_reionization:            process_full_halo
-    - sage26_prepare_infall_budget:   process_full_halo
+    # Setup and snapshot budgets, in SAGE26's source order: disk radius and merger
+    # clock during progenitor joining, then reionization and the FoF infall budget
     - sage26_set_disk_scale_radius:   process_full_halo
     - sage26_initialise_merger_clock: process_full_halo
+    - sage26_reionization:            process_full_halo
+    - sage26_prepare_infall_budget:   process_full_halo
 
   # Ordered, user-named substep middle phases. Each runs once per substep, in the
   # order listed. Within a phase, full-halo/event work precedes galaxy-local work.
@@ -75,7 +76,7 @@ modules:
     FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
 
     # Gas Reincorporation
-    ReIncorporationFactor: 0.15          # Reincorporation timescale factor
+    ReIncorporationFactor: 0.19         # Scales Vcrit = 354.53 km/s (SAGE26 R0, input/millennium.par:72)
 
     # Cooling & AGN Feedback
     AGNrecipe: 2                        # AGN feedback mode (0=off, 1=empirical, 2=Bondi, 3=cold cloud)

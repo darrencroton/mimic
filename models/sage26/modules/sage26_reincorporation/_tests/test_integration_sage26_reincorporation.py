@@ -364,7 +364,7 @@ def test_physics_velocity_threshold():
         },
         model_params={
             "GlobalBaryonFraction": 0.17,
-            "ReIncorporationFactor": 1.0,  # Vcrit = 445.48 km/s
+            "ReIncorporationFactor": 1.0,  # Vcrit = 354.53 km/s (SAGE26)
         },
     )
 
@@ -377,8 +377,8 @@ def test_physics_velocity_threshold():
     # Filter centrals by velocity
     centrals = halos[halos["Type"] == 0]
 
-    # Vcrit = 445.48 km/s with ReIncorporationFactor = 1.0
-    Vcrit = 445.48
+    # Vcrit = 354.53 km/s with ReIncorporationFactor = 1.0 (SAGE26 model_reincorporation.c:34)
+    Vcrit = 354.53
 
     low_vvir = centrals[centrals["Vvir"] < Vcrit]
     high_vvir = centrals[centrals["Vvir"] > Vcrit]

@@ -1,11 +1,16 @@
 /**
  * @file    sage26_apply_infall.c
- * @brief   SAGE infall application - distributes infalling gas budget to hot reservoir over
+ * @brief   SAGE26 infall application - distributes infalling gas budget to hot reservoir over
  * substeps
  *
- * Distributes infalling gas (from sage26_prepare_infall_budget) to hot reservoir over substeps
- * with metallicity tracking. For negative infall (mass loss), removes from ejected
- * reservoir first, then hot gas.
+ * Ports SAGE26's add_infall_to_hot, non-CGM branch (model_infall.c:351-369, :400-413),
+ * with its call-site share infallingGas / effective_steps (core_build_model.c:488):
+ * distributes the infalling gas budget from sage26_prepare_infall_budget to the
+ * central's hot reservoir over substeps with metallicity tracking. For negative
+ * infall (mass loss), removes from the ejected reservoir first, then hot gas.
+ *
+ * Every floating-point expression is transcribed from SAGE26 with its operand
+ * order and types, so that compiler contraction treats both alike.
  *
  * Reference: Croton et al. (2006, 2016)
  */
@@ -56,11 +61,12 @@ int sage26_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, i
 
   struct GalaxyData *galaxy = halos[central_idx].galaxy;
 
-  // Calculate infall amount for this substep
+  // The per-substep share of the snapshot budget (core_build_model.c:488)
   double infallingGas = galaxy->InfallingGas / (double)ctx->num_substeps;
 
-  // SAGE parity: add_infall_to_hot removes from ejected first, then hot; uses a float
-  // metallicity with double products accumulated into float reservoirs (no intermediate rounding)
+  // SAGE parity: add_infall_to_hot removes from ejected first, then hot, with a float
+  // metallicity and double products accumulated into float reservoirs, no intermediate
+  // rounding (model_infall.c:354-368, :403-412)
   if (infallingGas < 0.0 && galaxy->EjectedGas > 0.0f) {
     const float metallicity = mimic_get_metallicity(galaxy->EjectedGas, galaxy->MetalsEjectedGas);
     galaxy->MetalsEjectedGas += infallingGas * metallicity;
@@ -78,6 +84,7 @@ int sage26_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, i
     }
   }
 
+  // CGMrecipeOn != 1: the hot reservoir (model_infall.c:400-413)
   if (infallingGas < 0.0 && galaxy->MetalsHotGas > 0.0f) {
     const float metallicity = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
     galaxy->MetalsHotGas += infallingGas * metallicity;

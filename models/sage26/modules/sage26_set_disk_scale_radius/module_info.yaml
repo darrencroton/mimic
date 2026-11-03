@@ -16,7 +16,9 @@ module:
     parameters: []
 
   tests:
-    unit: _tests/test_unit_sage26_set_disk_scale_radius.c
+    unit:
+      - _tests/test_unit_sage26_set_disk_scale_radius.c
+      - _tests/test_unit_sage26_set_disk_scale_radius_oracle.c
     integration: _tests/test_integration_sage26_set_disk_scale_radius.py
     scientific: []
 
