@@ -1,5 +1,7 @@
 # Exactly zero excess (constructed): a Type 1 with Mvir 0 (modifier 1/inf = 0) and no baryons
-# gives strippedGas = +0, so strippedGas > 0 fails and the tiny negative hot metals are kept.
+# gives a zero strippedGas: +0 in the oracle build, whose fused fnmadd computes -(+0 * +0) - (-0)
+# (an unfused build would give -0). Either way strippedGas > 0 fails and the tiny negative hot
+# metals are kept.
 # A non-strict test would enter the branch, where the metal cap replaces the zero metal share
 # with the negative reservoir and the debit zeroes it. Zero excess with Mvir > 0 would need
 # modifier * BaryonFrac * Mvir to equal a float sum exactly, which R0's BaryonFrac 0.17 rules out.
