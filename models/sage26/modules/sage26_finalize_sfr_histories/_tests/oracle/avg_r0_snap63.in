@@ -1,6 +1,7 @@
-# Histories built from an R0 galaxy's outputs: every disk (bulge) rate bin is its SfrDisk
-# (SfrBulge) converted back to code units, every gas bin its ColdGas and MetalsColdGas (bulge bins
-# empty unless SfrBulge > 0). Plausible values, not reconstructed histories.
+# Histories built from an R0 satellite's outputs (plausible values, not reconstructed histories).
+# Every SfrDisk bin is its SfrDisk converted back to code units (5.92535686), and every disk gas
+# and metals bin its ColdGas and MetalsColdGas; the row's SfrBulge is 0, so every SfrBulge, bulge
+# gas and bulge metals bin is 0 and the bulge metallicity sum skips all ten bins.
 # galaxy 0: R0 reference model_0.hdf5 (SHA-256 6d859a3a2ea422e3...) Snap_63 row 2, GalaxyIndex
 # 256, Type 1
 format sage26-oracle-fixture 1

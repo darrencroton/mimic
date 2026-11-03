@@ -1313,7 +1313,7 @@ static struct sensitivity validate_wrapper_value(const struct GALAXY *input,
     struct locals l;
     struct GALAXY result[MAX_GALAXIES];
     struct instability_run inst;
-    memcpy(result, input, (size_t)a->layout.ngal * sizeof(result[0]));
+    /* compose_wrapper fills result on every in-domain path; out of domain it is not read */
     compose_wrapper(input, a, &comp, &pt, &l, result, &inst);
     const int changed =
         !l.out_of_domain && !same_galaxies(result, expected, a->layout.ngal, BLOCK_FULL);
