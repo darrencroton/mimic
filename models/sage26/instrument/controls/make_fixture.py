@@ -7,7 +7,8 @@ S1a-S1g, S2a-S2b, S3a-S3c, S4a-S4b, S5a-S5c, S6), each holding its inputs and an
 ``expect.json`` for ``run_control.py``. S7 (altered field maps run on S0's files) is
 built by ``alter_map.py``.
 
-Independence from ``field_map.yaml``: this file never reads the map. ``FIELDS`` pairs
+Independence from ``field_map.yaml``: this file never reads the map (it imports the
+comparator only for its ``T1_REFERENCE_SHA256``, which S0e passes). ``FIELDS`` pairs
 each SAGE26 dataset with its Mimic property, component, storage types and unit factor,
 written from SAGE26's writer field list (``src/io/save_gals_hdf5_fields.h``, the
 ``GALAXY_OUTPUT_FIELDS(X)`` list that ``src/io/save_gals_hdf5.c`` expands, in the staged
@@ -21,8 +22,10 @@ s, ``float32((f + 1) * (1000 + i) * (1 + s / 128))``. Two different fields of th
 galaxy differ by the ratio of their (f + 1), at least 1/81 relative, far outside the
 1e-6 tolerance, and so do the three components of ``Pos``, ``Vel`` and ``Spin``; a
 swapped field, a swapped component or a wrong factor in the field map therefore moves
-every affected pair outside tolerance. Every value is exactly representable in float32,
-so the float64 Mimic properties hold it exactly and the unperturbed fixture is
+every affected pair outside tolerance. Each value is stored in the reference as the
+float32 nearest the formula evaluated in float64 (not every formula value is a float32),
+and the candidate is derived from that stored value, so
+the Mimic float32 and float64 properties hold it exactly and the unperturbed fixture is
 bit-identical. Integer datasets take the literal per-galaxy rules in ``FIELDS``.
 
 Each control's expected outcome is computed by ``control_lib.evaluate`` from the
@@ -43,8 +46,6 @@ N = 1000
 #: Partition files in the fixture's candidate.
 PARTITIONS = 2
 
-#: SHA-256 of the T1 reference (S0e passes it for the fixture's reference).
-T1_REFERENCE_SHA256 = "19977093c0497339b954cb4fc0417ff249fde0de794319c224a8b9ea9e001d18"
 
 FLOAT = None  # marks a float dataset: its values follow the formula in the docstring
 
@@ -631,7 +632,7 @@ def build_s0e(out, comparator, ref_path, candidate):
         "S0's files with the T1 reference's digest as --reference-sha256 (rule 1)",
         comparator,
         ref_path,
-        T1_REFERENCE_SHA256,
+        cl.import_comparator(comparator).T1_REFERENCE_SHA256,
         candidate,
         partitions=PARTITIONS,
         expect={

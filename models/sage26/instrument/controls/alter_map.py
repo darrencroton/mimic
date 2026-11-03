@@ -11,9 +11,15 @@ fixture files, which ``make_fixture.py`` built from its own literal pairing:
 - S7c: a factor changed (``Mvir``, a core property, gets factor 1.001, with the
   ``factor_citation`` the map's structure requires, so the comparison runs).
 
-None may give ``pass``. A structure-preserving alteration may give ``fail``, or
-``error`` when it leaves the instrument unable to measure (a swapped key component
-matches no galaxy, M = 0); both are reported.
+None may give ``pass``. Each control is pinned to the outcome its alteration gives,
+not merely "not pass", so a map the comparator rejects on structure before comparing
+(an ``error`` of another kind) misses its expectation:
+
+- S7a: ``fail``, failing exactly both float gates of ``ColdGas`` and ``StellarMass`` at
+  every snapshot (the fixture's fields differ by at least 1/81 relative).
+- S7b: ``error``, ``no galaxy matched (M = 0)``: the swapped components are the
+  matching key, so no candidate key equals a reference key.
+- S7c: ``fail``, failing exactly both float gates of ``Mvir`` at every snapshot.
 """
 
 import argparse
@@ -53,6 +59,27 @@ ALTERATIONS = (
         ),
     ),
 )
+
+
+def gate_failures(*datasets):
+    """Both float gates of each dataset, at every T1 snapshot, as the JSON lists them."""
+    return [
+        "Snap %d: float:%s:%s" % (snap, ds, gate)
+        for snap in cl.T1_SNAPSHOTS
+        for ds in datasets
+        for gate in ("over_M", "over_M_sig")
+    ]
+
+
+def fail_expectation(failures):
+    return {"verdict": "fail", "exit": 1, "printed": "verdict: fail", "failures": failures}
+
+
+EXPECTED = {
+    "S7a": fail_expectation(gate_failures("ColdGas", "StellarMass")),
+    "S7b": {"verdict": "error", "exit": 2, "error_contains": "no galaxy matched (M = 0)"},
+    "S7c": fail_expectation(gate_failures("Mvir")),
+}
 
 
 def alter(text, edits):
@@ -98,7 +125,7 @@ def main(argv=None):
             s0["args"]["reference_sha256"],
             s0["args"]["candidate"],
             partitions=s0["args"]["partitions"],
-            expect={"verdict": "not-pass"},
+            expect=EXPECTED[name],
         )
         cl.write_expectation(cdir, doc)
         print("built %-4s %s" % (name, description))

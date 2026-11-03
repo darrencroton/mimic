@@ -36,11 +36,7 @@ def load_pairing(comparator):
     The map is read with the comparator's own parser, so the copy is built from exactly
     the entries the comparator will use. Returns ``(mappings, uncompared)``.
     """
-    sys.path.insert(0, os.path.dirname(os.path.abspath(comparator)))
-    try:
-        import compare_sage26
-    finally:
-        sys.path.pop(0)
+    compare_sage26 = cl.import_comparator(comparator)
     entries, _ = compare_sage26.load_field_map(
         os.path.join(os.path.dirname(os.path.abspath(comparator)), "field_map.yaml")
     )

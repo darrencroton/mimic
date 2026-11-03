@@ -22,8 +22,6 @@ import numpy as np
 import to_mimic_layout as tml
 from numpy.lib.recfunctions import repack_fields
 
-T1_REFERENCE_SHA256 = "19977093c0497339b954cb4fc0417ff249fde0de794319c224a8b9ea9e001d18"
-
 
 def ceil_fraction(n, percent_times_10):
     """ceil(n * p / 1000) in integers, for p given in tenths of a percent."""
@@ -289,7 +287,7 @@ def build_pass_fail(out, comparator, reference, base, mappings, uncompared):
             description,
             comparator,
             reference,
-            T1_REFERENCE_SHA256,
+            cl.import_comparator(comparator).T1_REFERENCE_SHA256,
             candidate,
             partitions=tml.PARTITIONS,
             expect=expect,
@@ -358,7 +356,7 @@ def build_errors(out, comparator, reference, base):
             description,
             comparator,
             reference,
-            T1_REFERENCE_SHA256,
+            cl.import_comparator(comparator).T1_REFERENCE_SHA256,
             candidate,
             partitions=tml.PARTITIONS,
             expect={"verdict": "error", "exit": 2, "error_contains": fragment},

@@ -11,8 +11,8 @@
 #
 # Exit status: 0 when every control meets its expectation and the reference digest is
 # unchanged; 1 when any control misses its expectation or the digest changed; 2 when the
-# controls cannot be built (wrong directory, missing Python or reference, a generator
-# failure).
+# controls cannot be built (wrong directory, missing Python, reference or shasum, a
+# reference whose SHA-256 is not T1's, a generator failure), checked before building.
 #
 # Environment: T1_REFERENCE overrides the T1 reference path.
 
@@ -23,6 +23,8 @@ INSTRUMENT=$(dirname "$HERE")
 COMPARATOR=$INSTRUMENT/compare_sage26.py
 PY=./mimic_venv/bin/python
 T1_REFERENCE=${T1_REFERENCE:-/Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/ref/model_0.hdf5}
+# The comparator's T1_REFERENCE_SHA256, repeated here because this is shell; the Python
+# generators read it from compare_sage26.py itself.
 T1_SHA256=19977093c0497339b954cb4fc0417ff249fde0de794319c224a8b9ea9e001d18
 OUT_BASE=output/instrument-controls
 
@@ -42,6 +44,20 @@ if [ ! -f "$T1_REFERENCE" ]; then
     exit 2
 fi
 
+if ! command -v shasum > /dev/null 2>&1; then
+    echo "run_controls.sh: shasum not found; the reference digest cannot be checked" >&2
+    exit 2
+fi
+SHA_BEFORE=$(shasum -a 256 "$T1_REFERENCE" | cut -d' ' -f1)
+if [ -z "$SHA_BEFORE" ]; then
+    echo "run_controls.sh: could not hash $T1_REFERENCE" >&2
+    exit 2
+fi
+if [ "$SHA_BEFORE" != "$T1_SHA256" ]; then
+    echo "run_controls.sh: $T1_REFERENCE has SHA-256 $SHA_BEFORE, not T1's $T1_SHA256" >&2
+    exit 2
+fi
+
 # Imported generator modules must not leave bytecode caches beside the sources.
 PYTHONDONTWRITEBYTECODE=1
 export PYTHONDONTWRITEBYTECODE
@@ -51,7 +67,6 @@ mkdir -p "$OUT_BASE" || exit 2
 mkdir "$RUN" || exit 2
 echo "controls directory: $RUN"
 
-SHA_BEFORE=$(shasum -a 256 "$T1_REFERENCE" | cut -d' ' -f1)
 echo "T1 reference SHA-256 before: $SHA_BEFORE"
 
 echo

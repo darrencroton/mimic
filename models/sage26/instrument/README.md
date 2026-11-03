@@ -135,7 +135,7 @@ The script builds every control under a new directory `output/instrument-control
 
 | File | Role |
 |---|---|
-| `run_controls.sh` | Builds and runs every control; the exit status is the overall result. |
+| `run_controls.sh` | Builds and runs every control; the exit status is the overall result. It refuses (exit 2) before building anything if `shasum` is missing or the reference's SHA-256 is not T1's. |
 | `make_fixture.py` | The synthetic fixture and controls S0–S6. |
 | `alter_map.py` | The altered-map controls S7a–S7c. |
 | `to_mimic_layout.py` | G1: the T1 reference rewritten in Mimic's layout (also G1s63 and B6). |
@@ -168,9 +168,9 @@ The script builds every control under a new directory `output/instrument-control
 | S5b | `ColdGas` NaN or +inf in the candidate only, 11% | `fail` |
 | S5c | The same infinity on both sides (+inf and −inf) | `pass` (within) |
 | S6 | `MostBoundID` above 2^60 differing only in the lowest bit in 6 galaxies (equal as float64) | `fail` (`int:SimulationHaloIndex`, 994 equal) |
-| S7a | Map with `ColdGas` and `StellarMass` swapped, on S0's files | not `pass` (`fail`) |
-| S7b | Map with `Posx` and `Posy` components swapped, on S0's files | not `pass` (`error`: no galaxy matches, M = 0) |
-| S7c | Map with `Mvir`'s factor changed to 1.001, on S0's files | not `pass` (`fail`) |
+| S7a | Map with `ColdGas` and `StellarMass` swapped, on S0's files | `fail`, exactly both float gates of `ColdGas` and `StellarMass` at every snapshot |
+| S7b | Map with `Posx` and `Posy` components swapped, on S0's files | `error`, `no galaxy matched (M = 0)`: the swapped components are the matching key |
+| S7c | Map with `Mvir`'s factor changed to 1.001 (with a `factor_citation`, so the map is accepted), on S0's files | `fail`, exactly both float gates of `Mvir` at every snapshot |
 | G1 | The T1 reference against its Mimic-layout copy | `pass`, `t1_eligible` true, M = N_ref = N_cand at every snapshot, every factor-1 mapping 100% bit-identical (the map has no other factor) |
 | G1s63 | G1 with `--snapshots 63` | `pass (not T1-eligible)` |
 | B1 | `StellarMass` × (1 + 1e-5) in the first 7307 non-zero galaxies at 63 | `fail`, only `StellarMass` at 63 (29227/36534 within) |

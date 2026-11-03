@@ -9,8 +9,7 @@ its criterion names, and exits 0 when every expectation is met, 1 otherwise.
 
 Expectation keys (all under ``expect``):
 
-- ``verdict``: ``pass``, ``fail``, ``error``, or ``not-pass`` (fail or error, S7);
-  ``exit``: the exit status; ``printed``: the exact last line of standard output.
+- ``verdict``: ``pass``, ``fail`` or ``error``; ``exit``: the exit status (both required); ``printed``: the exact last line of standard output.
 - ``t1_eligible``: the JSON's ``t1_eligible``.
 - ``failures``: the exact list of failed thresholds (compared as a multiset).
 - ``error_contains``: a fragment of the JSON's ``error`` message. An ``error`` must also
@@ -112,7 +111,7 @@ class Checker:
         if got != want:
             self.line(False, "compared snapshots %s, expected %s" % (got, want))
             return
-        checked, bad = 0, []
+        checked, bad, layout = 0, [], []
         for t in tables:
             e = expected[str(t["snapshot"])]
             pairs = [
@@ -131,7 +130,7 @@ class Checker:
                 ),
             ]
             if set(t["properties"]) != set(e["properties"]):
-                bad.append(
+                layout.append(
                     "Snap %d compared datasets differ: only comparator %s, only control %s"
                     % (
                         t["snapshot"],
@@ -144,7 +143,7 @@ class Checker:
                     actual = t["properties"].get(ds, {}).get(key, "<absent>")
                     pairs.append(("%s %s" % (ds, key), value, actual))
             if set(t["uncompared"]) != set(e["uncompared"]):
-                bad.append("Snap %d uncompared datasets differ" % t["snapshot"])
+                layout.append("Snap %d uncompared datasets differ" % t["snapshot"])
             for ds, summary in e["uncompared"].items():
                 for key, value in summary.items():
                     actual = t["uncompared"].get(ds, {}).get(key, "<absent>")
@@ -163,6 +162,11 @@ class Checker:
         )
         for b in bad[:10]:
             print("          " + b)
+        if layout:
+            # Dataset-set mismatches are not values, so they are tallied apart from them.
+            self.line(False, "compared datasets differ at %d snapshot(s)" % len(layout))
+            for b in layout[:10]:
+                print("          " + b)
 
 
 def run_control(control_dir):
@@ -205,21 +209,13 @@ def run_control(control_dir):
 
     print("== %s: %s" % (spec["control"], spec["description"]))
     verdict = doc.get("verdict")
-    want_exit = expect.get("exit")
+    want_exit = expect["exit"]
     print(
-        "   expected: verdict %s, exit %s | actual: verdict %s, exit %d"
-        % (expect["verdict"], "1 or 2" if want_exit is None else want_exit, verdict, status)
+        "   expected: verdict %s, exit %d | actual: verdict %s, exit %d"
+        % (expect["verdict"], want_exit, verdict, status)
     )
     c = Checker()
-    if expect["verdict"] == "not-pass":
-        c.line(verdict in ("fail", "error") and status in (1, 2), "not pass (%s)" % verdict)
-        if verdict == "fail":
-            failures = doc.get("failures", [])
-            print("          %d failed thresholds, first: %s" % (len(failures), failures[:4]))
-        elif verdict == "error":
-            print("          error: %s" % doc.get("error"))
-    else:
-        c.line(verdict == expect["verdict"] and status == want_exit, "verdict and exit status")
+    c.line(verdict == expect["verdict"] and status == want_exit, "verdict and exit status")
     if "printed" in expect:
         c.line(last == expect["printed"], "last line printed: %r" % last)
     elif expect["verdict"] == "error":

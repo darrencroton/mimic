@@ -23,6 +23,7 @@ partitions, so the comparator never sees the construction order.
 """
 
 import hashlib
+import importlib.util
 import json
 import os
 from fractions import Fraction
@@ -47,6 +48,18 @@ CREATION_VALUES = {"mergeType": 0, "g_max": 0, "mergeIntoID": -1, "mergeIntoSnap
 
 #: Seed of the documented shuffle that assigns candidate rows to partitions.
 PARTITION_SEED = 20261103
+
+
+def import_comparator(path):
+    """Import ``compare_sage26.py`` from ``path`` (for its constants and map parser).
+
+    Importing it reads nothing: the field map is read only when ``load_field_map`` is
+    called.
+    """
+    spec = importlib.util.spec_from_file_location("compare_sage26", os.path.abspath(path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class Mapping:
