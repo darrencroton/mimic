@@ -29,6 +29,7 @@ import math
 import os
 import re
 import sys
+import tempfile
 from fractions import Fraction
 
 try:
@@ -1048,7 +1049,9 @@ def finish_error(args, document, message):
     """Rule 9 and PM ruling 7: write the error JSON and print the verdict line; return 2.
 
     The JSON keeps the input identities gathered so far and drops any verdict tables.
-    No outliers CSV is written, and any file already at that path is left untouched.
+    No outliers CSV is written, and any file already at that path is left untouched
+    (``main`` only ever writes the CSV to a temporary file, which it discards on error).
+    If the JSON path itself cannot be written, the verdict line says so (PM ruling 10).
     """
     for key in ("failures", "snapshot_tables"):
         document.pop(key, None)
@@ -1062,29 +1065,66 @@ def finish_error(args, document, message):
             type(exc).__name__,
             exc,
         )
-    print("verdict: error: %s" % message)
+    try:
+        print("verdict: error: %s" % message)
+    except Exception:  # noqa: BLE001 - an unprintable verdict must still exit 2
+        pass
     return EXIT_ERROR
 
 
-def main(argv=None):
-    """Entry point; the last line printed is always ``verdict: <verdict>``.
+def _temporary_outliers(path):
+    """Create an empty temporary file beside ``path`` (same directory, so the final
+    ``os.replace`` is a rename within one file system) with the umask's usual mode."""
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, tmp = tempfile.mkstemp(
+        prefix="." + os.path.basename(path) + ".", suffix=".tmp", dir=directory
+    )
+    os.close(fd)
+    umask = os.umask(0)
+    os.umask(umask)
+    os.chmod(tmp, 0o666 & ~umask)
+    return tmp
 
-    The one exception is a usage error, which argparse reports on stderr with exit 2.
+
+def main(argv=None):
+    """Entry point.
+
+    The last line printed to standard output is ``verdict: <verdict>`` on every path
+    except ``--help`` (exit 0, the help text) and a usage error (argparse's message on
+    standard error, exit 2). The outputs are transactional: the outliers CSV is written
+    to a temporary file beside ``--outliers``, the JSON is written, and only then is the
+    temporary file renamed onto ``--outliers``; on any error the temporary file is
+    removed, so an error run never creates or replaces a file at ``--outliers``. The
+    per-snapshot table is printed only after both outputs are in place, and a failure to
+    print cannot change them: the exit status is still the verdict's.
     """
     args = build_parser().parse_args(argv)
     document = new_document(args)
     if _IMPORT_ERROR is not None:
         return finish_error(args, document, "cannot import NumPy and h5py (%s)" % _IMPORT_ERROR)
+    tmp_csv = None
     try:
         status, printed, (tables, blocks) = run(args, document)
-        write_outliers(args.outliers, blocks)
+        tmp_csv = _temporary_outliers(args.outliers)
+        write_outliers(tmp_csv, blocks)
         write_json(args.json, document)
-        _print_table(tables)
+        os.replace(tmp_csv, args.outliers)
+        tmp_csv = None
     except InstrumentError as exc:
         return finish_error(args, document, str(exc))
     except Exception as exc:  # noqa: BLE001 - any unexpected failure is 'error', never exit 1
         return finish_error(args, document, "internal failure: %s: %s" % (type(exc).__name__, exc))
-    print("verdict: %s" % printed)
+    finally:
+        if tmp_csv is not None:
+            try:
+                os.remove(tmp_csv)
+            except OSError:
+                pass
+    try:
+        _print_table(tables)
+        print("verdict: %s" % printed)
+    except Exception:  # noqa: BLE001 - the JSON and CSV are already consistent and final
+        pass
     return status
 
 
