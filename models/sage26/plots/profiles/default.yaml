@@ -1,0 +1,27 @@
+plots:
+  snapshot:
+    - halo_mass_function
+    - halo_occupation
+    - spin_distribution
+    - velocity_distribution
+    - spatial_distribution
+    - stellar_mass_function
+    - cold_gas_function
+    - baryon_fraction
+    - baryonic_mass_function
+    - gas_mass_function
+    - baryonic_tully_fisher
+    - specific_sfr
+    - black_hole_bulge_relation
+    - gas_fraction
+    - metallicity
+    - bulge_mass_fraction
+    - quiescent_fraction
+    - mass_reservoir_scatter
+  evolution:
+    - hmf_evolution
+    - smf_evolution
+    - sfr_density_evolution
+    - stellar_mass_density_evolution
+
+mode: exploration

@@ -1,0 +1,23 @@
+module:
+  name: sage26_reionization
+  description: >-
+    Calculates per-galaxy reionization suppression factor using Gnedin (2000) model; sets
+    HaloBaryonFraction for each galaxy using its own Mvir
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type
+      - Mvir
+      - HaloBaryonFraction
+    parameters:
+      - GlobalBaryonFraction
+
+  tests:
+    unit: _tests/test_unit_sage26_reionization.c
+    integration: _tests/test_integration_sage26_reionization.py
+    scientific: []
+
+  docs:
+    physics: README.md

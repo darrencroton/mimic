@@ -1,0 +1,228 @@
+#!/usr/bin/env python
+
+"""
+SAGE Gas Mass Function Plot
+
+This module generates a gas mass function plot from SAGE galaxy data.
+"""
+
+import numpy as np
+from figures import AXIS_LABEL_SIZE, get_gas_mass_label, get_mass_function_labels, setup_legend
+from matplotlib.ticker import MultipleLocator
+from output_utils import (
+    calculate_mass_function,
+    check_required_fields,
+    get_profile_axes,
+    save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+)
+
+
+def plot(
+    galaxies,
+    volume,
+    metadata,
+    params,
+    output_dir="plots",
+    output_format=".png",
+    verbose=False,
+):
+    """
+    Create a gas mass function plot.
+
+    Args:
+        galaxies: Galaxy data as a numpy recarray
+        volume: Simulation volume in (Mpc/h)^3
+        metadata: Dictionary with additional metadata
+        params: Dictionary with SAGE parameters
+        output_dir: Output directory for the plot
+        output_format: File format for the output
+
+    verbose: Whether to print verbose output
+
+
+    Returns:
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
+    """
+    # Check required and optional fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=["ColdGas"],
+        optional_fields=["SfrDisk", "SfrBulge", "StellarMass"],
+        plot_name="Gas Mass Function",
+    )
+
+    if not success:
+        return None, f"Required fields missing: {msg}"
+
+    # Extract necessary metadata
+    hubble_h = metadata["hubble_h"]
+
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "gas_mass_function", (8.0, 11.5), (1.0e-6, 1.0e-1), log_y=True
+    )
+
+    # Set up binning
+    binwidth = 0.1  # mass function histogram bin width
+
+    # Prepare data for cold gas
+    w = np.where(galaxies.ColdGas > 0.0)[0]
+
+    # Check if we have any galaxies to plot
+    is_valid, skip_msg = validate_filtered_data(w, "Plot", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
+
+    mass = np.log10(galaxies.ColdGas[w] * 1.0e10 / hubble_h)
+
+    # Calculate specific SFR for red/blue division (if fields available)
+    has_sfr_fields = (
+        optional.get("SfrDisk", False)
+        and optional.get("SfrBulge", False)
+        and optional.get("StellarMass", False)
+    )
+    if has_sfr_fields:
+        sfr = galaxies.SfrDisk[w] + galaxies.SfrBulge[w]
+        stellar_mass = galaxies.StellarMass[w] * 1.0e10 / hubble_h
+    else:
+        sfr = np.zeros(len(w))
+        stellar_mass = np.ones(len(w))  # Avoid division by zero
+
+    # Avoid division by zero
+    nonzero_mass = stellar_mass > 0
+    ssfr = np.zeros_like(stellar_mass)
+    if np.any(nonzero_mass):
+        ssfr[nonzero_mass] = sfr[nonzero_mass] / stellar_mass[nonzero_mass]
+
+    ssfr_cut = -11.0  # log10(sSFR) cut between red and blue galaxies
+
+    # Calculate gas mass function
+    xaxis, gmf = calculate_mass_function(mass, volume, hubble_h, binwidth)
+
+    # Plot the main histogram
+    ax.plot(xaxis, gmf, "k-", label="Model - Cold Gas")
+
+    # Add observational data from Zwaan et al. 2005 (HI)
+    Zwaan = np.array(
+        [
+            [6.933, -0.333],
+            [7.057, -0.490],
+            [7.209, -0.698],
+            [7.365, -0.667],
+            [7.528, -0.823],
+            [7.647, -0.958],
+            [7.809, -0.917],
+            [7.971, -0.948],
+            [8.112, -0.927],
+            [8.263, -0.917],
+            [8.404, -1.062],
+            [8.566, -1.177],
+            [8.707, -1.177],
+            [8.853, -1.312],
+            [9.010, -1.344],
+            [9.161, -1.448],
+            [9.302, -1.604],
+            [9.448, -1.792],
+            [9.599, -2.021],
+            [9.740, -2.406],
+            [9.897, -2.615],
+            [10.053, -3.031],
+            [10.178, -3.677],
+            [10.335, -4.448],
+            [10.492, -5.083],
+        ],
+        dtype=np.float32,
+    )
+
+    # Add observational data from Obreschkow & Rawlings 2009 (H2)
+    ObrRaw = np.array(
+        [
+            [7.300, -1.104],
+            [7.576, -1.302],
+            [7.847, -1.250],
+            [8.133, -1.240],
+            [8.409, -1.344],
+            [8.691, -1.479],
+            [8.956, -1.792],
+            [9.231, -2.271],
+            [9.507, -3.198],
+            [9.788, -5.062],
+        ],
+        dtype=np.float32,
+    )
+
+    # Add observational data from Obreschkow & Rawlings 2009 (Cold Gas)
+    ObrCold = np.array(
+        [
+            [8.009, -1.042],
+            [8.215, -1.156],
+            [8.409, -0.990],
+            [8.604, -1.156],
+            [8.799, -1.208],
+            [9.020, -1.333],
+            [9.194, -1.385],
+            [9.404, -1.552],
+            [9.599, -1.677],
+            [9.788, -1.812],
+            [9.999, -2.312],
+            [10.172, -2.656],
+            [10.362, -3.500],
+            [10.551, -3.635],
+            [10.740, -5.010],
+        ],
+        dtype=np.float32,
+    )
+
+    ObrCold_xval = np.log10(10 ** (ObrCold[:, 0]) / hubble_h / hubble_h)
+    ObrCold_yval = 10 ** (ObrCold[:, 1]) * hubble_h**3
+    Zwaan_xval = np.log10(10 ** (Zwaan[:, 0]) / hubble_h / hubble_h)
+    Zwaan_yval = 10 ** (Zwaan[:, 1]) * hubble_h**3
+    ObrRaw_xval = np.log10(10 ** (ObrRaw[:, 0]) / hubble_h / hubble_h)
+    ObrRaw_yval = 10 ** (ObrRaw[:, 1]) * hubble_h**3
+
+    ax.plot(
+        ObrCold_xval,
+        ObrCold_yval,
+        color="black",
+        lw=7,
+        alpha=0.25,
+        label="Obr. & Raw. 2009 (Cold Gas)",
+    )
+    ax.plot(
+        Zwaan_xval,
+        Zwaan_yval,
+        color="cyan",
+        lw=7,
+        alpha=0.25,
+        label="Zwaan et al. 2005 (HI)",
+    )
+    ax.plot(
+        ObrRaw_xval,
+        ObrRaw_yval,
+        color="magenta",
+        lw=7,
+        alpha=0.25,
+        label="Obr. & Raw. 2009 (H2)",
+    )
+
+    # Customize the plot
+    ax.set_yscale("log")
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+    ax.xaxis.set_minor_locator(MultipleLocator(0.1))
+
+    ax.set_ylabel(get_mass_function_labels(), fontsize=AXIS_LABEL_SIZE)
+    ax.set_xlabel(get_gas_mass_label(), fontsize=AXIS_LABEL_SIZE)
+
+    # Add consistently styled legend
+    setup_legend(ax, loc="lower left")
+
+    # Save and close the figure
+    plot_path = save_and_close_figure(fig, output_dir, "GasMassFunction", output_format, verbose)
+    return plot_path, None

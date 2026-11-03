@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+"""
+sage26_initialise_merger_clock integration tests.
+
+Validates pipeline integration: module initialization, memory safety, output property
+existence and types, data flow, and standalone execution. Physics correctness is covered
+by the unit tests.
+"""
+
+import shutil
+import sys
+from pathlib import Path
+
+import numpy as np
+
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+from framework import (
+    BLUE,
+    GREEN,
+    MIMIC_EXE,
+    NC,
+    RED,
+    TestSkipped,
+    assert_no_infs,
+    assert_no_nans,
+    assert_range,
+    create_test_param_file,
+    load_binary_halos,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
+    run_mimic,
+)
+
+
+def test_module_loads():
+    """Test module registration, initialization, and cleanup lifecycle."""
+    print("Testing module load and initialization...")
+
+    # ===== SETUP =====
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_load",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={},
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+
+    # ===== VALIDATE =====
+    assert returncode == 0, f"Mimic should execute successfully\nStderr: {stderr}"
+
+    # Check initialization log message
+    assert (
+        "SAGE initialise merger clock initialized" in stdout
+    ), f"sage26_initialise_merger_clock should log initialization message\nStdout:\n{stdout}"
+
+    # Cleanup
+    shutil.rmtree(test_temp_dir)
+
+    print("  ✓ Module loads and initializes successfully")
+
+
+def test_memory_safety():
+    """Test that the module run does not report memory leaks."""
+    print("Testing memory safety...")
+
+    # ===== SETUP =====
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_memory",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={},
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+
+    # ===== VALIDATE =====
+    assert returncode == 0, "Execution should succeed"
+    assert "Memory leak detected" not in stdout, "Should not have memory leaks"
+    assert "Memory leak detected" not in stderr, "Should not have memory leaks in stderr"
+
+    # Cleanup
+    shutil.rmtree(test_temp_dir)
+
+    print("  ✓ No memory leaks detected")
+
+
+def test_output_properties_exist():
+    """Test that required output properties are accessible from Python."""
+    print("Testing output property existence...")
+
+    # ===== SETUP =====
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_properties",
+        output_format="binary",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={},
+        first_file=0,
+        last_file=0,
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, f"Mimic should execute successfully\nStderr: {stderr}"
+
+    # ===== VALIDATE =====
+    # Load binary output using framework (binary files are named model_z0.000_0)
+    output_file = output_dir / "model_z0.000_0"
+    halos, metadata = load_binary_halos(str(output_file))
+
+    # Check required properties exist (C-Python binding validation)
+    # Note: MergTime may not be in output struct if not configured for output
+    # Check Type and infallMvir which the module reads
+    required_props = ["Type", "Mvir", "infallMvir", "Len"]
+    for prop in required_props:
+        assert (
+            prop in halos.dtype.names
+        ), f"Property '{prop}' should exist in output (C-Python binding)"
+
+    # Cleanup
+    shutil.rmtree(test_temp_dir)
+
+    print("  ✓ Required properties exist in output")
+
+
+def test_output_property_types():
+    """Test binary output dtypes for the properties used by this module."""
+    print("Testing output property types...")
+
+    # ===== SETUP =====
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_types",
+        output_format="binary",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={},
+        first_file=0,
+        last_file=0,
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, f"Mimic should execute successfully"
+
+    # ===== VALIDATE =====
+    output_file = output_dir / "model_z0.000_0"
+    halos, metadata = load_binary_halos(str(output_file))
+
+    # Check data types
+    assert halos["Type"].dtype == np.int32, f"Type should be int32, got {halos['Type'].dtype}"
+    assert halos["Mvir"].dtype == np.float64, f"Mvir should be float64, got {halos['Mvir'].dtype}"
+    assert (
+        halos["infallMvir"].dtype == np.float64
+    ), f"infallMvir should be float64, got {halos['infallMvir'].dtype}"
+
+    # Cleanup
+    shutil.rmtree(test_temp_dir)
+
+    print("  ✓ Property types are correct")
+
+
+def test_output_sanity_checks():
+    """Test that output values are finite and in basic physical ranges."""
+    print("Testing output sanity checks...")
+
+    # ===== SETUP =====
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_sanity",
+        output_format="binary",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={},
+        first_file=0,
+        last_file=0,
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, "Mimic should execute successfully"
+
+    # ===== VALIDATE =====
+    output_file = output_dir / "model_z0.000_0"
+    halos, metadata = load_binary_halos(str(output_file))
+
+    # Check for NaN and Inf
+    assert_no_nans(halos)
+    assert_no_infs(halos)
+
+    # Check Type values are valid (0, 1, 2, or 3)
+    assert np.all((halos["Type"] >= 0) & (halos["Type"] <= 3)), "Type should be 0, 1, 2, or 3"
+
+    # Check Mvir is non-negative
+    assert_range(halos, "Mvir", 0.0, 1e10)
+
+    # Cleanup
+    shutil.rmtree(test_temp_dir)
+
+    print("  ✓ Output values pass sanity checks")
+
+
+def test_data_flow_validation():
+    """Test that the module executes and produces structured output data."""
+    print("Testing data flow validation...")
+
+    # ===== SETUP =====
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_dataflow",
+        output_format="binary",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={},
+        first_file=0,
+        last_file=0,
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, "Mimic should execute successfully"
+
+    # ===== VALIDATE =====
+    output_file = output_dir / "model_z0.000_0"
+    halos, metadata = load_binary_halos(str(output_file))
+
+    # Verify we have data
+    assert len(halos) > 0, "Output should contain halos"
+
+    # Verify centrals exist (Type 0)
+    centrals = halos[halos["Type"] == 0]
+    assert len(centrals) > 0, "Output should contain centrals"
+
+    # Verify satellites exist (Type 1) - needed for merger timescale calculation
+    satellites = halos[halos["Type"] == 1]
+    # Note: Not all trees may have satellites at z=0
+    if len(satellites) > 0:
+        print(f"    Found {len(satellites)} satellites in output")
+
+    # Basic data flow check: Data is valid (not all NaN)
+    assert not np.all(
+        np.isnan(halos["Mvir"])
+    ), "Mvir values should not all be NaN (data should flow through)"
+
+    # Cleanup
+    shutil.rmtree(test_temp_dir)
+
+    print("  ✓ Data flows through module correctly")
+
+
+def test_standalone_execution():
+    """Test that the module runs without other physics modules."""
+    print("Testing standalone execution...")
+
+    # ===== SETUP =====
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_standalone",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={},
+        first_file=0,
+        last_file=0,
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+
+    # ===== VALIDATE =====
+    assert returncode == 0, f"Module should run standalone without other modules\nStderr: {stderr}"
+
+    # Verify module initialized (log message check)
+    assert (
+        "SAGE initialise merger clock initialized" in stdout
+    ), f"Module should initialize\nStdout:\n{stdout}"
+
+    # Cleanup
+    shutil.rmtree(test_temp_dir)
+
+    print("  ✓ Standalone execution successful")
+
+
+def main():
+    """Run all integration test cases with structured result markers."""
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: SAGE Calculate Merger Timescale Integration Tests{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+
+    tests = [
+        test_module_loads,
+        test_memory_safety,
+        test_output_properties_exist,
+        test_output_property_types,
+        test_output_sanity_checks,
+        test_data_flow_validation,
+        test_standalone_execution,
+    ]
+
+    passed = 0
+    failed = 0
+    skipped = 0
+
+    if not MIMIC_EXE.exists():
+        for test in tests:
+            result_skip(test.__name__, "Mimic not built")
+        return 0
+
+    for test in tests:
+        print()
+        try:
+            test()
+            result_pass(test.__name__)
+            passed += 1
+        except TestSkipped as e:
+            result_skip(test.__name__, str(e))
+            skipped += 1
+        except AssertionError as e:
+            result_fail(test.__name__, str(e).splitlines()[0])
+            failed += 1
+        except Exception as e:
+            result_error(test.__name__, str(e).splitlines()[0])
+            failed += 1
+
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed:  {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
+    print(f"Failed:  {failed}")
+    print(f"Total:   {passed + failed + skipped}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    if failed == 0:
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        return 0
+    else:
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
