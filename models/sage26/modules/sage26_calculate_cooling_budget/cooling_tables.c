@@ -61,6 +61,10 @@ static double get_rate(int tab, double logTemp) {
     logTemp = LOG_TEMP_MIN;
   }
 
+  // SAGE parity: only the low end is clamped. Above the last grid point (8.5) the
+  // index is capped to the final interval and the rate extrapolates linearly along
+  // it; SAGE26's comment says it clamps to [4.0, 8.5], but its code does not
+  // (R/src/core_cool_func.c:113-128).
   int index = (int)((logTemp - LOG_TEMP_MIN) * inv_dlogT);
   if (index >= TEMP_INDEX_MAX) {
     index = TEMP_INDEX_MAX - 1;

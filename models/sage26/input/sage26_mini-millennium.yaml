@@ -62,6 +62,9 @@ modules:
       - sage26_starburst_feedback:      process_per_event   # merger event consumer
 
   post_timestep:
+    # Once per FoF after the last substep: normalise the accumulated Cooling and
+    # Heating energies by the snapshot interval (SAGE26 core_build_model.c:590-603)
+    - sage26_finalize_cooling_heating: process_full_halo
 
   parameters:
     # Reionisation

@@ -11,8 +11,9 @@
  * - Property access patterns
  * - Cooling gas transfer (partial and complete)
  * - Metallicity preservation during gas transfer
- * - Cooling energy tracking
- * - Edge cases (Type 2 orphans, zero cooling, NULL galaxy, invalid ngal)
+ * - The tail of SAGE26's cooling_recipe_hot (Cooling accumulated undivided, CoolingRate)
+ *   and its early-return handling
+ * - Edge cases (Type 2 orphans, zero cooling, NULL galaxy, invalid ngal, no interval)
  *
  * Test cases:
  *   - test_module_registration: Module registers correctly
@@ -22,7 +23,11 @@
  *   - test_physics_partial_cooling: Partial hot gas cooling (coolingGas < HotGas)
  *   - test_physics_complete_depletion: Complete hot gas depletion (coolingGas >= HotGas)
  *   - test_physics_metallicity_preservation: Metallicity preserved during transfer
- *   - test_physics_cooling_energy_tracking: Cooling energy calculated correctly
+ *   - test_physics_cooling_energy_tracking: Cooling accumulates 0.5 m Vvir^2 undivided
+ *   - test_cooling_rate_diagnostic: CoolingRate is SAGE26's conversion of mass / dt
+ *   - test_early_return_skips_tail: lambda/rho_rcool early returns leave Cooling, CoolingRate
+ *   - test_outer_guard_writes_zero_rate: the outer-guard path writes CoolingRate 0
+ *   - test_no_interval_is_noop: no positive interval (snapshot-zero birth) changes nothing
  *   - test_zero_cooling: Edge case with zero CoolingGas
  *   - test_type2_orphan_cools: Type 2 orphans cool their own hot gas (SAGE parity)
  *   - test_null_galaxy: NULL galaxy handled gracefully
@@ -50,12 +55,34 @@
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
 
+#include "shared/sage_constants.h"
+
 /* External module interface for direct testing */
 extern int sage26_apply_cooling_init(void);
 extern int sage26_apply_cooling_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 extern int sage26_apply_cooling_cleanup(void);
 
 /* Test fixtures for physics tests */
+
+/* SAGE26's R0 Hubble_h and UnitTime_in_s (R/input/millennium.par:40, R/src/core_init.c:94) */
+#define TEST_HUBBLE_H 0.73
+#define TEST_UNIT_TIME_IN_S 3.08568e19
+
+/**
+ * @brief Module context with the run configuration and one substep
+ *
+ * The module derives its substep dt from halo->dT / num_substeps and reads
+ * Hubble_h and UnitTime_in_s for the CoolingRate diagnostic.
+ */
+static struct ModuleContext create_test_context(void) {
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  MimicConfig.Hubble_h = TEST_HUBBLE_H;
+  MimicConfig.UnitTime_in_s = TEST_UNIT_TIME_IN_S;
+  ctx.params = &MimicConfig;
+  ctx.num_substeps = 1;
+  return ctx;
+}
 
 /**
  * @brief Initialize sage26_apply_cooling module for physics testing
@@ -256,8 +283,7 @@ int test_physics_partial_cooling(void) {
   test_halo.galaxy->CoolingGas = 3.0f; /* Cool 3.0 out of 10.0 */
 
   /* Create module context */
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
+  struct ModuleContext ctx = create_test_context();
 
   /* ===== EXECUTE ===== */
   int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
@@ -310,8 +336,7 @@ int test_physics_complete_depletion(void) {
   test_halo.galaxy->MetalsColdGas = 0.06f;
   test_halo.galaxy->CoolingGas = 10.0f; /* Exceeds available HotGas */
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
+  struct ModuleContext ctx = create_test_context();
 
   /* ===== EXECUTE ===== */
   int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
@@ -364,8 +389,7 @@ int test_physics_metallicity_preservation(void) {
   test_halo.galaxy->MetalsColdGas = 0.2f; /* Z = 0.02 */
   test_halo.galaxy->CoolingGas = 5.0f;
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
+  struct ModuleContext ctx = create_test_context();
 
   /* ===== EXECUTE ===== */
   int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
@@ -393,7 +417,9 @@ int test_physics_metallicity_preservation(void) {
  * @test    test_physics_cooling_energy_tracking
  * @brief   Test that cooling energy is tracked correctly
  *
- * Expected: Cooling property tracks energy: E = 0.5 * m * v^2 / dt
+ * Expected: Cooling accumulates E = 0.5 * m * Vvir^2 undivided, as SAGE26 does
+ *           (R/src/model_cooling_heating.c:301-302); sage26_finalize_cooling_heating
+ *           divides by the snapshot interval once per halo
  * Validates: Cooling energy calculation
  */
 int test_physics_cooling_energy_tracking(void) {
@@ -411,8 +437,7 @@ int test_physics_cooling_energy_tracking(void) {
   test_halo.galaxy->CoolingGas = 3.0f;
   test_halo.galaxy->Cooling = 0.0; /* Start at zero */
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
+  struct ModuleContext ctx = create_test_context();
 
   /* ===== EXECUTE ===== */
   int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
@@ -420,16 +445,145 @@ int test_physics_cooling_energy_tracking(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Module processing should succeed");
 
-  /* Expected cooling energy: 0.5 * 3.0 * 160^2 / 100.0 = 384.0 */
-  double expected_cooling = 0.5 * 3.0 * 160.0 * 160.0 / 100.0;
+  /* Expected cooling energy: 0.5 * 3.0 * 160^2 = 38400, not divided by dT */
+  double expected_cooling = 0.5 * 3.0 * 160.0 * 160.0;
   TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->Cooling, expected_cooling, 0.1,
                            "Cooling energy should match expected value");
+
+  /* A second call accumulates onto the first */
+  test_halo.galaxy->CoolingGas = 1.0;
+  result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
+  TEST_ASSERT(result == 0, "Module processing should succeed");
+  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->Cooling, expected_cooling + 0.5 * 160.0 * 160.0, 0.1,
+                           "Cooling should accumulate over calls");
 
   /* ===== CLEANUP ===== */
   free_test_halo(&test_halo);
   sage26_apply_cooling_cleanup();
   check_memory_leaks();
 
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cooling_rate_diagnostic
+ * @brief   CoolingRate is SAGE26's float (m / dt) * 1e10 / Hubble_h * SEC_PER_GIGAYEAR /
+ *          UnitTime_in_s (R/src/model_cooling_heating.c:310-313)
+ */
+int test_cooling_rate_diagnostic(void) {
+  init_memory_system(0);
+  setup_module_for_physics_test();
+
+  struct Halo test_halo = create_test_halo(0, 100.0, 160.0);
+  test_halo.dT = 0.02; /* one substep: dt = 0.02 code units */
+  test_halo.galaxy->HotGas = 10.0f;
+  test_halo.galaxy->CoolingGas = 3.0;
+  test_halo.galaxy->CoolingRate = -44.0f;
+
+  struct ModuleContext ctx = create_test_context();
+  int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
+  TEST_ASSERT(result == 0, "Module processing should succeed");
+
+  const float expected =
+      (float)((3.0 / 0.02) * 1.0e10 / TEST_HUBBLE_H * SAGE_SEC_PER_GIGAYEAR / TEST_UNIT_TIME_IN_S);
+  TEST_ASSERT(test_halo.galaxy->CoolingRate == expected,
+              "CoolingRate must be SAGE26's conversion of the cooled mass over dt");
+
+  free_test_halo(&test_halo);
+  sage26_apply_cooling_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_early_return_skips_tail
+ * @brief   SAGE26's lambda <= 0 and rho_rcool <= 0 early returns skip the tail: Cooling
+ *          and CoolingRate keep their previous values (R/src/model_cooling_heating.c:157-169)
+ */
+int test_early_return_skips_tail(void) {
+  init_memory_system(0);
+  setup_module_for_physics_test();
+
+  const int paths[] = {SAGE_COOLING_PATH_LAMBDA, SAGE_COOLING_PATH_RHO_RCOOL};
+  for (int k = 0; k < 2; k++) {
+    struct Halo test_halo = create_test_halo(0, 100.0, 160.0);
+    test_halo.galaxy->HotGas = 10.0f;
+    test_halo.galaxy->ColdGas = 1.0f;
+    test_halo.galaxy->CoolingGas = 0.0; /* every early return leaves no mass */
+    test_halo.galaxy->CoolingReturnPath = paths[k];
+    test_halo.galaxy->Cooling = -55.0;
+    test_halo.galaxy->CoolingRate = -44.0f;
+
+    struct ModuleContext ctx = create_test_context();
+    int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
+    TEST_ASSERT(result == 0, "Module processing should succeed");
+    TEST_ASSERT(test_halo.galaxy->Cooling == -55.0, "an early return leaves Cooling as it was");
+    TEST_ASSERT(test_halo.galaxy->CoolingRate == -44.0f,
+                "an early return leaves CoolingRate as it was");
+    TEST_ASSERT(test_halo.galaxy->HotGas == 10.0f && test_halo.galaxy->ColdGas == 1.0f,
+                "no gas moves on an early return");
+    free_test_halo(&test_halo);
+  }
+
+  sage26_apply_cooling_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_outer_guard_writes_zero_rate
+ * @brief   An outer-guard failure (HotGas or Vvir not positive) reaches SAGE26's tail with
+ *          zero mass: CoolingRate becomes 0 and Cooling is unchanged (:141, :301-313)
+ */
+int test_outer_guard_writes_zero_rate(void) {
+  init_memory_system(0);
+  setup_module_for_physics_test();
+
+  struct Halo test_halo = create_test_halo(0, 100.0, 160.0);
+  test_halo.galaxy->HotGas = 0.0f;
+  test_halo.galaxy->CoolingGas = 0.0;
+  test_halo.galaxy->CoolingReturnPath = SAGE_COOLING_PATH_OUTER_GUARD;
+  test_halo.galaxy->Cooling = -55.0;
+  test_halo.galaxy->CoolingRate = -44.0f;
+
+  struct ModuleContext ctx = create_test_context();
+  int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
+  TEST_ASSERT(result == 0, "Module processing should succeed");
+  TEST_ASSERT(test_halo.galaxy->CoolingRate == 0.0f, "the outer guard writes CoolingRate 0");
+  TEST_ASSERT(test_halo.galaxy->Cooling == -55.0, "zero mass adds no Cooling");
+
+  free_test_halo(&test_halo);
+  sage26_apply_cooling_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_no_interval_is_noop
+ * @brief   Without a positive interval (the core's snapshot-zero birth: SnapNum < 0,
+ *          dT <= 0) cooling did not run, and the module changes nothing
+ */
+int test_no_interval_is_noop(void) {
+  init_memory_system(0);
+  setup_module_for_physics_test();
+
+  struct Halo test_halo = create_test_halo(0, 100.0, 160.0);
+  test_halo.SnapNum = -1;
+  test_halo.dT = -1.0;
+  test_halo.galaxy->HotGas = 10.0f;
+  test_halo.galaxy->CoolingGas = 0.0;
+  test_halo.galaxy->CoolingReturnPath = SAGE_COOLING_PATH_NOT_EVALUATED;
+  test_halo.galaxy->CoolingRate = -44.0f;
+
+  struct ModuleContext ctx = create_test_context();
+  int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
+  TEST_ASSERT(result == 0, "Module processing should succeed");
+  TEST_ASSERT(test_halo.galaxy->CoolingRate == -44.0f, "CoolingRate must be unchanged");
+  TEST_ASSERT(test_halo.galaxy->HotGas == 10.0f, "HotGas must be unchanged");
+
+  free_test_halo(&test_halo);
+  sage26_apply_cooling_cleanup();
+  check_memory_leaks();
   return TEST_PASS;
 }
 
@@ -454,8 +608,7 @@ int test_zero_cooling(void) {
   test_halo.galaxy->MetalsColdGas = 0.1f;
   test_halo.galaxy->CoolingGas = 0.0f; /* Zero cooling */
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
+  struct ModuleContext ctx = create_test_context();
 
   /* ===== EXECUTE ===== */
   int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
@@ -491,8 +644,7 @@ int test_type2_orphan_cools(void) {
   orphan.galaxy->ColdGas = 3.0f;
   orphan.galaxy->CoolingGas = 2.0f;
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
+  struct ModuleContext ctx = create_test_context();
 
   /* ===== EXECUTE ===== */
   int result = sage26_apply_cooling_process(&ctx, &orphan, 1);
@@ -531,8 +683,7 @@ int test_null_galaxy(void) {
   test_halo.Type = 0;
   test_halo.galaxy = NULL; /* NULL galaxy */
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
+  struct ModuleContext ctx = create_test_context();
 
   /* ===== EXECUTE ===== */
   int result = sage26_apply_cooling_process(&ctx, &test_halo, 1);
@@ -563,8 +714,7 @@ int test_invalid_ngal(void) {
   halos[0] = create_test_halo(0, 100.0, 160.0);
   halos[1] = create_test_halo(1, 50.0, 120.0);
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
+  struct ModuleContext ctx = create_test_context();
 
   /* ===== EXECUTE ===== */
   int result = sage26_apply_cooling_process(&ctx, halos, 2); /* ngal=2, should fail */
@@ -605,6 +755,10 @@ int main(void) {
   TEST_RUN(test_physics_complete_depletion);
   TEST_RUN(test_physics_metallicity_preservation);
   TEST_RUN(test_physics_cooling_energy_tracking);
+  TEST_RUN(test_cooling_rate_diagnostic);
+  TEST_RUN(test_early_return_skips_tail);
+  TEST_RUN(test_outer_guard_writes_zero_rate);
+  TEST_RUN(test_no_interval_is_noop);
   TEST_RUN(test_zero_cooling);
   TEST_RUN(test_type2_orphan_cools);
   TEST_RUN(test_null_galaxy);

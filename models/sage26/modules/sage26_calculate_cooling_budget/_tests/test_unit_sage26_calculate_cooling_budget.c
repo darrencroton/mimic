@@ -2,9 +2,9 @@
  * @file    test_unit_sage26_calculate_cooling_budget.c
  * @brief   Unit tests for sage26_calculate_cooling_budget module
  *
- * Validates: Module lifecycle, cooling tables, interpolation, memory safety.
- * Core cooling physics (cooling_recipe) is tested indirectly via the process function in
- * integration tests. Physics validation against SAGE is handled in scientific tests.
+ * Validates: Module lifecycle, cooling tables, interpolation, memory safety, and the
+ * carried state process() writes on every call. Bit-exact physics against SAGE26's
+ * cooling_recipe_hot is tested by test_unit_sage26_calculate_cooling_budget_oracle.c.
  *
  * Test cases:
  *   Suite 1: Cooling Tables
@@ -18,6 +18,12 @@
  *   Suite 2: Module Integration
  *     - test_module_registration: Module registers successfully
  *     - test_memory_safety: No memory leaks after init/cleanup cycle
+ *
+ *   Suite 3: Carried State (SAGE26 cooling_recipe_hot)
+ *     - test_outer_guard_writes_carried_state: HotGas 0 -> path 1, every carried entry
+ *       written, tcool reset to 0, tff and RcoolToRvir left as they were
+ *     - test_tail_writes_carried_state: a cooling galaxy -> path 0, positive mass, x, rcool
+ *     - test_no_interval_marks_not_evaluated: no positive interval -> path -1, no mass
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -38,6 +44,49 @@
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
+#include "shared/sage_constants.h"
+
+extern int sage26_calculate_cooling_budget_init(void);
+extern int sage26_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Halo *halos,
+                                                   int ngal);
+extern int sage26_calculate_cooling_budget_cleanup(void);
+
+/**
+ * @brief A central with stale carried state and distinguishable diagnostics
+ *
+ * Millennium-like units (UnitTime_in_s = 3.08568e19 s, UnitDensity_in_cgs =
+ * 6.7699e-31 g/cm^3); the carried entries hold values no call writes, so a test
+ * sees that process() overwrites every one of them.
+ */
+static void setup_cooling_galaxy(struct Halo *halo, struct GalaxyData *gal,
+                                 struct ModuleContext *ctx) {
+  memset(halo, 0, sizeof(*halo));
+  memset(gal, 0, sizeof(*gal));
+  memset(ctx, 0, sizeof(*ctx));
+  MimicConfig.Hubble_h = 0.73;
+  MimicConfig.UnitTime_in_s = 3.08568e19;
+  MimicConfig.UnitDensity_in_cgs = 6.7698980144406312e-31;
+  ctx->params = &MimicConfig;
+  ctx->num_substeps = 10;
+
+  halo->galaxy = gal;
+  halo->Type = 0;
+  halo->SnapNum = 40;
+  halo->dT = 0.002;
+  halo->Mvir = 100.0;
+  halo->Rvir = 0.2;
+  halo->Vvir = 150.0;
+
+  gal->HotGas = 10.0f;
+  gal->MetalsHotGas = 0.2f;
+  gal->CoolingGas = -7.0;
+  gal->CoolingX = -7.0;
+  gal->Rcool = -7.0;
+  gal->CoolingReturnPath = 99;
+  gal->tcool = -11.0f;
+  gal->tff = -22.0f;
+  gal->RcoolToRvir = -33.0f;
+}
 
 /**
  * @test    test_module_registration
@@ -284,6 +333,93 @@ int test_memory_safety(void) {
 }
 
 /**
+ * @test    test_outer_guard_writes_carried_state
+ * @brief   SAGE26's outer guard (HotGas > 0 && Vvir > 0, model_cooling_heating.c:139-141)
+ *
+ * Expected: tcool reset to 0 at entry; tff and RcoolToRvir untouched; CoolingGas,
+ *           CoolingX and Rcool written as 0 and the return path as 1, since the
+ *           init_repeat reset happens only once per snapshot
+ */
+int test_outer_guard_writes_carried_state(void) {
+  struct Halo halo;
+  struct GalaxyData gal;
+  struct ModuleContext ctx;
+  reset_config();
+  TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
+  setup_cooling_galaxy(&halo, &gal, &ctx);
+  gal.HotGas = 0.0f;
+
+  TEST_ASSERT(sage26_calculate_cooling_budget_process(&ctx, &halo, 1) == 0, "process succeeds");
+  TEST_ASSERT(gal.CoolingReturnPath == SAGE_COOLING_PATH_OUTER_GUARD, "path is the outer guard");
+  TEST_ASSERT(gal.CoolingGas == 0.0 && gal.CoolingX == 0.0 && gal.Rcool == 0.0,
+              "every carried entry is written");
+  TEST_ASSERT(gal.tcool == 0.0f, "tcool is reset to 0 at every call");
+  TEST_ASSERT(gal.tff == -22.0f && gal.RcoolToRvir == -33.0f,
+              "tff and RcoolToRvir are left as they were");
+
+  sage26_calculate_cooling_budget_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_tail_writes_carried_state
+ * @brief   A cooling central reaches the normal tail with SAGE26's diagnostics
+ *
+ * Expected: path 0; positive post-cap mass no larger than HotGas; positive x and
+ *           rcool; RcoolToRvir = float(rcool / float Rvir); tcool from the float
+ *           Rvir / Vvir with SAGE26's conversion
+ */
+int test_tail_writes_carried_state(void) {
+  struct Halo halo;
+  struct GalaxyData gal;
+  struct ModuleContext ctx;
+  reset_config();
+  TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
+  setup_cooling_galaxy(&halo, &gal, &ctx);
+
+  TEST_ASSERT(sage26_calculate_cooling_budget_process(&ctx, &halo, 1) == 0, "process succeeds");
+  TEST_ASSERT(gal.CoolingReturnPath == SAGE_COOLING_PATH_TAIL, "path is the normal tail");
+  TEST_ASSERT(gal.CoolingGas > 0.0 && gal.CoolingGas <= gal.HotGas, "post-cap mass in (0, HotGas]");
+  TEST_ASSERT(gal.CoolingX > 0.0 && gal.Rcool > 0.0, "x and rcool are carried");
+  TEST_ASSERT(gal.RcoolToRvir == (float)(gal.Rcool / (float)halo.Rvir),
+              "RcoolToRvir is rcool over the float Rvir");
+  const double tcool = (float)halo.Rvir / (float)halo.Vvir;
+  const float expected_tcool = (float)((tcool * 1.0e10 / MimicConfig.Hubble_h *
+                                        SAGE_SEC_PER_GIGAYEAR / MimicConfig.UnitTime_in_s));
+  TEST_ASSERT(gal.tcool == expected_tcool, "tcool uses the float Rvir / Vvir and SAGE26's factor");
+  TEST_ASSERT(gal.tff != -22.0f, "tff is written");
+
+  sage26_calculate_cooling_budget_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_no_interval_marks_not_evaluated
+ * @brief   Without a positive interval (SnapNum < 0, dT <= 0) cooling does not run
+ *
+ * Expected: path -1, no mass, no x or rcool; the diagnostics are left alone
+ */
+int test_no_interval_marks_not_evaluated(void) {
+  struct Halo halo;
+  struct GalaxyData gal;
+  struct ModuleContext ctx;
+  reset_config();
+  TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
+  setup_cooling_galaxy(&halo, &gal, &ctx);
+  halo.SnapNum = -1;
+  halo.dT = -1.0;
+
+  TEST_ASSERT(sage26_calculate_cooling_budget_process(&ctx, &halo, 1) == 0, "process succeeds");
+  TEST_ASSERT(gal.CoolingReturnPath == SAGE_COOLING_PATH_NOT_EVALUATED, "path is not evaluated");
+  TEST_ASSERT(gal.CoolingGas == 0.0 && gal.CoolingX == 0.0 && gal.Rcool == 0.0,
+              "every carried entry is written");
+  TEST_ASSERT(gal.tcool == -11.0f, "tcool is left alone when cooling does not run");
+
+  sage26_calculate_cooling_budget_cleanup();
+  return TEST_PASS;
+}
+
+/**
  * @brief Main test runner — executes all sage26_calculate_cooling_budget unit tests
  */
 int main(void) {
@@ -309,6 +445,14 @@ int main(void) {
 
   TEST_RUN(test_module_registration);
   TEST_RUN(test_memory_safety);
+
+  printf("\n");
+  printf("Suite 3: Carried State\n");
+  printf("------------------------------------------------------------\n");
+
+  TEST_RUN(test_outer_guard_writes_carried_state);
+  TEST_RUN(test_tail_writes_carried_state);
+  TEST_RUN(test_no_interval_marks_not_evaluated);
 
   /* Print summary and return result */
   TEST_SUMMARY();

@@ -1,8 +1,8 @@
 module:
   name: sage26_radio_mode_heating
   description: >-
-    Implements AGN radio-mode feedback suppressing cooling via black hole accretion; supports
-    empirical, Bondi-Hoyle, and cold-cloud accretion modes
+    SAGE26's do_AGN_heating on the hot-cooling path: suppresses the cooling mass by the heating
+    radius and grows the black hole by Bondi-Hoyle accretion (empirical and cold-cloud rates kept)
 
   supported_processing_modes: [process_by_galaxy]
 
@@ -19,7 +19,7 @@ module:
       - BlackHoleMass
       - HotGas
       - MetalsHotGas
-      - CoolingLambda
+      - CoolingX
       - Rheat
       - Rcool
       - Heating
@@ -28,7 +28,9 @@ module:
       - AGNrecipe
 
   tests:
-    unit: _tests/test_unit_sage26_radio_mode_heating.c
+    unit:
+      - _tests/test_unit_sage26_radio_mode_heating.c
+      - _tests/test_unit_sage26_radio_mode_heating_oracle.c
     integration: _tests/test_integration_sage26_radio_mode_heating.py
     scientific: []
 

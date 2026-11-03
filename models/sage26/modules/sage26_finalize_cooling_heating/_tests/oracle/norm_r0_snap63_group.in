@@ -1,0 +1,41 @@
+# R0 reference model_0.hdf5 (SHA-256 6d859a3a2ea422e3...), one FoF group (CentralGalaxyIndex 0) at Snap_63:
+# galaxy[0]: Snap_63 row 0, GalaxyIndex 0, Type 0
+# galaxy[1]: Snap_63 row 1, GalaxyIndex 290, Type 1
+# galaxy[2]: Snap_63 row 2, GalaxyIndex 256, Type 1
+# Cooling and Heating are the output values converted back to code energy per time
+# (10^value / (UnitEnergy_in_cgs / UnitTime_in_s)) times deltaT: plausible accumulators,
+# not reconstructed call-time state. Age values as c03's r0_snap63 fixtures.
+# The normalisation is a transcription of R/src/core_build_model.c:590-604 in oracle_c04.c.
+format sage26-oracle-fixture 1
+routine normalise_cooling_heating
+
+i32 call.ngal 3
+f64 call.halo_age 0x0000000000000000  # 0  (Age[halo_snapnum])
+i32 galaxy[0].Type 0
+i32 galaxy[0].SnapNum 63
+f64 call.Age[63] 0x3f29c5a70839ce61  # 0.00019662536589103426
+i32 galaxy[0].mergeType 0
+f64 galaxy[0].Cooling 0x40a00ae731ee34de  # 2053.4515528144393
+f64 galaxy[0].Heating 0x40a00ae731ee34de  # 2053.4515528144393
+f32 galaxy[0].tcool 0xc1300000  # -11  (input bit pattern no routine here writes)
+f32 galaxy[0].tff 0xc1b00000  # -22  (input bit pattern no routine here writes)
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33  (input bit pattern no routine here writes)
+f32 galaxy[0].CoolingRate 0xc2300000  # -44  (input bit pattern no routine here writes)
+i32 galaxy[1].Type 1
+i32 galaxy[1].SnapNum 63
+i32 galaxy[1].mergeType 0
+f64 galaxy[1].Cooling 0x0000000000000000  # 0
+f64 galaxy[1].Heating 0x0000000000000000  # 0
+f32 galaxy[1].tcool 0xc1300000  # -11  (input bit pattern no routine here writes)
+f32 galaxy[1].tff 0xc1b00000  # -22  (input bit pattern no routine here writes)
+f32 galaxy[1].RcoolToRvir 0xc2040000  # -33  (input bit pattern no routine here writes)
+f32 galaxy[1].CoolingRate 0xc2300000  # -44  (input bit pattern no routine here writes)
+i32 galaxy[2].Type 1
+i32 galaxy[2].SnapNum 63
+i32 galaxy[2].mergeType 0
+f64 galaxy[2].Cooling 0x0000000000000000  # 0
+f64 galaxy[2].Heating 0x0000000000000000  # 0
+f32 galaxy[2].tcool 0xc1300000  # -11  (input bit pattern no routine here writes)
+f32 galaxy[2].tff 0xc1b00000  # -22  (input bit pattern no routine here writes)
+f32 galaxy[2].RcoolToRvir 0xc2040000  # -33  (input bit pattern no routine here writes)
+f32 galaxy[2].CoolingRate 0xc2300000  # -44  (input bit pattern no routine here writes)

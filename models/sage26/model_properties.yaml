@@ -47,7 +47,7 @@ galaxy_properties:
     type: double  # SAGE parity: coolingGas is a double local through SAGE's cooling chain
     units: 1e10 Msun/h
     description: Gas mass cooling from hot to cold this substep
-    notes: Transport scratch buffer written by sage26_calculate_cooling_budget; read/modified by sage26_radio_mode_heating; consumed by sage26_apply_cooling
+    notes: Package-private transport state carrying SAGE26's coolingGas local of cooling_recipe_hot (src/model_cooling_heating.c:135-314). sage26_calculate_cooling_budget writes the post-cap, pre-suppression mass on every call (:288-292); sage26_radio_mode_heating overwrites it with the AGN-suppressed mass do_AGN_heating returns (:297-299); sage26_apply_cooling consumes it (:301-313 and src/core_build_model.c:508-509)
     output: false
     init_source: default
     init_value: 0.0
@@ -307,7 +307,7 @@ galaxy_properties:
     type: double  # SAGE parity: rcool is a double local passed into do_AGN_heating
     units: Mpc/h
     description: Cooling radius calculated this substep
-    notes: Transport scratch buffer written by sage26_calculate_cooling_budget; read by sage26_apply_cooling
+    notes: Package-private transport state carrying SAGE26's rcool local of cooling_recipe_hot (src/model_cooling_heating.c:173). Written by sage26_calculate_cooling_budget on every call (0 where the routine returns before forming it); read by sage26_radio_mode_heating, which passes it to do_AGN_heating (:297-299)
     output: false
     init_source: default
     init_value: 0.0
@@ -315,17 +315,27 @@ galaxy_properties:
     range: [0.0, 10.0]  # 0 to 10 Mpc/h (cannot be negative)
     sentinels: [0.0]  # Can be zero if no cooling
 
-  - name: CoolingLambda
-    type: double  # SAGE parity: lambda is a double local in SAGE's cooling_recipe
-    units: erg cm^3/s
-    description: Metallicity-dependent cooling function Lambda(T,Z) from Sutherland & Dopita (1993)
-    notes: Transport scratch buffer written by sage26_calculate_cooling_budget; diagnostic only, never written to output
+  - name: CoolingX
+    type: double  # SAGE parity: x is a double local passed into do_AGN_heating
+    units: Internal
+    description: SAGE26's cooling quantity x = m_p k_B T_vir / Lambda(T, Z) in code units (s g/cm^3 over UnitDensity_in_cgs * UnitTime_in_s) from the last cooling call
+    notes: Package-private transport state carrying SAGE26's x local of cooling_recipe_hot (src/model_cooling_heating.c:163-164), carried exactly rather than recomputed from Lambda. Written by sage26_calculate_cooling_budget on every call (0 where the routine returns before forming it); read by sage26_radio_mode_heating for the Bondi accretion rate (:540). Never written to output
     output: false
     init_source: default
     init_value: 0.0
     init_repeat: true
-    range: [0.0, 1.0e-20]  # Cooling function range (cannot be negative)
-    sentinels: [0.0]  # Can be zero if no cooling or primordial gas
+    sentinels: [0.0]  # 0 = not formed this call
+
+  - name: CoolingReturnPath
+    type: int
+    units: dimensionless
+    description: Return path of SAGE26's hot cooling on the last call - -1 not evaluated (no positive interval), 0 the normal tail, 1 the HotGas/Vvir outer guard, 2 the lambda <= 0 early return, 3 the rho_rcool <= 0 early return
+    notes: Package-private transport state, the early-return marker of cooling_recipe_hot (src/model_cooling_heating.c:141, :159-161, :167-169, :301-314); codes 0-3 are the SAGE26 oracle's intermediate.return_path. Written by sage26_calculate_cooling_budget on every call; read by sage26_apply_cooling, which runs SAGE26's tail (Cooling and CoolingRate) only on paths 0 and 1, as the early returns skip it. Never written to output
+    output: false
+    init_source: default
+    init_value: 0
+    init_repeat: true
+    range: [-1, 3]
 
   - name: Rheat
     type: float
@@ -477,8 +487,8 @@ galaxy_properties:
   - name: tcool
     type: float
     units: Internal
-    description: Cooling-time diagnostic, -1 until set. CGM path gives value = h^2 times the time in Gyr (not Gyr). Hot-halo path gives Rvir/Vvir times 1e10/h times SEC_PER_GIGAYEAR/UnitTime_in_s, not a time in Gyr. Conversion is an open question for the porting node
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment (cooled gas rate, Msun/Gyr) and the HDF5 label (Gyr, text cooling time of the CGM gas) both mislabel it. Created as -1.0 at src/model_misc.c:184; written verbatim at src/io/save_gals_hdf5.c:926. Set by cooling. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds, code mass is 1e10 Msun/h, and code density (src/core_init.c:97) carries h^2. CGM path (src/model_cooling_heating.c:333,345-349,356) divides x by UnitDensity_in_cgs * UnitTime_in_s and divides by rho_eff, a code density, so the code-unit tcool is h^2 times the physical time over UnitTime_in_s, and the written value tcool * UnitTime_in_s / SEC_PER_GIGAYEAR is h^2 times the cooling time in Gyr, not Gyr. The same function then adds tcool + tff at src/model_cooling_heating.c:364, two quantities with different h scalings (h^2 and h). Hot-halo path (src/model_cooling_heating.c:142-145) stores (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, a mass-rate-style factor applied to a time, so the stored hot-path number is not a Gyr time either and the two paths disagree. In the hot regime the regime-aware wrapper keeps the hot-path value and sets tff to -1 (src/model_cooling_heating.c:453-468); reset_cgm_diagnostics sets tcool 0 (src/model_cooling_heating.c:415). Unit is Internal until the porting node settles the conversion. Scaffold, holds -1 until a physics node fills it.
+    description: Hot-halo cooling diagnostic on R0 - 0 at each cooling call, then float(Rvir/Vvir) * 1e10/Hubble_h * SEC_PER_GIGAYEAR/UnitTime_in_s if HotGas and Vvir are positive (SAGE26's mass-rate factor on a time, not Gyr); -1 until first set
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment (cooled gas rate, Msun/Gyr) and the HDF5 label (Gyr, text cooling time of the CGM gas) both mislabel it. Created as -1.0 at src/model_misc.c:184; written verbatim at src/io/save_gals_hdf5.c:926. Set by cooling. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds, code mass is 1e10 Msun/h, and code density (src/core_init.c:97) carries h^2. CGM path (src/model_cooling_heating.c:333,345-349,356) divides x by UnitDensity_in_cgs * UnitTime_in_s and divides by rho_eff, a code density, so the code-unit tcool is h^2 times the physical time over UnitTime_in_s, and the written value tcool * UnitTime_in_s / SEC_PER_GIGAYEAR is h^2 times the cooling time in Gyr, not Gyr. The same function then adds tcool + tff at src/model_cooling_heating.c:364, two quantities with different h scalings (h^2 and h). Hot-halo path (src/model_cooling_heating.c:142-145) stores (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, a mass-rate-style factor applied to a time, so the stored hot-path number is not a Gyr time either and the two paths disagree. In the hot regime the regime-aware wrapper keeps the hot-path value and sets tff to -1 (src/model_cooling_heating.c:453-468); reset_cgm_diagnostics sets tcool 0 (src/model_cooling_heating.c:415). Unit is Internal, as the hot-path value has no physical unit. Filled on R0 by sage26_calculate_cooling_budget (c04), which resets it to 0 on every call (src/model_cooling_heating.c:139) and then writes it on the hot path (src/model_cooling_heating.c:142-148), before the lambda and rho_rcool early returns. The CGM path is not ported.
     output: true
     init_source: default
     init_value: -1.0
@@ -487,8 +497,8 @@ galaxy_properties:
   - name: tff
     type: float
     units: Internal
-    description: Free-fall-time diagnostic, -1 until set. CGM path gives Gyr/h (h times the time in Gyr). Hot-halo path gives sqrt(2) Rvir/Vvir times 1e10/h times SEC_PER_GIGAYEAR/UnitTime_in_s, not Gyr. Conversion is an open question for the porting node
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment says free-fall time at the precipitation radius [Gyr] and the HDF5 label says Gyr. Created as -1.0 at src/model_misc.c:185; written verbatim at src/io/save_gals_hdf5.c:927. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds. CGM path (src/model_cooling_heating.c:353,357) stores the code-time tff * UnitTime_in_s / SEC_PER_GIGAYEAR, which is Gyr/h (h times the time in Gyr), not Gyr. Hot-halo path (src/model_cooling_heating.c:143,147) stores sqrt(2) * (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, the same disagreeing mass-rate-style conversion as tcool; the regime-aware hot regime resets it to -1 (src/model_cooling_heating.c:416,468). Unit is Internal until the porting node settles the conversion. Scaffold, holds -1 until a physics node fills it.
+    description: Hot-halo free-fall diagnostic on R0 - sqrt(2) float(Rvir/Vvir) * 1e10/Hubble_h * SEC_PER_GIGAYEAR/UnitTime_in_s if HotGas and Vvir are positive, else left as it was (not Gyr); -1 until first set
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment says free-fall time at the precipitation radius [Gyr] and the HDF5 label says Gyr. Created as -1.0 at src/model_misc.c:185; written verbatim at src/io/save_gals_hdf5.c:927. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds. CGM path (src/model_cooling_heating.c:353,357) stores the code-time tff * UnitTime_in_s / SEC_PER_GIGAYEAR, which is Gyr/h (h times the time in Gyr), not Gyr. Hot-halo path (src/model_cooling_heating.c:143,147) stores sqrt(2) * (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, the same disagreeing mass-rate-style conversion as tcool; the regime-aware hot regime resets it to -1 (src/model_cooling_heating.c:416,468). Unit is Internal, as the hot-path value has no physical unit. Filled on R0 by sage26_calculate_cooling_budget (c04); unlike tcool it is not reset at the start of a call, so an outer-guard failure leaves it stale. The CGM path is not ported.
     output: true
     init_source: default
     init_value: -1.0
@@ -497,8 +507,8 @@ galaxy_properties:
   - name: RcoolToRvir
     type: float
     units: dimensionless
-    description: Ratio of the cooling radius to the halo virial radius at the last cooling evaluation, -1 if not evaluated
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as -1.0 at src/model_misc.c:182; written verbatim at src/io/save_gals_hdf5.c:929. Set by the hot-halo cooling recipe (src/model_cooling_heating.c:175, rcool is left uncapped so the ratio can exceed 1) and reset to -1 by reset_cgm_diagnostics (src/model_cooling_heating.c:417). Scaffold, holds -1 until a physics node fills it.
+    description: Cooling radius over the float virial radius at the last cooling call that formed one (uncapped, can exceed 1); the outer guard and the lambda and rho_rcool early returns leave it as it was; -1 if never evaluated
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as -1.0 at src/model_misc.c:182; written verbatim at src/io/save_gals_hdf5.c:929. Set by the hot-halo cooling recipe (src/model_cooling_heating.c:175, rcool is left uncapped so the ratio can exceed 1) and reset to -1 by reset_cgm_diagnostics (src/model_cooling_heating.c:417), which R0 never calls. Filled on R0 by sage26_calculate_cooling_budget (c04).
     output: true
     init_source: default
     init_value: -1.0
@@ -507,8 +517,8 @@ galaxy_properties:
   - name: CoolingRate
     type: float
     units: Internal
-    description: Cooling rate of the halo gas from the last cooling call of the snapshot, the true Msun/Gyr rate divided by little h, not Msun/Gyr. Unit is Internal as the registry has no label for it
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its HDF5 label says Msun/Gyr (text cooling rate of the CGM gas) but the written value is the true Msun/Gyr rate divided by little h, and it covers CGM and hot cooling together in the regime-aware recipe. Not set by init_galaxy (src/model_misc.c:65-198) and written by cooling on every call as (cooled mass / dt) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s (src/model_cooling_heating.c:310,382,499), so the last call wins; written verbatim at src/io/save_gals_hdf5.c:932. SAGE26 code mass is 1e10 Msun/h and one code time is UnitTime_in_s / h physical seconds (UnitLength_in_cm is Mpc/h, src/core_init.c:94, Hubble = HUBBLE * UnitTime_in_s at :106), so (m/dt) * 1.0e10 * SEC_PER_GIGAYEAR / UnitTime_in_s would be the true Msun/Gyr rate and the extra 1/Hubble_h in the formula divides it by h. Creation value here is 0, scaffold until a physics node fills it. Unit is Internal because the registry has no label for this quantity.
+    description: AGN-suppressed cooled mass over the substep times 1e10/Hubble_h * SEC_PER_GIGAYEAR/UnitTime_in_s from the last cooling call reaching SAGE26's tail (Msun/Gyr over little h); early returns leave it as it was
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its HDF5 label says Msun/Gyr (text cooling rate of the CGM gas) but the written value is the true Msun/Gyr rate divided by little h, and it covers CGM and hot cooling together in the regime-aware recipe. Not set by init_galaxy (src/model_misc.c:65-198) and written by cooling on every call as (cooled mass / dt) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s (src/model_cooling_heating.c:310,382,499), so the last call wins; written verbatim at src/io/save_gals_hdf5.c:932. SAGE26 code mass is 1e10 Msun/h and one code time is UnitTime_in_s / h physical seconds (UnitLength_in_cm is Mpc/h, src/core_init.c:94, Hubble = HUBBLE * UnitTime_in_s at :106), so (m/dt) * 1.0e10 * SEC_PER_GIGAYEAR / UnitTime_in_s would be the true Msun/Gyr rate and the extra 1/Hubble_h in the formula divides it by h. SAGE26 gives it no creation value; the package's creation value 0 is unchanged, and on R0 the first cooling call with a positive interval overwrites it unless it takes an early return. Filled on R0 by sage26_apply_cooling (c04), which runs the tail of cooling_recipe_hot (src/model_cooling_heating.c:308-313). Unit is Internal because the registry has no label for this quantity.
     output: true
     init_source: default
     init_value: 0.0

@@ -1,0 +1,4 @@
+# SAGE26 oracle output for interp_logZ_on_grid_6.in, written by oracle_c04 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine get_metaldependent_cooling_rate
+f64 return.lambda 0x3b3d000392260729  # 2.3988282835040934e-23

@@ -22,6 +22,8 @@
  *   - test_cooling_suppression_by_rheat: Rheat/Rcool suppression logic
  *   - test_heating_radius_update: Rheat increases with AGN heating
  *   - test_heating_energy_tracking: Heating accumulator tracks energy
+ *   - test_bondi_uses_carried_x: Bondi accretion from the carried x, Heating undivided,
+ *     no second subtraction of the heating from the cooling mass (SAGE26 R0)
  *   - test_agn_off_no_changes: No changes when AGN disabled
  *   - test_zero_cooling_gas: No AGN when no cooling
  *   - test_zero_hot_gas: No accretion without hot gas
@@ -559,6 +561,64 @@ int test_heating_energy_tracking(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_bondi_uses_carried_x
+ * @brief   SAGE26's R0 Bondi path (model_cooling_heating.c:538-540, :587-626)
+ *
+ * Expected: the accretion rate is built from the CoolingX the cooling budget
+ *           carries (none without it); Heating gains 0.5 * AGNheating * Vvir^2
+ *           undivided; the returned cooling mass is only the Rheat-suppressed one,
+ *           with no second subtraction of the heating; Rheat ratchets to
+ *           (AGNheating / coolingGas) * rcool.
+ */
+int test_bondi_uses_carried_x(void) {
+  init_memory_system(0);
+  reset_config();
+  setup_test_parameters(0.08, 2); /* Bondi */
+  sage26_radio_mode_heating_init();
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, 0.01);
+  MimicConfig.G = 43.0071;
+
+  /* Without a carried x there is no Bondi accretion */
+  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 10.0, 0.01, 1.0, 0.05, 0.0);
+  gal.CoolingX = 0.0;
+  TEST_ASSERT(sage26_radio_mode_heating_process(&ctx, &halo, 1) == 0, "process should succeed");
+  TEST_ASSERT(gal.BlackHoleMass == 0.01f, "no accretion without x");
+  TEST_ASSERT(gal.Heating == 0.0, "no heating without x");
+
+  /* With x: below the Eddington and heating caps */
+  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 10.0, 0.01, 1.0, 0.05, 0.0);
+  const double x = 1.0e-3;
+  gal.CoolingX = x;
+  const double dt = halo.dT / ctx.num_substeps;
+  const double bh = (double)gal.BlackHoleMass;
+  const double rate = (2.5 * M_PI * MimicConfig.G) * (0.375 * 0.6 * x) * bh * 0.08;
+  const double accreted = rate * dt;
+  const double coeff = (1.34e5 / 200.0) * (1.34e5 / 200.0);
+  const double heating = coeff * accreted;
+  TEST_ASSERT(heating < 1.0, "fixture must stay below the heating cap");
+
+  TEST_ASSERT(sage26_radio_mode_heating_process(&ctx, &halo, 1) == 0, "process should succeed");
+  /* BlackHoleMass is float: the module adds in double and narrows once */
+  TEST_ASSERT(gal.BlackHoleMass == (float)(bh + accreted),
+              "BH grows by the Bondi rate from the carried x times dt");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.Heating, 0.5 * heating * 200.0 * 200.0,
+                           1e-9 * 0.5 * heating * 200.0 * 200.0,
+                           "Heating gains 0.5 AGNheating Vvir^2, not divided by dT");
+  TEST_ASSERT(gal.CoolingGas == 1.0,
+              "the heating is not subtracted from the cooling mass a second time");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.Rheat, heating / 1.0 * 0.05, 1e-7,
+                           "Rheat ratchets to (AGNheating / coolingGas) * rcool");
+
+  sage26_radio_mode_heating_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 // ============================================================================
 // EDGE CASE TESTS
 // ============================================================================
@@ -933,6 +993,7 @@ int main(void) {
   TEST_RUN(test_cooling_suppression_by_rheat);
   TEST_RUN(test_heating_radius_update);
   TEST_RUN(test_heating_energy_tracking);
+  TEST_RUN(test_bondi_uses_carried_x);
 
   /* Run edge case tests */
   TEST_RUN(test_agn_off_no_changes);

@@ -1,0 +1,18 @@
+# SAGE26 oracle output for agn_r0_snap63_central.in, written by oracle_c04 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine do_AGN_heating
+f64 intermediate.deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426
+f64 intermediate.dt 0x3ef49e1f39c7d84e  # 1.9662536589103428e-05
+f64 return.coolingGas 0x0000000000000000  # 0
+f32 galaxy[0].HotGas 0x43ff7e6f  # 510.987762
+f32 galaxy[0].MetalsHotGas 0x3f0922af  # 0.53568548
+f32 galaxy[0].ColdGas 0x3efde76f  # 0.495906323
+f32 galaxy[0].MetalsColdGas 0x3b40058a  # 0.00293001765
+f32 galaxy[0].BlackHoleMass 0x3d4d900c  # 0.0501862019
+f32 galaxy[0].r_heat 0x3da9ee6f  # 0.0829743072
+f64 galaxy[0].Cooling 0xc04b800000000000  # -55
+f64 galaxy[0].Heating 0x0000000000000000  # 0
+f32 galaxy[0].tcool 0xc1300000  # -11
+f32 galaxy[0].tff 0xc1b00000  # -22
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33
+f32 galaxy[0].CoolingRate 0xc2300000  # -44
