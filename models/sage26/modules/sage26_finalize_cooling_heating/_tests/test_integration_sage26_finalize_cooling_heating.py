@@ -8,8 +8,9 @@ The module normalises the Cooling and Heating energies, accumulated undivided ov
 the substeps by sage26_apply_cooling and sage26_radio_mode_heating, once per FoF by
 the first galaxy's snapshot interval (SAGE26 core_build_model.c:590-603). The run
 with the finaliser must therefore differ from the same run without it only in
-Cooling and Heating, and each positive energy must rise by the same factor within
-a FoF (1 / deltaT, with deltaT well below one code time unit).
+Cooling and Heating: a zero energy stays zero, and every positive energy rises
+(it is multiplied by 1 / deltaT, with deltaT well below one code time unit). The
+factor itself is asserted bit for bit by the module's oracle unit test.
 
 Test cases:
   - test_module_loads: module registers and initialises in post_timestep

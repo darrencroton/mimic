@@ -603,8 +603,9 @@ int test_bondi_uses_carried_x(void) {
   TEST_ASSERT(heating < 1.0, "fixture must stay below the heating cap");
 
   TEST_ASSERT(sage26_radio_mode_heating_process(&ctx, &halo, 1) == 0, "process should succeed");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, bh + accreted, 1e-9,
-                           "BH grows by the Bondi rate from the carried x times dt");
+  /* BlackHoleMass is float: the module adds in double and narrows once */
+  TEST_ASSERT(gal.BlackHoleMass == (float)(bh + accreted),
+              "BH grows by the Bondi rate from the carried x times dt");
   TEST_ASSERT_DOUBLE_EQUAL(gal.Heating, 0.5 * heating * 200.0 * 200.0,
                            1e-9 * 0.5 * heating * 200.0 * 200.0,
                            "Heating gains 0.5 AGNheating Vvir^2, not divided by dT");

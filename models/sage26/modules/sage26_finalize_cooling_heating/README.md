@@ -26,7 +26,7 @@ The normalisation's `OutflowRate` term belongs to a later node and is not applie
 ## Processing Contract
 
 - Supported mode: `process_full_halo`
-- Expected phase: `post_timestep`, after all substep and merger work
+- Required phase: `post_timestep` only, after all substep and merger work. In a substep phase it would multiply by `1/dT` once per substep, so `init()` enforces the placement: exactly one `post_timestep` entry as `process_full_halo`, and none in `pre_timestep` or any substep phase
 - Receives the full FoF workspace
 
 ## Properties
@@ -40,4 +40,4 @@ None.
 
 ## Tests
 
-`_tests/test_unit_sage26_finalize_cooling_heating_oracle.c` runs every normalisation fixture under `_tests/oracle/` (listed in `../_tests/oracle/fixtures.manifest`) through `process()` and asserts bit-for-bit equality of every galaxy's `Cooling` and `Heating` with the SAGE26 function-level oracle (`../_tests/oracle/README.md`), whose normalisation fixtures transcribe SAGE26's lines, since `evolve_galaxies` is static and not in the oracle's link. Outside the oracle environment (macOS arm64, Apple clang 21) it reports SKIP. `_tests/test_unit_sage26_finalize_cooling_heating.c` covers the module's boundary handling, and `_tests/test_integration_sage26_finalize_cooling_heating.py` checks on a real run that only `Cooling` and `Heating` change.
+`_tests/test_unit_sage26_finalize_cooling_heating_oracle.c` runs every normalisation fixture under `_tests/oracle/` (listed in `../_tests/oracle/fixtures.manifest`) through `process()` and asserts bit-for-bit equality of every galaxy's `Cooling` and `Heating` with the SAGE26 function-level oracle (`../_tests/oracle/README.md`), whose normalisation fixtures transcribe SAGE26's lines, since `evolve_galaxies` is static and not in the oracle's link. Outside the oracle environment (macOS arm64, Apple clang 21) it reports SKIP. `_tests/test_unit_sage26_finalize_cooling_heating.c` covers the module's boundary handling and the placement check, and `_tests/test_integration_sage26_finalize_cooling_heating.py` checks on a real run that only `Cooling` and `Heating` change.

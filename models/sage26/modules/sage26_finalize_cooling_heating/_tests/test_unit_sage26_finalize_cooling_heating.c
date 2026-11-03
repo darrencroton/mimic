@@ -9,6 +9,8 @@
  *
  * Test cases:
  *   - test_module_initialization: module init/cleanup lifecycle through the module system
+ *   - test_placement_enforced: init() rejects a substep-phase, pre_timestep, missing or
+ *     duplicated post_timestep entry (it must normalise once, after the substeps)
  *   - test_normalises_by_first_galaxy_interval: every live galaxy uses the first row's dT
  *   - test_merged_galaxies_untouched: Type 3 rows keep their energies
  *   - test_first_galaxy_merged_sets_interval: a merged first galaxy still sets deltaT
@@ -60,6 +62,16 @@ static void test_post_timestep_add(const char *module_name, enum ProcessingMode 
   const int i = MimicConfig.num_post_timestep++;
   MimicConfig.post_timestep[i].module_name = strdup(module_name);
   MimicConfig.post_timestep[i].processing_mode = mode;
+  MimicConfig.post_timestep[i].resolved = NULL;
+}
+
+/** @brief Fresh configuration with the memory system and modules registered */
+static void fresh_config(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
 }
 
 /** @brief NROWS rows: Type 0 central then Type 1 satellites, each with its own dT and energies */
@@ -96,6 +108,45 @@ int test_module_initialization(void) {
 
   module_system_cleanup();
   check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_placement_enforced
+ * @brief   The module must run exactly once in post_timestep as process_full_halo
+ *
+ * In a substep phase it would multiply by 1/dT once per substep; in pre_timestep
+ * before the energies accumulate; twice in post_timestep it would normalise twice.
+ */
+int test_placement_enforced(void) {
+  /* In a substep phase (as well as post_timestep) */
+  fresh_config();
+  test_post_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
+  test_phase_add("galaxy_physics", "sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(module_system_init() != 0, "a substep-phase entry is rejected");
+  module_system_cleanup();
+  check_memory_leaks();
+
+  /* In pre_timestep (as well as post_timestep) */
+  fresh_config();
+  test_post_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
+  test_pre_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(module_system_init() != 0, "a pre_timestep entry is rejected");
+  module_system_cleanup();
+  check_memory_leaks();
+
+  /* Twice in post_timestep */
+  fresh_config();
+  test_post_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
+  test_post_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(module_system_init() != 0, "a second post_timestep entry is rejected");
+  module_system_cleanup();
+  check_memory_leaks();
+
+  /* Not configured at all: a direct init() finds no post_timestep entry */
+  reset_config();
+  TEST_ASSERT(sage26_finalize_cooling_heating_init() != 0,
+              "init fails without a post_timestep entry");
   return TEST_PASS;
 }
 
@@ -243,6 +294,7 @@ int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
   TEST_RUN(test_module_initialization);
+  TEST_RUN(test_placement_enforced);
   TEST_RUN(test_normalises_by_first_galaxy_interval);
   TEST_RUN(test_merged_galaxies_untouched);
   TEST_RUN(test_first_galaxy_merged_sets_interval);

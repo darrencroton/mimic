@@ -37,10 +37,8 @@
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
 
-extern int sage26_finalize_cooling_heating_init(void);
 extern int sage26_finalize_cooling_heating_process(struct ModuleContext *ctx, struct Halo *halos,
                                                    int ngal);
-extern int sage26_finalize_cooling_heating_cleanup(void);
 
 static const char *MODULE = "sage26_finalize_cooling_heating";
 
@@ -59,11 +57,9 @@ static int check_fixture(const char *name) {
   }
 
   int problems = 0;
+  /* process() holds no init state; init() only checks the module's pipeline
+   * placement, which a bare oracle test does not configure (the unit test covers it) */
   reset_config();
-  if (sage26_finalize_cooling_heating_init() != 0) {
-    fprintf(stderr, "oracle: %s: module init failed\n", name);
-    return 1;
-  }
 
   const int ngal = oracle_in_i32(&in, "call.ngal");
   if (ngal < 1 || ngal > MAX_GALAXIES) {
@@ -118,8 +114,6 @@ static int check_fixture(const char *name) {
     fprintf(stderr, "oracle: %s: process() failed\n", name);
     problems++;
   }
-  sage26_finalize_cooling_heating_cleanup();
-
   for (int i = 0; i < ngal; i++) {
     char normalised_field[ORACLE_MAX_NAME];
     snprintf(normalised_field, sizeof(normalised_field), "intermediate.galaxy[%d].normalised", i);
