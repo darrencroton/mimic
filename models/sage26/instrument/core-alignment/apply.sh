@@ -25,19 +25,29 @@ die() {
   exit 2
 }
 
-# Print the SHA-256 of the file named by $1.
+# Print the SHA-256 of the file named by $1. Fails (status 1, no output) unless
+# the hash tool succeeds and yields exactly 64 hexadecimal characters.
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
+    hash_out=$(sha256sum "$1") || return 1
   else
-    shasum -a 256 "$1" | awk '{print $1}'
+    hash_out=$(shasum -a 256 "$1") || return 1
   fi
+  digest=${hash_out%% *}
+  case "$digest" in
+    *[!0-9a-fA-F]*) return 1 ;;
+  esac
+  [ "${#digest}" -eq 64 ] || return 1
+  printf '%s\n' "$digest"
 }
 
 # Restore the worktree to its starting commit, then exit 2 naming the patch $1.
+# If the restoring reset itself fails, say so: the worktree may hold staged changes.
 fail_patch() {
-  git reset --hard HEAD >/dev/null 2>&1 || echo "apply.sh: git reset --hard HEAD failed" >&2
-  die "patch failed: $1; worktree restored to its starting commit"
+  if git reset --hard HEAD >/dev/null 2>&1; then
+    die "patch failed: $1; worktree restored to its starting commit"
+  fi
+  die "patch failed: $1; restoring the worktree FAILED (git reset --hard HEAD), it may hold staged changes"
 }
 
 # --- preconditions ---------------------------------------------------------
@@ -55,15 +65,22 @@ SERIES="$SCRIPT_DIR/series"
 TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git worktree"
 [ "$TOPLEVEL" = "$(pwd -P)" ] || die "run from the root of the worktree ($TOPLEVEL)"
 
-BRANCH=$(git symbolic-ref --short -q HEAD || true)
-case "$BRANCH" in
-  integration/sage26 | main)
-    die "refusing to run on branch '$BRANCH'"
+# Compare the full ref, so a tag or other ref of the same name cannot hide the branch.
+REF=$(git symbolic-ref -q HEAD || true)
+case "$REF" in
+  refs/heads/integration/sage26 | refs/heads/main)
+    die "refusing to run on branch '${REF#refs/heads/}'"
     ;;
 esac
 
-STATUS=$(git status --porcelain) || die "git status failed"
+# Independent of the user's status.showUntrackedFiles and submodule settings.
+STATUS=$(git status --porcelain --untracked-files=all --ignore-submodules=none) ||
+  die "git status failed"
 [ -z "$STATUS" ] || die "worktree is not clean; commit or discard changes first"
+
+# Read the series once, checked: an unreadable series is an error, not an empty one.
+[ -r "$SERIES" ] || die "series file is not readable: $SERIES"
+SERIES_TEXT=$(cat "$SERIES") || die "cannot read the series file: $SERIES"
 
 # --- apply the series ------------------------------------------------------
 
@@ -82,10 +99,13 @@ while IFS= read -r name || [ -n "$name" ]; do
   patch="$SCRIPT_DIR/$name"
   [ -f "$patch" ] || fail_patch "$name (file not found)"
   git apply --index "$patch" </dev/null || fail_patch "$name"
+  digest=$(sha256_of "$patch") || fail_patch "$name (could not compute its SHA-256)"
   count=$((count + 1))
-  report="$report$(sha256_of "$patch")  $name
+  report="$report$digest  $name
 "
-done <"$SERIES"
+done <<EOF
+$SERIES_TEXT
+EOF
 
 if [ "$count" -eq 0 ]; then
   echo "apply.sh: series is empty; nothing applied"
