@@ -1,0 +1,25 @@
+module:
+  name: sage26_finalize_cooling_heating
+  description: >-
+    Normalises the Cooling and Heating energies accumulated over the substeps by the FoF's
+    snapshot interval once per halo, as SAGE26 does after its last substep
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type
+      - dT
+      - Cooling
+      - Heating
+    parameters: []
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_finalize_cooling_heating.c
+      - _tests/test_unit_sage26_finalize_cooling_heating_oracle.c
+    integration: _tests/test_integration_sage26_finalize_cooling_heating.py
+    scientific: []
+
+  docs:
+    physics: README.md

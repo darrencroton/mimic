@@ -41,4 +41,19 @@
  * i.e. T = mu * m_p * Vvir^2 / (2 k_B) with mu = 0.59 for ionized gas. */
 #define SAGE_TVIR_K_PER_SQKMS 35.9
 
+/* SAGE parity: SAGE26's seconds per gigayear (R/src/macros.h:37), the literal
+ * 3.155e16 rather than SEC_PER_YEAR * 1e9. Used by the cooling diagnostics'
+ * conversion (R/src/model_cooling_heating.c:145-148, :310-313). */
+#define SAGE_SEC_PER_GIGAYEAR 3.155e16
+
+/* Hot-cooling return path, carried from sage26_calculate_cooling_budget to
+ * sage26_apply_cooling in the CoolingReturnPath transport property. The values
+ * 0 to 3 are the oracle's intermediate.return_path codes for SAGE26's
+ * cooling_recipe_hot (R/src/model_cooling_heating.c:135-314). */
+#define SAGE_COOLING_PATH_NOT_EVALUATED -1 /* no positive interval: cooling not run */
+#define SAGE_COOLING_PATH_TAIL 0           /* the normal tail (:301-314) */
+#define SAGE_COOLING_PATH_OUTER_GUARD 1    /* HotGas > 0 && Vvir > 0 failed (:141) */
+#define SAGE_COOLING_PATH_LAMBDA 2         /* lambda <= 0 early return (:159-161) */
+#define SAGE_COOLING_PATH_RHO_RCOOL 3      /* rho_rcool <= 0 early return (:167-169) */
+
 #endif /* MIMIC_SHARED_SAGE_CONSTANTS_H */

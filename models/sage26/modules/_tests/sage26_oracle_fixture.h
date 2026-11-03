@@ -19,7 +19,10 @@
  *   prove that every input was applied and every output asserted or excluded
  *   with a stated reason;
  * - oracle_fixture_count_ok() / oracle_all_bit_identical(): the bodies of each
- *   oracle test's two test cases.
+ *   oracle test's two test cases;
+ * - oracle_c04_*(): the c04 group's (cooling and radio heating) shared state:
+ *   the sixteen galaxy fields its fixtures set and the twelve it records, and its
+ *   R0 parameters (oracle README "The c04 Group").
  *
  * Fixtures are found through MIMIC_COMPILED_MODEL_PATH, which is repository
  * relative; the unit runner runs from the repository root. Include this header
@@ -553,7 +556,8 @@ static inline int oracle_set_model_param(const char *name, const double value) {
  * @brief The package's float galaxy reservoir for a SAGE26 struct GALAXY member name
  *
  * SAGE26's EjectedMass and MetalsEjectedMass are the package's EjectedGas and
- * MetalsEjectedGas; the other reservoirs keep their names (oracle README "Field Names").
+ * MetalsEjectedGas, and its r_heat is the package's Rheat; the other members keep
+ * their names (oracle README "Field Names").
  *
  * @return Pointer to the member, or NULL for a name this table does not map
  */
@@ -578,6 +582,13 @@ static inline float *oracle_galaxy_float(struct GalaxyData *galaxy, const char *
       {"ICS_accrete", &galaxy->ICS_accrete},
       {"ICS_sum_mt", &galaxy->ICS_sum_mt},
       {"DiskScaleRadius", &galaxy->DiskScaleRadius},
+      /* c04 group */
+      {"MetalsColdGas", &galaxy->MetalsColdGas},
+      {"r_heat", &galaxy->Rheat},
+      {"tcool", &galaxy->tcool},
+      {"tff", &galaxy->tff},
+      {"RcoolToRvir", &galaxy->RcoolToRvir},
+      {"CoolingRate", &galaxy->CoolingRate},
   };
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
     if (strcmp(table[i].sage26, sage26_name) == 0) {
@@ -686,6 +697,141 @@ static inline int oracle_all_bit_identical(const char *module, int (*check)(cons
   int declared = -1;
   const int identical = oracle_run_all(module, check, &listed, &declared);
   return declared > 0 && listed == declared && identical == declared;
+}
+
+// ============================================================================
+// THE C04 GROUP: COOLING AND RADIO HEATING
+// ============================================================================
+
+/** @brief "<prefix>galaxy[<i>].<member>", e.g. the sequence state "intermediate.sequence." */
+static inline const char *oracle_prefixed_galaxy_field(const char *prefix, const int index,
+                                                       const char *member) {
+  static char buffer[ORACLE_MAX_NAME];
+  snprintf(buffer, sizeof(buffer), "%sgalaxy[%d].%s", prefix, index, member);
+  return buffer;
+}
+
+/** @brief The package's double galaxy member for a SAGE26 name (Cooling, Heating), or NULL */
+static inline double *oracle_galaxy_double(struct GalaxyData *galaxy, const char *sage26_name) {
+  if (strcmp(sage26_name, "Cooling") == 0) {
+    return &galaxy->Cooling;
+  }
+  if (strcmp(sage26_name, "Heating") == 0) {
+    return &galaxy->Heating;
+  }
+  return NULL;
+}
+
+/** @brief The ten float fields of the c04 galaxy state (SAGE26 names) */
+static inline const char *const *oracle_c04_float_names(size_t *count) {
+  static const char *const names[] = {"HotGas",        "MetalsHotGas", "ColdGas", "MetalsColdGas",
+                                      "BlackHoleMass", "r_heat",       "tcool",   "tff",
+                                      "RcoolToRvir",   "CoolingRate"};
+  *count = sizeof(names) / sizeof(names[0]);
+  return names;
+}
+
+/** @brief The two double fields of the c04 galaxy state (SAGE26 names) */
+static inline const char *const *oracle_c04_double_names(size_t *count) {
+  static const char *const names[] = {"Cooling", "Heating"};
+  *count = sizeof(names) / sizeof(names[0]);
+  return names;
+}
+
+/**
+ * @brief Set halo and galaxy from a c04 fixture's galaxy[index] input
+ *
+ * Applies the sixteen fields every cooling_recipe_hot, do_AGN_heating and
+ * cool_gas_onto_galaxy input sets: Type, and SAGE26's float Mvir, Rvir and Vvir
+ * exactly widened to the core's doubles (halo), then the ten float and two double
+ * fields of the galaxy state. The caller poisons both structs first.
+ */
+static inline void oracle_c04_in_galaxy(struct oracle_fixture *in, const int index,
+                                        struct Halo *halo, struct GalaxyData *galaxy) {
+  halo->galaxy = galaxy;
+  halo->Type = oracle_in_i32(in, oracle_galaxy_field(index, "Type"));
+  halo->Mvir = oracle_in_f32(in, oracle_galaxy_field(index, "Mvir"));
+  halo->Rvir = oracle_in_f32(in, oracle_galaxy_field(index, "Rvir"));
+  halo->Vvir = oracle_in_f32(in, oracle_galaxy_field(index, "Vvir"));
+
+  size_t count;
+  const char *const *floats = oracle_c04_float_names(&count);
+  oracle_in_galaxy_floats(in, index, galaxy, floats, count);
+  const char *const *doubles = oracle_c04_double_names(&count);
+  for (size_t k = 0; k < count; k++) {
+    *oracle_galaxy_double(galaxy, doubles[k]) =
+        oracle_in_f64(in, oracle_galaxy_field(index, doubles[k]));
+  }
+}
+
+/**
+ * @brief Compare the named c04 state fields of a galaxy with "<prefix>galaxy[index].*"
+ *
+ * @param names  SAGE26 names, each a float (oracle_galaxy_float) or double
+ *               (oracle_galaxy_double) member
+ * @return Number of mismatches
+ */
+static inline int oracle_c04_check_fields(struct oracle_fixture *out, const char *prefix,
+                                          const int index, struct GalaxyData *galaxy,
+                                          const char *const *names, const size_t count) {
+  int mismatches = 0;
+  for (size_t k = 0; k < count; k++) {
+    const char *field = oracle_prefixed_galaxy_field(prefix, index, names[k]);
+    float *member = oracle_galaxy_float(galaxy, names[k]);
+    double *member64 = oracle_galaxy_double(galaxy, names[k]);
+    if (member != NULL) {
+      mismatches += oracle_check_f32(out, field, *member);
+    } else if (member64 != NULL) {
+      mismatches += oracle_check_f64(out, field, *member64);
+    } else {
+      fprintf(stderr, "oracle: %s: no package member for '%s'\n", out->path, names[k]);
+      mismatches++;
+    }
+  }
+  return mismatches;
+}
+
+/** @brief Compare all twelve c04 state fields with "<prefix>galaxy[index].*" */
+static inline int oracle_c04_check_galaxy(struct oracle_fixture *out, const char *prefix,
+                                          const int index, struct GalaxyData *galaxy) {
+  size_t count;
+  const char *const *floats = oracle_c04_float_names(&count);
+  int mismatches = oracle_c04_check_fields(out, prefix, index, galaxy, floats, count);
+  const char *const *doubles = oracle_c04_double_names(&count);
+  mismatches += oracle_c04_check_fields(out, prefix, index, galaxy, doubles, count);
+  return mismatches;
+}
+
+/**
+ * @brief Apply a c04 fixture's R0 parameters (cooling_recipe_hot and do_AGN_heating inputs)
+ *
+ * Checks the fixed flags (AGNrecipeOn 2, CGMrecipeOn 0), sets the core-owned G,
+ * Hubble_h and unit factors in MimicConfig at the fixture's bit patterns, and the
+ * radio module's parameters RadioModeEfficiency and AGNrecipe. UnitDensity_in_cgs
+ * is read only when the fixture carries it (cooling_recipe_hot).
+ *
+ * @return Number of problems (a non-R0 flag or a parameter that could not be set)
+ */
+static inline int oracle_c04_set_params(struct oracle_fixture *in, const char *name) {
+  int problems = 0;
+  const int agn_recipe = oracle_in_i32(in, "params.AGNrecipeOn");
+  if (agn_recipe != 2 || oracle_in_i32(in, "params.CGMrecipeOn") != 0) {
+    fprintf(stderr, "oracle: %s: not an R0 fixture (AGNrecipeOn 2, CGMrecipeOn 0)\n", name);
+    problems++;
+  }
+  MimicConfig.G = oracle_in_f64(in, "params.G");
+  MimicConfig.Hubble_h = oracle_in_f64(in, "params.Hubble_h");
+  MimicConfig.UnitEnergy_in_cgs = oracle_in_f64(in, "params.UnitEnergy_in_cgs");
+  MimicConfig.UnitTime_in_s = oracle_in_f64(in, "params.UnitTime_in_s");
+  if (oracle_has(in, "params.UnitDensity_in_cgs")) {
+    MimicConfig.UnitDensity_in_cgs = oracle_in_f64(in, "params.UnitDensity_in_cgs");
+  }
+  if (oracle_set_model_param("RadioModeEfficiency",
+                             oracle_in_f64(in, "params.RadioModeEfficiency")) != 0 ||
+      oracle_set_model_param("AGNrecipe", (double)agn_recipe) != 0) {
+    problems++;
+  }
+  return problems;
 }
 
 #endif /* SAGE26_ORACLE_FIXTURE_H */
