@@ -433,7 +433,7 @@ galaxy_properties:
     type: int
     units: dimensionless
     description: Gas accretion regime of the halo - 0 = CGM regime, 1 = hot-halo regime, -1 = not yet assigned
-    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_regime() (src/core_build_model.c:411). Created as -1 at src/model_misc.c:74; written verbatim at src/io/save_gals_hdf5.c:869. SAGE26 HDF5 label is Unitless with text 0 = CGM-regime, 1 = ICM-regime (the struct comment says hot-halo). Scaffold, holds -1 until a physics node fills it.
+    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_regime() (src/core_build_model.c:411), which runs only when CGMrecipeOn == 1 (default 1, src/core_read_parameter_file.c:102; gate at src/core_build_model.c:410), so with the CGM recipe off it stays -1. Created as -1 at src/model_misc.c:74; written verbatim at src/io/save_gals_hdf5.c:869. SAGE26 HDF5 label is Unitless with text 0 = CGM-regime, 1 = ICM-regime (the struct comment says hot-halo). Scaffold, holds -1 until a physics node fills it.
     output: true
     init_source: default
     init_value: -1
@@ -444,7 +444,7 @@ galaxy_properties:
     type: int
     units: dimensionless
     description: Feedback-free-burst regime of the halo - 0 = normal halo, 1 = FFB halo
-    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_ffb_regime() (src/core_build_model.c:426). Created as 0 at src/model_misc.c:75; written verbatim at src/io/save_gals_hdf5.c:870. Scaffold, holds 0 until a physics node fills it.
+    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_ffb_regime() (src/core_build_model.c:426), which runs only when EnhancedStarFormationOn >= 1 (default 1, src/core_read_parameter_file.c:106; gate at src/core_build_model.c:425), so with it off the value stays 0. Created as 0 at src/model_misc.c:75; written verbatim at src/io/save_gals_hdf5.c:870. Scaffold, holds 0 until a physics node fills it.
     output: true
     init_source: default
     init_value: 0
@@ -477,8 +477,8 @@ galaxy_properties:
   - name: tcool
     type: float
     units: Internal
-    description: Cooling-time diagnostic, -1 until set. Gyr on the CGM path, but the hot-halo path stores Rvir/Vvir times 1e10/h times SEC_PER_GIGAYEAR/UnitTime_in_s, not Gyr; the conversion is an open question for the porting node
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment (cooled gas rate, Msun/Gyr) and the HDF5 label (Gyr, text cooling time of the CGM gas) both mislabel it. Created as -1.0 at src/model_misc.c:184; written verbatim at src/io/save_gals_hdf5.c:926. Set by cooling. CGM path (src/model_cooling_heating.c:349,356) stores tcool * UnitTime_in_s / SEC_PER_GIGAYEAR, which is Gyr. Hot-halo path (src/model_cooling_heating.c:142-145) stores (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, a mass-rate-style factor applied to a time, so the two paths disagree and the stored hot-path number is not a Gyr time. In the hot regime the regime-aware wrapper keeps the hot-path value and sets tff to -1 (src/model_cooling_heating.c:453-468); reset_cgm_diagnostics sets tcool 0 (src/model_cooling_heating.c:415). Unit is Internal until the porting node settles the conversion. Scaffold, holds -1 until a physics node fills it.
+    description: Cooling-time diagnostic, -1 until set. CGM path gives value = h^2 times the time in Gyr (not Gyr). Hot-halo path gives Rvir/Vvir times 1e10/h times SEC_PER_GIGAYEAR/UnitTime_in_s, not a time in Gyr. Conversion is an open question for the porting node
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment (cooled gas rate, Msun/Gyr) and the HDF5 label (Gyr, text cooling time of the CGM gas) both mislabel it. Created as -1.0 at src/model_misc.c:184; written verbatim at src/io/save_gals_hdf5.c:926. Set by cooling. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds, code mass is 1e10 Msun/h, and code density (src/core_init.c:97) carries h^2. CGM path (src/model_cooling_heating.c:333,345-349,356) divides x by UnitDensity_in_cgs * UnitTime_in_s and divides by rho_eff, a code density, so the code-unit tcool is h^2 times the physical time over UnitTime_in_s, and the written value tcool * UnitTime_in_s / SEC_PER_GIGAYEAR is h^2 times the cooling time in Gyr, not Gyr. The same function then adds tcool + tff at src/model_cooling_heating.c:364, two quantities with different h scalings (h^2 and h). Hot-halo path (src/model_cooling_heating.c:142-145) stores (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, a mass-rate-style factor applied to a time, so the stored hot-path number is not a Gyr time either and the two paths disagree. In the hot regime the regime-aware wrapper keeps the hot-path value and sets tff to -1 (src/model_cooling_heating.c:453-468); reset_cgm_diagnostics sets tcool 0 (src/model_cooling_heating.c:415). Unit is Internal until the porting node settles the conversion. Scaffold, holds -1 until a physics node fills it.
     output: true
     init_source: default
     init_value: -1.0
@@ -487,8 +487,8 @@ galaxy_properties:
   - name: tff
     type: float
     units: Internal
-    description: Free-fall-time diagnostic, -1 until set. Gyr on the CGM path (at Rvir), but the hot-halo path stores sqrt(2) Rvir/Vvir times 1e10/h times SEC_PER_GIGAYEAR/UnitTime_in_s, not Gyr; the conversion is an open question for the porting node
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment says free-fall time at the precipitation radius [Gyr] and the HDF5 label says Gyr. Created as -1.0 at src/model_misc.c:185; written verbatim at src/io/save_gals_hdf5.c:927. CGM path (src/model_cooling_heating.c:353,357) stores sqrt(2 Rvir / g_accel) * UnitTime_in_s / SEC_PER_GIGAYEAR, which is Gyr. Hot-halo path (src/model_cooling_heating.c:143,147) stores sqrt(2) * (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, the same disagreeing conversion as tcool; the regime-aware hot regime resets it to -1 (src/model_cooling_heating.c:416,468). Unit is Internal until the porting node settles the conversion. Scaffold, holds -1 until a physics node fills it.
+    description: Free-fall-time diagnostic, -1 until set. CGM path gives Gyr/h (h times the time in Gyr). Hot-halo path gives sqrt(2) Rvir/Vvir times 1e10/h times SEC_PER_GIGAYEAR/UnitTime_in_s, not Gyr. Conversion is an open question for the porting node
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment says free-fall time at the precipitation radius [Gyr] and the HDF5 label says Gyr. Created as -1.0 at src/model_misc.c:185; written verbatim at src/io/save_gals_hdf5.c:927. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds. CGM path (src/model_cooling_heating.c:353,357) stores the code-time tff * UnitTime_in_s / SEC_PER_GIGAYEAR, which is Gyr/h (h times the time in Gyr), not Gyr. Hot-halo path (src/model_cooling_heating.c:143,147) stores sqrt(2) * (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, the same disagreeing mass-rate-style conversion as tcool; the regime-aware hot regime resets it to -1 (src/model_cooling_heating.c:416,468). Unit is Internal until the porting node settles the conversion. Scaffold, holds -1 until a physics node fills it.
     output: true
     init_source: default
     init_value: -1.0
@@ -507,8 +507,8 @@ galaxy_properties:
   - name: CoolingRate
     type: float
     units: Internal
-    description: Cooling rate of the halo gas in Msun/Gyr (little h removed), from the last cooling call of the snapshot. Internal because the registry has no Msun/Gyr label
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its HDF5 label (Msun/Gyr, text cooling rate of the CGM gas) matches the value, which covers CGM and hot cooling together. Not set by init_galaxy (src/model_misc.c:65-198) and written by cooling on every call as (cooled mass / dt) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s (src/model_cooling_heating.c:310,382,499), so the last call wins; written verbatim at src/io/save_gals_hdf5.c:932. Creation value here is 0, scaffold until a physics node fills it. Unit is Internal because the registry has no Msun/Gyr label.
+    description: Cooling rate of the halo gas from the last cooling call of the snapshot, the true Msun/Gyr rate divided by little h, not Msun/Gyr. Unit is Internal as the registry has no label for it
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its HDF5 label says Msun/Gyr (text cooling rate of the CGM gas) but the written value is the true Msun/Gyr rate divided by little h, and it covers CGM and hot cooling together in the regime-aware recipe. Not set by init_galaxy (src/model_misc.c:65-198) and written by cooling on every call as (cooled mass / dt) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s (src/model_cooling_heating.c:310,382,499), so the last call wins; written verbatim at src/io/save_gals_hdf5.c:932. SAGE26 code mass is 1e10 Msun/h and one code time is UnitTime_in_s / h physical seconds (UnitLength_in_cm is Mpc/h, src/core_init.c:94, Hubble = HUBBLE * UnitTime_in_s at :106), so (m/dt) * 1.0e10 * SEC_PER_GIGAYEAR / UnitTime_in_s would be the true Msun/Gyr rate and the extra 1/Hubble_h in the formula divides it by h. Creation value here is 0, scaffold until a physics node fills it. Unit is Internal because the registry has no label for this quantity.
     output: true
     init_source: default
     init_value: 0.0
@@ -559,7 +559,7 @@ galaxy_properties:
     type: float
     units: Gyr
     description: Molecular-gas depletion time from the K13 prescription, -1 if not applicable
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as -1.0f at src/model_misc.c:186; written verbatim at src/io/save_gals_hdf5.c:928; set to -1 when the depletion time is not positive (src/model_starformation_and_feedback.c:638). Scaffold, holds -1 until a physics node fills it.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as -1.0f at src/model_misc.c:186; written verbatim at src/io/save_gals_hdf5.c:928. Assigned in two places, in the K13 H2 routine as M_gas_total / SFR_K13_total, or -1 when that SFR is not positive (src/model_h2_chemistry.c:283), and in the star formation routine, set to -1 when the depletion time is not positive (src/model_starformation_and_feedback.c:638). Scaffold, holds -1 until a physics node fills it.
     output: true
     init_source: default
     init_value: -1.0
@@ -609,7 +609,7 @@ galaxy_properties:
     type: float
     units: dimensionless
     description: Supernova mass-loading factor eta, the ratio of reheated gas mass to stars formed in the current star formation episode
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:183; written verbatim at src/io/save_gals_hdf5.c:914; set from eta_reheat (src/model_starformation_and_feedback.c:764,932). The HDF5 text calls it the ratio of outflow rate to star formation rate. Scaffold, holds 0 until a physics node fills it.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:183; written verbatim at src/io/save_gals_hdf5.c:914. Assigned from eta_reheat only when SupernovaRecipeOn == 1 and FIREmodeOn == 1 (default 1, src/core_read_parameter_file.c:103), at src/model_starformation_and_feedback.c:759-764 and, at the second site, only when fire_scaling_valid is set (src/model_starformation_and_feedback.c:928-932); otherwise it keeps its previous value (0 at creation, or stale). The HDF5 text calls it the ratio of outflow rate to star formation rate. Scaffold, holds 0 until a physics node fills it.
     output: true
     init_source: default
     init_value: 0.0
@@ -733,8 +733,8 @@ galaxy_properties:
   - name: Concentration
     type: float
     units: dimensionless
-    description: NFW halo concentration parameter from the Ishiyama et al. (2021) c-M relation, 0 until computed
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:93 and assigned from get_halo_concentration only when ConcentrationOn > 0 (src/core_build_model.c:290-294); written verbatim at src/io/save_gals_hdf5.c:871. Scaffold, holds 0 until a physics node fills it.
+    description: NFW halo concentration. Default path (ConcentrationOn=3) inverts the NFW Vmax/Vvir relation, using infall-frozen infallVmax/infallVvir for satellites; 0 until computed or if Vmax/Vvir < 1. SAGE26's HDF5 text says Ishiyama+21 (mode 1 only)
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:93 and assigned from get_halo_concentration only when ConcentrationOn > 0 (src/core_build_model.c:290-294); written verbatim at src/io/save_gals_hdf5.c:871. The value depends on ConcentrationOn (src/model_halo_properties.c:327-352). SAGE26 defaults it to 3 (src/core_read_parameter_file.c:105, input/millennium.par:57), where centrals use Vmax/Vvir and satellites use the infall-frozen infallVmax/infallVvir (src/model_halo_properties.c:339-350), each inverted through the NFW relation (Vmax/Vvir)^2 = 0.2162 c / mu(c) by bisection with c in [1, 200], giving 0 when Vmax/Vvir < 1 (concentration_from_vmax_vvir, src/model_halo_properties.c:288-306). Mode 0 gives 0, mode 1 uses the Ishiyama+21 lookup table in Mvir and redshift, mode 2 uses Vmax/Vvir for all galaxy types. SAGE26's HDF5 text says NFW halo concentration parameter from Ishiyama+21 c-M relation (src/io/save_gals_hdf5_fields.h:237-238), which describes mode 1 only, not the default path. Scaffold, holds 0 until a physics node fills it.
     output: true
     init_source: default
     init_value: 0.0
