@@ -1,6 +1,6 @@
 # Uncapped Bondi heating with AGNheating > 0 that validates x two-sided: the inputs of
-# hot_partial_suppression_uncapped with MetalsHotGas raised by three float ulps
-# (0x3d75c293), found by a search over MetalsHotGas (which moves x through lambda) for
+# hot_partial_suppression_uncapped with MetalsHotGas raised by four float steps
+# (0x3d75c28f to 0x3d75c293), found by a search over MetalsHotGas (which moves x through lambda) for
 # an x whose upward and downward neighbouring doubles both change Heating.
 # 0 < r_heat < rcool, below Eddington, no accretion or heating cap, Heating prior 0.
 # Diagnostics tcool, tff, RcoolToRvir, CoolingRate, Cooling and Heating are set to negative bit patterns no routine here writes, unless a comment says otherwise.
