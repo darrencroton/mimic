@@ -1,0 +1,5 @@
+# SAGE26 oracle output for z8_a_equals_a0.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine do_reionization
+f64 return.reionization_modifier 0x3feff7703c62c189  # 0.99895488542647215
+f64 intermediate.HaloBaryonFraction 0x3fc5bcbcf5dcc10c  # 0.16982233052250029

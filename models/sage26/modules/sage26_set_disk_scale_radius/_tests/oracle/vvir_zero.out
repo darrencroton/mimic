@@ -1,0 +1,5 @@
+# SAGE26 oracle output for vvir_zero.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine get_disk_radius
+f64 return.r_disk 0x3f8eb85200000000  # 0.015000000596046448
+f32 galaxy[0].DiskScaleRadius 0x3c75c290  # 0.0150000006

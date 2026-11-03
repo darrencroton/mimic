@@ -1,0 +1,5 @@
+# SAGE26 oracle output for z7_a_equals_ar.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine do_reionization
+f64 return.reionization_modifier 0x3fefe516f1d45a1e  # 0.99671504242252573
+f64 intermediate.HaloBaryonFraction 0x3fc5b042cd67707b  # 0.16944155721182938

@@ -1,0 +1,10 @@
+# SAGE26 oracle output for r0_snap32_central.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine reincorporate_gas
+f64 intermediate.deltaT 0x3f2807e823466620  # 0.00018334110940258861
+f64 intermediate.dt 0x3ef33986829eb81a  # 1.8334110940258862e-05
+i32 intermediate.reincorporate_gas_called 1
+f32 galaxy[0].EjectedMass 0x3c9dfa9a  # 0.0192845352
+f32 galaxy[0].MetalsEjectedMass 0x381311c1  # 3.50640657e-05
+f32 galaxy[0].HotGas 0x425c6a3e  # 55.1037521
+f32 galaxy[0].MetalsHotGas 0x3dcd46d1  # 0.100232728

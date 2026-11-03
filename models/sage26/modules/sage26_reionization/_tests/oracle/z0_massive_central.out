@@ -1,0 +1,5 @@
+# SAGE26 oracle output for z0_massive_central.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine do_reionization
+f64 return.reionization_modifier 0x3feffbd42535714d  # 0.99949080722175554
+f64 intermediate.HaloBaryonFraction 0x3fc5bfb938059ef7  # 0.16991343722769844

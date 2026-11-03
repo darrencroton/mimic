@@ -1,0 +1,10 @@
+# SAGE26 oracle output for vvir_float_just_above_vcrit.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine reincorporate_gas
+f64 intermediate.deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426
+f64 intermediate.dt 0x3ef49e1f39c7d84e  # 1.9662536589103428e-05
+i32 intermediate.reincorporate_gas_called 1
+f32 galaxy[0].EjectedMass 0x3f19999a  # 0.600000024
+f32 galaxy[0].MetalsEjectedMass 0x3bc49ba6  # 0.00600000005
+f32 galaxy[0].HotGas 0x40400000  # 3
+f32 galaxy[0].MetalsHotGas 0x3cf5c28f  # 0.0299999993

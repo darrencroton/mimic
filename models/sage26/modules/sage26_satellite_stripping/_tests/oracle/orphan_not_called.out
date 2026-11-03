@@ -1,0 +1,14 @@
+# SAGE26 oracle output for orphan_not_called.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine strip_from_satellite
+f64 intermediate.reionization_modifier 0x0000000000000000  # 0
+f64 intermediate.HaloBaryonFraction 0x0000000000000000  # 0
+i32 intermediate.strip_from_satellite_called 0
+f32 galaxy[0].HotGas 0x41000000  # 8
+f32 galaxy[0].MetalsHotGas 0x3da3d70a  # 0.0799999982
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[1].HotGas 0x3ecccccd  # 0.400000006
+f32 galaxy[1].MetalsHotGas 0x3b83126f  # 0.00400000019
+f32 galaxy[1].CGMgas 0x00000000  # 0
+f32 galaxy[1].MetalsCGMgas 0x00000000  # 0

@@ -1,0 +1,14 @@
+# SAGE26 oracle output for excess_partial.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine strip_from_satellite
+f64 intermediate.reionization_modifier 0x3fde4e2ba8ae9616  # 0.47352115128373506
+f64 intermediate.HaloBaryonFraction 0x3fb49b8e53fbd6b3  # 0.080498595718234964
+i32 intermediate.strip_from_satellite_called 1
+f32 galaxy[0].HotGas 0x4100ed29  # 8.05790043
+f32 galaxy[0].MetalsHotGas 0x3da5069b  # 0.0805790052
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[1].HotGas 0x3eaf27ad  # 0.342099577
+f32 galaxy[1].MetalsHotGas 0x3b6032ca  # 0.00342099601
+f32 galaxy[1].CGMgas 0x00000000  # 0
+f32 galaxy[1].MetalsCGMgas 0x00000000  # 0

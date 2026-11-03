@@ -1,0 +1,17 @@
+# Real central after its real infall_recipe call: the budget and the central's post-consolidation
+# ejected and hot reservoirs are the oracle output r0_snap63_group.out of
+# sage26_prepare_infall_budget, whose galaxy[0] is R0 reference model_0.hdf5 (SHA-256 6d859a3a2ea422e3...), Snap_63 row 221, GalaxyIndex 8000000128: end-of-snapshot output values used as plausible call inputs, not reconstructed call-time state.
+# effective_steps from R/src/core_build_model.c:430-459 with this central's Rvir/Vvir and a
+# plausible deltaT (scipy lookback times for ZZ[62] and ZZ[63]).
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+
+i32 params.CGMrecipeOn 0
+
+f64 call.InfallingGas 0x3ef2db4361a6794c  # 1.7982956799772202e-05  (the snapshot budget infall_recipe returned)
+i32 call.effective_steps 10
+i32 galaxy[0].Type 0
+f32 galaxy[0].EjectedMass 0x3d8cb9c9  # 0.0687137321
+f32 galaxy[0].MetalsEjectedMass 0x396bce6c  # 0.000224882446
+f32 galaxy[0].HotGas 0x4288ffd8  # 68.4996948
+f32 galaxy[0].MetalsHotGas 0x3e640bb9  # 0.222700968
