@@ -609,7 +609,7 @@ galaxy_properties:
     type: float
     units: dimensionless
     description: Supernova mass-loading factor eta, the ratio of reheated gas mass to stars formed in the current star formation episode
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:183; written verbatim at src/io/save_gals_hdf5.c:914. Assigned from eta_reheat only when SupernovaRecipeOn == 1 and FIREmodeOn == 1 (default 1, src/core_read_parameter_file.c:103), at src/model_starformation_and_feedback.c:759-764 and, at the second site, only when fire_scaling_valid is set (src/model_starformation_and_feedback.c:928-932); otherwise it keeps its previous value (0 at creation, or stale). The HDF5 text calls it the ratio of outflow rate to star formation rate. Scaffold, holds 0 until a physics node fills it.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:183; written verbatim at src/io/save_gals_hdf5.c:914. Assigned from eta_reheat only when SupernovaRecipeOn == 1 (default 1, src/core_read_parameter_file.c:94) and FIREmodeOn == 1 (default 1, src/core_read_parameter_file.c:103), at src/model_starformation_and_feedback.c:759-764 and, at the second site, only when fire_scaling_valid is set (src/model_starformation_and_feedback.c:928-932); otherwise it keeps its previous value (0 at creation, or stale). The HDF5 text calls it the ratio of outflow rate to star formation rate. Scaffold, holds 0 until a physics node fills it.
     output: true
     init_source: default
     init_value: 0.0
@@ -622,7 +622,7 @@ galaxy_properties:
     type: float
     units: Mpc/h
     description: Effective (half-mass) radius of the bulge, 0 for a galaxy with no bulge mass
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-256), which gives 0.0 when BulgeMass is 0; written verbatim at src/io/save_gals_hdf5.c:972. Scaffold, holds 0 until a physics node fills it.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-326). SAGE26's default BulgeSizeOn=3 (src/core_read_parameter_file.c:107) takes the zero path when MergerBulgeMass + InstabilityBulgeMass <= 0 (src/model_misc.c:316-326), not the BulgeMass test of modes 1 and 2 (src/model_misc.c:253,279), and mode 0 zeroes it outright (src/model_misc.c:242-247). At creation those masses are zeroed at src/model_misc.c:123-124 before the :173 call, so the creation value 0 holds in every mode; written verbatim at src/io/save_gals_hdf5.c:972. Scaffold, holds 0 until a physics node fills it.
     output: true
     init_source: default
     init_value: 0.0
@@ -632,7 +632,7 @@ galaxy_properties:
     type: float
     units: Mpc/h
     description: Half-mass radius of the merger-built (classical) bulge, 0 for a galaxy with no bulge mass
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-256), which gives 0.0 when BulgeMass is 0; written verbatim at src/io/save_gals_hdf5.c:973. Scaffold, holds 0 until a physics node fills it.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-326). SAGE26's default BulgeSizeOn=3 (src/core_read_parameter_file.c:107) takes the zero path when MergerBulgeMass + InstabilityBulgeMass <= 0 (src/model_misc.c:316-326), not the BulgeMass test of modes 1 and 2 (src/model_misc.c:253,279), and mode 0 zeroes it outright (src/model_misc.c:242-247). At creation those masses are zeroed at src/model_misc.c:123-124 before the :173 call, so the creation value 0 holds in every mode; written verbatim at src/io/save_gals_hdf5.c:973. Scaffold, holds 0 until a physics node fills it.
     output: true
     init_source: default
     init_value: 0.0
@@ -642,7 +642,7 @@ galaxy_properties:
     type: float
     units: Mpc/h
     description: Half-mass radius of the disk-instability-built (pseudo) bulge, 0 for a galaxy with no bulge mass
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-256), which gives 0.0 when BulgeMass is 0; written verbatim at src/io/save_gals_hdf5.c:974. Scaffold, holds 0 until a physics node fills it.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-326). SAGE26's default BulgeSizeOn=3 (src/core_read_parameter_file.c:107) takes the zero path when MergerBulgeMass + InstabilityBulgeMass <= 0 (src/model_misc.c:316-326), not the BulgeMass test of modes 1 and 2 (src/model_misc.c:253,279), and mode 0 zeroes it outright (src/model_misc.c:242-247). At creation those masses are zeroed at src/model_misc.c:123-124 before the :173 call, so the creation value 0 holds in every mode; written verbatim at src/io/save_gals_hdf5.c:974. Scaffold, holds 0 until a physics node fills it.
     output: true
     init_source: default
     init_value: 0.0
@@ -733,8 +733,8 @@ galaxy_properties:
   - name: Concentration
     type: float
     units: dimensionless
-    description: NFW halo concentration. Default path (ConcentrationOn=3) inverts the NFW Vmax/Vvir relation, using infall-frozen infallVmax/infallVvir for satellites; 0 until computed or if Vmax/Vvir < 1. SAGE26's HDF5 text says Ishiyama+21 (mode 1 only)
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:93 and assigned from get_halo_concentration only when ConcentrationOn > 0 (src/core_build_model.c:290-294); written verbatim at src/io/save_gals_hdf5.c:871. The value depends on ConcentrationOn (src/model_halo_properties.c:327-352). SAGE26 defaults it to 3 (src/core_read_parameter_file.c:105, input/millennium.par:57), where centrals use Vmax/Vvir and satellites use the infall-frozen infallVmax/infallVvir (src/model_halo_properties.c:339-350), each inverted through the NFW relation (Vmax/Vvir)^2 = 0.2162 c / mu(c) by bisection with c in [1, 200], giving 0 when Vmax/Vvir < 1 (concentration_from_vmax_vvir, src/model_halo_properties.c:288-306). Mode 0 gives 0, mode 1 uses the Ishiyama+21 lookup table in Mvir and redshift, mode 2 uses Vmax/Vvir for all galaxy types. SAGE26's HDF5 text says NFW halo concentration parameter from Ishiyama+21 c-M relation (src/io/save_gals_hdf5_fields.h:237-238), which describes mode 1 only, not the default path. Scaffold, holds 0 until a physics node fills it.
+    description: NFW halo concentration. Default path (ConcentrationOn=3) inverts the NFW Vmax/Vvir relation, computed only while the galaxy is a FoF central (satellites keep the last value), 0 if Vmax/Vvir < 1. SAGE26's HDF5 text says Ishiyama+21 (mode 1 only)
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:93 and assigned from get_halo_concentration only when ConcentrationOn > 0, and only at src/core_build_model.c:290-294, inside the FoF-central branch (halonr == FirstHaloInFOFgroup, :283) and before Type is set to 0 at :300. Satellites (Type 1 or 2) therefore never recompute it and keep the value from their last central snapshot, which equals the infall-frozen Vmax/Vvir ratio, and the Type != 0 branch of get_halo_concentration (src/model_halo_properties.c:339-350, using infallVmax/infallVvir) fires only for a former satellite at the snapshot it becomes a FoF central again, using its stale infall values. Written verbatim at src/io/save_gals_hdf5.c:871. The value depends on ConcentrationOn (src/model_halo_properties.c:327-352). SAGE26 defaults it to 3 (src/core_read_parameter_file.c:105, input/millennium.par:57), where the Vmax/Vvir pair is inverted through the NFW relation (Vmax/Vvir)^2 = 0.2162 c / mu(c) by bisection with c in [1, 200], giving 0 when Vmax/Vvir < 1 (concentration_from_vmax_vvir, src/model_halo_properties.c:288-306). Mode 0 gives 0, mode 1 uses the Ishiyama+21 lookup table in Mvir and redshift, mode 2 uses Vmax/Vvir for all galaxy types. SAGE26's HDF5 text says NFW halo concentration parameter from Ishiyama+21 c-M relation (src/io/save_gals_hdf5_fields.h:237-238), which describes mode 1 only, not the default path. Scaffold, holds 0 until a physics node fills it.
     output: true
     init_source: default
     init_value: 0.0
