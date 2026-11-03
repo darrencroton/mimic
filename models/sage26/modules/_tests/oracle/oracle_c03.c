@@ -2,9 +2,11 @@
  * @file    oracle_c03.c
  * @brief   SAGE26 function-level oracle for the c03 baryon-supply routines
  *
- * Reads one fixture input file, initialises exactly the SAGE26 struct GALAXY,
- * struct halo_data and struct params fields the selected routine reads, reproduces
- * the arithmetic SAGE26's call site (core_build_model.c) performs around that
+ * Reads one fixture input file, initialises the SAGE26 struct GALAXY, struct
+ * halo_data and struct params fields its reader for the selected routine consumes (a
+ * superset of the fields the routine reads; galaxy[i].Type, for example, is set for
+ * the Mimic side although most routines never read it), reproduces the arithmetic
+ * SAGE26's call site (core_build_model.c) performs around that
  * routine, calls the routine from the SAGE26 objects this executable is linked
  * against, and writes a fixture output file holding the routine's return value,
  * every field it writes and every intermediate value the Mimic package carries
@@ -22,10 +24,11 @@
  *   get_disk_radius       R/src/model_misc.c:203-229, called at B:297
  *
  * The file format is defined in README.md ("Fixture file format"). Every input
- * field must be consumed by the selected routine's reader, so a misspelt or
- * stray field is an error rather than a silently ignored value. Unread struct
- * members are poisoned (all bits set: NaN for floating point, -1 for integers)
- * so an accidental read of an uninitialised field shows up as NaN output.
+ * field must be consumed by the fixture reader for the selected routine, so a
+ * misspelt or stray field is an error rather than a silently ignored value. All
+ * other struct members are poisoned (all bits set: NaN for floating point, -1 for
+ * integers), so a read of an uninitialised member would usually, though not
+ * always (a NaN can be compared away or overwritten), surface as NaN output.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh,
  * never by Mimic's Makefile, and never against Mimic code.
@@ -118,18 +121,33 @@ static const char *galaxy_field(const int index, const char *member) {
 // INPUT PARSING
 // ============================================================================
 
-/** @brief Parse an exact-width hexadecimal bit pattern such as 0x3ff0000000000000 */
+/**
+ * @brief Parse an exact-width hexadecimal bit pattern such as 0x3ff0000000000000
+ *
+ * The text must be "0x" followed by exactly hex_digits characters from [0-9a-fA-F]
+ * and nothing else; the digits are decoded here rather than by strtoull, which
+ * would accept a second "0x", a sign or leading whitespace and decode other bits.
+ */
 static uint64_t parse_bits(const char *text, const int hex_digits, const int line) {
   if (text[0] != '0' || text[1] != 'x' || (int)strlen(text + 2) != hex_digits) {
-    fatal("line %d: '%s' is not a %d-digit 0x bit pattern", line, text, hex_digits);
+    fatal("line %d: '%s' is not 0x followed by exactly %d hex digits", line, text, hex_digits);
   }
-  char *end = NULL;
-  errno = 0;
-  const unsigned long long value = strtoull(text + 2, &end, 16);
-  if (errno != 0 || end == NULL || *end != '\0') {
-    fatal("line %d: '%s' is not a hexadecimal bit pattern", line, text);
+  uint64_t value = 0;
+  for (int i = 0; i < hex_digits; i++) {
+    const char c = text[2 + i];
+    uint64_t digit;
+    if (c >= '0' && c <= '9') {
+      digit = (uint64_t)(c - '0');
+    } else if (c >= 'a' && c <= 'f') {
+      digit = (uint64_t)(c - 'a' + 10);
+    } else if (c >= 'A' && c <= 'F') {
+      digit = (uint64_t)(c - 'A' + 10);
+    } else {
+      fatal("line %d: '%s' is not 0x followed by exactly %d hex digits", line, text, hex_digits);
+    }
+    value = (value << 4) | digit;
   }
-  return (uint64_t)value;
+  return value;
 }
 
 static int64_t parse_i32(const char *text, const int line) {

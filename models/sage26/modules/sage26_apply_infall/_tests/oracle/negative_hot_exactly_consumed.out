@@ -1,0 +1,8 @@
+# SAGE26 oracle output for negative_hot_exactly_consumed.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+f64 intermediate.infallingGas_per_step 0xc008000000000000  # -3
+f32 galaxy[0].EjectedMass 0x00000000  # 0
+f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[0].HotGas 0x00000000  # 0
+f32 galaxy[0].MetalsHotGas 0x00000000  # 0

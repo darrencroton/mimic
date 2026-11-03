@@ -1,6 +1,7 @@
-# Vvir = the smallest float above the double Vcrit: Vvir > Vcrit holds (threshold) and the routine
-# runs, but its reincorporated mass (~1e-10) is below the float resolution of the reservoirs, which
-# round back to their input values.
+# Vvir = the smallest float above the double Vcrit (it equals (float)Vcrit, which rounds up):
+# Vvir > Vcrit holds (threshold) and a reincorporated mass of ~3e-10 lands in the empty HotGas, so
+# the output differs from the guard-not-taken outcome (a comparison against (float)Vcrit with >
+# leaves HotGas 0). The ejected reservoir does not resolve the debit at float precision.
 format sage26-oracle-fixture 1
 routine reincorporate_gas
 
@@ -15,5 +16,5 @@ f32 galaxy[0].Vvir 0x4286b8ae  # 67.3607025
 f32 galaxy[0].Rvir 0x3dcccccd  # 0.100000001
 f32 galaxy[0].EjectedMass 0x3f19999a  # 0.600000024
 f32 galaxy[0].MetalsEjectedMass 0x3bc49ba6  # 0.00600000005
-f32 galaxy[0].HotGas 0x40400000  # 3
-f32 galaxy[0].MetalsHotGas 0x3cf5c28f  # 0.0299999993
+f32 galaxy[0].HotGas 0x00000000  # 0
+f32 galaxy[0].MetalsHotGas 0x00000000  # 0

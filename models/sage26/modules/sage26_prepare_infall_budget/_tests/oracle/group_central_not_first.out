@@ -30,9 +30,9 @@ f32 galaxy[2].EjectedMass 0x00000000  # 0
 f32 galaxy[2].MetalsEjectedMass 0x00000000  # 0
 f32 galaxy[2].ICS 0x00000000  # 0
 f32 galaxy[2].MetalsICS 0x00000000  # 0
-f32 galaxy[2].ICS_disrupt 0x00000000  # 0
-f32 galaxy[2].ICS_accrete 0x00000000  # 0
-f32 galaxy[2].ICS_sum_mt 0x00000000  # 0
+f32 galaxy[2].ICS_disrupt 0x3b03126f  # 0.00200000009
+f32 galaxy[2].ICS_accrete 0x3a83126f  # 0.00100000005
+f32 galaxy[2].ICS_sum_mt 0x3cf5c28f  # 0.0299999993
 f32 galaxy[2].CGMgas 0x00000000  # 0
 f32 galaxy[2].MetalsCGMgas 0x00000000  # 0
 f32 galaxy[2].HotGas 0x3c23d70a  # 0.00999999978

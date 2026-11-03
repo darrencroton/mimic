@@ -1,4 +1,6 @@
-# Ejected mass exactly 0: the ejected branch is skipped and the hot reservoir pays.
+# Ejected mass exactly 0: the ejected branch is skipped and the hot reservoir pays the double
+# per-substep share. A small HotGas keeps that visible: entering the ejected branch (a guard of
+# EjectedMass >= 0) would round the share through the float EjectedMass and change HotGas.
 format sage26-oracle-fixture 1
 routine add_infall_to_hot
 
@@ -9,5 +11,5 @@ i32 call.effective_steps 10
 i32 galaxy[0].Type 0
 f32 galaxy[0].EjectedMass 0x00000000  # 0
 f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
-f32 galaxy[0].HotGas 0x40400000  # 3
-f32 galaxy[0].MetalsHotGas 0x3cf5c28f  # 0.0299999993
+f32 galaxy[0].HotGas 0x3d75c28f  # 0.0599999987
+f32 galaxy[0].MetalsHotGas 0x3a1d4952  # 0.000600000028

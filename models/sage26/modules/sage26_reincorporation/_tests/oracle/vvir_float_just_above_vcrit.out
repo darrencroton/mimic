@@ -6,5 +6,5 @@ f64 intermediate.dt 0x3ef49e1f39c7d84e  # 1.9662536589103428e-05
 i32 intermediate.reincorporate_gas_called 1
 f32 galaxy[0].EjectedMass 0x3f19999a  # 0.600000024
 f32 galaxy[0].MetalsEjectedMass 0x3bc49ba6  # 0.00600000005
-f32 galaxy[0].HotGas 0x40400000  # 3
-f32 galaxy[0].MetalsHotGas 0x3cf5c28f  # 0.0299999993
+f32 galaxy[0].HotGas 0x2fa3180f  # 2.96666219e-10
+f32 galaxy[0].MetalsHotGas 0x2c50c2a3  # 2.96666229e-12

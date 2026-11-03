@@ -1,6 +1,8 @@
 # Central + Type 1 satellite carrying ICS (ICS > 0: history consolidated into the central's
-# ICS_accrete and ICS_sum_mt, satellite history zeroed) + Type 2 orphan with ICS == 0 (guard false)
-# but ejected gas (pooled into the central).
+# ICS_accrete and ICS_sum_mt, satellite history zeroed) + Type 2 orphan with ICS == 0 (guard
+# false) but ejected gas (pooled into the central) and a stale, non-zero ICS history (constructed
+# state): because the guard is false, that history is neither moved to the central nor zeroed,
+# which a guard of ICS >= 0 would change.
 format sage26-oracle-fixture 1
 routine infall_recipe
 
@@ -65,6 +67,6 @@ f32 galaxy[2].ICS 0x00000000  # 0
 f32 galaxy[2].MetalsICS 0x00000000  # 0
 f32 galaxy[2].CGMgas 0x00000000  # 0
 f32 galaxy[2].MetalsCGMgas 0x00000000  # 0
-f32 galaxy[2].ICS_disrupt 0x00000000  # 0
-f32 galaxy[2].ICS_accrete 0x00000000  # 0
-f32 galaxy[2].ICS_sum_mt 0x00000000  # 0
+f32 galaxy[2].ICS_disrupt 0x3b03126f  # 0.00200000009
+f32 galaxy[2].ICS_accrete 0x3a83126f  # 0.00100000005
+f32 galaxy[2].ICS_sum_mt 0x3cf5c28f  # 0.0299999993

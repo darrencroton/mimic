@@ -1,4 +1,8 @@
-# A Type 2 orphan: the call site strips only Type 1 satellites (R/src/core_build_model.c:493).
+# A Type 2 orphan (Mvir 0, as SAGE26 sets for orphans): the call site strips only Type 1 satellites
+# (R/src/core_build_model.c:493), so strip_from_satellite is not called. The recorded
+# intermediate.reionization_modifier and HaloBaryonFraction come from the oracle's pre-gate
+# evaluation of do_reionization on Mvir 0 (1/inf = 0); SAGE26's call site never computes them for
+# an orphan, so they are not SAGE26 state and a test must not assert them.
 format sage26-oracle-fixture 1
 routine strip_from_satellite
 
