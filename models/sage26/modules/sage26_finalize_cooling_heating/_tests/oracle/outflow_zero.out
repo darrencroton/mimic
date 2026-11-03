@@ -1,0 +1,17 @@
+# SAGE26 oracle output for outflow_zero.in, written by oracle_c05 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine normalise_outflow_rate
+f64 intermediate.deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426
+f64 intermediate.inv_deltaT 0x40b3ddd0556fedc2  # 5085.8138036685432
+f64 intermediate.galaxy[0].deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426
+i32 intermediate.galaxy[0].normalised 1
+f64 galaxy[0].Cooling 0x0000000000000000  # 0
+f64 galaxy[0].Heating 0x0000000000000000  # 0
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+f32 intermediate.writer.galaxy[0].OutflowRate 0x00000000  # 0
+f64 intermediate.galaxy[1].deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426
+i32 intermediate.galaxy[1].normalised 1
+f64 galaxy[1].Cooling 0x0000000000000000  # 0
+f64 galaxy[1].Heating 0x0000000000000000  # 0
+f32 galaxy[1].OutflowRate 0x80000000  # -0
+f32 intermediate.writer.galaxy[1].OutflowRate 0x80000000  # -0

@@ -1,0 +1,24 @@
+# Galaxy zero itself merged (mergeType 2, Type 3): its own interval still sets inv_deltaT for the
+# others.
+# Constructed input (not R0 output); every value is set explicitly. All flags and parameters are
+# R0's unless a line says NOT R0.
+format sage26-oracle-fixture 1
+routine normalise_outflow_rate
+
+f64 params.UnitMass_in_g 0x48ec8a6e9c6c5bda  # 1.989e+43  (run file)
+f64 params.UnitTime_in_s 0x43fac39601d1945f  # 3.0856799999999996e+19  (L / V, R/src/core_init.c:94)
+i32 call.ngal 2
+f64 call.halo_age 0x3f7f8a39f725e713  # 0.0077001823686886515  (Age[halo_snapnum])
+i32 galaxy[0].Type 3
+i32 galaxy[0].SnapNum 32
+f64 call.Age[32] 0x3f80253c9c200d22  # 0.00788352347809124
+i32 galaxy[0].mergeType 2
+f64 galaxy[0].Cooling 0x3ff0000000000000  # 1.0
+f64 galaxy[0].Heating 0x3ff0000000000000  # 1.0
+f32 galaxy[0].OutflowRate 0x3c23d70a  # 0.00999999978
+i32 galaxy[1].Type 0
+i32 galaxy[1].SnapNum 32
+i32 galaxy[1].mergeType 0
+f64 galaxy[1].Cooling 0x4004000000000000  # 2.5
+f64 galaxy[1].Heating 0x3ff4000000000000  # 1.25
+f32 galaxy[1].OutflowRate 0x3ca3d70a  # 0.0199999996

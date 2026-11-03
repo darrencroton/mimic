@@ -1,0 +1,71 @@
+# Histories built from an R0 galaxy's outputs: every disk (bulge) rate bin is its SfrDisk
+# (SfrBulge) converted back to code units, every gas bin its ColdGas and MetalsColdGas (bulge bins
+# empty unless SfrBulge > 0). Plausible values, not reconstructed histories.
+# galaxy 0: R0 reference model_0.hdf5 (SHA-256 6d859a3a2ea422e3...) Snap_63 row 2, GalaxyIndex
+# 256, Type 1
+format sage26-oracle-fixture 1
+routine sfr_history_average
+
+f64 params.UnitMass_in_g 0x48ec8a6e9c6c5bda  # 1.989e+43  (run file)
+f64 params.UnitTime_in_s 0x43fac39601d1945f  # 3.0856799999999996e+19  (L / V, R/src/core_init.c:94)
+i32 galaxy[0].SubstepsUsed 10
+f32 galaxy[0].SfrDisk[0] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrDisk[1] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrDisk[2] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrDisk[3] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrDisk[4] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrDisk[5] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrDisk[6] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrDisk[7] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrDisk[8] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrDisk[9] 0x40bd9c86  # 5.92535686
+f32 galaxy[0].SfrBulge[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[0] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGas[1] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGas[2] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGas[3] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGas[4] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGas[5] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGas[6] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGas[7] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGas[8] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGas[9] 0x3eb9e431  # 0.363069087
+f32 galaxy[0].SfrDiskColdGasMetals[0] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrDiskColdGasMetals[1] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrDiskColdGasMetals[2] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrDiskColdGasMetals[3] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrDiskColdGasMetals[4] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrDiskColdGasMetals[5] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrDiskColdGasMetals[6] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrDiskColdGasMetals[7] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrDiskColdGasMetals[8] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrDiskColdGasMetals[9] 0x3c62150d  # 0.0137989642
+f32 galaxy[0].SfrBulgeColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[9] 0x00000000  # 0

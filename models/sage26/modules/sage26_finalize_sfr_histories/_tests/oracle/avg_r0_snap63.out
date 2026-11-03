@@ -1,0 +1,11 @@
+# SAGE26 oracle output for avg_r0_snap63.in, written by oracle_c05 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine sfr_history_average
+i32 intermediate.writer.sfr_rate_divisor 10
+i32 intermediate.writer.sfr_metallicity_divisor 10
+i32 intermediate.writer.SfrDiskZ_bins_skipped 0
+i32 intermediate.writer.SfrBulgeZ_bins_skipped 10
+f32 intermediate.writer.SfrDisk 0x3d7827aa  # 0.0605847016
+f32 intermediate.writer.SfrBulge 0x00000000  # 0
+f32 intermediate.writer.SfrDiskZ 0x3d1baca5  # 0.0380064435
+f32 intermediate.writer.SfrBulgeZ 0x00000000  # 0

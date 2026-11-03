@@ -1,0 +1,15 @@
+# SAGE26 oracle output for bins_es11.in, written by oracle_c05 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine step_bin_map
+f64 intermediate.dt 0x3ef17a1d30ed618c  # 1.6667373582053511e-05
+i32 intermediate.step[0].step_bin 0
+i32 intermediate.step[1].step_bin 0
+i32 intermediate.step[2].step_bin 1
+i32 intermediate.step[3].step_bin 2
+i32 intermediate.step[4].step_bin 3
+i32 intermediate.step[5].step_bin 4
+i32 intermediate.step[6].step_bin 5
+i32 intermediate.step[7].step_bin 6
+i32 intermediate.step[8].step_bin 7
+i32 intermediate.step[9].step_bin 8
+i32 intermediate.step[10].step_bin 9
