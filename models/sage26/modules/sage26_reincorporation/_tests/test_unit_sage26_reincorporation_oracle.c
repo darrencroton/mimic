@@ -10,10 +10,12 @@
  * The snapshot interval is core-owned: the oracle's intermediate.deltaT
  * (Age[SnapNum] - halo_age, core_build_model.c:479) is supplied as the halo's dT
  * and call.effective_steps as the substep count. The module's own substep dt
- * (shared/time_parity.h) is asserted against intermediate.dt, and the SAGE26
- * call-site gate (ReIncorporationFactor > 0, core_build_model.c:490) against
- * intermediate.reincorporate_gas_called. Outside the oracle environment (macOS
- * arm64, Apple clang 21) the bit-exact test reports SKIP.
+ * (shared/time_parity.h) is asserted against intermediate.dt. Where the oracle
+ * records that the SAGE26 call-site gate (ReIncorporationFactor > 0,
+ * core_build_model.c:490) did not call reincorporate_gas
+ * (intermediate.reincorporate_gas_called 0), the module must leave the reservoirs
+ * bit-identical to their inputs. Outside the oracle environment (macOS arm64,
+ * Apple clang 21) the bit-exact test reports SKIP.
  *
  * Test cases:
  *   - test_oracle_fixture_count: every fixture the manifest lists is present
@@ -61,8 +63,8 @@ static int check_fixture(const char *name) {
 
   const double factor = oracle_in_f64(&in, "params.ReIncorporationFactor");
   reset_config();
-  oracle_set_model_param("ReIncorporationFactor", factor);
-  if (sage26_reincorporation_init() != 0) {
+  if (oracle_set_model_param("ReIncorporationFactor", factor) != 0 ||
+      sage26_reincorporation_init() != 0) {
     fprintf(stderr, "oracle: %s: module init failed\n", name);
     return problems + 1;
   }
@@ -98,15 +100,21 @@ static int check_fixture(const char *name) {
     problems++;
   }
   problems += oracle_check_f64(&out, "intermediate.dt", dt);
-  /* SAGE26 calls reincorporate_gas only when ReIncorporationFactor > 0; the
-   * package has no other gate, its Vcrit > 0 guard being equivalent. */
-  problems += oracle_check_i32(&out, "intermediate.reincorporate_gas_called", factor > 0.0);
+  const struct GalaxyData before = galaxy;
 
   if (sage26_reincorporation_process(&ctx, &halo, 1) != 0) {
     fprintf(stderr, "oracle: %s: process() failed\n", name);
     problems++;
   }
   sage26_reincorporation_cleanup();
+
+  /* When SAGE26's call-site gate (ReIncorporationFactor > 0,
+   * core_build_model.c:490) does not call reincorporate_gas, the module must
+   * visibly do nothing: the reservoirs stay bit-identical to their inputs. */
+  if (oracle_in_i32(&out, "intermediate.reincorporate_gas_called") == 0) {
+    problems +=
+        oracle_check_galaxy_unchanged(&out, 0, &before, &galaxy, RESERVOIRS, COUNT(RESERVOIRS));
+  }
 
   problems += oracle_check_galaxy_floats(&out, 0, &galaxy, RESERVOIRS, COUNT(RESERVOIRS));
 

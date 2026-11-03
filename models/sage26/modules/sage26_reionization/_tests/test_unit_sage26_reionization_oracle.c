@@ -49,8 +49,8 @@ static int run_module(struct oracle_fixture *in, const double baryon_frac,
   MimicConfig.OmegaLambda = oracle_in_f64(in, "params.OmegaLambda");
   MimicConfig.Hubble = oracle_in_f64(in, "params.Hubble");
   MimicConfig.G = oracle_in_f64(in, "params.G");
-  oracle_set_model_param("GlobalBaryonFraction", baryon_frac);
-  if (sage26_reionization_init() != 0) {
+  if (oracle_set_model_param("GlobalBaryonFraction", baryon_frac) != 0 ||
+      sage26_reionization_init() != 0) {
     fprintf(stderr, "oracle: %s: module init failed\n", in->path);
     return -1;
   }

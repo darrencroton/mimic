@@ -735,8 +735,9 @@ int test_negative_prevention(void) {
 
   /* Validate: No (meaningfully) negative masses. SAGE parity note: the
    * double-precision metallicity times a float reservoir can leave metal
-   * fields ULP-negative after full drainage (~-1e-9); SAGE behaves the same
-   * and its metallicity guard treats negative metals as zero downstream. */
+   * fields ULP-negative after full drainage (~-1e-9); SAGE26's debit does the
+   * same (SAGE26 src/model_reincorporation.c:57-61) and its get_metallicity treats
+   * negative metals as zero downstream (SAGE26 src/model_misc.c:427-437). */
   TEST_ASSERT(halo.galaxy->EjectedGas >= 0.0, "EjectedGas must not be negative");
   TEST_ASSERT(halo.galaxy->HotGas >= 0.0, "HotGas must not be negative");
   TEST_ASSERT(halo.galaxy->MetalsEjectedGas >= -1e-6f,

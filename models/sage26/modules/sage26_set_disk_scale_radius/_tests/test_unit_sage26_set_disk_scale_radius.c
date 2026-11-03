@@ -9,7 +9,8 @@
  * - Spin parameter calculation (Bullock-style λ)
  * - Edge cases (zero spin, zero velocity, zero radius)
  * - Fallback logic (invalid virial properties)
- * - Type filtering (Type 0 processed, Type 1+ skipped/frozen for SAGE parity)
+ * - Type filtering (Type 0 processed, Type 1+ skipped/frozen for SAGE parity: SAGE26
+ *   recomputes the radius only for the FoF central, SAGE26 src/core_build_model.c:284-298)
  * - Module lifecycle and memory safety
  *
  * Test cases:
@@ -447,6 +448,8 @@ int test_disk_radius_small_vvir_rvir(void) {
 /**
  * @test    test_disk_radius_type1_satellite_frozen
  * @brief   SAGE parity: Type 1 satellites keep their inherited disk radius
+ *          (SAGE26 recomputes it only for the FoF central,
+ *          SAGE26 src/core_build_model.c:284-298)
  *
  * Expected: DiskScaleRadius unchanged (sentinel value)
  * Validates: Type 1 satellite freeze contract

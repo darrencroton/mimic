@@ -83,8 +83,9 @@ static int check_fixture(const char *name) {
   }
 
   reset_config();
-  oracle_set_model_param("GlobalBaryonFraction", oracle_in_f64(&in, "params.BaryonFrac"));
-  if (sage26_prepare_infall_budget_init() != 0) {
+  if (oracle_set_model_param("GlobalBaryonFraction", oracle_in_f64(&in, "params.BaryonFrac")) !=
+          0 ||
+      sage26_prepare_infall_budget_init() != 0) {
     fprintf(stderr, "oracle: %s: module init failed\n", name);
     return problems + 1;
   }

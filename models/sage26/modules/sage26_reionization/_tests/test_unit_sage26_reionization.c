@@ -378,10 +378,11 @@ int test_physics_calculation_type0(void) {
  * @brief   Test physics calculation for Type 1 satellite halos
  *
  * Expected: HaloBaryonFraction = GlobalBaryonFraction × f_reion(satellite_Mvir, z)
- * Validates: Per-satellite reionization suppression (SAGE parity fix)
- * SAGE parity: strip_from_satellite() calls do_reionization(gal,...) per satellite
- * using the satellite's own Mvir (model_infall.c:97), so each satellite must
- * receive its own suppression modifier, not the central's.
+ * Validates: Per-satellite reionization suppression
+ * SAGE parity: SAGE26's strip_from_satellite() calls do_reionization(gal, ...) on
+ * the satellite itself, reading the satellite's own Mvir (SAGE26 src/model_infall.c:231,
+ * :333), so each satellite must receive its own suppression modifier, not the
+ * central's.
  */
 int test_physics_calculation_type1_satellite(void) {
   /* ===== SETUP ===== */

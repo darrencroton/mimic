@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "include/constants.h"
 #include "include/globals.h"
 #include "include/types.h"
 
@@ -521,8 +522,11 @@ static inline int oracle_report_unconsumed(const struct oracle_fixture *fx) {
  *
  * "%.17g" round-trips a double through strtod exactly, so the module reads the
  * fixture's bit pattern.
+ *
+ * @return 0 on success; -1 (with a message on stderr) when adding it would exceed
+ *         MAX_MODEL_PARAMS, which the caller must count as a failure
  */
-static inline void oracle_set_model_param(const char *name, const double value) {
+static inline int oracle_set_model_param(const char *name, const double value) {
   int index = -1;
   for (int i = 0; i < MimicConfig.NumModelParams; i++) {
     if (strcmp(MimicConfig.ModelParams[i].param_name, name) == 0) {
@@ -530,12 +534,19 @@ static inline void oracle_set_model_param(const char *name, const double value) 
     }
   }
   if (index == -1) {
+    if (MimicConfig.NumModelParams < 0 || MimicConfig.NumModelParams >= MAX_MODEL_PARAMS) {
+      fprintf(stderr,
+              "oracle: cannot add model parameter '%s': %d already set (MAX_MODEL_PARAMS %d)\n",
+              name, MimicConfig.NumModelParams, MAX_MODEL_PARAMS);
+      return -1;
+    }
     index = MimicConfig.NumModelParams++;
     snprintf(MimicConfig.ModelParams[index].param_name,
              sizeof(MimicConfig.ModelParams[index].param_name), "%s", name);
   }
   snprintf(MimicConfig.ModelParams[index].value, sizeof(MimicConfig.ModelParams[index].value),
            "%.17g", value);
+  return 0;
 }
 
 /**
@@ -606,6 +617,37 @@ static inline int oracle_check_galaxy_floats(struct oracle_fixture *out, const i
     mismatches += oracle_check_f32(out, oracle_galaxy_field(index, names[k]), *member);
   }
   return mismatches;
+}
+
+/**
+ * @brief Check each named float reservoir of galaxy[index] is bit-identical to its value before
+ *
+ * For fixtures whose SAGE26 call site does not call the routine: the module must
+ * visibly leave the state untouched, independently of the oracle's recorded outputs.
+ *
+ * @return Number of reservoirs that changed (each reported on stderr)
+ */
+static inline int oracle_check_galaxy_unchanged(const struct oracle_fixture *fx, const int index,
+                                                const struct GalaxyData *before,
+                                                struct GalaxyData *after, const char *const *names,
+                                                const size_t count) {
+  int changed = 0;
+  struct GalaxyData copy = *before;
+  for (size_t k = 0; k < count; k++) {
+    const float *old_member = oracle_galaxy_float(&copy, names[k]);
+    const float *new_member = oracle_galaxy_float(after, names[k]);
+    if (old_member == NULL || new_member == NULL) {
+      fprintf(stderr, "oracle: %s: no package member for '%s'\n", fx->path, names[k]);
+      changed++;
+      continue;
+    }
+    if (oracle_f32_to_bits(*old_member) != oracle_f32_to_bits(*new_member)) {
+      fprintf(stderr, "oracle: %s: galaxy[%d].%s changed although the routine was not called\n",
+              fx->path, index, names[k]);
+      changed++;
+    }
+  }
+  return changed;
 }
 
 /** @brief Fill a struct with all bits set, as the oracle poisons its state (NaN / -1) */

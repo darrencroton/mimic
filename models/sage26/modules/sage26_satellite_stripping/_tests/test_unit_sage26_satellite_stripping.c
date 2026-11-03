@@ -5,7 +5,8 @@
  * Tests the satellite stripping physics calculation in isolation using minimal mocks.
  *
  * SAGE parity: the module runs process_by_galaxy (one satellite at a time, ngal=1),
- * stripping a Type 1 satellite and depositing into the FOF central via
+ * as SAGE26 strips each Type 1 satellite in its galaxy loop
+ * (SAGE26 src/core_build_model.c:493-498), stripping it and depositing into the FOF central via
  * ctx->central_galaxy. Tests therefore call process with the single satellite halo
  * (&halos[1], 1) and the central supplied through ctx->central_galaxy.
  *
@@ -220,8 +221,9 @@ static int test_mass_conservation_max_dynamic_substeps(void) {
  * @test    test_stripped_fraction_follows_geometric_formula
  * @brief   Pins the inherited (not Mimic-introduced) 1-(1-1/N)^N stripped-fraction formula
  *
- * See the SAGE parity comment in sage26_satellite_stripping.c for why this formula is
- * expected, not a bug. Guards against a future refactor silently changing it.
+ * SAGE26 divides the recomputed excess by the substep count every substep
+ * (SAGE26 src/model_infall.c:238-244), which gives this formula; it is expected, not a bug.
+ * Guards against a future refactor silently changing it.
  */
 static int test_stripped_fraction_follows_geometric_formula(void) {
   init_memory_system(0);

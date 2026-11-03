@@ -17,7 +17,8 @@
  * not call strip_from_satellite (intermediate.strip_from_satellite_called 0, e.g.
  * a Type 2 orphan), the recorded modifier and product come from the oracle's
  * pre-gate evaluation and are not SAGE26 state (oracle README); they are still
- * fed to the module, which must leave every reservoir unchanged. Outside the
+ * fed to the module, which must leave every reservoir bit-identical to its input,
+ * checked against the inputs as well as against the oracle output. Outside the
  * oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *
  * Test cases:
@@ -81,8 +82,9 @@ static int check_fixture(const char *name) {
   }
 
   reset_config();
-  oracle_set_model_param("GlobalBaryonFraction", oracle_in_f64(&in, "params.BaryonFrac"));
-  if (sage26_satellite_stripping_init() != 0) {
+  if (oracle_set_model_param("GlobalBaryonFraction", oracle_in_f64(&in, "params.BaryonFrac")) !=
+          0 ||
+      sage26_satellite_stripping_init() != 0) {
     fprintf(stderr, "oracle: %s: module init failed\n", name);
     return problems + 1;
   }
@@ -109,6 +111,12 @@ static int check_fixture(const char *name) {
     oracle_in_galaxy_floats(&in, i, &galaxies[i], INPUT_RESERVOIRS, COUNT(INPUT_RESERVOIRS));
   }
 
+  /* Every galaxy's state before the call, for the not-called check below */
+  struct GalaxyData before[MAX_GALAXIES];
+  for (int i = 0; i < ngal; i++) {
+    before[i] = galaxies[i];
+  }
+
   /* HaloBaryonFraction as the package stores it (see the file comment) */
   galaxies[satellite].HaloBaryonFraction = oracle_in_f64(&out, "intermediate.HaloBaryonFraction");
   oracle_exclude(&out, "intermediate.reionization_modifier"); /* SAGE26 local, not package state */
@@ -126,9 +134,15 @@ static int check_fixture(const char *name) {
   }
   sage26_satellite_stripping_cleanup();
 
-  /* The package's gate is SAGE26's: a live Type 1 satellite is stripped */
-  problems += oracle_check_i32(&out, "intermediate.strip_from_satellite_called",
-                               halos[satellite].Type == 1);
+  /* When SAGE26's call-site gate does not call strip_from_satellite
+   * (core_build_model.c:493-498), the module must visibly do nothing: every
+   * galaxy's reservoirs stay bit-identical to their inputs. */
+  if (oracle_in_i32(&out, "intermediate.strip_from_satellite_called") == 0) {
+    for (int i = 0; i < ngal; i++) {
+      problems += oracle_check_galaxy_unchanged(&out, i, &before[i], &galaxies[i],
+                                                OUTPUT_RESERVOIRS, COUNT(OUTPUT_RESERVOIRS));
+    }
+  }
   for (int i = 0; i < ngal; i++) {
     problems += oracle_check_galaxy_floats(&out, i, &galaxies[i], OUTPUT_RESERVOIRS,
                                            COUNT(OUTPUT_RESERVOIRS));
