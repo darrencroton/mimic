@@ -1,0 +1,37 @@
+module:
+  name: sage26_apply_star_formation_supernova
+  description: >-
+    Infrastructure apply step: commits NewStellarMass and SN transport fields to galaxy reservoirs
+    with recycling, metallicity refresh, and gas-phase transfers. Not a swappable prescription; must
+    follow sage26_calculate_star_formation and/or sage26_calculate_supernova_feedback in the same phase.
+    The disk-SF metal yield is applied later by sage26_apply_metal_enrichment (SAGE ordering parity).
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - dT
+      - Mvir
+      - ColdGas
+      - MetalsColdGas
+      - StellarMass
+      - MetalsStellarMass
+      - HotGas
+      - MetalsHotGas
+      - EjectedGas
+      - MetalsEjectedGas
+      - NewStellarMass
+      - SupernovaReheatedMass
+      - SupernovaEjectedMass
+      - StarFormationRate
+      - SupernovaOutflowRate
+    parameters:
+      - RecycleFraction
+
+  tests:
+    unit: _tests/test_unit_sage26_apply_star_formation_supernova.c
+    integration: _tests/test_integration_sage26_apply_star_formation_supernova.py
+    scientific: []
+
+  docs:
+    physics: README.md

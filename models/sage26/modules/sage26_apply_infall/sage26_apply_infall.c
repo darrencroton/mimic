@@ -1,0 +1,105 @@
+/**
+ * @file    sage26_apply_infall.c
+ * @brief   SAGE infall application - distributes infalling gas budget to hot reservoir over
+ * substeps
+ *
+ * Distributes infalling gas (from sage26_prepare_infall_budget) to hot reservoir over substeps
+ * with metallicity tracking. For negative infall (mass loss), removes from ejected
+ * reservoir first, then hot gas.
+ *
+ * Reference: Croton et al. (2006, 2016)
+ */
+
+#include "constants.h"
+#include "error.h"
+#include "globals.h"
+#include "shared/central_link.h"
+#include "shared/metallicity.h"
+#include "module_interface.h"
+#include "module_registry.h"
+#include "numeric.h"
+#include "types.h"
+
+// ============================================================================
+// MODULE LIFECYCLE FUNCTIONS
+// ============================================================================
+
+int sage26_apply_infall_init(void) {
+  /* Dependency check: sage26_prepare_infall_budget must be present in pre_timestep */
+  if (!module_configured_in_phase("sage26_prepare_infall_budget", MimicConfig.pre_timestep,
+                                  MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO)) {
+    ERROR_LOG("sage26_apply_infall requires sage26_prepare_infall_budget in "
+              "pre_timestep as process_full_halo — InfallingGas will be 0 "
+              "without it, producing no infall");
+    return -1;
+  }
+
+  VERBOSE_LOG("SAGE apply infall module initialized");
+  return 0;
+}
+
+int sage26_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  if (halos == NULL || ngal <= 0) {
+    return 0;
+  }
+
+  // No FOF central is a legal no-op (the tree build enforces centrals upstream)
+  const int central_idx = mimic_find_fof_central_index(halos, ngal);
+  if (central_idx == -1) {
+    return 0;
+  }
+
+  if (halos[central_idx].galaxy == NULL) {
+    ERROR_LOG("Central galaxy (index %d) has NULL galaxy data", central_idx);
+    return -1;
+  }
+
+  struct GalaxyData *galaxy = halos[central_idx].galaxy;
+
+  // Calculate infall amount for this substep
+  double infallingGas = galaxy->InfallingGas / (double)ctx->num_substeps;
+
+  // SAGE parity: add_infall_to_hot removes from ejected first, then hot; uses a float
+  // metallicity with double products accumulated into float reservoirs (no intermediate rounding)
+  if (infallingGas < 0.0 && galaxy->EjectedGas > 0.0f) {
+    const float metallicity = mimic_get_metallicity(galaxy->EjectedGas, galaxy->MetalsEjectedGas);
+    galaxy->MetalsEjectedGas += infallingGas * metallicity;
+    if (galaxy->MetalsEjectedGas < 0.0f) {
+      galaxy->MetalsEjectedGas = 0.0f;
+    }
+
+    galaxy->EjectedGas += infallingGas;
+    if (galaxy->EjectedGas < 0.0f) {
+      infallingGas = galaxy->EjectedGas;
+      galaxy->EjectedGas = 0.0f;
+      galaxy->MetalsEjectedGas = 0.0f;
+    } else {
+      infallingGas = 0.0;
+    }
+  }
+
+  if (infallingGas < 0.0 && galaxy->MetalsHotGas > 0.0f) {
+    const float metallicity = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
+    galaxy->MetalsHotGas += infallingGas * metallicity;
+    if (galaxy->MetalsHotGas < 0.0f) {
+      galaxy->MetalsHotGas = 0.0f;
+    }
+  }
+
+  galaxy->HotGas += infallingGas;
+  if (galaxy->HotGas < 0.0f) {
+    galaxy->HotGas = 0.0f;
+    galaxy->MetalsHotGas = 0.0f;
+  }
+
+  DEBUG_LOG("AddInfall: Mvir=%.3e, InfallingGas/step=%.3e, HotGas=%.3e, substep=%d/%d",
+            halos[central_idx].Mvir, infallingGas, galaxy->HotGas, ctx->substep_number + 1,
+            ctx->num_substeps);
+
+  return 0;
+}
+
+int sage26_apply_infall_cleanup(void) {
+  VERBOSE_LOG("SAGE apply infall module cleaned up");
+  return 0;
+}

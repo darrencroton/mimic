@@ -1,0 +1,117 @@
+/**
+ * @file    sage26_satellite_stripping.c
+ * @brief   SAGE satellite stripping module - environmental gas stripping from satellites
+ *
+ * Strips hot gas from satellites when baryon content exceeds HaloBaryonFraction × Mvir.
+ * Stripped gas transfers to central's hot reservoir with metallicity preserved.
+ * Stripping distributed over substeps for numerical stability.
+ *
+ * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2006, 2016)
+ */
+
+#include "error.h"
+#include "module_system/parameter_helpers.h"
+#include "shared/metallicity.h"
+#include "module_interface.h"
+#include "module_registry.h"
+#include "types.h"
+
+// ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
+
+static double GLOBAL_BARYON_FRAC;
+
+// ============================================================================
+// MODULE LIFECYCLE FUNCTIONS
+// ============================================================================
+
+int sage26_satellite_stripping_init(void) {
+  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
+                                    "cosmic baryon fraction must be physical");
+
+  VERBOSE_LOG("SAGE satellite stripping module initialized");
+  VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
+
+  return 0;
+}
+
+int sage26_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  // SAGE parity: stripping runs process_by_galaxy so it interleaves with
+  // cooling in the galaxy-major loop, exactly as SAGE strips a Type 1
+  // satellite just before that satellite cools (model_infall.c
+  // strip_from_satellite, called inside evolve_galaxies). Because the FOF
+  // central is normally processed earlier in the galaxy loop, it has already
+  // cooled before satellites strip, so stripped gas reaches the central's hot
+  // reservoir and cools on the next substep (not the current one).
+  if (ngal != 1) {
+    ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
+    return -1;
+  }
+
+  struct Halo *halo = &halos[0];
+
+  // Only Type 1 satellites with hot gas are stripped (SAGE: Type == 1 && HotGas > 0).
+  if (halo->galaxy == NULL || halo->Type != 1 || halo->galaxy->HotGas <= 0.0f) {
+    return 0;
+  }
+
+  if (ctx == NULL || ctx->central_galaxy == NULL || ctx->central_galaxy->galaxy == NULL) {
+    DEBUG_LOG("No FOF central available for stripping target");
+    return 0;
+  }
+
+  struct GalaxyData *sat_gal = halo->galaxy;
+  struct GalaxyData *cen_gal = ctx->central_galaxy->galaxy;
+
+  /* HaloBaryonFraction set by sage26_reionization; fall back to global parameter if unset. */
+  const double halo_baryon_frac =
+      (sat_gal->HaloBaryonFraction > 0.0f) ? sat_gal->HaloBaryonFraction : GLOBAL_BARYON_FRAC;
+
+  const double total_baryons = sat_gal->StellarMass + sat_gal->ColdGas + sat_gal->HotGas +
+                               sat_gal->EjectedGas + sat_gal->BlackHoleMass + sat_gal->ICS;
+
+  /* SAGE parity: divides the recomputed excess by num_substeps every substep
+   * (stock SAGE model_infall.c:103 does the same against STEPS), not a fixed
+   * budget partitioned once like sage26_apply_infall. The fraction stripped over
+   * one interval is therefore 1-(1-1/N)^N: 100% at N=1, converging to ~63%
+   * (1-1/e) as N grows -- independent of dT. Constant and invisible under
+   * fixed SAGE (STEPS always 10); under TimestepScheme=dynamic, N varies with
+   * z, so this is a real redshift-dependent artifact. Documented, not
+   * changed, to preserve sage-model parity. */
+  double strippedGas =
+      -1.0 * (halo_baryon_frac * halo->Mvir - total_baryons) / (double)ctx->num_substeps;
+
+  if (strippedGas > 0.0) {
+    /* Symmetric metal transfer: the central is credited with exactly the
+     * strippedMetals debited from the satellite, so metals are conserved in
+     * every clamp regime. Stock SAGE strip_from_satellite
+     * (model_infall.c:106-118) instead credits clamped-gas * metallicity, which
+     * destroys metals when the metallicity cap is active (MetalsHotGas >=
+     * HotGas, so Z = 1) and the gas clamp engages. That is a genuine
+     * conservation bug; Mimic fixes it. The fix is byte-identical to the SAGE
+     * physics baseline on mini-Millennium because the cap branch never fires
+     * there (verified by the physics baseline gate). */
+    const double metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
+    double strippedMetals = strippedGas * metallicity;
+
+    if (strippedGas > sat_gal->HotGas)
+      strippedGas = sat_gal->HotGas;
+    if (strippedMetals > sat_gal->MetalsHotGas)
+      strippedMetals = sat_gal->MetalsHotGas;
+
+    // Transfer the same gas and metal quantities out of the satellite and into
+    // the central (double-precision values accumulated into float reservoirs).
+    sat_gal->HotGas -= strippedGas;
+    sat_gal->MetalsHotGas -= strippedMetals;
+    cen_gal->HotGas += strippedGas;
+    cen_gal->MetalsHotGas += strippedMetals;
+  }
+
+  return 0;
+}
+
+int sage26_satellite_stripping_cleanup(void) {
+  VERBOSE_LOG("SAGE satellite stripping module cleaned up");
+  return 0;
+}

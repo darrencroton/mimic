@@ -1,0 +1,29 @@
+module:
+  name: sage26_reincorporation
+  description: >-
+    Returns ejected gas to hot halo in massive systems (Vvir > Vcrit); acts on FOF central only
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - HaloNr
+      - SnapNum
+      - Type
+      - Vvir
+      - Rvir
+      - dT
+      - EjectedGas
+      - MetalsEjectedGas
+      - HotGas
+      - MetalsHotGas
+    parameters:
+      - ReIncorporationFactor
+
+  tests:
+    unit: _tests/test_unit_sage26_reincorporation.c
+    integration: _tests/test_integration_sage26_reincorporation.py
+    scientific: []
+
+  docs:
+    physics: README.md

@@ -1,0 +1,40 @@
+# Physics Module Test Registry
+#
+# This file enables automatic discovery for shared cross-module tests that live
+# in models/sage26/modules/_tests/.
+#
+# Do not register module-specific tests here. Runtime modules own their tests in
+# models/<model>/modules/<module>/_tests/, and retired tests belong in archive/src-modules/_archive/.
+#
+# To add a new shared module-system test:
+# 1. Create test file in this _tests/ directory
+# 2. Add filename to the tests list below
+# 3. Run: make MODEL=sage26 generate
+# 4. Tests auto-run with: make MODEL=sage26 tests-unit, make MODEL=sage26 tests-integration, make MODEL=sage26 tests-scientific
+#
+# Tests can be listed in block format or inline:
+#   E.g. inline:
+#     unit: [test_unit_foo.c, test_unit_bar.c]
+#   E.g. block (recommended for readability):
+#     unit:
+#       - test_unit_foo.c
+#       - test_unit_bar.c
+#
+# See: docs/DEVELOPER-GUIDE.md for comprehensive testing guide
+
+module:
+  name: _tests
+  display_name: "Physics Module Tests"
+  description: "Shared cross-module tests for runtime physics modules"
+
+  # Mark as utility collection (not a runtime physics module)
+  is_utility: true
+
+  # List of tests (add new tests here)
+  tests:
+    unit:
+      - test_unit_mixed_dt_parity.c
+      - test_unit_sage_dependency_contracts.c
+
+    integration:
+      - test_integration_processing_mode_contracts.py
