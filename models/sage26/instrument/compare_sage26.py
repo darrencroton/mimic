@@ -798,9 +798,17 @@ def _json_safe(obj):
 
 
 def write_json(path, document):
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(_json_safe(document), fh, indent=1, allow_nan=False)
-        fh.write("\n")
+    """Write the JSON report atomically: a temporary file beside ``path``, then a rename,
+    so a failed write never leaves a partial JSON (the temporary file is removed)."""
+    text = json.dumps(_json_safe(document), indent=1, allow_nan=False) + "\n"
+    tmp = _temporary_beside(path)
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+        tmp = None
+    finally:
+        _discard(tmp)
 
 
 def _csv_number(value):
@@ -1067,12 +1075,35 @@ def finish_error(args, document, message):
         )
     try:
         print("verdict: error: %s" % message)
+        sys.stdout.flush()
+    except OSError:
+        _silence_stdout()
     except Exception:  # noqa: BLE001 - an unprintable verdict must still exit 2
         pass
     return EXIT_ERROR
 
 
-def _temporary_outliers(path):
+def _silence_stdout():
+    """Point stdout at os.devnull after a failed write (e.g. a closed pipe), so the
+    interpreter's final flush cannot fail and change the exit status (Python's
+    documented SIGPIPE recipe)."""
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    except Exception:  # noqa: BLE001 - best effort; the exit status is already decided
+        pass
+
+
+def _discard(path):
+    """Remove a temporary file if there is one; never raises."""
+    if path is not None:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _temporary_beside(path):
     """Create an empty temporary file beside ``path`` (same directory, so the final
     ``os.replace`` is a rename within one file system) with the umask's usual mode."""
     directory = os.path.dirname(os.path.abspath(path))
@@ -1086,43 +1117,70 @@ def _temporary_outliers(path):
     return tmp
 
 
+def check_output_paths(parser, args):
+    """Reject output paths that collide with each other or with an input (usage error).
+
+    ``--json`` and ``--outliers`` must resolve to different files, and neither may resolve
+    to ``--reference`` or to any expected ``<candidate>/<basename>_<NNN>.hdf5``; otherwise
+    writing a report could overwrite the other report or truncate an input. Calls
+    ``parser.error`` (exit 2, message on stderr, nothing written).
+    """
+    outputs = {"--json": os.path.realpath(args.json), "--outliers": os.path.realpath(args.outliers)}
+    if outputs["--json"] == outputs["--outliers"]:
+        parser.error("--json and --outliers resolve to the same file %s" % outputs["--json"])
+    inputs = {os.path.realpath(args.reference): "--reference"}
+    for i in range(args.partitions):
+        name = "%s_%03d.hdf5" % (args.basename, i)
+        inputs.setdefault(os.path.realpath(os.path.join(args.candidate, name)), "candidate " + name)
+    for option, path in outputs.items():
+        if path in inputs:
+            parser.error("%s resolves to an input file (%s): %s" % (option, inputs[path], path))
+
+
 def main(argv=None):
     """Entry point.
 
     The last line printed to standard output is ``verdict: <verdict>`` on every path
     except ``--help`` (exit 0, the help text) and a usage error (argparse's message on
-    standard error, exit 2). The outputs are transactional: the outliers CSV is written
-    to a temporary file beside ``--outliers``, the JSON is written, and only then is the
-    temporary file renamed onto ``--outliers``; on any error the temporary file is
-    removed, so an error run never creates or replaces a file at ``--outliers``. The
+    standard error, exit 2; this includes output paths that collide, see
+    ``check_output_paths``). The outputs are transactional: the outliers CSV is written
+    to a temporary file beside ``--outliers``, the JSON is written (itself atomically,
+    see ``write_json``), and only then is the temporary file renamed onto ``--outliers``;
+    on any error the temporary file is removed before the error JSON is written, so an
+    error run never creates or replaces a file at ``--outliers``. The
     per-snapshot table is printed only after both outputs are in place, and a failure to
     print cannot change them: the exit status is still the verdict's.
     """
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    check_output_paths(parser, args)
     document = new_document(args)
     if _IMPORT_ERROR is not None:
         return finish_error(args, document, "cannot import NumPy and h5py (%s)" % _IMPORT_ERROR)
     tmp_csv = None
     try:
         status, printed, (tables, blocks) = run(args, document)
-        tmp_csv = _temporary_outliers(args.outliers)
+        tmp_csv = _temporary_beside(args.outliers)
         write_outliers(tmp_csv, blocks)
         write_json(args.json, document)
         os.replace(tmp_csv, args.outliers)
         tmp_csv = None
     except InstrumentError as exc:
+        _discard(tmp_csv)
+        tmp_csv = None
         return finish_error(args, document, str(exc))
     except Exception as exc:  # noqa: BLE001 - any unexpected failure is 'error', never exit 1
+        _discard(tmp_csv)
+        tmp_csv = None
         return finish_error(args, document, "internal failure: %s: %s" % (type(exc).__name__, exc))
     finally:
-        if tmp_csv is not None:
-            try:
-                os.remove(tmp_csv)
-            except OSError:
-                pass
+        _discard(tmp_csv)
     try:
         _print_table(tables)
         print("verdict: %s" % printed)
+        sys.stdout.flush()
+    except OSError:
+        _silence_stdout()
     except Exception:  # noqa: BLE001 - the JSON and CSV are already consistent and final
         pass
     return status
