@@ -105,7 +105,7 @@ fixture sage26_set_disk_scale_radius zero_spin
 
 # The c04 group (cooling and radio heating): these modules' fixtures run through oracle_c04.
 
-module sage26_calculate_cooling_budget 58
+module sage26_calculate_cooling_budget 59
 fixture sage26_calculate_cooling_budget hot_accretion_capped_to_hotgas
 fixture sage26_calculate_cooling_budget hot_cooling_capped_to_hotgas
 fixture sage26_calculate_cooling_budget hot_cooling_equals_hotgas
@@ -134,6 +134,7 @@ fixture sage26_calculate_cooling_budget hot_rho_rcool_negative_rvir
 fixture sage26_calculate_cooling_budget hot_rho_rcool_zero_tcool_overflow
 fixture sage26_calculate_cooling_budget hot_temp_above_table
 fixture sage26_calculate_cooling_budget hot_temp_below_table
+fixture sage26_calculate_cooling_budget hot_x_two_sided
 fixture sage26_calculate_cooling_budget interp_logT_above_table
 fixture sage26_calculate_cooling_budget interp_logT_below_table
 fixture sage26_calculate_cooling_budget interp_logT_far_above_table

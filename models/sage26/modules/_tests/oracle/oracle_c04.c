@@ -589,6 +589,19 @@ static int same_agn_outputs(const double ret_a, const struct GALAXY *a, const do
          same_f32(a->r_heat, b->r_heat) && same_f64(a->Heating, b->Heating);
 }
 
+/** @brief Whether replacing a value by its upward and its downward neighbour changes an output */
+struct sensitivity {
+  int up;
+  int down;
+};
+
+/** @brief Write intermediate.<name>_validated_up, _down, and <name>_validated (both) */
+static void out_sensitivity(const char *name, const struct sensitivity *s) {
+  out_i32(field_name("intermediate.%s_validated_up", name), s->up);
+  out_i32(field_name("intermediate.%s_validated_down", name), s->down);
+  out_i32(field_name("intermediate.%s_validated", name), s->up && s->down);
+}
+
 /** @brief Whether a double output of do_AGN_heating (its return value or Heating) differs */
 static int double_outputs_differ(const struct agn_result *a, const struct agn_result *b) {
   return !same_f64(a->coolingGas, b->coolingGas) || !same_f64(a->galaxy.Heating, b->galaxy.Heating);
@@ -600,13 +613,16 @@ static int double_outputs_differ(const struct agn_result *a, const struct agn_re
  * Feeds the transcribed x and rcool, with the post-cap mass, into SAGE26's do_AGN_heating
  * on a copy of the inputs; the return value and the five fields it writes must equal, bit
  * for bit, what cooling_recipe_hot produced. Then reruns the check with x, and separately
- * rcool, replaced by its upward neighbouring double: the value is validated on this
- * fixture only if that changes a double output (the return value or Heating).
+ * rcool, replaced by its upward neighbouring double (nextafter toward +inf) and then by
+ * its downward one (toward -inf). Each direction's result records whether that
+ * replacement changes a double output (the return value or Heating). The value is
+ * validated on this fixture only if both directions do (two-sided validation).
  */
 static void check_against_do_AGN_heating(const struct GALAXY *input, const double postcap,
                                          const double dt, const struct cooling_locals *l,
                                          const double main_return, const struct GALAXY *main_state,
-                                         int *x_validated, int *rcool_validated) {
+                                         struct sensitivity *x_sens,
+                                         struct sensitivity *rcool_sens) {
   const struct agn_result check = call_do_AGN_heating(input, postcap, dt, l->x, l->rcool);
   if (!same_agn_outputs(check.coolingGas, &check.galaxy, main_return, main_state)) {
     fatal("transcription check failed: do_AGN_heating with the transcribed x = %.17g and "
@@ -616,10 +632,16 @@ static void check_against_do_AGN_heating(const struct GALAXY *input, const doubl
 
   const struct agn_result x_up =
       call_do_AGN_heating(input, postcap, dt, nextafter(l->x, INFINITY), l->rcool);
+  const struct agn_result x_down =
+      call_do_AGN_heating(input, postcap, dt, nextafter(l->x, -INFINITY), l->rcool);
   const struct agn_result rcool_up =
       call_do_AGN_heating(input, postcap, dt, l->x, nextafter(l->rcool, INFINITY));
-  *x_validated = double_outputs_differ(&x_up, &check);
-  *rcool_validated = double_outputs_differ(&rcool_up, &check);
+  const struct agn_result rcool_down =
+      call_do_AGN_heating(input, postcap, dt, l->x, nextafter(l->rcool, -INFINITY));
+  x_sens->up = double_outputs_differ(&x_up, &check);
+  x_sens->down = double_outputs_differ(&x_down, &check);
+  rcool_sens->up = double_outputs_differ(&rcool_up, &check);
+  rcool_sens->down = double_outputs_differ(&rcool_down, &check);
 }
 
 /** @brief Every field write_galaxy_state records, bit for bit */
@@ -635,7 +657,8 @@ static int same_written_state(const struct GALAXY *a, const struct GALAXY *b) {
 /**
  * @brief Refuse a fixture whose transcribed return path disagrees with what SAGE26 wrote
  *
- * The outer guard writes tcool = 0 and leaves tff, RcoolToRvir and Cooling untouched;
+ * The outer guard writes tcool = 0, leaves tff, RcoolToRvir and Cooling untouched, and
+ * its tail writes CoolingRate = 0 from the zero mass (dt being positive);
  * the two early returns leave RcoolToRvir, Cooling and CoolingRate untouched; the normal
  * tail writes RcoolToRvir = rcool / Rvir (C:175), which must equal the transcribed rcool
  * divided by Rvir and narrowed to float, and writes CoolingRate.
@@ -646,7 +669,8 @@ static void check_return_path(const struct cooling_locals *l, const struct GALAX
   switch (l->path) {
   case PATH_OUTER_GUARD:
     consistent = same_f64(ret, 0.0) && same_f32(out->tcool, 0.0f) && same_f32(out->tff, in->tff) &&
-                 same_f32(out->RcoolToRvir, in->RcoolToRvir) && same_f64(out->Cooling, in->Cooling);
+                 same_f32(out->RcoolToRvir, in->RcoolToRvir) &&
+                 same_f64(out->Cooling, in->Cooling) && same_f32(out->CoolingRate, 0.0f);
     break;
   case PATH_LAMBDA_ZERO:
   case PATH_RHO_RCOOL_ZERO:
@@ -696,11 +720,11 @@ static void run_cooling_recipe_hot(void) {
 
   /* C:297: do_AGN_heating runs only on a positive post-cap mass (AGNrecipeOn is 2) */
   const int agn_entered = has_postcap && run_params.AGNrecipeOn > 0 && postcap > 0.0;
-  int x_validated = 0;
-  int rcool_validated = 0;
+  struct sensitivity x_sens = {0, 0};
+  struct sensitivity rcool_sens = {0, 0};
   if (agn_entered) {
-    check_against_do_AGN_heating(&input, postcap, t.dt, &l, coolingGas, &after_recipe, &x_validated,
-                                 &rcool_validated);
+    check_against_do_AGN_heating(&input, postcap, t.dt, &l, coolingGas, &after_recipe, &x_sens,
+                                 &rcool_sens);
   } else if (has_postcap) {
     /* Not entered: the AGNrecipeOn 0 call must have done exactly what the real one did */
     if (!same_f64(postcap, coolingGas) || !same_written_state(&galaxies[0], &after_recipe)) {
@@ -724,8 +748,8 @@ static void run_cooling_recipe_hot(void) {
   out_optional_f64("rcool", l.has_rcool, l.rcool);
   out_optional_f64("CoolingGas_postcap", has_postcap, postcap);
   out_i32("intermediate.do_AGN_heating_entered", agn_entered);
-  out_i32("intermediate.x_validated", x_validated);
-  out_i32("intermediate.rcool_validated", rcool_validated);
+  out_sensitivity("x", &x_sens);
+  out_sensitivity("rcool", &rcool_sens);
   out_f64("intermediate.CoolingGas_suppressed", coolingGas);
   write_galaxy_state("intermediate.sequence.", 0, &after_sequence);
 }
@@ -793,8 +817,8 @@ static void run_normalise_cooling_heating(void) {
     g->RcoolToRvir = in_f32(galaxy_field(i, "RcoolToRvir"));
     g->CoolingRate = in_f32(galaxy_field(i, "CoolingRate"));
     if (g->mergeType < 0 || (g->mergeType > 0) != (g->Type == 3)) {
-      fatal("galaxy[%d]: mergeType %d with Type %d (a merged galaxy has mergeType > 0 and Type 3)",
-            i, g->mergeType, g->Type);
+      fatal("galaxy[%d]: mergeType %d with Type %d (the package marks a merged galaxy Type 3)", i,
+            g->mergeType, g->Type);
     }
     /* Each distinct SnapNum's Age is one input field, read at its first use */
     int seen = -1;

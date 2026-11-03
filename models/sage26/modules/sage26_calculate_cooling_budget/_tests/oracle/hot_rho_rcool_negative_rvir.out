@@ -28,7 +28,11 @@ f64 intermediate.x 0x3fd3c1be790b4ec6  # 0.30870019741744803
 i32 intermediate.rcool_absent 1
 i32 intermediate.CoolingGas_postcap_absent 1
 i32 intermediate.do_AGN_heating_entered 0
+i32 intermediate.x_validated_up 0
+i32 intermediate.x_validated_down 0
 i32 intermediate.x_validated 0
+i32 intermediate.rcool_validated_up 0
+i32 intermediate.rcool_validated_down 0
 i32 intermediate.rcool_validated 0
 f64 intermediate.CoolingGas_suppressed 0x0000000000000000  # 0
 f32 intermediate.sequence.galaxy[0].HotGas 0x41f00000  # 30

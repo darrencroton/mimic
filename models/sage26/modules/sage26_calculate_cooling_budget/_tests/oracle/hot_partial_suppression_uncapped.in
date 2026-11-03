@@ -1,6 +1,8 @@
 # 0 < r_heat < rcool: partial suppression (C:592). Bondi rate below Eddington, no
-# accretion or heating cap: x and rcool both reach the outputs. Heating prior 0.
-# The ratchet raises r_heat (C:612-615).
+# accretion or heating cap, Heating prior 0; the ratchet raises r_heat (C:612-615).
+# Neither x nor rcool is validated here: a one-ulp change of x in either direction,
+# and of rcool upward, is absorbed by rounding before it reaches the return value or
+# Heating; only rcool's downward neighbour changes an output (one-sided).
 # Diagnostics tcool, tff, RcoolToRvir, CoolingRate, Cooling and Heating are set to negative bit patterns no routine here writes, unless a comment says otherwise.
 format sage26-oracle-fixture 1
 routine cooling_recipe_hot

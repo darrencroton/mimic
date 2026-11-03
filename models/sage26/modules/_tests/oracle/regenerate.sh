@@ -73,14 +73,41 @@ ORACLE_C04=$ORACLE_OUT/oracle_c04
 C04_MODULES="sage26_calculate_cooling_budget sage26_radio_mode_heating sage26_apply_cooling
 sage26_finalize_cooling_heating"
 
+# Each oracle run writes to a fresh temporary file under ORACLE_OUT, which
+# replaces the committed output only if the oracle exited 0 AND the file is a
+# complete fixture output. The exit status alone is not enough: SAGE26's
+# ABORT(0) (R/src/macros.h), which read_cooling_functions() uses on a missing or
+# malformed cooling table, exits with status 0 and writes nothing, and would
+# otherwise leave the old output in place while this script reports it written.
+TMP_OUT=$(mktemp -d "$ORACLE_OUT/regenerate.XXXXXX")
+trap 'rm -rf "$TMP_OUT"' EXIT
+
+# A complete output: the oracle's header, format and routine lines, at least
+# one field, every later line a typed field, and a final newline.
+complete_output() {
+  [ -s "$1" ] && [ "$(tail -c 1 "$1" | od -An -c | tr -d ' ')" = '\n' ] &&
+    awk '
+      NR == 1 { ok = ($0 ~ /^# SAGE26 oracle output for /); next }
+      NR == 2 { ok = ok && ($0 == "format sage26-oracle-fixture 1"); next }
+      NR == 3 { ok = ok && ($0 ~ /^routine [A-Za-z_0-9]+$/); next }
+      { ok = ok && ($0 ~ /^(f32|f64|i32) [^ ]+ [^ ]+/); fields++ }
+      END { exit !(ok && fields > 0) }
+    ' "$1"
+}
+
 count=0
 for input in $listed; do
   oracle=$ORACLE
   for module in $C04_MODULES; do
     case $input in "$module"/*) oracle=$ORACLE_C04 ;; esac
   done
-  "$oracle" "$MODULES_DIR/$input" "$MODULES_DIR/${input%.in}.out" ||
+  tmp=$TMP_OUT/output
+  rm -f "$tmp"
+  "$oracle" "$MODULES_DIR/$input" "$tmp" ||
     fail "oracle failed on $input"
+  complete_output "$tmp" ||
+    fail "oracle exited 0 but wrote no complete output for $input (old output left untouched)"
+  mv -f "$tmp" "$MODULES_DIR/${input%.in}.out"
   count=$((count + 1))
 done
 
