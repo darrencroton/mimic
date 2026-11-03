@@ -7,14 +7,14 @@ vertical driver (``mini-millennium``, L-Halo binary ``trees_063.0``-``trees_063.
 and through the horizontal driver (``mini-millennium-horizontal``, a version 3
 conversion of those same eight files carrying 29,291 gapped descendant links),
 produce, for every output snapshot, identical ``UniqueGalaxyID`` sets and per-id
-byte-identical fields. Four legs: ``halos-only`` and ``sage16``, each with fixed
-and dynamic timesteps. It is the real-data evidence that the horizontal driver
+byte-identical fields. Six legs: ``halos-only``, ``sage16`` and ``sage26``, each with
+fixed and dynamic timesteps. It is the real-data evidence that the horizontal driver
 handles gapped (non-adjacent) links.
 
 The stages and every check live in ``tests/framework/parity_gate.py``; this file
 only pins what the package's data must be. It is a manual, dataset-present
 operation, registered only when this package is selected (``MODEL=`` selects
-only the ambient tier build; the gate builds both models itself)::
+only the ambient tier build; the gate builds all three models itself)::
 
     make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-scientific
 
@@ -49,7 +49,7 @@ PACKAGE = GatePackage(
     gapped_descendants=29_291,
     max_descendant_span=2,
     required_free_bytes=10 * 1024**3,
-    models=("halos-only", "sage16"),
+    models=("halos-only", "sage16", "sage26"),
 )
 
 
