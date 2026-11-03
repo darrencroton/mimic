@@ -1,0 +1,18 @@
+# SAGE26 oracle output for agn_rheat_equals_rcool.in, written by oracle_c04 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine do_AGN_heating
+f64 intermediate.deltaT 0x3f50624dd2f1a9fc  # 0.001
+f64 intermediate.dt 0x3f1a36e2eb1c432d  # 0.0001
+f64 return.coolingGas 0x0000000000000000  # 0
+f32 galaxy[0].HotGas 0x41f00000  # 30
+f32 galaxy[0].MetalsHotGas 0x3d75c28f  # 0.0599999987
+f32 galaxy[0].ColdGas 0x40000000  # 2
+f32 galaxy[0].MetalsColdGas 0x3cf5c28f  # 0.0299999993
+f32 galaxy[0].BlackHoleMass 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].r_heat 0x3e75c28f  # 0.239999995
+f64 galaxy[0].Cooling 0xc04b800000000000  # -55
+f64 galaxy[0].Heating 0xc050800000000000  # -66
+f32 galaxy[0].tcool 0xc1300000  # -11
+f32 galaxy[0].tff 0xc1b00000  # -22
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33
+f32 galaxy[0].CoolingRate 0xc2300000  # -44

@@ -1,0 +1,6 @@
+# log10(T) 12: far extrapolation.
+format sage26-oracle-fixture 1
+routine get_metaldependent_cooling_rate
+
+f64 call.logTemp 0x4028000000000000  # 12
+f64 call.logZ 0xc000000000000000  # -2

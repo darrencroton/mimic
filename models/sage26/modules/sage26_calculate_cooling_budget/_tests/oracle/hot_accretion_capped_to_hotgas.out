@@ -1,0 +1,47 @@
+# SAGE26 oracle output for hot_accretion_capped_to_hotgas.in, written by oracle_c04 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine cooling_recipe_hot
+f64 intermediate.deltaT 0x3f847ae147ae147b  # 0.01
+f64 intermediate.dt 0x3f847ae147ae147b  # 0.01
+f64 return.coolingGas 0x3f3d962a09accfad  # 0.00045145536721524321
+f32 galaxy[0].HotGas 0x00000000  # 0
+f32 galaxy[0].MetalsHotGas 0x9c007358  # -4.25007257e-22
+f32 galaxy[0].ColdGas 0x40000000  # 2
+f32 galaxy[0].MetalsColdGas 0x3cf5c28f  # 0.0299999993
+f32 galaxy[0].BlackHoleMass 0x3ca3d70a  # 0.0199999996
+f32 galaxy[0].r_heat 0x331a3daa  # 3.59120023e-08
+f64 galaxy[0].Cooling 0x41aae8a919371a2e  # 225727628.60762161
+f64 galaxy[0].Heating 0x419567bc77f91951  # 89779997.993260637
+f32 galaxy[0].tcool 0x3fb34814  # 1.40063715
+f32 galaxy[0].tff 0x3ffd8ada  # 1.98079991
+f32 galaxy[0].RcoolToRvir 0x35725f8f  # 9.02910813e-07
+f32 galaxy[0].CoolingRate 0x491a6052  # 632325.125
+i32 intermediate.return_path 0
+i32 intermediate.logTemp_absent 0
+f64 intermediate.logTemp 0x402b1c3556edab8a  # 13.55509444857832
+i32 intermediate.logZ_absent 0
+f64 intermediate.logZ 0xc007fffffd3b3b3e  # -2.9999999793721193
+i32 intermediate.lambda_absent 0
+f64 intermediate.lambda 0x3bb0fdbef6021393  # 3.598025512162897e-21
+i32 intermediate.x_absent 0
+f64 intermediate.x 0x40faed756c6f37f4  # 110295.33897325379
+i32 intermediate.rcool_absent 0
+f64 intermediate.rcool 0x3e783cc179b3c9c6  # 9.0291079879966667e-08
+i32 intermediate.CoolingGas_postcap_absent 0
+f64 intermediate.CoolingGas_postcap 0x3f3d962a09accfad  # 0.00045145536721524321
+i32 intermediate.do_AGN_heating_entered 1
+i32 intermediate.x_validated 0
+i32 intermediate.rcool_validated 0
+f64 intermediate.CoolingGas_suppressed 0x3f3d962a09accfad  # 0.00045145536721524321
+f32 intermediate.sequence.galaxy[0].HotGas 0x00000000  # 0
+f32 intermediate.sequence.galaxy[0].MetalsHotGas 0x00000000  # 0
+f32 intermediate.sequence.galaxy[0].ColdGas 0x40000000  # 2
+f32 intermediate.sequence.galaxy[0].MetalsColdGas 0x3cf5c28f  # 0.0299999993
+f32 intermediate.sequence.galaxy[0].BlackHoleMass 0x3ca3d70a  # 0.0199999996
+f32 intermediate.sequence.galaxy[0].r_heat 0x331a3daa  # 3.59120023e-08
+f64 intermediate.sequence.galaxy[0].Cooling 0x41aae8a919371a2e  # 225727628.60762161
+f64 intermediate.sequence.galaxy[0].Heating 0x419567bc77f91951  # 89779997.993260637
+f32 intermediate.sequence.galaxy[0].tcool 0x3fb34814  # 1.40063715
+f32 intermediate.sequence.galaxy[0].tff 0x3ffd8ada  # 1.98079991
+f32 intermediate.sequence.galaxy[0].RcoolToRvir 0x35725f8f  # 9.02910813e-07
+f32 intermediate.sequence.galaxy[0].CoolingRate 0x491a6052  # 632325.125

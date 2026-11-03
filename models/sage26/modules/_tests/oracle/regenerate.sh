@@ -8,6 +8,8 @@
 # input on disk is listed, and each module's stated count matches its listed
 # fixtures); after running it checks that no output lacks an input. Any
 # disagreement or oracle failure stops the script with a non-zero exit.
+# Fixtures of the c04 modules (C04_MODULES below) run through oracle_c04;
+# every other fixture runs through oracle_c03.
 #
 # Environment: as build.sh (SAGE26_SRC, ORACLE_OUT, ORACLE_ALLOW_ANY_TOOLCHAIN).
 # See README.md in this directory.
@@ -66,10 +68,18 @@ fi
 # 3. Build, then rewrite every output from its input.
 sh "$ORACLE_DIR/build.sh"
 ORACLE=$ORACLE_OUT/oracle_c03
+# The c04 group (cooling and radio heating) has its own oracle main.
+ORACLE_C04=$ORACLE_OUT/oracle_c04
+C04_MODULES="sage26_calculate_cooling_budget sage26_radio_mode_heating sage26_apply_cooling
+sage26_finalize_cooling_heating"
 
 count=0
 for input in $listed; do
-  "$ORACLE" "$MODULES_DIR/$input" "$MODULES_DIR/${input%.in}.out" ||
+  oracle=$ORACLE
+  for module in $C04_MODULES; do
+    case $input in "$module"/*) oracle=$ORACLE_C04 ;; esac
+  done
+  "$oracle" "$MODULES_DIR/$input" "$MODULES_DIR/${input%.in}.out" ||
     fail "oracle failed on $input"
   count=$((count + 1))
 done

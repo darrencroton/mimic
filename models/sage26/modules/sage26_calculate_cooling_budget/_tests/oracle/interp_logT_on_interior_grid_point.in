@@ -1,0 +1,6 @@
+# log10(T) exactly 6.0, an interior grid point.
+format sage26-oracle-fixture 1
+routine get_metaldependent_cooling_rate
+
+f64 call.logTemp 0x4018000000000000  # 6
+f64 call.logZ 0xc004000000000000  # -2.5

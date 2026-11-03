@@ -1,0 +1,23 @@
+# R0 reference model_0.hdf5 (SHA-256 6d859a3a2ea422e3...), Snap_63 row 1, GalaxyIndex 290 (satellite): end-of-snapshot output values used as plausible call inputs, not reconstructed call-time state.
+# call.coolingGas is intermediate.CoolingGas_suppressed of hot_r0_snap63_satellite.out.
+# Diagnostics tcool, tff, RcoolToRvir, CoolingRate, Cooling and Heating are set to negative bit patterns no routine here writes, unless a comment says otherwise.
+format sage26-oracle-fixture 1
+routine cool_gas_onto_galaxy
+
+f64 call.coolingGas 0x3f69a58043fdb417  # 0.0031306748568824638
+i32 galaxy[0].Type 1
+f32 galaxy[0].Mvir 0x435a028f  # 218.009995
+f32 galaxy[0].Rvir 0x3e57ed17  # 0.210865363
+f32 galaxy[0].Vvir 0x4352dd92  # 210.865509
+f32 galaxy[0].HotGas 0x41ec8a46  # 29.5675163
+f32 galaxy[0].MetalsHotGas 0x3d885dd5  # 0.0665852204
+f32 galaxy[0].ColdGas 0x3ecf7b7d  # 0.405239016
+f32 galaxy[0].MetalsColdGas 0x3bc94eb0  # 0.00614341348
+f32 galaxy[0].BlackHoleMass 0x3ba4c024  # 0.00502778776
+f32 galaxy[0].r_heat 0x3e01405f  # 0.126222119
+f64 galaxy[0].Cooling 0xc04b800000000000  # -55  (input bit pattern no routine here writes)
+f64 galaxy[0].Heating 0x0000000000000000  # 0
+f32 galaxy[0].tcool 0xc1300000  # -11  (input bit pattern no routine here writes)
+f32 galaxy[0].tff 0xc1b00000  # -22  (input bit pattern no routine here writes)
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33  (input bit pattern no routine here writes)
+f32 galaxy[0].CoolingRate 0xc2300000  # -44  (input bit pattern no routine here writes)

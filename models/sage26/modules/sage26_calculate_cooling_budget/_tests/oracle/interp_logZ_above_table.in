@@ -1,0 +1,6 @@
+# logZ above the highest table, clamped (core_cool_func.c:145-146).
+format sage26-oracle-fixture 1
+routine get_metaldependent_cooling_rate
+
+f64 call.logTemp 0x4016000000000000  # 5.5
+f64 call.logZ 0xbfe0000000000000  # -0.5

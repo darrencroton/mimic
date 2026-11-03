@@ -1,0 +1,6 @@
+# logZ midway between metallicity grid points 3 and 4.
+format sage26-oracle-fixture 1
+routine get_metaldependent_cooling_rate
+
+f64 call.logTemp 0x4017cccccccccccd  # 5.9500000000000002
+f64 call.logZ 0xc007977d95ec10c0  # -2.9489700043360187

@@ -1,0 +1,16 @@
+# A single central with zero Cooling and Heating: 0 * inv_deltaT = 0.
+format sage26-oracle-fixture 1
+routine normalise_cooling_heating
+
+i32 call.ngal 1
+f64 call.halo_age 0x3f847ae147ae147b  # 0.01  (Age[halo_snapnum])
+i32 galaxy[0].Type 0
+i32 galaxy[0].SnapNum 40
+f64 call.Age[40] 0x3f85810624dd2f1b  # 0.010500000000000001
+i32 galaxy[0].mergeType 0
+f64 galaxy[0].Cooling 0x0000000000000000  # 0
+f64 galaxy[0].Heating 0x0000000000000000  # 0
+f32 galaxy[0].tcool 0xc1300000  # -11  (input bit pattern no routine here writes)
+f32 galaxy[0].tff 0xc1b00000  # -22  (input bit pattern no routine here writes)
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33  (input bit pattern no routine here writes)
+f32 galaxy[0].CoolingRate 0xc2300000  # -44  (input bit pattern no routine here writes)

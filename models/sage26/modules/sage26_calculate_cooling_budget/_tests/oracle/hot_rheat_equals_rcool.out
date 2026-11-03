@@ -1,0 +1,47 @@
+# SAGE26 oracle output for hot_rheat_equals_rcool.in, written by oracle_c04 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine cooling_recipe_hot
+f64 intermediate.deltaT 0x3f50624dd2f1a9fc  # 0.001
+f64 intermediate.dt 0x3f1a36e2eb1c432d  # 0.0001
+f64 return.coolingGas 0x0000000000000000  # 0
+f32 galaxy[0].HotGas 0x42440e10  # 49.0137329
+f32 galaxy[0].MetalsHotGas 0x00000000  # 0
+f32 galaxy[0].ColdGas 0x40000000  # 2
+f32 galaxy[0].MetalsColdGas 0x3cf5c28f  # 0.0299999993
+f32 galaxy[0].BlackHoleMass 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].r_heat 0x3d9b240d  # 0.0757523552
+f64 galaxy[0].Cooling 0xc04b800000000000  # -55
+f64 galaxy[0].Heating 0x0000000000000000  # 0
+f32 galaxy[0].tcool 0x459de3a4  # 5052.45508
+f32 galaxy[0].tff 0x45df4a01  # 7145.25049
+f32 galaxy[0].RcoolToRvir 0x3f800000  # 1
+f32 galaxy[0].CoolingRate 0x00000000  # 0
+i32 intermediate.return_path 0
+i32 intermediate.logTemp_absent 0
+f64 intermediate.logTemp 0x4018cc52638384e3  # 6.199533038046158
+i32 intermediate.logZ_absent 0
+f64 intermediate.logZ 0xc024000000000000  # -10
+i32 intermediate.lambda_absent 0
+f64 intermediate.lambda 0x3b1723e237394eb1  # 4.7852751079679408e-24
+i32 intermediate.x_absent 0
+f64 intermediate.x 0x400d4205596f326f  # 3.657236765581096
+i32 intermediate.rcool_absent 0
+f64 intermediate.rcool 0x3fb36481a0000000  # 0.07575235515832901
+i32 intermediate.CoolingGas_postcap_absent 0
+f64 intermediate.CoolingGas_postcap 0x401b2cd278ab8b6d  # 6.7937716345503363
+i32 intermediate.do_AGN_heating_entered 1
+i32 intermediate.x_validated 0
+i32 intermediate.rcool_validated 1
+f64 intermediate.CoolingGas_suppressed 0x0000000000000000  # 0
+f32 intermediate.sequence.galaxy[0].HotGas 0x42440e10  # 49.0137329
+f32 intermediate.sequence.galaxy[0].MetalsHotGas 0x00000000  # 0
+f32 intermediate.sequence.galaxy[0].ColdGas 0x40000000  # 2
+f32 intermediate.sequence.galaxy[0].MetalsColdGas 0x3cf5c28f  # 0.0299999993
+f32 intermediate.sequence.galaxy[0].BlackHoleMass 0x3c23d70a  # 0.00999999978
+f32 intermediate.sequence.galaxy[0].r_heat 0x3d9b240d  # 0.0757523552
+f64 intermediate.sequence.galaxy[0].Cooling 0xc04b800000000000  # -55
+f64 intermediate.sequence.galaxy[0].Heating 0x0000000000000000  # 0
+f32 intermediate.sequence.galaxy[0].tcool 0x459de3a4  # 5052.45508
+f32 intermediate.sequence.galaxy[0].tff 0x45df4a01  # 7145.25049
+f32 intermediate.sequence.galaxy[0].RcoolToRvir 0x3f800000  # 1
+f32 intermediate.sequence.galaxy[0].CoolingRate 0x00000000  # 0
