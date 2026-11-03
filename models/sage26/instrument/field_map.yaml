@@ -44,7 +44,7 @@ fields:
     sage26_type: int32
     mimic_type: int32
     factor: 1
-    unit_check: "Unitless on both sides. SAGE26 writes g->Type unconverted (src/io/save_gals_hdf5.c:867; src/io/save_gals_hdf5_fields.h:24-26). Mimic core Type is dimensionless, copy_direct (src/core/core_properties.yaml:56-64). Factor 1."
+    unit_check: "Unitless on both sides. SAGE26 writes g->Type unconverted (src/io/save_gals_hdf5.c:868; src/io/save_gals_hdf5_fields.h:24-26). Mimic core Type is dimensionless, copy_direct (src/core/core_properties.yaml:56-64). Factor 1."
   GalaxyIndex:
     uncompared: "SAGE26 identity encodings; Mimic's `UniqueGalaxyID` and `UniqueCentralGalaxyID` encode identity differently by design, and matching uses the physical key of rule 4"
   CentralGalaxyIndex:
@@ -74,7 +74,7 @@ fields:
     sage26_type: float32
     mimic_type: float64
     factor: 1
-    unit_check: "Same unit, Myr computed from code time by the same expression. SAGE26 writes g->dT * UnitTime_in_s / SEC_PER_MEGAYEAR (src/io/save_gals_hdf5.c:884), dT in code time (src/core_allvars.h:122), UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s (src/core_init.c:94), SEC_PER_MEGAYEAR 3.155e13 (src/macros.h:36); label Myr (src/io/save_gals_hdf5_fields.h:51-53). Mimic core dT has output_convert MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR (src/core/core_properties.yaml:99-110, label Myr/h, the h carried by code time that SAGE26's label omits), UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s (src/core/init.c:84), SEC_PER_MEGAYEAR 3.155e13 (src/module_system/physical_constants.h:25). Code units are equal on both sides: the reference's Header/Runtime attributes, written at SAGE26 src/io/save_gals_hdf5.c:1351-1353, are UnitLength_in_cm 3.08568e24, UnitMass_in_g 1.989e43 and UnitVelocity_in_cm_per_s 1e5, the reference_units of src/core/core_properties.yaml:10-31. Factor 1. Mimic keeps the -1 sentinel unconverted (src/core/core_properties.yaml:110) where SAGE26 would convert it; no remapping is applied, and the T1 reference has no dT < 0 at Snap_63, Snap_37 or Snap_16."
+    unit_check: "Same unit, Myr computed from code time by the same expression. SAGE26 writes g->dT * UnitTime_in_s / SEC_PER_MEGAYEAR (src/io/save_gals_hdf5.c:884), dT in code time (src/core_allvars.h:123), UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s (src/core_init.c:94), SEC_PER_MEGAYEAR 3.155e13 (src/macros.h:36); label Myr (src/io/save_gals_hdf5_fields.h:51-53). Mimic core dT has output_convert MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR (src/core/core_properties.yaml:99-110, label Myr/h, the h carried by code time that SAGE26's label omits), UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s (src/core/init.c:84), SEC_PER_MEGAYEAR 3.155e13 (src/module_system/physical_constants.h:25). Code units are equal on both sides: the reference's Header/Runtime attributes, written at SAGE26 src/io/save_gals_hdf5.c:1351-1353, are UnitLength_in_cm 3.08568e24, UnitMass_in_g 1.989e43 and UnitVelocity_in_cm_per_s 1e5, the reference_units of src/core/core_properties.yaml:10-30. Factor 1. Mimic keeps the -1 sentinel unconverted (src/core/core_properties.yaml:110) where SAGE26 would convert it; no remapping is applied, and the T1 reference has no dT < 0 at Snap_63, Snap_37 or Snap_16."
   Posx:
     kind: float
     mimic: Pos
@@ -187,7 +187,7 @@ fields:
     sage26_type: float32
     mimic_type: float64
     factor: 1
-    unit_check: "Same unit, Mpc/h. SAGE26 writes get_virial_radius(g->HaloNr) (src/io/save_gals_hdf5.c:901; src/model_halo_properties.c:63-85; src/io/save_gals_hdf5_fields.h:90-92, Mpc/h), in code length. Mimic core Rvir is Mpc/h (src/core/core_properties.yaml:162-173), written through output_rvir_conditional (src/module_system/output_helpers.h:65-69), which is get_virial_radius (src/core/virial.c:105-112) for Type 0 and 1 and the preserved value for Type 2. Code units are equal on both sides: the reference's Header/Runtime attributes, written at SAGE26 src/io/save_gals_hdf5.c:1351-1353, are UnitLength_in_cm 3.08568e24, UnitMass_in_g 1.989e43 and UnitVelocity_in_cm_per_s 1e5, the reference_units of src/core/core_properties.yaml:10-31. Factor 1."
+    unit_check: "Same unit, Mpc/h. SAGE26 writes get_virial_radius(g->HaloNr) (src/io/save_gals_hdf5.c:901; src/model_halo_properties.c:63-85; src/io/save_gals_hdf5_fields.h:90-92, Mpc/h), in code length. Mimic core Rvir is Mpc/h (src/core/core_properties.yaml:162-173), written through output_rvir_conditional (src/module_system/output_helpers.h:65-69), which is get_virial_radius (src/core/virial.c:105-112) for Type 0 and 1 and the preserved value for Type 2. Code units are equal on both sides: the reference's Header/Runtime attributes, written at SAGE26 src/io/save_gals_hdf5.c:1351-1353, are UnitLength_in_cm 3.08568e24, UnitMass_in_g 1.989e43 and UnitVelocity_in_cm_per_s 1e5, the reference_units of src/core/core_properties.yaml:10-30. Factor 1."
   Vvir:
     kind: float
     mimic: Vvir
@@ -195,7 +195,7 @@ fields:
     sage26_type: float32
     mimic_type: float64
     factor: 1
-    unit_check: "Same unit, km/s. SAGE26 writes get_virial_velocity(g->HaloNr) (src/io/save_gals_hdf5.c:902; src/model_halo_properties.c:40-50, sqrt(G Mvir / Rvir); src/io/save_gals_hdf5_fields.h:93-95, km/s). Mimic core Vvir is km/s (src/core/core_properties.yaml:175-186), written through output_vvir_conditional (src/module_system/output_helpers.h:79-83), which is get_virial_velocity, sqrt(G Mvir / Rvir) (src/core/virial.c:72-82), for Type 0 and 1 and the preserved value for Type 2. Code units are equal on both sides: the reference's Header/Runtime attributes, written at SAGE26 src/io/save_gals_hdf5.c:1351-1353, are UnitLength_in_cm 3.08568e24, UnitMass_in_g 1.989e43 and UnitVelocity_in_cm_per_s 1e5, the reference_units of src/core/core_properties.yaml:10-31. Factor 1."
+    unit_check: "Same unit, km/s. SAGE26 writes get_virial_velocity(g->HaloNr) (src/io/save_gals_hdf5.c:902; src/model_halo_properties.c:40-50, sqrt(G Mvir / Rvir); src/io/save_gals_hdf5_fields.h:93-95, km/s). Mimic core Vvir is km/s (src/core/core_properties.yaml:175-186), written through output_vvir_conditional (src/module_system/output_helpers.h:79-83), which is get_virial_velocity, sqrt(G Mvir / Rvir) (src/core/virial.c:72-82), for Type 0 and 1 and the preserved value for Type 2. Code units are equal on both sides: the reference's Header/Runtime attributes, written at SAGE26 src/io/save_gals_hdf5.c:1351-1353, are UnitLength_in_cm 3.08568e24, UnitMass_in_g 1.989e43 and UnitVelocity_in_cm_per_s 1e5, the reference_units of src/core/core_properties.yaml:10-30. Factor 1."
   Vmax:
     kind: float
     mimic: Vmax
@@ -422,7 +422,7 @@ fields:
     sage26_type: float32
     mimic_type: float64
     factor: 1
-    unit_check: "Same unit, 1e10 Msun/h (a virial mass). SAGE26 writes g->infallMvir for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1005-1013), the member set from the previous Mvir at infall (src/core_build_model.c:307); the field-list label '1.0e10 Msun/yr' (src/io/save_gals_hdf5_fields.h:189-191) mislabels that mass. Mimic core infallMvir is 1e10 Msun/h (src/core/core_properties.yaml:192-203), written through output_infall_property_or_zero, the value for Type != 0 and 0.0 for Type 0 (src/module_system/output_helpers.h:53-55). Factor 1."
+    unit_check: "Same unit, 1e10 Msun/h (a virial mass). SAGE26 writes g->infallMvir for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1005-1017), the member set from the previous Mvir at infall (src/core_build_model.c:307); the field-list label '1.0e10 Msun/yr' (src/io/save_gals_hdf5_fields.h:189-191) mislabels that mass. Mimic core infallMvir is 1e10 Msun/h (src/core/core_properties.yaml:192-203), written through output_infall_property_or_zero, the value for Type != 0 and 0.0 for Type 0 (src/module_system/output_helpers.h:53-55). Factor 1."
   infallVvir:
     kind: float
     mimic: infallVvir
@@ -430,7 +430,7 @@ fields:
     sage26_type: float32
     mimic_type: float64
     factor: 1
-    unit_check: "Same unit, km/s. SAGE26 writes g->infallVvir for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1005-1013), set from the previous Vvir at infall (src/core_build_model.c:308; src/io/save_gals_hdf5_fields.h:192-194, km/s). Mimic core infallVvir is km/s (src/core/core_properties.yaml:205-216), written through output_infall_property_or_zero (src/module_system/output_helpers.h:53-55). Factor 1."
+    unit_check: "Same unit, km/s. SAGE26 writes g->infallVvir for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1005-1017), set from the previous Vvir at infall (src/core_build_model.c:308; src/io/save_gals_hdf5_fields.h:192-194, km/s). Mimic core infallVvir is km/s (src/core/core_properties.yaml:205-216), written through output_infall_property_or_zero (src/module_system/output_helpers.h:53-55). Factor 1."
   infallVmax:
     kind: float
     mimic: infallVmax
@@ -438,7 +438,7 @@ fields:
     sage26_type: float32
     mimic_type: float64
     factor: 1
-    unit_check: "Same unit, km/s. SAGE26 writes g->infallVmax for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1005-1013), set from the previous Vmax at infall (src/core_build_model.c:309), member float infallVmax [km/s] (src/core_allvars.h:200; src/io/save_gals_hdf5_fields.h:195-197). Mimic core infallVmax is km/s (src/core/core_properties.yaml:218-229), written through output_infall_property_or_zero (src/module_system/output_helpers.h:53-55). Factor 1."
+    unit_check: "Same unit, km/s. SAGE26 writes g->infallVmax for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1005-1017), set from the previous Vmax at infall (src/core_build_model.c:309), member float infallVmax [km/s] (src/core_allvars.h:200; src/io/save_gals_hdf5_fields.h:195-197). Mimic core infallVmax is km/s (src/core/core_properties.yaml:218-229), written through output_infall_property_or_zero (src/module_system/output_helpers.h:53-55). Factor 1."
   infallStellarMass:
     kind: float
     mimic: infallStellarMass

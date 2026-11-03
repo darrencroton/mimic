@@ -31,8 +31,14 @@ import re
 import sys
 from fractions import Fraction
 
-import h5py
-import numpy as np
+try:
+    import h5py
+    import numpy as np
+except Exception as _exc:  # noqa: BLE001 - rule 9: a missing dependency is 'error', never 'fail'
+    h5py = np = None
+    _IMPORT_ERROR = "%s: %s" % (type(_exc).__name__, _exc)
+else:
+    _IMPORT_ERROR = None
 
 # ---------------------------------------------------------------------------
 # Constants fixed by the comparison rules
@@ -606,7 +612,7 @@ def _fraction(count, denominator):
 
 def _scalar(value):
     """A JSON-safe number: non-finite floats become "nan", "inf", "-inf" (rule 11)."""
-    if isinstance(value, (np.integer, int)) and not isinstance(value, bool):
+    if isinstance(value, int) or (np is not None and isinstance(value, np.integer)):
         return int(value)
     value = float(value)
     if math.isnan(value):
@@ -783,7 +789,7 @@ def _json_safe(obj):
         return {k: _json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_json_safe(v) for v in obj]
-    if isinstance(obj, (bool, np.bool_)):
+    if isinstance(obj, bool) or (np is not None and isinstance(obj, np.bool_)):
         return bool(obj)
     if obj is None or isinstance(obj, str):
         return obj
@@ -953,13 +959,9 @@ def build_parser():
     return parser
 
 
-def run(args):
-    """Run the comparison.
-
-    Returns ``(exit_status, document, printed_verdict, results)``; ``results`` is
-    ``(tables, outlier_blocks)`` for a pass or fail and ``None`` for an error.
-    """
-    document = {
+def new_document(args):
+    """The report skeleton holding the input identities known before any work (rule 10)."""
+    return {
         "instrument": "compare_sage26.py",
         "verdict": "error",
         "reference": {
@@ -977,54 +979,57 @@ def run(args):
         "field_map": {"path": FIELD_MAP_PATH, "sha256": None},
         "t1_eligible": False,
     }
-    try:
-        # Rule 1: reference identity, before any snapshot is read.
-        digest = sha256_file(args.reference)
-        document["reference"]["sha256"] = digest
-        document["t1_eligible"] = digest == T1_REFERENCE_SHA256 and set(args.snapshots) == set(
-            T1_SNAPSHOTS
+
+
+def run(args, document):
+    """Run the comparison, recording input identities in ``document`` as they are gathered.
+
+    Returns ``(exit_status, printed_verdict, results)``; ``results`` is ``(tables,
+    outlier_blocks)`` for a pass or fail. Raises ``InstrumentError`` when the instrument
+    cannot measure.
+    """
+    # Rule 1: reference identity, before any snapshot is read.
+    digest = sha256_file(args.reference)
+    document["reference"]["sha256"] = digest
+    document["t1_eligible"] = digest == T1_REFERENCE_SHA256 and set(args.snapshots) == set(
+        T1_SNAPSHOTS
+    )
+    if digest != args.reference_sha256.strip().lower():
+        raise InstrumentError(
+            "reference SHA-256 %s does not equal --reference-sha256 %s"
+            % (digest, args.reference_sha256)
         )
-        if digest != args.reference_sha256.strip().lower():
-            raise InstrumentError(
-                "reference SHA-256 %s does not equal --reference-sha256 %s"
-                % (digest, args.reference_sha256)
-            )
-        fmap, map_digest = load_field_map()
-        document["field_map"]["sha256"] = map_digest
+    fmap, map_digest = load_field_map()
+    document["field_map"]["sha256"] = map_digest
 
-        # Rule 2: candidate completeness.
-        paths = candidate_partition_files(args.candidate, args.basename, args.partitions)
-        document["candidate"]["files"] = [
-            {"name": os.path.basename(p), "sha256": sha256_file(p)} for p in paths
-        ]
+    # Rule 2: candidate completeness.
+    paths = candidate_partition_files(args.candidate, args.basename, args.partitions)
+    document["candidate"]["files"] = [
+        {"name": os.path.basename(p), "sha256": sha256_file(p)} for p in paths
+    ]
 
-        tables, blocks = [], []
-        try:
-            ref_file = h5py.File(args.reference, "r")
-        except OSError as exc:
-            raise InstrumentError("cannot open reference %s: %s" % (args.reference, exc)) from exc
-        handles = []
-        try:
-            for p in paths:
-                try:
-                    handles.append((p, h5py.File(p, "r")))
-                except OSError as exc:
-                    raise InstrumentError(
-                        "cannot open candidate partition %s: %s" % (p, exc)
-                    ) from exc
-            for snap in args.snapshots:
-                ref = read_reference_snapshot(ref_file, snap, fmap)
-                cand = read_candidate_snapshot(handles, snap, fmap)
-                table, outliers = compare_snapshot(snap, ref, cand, fmap)
-                tables.append(table)
-                blocks.append((snap, ref, outliers))
-        finally:
-            for _, h in handles:
-                h.close()
-            ref_file.close()
-    except InstrumentError as exc:
-        document["error"] = str(exc)
-        return EXIT_ERROR, document, "error: %s" % exc, None
+    tables, blocks = [], []
+    try:
+        ref_file = h5py.File(args.reference, "r")
+    except OSError as exc:
+        raise InstrumentError("cannot open reference %s: %s" % (args.reference, exc)) from exc
+    handles = []
+    try:
+        for p in paths:
+            try:
+                handles.append((p, h5py.File(p, "r")))
+            except OSError as exc:
+                raise InstrumentError("cannot open candidate partition %s: %s" % (p, exc)) from exc
+        for snap in args.snapshots:
+            ref = read_reference_snapshot(ref_file, snap, fmap)
+            cand = read_candidate_snapshot(handles, snap, fmap)
+            table, outliers = compare_snapshot(snap, ref, cand, fmap)
+            tables.append(table)
+            blocks.append((snap, ref, outliers))
+    finally:
+        for _, h in handles:
+            h.close()
+        ref_file.close()
 
     passed = all(t["passed"] for t in tables)
     document["verdict"] = "pass" if passed else "fail"
@@ -1036,32 +1041,49 @@ def run(args):
         printed = "pass" if document["t1_eligible"] else "pass (not T1-eligible)"
     else:
         printed = "fail"
-    return (EXIT_PASS if passed else EXIT_FAIL), document, printed, (tables, blocks)
+    return (EXIT_PASS if passed else EXIT_FAIL), printed, (tables, blocks)
+
+
+def finish_error(args, document, message):
+    """Rule 9 and PM ruling 7: write the error JSON and print the verdict line; return 2.
+
+    The JSON keeps the input identities gathered so far and drops any verdict tables.
+    No outliers CSV is written, and any file already at that path is left untouched.
+    """
+    for key in ("failures", "snapshot_tables"):
+        document.pop(key, None)
+    document["verdict"] = "error"
+    document["error"] = message
+    try:
+        write_json(args.json, document)
+    except Exception as exc:  # noqa: BLE001 - the verdict stays 'error' whatever happens here
+        message = "%s (and the JSON report could not be written: %s: %s)" % (
+            message,
+            type(exc).__name__,
+            exc,
+        )
+    print("verdict: error: %s" % message)
+    return EXIT_ERROR
 
 
 def main(argv=None):
+    """Entry point; the last line printed is always ``verdict: <verdict>``.
+
+    The one exception is a usage error, which argparse reports on stderr with exit 2.
+    """
     args = build_parser().parse_args(argv)
+    document = new_document(args)
+    if _IMPORT_ERROR is not None:
+        return finish_error(args, document, "cannot import NumPy and h5py (%s)" % _IMPORT_ERROR)
     try:
-        status, document, printed, results = run(args)
-        if results is not None:
-            tables, blocks = results
-            write_outliers(args.outliers, blocks)
-            _print_table(tables)
+        status, printed, (tables, blocks) = run(args, document)
+        write_outliers(args.outliers, blocks)
         write_json(args.json, document)
-    except Exception as exc:  # noqa: BLE001 - any unexpected failure must be 'error', never exit 1
-        print("error: internal failure: %s: %s" % (type(exc).__name__, exc))
-        try:
-            write_json(
-                args.json,
-                {
-                    "instrument": "compare_sage26.py",
-                    "verdict": "error",
-                    "error": "internal failure: %s" % exc,
-                },
-            )
-        except Exception:  # noqa: BLE001
-            pass
-        return EXIT_ERROR
+        _print_table(tables)
+    except InstrumentError as exc:
+        return finish_error(args, document, str(exc))
+    except Exception as exc:  # noqa: BLE001 - any unexpected failure is 'error', never exit 1
+        return finish_error(args, document, "internal failure: %s: %s" % (type(exc).__name__, exc))
     print("verdict: %s" % printed)
     return status
 

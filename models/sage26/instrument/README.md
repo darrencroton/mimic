@@ -46,9 +46,9 @@ make MODEL=sage26 SIMULATION=mini-millennium
 |---|---|---|
 | 0 | `pass` | Every threshold of rule 8 holds at every compared snapshot. Printed `pass (not T1-eligible)` when `t1_eligible` is false (rule 10). |
 | 1 | `fail` | At least one threshold does not hold. |
-| 2 | `error` | The instrument cannot measure (rule 9). A usage error, and any unexpected internal failure, is also `error`, never `fail`. |
+| 2 | `error` | The instrument cannot measure (rule 9). NumPy or h5py failing to import, a usage error, and any unexpected internal failure are also `error`, never `fail`. |
 
-The last line printed is `verdict: <verdict>`, followed for an `error` by its message. A `pass` or `fail` also prints one line per snapshot with N_ref, N_cand, M and the failing thresholds.
+The last line printed to standard output is `verdict: <verdict>`, followed for an `error` by its message (`verdict: error: <message>`), on every path except a usage error: argparse rejects a malformed command line before the comparator runs, prints its usage message to standard error and exits 2, writing no JSON. A `pass` or `fail` also prints, before the verdict line, one line per snapshot with N_ref, N_cand, M and the failing thresholds. Every `error` other than a usage error writes the JSON described under [Outputs](#outputs) (reading 7 below), including an `error` caused by NumPy or h5py failing to import (the command line is parsed first, so the JSON's path is known) and an unexpected internal failure. The one case in which no JSON is written is a JSON path that cannot itself be written; the verdict line then says so.
 
 ## Field map
 
@@ -67,7 +67,9 @@ The last line printed is `verdict: <verdict>`, followed for an `error` by its me
 
 Every factor is 1: each core and simulation unit check found SAGE26's written unit equal to Mimic's output unit. No entry remaps a sentinel or applies an offset.
 
-The comparator rejects a map, as `error`, that breaks rule 7's structure: an unknown or missing key, a type that does not suit its kind, an integer with a factor, a `model` property with a factor other than 1, a factor other than 1 without `factor_citation`, a core or simulation mapping without `unit_check`, an uncompared set other than the eight, or `SnapNum`, `Type`, `Posx`, `Posy`, `Posz` not mapped as the matching key needs.
+The comparator's guarantee that a `sage26` package property has factor 1 rests on each entry's `source` label being correct: the comparator enforces factor 1 for every entry labelled `model`, but it does not read the metadata files, so it does not cross-check a `source` label against them. The labels were checked against `models/sage26/model_properties.yaml`, `src/core/core_properties.yaml` and `simulations/mini-millennium/halo_properties.yaml` when the map was written; whoever edits the map must keep them correct.
+
+The comparator rejects a map, as `error`, that breaks rule 7's structure: an unknown or missing key, a type that does not suit its kind, an integer with a factor, a `model` property with a factor other than 1, a factor other than 1 without `factor_citation`, a core or simulation mapping without `unit_check`, an uncompared set other than the eight, `SnapNum` or `Type` not mapped as an `int` property, or `Posx`, `Posy` or `Posz` not mapped as a `float` property whose `sage26_type` is `float32`. It does not check the `component` index of a `Pos`, `Vel` or `Spin` entry beyond its being 0, 1 or 2.
 
 The file is written in a strict YAML subset that the comparator parses without a YAML library: full-line comments only, two-space indentation, `format: 1` and `fields:` at the top, one block per dataset, and each value a bare token or a double-quoted JSON string. Anything outside that subset is an `error`, never a silent misreading.
 
@@ -111,7 +113,7 @@ These points are left open by the rules above; the PM ruled on each before the c
 
 Fractions are reported as decimals for reading; the gates are decided only on the integer counts (rule 8). A statistic over an empty set is `null`; non-finite values are the strings `"nan"`, `"inf"` and `"-inf"`.
 
-**Outliers CSV** (`--outliers`), written only for a pass or fail: one row per matched pair and property outside tolerance (reading 2 above), ordered by snapshot as requested, then by the field map's order, then by the reference row. Floats are written as the shortest decimal that round-trips the float64 value, and non-finite values as `nan`, `inf` and `-inf`. On a run far from parity the file is large (about 570 MB for the `sage26` package before any SAGE26 physics is ported).
+**Outliers CSV** (`--outliers`), written only for a pass or fail. A CSV belongs to a run only when the JSON that run wrote says `pass` or `fail`: an `error` run writes no CSV and leaves any older file at that path untouched, and if writing the CSV itself fails part-way, the JSON is written as an `error` and whatever is at the CSV path is not that run's. The file holds one row per matched pair and property outside tolerance (reading 2 above), ordered by snapshot as requested, then by the field map's order, then by the reference row. Floats are written as the shortest decimal that round-trips the float64 value, and non-finite values as `nan`, `inf` and `-inf`. On a run far from parity the file is large (about 570 MB for the `sage26` package before any SAGE26 physics is ported).
 
 ## Scope
 
