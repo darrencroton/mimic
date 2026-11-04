@@ -13,6 +13,8 @@
  *   ORACLE_MAX_FIELDS;
  * - a manifest or file beyond a limit (fixtures, declared count, fields, line length,
  *   token length, path length) fails with a message naming the limit;
+ * - a manifest or fixture that cannot be read (a directory: fopen succeeds, fgets fails)
+ *   fails with "read error", not as an early end of file;
  * - a truncated manifest (fewer fixtures than declared, or a listed fixture missing a
  *   file) still fails its count check, and a truncated fixture file fails to load.
  *
@@ -243,6 +245,24 @@ static void body_load_long_path(const char *arg) {
  */
 static int expect_refused(child_body_fn body, const char *needle) {
   return expect_fatal(NULL, body, needle, NULL);
+}
+
+/**
+ * @brief expect_refused(), and the refusal's stderr must not contain `forbidden`, so it is
+ *        refused for the stated reason only (for example the limit, not a failed open)
+ * @return 1 when it is, 0 otherwise (captured output printed), -1 on a harness failure
+ */
+static int expect_refused_only_by(child_body_fn body, const char *needle, const char *forbidden) {
+  static char captured[CHILD_CAPTURE_BYTES];
+  const int status = expect_fatal_capture(NULL, body, needle, NULL, captured, sizeof(captured));
+  if (status != 1) {
+    return status;
+  }
+  if (strstr(captured, forbidden) != NULL) {
+    fprintf(stderr, "  refusal also reports '%s'; captured output:\n%s\n", forbidden, captured);
+    return 0;
+  }
+  return 1;
 }
 
 // ============================================================================
@@ -477,15 +497,36 @@ int test_file_truncated_or_overlong_refused(void) {
  * @test    test_path_over_limit_refused
  * @brief   A fixture path longer than ORACLE_MAX_PATH - 1 is refused naming ORACLE_MAX_PATH, in
  *          oracle_fixture_path_in (buffer emptied) and in oracle_load, never truncated
+ *
+ * long_dir does not exist, so an fopen of it would fail too; each refusal must therefore name
+ * ORACLE_MAX_PATH and must not report "cannot open", so it passes only through the limit.
  */
 int test_path_over_limit_refused(void) {
   memset(long_dir, 'd', sizeof(long_dir) - 1);
   long_dir[0] = '/';
   long_dir[sizeof(long_dir) - 1] = '\0';
-  TEST_ASSERT(expect_refused(body_long_fixture_path, "ORACLE_MAX_PATH") == 1,
+  TEST_ASSERT(expect_refused_only_by(body_long_fixture_path, "ORACLE_MAX_PATH", "cannot open") == 1,
               "a fixture path that does not fit must be refused, naming ORACLE_MAX_PATH");
-  TEST_ASSERT(expect_refused(body_load_long_path, "ORACLE_MAX_PATH") == 1,
-              "loading a path longer than ORACLE_MAX_PATH - 1 must be refused, naming the limit");
+  TEST_ASSERT(expect_refused_only_by(body_load_long_path, "ORACLE_MAX_PATH", "cannot open") == 1,
+              "loading a path longer than ORACLE_MAX_PATH - 1 must be refused by the limit, "
+              "before any open");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_read_error_refused
+ * @brief   A manifest or fixture path that opens but cannot be read is refused with "read error"
+ *
+ * fopen() of a directory succeeds (macOS and glibc) and the first fgets() then fails (EISDIR),
+ * setting ferror(): the reader must report that, not treat it as an empty file at end of file.
+ */
+int test_read_error_refused(void) {
+  snprintf(child_file, sizeof(child_file), "%s", scratch_dir);
+  snprintf(child_manifest, sizeof(child_manifest), "%s", scratch_dir);
+  TEST_ASSERT(expect_refused(body_load_file, "read error") == 1,
+              "a fixture that cannot be read must be refused with 'read error'");
+  TEST_ASSERT(expect_refused(body_read_manifest, "read error") == 1,
+              "a manifest that cannot be read must be refused with 'read error'");
   return TEST_PASS;
 }
 
@@ -517,6 +558,7 @@ int main(void) {
   TEST_RUN(test_file_over_limit_refused);
   TEST_RUN(test_file_truncated_or_overlong_refused);
   TEST_RUN(test_path_over_limit_refused);
+  TEST_RUN(test_read_error_refused);
 
   remove_scratch();
 

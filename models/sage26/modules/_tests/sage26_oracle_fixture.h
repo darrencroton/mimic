@@ -518,6 +518,7 @@ static inline void oracle_fixture_path(char *buffer, const size_t size, const ch
  */
 static inline int oracle_count_present_in(const char *manifest, const char *dir, const char *module,
                                           int *listed, int *declared) {
+  /* static: ORACLE_MAX_FIXTURES names are 32 KB, kept off the stack (as in oracle_run_all) */
   static char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
   *listed = oracle_manifest_fixtures_in(manifest, module, names, declared);
   int found = 0;
@@ -558,7 +559,9 @@ static inline int oracle_count_present(const char *module, int *listed, int *dec
  */
 static inline int oracle_run_all(const char *module, int (*check)(const char *name), int *listed,
                                  int *declared) {
-  char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
+  /* static: ORACLE_MAX_FIXTURES names are 32 KB, kept off the stack (as in oracle_count_present_in)
+   */
+  static char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
   *listed = oracle_manifest_fixtures(module, names, declared);
   int identical = 0;
   for (int i = 0; i < *listed; i++) {
