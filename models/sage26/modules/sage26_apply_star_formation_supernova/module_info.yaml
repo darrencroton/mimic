@@ -29,7 +29,9 @@ module:
       - RecycleFraction
 
   tests:
-    unit: _tests/test_unit_sage26_apply_star_formation_supernova.c
+    unit:
+      - _tests/test_unit_sage26_apply_star_formation_supernova.c
+      - _tests/test_unit_sage26_apply_star_formation_supernova_oracle.c
     integration: _tests/test_integration_sage26_apply_star_formation_supernova.py
     scientific: []
 

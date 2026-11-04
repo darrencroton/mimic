@@ -1,19 +1,29 @@
 /**
  * @file    sage26_apply_metal_enrichment.c
- * @brief   SAGE disk-SF metal yield - instantaneous recycling enrichment after instability chain
+ * @brief   SAGE26 disk-SF metal yield - instantaneous recycling enrichment after instability chain
  *
  * Applies the instantaneous-recycling metal yield for stars formed in the disk
- * this substep (NewStellarMass), then consumes (zeroes) NewStellarMass.
+ * this substep (NewStellarMass), then consumes (zeroes) NewStellarMass. Ports the
+ * end of SAGE26's starformation_and_feedback()
+ * (R/src/model_starformation_and_feedback.c:1092-1109, R = the staged SAGE26
+ * source):
  *
- * SAGE parity: in SAGE's starformation_and_feedback() the yield is added AFTER
- * check_disk_instability() runs, so the disk-instability starburst sees the cold
- * gas metallicity WITHOUT this substep's disk-SF enrichment. This module must
- * therefore run after sage26_disk_instability / sage26_quasar_mode /
- * sage26_starburst_feedback in the same substep phase (enforced in init).
- * The starburst channel applies its own yield inside the burst kernel, exactly
- * as SAGE's collisional_starburst_recipe() does.
+ *   if ColdGas > 1.0e-8:
+ *     FracZleaveDiskVal = FracZleaveDisk * exp(-1.0 * Mvir_central / 30.0)
+ *     MetalsColdGas            += Yield * (1.0 - FracZleaveDiskVal) * stars
+ *     MetalsHotGas (central)   += Yield * FracZleaveDiskVal * stars
+ *   else:
+ *     MetalsHotGas (central)   += Yield * stars
  *
- * Reference: Croton et al. (2006, 2016), SAGE model_starformation_and_feedback.c
+ * SAGE parity: SAGE26 adds the yield AFTER check_disk_instability() (:1088-1090),
+ * so the disk-instability starburst sees the cold gas metallicity WITHOUT this
+ * substep's disk-SF enrichment. This module must therefore run after
+ * sage26_disk_instability / sage26_quasar_mode / sage26_starburst_feedback in the
+ * same substep phase (enforced in init). The starburst channel applies its own
+ * yield inside the burst kernel, as SAGE26's collisional_starburst_recipe() does
+ * (R/src/model_mergers.c:814-831).
+ *
+ * Reference: Croton et al. (2006, 2016)
  */
 
 #include <math.h>
@@ -56,7 +66,8 @@ int sage26_apply_metal_enrichment_init(void) {
   }
 
   /* ERROR: SAGE parity requires the disk-instability chain to run BEFORE the
-   * disk yield is added (SAGE adds the yield after check_disk_instability). */
+   * disk yield is added (SAGE26 adds the yield after check_disk_instability,
+   * R/src/model_starformation_and_feedback.c:1088-1109). */
   if (module_in_substep_phase("sage26_starburst_feedback", PROCESSING_MODE_BY_GALAXY) &&
       !module_precedes_in_substep_phase("sage26_starburst_feedback", PROCESSING_MODE_BY_GALAXY,
                                         "sage26_apply_metal_enrichment",
@@ -98,20 +109,30 @@ int sage26_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo
   const double stars = gal->NewStellarMass;
   gal->NewStellarMass = 0.0;
 
-  if (stars <= 0.0) {
-    return 0;
-  }
+  /* SAGE parity: SAGE26 applies the yield on every call, also when no stars formed
+   * (:1092-1109); adding a +0.0 yield turns a -0.0 metal reservoir into +0.0. */
 
   // Formation of new metals - instantaneous recycling approximation - only SNII
-  // SAGE parity: the Krumholz & Dekel (2011) ejection scale uses the FOF
-  // central's Mvir
   if (gal->ColdGas > SAGE_COLD_GAS_YIELD_THRESHOLD) {
+    /* SAGE parity: the Krumholz & Dekel (2011) ejection scale uses the FoF central's
+     * float Mvir (:1094) */
+    const float central_mvir = (float)ctx->central_galaxy->Mvir;
     const double FracZleaveDiskVal =
-        FRAC_Z_LEAVE_DISK * exp(-1.0 * ctx->central_galaxy->Mvir / SAGE_METAL_EJECTION_MVIR_SCALE);
-    gal->MetalsColdGas += YIELD * (1.0 - FracZleaveDiskVal) * stars;
-    central_gal->MetalsHotGas += YIELD * FracZleaveDiskVal * stars;
+        FRAC_Z_LEAVE_DISK * exp(-1.0 * central_mvir / SAGE_METAL_EJECTION_MVIR_SCALE);
+
+    /* SAGE parity: metals that stay in the disk, Yield * (1.0 - FracZleaveDiskVal)
+     * left to right, then one fused multiply-add with stars in SAGE26's build (:1097) */
+    const double yield_retained = YIELD * (1.0 - FracZleaveDiskVal);
+    gal->MetalsColdGas = (float)fma(yield_retained, stars, (double)gal->MetalsColdGas);
+
+    // Metals that leave the disk go to the central's hot gas, formed in its own
+    // statement as SAGE26 does (:1100-1102)
+    const double metals_leaving_disk = YIELD * FracZleaveDiskVal * stars;
+    central_gal->MetalsHotGas += metals_leaving_disk;
   } else {
-    central_gal->MetalsHotGas += YIELD * stars;
+    // All metals leave the disk when ColdGas is very low (:1105-1108)
+    const double all_metals = YIELD * stars;
+    central_gal->MetalsHotGas += all_metals;
   }
 
   DEBUG_LOG("Type=%d: Applied metal yield for stars=%.3e (ColdGas=%.3e)", halo->Type, stars,

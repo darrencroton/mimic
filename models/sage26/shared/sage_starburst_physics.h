@@ -6,6 +6,14 @@
  * disk-instability channel and the merger channel. For BH growth and quasar-mode
  * wind see sage_agn_physics.h.
  *
+ * The burst commits its star formation and its supernova feedback through the
+ * package's one implementation of SAGE26's update_from_star_formation and
+ * update_from_feedback (sage_sf_feedback_physics.h), the functions SAGE26's own
+ * collisional_starburst_recipe calls (R/src/model_mergers.c:759-760, :788-791), so
+ * a burst commits each event exactly as disk star formation does. The burst's own
+ * arithmetic (its mass, its feedback inputs, its bulge growth and its yield) is the
+ * merger node's to port and is unchanged here.
+ *
  * @note Split from merger_physics.h; starburst/SN half only. Although
  *       sage26_starburst_feedback is currently the sole consumer, this header is
  *       the architectural counterpart to sage_agn_physics.h — both halves of the
@@ -21,6 +29,7 @@
 #include "types.h"
 #include "shared/metallicity.h"
 #include "shared/sage_constants.h"
+#include "shared/sage_sf_feedback_physics.h"
 
 /**
  * @brief Parameter bundle for merger/disk-instability starburst physics
@@ -45,7 +54,8 @@ struct MimicStarburstParams {
  * @param central_halo       FoF central halo (Vvir used for energy budget)
  * @param mode               1 = disk instability (efficiency direct); 0 = merger (Somerville
  * scaling)
- * @param rate_dt            Timestep length for rate accumulation (Gyr/h; 0 skips rate update)
+ * @param rate_dt            Interval for the StarFormationRate diagnostic (0 skips it); the
+ *                           outflow is accumulated undivided by the feedback commit
  * @param p                  Model parameter bundle (see struct MimicStarburstParams)
  */
 static inline void
@@ -59,7 +69,6 @@ mimic_apply_collisional_starburst(double efficiency_factor, struct GalaxyData *g
   double vvir_central;
   double metallicity;
   double metallicity_cold;
-  double metallicity_hot;
 
   if (gal == NULL || central_gal == NULL || central_halo == NULL || p == NULL ||
       efficiency_factor <= 0.0) {
@@ -99,10 +108,7 @@ mimic_apply_collisional_starburst(double efficiency_factor, struct GalaxyData *g
   }
 
   metallicity = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
-  gal->ColdGas -= (1.0 - p->recycle_fraction) * stars;
-  gal->MetalsColdGas -= metallicity * (1.0 - p->recycle_fraction) * stars;
-  gal->StellarMass += (1.0 - p->recycle_fraction) * stars;
-  gal->MetalsStellarMass += metallicity * (1.0 - p->recycle_fraction) * stars;
+  mimic_sage_update_from_star_formation(gal, stars, metallicity, p->recycle_fraction);
   gal->BulgeMass += (1.0 - p->recycle_fraction) * stars;
   gal->MetalsBulgeMass += metallicity * (1.0 - p->recycle_fraction) * stars;
 
@@ -111,25 +117,8 @@ mimic_apply_collisional_starburst(double efficiency_factor, struct GalaxyData *g
   }
 
   metallicity_cold = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
-  gal->ColdGas -= reheated_mass;
-  gal->MetalsColdGas -= metallicity_cold * reheated_mass;
-
-  central_gal->HotGas += reheated_mass;
-  central_gal->MetalsHotGas += metallicity_cold * reheated_mass;
-
-  if (ejected_mass > central_gal->HotGas) {
-    ejected_mass = central_gal->HotGas;
-  }
-
-  metallicity_hot = mimic_get_metallicity(central_gal->HotGas, central_gal->MetalsHotGas);
-  central_gal->HotGas -= ejected_mass;
-  central_gal->MetalsHotGas -= metallicity_hot * ejected_mass;
-  central_gal->EjectedGas += ejected_mass;
-  central_gal->MetalsEjectedGas += metallicity_hot * ejected_mass;
-
-  if (rate_dt > 0.0) {
-    gal->SupernovaOutflowRate += reheated_mass / rate_dt;
-  }
+  mimic_sage_update_from_feedback(gal, central_gal, reheated_mass, ejected_mass, metallicity_cold,
+                                  NULL);
 
   if (gal->ColdGas > SAGE_COLD_GAS_YIELD_THRESHOLD &&
       efficiency_factor < p->threshold_major_merger) {

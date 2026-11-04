@@ -1,8 +1,9 @@
 module:
   name: sage26_finalize_cooling_heating
   description: >-
-    Normalises the Cooling and Heating energies accumulated over the substeps by the FoF's
-    snapshot interval once per halo, as SAGE26 does after its last substep
+    Normalises the Cooling and Heating energies and the SupernovaOutflowRate reheated mass
+    accumulated over the substeps by the FoF's snapshot interval once per halo, as SAGE26 does
+    after its last substep
 
   supported_processing_modes: [process_full_halo]
 
@@ -12,6 +13,7 @@ module:
       - dT
       - Cooling
       - Heating
+      - SupernovaOutflowRate
     parameters: []
 
   tests:

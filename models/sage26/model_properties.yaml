@@ -350,7 +350,8 @@ galaxy_properties:
   - name: SupernovaOutflowRate
     type: float
     units: Msun/yr
-    description: Current gas outflow rate from supernova feedback
+    description: Supernova-reheated gas outflow rate, SAGE26's OutflowRate
+    notes: SAGE26 scalar float member OutflowRate (src/core_allvars.h:194). On R0 the shared feedback commit (shared/sage_sf_feedback_physics.h, SAGE26's update_from_feedback) adds the undivided reheated mass to the forming or bursting galaxy in float on every disk star-formation and burst event (src/model_starformation_and_feedback.c:1249); sage26_finalize_cooling_heating multiplies the sum once per halo by 1/deltaT of the FoF's first galaxy, skipping merged galaxies (src/core_build_model.c:590-604), so between the two it holds code mass, after them code mass per code time, converted to Msun/yr on output. SAGE26 zeroes it at creation (src/model_misc.c:181) and at the first-occupied update (src/core_build_model.c:276); the package resets every inherited galaxy (init_repeat). model_mergers.c never reads or moves OutflowRate, so the reset of a galaxy SAGE26 does not reset (an orphan) shows only in that galaxy's own row.
     output: true
     init_source: default
     init_value: 0.0
@@ -559,7 +560,7 @@ galaxy_properties:
     type: float
     units: 1e10 Msun/h
     description: Mass of atomic hydrogen (HI) in the cold gas reservoir
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:132; written verbatim at src/io/save_gals_hdf5.c:916. Scaffold, holds 0 until a physics node fills it.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:132; written verbatim at src/io/save_gals_hdf5.c:916. On R0 sage26_calculate_star_formation writes it on every disk star-formation call (src/model_starformation_and_feedback.c:1035-1046) from the cold gas before that substep's star formation, as (ColdGas * 0.74 - H2gas, floored at 0) * (1 - f_ion), f_ion the ionised fraction of an exponential disk below 0.5 Msun/pc^2 (:135-152). It is not resynchronised after the star formation and feedback that follow (SAGE26's prescription-0 quirk, :1128-1135), so it can exceed the hydrogen left in ColdGas. Not reset at the first-occupied update (src/core_build_model.c:273-281), so inherited as SAGE26 does.
     output: true
     init_source: default
     init_value: 0.0

@@ -22,14 +22,15 @@
  *   - test_star_formation_rate_accumulation: SFR calculation
  *   - test_reheating_gas_transfer: Cold→hot transfer to central
  *   - test_reheating_metal_transfer: Metals move with reheated gas
- *   - test_reheating_outflow_rate: Outflow rate accumulation
+ *   - test_reheating_outflow_rate: Undivided outflow accumulation (SAGE26 OutflowRate)
  *   - test_ejection_gas_transfer: Hot→ejected transfer from central
  *   - test_ejection_limiting: Ejection capped at available hot gas
  *   - test_ejection_metal_transfer: Metals move with ejected gas
  *   - test_metal_yield_production: New metals from yield
  *   - test_metal_disk_vs_halo_split: FracZleaveDisk scaling
  *   - test_metal_enrichment_zero_cold_gas: All metals to hot halo when ColdGas=0
- *   - test_zero_stars_no_updates: No changes when NewStellarMass=0
+ *   - test_zero_stars_no_updates: A zero event leaves positive reservoirs unchanged
+ *   - test_zero_event_caps_negative_hot_metals: A zero event still runs the metal cap
  *   - test_ejection_exceeds_hot_gas: Ejection limited to HotGas
  *   - test_satellite_reheats_to_central: Satellites reheat to central's hot halo
  *   - test_temporary_properties_reset: Cleanup after processing
@@ -539,12 +540,14 @@ int test_reheating_metal_transfer(void) {
 
 /**
  * @test    test_reheating_outflow_rate
- * @brief   Test that SupernovaOutflowRate is calculated correctly
+ * @brief   Test that SupernovaOutflowRate accumulates the undivided reheated mass
  *
- * Physics: SupernovaOutflowRate += SupernovaReheatedMass / dT
+ * Physics: SupernovaOutflowRate += reheated mass, a float accumulation of SAGE26's
+ * OutflowRate (R/src/model_starformation_and_feedback.c:1249). The division by the
+ * interval happens once per halo in sage26_finalize_cooling_heating.
  *
- * Expected: Outflow rate in code units
- * Validates: Outflow rate accumulation
+ * Expected: the reheated mass itself, in code mass units
+ * Validates: Outflow accumulation
  */
 int test_reheating_outflow_rate(void) {
   /* ===== SETUP ===== */
@@ -573,10 +576,10 @@ int test_reheating_outflow_rate(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Module process should succeed");
 
-  /* Expected outflow rate = reheated_mass / dt = 0.5 / 0.1 = 5.0 */
-  double expected_outflow_rate = reheated_mass / dt;
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaOutflowRate, expected_outflow_rate, 1e-6,
-                           "SupernovaOutflowRate should equal SupernovaReheatedMass / dT");
+  /* Expected: the undivided reheated mass, narrowed to the float accumulator */
+  const float expected_outflow = (float)(0.0 + reheated_mass);
+  TEST_ASSERT(test_galaxy.SupernovaOutflowRate == expected_outflow,
+              "SupernovaOutflowRate should equal the undivided SupernovaReheatedMass");
 
   return TEST_PASS;
 }
@@ -935,10 +938,14 @@ int test_metal_enrichment_zero_cold_gas(void) {
 
 /**
  * @test    test_zero_stars_no_updates
- * @brief   Test that no updates occur when NewStellarMass = 0
+ * @brief   Test that a zero event leaves positive reservoirs unchanged
+ *
+ * SAGE26 commits star formation and feedback on every call, also with zero masses
+ * (R/src/model_starformation_and_feedback.c:1063-1085), so the apply step runs both
+ * commits; with zero masses and non-negative reservoirs nothing moves.
  *
  * Expected: All properties unchanged except temporary properties zeroed
- * Validates: Early exit logic for zero star formation
+ * Validates: The zero-mass commit path
  */
 int test_zero_stars_no_updates(void) {
   /* ===== SETUP ===== */
@@ -987,6 +994,44 @@ int test_zero_stars_no_updates(void) {
   TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, 0.0, 1e-6,
                            "SupernovaEjectedMass should be zeroed");
 
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_zero_event_caps_negative_hot_metals
+ * @brief   A zero event still runs update_from_feedback's metal cap
+ *
+ * SAGE26 calls update_from_feedback on every substep, also with no stars
+ * (R/src/model_starformation_and_feedback.c:1063-1085). With zero ejected mass the
+ * metal transfer metallicityHot * 0 = 0 exceeds a negative MetalsHotGas, so the cap
+ * (:1237-1240) moves the negative hot metals into the ejected reservoir and leaves
+ * MetalsHotGas at zero. A module that returned early on zero stars would not.
+ * No oracle wrapper fixture has both zero stars and negative hot metals.
+ */
+int test_zero_event_caps_negative_hot_metals(void) {
+  setup_test_parameters(0.43, 0.025, 0.0);
+  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0,
+              "Module initialization should succeed");
+
+  struct Halo test_halo;
+  struct GalaxyData test_galaxy;
+  const double negative_hot_metals = -1.0e-9;
+  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 5.0, 20.0, 0.2,
+                  negative_hot_metals, 0.1, 0.3, 0.0, 0.0, 0.0);
+  const float ejected_metals_before = test_galaxy.MetalsEjectedGas;
+  const float hot_metals_before = test_galaxy.MetalsHotGas;
+
+  struct ModuleContext ctx;
+  setup_module_context(&ctx, &test_halo, 0.1);
+
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1) == 0,
+              "Module process should succeed");
+  TEST_ASSERT(test_galaxy.MetalsHotGas == 0.0f,
+              "the zero event's capped transfer empties the negative hot metals");
+  TEST_ASSERT(test_galaxy.MetalsEjectedGas == (float)(ejected_metals_before + hot_metals_before),
+              "the negative hot metals move into the ejected reservoir");
+  TEST_ASSERT(test_galaxy.HotGas == 50.0f && test_galaxy.ColdGas == 10.0f,
+              "no gas moves in a zero event");
   return TEST_PASS;
 }
 
@@ -1284,6 +1329,7 @@ int main(void) {
 
   /* Run edge case tests */
   TEST_RUN(test_zero_stars_no_updates);
+  TEST_RUN(test_zero_event_caps_negative_hot_metals);
   TEST_RUN(test_satellite_reheats_to_central);
 
   /* Run cleanup and conservation tests */

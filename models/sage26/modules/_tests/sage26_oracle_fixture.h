@@ -22,7 +22,10 @@
  *   oracle test's two test cases;
  * - oracle_c04_*(): the c04 group's (cooling and radio heating) shared state:
  *   the sixteen galaxy fields its fixtures set and the twelve it records, and its
- *   R0 parameters (oracle README "The c04 Group").
+ *   R0 parameters (oracle README "The c04 Group");
+ * - oracle_c05_*(): the c05 group's (star formation, feedback, instability,
+ *   histories and outflow) galaxy fields, R0 flags and carried values (oracle
+ *   README "The c05 Group").
  *
  * Fixtures are found through MIMIC_COMPILED_MODEL_PATH, which is repository
  * relative; the unit runner runs from the repository root. Include this header
@@ -832,6 +835,221 @@ static inline int oracle_c04_set_params(struct oracle_fixture *in, const char *n
     problems++;
   }
   return problems;
+}
+
+// ============================================================================
+// THE C05 GROUP: STAR FORMATION, FEEDBACK, INSTABILITY, HISTORIES AND OUTFLOW
+// ============================================================================
+
+/**
+ * @brief The package's float galaxy member for a c05 SAGE26 name, or NULL
+ *
+ * Extends oracle_galaxy_float() with the c05 fields: SAGE26's OutflowRate is the
+ * package's SupernovaOutflowRate (oracle README "Input Fields"); the other names are
+ * the package's.
+ */
+static inline float *oracle_c05_galaxy_float(struct GalaxyData *galaxy, const char *sage26_name) {
+  struct member {
+    const char *sage26;
+    float *address;
+  };
+  const struct member table[] = {
+      {"MetalsStellarMass", &galaxy->MetalsStellarMass},
+      {"BulgeMass", &galaxy->BulgeMass},
+      {"MetalsBulgeMass", &galaxy->MetalsBulgeMass},
+      {"InstabilityBulgeMass", &galaxy->InstabilityBulgeMass},
+      {"H1gas", &galaxy->H1gas},
+      {"H2gas", &galaxy->H2gas},
+      {"OutflowRate", &galaxy->SupernovaOutflowRate},
+      {"QuasarModeBHaccretionMass", &galaxy->QuasarModeBHaccretionMass},
+  };
+  for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
+    if (strcmp(table[i].sage26, sage26_name) == 0) {
+      return table[i].address;
+    }
+  }
+  return oracle_galaxy_float(galaxy, sage26_name);
+}
+
+/** @brief The fourteen fields every c05 output records for every galaxy (SAGE26 names) */
+static inline const char *const *oracle_c05_written_names(size_t *count) {
+  static const char *const names[] = {
+      "ColdGas",      "MetalsColdGas",   "StellarMass",          "MetalsStellarMass",
+      "BulgeMass",    "MetalsBulgeMass", "InstabilityBulgeMass", "HotGas",
+      "MetalsHotGas", "EjectedMass",     "MetalsEjectedMass",    "H1gas",
+      "H2gas",        "OutflowRate"};
+  *count = sizeof(names) / sizeof(names[0]);
+  return names;
+}
+
+/** @brief The six SAGE26 per-substep histories (ten elements each, R/src/core_allvars.h:158-163) */
+static inline const char *const *oracle_c05_history_names(size_t *count) {
+  static const char *const names[] = {"SfrDisk",         "SfrBulge",
+                                      "SfrDiskColdGas",  "SfrDiskColdGasMetals",
+                                      "SfrBulgeColdGas", "SfrBulgeColdGasMetals"};
+  *count = sizeof(names) / sizeof(names[0]);
+  return names;
+}
+
+#define ORACLE_C05_STEPS 10
+
+/**
+ * @brief Set a galaxy's named c05 float fields from "galaxy[index].<name>"
+ * @return Number of names with no package member
+ */
+static inline int oracle_c05_in_floats(struct oracle_fixture *in, const int index,
+                                       struct GalaxyData *galaxy, const char *const *names,
+                                       const size_t count) {
+  int problems = 0;
+  for (size_t k = 0; k < count; k++) {
+    float *member = oracle_c05_galaxy_float(galaxy, names[k]);
+    if (member == NULL) {
+      fprintf(stderr, "oracle: %s: no package member for '%s'\n", in->path, names[k]);
+      problems++;
+      continue;
+    }
+    *member = oracle_in_f32(in, oracle_galaxy_field(index, names[k]));
+  }
+  return problems;
+}
+
+/**
+ * @brief Compare a galaxy's named c05 float fields with "<prefix>galaxy[index].<name>"
+ * @return Number of mismatches
+ */
+static inline int oracle_c05_check_floats(struct oracle_fixture *out, const char *prefix,
+                                          const int index, struct GalaxyData *galaxy,
+                                          const char *const *names, const size_t count) {
+  int mismatches = 0;
+  for (size_t k = 0; k < count; k++) {
+    float *member = oracle_c05_galaxy_float(galaxy, names[k]);
+    if (member == NULL) {
+      fprintf(stderr, "oracle: %s: no package member for '%s'\n", out->path, names[k]);
+      mismatches++;
+      continue;
+    }
+    mismatches +=
+        oracle_check_f32(out, oracle_prefixed_galaxy_field(prefix, index, names[k]), *member);
+  }
+  return mismatches;
+}
+
+/**
+ * @brief Mark the sixty history elements of "<prefix>galaxy[index]" consumed, not asserted
+ *
+ * The package has no per-substep histories before they are ported; a test that
+ * defers them says so at the call.
+ */
+static inline void oracle_c05_exclude_histories(struct oracle_fixture *fx, const char *prefix,
+                                                const int index) {
+  size_t count;
+  const char *const *names = oracle_c05_history_names(&count);
+  for (size_t h = 0; h < count; h++) {
+    for (int k = 0; k < ORACLE_C05_STEPS; k++) {
+      char member[ORACLE_MAX_NAME];
+      snprintf(member, sizeof(member), "%s[%d]", names[h], k);
+      oracle_exclude(fx, oracle_prefixed_galaxy_field(prefix, index, member));
+    }
+  }
+}
+
+/**
+ * @brief Require one of the fixed c05 R0 flags (oracle README "Flags and Parameters")
+ * @return 1 if the fixture's flag differs from the R0 value, else 0
+ */
+static inline int oracle_c05_require_flag(struct oracle_fixture *in, const char *flag,
+                                          const int r0_value) {
+  const int value = oracle_in_i32(in, flag);
+  if (value != r0_value) {
+    fprintf(stderr, "oracle: %s: %s is %d, not R0's %d\n", in->path, flag, value, r0_value);
+    return 1;
+  }
+  return 0;
+}
+
+/** @brief Counters of the carried-value assertions a c05 test made, for its report */
+struct oracle_c05_carried_tally {
+  int asserted;      /**< validated two-sided and compared bit for bit */
+  int not_validated; /**< present but not validated two-sided: recorded, not asserted */
+  int not_carried;   /**< a SAGE26 local the package does not hold: not asserted */
+  int absent;        /**< the path leaves it undefined */
+  int binding;       /**< compared with the reservoir its binding clamp or cap set it to */
+};
+
+/**
+ * @brief Read one carried value's record and assert it where the package holds it
+ *
+ * Reads "<prefix><name>_absent" and, when present, the value and its _checked,
+ * _validated_up, _validated_down and _validated markers (oracle README "Carried
+ * Values"). The value is compared bit for bit only where it is validated two-sided
+ * and `actual` is not NULL (the package carries it); otherwise it is consumed
+ * unasserted and counted in the tally.
+ *
+ * @param actual  The package's value, or NULL for a SAGE26 local the package does not hold
+ * @return Number of mismatches and marker errors
+ */
+static inline int oracle_c05_check_carried(struct oracle_fixture *out, const char *prefix,
+                                           const char *name, const double *actual,
+                                           struct oracle_c05_carried_tally *tally) {
+  char field[ORACLE_MAX_NAME];
+  snprintf(field, sizeof(field), "%s%s_absent", prefix, name);
+  if (oracle_in_i32(out, field) != 0) {
+    tally->absent++;
+    return 0;
+  }
+  int problems = 0;
+  snprintf(field, sizeof(field), "%s%s_checked", prefix, name);
+  if (oracle_in_i32(out, field) != 1) {
+    fprintf(stderr, "oracle: %s: %s%s is not marked checked\n", out->path, prefix, name);
+    problems++;
+  }
+  snprintf(field, sizeof(field), "%s%s_validated_up", prefix, name);
+  const int up = oracle_in_i32(out, field);
+  snprintf(field, sizeof(field), "%s%s_validated_down", prefix, name);
+  const int down = oracle_in_i32(out, field);
+  snprintf(field, sizeof(field), "%s%s_validated", prefix, name);
+  const int validated = oracle_in_i32(out, field);
+  if (validated != (up && down)) {
+    fprintf(stderr, "oracle: %s: %s%s_validated disagrees with its two directions\n", out->path,
+            prefix, name);
+    problems++;
+  }
+  snprintf(field, sizeof(field), "%s%s", prefix, name);
+  if (actual == NULL) {
+    oracle_exclude(out, field);
+    tally->not_carried++;
+  } else if (validated) {
+    problems += oracle_check_f64(out, field, *actual);
+    tally->asserted++;
+  } else {
+    oracle_exclude(out, field);
+    tally->not_validated++;
+  }
+  return problems;
+}
+
+/**
+ * @brief Where a clamp or cap binds, assert its recorded value equals the reservoir it binds to
+ *
+ * Reads the i32 flag; when it is 1, the recorded "<prefix><value_name>" must equal
+ * `reservoir`, the package's reservoir at that point (oracle README: a cap's value
+ * equals the reservoir before the debit that follows, not the output field). The
+ * flag itself is not asserted (strict and non-strict comparisons agree at equality).
+ *
+ * @return Number of mismatches
+ */
+static inline int oracle_c05_check_binding(struct oracle_fixture *out, const char *prefix,
+                                           const char *flag, const char *value_name,
+                                           const float reservoir,
+                                           struct oracle_c05_carried_tally *tally) {
+  char field[ORACLE_MAX_NAME];
+  snprintf(field, sizeof(field), "%s%s", prefix, flag);
+  if (oracle_in_i32(out, field) != 1) {
+    return 0;
+  }
+  snprintf(field, sizeof(field), "%s%s", prefix, value_name);
+  tally->binding++;
+  return oracle_check_f64(out, field, (double)reservoir);
 }
 
 #endif /* SAGE26_ORACLE_FIXTURE_H */

@@ -322,7 +322,9 @@ int test_disk_instability_starburst(void) {
  *          same snapshot mean regardless of substep count.
  *
  * Expected: With identical physics and num_substeps changing from 1 to 2,
- * StarFormationRate and SupernovaOutflowRate are unchanged (ratio = 1.0).
+ * StarFormationRate and SupernovaOutflowRate are unchanged (ratio = 1.0). The
+ * outflow is the undivided reheated mass (SAGE26's OutflowRate, normalised once per
+ * halo by sage26_finalize_cooling_heating), so it involves no interval at all.
  */
 int test_disk_instability_uses_full_interval_for_rates(void) {
   /* ===== SETUP ===== */
@@ -369,7 +371,7 @@ int test_disk_instability_uses_full_interval_for_rates(void) {
                            "Disk-instability SFR uses full interval — invariant to num_substeps");
   TEST_ASSERT_DOUBLE_EQUAL(
       outflow2 / outflow1, 1.0, 1e-4,
-      "Disk-instability outflow uses full interval — invariant to num_substeps");
+      "Disk-instability outflow is the undivided reheated mass — invariant to num_substeps");
   TEST_ASSERT_DOUBLE_EQUAL(gal2.StellarMass, gal1.StellarMass, 1e-6,
                            "Mass transfer should be timestep-invariant");
   TEST_ASSERT_DOUBLE_EQUAL(gal2.ColdGas, gal1.ColdGas, 1e-6,
@@ -583,9 +585,13 @@ int test_per_event_merger_uses_fof_central_feedback_destination(void) {
  *          normal SF channel — NOT the per-substep event payload dt
  *          (event->value1). So the reported rate scales as 1/dT_target and is
  *          independent of event->value1. (SAGE output averages SfrBulge[step]
- *          by STEPS, giving the snapshot mean total_burst_stars/dT.)
+ *          by STEPS, giving the snapshot mean total_burst_stars/dT.) The outflow is
+ *          SAGE26's undivided OutflowRate += reheated mass (shared feedback commit,
+ *          R/src/model_starformation_and_feedback.c:1249), normalised once per halo
+ *          by sage26_finalize_cooling_heating, so it depends on neither interval.
  *
- * Expected: rate ratio follows the inverse of the target full interval.
+ * Expected: SFR ratio follows the inverse of the target full interval; the outflows
+ *           are equal.
  */
 int test_per_event_merger_uses_target_full_interval_for_rates(void) {
   /* ===== SETUP ===== */
@@ -655,9 +661,8 @@ int test_per_event_merger_uses_target_full_interval_for_rates(void) {
   const double expected_ratio = (double)target2.dT / (double)target1.dT;
   TEST_ASSERT_DOUBLE_EQUAL(sfr1 / sfr2, expected_ratio, 1e-4,
                            "Merger-burst SFR scales with inverse target full interval (halo->dT)");
-  TEST_ASSERT_DOUBLE_EQUAL(
-      outflow1 / outflow2, expected_ratio, 1e-4,
-      "Merger-burst outflow scales with inverse target full interval (halo->dT)");
+  TEST_ASSERT(outflow1 == outflow2,
+              "Merger-burst outflow is the undivided reheated mass, independent of any interval");
 
   /* ===== CLEANUP ===== */
   sage26_starburst_feedback_cleanup();

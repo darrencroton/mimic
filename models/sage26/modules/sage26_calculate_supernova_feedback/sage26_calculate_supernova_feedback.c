@@ -1,12 +1,22 @@
 /**
  * @file    sage26_calculate_supernova_feedback.c
- * @brief   SAGE supernova feedback - computes SN reheating and ejection (swappable SN feedback
- * prescription)
+ * @brief   SAGE26 supernova feedback budgets (non-FIRE, non-Karpov compute_sn_feedback)
  *
- * Calculates reheated and ejected gas masses from supernova feedback based on
- * NewStellarMass. Applies renormalization to ensure star formation and feedback
- * don't exceed available cold gas. Stores results in SupernovaReheatedMass and
- * SupernovaEjectedMass properties.
+ * Ports compute_sn_feedback() on R0 (FIREmodeOn 0, KarpovModeOn 0,
+ * SupernovaRecipeOn 1; R/src/model_starformation_and_feedback.c:732-889, R = the
+ * staged SAGE26 source):
+ *
+ * - reheated mass = FeedbackReheatingEpsilon * stars (:767);
+ * - when stars + reheated mass exceed the cold gas, both are scaled together by
+ *   ColdGas / (stars + reheated mass) (:775-779), before any recycling;
+ * - ejected mass = (FeedbackEjectionEfficiency * (EtaSNcode * EnergySNcode) /
+ *   (Vvir * Vvir) - FeedbackReheatingEpsilon) * stars, with the forming galaxy's
+ *   own Vvir (:783, :795-798), zero for a non-positive own Vvir (:876-878) and floored at
+ *   zero (:880-882).
+ *
+ * Stores the renormalised stars in NewStellarMass and the budgets in
+ * SupernovaReheatedMass and SupernovaEjectedMass for
+ * sage26_apply_star_formation_supernova, which commits them.
  *
  * Reference: Croton et al. (2006, 2016)
  */
@@ -19,6 +29,7 @@
 #include "types.h"
 #include "module_system/parameter_helpers.h"
 #include "module_system/physical_constants.h"
+#include "shared/sage_sf_feedback_physics.h"
 
 // ============================================================================
 // MODULE PARAMETERS
@@ -66,9 +77,9 @@ int sage26_calculate_supernova_feedback_init(void) {
     return -1;
   }
 
-  // Convert physical constants to code units (module-local conversion)
-  energy_sn_code = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
-  eta_sn_code = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
+  // SAGE26's EnergySNcode and EtaSNcode (R/src/core_init.c:102-103)
+  energy_sn_code = mimic_sage_energy_sn_code(MimicConfig.UnitEnergy_in_cgs, MimicConfig.Hubble_h);
+  eta_sn_code = mimic_sage_eta_sn_code(MimicConfig.UnitMass_in_g, MimicConfig.Hubble_h);
 
   VERBOSE_LOG("SAGE supernova feedback module initialized");
   VERBOSE_LOG("  FeedbackReheatingEpsilon = %.3f", FEEDBACK_REHEATING_EPSILON);
@@ -92,34 +103,27 @@ int sage26_calculate_supernova_feedback_process(struct ModuleContext *ctx, struc
     return 0;
   }
 
-  if (ctx->central_galaxy == NULL) {
-    DEBUG_LOG("No FOF central available for ejection potential");
-    return 0;
-  }
-
+  (void)ctx;
   struct GalaxyData *gal = halo->galaxy;
 
   double stars = gal->NewStellarMass;
   double reheated_mass = FEEDBACK_REHEATING_EPSILON * stars;
 
-  // Renormalization: Can't use more cold gas than is available
-  // Balance star formation and feedback
+  // Can't use more cold gas than is available, so balance SF and feedback (:775-779)
   if ((stars + reheated_mass) > gal->ColdGas && (stars + reheated_mass) > 0.0) {
     const double fac = gal->ColdGas / (stars + reheated_mass);
     stars *= fac;
     reheated_mass *= fac;
-
-    // Update NewStellarMass with renormalized value
-    gal->NewStellarMass = stars;
   }
 
-  // Determine ejection relative to central's potential well
-  // Both centrals and satellites eject into the FOF group's halo
+  /* SAGE parity: SAGE26 ejects against the forming galaxy's own float Vvir, squared
+   * in float, also for satellites and orphans (:783, :795-798); a non-positive own Vvir
+   * ejects nothing (:876-878) */
+  const float vvir = (float)halo->Vvir;
   double ejected_mass = 0.0;
-  const double central_vvir = ctx->central_galaxy->Vvir;
-  if (central_vvir > 0.0) {
-    ejected_mass = (FEEDBACK_EJECTION_EFFICIENCY * (eta_sn_code * energy_sn_code) /
-                        (central_vvir * central_vvir) -
+  if (vvir > 0.0) {
+    const float vvir_sq = vvir * vvir;
+    ejected_mass = (FEEDBACK_EJECTION_EFFICIENCY * (eta_sn_code * energy_sn_code) / vvir_sq -
                     FEEDBACK_REHEATING_EPSILON) *
                    stars;
   }
@@ -128,11 +132,12 @@ int sage26_calculate_supernova_feedback_process(struct ModuleContext *ctx, struc
     ejected_mass = 0.0;
   }
 
+  gal->NewStellarMass = stars;
   gal->SupernovaReheatedMass = reheated_mass;
   gal->SupernovaEjectedMass = ejected_mass;
 
-  DEBUG_LOG("Type=%d: Stars=%.3e, Reheat=%.3e, Eject=%.3e (CentralVvir=%.2f)", halo->Type, stars,
-            reheated_mass, ejected_mass, central_vvir);
+  DEBUG_LOG("Type=%d: Stars=%.3e, Reheat=%.3e, Eject=%.3e (Vvir=%.2f)", halo->Type, stars,
+            reheated_mass, ejected_mass, (double)vvir);
 
   return 0;
 }

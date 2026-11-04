@@ -16,6 +16,7 @@
  *   - test_physics_cold_gas_below_threshold: full yield ejected to the central hot halo
  *   - test_consumes_new_stellar_mass: NewStellarMass is zeroed after application
  *   - test_zero_new_stellar_mass: no metals added when there are no new stars
+ *   - test_zero_event_still_adds_yield: a zero yield is still added, turning -0.0 metals into +0.0
  *   - test_null_galaxy: NULL galaxy handled gracefully
  *   - test_null_central: missing FOF central handled gracefully
  *   - test_invalid_ngal: error when ngal != 1
@@ -286,6 +287,48 @@ int test_zero_new_stellar_mass(void) {
 }
 
 /**
+ * @test    test_zero_event_still_adds_yield
+ * @brief   SAGE26 adds the yield on every call, also with no new stars
+ *
+ * SAGE26's starformation_and_feedback adds the disk yield unconditionally
+ * (R/src/model_starformation_and_feedback.c:1092-1109), so a zero yield is still
+ * added: a -0.0 metal reservoir becomes +0.0 (-0.0 + +0.0 = +0.0). A module that
+ * returned early on zero stars would leave -0.0. No oracle fixture has both zero
+ * stars and a -0.0 reservoir, so this pins the behaviour.
+ */
+int test_zero_event_still_adds_yield(void) {
+  reset_config();
+  init_memory_system(0);
+  set_test_model_parameters();
+  TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
+
+  struct ModuleContext ctx = create_test_context();
+  struct GalaxyData cen_gal;
+  memset(&cen_gal, 0, sizeof(cen_gal));
+  cen_gal.MetalsHotGas = -0.0f;
+  struct Halo central = create_test_halo(0, 30.0, &cen_gal);
+
+  struct GalaxyData sat_gal;
+  memset(&sat_gal, 0, sizeof(sat_gal));
+  sat_gal.ColdGas = 5.0;
+  sat_gal.MetalsColdGas = -0.0f;
+  sat_gal.NewStellarMass = 0.0;
+  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+
+  struct Halo halos[2] = {central, satellite};
+  ctx.central_galaxy = &halos[0];
+
+  TEST_ASSERT(sage26_apply_metal_enrichment_process(&ctx, &halos[1], 1) == 0,
+              "process should succeed");
+  TEST_ASSERT(halos[1].galaxy->MetalsColdGas == 0.0f && !signbit(halos[1].galaxy->MetalsColdGas),
+              "the retained zero yield turns -0.0 cold metals into +0.0");
+  TEST_ASSERT(halos[0].galaxy->MetalsHotGas == 0.0f && !signbit(halos[0].galaxy->MetalsHotGas),
+              "the escaping zero yield turns -0.0 hot metals into +0.0");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
  * @test    test_null_galaxy
  * @brief   A halo with no galaxy is a no-op.
  */
@@ -375,6 +418,7 @@ int main(void) {
   TEST_RUN(test_physics_cold_gas_below_threshold);
   TEST_RUN(test_consumes_new_stellar_mass);
   TEST_RUN(test_zero_new_stellar_mass);
+  TEST_RUN(test_zero_event_still_adds_yield);
   TEST_RUN(test_null_galaxy);
   TEST_RUN(test_null_central);
   TEST_RUN(test_invalid_ngal);

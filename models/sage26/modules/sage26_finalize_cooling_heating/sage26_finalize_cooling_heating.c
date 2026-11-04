@@ -1,22 +1,27 @@
 /**
  * @file    sage26_finalize_cooling_heating.c
- * @brief   SAGE26 end-of-halo normalisation of the Cooling and Heating energies
+ * @brief   SAGE26 end-of-halo normalisation of the Cooling, Heating and OutflowRate sums
  *
  * sage26_apply_cooling and sage26_radio_mode_heating accumulate the cooling and
- * AGN heating energies 0.5 * m * Vvir^2 undivided over every substep, as SAGE26
- * does. After the last substep SAGE26 turns the sums into rates once per halo
- * (R/src/core_build_model.c:590-603):
+ * AGN heating energies 0.5 * m * Vvir^2 undivided over every substep, and the
+ * shared feedback commit (shared/sage_sf_feedback_physics.h) accumulates the
+ * reheated mass into SupernovaOutflowRate (SAGE26's OutflowRate) undivided, for
+ * disk star formation and bursts alike, as SAGE26 does. After the last substep
+ * SAGE26 turns the three sums into rates once per halo
+ * (R/src/core_build_model.c:590-604):
  *
- *   deltaT     = Age[galaxies[0].SnapNum] - halo_age;
- *   inv_deltaT = 1.0 / deltaT;
- *   Cooling   *= inv_deltaT;  Heating *= inv_deltaT;   (every galaxy with mergeType 0)
+ *   deltaT       = Age[galaxies[0].SnapNum] - halo_age;
+ *   inv_deltaT   = 1.0 / deltaT;
+ *   Cooling     *= inv_deltaT;  Heating *= inv_deltaT;
+ *   OutflowRate *= inv_deltaT;                     (every galaxy with mergeType 0)
  *
  * This module reproduces that block in post_timestep, once per FoF group. The
  * interval is the dT of the FoF's first galaxy in the order Mimic holds the rows;
  * the core computes each row's dT with SAGE26's deltaT expression. A galaxy that
  * merged or was disrupted this snapshot (the package's Type 3, which
  * sage26_resolve_mergers_and_disruption sets where SAGE26 sets mergeType > 0) is
- * not normalised. The normalisation's OutflowRate term belongs to a later node.
+ * not normalised. OutflowRate is a float: its product with the double inverse is
+ * rounded to float, as SAGE26's `*=` on its float member does.
  *
  * It must run once per FoF step, after the substeps: in a substep phase it would
  * multiply by 1/dT every substep. init() therefore requires exactly one
@@ -117,7 +122,7 @@ int sage26_finalize_cooling_heating_process(struct ModuleContext *ctx, struct Ha
   const double deltaT = halos[first].dT;
 
   // Where the core gives the first galaxy no positive interval (its snapshot-zero
-  // birth, dT = -1) no physics ran this snapshot, and the energies are set to 0.
+  // birth, dT = -1) no physics ran this snapshot, and the three sums are set to 0.
   // SAGE26 always has a positive interval there (R/src/core_init.c:60-67): a
   // core-boundary difference, not reproduced.
   if (!(deltaT > 0.0)) {
@@ -127,6 +132,7 @@ int sage26_finalize_cooling_heating_process(struct ModuleContext *ctx, struct Ha
       }
       halos[i].galaxy->Cooling = 0.0;
       halos[i].galaxy->Heating = 0.0;
+      halos[i].galaxy->SupernovaOutflowRate = 0.0f;
     }
     return 0;
   }
@@ -138,8 +144,10 @@ int sage26_finalize_cooling_heating_process(struct ModuleContext *ctx, struct Ha
     if (halos[i].galaxy == NULL || has_merged(&halos[i])) {
       continue;
     }
+    // In SAGE26's statement order (:601-603)
     halos[i].galaxy->Cooling *= inv_deltaT;
     halos[i].galaxy->Heating *= inv_deltaT;
+    halos[i].galaxy->SupernovaOutflowRate *= inv_deltaT;
   }
 
   return 0;

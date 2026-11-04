@@ -75,7 +75,7 @@ modules:
     StarFormingDiskFactor: 3.0          # Number of disc scale radii to form stars over
 
     # Supernova Feedback
-    FeedbackReheatingEpsilon: 3.0       # Reheating efficiency
+    FeedbackReheatingEpsilon: 2.9       # Reheating efficiency (SAGE26 R0, input/millennium.par:69)
     FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
 
     # Gas Reincorporation

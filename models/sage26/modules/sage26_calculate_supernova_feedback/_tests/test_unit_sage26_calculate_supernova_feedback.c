@@ -13,7 +13,8 @@
  *
  * Physics tests:
  * - Reheating calculation (proportional to stars formed)
- * - Ejection calculation (energy-based, depends on central Vvir)
+ * - Ejection calculation (energy-based, depends on the forming galaxy's own Vvir, SAGE26
+ *   R/src/model_starformation_and_feedback.c:783, :795-798)
  * - Renormalization (scales stars and reheating when exceeding ColdGas)
  * - Edge cases (zero stars, zero Vvir, negative ejection clamping)
  *
@@ -478,12 +479,13 @@ int test_renormalization_boundary(void) {
 
 /**
  * @test    test_ejection_calculation
- * @brief   Test ejection mass calculation based on central Vvir
+ * @brief   Test ejection mass calculation based on the forming galaxy's own Vvir
  *
- * Physics: ejected = (eta * EnergySN / Vvir^2 - epsilon) * stars
+ * Physics: ejected = (eta * EnergySN / Vvir^2 - epsilon) * stars, with the forming
+ * galaxy's own Vvir squared in float (SAGE26 R/src/model_starformation_and_feedback.c:795-798)
  *
- * Expected: Ejection depends on central's Vvir (energy required to escape)
- * Validates: Ejection formula and central galaxy access
+ * Expected: Ejection depends on the satellite's own Vvir, not the central's
+ * Validates: Ejection formula and the own-Vvir potential
  */
 int test_ejection_calculation(void) {
   /* ===== SETUP ===== */
@@ -498,13 +500,14 @@ int test_ejection_calculation(void) {
   struct Halo central_halo;
   struct GalaxyData central_galaxy;
 
-  /* Setup central with known Vvir */
+  /* Setup central with a Vvir the ejection must not use */
   double central_vvir = 200.0; /* km/s */
   setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, central_vvir, 100.0, 0.0);
 
-  /* Setup test galaxy */
+  /* Setup test galaxy (a satellite) with its own Vvir */
   double new_stars = 1.0;
-  setup_test_halo(&test_halo, &test_galaxy, 1, 10.0, 100.0, 100.0, new_stars);
+  double own_vvir = 100.0; /* km/s */
+  setup_test_halo(&test_halo, &test_galaxy, 1, 10.0, own_vvir, 100.0, new_stars);
 
   struct ModuleContext ctx;
   setup_module_context(&ctx, &central_halo, 0.01);
@@ -515,9 +518,8 @@ int test_ejection_calculation(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Module process should succeed");
 
-  /* Calculate expected ejection */
-  double energy_term =
-      test_eta * (eta_sn_code_test * energy_sn_code_test) / (central_vvir * central_vvir);
+  /* Calculate expected ejection from the satellite's own Vvir */
+  double energy_term = test_eta * (eta_sn_code_test * energy_sn_code_test) / (own_vvir * own_vvir);
   double expected_ejected = (energy_term - test_epsilon) * new_stars;
 
   /* Ejection can be negative (clamped to zero) */
@@ -553,13 +555,13 @@ int test_negative_ejection_clamped(void) {
   struct Halo central_halo;
   struct GalaxyData central_galaxy;
 
-  /* Setup central with VERY HIGH Vvir (low escape probability) */
-  double central_vvir = 1000.0; /* km/s - very massive halo */
-  setup_test_halo(&central_halo, &central_galaxy, 0, 1000.0, central_vvir, 100.0, 0.0);
+  /* Setup central with a low Vvir the ejection must not use */
+  setup_test_halo(&central_halo, &central_galaxy, 0, 10.0, 100.0, 100.0, 0.0);
 
-  /* Setup test galaxy */
+  /* Setup test galaxy with VERY HIGH own Vvir (low escape probability) */
   double new_stars = 1.0;
-  setup_test_halo(&test_halo, &test_galaxy, 1, 10.0, 100.0, 100.0, new_stars);
+  double own_vvir = 1000.0; /* km/s - very massive halo */
+  setup_test_halo(&test_halo, &test_galaxy, 0, 1000.0, own_vvir, 100.0, new_stars);
 
   struct ModuleContext ctx;
   setup_module_context(&ctx, &central_halo, 0.01);
@@ -627,10 +629,11 @@ int test_zero_stellar_mass(void) {
 
 /**
  * @test    test_zero_vvir
- * @brief   Test edge case: central galaxy has zero Vvir
+ * @brief   Test edge case: the forming galaxy has zero own Vvir
  *
- * Expected: Skip ejection calculation (or handle gracefully)
- * Validates: Division by zero protection
+ * Expected: zero ejection, whatever the central's Vvir (SAGE26
+ * R/src/model_starformation_and_feedback.c:783, :876-878)
+ * Validates: Division by zero protection on the own-Vvir potential
  */
 int test_zero_vvir(void) {
   /* ===== SETUP ===== */
@@ -645,11 +648,11 @@ int test_zero_vvir(void) {
   struct Halo central_halo;
   struct GalaxyData central_galaxy;
 
-  /* Central with Vvir = 0 (edge case) */
-  setup_test_halo(&central_halo, &central_galaxy, 0, 0.0, 0.0, 100.0, 0.0);
+  /* Central with a positive Vvir the ejection must not use */
+  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 200.0, 100.0, 0.0);
 
-  /* Test galaxy with star formation */
-  setup_test_halo(&test_halo, &test_galaxy, 1, 10.0, 100.0, 100.0, 1.0);
+  /* Test galaxy with star formation and own Vvir = 0 (edge case: an orphan) */
+  setup_test_halo(&test_halo, &test_galaxy, 2, 0.0, 0.0, 100.0, 1.0);
 
   struct ModuleContext ctx;
   setup_module_context(&ctx, &central_halo, 0.01);

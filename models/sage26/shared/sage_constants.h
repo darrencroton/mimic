@@ -29,12 +29,16 @@
 #define SAGE_MERGTIME_CEILING 998.0
 #define SAGE_MERGTIME_IMMEDIATE -1.0
 
-/* SAGE parity: collisional_starburst_recipe and the disk-SF yield both gate
- * metal production on this cold-gas floor (1e10 Msun/h code units). */
+/* SAGE parity: the disk-SF yield (R/src/model_starformation_and_feedback.c:1093)
+ * and collisional_starburst_recipe (R/src/model_mergers.c:814, which also requires
+ * the trigger ratio below ThreshMajorMerger) both gate the retained metals on this
+ * cold-gas floor (1e10 Msun/h code units). */
 #define SAGE_COLD_GAS_YIELD_THRESHOLD 1.0e-8
 
 /* Krumholz & Dekel (2011) metal-ejection halo-mass scale, in 1e10 Msun/h:
- * FracZleaveDisk is attenuated by exp(-central Mvir / this scale). */
+ * FracZleaveDisk is attenuated by exp(-central Mvir / this scale). SAGE26's
+ * KD11_METAL_HALO_MASS (R/src/model_starformation_and_feedback.c:84, used at
+ * :1094 and R/src/model_mergers.c:816). */
 #define SAGE_METAL_EJECTION_MVIR_SCALE 30.0
 
 /* Virial temperature coefficient: T_vir[K] = 35.9 * (Vvir[km/s])^2,
