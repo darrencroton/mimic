@@ -14,6 +14,9 @@
  * - oracle_manifest_fixtures(): the fixture names fixtures.manifest lists for a
  *   module, and the count it declares;
  * - oracle_load(): parses one fixture file;
+ * - the reader's limits (ORACLE_MAX_*), each refused with a message naming it, never
+ *   silently truncated; the *_in() variants take the manifest and modules directory
+ *   as arguments (the reader's self-test, test_unit_sage26_oracle_reader.c);
  * - oracle_in_*() / oracle_check_*() / oracle_exclude(): read inputs and compare
  *   outputs, each marking the field consumed, so oracle_report_unconsumed() can
  *   prove that every input was applied and every output asserted or excluded
@@ -38,6 +41,7 @@
 #ifndef SAGE26_ORACLE_FIXTURE_H
 #define SAGE26_ORACLE_FIXTURE_H
 
+#include <errno.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stddef.h>
@@ -51,10 +55,18 @@
 #include "include/types.h"
 #include "shared/sage_sfr_history.h"
 
-#define ORACLE_MAX_FIELDS 512
+/*
+ * The reader's limits (oracle README "Reader Limits"). Each is a hard error that names
+ * the limit, never a silent truncation: a fixture file with more than ORACLE_MAX_FIELDS
+ * field statements, a module with more than ORACLE_MAX_FIXTURES fixture lines (or a
+ * larger declared count), a line of ORACLE_MAX_LINE characters or more, and a name or
+ * value token of ORACLE_MAX_NAME characters or more are each refused.
+ */
+#define ORACLE_MAX_FIELDS 2048
 #define ORACLE_MAX_NAME 128
-#define ORACLE_MAX_FIXTURES 64
+#define ORACLE_MAX_FIXTURES 256
 #define ORACLE_MAX_PATH 512
+#define ORACLE_MAX_LINE 1024
 #define ORACLE_FORMAT_LINE "format sage26-oracle-fixture 1"
 #define ORACLE_DIR MIMIC_COMPILED_MODEL_PATH "/modules"
 #define ORACLE_MANIFEST MIMIC_COMPILED_MODEL_PATH "/modules/_tests/oracle/fixtures.manifest"
@@ -176,13 +188,94 @@ static inline int oracle_parse_bits(const char *text, const size_t digits, uint6
   return 0;
 }
 
+/** @brief Whitespace as sscanf's %s sees it */
+static inline int oracle_is_blank(const char c) {
+  return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+}
+
+/**
+ * @brief Read one line of a fixture or manifest file
+ *
+ * A line holds at most ORACLE_MAX_LINE - 1 characters before its newline. A longer
+ * line is an error naming ORACLE_MAX_LINE, never split into two statements.
+ *
+ * @param buffer       ORACLE_MAX_LINE bytes; receives the line
+ * @param line_number  1-based number of this line, for the message
+ * @return 1 with the line in buffer, 0 at end of file, -1 (message on stderr) when too long
+ */
+static inline int oracle_read_line(FILE *file, char *buffer, const char *path,
+                                   const int line_number) {
+  if (fgets(buffer, ORACLE_MAX_LINE, file) == NULL) {
+    return 0;
+  }
+  const size_t len = strlen(buffer);
+  if (len == ORACLE_MAX_LINE - 1 && buffer[len - 1] != '\n') {
+    const int next = fgetc(file);
+    if (next != EOF && next != '\n') {
+      fprintf(stderr, "oracle: %s:%d: line longer than %d characters (ORACLE_MAX_LINE %d)\n", path,
+              line_number, ORACLE_MAX_LINE - 1, ORACLE_MAX_LINE);
+      return -1;
+    }
+  }
+  return 1;
+}
+
+/**
+ * @brief Copy the first max whitespace-separated tokens of a trimmed statement
+ *
+ * Tokens after the first max are ignored, as sscanf ignores them. A copied token of
+ * ORACLE_MAX_NAME characters or more is an error naming ORACLE_MAX_NAME, never cut.
+ *
+ * @param tokens  max buffers of ORACLE_MAX_NAME bytes
+ * @return Number of tokens copied (at most max), or -1 (message on stderr)
+ */
+static inline int oracle_tokens(const char *line, const int max, char tokens[][ORACLE_MAX_NAME],
+                                const char *path, const int line_number) {
+  int count = 0;
+  const char *p = line;
+  while (count < max) {
+    while (oracle_is_blank(*p)) {
+      p++;
+    }
+    if (*p == '\0') {
+      break;
+    }
+    const char *start = p;
+    while (*p != '\0' && !oracle_is_blank(*p)) {
+      p++;
+    }
+    const size_t len = (size_t)(p - start);
+    if (len >= ORACLE_MAX_NAME) {
+      fprintf(stderr,
+              "oracle: %s:%d: token '%.40s...' has %zu characters, more than %d "
+              "(ORACLE_MAX_NAME %d)\n",
+              path, line_number, start, len, ORACLE_MAX_NAME - 1, ORACLE_MAX_NAME);
+      return -1;
+    }
+    memcpy(tokens[count], start, len);
+    tokens[count][len] = '\0';
+    count++;
+  }
+  return count;
+}
+
 /**
  * @brief Load one fixture file (format: oracle README "Fixture File Format")
+ *
+ * Every statement is read; a file beyond any of the reader's limits (more than
+ * ORACLE_MAX_FIELDS fields, a line of ORACLE_MAX_LINE characters or more, a token of
+ * ORACLE_MAX_NAME or more, an i32 outside the 32-bit range) is refused with a
+ * message naming the limit.
+ *
  * @return 0 on success; -1 with a message on stderr otherwise
  */
 static inline int oracle_load(const char *path, struct oracle_fixture *fx) {
   memset(fx, 0, sizeof(*fx));
-  snprintf(fx->path, sizeof(fx->path), "%s", path);
+  if (snprintf(fx->path, sizeof(fx->path), "%s", path) >= (int)sizeof(fx->path)) {
+    fprintf(stderr, "oracle: path '%.60s...' is longer than %d characters (ORACLE_MAX_PATH %d)\n",
+            path, ORACLE_MAX_PATH - 1, ORACLE_MAX_PATH);
+    return -1;
+  }
 
   FILE *file = fopen(path, "r");
   if (file == NULL) {
@@ -190,11 +283,16 @@ static inline int oracle_load(const char *path, struct oracle_fixture *fx) {
     return -1;
   }
 
-  char buffer[1024];
+  char buffer[ORACLE_MAX_LINE];
   int statement = 0;
   int line_number = 0;
   int status = 0;
-  while (status == 0 && fgets(buffer, sizeof(buffer), file) != NULL) {
+  while (status == 0) {
+    const int got = oracle_read_line(file, buffer, path, line_number + 1);
+    if (got <= 0) {
+      status = got;
+      break;
+    }
     line_number++;
     char *line = oracle_trim(buffer);
     if (line[0] == '\0') {
@@ -212,19 +310,37 @@ static inline int oracle_load(const char *path, struct oracle_fixture *fx) {
       if (strncmp(line, "routine ", 8) != 0) {
         fprintf(stderr, "oracle: %s:%d: expected 'routine <name>'\n", path, line_number);
         status = -1;
+      } else if (strlen(line + 8) >= sizeof(fx->routine)) {
+        fprintf(stderr,
+                "oracle: %s:%d: routine name longer than %d characters (ORACLE_MAX_NAME %d)\n",
+                path, line_number, ORACLE_MAX_NAME - 1, ORACLE_MAX_NAME);
+        status = -1;
       } else {
         snprintf(fx->routine, sizeof(fx->routine), "%s", line + 8);
       }
       continue;
     }
 
-    char type[8], name[ORACLE_MAX_NAME], value[64];
-    if (sscanf(line, "%7s %127s %63s", type, name, value) != 3 ||
-        fx->num_fields >= ORACLE_MAX_FIELDS) {
+    char tokens[3][ORACLE_MAX_NAME];
+    const int ntokens = oracle_tokens(line, 3, tokens, path, line_number);
+    if (ntokens < 0) {
+      status = -1;
+      continue;
+    }
+    if (ntokens != 3) {
       fprintf(stderr, "oracle: %s:%d: malformed field statement\n", path, line_number);
       status = -1;
       continue;
     }
+    if (fx->num_fields >= ORACLE_MAX_FIELDS) {
+      fprintf(stderr, "oracle: %s:%d: more than %d field statements (ORACLE_MAX_FIELDS %d)\n", path,
+              line_number, ORACLE_MAX_FIELDS, ORACLE_MAX_FIELDS);
+      status = -1;
+      continue;
+    }
+    const char *type = tokens[0];
+    const char *name = tokens[1];
+    const char *value = tokens[2];
     for (int i = 0; i < fx->num_fields; i++) {
       if (strcmp(fx->fields[i].name, name) == 0) {
         fprintf(stderr, "oracle: %s:%d: duplicate field '%s'\n", path, line_number, name);
@@ -242,8 +358,10 @@ static inline int oracle_load(const char *path, struct oracle_fixture *fx) {
     } else if (strcmp(type, "i32") == 0) {
       char *end = NULL;
       field->type = ORACLE_I32;
+      errno = 0;
       field->ivalue = strtoll(value, &end, 10);
-      if (end == value || *end != '\0') {
+      if (end == value || *end != '\0' || errno != 0 || field->ivalue < INT32_MIN ||
+          field->ivalue > INT32_MAX) {
         status = -1;
       }
     } else {
@@ -265,65 +383,144 @@ static inline int oracle_load(const char *path, struct oracle_fixture *fx) {
 }
 
 /**
- * @brief The fixtures fixtures.manifest lists for one module
+ * @brief The fixtures a manifest file lists for one module
  *
+ * Every line is read. A manifest beyond the reader's limits is refused with a message
+ * naming the limit and -1: more than ORACLE_MAX_FIXTURES fixture lines for the module,
+ * a declared count above ORACLE_MAX_FIXTURES, a line of ORACLE_MAX_LINE characters or
+ * more, or a token of ORACLE_MAX_NAME characters or more. A declared count that is not
+ * a whole number is refused too.
+ *
+ * @param manifest  Path of the manifest file
  * @param module    Owning module name
  * @param names     Output: fixture names, in manifest order
  * @param declared  Output: the count the 'module <module> <count>' line declares (-1 if absent)
  * @return Number of 'fixture <module> <name>' lines read, or -1 if the manifest is unreadable
+ *         or beyond a limit
  */
-static inline int oracle_manifest_fixtures(const char *module,
-                                           char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME],
-                                           int *declared) {
+static inline int oracle_manifest_fixtures_in(const char *manifest, const char *module,
+                                              char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME],
+                                              int *declared) {
   *declared = -1;
-  FILE *file = fopen(ORACLE_MANIFEST, "r");
+  FILE *file = fopen(manifest, "r");
   if (file == NULL) {
-    fprintf(stderr, "oracle: cannot open %s\n", ORACLE_MANIFEST);
+    fprintf(stderr, "oracle: cannot open %s\n", manifest);
     return -1;
   }
 
-  char buffer[512];
+  char buffer[ORACLE_MAX_LINE];
   int count = 0;
-  while (fgets(buffer, sizeof(buffer), file) != NULL) {
+  int line_number = 0;
+  int status = 0;
+  while (status == 0) {
+    const int got = oracle_read_line(file, buffer, manifest, line_number + 1);
+    if (got <= 0) {
+      status = got;
+      break;
+    }
+    line_number++;
     char *line = oracle_trim(buffer);
-    char keyword[16], owner[ORACLE_MAX_NAME], value[ORACLE_MAX_NAME];
-    if (line[0] == '\0' || sscanf(line, "%15s %127s %127s", keyword, owner, value) != 3 ||
-        strcmp(owner, module) != 0) {
+    if (line[0] == '\0') {
+      continue;
+    }
+    char tokens[3][ORACLE_MAX_NAME];
+    const int ntokens = oracle_tokens(line, 3, tokens, manifest, line_number);
+    if (ntokens < 0) {
+      status = -1;
+      break;
+    }
+    const char *keyword = tokens[0];
+    const char *owner = tokens[1];
+    const char *value = tokens[2];
+    if (ntokens != 3 || strcmp(owner, module) != 0) {
       continue;
     }
     if (strcmp(keyword, "module") == 0) {
-      *declared = atoi(value);
-    } else if (strcmp(keyword, "fixture") == 0 && count < ORACLE_MAX_FIXTURES) {
-      snprintf(names[count], ORACLE_MAX_NAME, "%s", value);
-      count++;
+      char *end = NULL;
+      errno = 0;
+      const long count_declared = strtol(value, &end, 10);
+      if (end == value || *end != '\0' || errno != 0 || count_declared < 0) {
+        fprintf(stderr, "oracle: %s:%d: module %s declares a bad count '%s'\n", manifest,
+                line_number, module, value);
+        status = -1;
+      } else if (count_declared > ORACLE_MAX_FIXTURES) {
+        fprintf(stderr,
+                "oracle: %s:%d: module %s declares %ld fixtures, more than %d "
+                "(ORACLE_MAX_FIXTURES %d)\n",
+                manifest, line_number, module, count_declared, ORACLE_MAX_FIXTURES,
+                ORACLE_MAX_FIXTURES);
+        status = -1;
+      } else {
+        *declared = (int)count_declared;
+      }
+    } else if (strcmp(keyword, "fixture") == 0) {
+      if (count >= ORACLE_MAX_FIXTURES) {
+        fprintf(stderr,
+                "oracle: %s:%d: module %s lists more than %d fixtures (ORACLE_MAX_FIXTURES %d)\n",
+                manifest, line_number, module, ORACLE_MAX_FIXTURES, ORACLE_MAX_FIXTURES);
+        status = -1;
+      } else {
+        snprintf(names[count], ORACLE_MAX_NAME, "%s", value);
+        count++;
+      }
     }
   }
   fclose(file);
-  return count;
+  return status == 0 ? count : -1;
+}
+
+/** @brief oracle_manifest_fixtures_in() on the oracle's fixtures.manifest */
+static inline int oracle_manifest_fixtures(const char *module,
+                                           char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME],
+                                           int *declared) {
+  return oracle_manifest_fixtures_in(ORACLE_MANIFEST, module, names, declared);
+}
+
+/**
+ * @brief Path of a module's fixture file under a modules directory:
+ *        <dir>/<module>/_tests/oracle/<name><ext>
+ * @return 0 on success; -1 (message on stderr, buffer emptied) when the path does not fit
+ */
+static inline int oracle_fixture_path_in(char *buffer, const size_t size, const char *dir,
+                                         const char *module, const char *name, const char *ext) {
+  const int written = snprintf(buffer, size, "%s/%s/_tests/oracle/%s%s", dir, module, name, ext);
+  if (written < 0 || (size_t)written >= size) {
+    fprintf(stderr, "oracle: path of %s/%s%s is longer than %zu characters\n", module, name, ext,
+            size - 1);
+    buffer[0] = '\0';
+    return -1;
+  }
+  return 0;
 }
 
 /** @brief Path of a module's fixture file: <model>/modules/<module>/_tests/oracle/<name><ext> */
 static inline void oracle_fixture_path(char *buffer, const size_t size, const char *module,
                                        const char *name, const char *ext) {
-  snprintf(buffer, size, "%s/%s/_tests/oracle/%s%s", ORACLE_DIR, module, name, ext);
+  (void)oracle_fixture_path_in(buffer, size, ORACLE_DIR, module, name, ext);
 }
 
 /**
  * @brief How many of the module's listed fixtures have both their .in and .out on disk
  *
+ * @param manifest  Path of the manifest file
+ * @param dir       Modules directory holding <module>/_tests/oracle/
  * @param listed    Output: fixture lines in the manifest for the module (-1 if unreadable)
  * @param declared  Output: the module's declared count (-1 if absent)
  */
-static inline int oracle_count_present(const char *module, int *listed, int *declared) {
-  char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
-  *listed = oracle_manifest_fixtures(module, names, declared);
+static inline int oracle_count_present_in(const char *manifest, const char *dir, const char *module,
+                                          int *listed, int *declared) {
+  static char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
+  *listed = oracle_manifest_fixtures_in(manifest, module, names, declared);
   int found = 0;
   for (int i = 0; i < *listed; i++) {
     int present = 1;
     const char *exts[2] = {".in", ".out"};
     for (int e = 0; e < 2; e++) {
       char path[ORACLE_MAX_PATH];
-      oracle_fixture_path(path, sizeof(path), module, names[i], exts[e]);
+      if (oracle_fixture_path_in(path, sizeof(path), dir, module, names[i], exts[e]) != 0) {
+        present = 0;
+        continue;
+      }
       FILE *file = fopen(path, "r");
       if (file == NULL) {
         fprintf(stderr, "oracle: %s is missing\n", path);
@@ -335,6 +532,11 @@ static inline int oracle_count_present(const char *module, int *listed, int *dec
     found += present;
   }
   return found;
+}
+
+/** @brief oracle_count_present_in() on the oracle's fixtures.manifest and modules directory */
+static inline int oracle_count_present(const char *module, int *listed, int *declared) {
+  return oracle_count_present_in(ORACLE_MANIFEST, ORACLE_DIR, module, listed, declared);
 }
 
 /**
@@ -681,15 +883,24 @@ static inline void oracle_poison(void *object, const size_t size) { memset(objec
  *
  * True when the manifest declares a positive count for the module, lists that many
  * fixtures, and each has its .in and .out on disk; false (fail) when fewer are
- * found. Platform independent.
+ * found. Platform independent. A manifest beyond the reader's limits lists -1 and fails.
+ *
+ * @param manifest  Path of the manifest file
+ * @param dir       Modules directory holding <module>/_tests/oracle/
  */
-static inline int oracle_fixture_count_ok(const char *module) {
+static inline int oracle_fixture_count_ok_in(const char *manifest, const char *dir,
+                                             const char *module) {
   int listed = -1;
   int declared = -1;
-  const int found = oracle_count_present(module, &listed, &declared);
+  const int found = oracle_count_present_in(manifest, dir, module, &listed, &declared);
   printf("\n  oracle: %s fixtures found %d, listed %d, manifest declares %d ", module, found,
          listed, declared);
   return declared > 0 && listed == declared && found >= declared;
+}
+
+/** @brief oracle_fixture_count_ok_in() on the oracle's fixtures.manifest and modules directory */
+static inline int oracle_fixture_count_ok(const char *module) {
+  return oracle_fixture_count_ok_in(ORACLE_MANIFEST, ORACLE_DIR, module);
 }
 
 /**

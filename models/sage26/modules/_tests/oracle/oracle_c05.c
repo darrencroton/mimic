@@ -545,13 +545,30 @@ static int32_t require_flag(const char *name, const int value) {
 }
 
 /**
+ * @brief BulgeSizeOn as the fixture sets it: 0 (R0) or 3 (R1 onward, the Tonini sizes)
+ *
+ * Modes 1 and 2 are not ported (the campaign supports exactly 0 and 3); any value other
+ * than 0 or 3 is refused, naming the parameter.
+ */
+static int32_t read_bulge_size_on(void) {
+  const int read = in_i32("params.BulgeSizeOn");
+  if (read != 0 && read != 3) {
+    fatal("params.BulgeSizeOn = %d, but the oracle supports only 0 (R0) and 3 (R1 onward)", read);
+  }
+  return read;
+}
+
+/**
  * @brief The R0 flags (and DiskInstabilityOn) of every routine that can reach the
  *        instability: starformation_and_feedback and check_disk_instability
  *
  * The transcriptions below implement the R0 paths only: SFprescription 0, SN recipe 1,
- * no CGM, no FIRE, no FFB, no Karpov, no full SFH, no bulge sizes, the Bondi AGN recipe,
- * and cold-gas starbursts (StarburstColdGasOn defaults to 1, R/src/core_read_parameter_file.c:109).
- * DiskInstabilityOn may be 0 (a labelled non-R0 value) where allow_no_instability is set.
+ * no CGM, no FIRE, no FFB, no Karpov, no full SFH, the Bondi AGN recipe, and cold-gas
+ * starbursts (StarburstColdGasOn defaults to 1, R/src/core_read_parameter_file.c:109).
+ * BulgeSizeOn is read, not pinned: 0 (R0) or 3 (R1 onward, read_bulge_size_on); Hubble_h,
+ * which mode 3's size fallbacks read (R/src/model_misc.c:249,398), is read for every
+ * configuration by read_r0_params. DiskInstabilityOn may be 0 (a labelled non-R0 value)
+ * where allow_no_instability is set.
  */
 static void read_r0_flags(const int allow_no_instability) {
   run_params.SFprescription = require_flag("SFprescription", 0);
@@ -559,7 +576,7 @@ static void read_r0_flags(const int allow_no_instability) {
   run_params.CGMrecipeOn = require_flag("CGMrecipeOn", 0);
   run_params.FIREmodeOn = require_flag("FIREmodeOn", 0);
   run_params.EnhancedStarFormationOn = require_flag("EnhancedStarFormationOn", 0);
-  run_params.BulgeSizeOn = require_flag("BulgeSizeOn", 0);
+  run_params.BulgeSizeOn = read_bulge_size_on();
   run_params.KarpovModeOn = require_flag("KarpovModeOn", 0);
   run_params.SaveFullSFH = require_flag("SaveFullSFH", 0);
   run_params.AGNrecipeOn = require_flag("AGNrecipeOn", 2);

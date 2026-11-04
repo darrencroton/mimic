@@ -624,26 +624,47 @@ static int32_t require_flag(const char *name, const int value) {
 }
 
 /**
+ * @brief BulgeSizeOn as the fixture sets it, and Hubble_h when the sizes are on
+ *
+ * BulgeSizeOn is 0 (R0) or 3 (R1 onward, the Tonini sizes); modes 1 and 2 are not ported (the
+ * campaign supports exactly 0 and 3) and any other value is refused, naming the parameter. Mode
+ * 3's size fallbacks read Hubble_h (R/src/model_misc.c:249,398), so a mode-3 fixture must carry
+ * params.Hubble_h (a missing field is refused, naming it); a mode-0 fixture does not, and one that
+ * carries it is refused as an unread field, so every R0 input is read as before.
+ */
+static void read_bulge_size_config(void) {
+  run_params.BulgeSizeOn = in_i32("params.BulgeSizeOn");
+  if (run_params.BulgeSizeOn != 0 && run_params.BulgeSizeOn != 3) {
+    fatal("params.BulgeSizeOn = %d, but the oracle supports only 0 (R0) and 3 (R1 onward)",
+          run_params.BulgeSizeOn);
+  }
+  if (run_params.BulgeSizeOn == 3) {
+    run_params.Hubble_h = in_f64("params.Hubble_h");
+  }
+}
+
+/**
  * @brief R0's flags and parameters for every routine that can reach a merger, a burst or the
  *        instability
  *
  * The pins are R0's run config, the campaign's par/R0.par (an edit of the upstream template
  * R/input/millennium.par, whose flag lines 48-57 differ): SFprescription 0 (R0.par:48),
  * AGNrecipeOn 2 (:49), SupernovaRecipeOn 1 (:50), DiskInstabilityOn 1 (:52), CGMrecipeOn 0
- * (:54), FIREmodeOn 0 (:55), SaveFullSFH 0 (:60) and BulgeSizeOn 0 (:109); StarburstColdGasOn 1
- * is SAGE26's default (R/src/core_read_parameter_file.c:109), which R0.par leaves alone.
+ * (:54), FIREmodeOn 0 (:55) and SaveFullSFH 0 (:60); StarburstColdGasOn 1 is SAGE26's default
+ * (R/src/core_read_parameter_file.c:109), which R0.par leaves alone. BulgeSizeOn is read, not
+ * pinned: 0 (R0.par:109) or 3 (R1.par:109), with Hubble_h for 3 (read_bulge_size_config).
  *
  * The transcriptions below implement R0's paths only: SFprescription 0 (no H2 tracking), the
  * SN recipe without FIRE, no CGM, the Bondi AGN recipe (AGNrecipeOn 2), cold-gas starbursts,
- * no bulge sizes, no full SFH and the disk instability on. The code constants are SAGE26's
- * (EtaSNcode, EnergySNcode, R/src/core_init.c:102-103; G, :96).
+ * no full SFH and the disk instability on. The code constants are SAGE26's (EtaSNcode,
+ * EnergySNcode, R/src/core_init.c:102-103; G, :96).
  */
 static void read_merger_config(void) {
   run_params.SFprescription = require_flag("SFprescription", 0);
   run_params.SupernovaRecipeOn = require_flag("SupernovaRecipeOn", 1);
   run_params.CGMrecipeOn = require_flag("CGMrecipeOn", 0);
   run_params.FIREmodeOn = require_flag("FIREmodeOn", 0);
-  run_params.BulgeSizeOn = require_flag("BulgeSizeOn", 0);
+  read_bulge_size_config();
   run_params.SaveFullSFH = require_flag("SaveFullSFH", 0);
   run_params.AGNrecipeOn = require_flag("AGNrecipeOn", 2);
   run_params.StarburstColdGasOn = require_flag("StarburstColdGasOn", 1);
@@ -2754,8 +2775,9 @@ static void read_progenitor_galaxies(const int nprog) {
 }
 
 /**
- * @brief The flags joining reads: ConcentrationOn 0 (B:291, R0.par:57) and BulgeSizeOn 0
- *        (get_bulge_radius, R0.par:109)
+ * @brief The flag joining pins: ConcentrationOn 0 (B:291, R0.par:57). Its other flag,
+ *        BulgeSizeOn (get_bulge_radius), is read by read_bulge_size_config: in
+ *        run_join_progenitors directly, in run_join_and_pass through read_merger_config.
  */
 static void read_join_flags(void) {
   run_params.ConcentrationOn = require_flag("ConcentrationOn", 0);
@@ -2769,7 +2791,7 @@ static void read_join_flags(void) {
  */
 static void run_join_progenitors(void) {
   read_join_flags();
-  run_params.BulgeSizeOn = require_flag("BulgeSizeOn", 0);
+  read_bulge_size_config();
   read_clock_params(1);
   const int nhalos = read_halo_catalogue(HALO_BASIC | HALO_JOIN);
   const int nprog = read_ngal();

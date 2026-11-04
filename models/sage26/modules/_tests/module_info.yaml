@@ -35,6 +35,7 @@ module:
     unit:
       - test_unit_mixed_dt_parity.c
       - test_unit_sage_dependency_contracts.c
+      - test_unit_sage26_oracle_reader.c
 
     integration:
       - test_integration_processing_mode_contracts.py
