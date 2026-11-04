@@ -45,6 +45,7 @@
 #include "include/constants.h"
 #include "include/globals.h"
 #include "include/types.h"
+#include "shared/sage_sfr_history.h"
 
 #define ORACLE_MAX_FIELDS 512
 #define ORACLE_MAX_NAME 128
@@ -1050,6 +1051,116 @@ static inline int oracle_c05_check_binding(struct oracle_fixture *out, const cha
   snprintf(field, sizeof(field), "%s%s", prefix, value_name);
   tally->binding++;
   return oracle_check_f64(out, field, (double)reservoir);
+}
+
+// ============================================================================
+// THE C05 HISTORY SUBSTRATE
+// ============================================================================
+
+/**
+ * @brief The package's element of SAGE26 history `h` (oracle_c05_history_names order) at bin k
+ *
+ * The package holds each history element as its own float property, reached
+ * through shared/sage_sfr_history.h, whose enum MimicSageSfrHistory lists the six
+ * histories in the order oracle_c05_history_names() does.
+ */
+static inline float *oracle_c05_history_element(struct GalaxyData *galaxy, const size_t h,
+                                                const int k) {
+  if (h >= (size_t)MIMIC_SFR_HISTORY_COUNT) {
+    return NULL;
+  }
+  return mimic_sage_sfr_history(galaxy, (enum MimicSageSfrHistory)h, k);
+}
+
+/**
+ * @brief Set the sixty history elements of a galaxy from "galaxy[index].<history>[k]"
+ * @return Number of elements with no package member
+ */
+static inline int oracle_c05_in_histories(struct oracle_fixture *in, const int index,
+                                          struct GalaxyData *galaxy) {
+  int problems = 0;
+  size_t count;
+  const char *const *names = oracle_c05_history_names(&count);
+  for (size_t h = 0; h < count; h++) {
+    for (int k = 0; k < ORACLE_C05_STEPS; k++) {
+      char member[ORACLE_MAX_NAME];
+      snprintf(member, sizeof(member), "%s[%d]", names[h], k);
+      float *element = oracle_c05_history_element(galaxy, h, k);
+      if (element == NULL) {
+        fprintf(stderr, "oracle: %s: no package member for '%s'\n", in->path, member);
+        problems++;
+        continue;
+      }
+      *element = oracle_in_f32(in, oracle_galaxy_field(index, member));
+    }
+  }
+  return problems;
+}
+
+/**
+ * @brief Compare the sixty history elements of a galaxy with "<prefix>galaxy[index].<history>[k]"
+ * @return Number of mismatches
+ */
+static inline int oracle_c05_check_histories(struct oracle_fixture *out, const char *prefix,
+                                             const int index, struct GalaxyData *galaxy) {
+  int mismatches = 0;
+  size_t count;
+  const char *const *names = oracle_c05_history_names(&count);
+  for (size_t h = 0; h < count; h++) {
+    for (int k = 0; k < ORACLE_C05_STEPS; k++) {
+      char member[ORACLE_MAX_NAME];
+      snprintf(member, sizeof(member), "%s[%d]", names[h], k);
+      const float *element = oracle_c05_history_element(galaxy, h, k);
+      if (element == NULL) {
+        fprintf(stderr, "oracle: %s: no package member for '%s'\n", out->path, member);
+        mismatches++;
+        continue;
+      }
+      mismatches +=
+          oracle_check_f32(out, oracle_prefixed_galaxy_field(prefix, index, member), *element);
+    }
+  }
+  return mismatches;
+}
+
+/**
+ * @brief Compare the writer's averaging of a galaxy with "<prefix>" + its eight recorded values
+ *
+ * The oracle records SAGE26's writer locals and results (R/src/io/save_gals_hdf5.c:934-959)
+ * as "<prefix>sfr_rate_divisor", "sfr_metallicity_divisor", "SfrDiskZ_bins_skipped",
+ * "SfrBulgeZ_bins_skipped", "SfrDisk", "SfrBulge", "SfrDiskZ" and "SfrBulgeZ". The four
+ * results are the package's output scalars of the same names.
+ *
+ * @return Number of mismatches
+ */
+static inline int oracle_c05_check_writer(struct oracle_fixture *out, const char *prefix,
+                                          const struct GalaxyData *galaxy,
+                                          const struct MimicSageSfrAverageLocals *locals) {
+  int mismatches = 0;
+  char field[ORACLE_MAX_NAME];
+  const struct {
+    const char *name;
+    int value;
+  } ints[] = {{"sfr_rate_divisor", locals->sfr_rate_divisor},
+              {"sfr_metallicity_divisor", locals->sfr_metallicity_divisor},
+              {"SfrDiskZ_bins_skipped", locals->disk_bins_skipped},
+              {"SfrBulgeZ_bins_skipped", locals->bulge_bins_skipped}};
+  for (size_t k = 0; k < sizeof(ints) / sizeof(ints[0]); k++) {
+    snprintf(field, sizeof(field), "%s%s", prefix, ints[k].name);
+    mismatches += oracle_check_i32(out, field, ints[k].value);
+  }
+  const struct {
+    const char *name;
+    float value;
+  } floats[] = {{"SfrDisk", galaxy->SfrDisk},
+                {"SfrBulge", galaxy->SfrBulge},
+                {"SfrDiskZ", galaxy->SfrDiskZ},
+                {"SfrBulgeZ", galaxy->SfrBulgeZ}};
+  for (size_t k = 0; k < sizeof(floats) / sizeof(floats[0]); k++) {
+    snprintf(field, sizeof(field), "%s%s", prefix, floats[k].name);
+    mismatches += oracle_check_f32(out, field, floats[k].value);
+  }
+  return mismatches;
 }
 
 #endif /* SAGE26_ORACLE_FIXTURE_H */

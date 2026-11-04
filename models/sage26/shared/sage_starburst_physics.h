@@ -10,9 +10,11 @@
  * package's one implementation of SAGE26's update_from_star_formation and
  * update_from_feedback (sage_sf_feedback_physics.h), the functions SAGE26's own
  * collisional_starburst_recipe calls (R/src/model_mergers.c:759-760, :788-791), so
- * a burst commits each event exactly as disk star formation does. The burst's own
- * arithmetic (its mass, its feedback inputs, its bulge growth and its yield) is the
- * merger node's to port and is unchanged here.
+ * a burst commits each event exactly as disk star formation does. Before that
+ * commit the burst samples the bursting galaxy's bulge star-formation history as
+ * SAGE26 does (R/src/model_mergers.c:755-757), through shared/sage_sfr_history.h.
+ * The burst's own arithmetic (its mass, its feedback inputs, its bulge growth and
+ * its yield) is the merger node's to port and is unchanged here.
  *
  * @note Split from merger_physics.h; starburst/SN half only. Although
  *       sage26_starburst_feedback is currently the sole consumer, this header is
@@ -30,6 +32,7 @@
 #include "shared/metallicity.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_sf_feedback_physics.h"
+#include "shared/sage_sfr_history.h"
 
 /**
  * @brief Parameter bundle for merger/disk-instability starburst physics
@@ -56,12 +59,18 @@ struct MimicStarburstParams {
  * scaling)
  * @param rate_dt            Interval for the StarFormationRate diagnostic (0 skips it); the
  *                           outflow is accumulated undivided by the feedback commit
+ * @param sfr_bin            History bin of the substep the burst happens in
+ *                           (mimic_sage_sfr_step_bin), SAGE26's step
+ * @param sfr_dt             The substep interval, SAGE26's dt = deltaT / effective_steps,
+ *                           the denominator of the bulge history rate
  * @param p                  Model parameter bundle (see struct MimicStarburstParams)
  */
-static inline void
-mimic_apply_collisional_starburst(double efficiency_factor, struct GalaxyData *gal,
-                                  struct GalaxyData *central_gal, const struct Halo *central_halo,
-                                  int mode, double rate_dt, const struct MimicStarburstParams *p) {
+static inline void mimic_apply_collisional_starburst(double efficiency_factor,
+                                                     struct GalaxyData *gal,
+                                                     struct GalaxyData *central_gal,
+                                                     const struct Halo *central_halo, int mode,
+                                                     double rate_dt, int sfr_bin, double sfr_dt,
+                                                     const struct MimicStarburstParams *p) {
   double eburst;
   double stars;
   double reheated_mass;
@@ -105,6 +114,14 @@ mimic_apply_collisional_starburst(double efficiency_factor, struct GalaxyData *g
 
   if (ejected_mass < 0.0) {
     ejected_mass = 0.0;
+  }
+
+  /* SAGE parity: the bulge history is sampled for the bursting galaxy once the burst
+   * mass is final and before update_from_star_formation, its cold gas and metals
+   * accumulated rather than assigned (R/src/model_mergers.c:754-757). The callers
+   * validate the bin and the substep interval; an invalid one samples nothing. */
+  if (sfr_dt > 0.0) {
+    (void)mimic_sage_sample_bulge_sfr(gal, sfr_bin, stars, sfr_dt);
   }
 
   metallicity = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);

@@ -12,6 +12,14 @@
  * Physics: Stars form in burst, feedback reheats cold gas to hot, ejects hot gas.
  * Newly formed stars contribute to bulge mass (starbursts form spheroids).
  *
+ * Every burst samples the bursting galaxy's bulge star-formation history in the
+ * shared kernel (R/src/model_mergers.c:755-757). Each call passes the substep's
+ * history bin and SAGE26's dt, the substep interval: the bursting galaxy's own
+ * dT / num_substeps for the disk-instability channel (SAGE26's starformation_and_feedback
+ * dt, R/src/core_build_model.c:516), and the merging satellite's, carried in the merger
+ * event's value1, for the merger channel and its post-merger instability recheck
+ * (R/src/core_build_model.c:581, R/src/model_mergers.c:285, :809).
+ *
  * References:
  *   - SAGE model_mergers.c: collisional_starburst_recipe() lines 203-293
  *   - Somerville et al. (2001): Starburst efficiency scaling
@@ -30,6 +38,7 @@
 #include "shared/sage_agn_physics.h"
 #include "shared/sage_starburst_physics.h"
 #include "shared/sage_disk_instability_physics.h"
+#include "shared/sage_sfr_history.h"
 #include "module_system/generated/event_contracts.h"
 #include "shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
@@ -70,7 +79,8 @@ static bool POST_MERGER_QUASAR_FOLLOWUP_ENABLED;
  */
 static void maybe_apply_post_merger_disk_instability_followup(
     struct ModuleContext *ctx, struct Halo *event_halo, struct Halo *central_halo,
-    double mass_ratio, double event_dt, const struct MimicStarburstParams *params) {
+    double mass_ratio, double event_dt, int sfr_bin, double sfr_dt,
+    const struct MimicStarburstParams *params) {
   if (!POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED || ctx == NULL || event_halo == NULL ||
       event_halo->galaxy == NULL || central_halo == NULL || central_halo->galaxy == NULL ||
       params == NULL || mass_ratio >= params->threshold_major_merger) {
@@ -95,7 +105,7 @@ static void maybe_apply_post_merger_disk_instability_followup(
   }
 
   mimic_apply_collisional_starburst(unstable_gas_fraction, event_halo->galaxy, central_halo->galaxy,
-                                    central_halo, 1, event_dt, params);
+                                    central_halo, 1, event_dt, sfr_bin, sfr_dt, params);
   DEBUG_LOG("Post-merger disk instability follow-up (eff=%.3f)", unstable_gas_fraction);
 }
 
@@ -238,6 +248,15 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
       return -1;
     }
 
+    /* The bulge history: this substep's bin and SAGE26's merger dt, the satellite's
+     * substep interval (R/src/core_build_model.c:579-581) */
+    const int sfr_bin = mimic_sage_sfr_step_bin(ctx->substep_number, ctx->num_substeps);
+    if (sfr_bin < 0) {
+      ERROR_LOG("Invalid merger SFR history bin (substep %d of %d)", ctx->substep_number,
+                ctx->num_substeps);
+      return -1;
+    }
+
     /* The package's StarFormationRate diagnostic is a snapshot-averaged rate, so
      * its denominator is the full interval (event_halo->dT), matching the disk SF
      * convention (StarFormationRate += stars / halo->dT). Passing the substep dt
@@ -246,9 +265,10 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
      * undivided by the shared feedback commit, as SAGE26's update_from_feedback
      * does (R/src/model_starformation_and_feedback.c:1249). */
     mimic_apply_collisional_starburst(event->value0, gal, central_gal, central_halo, 0,
-                                      event_halo->dT, &params);
+                                      event_halo->dT, sfr_bin, event->value1, &params);
     maybe_apply_post_merger_disk_instability_followup(ctx, event_halo, central_halo, event->value0,
-                                                      event_halo->dT, &params);
+                                                      event_halo->dT, sfr_bin, event->value1,
+                                                      &params);
     DEBUG_LOG("Starburst from merger event (ratio=%.3f, source=%d, target=%d)", event->value0,
               event->source_index, event->target_index);
     return 0;
@@ -291,12 +311,21 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
       return -1;
     }
 
+    /* The bulge history: this substep's bin and SAGE26's dt, the galaxy's substep
+     * interval (R/src/core_build_model.c:514-516, R/src/model_disk_instability.c:106) */
+    const int sfr_bin = mimic_sage_sfr_step_bin(ctx->substep_number, ctx->num_substeps);
+    if (sfr_bin < 0) {
+      ERROR_LOG("Invalid disk-instability SFR history bin for halo %lld (substep %d of %d)",
+                halo->HaloNr, ctx->substep_number, ctx->num_substeps);
+      return -1;
+    }
+
     /* The package's snapshot-averaged StarFormationRate diagnostic uses the full
      * interval (halo->dT), like disk SF; the outflow is committed undivided
-     * (R/src/model_starformation_and_feedback.c:1249). disk_dt (substep) is still
-     * computed above to validate timing and skip the initial snapshot. */
+     * (R/src/model_starformation_and_feedback.c:1249). The substep interval disk_dt
+     * is the bulge history's denominator. */
     mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, gal, central_gal, central_halo,
-                                      1, halo->dT, &params);
+                                      1, halo->dT, sfr_bin, disk_dt, &params);
     DEBUG_LOG("Starburst from disk instability (eff=%.3f)", gal->UnstableDiskGasFraction);
   }
 

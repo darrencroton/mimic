@@ -18,10 +18,24 @@
  *   sage26_disk_instability              check_disk_instability (DiskInstabilityOn 1 only)
  *   sage26_apply_metal_enrichment        the disk yield
  *
+ * and, after the last substep of a sequence fixture, the post_timestep finaliser
+ *
+ *   sage26_finalize_sfr_histories        SubstepsUsed (R/src/core_build_model.c:466-468)
+ *                                        and the writer's averaging of the histories
+ *                                        (R/src/io/save_gals_hdf5.c:934-959)
+ *
  * It asserts bit for bit, on every galaxy of the fixture, the fourteen fields the
  * routine records (OutflowRate being the package's SupernovaOutflowRate) and
  * BlackHoleMass and QuasarModeBHaccretionMass, which the chain must leave as they
- * were. It asserts the values the package carries between modules (NewStellarMass
+ * were, and all sixty elements of the six per-substep histories (SfrDisk, SfrBulge,
+ * SfrDiskColdGas, SfrDiskColdGasMetals, SfrBulgeColdGas, SfrBulgeColdGasMetals; the
+ * package's <history>Bin<k> properties, reached through shared/sage_sfr_history.h),
+ * which the apply step samples at the substep's bin (S:1058-1060): after the call of a
+ * single-call fixture, and after the last substep of a sequence fixture. It asserts
+ * the step bin of every substep, and on sequence fixtures each galaxy's SubstepsUsed
+ * and the writer's divisors, skipped-bin counts and four averages, which are the
+ * package's SfrDisk, SfrBulge, SfrDiskZ and SfrBulgeZ outputs. It asserts the values
+ * the package carries between modules (NewStellarMass
  * after star formation, NewStellarMass, SupernovaReheatedMass and SupernovaEjectedMass
  * after the feedback budget) wherever the oracle validates them two-sided. The apply
  * step's locals are not package state, so the test also replays that step through the
@@ -37,8 +51,6 @@
  * Scope of this slice (the oracle's records the package cannot yet meet are named
  * and not asserted):
  *
- * - The six per-substep histories, the step bin, SubstepsUsed and the writer's
- *   averages belong to the history substrate, which the package does not yet have.
  * - The instability (DiskInstabilityOn 1) runs sage26_disk_instability, SAGE26's
  *   check_disk_instability up to its black-hole and burst calls. The oracle admits a
  *   wrapper fixture only where that routine does not reach them: a stable disk, or an
@@ -62,7 +74,9 @@
  * from SAGE26's floats, the row's dT = call.deltaT and num_substeps = effective_steps
  * (the module's dt is asserted equal to call.dt), G and Hubble_h, and SAGE26's R0 unit
  * factors, from which the feedback module derives EtaSNcode and EnergySNcode (both
- * asserted against the fixture through the shared helpers). StarFormingDiskFactor is
+ * asserted against the fixture through the shared helpers) and with which the
+ * finaliser converts the averaged rates (UnitMass_in_g and UnitTime_in_s, asserted
+ * equal to the sequence fixtures' writer units). StarFormingDiskFactor is
  * SAGE26's SF_DISK_RADIUS_FRAC, 3.0 (R/src/model_starformation_and_feedback.c:60), and
  * the same parameter is the instability's TOOMRE_DISK_FACTOR, also 3.0
  * (R/src/model_disk_instability.c:35).
@@ -90,6 +104,7 @@
 #include "shared/metallicity.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_sf_feedback_physics.h"
+#include "shared/sage_sfr_history.h"
 #include "shared/time_parity.h"
 
 extern int sage26_calculate_star_formation_init(void);
@@ -105,6 +120,8 @@ extern int sage26_disk_instability_init(void);
 extern int sage26_disk_instability_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 extern int sage26_apply_metal_enrichment_init(void);
 extern int sage26_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo *halos,
+                                                 int ngal);
+extern int sage26_finalize_sfr_histories_process(struct ModuleContext *ctx, struct Halo *halos,
                                                  int ngal);
 
 static const char *MODULE = "sage26_calculate_star_formation";
@@ -308,8 +325,8 @@ static int setup_galaxies(struct oracle_fixture *in, struct chain *c) {
     const char *const extra[] = {"DiskScaleRadius", "BlackHoleMass", "QuasarModeBHaccretionMass"};
     problems += oracle_c05_in_floats(in, i, g, extra, COUNT(extra));
     problems += oracle_c05_in_floats(in, i, g, written, count);
-    /* The six histories: not package state before the history substrate is ported */
-    oracle_c05_exclude_histories(in, "", i);
+    /* The six histories, every element set explicitly (oracle README "Input Fields") */
+    problems += oracle_c05_in_histories(in, i, g);
 
     /* Transport and diagnostic state the chain writes before it reads */
     g->NewStellarMass = 0.0;
@@ -326,7 +343,10 @@ static int setup_galaxies(struct oracle_fixture *in, struct chain *c) {
   return problems;
 }
 
-/** @brief Compare the fourteen fields and the two untouched ones of every galaxy */
+/**
+ * @brief Compare the fourteen fields, the two untouched ones and the sixty history
+ *        elements of every galaxy
+ */
 static int check_end_state(struct oracle_fixture *out, struct chain *c) {
   int problems = 0;
   size_t count;
@@ -334,6 +354,7 @@ static int check_end_state(struct oracle_fixture *out, struct chain *c) {
   for (int i = 0; i < c->ngal; i++) {
     problems += oracle_c05_check_floats(out, "", i, &c->galaxies[i], written, count);
     problems += oracle_c05_check_floats(out, "", i, &c->galaxies[i], UNTOUCHED, COUNT(UNTOUCHED));
+    problems += oracle_c05_check_histories(out, "", i, &c->galaxies[i]);
   }
   return problems;
 }
@@ -523,20 +544,26 @@ static int check_single(struct oracle_fixture *in, struct oracle_fixture *out, s
   problems += check_end_state(out, c);
   problems += check_carried(out, "intermediate.", &r, 1);
 
-  /* The history substrate: the step bin and the six histories */
-  oracle_exclude(out, "intermediate.step_bin");
-  for (int i = 0; i < c->ngal; i++) {
-    oracle_c05_exclude_histories(out, "", i);
-  }
+  /* The bin the apply step sampled (R/src/core_build_model.c:514-515) */
+  problems += oracle_check_i32(out, "intermediate.step_bin",
+                               mimic_sage_sfr_step_bin(step, c->effective_steps));
   return problems;
 }
 
 /** @brief One starformation_and_feedback_sequence fixture: every substep of the chain */
 static int check_sequence(struct oracle_fixture *in, struct oracle_fixture *out, struct chain *c) {
   int problems = 0;
-  /* The writer's units, read by its SFR averaging (the history substrate) */
-  (void)oracle_in_f64(in, "params.UnitMass_in_g");
-  (void)oracle_in_f64(in, "params.UnitTime_in_s");
+  /* The writer's units: the run's, which the finaliser reads from MimicConfig */
+  if (oracle_f64_to_bits(MimicConfig.UnitMass_in_g) !=
+          oracle_f64_to_bits(oracle_in_f64(in, "params.UnitMass_in_g")) ||
+      oracle_f64_to_bits(MimicConfig.UnitTime_in_s) !=
+          oracle_f64_to_bits(oracle_in_f64(in, "params.UnitTime_in_s"))) {
+    fprintf(stderr,
+            "oracle: %s: the run's UnitMass_in_g or UnitTime_in_s differs from the "
+            "writer's\n",
+            in->path);
+    problems++;
+  }
 
   for (int step = 0; step < c->effective_steps; step++) {
     char field[ORACLE_MAX_NAME];
@@ -551,25 +578,35 @@ static int check_sequence(struct oracle_fixture *in, struct oracle_fixture *out,
     snprintf(prefix, sizeof(prefix), "intermediate.substep[%d].", step);
     problems += check_carried(out, prefix, &r, 0);
     snprintf(field, sizeof(field), "%sstep_bin", prefix);
-    oracle_exclude(out, field); /* the history substrate */
+    problems += oracle_check_i32(out, field, mimic_sage_sfr_step_bin(step, c->effective_steps));
+  }
+
+  /* After the last substep, the post_timestep finaliser on the whole group: SubstepsUsed
+   * on every galaxy and the writer's averages into the four output scalars */
+  if (sage26_finalize_sfr_histories_process(&c->ctx, c->halos, c->ngal) != 0) {
+    problems++;
   }
   problems += check_end_state(out, c);
-
-  /* The history substrate: SubstepsUsed, the histories and the writer's averages */
-  const char *const writer[] = {"sfr_rate_divisor",
-                                "sfr_metallicity_divisor",
-                                "SfrDiskZ_bins_skipped",
-                                "SfrBulgeZ_bins_skipped",
-                                "SfrDisk",
-                                "SfrBulge",
-                                "SfrDiskZ",
-                                "SfrBulgeZ"};
   for (int i = 0; i < c->ngal; i++) {
-    oracle_exclude(out, oracle_galaxy_field(i, "SubstepsUsed"));
-    oracle_c05_exclude_histories(out, "", i);
-    for (size_t k = 0; k < COUNT(writer); k++) {
-      oracle_exclude(out, oracle_prefixed_galaxy_field("intermediate.writer.", i, writer[k]));
+    problems +=
+        oracle_check_i32(out, oracle_galaxy_field(i, "SubstepsUsed"), c->galaxies[i].SubstepsUsed);
+    /* The writer's divisors and skipped-bin counts are the helper's locals, which
+     * process() does not keep: recompute them on a copy, which must also reproduce
+     * process()'s four outputs */
+    struct GalaxyData copy = c->galaxies[i];
+    struct MimicSageSfrAverageLocals locals;
+    mimic_sage_average_sfr_histories(&copy, MimicConfig.UnitMass_in_g, MimicConfig.UnitTime_in_s,
+                                     &locals);
+    if (oracle_f32_to_bits(copy.SfrDisk) != oracle_f32_to_bits(c->galaxies[i].SfrDisk) ||
+        oracle_f32_to_bits(copy.SfrBulge) != oracle_f32_to_bits(c->galaxies[i].SfrBulge) ||
+        oracle_f32_to_bits(copy.SfrDiskZ) != oracle_f32_to_bits(c->galaxies[i].SfrDiskZ) ||
+        oracle_f32_to_bits(copy.SfrBulgeZ) != oracle_f32_to_bits(c->galaxies[i].SfrBulgeZ)) {
+      fprintf(stderr, "oracle: %s: the averaging helper differs from process()\n", in->path);
+      problems++;
     }
+    char prefix[ORACLE_MAX_NAME];
+    snprintf(prefix, sizeof(prefix), "intermediate.writer.galaxy[%d].", i);
+    problems += oracle_c05_check_writer(out, prefix, &c->galaxies[i], &locals);
   }
   return problems;
 }

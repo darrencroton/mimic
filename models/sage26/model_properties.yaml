@@ -580,7 +580,7 @@ galaxy_properties:
     type: float
     units: Msun/yr
     description: Disk star formation rate averaged over the snapshot substeps, in Msun/yr
-    notes: SAGE26 holds a per-substep float array SfrDisk[STEPS] in struct GALAXY (src/core_allvars.h:158), in 1e10 Msun/h per code time, zeroed per substep at src/model_misc.c:145. The writer sums the substeps, each converted with UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS and divided by sfr_rate_divisor(SubstepsUsed), into one scalar (src/io/save_gals_hdf5.c:934-957), so the output is the mean rate in Msun/yr. Here it is one scalar float output filled by a later node, which must also add the output_convert that this slice does not declare. Scaffold, holds 0 until then.
+    notes: SAGE26 holds a per-substep float array SfrDisk[STEPS] in struct GALAXY (src/core_allvars.h:158), in 1e10 Msun/h per code time, zeroed at creation (src/model_misc.c:145) and at the first-occupied update (src/core_build_model.c:278); disk star formation adds stars / dt to the substep's bin on every call (src/model_starformation_and_feedback.c:1058). The writer sums the ten bins in increasing order into a float accumulator, each term the bin times UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS divided by sfr_rate_divisor(SubstepsUsed), left to right in double (src/io/save_gals_hdf5.c:934-957, src/model_misc.h:49-52), so the output is the mean rate in Msun/yr. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrDiskBin0-9 (shared/sage_sfr_history.h), so this field holds the final Msun/yr value and is written as it is, with no output_convert.
     output: true
     init_source: default
     init_value: 0.0
@@ -590,7 +590,7 @@ galaxy_properties:
     type: float
     units: Msun/yr
     description: Bulge (starburst) star formation rate averaged over the snapshot substeps, in Msun/yr
-    notes: SAGE26 holds a per-substep float array SfrBulge[STEPS] in struct GALAXY (src/core_allvars.h:159), in 1e10 Msun/h per code time, zeroed per substep at src/model_misc.c:146. The writer sums the substeps, each converted with UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS and divided by sfr_rate_divisor(SubstepsUsed), into one scalar (src/io/save_gals_hdf5.c:934-957), so the output is the mean rate in Msun/yr. Here it is one scalar float output filled by a later node, which must also add the output_convert that this slice does not declare. Scaffold, holds 0 until then.
+    notes: SAGE26 holds a per-substep float array SfrBulge[STEPS] in struct GALAXY (src/core_allvars.h:159), in 1e10 Msun/h per code time, zeroed at creation (src/model_misc.c:146) and at the first-occupied update (src/core_build_model.c:278); every burst adds stars / dt to the substep's bin of the bursting galaxy (src/model_mergers.c:755). The writer sums the ten bins in increasing order into a float accumulator, each term the bin times UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS divided by sfr_rate_divisor(SubstepsUsed), left to right in double (src/io/save_gals_hdf5.c:934-957, src/model_misc.h:49-52), so the output is the mean rate in Msun/yr. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrBulgeBin0-9 (shared/sage_sfr_history.h), so this field holds the final Msun/yr value and is written as it is, with no output_convert.
     output: true
     init_source: default
     init_value: 0.0
@@ -600,7 +600,7 @@ galaxy_properties:
     type: float
     units: dimensionless
     description: Mean metallicity (metal mass / cold gas mass) of the cold gas forming disk stars, averaged over the snapshot substeps
-    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrDiskColdGas[STEPS] and SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:160-161, zeroed at src/model_misc.c:147-148) as the sum over substeps of metals / gas, divided by sfr_metallicity_divisor(SubstepsUsed) (src/io/save_gals_hdf5.c:934-958). SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. Here it is one scalar float output filled by a later node. Scaffold, holds 0 until then.
+    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrDiskColdGas[STEPS] and SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:160-161, zeroed at src/model_misc.c:147-148), which disk star formation assigns from the cold gas before it forms stars (src/model_starformation_and_feedback.c:1059-1060). The writer sums, over the ten bins in increasing order whose sampled cold gas is positive, metals / gas / sfr_metallicity_divisor(SubstepsUsed) in float (src/io/save_gals_hdf5.c:934-959, src/model_misc.h:54-58); a bin whose gas is zero, -0 or negative adds nothing. SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrDiskColdGasBin0-9 and SfrDiskColdGasMetalsBin0-9 (shared/sage_sfr_history.h), so this field holds the final value and is written as it is.
     output: true
     init_source: default
     init_value: 0.0
@@ -610,11 +610,634 @@ galaxy_properties:
     type: float
     units: dimensionless
     description: Mean metallicity (metal mass / cold gas mass) of the cold gas forming bulge stars, averaged over the snapshot substeps
-    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrBulgeColdGas[STEPS] and SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:162-163, zeroed at src/model_misc.c:149-150) as the sum over substeps of metals / gas, divided by sfr_metallicity_divisor(SubstepsUsed) (src/io/save_gals_hdf5.c:934-959). SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. Here it is one scalar float output filled by a later node. Scaffold, holds 0 until then.
+    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrBulgeColdGas[STEPS] and SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:162-163, zeroed at src/model_misc.c:149-150), to which every burst adds the bursting galaxy's cold gas (src/model_mergers.c:756-757). The writer sums, over the ten bins in increasing order whose sampled cold gas is positive, metals / gas / sfr_metallicity_divisor(SubstepsUsed) in float (src/io/save_gals_hdf5.c:934-959, src/model_misc.h:54-58); a bin whose gas is zero, -0 or negative adds nothing. SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrBulgeColdGasBin0-9 and SfrBulgeColdGasMetalsBin0-9 (shared/sage_sfr_history.h), so this field holds the final value and is written as it is.
     output: true
     init_source: default
     init_value: 0.0
     range: [0.0, 1.0]  # Metal mass fraction of cold gas
+
+  # -----------------------------------------------------------------------------
+  # SAGE26 per-substep star-formation histories (package-private)
+  # -----------------------------------------------------------------------------
+  # SAGE26's six float arrays of STEPS = 10 bins (src/core_allvars.h:158-163), one
+  # float scalar per element because the generator emits scalars only. Modules reach
+  # them only through shared/sage_sfr_history.h, which maps (history, bin) to the
+  # element. SAGE26 zeroes them at creation (src/model_misc.c:145-150) and at the
+  # first-occupied Type 0/1 update (src/core_build_model.c:278-281); init_repeat
+  # resets every inherited galaxy, which matches SAGE26 for every Type 0/1 row.
+  # Orphans keep theirs in SAGE26 (merger transfer, src/model_mergers.c:529-532).
+  # sage26_finalize_sfr_histories averages them into SfrDisk, SfrBulge, SfrDiskZ
+  # and SfrBulgeZ (src/io/save_gals_hdf5.c:934-959).
+
+  - name: SubstepsUsed
+    type: int
+    units: count
+    description: Substeps integrated this snapshot, the divisor of the SFR history averages
+    notes: SAGE26 int32 member SubstepsUsed (src/core_allvars.h:164). Created as STEPS (src/model_misc.c:142) and set to effective_steps for every galaxy of the halo, merged galaxies included, before the substeps (src/core_build_model.c:466-468). sage26_finalize_sfr_histories sets it to the package's substep count for the halo once per FoF in post_timestep and divides the histories by sfr_rate_divisor and sfr_metallicity_divisor of it (src/model_misc.h:49-58). No module reads it before then. Never written to output
+    output: false
+    init_source: default
+    init_value: 10
+    range: [0, 100000]
+
+  - name: SfrDiskBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[0], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[1], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[2], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[3], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[4], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[5], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[6], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[7], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[8], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[9], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[0], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[1], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[2], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[3], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[4], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[5], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[6], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[7], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[8], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[9], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[0], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[1], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[2], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[3], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[4], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[5], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[6], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[7], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[8], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[9], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[0], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[1], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[2], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[3], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[4], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[5], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[6], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[7], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[8], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrDiskColdGasMetalsBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[9], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[0], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[1], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[2], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[3], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[4], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[5], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[6], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[7], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[8], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[9], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[0], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[1], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[2], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[3], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[4], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[5], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[6], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[7], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[8], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
+
+  - name: SfrBulgeColdGasMetalsBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[9], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: MassLoading
     type: float
