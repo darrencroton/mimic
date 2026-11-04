@@ -139,10 +139,13 @@ int sage26_resolve_mergers_and_disruption_disrupt(struct Halo *halos, int ngal, 
                                                   int target_idx, double event_time,
                                                   struct MimicSageDisruptLocals *locals) {
   if (halos == NULL || satellite_idx < 0 || satellite_idx >= ngal ||
-      halos[satellite_idx].galaxy == NULL ||
-      validate_immediate_target(halos, ngal, satellite_idx, target_idx) != 0) {
+      halos[satellite_idx].galaxy == NULL) {
     ERROR_LOG("Invalid disruption (satellite=%d, target=%d, ngal=%d)", satellite_idx, target_idx,
               ngal);
+    return -1;
+  }
+  // validate_immediate_target() reports an invalid target itself
+  if (validate_immediate_target(halos, ngal, satellite_idx, target_idx) != 0) {
     return -1;
   }
 
@@ -341,7 +344,7 @@ int sage26_resolve_mergers_and_disruption_pass(struct ModuleContext *ctx, struct
 
     /* SAGE parity: the event time Age[SnapNum] - (step + 0.5) * (deltaT / N) (B:549), one
      * fused multiply-subtract in SAGE26's objects, written as fma(); Age[SnapNum] is the
-     * core's Age[current] plus dT, the time convention of shared/time_parity.h */
+     * core's Age[current] (ctx->time) plus the row's dT, Age[SnapNum] - Age[current] */
     const double age = ctx->time + deltaT;
     const double event_time = fma(-((double)step + 0.5), deltaT / num_substeps, age);
     if (record != NULL) {

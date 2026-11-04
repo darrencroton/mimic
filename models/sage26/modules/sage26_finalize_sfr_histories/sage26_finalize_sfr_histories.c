@@ -30,6 +30,12 @@
  * run once per FoF step, after the substeps: in a substep phase it would average
  * histories still being sampled. init() therefore requires exactly one post_timestep
  * entry as process_full_halo and no entry in pre_timestep or any substep phase.
+ *
+ * The histories are inherited package properties (no init_repeat): their only reset is
+ * sage26_initialise_merger_clock's at joining, for the rows SAGE26 resets
+ * (R/src/core_build_model.c:278-282). Without it they would accumulate across snapshots
+ * and every average written here would be wrong, so init() also requires that module in
+ * pre_timestep as process_full_halo.
  */
 
 #include "constants.h"
@@ -41,6 +47,7 @@
 #include "shared/sage_sfr_history.h"
 
 static const char *MODULE_NAME = "sage26_finalize_sfr_histories";
+static const char *CLOCK_NAME = "sage26_initialise_merger_clock";
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -92,6 +99,18 @@ static int check_placement(void) {
 
 int sage26_finalize_sfr_histories_init(void) {
   if (check_placement() != 0) {
+    return -1;
+  }
+
+  /* Dependency check: the histories are inherited (no init_repeat), and
+   * sage26_initialise_merger_clock's reset at joining is their only reset (SAGE26
+   * core_build_model.c:278-282, for a galaxy that stays a Type 0 or 1) */
+  if (!module_configured_in_phase(CLOCK_NAME, MimicConfig.pre_timestep,
+                                  MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO)) {
+    ERROR_LOG("%s requires %s in pre_timestep as process_full_halo — it owns the SFR-history "
+              "reset at joining; without it the histories accumulate across snapshots and "
+              "SfrDisk, SfrBulge, SfrDiskZ and SfrBulgeZ are wrong on every row",
+              MODULE_NAME, CLOCK_NAME);
     return -1;
   }
   VERBOSE_LOG("SAGE finalize SFR histories module initialized");

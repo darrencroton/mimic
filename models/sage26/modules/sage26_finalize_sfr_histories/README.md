@@ -36,6 +36,7 @@ The histories themselves are package-private (`output: false`): sixty float prop
 
 - Supported mode: `process_full_halo`
 - Required phase: `post_timestep` only, after every substep and its merger phase. In a substep phase it would average histories still being sampled, so `init()` enforces the placement: exactly one `post_timestep` entry as `process_full_halo`, and none in `pre_timestep` or any substep phase
+- Requires `sage26_initialise_merger_clock` in `pre_timestep` as `process_full_halo`: the histories are inherited (no `init_repeat`), and that module's reset at joining (`src/core_build_model.c:278-282`) is their only reset. Without it they would accumulate across snapshots and every average written here would be wrong, so `init()` fails with an error naming the history reset
 - Order beside `sage26_finalize_cooling_heating`: independent (neither reads what the other writes); the run files place this module after it
 - Receives the full FoF workspace
 

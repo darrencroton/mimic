@@ -178,7 +178,7 @@ def substep_event_times(param_file):
     """Every substep midpoint lookback time of the run, in code units
 
     Mimic's event time is Age[SnapNum] - (step + 0.5) * dT / SubSteps, with Age the
-    lookback time to each snapshot (src/core/init.c:202-235, shared/time_parity.h) and
+    lookback time to each snapshot (src/core/init.c:202-235; the resolver's pass) and
     dT the interval back to the progenitor's snapshot. Returns the midpoints of every
     interval of up to five snapshots, enough for any progenitor gap of these trees.
     """
