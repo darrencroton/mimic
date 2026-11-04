@@ -27,7 +27,10 @@
  * credit (:1229) of update_from_feedback. They are written as explicit fma() calls,
  * which round identically on every platform whose fma is correctly rounded.
  * Everything SAGE26 does not fuse (the metal transfer of the ejection, the gas
- * moves) is formed in separate statements, so no compiler contracts it either. The
+ * moves) is formed in separate statements, which clang's default -ffp-contract=on
+ * never contracts (it fuses only within one expression). GCC's default
+ * -ffp-contract=fast may fuse across statements on a target with FMA, so the
+ * bit-for-bit parity claim is for the oracle environment, Apple clang on arm64. The
  * oracle's uff_rounding_* fixtures pin the two feedback sites; no oracle fixture
  * pins update_from_star_formation's, which the apply step's unit tests pin with bit
  * patterns produced by SAGE26's own compiled routine.

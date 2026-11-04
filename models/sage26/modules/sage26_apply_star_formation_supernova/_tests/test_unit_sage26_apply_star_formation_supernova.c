@@ -1066,13 +1066,15 @@ static uint32_t f32_bits(const float value) {
  * SAGE26's compiled update_from_star_formation (R/src/model_starformation_and_feedback.c
  * :1123-1126) applies two fmla.2d: [ColdGas, StellarMass] += [-(1-R), (1-R)] * stars
  * and [MetalsColdGas, MetalsStellarMass] += [-(Z(1-R)), Z(1-R)] * stars, one rounding
- * per lane. No frozen oracle fixture distinguishes that from separate roundings, so
- * these cases pin it. Every expected bit pattern was produced by EXECUTING SAGE26's own
- * compiled update_from_star_formation (the oracle's object, linked into a harness;
- * recorded in the slice's validation record), on inputs where an unfused commit
- * differs: case 0 is the PM's witness (StellarMass), case 1 differs in ColdGas and
- * StellarMass, case 2 in ColdGas and StellarMass, case 3 in MetalsColdGas and
- * MetalsStellarMass. R is 0.43 and the metallicity is get_metallicity of the cold gas.
+ * per lane. No oracle fixture distinguishes that from separate roundings, so these
+ * cases pin it. Every expected bit pattern was produced by executing SAGE26's own
+ * compiled update_from_star_formation: the function-level oracle's object for
+ * model_starformation_and_feedback.c, built by _tests/oracle/build.sh with the pinned
+ * toolchain (oracle README "Oracle Environment"), linked into a small caller that
+ * passes SAGE26's get_metallicity of the cold gas. The inputs were chosen so that each
+ * exact result lies near a float rounding midpoint, where a fused and an unfused
+ * commit round to different floats: case 0 differs in StellarMass, cases 1 and 2 in
+ * ColdGas and StellarMass, case 3 in MetalsColdGas and MetalsStellarMass. R is 0.43.
  */
 int test_sf_commit_fused_rounding(void) {
   static const struct {

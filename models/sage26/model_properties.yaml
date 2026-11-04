@@ -564,7 +564,7 @@ galaxy_properties:
     output: true
     init_source: default
     init_value: 0.0
-    range: [0.0, 100000.0]  # Must be <= ColdGas
+    range: [0.0, 100000.0]  # Normally below ColdGas; on R0 it can exceed the hydrogen left after SF (see notes)
 
   - name: H2DepletionTime_Gyr
     type: float
