@@ -1,8 +1,9 @@
 module:
   name: sage26_quasar_mode
   description: >-
-    Implements Kauffmann & Haehnelt (2000) BH growth and energy-driven quasar winds; triggered by
-    disk instability (process_by_galaxy) and merger events (process_per_event)
+    SAGE26's grow_black_hole and quasar_mode_wind (Kauffmann & Haehnelt 2000 BH growth with an
+    energy-driven quasar wind); triggered by the disk instability's gas branch (process_by_galaxy)
+    and merger events (process_per_event)
 
   supported_processing_modes: [process_by_galaxy, process_per_event]
 
@@ -28,7 +29,9 @@ module:
         event: merger
 
   tests:
-    unit: _tests/test_unit_sage26_quasar_mode.c
+    unit:
+      - _tests/test_unit_sage26_quasar_mode.c
+      - _tests/test_unit_sage26_quasar_mode_oracle.c
     integration: _tests/test_integration_sage26_quasar_mode.py
     scientific: []
 

@@ -52,6 +52,35 @@ from framework import (
 )
 
 
+def bulge_upper_bound(stellar_mass):
+    """The largest BulgeMass SAGE26's arithmetic gives a galaxy of this StellarMass
+
+    One float above StellarMass. In these pipelines (sage26_disk_instability and this
+    module's process_by_galaxy burst, no mergers and no disk star formation) BulgeMass
+    has two writers and StellarMass one:
+
+    - the instability transfer adds the double unstable_stars to the float BulgeMass
+      (SAGE26 src/model_disk_instability.c:77). It runs only on a positive disk
+      (StellarMass - BulgeMass > 0, :63-66), and unstable_stars is at most that disk up
+      to double rounding, so one float rounding can leave BulgeMass at most one float
+      above StellarMass (c05's bound, test_integration_sage26_disk_instability.py);
+    - the burst adds the rounded double recycled_stars = (1 - RecycleFraction) * stars
+      to BulgeMass (src/model_mergers.c:770-772), while update_from_star_formation adds
+      the same product to StellarMass as one fused multiply-add
+      (src/model_starformation_and_feedback.c:1125, fused per the oracle README's c06
+      table). From BulgeMass <= StellarMass the two sums differ by at most the product's
+      double rounding, which the float store can turn into at most one float.
+
+    A bulge already one float above has a negative disk, so the transfer adds nothing
+    more (:63-66); a further burst keeps the one-float excess unless its two sums
+    straddle a float rounding boundary within a double rounding, a coincidence of order
+    2**-29 per write that SAGE26's own R0 output (no row above StellarMass among
+    1,518,991) and these pipelines (no row above StellarMass) never show.
+    """
+    as_float = np.asarray(stellar_mass, dtype=np.float32)
+    return np.nextafter(as_float, np.float32(np.inf))
+
+
 def test_module_pipeline_integration():
     """Test that module integrates correctly into full pipeline
 
@@ -201,7 +230,9 @@ def test_starburst_physics_correctness():
     assert total_stellar >= 0.0, "Total stellar mass should be non-negative"
 
     # Physics validation 2: Bulge mass should be <= stellar mass
-    assert np.all(bulge_mass <= stellar_mass + 1e-6), "Bulge mass should not exceed stellar mass"
+    assert np.all(
+        bulge_mass <= bulge_upper_bound(stellar_mass)
+    ), "Bulge mass should not exceed stellar mass by more than one float rounding"
     print(f"  Total bulge mass: {np.sum(bulge_mass):.2e} [1e10 Msun/h]")
 
     # Physics validation 3: Cold gas should be reasonable
@@ -282,7 +313,9 @@ def test_disk_instability_trigger():
     assert np.all(bulge_mass >= 0.0), "BulgeMass should be non-negative"
 
     # Bulge mass should not exceed stellar mass
-    assert np.all(bulge_mass <= stellar_mass + 1e-6), "BulgeMass should not exceed StellarMass"
+    assert np.all(
+        bulge_mass <= bulge_upper_bound(stellar_mass)
+    ), "BulgeMass should not exceed StellarMass by more than one float rounding"
 
     # Without upstream gas modules, expect zero stellar mass (no cold gas to form stars)
     total_stellar = np.sum(stellar_mass)
@@ -632,7 +665,9 @@ def test_full_pipeline_star_formation():
     print(f"  Total bulge mass: {total_bulge:.2e} [1e10 Msun/h]")
 
     # Bulge mass should not exceed stellar mass
-    assert np.all(bulge_mass <= stellar_mass + 1e-6), "BulgeMass should not exceed StellarMass"
+    assert np.all(
+        bulge_mass <= bulge_upper_bound(stellar_mass)
+    ), "BulgeMass should not exceed StellarMass by more than one float rounding"
 
     # Stellar mass should be non-negative
     assert np.all(stellar_mass >= 0.0), "StellarMass should be non-negative"
