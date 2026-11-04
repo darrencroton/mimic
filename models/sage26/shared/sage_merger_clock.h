@@ -63,7 +63,8 @@
  * @brief SAGE26's locals of one estimate_merging_time call, for the oracle test
  *
  * A flag is -1 where the call returns before evaluating it; a value's absent
- * marker is 1 where the call never forms it (everything after an early return).
+ * marker is 1 where the call never forms it (everything after an early return),
+ * and such a value holds NaN.
  */
 struct MimicSageMergerClockTrace {
   int same_halo;           /* 1 when the satellite and mother halos coincide (:94) */
@@ -103,6 +104,13 @@ mimic_sage_estimate_merging_time(const struct Halo *satellite, const struct Halo
   t->capped = -1;
   t->values_absent = 1;
   t->mother_virial_velocity_absent = 1;
+  /* Values the call never forms stay NaN, so a trace is never read uninitialised */
+  t->sat_virial_mass = NAN;
+  t->coulomb = NAN;
+  t->satellite_mass = NAN;
+  t->satellite_radius = NAN;
+  t->mother_virial_velocity = NAN;
+  t->mergtime_pre_cap = NAN;
 
   // SAGE parity: the same-halo error return (R/src/model_mergers.c:94-98); the
   // package compares the halo numbers its rows carry for SAGE26's halo indices

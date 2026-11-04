@@ -35,11 +35,11 @@ if(mergtime >= 999.0) mergtime = 998.0;
 Mimic's core performs the joining itself (`src/core/inheritance.c`): it assigns the new `Type`, the halo values and, for a Type 0 that becomes a Type 1 or 2, the core properties `infallMvir`, `infallVvir` and `infallVmax`. It does not publish the previous Type, so the package records it: `sage26_record_transition_state`, the last `post_timestep` module, writes each galaxy's final `Type` into the package property `PreviousType`, which the galaxy carries into the next snapshot. In `pre_timestep` this module reads it and makes the remaining writes of the table for every galaxy row of the FoF:
 
 - `MergTime`, as the table says;
-- `infallStellarMassState` and `TimeOfInfallState`, the package-private properties that hold SAGE26's members `infallStellarMass` and `TimeOfInfall`. SAGE26 keeps the members for a central and only its writer stores 0 for a Type 0 row (`src/io/save_gals_hdf5.c:1004-1016`); `sage26_record_transition_state` writes the output properties from the state with that rule.
+- `infallStellarMassState` and `TimeOfInfallState`, the package-private properties that hold SAGE26's members `infallStellarMass` and `TimeOfInfall`. SAGE26 keeps the members for a central and only its writer stores 0 for a Type 0 row (`src/io/save_gals_hdf5.c:1004-1017`); `sage26_record_transition_state` writes the output properties from the state with that rule.
 
 The clock is `mimic_sage_estimate_merging_time` (`shared/sage_merger_clock.h`), SAGE26's expression in its operand order. The core does not keep SAGE26's raw halo catalogue, so the halo helpers' values come from what the core exposes for the current snapshot: the satellite's `Mvir` row value is `get_virial_mass` of its halo (the core sets it at joining with SAGE26's rule), and the mother halo, the FoF's first halo, is the FoF's Type 0 row, whose virial radius and velocity are the core's `virial_radius_for_mass` and `virial_velocity_for` of its `Mvir` at the snapshot's redshift. The galaxies' stored `Rvir` and `Vvir` are not used: the core keeps them frozen while a halo loses mass.
 
-A galaxy the core created this snapshot has no previous Type (`PreviousType` -1) and keeps its creation clock 999.9f. The clock half of each condition reads `MergTime` alone, so without `sage26_record_transition_state` clocks are still assigned, but the infall state is not recorded; `init()` warns in that case.
+A galaxy the core created this snapshot has no previous Type (`PreviousType` -1) and keeps its creation clock 999.9f. The clock half of each condition reads `MergTime` alone, so without `sage26_record_transition_state` clocks are still assigned, but the infall state is not recorded, and `infallStellarMass` and `TimeOfInfall` are written as their creation value -1 on every row; `init()` warns in that case.
 
 ## Processing Contract
 
@@ -54,12 +54,13 @@ A galaxy the core created this snapshot has no previous Type (`PreviousType` -1)
 
 ## Parameters
 
-- `MergerTimeFactor` (optional): the clock's scaling. Absent, it is SAGE26's default 2.0 (`src/core_read_parameter_file.c:128`), which R0 runs with; the shipped run files set 2.0. `init()` requires it to lie in (0, 1000).
+- `MergerTimeFactor` (optional): the clock's scaling. Absent, it is SAGE26's default 2.0 (`src/core_read_parameter_file.c:128`), which R0 runs with; the shipped run files set 2.0. `init()` accepts a value in (0, 1000] (`LOAD_AND_VALIDATE_RANGE_EXCLUSIVE`, which rejects `value <= 0` and `value > 1000`; a NaN fails neither comparison and is accepted). SAGE26 does not range-check it (`src/core_read_parameter_file.c:206`); the check is the package's parameter convention.
 
 ## Ordering
 
 1. Runs in `pre_timestep` before `sage26_resolve_mergers_and_disruption`, which hard-errors at `init()` without it (satellites would keep the unset clock 999.9) and checks the order when both share `pre_timestep`.
-2. Reads the `PreviousType` that `sage26_record_transition_state` wrote as the last `post_timestep` module of the previous snapshot; no module between them writes it.
+2. Runs before any `pre_timestep` module that changes `StellarMass` or `ColdGas`: SAGE26's joining, which reads them for `infallStellarMass` and the clock's satellite mass, precedes all physics of the snapshot. The shipped run files' `pre_timestep` modules before it (`sage26_set_disk_scale_radius`) change neither.
+3. Reads the `PreviousType` that `sage26_record_transition_state` wrote as the last `post_timestep` module of the previous snapshot; no module between them writes it.
 
 ## Differences From SAGE26
 

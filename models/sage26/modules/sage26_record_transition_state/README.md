@@ -4,7 +4,7 @@ Records each galaxy's final `Type` at the end of a snapshot, for SAGE26's progen
 
 ## SAGE26 Source
 
-SAGE26's progenitor joining decides a galaxy's merger clock and infall values from its `Type` before joining, the `Type` it ended the previous snapshot with (`src/core_build_model.c:240-341` in the staged SAGE26 source; the table is in `sage26_initialise_merger_clock/README.md`). Its HDF5 writer stores the infall values for a galaxy that is not a central and 0 for a central (`src/io/save_gals_hdf5.c:1004-1016`):
+SAGE26's progenitor joining decides a galaxy's merger clock and infall values from its `Type` before joining, the `Type` it ended the previous snapshot with (`src/core_build_model.c:240-341` in the staged SAGE26 source; the table is in `sage26_initialise_merger_clock/README.md`). Its HDF5 writer stores the infall values for a galaxy that is not a central and 0 for a central (`src/io/save_gals_hdf5.c:1004-1017`):
 
 ```c
 if(g->Type != 0) {

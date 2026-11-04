@@ -327,7 +327,7 @@ def test_substep_placement_rejected():
 
 
 def test_merger_time_factor_parameter():
-    """MergerTimeFactor is read from the run file when set (SAGE26 default 2.0 otherwise)."""
+    """A non-default MergerTimeFactor (3.0) is read from the run file; a negative one is rejected."""
     print("Testing the MergerTimeFactor parameter...")
 
     param_file, output_dir, test_temp_dir = create_test_param_file(
@@ -336,12 +336,14 @@ def test_merger_time_factor_parameter():
             "pre_timestep": CLOCK_PRE_TIMESTEP,
             "post_timestep": RECORDER_POST_TIMESTEP,
         },
-        model_params={"MergerTimeFactor": 2.0},
+        model_params={"MergerTimeFactor": 3.0},
     )
     returncode, stdout, stderr = run_mimic(param_file, extra_args=["-v"])
     shutil.rmtree(test_temp_dir)
     assert returncode == 0, f"a run with MergerTimeFactor should succeed\nStderr: {stderr}"
-    assert "MergerTimeFactor = 2.000" in stdout, "the module should log the factor it uses"
+    assert (
+        "MergerTimeFactor = 3.000" in stdout
+    ), "the module should log the run file's factor, not the default"
 
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage26_initialise_merger_clock_bad_factor",

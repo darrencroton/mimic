@@ -4,7 +4,7 @@
  *
  * The module records each galaxy row's final Type in PreviousType and writes the
  * outputs infallStellarMass and TimeOfInfall by SAGE26's writer rule (0 for a
- * Type 0 row, the held state otherwise, R/src/io/save_gals_hdf5.c:1004-1016).
+ * Type 0 row, the held state otherwise, R/src/io/save_gals_hdf5.c:1004-1017).
  * sage26_initialise_merger_clock reads PreviousType at the next snapshot's
  * pre_timestep to make SAGE26's joining writes (R/src/core_build_model.c:284-338).
  *

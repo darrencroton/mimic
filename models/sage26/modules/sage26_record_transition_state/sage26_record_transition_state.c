@@ -14,7 +14,7 @@
  * it.
  *
  * It also applies SAGE26's output rule for the two package infall values
- * (R/src/io/save_gals_hdf5.c:1004-1016): a Type 0 row is written with
+ * (R/src/io/save_gals_hdf5.c:1004-1017): a Type 0 row is written with
  * infallStellarMass and TimeOfInfall 0, any other row with the values the galaxy
  * holds. SAGE26 keeps the members of a central (the non-main-branch transition to
  * Type 2 keeps an earlier TimeOfInfall, R/src/core_build_model.c:327-335), so the
@@ -118,7 +118,7 @@ int sage26_record_transition_state_process(struct ModuleContext *ctx, struct Hal
     gal->PreviousType = type;
 
     // SAGE parity: the writer stores the members for Type != 0 and 0.0 for a Type 0
-    // (R/src/io/save_gals_hdf5.c:1004-1016), without changing the members
+    // (R/src/io/save_gals_hdf5.c:1004-1017), without changing the members
     if (type != 0) {
       gal->infallStellarMass = gal->infallStellarMassState;
       gal->TimeOfInfall = gal->TimeOfInfallState;

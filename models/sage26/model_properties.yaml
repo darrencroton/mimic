@@ -395,7 +395,7 @@ galaxy_properties:
     type: int
     units: dimensionless
     description: The galaxy's Type at the end of the previous snapshot (-1 = no previous snapshot)
-    notes: Package-private transition state. SAGE26's progenitor joining reads a galaxy's Type before it assigns the new one (src/core_build_model.c:240, 306, 315, 327); Mimic's core assigns the new Type during inheritance (src/core/inheritance.c:66-75, 79-95) and does not publish the old one. sage26_record_transition_state writes the galaxy's final Type here as the last post_timestep module, the galaxy carries it into the next snapshot (inherited, no init_repeat), and sage26_initialise_merger_clock reads it in pre_timestep. A galaxy created this snapshot has none (-1), as a SAGE26 galaxy made by init_galaxy (src/model_misc.c:84-196) is never joined. Never written to output
+    notes: Package-private transition state. SAGE26's progenitor joining reads a galaxy's Type before it assigns the new one (src/core_build_model.c:240, 306, 315, 327); Mimic's core assigns the new Type during inheritance (src/core/inheritance.c:66-75, 79-95) and does not publish the old one. sage26_record_transition_state writes the galaxy's final Type here as the last post_timestep module, the galaxy carries it into the next snapshot (inherited, no init_repeat), and sage26_initialise_merger_clock reads it in pre_timestep. A galaxy created this snapshot has none (-1), as a SAGE26 galaxy made by init_galaxy (src/model_misc.c:65-201) is never joined. Never written to output
     output: false
     init_source: default
     init_value: -1
@@ -405,7 +405,7 @@ galaxy_properties:
     type: float  # SAGE parity: SAGE26's float infallStellarMass (src/core_allvars.h:201)
     units: 1e10 Msun/h
     description: Stellar mass when the galaxy last became a satellite, as SAGE26 holds it in memory (-1 = never)
-    notes: Package-private state behind the output infallStellarMass. Created as -1.0 (src/model_misc.c:192). sage26_initialise_merger_clock sets it from StellarMass at progenitor joining when a Type 0 becomes a Type 1 (src/core_build_model.c:310) and when a galaxy loses its subhalo as a Type 0 or with a clock above 999 (src/core_build_model.c:334). Kept for centrals, as SAGE26 keeps the member; only the writer zeroes Type 0 rows (src/io/save_gals_hdf5.c:1004-1016). Never written to output
+    notes: Package-private state behind the output infallStellarMass. Created as -1.0 (src/model_misc.c:192). sage26_initialise_merger_clock sets it from StellarMass at progenitor joining when a Type 0 becomes a Type 1 (src/core_build_model.c:310) and when a galaxy loses its subhalo as a Type 0 or with a clock above 999 (src/core_build_model.c:334). Kept for centrals, as SAGE26 keeps the member; only the writer zeroes Type 0 rows (src/io/save_gals_hdf5.c:1004-1017). Never written to output
     output: false
     init_source: default
     init_value: -1.0
@@ -415,7 +415,7 @@ galaxy_properties:
     type: float  # SAGE parity: SAGE26's float TimeOfInfall (src/core_allvars.h:202)
     units: index
     description: Snapshot number at which the galaxy last became a satellite with a subhalo, as SAGE26 holds it in memory (-1 = never)
-    notes: Package-private state behind the output TimeOfInfall. Created as -1.0 (src/model_misc.c:193). sage26_initialise_merger_clock sets it to the descendant halo's snapshot number, stored as a float, when a Type 0 becomes a Type 1 at progenitor joining (src/core_build_model.c:311). The non-main-branch transition to Type 2 does not write it (src/core_build_model.c:327-335), so an orphan keeps any earlier value; that is why the state is kept for centrals and only the writer zeroes Type 0 rows (src/io/save_gals_hdf5.c:1004-1016). Never written to output
+    notes: Package-private state behind the output TimeOfInfall. Created as -1.0 (src/model_misc.c:193). sage26_initialise_merger_clock sets it to the descendant halo's snapshot number, stored as a float, when a Type 0 becomes a Type 1 at progenitor joining (src/core_build_model.c:311). The non-main-branch transition to Type 2 does not write it (src/core_build_model.c:327-335), so an orphan keeps any earlier value; that is why the state is kept for centrals and only the writer zeroes Type 0 rows (src/io/save_gals_hdf5.c:1004-1017). Never written to output
     output: false
     init_source: default
     init_value: -1.0
@@ -1373,7 +1373,7 @@ galaxy_properties:
     type: float
     units: 1e10 Msun/h
     description: Stellar mass of the galaxy when it became a satellite; SAGE26 writes 0 for centrals (Type 0)
-    notes: The written value of SAGE26's float member infallStellarMass (src/core_allvars.h:201). SAGE26's writer stores the member for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1004-1016) while the member itself keeps its value. The package keeps the member in infallStellarMassState and sage26_record_transition_state, the last post_timestep module, sets this output from it for every galaxy row - 0.0 for Type 0, the state otherwise. The creation value -1 (src/model_misc.c:192) remains only on a row that module has not processed.
+    notes: The written value of SAGE26's float member infallStellarMass (src/core_allvars.h:201). SAGE26's writer stores the member for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1004-1017) while the member itself keeps its value. The package keeps the member in infallStellarMassState and sage26_record_transition_state, the last post_timestep module, sets this output from it for every galaxy row - 0.0 for Type 0, the state otherwise. The creation value -1 (src/model_misc.c:192) remains only on a row that module has not processed.
     output: true
     init_source: default
     init_value: -1.0
@@ -1384,7 +1384,7 @@ galaxy_properties:
     type: float
     units: index
     description: Snapshot number at which the galaxy last became a satellite (not a time); -1 = never; SAGE26 writes 0 for centrals (Type 0)
-    notes: The written value of SAGE26's float member TimeOfInfall (src/core_allvars.h:202), a snapshot number stored as float (src/core_build_model.c:311). SAGE26's HDF5 label says Myr and the text says a time, but the writer stores the member unconverted (src/io/save_gals_hdf5.c:1009), so it holds a snapshot number. The writer stores the member for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1004-1016) while the member itself keeps its value. The package keeps the member in TimeOfInfallState and sage26_record_transition_state, the last post_timestep module, sets this output from it for every galaxy row - 0.0 for Type 0, the state otherwise. The creation value -1 (src/model_misc.c:193) remains only on a row that module has not processed.
+    notes: The written value of SAGE26's float member TimeOfInfall (src/core_allvars.h:202), a snapshot number stored as float (src/core_build_model.c:311). SAGE26's HDF5 label says Myr and the text says a time, but the writer stores the member unconverted (src/io/save_gals_hdf5.c:1010), so it holds a snapshot number. The writer stores the member for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1004-1017) while the member itself keeps its value. The package keeps the member in TimeOfInfallState and sage26_record_transition_state, the last post_timestep module, sets this output from it for every galaxy row - 0.0 for Type 0, the state otherwise. The creation value -1 (src/model_misc.c:193) remains only on a row that module has not processed.
     output: true
     init_source: default
     init_value: -1.0

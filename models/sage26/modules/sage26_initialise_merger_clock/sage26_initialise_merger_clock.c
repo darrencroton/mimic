@@ -27,7 +27,9 @@
  * already 999.9f; it takes the rows above with "previous Type 0" false, which
  * leaves it unchanged. The clock half of each condition depends on MergTime alone,
  * so without the recorder (PreviousType -1 throughout) clocks are still assigned,
- * but the infall state of a Type 0 -> 1 or 0 -> 2 transition is not: init() warns.
+ * but the infall state of a Type 0 -> 1 or 0 -> 2 transition is not, and the
+ * outputs infallStellarMass and TimeOfInfall keep their creation value -1 on every
+ * row: init() warns.
  *
  * The infall values the core writes (infallMvir, infallVvir and infallVmax for a
  * Type 0 that becomes a Type 1 or 2, src/core/inheritance.c:69-73, :88-92) and the
@@ -197,7 +199,8 @@ int sage26_initialise_merger_clock_init(void) {
   if (!module_configured_in_phase(RECORDER_NAME, MimicConfig.post_timestep,
                                   MimicConfig.num_post_timestep, PROCESSING_MODE_FULL_HALO)) {
     WARNING_LOG("%s runs without %s in modules.post_timestep: merger clocks are assigned, but "
-                "infallStellarMass and TimeOfInfall are not recorded at infall",
+                "no galaxy's previous Type is recorded, so infall is never recorded and "
+                "infallStellarMass and TimeOfInfall are written as -1 on every row",
                 MODULE_NAME, RECORDER_NAME);
   }
 
