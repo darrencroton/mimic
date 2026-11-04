@@ -1,8 +1,9 @@
 module:
   name: sage26_initialise_merger_clock
   description: >-
-    Initialises the merger clock for new Type 1 satellites (Binney & Tremaine 1987); also resets
-    MergTime for Type 0 promotions and force-merges Type 2 orphans
+    SAGE26's merger-clock and infall assignment of progenitor joining: resets a central's clock,
+    records infallStellarMass and TimeOfInfall when a central becomes a satellite, estimates the
+    dynamical-friction clock (estimate_merging_time) and starts an orphan's clock at zero
 
   supported_processing_modes: [process_full_halo]
 
@@ -10,18 +11,21 @@ module:
     properties:
       - HaloNr
       - Type
-      - CentralHalo
       - Len
       - Mvir
-      - Rvir
-      - Vvir
       - MergTime
       - StellarMass
       - ColdGas
-    parameters: []
+      - PreviousType
+      - infallStellarMassState
+      - TimeOfInfallState
+    parameters:
+      - MergerTimeFactor  # optional: absent means SAGE26's default 2.0
 
   tests:
-    unit: _tests/test_unit_sage26_initialise_merger_clock.c
+    unit:
+      - _tests/test_unit_sage26_initialise_merger_clock.c
+      - _tests/test_unit_sage26_initialise_merger_clock_oracle.c
     integration: _tests/test_integration_sage26_initialise_merger_clock.py
     scientific: []
 
