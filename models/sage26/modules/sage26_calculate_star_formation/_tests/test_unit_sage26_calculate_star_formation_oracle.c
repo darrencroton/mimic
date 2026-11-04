@@ -28,23 +28,26 @@
  * same shared commits (shared/sage_sf_feedback_physics.h) on a copy of the galaxies,
  * requires the replay to end in exactly the state process() produced, and asserts
  * the replay's metallicities, clamped reheated mass and update_from_feedback locals
- * where validated. Where a clamp or cap binds (the *_binds flags) the recorded value
- * must equal the reservoir it binds to, which the replay supplies.
+ * where validated. It likewise replays the instability through its shared helper
+ * (shared/sage_disk_instability_physics.h), requires the same end state as process(),
+ * and asserts SAGE26's instability locals where validated. Where a clamp or cap binds
+ * (the *_binds flags, instability_mcrit_capped) the recorded value must equal the
+ * reservoir it binds to, which the replays supply.
  *
  * Scope of this slice (the oracle's records the package cannot yet meet are named
  * and not asserted):
  *
  * - The six per-substep histories, the step bin, SubstepsUsed and the writer's
  *   averages belong to the history substrate, which the package does not yet have.
- * - The instability's carried values (diskmass, Mcrit, unstable_gas, unstable_stars,
- *   instability_metallicity, unstable_gas_fraction) belong to the port of its stellar
- *   transfer. The chain runs sage26_disk_instability only where SAGE26's
- *   check_disk_instability transfers nothing (a stable disk, or DiskInstabilityOn 0
- *   fixtures, where it is not run) and requires it to hand on no unstable fraction.
- *   A fixture whose disk SAGE26 finds unstable with no cold gas (the stellar transfer
- *   and InstabilityBulgeMass, R/src/model_disk_instability.c:78) is DEFERRED to the
- *   instability port: it must be in DEFERRED_FIXTURES below, by name, and is reported
- *   as deferred, not as bit-identical.
+ * - The instability (DiskInstabilityOn 1) runs sage26_disk_instability, SAGE26's
+ *   check_disk_instability up to its black-hole and burst calls. The oracle admits a
+ *   wrapper fixture only where that routine does not reach them: a stable disk, or an
+ *   unstable disk with no cold gas after feedback, whose stellar transfer into
+ *   BulgeMass, MetalsBulgeMass and InstabilityBulgeMass
+ *   (R/src/model_disk_instability.c:77-79) is asserted here like every other field
+ *   (instability_unstable_no_coldgas). The chain requires the module to hand on no
+ *   unstable gas fraction. DiskInstabilityOn 0 fixtures (a labelled non-R0 value) do
+ *   not run it.
  * - The SAGE26 locals the package never forms as named values (tdyn, cold_crit,
  *   strdot, atomicH, f_ion, the pre-renormalisation reheated mass, renorm_fac, the
  *   pre-floor ejected mass, FracZleaveDiskVal and the yield's escaping metals) reach
@@ -60,14 +63,15 @@
  * (the module's dt is asserted equal to call.dt), G and Hubble_h, and SAGE26's R0 unit
  * factors, from which the feedback module derives EtaSNcode and EnergySNcode (both
  * asserted against the fixture through the shared helpers). StarFormingDiskFactor is
- * SAGE26's SF_DISK_RADIUS_FRAC, 3.0 (R/src/model_starformation_and_feedback.c:60).
+ * SAGE26's SF_DISK_RADIUS_FRAC, 3.0 (R/src/model_starformation_and_feedback.c:60), and
+ * the same parameter is the instability's TOOMRE_DISK_FACTOR, also 3.0
+ * (R/src/model_disk_instability.c:35).
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test
  * reports SKIP.
  *
  * Test cases:
  *   - test_oracle_fixture_count: every fixture the manifest lists is present
- *   - test_oracle_bit_identity: every fixture reproduces the oracle bit for bit, or is
- *     a named deferral
+ *   - test_oracle_bit_identity: every fixture reproduces the oracle bit for bit
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -84,6 +88,7 @@
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
 #include "shared/metallicity.h"
+#include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_sf_feedback_physics.h"
 #include "shared/time_parity.h"
 
@@ -107,13 +112,11 @@ static const char *MODULE = "sage26_calculate_star_formation";
 #define MAX_GALAXIES 4
 #define MAX_SUBSTEPS 64
 
-/* Fixtures whose end state includes the instability's stellar transfer, asserted
- * from the port of that transfer on */
-static const char *const DEFERRED_FIXTURES[] = {"instability_unstable_no_coldgas"};
-
 /* SAGE26's SF_DISK_RADIUS_FRAC (R/src/model_starformation_and_feedback.c:60) and its
  * R0 unit factors (R/input/millennium.par:106-108) */
 #define SAGE26_SF_DISK_RADIUS_FRAC 3.0
+/* SAGE26's TOOMRE_DISK_FACTOR (R/src/model_disk_instability.c:35), the same value */
+#define SAGE26_TOOMRE_DISK_FACTOR 3.0
 #define SAGE26_UNIT_LENGTH_IN_CM 3.08568e+24
 #define SAGE26_UNIT_MASS_IN_G 1.989e+43
 
@@ -127,7 +130,6 @@ static struct PhaseModuleConfig chain_modules[5];
 static struct ModulePhaseConfig chain_phase;
 
 static struct oracle_c05_carried_tally tally;
-static int deferred_count = 0;
 
 /** @brief Names of the branch flags every single-call output records */
 static const char *const FLAGS[] = {"sf_vvir_nonpositive",
@@ -172,16 +174,8 @@ struct substep_record {
   double reheated_mass_sf_clamped;
   float cold_gas_after_sf;
   struct MimicSageFeedbackLocals locals;
+  struct MimicSageInstabilityLocals instability; /* NaN where not formed or not run */
 };
-
-static int is_deferred(const char *name) {
-  for (size_t i = 0; i < COUNT(DEFERRED_FIXTURES); i++) {
-    if (strcmp(DEFERRED_FIXTURES[i], name) == 0) {
-      return 1;
-    }
-  }
-  return 0;
-}
 
 /**
  * @brief Apply the fixture's flags and parameters, then initialise the chain's modules
@@ -406,11 +400,25 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
     }
   }
 
+  r->instability = (struct MimicSageInstabilityLocals){NAN, NAN, NAN, NAN, NAN, NAN};
   if (c->disk_instability_on) {
+    /* Replay the instability through its shared helper on a copy, for its locals */
+    struct GalaxyData instability_replay[MAX_GALAXIES];
+    memcpy(instability_replay, c->galaxies, sizeof(instability_replay));
+    struct Halo replay_halo = *halo;
+    replay_halo.galaxy = &instability_replay[c->p];
+    instability_replay[c->p].UnstableDiskGasFraction = mimic_sage_check_disk_instability(
+        &replay_halo, &c->ctx, SAGE26_TOOMRE_DISK_FACTOR, &r->instability);
+
     if (sage26_disk_instability_process(&c->ctx, halo, 1) != 0) {
       problems++;
     }
-    /* Only disks SAGE26 finds stable run here: no unstable gas is handed on */
+    if (memcmp(instability_replay, c->galaxies, sizeof(struct GalaxyData) * (size_t)c->ngal) != 0) {
+      fprintf(stderr, "oracle: %s: the instability replay differs from process()\n", in->path);
+      problems++;
+    }
+    /* The oracle admits no wrapper fixture whose instability reaches the gas branch:
+     * no unstable gas is handed on */
     if (gal->UnstableDiskGasFraction != 0.0) {
       fprintf(stderr, "oracle: %s: the instability handed on an unstable gas fraction\n", in->path);
       problems++;
@@ -447,6 +455,15 @@ static int check_carried(struct oracle_fixture *out, const char *prefix,
   problems +=
       oracle_c05_check_binding(out, prefix, "metals_cap_binds", "metals_hot_to_eject_capped",
                                r->locals.metals_hot_gas_at_cap, &tally);
+  /* Where Mcrit is capped it equals the disk mass (the flag itself is not asserted) */
+  char capped[ORACLE_MAX_NAME];
+  snprintf(capped, sizeof(capped), "%sinstability_mcrit_capped", prefix);
+  if (oracle_in_i32(out, capped) == 1) {
+    char mcrit[ORACLE_MAX_NAME];
+    snprintf(mcrit, sizeof(mcrit), "%sMcrit", prefix);
+    tally.binding++;
+    problems += oracle_check_f64(out, mcrit, r->instability.diskmass);
+  }
 
   const struct {
     const char *name;
@@ -469,13 +486,13 @@ static int check_carried(struct oracle_fixture *out, const char *prefix,
       {"metallicity_hot", &r->locals.metallicity_hot},
       {"metals_hot_to_eject", &r->locals.metals_hot_to_eject},
       {"metals_hot_to_eject_capped", &r->locals.metals_hot_to_eject_capped},
-      /* The instability's values: asserted from the port of its stellar transfer on */
-      {"diskmass", NULL},
-      {"Mcrit", NULL},
-      {"unstable_gas", NULL},
-      {"unstable_stars", NULL},
-      {"instability_metallicity", NULL},
-      {"unstable_gas_fraction", NULL},
+      /* The instability's locals, from the helper's replay */
+      {"diskmass", &r->instability.diskmass},
+      {"Mcrit", &r->instability.mcrit},
+      {"unstable_gas", &r->instability.unstable_gas},
+      {"unstable_stars", &r->instability.unstable_stars},
+      {"instability_metallicity", &r->instability.metallicity},
+      {"unstable_gas_fraction", &r->instability.unstable_gas_fraction},
       {"FracZleaveDiskVal", NULL},
       {"yield_metals_to_hot", NULL},
   };
@@ -587,78 +604,6 @@ static int check_fixture(const char *name) {
 }
 
 /**
- * @brief Whether a fixture's end state includes SAGE26's instability stellar transfer
- *
- * Read from the oracle's own record: DiskInstabilityOn 1 and
- * intermediate.instability_stars_transferred or instability_gas_branch set.
- */
-static int needs_instability_transfer(const char *name) {
-  static struct oracle_fixture in, out;
-  char path[ORACLE_MAX_PATH];
-  oracle_fixture_path(path, sizeof(path), MODULE, name, ".in");
-  if (oracle_load(path, &in) != 0 || !oracle_has(&in, "params.DiskInstabilityOn")) {
-    return 0;
-  }
-  if (oracle_in_i32(&in, "params.DiskInstabilityOn") != 1) {
-    return 0;
-  }
-  oracle_fixture_path(path, sizeof(path), MODULE, name, ".out");
-  if (oracle_load(path, &out) != 0) {
-    return 0;
-  }
-  const char *const flags[] = {"intermediate.instability_stars_transferred",
-                               "intermediate.instability_gas_branch"};
-  for (size_t k = 0; k < COUNT(flags); k++) {
-    if (oracle_has(&out, flags[k]) && oracle_in_i32(&out, flags[k]) == 1) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
-/**
- * @brief Run every listed fixture; a fixture SAGE26 records with an instability transfer
- *        must be a named deferral
- * @return 1 when every fixture is bit-identical or a named deferral, else 0
- */
-static int all_identical_or_deferred(void) {
-  char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
-  int declared = -1;
-  const int listed = oracle_manifest_fixtures(MODULE, names, &declared);
-  int identical = 0;
-  deferred_count = 0;
-  for (int i = 0; i < listed; i++) {
-    const int transfer = needs_instability_transfer(names[i]);
-    if (transfer || is_deferred(names[i])) {
-      if (transfer && is_deferred(names[i])) {
-        deferred_count++;
-        printf("\n  oracle: %s/%s DEFERRED (end state includes the instability's stellar "
-               "transfer, asserted from its port on)",
-               MODULE, names[i]);
-      } else {
-        printf("\n  oracle: %s/%s DIFFERS (deferral list and the oracle's instability record "
-               "disagree)",
-               MODULE, names[i]);
-      }
-      continue;
-    }
-    const int problems = check_fixture(names[i]);
-    if (problems == 0) {
-      identical++;
-      printf("\n  oracle: %s/%s bit-identical", MODULE, names[i]);
-    } else {
-      printf("\n  oracle: %s/%s DIFFERS (%d problems; details on stderr)", MODULE, names[i],
-             problems);
-    }
-  }
-  printf("\n  oracle: %s bit-identical %d, deferred %d, of %d listed fixtures (manifest "
-         "declares %d) ",
-         MODULE, identical, deferred_count, listed, declared);
-  return declared > 0 && listed == declared && deferred_count == (int)COUNT(DEFERRED_FIXTURES) &&
-         identical + deferred_count == declared;
-}
-
-/**
  * @test    test_oracle_fixture_count
  * @brief   Every fixture fixtures.manifest lists for the module is present (platform independent)
  */
@@ -670,8 +615,8 @@ int test_oracle_fixture_count(void) {
 
 /**
  * @test    test_oracle_bit_identity
- * @brief   Every fixture reproduces the SAGE26 oracle bit for bit through the chain, or is a
- *          named deferral (SKIP outside the oracle environment)
+ * @brief   Every fixture reproduces the SAGE26 oracle bit for bit through the chain (SKIP
+ *          outside the oracle environment)
  */
 int test_oracle_bit_identity(void) {
   const char *mismatch = oracle_environment_mismatch();
@@ -679,12 +624,12 @@ int test_oracle_bit_identity(void) {
     return TEST_SKIP_WITH(mismatch);
   }
   memset(&tally, 0, sizeof(tally));
-  const int ok = all_identical_or_deferred();
+  const int ok = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), not validated %d, "
          "not package values %d, absent %d; binding clamps and caps asserted equal to their "
          "reservoir %d ",
          tally.asserted, tally.not_validated, tally.not_carried, tally.absent, tally.binding);
-  TEST_ASSERT(ok, "every fixture must reproduce the oracle bit for bit or be a named deferral");
+  TEST_ASSERT(ok, "every fixture must reproduce the oracle bit for bit");
   return TEST_PASS;
 }
 

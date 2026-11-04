@@ -11,7 +11,7 @@
  * - Disk stability criterion (Mo, Mao & White 1998)
  * - Stellar mass transfer to bulge with metallicity preservation
  * - Trigger flag setting for downstream modules
- * - Edge cases (zero mass, zero radius, safety constraints)
+ * - Edge cases (zero mass, zero radius) and SAGE26's absence of transfer caps and bulge clamps
  *
  * Test cases:
  *   - test_module_registration: Module registers correctly
@@ -29,9 +29,9 @@
  *   - test_unstable_disk_stars_only: Stars-only disk (triggers NOT set)
  *   - test_zero_vmax: Zero virial velocity
  *   - test_zero_disk_radius: Zero disk radius
- *   - test_full_disk_transfer_clamps_to_available_mass: Full disk transfer boundary
- *   - test_bulge_exceeds_stellar_mass: Safety constraint
- *   - test_metals_bulge_exceeds_stellar_metals: Metal safety constraint
+ *   - test_full_disk_transfer_is_not_capped: Full disk transfer, SAGE26's bits, no cap
+ *   - test_bulge_mass_not_clamped_to_stellar_mass: No bulge clamp (SAGE26's bits)
+ *   - test_metals_bulge_not_clamped_to_stellar_metals: No bulge-metals clamp (SAGE26's bits)
  *   - test_disk_factor_sensitivity: Parameter affects results
  *
  * @author  Mimic Development Team
@@ -48,6 +48,7 @@
 #include "util/error.h"
 #include "util/memory.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -707,116 +708,156 @@ int test_zero_disk_radius(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_full_disk_transfer_clamps_to_available_mass
- * @brief   Test full stellar disk transfer at the bulge/stellar boundary
+/* ---------------------------------------------------------------------------
+ * No cap and no clamp (SAGE26 R/src/model_disk_instability.c:77-79)
  *
- * Expected: Bulge and bulge metals snap exactly to the available total reservoirs
- * Validates: Transfer capping prevents tolerance-level component overshoot
+ * SAGE26 adds the double unstable_stars and its metallicity product straight into
+ * the float bulge fields. With Vmax = 0 (Mcrit = 0) and ColdGas = 0 the whole float
+ * disk difference is transferred, and the float stores can leave BulgeMass or
+ * MetalsBulgeMass one rounding above StellarMass or MetalsStellarMass. SAGE26 keeps
+ * that; it has no cap on the transfer and no clamp of the bulge.
+ *
+ * The inputs and expected bit patterns below come from executing SAGE26's own
+ * compiled check_disk_instability (SAGE26 commit 11b1ae85, Apple clang 21, the
+ * oracle's compile flags) on exactly these inputs, with G = 43007.1, AGNrecipeOn 2
+ * and BulgeSizeOn 0. ColdGas = 0 keeps SAGE26's routine from reaching its
+ * black-hole and burst calls, so its end state is the transfer alone. SAGE26 left
+ * the bulge radii (set to 0.25, 0.125 and 0.0625) unchanged on every input.
+ * --------------------------------------------------------------------------- */
+
+static float f32_from_bits(const uint32_t bits) {
+  float value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+static uint32_t f32_bits(const float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+/** @brief Inputs (float bit patterns) and SAGE26's resulting bulge fields */
+struct sage26_transfer_case {
+  uint32_t stellar_mass;
+  uint32_t bulge_mass;
+  uint32_t metals_stellar_mass;
+  uint32_t metals_bulge_mass;
+  uint32_t expected_bulge_mass;
+  uint32_t expected_metals_bulge_mass;
+  uint32_t expected_instability_bulge_mass; /* from InstabilityBulgeMass = 0 */
+};
+
+/**
+ * @brief Run the module on a ColdGas = 0, Vmax = 0 galaxy and compare with SAGE26's bits
+ * @return TEST_PASS or TEST_FAIL
  */
-int test_full_disk_transfer_clamps_to_available_mass(void) {
-  /* ===== SETUP ===== */
+static int run_sage26_transfer_case(const struct sage26_transfer_case *c) {
   setup_module_for_physics_test(3.0);
 
-  struct Halo test_halo = create_test_halo(0.0, 5.0e-4f, 1.3544e-4f, 5.0e-5f, 0.03f);
-  test_halo.galaxy->MetalsStellarMass = 2.8763e-8f;
-  test_halo.galaxy->MetalsBulgeMass = 1.0e-8f;
+  struct Halo test_halo =
+      create_test_halo(0.0f, 0.0f, f32_from_bits(c->stellar_mass), f32_from_bits(c->bulge_mass),
+                       f32_from_bits(0x3c23d70au) /* 0.01 */);
+  struct GalaxyData *gal = test_halo.galaxy;
+  gal->MetalsStellarMass = f32_from_bits(c->metals_stellar_mass);
+  gal->MetalsBulgeMass = f32_from_bits(c->metals_bulge_mass);
+  gal->InstabilityBulgeMass = 0.0f;
+  gal->BulgeRadius = 0.25f;
+  gal->MergerBulgeRadius = 0.125f;
+  gal->InstabilityBulgeRadius = 0.0625f;
 
   struct ModuleContext ctx;
   memset(&ctx, 0, sizeof(ctx));
   ctx.params = &MimicConfig;
   ctx.central_galaxy = &test_halo;
 
-  /* ===== EXECUTE ===== */
   int result = sage26_disk_instability_process(&ctx, &test_halo, 1);
 
-  /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Full disk transfer should complete");
-  TEST_ASSERT(test_halo.galaxy->BulgeMass <= test_halo.galaxy->StellarMass,
-              "BulgeMass should not exceed StellarMass after full disk transfer");
-  TEST_ASSERT(test_halo.galaxy->MetalsBulgeMass <= test_halo.galaxy->MetalsStellarMass,
-              "MetalsBulgeMass should not exceed MetalsStellarMass after full disk transfer");
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->BulgeMass, test_halo.galaxy->StellarMass, 1e-10,
-                           "Full disk transfer should leave all stars in bulge");
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsBulgeMass, test_halo.galaxy->MetalsStellarMass,
-                           1e-12, "Full disk transfer should leave all stellar metals in bulge");
+  TEST_ASSERT(f32_bits(gal->BulgeMass) == c->expected_bulge_mass,
+              "BulgeMass must equal SAGE26's uncapped, unclamped result bit for bit");
+  TEST_ASSERT(f32_bits(gal->MetalsBulgeMass) == c->expected_metals_bulge_mass,
+              "MetalsBulgeMass must equal SAGE26's uncapped, unclamped result bit for bit");
+  TEST_ASSERT(f32_bits(gal->InstabilityBulgeMass) == c->expected_instability_bulge_mass,
+              "InstabilityBulgeMass must receive SAGE26's unstable_stars bit for bit");
+  TEST_ASSERT(gal->UnstableDiskGasFraction == 0.0, "No cold gas: no unstable gas is handed on");
+  TEST_ASSERT(gal->BulgeRadius == 0.25f && gal->MergerBulgeRadius == 0.125f &&
+                  gal->InstabilityBulgeRadius == 0.0625f,
+              "BulgeSizeOn 0: the bulge radii keep their values (R/src/model_misc.c:395)");
 
-  /* ===== CLEANUP ===== */
   free_test_halo(&test_halo);
   module_system_cleanup();
   check_memory_leaks();
-
   return TEST_PASS;
 }
 
 /**
- * @test    test_bulge_exceeds_stellar_mass
- * @brief   Test that safety constraint prevents BulgeMass > StellarMass
+ * @test    test_full_disk_transfer_is_not_capped
+ * @brief   A full stellar-disk transfer is not capped to the disk's stars or metals
  *
- * Expected: BulgeMass capped at StellarMass, warning logged
- * Validates: Safety constraint enforcement
+ * Expected: SAGE26's bits; BulgeMass ends one float above StellarMass, as in SAGE26
+ * Validates: no transfer cap and no bulge clamp (R/src/model_disk_instability.c:77-79)
  */
-int test_bulge_exceeds_stellar_mass(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(3.0);
-
-  /* Create scenario where calculation might produce BulgeMass > StellarMass */
-  struct Halo test_halo = create_test_halo(200.0, 5.0, 10.0, 9.9, 0.01);
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  sage26_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(test_halo.galaxy->BulgeMass <= test_halo.galaxy->StellarMass + 1e-6,
-              "BulgeMass should never exceed StellarMass (safety constraint)");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
+int test_full_disk_transfer_is_not_capped(void) {
+  const struct sage26_transfer_case c = {
+      .stellar_mass = 0x423aed91u,        /* 46.7320 */
+      .bulge_mass = 0x412b39deu,          /* 10.7016 */
+      .metals_stellar_mass = 0x3ee721fau, /* 0.451431 */
+      .metals_bulge_mass = 0x3ec7b2dcu,   /* 0.390036 */
+      .expected_bulge_mass = 0x423aed92u, /* one float above StellarMass */
+      .expected_metals_bulge_mass = 0x3ee721fau,
+      .expected_instability_bulge_mass = 0x42101f1au,
+  };
+  const int status = run_sage26_transfer_case(&c);
+  TEST_ASSERT(f32_from_bits(c.expected_bulge_mass) > f32_from_bits(c.stellar_mass),
+              "This SAGE26 case leaves BulgeMass above StellarMass");
+  return status;
 }
 
 /**
- * @test    test_metals_bulge_exceeds_stellar_metals
- * @brief   Test that safety constraint prevents MetalsBulgeMass > MetalsStellarMass
+ * @test    test_bulge_mass_not_clamped_to_stellar_mass
+ * @brief   BulgeMass above StellarMass after a transfer is kept, not clamped
  *
- * Expected: MetalsBulgeMass capped at MetalsStellarMass, warning logged
- * Validates: Metal mass safety constraint
+ * Expected: SAGE26's bits; BulgeMass ends one float above StellarMass
+ * Validates: the sage16-era clamp of BulgeMass to StellarMass is gone
+ *            (absent from R/src/model_disk_instability.c:77-84)
  */
-int test_metals_bulge_exceeds_stellar_metals(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(3.0);
+int test_bulge_mass_not_clamped_to_stellar_mass(void) {
+  const struct sage26_transfer_case c = {
+      .stellar_mass = 0x4222b53fu,        /* 40.6770 */
+      .bulge_mass = 0x4102d136u,          /* 8.17607 */
+      .metals_stellar_mass = 0x3dc644fau, /* 0.0968112 */
+      .metals_bulge_mass = 0x3cb27148u,   /* 0.0217903 */
+      .expected_bulge_mass = 0x4222b540u, /* one float above StellarMass */
+      .expected_metals_bulge_mass = 0x3dc644fau,
+      .expected_instability_bulge_mass = 0x420200f2u,
+  };
+  TEST_ASSERT(f32_from_bits(c.expected_bulge_mass) > f32_from_bits(c.stellar_mass),
+              "This SAGE26 case leaves BulgeMass above StellarMass");
+  return run_sage26_transfer_case(&c);
+}
 
-  /* Create scenario where calculation might produce MetalsBulgeMass > MetalsStellarMass */
-  struct Halo test_halo = create_test_halo(200.0, 5.0, 10.0, 9.9, 0.01);
-  test_halo.galaxy->MetalsStellarMass = 0.2f;
-  test_halo.galaxy->MetalsBulgeMass = 0.198f;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  sage26_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(test_halo.galaxy->MetalsBulgeMass <= test_halo.galaxy->MetalsStellarMass + 1e-6,
-              "MetalsBulgeMass should never exceed MetalsStellarMass (safety constraint)");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
+/**
+ * @test    test_metals_bulge_not_clamped_to_stellar_metals
+ * @brief   MetalsBulgeMass above MetalsStellarMass after a transfer is kept, not clamped
+ *
+ * Expected: SAGE26's bits; MetalsBulgeMass ends one float above MetalsStellarMass
+ * Validates: no cap of the transferred metals to the disk metals and no clamp of the
+ *            bulge metals (R/src/model_disk_instability.c:75, :79)
+ */
+int test_metals_bulge_not_clamped_to_stellar_metals(void) {
+  const struct sage26_transfer_case c = {
+      .stellar_mass = 0x42079893u,               /* 33.8990 */
+      .bulge_mass = 0x419b649du,                 /* 19.4241 */
+      .metals_stellar_mass = 0x3eb9b657u,        /* 0.362719 */
+      .metals_bulge_mass = 0x3db5ff7eu,          /* 0.0888662 */
+      .expected_bulge_mass = 0x42079893u,        /* equal to StellarMass */
+      .expected_metals_bulge_mass = 0x3eb9b658u, /* one float above MetalsStellarMass */
+      .expected_instability_bulge_mass = 0x41679912u,
+  };
+  TEST_ASSERT(f32_from_bits(c.expected_metals_bulge_mass) > f32_from_bits(c.metals_stellar_mass),
+              "This SAGE26 case leaves MetalsBulgeMass above MetalsStellarMass");
+  return run_sage26_transfer_case(&c);
 }
 
 /**
@@ -911,9 +952,9 @@ int main(void) {
   printf("\n%s=== Edge Case Tests ===%s\n", BLUE, NC);
   TEST_RUN(test_zero_vmax);
   TEST_RUN(test_zero_disk_radius);
-  TEST_RUN(test_full_disk_transfer_clamps_to_available_mass);
-  TEST_RUN(test_bulge_exceeds_stellar_mass);
-  TEST_RUN(test_metals_bulge_exceeds_stellar_metals);
+  TEST_RUN(test_full_disk_transfer_is_not_capped);
+  TEST_RUN(test_bulge_mass_not_clamped_to_stellar_mass);
+  TEST_RUN(test_metals_bulge_not_clamped_to_stellar_metals);
 
   /* Run parameter sensitivity tests */
   printf("\n%s=== Parameter Sensitivity Tests ===%s\n", BLUE, NC);
