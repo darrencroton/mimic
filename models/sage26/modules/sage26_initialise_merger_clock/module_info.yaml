@@ -1,8 +1,9 @@
 module:
   name: sage26_initialise_merger_clock
   description: >-
-    SAGE26's merger-clock and infall assignment of progenitor joining: resets a central's clock,
-    records infallStellarMass and TimeOfInfall when a central becomes a satellite, estimates the
+    SAGE26's merger-clock, infall and history assignment of progenitor joining: zeroes the SFR
+    histories of a galaxy that stays a Type 0 or 1, resets a central's clock, records
+    infallStellarMass and TimeOfInfall when a central becomes a satellite, estimates the
     dynamical-friction clock (estimate_merging_time) and starts an orphan's clock at zero
 
   supported_processing_modes: [process_full_halo]
@@ -19,6 +20,66 @@ module:
       - PreviousType
       - infallStellarMassState
       - TimeOfInfallState
+      - SfrDiskBin0
+      - SfrDiskBin1
+      - SfrDiskBin2
+      - SfrDiskBin3
+      - SfrDiskBin4
+      - SfrDiskBin5
+      - SfrDiskBin6
+      - SfrDiskBin7
+      - SfrDiskBin8
+      - SfrDiskBin9
+      - SfrBulgeBin0
+      - SfrBulgeBin1
+      - SfrBulgeBin2
+      - SfrBulgeBin3
+      - SfrBulgeBin4
+      - SfrBulgeBin5
+      - SfrBulgeBin6
+      - SfrBulgeBin7
+      - SfrBulgeBin8
+      - SfrBulgeBin9
+      - SfrDiskColdGasBin0
+      - SfrDiskColdGasBin1
+      - SfrDiskColdGasBin2
+      - SfrDiskColdGasBin3
+      - SfrDiskColdGasBin4
+      - SfrDiskColdGasBin5
+      - SfrDiskColdGasBin6
+      - SfrDiskColdGasBin7
+      - SfrDiskColdGasBin8
+      - SfrDiskColdGasBin9
+      - SfrDiskColdGasMetalsBin0
+      - SfrDiskColdGasMetalsBin1
+      - SfrDiskColdGasMetalsBin2
+      - SfrDiskColdGasMetalsBin3
+      - SfrDiskColdGasMetalsBin4
+      - SfrDiskColdGasMetalsBin5
+      - SfrDiskColdGasMetalsBin6
+      - SfrDiskColdGasMetalsBin7
+      - SfrDiskColdGasMetalsBin8
+      - SfrDiskColdGasMetalsBin9
+      - SfrBulgeColdGasBin0
+      - SfrBulgeColdGasBin1
+      - SfrBulgeColdGasBin2
+      - SfrBulgeColdGasBin3
+      - SfrBulgeColdGasBin4
+      - SfrBulgeColdGasBin5
+      - SfrBulgeColdGasBin6
+      - SfrBulgeColdGasBin7
+      - SfrBulgeColdGasBin8
+      - SfrBulgeColdGasBin9
+      - SfrBulgeColdGasMetalsBin0
+      - SfrBulgeColdGasMetalsBin1
+      - SfrBulgeColdGasMetalsBin2
+      - SfrBulgeColdGasMetalsBin3
+      - SfrBulgeColdGasMetalsBin4
+      - SfrBulgeColdGasMetalsBin5
+      - SfrBulgeColdGasMetalsBin6
+      - SfrBulgeColdGasMetalsBin7
+      - SfrBulgeColdGasMetalsBin8
+      - SfrBulgeColdGasMetalsBin9
     parameters:
       - MergerTimeFactor  # optional: absent means SAGE26's default 2.0
 

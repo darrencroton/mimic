@@ -1,11 +1,28 @@
 /**
  * @file    sage26_resolve_mergers_and_disruption.c
- * @brief   SAGE26's per-substep merger and disruption pass and its merger transaction
+ * @brief   SAGE26's per-substep merger and disruption pass and its two transactions
  *
- * The pass (still the package's, until SAGE26's R/src/core_build_model.c:519-587 is
- * ported): decrement MergTime inside one satellite pass, decide disruption vs merger
- * from live substep state, resolve the current target with a one-hop redirect, and
- * mutate the target immediately before advancing to the next satellite.
+ * The pass reproduces SAGE26's (R/src/core_build_model.c:519-587, B below; R = the staged
+ * SAGE26 source) once per substep, after every galaxy's physics: for each row in order, a
+ * Type 1 or 2 not yet merged (B:523)
+ *
+ *   1. must hold a clock below 999 (B:524-527, where SAGE26 aborts);
+ *   2. has its clock decremented by its substep interval deltaT / N, a float store
+ *      (B:529-530);
+ *   3. is eligible if its float StellarMass + ColdGas is exactly zero, or positive with
+ *      the interpolated Mvir - deltaMvir * (1 - (step + 1) / N), not floored, at most
+ *      ThresholdSatDisruption times it (B:534-537);
+ *   4. targets the FoF central (Type 1) or its subhalo's central (Type 2), redirected
+ *      once through that target's central if it has merged (B:539-543,
+ *      shared/central_link.h);
+ *   5. with a finite clock (B:547), at the event time Age - (step + 0.5) * (deltaT / N)
+ *      (B:549), is disrupted to the target's ICS while its clock is positive (B:574-575),
+ *      else merges into the target (B:576-581).
+ *
+ * The target is mutated at once, before the next row. A satellite that is not eligible,
+ * or whose clock is not finite, stays and is reconsidered next substep; there is no
+ * early orphan purge and no forced clock, so an orphan's removal is the pass's outcome
+ * (an orphan's interpolated Mvir reaches 0 at the last substep, B:323-325).
  *
  * The merger transaction reproduces SAGE26's deal_with_galaxy_merger on the R0 path
  * (R/src/model_mergers.c:228-333, M below), in its statement order:
@@ -27,6 +44,9 @@
  *
  * A ratio of 0 (both baryon sums zero) is not suppressed: the transaction, the event and
  * its consumers run as in SAGE26.
+ *
+ * The disruption reproduces SAGE26's disrupt_satellite_to_ICS (M:845-902) through
+ * shared/sage_merger_physics.h; the satellite leaves as Type 3 (SAGE26's mergeType 4).
  */
 
 #include <math.h>
@@ -115,11 +135,24 @@ static int emit_merger_event(struct ModuleContext *ctx, struct Halo *halos, int 
   return 0;
 }
 
-static void apply_disruption(struct Halo *source_halo, struct GalaxyData *target, int source_idx,
-                             int target_idx) {
-  mimic_sage_disruption_transfer(target, source_halo->galaxy);
-  source_halo->Type = 3;
-  record_action("disrupt", source_idx, target_idx, 0.0);
+int sage26_resolve_mergers_and_disruption_disrupt(struct Halo *halos, int ngal, int satellite_idx,
+                                                  int target_idx, double event_time,
+                                                  struct MimicSageDisruptLocals *locals) {
+  if (halos == NULL || satellite_idx < 0 || satellite_idx >= ngal ||
+      halos[satellite_idx].galaxy == NULL ||
+      validate_immediate_target(halos, ngal, satellite_idx, target_idx) != 0) {
+    ERROR_LOG("Invalid disruption (satellite=%d, target=%d, ngal=%d)", satellite_idx, target_idx,
+              ngal);
+    return -1;
+  }
+
+  mimic_sage_disrupt_satellite_to_ics(halos[target_idx].galaxy, halos[satellite_idx].galaxy,
+                                      event_time, locals);
+
+  // SAGE parity: the satellite is marked disrupted (mergeType 4, M:902); here Type 3
+  halos[satellite_idx].Type = 3;
+  record_action("disrupt", satellite_idx, target_idx, 0.0);
+  return 0;
 }
 
 int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struct Halo *halos,
@@ -181,6 +214,171 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
   return 0;
 }
 
+static void pass_record_reset(struct MimicSagePassRecord *record) {
+  if (record == NULL) {
+    return;
+  }
+  record->considered = 0;
+  record->action = 0;
+  record->deltaT = NAN;
+  record->currentMvir = NAN;
+  record->galaxyBaryons = NAN;
+  record->gate_zero_baryons = -1;
+  record->gate_passed = -1;
+  record->merger_centralgal = -1;
+  record->redirected = -1;
+  record->clock_finite = -1;
+  record->event_time = NAN;
+  record->step_bin = -1;
+  record->dt = NAN;
+  record->major_merger = -1;
+}
+
+int sage26_resolve_mergers_and_disruption_pass(struct ModuleContext *ctx, struct Halo *halos,
+                                               int ngal, MimicSageMergerEmitFn emit,
+                                               struct MimicSagePassRecord *records) {
+  if (validate_immediate_merger_context(ctx) != 0 || emit == NULL) {
+    return -1;
+  }
+  if (halos == NULL || ngal <= 0) {
+    return 0;
+  }
+  for (int i = 0; i < ngal; i++) {
+    pass_record_reset(records != NULL ? &records[i] : NULL);
+  }
+
+  /* SAGE26's centralgal, the FoF's Type 0 (B:393-400); only a Type 1's target reads it, so
+   * a workspace without one fails at the first eligible Type 1 */
+  const int fof_central_idx = mimic_find_fof_central_index(halos, ngal);
+  const int step = ctx->substep_number;
+  const int num_substeps = ctx->num_substeps;
+
+  for (int i = 0; i < ngal; i++) {
+    struct MimicSagePassRecord *record = (records != NULL) ? &records[i] : NULL;
+
+    // SAGE parity: a Type 1 or 2 not yet merged (B:523); a merged row is the package's Type 3
+    if ((halos[i].Type != 1 && halos[i].Type != 2) || halos[i].galaxy == NULL) {
+      continue;
+    }
+    struct GalaxyData *satellite = halos[i].galaxy;
+
+    /* The row's substep interval, Age[SnapNum] - halo_age over the substep count (B:529):
+     * the core's dT is that difference of its Age table. A row the core marks as the first
+     * snapshot's boundary (SnapNum < 0, dT <= 0) is not evolved; a satellite never is one */
+    double dt = 0.0;
+    const enum MimicObjectTimeStatus dt_status = mimic_object_substep_dt(&halos[i], ctx, &dt);
+    if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
+      continue;
+    }
+    if (dt_status != MIMIC_OBJECT_TIME_OK) {
+      ERROR_LOG("Invalid merger-pass dt for halo %lld (SnapNum=%d, dT=%.3e, num_substeps=%d, "
+                "status=%s)",
+                halos[i].HaloNr, halos[i].SnapNum, halos[i].dT, num_substeps,
+                mimic_object_time_status_str(dt_status));
+      return -1;
+    }
+    const double deltaT = halos[i].dT;
+    if (record != NULL) {
+      record->considered = 1;
+      record->deltaT = deltaT;
+    }
+
+    // SAGE parity: SAGE26 aborts unless the clock is below 999 (B:524-527); a NaN fails too
+    if (!(satellite->MergTime < SAGE_MERGTIME_UNSET_THRESHOLD)) {
+      ERROR_LOG("Satellite %lld has MergTime %g, not below %.1f (SAGE26 aborts here, "
+                "core_build_model.c:524-527)",
+                halos[i].HaloNr, (double)satellite->MergTime, SAGE_MERGTIME_UNSET_THRESHOLD);
+      return -1;
+    }
+
+    // SAGE parity: the float clock less the double substep interval (B:530)
+    satellite->MergTime -= deltaT / num_substeps;
+
+    /* SAGE parity: the interpolated Mvir with no floor at zero (B:534), one fused
+     * multiply-subtract in SAGE26's objects (oracle README c06 table), written as fma() */
+    const double current_mvir =
+        fma(-halos[i].deltaMvir, 1.0 - ((double)step + 1.0) / (double)num_substeps, halos[i].Mvir);
+    // SAGE parity: the float sum of two float members, widened on assignment (B:535)
+    const double galaxy_baryons = satellite->StellarMass + satellite->ColdGas;
+    const int gate_zero_baryons = (galaxy_baryons == 0.0);
+    // SAGE parity: zero baryons, or positive baryons with the ratio at the threshold or below
+    // (B:537)
+    const int gate_passed =
+        gate_zero_baryons ||
+        (galaxy_baryons > 0.0 && (current_mvir / galaxy_baryons <= THRESHOLD_SAT_DISRUPTION));
+    if (record != NULL) {
+      record->currentMvir = current_mvir;
+      record->galaxyBaryons = galaxy_baryons;
+      record->gate_zero_baryons = gate_zero_baryons;
+      record->gate_passed = gate_passed;
+    }
+    if (!gate_passed) {
+      continue;
+    }
+
+    // SAGE parity: the target and its one-hop redirect (B:539-543)
+    int redirected = 0;
+    const int target_idx =
+        mimic_resolve_immediate_target_index(halos, ngal, i, fof_central_idx, &redirected);
+    if (record != NULL) {
+      record->merger_centralgal = target_idx;
+      record->redirected = redirected;
+    }
+    if (validate_immediate_target(halos, ngal, i, target_idx) != 0) {
+      return -1;
+    }
+
+    // SAGE parity: a non-finite clock leaves the satellite as it is (B:547)
+    const int clock_finite = isfinite(satellite->MergTime);
+    if (record != NULL) {
+      record->clock_finite = clock_finite;
+    }
+    if (!clock_finite) {
+      DEBUG_LOG("Satellite %lld has a non-finite MergTime; not merged or disrupted",
+                halos[i].HaloNr);
+      continue;
+    }
+
+    /* SAGE parity: the event time Age[SnapNum] - (step + 0.5) * (deltaT / N) (B:549), one
+     * fused multiply-subtract in SAGE26's objects, written as fma(); Age[SnapNum] is the
+     * core's Age[current] plus dT, the time convention of shared/time_parity.h */
+    const double age = ctx->time + deltaT;
+    const double event_time = fma(-((double)step + 0.5), deltaT / num_substeps, age);
+    if (record != NULL) {
+      record->event_time = event_time;
+    }
+
+    // SAGE parity: a positive clock disrupts the satellite to the ICS (B:574-575)
+    if (satellite->MergTime > 0.0) {
+      if (sage26_resolve_mergers_and_disruption_disrupt(halos, ngal, i, target_idx, event_time,
+                                                        NULL) != 0) {
+        return -1;
+      }
+      if (record != NULL) {
+        record->action = 4;
+      }
+      continue;
+    }
+
+    // SAGE parity: otherwise a merger, in the substep's history bin (B:576-581)
+    if (record != NULL) {
+      record->step_bin = mimic_sage_sfr_step_bin(step, num_substeps);
+      record->dt = dt;
+    }
+    struct MimicSageMergerLocals merger_locals;
+    if (sage26_resolve_mergers_and_disruption_merge(ctx, halos, ngal, i, target_idx, event_time, dt,
+                                                    emit, &merger_locals, NULL) != 0) {
+      return -1;
+    }
+    if (record != NULL) {
+      record->action = 1;
+      record->major_merger = merger_locals.major_merger;
+    }
+  }
+
+  return 0;
+}
+
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
@@ -233,97 +431,7 @@ int sage26_resolve_mergers_and_disruption_init(void) {
 
 int sage26_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struct Halo *halos,
                                                   int ngal) {
-  if (validate_immediate_merger_context(ctx) != 0) {
-    return -1;
-  }
-
-  if (halos == NULL || ngal <= 0) {
-    return 0;
-  }
-
-  const int fof_central_idx = mimic_find_fof_central_index(halos, ngal);
-  if (fof_central_idx < 0 || halos[fof_central_idx].galaxy == NULL) {
-    return 0;
-  }
-
-  for (int i = 0; i < ngal; i++) {
-    double source_dt = 0.0;
-    enum MimicObjectTimeStatus dt_status;
-
-    if ((halos[i].Type != 1 && halos[i].Type != 2) || halos[i].galaxy == NULL) {
-      continue;
-    }
-
-    struct GalaxyData *satellite = halos[i].galaxy;
-
-    dt_status = mimic_object_substep_dt(&halos[i], ctx, &source_dt);
-    if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
-      continue;
-    }
-    if (dt_status != MIMIC_OBJECT_TIME_OK) {
-      ERROR_LOG("Invalid immediate-merger dt for halo %lld (SnapNum=%d, dT=%.3e, num_substeps=%d, "
-                "status=%s)",
-                halos[i].HaloNr, halos[i].SnapNum, halos[i].dT, ctx->num_substeps,
-                mimic_object_time_status_str(dt_status));
-      return -1;
-    }
-
-    if (satellite->MergTime >= SAGE_MERGTIME_UNSET_THRESHOLD) {
-      ERROR_LOG("Satellite %lld has unset MergTime (%.1f)", halos[i].HaloNr, satellite->MergTime);
-      return -1;
-    }
-
-    satellite->MergTime -= source_dt;
-
-    const double fraction = ((double)ctx->substep_number + 1.0) / (double)ctx->num_substeps;
-    double current_mvir = halos[i].Mvir - halos[i].deltaMvir * (1.0 - fraction);
-    if (current_mvir < 0.0) {
-      current_mvir = 0.0;
-    }
-
-    const double galaxy_baryons = satellite->StellarMass + satellite->ColdGas;
-    const double virial_to_baryons =
-        (galaxy_baryons > 0.0) ? (current_mvir / galaxy_baryons) : -1.0;
-    const int eligible = (galaxy_baryons == 0.0) ||
-                         (galaxy_baryons > 0.0 && (virial_to_baryons <= THRESHOLD_SAT_DISRUPTION));
-
-    if (!eligible) {
-      continue;
-    }
-
-    if (!isfinite(satellite->MergTime)) {
-      WARNING_LOG("Satellite %lld has non-finite MergTime", halos[i].HaloNr);
-      continue;
-    }
-
-    const int target_idx = mimic_resolve_immediate_target_index(halos, ngal, i, fof_central_idx);
-    if (validate_immediate_target(halos, ngal, i, target_idx) != 0) {
-      return -1;
-    }
-    struct GalaxyData *target = halos[target_idx].galaxy;
-
-    if (satellite->MergTime > 0.0) {
-      apply_disruption(&halos[i], target, i, target_idx);
-      continue;
-    }
-
-    double source_time = 0.0;
-    enum MimicObjectTimeStatus time_status =
-        mimic_object_substep_time(&halos[i], ctx, &source_time);
-    if (time_status != MIMIC_OBJECT_TIME_OK) {
-      ERROR_LOG("Invalid immediate-merger event time for halo %lld (status=%s)", halos[i].HaloNr,
-                mimic_object_time_status_str(time_status));
-      return -1;
-    }
-
-    if (sage26_resolve_mergers_and_disruption_merge(ctx, halos, ngal, i, target_idx, source_time,
-                                                    source_dt, emit_merger_event, NULL,
-                                                    NULL) != 0) {
-      return -1;
-    }
-  }
-
-  return 0;
+  return sage26_resolve_mergers_and_disruption_pass(ctx, halos, ngal, emit_merger_event, NULL);
 }
 
 int sage26_resolve_mergers_and_disruption_cleanup(void) {

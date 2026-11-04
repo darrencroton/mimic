@@ -15,27 +15,32 @@
  *   (R/src/core_build_model.c:240-341): the core's own inheritance service
  *   (inherit_descendant_halos, src/core/inheritance.c) joins the fixture's
  *   progenitor galaxies into the descendant halo, then the module's process()
- *   makes the package's joining writes. Each retained galaxy is asserted on the
- *   package's fields (MergTime, and infallStellarMass and TimeOfInfall through the
- *   private state properties that hold SAGE26's members) and, as evidence of the
- *   composition, on the core's (Type, SnapNum, HaloNr, Len, Mvir, deltaMvir, Rvir,
- *   Vvir, Vmax, infallMvir, infallVvir, infallVmax, each SAGE26 float compared
- *   with the core's double narrowed to float) and on StellarMass and ColdGas,
- *   which the clock reads.
+ *   makes the package's joining writes (modules/_tests/sage26_oracle_join.h). Each
+ *   retained galaxy is asserted on the package's fields (MergTime; infallStellarMass
+ *   and TimeOfInfall through the private state properties that hold SAGE26's
+ *   members; and the sixty history elements, which the module zeroes for a galaxy
+ *   that stays a Type 0 or 1 and leaves for a new orphan, B:252, :278-282, :322-337)
+ *   and, as evidence of the composition, on the core's (Type, SnapNum, HaloNr, Len,
+ *   Mvir, deltaMvir, Rvir, Vvir, Vmax, infallMvir, infallVvir, infallVmax, each
+ *   SAGE26 float compared with the core's double narrowed to float) and on
+ *   StellarMass and ColdGas, which the clock reads.
  * - join_and_pass (tr_jp_probe_already_merged_trailing, owned here by PM decision
- *   PM-D3): the joining as above, then the package's merger pass
+ *   PM-D3): the joining as above with every galaxy's full state and the pass's
+ *   timing, then sage26_set_disk_scale_radius and the package's merger pass
  *   (sage26_resolve_mergers_and_disruption) at the fixture's substep, asserting
  *   the joined state (intermediate.join.galaxy[*]) and the end state (galaxy[*]).
+ *   The resolver's oracle test asserts the other join_and_pass fixtures in full.
  *
  * Fields excluded from the joining assertions, by reason (each consumed by name):
  * - core-boundary: an orphan's Len (the core zeros it, SAGE26 keeps it,
  *   src/core/inheritance.c:86) and the infall halo values of a Type 1 with a clock
  *   above 999 that loses its subhalo (SAGE26 writes them, B:327-333; the core
  *   writes them only for a previous Type 0, src/core/inheritance.c:88-92);
- * - other owners: the history, Cooling, Heating, QuasarModeBHaccretionMass and
- *   OutflowRate resets (the core's init_repeat; the orphan exception is Slice 5's),
- *   the central's disk and bulge radii (sage26_set_disk_scale_radius), and the
- *   reservoirs joining copies unchanged;
+ * - other owners: the Cooling, Heating, QuasarModeBHaccretionMass and OutflowRate
+ *   resets (the core's init_repeat on every inherited row; SAGE26 resets them only
+ *   on the main branch, B:273-276, so a new orphan keeps them there: recorded in the
+ *   resolver's validation as a residual), the central's disk and bulge radii
+ *   (sage26_set_disk_scale_radius), and the reservoirs joining copies unchanged;
  * - SAGE26 bookkeeping without a package counterpart: mergeType, mergeIntoID,
  *   CentralGal, dT, and the driver locals intermediate.join.progenitor[*] (their
  *   effects are the asserted fields).
@@ -54,10 +59,8 @@
 #include "../../../../tests/framework/test_framework.h"
 #include "../../../../tests/framework/test_phase_config.h"
 #include "core/galaxy_pool.h"
-#include "core/inheritance.h"
 #include "core/module_interface.h"
 #include "core/module_registry.h"
-#include "core/virial.h"
 #include "include/globals.h"
 #include "include/types.h"
 #include "util/error.h"
@@ -69,6 +72,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_join.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_merger_clock.h"
 
@@ -83,19 +87,9 @@ extern int sage26_resolve_mergers_and_disruption_cleanup(void);
 
 static const char *MODULE = "sage26_initialise_merger_clock";
 
-#define MAX_JOIN_GALAXIES 8
-#define WORKSPACE_ROWS (MAX_JOIN_GALAXIES + 1)
-
 // ============================================================================
 // FIXTURE HELPERS
 // ============================================================================
-
-/** @brief Name of a catalogue entry, "halo[<h>].<member>" */
-static const char *halo_field(const int h, const char *member) {
-  static char buffer[ORACLE_MAX_NAME];
-  snprintf(buffer, sizeof(buffer), "halo[%d].%s", h, member);
-  return buffer;
-}
 
 /** @brief "<prefix>galaxy[<j>].<member>" */
 static const char *prefixed(const char *prefix, const int j, const char *member) {
@@ -121,30 +115,6 @@ static int consume_prefix(struct oracle_fixture *fx, const char *prefix) {
     }
   }
   return n;
-}
-
-/**
- * @brief The core's get_virial_mass (src/core/virial.c:47-54) on the fixture catalogue
- *
- * The catalogue mass for a FoF's first halo when it is not negative (the tree's float
- * widened, as mimic_tree_get_HaloMass returns it), Len * PartMass otherwise; SAGE26's
- * rule (R/src/model_halo_properties.c:31-37).
- */
-static double core_virial_mass(struct oracle_fixture *in, const int h) {
-  const int fof = oracle_in_i32(in, halo_field(h, "FirstHaloInFOFgroup"));
-  const double halo_mass = oracle_in_f32(in, halo_field(h, "Mvir"));
-  const int len = oracle_in_i32(in, halo_field(h, "Len"));
-  if (h == fof && halo_mass >= 0.0) {
-    return halo_mass;
-  }
-  return len * MimicConfig.PartMass;
-}
-
-/** @brief The redshift of a catalogue halo's snapshot, params.ZZ[<SnapNum>] */
-static double halo_redshift(struct oracle_fixture *in, const int h) {
-  char name[ORACLE_MAX_NAME];
-  snprintf(name, sizeof(name), "params.ZZ[%d]", oracle_in_i32(in, halo_field(h, "SnapNum")));
-  return oracle_in_f64(in, name);
 }
 
 /** @brief Set the cosmology and MergerTimeFactor from the fixture and re-run the module init */
@@ -212,17 +182,17 @@ static int check_estimate(const char *name) {
   struct Halo *satellite = &rows[0];
   struct Halo *mother = &rows[1];
   satellite->HaloNr = sat_halo;
-  satellite->Len = oracle_in_i32(&in, halo_field(sat_halo, "Len"));
-  satellite->Mvir = core_virial_mass(&in, sat_halo);
+  satellite->Len = oracle_in_i32(&in, oracle_join_halo_field(sat_halo, "Len"));
+  satellite->Mvir = oracle_join_core_virial_mass(&in, sat_halo);
   satellite->galaxy = &sat_gal;
   mother->HaloNr = mother_halo;
-  mother->Len = oracle_in_i32(&in, halo_field(mother_halo, "Len"));
-  mother->Mvir = core_virial_mass(&in, mother_halo);
+  mother->Len = oracle_in_i32(&in, oracle_join_halo_field(mother_halo, "Len"));
+  mother->Mvir = oracle_join_core_virial_mass(&in, mother_halo);
   mother->galaxy = NULL;
 
   struct MimicSageMergerClockTrace trace;
   const double mergtime = mimic_sage_estimate_merging_time(
-      satellite, mother, halo_redshift(&in, mother_halo),
+      satellite, mother, oracle_join_halo_redshift(&in, mother_halo),
       oracle_in_f64(&in, "params.MergerTimeFactor"), MimicConfig.G, &trace);
 
   problems += oracle_check_f64(&out, "return.mergtime", mergtime);
@@ -264,158 +234,18 @@ static int check_estimate(const char *name) {
 // PROGENITOR JOINING (THE CORE'S INHERITANCE, THEN THE MODULE)
 // ============================================================================
 
-/** @brief The joined workspace and what each retained row came from */
-struct JoinResult {
-  struct Halo workspace[WORKSPACE_ROWS];
-  struct GalaxyData standin_galaxy;
-  int start;                             /* first row the descendant's galaxies occupy */
-  int end;                               /* one past the last */
-  int source_type[MAX_JOIN_GALAXIES];    /* each retained row's progenitor Type */
-  float source_clock[MAX_JOIN_GALAXIES]; /* each retained row's progenitor MergTime */
-};
-
-/**
- * @brief Build the progenitor rows, join them with the core's inheritance service, run the module
- *
- * A progenitor whose mergeType is not 0 is a galaxy that has merged: the package
- * holds it as Type 3, and the core drops it (SAGE26 marks it Type 3 and skips it,
- * B:242-245). Each progenitor's PreviousType is its Type, as
- * sage26_record_transition_state wrote it at the end of its snapshot.
- *
- * @return Number of setup problems (0 on success)
- */
-static int join(struct oracle_fixture *in, struct GalaxyPool *pool, struct JoinResult *result,
-                struct ModuleContext *ctx) {
-  const int ngal = oracle_in_i32(in, "call.ngal");
-  const int halonr = oracle_in_i32(in, "call.halonr");
-  const int first_occupied = oracle_in_i32(in, "call.first_occupied");
-  if (ngal < 0 || ngal > MAX_JOIN_GALAXIES) {
-    fprintf(stderr, "oracle: %s: %d galaxies exceed the test's %d\n", in->path, ngal,
-            MAX_JOIN_GALAXIES);
-    return 1;
-  }
-
-  static struct Halo sources[MAX_JOIN_GALAXIES];
-  static struct GalaxyData source_galaxies[MAX_JOIN_GALAXIES];
-  struct InheritanceProgenitorGalaxy progenitors[MAX_JOIN_GALAXIES];
-  int source_type_all[MAX_JOIN_GALAXIES];
-  float source_clock_all[MAX_JOIN_GALAXIES];
-
-  for (int k = 0; k < ngal; k++) {
-    struct Halo *h = &sources[k];
-    struct GalaxyData *g = &source_galaxies[k];
-    memset(h, 0, sizeof(*h));
-    init_galaxy_defaults(g);
-    h->galaxy = g;
-
-    int type = oracle_in_i32(in, oracle_galaxy_field(k, "Type"));
-    const int merge_type = oracle_in_i32(in, oracle_galaxy_field(k, "mergeType"));
-    if (merge_type != 0 && (type == 0 || type == 1)) {
-      type = 3;
-    }
-    h->Type = type;
-    g->PreviousType = type;
-    h->SnapNum = oracle_in_i32(in, oracle_galaxy_field(k, "SnapNum"));
-    h->Len = oracle_in_i32(in, oracle_galaxy_field(k, "Len"));
-    h->Mvir = oracle_in_f32(in, oracle_galaxy_field(k, "Mvir"));
-    h->deltaMvir = oracle_in_f32(in, oracle_galaxy_field(k, "deltaMvir"));
-    h->Rvir = oracle_in_f32(in, oracle_galaxy_field(k, "Rvir"));
-    h->Vvir = oracle_in_f32(in, oracle_galaxy_field(k, "Vvir"));
-    h->Vmax = oracle_in_f32(in, oracle_galaxy_field(k, "Vmax"));
-    h->infallMvir = oracle_in_f32(in, oracle_galaxy_field(k, "infallMvir"));
-    h->infallVvir = oracle_in_f32(in, oracle_galaxy_field(k, "infallVvir"));
-    h->infallVmax = oracle_in_f32(in, oracle_galaxy_field(k, "infallVmax"));
-    g->MergTime = oracle_in_f32(in, oracle_galaxy_field(k, "MergTime"));
-    g->StellarMass = oracle_in_f32(in, oracle_galaxy_field(k, "StellarMass"));
-    g->ColdGas = oracle_in_f32(in, oracle_galaxy_field(k, "ColdGas"));
-    g->infallStellarMassState = oracle_in_f32(in, oracle_galaxy_field(k, "infallStellarMass"));
-    g->TimeOfInfallState = oracle_in_f32(in, oracle_galaxy_field(k, "TimeOfInfall"));
-    source_type_all[k] = type;
-    source_clock_all[k] = g->MergTime;
-
-    char prog_name[ORACLE_MAX_NAME];
-    snprintf(prog_name, sizeof(prog_name), "call.galaxy[%d].prog", k);
-    const int prog = oracle_in_i32(in, prog_name);
-    h->HaloNr = prog;
-    progenitors[k].source = h;
-    progenitors[k].source_time = 0.0;
-    progenitors[k].is_main_branch = (prog == first_occupied);
-  }
-
-  // The descendant as the core's driver describes it: the virial values of the
-  // halo's current catalogue entry (get_virial_mass/radius/velocity)
-  struct InheritanceDescendant descendant;
-  memset(&descendant, 0, sizeof(descendant));
-  const int fof = oracle_in_i32(in, halo_field(halonr, "FirstHaloInFOFgroup"));
-  const int snap = oracle_in_i32(in, halo_field(halonr, "SnapNum"));
-  const double redshift = halo_redshift(in, halonr);
-  descendant.halo_nr = halonr;
-  descendant.current_snap = snap;
-  descendant.virial_mass = core_virial_mass(in, halonr);
-  descendant.virial_radius = virial_radius_for_mass(descendant.virial_mass, redshift);
-  descendant.virial_velocity =
-      virial_velocity_for(descendant.virial_mass, descendant.virial_radius);
-  descendant.is_fof_central = (halonr == fof);
-  descendant.halo_payload.Len = oracle_in_i32(in, halo_field(halonr, "Len"));
-  descendant.halo_payload.Vmax = oracle_in_f32(in, halo_field(halonr, "Vmax"));
-
-  // A subhalo's FoF central row, which the FoF workspace always holds (the mother halo
-  // of the clock, B:317): a stand-in Type 0 at row 0
-  result->start = descendant.is_fof_central ? 0 : 1;
-  memset(result->workspace, 0, sizeof(result->workspace));
-  if (!descendant.is_fof_central) {
-    struct Halo *central = &result->workspace[0];
-    init_galaxy_defaults(&result->standin_galaxy);
-    result->standin_galaxy.PreviousType = 0;
-    central->Type = 0;
-    central->HaloNr = fof;
-    central->Len = oracle_in_i32(in, halo_field(fof, "Len"));
-    central->Mvir = core_virial_mass(in, fof);
-    central->CentralHalo = 0;
-    central->galaxy = &result->standin_galaxy;
-  }
-
-  const int64_t end = inherit_descendant_halos(pool, result->workspace, result->start,
-                                               WORKSPACE_ROWS, &descendant, progenitors, ngal);
-  result->end = (int)end;
-
-  int row = 0;
-  for (int k = 0; k < ngal; k++) {
-    if (source_type_all[k] == 3) {
-      continue;
-    }
-    result->source_type[row] = source_type_all[k];
-    result->source_clock[row] = source_clock_all[k];
-    row++;
-  }
-  if (row != result->end - result->start) {
-    fprintf(stderr, "oracle: %s: %d retained progenitors but %d joined rows\n", in->path, row,
-            result->end - result->start);
-    return 1;
-  }
-
-  memset(ctx, 0, sizeof(*ctx));
-  ctx->params = &MimicConfig;
-  ctx->redshift = redshift;
-  ctx->snapshot_number = snap;
-  ctx->num_substeps = 1;
-  ctx->central_galaxy = &result->workspace[0];
-  if (sage26_initialise_merger_clock_process(ctx, result->workspace, result->end) != 0) {
-    fprintf(stderr, "oracle: %s: process() failed\n", in->path);
-    return 1;
-  }
-  return 0;
-}
-
 /**
  * @brief Assert one joined galaxy row against the fields "<prefix>galaxy[<j>].*"
  */
 static int check_joined_galaxy(struct oracle_fixture *out, const char *prefix, const int j,
                                const struct Halo *row, const int source_type,
                                const float source_clock) {
-  const struct GalaxyData *g = row->galaxy;
+  struct GalaxyData *g = row->galaxy;
   const int newly_orphaned = (row->Type == 2 && (source_type == 0 || source_type == 1));
   int problems = 0;
+
+  // The package's history reset: zeroed for a row that stays a Type 0 or 1, kept otherwise
+  problems += oracle_c05_check_histories(out, prefix, j, g);
 
   // The package's fields
   problems += oracle_check_f32(out, prefixed(prefix, j, "MergTime"), g->MergTime);
@@ -476,9 +306,9 @@ static int check_join(const char *name) {
   int problems = set_params(&in);
 
   struct GalaxyPool *pool = galaxy_pool_create(16);
-  static struct JoinResult result;
+  static struct oracle_join_result result;
   struct ModuleContext ctx;
-  problems += join(&in, pool, &result, &ctx);
+  problems += oracle_join(&in, pool, &result, &ctx, 0);
 
   if (problems == 0) {
     const int retained = result.end - result.start;
@@ -519,10 +349,11 @@ static int check_join_and_pass(const char *name) {
   }
 
   struct GalaxyPool *pool = galaxy_pool_create(16);
-  static struct JoinResult result;
+  static struct oracle_join_result result;
   struct ModuleContext ctx;
   if (problems == 0) {
-    problems += join(&in, pool, &result, &ctx);
+    // With the pass's timing (dT = Age[SnapNum] - halo_age, ctx->time = halo_age)
+    problems += oracle_join(&in, pool, &result, &ctx, 1);
   }
 
   if (problems == 0) {

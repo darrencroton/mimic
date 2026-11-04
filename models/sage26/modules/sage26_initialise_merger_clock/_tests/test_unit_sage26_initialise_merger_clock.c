@@ -23,6 +23,9 @@
  *     becomes 0
  *   - test_type2_untouched: a galaxy that was already Type 2 is not changed
  *   - test_without_recorder: with no previous Type (-1) the clock half still runs
+ *   - test_history_reset: the six SFR histories are zeroed for a row that stays a
+ *     Type 0 or 1 and kept for a new or old orphan (R/src/core_build_model.c:252,
+ *     :278-282, :322-337)
  *   - test_missing_central: a satellite needing a clock without a Type 0 is an error
  *   - test_empty_and_null_rows: empty FoFs and rows without a galaxy
  */
@@ -45,6 +48,7 @@
 #include "modules/_tests/sage_test_fixtures.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_merger_clock.h"
+#include "shared/sage_sfr_history.h"
 
 extern int sage26_initialise_merger_clock_init(void);
 extern int sage26_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo *halos,
@@ -364,6 +368,71 @@ static int test_without_recorder(void) {
   return TEST_PASS;
 }
 
+/** @brief Give every history element of a galaxy a distinct non-zero value */
+static void fill_histories(struct GalaxyData *galaxy) {
+  for (int h = 0; h < MIMIC_SFR_HISTORY_COUNT; h++) {
+    for (int bin = 0; bin < MIMIC_SAGE_SFR_STEPS; bin++) {
+      *mimic_sage_sfr_history(galaxy, (enum MimicSageSfrHistory)h, bin) =
+          1.0f + (float)(h * MIMIC_SAGE_SFR_STEPS + bin);
+    }
+  }
+}
+
+/** @brief 1 if every history element of a galaxy is zero, 0 if every one keeps its fill, else -1 */
+static int histories_state(struct GalaxyData *galaxy) {
+  int zero = 0, kept = 0;
+  for (int h = 0; h < MIMIC_SFR_HISTORY_COUNT; h++) {
+    for (int bin = 0; bin < MIMIC_SAGE_SFR_STEPS; bin++) {
+      const float value = *mimic_sage_sfr_history(galaxy, (enum MimicSageSfrHistory)h, bin);
+      zero += (value == 0.0f);
+      kept += (value == 1.0f + (float)(h * MIMIC_SAGE_SFR_STEPS + bin));
+    }
+  }
+  const int elements = MIMIC_SFR_HISTORY_COUNT * MIMIC_SAGE_SFR_STEPS;
+  return zero == elements ? 1 : (kept == elements ? 0 : -1);
+}
+
+/**
+ * @test    test_history_reset
+ * @brief   The histories are zeroed exactly for the rows SAGE26 resets
+ *
+ * SAGE26 zeroes the six histories only on the first-occupied update of a galaxy that
+ * was a Type 0 or 1 (R/src/core_build_model.c:252, :278-282), the rows that stay a Type
+ * 0 or 1; a galaxy that becomes an orphan keeps them (:322-337), and a Type 2 is copied
+ * unchanged (:240). The reset reads the new Type alone, so a run without the recorder
+ * (PreviousType -1) resets the same rows.
+ */
+static int test_history_reset(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  const struct {
+    int type;
+    int previous_type;
+    int zeroed;
+    const char *what;
+  } cases[] = {
+      {1, 0, 1, "a Type 0 that becomes a Type 1 is reset"},
+      {1, 1, 1, "a Type 1 that stays a Type 1 is reset"},
+      {2, 0, 0, "a Type 0 that becomes an orphan keeps its histories"},
+      {2, 1, 0, "a Type 1 that becomes an orphan keeps its histories"},
+      {2, 2, 0, "an orphan that stays an orphan keeps its histories"},
+      {1, -1, 1, "without the recorder a Type 1 is still reset"},
+      {2, -1, 0, "without the recorder an orphan still keeps its histories"},
+  };
+  for (size_t k = 0; k < sizeof(cases) / sizeof(cases[0]); k++) {
+    struct Halo rows[2];
+    struct GalaxyData galaxies[2];
+    make_pair(rows, galaxies, cases[k].type, cases[k].previous_type, 0.5f);
+    fill_histories(&galaxies[0]);
+    fill_histories(&galaxies[1]);
+    TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+    TEST_ASSERT(histories_state(&galaxies[0]) == 1, "the FoF central (Type 0 from 0) is reset");
+    TEST_ASSERT(histories_state(&galaxies[1]) == (cases[k].zeroed ? 1 : 0), cases[k].what);
+  }
+  finish_clock();
+  return TEST_PASS;
+}
+
 /**
  * @test    test_missing_central
  * @brief   A satellite that needs a clock in a FoF without a Type 0 is an error
@@ -421,6 +490,7 @@ int main(void) {
   TEST_RUN(test_type1_to_type2);
   TEST_RUN(test_type2_untouched);
   TEST_RUN(test_without_recorder);
+  TEST_RUN(test_history_reset);
   TEST_RUN(test_missing_central);
   TEST_RUN(test_empty_and_null_rows);
 

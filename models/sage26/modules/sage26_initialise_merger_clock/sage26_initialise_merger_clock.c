@@ -1,11 +1,11 @@
 /**
  * @file    sage26_initialise_merger_clock.c
- * @brief   SAGE26's merger-clock and infall assignment of progenitor joining
+ * @brief   SAGE26's merger-clock, infall and history assignment of progenitor joining
  *
- * SAGE26 assigns merger clocks and infall values while it joins a halo's
- * progenitor galaxies, from each galaxy's Type before joining (its Type at the end
- * of the previous snapshot) and the Type joining gives it
- * (R/src/core_build_model.c:240-338, R = the staged SAGE26 source). Mimic's core
+ * SAGE26 assigns merger clocks and infall values, and zeroes the SFR histories,
+ * while it joins a halo's progenitor galaxies, from each galaxy's Type before
+ * joining (its Type at the end of the previous snapshot) and the Type joining gives
+ * it (R/src/core_build_model.c:240-338, R = the staged SAGE26 source). Mimic's core
  * performs the joining itself (src/core/inheritance.c) and assigns the new Type,
  * the halo values and the three core infall values; this module makes SAGE26's
  * remaining joining writes once per FoF group in pre_timestep, reading the old Type
@@ -14,6 +14,7 @@
  *
  *   previous Type 2 (or 3)  nothing: SAGE26 copies a Type 2 unchanged (B:240), and
  *                           the core drops a merged galaxy
+ *   new Type 0 or 1         the six SFR histories zeroed (B:278-282), first
  *   new Type 0              MergTime = 999.9f (B:288)
  *   new Type 1              previous Type 0: infallStellarMassState = StellarMass and
  *                           TimeOfInfallState = this snapshot's number (B:306-313);
@@ -24,12 +25,19 @@
  *
  * where B is R/src/core_build_model.c. A galaxy with no previous snapshot
  * (PreviousType -1) is one the core created this snapshot, a Type 0 whose clock is
- * already 999.9f; it takes the rows above with "previous Type 0" false, which
- * leaves it unchanged. The clock half of each condition depends on MergTime alone,
- * so without the recorder (PreviousType -1 throughout) clocks are still assigned,
- * but the infall state of a Type 0 -> 1 or 0 -> 2 transition is not, and the
- * outputs infallStellarMass and TimeOfInfall keep their creation value -1 on every
- * row: init() warns.
+ * already 999.9f and whose histories are already zero; it takes the rows above with
+ * "previous Type 0" false, which leaves it unchanged. The clock half of each
+ * condition depends on MergTime alone, and the history reset on the new Type alone,
+ * so without the recorder (PreviousType -1 throughout) clocks are still assigned and
+ * exactly SAGE26's rows still have their histories zeroed, but the infall state of a
+ * Type 0 -> 1 or 0 -> 2 transition is not recorded, and the outputs
+ * infallStellarMass and TimeOfInfall keep their creation value -1 on every row:
+ * init() warns.
+ *
+ * The histories are inherited package properties with no init_repeat, so this reset
+ * is their only one after creation. The module runs first in pre_timestep in the
+ * shipped run files; no pre_timestep module reads or writes a history, so the reset
+ * precedes every history access of the snapshot wherever it sits in pre_timestep.
  *
  * The infall values the core writes (infallMvir, infallVvir and infallVmax for a
  * Type 0 that becomes a Type 1 or 2, src/core/inheritance.c:69-73, :88-92) and the
@@ -54,6 +62,7 @@
 #include "shared/central_link.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_merger_clock.h"
+#include "shared/sage_sfr_history.h"
 
 static const char *MODULE_NAME = "sage26_initialise_merger_clock";
 static const char *RECORDER_NAME = "sage26_record_transition_state";
@@ -130,6 +139,15 @@ static int join_galaxy(struct Halo *halos, const int i, const int fof_central_id
   // (R/src/core_build_model.c:240); a Type 2 is copied unchanged
   if (previous_type == 2 || previous_type == 3) {
     return 0;
+  }
+
+  /* SAGE parity: the histories are zeroed only on the first-occupied (main-branch) update,
+   * where the galaxy stays a Type 0 or 1 (R/src/core_build_model.c:252, :278-282); a galaxy
+   * that becomes an orphan keeps them (:322-337) and moves them in a merger this snapshot
+   * (R/src/model_mergers.c:529-532). SAGE26 resets them before the clock, infall and radius
+   * writes below, none of which reads them */
+  if (halos[i].Type == 0 || halos[i].Type == 1) {
+    mimic_sage_reset_sfr_histories(gal);
   }
 
   switch (halos[i].Type) {

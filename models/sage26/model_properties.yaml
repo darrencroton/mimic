@@ -664,9 +664,13 @@ galaxy_properties:
   # float scalar per element because the generator emits scalars only. Modules reach
   # them only through shared/sage_sfr_history.h, which maps (history, bin) to the
   # element. SAGE26 zeroes them at creation (src/model_misc.c:145-150) and at the
-  # first-occupied Type 0/1 update (src/core_build_model.c:278-281); init_repeat
-  # resets every inherited galaxy, which matches SAGE26 for every Type 0/1 row.
-  # Orphans keep theirs in SAGE26 (merger transfer, src/model_mergers.c:529-532).
+  # first-occupied update (src/core_build_model.c:278-282), which runs only for a
+  # galaxy that was a Type 0 or 1 and stays one; a galaxy that becomes or stays an
+  # orphan keeps its histories and moves them in a merger in the same snapshot
+  # (src/core_build_model.c:322-337, src/model_mergers.c:529-532). So they are
+  # inherited (no init_repeat): sage26_initialise_merger_clock, the first
+  # pre_timestep module, zeroes them at joining for exactly SAGE26's rows
+  # (shared/sage_sfr_history.h mimic_sage_reset_sfr_histories).
   # sage26_finalize_sfr_histories averages them into SfrDisk, SfrBulge, SfrDiskZ
   # and SfrBulgeZ (src/io/save_gals_hdf5.c:934-959).
 
@@ -688,7 +692,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskBin1
     type: float  # SAGE parity: element 1 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
@@ -698,7 +701,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskBin2
     type: float  # SAGE parity: element 2 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
@@ -708,7 +710,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskBin3
     type: float  # SAGE parity: element 3 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
@@ -718,7 +719,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskBin4
     type: float  # SAGE parity: element 4 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
@@ -728,7 +728,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskBin5
     type: float  # SAGE parity: element 5 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
@@ -738,7 +737,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskBin6
     type: float  # SAGE parity: element 6 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
@@ -748,7 +746,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskBin7
     type: float  # SAGE parity: element 7 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
@@ -758,7 +755,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskBin8
     type: float  # SAGE parity: element 8 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
@@ -768,7 +764,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskBin9
     type: float  # SAGE parity: element 9 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
@@ -778,7 +773,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin0
     type: float  # SAGE parity: element 0 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -788,7 +782,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin1
     type: float  # SAGE parity: element 1 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -798,7 +791,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin2
     type: float  # SAGE parity: element 2 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -808,7 +800,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin3
     type: float  # SAGE parity: element 3 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -818,7 +809,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin4
     type: float  # SAGE parity: element 4 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -828,7 +818,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin5
     type: float  # SAGE parity: element 5 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -838,7 +827,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin6
     type: float  # SAGE parity: element 6 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -848,7 +836,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin7
     type: float  # SAGE parity: element 7 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -858,7 +845,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin8
     type: float  # SAGE parity: element 8 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -868,7 +854,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeBin9
     type: float  # SAGE parity: element 9 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
@@ -878,7 +863,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin0
     type: float  # SAGE parity: element 0 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -888,7 +872,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin1
     type: float  # SAGE parity: element 1 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -898,7 +881,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin2
     type: float  # SAGE parity: element 2 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -908,7 +890,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin3
     type: float  # SAGE parity: element 3 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -918,7 +899,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin4
     type: float  # SAGE parity: element 4 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -928,7 +908,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin5
     type: float  # SAGE parity: element 5 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -938,7 +917,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin6
     type: float  # SAGE parity: element 6 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -948,7 +926,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin7
     type: float  # SAGE parity: element 7 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -958,7 +935,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin8
     type: float  # SAGE parity: element 8 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -968,7 +944,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasBin9
     type: float  # SAGE parity: element 9 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
@@ -978,7 +953,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin0
     type: float  # SAGE parity: element 0 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -988,7 +962,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin1
     type: float  # SAGE parity: element 1 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -998,7 +971,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin2
     type: float  # SAGE parity: element 2 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -1008,7 +980,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin3
     type: float  # SAGE parity: element 3 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -1018,7 +989,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin4
     type: float  # SAGE parity: element 4 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -1028,7 +998,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin5
     type: float  # SAGE parity: element 5 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -1038,7 +1007,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin6
     type: float  # SAGE parity: element 6 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -1048,7 +1016,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin7
     type: float  # SAGE parity: element 7 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -1058,7 +1025,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin8
     type: float  # SAGE parity: element 8 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -1068,7 +1034,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrDiskColdGasMetalsBin9
     type: float  # SAGE parity: element 9 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
@@ -1078,7 +1043,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin0
     type: float  # SAGE parity: element 0 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1088,7 +1052,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin1
     type: float  # SAGE parity: element 1 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1098,7 +1061,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin2
     type: float  # SAGE parity: element 2 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1108,7 +1070,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin3
     type: float  # SAGE parity: element 3 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1118,7 +1079,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin4
     type: float  # SAGE parity: element 4 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1128,7 +1088,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin5
     type: float  # SAGE parity: element 5 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1138,7 +1097,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin6
     type: float  # SAGE parity: element 6 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1148,7 +1106,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin7
     type: float  # SAGE parity: element 7 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1158,7 +1115,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin8
     type: float  # SAGE parity: element 8 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1168,7 +1124,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasBin9
     type: float  # SAGE parity: element 9 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
@@ -1178,7 +1133,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin0
     type: float  # SAGE parity: element 0 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1188,7 +1142,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin1
     type: float  # SAGE parity: element 1 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1198,7 +1151,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin2
     type: float  # SAGE parity: element 2 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1208,7 +1160,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin3
     type: float  # SAGE parity: element 3 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1218,7 +1169,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin4
     type: float  # SAGE parity: element 4 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1228,7 +1178,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin5
     type: float  # SAGE parity: element 5 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1238,7 +1187,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin6
     type: float  # SAGE parity: element 6 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1248,7 +1196,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin7
     type: float  # SAGE parity: element 7 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1258,7 +1205,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin8
     type: float  # SAGE parity: element 8 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1268,7 +1214,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: SfrBulgeColdGasMetalsBin9
     type: float  # SAGE parity: element 9 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
@@ -1278,7 +1223,6 @@ galaxy_properties:
     output: false
     init_source: default
     init_value: 0.0
-    init_repeat: true  # Reset each snapshot (see the block comment)
 
   - name: MassLoading
     type: float

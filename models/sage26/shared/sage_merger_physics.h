@@ -14,14 +14,18 @@
  * - mimic_sage_add_galaxies_together(): add_galaxies_together (M:456-543);
  * - mimic_sage_make_bulge_from_burst(): make_bulge_from_burst (M:553-570);
  * - mimic_sage_reset_bulge_radii(): get_bulge_radius on R0 (BulgeSizeOn 0,
- *   R/src/model_misc.c:239-247), which zeroes the three bulge radii.
+ *   R/src/model_misc.c:239-247), which zeroes the three bulge radii;
+ * - mimic_sage_disrupt_satellite_to_ics(): disrupt_satellite_to_ICS (M:845-902).
  *
- * sage26_resolve_mergers_and_disruption composes them into deal_with_galaxy_merger.
- * Each expression keeps SAGE26's operand order and types: the struct GALAXY members are
- * float, so a sum of two members rounds in float before any widening, and a compound
- * assignment of a double into a float member rounds once into the float. No helper here
- * contains a multiply-add, so contraction cannot fuse any of them (the oracle README's
- * c06 table lists none for add_galaxies_together and make_bulge_from_burst).
+ * sage26_resolve_mergers_and_disruption composes the first six into
+ * deal_with_galaxy_merger and calls the last from its pass. Each expression keeps
+ * SAGE26's operand order and types: the struct GALAXY members are float, so a sum of two
+ * members rounds in float before any widening, and a compound assignment of a double into
+ * a float member rounds once into the float. The one multiply-add on these paths that
+ * SAGE26's objects fuse, the disruption's ICS_sum_mt += StellarMass * time (M:871, the
+ * oracle README's c06 table), is written as an explicit fma(); no other helper here
+ * contains a multiply-add (the table lists none for add_galaxies_together and
+ * make_bulge_from_burst).
  */
 
 #ifndef MIMIC_SHARED_SAGE_MERGER_PHYSICS_H
@@ -308,6 +312,97 @@ static inline void mimic_sage_make_bulge_from_burst(struct GalaxyData *gal) {
     *mimic_sage_sfr_history(gal, MIMIC_SFR_HISTORY_DISK, bin) = 0.0f;
     *mimic_sage_sfr_history(gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS, bin) = 0.0f;
     *mimic_sage_sfr_history(gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS_METALS, bin) = 0.0f;
+  }
+}
+
+/**
+ * @brief The values and branch flags of one disrupt_satellite_to_ICS call, for tests
+ */
+struct MimicSageDisruptLocals {
+  double total_gas;           /**< float ColdGas + HotGas + CGMgas, widened (M:848) */
+  double total_metals_gas;    /**< the same sum of their metals (M:849) */
+  int disrupt_stars_positive; /**< satellite StellarMass > 0.0 (M:869) */
+  int disrupt_ics_positive;   /**< satellite ICS > 0.0 (M:881) */
+};
+
+/**
+ * @brief SAGE26's disrupt_satellite_to_ICS on the R0 path (R/src/model_mergers.c:845-902)
+ *
+ * The satellite's cold, hot and CGM gas, and their metals, each summed in float (three
+ * float members) and only then widened into the double locals, go to the target's hot
+ * gas (add_gas_to_hot_reservoir, R/src/model_misc.h:76-85, takes the HotGas branch with
+ * CGMrecipeOn 0); its ejected gas and existing ICS are transferred, and its stars and
+ * stellar metals added to the target's ICS. Positive stars are booked as disrupted with
+ * StellarMass * time into ICS_sum_mt (fused, M:871); the black hole is transferred; a
+ * positive existing ICS is booked as accreted with its deposit-time accumulator. Then
+ * exactly SAGE26's fields of the satellite are zeroed (M:891-900): the two bulge
+ * channels, the radii, H1gas, H2gas, QuasarModeBHaccretionMass, the outflow rate, the
+ * timestamps and the histories are not. The caller marks the satellite merged (SAGE26's
+ * mergeType 4, M:902).
+ *
+ * @param target     SAGE26's centralgal (the pass's merger_centralgal)
+ * @param satellite  SAGE26's gal
+ * @param time       The event time, a lookback time in code units (B:549)
+ * @param locals     Optional: receives the gas sums and the two flags
+ */
+static inline void mimic_sage_disrupt_satellite_to_ics(struct GalaxyData *target,
+                                                       struct GalaxyData *satellite,
+                                                       const double time,
+                                                       struct MimicSageDisruptLocals *locals) {
+  // SAGE parity: float sums of three float members, widened on assignment (M:848-849)
+  const double total_gas = satellite->ColdGas + satellite->HotGas + satellite->CGMgas;
+  const double total_metals_gas =
+      satellite->MetalsColdGas + satellite->MetalsHotGas + satellite->MetalsCGMgas;
+
+  // SAGE parity: add_gas_to_hot_reservoir's HotGas branch on R0 (M:851, misc.h:76-85)
+  target->HotGas += total_gas;
+  target->MetalsHotGas += total_metals_gas;
+
+  target->EjectedGas += satellite->EjectedGas;
+  target->MetalsEjectedGas += satellite->MetalsEjectedGas;
+
+  target->ICS += satellite->ICS;
+  target->MetalsICS += satellite->MetalsICS;
+
+  target->ICS += satellite->StellarMass;
+  target->MetalsICS += satellite->MetalsStellarMass;
+
+  // SAGE parity: disrupted stars are deposited at the event time; M:871 is one fused
+  // multiply-add in SAGE26's objects (oracle README c06 table), written as fma()
+  const int stars_positive = satellite->StellarMass > 0.0;
+  if (stars_positive) {
+    target->ICS_disrupt += satellite->StellarMass;
+    target->ICS_sum_mt =
+        (float)fma((double)satellite->StellarMass, time, (double)target->ICS_sum_mt);
+  }
+
+  // SAGE parity: the black hole is transferred, not lost (M:875)
+  target->BlackHoleMass += satellite->BlackHoleMass;
+
+  // SAGE parity: a positive existing ICS is accreted with its accumulator (M:881-887)
+  const int ics_positive = satellite->ICS > 0.0;
+  if (ics_positive) {
+    target->ICS_accrete += satellite->ICS;
+    target->ICS_sum_mt += satellite->ICS_sum_mt;
+  }
+
+  // SAGE parity: exactly SAGE26's cleared fields (M:891-900), no others
+  satellite->ColdGas = satellite->MetalsColdGas = 0.0f;
+  satellite->HotGas = satellite->MetalsHotGas = 0.0f;
+  satellite->CGMgas = satellite->MetalsCGMgas = 0.0f;
+  satellite->EjectedGas = satellite->MetalsEjectedGas = 0.0f;
+  satellite->ICS = satellite->MetalsICS = 0.0f;
+  satellite->ICS_disrupt = satellite->ICS_accrete = 0.0f;
+  satellite->ICS_sum_mt = 0.0f;
+  satellite->StellarMass = satellite->MetalsStellarMass = 0.0f;
+  satellite->BulgeMass = satellite->MetalsBulgeMass = 0.0f;
+  satellite->BlackHoleMass = 0.0f;
+
+  if (locals != NULL) {
+    locals->total_gas = total_gas;
+    locals->total_metals_gas = total_metals_gas;
+    locals->disrupt_stars_positive = stars_positive;
+    locals->disrupt_ics_positive = ics_positive;
   }
 }
 

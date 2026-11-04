@@ -30,7 +30,7 @@ In `post_timestep`, for every galaxy row of the FoF (rows without a galaxy are s
 2. `mimic_sage_average_sfr_histories` (`shared/sage_sfr_history.h`) reproduces the writer's averaging exactly: float accumulators, the ten bins in increasing order, each rate term left to right in double from the float element with the run's `UnitMass_in_g` and `UnitTime_in_s` (which the core forms as SAGE26 does) and SAGE26's constant values, the integer divisors, and float metallicity terms only for bins whose sampled gas is positive. No term contains a multiply-add, so floating-point contraction cannot change it.
 3. The results are stored in the output scalars `SfrDisk`, `SfrBulge`, `SfrDiskZ` and `SfrBulgeZ`, which are written as they are (no `output_convert`).
 
-The histories themselves are package-private (`output: false`): sixty float properties `<history>Bin<k>`, reset for every inherited galaxy (`init_repeat`, which matches SAGE26's reset at the first-occupied Type 0/1 update, `src/core_build_model.c:278-281`). This module reads them and does not change them.
+The histories themselves are package-private (`output: false`): sixty float properties `<history>Bin<k>`, inherited from snapshot to snapshot (no `init_repeat`). `sage26_initialise_merger_clock` zeroes them at joining for a galaxy that stays a Type 0 or 1, SAGE26's reset at the first-occupied update (`src/core_build_model.c:278-282`); a galaxy that becomes or stays an orphan keeps them, as in SAGE26. This module reads them and does not change them.
 
 ## Processing Contract
 
@@ -51,7 +51,7 @@ None. The unit factors are the run's (`UnitMass_in_g`, `UnitTime_in_s`).
 ## Differences From SAGE26
 
 - `num_substeps` stands for SAGE26's `effective_steps`. SAGE26's R0 chooses `effective_steps` per halo between a floor of `STEPS` and a cap (`src/core_build_model.c:420-459`), while the run files use the core's fixed 10 substeps, so a halo SAGE26 integrates in more substeps is binned and divided differently here. The core's substep count decides the bins and the divisors, as it decides the substep `dt`; matching it to SAGE26's is a core-alignment item, not package work.
-- SAGE26 keeps the histories of an orphan (Type 2) galaxy across snapshots and moves them in mergers (`src/model_mergers.c:529-532`, `:562-568`); the package resets every inherited galaxy's histories and does not move them. Both belong to the merger node.
+- Not a difference: SAGE26 keeps the histories of an orphan (Type 2) galaxy across snapshots and moves them in mergers (`src/model_mergers.c:529-532`, `:562-568`), and so does the package (the reset at joining in `sage26_initialise_merger_clock`, the transfers in `sage26_resolve_mergers_and_disruption`).
 - SAGE26 writes a row per galaxy in its output list; which rows Mimic writes (orphans included) is the core's. This module averages every galaxy row of the FoF, so each written row carries its averages.
 
 ## Tests

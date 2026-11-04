@@ -17,10 +17,13 @@ SubSteps: 10
 modules:
 
   pre_timestep:
-    # Setup and snapshot budgets, in SAGE26's source order: disk radius and merger
-    # clock during progenitor joining, then reionization and the FoF infall budget
-    - sage26_set_disk_scale_radius:   process_full_halo
+    # Setup and snapshot budgets, in SAGE26's source order: progenitor joining (the
+    # SFR-history reset, merger clock and infall, then the central's disk radius,
+    # SAGE26 core_build_model.c:240-338), then reionization and the FoF infall budget.
+    # The merger clock runs first: it zeroes the histories of the rows SAGE26 resets
+    # (core_build_model.c:278-282) before any history is read or written
     - sage26_initialise_merger_clock: process_full_halo
+    - sage26_set_disk_scale_radius:   process_full_halo
     - sage26_reionization:            process_full_halo
     - sage26_prepare_infall_budget:   process_full_halo
 
