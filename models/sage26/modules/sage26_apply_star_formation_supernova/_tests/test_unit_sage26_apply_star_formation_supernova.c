@@ -31,6 +31,7 @@
  *   - test_metal_enrichment_zero_cold_gas: All metals to hot halo when ColdGas=0
  *   - test_zero_stars_no_updates: A zero event leaves positive reservoirs unchanged
  *   - test_zero_event_caps_negative_hot_metals: A zero event still runs the metal cap
+ *   - test_sf_commit_fused_rounding: the shared SF commit rounds as SAGE26's fused build
  *   - test_ejection_exceeds_hot_gas: Ejection limited to HotGas
  *   - test_satellite_reheats_to_central: Satellites reheat to central's hot halo
  *   - test_temporary_properties_reset: Cleanup after processing
@@ -51,7 +52,9 @@
 #include "util/error.h"
 #include "util/memory.h"
 #include "shared/metallicity.h"
+#include "shared/sage_sf_feedback_physics.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1035,6 +1038,94 @@ int test_zero_event_caps_negative_hot_metals(void) {
   return TEST_PASS;
 }
 
+/** @brief A float from its IEEE-754 bit pattern */
+static float f32_from_bits(const uint32_t bits) {
+  float value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+/** @brief A double from its IEEE-754 bit pattern */
+static double f64_from_bits(const uint64_t bits) {
+  double value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+/** @brief The IEEE-754 bit pattern of a float */
+static uint32_t f32_bits(const float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+/**
+ * @test    test_sf_commit_fused_rounding
+ * @brief   The shared SF commit rounds each update once, as SAGE26's build fuses them
+ *
+ * SAGE26's compiled update_from_star_formation (R/src/model_starformation_and_feedback.c
+ * :1123-1126) applies two fmla.2d: [ColdGas, StellarMass] += [-(1-R), (1-R)] * stars
+ * and [MetalsColdGas, MetalsStellarMass] += [-(Z(1-R)), Z(1-R)] * stars, one rounding
+ * per lane. No frozen oracle fixture distinguishes that from separate roundings, so
+ * these cases pin it. Every expected bit pattern was produced by EXECUTING SAGE26's own
+ * compiled update_from_star_formation (the oracle's object, linked into a harness;
+ * recorded in the slice's validation record), on inputs where an unfused commit
+ * differs: case 0 is the PM's witness (StellarMass), case 1 differs in ColdGas and
+ * StellarMass, case 2 in ColdGas and StellarMass, case 3 in MetalsColdGas and
+ * MetalsStellarMass. R is 0.43 and the metallicity is get_metallicity of the cold gas.
+ */
+int test_sf_commit_fused_rounding(void) {
+  static const struct {
+    uint32_t in[4]; /* ColdGas, StellarMass, MetalsColdGas, MetalsStellarMass */
+    uint64_t stars;
+    uint64_t metallicity;
+    uint32_t sage26_out[4]; /* SAGE26's update_from_star_formation, executed */
+  } cases[] = {
+      {{0x3f800000, 0x3dcccccd, 0x00000000, 0x00000000},
+       0x3fc1f707f9435e4fULL,
+       0x0000000000000000ULL,
+       {0x3f6b851b, 0x3e3851fb, 0x00000000, 0x00000000}},
+      {{0x40400000, 0x40200000, 0x3d3851ec, 0x3d19999a},
+       0x3fe0d79398b3a630ULL,
+       0x3f8eb85200000000ULL,
+       {0x402ccccd, 0x40333333, 0x3d25e355, 0x3d2c0831}},
+      {{0x40400000, 0x40200000, 0x3d3851ec, 0x3d19999a},
+       0x3fdc11f7e50d794aULL,
+       0x3f8eb85200000000ULL,
+       {0x402fffff, 0x40300001, 0x3d28f5c3, 0x3d28f5c3}},
+      {{0x40400000, 0x40200000, 0x3d3851ec, 0x3d19999a},
+       0x3fdc11f7ee68caf6ULL,
+       0x3f8eb85200000000ULL,
+       {0x402fffff, 0x40300001, 0x3d28f5c3, 0x3d28f5c3}},
+  };
+  const double recycle_fraction = f64_from_bits(0x3fdb851eb851eb85ULL); /* 0.43 */
+
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+    struct GalaxyData gal;
+    memset(&gal, 0, sizeof(gal));
+    gal.ColdGas = f32_from_bits(cases[c].in[0]);
+    gal.StellarMass = f32_from_bits(cases[c].in[1]);
+    gal.MetalsColdGas = f32_from_bits(cases[c].in[2]);
+    gal.MetalsStellarMass = f32_from_bits(cases[c].in[3]);
+    const double metallicity = mimic_get_metallicity(gal.ColdGas, gal.MetalsColdGas);
+    TEST_ASSERT(metallicity == f64_from_bits(cases[c].metallicity),
+                "the cold-gas metallicity must equal SAGE26's get_metallicity");
+
+    mimic_sage_update_from_star_formation(&gal, f64_from_bits(cases[c].stars), metallicity,
+                                          recycle_fraction);
+
+    TEST_ASSERT(f32_bits(gal.ColdGas) == cases[c].sage26_out[0],
+                "ColdGas must round as SAGE26's fused update (S:1123)");
+    TEST_ASSERT(f32_bits(gal.StellarMass) == cases[c].sage26_out[1],
+                "StellarMass must round as SAGE26's fused update (S:1125)");
+    TEST_ASSERT(f32_bits(gal.MetalsColdGas) == cases[c].sage26_out[2],
+                "MetalsColdGas must round as SAGE26's fused update (S:1124)");
+    TEST_ASSERT(f32_bits(gal.MetalsStellarMass) == cases[c].sage26_out[3],
+                "MetalsStellarMass must round as SAGE26's fused update (S:1126)");
+  }
+  return TEST_PASS;
+}
+
 /**
  * @test    test_satellite_reheats_to_central
  * @brief   Test that satellites reheat gas to central's hot halo (not their own)
@@ -1330,6 +1421,7 @@ int main(void) {
   /* Run edge case tests */
   TEST_RUN(test_zero_stars_no_updates);
   TEST_RUN(test_zero_event_caps_negative_hot_metals);
+  TEST_RUN(test_sf_commit_fused_rounding);
   TEST_RUN(test_satellite_reheats_to_central);
 
   /* Run cleanup and conservation tests */

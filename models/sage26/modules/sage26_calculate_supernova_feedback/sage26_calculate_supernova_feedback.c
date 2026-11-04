@@ -92,6 +92,8 @@ int sage26_calculate_supernova_feedback_init(void) {
 
 int sage26_calculate_supernova_feedback_process(struct ModuleContext *ctx, struct Halo *halos,
                                                 int ngal) {
+  (void)ctx; /* the ejection reads the forming galaxy's own Vvir, not the FoF central's */
+
   if (ngal != 1) {
     ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
     return -1;
@@ -103,7 +105,6 @@ int sage26_calculate_supernova_feedback_process(struct ModuleContext *ctx, struc
     return 0;
   }
 
-  (void)ctx;
   struct GalaxyData *gal = halo->galaxy;
 
   double stars = gal->NewStellarMass;

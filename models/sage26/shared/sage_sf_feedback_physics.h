@@ -18,14 +18,19 @@
  *
  * Rounding points. Every reservoir is a float, every mass and metallicity a double,
  * so each `+=`/`-=` widens the reservoir, operates in double and narrows the result.
- * SAGE26's reference objects (Apple clang, -ffp-contract=on, arm64) fuse exactly two
- * multiply-adds here: the cold-metal debit (:1168) and the hot-metal credit (:1229)
- * of update_from_feedback, each a single correctly rounded fused operation. They
- * are written as explicit fma() calls, which round identically on every platform
- * whose fma is correctly rounded. Everything SAGE26 does not fuse (all of
- * update_from_star_formation, the metal transfer of the ejection) is formed in
- * separate statements, so no compiler contracts it either. The function-level
- * oracle's rounding fixtures (uff_rounding_*) fail a port that rounds otherwise.
+ * SAGE26's reference objects (Apple clang, -ffp-contract=on, arm64; enumerated with
+ * objdump -d -l) fuse six multiply-adds here, each a single correctly rounded
+ * operation: all four updates of update_from_star_formation (:1123-1126, two
+ * fmla.2d over the float pairs ColdGas/StellarMass and MetalsColdGas/MetalsStellarMass
+ * with coefficients [-(1 - R), (1 - R)] and [-(Z * (1 - R)), Z * (1 - R)] times stars,
+ * Z * (1 - R) rounded first), and the cold-metal debit (:1168) and the hot-metal
+ * credit (:1229) of update_from_feedback. They are written as explicit fma() calls,
+ * which round identically on every platform whose fma is correctly rounded.
+ * Everything SAGE26 does not fuse (the metal transfer of the ejection, the gas
+ * moves) is formed in separate statements, so no compiler contracts it either. The
+ * oracle's uff_rounding_* fixtures pin the two feedback sites; no oracle fixture
+ * pins update_from_star_formation's, which the apply step's unit tests pin with bit
+ * patterns produced by SAGE26's own compiled routine.
  *
  * @note SAGE26's prescription-0 path does not resynchronise H2gas and H1gas after the
  *       depletion (:1128-1135, :1169-1172 run only for SFprescription values that track
@@ -71,7 +76,8 @@ static inline double mimic_sage_eta_sn_code(const double unit_mass_in_g, const d
  *
  * Locks (1 - RecycleFraction) * stars of cold gas into stars, with the cold gas's
  * metallicity (R/src/model_starformation_and_feedback.c:1119-1126). The recycled
- * fraction stays in the cold gas. No product is fused (each is its own statement).
+ * fraction stays in the cold gas. Each of the four updates is one fused multiply-add,
+ * as in SAGE26's build.
  *
  * @param gal               Galaxy forming the stars
  * @param stars             Stellar mass formed, 1e10 Msun/h (double, as SAGE26's argument)
@@ -81,16 +87,19 @@ static inline double mimic_sage_eta_sn_code(const double unit_mass_in_g, const d
 static inline void mimic_sage_update_from_star_formation(struct GalaxyData *gal, const double stars,
                                                          const double metallicity,
                                                          const double recycle_fraction) {
-  /* SAGE parity: SAGE26 evaluates each product on its own, unfused, and widens the
-   * float reservoir for each double update (:1122-1125); (1 - RecycleFraction) is
-   * formed from the int literal 1, which converts exactly to 1.0. */
-  const double locked_stars = (1.0 - recycle_fraction) * stars;
-  const double locked_metals = metallicity * (1.0 - recycle_fraction) * stars;
+  /* SAGE parity: SAGE26's build fuses all four updates (:1123-1126): (1 - R) and
+   * Z * (1 - R) are rounded first, then each widened float reservoir takes one fused
+   * multiply-add with stars, the debits with the negated coefficient (fmla.2d over
+   * the lanes [ColdGas, StellarMass] and [MetalsColdGas, MetalsStellarMass]).
+   * (1 - RecycleFraction) is formed from the int literal 1, which converts exactly
+   * to 1.0. */
+  const double locked_fraction = 1.0 - recycle_fraction;
+  const double metals_fraction = metallicity * locked_fraction;
 
-  gal->ColdGas -= locked_stars;
-  gal->MetalsColdGas -= locked_metals;
-  gal->StellarMass += locked_stars;
-  gal->MetalsStellarMass += locked_metals;
+  gal->ColdGas = (float)fma(-locked_fraction, stars, (double)gal->ColdGas);
+  gal->StellarMass = (float)fma(locked_fraction, stars, (double)gal->StellarMass);
+  gal->MetalsColdGas = (float)fma(-metals_fraction, stars, (double)gal->MetalsColdGas);
+  gal->MetalsStellarMass = (float)fma(metals_fraction, stars, (double)gal->MetalsStellarMass);
 }
 
 /**

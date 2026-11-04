@@ -16,7 +16,9 @@
  *   update_from_feedback(reheated, ejected, metallicity)       (OutflowRate += reheated)
  *
  * SAGE26 makes both calls on every substep, also when no stars formed, so this
- * step always runs them. It then zeroes the reheated and ejected transport fields;
+ * step always runs them, except on the Mimic-only degenerate path with no FoF
+ * central galaxy, where it returns before committing anything (SAGE26 always has a
+ * central). It then zeroes the reheated and ejected transport fields;
  * NewStellarMass is left for sage26_apply_metal_enrichment, which applies the disk
  * yield after the disk-instability chain.
  *
