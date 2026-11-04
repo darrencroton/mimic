@@ -46,6 +46,12 @@
  *   - test_parameter_sensitivity_yield: Yield parameter
  *   - test_module_initialization: Module lifecycle
  *   - test_memory_safety: No memory leaks
+ *   - test_instability_burst_samples_bulge_history: the disk-instability burst samples
+ *     SfrBulge[bin] += stars / dt with the galaxy's substep dt, and accumulates the gas
+ *   - test_merger_burst_samples_with_event_dt: the merger burst samples at the substep's
+ *     bin with the satellite's substep dt carried in the event (value1)
+ *   - test_post_merger_recheck_samples_with_event_dt: the post-merger instability burst
+ *     samples the same bin with the same dt
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -61,6 +67,7 @@
 #include "util/error.h"
 #include "util/memory.h"
 #include "module_system/generated/event_contracts.h"
+#include "shared/sage_sfr_history.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -322,7 +329,9 @@ int test_disk_instability_starburst(void) {
  *          same snapshot mean regardless of substep count.
  *
  * Expected: With identical physics and num_substeps changing from 1 to 2,
- * StarFormationRate and SupernovaOutflowRate are unchanged (ratio = 1.0).
+ * StarFormationRate and SupernovaOutflowRate are unchanged (ratio = 1.0). The
+ * outflow is the undivided reheated mass (SAGE26's OutflowRate, normalised once per
+ * halo by sage26_finalize_cooling_heating), so it involves no interval at all.
  */
 int test_disk_instability_uses_full_interval_for_rates(void) {
   /* ===== SETUP ===== */
@@ -369,7 +378,7 @@ int test_disk_instability_uses_full_interval_for_rates(void) {
                            "Disk-instability SFR uses full interval — invariant to num_substeps");
   TEST_ASSERT_DOUBLE_EQUAL(
       outflow2 / outflow1, 1.0, 1e-4,
-      "Disk-instability outflow uses full interval — invariant to num_substeps");
+      "Disk-instability outflow is the undivided reheated mass — invariant to num_substeps");
   TEST_ASSERT_DOUBLE_EQUAL(gal2.StellarMass, gal1.StellarMass, 1e-6,
                            "Mass transfer should be timestep-invariant");
   TEST_ASSERT_DOUBLE_EQUAL(gal2.ColdGas, gal1.ColdGas, 1e-6,
@@ -583,9 +592,13 @@ int test_per_event_merger_uses_fof_central_feedback_destination(void) {
  *          normal SF channel — NOT the per-substep event payload dt
  *          (event->value1). So the reported rate scales as 1/dT_target and is
  *          independent of event->value1. (SAGE output averages SfrBulge[step]
- *          by STEPS, giving the snapshot mean total_burst_stars/dT.)
+ *          by STEPS, giving the snapshot mean total_burst_stars/dT.) The outflow is
+ *          SAGE26's undivided OutflowRate += reheated mass (shared feedback commit,
+ *          R/src/model_starformation_and_feedback.c:1249), normalised once per halo
+ *          by sage26_finalize_cooling_heating, so it depends on neither interval.
  *
- * Expected: rate ratio follows the inverse of the target full interval.
+ * Expected: SFR ratio follows the inverse of the target full interval; the outflows
+ *           are equal.
  */
 int test_per_event_merger_uses_target_full_interval_for_rates(void) {
   /* ===== SETUP ===== */
@@ -655,9 +668,8 @@ int test_per_event_merger_uses_target_full_interval_for_rates(void) {
   const double expected_ratio = (double)target2.dT / (double)target1.dT;
   TEST_ASSERT_DOUBLE_EQUAL(sfr1 / sfr2, expected_ratio, 1e-4,
                            "Merger-burst SFR scales with inverse target full interval (halo->dT)");
-  TEST_ASSERT_DOUBLE_EQUAL(
-      outflow1 / outflow2, expected_ratio, 1e-4,
-      "Merger-burst outflow scales with inverse target full interval (halo->dT)");
+  TEST_ASSERT(outflow1 == outflow2,
+              "Merger-burst outflow is the undivided reheated mass, independent of any interval");
 
   /* ===== CLEANUP ===== */
   sage26_starburst_feedback_cleanup();
@@ -1958,7 +1970,247 @@ int test_memory_safety(void) {
 }
 
 // ============================================================================
+// BULGE STAR-FORMATION HISTORY SAMPLING
+// ============================================================================
+
+/** @brief Element (history, bin) of a galaxy */
+static float bulge_history(struct GalaxyData *gal, const enum MimicSageSfrHistory h,
+                           const int bin) {
+  return *mimic_sage_sfr_history(gal, h, bin);
+}
+
+/** @brief Whether every element of the three bulge histories outside `bin` is zero */
+static int bulge_history_zero_outside(struct GalaxyData *gal, const int bin) {
+  const enum MimicSageSfrHistory bulge[] = {MIMIC_SFR_HISTORY_BULGE,
+                                            MIMIC_SFR_HISTORY_BULGE_COLD_GAS,
+                                            MIMIC_SFR_HISTORY_BULGE_COLD_GAS_METALS};
+  for (int h = 0; h < 3; h++) {
+    for (int k = 0; k < MIMIC_SAGE_SFR_STEPS; k++) {
+      if (k != bin && bulge_history(gal, bulge[h], k) != 0.0f) {
+        return 0;
+      }
+    }
+  }
+  return 1;
+}
+
+/**
+ * @test    test_instability_burst_samples_bulge_history
+ * @brief   SfrBulge[bin] += stars / dt, SfrBulgeColdGas[bin] += ColdGas,
+ *          SfrBulgeColdGasMetals[bin] += MetalsColdGas (R/src/model_mergers.c:755-757)
+ *
+ * With 13 substeps, substep 5 maps to bin 3 ((5 * 10) / 13). The disk-instability
+ * burst's dt is the galaxy's substep interval, dT / 13 (SAGE26's
+ * starformation_and_feedback dt handed to collisional_starburst_recipe,
+ * R/src/model_disk_instability.c:106). The burst mass is formed here with the kernel's
+ * own expressions (mode 1: eburst = the unstable fraction; the feedback
+ * renormalisation), and the sample is taken before the burst consumes the cold gas. A
+ * second burst in the same bin adds its own rate and its own (smaller) cold gas.
+ */
+int test_instability_burst_samples_bulge_history(void) {
+  init_memory_system(0);
+  reset_config();
+  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+  TEST_ASSERT(sage26_starburst_feedback_init() == 0, "Module init should succeed");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+  halo.dT = 0.13;
+  gal.UnstableDiskGasFraction = 0.5;
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &halo);
+  ctx.num_substeps = 13;
+  ctx.substep_number = 5;
+  const int bin = 3;
+  const double dt = halo.dT / 13.0;
+
+  /* The kernel's burst mass (mode 1) and its feedback renormalisation */
+  const float cold_before = gal.ColdGas;
+  const float metals_before = gal.MetalsColdGas;
+  double stars = 0.5 * gal.ColdGas;
+  const double reheated = 3.0 * stars;
+  if ((stars + reheated) > gal.ColdGas && (stars + reheated) > 0.0) {
+    stars *= gal.ColdGas / (stars + reheated);
+  }
+  float rate = 0.0f;
+  rate += stars / dt;
+
+  TEST_ASSERT(sage26_starburst_feedback_process(&ctx, &halo, 1) == 0, "Process should succeed");
+  TEST_ASSERT(bulge_history(&gal, MIMIC_SFR_HISTORY_BULGE, bin) == rate,
+              "SfrBulge[bin] is stars / dt with the galaxy's substep dt");
+  TEST_ASSERT(bulge_history(&gal, MIMIC_SFR_HISTORY_BULGE_COLD_GAS, bin) == cold_before,
+              "SfrBulgeColdGas[bin] adds the cold gas before the burst");
+  TEST_ASSERT(bulge_history(&gal, MIMIC_SFR_HISTORY_BULGE_COLD_GAS_METALS, bin) == metals_before,
+              "SfrBulgeColdGasMetals[bin] adds the cold metals before the burst");
+  TEST_ASSERT(bulge_history_zero_outside(&gal, bin), "only the substep's bin is sampled");
+  for (int k = 0; k < MIMIC_SAGE_SFR_STEPS; k++) {
+    TEST_ASSERT(bulge_history(&gal, MIMIC_SFR_HISTORY_DISK, k) == 0.0f &&
+                    bulge_history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS, k) == 0.0f,
+                "a burst does not touch the disk history");
+  }
+
+  /* A second burst in the same bin accumulates the gas (+=), not assigns it */
+  const float cold_second = gal.ColdGas;
+  float gas_sum = cold_before;
+  gas_sum += cold_second;
+  TEST_ASSERT(sage26_starburst_feedback_process(&ctx, &halo, 1) == 0, "Process should succeed");
+  TEST_ASSERT(bulge_history(&gal, MIMIC_SFR_HISTORY_BULGE_COLD_GAS, bin) == gas_sum,
+              "a second burst in the bin adds its cold gas to the first's");
+  TEST_ASSERT(bulge_history(&gal, MIMIC_SFR_HISTORY_BULGE, bin) > rate,
+              "a second burst in the bin adds its rate");
+
+  sage26_starburst_feedback_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @brief Run one merger-event burst on a fresh central with the given event dt (value1)
+ *
+ * Substep 9 of 10 (bin 9); the target's own dT / num_substeps is 0.01, which the
+ * event's satellite dt must override.
+ */
+static int run_merger_burst(const double event_dt, struct GalaxyData *gal_out) {
+  reset_config();
+  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+  if (sage26_starburst_feedback_init() != 0) {
+    return -1;
+  }
+  static struct Halo halo;
+  setup_test_galaxy(&halo, gal_out, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &halo);
+  ctx.num_substeps = 10;
+  ctx.substep_number = 9;
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 1,
+                              .target_index = 0,
+                              .value0 = 0.3,
+                              .value1 = event_dt};
+  ctx.active_event = &event;
+  const int result = sage26_starburst_feedback_process(&ctx, &halo, 1);
+  sage26_starburst_feedback_cleanup();
+  return result;
+}
+
+/**
+ * @test    test_merger_burst_samples_with_event_dt
+ * @brief   The merger burst samples bin (step * 10) / N with SAGE26's merger dt, the
+ *          satellite's substep interval (R/src/core_build_model.c:579-581), which the
+ *          merger event carries in value1
+ *
+ * The burst mass is formed with the kernel's mode-0 expressions; the rate is stars /
+ * value1. Halving value1 must double the rate exactly (the burst masses do not depend
+ * on it), which the target's own substep interval could not do.
+ */
+int test_merger_burst_samples_with_event_dt(void) {
+  init_memory_system(0);
+  struct GalaxyData gal;
+  TEST_ASSERT(run_merger_burst(0.07, &gal) == 0, "Per-event merger processing should succeed");
+
+  double stars = 0.56 * pow(0.3, 0.7) * 10.0;
+  const double reheated = 3.0 * stars;
+  if ((stars + reheated) > 10.0 && (stars + reheated) > 0.0) {
+    stars *= 10.0 / (stars + reheated);
+  }
+  float rate = 0.0f;
+  rate += stars / 0.07;
+  TEST_ASSERT(bulge_history(&gal, MIMIC_SFR_HISTORY_BULGE, 9) == rate,
+              "SfrBulge[9] is stars / value1");
+  TEST_ASSERT(bulge_history(&gal, MIMIC_SFR_HISTORY_BULGE_COLD_GAS, 9) == 10.0f,
+              "SfrBulgeColdGas[9] adds the merger central's cold gas before the burst");
+  TEST_ASSERT(bulge_history(&gal, MIMIC_SFR_HISTORY_BULGE_COLD_GAS_METALS, 9) == 0.2f,
+              "SfrBulgeColdGasMetals[9] adds its cold metals before the burst");
+  TEST_ASSERT(bulge_history_zero_outside(&gal, 9), "only the substep's bin is sampled");
+
+  struct GalaxyData half;
+  TEST_ASSERT(run_merger_burst(0.035, &half) == 0, "Per-event merger processing should succeed");
+  TEST_ASSERT(bulge_history(&half, MIMIC_SFR_HISTORY_BULGE, 9) ==
+                  2.0f * bulge_history(&gal, MIMIC_SFR_HISTORY_BULGE, 9),
+              "halving the event dt doubles the sampled rate exactly");
+  TEST_ASSERT(half.StellarMass == gal.StellarMass && half.ColdGas == gal.ColdGas,
+              "the event dt does not change the burst masses");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @brief Run a minor merger whose post-merger instability recheck bursts (as
+ *        test_per_event_minor_merger_rechecks_disk_instability), substep 4 of 10
+ */
+static int run_recheck_burst(const int recheck, const double event_dt, struct GalaxyData *gal_out) {
+  reset_config();
+  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
+  if (recheck) {
+    setup_post_merger_recheck_parameters(0);
+  }
+  setup_runtime_phase_config(recheck, 0);
+  MimicConfig.G = 43007.1;
+  if (sage26_starburst_feedback_init() != 0) {
+    return -1;
+  }
+  static struct Halo central, target;
+  static struct GalaxyData central_gal;
+  setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+  setup_test_galaxy(&target, gal_out, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+  target.Vmax = 120.0;
+  gal_out->DiskScaleRadius = 5.0;
+  gal_out->BlackHoleMass = 0.05;
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &central);
+  ctx.num_substeps = 10;
+  ctx.substep_number = 4;
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 2,
+                              .target_index = 1,
+                              .value0 = 0.2,
+                              .value1 = event_dt};
+  ctx.active_event = &event;
+  const int result = sage26_starburst_feedback_process(&ctx, &target, 1);
+  sage26_starburst_feedback_cleanup();
+  teardown_runtime_phase_config();
+  return result;
+}
+
+/**
+ * @test    test_post_merger_recheck_samples_with_event_dt
+ * @brief   The post-merger instability burst samples the merger's bin with the merger's
+ *          dt, as SAGE26's deal_with_galaxy_merger passes its dt and step to
+ *          check_disk_instability (R/src/model_mergers.c:809) and on to the burst
+ *
+ * With the recheck the bin holds two bursts: more rate and more sampled gas than the
+ * merger burst alone. Halving the event dt doubles the bin's rate exactly, so both
+ * bursts divide by it.
+ */
+int test_post_merger_recheck_samples_with_event_dt(void) {
+  init_memory_system(0);
+  struct GalaxyData merger_only, recheck, recheck_half;
+  TEST_ASSERT(run_recheck_burst(0, 0.1, &merger_only) == 0, "merger-only run should succeed");
+  TEST_ASSERT(run_recheck_burst(1, 0.1, &recheck) == 0, "recheck run should succeed");
+  TEST_ASSERT(run_recheck_burst(1, 0.05, &recheck_half) == 0, "recheck run should succeed");
+
+  TEST_ASSERT(bulge_history(&recheck, MIMIC_SFR_HISTORY_BULGE, 4) >
+                  bulge_history(&merger_only, MIMIC_SFR_HISTORY_BULGE, 4),
+              "the recheck burst adds its rate to the merger's bin");
+  TEST_ASSERT(bulge_history(&recheck, MIMIC_SFR_HISTORY_BULGE_COLD_GAS, 4) >
+                  bulge_history(&merger_only, MIMIC_SFR_HISTORY_BULGE_COLD_GAS, 4),
+              "the recheck burst adds its cold gas to the merger's bin");
+  TEST_ASSERT(bulge_history_zero_outside(&recheck, 4), "only the merger's bin is sampled");
+  TEST_ASSERT(bulge_history(&recheck_half, MIMIC_SFR_HISTORY_BULGE, 4) ==
+                  2.0f * bulge_history(&recheck, MIMIC_SFR_HISTORY_BULGE, 4),
+              "both bursts divide by the event dt");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+// ============================================================================
 // MAIN TEST RUNNER
+
 // ============================================================================
 
 /**
@@ -2015,6 +2267,9 @@ int main(void) {
   /* Run infrastructure tests */
   TEST_RUN(test_module_initialization);
   TEST_RUN(test_memory_safety);
+  TEST_RUN(test_instability_burst_samples_bulge_history);
+  TEST_RUN(test_merger_burst_samples_with_event_dt);
+  TEST_RUN(test_post_merger_recheck_samples_with_event_dt);
 
   /* Print summary and return result */
   TEST_SUMMARY();

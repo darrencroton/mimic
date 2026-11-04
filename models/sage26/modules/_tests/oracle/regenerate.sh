@@ -9,7 +9,10 @@
 # fixtures); after running it checks that no output lacks an input. Any
 # disagreement or oracle failure stops the script with a non-zero exit.
 # Fixtures of the c04 modules (C04_MODULES below) run through oracle_c04;
-# every other fixture runs through oracle_c03.
+# every other fixture runs through oracle_c03, except that a fixture whose
+# routine line names a c05 routine (C05_ROUTINES below) runs through oracle_c05,
+# whichever module owns it (sage26_finalize_cooling_heating holds both c04 and
+# c05 fixtures).
 #
 # Environment: as build.sh (SAGE26_SRC, ORACLE_OUT, ORACLE_ALLOW_ANY_TOOLCHAIN).
 # See README.md in this directory.
@@ -72,6 +75,12 @@ ORACLE=$ORACLE_OUT/oracle_c03
 ORACLE_C04=$ORACLE_OUT/oracle_c04
 C04_MODULES="sage26_calculate_cooling_budget sage26_radio_mode_heating sage26_apply_cooling
 sage26_finalize_cooling_heating"
+# The c05 group (star formation, feedback, instability, histories, outflow) has
+# its own oracle main and is selected by routine, not by module.
+ORACLE_C05=$ORACLE_OUT/oracle_c05
+C05_ROUTINES="starformation_and_feedback starformation_and_feedback_sequence
+update_from_star_formation update_from_feedback check_disk_instability step_bin_map
+sfr_history_average normalise_outflow_rate"
 
 # Each oracle run writes to a fresh temporary file under ORACLE_OUT, which
 # replaces the committed output only if the oracle exited 0 AND the file is a
@@ -100,6 +109,12 @@ for input in $listed; do
   oracle=$ORACLE
   for module in $C04_MODULES; do
     case $input in "$module"/*) oracle=$ORACLE_C04 ;; esac
+  done
+  routine=$(awk '$1 == "routine" { print $2; exit }' "$MODULES_DIR/$input")
+  for name in $C05_ROUTINES; do
+    if [ "$routine" = "$name" ]; then
+      oracle=$ORACLE_C05
+    fi
   done
   tmp=$TMP_OUT/output
   rm -f "$tmp"

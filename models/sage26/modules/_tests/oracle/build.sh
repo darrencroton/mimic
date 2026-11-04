@@ -8,7 +8,8 @@
 # written in the SAGE26 source tree: objects and the executable go under the
 # worktree's git-ignored output/oracle/. The oracle never links Mimic code.
 # The c04 oracle main, oracle_c04.c, is compiled and linked the same way, with
-# the same objects, compiler and flags, into output/oracle/oracle_c04.
+# the same objects, compiler and flags, into output/oracle/oracle_c04, and so is
+# the c05 oracle main, oracle_c05.c, into output/oracle/oracle_c05.
 #
 # Environment:
 #   SAGE26_SRC         staged SAGE26 source root
@@ -109,3 +110,16 @@ clang $objects "$OBJ_DIR/oracle_c04.o" -o "$ORACLE_OUT/oracle_c04" \
 { set +x; } 2>/dev/null
 
 echo "build.sh: built $ORACLE_OUT/oracle_c04"
+
+# The c05 oracle main (star formation, feedback, instability, histories and
+# outflow): built exactly as oracle_c03, against the same twelve objects, with
+# the same flags and link.
+compile "$ORACLE_DIR/oracle_c05.c" "$OBJ_DIR/oracle_c05.o" -I"$SAGE26_SRC/src"
+
+set -x
+# shellcheck disable=SC2086 # $objects is a deliberately split list of paths
+clang $objects "$OBJ_DIR/oracle_c05.o" -o "$ORACLE_OUT/oracle_c05" \
+  -L"$GSL_PREFIX/lib" -lgsl -lgslcblas -Xlinker -rpath -Xlinker "$GSL_PREFIX/lib" -lm
+{ set +x; } 2>/dev/null
+
+echo "build.sh: built $ORACLE_OUT/oracle_c05"

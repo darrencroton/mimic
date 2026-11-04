@@ -1,0 +1,11 @@
+# SAGE26 oracle output for avg_substeps30.in, written by oracle_c05 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine sfr_history_average
+i32 intermediate.writer.sfr_rate_divisor 30
+i32 intermediate.writer.sfr_metallicity_divisor 10
+i32 intermediate.writer.SfrDiskZ_bins_skipped 0
+i32 intermediate.writer.SfrBulgeZ_bins_skipped 1
+f32 intermediate.writer.SfrDisk 0x3c198f85  # 0.00937259663
+f32 intermediate.writer.SfrBulge 0x3b7b47f1  # 0.0038342441
+f32 intermediate.writer.SfrDiskZ 0x3c81aac9  # 0.015828507
+f32 intermediate.writer.SfrBulgeZ 0x3c1374bd  # 0.00900000054

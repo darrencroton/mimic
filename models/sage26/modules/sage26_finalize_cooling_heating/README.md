@@ -1,10 +1,10 @@
 # `sage26_finalize_cooling_heating`
 
-Turns the cooling and AGN heating energies accumulated over a snapshot's substeps into rates, once per FoF group after the last substep.
+Turns the cooling and AGN heating energies and the supernova-reheated mass accumulated over a snapshot's substeps into rates, once per FoF group after the last substep. It normalises all three of SAGE26's end-of-halo sums: `Cooling`, `Heating` and `OutflowRate` (the package's `SupernovaOutflowRate`).
 
 ## SAGE26 Source
 
-`sage26_apply_cooling` and `sage26_radio_mode_heating` add `0.5 * m * Vvir^2` to `Cooling` and `Heating` on every substep, undivided, as SAGE26 does. After its last substep SAGE26 normalises them once per halo (`src/core_build_model.c:590-603`):
+`sage26_apply_cooling` and `sage26_radio_mode_heating` add `0.5 * m * Vvir^2` to `Cooling` and `Heating` on every substep, undivided, and the shared feedback commit (`shared/sage_sf_feedback_physics.h`, SAGE26's `update_from_feedback`) adds the reheated mass to `SupernovaOutflowRate` for every disk star-formation and burst event, undivided, as SAGE26 does (`src/model_starformation_and_feedback.c:1249`). After its last substep SAGE26 normalises the three sums once per halo (`src/core_build_model.c:590-604`):
 
 ```c
 const double deltaT = run_params->Age[galaxies[0].SnapNum] - halo_age;
@@ -12,16 +12,15 @@ const double inv_deltaT = 1.0/deltaT;
 /* for every galaxy with mergeType 0 */
 galaxies[p].Cooling *= inv_deltaT;
 galaxies[p].Heating *= inv_deltaT;
+galaxies[p].OutflowRate *= inv_deltaT;
 ```
 
 This module reproduces that block:
 
 - `deltaT` is the `dT` of the FoF's first galaxy, in the order Mimic holds the rows; the core computes each row's `dT` with SAGE26's `deltaT` expression. The first galaxy sets the interval even when it has merged itself, as SAGE26's galaxy zero does.
-- `inv_deltaT = 1.0 / deltaT` multiplies `Cooling` and `Heating` of every galaxy that has not merged or been disrupted this snapshot. SAGE26's `mergeType > 0` is the package's `Type == 3`, which `sage26_resolve_mergers_and_disruption` sets.
+- `inv_deltaT = 1.0 / deltaT` multiplies `Cooling`, `Heating` and `SupernovaOutflowRate`, in that order, of every galaxy that has not merged or been disrupted this snapshot. `SupernovaOutflowRate` is a float, so its product is rounded to float, as SAGE26's `*=` on its float `OutflowRate` is. SAGE26's `mergeType > 0` is the package's `Type == 3`, which `sage26_resolve_mergers_and_disruption` sets.
 - Workspace rows without a galaxy (which the core can keep) are skipped.
-- Where the core gives the first galaxy no positive interval (its snapshot-zero birth, `dT = -1`), no physics ran, and `Cooling` and `Heating` of every non-merged galaxy in the FoF are set to 0. SAGE26 always has a positive interval there (`src/core_init.c:60-67`); that difference is core-owned.
-
-The normalisation's `OutflowRate` term belongs to a later node and is not applied here.
+- Where the core gives the first galaxy no positive interval (its snapshot-zero birth, `dT = -1`), no physics ran, and `Cooling`, `Heating` and `SupernovaOutflowRate` of every non-merged galaxy in the FoF are set to 0. SAGE26 always has a positive interval there (`src/core_init.c:60-67`); that difference is core-owned.
 
 ## Processing Contract
 
@@ -31,8 +30,8 @@ The normalisation's `OutflowRate` term belongs to a later node and is not applie
 
 ## Properties
 
-- Reads: `Type`, `dT`, `Cooling`, `Heating`
-- Writes: `Cooling`, `Heating`
+- Reads: `Type`, `dT`, `Cooling`, `Heating`, `SupernovaOutflowRate`
+- Writes: `Cooling`, `Heating`, `SupernovaOutflowRate`
 
 ## Parameters
 

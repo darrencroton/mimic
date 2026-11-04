@@ -3,10 +3,37 @@
  * @brief   SAGE SF/SN apply step - commits SF and SN transport fields to galaxy reservoirs
  * (infrastructure)
  *
- * Applies calculated star formation and supernova feedback to galaxy properties.
- * Handles stellar recycling, metal enrichment, gas transfers (cold→hot→ejected),
- * and resets temporary calculation properties (NewStellarMass, SupernovaReheatedMass,
- * SupernovaEjectedMass) to zero after processing.
+ * Samples the disk star-formation history and commits the disk star formation and
+ * supernova feedback of one substep as SAGE26's starformation_and_feedback() does
+ * (R/src/model_starformation_and_feedback.c:1058-1085, R = the staged SAGE26 source),
+ * through the package's shared history helper (shared/sage_sfr_history.h) and its
+ * shared implementation of SAGE26's update_from_star_formation and
+ * update_from_feedback (shared/sage_sf_feedback_physics.h), which the starburst
+ * channels also use:
+ *
+ *   SfrDisk[bin] += stars / dt; SfrDiskColdGas[bin] = ColdGas;
+ *   SfrDiskColdGasMetals[bin] = MetalsColdGas                 (:1058-1060)
+ *   metallicity = get_metallicity(ColdGas, MetalsColdGas)
+ *   update_from_star_formation(stars, metallicity)            (locks (1 - R) * stars)
+ *   metallicity = get_metallicity(ColdGas, MetalsColdGas)
+ *   reheated mass clamped to the remaining ColdGas             (:1079-1082)
+ *   update_from_feedback(reheated, ejected, metallicity)       (OutflowRate += reheated)
+ *
+ * The sample is taken at SAGE26's point: stars is the renormalised mass
+ * sage26_calculate_supernova_feedback leaves in NewStellarMass, and the cold gas is
+ * the reservoir before anything is committed. bin is the substep's history bin,
+ * (substep * STEPS) / num_substeps capped at STEPS - 1 (R/src/core_build_model.c:514-515),
+ * and dt the substep interval dT / num_substeps.
+ *
+ * SAGE26 samples and makes both calls on every substep, also when no stars formed,
+ * so this step always does, except on Mimic-only degenerate paths: with no FoF
+ * central galaxy it samples but returns before committing anything (SAGE26 always
+ * has a central), and on the initial-snapshot boundary (no positive interval, where
+ * sage26_calculate_star_formation forms nothing) it does not sample, as there is
+ * no dt (SAGE26 always has a positive interval). It then zeroes the reheated and
+ * ejected transport fields;
+ * NewStellarMass is left for sage26_apply_metal_enrichment, which applies the disk
+ * yield after the disk-instability chain.
  *
  * Reference: Croton et al. (2006, 2016)
  */
@@ -20,6 +47,9 @@
 #include "module_registry.h"
 #include "types.h"
 #include "shared/metallicity.h"
+#include "shared/sage_sf_feedback_physics.h"
+#include "shared/sage_sfr_history.h"
+#include "shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
 #include "module_system/physical_constants.h"
 
@@ -28,6 +58,42 @@
 // ============================================================================
 
 static double RECYCLE_FRACTION;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * @brief Sample the disk star-formation history of this substep (S:1058-1060)
+ *
+ * SAGE parity: SAGE26 samples on every starformation_and_feedback call, zero stars
+ * included, after compute_sn_feedback renormalised stars and before any reservoir
+ * update (R/src/model_starformation_and_feedback.c:1053-1060).
+ *
+ * @return 0, or -1 on an invalid interval or substep
+ */
+static int sample_disk_history(const struct ModuleContext *ctx, const struct Halo *halo,
+                               struct GalaxyData *gal) {
+  double dt = 0.0;
+  const enum MimicObjectTimeStatus dt_status = mimic_object_substep_dt(halo, ctx, &dt);
+  if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
+    return 0;
+  }
+  if (dt_status != MIMIC_OBJECT_TIME_OK) {
+    ERROR_LOG("Invalid disk SF history dt for halo %lld (SnapNum=%d, dT=%.3e, num_substeps=%d, "
+              "status=%s)",
+              halo->HaloNr, halo->SnapNum, halo->dT, (ctx != NULL) ? ctx->num_substeps : -1,
+              mimic_object_time_status_str(dt_status));
+    return -1;
+  }
+  const int bin = mimic_sage_sfr_step_bin(ctx->substep_number, ctx->num_substeps);
+  if (mimic_sage_sample_disk_sfr(gal, bin, gal->NewStellarMass, dt) != 0) {
+    ERROR_LOG("Invalid disk SF history bin for halo %lld (substep %d of %d)", halo->HaloNr,
+              ctx->substep_number, ctx->num_substeps);
+    return -1;
+  }
+  return 0;
+}
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -97,6 +163,14 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
     return 0;
   }
 
+  // ========================================================================
+  // DISK SF HISTORY: sampled before any reservoir update (:1058-1060)
+  // ========================================================================
+
+  if (sample_disk_history(ctx, halo, halo->galaxy) != 0) {
+    return -1;
+  }
+
   if (ctx->central_galaxy == NULL || ctx->central_galaxy->galaxy == NULL) {
     DEBUG_LOG("No FOF central available for feedback destination");
     return 0;
@@ -107,83 +181,47 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
 
   // Read calculated values from previous modules
   const double stars = gal->NewStellarMass;
-  const double reheated_mass = gal->SupernovaReheatedMass;
-  double ejected_mass = gal->SupernovaEjectedMass;
+  double reheated_mass = gal->SupernovaReheatedMass;
+  const double ejected_mass = gal->SupernovaEjectedMass;
 
-  // SAGE parity: skip only at exactly 0.0 — a larger epsilon would silently drop tiny SF events.
-  // NewStellarMass is preserved (not zeroed here) for sage26_apply_metal_enrichment to consume.
-  if (stars <= 0.0) {
-    gal->SupernovaReheatedMass = 0.0;
-    gal->SupernovaEjectedMass = 0.0;
-    return 0;
-  }
+  /* SAGE parity: SAGE26 commits star formation and feedback on every call, also when
+   * no stars formed (:1063-1085); a zero event still runs the clamps and caps, which
+   * can move a negative or -0.0 metal reservoir. */
 
   // ========================================================================
-  // STAR FORMATION: Update gas and stars with recycling
+  // STAR FORMATION: Update gas and stars with recycling (:1063-1064)
   // ========================================================================
 
   double metallicity = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
+  mimic_sage_update_from_star_formation(gal, stars, metallicity, RECYCLE_FRACTION);
 
-  // Remove gas consumed by star formation (accounting for recycling)
-  gal->ColdGas -= (1.0 - RECYCLE_FRACTION) * stars;
-  gal->MetalsColdGas -= metallicity * (1.0 - RECYCLE_FRACTION) * stars;
-
-  // Add to stellar mass (accounting for recycling)
-  gal->StellarMass += (1.0 - RECYCLE_FRACTION) * stars;
-  gal->MetalsStellarMass += metallicity * (1.0 - RECYCLE_FRACTION) * stars;
-
-  // Accumulate star formation rate
+  // Accumulate the package's snapshot-averaged StarFormationRate diagnostic (not a
+  // SAGE26 output; SAGE26's SFR outputs come from its per-substep histories)
   if (halo->dT > 0.0) {
     gal->StarFormationRate += stars / halo->dT;
   }
 
   // ========================================================================
-  // SUPERNOVA FEEDBACK: Reheating (cold → hot)
+  // SUPERNOVA FEEDBACK: cold -> central hot -> central ejected (:1075-1085)
   // ========================================================================
 
-  // Recompute metallicity after star formation
+  // Recompute the metallicity of the cold phase after star formation
   metallicity = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
 
-  // Remove reheated gas from this galaxy's cold phase
-  gal->ColdGas -= reheated_mass;
-  gal->MetalsColdGas -= metallicity * reheated_mass;
-
-  // Add reheated gas to central's hot halo (satellites are stripped)
-  central_gal->HotGas += reheated_mass;
-  central_gal->MetalsHotGas += metallicity * reheated_mass;
-
-  // ========================================================================
-  // SUPERNOVA FEEDBACK: Ejection (hot → ejected)
-  // ========================================================================
-
-  // Limit ejected mass to available hot gas in central
-  if (ejected_mass > central_gal->HotGas) {
-    ejected_mass = central_gal->HotGas;
+  /* SAGE parity: the reheated mass is clamped to the cold gas left after star
+   * formation before update_from_feedback, which clamps it again (:1079-1082) */
+  if (reheated_mass > gal->ColdGas) {
+    reheated_mass = gal->ColdGas;
   }
 
-  // Calculate central's hot gas metallicity
-  const double metallicity_hot =
-      mimic_get_metallicity(central_gal->HotGas, central_gal->MetalsHotGas);
-
-  // Remove ejected gas from central's hot phase
-  central_gal->HotGas -= ejected_mass;
-  central_gal->MetalsHotGas -= metallicity_hot * ejected_mass;
-
-  // Add ejected gas to central's ejected reservoir
-  central_gal->EjectedGas += ejected_mass;
-  central_gal->MetalsEjectedGas += metallicity_hot * ejected_mass;
-
-  // Accumulate outflow rate
-  if (halo->dT > 0.0) {
-    gal->SupernovaOutflowRate += reheated_mass / halo->dT;
-  }
+  mimic_sage_update_from_feedback(gal, central_gal, reheated_mass, ejected_mass, metallicity, NULL);
 
   // ========================================================================
   // CLEANUP: Zero out consumed SN transport properties
   // ========================================================================
   // NewStellarMass is intentionally NOT zeroed here: sage26_apply_metal_enrichment
-  // consumes it after the disk-instability chain (SAGE ordering parity — the
-  // disk-SF metal yield is added after check_disk_instability in SAGE).
+  // consumes it after the disk-instability chain (SAGE26 adds the disk yield after
+  // check_disk_instability, :1092-1109).
 
   gal->SupernovaReheatedMass = 0.0;
   gal->SupernovaEjectedMass = 0.0;

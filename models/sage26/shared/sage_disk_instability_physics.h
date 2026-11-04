@@ -1,18 +1,31 @@
 /**
  * @file sage_disk_instability_physics.h
- * @brief Disk instability structural response kernel (Efstathiou 1982 criterion)
+ * @brief SAGE26's disk-instability stellar transfer (Mo, Mao & White 1998 criterion)
  *
- * Applies the disk-instability stability criterion: if the disk mass exceeds the
- * critical mass for rotational support, the excess is transferred to the bulge.
- * Returns the unstable gas fraction for use by sage26_quasar_mode and
- * sage26_starburst_feedback in the same substep.
+ * Ports the part of SAGE26's check_disk_instability before its black-hole and burst
+ * calls (R/src/model_disk_instability.c:47-101) for R0: the disk mass, the critical
+ * mass Mcrit, the transfer of unstable disk stars and their metals into the bulge and
+ * its instability channel, and the unstable cold-gas fraction the gas branch hands to
+ * grow_black_hole and collisional_starburst_recipe (:101-108). In the package those
+ * two continuations are sage26_quasar_mode and sage26_starburst_feedback, which read
+ * the returned fraction through the UnstableDiskGasFraction transport property.
  *
- * @note Used by sage26_disk_instability; result consumed by sage26_quasar_mode and
- *       sage26_starburst_feedback via the UnstableDiskGasFraction transport property.
+ * Arithmetic follows SAGE26's expression shapes and types: the float disk sums, the
+ * float Vmax * Vmax product, the double fractions, and double unstable_stars added
+ * straight into the float bulge fields. SAGE26's compiled object fuses exactly one
+ * multiply-add in this routine (:79, MetalsBulgeMass += metallicity * unstable_stars);
+ * it is written below as an explicit fma() and every other expression rounds as
+ * written.
+ *
+ * @note Used by sage26_disk_instability (every substep) and by sage26_starburst_feedback
+ *       (the minor-merger instability recheck, SAGE26's R/src/model_mergers.c:807-809,
+ *       which calls the same check_disk_instability).
  */
 
 #ifndef MIMIC_SHARED_SAGE_DISK_INSTABILITY_PHYSICS_H
 #define MIMIC_SHARED_SAGE_DISK_INSTABILITY_PHYSICS_H
+
+#include <math.h>
 
 #include "error.h"
 #include "module_interface.h"
@@ -20,98 +33,143 @@
 #include "shared/metallicity.h"
 
 /**
- * @brief Apply disk-instability structural response to a halo
+ * @brief The locals of SAGE26's check_disk_instability, reported for tests
  *
- * Computes the Efstathiou disk stability criterion and transfers unstable stellar
- * and gas mass to the bulge. Returns the unstable cold gas fraction for downstream
- * starburst and AGN modules.
- *
- * @param halo                    Halo containing the galaxy to update
- * @param ctx                     Module context with gravitational constant G
- * @param star_forming_disk_factor  Disk radius scale factor (StarFormingDiskFactor parameter)
- * @return Unstable cold gas fraction [0.0, 1.0]; 0.0 if stable or invalid input
+ * Each value is SAGE26's double local of the same name. A value the path does not
+ * form (the routine returns before it, or its branch is not taken) is left as NaN.
  */
-static inline double mimic_sage_apply_disk_instability(struct Halo *halo,
+struct MimicSageInstabilityLocals {
+  double diskmass;              /**< ColdGas + (StellarMass - BulgeMass), formed in float (:54) */
+  double mcrit;                 /**< Critical mass after its cap at diskmass (:57-60) */
+  double unstable_gas;          /**< gas_fraction * (diskmass - Mcrit) (:64) */
+  double unstable_stars;        /**< star_fraction * (diskmass - Mcrit) (:66) */
+  double metallicity;           /**< Disk stellar metallicity of the transfer (:75) */
+  double unstable_gas_fraction; /**< unstable_gas / ColdGas handed on (:101) */
+};
+
+/**
+ * @brief SAGE26's check_disk_instability up to its black-hole and burst calls, for R0
+ *
+ * Transfers the unstable disk stars and their metals into BulgeMass, MetalsBulgeMass
+ * and InstabilityBulgeMass exactly as SAGE26 does, with no cap on the transferred mass
+ * and no clamp of the bulge to the stellar totals, and returns the unstable cold-gas
+ * fraction where SAGE26's gas branch is taken.
+ *
+ * @param halo                     Halo holding the galaxy (its own Vmax is read)
+ * @param ctx                      Module context with the gravitational constant G
+ * @param star_forming_disk_factor SAGE26's TOOMRE_DISK_FACTOR, 3.0
+ * (R/src/model_disk_instability.c:35); the run files' StarFormingDiskFactor
+ * @param locals                   Optional (NULL allowed): receives SAGE26's locals
+ * @return unstable_gas / ColdGas where unstable_gas > 0 and ColdGas > 0 (:90, :101), else 0.0
+ */
+static inline double mimic_sage_check_disk_instability(struct Halo *halo,
                                                        const struct ModuleContext *ctx,
-                                                       double star_forming_disk_factor) {
+                                                       const double star_forming_disk_factor,
+                                                       struct MimicSageInstabilityLocals *locals) {
+  if (locals != NULL) {
+    locals->diskmass = NAN;
+    locals->mcrit = NAN;
+    locals->unstable_gas = NAN;
+    locals->unstable_stars = NAN;
+    locals->metallicity = NAN;
+    locals->unstable_gas_fraction = NAN;
+  }
+  /* Calling-contract guards: SAGE26 is always called with a galaxy and a positive G */
   if (halo == NULL || halo->galaxy == NULL || ctx == NULL || ctx->params == NULL ||
       ctx->params->G <= 0.0) {
     return 0.0;
   }
 
   struct GalaxyData *gal = halo->galaxy;
+  double unstable_gas_fraction = 0.0;
+
+  /* SAGE parity: the disk mass is a float sum of the float reservoirs, widened to
+   * double once (R/src/model_disk_instability.c:54) */
   const double diskmass = gal->ColdGas + (gal->StellarMass - gal->BulgeMass);
-  if (diskmass <= 0.0) {
-    return 0.0;
+  if (locals != NULL) {
+    locals->diskmass = diskmass;
   }
-
-  double mcrit =
-      halo->Vmax * halo->Vmax * (star_forming_disk_factor * gal->DiskScaleRadius) / ctx->params->G;
-  if (mcrit > diskmass) {
-    mcrit = diskmass;
-  }
-
-  const double gas_fraction = gal->ColdGas / diskmass;
-  const double unstable_gas = gas_fraction * (diskmass - mcrit);
-  const double star_fraction = 1.0 - gas_fraction;
-  const double unstable_stars = star_fraction * (diskmass - mcrit);
-
-  if (unstable_stars > 0.0) {
-    const double disk_stellar_mass = gal->StellarMass - gal->BulgeMass;
-    const double disk_metal_mass = gal->MetalsStellarMass - gal->MetalsBulgeMass;
-
-    if (disk_stellar_mass <= 0.0) {
-      return unstable_gas > 0.0 && gal->ColdGas > 0.0 ? unstable_gas / gal->ColdGas : 0.0;
+  /* SAGE parity: SAGE26 tests diskmass > 0.0 (R/src/model_disk_instability.c:55), so a NaN disk
+   * mass skips the routine */
+  if (diskmass > 0.0) {
+    /* SAGE parity: the float Vmax * Vmax product, then SAGE26's double 3.0 times the float
+     * DiskScaleRadius, divided by G (R/src/model_disk_instability.c:57, TOOMRE_DISK_FACTOR :35);
+     * capped at the disk mass (:58-60) */
+    double mcrit = halo->Vmax * halo->Vmax * (star_forming_disk_factor * gal->DiskScaleRadius) /
+                   ctx->params->G;
+    if (mcrit > diskmass) {
+      mcrit = diskmass;
     }
 
-    const double metallicity = mimic_get_metallicity(disk_stellar_mass, disk_metal_mass);
-    double transferred_stars = unstable_stars;
-    if (transferred_stars > disk_stellar_mass) {
-      transferred_stars = disk_stellar_mass;
+    const double gas_fraction = gal->ColdGas / diskmass;
+    const double unstable_gas = gas_fraction * (diskmass - mcrit);
+    const double star_fraction = 1.0 - gas_fraction;
+    const double unstable_stars = star_fraction * (diskmass - mcrit);
+    if (locals != NULL) {
+      locals->mcrit = mcrit;
+      locals->unstable_gas = unstable_gas;
+      locals->unstable_stars = unstable_stars;
     }
 
-    double transferred_metals = metallicity * transferred_stars;
-    if (disk_metal_mass <= 0.0) {
-      transferred_metals = 0.0;
-    } else if (transferred_metals > disk_metal_mass) {
-      transferred_metals = disk_metal_mass;
-    }
-
-    gal->BulgeMass += transferred_stars;
-    gal->MetalsBulgeMass += transferred_metals;
-
-    if (gal->BulgeMass > gal->StellarMass) {
-      const double excess = gal->BulgeMass - gal->StellarMass;
-      const double tolerance = 1.0e-10 + 1.0e-4 * gal->StellarMass;
-      if (excess > tolerance) {
-        WARNING_LOG("Disk instability: Bulge mass %.4e exceeds stellar mass %.4e in halo %lld",
-                    gal->BulgeMass, gal->StellarMass, halo->HaloNr);
+    if (unstable_stars > 0.0) {
+      /* SAGE parity: the disk metallicity from the float disk differences
+       * (R/src/model_disk_instability.c:75) */
+      const double metallicity = mimic_get_metallicity(
+          gal->StellarMass - gal->BulgeMass, gal->MetalsStellarMass - gal->MetalsBulgeMass);
+      if (locals != NULL) {
+        locals->metallicity = metallicity;
       }
-      gal->BulgeMass = gal->StellarMass;
+
+      /* SAGE parity: double unstable_stars is added straight into the float bulge, its
+       * instability channel and the bulge metals, with no cap on the transfer and no
+       * clamp of the bulge to StellarMass or MetalsStellarMass
+       * (R/src/model_disk_instability.c:77-79). The float stores can leave BulgeMass or
+       * MetalsBulgeMass one rounding above the stellar totals, as SAGE26 does. SAGE26's object
+       * fuses the metals update (:79). */
+      gal->BulgeMass += unstable_stars;
+      gal->InstabilityBulgeMass += unstable_stars;
+      gal->MetalsBulgeMass = (float)fma(metallicity, unstable_stars, (double)gal->MetalsBulgeMass);
+
+      /* SAGE parity: update_instability_bulge_radius returns at once unless BulgeSizeOn
+       * is 3 (R/src/model_misc.c:395); R0 runs BulgeSizeOn 0, so every bulge radius
+       * keeps the value it had (not zeroed) while the channel mass above is written */
+
+      DEBUG_LOG("Halo %lld: Disk unstable - transferred %.3e to bulge", halo->HaloNr,
+                unstable_stars);
     }
 
-    if (gal->MetalsBulgeMass > gal->MetalsStellarMass) {
-      const double excess = gal->MetalsBulgeMass - gal->MetalsStellarMass;
-      const double tolerance = 1.0e-10 + 1.0e-4 * gal->MetalsStellarMass;
-      if (excess > tolerance) {
-        WARNING_LOG("Disk instability: Bulge metals %.4e exceed stellar metals %.4e in halo %lld",
-                    gal->MetalsBulgeMass, gal->MetalsStellarMass, halo->HaloNr);
+    /* SAGE parity: the gas branch needs unstable_gas > 0.0 and ColdGas > 0.0
+     * (R/src/model_disk_instability.c:90); its fraction (:101) goes to grow_black_hole
+     * and collisional_starburst_recipe (:102-108), which are sage26_quasar_mode and
+     * sage26_starburst_feedback in the package */
+    if (unstable_gas > 0.0 && gal->ColdGas > 0.0) {
+      unstable_gas_fraction = unstable_gas / gal->ColdGas;
+      if (locals != NULL) {
+        locals->unstable_gas_fraction = unstable_gas_fraction;
       }
-      gal->MetalsBulgeMass = gal->MetalsStellarMass;
+      DEBUG_LOG("Halo %lld: Unstable gas fraction = %.4f", halo->HaloNr, unstable_gas_fraction);
     }
-
-    DEBUG_LOG("Halo %lld: Disk unstable - transferred %.3e Msun to bulge", halo->HaloNr,
-              transferred_stars);
   }
 
-  if (unstable_gas > 0.0 && gal->ColdGas > 0.0) {
-    const double unstable_gas_fraction = unstable_gas / gal->ColdGas;
+  return unstable_gas_fraction;
+}
 
-    DEBUG_LOG("Halo %lld: Unstable gas fraction = %.4f", halo->HaloNr, unstable_gas_fraction);
-    return unstable_gas_fraction;
-  }
-
-  return 0.0;
+/**
+ * @brief Apply SAGE26's disk-instability stellar transfer and return the unstable gas fraction
+ *
+ * mimic_sage_check_disk_instability() without its locals; the entry point both
+ * callers use.
+ *
+ * @param halo                     Halo holding the galaxy
+ * @param ctx                      Module context with the gravitational constant G
+ * @param star_forming_disk_factor SAGE26's TOOMRE_DISK_FACTOR, 3.0
+ * (R/src/model_disk_instability.c:35)
+ * @return The unstable cold-gas fraction where SAGE26's gas branch is taken, else 0.0
+ */
+static inline double mimic_sage_apply_disk_instability(struct Halo *halo,
+                                                       const struct ModuleContext *ctx,
+                                                       const double star_forming_disk_factor) {
+  return mimic_sage_check_disk_instability(halo, ctx, star_forming_disk_factor, NULL);
 }
 
 #endif /* MIMIC_SHARED_SAGE_DISK_INSTABILITY_PHYSICS_H */

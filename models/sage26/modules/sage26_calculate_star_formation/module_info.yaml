@@ -1,9 +1,9 @@
 module:
   name: sage26_calculate_star_formation
   description: >-
-    Swappable SF rate prescription: computes stellar mass formed this substep via
-    Kennicutt-Schmidt efficiency with critical threshold; stores result in NewStellarMass transport
-    field
+    SAGE26 disk star formation (SFprescription 0, Croton et al. 2006): stellar mass formed this
+    substep above the Kauffmann critical cold gas, stored in the NewStellarMass transport field,
+    and the H I diagnostic H1gas from the cold gas before star formation
 
   supported_processing_modes: [process_by_galaxy]
 
@@ -16,13 +16,17 @@ module:
       - Vvir
       - ColdGas
       - DiskScaleRadius
+      - H2gas
+      - H1gas
       - NewStellarMass
     parameters:
       - SfrEfficiency
       - StarFormingDiskFactor
 
   tests:
-    unit: _tests/test_unit_sage26_calculate_star_formation.c
+    unit:
+      - _tests/test_unit_sage26_calculate_star_formation.c
+      - _tests/test_unit_sage26_calculate_star_formation_oracle.c
     integration: _tests/test_integration_sage26_calculate_star_formation.py
     scientific: []
 

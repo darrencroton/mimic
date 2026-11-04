@@ -1,0 +1,87 @@
+module:
+  name: sage26_finalize_sfr_histories
+  description: >-
+    Records the substep count and averages SAGE26's six per-substep star-formation histories into
+    the SfrDisk, SfrBulge, SfrDiskZ and SfrBulgeZ outputs once per halo, as SAGE26's HDF5 writer does
+    after its last substep
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - SubstepsUsed
+      - SfrDisk
+      - SfrBulge
+      - SfrDiskZ
+      - SfrBulgeZ
+      - SfrDiskBin0
+      - SfrDiskBin1
+      - SfrDiskBin2
+      - SfrDiskBin3
+      - SfrDiskBin4
+      - SfrDiskBin5
+      - SfrDiskBin6
+      - SfrDiskBin7
+      - SfrDiskBin8
+      - SfrDiskBin9
+      - SfrBulgeBin0
+      - SfrBulgeBin1
+      - SfrBulgeBin2
+      - SfrBulgeBin3
+      - SfrBulgeBin4
+      - SfrBulgeBin5
+      - SfrBulgeBin6
+      - SfrBulgeBin7
+      - SfrBulgeBin8
+      - SfrBulgeBin9
+      - SfrDiskColdGasBin0
+      - SfrDiskColdGasBin1
+      - SfrDiskColdGasBin2
+      - SfrDiskColdGasBin3
+      - SfrDiskColdGasBin4
+      - SfrDiskColdGasBin5
+      - SfrDiskColdGasBin6
+      - SfrDiskColdGasBin7
+      - SfrDiskColdGasBin8
+      - SfrDiskColdGasBin9
+      - SfrDiskColdGasMetalsBin0
+      - SfrDiskColdGasMetalsBin1
+      - SfrDiskColdGasMetalsBin2
+      - SfrDiskColdGasMetalsBin3
+      - SfrDiskColdGasMetalsBin4
+      - SfrDiskColdGasMetalsBin5
+      - SfrDiskColdGasMetalsBin6
+      - SfrDiskColdGasMetalsBin7
+      - SfrDiskColdGasMetalsBin8
+      - SfrDiskColdGasMetalsBin9
+      - SfrBulgeColdGasBin0
+      - SfrBulgeColdGasBin1
+      - SfrBulgeColdGasBin2
+      - SfrBulgeColdGasBin3
+      - SfrBulgeColdGasBin4
+      - SfrBulgeColdGasBin5
+      - SfrBulgeColdGasBin6
+      - SfrBulgeColdGasBin7
+      - SfrBulgeColdGasBin8
+      - SfrBulgeColdGasBin9
+      - SfrBulgeColdGasMetalsBin0
+      - SfrBulgeColdGasMetalsBin1
+      - SfrBulgeColdGasMetalsBin2
+      - SfrBulgeColdGasMetalsBin3
+      - SfrBulgeColdGasMetalsBin4
+      - SfrBulgeColdGasMetalsBin5
+      - SfrBulgeColdGasMetalsBin6
+      - SfrBulgeColdGasMetalsBin7
+      - SfrBulgeColdGasMetalsBin8
+      - SfrBulgeColdGasMetalsBin9
+    parameters: []
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_finalize_sfr_histories.c
+      - _tests/test_unit_sage26_finalize_sfr_histories_oracle.c
+    integration: _tests/test_integration_sage26_finalize_sfr_histories.py
+    scientific: []
+
+  docs:
+    physics: README.md

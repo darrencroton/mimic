@@ -1,8 +1,9 @@
 module:
   name: sage26_disk_instability
   description: >-
-    Applies Mo, Mao & White (1998) disk stability criterion; transfers unstable stellar mass to
-    bulge and sets UnstableDiskGasFraction trigger for downstream modules
+    SAGE26's check_disk_instability up to its black-hole and burst calls (Mo, Mao & White 1998
+    criterion): transfers unstable disk stars and metals to the bulge and its instability channel
+    and sets the UnstableDiskGasFraction trigger for downstream modules
 
   supported_processing_modes: [process_by_galaxy]
 
@@ -15,13 +16,16 @@ module:
       - BulgeMass
       - MetalsStellarMass
       - MetalsBulgeMass
+      - InstabilityBulgeMass
       - DiskScaleRadius
       - UnstableDiskGasFraction
     parameters:
       - StarFormingDiskFactor
 
   tests:
-    unit: _tests/test_unit_sage26_disk_instability.c
+    unit:
+      - _tests/test_unit_sage26_disk_instability.c
+      - _tests/test_unit_sage26_disk_instability_oracle.c
     integration: _tests/test_integration_sage26_disk_instability.py
     scientific: []
 

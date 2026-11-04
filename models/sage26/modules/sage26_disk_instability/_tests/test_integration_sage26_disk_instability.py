@@ -34,6 +34,8 @@ import shutil
 import sys
 from pathlib import Path
 
+import numpy as np
+
 # Add tests directory to path to import framework
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
@@ -184,8 +186,14 @@ def test_property_values_physical():
     """
     Test that BulgeMass values are physical
 
-    Expected: 0 <= BulgeMass <= StellarMass for all halos
-    Validates: Property values are within physical bounds
+    Expected: 0 <= BulgeMass, and BulgeMass at most one float above StellarMass (likewise
+    for the metals)
+    Validates: Property values are within physical bounds, with SAGE26's rounding
+
+    SAGE26 adds the double unstable_stars straight into the float BulgeMass, with no
+    clamp to StellarMass (R/src/model_disk_instability.c:77-79), so a full-disk transfer
+    can leave the bulge one float above the stellar total. A bulge already above it has
+    a negative disk and transfers nothing more, so one float is the bound.
     """
     print("Testing property values are physical...")
 
@@ -209,17 +217,22 @@ def test_property_values_physical():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    # Check BulgeMass is physical (0 <= BulgeMass <= StellarMass)
+    def one_float_above(values):
+        as_float = np.asarray(values, dtype=np.float32)
+        return np.nextafter(as_float, np.float32(np.inf))
+
+    # Check BulgeMass is physical (0 <= BulgeMass, at most one float above StellarMass)
     assert (halos["BulgeMass"] >= 0).all(), "BulgeMass should be >= 0"
     assert (
-        halos["BulgeMass"] <= halos["StellarMass"] + 1e-6
-    ).all(), "BulgeMass should be <= StellarMass (with small tolerance for rounding)"
+        np.asarray(halos["BulgeMass"], dtype=np.float32) <= one_float_above(halos["StellarMass"])
+    ).all(), "BulgeMass should be at most one float above StellarMass"
 
     # Check MetalsBulgeMass is physical
     assert (halos["MetalsBulgeMass"] >= 0).all(), "MetalsBulgeMass should be >= 0"
     assert (
-        halos["MetalsBulgeMass"] <= halos["MetalsStellarMass"] + 1e-6
-    ).all(), "MetalsBulgeMass should be <= MetalsStellarMass"
+        np.asarray(halos["MetalsBulgeMass"], dtype=np.float32)
+        <= one_float_above(halos["MetalsStellarMass"])
+    ).all(), "MetalsBulgeMass should be at most one float above MetalsStellarMass"
 
     # Cleanup
     shutil.rmtree(temp_dir)

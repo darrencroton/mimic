@@ -1,8 +1,9 @@
 module:
   name: sage26_calculate_supernova_feedback
   description: >-
-    Calculates supernova reheated and ejected gas masses from NewStellarMass with renormalization;
-    stores results in SupernovaReheatedMass and SupernovaEjectedMass
+    Calculates SAGE26's supernova reheated and ejected gas masses from NewStellarMass with
+    renormalization and ejection against the forming galaxy's own Vvir; stores results in
+    SupernovaReheatedMass and SupernovaEjectedMass
 
   supported_processing_modes: [process_by_galaxy]
 

@@ -1,0 +1,8 @@
+# effective_steps 13: bins 0,0,1,2,3,3,4,5,6,6,7,8,9.
+# Constructed input (not R0 output); every value is set explicitly. All flags and parameters are
+# R0's unless a line says NOT R0.
+format sage26-oracle-fixture 1
+routine step_bin_map
+
+i32 call.effective_steps 13
+f64 call.deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426  (Age[63] - halo_age (c03's r0_snap63 Age values))

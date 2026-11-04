@@ -65,6 +65,9 @@ modules:
     # Once per FoF after the last substep: normalise the accumulated Cooling and
     # Heating energies by the snapshot interval (SAGE26 core_build_model.c:590-603)
     - sage26_finalize_cooling_heating: process_full_halo
+    # Then average the per-substep SFR histories into SfrDisk, SfrBulge, SfrDiskZ and
+    # SfrBulgeZ, as SAGE26's writer does (SAGE26 io/save_gals_hdf5.c:934-959)
+    - sage26_finalize_sfr_histories:   process_full_halo
 
   parameters:
     # Reionisation
@@ -75,7 +78,7 @@ modules:
     StarFormingDiskFactor: 3.0          # Number of disc scale radii to form stars over
 
     # Supernova Feedback
-    FeedbackReheatingEpsilon: 3.0       # Reheating efficiency
+    FeedbackReheatingEpsilon: 2.9       # Reheating efficiency (SAGE26 R0, input/millennium.par:69)
     FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
 
     # Gas Reincorporation

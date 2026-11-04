@@ -22,19 +22,26 @@
  *   - test_star_formation_rate_accumulation: SFR calculation
  *   - test_reheating_gas_transfer: Cold→hot transfer to central
  *   - test_reheating_metal_transfer: Metals move with reheated gas
- *   - test_reheating_outflow_rate: Outflow rate accumulation
+ *   - test_reheating_outflow_rate: Undivided outflow accumulation (SAGE26 OutflowRate)
  *   - test_ejection_gas_transfer: Hot→ejected transfer from central
  *   - test_ejection_limiting: Ejection capped at available hot gas
  *   - test_ejection_metal_transfer: Metals move with ejected gas
  *   - test_metal_yield_production: New metals from yield
  *   - test_metal_disk_vs_halo_split: FracZleaveDisk scaling
  *   - test_metal_enrichment_zero_cold_gas: All metals to hot halo when ColdGas=0
- *   - test_zero_stars_no_updates: No changes when NewStellarMass=0
+ *   - test_zero_stars_no_updates: A zero event leaves positive reservoirs unchanged
+ *   - test_zero_event_caps_negative_hot_metals: A zero event still runs the metal cap
+ *   - test_sf_commit_fused_rounding: the shared SF commit rounds as SAGE26's fused build
  *   - test_ejection_exceeds_hot_gas: Ejection limited to HotGas
  *   - test_satellite_reheats_to_central: Satellites reheat to central's hot halo
  *   - test_temporary_properties_reset: Cleanup after processing
  *   - test_mass_conservation: Total baryons unchanged
  *   - test_metal_conservation: Total metals conserved with yield production
+ *   - test_disk_history_sampled_every_call: SfrDisk[bin] += stars / dt and the cold-gas
+ *     samples on every call over a 13-substep snapshot, zero-star calls included
+ *   - test_disk_history_zero_stars: a zero-star call still assigns the gas samples
+ *   - test_disk_history_without_central: the Mimic-only no-central path still samples
+ *   - test_disk_history_initial_boundary: no interval (snapshot-zero birth) samples nothing
  *
  * @author  Mimic Development Team
  * @date    2025-12-18 (Refactored for comprehensive physics validation)
@@ -50,7 +57,10 @@
 #include "util/error.h"
 #include "util/memory.h"
 #include "shared/metallicity.h"
+#include "shared/sage_sf_feedback_physics.h"
+#include "shared/sage_sfr_history.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -539,12 +549,14 @@ int test_reheating_metal_transfer(void) {
 
 /**
  * @test    test_reheating_outflow_rate
- * @brief   Test that SupernovaOutflowRate is calculated correctly
+ * @brief   Test that SupernovaOutflowRate accumulates the undivided reheated mass
  *
- * Physics: SupernovaOutflowRate += SupernovaReheatedMass / dT
+ * Physics: SupernovaOutflowRate += reheated mass, a float accumulation of SAGE26's
+ * OutflowRate (R/src/model_starformation_and_feedback.c:1249). The division by the
+ * interval happens once per halo in sage26_finalize_cooling_heating.
  *
- * Expected: Outflow rate in code units
- * Validates: Outflow rate accumulation
+ * Expected: the reheated mass itself, in code mass units
+ * Validates: Outflow accumulation
  */
 int test_reheating_outflow_rate(void) {
   /* ===== SETUP ===== */
@@ -573,10 +585,10 @@ int test_reheating_outflow_rate(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Module process should succeed");
 
-  /* Expected outflow rate = reheated_mass / dt = 0.5 / 0.1 = 5.0 */
-  double expected_outflow_rate = reheated_mass / dt;
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaOutflowRate, expected_outflow_rate, 1e-6,
-                           "SupernovaOutflowRate should equal SupernovaReheatedMass / dT");
+  /* Expected: the undivided reheated mass, narrowed to the float accumulator */
+  const float expected_outflow = (float)(0.0 + reheated_mass);
+  TEST_ASSERT(test_galaxy.SupernovaOutflowRate == expected_outflow,
+              "SupernovaOutflowRate should equal the undivided SupernovaReheatedMass");
 
   return TEST_PASS;
 }
@@ -935,10 +947,14 @@ int test_metal_enrichment_zero_cold_gas(void) {
 
 /**
  * @test    test_zero_stars_no_updates
- * @brief   Test that no updates occur when NewStellarMass = 0
+ * @brief   Test that a zero event leaves positive reservoirs unchanged
+ *
+ * SAGE26 commits star formation and feedback on every call, also with zero masses
+ * (R/src/model_starformation_and_feedback.c:1063-1085), so the apply step runs both
+ * commits; with zero masses and non-negative reservoirs nothing moves.
  *
  * Expected: All properties unchanged except temporary properties zeroed
- * Validates: Early exit logic for zero star formation
+ * Validates: The zero-mass commit path
  */
 int test_zero_stars_no_updates(void) {
   /* ===== SETUP ===== */
@@ -987,6 +1003,134 @@ int test_zero_stars_no_updates(void) {
   TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, 0.0, 1e-6,
                            "SupernovaEjectedMass should be zeroed");
 
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_zero_event_caps_negative_hot_metals
+ * @brief   A zero event still runs update_from_feedback's metal cap
+ *
+ * SAGE26 calls update_from_feedback on every substep, also with no stars
+ * (R/src/model_starformation_and_feedback.c:1063-1085). With zero ejected mass the
+ * metal transfer metallicityHot * 0 = 0 exceeds a negative MetalsHotGas, so the cap
+ * (:1237-1240) moves the negative hot metals into the ejected reservoir and leaves
+ * MetalsHotGas at zero. A module that returned early on zero stars would not.
+ * No oracle wrapper fixture has both zero stars and negative hot metals.
+ */
+int test_zero_event_caps_negative_hot_metals(void) {
+  setup_test_parameters(0.43, 0.025, 0.0);
+  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0,
+              "Module initialization should succeed");
+
+  struct Halo test_halo;
+  struct GalaxyData test_galaxy;
+  const double negative_hot_metals = -1.0e-9;
+  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 5.0, 20.0, 0.2,
+                  negative_hot_metals, 0.1, 0.3, 0.0, 0.0, 0.0);
+  const float ejected_metals_before = test_galaxy.MetalsEjectedGas;
+  const float hot_metals_before = test_galaxy.MetalsHotGas;
+
+  struct ModuleContext ctx;
+  setup_module_context(&ctx, &test_halo, 0.1);
+
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1) == 0,
+              "Module process should succeed");
+  TEST_ASSERT(test_galaxy.MetalsHotGas == 0.0f,
+              "the zero event's capped transfer empties the negative hot metals");
+  TEST_ASSERT(test_galaxy.MetalsEjectedGas == (float)(ejected_metals_before + hot_metals_before),
+              "the negative hot metals move into the ejected reservoir");
+  TEST_ASSERT(test_galaxy.HotGas == 50.0f && test_galaxy.ColdGas == 10.0f,
+              "no gas moves in a zero event");
+  return TEST_PASS;
+}
+
+/** @brief A float from its IEEE-754 bit pattern */
+static float f32_from_bits(const uint32_t bits) {
+  float value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+/** @brief A double from its IEEE-754 bit pattern */
+static double f64_from_bits(const uint64_t bits) {
+  double value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+/** @brief The IEEE-754 bit pattern of a float */
+static uint32_t f32_bits(const float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+/**
+ * @test    test_sf_commit_fused_rounding
+ * @brief   The shared SF commit rounds each update once, as SAGE26's build fuses them
+ *
+ * SAGE26's compiled update_from_star_formation (R/src/model_starformation_and_feedback.c
+ * :1123-1126) applies two fmla.2d: [ColdGas, StellarMass] += [-(1-R), (1-R)] * stars
+ * and [MetalsColdGas, MetalsStellarMass] += [-(Z(1-R)), Z(1-R)] * stars, one rounding
+ * per lane. No oracle fixture distinguishes that from separate roundings, so these
+ * cases pin it. Every expected bit pattern was produced by executing SAGE26's own
+ * compiled update_from_star_formation: the function-level oracle's object for
+ * model_starformation_and_feedback.c, built by _tests/oracle/build.sh with the pinned
+ * toolchain (oracle README "Oracle Environment"), linked into a small caller that
+ * passes SAGE26's get_metallicity of the cold gas. The inputs were chosen so that each
+ * exact result lies near a float rounding midpoint, where a fused and an unfused
+ * commit round to different floats: case 0 differs in StellarMass, cases 1 and 2 in
+ * ColdGas and StellarMass, case 3 in MetalsColdGas and MetalsStellarMass. R is 0.43.
+ */
+int test_sf_commit_fused_rounding(void) {
+  static const struct {
+    uint32_t in[4]; /* ColdGas, StellarMass, MetalsColdGas, MetalsStellarMass */
+    uint64_t stars;
+    uint64_t metallicity;
+    uint32_t sage26_out[4]; /* SAGE26's update_from_star_formation, executed */
+  } cases[] = {
+      {{0x3f800000, 0x3dcccccd, 0x00000000, 0x00000000},
+       0x3fc1f707f9435e4fULL,
+       0x0000000000000000ULL,
+       {0x3f6b851b, 0x3e3851fb, 0x00000000, 0x00000000}},
+      {{0x40400000, 0x40200000, 0x3d3851ec, 0x3d19999a},
+       0x3fe0d79398b3a630ULL,
+       0x3f8eb85200000000ULL,
+       {0x402ccccd, 0x40333333, 0x3d25e355, 0x3d2c0831}},
+      {{0x40400000, 0x40200000, 0x3d3851ec, 0x3d19999a},
+       0x3fdc11f7e50d794aULL,
+       0x3f8eb85200000000ULL,
+       {0x402fffff, 0x40300001, 0x3d28f5c3, 0x3d28f5c3}},
+      {{0x40400000, 0x40200000, 0x3d3851ec, 0x3d19999a},
+       0x3fdc11f7ee68caf6ULL,
+       0x3f8eb85200000000ULL,
+       {0x402fffff, 0x40300001, 0x3d28f5c3, 0x3d28f5c3}},
+  };
+  const double recycle_fraction = f64_from_bits(0x3fdb851eb851eb85ULL); /* 0.43 */
+
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+    struct GalaxyData gal;
+    memset(&gal, 0, sizeof(gal));
+    gal.ColdGas = f32_from_bits(cases[c].in[0]);
+    gal.StellarMass = f32_from_bits(cases[c].in[1]);
+    gal.MetalsColdGas = f32_from_bits(cases[c].in[2]);
+    gal.MetalsStellarMass = f32_from_bits(cases[c].in[3]);
+    const double metallicity = mimic_get_metallicity(gal.ColdGas, gal.MetalsColdGas);
+    TEST_ASSERT(metallicity == f64_from_bits(cases[c].metallicity),
+                "the cold-gas metallicity must equal SAGE26's get_metallicity");
+
+    mimic_sage_update_from_star_formation(&gal, f64_from_bits(cases[c].stars), metallicity,
+                                          recycle_fraction);
+
+    TEST_ASSERT(f32_bits(gal.ColdGas) == cases[c].sage26_out[0],
+                "ColdGas must round as SAGE26's fused update (S:1123)");
+    TEST_ASSERT(f32_bits(gal.StellarMass) == cases[c].sage26_out[1],
+                "StellarMass must round as SAGE26's fused update (S:1125)");
+    TEST_ASSERT(f32_bits(gal.MetalsColdGas) == cases[c].sage26_out[2],
+                "MetalsColdGas must round as SAGE26's fused update (S:1124)");
+    TEST_ASSERT(f32_bits(gal.MetalsStellarMass) == cases[c].sage26_out[3],
+                "MetalsStellarMass must round as SAGE26's fused update (S:1126)");
+  }
   return TEST_PASS;
 }
 
@@ -1240,7 +1384,175 @@ int test_metal_conservation(void) {
 }
 
 // ============================================================================
+// DISK STAR-FORMATION HISTORY SAMPLING
+// ============================================================================
+
+/** @brief Element (history, bin) of a galaxy */
+static float history(struct GalaxyData *gal, const enum MimicSageSfrHistory h, const int bin) {
+  return *mimic_sage_sfr_history(gal, h, bin);
+}
+
+/**
+ * @test    test_disk_history_sampled_every_call
+ * @brief   Every call samples the disk history at its substep's bin, zero stars included
+ *
+ * SAGE26 samples on every starformation_and_feedback call, after the feedback
+ * renormalisation and before any reservoir update
+ * (R/src/model_starformation_and_feedback.c:1053-1060):
+ *   SfrDisk[bin] += stars / dt; SfrDiskColdGas[bin] = ColdGas;
+ *   SfrDiskColdGasMetals[bin] = MetalsColdGas.
+ * With 13 substeps, bins 0, 3 and 6 are shared by two substeps (bin (step * 10) / 13).
+ * Every third substep forms no stars. The expected rate is formed with SAGE26's
+ * expression in float storage; the gas samples are the reservoirs before the call's
+ * commit, the last substep of a bin winning.
+ */
+int test_disk_history_sampled_every_call(void) {
+  reset_config();
+  setup_test_parameters(0.43, 0.025, 0.0);
+  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "init should succeed");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_halo(&halo, &gal, 0, 100.0, 0.13, 10.0, 50.0, 5.0, 20.0, 0.2, 0.5, 0.1, 0.3, 0.0, 0.0,
+                  0.0);
+  struct ModuleContext ctx;
+  setup_module_context(&ctx, &halo, 0.01);
+  ctx.num_substeps = 13;
+  const double dt = halo.dT / 13.0;
+
+  struct GalaxyData expected;
+  memcpy(&expected, &gal, sizeof(expected));
+  for (int step = 0; step < 13; step++) {
+    ctx.substep_number = step;
+    const double stars = (step % 3 == 2) ? 0.0 : 0.01 * (step + 1);
+    gal.NewStellarMass = stars;
+    gal.SupernovaReheatedMass = 0.0;
+    gal.SupernovaEjectedMass = 0.0;
+    const int bin = (step * 10) / 13;
+    *mimic_sage_sfr_history(&expected, MIMIC_SFR_HISTORY_DISK, bin) += stars / dt;
+    *mimic_sage_sfr_history(&expected, MIMIC_SFR_HISTORY_DISK_COLD_GAS, bin) = gal.ColdGas;
+    *mimic_sage_sfr_history(&expected, MIMIC_SFR_HISTORY_DISK_COLD_GAS_METALS, bin) =
+        gal.MetalsColdGas;
+
+    TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &halo, 1) == 0,
+                "process should succeed");
+    for (int h = 0; h < MIMIC_SFR_HISTORY_COUNT; h++) {
+      for (int k = 0; k < MIMIC_SAGE_SFR_STEPS; k++) {
+        TEST_ASSERT(history(&gal, (enum MimicSageSfrHistory)h, k) ==
+                        history(&expected, (enum MimicSageSfrHistory)h, k),
+                    "every history element equals SAGE26's sampling after every substep");
+      }
+    }
+  }
+  TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK, 6) > 0.0f, "a shared bin sums its rates");
+  sage26_apply_star_formation_supernova_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_disk_history_zero_stars
+ * @brief   A zero-star call adds 0 to the rate and still assigns both gas samples
+ */
+int test_disk_history_zero_stars(void) {
+  reset_config();
+  setup_test_parameters(0.43, 0.025, 0.0);
+  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "init should succeed");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_halo(&halo, &gal, 0, 100.0, 0.1, 3.0, 50.0, 5.0, 20.0, 0.06, 0.5, 0.1, 0.3, 0.0, 0.0,
+                  0.0);
+  *mimic_sage_sfr_history(&gal, MIMIC_SFR_HISTORY_DISK, 4) = 7.0f;
+  *mimic_sage_sfr_history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS, 4) = 99.0f;
+  *mimic_sage_sfr_history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS_METALS, 4) = 98.0f;
+  struct ModuleContext ctx;
+  setup_module_context(&ctx, &halo, 0.01);
+  ctx.num_substeps = 10;
+  ctx.substep_number = 4;
+
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &halo, 1) == 0,
+              "process should succeed");
+  TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK, 4) == 7.0f, "zero stars add nothing");
+  TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS, 4) == 3.0f,
+              "the cold gas is sampled on a zero-star call");
+  TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS_METALS, 4) == 0.06f,
+              "the cold metals are sampled on a zero-star call");
+  for (int k = 0; k < MIMIC_SAGE_SFR_STEPS; k++) {
+    if (k != 4) {
+      TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS, k) == 0.0f,
+                  "only the substep's bin is sampled");
+    }
+  }
+  sage26_apply_star_formation_supernova_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_disk_history_without_central
+ * @brief   With no FoF central (a Mimic-only path) the history is sampled, nothing committed
+ */
+int test_disk_history_without_central(void) {
+  reset_config();
+  setup_test_parameters(0.43, 0.025, 0.0);
+  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "init should succeed");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_halo(&halo, &gal, 1, 10.0, 0.1, 2.0, 0.0, 0.0, 1.0, 0.02, 0.0, 0.0, 0.01, 0.5, 0.1,
+                  0.0);
+  struct ModuleContext ctx;
+  setup_module_context(&ctx, NULL, 0.01);
+  ctx.num_substeps = 10;
+  ctx.substep_number = 9;
+
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &halo, 1) == 0,
+              "process should succeed");
+  float rate = 0.0f;
+  rate += 0.5 / (0.1 / 10.0);
+  TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK, 9) == rate, "the rate is sampled");
+  TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS, 9) == 2.0f, "the gas is sampled");
+  TEST_ASSERT(gal.ColdGas == 2.0f, "nothing is committed without a central");
+  sage26_apply_star_formation_supernova_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_disk_history_initial_boundary
+ * @brief   Without a positive interval (snapshot-zero birth) there is no dt: nothing sampled
+ */
+int test_disk_history_initial_boundary(void) {
+  reset_config();
+  setup_test_parameters(0.43, 0.025, 0.0);
+  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "init should succeed");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_halo(&halo, &gal, 0, 10.0, -1.0, 2.0, 1.0, 0.0, 1.0, 0.02, 0.0, 0.0, 0.01, 0.0, 0.0,
+                  0.0);
+  halo.SnapNum = -1;
+  struct ModuleContext ctx;
+  setup_module_context(&ctx, &halo, 0.0);
+  ctx.num_substeps = 10;
+
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &halo, 1) == 0,
+              "the boundary is not an error");
+  for (int h = 0; h < MIMIC_SFR_HISTORY_COUNT; h++) {
+    for (int k = 0; k < MIMIC_SAGE_SFR_STEPS; k++) {
+      TEST_ASSERT(history(&gal, (enum MimicSageSfrHistory)h, k) == 0.0f, "nothing is sampled");
+    }
+  }
+
+  /* A non-positive interval off the boundary is an inconsistent state */
+  halo.SnapNum = 40;
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &halo, 1) != 0,
+              "an invalid interval is an error");
+  sage26_apply_star_formation_supernova_cleanup();
+  return TEST_PASS;
+}
+
+// ============================================================================
 // MAIN TEST RUNNER
+
 // ============================================================================
 
 /**
@@ -1284,12 +1596,20 @@ int main(void) {
 
   /* Run edge case tests */
   TEST_RUN(test_zero_stars_no_updates);
+  TEST_RUN(test_zero_event_caps_negative_hot_metals);
+  TEST_RUN(test_sf_commit_fused_rounding);
   TEST_RUN(test_satellite_reheats_to_central);
 
   /* Run cleanup and conservation tests */
   TEST_RUN(test_temporary_properties_reset);
   TEST_RUN(test_mass_conservation);
   TEST_RUN(test_metal_conservation);
+
+  /* Run disk star-formation history sampling tests */
+  TEST_RUN(test_disk_history_sampled_every_call);
+  TEST_RUN(test_disk_history_zero_stars);
+  TEST_RUN(test_disk_history_without_central);
+  TEST_RUN(test_disk_history_initial_boundary);
 
   /* Print summary and return result */
   TEST_SUMMARY();

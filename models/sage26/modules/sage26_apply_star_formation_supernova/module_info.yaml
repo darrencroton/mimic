@@ -25,11 +25,43 @@ module:
       - SupernovaEjectedMass
       - StarFormationRate
       - SupernovaOutflowRate
+      - SfrDiskBin0
+      - SfrDiskBin1
+      - SfrDiskBin2
+      - SfrDiskBin3
+      - SfrDiskBin4
+      - SfrDiskBin5
+      - SfrDiskBin6
+      - SfrDiskBin7
+      - SfrDiskBin8
+      - SfrDiskBin9
+      - SfrDiskColdGasBin0
+      - SfrDiskColdGasBin1
+      - SfrDiskColdGasBin2
+      - SfrDiskColdGasBin3
+      - SfrDiskColdGasBin4
+      - SfrDiskColdGasBin5
+      - SfrDiskColdGasBin6
+      - SfrDiskColdGasBin7
+      - SfrDiskColdGasBin8
+      - SfrDiskColdGasBin9
+      - SfrDiskColdGasMetalsBin0
+      - SfrDiskColdGasMetalsBin1
+      - SfrDiskColdGasMetalsBin2
+      - SfrDiskColdGasMetalsBin3
+      - SfrDiskColdGasMetalsBin4
+      - SfrDiskColdGasMetalsBin5
+      - SfrDiskColdGasMetalsBin6
+      - SfrDiskColdGasMetalsBin7
+      - SfrDiskColdGasMetalsBin8
+      - SfrDiskColdGasMetalsBin9
     parameters:
       - RecycleFraction
 
   tests:
-    unit: _tests/test_unit_sage26_apply_star_formation_supernova.c
+    unit:
+      - _tests/test_unit_sage26_apply_star_formation_supernova.c
+      - _tests/test_unit_sage26_apply_star_formation_supernova_oracle.c
     integration: _tests/test_integration_sage26_apply_star_formation_supernova.py
     scientific: []
 

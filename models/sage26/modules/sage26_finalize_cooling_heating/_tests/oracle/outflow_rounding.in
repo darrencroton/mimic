@@ -1,0 +1,27 @@
+# Galaxy zero's interval 7e-5 (Age[32] 7e-5, halo_age 0; constructed) with a subnormal OutflowRate
+# where *= (1.0 / deltaT) (B:603) and /= deltaT round differently; galaxy 1, merged, has a
+# subnormal OutflowRate whose left-to-right output conversion (W:995) and one combined factor
+# differ. Constructed rounding-point fixture: a one-rounding difference in the expression it names
+# reaches a float store, so a port that fuses, splits or regroups it differently fails here.
+# Constructed input (not R0 output); every value is set explicitly. All flags and parameters are
+# R0's unless a line says NOT R0.
+format sage26-oracle-fixture 1
+routine normalise_outflow_rate
+
+f64 params.UnitMass_in_g 0x48ec8a6e9c6c5bda  # 1.989e+43  (run file)
+f64 params.UnitTime_in_s 0x43fac39601d1945f  # 3.0856799999999996e+19  (L / V, R/src/core_init.c:94)
+i32 call.ngal 2
+f64 call.halo_age 0x0000000000000000  # 0.0  (Age[halo_snapnum])
+i32 galaxy[0].Type 0
+i32 galaxy[0].SnapNum 32
+f64 call.Age[32] 0x3f12599ed7c6fbd2  # 7e-05
+i32 galaxy[0].mergeType 0
+f64 galaxy[0].Cooling 0x3ff0000000000000  # 1.0
+f64 galaxy[0].Heating 0x3fe0000000000000  # 0.5
+f32 galaxy[0].OutflowRate 0x0000ba13  # 6.67508523e-41
+i32 galaxy[1].Type 3
+i32 galaxy[1].SnapNum 32
+i32 galaxy[1].mergeType 1
+f64 galaxy[1].Cooling 0x3ff0000000000000  # 1.0
+f64 galaxy[1].Heating 0x3fe0000000000000  # 0.5
+f32 galaxy[1].OutflowRate 0x00071004  # 6.48593797e-40
