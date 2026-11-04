@@ -202,10 +202,15 @@ static inline int oracle_is_blank(const char c) {
  * @param buffer       ORACLE_MAX_LINE bytes; receives the line
  * @param line_number  1-based number of this line, for the message
  * @return 1 with the line in buffer, 0 at end of file, -1 (message on stderr) when too long
+ *         or when reading fails
  */
 static inline int oracle_read_line(FILE *file, char *buffer, const char *path,
                                    const int line_number) {
   if (fgets(buffer, ORACLE_MAX_LINE, file) == NULL) {
+    if (ferror(file)) {
+      fprintf(stderr, "oracle: %s:%d: read error\n", path, line_number);
+      return -1;
+    }
     return 0;
   }
   const size_t len = strlen(buffer);
@@ -479,14 +484,18 @@ static inline int oracle_manifest_fixtures(const char *module,
 /**
  * @brief Path of a module's fixture file under a modules directory:
  *        <dir>/<module>/_tests/oracle/<name><ext>
+ *
+ * Every caller passes an ORACLE_MAX_PATH buffer; a path that does not fit is refused with a
+ * message naming ORACLE_MAX_PATH, and the emptied buffer can never open a truncated path.
+ *
  * @return 0 on success; -1 (message on stderr, buffer emptied) when the path does not fit
  */
 static inline int oracle_fixture_path_in(char *buffer, const size_t size, const char *dir,
                                          const char *module, const char *name, const char *ext) {
   const int written = snprintf(buffer, size, "%s/%s/_tests/oracle/%s%s", dir, module, name, ext);
   if (written < 0 || (size_t)written >= size) {
-    fprintf(stderr, "oracle: path of %s/%s%s is longer than %zu characters\n", module, name, ext,
-            size - 1);
+    fprintf(stderr, "oracle: path of %s/%s%s is longer than %zu characters (ORACLE_MAX_PATH %d)\n",
+            module, name, ext, size - 1, ORACLE_MAX_PATH);
     buffer[0] = '\0';
     return -1;
   }

@@ -87,8 +87,9 @@ The package's fixture reader (`models/sage26/modules/_tests/sage26_oracle_fixtur
 | `ORACLE_MAX_FIXTURES` | 256 | a module has more `fixture` lines in the manifest, or its `module` line declares more |
 | `ORACLE_MAX_LINE` | 1024 | a line of a fixture file or the manifest has 1024 or more characters before its newline |
 | `ORACLE_MAX_NAME` | 128 | a field name, value, routine name or manifest token has 128 or more characters |
+| `ORACLE_MAX_PATH` | 512 | a fixture file's path has 512 or more characters |
 
-An `i32` value outside the 32-bit range is refused too. The headroom over the largest current use is fourfold: the largest output has 511 fields (`tr_jp_type0_orphan_history_merge`) and the largest module, `sage26_resolve_mergers_and_disruption`, owns 64 fixtures. Each module's oracle test still fails when the fixtures found on disk, the fixtures listed and the count the manifest declares disagree. The reader's self-test, `models/sage26/modules/_tests/test_unit_sage26_oracle_reader.c`, pins each limit and each refusal. The oracle mains have their own input limits (`MAX_FIELDS` in each): 512 input fields for `oracle_c03` and `oracle_c04`, 1024 for `oracle_c05` and `oracle_c06`; a larger input stops the oracle with an error stating the limit, and is never truncated.
+An `i32` value outside the 32-bit range, and a read error, are refused too. The headroom over the largest current use is fourfold: the largest output has 511 fields (`tr_jp_type0_orphan_history_merge`) and the largest module, `sage26_resolve_mergers_and_disruption`, owns 64 fixtures. Each module's oracle test still fails when the fixtures found on disk, the fixtures listed and the count the manifest declares disagree. The reader's self-test, `models/sage26/modules/_tests/test_unit_sage26_oracle_reader.c`, pins each limit and each refusal. The oracle mains have their own input limits (`MAX_FIELDS` in each): 512 input fields for `oracle_c03` and `oracle_c04`, 1024 for `oracle_c05` and `oracle_c06`; a larger input stops the oracle with an error stating the limit, and is never truncated.
 
 ### Field Names
 

@@ -12,18 +12,19 @@
  * - a fixture file of more than 512 fields is read in full, up to and including
  *   ORACLE_MAX_FIELDS;
  * - a manifest or file beyond a limit (fixtures, declared count, fields, line length,
- *   token length) fails with a message naming the limit;
+ *   token length, path length) fails with a message naming the limit;
  * - a truncated manifest (fewer fixtures than declared, or a listed fixture missing a
  *   file) still fails its count check, and a truncated fixture file fails to load.
  *
  * Error paths run in a forked child (tests/framework/child_capture.h) so their stderr
  * can be checked for the limit's name. Platform independent: no bit-exact comparison.
+ * The scratch directory holds only files this test names, and it removes exactly those
+ * (remove() and rmdir(), POSIX.1 and C; no nftw, which glibc hides in default gnu mode).
  */
 
 #include "framework/test_framework.h"
 #include "framework/child_capture.h"
 
-#include <ftw.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,6 +39,15 @@ static int failed = 0;
 
 #define MODULE "sage26_reader_selftest"
 #define OTHER_MODULE "sage26_reader_selftest_other"
+
+/** Scratch files at the top of the scratch directory (each removed at exit if present) */
+static const char *const scratch_leaves[] = {"manifest_full", "manifest_count", "manifest_over",
+                                             "manifest_long", "fixture_full",   "fixture_over",
+                                             "fixture_bad"};
+
+/** The fixture whose .out the missing-file case hides, and the extension it is hidden under */
+#define HIDDEN_FIXTURE 100
+#define HIDDEN_EXT ".out.hidden"
 
 /** Scratch directory for this run; created in main(), removed at exit */
 static char scratch_dir[ORACLE_MAX_PATH];
@@ -86,20 +96,17 @@ static int write_manifest(const char *path, const int declared, const int listed
   return fclose(file) == 0 ? 0 : -1;
 }
 
-/** @brief Create <dir>/<module>/_tests/oracle/ under the scratch directory */
-static int make_fixture_dirs(void) {
-  const char *parts[3] = {MODULE, MODULE "/_tests", MODULE "/_tests/oracle"};
-  for (int i = 0; i < 3; i++) {
-    char path[ORACLE_MAX_PATH];
-    scratch_path(path, sizeof(path), parts[i]);
-    if (mkdir(path, 0700) != 0) {
-      return -1;
-    }
-  }
-  return 0;
+/** The three directories of <scratch>/<module>/_tests/oracle/, outermost first */
+static const char *const fixture_dirs[3] = {MODULE, MODULE "/_tests", MODULE "/_tests/oracle"};
+
+/** @brief Path of fixture i's file with extension ext under the scratch tree; 0 on success */
+static int fixture_file(char *buffer, const size_t size, const int i, const char *ext) {
+  char name[ORACLE_MAX_NAME];
+  fixture_name(name, sizeof(name), i);
+  return oracle_fixture_path_in(buffer, size, scratch_dir, MODULE, name, ext);
 }
 
-/** @brief Write an empty placeholder file (presence is all the count check reads) */
+/** @brief Write a placeholder file (presence is all the count check reads) */
 static int touch(const char *path) {
   FILE *file = fopen(path, "w");
   if (file == NULL) {
@@ -107,6 +114,59 @@ static int touch(const char *path) {
   }
   fputs(ORACLE_FORMAT_LINE "\n", file);
   return fclose(file) == 0 ? 0 : -1;
+}
+
+/**
+ * @brief Create <scratch>/<module>/_tests/oracle/ holding the .in and .out of fixtures
+ *        0 .. ORACLE_MAX_FIXTURES - 1, so a manifest of any size up to the limit is all present
+ * @return 0 on success
+ */
+static int make_fixture_tree(void) {
+  for (int d = 0; d < 3; d++) {
+    char path[ORACLE_MAX_PATH];
+    scratch_path(path, sizeof(path), fixture_dirs[d]);
+    if (mkdir(path, 0700) != 0) {
+      return -1;
+    }
+  }
+  const char *exts[2] = {".in", ".out"};
+  for (int i = 0; i < ORACLE_MAX_FIXTURES; i++) {
+    for (int e = 0; e < 2; e++) {
+      char path[ORACLE_MAX_PATH];
+      if (fixture_file(path, sizeof(path), i, exts[e]) != 0 || touch(path) != 0) {
+        return -1;
+      }
+    }
+  }
+  return 0;
+}
+
+/**
+ * @brief Remove exactly what this test created: the scratch leaves, the fixture files (and a
+ *        still-hidden .out), the fixture directories innermost first, then the scratch directory
+ */
+static void remove_scratch(void) {
+  char path[ORACLE_MAX_PATH];
+  for (size_t k = 0; k < sizeof(scratch_leaves) / sizeof(scratch_leaves[0]); k++) {
+    scratch_path(path, sizeof(path), scratch_leaves[k]);
+    (void)remove(path);
+  }
+  const char *exts[3] = {".in", ".out", HIDDEN_EXT};
+  for (int i = 0; i < ORACLE_MAX_FIXTURES; i++) {
+    for (int e = 0; e < 3; e++) {
+      if (fixture_file(path, sizeof(path), i, exts[e]) == 0) {
+        (void)remove(path);
+      }
+    }
+  }
+  for (int d = 2; d >= 0; d--) {
+    scratch_path(path, sizeof(path), fixture_dirs[d]);
+    (void)rmdir(path);
+  }
+  if (rmdir(scratch_dir) != 0) {
+    fprintf(stderr, "  note: scratch directory %s is not empty and is left in place\n",
+            scratch_dir);
+  }
 }
 
 /**
@@ -136,13 +196,6 @@ static int write_text(const char *path, const char *text) {
   return fclose(file) == 0 ? 0 : -1;
 }
 
-static int remove_entry(const char *path, const struct stat *sb, int flag, struct FTW *ftw) {
-  (void)sb;
-  (void)flag;
-  (void)ftw;
-  return remove(path);
-}
-
 // ============================================================================
 // CHILD BODIES (stderr captured by the parent)
 // ============================================================================
@@ -161,6 +214,27 @@ static void body_load_file(const char *arg) {
   (void)arg;
   static struct oracle_fixture fx;
   _exit(oracle_load(child_file, &fx) == 0 ? 0 : 1);
+}
+
+/** A modules directory long enough that no fixture path under it fits ORACLE_MAX_PATH */
+static char long_dir[ORACLE_MAX_PATH + 64];
+
+/**
+ * @brief Build a path under long_dir; exit 1 if it is refused with the buffer emptied (never a
+ *        truncated path), 0 otherwise
+ */
+static void body_long_fixture_path(const char *arg) {
+  (void)arg;
+  char path[ORACLE_MAX_PATH];
+  const int status = oracle_fixture_path_in(path, sizeof(path), long_dir, MODULE, "fx", ".in");
+  _exit(status != 0 && path[0] == '\0' ? 1 : 0);
+}
+
+/** @brief Load a fixture whose path is longer than ORACLE_MAX_PATH; exit 1 if refused */
+static void body_load_long_path(const char *arg) {
+  (void)arg;
+  static struct oracle_fixture fx;
+  _exit(oracle_load(long_dir, &fx) == 0 ? 0 : 1);
 }
 
 /**
@@ -205,24 +279,10 @@ int test_manifest_beyond_64_read_in_full(void) {
 /**
  * @test    test_fixture_count_beyond_64
  * @brief   The count check passes for 200 present fixtures and fails for a truncated manifest
- *          or a missing file
+ *          or a listed fixture missing its .out
  */
 int test_fixture_count_beyond_64(void) {
   const int n = 200;
-  TEST_ASSERT(make_fixture_dirs() == 0, "scratch fixture directories must be created");
-  for (int i = 0; i < n; i++) {
-    char name[ORACLE_MAX_NAME];
-    fixture_name(name, sizeof(name), i);
-    const char *exts[2] = {".in", ".out"};
-    for (int e = 0; e < 2; e++) {
-      char path[ORACLE_MAX_PATH];
-      TEST_ASSERT(oracle_fixture_path_in(path, sizeof(path), scratch_dir, MODULE, name, exts[e]) ==
-                      0,
-                  "scratch fixture path must fit");
-      TEST_ASSERT(touch(path) == 0, "scratch fixture file must be written");
-    }
-  }
-
   char manifest[ORACLE_MAX_PATH];
   scratch_path(manifest, sizeof(manifest), "manifest_count");
   TEST_ASSERT(write_manifest(manifest, n, n) == 0, "scratch manifest must be written");
@@ -234,10 +294,17 @@ int test_fixture_count_beyond_64(void) {
   TEST_ASSERT(!oracle_fixture_count_ok_in(manifest, scratch_dir, MODULE),
               "a manifest listing fewer fixtures than it declares must fail the count check");
 
-  /* A listed fixture whose .out is missing: found differs from the declared count */
-  TEST_ASSERT(write_manifest(manifest, n + 1, n + 1) == 0, "scratch manifest must be written");
-  TEST_ASSERT(!oracle_fixture_count_ok_in(manifest, scratch_dir, MODULE),
-              "a listed fixture without its files must fail the count check");
+  /* A listed fixture whose .out is missing (hidden for the check, then restored) */
+  char out[ORACLE_MAX_PATH];
+  char hidden[ORACLE_MAX_PATH];
+  TEST_ASSERT(fixture_file(out, sizeof(out), HIDDEN_FIXTURE, ".out") == 0 &&
+                  fixture_file(hidden, sizeof(hidden), HIDDEN_FIXTURE, HIDDEN_EXT) == 0,
+              "scratch fixture paths must fit");
+  TEST_ASSERT(write_manifest(manifest, n, n) == 0, "scratch manifest must be written");
+  TEST_ASSERT(rename(out, hidden) == 0, "a fixture's .out must be hidden for the check");
+  const int ok_with_missing = oracle_fixture_count_ok_in(manifest, scratch_dir, MODULE);
+  TEST_ASSERT(rename(hidden, out) == 0, "the hidden .out must be restored");
+  TEST_ASSERT(!ok_with_missing, "a listed fixture without its .out must fail the count check");
   return TEST_PASS;
 }
 
@@ -245,16 +312,27 @@ int test_fixture_count_beyond_64(void) {
  * @test    test_manifest_over_limit_refused
  * @brief   More than ORACLE_MAX_FIXTURES fixture lines, or a larger declared count, is refused
  *          with a message naming ORACLE_MAX_FIXTURES, and the count check fails
+ *
+ * All ORACLE_MAX_FIXTURES listed fixtures are present (make_fixture_tree), so the count check
+ * passes for a manifest at the limit; with one line more it can fail only because the reader
+ * refuses that line. A reader that dropped it silently would list ORACLE_MAX_FIXTURES, equal
+ * to the declared count, all present, and pass.
  */
 int test_manifest_over_limit_refused(void) {
   scratch_path(child_manifest, sizeof(child_manifest), "manifest_over");
 
+  TEST_ASSERT(write_manifest(child_manifest, ORACLE_MAX_FIXTURES, ORACLE_MAX_FIXTURES) == 0,
+              "scratch manifest must be written");
+  TEST_ASSERT(oracle_fixture_count_ok_in(child_manifest, scratch_dir, MODULE),
+              "a manifest at ORACLE_MAX_FIXTURES, all present, must pass the count check");
+
   TEST_ASSERT(write_manifest(child_manifest, ORACLE_MAX_FIXTURES, ORACLE_MAX_FIXTURES + 1) == 0,
               "scratch manifest must be written");
+  TEST_ASSERT(
+      !oracle_fixture_count_ok_in(child_manifest, scratch_dir, MODULE),
+      "one fixture line over ORACLE_MAX_FIXTURES must fail the count check, not be dropped");
   TEST_ASSERT(expect_refused(body_read_manifest, "ORACLE_MAX_FIXTURES") == 1,
               "one fixture line over ORACLE_MAX_FIXTURES must be refused, naming the limit");
-  TEST_ASSERT(!oracle_fixture_count_ok_in(child_manifest, scratch_dir, MODULE),
-              "an over-limit manifest must fail the count check");
 
   TEST_ASSERT(write_manifest(child_manifest, ORACLE_MAX_FIXTURES + 1, 1) == 0,
               "scratch manifest must be written");
@@ -395,6 +473,22 @@ int test_file_truncated_or_overlong_refused(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_path_over_limit_refused
+ * @brief   A fixture path longer than ORACLE_MAX_PATH - 1 is refused naming ORACLE_MAX_PATH, in
+ *          oracle_fixture_path_in (buffer emptied) and in oracle_load, never truncated
+ */
+int test_path_over_limit_refused(void) {
+  memset(long_dir, 'd', sizeof(long_dir) - 1);
+  long_dir[0] = '/';
+  long_dir[sizeof(long_dir) - 1] = '\0';
+  TEST_ASSERT(expect_refused(body_long_fixture_path, "ORACLE_MAX_PATH") == 1,
+              "a fixture path that does not fit must be refused, naming ORACLE_MAX_PATH");
+  TEST_ASSERT(expect_refused(body_load_long_path, "ORACLE_MAX_PATH") == 1,
+              "loading a path longer than ORACLE_MAX_PATH - 1 must be refused, naming the limit");
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -409,6 +503,11 @@ int main(void) {
     return 1;
   }
   snprintf(scratch_dir, sizeof(scratch_dir), "%s", template_path);
+  if (make_fixture_tree() != 0) {
+    fprintf(stderr, "cannot create the scratch fixture tree under %s\n", scratch_dir);
+    remove_scratch();
+    return 1;
+  }
 
   TEST_RUN(test_manifest_beyond_64_read_in_full);
   TEST_RUN(test_fixture_count_beyond_64);
@@ -417,8 +516,9 @@ int main(void) {
   TEST_RUN(test_file_beyond_512_read_in_full);
   TEST_RUN(test_file_over_limit_refused);
   TEST_RUN(test_file_truncated_or_overlong_refused);
+  TEST_RUN(test_path_over_limit_refused);
 
-  nftw(scratch_dir, remove_entry, 16, FTW_DEPTH | FTW_PHYS);
+  remove_scratch();
 
   TEST_SUMMARY();
   return TEST_RESULT();
