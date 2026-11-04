@@ -596,7 +596,8 @@ int test_unstable_disk_gas_only(void) {
  *
  * Expected: Stars transferred, trigger flags = 0 (only set if unstable_gas > 0)
  * Validates: Stars-only disk behavior
- * Note: Module only sets triggers if unstable_gas > 0 (line 111)
+ * Note: Module only sets triggers if unstable_gas > 0 and ColdGas > 0
+ *       (R/src/model_disk_instability.c:90)
  */
 int test_unstable_disk_stars_only(void) {
   /* ===== SETUP ===== */
@@ -619,7 +620,8 @@ int test_unstable_disk_stars_only(void) {
   TEST_ASSERT(test_halo.galaxy->BulgeMass > initial_bulge,
               "Stars-only unstable disk should transfer stars");
 
-  /* Trigger flag is ONLY set if unstable_gas > 0 (see line 111) */
+  /* Trigger flag is ONLY set if unstable_gas > 0 and ColdGas > 0
+   * (R/src/model_disk_instability.c:90) */
   TEST_ASSERT(test_halo.galaxy->UnstableDiskGasFraction == 0.0f,
               "Stars-only disk should have gas trigger flag = 0 (no gas)");
 
