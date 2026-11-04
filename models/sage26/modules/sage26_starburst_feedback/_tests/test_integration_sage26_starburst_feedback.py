@@ -30,6 +30,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
@@ -50,6 +51,72 @@ from framework import (
     result_skip,
     run_mimic,
 )
+
+
+def burst_write_limit(param_file):
+    """An upper limit on the bursts one galaxy can have in a run of this parameter file
+
+    sage26_starburst_feedback's process_by_galaxy channel bursts a galaxy at most once per
+    substep, and a galaxy lives at most one snapshot interval per entry of the simulation's
+    snapshot list, so the limit is the number of a_list entries times SubSteps. The
+    fixed timestep scheme is required: a dynamic scheme's substep count is not SubSteps.
+    """
+    with open(param_file) as handle:
+        params = yaml.safe_load(handle)
+    scheme = str(params.get("TimestepScheme", "fixed")).lower()
+    assert scheme == "fixed", f"bulge bound assumes the fixed timestep scheme, got {scheme}"
+    substeps = int(params.get("SubSteps", 1))
+    with open(params["simulation"]["config"]) as handle:
+        simulation = yaml.safe_load(handle)
+    a_list = Path(simulation["input"]["snapshot_list_file"])
+    if not a_list.is_absolute():
+        a_list = REPO_ROOT / a_list
+    snapshots = sum(1 for line in a_list.read_text().splitlines() if line.strip())
+    return snapshots * substeps
+
+
+def bulge_upper_bound(stellar_mass, bulge_mass, param_file):
+    """The largest BulgeMass SAGE26's arithmetic allows a row of these pipelines
+
+    BulgeMass <= StellarMass + (3 * B + 1) * D, where B = burst_write_limit(param_file)
+    and D = 2**-22 * max(StellarMass, BulgeMass) + 2**-148 (one float rounding of the
+    larger reservoir, with room for the double roundings, and the subnormal spacing).
+
+    Why it holds. These pipelines run sage26_disk_instability and this module's
+    process_by_galaxy burst, with no disk star formation, no mergers and no stellar
+    stripping, so a galaxy's StellarMass and BulgeMass start at 0 and change only through
+    its own bursts and instability transfers, and never decrease (stars, recycled_stars
+    and unstable_stars are non-negative). Let e = BulgeMass - StellarMass after b bursts.
+    By induction, -b * D <= e <= (3 * b + 1) * D:
+
+    - a burst adds the rounded double recycled_stars = (1 - RecycleFraction) * stars to
+      BulgeMass (SAGE26 src/model_mergers.c:770-772) and the same product to StellarMass
+      in one fused multiply-add (src/model_starformation_and_feedback.c:1125, fused per
+      the oracle README's c06 table); each sum is rounded to double and then to float,
+      so e moves by at most one float rounding of each reservoir plus the product's
+      double rounding, at most D in either direction;
+    - the instability transfer adds unstable_stars to BulgeMass (src/model_disk_instability.c:77)
+      only when the star fraction is positive, i.e. when the float disk
+      StellarMass - BulgeMass is positive (:54, :63-66), so only from e < 0, and it never
+      lowers e. That disk is exactly -e (the two floats are within a factor of two). The
+      float disk mass ColdGas + (-e) exceeds ColdGas only if -e is at least half a float
+      spacing of ColdGas, so unstable_stars is at most -e plus one float spacing of the
+      disk mass plus double roundings, at most 3 * (-e), and the transfer leaves
+      e <= 2 * (-e) + D <= 3 * b * D + D.
+
+    The constants are generous (2**-22 for 2**-23 plus double terms, 3 for 2 plus 2**-25),
+    which also covers the double rounding of this bound's own evaluation. The bound is not
+    looser than SAGE26's arithmetic: the excess does grow with the number of bursts, as
+    test_unit_sage26_starburst_feedback.c::test_consecutive_bursts_bulge_excess_grows pins
+    with SAGE26's own bits (two floats above after three bursts), so no fixed number of
+    floats bounds it. SAGE26's own R0 output and these pipelines show no row above
+    StellarMass at all.
+    """
+    stellar = np.asarray(stellar_mass, dtype=np.float32).astype(np.float64)
+    bulge = np.asarray(bulge_mass, dtype=np.float32).astype(np.float64)
+    bursts = burst_write_limit(param_file)
+    spacing = 2.0**-22 * np.maximum(stellar, bulge) + 2.0**-148
+    return stellar + (3 * bursts + 1) * spacing
 
 
 def test_module_pipeline_integration():
@@ -201,7 +268,9 @@ def test_starburst_physics_correctness():
     assert total_stellar >= 0.0, "Total stellar mass should be non-negative"
 
     # Physics validation 2: Bulge mass should be <= stellar mass
-    assert np.all(bulge_mass <= stellar_mass + 1e-6), "Bulge mass should not exceed stellar mass"
+    assert np.all(
+        bulge_mass <= bulge_upper_bound(stellar_mass, bulge_mass, param_file)
+    ), "Bulge mass should not exceed stellar mass beyond SAGE26's rounding bound"
     print(f"  Total bulge mass: {np.sum(bulge_mass):.2e} [1e10 Msun/h]")
 
     # Physics validation 3: Cold gas should be reasonable
@@ -282,7 +351,9 @@ def test_disk_instability_trigger():
     assert np.all(bulge_mass >= 0.0), "BulgeMass should be non-negative"
 
     # Bulge mass should not exceed stellar mass
-    assert np.all(bulge_mass <= stellar_mass + 1e-6), "BulgeMass should not exceed StellarMass"
+    assert np.all(
+        bulge_mass <= bulge_upper_bound(stellar_mass, bulge_mass, param_file)
+    ), "BulgeMass should not exceed StellarMass beyond SAGE26's rounding bound"
 
     # Without upstream gas modules, expect zero stellar mass (no cold gas to form stars)
     total_stellar = np.sum(stellar_mass)
@@ -632,7 +703,9 @@ def test_full_pipeline_star_formation():
     print(f"  Total bulge mass: {total_bulge:.2e} [1e10 Msun/h]")
 
     # Bulge mass should not exceed stellar mass
-    assert np.all(bulge_mass <= stellar_mass + 1e-6), "BulgeMass should not exceed StellarMass"
+    assert np.all(
+        bulge_mass <= bulge_upper_bound(stellar_mass, bulge_mass, param_file)
+    ), "BulgeMass should not exceed StellarMass beyond SAGE26's rounding bound"
 
     # Stellar mass should be non-negative
     assert np.all(stellar_mass >= 0.0), "StellarMass should be non-negative"

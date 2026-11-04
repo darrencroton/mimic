@@ -25,7 +25,8 @@
  *     same-step post-starburst disk instability follow-up when configured
  *   - test_per_event_recheck_respects_phase2_quasar_configuration: Same-step
  *     follow-up skips BH growth when the quasar event consumer is absent
- *   - test_per_event_unknown_code_noop: Unknown event code is no-op
+ *   - test_per_event_zero_ratio_bursts: a zero-ratio merger still bursts and samples the bulge
+ * history
  *   - test_major_vs_minor_merger: Merger-only major/minor triggers are both ignored
  *   - test_mass_conservation: Total mass conserved
  *   - test_metallicity_preservation: Metallicity preserved
@@ -52,6 +53,9 @@
  *     bin with the satellite's substep dt carried in the event (value1)
  *   - test_post_merger_recheck_samples_with_event_dt: the post-merger instability burst
  *     samples the same bin with the same dt
+ *   - test_consecutive_bursts_bulge_excess_grows: three consecutive instability bursts
+ *     leave BulgeMass two floats above StellarMass, bit for bit as SAGE26's own routine
+ *     does; pins the limit of the integration tests' bulge bound
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -68,7 +72,9 @@
 #include "util/memory.h"
 #include "module_system/generated/event_contracts.h"
 #include "shared/sage_sfr_history.h"
+#include "shared/sage_starburst_physics.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -326,7 +332,8 @@ int test_disk_instability_starburst(void) {
  *          snapshot interval (halo->dT), like the normal disk-SF channel, so the
  *          reported rate is the snapshot-mean and is INVARIANT to num_substeps.
  *          SAGE output averages per-substep SfrBulge[step] by STEPS, giving the
- *          same snapshot mean regardless of substep count.
+ *          same snapshot mean regardless of substep count
+ *          (R/src/io/save_gals_hdf5.c:934-959).
  *
  * Expected: With identical physics and num_substeps changing from 1 to 2,
  * StarFormationRate and SupernovaOutflowRate are unchanged (ratio = 1.0). The
@@ -533,7 +540,8 @@ int test_per_event_merger_starburst(void) {
  * @brief   Per-event merger channel deposits reheated/ejected gas to FOF central
  *
  * Expected: Event target forms stars, but feedback destination is ctx->central_galaxy
- * Validates: SAGE parity for merger_centralgal vs centralgal roles
+ * Validates: SAGE parity for merger_centralgal vs centralgal roles (the burst host
+ *            and the FoF central of R/src/model_mergers.c:584-831)
  */
 int test_per_event_merger_uses_fof_central_feedback_destination(void) {
   /* ===== SETUP ===== */
@@ -592,7 +600,8 @@ int test_per_event_merger_uses_fof_central_feedback_destination(void) {
  *          normal SF channel — NOT the per-substep event payload dt
  *          (event->value1). So the reported rate scales as 1/dT_target and is
  *          independent of event->value1. (SAGE output averages SfrBulge[step]
- *          by STEPS, giving the snapshot mean total_burst_stars/dT.) The outflow is
+ *          by STEPS, giving the snapshot mean total_burst_stars/dT,
+ *          R/src/io/save_gals_hdf5.c:934-959.) The outflow is
  *          SAGE26's undivided OutflowRate += reheated mass (shared feedback commit,
  *          R/src/model_starformation_and_feedback.c:1249), normalised once per halo
  *          by sage26_finalize_cooling_heating, so it depends on neither interval.
@@ -682,11 +691,11 @@ int test_per_event_merger_uses_target_full_interval_for_rates(void) {
  * @test    test_per_event_minor_merger_rechecks_disk_instability
  * @brief   Minor merger event applies same-step disk-instability follow-up
  *
- * SAGE parity (model_disk_instability.c check_disk_instability): the follow-up
+ * SAGE parity (check_disk_instability, R/src/model_disk_instability.c:47-108): the follow-up
  * (a) transfers unstable disk stars to the bulge (BulgeMass grows; this is a
  * disk->bulge redistribution that does NOT change total StellarMass), and
  * (b) for the unstable gas, calls grow_black_hole — which itself drives a
- * quasar_mode_wind (grow_black_hole -> quasar_mode_wind, model_mergers.c:118) —
+ * quasar_mode_wind (grow_black_hole -> quasar_mode_wind, R/src/model_mergers.c:346-378) —
  * and then collisional_starburst. Because the (now correctly scaled) quasar wind
  * can eject the cold gas before that burst, additional NEW stars are not
  * guaranteed; the robust observables of the recheck are bulge growth, BH growth,
@@ -798,7 +807,7 @@ int test_per_event_minor_merger_rechecks_disk_instability(void) {
               "Disk-instability follow-up should add extra bulge growth (disk->bulge transfer)");
   /* SAGE parity: total StellarMass need not increase — the quasar wind from the
    * disk-instability BH growth can eject the cold gas before the burst, so no
-   * new stars form. It must not DECREASE. */
+   * new stars form (R/src/model_disk_instability.c:101-108). It must not DECREASE. */
   TEST_ASSERT(follow_target.galaxy->StellarMass >= baseline_stellar,
               "Disk-instability follow-up must not reduce stellar mass");
   TEST_ASSERT(follow_target.galaxy->ColdGas < baseline_cold_gas,
@@ -921,16 +930,18 @@ int test_per_event_recheck_respects_phase2_quasar_configuration(void) {
 }
 
 /**
- * @test    test_per_event_unknown_code_noop
- * @brief   Test zero mass ratio event is a graceful no-op
+ * @test    test_per_event_zero_ratio_bursts
+ * @brief   A zero mass ratio merger event still runs SAGE26's burst
  *
- * Subscription routing ensures only valid events reach this module.
- * The remaining guard is value0 <= 0.0 (zero/negative baryonic mass ratio).
+ * SAGE26 bursts on every merger, a ratio of 0 included (R/src/model_mergers.c:284-287):
+ * the burst forms no stars (eburst = 0.56 * 0^0.7 = 0), but still samples the host's
+ * cold gas and metals into its bulge history (:754-757).
  *
- * Expected: No property changes and success return
- * Validates: Zero-ratio early-exit guard in process_per_event path
+ * Expected: success; StellarMass, BulgeMass and ColdGas unchanged; the substep's
+ *           SfrBulgeColdGas and SfrBulgeColdGasMetals bins grow by ColdGas and MetalsColdGas
+ * Validates: no zero-ratio early return in the process_per_event path
  */
-int test_per_event_unknown_code_noop(void) {
+int test_per_event_zero_ratio_bursts(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
   reset_config();
@@ -949,24 +960,35 @@ int test_per_event_unknown_code_noop(void) {
                               .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
                               .source_index = 1,
                               .target_index = 0,
-                              .value0 = 0.0, /* zero ratio — must be a no-op */
+                              .value0 = 0.0, /* zero ratio: SAGE26 still bursts */
                               .value1 = 0.1};
   ctx.active_event = &event;
 
   const double initial_stellar = gal.StellarMass;
   const double initial_bulge = gal.BulgeMass;
   const double initial_cold = gal.ColdGas;
+  const int bin = mimic_sage_sfr_step_bin(ctx.substep_number, ctx.num_substeps);
+  TEST_ASSERT(bin >= 0, "the context's substep has a history bin");
+  float *bulge_cold = mimic_sage_sfr_history(&gal, MIMIC_SFR_HISTORY_BULGE_COLD_GAS, bin);
+  float *bulge_metals = mimic_sage_sfr_history(&gal, MIMIC_SFR_HISTORY_BULGE_COLD_GAS_METALS, bin);
+  const float expected_bulge_cold = *bulge_cold + gal.ColdGas;
+  const float expected_bulge_metals = *bulge_metals + gal.MetalsColdGas;
 
   /* ===== EXECUTE ===== */
   int result = sage26_starburst_feedback_process(&ctx, &halo, 1);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Zero mass ratio event should be no-op success");
+  TEST_ASSERT(result == 0, "Zero mass ratio event should succeed");
   TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-12,
-                           "Stellar mass should remain unchanged");
+                           "A zero-ratio burst forms no stars");
   TEST_ASSERT_DOUBLE_EQUAL(gal.BulgeMass, initial_bulge, 1e-12,
-                           "Bulge mass should remain unchanged");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12, "Cold gas should remain unchanged");
+                           "A zero-ratio burst adds nothing to the bulge");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
+                           "A zero-ratio burst consumes no cold gas");
+  TEST_ASSERT(*bulge_cold == expected_bulge_cold,
+              "A zero-ratio burst still samples ColdGas into SfrBulgeColdGas (M:756)");
+  TEST_ASSERT(*bulge_metals == expected_bulge_metals,
+              "A zero-ratio burst still samples MetalsColdGas into SfrBulgeColdGasMetals (M:757)");
 
   /* ===== CLEANUP ===== */
   sage26_starburst_feedback_cleanup();
@@ -2214,6 +2236,91 @@ int test_post_merger_recheck_samples_with_event_dt(void) {
 // ============================================================================
 
 /**
+ * @test    test_consecutive_bursts_bulge_excess_grows
+ * @brief   Consecutive bursts can leave BulgeMass more than one float above StellarMass
+ *
+ * A burst adds the rounded double recycled_stars to BulgeMass
+ * (R/src/model_mergers.c:770-772) while update_from_star_formation adds the same product
+ * to StellarMass as one fused multiply-add (R/src/model_starformation_and_feedback.c:1125),
+ * so each burst can move BulgeMass - StellarMass by one float, and the excess can
+ * accumulate over consecutive bursts. A reviewer reproduced it with SAGE26's own
+ * collisional_starburst_recipe under R0's parameters: ColdGas 1, StellarMass = BulgeMass =
+ * 0x3f800001, three mode-1 bursts, each fed the previous output. The shared burst
+ * transaction must give the same bits: StellarMass/BulgeMass 0x3f800001/0x3f800002, then
+ * 0x3f800002/0x3f800003, then 0x3f800002/0x3f800004, a two-float excess. Those bits depend
+ * only on ColdGas, the ratios, FeedbackReheatingEpsilon and RecycleFraction (the ejection,
+ * the hot gas and the metals do not feed the host's ColdGas, StellarMass or BulgeMass).
+ *
+ * The integration tests' bulge bound (test_integration_sage26_starburst_feedback.py,
+ * bulge_upper_bound) therefore grows with the number of bursts; this case pins why a
+ * one-float bound is not SAGE26's.
+ */
+int test_consecutive_bursts_bulge_excess_grows(void) {
+  struct GalaxyData gal;
+  struct Halo halo;
+  memset(&gal, 0, sizeof(gal));
+  memset(&halo, 0, sizeof(halo));
+  halo.galaxy = &gal;
+  halo.Type = 0;
+  halo.Mvir = 100.0;
+  halo.Vvir = 200.0;
+  halo.Vmax = 200.0;
+
+  uint32_t bits;
+  bits = 0x3f800001u;
+  memcpy(&gal.StellarMass, &bits, sizeof(bits));
+  memcpy(&gal.BulgeMass, &bits, sizeof(bits));
+  gal.ColdGas = 1.0f;
+  gal.HotGas = 10.0f;
+
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.params = &MimicConfig;
+  MimicConfig.G = 43.00707785642063;
+  MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
+
+  /* R0's parameters at the oracle fixtures' bit patterns (R0.par:69-83) */
+  const struct MimicStarburstParams params = {
+      .feedback_reheating_epsilon = 0x1.7333333333333p+1,   /* 2.9 */
+      .feedback_ejection_efficiency = 0x1.3333333333333p-2, /* 0.3 */
+      .recycle_fraction = 0x1.b851eb851eb85p-2,             /* 0.43 */
+      .yield = 0x1.999999999999ap-6,                        /* 0.025 */
+      .frac_z_leave_disk = 0.0,
+      .threshold_major_merger = 0x1.3333333333333p-2, /* 0.3 */
+      .energy_sn_code = 0x1.e10f01e10f01dp-9,
+      .eta_sn_code = 0x1.0547d7abd5eafp+26,
+      .disk_instability_on = 1,
+      .star_forming_disk_factor = 3.0,
+      .agn_recipe_on = 1,
+      .black_hole_growth_rate = 0x1.eb851eb851eb8p-7, /* 0.015 */
+      .quasar_mode_efficiency = 0x1.47ae147ae147bp-8, /* 0.005 */
+  };
+
+  const double ratios[3] = {0x1.c11f7039d3166p-24, 0x1.c11f7ace98f2cp-23, 0x1.c11f8fdc142f7p-24};
+  const uint32_t expected_stellar[3] = {0x3f800001u, 0x3f800002u, 0x3f800002u};
+  const uint32_t expected_bulge[3] = {0x3f800002u, 0x3f800003u, 0x3f800004u};
+
+  for (int k = 0; k < 3; k++) {
+    mimic_apply_collisional_starburst(ratios[k], &halo, &halo, 1, 0, 0.0, 0, 0.01, &ctx, &params,
+                                      NULL);
+    uint32_t stellar_bits;
+    uint32_t bulge_bits;
+    memcpy(&stellar_bits, &gal.StellarMass, sizeof(stellar_bits));
+    memcpy(&bulge_bits, &gal.BulgeMass, sizeof(bulge_bits));
+    printf("\n  burst %d: StellarMass 0x%08x BulgeMass 0x%08x", k + 1, (unsigned)stellar_bits,
+           (unsigned)bulge_bits);
+    TEST_ASSERT(stellar_bits == expected_stellar[k],
+                "StellarMass must match SAGE26's own routine bit for bit");
+    TEST_ASSERT(bulge_bits == expected_bulge[k],
+                "BulgeMass must match SAGE26's own routine bit for bit");
+  }
+  TEST_ASSERT(gal.BulgeMass > nextafterf(gal.StellarMass, INFINITY),
+              "three bursts leave BulgeMass two floats above StellarMass");
+  printf(" ");
+  return TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  *
  * Executes all sage26_starburst_feedback unit tests and reports results.
@@ -2238,7 +2345,7 @@ int main(void) {
   TEST_RUN(test_per_event_merger_uses_target_full_interval_for_rates);
   TEST_RUN(test_per_event_minor_merger_rechecks_disk_instability);
   TEST_RUN(test_per_event_recheck_respects_phase2_quasar_configuration);
-  TEST_RUN(test_per_event_unknown_code_noop);
+  TEST_RUN(test_per_event_zero_ratio_bursts);
   TEST_RUN(test_major_vs_minor_merger);
   TEST_RUN(test_mass_conservation);
   TEST_RUN(test_metallicity_preservation);
@@ -2270,6 +2377,7 @@ int main(void) {
   TEST_RUN(test_instability_burst_samples_bulge_history);
   TEST_RUN(test_merger_burst_samples_with_event_dt);
   TEST_RUN(test_post_merger_recheck_samples_with_event_dt);
+  TEST_RUN(test_consecutive_bursts_bulge_excess_grows);
 
   /* Print summary and return result */
   TEST_SUMMARY();

@@ -2,13 +2,14 @@
  * @file central_link.h
  * @brief FoF central halo index resolution utilities for SAGE physics modules
  *
- * Helpers to resolve the Type 0 central galaxy index and merge/disruption target
- * indices within a FoF workspace. Multiple modules use these to locate the central
+ * Helpers to resolve the Type 0 central galaxy index and the merger and disruption
+ * target index within a FoF workspace. Multiple modules use these to locate the central
  * galaxy without duplicating the Type == 0 scan or the CentralHalo traversal.
  *
- * @note SAGE parity: CentralHalo traversal rules follow the merge-target logic in
- *       SAGE's make_merger_galaxy() and the Type 2 orphan handling in
- *       sage26_resolve_mergers_and_disruption.
+ * @note SAGE parity: the merger and disruption target follows SAGE26's per-substep pass
+ *       (R/src/core_build_model.c:539-543, R = the staged SAGE26 source); Mimic's core sets
+ *       every row's CentralHalo to its subhalo's Type 0 or 1 row, as SAGE26's joining sets
+ *       CentralGal (src/core/inheritance.c set_local_centrals, B:358-370).
  */
 
 #ifndef MIMIC_SHARED_CENTRAL_LINK_H
@@ -40,82 +41,59 @@ static inline int mimic_find_fof_central_index(const struct Halo *halos, int nga
 }
 
 /**
- * @brief Resolve the merge/disruption target index for a satellite (SAGE parity).
+ * @brief SAGE26's merger and disruption target (R/src/core_build_model.c:539-543)
  *
- * Type 2 satellites use their CentralHalo link when valid; all other types use the
- * provided fallback (normally the FoF Type 0 central).
+ *   int merger_centralgal = galaxies[p].Type==1 ? centralgal : galaxies[p].CentralGal;
+ *   if(galaxies[merger_centralgal].mergeType > 0)
+ *       merger_centralgal = galaxies[merger_centralgal].CentralGal;
  *
- * @param halos            FoF workspace halo array
- * @param ngal             Number of halos in the workspace
- * @param satellite_index  Index of the satellite being resolved
- * @param fallback_index   Index to use when CentralHalo is absent or invalid
- * @return Resolved target index, or -1 on invalid input
- */
-static inline int mimic_resolve_type2_target_index(const struct Halo *halos, int ngal,
-                                                   int satellite_index, int fallback_index) {
-  if (halos == NULL || satellite_index < 0 || satellite_index >= ngal) {
-    return -1;
-  }
-
-  if (halos[satellite_index].Type != 2) {
-    return fallback_index;
-  }
-
-  const int candidate = halos[satellite_index].CentralHalo;
-  if (candidate < 0 || candidate >= ngal || candidate == satellite_index) {
-    return fallback_index;
-  }
-
-  if (halos[candidate].Type != 0 && halos[candidate].Type != 1) {
-    return fallback_index;
-  }
-
-  return candidate;
-}
-
-/**
- * @brief Resolve the immediate merge target used by SAGE's in-loop merger handler.
+ * A Type 1 targets the FoF central, a Type 2 its subhalo's central (its CentralHalo). A
+ * target that has merged or been disrupted in this snapshot (the package's Type 3,
+ * SAGE26's mergeType > 0) is redirected once, through its own CentralHalo, without
+ * recursion and without checking the redirected row: a Type 1's CentralHalo is itself,
+ * so an orphan whose Type 1 has just merged is redirected onto that merged galaxy, as in
+ * SAGE26.
  *
- * Selects the live target (Type 1 → FoF central; Type 2 → CentralHalo when valid).
- * If that target has already been consumed (Type 3) in the same pass, one redirect
- * hop through the consumed target's CentralHalo is applied. Does not recurse and
- * does not fall back to the FoF central on a failed redirect.
+ * SAGE26 indexes its galaxies with these links directly. The package has no fallback to
+ * the FoF central for an invalid link (the earlier one is gone); an index outside the
+ * workspace returns -1, which the caller reports as an error instead of reading outside
+ * the array. The core sets every CentralHalo inside its subhalo's slice
+ * (src/core/inheritance.c set_local_centrals), so a valid run never reaches it.
  *
- * @param halos            FoF workspace halo array
- * @param ngal             Number of halos in the workspace
- * @param satellite_index  Index of the satellite being merged
- * @param fallback_index   Index to use for Type 1 satellites (normally FoF Type 0)
- * @return Resolved immediate target index, or -1 if resolution fails
+ * @param halos              FoF workspace halo array
+ * @param ngal               Number of halos in the workspace
+ * @param satellite_index    The Type 1 or 2 satellite (SAGE26's p)
+ * @param fof_central_index  The FoF's Type 0 row (SAGE26's centralgal)
+ * @param redirected         Optional: 1 if the redirect was taken, else 0
+ * @return The target index, or -1 if an index falls outside the workspace
  */
 static inline int mimic_resolve_immediate_target_index(const struct Halo *halos, int ngal,
-                                                       int satellite_index, int fallback_index) {
-  int target_idx = fallback_index;
-
+                                                       int satellite_index, int fof_central_index,
+                                                       int *redirected) {
+  if (redirected != NULL) {
+    *redirected = 0;
+  }
   if (halos == NULL || satellite_index < 0 || satellite_index >= ngal) {
     return -1;
   }
 
-  if (halos[satellite_index].Type == 2) {
-    const int candidate = halos[satellite_index].CentralHalo;
-    if (candidate >= 0 && candidate < ngal && candidate != satellite_index) {
-      target_idx = candidate;
+  int target_idx =
+      (halos[satellite_index].Type == 1) ? fof_central_index : halos[satellite_index].CentralHalo;
+  if (target_idx < 0 || target_idx >= ngal) {
+    return -1;
+  }
+
+  if (halos[target_idx].Type == 3) {
+    target_idx = halos[target_idx].CentralHalo;
+    if (redirected != NULL) {
+      *redirected = 1;
+    }
+    if (target_idx < 0 || target_idx >= ngal) {
+      return -1;
     }
   }
 
-  if (target_idx < 0 || target_idx >= ngal || target_idx == satellite_index) {
-    return -1;
-  }
-
-  if (halos[target_idx].Type != 3) {
-    return target_idx;
-  }
-
-  const int redirect_idx = halos[target_idx].CentralHalo;
-  if (redirect_idx < 0 || redirect_idx >= ngal || redirect_idx == satellite_index) {
-    return -1;
-  }
-
-  return redirect_idx;
+  return target_idx;
 }
 
 #endif /* MIMIC_SHARED_CENTRAL_LINK_H */

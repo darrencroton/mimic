@@ -19,8 +19,9 @@ Test cases:
   - test_only_sfr_outputs_change: with and without the finaliser, every field but the
     four averages is identical, and without it the four stay zero
   - test_disk_average_matches_formed_mass: SfrDisk equals StarFormationRate to float
-    rounding at 10 and at 13 substeps (bins shared), SfrBulge and SfrBulgeZ are zero
-    without bursts, and SfrDiskZ is a metallicity in [0, 1]
+    rounding at 10 and at 13 substeps (bins shared) on every Type 0 and 1 row, and is at
+    least it on an orphan row, which keeps its earlier snapshots' bins; SfrBulge and
+    SfrBulgeZ are zero without bursts, and SfrDiskZ is a metallicity in [0, 1]
 """
 
 import shutil
@@ -49,8 +50,12 @@ from framework import (  # noqa: E402
 
 SFR_OUTPUTS = ("SfrDisk", "SfrBulge", "SfrDiskZ", "SfrBulgeZ")
 
-# The disk scale radius sets the star-forming disk (reff = 3 r_s): without it no stars form
+# The merger clock zeroes the histories of the rows SAGE26 resets at joining (a galaxy that
+# stays a Type 0 or 1, core_build_model.c:278-282): the histories are inherited, so without it
+# they would accumulate over the snapshots. The disk scale radius sets the star-forming disk
+# (reff = 3 r_s): without it no stars form
 PRE_TIMESTEP = [
+    ("sage26_initialise_merger_clock", "process_full_halo"),
     ("sage26_set_disk_scale_radius", "process_full_halo"),
     ("sage26_reionization", "process_full_halo"),
     ("sage26_prepare_infall_budget", "process_full_halo"),
@@ -161,9 +166,14 @@ def test_disk_average_matches_formed_mass():
     SfrDisk is the snapshot's mean disk rate at any substep count
 
     Expected: at 10 and at 13 substeps (where several substeps share a bin and the
-    rate divisor is 13), SfrDisk equals StarFormationRate to float rounding; with no
-    burst module SfrBulge and SfrBulgeZ are zero; SfrDiskZ lies in [0, 1] (a disk
-    forming from metal-free gas has SfrDiskZ 0).
+    rate divisor is 13), SfrDisk equals StarFormationRate to float rounding on every
+    row that stays a Type 0 or 1, whose histories joining zeroes (SAGE26
+    core_build_model.c:252, :278-282). This pipeline has no merger pass, so orphans
+    persist; an orphan keeps its histories from the snapshots before (SAGE26 resets them
+    only on the main branch, :322-337), so its SfrDisk is at least the snapshot's own
+    StarFormationRate (StarFormationRate is reset on every row). With no burst module
+    SfrBulge and SfrBulgeZ are zero; SfrDiskZ lies in [0, 1] (a disk forming from
+    metal-free gas has SfrDiskZ 0).
     """
     import numpy as np
 
@@ -177,20 +187,28 @@ def test_disk_average_matches_formed_mass():
 
         sfr = gal["StarFormationRate"].astype(np.float64)
         disk = gal["SfrDisk"].astype(np.float64)
+        reset = gal["Type"] <= 1
+        orphan = gal["Type"] == 2
         assert np.all(np.isfinite(disk)) and np.all(disk >= 0), "SfrDisk is finite, >= 0"
+        assert np.sum(reset) > 0, "the run should write Type 0 and 1 rows"
         assert np.allclose(
-            disk, sfr, rtol=1e-4, atol=1e-10
+            disk[reset], sfr[reset], rtol=1e-4, atol=1e-10
         ), f"SfrDisk should equal StarFormationRate to float rounding ({substeps} substeps)"
+        assert np.all(
+            disk[orphan] >= sfr[orphan] * (1.0 - 1e-4) - 1e-10
+        ), f"an orphan's kept histories hold at least the snapshot's rate ({substeps} substeps)"
         assert np.all(gal["SfrBulge"] == 0), "no burst module: SfrBulge is zero"
         assert np.all(gal["SfrBulgeZ"] == 0), "no burst module: SfrBulgeZ is zero"
         z = gal["SfrDiskZ"]
         assert np.all((z >= 0) & (z <= 1)), "SfrDiskZ is a metallicity in [0, 1]"
         forming = disk > 0
         assert np.sum(forming) > 0, f"some galaxies should form disk stars ({substeps} substeps)"
-        worst = np.max(np.abs(disk - sfr) / np.maximum(sfr, 1e-30))
+        worst = np.max(np.abs(disk[reset] - sfr[reset]) / np.maximum(sfr[reset], 1e-30))
+        kept = int(np.sum(orphan & (disk > sfr * (1.0 + 1e-4) + 1e-10)))
         print(
             f"  {substeps} substeps: {int(np.sum(forming))} of {len(gal)} forming, "
-            f"max relative difference {worst:.2e}"
+            f"max relative difference {worst:.2e} on {int(np.sum(reset))} Type 0/1 rows; "
+            f"{kept} of {int(np.sum(orphan))} orphan rows carry earlier snapshots' rates"
         )
         shutil.rmtree(tmp)
 

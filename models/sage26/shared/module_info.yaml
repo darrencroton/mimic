@@ -32,6 +32,7 @@ module:
     unit:
       - _tests/test_unit_metallicity.c
       - _tests/test_unit_sage_sfr_history.c
+      - _tests/test_unit_sage_merger_clock.c
 
     integration: []
     scientific: []

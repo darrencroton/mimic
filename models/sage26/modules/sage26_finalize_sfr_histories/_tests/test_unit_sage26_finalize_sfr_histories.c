@@ -12,6 +12,9 @@
  *   - test_module_initialization: module init/cleanup lifecycle through the module system
  *   - test_placement_enforced: init() rejects a substep-phase, pre_timestep, missing or
  *     duplicated post_timestep entry (it must average once, after the substeps)
+ *   - test_requires_merger_clock: init() rejects a configuration without
+ *     sage26_initialise_merger_clock in pre_timestep as process_full_halo (the histories'
+ *     only reset) and accepts one with it
  *   - test_substeps_used_on_every_row: every galaxy row, merged rows included, records
  *     the halo's substep count; rows without a galaxy are skipped
  *   - test_rate_average: SfrDisk and SfrBulge are the mean per-substep rate in Msun/yr
@@ -73,13 +76,23 @@ static void test_post_timestep_add(const char *module_name, enum ProcessingMode 
   MimicConfig.post_timestep[i].resolved = NULL;
 }
 
-/** @brief Fresh configuration with the memory system and modules registered */
-static void fresh_config(void) {
+/** @brief Fresh configuration with the memory system and modules registered, no phases */
+static void bare_config(void) {
   reset_config();
   init_memory_system(0);
   ensure_modules_registered();
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+}
+
+/**
+ * @brief Fresh configuration with sage26_initialise_merger_clock in pre_timestep
+ *
+ * The clock module owns the histories' reset at joining, which init() requires.
+ */
+static void fresh_config(void) {
+  bare_config();
+  test_pre_timestep_add("sage26_initialise_merger_clock", PROCESSING_MODE_FULL_HALO);
 }
 
 /** @brief Set every element of one history of a galaxy to value */
@@ -169,6 +182,41 @@ int test_placement_enforced(void) {
   reset_config();
   TEST_ASSERT(sage26_finalize_sfr_histories_init() != 0,
               "init fails without a post_timestep entry");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_requires_merger_clock
+ * @brief   init() requires sage26_initialise_merger_clock in pre_timestep as process_full_halo
+ *
+ * The histories are inherited (no init_repeat); the clock module's reset at joining is
+ * their only reset (SAGE26 core_build_model.c:278-282). Without it they accumulate across
+ * snapshots, so the run must be rejected at init.
+ */
+int test_requires_merger_clock(void) {
+  /* No clock module anywhere */
+  bare_config();
+  test_post_timestep_add("sage26_finalize_sfr_histories", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(module_system_init() != 0, "a run without the clock module is rejected");
+  module_system_cleanup();
+  check_memory_leaks();
+
+  /* The clock module in pre_timestep, but not as process_full_halo */
+  bare_config();
+  test_pre_timestep_add("sage26_initialise_merger_clock", PROCESSING_MODE_BY_GALAXY);
+  test_post_timestep_add("sage26_finalize_sfr_histories", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(sage26_finalize_sfr_histories_init() != 0,
+              "the clock module must be a process_full_halo pre_timestep entry");
+  module_system_cleanup();
+  check_memory_leaks();
+
+  /* The clock module in pre_timestep as process_full_halo */
+  fresh_config();
+  test_post_timestep_add("sage26_finalize_sfr_histories", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(sage26_finalize_sfr_histories_init() == 0, "with the clock module init succeeds");
+  TEST_ASSERT(module_system_init() == 0, "and the module system initialises");
+  module_system_cleanup();
+  check_memory_leaks();
   return TEST_PASS;
 }
 
@@ -325,6 +373,7 @@ int main(void) {
 
   TEST_RUN(test_module_initialization);
   TEST_RUN(test_placement_enforced);
+  TEST_RUN(test_requires_merger_clock);
   TEST_RUN(test_substeps_used_on_every_row);
   TEST_RUN(test_rate_average);
   TEST_RUN(test_metallicity_skips_nonpositive_gas);

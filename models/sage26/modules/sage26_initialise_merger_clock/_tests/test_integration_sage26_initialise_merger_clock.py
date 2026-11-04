@@ -2,9 +2,13 @@
 """
 sage26_initialise_merger_clock integration tests.
 
-Validates pipeline integration: module initialization, memory safety, output property
-existence and types, data flow, and standalone execution. Physics correctness is covered
-by the unit tests.
+Validates pipeline integration: module initialization in pre_timestep (beside
+sage26_record_transition_state, the last post_timestep module, which supplies the
+previous Type the clock reads), the placement check, the MergerTimeFactor parameter,
+memory safety, output property existence and types, data flow, and standalone
+execution. Physics correctness is covered by the unit tests and the bit-exact oracle
+test; sage26_record_transition_state's integration test follows the transitions over
+consecutive snapshots.
 """
 
 import shutil
@@ -34,6 +38,9 @@ from framework import (
     run_mimic,
 )
 
+CLOCK_PRE_TIMESTEP = [("sage26_initialise_merger_clock", "process_full_halo")]
+RECORDER_POST_TIMESTEP = [("sage26_record_transition_state", "process_full_halo")]
+
 
 def test_module_loads():
     """Test module registration, initialization, and cleanup lifecycle."""
@@ -43,10 +50,8 @@ def test_module_loads():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage26_initialise_merger_clock_load",
         phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
+            "pre_timestep": CLOCK_PRE_TIMESTEP,
+            "post_timestep": RECORDER_POST_TIMESTEP,
         },
         model_params={},
     )
@@ -76,10 +81,8 @@ def test_memory_safety():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage26_initialise_merger_clock_memory",
         phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
+            "pre_timestep": CLOCK_PRE_TIMESTEP,
+            "post_timestep": RECORDER_POST_TIMESTEP,
         },
         model_params={},
     )
@@ -107,10 +110,8 @@ def test_output_properties_exist():
         output_name="sage26_initialise_merger_clock_properties",
         output_format="binary",
         phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
+            "pre_timestep": CLOCK_PRE_TIMESTEP,
+            "post_timestep": RECORDER_POST_TIMESTEP,
         },
         model_params={},
         first_file=0,
@@ -150,10 +151,8 @@ def test_output_property_types():
         output_name="sage26_initialise_merger_clock_types",
         output_format="binary",
         phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
+            "pre_timestep": CLOCK_PRE_TIMESTEP,
+            "post_timestep": RECORDER_POST_TIMESTEP,
         },
         model_params={},
         first_file=0,
@@ -190,10 +189,8 @@ def test_output_sanity_checks():
         output_name="sage26_initialise_merger_clock_sanity",
         output_format="binary",
         phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
+            "pre_timestep": CLOCK_PRE_TIMESTEP,
+            "post_timestep": RECORDER_POST_TIMESTEP,
         },
         model_params={},
         first_file=0,
@@ -233,10 +230,8 @@ def test_data_flow_validation():
         output_name="sage26_initialise_merger_clock_dataflow",
         output_format="binary",
         phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
+            "pre_timestep": CLOCK_PRE_TIMESTEP,
+            "post_timestep": RECORDER_POST_TIMESTEP,
         },
         model_params={},
         first_file=0,
@@ -283,10 +278,8 @@ def test_standalone_execution():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage26_initialise_merger_clock_standalone",
         phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
+            "pre_timestep": CLOCK_PRE_TIMESTEP,
+            "post_timestep": RECORDER_POST_TIMESTEP,
         },
         model_params={},
         first_file=0,
@@ -310,6 +303,62 @@ def test_standalone_execution():
     print("  ✓ Standalone execution successful")
 
 
+def test_substep_placement_rejected():
+    """The joining writes happen once per snapshot: a substep-phase entry fails at startup."""
+    print("Testing the placement check...")
+
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_placement",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("sage26_initialise_merger_clock", "process_full_halo")],
+            "post_timestep": [],
+        },
+        model_params={},
+    )
+
+    returncode, stdout, stderr = run_mimic(param_file)
+    combined = stdout + stderr
+    shutil.rmtree(test_temp_dir)
+
+    assert returncode != 0, "a substep-phase placement should fail at startup"
+    assert "must run only in modules.pre_timestep" in combined, "the error should say where"
+    print("  ✓ A substep-phase placement is rejected")
+
+
+def test_merger_time_factor_parameter():
+    """A non-default MergerTimeFactor (3.0) is read from the run file; a negative one is rejected."""
+    print("Testing the MergerTimeFactor parameter...")
+
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_factor",
+        phase_config={
+            "pre_timestep": CLOCK_PRE_TIMESTEP,
+            "post_timestep": RECORDER_POST_TIMESTEP,
+        },
+        model_params={"MergerTimeFactor": 3.0},
+    )
+    returncode, stdout, stderr = run_mimic(param_file, extra_args=["-v"])
+    shutil.rmtree(test_temp_dir)
+    assert returncode == 0, f"a run with MergerTimeFactor should succeed\nStderr: {stderr}"
+    assert (
+        "MergerTimeFactor = 3.000" in stdout
+    ), "the module should log the run file's factor, not the default"
+
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage26_initialise_merger_clock_bad_factor",
+        phase_config={
+            "pre_timestep": CLOCK_PRE_TIMESTEP,
+            "post_timestep": RECORDER_POST_TIMESTEP,
+        },
+        model_params={"MergerTimeFactor": -1.0},
+    )
+    returncode, stdout, stderr = run_mimic(param_file)
+    shutil.rmtree(test_temp_dir)
+    assert returncode != 0, "a non-positive MergerTimeFactor should fail at startup"
+    print("  ✓ MergerTimeFactor is read and validated")
+
+
 def main():
     """Run all integration test cases with structured result markers."""
     print(f"{BLUE}{'=' * 60}{NC}")
@@ -324,6 +373,8 @@ def main():
         test_output_sanity_checks,
         test_data_flow_validation,
         test_standalone_execution,
+        test_substep_placement_rejected,
+        test_merger_time_factor_parameter,
     ]
 
     passed = 0

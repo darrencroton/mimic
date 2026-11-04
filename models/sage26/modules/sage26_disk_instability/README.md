@@ -19,7 +19,7 @@ Ports SAGE26's `check_disk_instability` up to its black-hole and burst calls (`R
 
 ## Physics
 
-The arithmetic lives in `shared/sage_disk_instability_physics.h` (`mimic_sage_check_disk_instability`), which `sage26_starburst_feedback` also calls for SAGE26's minor-merger instability recheck (`R/src/model_mergers.c:807-809` calls the same `check_disk_instability`).
+The arithmetic lives in `shared/sage_disk_instability_physics.h` (`mimic_sage_check_disk_instability`), which the shared burst transaction (`shared/sage_starburst_physics.h`) also calls for SAGE26's minor-merger instability recheck (`R/src/model_mergers.c:807-809` calls the same `check_disk_instability`) and continues with the gas branch's black-hole growth and burst itself.
 
 - `diskmass = ColdGas + (StellarMass - BulgeMass)`, a float sum widened once (`:54`). Nothing happens unless `diskmass > 0.0` (`:55`).
 - `Mcrit = Vmax * Vmax * (3.0 * DiskScaleRadius) / G`, with SAGE26's float `Vmax * Vmax` product, capped at `diskmass` (`:57-60`).
@@ -31,6 +31,6 @@ The arithmetic lives in `shared/sage_disk_instability_physics.h` (`mimic_sage_ch
 
 ## Notes
 
-`UnstableDiskGasFraction` is a transport property. Place its consumers (`sage26_quasar_mode` for SAGE26's `grow_black_hole`, `sage26_starburst_feedback` for `collisional_starburst_recipe`, `:102-108`) after this module in the same phase. Their own arithmetic, and SAGE26's full end state on a gas-unstable disk, belong to the merger and burst port, not to this module.
+`UnstableDiskGasFraction` is a transport property: it is this module's hand-off of the gas branch to SAGE26's continuation. Place its consumers after this module in the same phase, in SAGE26's order: `sage26_quasar_mode` for `grow_black_hole` with its quasar wind, then `sage26_starburst_feedback` for `collisional_starburst_recipe` (`:101-108`), both `process_by_galaxy`.
 
-The oracle test (`_tests/test_unit_sage26_disk_instability_oracle.c`) compares the module bit for bit with SAGE26's own routine on every fixture under `_tests/oracle/`: SAGE26's full end state on stable disks and disks with no cold gas, and on gas-unstable disks the state after the stellar transfer and the handed fraction, both from the oracle's transcription of `:54-101`, which the oracle checks against SAGE26 by composition with SAGE26's own continuation. The handed fraction is pinned to that checked transcription; no fixture validates it two-sided, because SAGE26's float stores downstream absorb a one-ulp change.
+The oracle test (`_tests/test_unit_sage26_disk_instability_oracle.c`) compares the module bit for bit with SAGE26's own routine on every fixture under `_tests/oracle/`: SAGE26's full end state on stable disks and disks with no cold gas, and on gas-unstable disks the state after the stellar transfer and the handed fraction, both from the oracle's transcription of `:54-101`, which the oracle checks against SAGE26 by composition with SAGE26's own continuation. The handed fraction is pinned to that checked transcription; no fixture validates it two-sided, because SAGE26's float stores downstream absorb a one-ulp change. On the gas-unstable disks the test then runs the package's continuation (`sage26_quasar_mode` and `sage26_starburst_feedback`, `process_by_galaxy`) and compares SAGE26's full end state, every recorded field and history element of every galaxy, bit for bit.

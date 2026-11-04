@@ -1,17 +1,26 @@
 /**
  * @file sage26_quasar_mode.c
- * @brief SAGE quasar-mode AGN feedback (BH growth + energy-driven winds)
+ * @brief SAGE26's black-hole growth and quasar-mode wind
  *
- * Implements Kauffmann & Haehnelt (2000) black hole growth coupled with
- * energy-driven gas ejection.
+ * Runs SAGE26's grow_black_hole, which calls quasar_mode_wind before it records the
+ * accreted mass (R/src/model_mergers.c:346-441), through the shared
+ * mimic_apply_black_hole_growth (shared/sage_agn_physics.h): accretion capped to ColdGas,
+ * the black-hole, cold-gas and cold-metal updates with the negative-metal floor, the
+ * wind against the cold and then the cold plus hot binding energies, and the float
+ * QuasarModeBHaccretionMass accumulation.
  *
  * Trigger channels:
- * - process_by_galaxy: disk instability trigger (galaxy_physics)
- * - process_per_event: merger event trigger (satellite_mergers)
+ * - process_by_galaxy: the disk instability's gas branch (UnstableDiskGasFraction > 0,
+ *   written by sage26_disk_instability), before sage26_starburst_feedback's burst
+ *   (R/src/model_disk_instability.c:101-108)
+ * - process_per_event: the merger event, on the merger target (R/src/model_mergers.c:262-264)
+ *
+ * The post-minor-merger recheck's black-hole growth runs inside
+ * sage26_starburst_feedback's burst transaction, with this module's parameters.
  *
  * References:
- *   - SAGE: model_mergers.c (grow_black_hole, quasar_mode_wind)
- *   - SAGE: model_disk_instability.c (grow_black_hole call)
+ *   - SAGE26 R/src/model_mergers.c:346-441 (grow_black_hole, quasar_mode_wind)
+ *   - SAGE26 R/src/model_disk_instability.c:101-104 (the instability's call)
  *   - Kauffmann & Haehnelt (2000) - BH growth model
  *   - Croton et al. (2006, 2016) - SAGE model papers
  */
@@ -83,15 +92,11 @@ int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, in
     /* Subscription routing (see module_info.yaml events.consumes) ensures
      * only merger events reach this module — no event_id check needed. */
     const double merger_ratio = event->value0;
-    if (merger_ratio <= 0.0) {
-      return 0;
-    }
 
-    const double bh_accrete =
-        mimic_apply_black_hole_growth(event_halo, merger_ratio, BLACK_HOLE_GROWTH_RATE);
-    if (bh_accrete > 0.0) {
-      mimic_apply_quasar_mode_wind(event_halo, bh_accrete, QUASAR_MODE_EFFICIENCY, ctx);
-    }
+    /* SAGE parity: grow_black_hole on the merger target, its quasar wind included, for
+     * every merger, a ratio of 0 included (R/src/model_mergers.c:262-264, :346-378) */
+    (void)mimic_apply_black_hole_growth(event_halo, merger_ratio, BLACK_HOLE_GROWTH_RATE,
+                                        QUASAR_MODE_EFFICIENCY, ctx, NULL);
 
     DEBUG_LOG("Quasar mode from merger event (ratio=%.3f, source=%d, target=%d)", merger_ratio,
               event->source_index, event->target_index);
@@ -110,12 +115,12 @@ int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, in
     return 0;
   }
 
+  /* SAGE parity: the instability's gas branch grows the black hole of the unstable galaxy
+   * itself, its quasar wind included, before the burst (R/src/model_disk_instability.c:90-105);
+   * sage26_disk_instability hands the fraction on through UnstableDiskGasFraction */
   if (gal->UnstableDiskGasFraction > 0.0) {
-    const double BHaccrete =
-        mimic_apply_black_hole_growth(halo, gal->UnstableDiskGasFraction, BLACK_HOLE_GROWTH_RATE);
-    if (BHaccrete > 0.0) {
-      mimic_apply_quasar_mode_wind(halo, BHaccrete, QUASAR_MODE_EFFICIENCY, ctx);
-    }
+    (void)mimic_apply_black_hole_growth(halo, gal->UnstableDiskGasFraction, BLACK_HOLE_GROWTH_RATE,
+                                        QUASAR_MODE_EFFICIENCY, ctx, NULL);
     DEBUG_LOG("Quasar mode from disk instability (eff=%.3f)", gal->UnstableDiskGasFraction);
   }
 

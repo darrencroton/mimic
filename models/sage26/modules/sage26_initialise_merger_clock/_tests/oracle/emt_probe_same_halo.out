@@ -1,0 +1,13 @@
+# SAGE26 oracle output for emt_probe_same_halo.in, written by oracle_c06 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine estimate_merging_time
+f64 return.mergtime 0xbff0000000000000  # -1
+i32 intermediate.clock_same_halo 1
+i32 intermediate.clock_guard_passed -1
+i32 intermediate.clock_capped -1
+i32 intermediate.sat_virial_mass_absent 1
+i32 intermediate.coulomb_absent 1
+i32 intermediate.SatelliteMass_absent 1
+i32 intermediate.SatelliteRadius_absent 1
+i32 intermediate.mother_virial_velocity_absent 1
+i32 intermediate.mergtime_pre_cap_absent 1

@@ -1,29 +1,40 @@
 /**
  * @file    sage26_starburst_feedback.c
- * @brief   Collisional starburst from disk instability and merger channels
+ * @brief   SAGE26's collisional starburst for the disk-instability and merger channels
  *
- * Implements starburst recipe similar to Somerville et al. (2001).
- * The efficiency coefficients are taken from TJ Cox's PhD thesis.
+ * Runs SAGE26's collisional_starburst_recipe (R/src/model_mergers.c:584-831) through the
+ * shared transaction mimic_apply_collisional_starburst (shared/sage_starburst_physics.h),
+ * which owns SAGE26's whole sequence: the bursting fraction, the burst gas, the
+ * reheating and the ejection from the burst host's own Vvir, the bulge history
+ * sampling, the star-formation commit, the locked stars into the bulge and the selected
+ * channel, the feedback commit to the FoF central, the post-minor-merger instability
+ * recheck, and only then the burst's metal yield.
  *
  * Trigger channels:
- *   - process_by_galaxy: Disk instability (UnstableDiskGasFraction > 0, mode=1)
- *   - process_per_event: Merger event payload (mode=0)
+ *   - process_by_galaxy: the disk instability (UnstableDiskGasFraction > 0, mode 1, the
+ *     instability channel), after sage26_disk_instability and sage26_quasar_mode, as
+ *     SAGE26's check_disk_instability calls grow_black_hole and then the burst
+ *     (R/src/model_disk_instability.c:101-108);
+ *   - process_per_event: the merger event (mode 0), after sage26_quasar_mode's merger
+ *     black-hole growth (R/src/model_mergers.c:262-287).
  *
- * Physics: Stars form in burst, feedback reheats cold gas to hot, ejects hot gas.
- * Newly formed stars contribute to bulge mass (starbursts form spheroids).
+ * The post-minor-merger recheck (R/src/model_mergers.c:806-811) runs inside the shared
+ * transaction when sage26_disk_instability is configured (SAGE26's DiskInstabilityOn);
+ * its gas branch grows the black hole when the quasar event consumer is configured
+ * (SAGE26's AGNrecipeOn), with that module's BlackHoleGrowthRate and QuasarModeEfficiency.
  *
- * Every burst samples the bursting galaxy's bulge star-formation history in the
- * shared kernel (R/src/model_mergers.c:755-757). Each call passes the substep's
- * history bin and SAGE26's dt, the substep interval: the bursting galaxy's own
- * dT / num_substeps for the disk-instability channel (SAGE26's starformation_and_feedback
- * dt, R/src/core_build_model.c:516), and the merging satellite's, carried in the merger
+ * Every burst samples the bursting galaxy's bulge star-formation history
+ * (R/src/model_mergers.c:755-757). Each call passes the substep's history bin and SAGE26's
+ * dt, the substep interval: the bursting galaxy's own dT / num_substeps for the
+ * disk-instability channel (SAGE26's starformation_and_feedback dt,
+ * R/src/core_build_model.c:516), and the merging satellite's, carried in the merger
  * event's value1, for the merger channel and its post-merger instability recheck
  * (R/src/core_build_model.c:581, R/src/model_mergers.c:285, :809).
  *
  * References:
- *   - SAGE model_mergers.c: collisional_starburst_recipe() lines 203-293
- *   - Somerville et al. (2001): Starburst efficiency scaling
- *   - Cox PhD thesis: Starburst efficiency coefficients
+ *   - SAGE26 R/src/model_mergers.c:584-831 (collisional_starburst_recipe)
+ *   - Somerville et al. (2001): starburst efficiency scaling
+ *   - Cox PhD thesis: starburst efficiency coefficients
  *   - Croton et al. (2006, 2016)
  */
 
@@ -39,6 +50,7 @@
 #include "shared/sage_starburst_physics.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_sfr_history.h"
+#include "shared/sage_merger_physics.h"
 #include "module_system/generated/event_contracts.h"
 #include "shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
@@ -66,48 +78,6 @@ static double energy_sn_code;
 static double eta_sn_code;
 static bool POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED;
 static bool POST_MERGER_QUASAR_FOLLOWUP_ENABLED;
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/**
- * @brief Run SAGE's same-step minor-merger disk-instability follow-up when configured.
- *
- * The event halo is the live merger target after baryon transfer. Optional quasar
- * follow-up mirrors SAGE's grow_black_hole() call before the collisional burst.
- */
-static void maybe_apply_post_merger_disk_instability_followup(
-    struct ModuleContext *ctx, struct Halo *event_halo, struct Halo *central_halo,
-    double mass_ratio, double event_dt, int sfr_bin, double sfr_dt,
-    const struct MimicStarburstParams *params) {
-  if (!POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED || ctx == NULL || event_halo == NULL ||
-      event_halo->galaxy == NULL || central_halo == NULL || central_halo->galaxy == NULL ||
-      params == NULL || mass_ratio >= params->threshold_major_merger) {
-    return;
-  }
-
-  const double unstable_gas_fraction =
-      mimic_sage_apply_disk_instability(event_halo, ctx, POST_MERGER_STAR_FORMING_DISK_FACTOR);
-  if (unstable_gas_fraction <= 0.0) {
-    return;
-  }
-
-  if (POST_MERGER_QUASAR_FOLLOWUP_ENABLED) {
-    const double bh_accrete = mimic_apply_black_hole_growth(event_halo, unstable_gas_fraction,
-                                                            POST_MERGER_BLACK_HOLE_GROWTH_RATE);
-    if (bh_accrete > 0.0) {
-      /* SAGE parity: grow_black_hole() itself applies quasar_mode_wind()
-       * (R/src/model_mergers.c:374), so the post-merger disk-instability recheck
-       * must include the wind before the collisional starburst. */
-      mimic_apply_quasar_mode_wind(event_halo, bh_accrete, POST_MERGER_QUASAR_MODE_EFFICIENCY, ctx);
-    }
-  }
-
-  mimic_apply_collisional_starburst(unstable_gas_fraction, event_halo->galaxy, central_halo->galaxy,
-                                    central_halo, 1, event_dt, sfr_bin, sfr_dt, params);
-  DEBUG_LOG("Post-merger disk instability follow-up (eff=%.3f)", unstable_gas_fraction);
-}
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -153,7 +123,9 @@ int sage26_starburst_feedback_init(void) {
   POST_MERGER_QUASAR_FOLLOWUP_ENABLED =
       module_in_substep_phase("sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
 
-  /* WARNING: post-merger disk instability path loses quasar wind (SAGE parity) */
+  /* WARNING: without the quasar event consumer the post-merger recheck skips its black-hole
+   * growth and wind, which SAGE26 runs before the recheck's burst
+   * (R/src/model_disk_instability.c:102-104) */
   if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && !POST_MERGER_QUASAR_FOLLOWUP_ENABLED) {
     WARNING_LOG("sage26_starburst_feedback: sage26_disk_instability is configured "
                 "but sage26_quasar_mode is absent as process_per_event — "
@@ -179,9 +151,10 @@ int sage26_starburst_feedback_init(void) {
                 " sage26_quasar_mode not present as process_per_event)");
   }
 
-  // Convert physical constants to code units (same as sage26_calculate_supernova_feedback)
-  energy_sn_code = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
-  eta_sn_code = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
+  /* SAGE26's EnergySNcode and EtaSNcode (R/src/core_init.c:102-103), through the helpers
+   * sage26_calculate_supernova_feedback uses */
+  energy_sn_code = mimic_sage_energy_sn_code(MimicConfig.UnitEnergy_in_cgs, MimicConfig.Hubble_h);
+  eta_sn_code = mimic_sage_eta_sn_code(MimicConfig.UnitMass_in_g, MimicConfig.Hubble_h);
 
   VERBOSE_LOG("SAGE starburst feedback module initialized");
   VERBOSE_LOG("  FeedbackReheatingEpsilon = %.3f", FEEDBACK_REHEATING_EPSILON);
@@ -214,6 +187,14 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
       .threshold_major_merger = THRESHOLD_MAJOR_MERGER,
       .energy_sn_code = energy_sn_code,
       .eta_sn_code = eta_sn_code,
+      /* The post-minor-merger recheck: SAGE26's DiskInstabilityOn and AGNrecipeOn > 0
+       * (R/src/model_mergers.c:807, R/src/model_disk_instability.c:102) are this run's
+       * configuration of sage26_disk_instability and of the quasar event consumer */
+      .disk_instability_on = POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED,
+      .star_forming_disk_factor = POST_MERGER_STAR_FORMING_DISK_FACTOR,
+      .agn_recipe_on = POST_MERGER_QUASAR_FOLLOWUP_ENABLED,
+      .black_hole_growth_rate = POST_MERGER_BLACK_HOLE_GROWTH_RATE,
+      .quasar_mode_efficiency = POST_MERGER_QUASAR_MODE_EFFICIENCY,
   };
 
   if (ctx->active_event != NULL) {
@@ -237,11 +218,8 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
     }
 
     /* Subscription routing (see module_info.yaml events.consumes) ensures
-     * only merger events reach this module — no event_id check needed. */
-    if (event->value0 <= 0.0) {
-      return 0;
-    }
-
+     * only merger events reach this module — no event_id check needed. SAGE26 bursts on
+     * every merger, a ratio of 0 included (R/src/model_mergers.c:284-287). */
     if (event->value1 <= 0.0) {
       ERROR_LOG("Merger event missing valid source dt (value1=%.3e, source=%d, target=%d)",
                 event->value1, event->source_index, event->target_index);
@@ -264,11 +242,16 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
      * unaffected: rate_dt only scales that diagnostic. The outflow is committed
      * undivided by the shared feedback commit, as SAGE26's update_from_feedback
      * does (R/src/model_starformation_and_feedback.c:1249). */
-    mimic_apply_collisional_starburst(event->value0, gal, central_gal, central_halo, 0,
-                                      event_halo->dT, sfr_bin, event->value1, &params);
-    maybe_apply_post_merger_disk_instability_followup(ctx, event_halo, central_halo, event->value0,
-                                                      event_halo->dT, sfr_bin, event->value1,
-                                                      &params);
+    /* SAGE parity: the channel from the target's morphology BEFORE the satellite was
+     * added, which the resolver carries with the event in MergerDiskDominated
+     * (R/src/model_mergers.c:251-254, :266-282) */
+    const int burst_to_merger_bulge = mimic_sage_merger_burst_channel(
+        event->value0, THRESHOLD_MAJOR_MERGER, gal->MergerDiskDominated);
+    /* SAGE26's whole burst transaction, the post-minor-merger instability recheck before
+     * the yield included (R/src/model_mergers.c:584-831) */
+    mimic_apply_collisional_starburst(event->value0, event_halo, central_halo, 0,
+                                      burst_to_merger_bulge, event_halo->dT, sfr_bin, event->value1,
+                                      ctx, &params, NULL);
     DEBUG_LOG("Starburst from merger event (ratio=%.3f, source=%d, target=%d)", event->value0,
               event->source_index, event->target_index);
     return 0;
@@ -324,8 +307,11 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
      * interval (halo->dT), like disk SF; the outflow is committed undivided
      * (R/src/model_starformation_and_feedback.c:1249). The substep interval disk_dt
      * is the bulge history's denominator. */
-    mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, gal, central_gal, central_halo,
-                                      1, halo->dT, sfr_bin, disk_dt, &params);
+    /* SAGE parity: the instability's burst, mode 1 into the instability channel
+     * (burst_to_merger_bulge 0), after sage26_quasar_mode's black-hole growth
+     * (R/src/model_disk_instability.c:101-108) */
+    mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, halo, central_halo, 1, 0,
+                                      halo->dT, sfr_bin, disk_dt, ctx, &params, NULL);
     DEBUG_LOG("Starburst from disk instability (eff=%.3f)", gal->UnstableDiskGasFraction);
   }
 

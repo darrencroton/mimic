@@ -1,0 +1,33 @@
+# A cluster-mass mother and a 0.002 mass satellite (its own FoF's first halo, so its catalogue
+# Mvir is used): the clock exceeds 999 and is capped to 998 (M:112-117).
+# Reachability: a constructed routine-domain probe (inputs SAGE26's routine accepts but
+# R0's dynamics cannot produce); kept and asserted like any other fixture.
+format sage26-oracle-fixture 1
+routine estimate_merging_time
+
+f64 params.PartMass 0x3fb604189374bc6a  # 0.086  (R0.par:41)
+f64 params.MergerTimeFactor 0x4000000000000000  # 2.0  (default, R/src/core_read_parameter_file.c:128)
+f64 params.Hubble 0x40590001165723b7  # 100.00006636151998  (HUBBLE * UnitTime_in_s, R/src/core_init.c:106)
+f64 params.Omega 0x3fd0000000000000  # 0.25  (R0.par:37)
+f64 params.OmegaLambda 0x3fe8000000000000  # 0.75  (R0.par:38)
+f64 params.G 0x404580e7ed5ced1b  # 43.00707785642063  (GRAVITY / CUBE(L) * M * SQR(T), R/src/core_init.c:96)
+
+i32 call.nhalos 2
+i32 halo[0].FirstHaloInFOFgroup 0
+i32 halo[0].Len 120000
+f32 halo[0].Mvir 0x46214000  # 10320
+i32 halo[0].SnapNum 63
+i32 halo[1].FirstHaloInFOFgroup 1
+i32 halo[1].Len 20
+f32 halo[1].Mvir 0x3b03126f  # 0.00200000009
+i32 halo[1].SnapNum 63
+f64 params.ZZ[63] 0x0000000000000000  # 0  (1/AA - 1, R/src/core_init.c:64)
+
+i32 call.ngal 0  # SAGE26's argument ngal: the galaxy's index
+i32 call.sat_halo 1
+i32 call.mother_halo 0
+
+i32 galaxy[0].Type 1
+i32 galaxy[0].SnapNum 62
+f32 galaxy[0].StellarMass 0x00000000  # 0
+f32 galaxy[0].ColdGas 0x00000000  # 0

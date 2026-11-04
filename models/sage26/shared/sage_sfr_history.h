@@ -19,6 +19,9 @@
  *   (R/src/model_starformation_and_feedback.c:1058-1060) and burst
  *   (R/src/model_mergers.c:755-757) sampling, with SAGE26's operators and float
  *   stores;
+ * - mimic_sage_reset_sfr_histories(): SAGE26's reset of every bin at the
+ *   first-occupied Type 0/1 update (R/src/core_build_model.c:278-282), which the
+ *   package applies at joining instead of an init_repeat reset of every row;
  * - mimic_sage_average_sfr_histories(): the writer's averaging of the six
  *   histories into SfrDisk, SfrBulge, SfrDiskZ and SfrBulgeZ
  *   (R/src/io/save_gals_hdf5.c:934-959), with its divisors
@@ -189,6 +192,34 @@ static inline int mimic_sage_sample_bulge_sfr(struct GalaxyData *gal, const int 
   *rate += stars / dt;
   *gas += gal->ColdGas;
   *metals += gal->MetalsColdGas;
+  return 0;
+}
+
+/**
+ * @brief SAGE26's history reset at the first-occupied update (R/src/core_build_model.c:278-282)
+ *
+ *   for(int step = 0; step < STEPS; step++) {
+ *       galaxies[ngal].SfrDisk[step] = galaxies[ngal].SfrBulge[step] = 0.0;
+ *       galaxies[ngal].SfrDiskColdGas[step] = galaxies[ngal].SfrDiskColdGasMetals[step] = 0.0;
+ *       galaxies[ngal].SfrBulgeColdGas[step] = galaxies[ngal].SfrBulgeColdGasMetals[step] = 0.0;
+ *   }
+ *
+ * Zeroes every bin of the six histories. SAGE26 runs it only for a galaxy that was a
+ * Type 0 or 1 and joins on the main branch (it stays a Type 0 or 1); a galaxy that
+ * becomes or stays an orphan keeps its histories. sage26_initialise_merger_clock calls
+ * it at joining for exactly those rows.
+ *
+ * @return 0, or -1 for a NULL galaxy (nothing is written)
+ */
+static inline int mimic_sage_reset_sfr_histories(struct GalaxyData *gal) {
+  if (gal == NULL) {
+    return -1;
+  }
+  for (int history = 0; history < MIMIC_SFR_HISTORY_COUNT; history++) {
+    for (int bin = 0; bin < MIMIC_SAGE_SFR_STEPS; bin++) {
+      *mimic_sage_sfr_history(gal, (enum MimicSageSfrHistory)history, bin) = 0.0f;
+    }
+  }
   return 0;
 }
 

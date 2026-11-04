@@ -1,20 +1,33 @@
 /**
  * @file    test_unit_sage26_initialise_merger_clock.c
- * @brief   Unit tests for sage26_initialise_merger_clock module physics
+ * @brief   Unit tests for sage26_initialise_merger_clock: placement, parameter, transitions
  *
- * Tests the merger timescale calculation physics in isolation using minimal mocks.
- * Validates:
- *   - Dynamical friction formula correctness
- *   - Coulomb logarithm calculation
- *   - Type filtering (centrals vs satellites)
- *   - MergTime reset for Type 0 centrals
- *   - Type 2 sentinel policy (force immediate merge via MergTime=0.0)
- *   - Sentinel value handling (999.9 = unset)
- *   - Edge cases (zero mass, NULL galaxy, no central)
- *   - MergTime capping at 998.0
+ * The module makes SAGE26's joining writes (R/src/core_build_model.c:284-338) from
+ * each galaxy's PreviousType (recorded by sage26_record_transition_state) and the
+ * Type the core assigned. These tests build FoF workspaces by hand; the bit-exact
+ * comparison with SAGE26 is the oracle test, and the two-snapshot test through the
+ * core's inheritance service is sage26_record_transition_state's unit test.
  *
- * Physics: Binney & Tremaine (1987) dynamical friction
- *   t_merge = 2 * 1.17 * R_vir^2 * V_vir / (ln(N_cen/N_sat) * G * M_sat)
+ * Test cases:
+ *   - test_placement: init() accepts one pre_timestep process_full_halo entry and
+ *     rejects a substep-phase or post_timestep entry
+ *   - test_merger_time_factor: absent means SAGE26's default 2.0; a run value
+ *     scales the clock linearly; a non-positive value is rejected
+ *   - test_central_clock_reset: a Type 0 gets MergTime 999.9f whatever it held
+ *   - test_type0_to_type1: infall state recorded, TimeOfInfall the snapshot, clock
+ *     estimated from the fresh FoF-central virial values
+ *   - test_type1_to_type1: an estimated clock and the infall state are kept; a
+ *     clock above 999 is re-estimated
+ *   - test_type0_to_type2: clock 0, infallStellarMass recorded, TimeOfInfall kept
+ *   - test_type1_to_type2: the clock and infall state are kept; a clock above 999
+ *     becomes 0
+ *   - test_type2_untouched: a galaxy that was already Type 2 is not changed
+ *   - test_without_recorder: with no previous Type (-1) the clock half still runs
+ *   - test_history_reset: the six SFR histories are zeroed for a row that stays a
+ *     Type 0 or 1 and kept for a new or old orphan (R/src/core_build_model.c:252,
+ *     :278-282, :322-337)
+ *   - test_missing_central: a satellite needing a clock without a Type 0 is an error
+ *   - test_empty_and_null_rows: empty FoFs and rows without a galaxy
  */
 
 #include <math.h>
@@ -23,526 +36,435 @@
 #include <string.h>
 
 #include "../../../../tests/framework/test_framework.h"
+#include "../../../../tests/framework/test_phase_config.h"
 
-#include "include/types.h"
 #include "core/module_interface.h"
+#include "core/module_registry.h"
 #include "include/globals.h"
-#include "util/memory.h"
+#include "include/types.h"
 #include "util/error.h"
+#include "util/memory.h"
+
+#include "modules/_tests/sage_test_fixtures.h"
+#include "shared/sage_constants.h"
+#include "shared/sage_merger_clock.h"
+#include "shared/sage_sfr_history.h"
 
 extern int sage26_initialise_merger_clock_init(void);
 extern int sage26_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo *halos,
                                                   int ngal);
 extern int sage26_initialise_merger_clock_cleanup(void);
 
-#define FLOAT_EQ(a, b, epsilon) (fabs((a) - (b)) < (epsilon))
+static const char *CLOCK = "sage26_initialise_merger_clock";
 
-/* Test statistics (required for TEST_RUN macro) */
-static int passed = 0;
-static int failed = 0;
+#define SNAPSHOT 41
+#define REDSHIFT 0.98870811532120606
 
-static void setup_mock_config(void) {
-  memset(&MimicConfig, 0, sizeof(MimicConfig));
+// ============================================================================
+// FIXTURES
+// ============================================================================
+
+static void set_cosmology(void) {
+  MimicConfig.PartMass = 0.086;
+  MimicConfig.Hubble = 100.0;
   MimicConfig.Omega = 0.25;
   MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-  MimicConfig.G = 43.02;
+  MimicConfig.G = 43.00707785642063;
 }
 
-static struct ModuleContext create_test_context(void) {
+/** @brief Configure the clock in pre_timestep (optionally with a MergerTimeFactor) and init it */
+static int init_clock(const char *merger_time_factor) {
+  reset_config();
+  init_memory_system(0);
+  set_cosmology();
+  test_pre_timestep_add(CLOCK, PROCESSING_MODE_FULL_HALO);
+  if (merger_time_factor != NULL) {
+    snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "MergerTimeFactor");
+    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "%s", merger_time_factor);
+    MimicConfig.NumModelParams = 1;
+  }
+  return sage26_initialise_merger_clock_init();
+}
+
+static void finish_clock(void) {
+  sage26_initialise_merger_clock_cleanup();
+  test_free_pre_timestep();
+  test_free_substep_phases();
+  check_memory_leaks();
+}
+
+static struct ModuleContext make_context(void) {
   struct ModuleContext ctx;
   memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.time = 13.6;
-  ctx.snapshot_number = 63;
-  ctx.substep_number = 0;
-  ctx.num_substeps = 1;
-  ctx.time_interval = 0.1;
-  ctx.substep_dt = ctx.time_interval;
   ctx.params = &MimicConfig;
+  ctx.snapshot_number = SNAPSHOT;
+  ctx.redshift = REDSHIFT;
+  ctx.num_substeps = 1;
   return ctx;
 }
 
-static struct Halo create_test_halo(int type, double mvir, double rvir, double vvir, int len,
-                                    double infall_mvir, struct GalaxyData *galaxy) {
-  struct Halo halo;
-  memset(&halo, 0, sizeof(halo));
-  halo.Type = type;
-  halo.Mvir = mvir;
-  halo.Rvir = rvir;
-  halo.Vvir = vvir;
-  halo.Len = len;
-  halo.infallMvir = infall_mvir;
-  halo.SnapNum = 63;
-  halo.HaloNr = 1;
-  halo.galaxy = galaxy;
-  return halo;
+/** @brief A joined row: the core's Type and halo values, the galaxy's previous Type */
+static void make_row(struct Halo *halo, struct GalaxyData *galaxy, const long long halo_nr,
+                     const int type, const int previous_type, const int len, const double mvir,
+                     const float mergtime) {
+  memset(halo, 0, sizeof(*halo));
+  init_galaxy_defaults(galaxy);
+  halo->galaxy = galaxy;
+  halo->HaloNr = halo_nr;
+  halo->Type = type;
+  halo->Len = len;
+  halo->Mvir = mvir;
+  /* Stored values the clock must not use (the core freezes them while a halo shrinks) */
+  halo->Rvir = 123.0;
+  halo->Vvir = 4567.0;
+  galaxy->PreviousType = previous_type;
+  galaxy->MergTime = mergtime;
+  galaxy->StellarMass = 0.8f;
+  galaxy->ColdGas = 0.3f;
+  galaxy->infallStellarMassState = 0.6f;
+  galaxy->TimeOfInfallState = 33.0f;
 }
 
-static struct GalaxyData create_test_galaxy(float mergtime, float stellar_mass, float cold_gas) {
-  struct GalaxyData gal;
-  memset(&gal, 0, sizeof(gal));
-  gal.MergTime = mergtime;
-  gal.StellarMass = stellar_mass;
-  gal.ColdGas = cold_gas;
-  return gal;
+/** @brief A FoF central (Type 0) at row 0 and one satellite row at row 1 */
+static void make_pair(struct Halo rows[2], struct GalaxyData galaxies[2], const int sat_type,
+                      const int sat_previous_type, const float sat_mergtime) {
+  make_row(&rows[0], &galaxies[0], 100, 0, 0, 1200, 103.2, SAGE_MERGTIME_UNSET);
+  make_row(&rows[1], &galaxies[1], 101, sat_type, sat_previous_type, 30, 30 * 0.086, sat_mergtime);
+}
+
+/** @brief The clock SAGE26's estimate_merging_time gives the pair */
+static double expected_clock(struct Halo rows[2], const double factor) {
+  return mimic_sage_estimate_merging_time(&rows[1], &rows[0], REDSHIFT, factor, MimicConfig.G,
+                                          NULL);
 }
 
 // ============================================================================
-// TYPE FILTERING TESTS
+// PLACEMENT AND PARAMETER
 // ============================================================================
 
 /**
- * @test    test_type0_central_skipped
- * @brief   Type 0 centrals don't get MergTime calculated (only reset)
+ * @test    test_placement
+ * @brief   One pre_timestep process_full_halo entry initialises; other phases are rejected
  */
-static int test_type0_central_skipped(void) {
+static int test_placement(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "a pre_timestep entry initialises");
+  finish_clock();
+
+  reset_config();
   init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 10.0, 5.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 150.0, 1000, 0.0, &cen_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[1] = {central};
+  test_phase_add("galaxy_physics", CLOCK, PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(sage26_initialise_merger_clock_init() != 0, "a substep-phase entry is rejected");
+  test_free_substep_phases();
 
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 1);
+  test_pre_timestep_add(CLOCK, PROCESSING_MODE_FULL_HALO);
+  test_pre_timestep_add(CLOCK, PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(sage26_initialise_merger_clock_init() != 0, "two pre_timestep entries are rejected");
+  test_free_pre_timestep();
 
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->MergTime, 999.9f, 0.01),
-              "Type 0 central MergTime should remain at sentinel value");
+  TEST_ASSERT(sage26_initialise_merger_clock_init() != 0, "no pre_timestep entry is rejected");
   check_memory_leaks();
   return TEST_PASS;
 }
 
 /**
- * @test    test_type0_mergtime_reset
- * @brief   Type 0 centrals with MergTime < 999.0 get reset to 999.9
+ * @test    test_merger_time_factor
+ * @brief   Absent: SAGE26's default 2.0; present: the clock scales with it; <= 0 rejected
  */
-static int test_type0_mergtime_reset(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(5.0f, 10.0, 5.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 150.0, 1000, 0.0, &cen_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[1] = {central};
+static int test_merger_time_factor(void) {
+  struct Halo rows[2];
+  struct GalaxyData galaxies[2];
+  struct ModuleContext ctx = make_context();
 
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 1);
+  TEST_ASSERT(init_clock(NULL) == 0, "init without MergerTimeFactor succeeds");
+  make_pair(rows, galaxies, 1, 0, SAGE_MERGTIME_UNSET);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  const float default_clock = galaxies[1].MergTime;
+  TEST_ASSERT(default_clock == (float)expected_clock(rows, 2.0),
+              "without the parameter the clock uses SAGE26's default factor 2.0");
+  finish_clock();
 
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->MergTime, 999.9f, 0.01),
-              "Type 0 central should have MergTime reset to 999.9");
-  check_memory_leaks();
-  return TEST_PASS;
-}
+  TEST_ASSERT(init_clock("3.0") == 0, "init with MergerTimeFactor 3.0 succeeds");
+  make_pair(rows, galaxies, 1, 0, SAGE_MERGTIME_UNSET);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == (float)expected_clock(rows, 3.0),
+              "the clock uses the run's MergerTimeFactor");
+  TEST_ASSERT(fabs(galaxies[1].MergTime / default_clock - 1.5) < 1e-6,
+              "the clock scales linearly with MergerTimeFactor");
+  finish_clock();
 
-/**
- * @test    test_type1_satellite_calculation
- * @brief   Type 1 satellite gets MergTime calculated
- */
-static int test_type1_satellite_calculation(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(999.9f, 5.0, 2.0);
-  struct Halo satellite = create_test_halo(1, 20.0, 0.2, 100.0, 200, 25.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(halos[1].galaxy->MergTime < 999.0f,
-              "Type 1 satellite should have MergTime calculated");
-  TEST_ASSERT(halos[1].galaxy->MergTime > 0.0f, "MergTime should be positive");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_type2_orphan_forces_immediate_merge
- * @brief   Type 2 orphans with unset MergTime are forced to immediate merge
- */
-static int test_type2_orphan_forces_immediate_merge(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData orphan_gal = create_test_galaxy(999.9f, 3.0, 1.0);
-  struct Halo orphan = create_test_halo(2, 5.0, 0.1, 50.0, 0, 10.0, &orphan_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, orphan};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->MergTime, 0.0f, 0.01),
-              "Type 2 orphan with sentinel MergTime should be forced to 0.0");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_type3_plus_skipped
- * @brief   Type > 2 halos are not processed
- */
-static int test_type3_plus_skipped(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData type3_gal = create_test_galaxy(999.9f, 5.0, 2.0);
-  struct Halo type3_halo = create_test_halo(3, 20.0, 0.2, 100.0, 200, 25.0, &type3_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, type3_halo};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->MergTime, 999.9f, 0.01),
-              "Type 3 halo should remain at sentinel value (skipped)");
-  check_memory_leaks();
+  TEST_ASSERT(init_clock("0.0") != 0, "a MergerTimeFactor of 0 is rejected");
+  finish_clock();
   return TEST_PASS;
 }
 
 // ============================================================================
-// SENTINEL AND CONDITION TESTS
+// TRANSITIONS
 // ============================================================================
 
 /**
- * @test    test_already_calculated_skipped
- * @brief   Satellites with MergTime <= 999.0 are skipped (already calculated)
+ * @test    test_central_clock_reset
+ * @brief   A Type 0 central gets MergTime 999.9f (R/src/core_build_model.c:288)
  */
-static int test_already_calculated_skipped(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(5.5f, 5.0, 2.0);
-  struct Halo satellite = create_test_halo(1, 20.0, 0.2, 100.0, 200, 25.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->MergTime, 5.5f, 0.01),
-              "Already-calculated satellite should keep original MergTime");
-  check_memory_leaks();
+static int test_central_clock_reset(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  struct Halo rows[1];
+  struct GalaxyData galaxies[1];
+  const int previous[] = {0, 1, -1};
+  for (int k = 0; k < 3; k++) {
+    make_row(&rows[0], &galaxies[0], 100, 0, previous[k], 1200, 103.2, 2.5f);
+    TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 1) == 0, "process succeeds");
+    TEST_ASSERT(galaxies[0].MergTime == SAGE_MERGTIME_UNSET, "a central's clock is 999.9f");
+    TEST_ASSERT(galaxies[0].infallStellarMassState == 0.6f &&
+                    galaxies[0].TimeOfInfallState == 33.0f,
+                "a central keeps its infall state");
+  }
+  finish_clock();
   return TEST_PASS;
 }
 
 /**
- * @test    test_no_infall_mvir_still_calculated
- * @brief   Satellites with infallMvir <= 0 still get MergTime when unset
+ * @test    test_type0_to_type1
+ * @brief   Infall recorded with the snapshot number; clock from the fresh FoF virial values
  */
-static int test_no_infall_mvir_still_calculated(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(999.9f, 5.0, 2.0);
-  struct Halo satellite = create_test_halo(1, 20.0, 0.2, 100.0, 200, 0.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
+static int test_type0_to_type1(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  struct Halo rows[2];
+  struct GalaxyData galaxies[2];
+  make_pair(rows, galaxies, 1, 0, SAGE_MERGTIME_UNSET);
 
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].infallStellarMassState == 0.8f, "infallStellarMass = StellarMass");
+  TEST_ASSERT(galaxies[1].TimeOfInfallState == (float)SNAPSHOT, "TimeOfInfall = the snapshot");
 
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(halos[1].galaxy->MergTime < 999.0f,
-              "Satellite with infallMvir=0 should still get a merger timescale");
-  TEST_ASSERT(halos[1].galaxy->MergTime > 0.0f, "Calculated merger timescale should be positive");
-  check_memory_leaks();
+  /* The FoF central's virial radius and velocity from its Mvir at this redshift
+   * (SAGE26's get_virial_radius/velocity), not its stored Rvir/Vvir */
+  const double radius = virial_radius_for_mass(103.2, REDSHIFT);
+  const double velocity = virial_velocity_for(103.2, radius);
+  const double coulomb = log1p(1200 / (double)30);
+  const double mass = 30 * 0.086 + 0.8f + 0.3f;
+  const double expected =
+      2.0 * 1.17 * radius * radius * velocity / (coulomb * MimicConfig.G * mass);
+  TEST_ASSERT(fabs(galaxies[1].MergTime / expected - 1.0) < 1e-6,
+              "the clock is SAGE26's dynamical-friction time from fresh virial values");
+  TEST_ASSERT(galaxies[1].MergTime == (float)expected_clock(rows, 2.0),
+              "the module stores the shared estimate as a float");
+  finish_clock();
   return TEST_PASS;
 }
 
-// ============================================================================
-// PHYSICS CALCULATION TESTS
-// ============================================================================
+/**
+ * @test    test_type1_to_type1
+ * @brief   An estimated clock is kept; a clock above 999 is re-estimated; infall kept
+ */
+static int test_type1_to_type1(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  struct Halo rows[2];
+  struct GalaxyData galaxies[2];
+
+  make_pair(rows, galaxies, 1, 1, 0.75f);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == 0.75f, "an estimated clock is kept");
+  TEST_ASSERT(galaxies[1].infallStellarMassState == 0.6f && galaxies[1].TimeOfInfallState == 33.0f,
+              "the infall state is kept");
+
+  make_pair(rows, galaxies, 1, 1, 999.0f);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == 999.0f, "a clock of exactly 999 is kept (strict >)");
+
+  make_pair(rows, galaxies, 1, 1, SAGE_MERGTIME_UNSET);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == (float)expected_clock(rows, 2.0),
+              "a clock above 999 is re-estimated");
+  TEST_ASSERT(galaxies[1].infallStellarMassState == 0.6f && galaxies[1].TimeOfInfallState == 33.0f,
+              "re-estimating does not record infall");
+  finish_clock();
+  return TEST_PASS;
+}
 
 /**
- * @test    test_dynamical_friction_formula
- * @brief   Verify the Binney & Tremaine dynamical friction formula
+ * @test    test_type0_to_type2
+ * @brief   A central losing its subhalo: clock 0, infallStellarMass recorded, TimeOfInfall kept
+ */
+static int test_type0_to_type2(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  struct Halo rows[2];
+  struct GalaxyData galaxies[2];
+  make_pair(rows, galaxies, 2, 0, SAGE_MERGTIME_UNSET);
+  rows[1].Mvir = 0.0;
+
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == 0.0f, "the orphan's clock starts at 0");
+  TEST_ASSERT(galaxies[1].infallStellarMassState == 0.8f, "infallStellarMass = StellarMass");
+  TEST_ASSERT(galaxies[1].TimeOfInfallState == 33.0f, "TimeOfInfall keeps its earlier value");
+  finish_clock();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_type1_to_type2
+ * @brief   A satellite losing its subhalo keeps its clock; an unset clock becomes 0
+ */
+static int test_type1_to_type2(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  struct Halo rows[2];
+  struct GalaxyData galaxies[2];
+
+  make_pair(rows, galaxies, 2, 1, 1.25f);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == 1.25f, "the clock is kept");
+  TEST_ASSERT(galaxies[1].infallStellarMassState == 0.6f, "the infall state is kept");
+
+  make_pair(rows, galaxies, 2, 1, SAGE_MERGTIME_UNSET);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == 0.0f, "an unset clock becomes 0");
+  TEST_ASSERT(galaxies[1].infallStellarMassState == 0.8f, "and infallStellarMass is recorded");
+  finish_clock();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_type2_untouched
+ * @brief   A galaxy that was already Type 2 is copied unchanged (R/src/core_build_model.c:240)
+ */
+static int test_type2_untouched(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  struct Halo rows[2];
+  struct GalaxyData galaxies[2];
+  make_pair(rows, galaxies, 2, 2, SAGE_MERGTIME_UNSET);
+
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == SAGE_MERGTIME_UNSET, "the clock is not changed");
+  TEST_ASSERT(galaxies[1].infallStellarMassState == 0.6f, "the infall state is not changed");
+  finish_clock();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_without_recorder
+ * @brief   With no previous Type (-1), the clock half of each condition still runs
+ */
+static int test_without_recorder(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds without the recorder (with a warning)");
+  struct ModuleContext ctx = make_context();
+  struct Halo rows[2];
+  struct GalaxyData galaxies[2];
+
+  make_pair(rows, galaxies, 1, -1, SAGE_MERGTIME_UNSET);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == (float)expected_clock(rows, 2.0),
+              "an unset satellite clock is estimated");
+  TEST_ASSERT(galaxies[1].TimeOfInfallState == 33.0f, "but no infall is recorded");
+
+  make_pair(rows, galaxies, 2, -1, SAGE_MERGTIME_UNSET);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+  TEST_ASSERT(galaxies[1].MergTime == 0.0f, "an orphan with an unset clock starts at 0");
+  finish_clock();
+  return TEST_PASS;
+}
+
+/** @brief Give every history element of a galaxy a distinct non-zero value */
+static void fill_histories(struct GalaxyData *galaxy) {
+  for (int h = 0; h < MIMIC_SFR_HISTORY_COUNT; h++) {
+    for (int bin = 0; bin < MIMIC_SAGE_SFR_STEPS; bin++) {
+      *mimic_sage_sfr_history(galaxy, (enum MimicSageSfrHistory)h, bin) =
+          1.0f + (float)(h * MIMIC_SAGE_SFR_STEPS + bin);
+    }
+  }
+}
+
+/** @brief 1 if every history element of a galaxy is zero, 0 if every one keeps its fill, else -1 */
+static int histories_state(struct GalaxyData *galaxy) {
+  int zero = 0, kept = 0;
+  for (int h = 0; h < MIMIC_SFR_HISTORY_COUNT; h++) {
+    for (int bin = 0; bin < MIMIC_SAGE_SFR_STEPS; bin++) {
+      const float value = *mimic_sage_sfr_history(galaxy, (enum MimicSageSfrHistory)h, bin);
+      zero += (value == 0.0f);
+      kept += (value == 1.0f + (float)(h * MIMIC_SAGE_SFR_STEPS + bin));
+    }
+  }
+  const int elements = MIMIC_SFR_HISTORY_COUNT * MIMIC_SAGE_SFR_STEPS;
+  return zero == elements ? 1 : (kept == elements ? 0 : -1);
+}
+
+/**
+ * @test    test_history_reset
+ * @brief   The histories are zeroed exactly for the rows SAGE26 resets
  *
- * Physics: t_merge = 2 * 1.17 * R_vir^2 * V_vir / (ln(1 + N_cen/N_sat) * G * M_sat)
+ * SAGE26 zeroes the six histories only on the first-occupied update of a galaxy that
+ * was a Type 0 or 1 (R/src/core_build_model.c:252, :278-282), the rows that stay a Type
+ * 0 or 1; a galaxy that becomes an orphan keeps them (:322-337), and a Type 2 is copied
+ * unchanged (:240). The reset reads the new Type alone, so a run without the recorder
+ * (PreviousType -1) resets the same rows.
  */
-static int test_dynamical_friction_formula(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 10.0, 0.1, 100.0, 100, 15.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
-
-  double coulomb = log1p(1000.0 / 100.0);
-  double expected = 2.0 * 1.17 * 0.25 * 200.0 / (coulomb * 43.02 * 10.0);
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->MergTime, expected, 0.01),
-              "MergTime should match dynamical friction formula");
-  check_memory_leaks();
+static int test_history_reset(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  const struct {
+    int type;
+    int previous_type;
+    int zeroed;
+    const char *what;
+  } cases[] = {
+      {1, 0, 1, "a Type 0 that becomes a Type 1 is reset"},
+      {1, 1, 1, "a Type 1 that stays a Type 1 is reset"},
+      {2, 0, 0, "a Type 0 that becomes an orphan keeps its histories"},
+      {2, 1, 0, "a Type 1 that becomes an orphan keeps its histories"},
+      {2, 2, 0, "an orphan that stays an orphan keeps its histories"},
+      {1, -1, 1, "without the recorder a Type 1 is still reset"},
+      {2, -1, 0, "without the recorder an orphan still keeps its histories"},
+  };
+  for (size_t k = 0; k < sizeof(cases) / sizeof(cases[0]); k++) {
+    struct Halo rows[2];
+    struct GalaxyData galaxies[2];
+    make_pair(rows, galaxies, cases[k].type, cases[k].previous_type, 0.5f);
+    fill_histories(&galaxies[0]);
+    fill_histories(&galaxies[1]);
+    TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "process succeeds");
+    TEST_ASSERT(histories_state(&galaxies[0]) == 1, "the FoF central (Type 0 from 0) is reset");
+    TEST_ASSERT(histories_state(&galaxies[1]) == (cases[k].zeroed ? 1 : 0), cases[k].what);
+  }
+  finish_clock();
   return TEST_PASS;
 }
 
 /**
- * @test    test_coulomb_logarithm
- * @brief   Verify Coulomb logarithm uses log1p(N_cen/N_sat)
+ * @test    test_missing_central
+ * @brief   A satellite that needs a clock in a FoF without a Type 0 is an error
  */
-static int test_coulomb_logarithm(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 10000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 10.0, 0.1, 100.0, 100, 15.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-
-  sage26_initialise_merger_clock_process(&ctx, halos, 2);
-  float mergtime1 = halos[1].galaxy->MergTime;
-
-  halos[0].Len = 1000;
-  halos[1].galaxy->MergTime = 999.9f;
-  sage26_initialise_merger_clock_process(&ctx, halos, 2);
-  float mergtime2 = halos[1].galaxy->MergTime;
-
-  /* Larger central Len → larger Coulomb log → shorter merger time */
-  TEST_ASSERT(mergtime2 > mergtime1, "Smaller particle ratio should give longer merger time");
-  check_memory_leaks();
+static int test_missing_central(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  struct Halo rows[1];
+  struct GalaxyData galaxies[1];
+  make_row(&rows[0], &galaxies[0], 101, 1, 0, 30, 2.58, SAGE_MERGTIME_UNSET);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 1) != 0,
+              "a new satellite without a FoF central fails");
+  finish_clock();
   return TEST_PASS;
 }
 
 /**
- * @test    test_small_satellite_immediate_merge
- * @brief   SAGE parity: satellites with Len < MIN_NUM_PART_SAT_HALO (10) get
- *          mergtime = -1.0 (immediate merge), not a finite dynamical-friction
- *          clock. Satellites with Len >= 10 get a finite positive time.
- *          (SAGE model_mergers.c estimate_merging_time: the Len >= 10 condition.)
+ * @test    test_empty_and_null_rows
+ * @brief   Empty FoFs succeed; rows without a galaxy are skipped; a NULL context fails
  */
-static int test_small_satellite_immediate_merge(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal1 = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo satellite1 = create_test_halo(1, 10.0, 0.1, 100.0, 5, 15.0, &sat_gal1);
-  struct GalaxyData sat_gal2 = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo satellite2 = create_test_halo(1, 10.0, 0.1, 100.0, 10, 15.0, &sat_gal2);
-  ctx.central_galaxy = &central;
-
-  struct Halo halos1[2] = {central, satellite1};
-  sage26_initialise_merger_clock_process(&ctx, halos1, 2);
-  float mergtime_below = halos1[1].galaxy->MergTime;
-
-  struct Halo halos2[2] = {central, satellite2};
-  sage26_initialise_merger_clock_process(&ctx, halos2, 2);
-  float mergtime_at = halos2[1].galaxy->MergTime;
-
-  TEST_ASSERT(FLOAT_EQ(mergtime_below, -1.0f, 0.01),
-              "Len<10 satellite should get mergtime=-1 (immediate merge)");
-  TEST_ASSERT(mergtime_at > 0.0f, "Len>=10 satellite should get a finite positive merger time");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_baryonic_mass_included
- * @brief   StellarMass and ColdGas are included in satellite mass
- */
-static int test_baryonic_mass_included(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal1 = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo satellite1 = create_test_halo(1, 10.0, 0.1, 100.0, 100, 15.0, &sat_gal1);
-  struct GalaxyData sat_gal2 = create_test_galaxy(999.9f, 5.0, 5.0);
-  struct Halo satellite2 = create_test_halo(1, 10.0, 0.1, 100.0, 100, 15.0, &sat_gal2);
-  ctx.central_galaxy = &central;
-
-  struct Halo halos1[2] = {central, satellite1};
-  sage26_initialise_merger_clock_process(&ctx, halos1, 2);
-  float mergtime_no_baryons = halos1[1].galaxy->MergTime;
-
-  struct Halo halos2[2] = {central, satellite2};
-  sage26_initialise_merger_clock_process(&ctx, halos2, 2);
-  float mergtime_with_baryons = halos2[1].galaxy->MergTime;
-
-  /* More mass → shorter merger time (mass in denominator) */
-  TEST_ASSERT(mergtime_with_baryons < mergtime_no_baryons,
-              "More massive satellite should merge faster");
-  TEST_ASSERT(FLOAT_EQ(mergtime_no_baryons / mergtime_with_baryons, 2.0, 0.1),
-              "Twice the mass should give half the merger time");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-// ============================================================================
-// EDGE CASE TESTS
-// ============================================================================
-
-/**
- * @test    test_mergtime_cap
- * @brief   MergTime >= 999.0 is capped to 998.0
- */
-static int test_mergtime_cap(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo central = create_test_halo(0, 100.0, 100.0, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 0.001, 0.001, 10.0, 10, 0.002, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(halos[1].galaxy->MergTime <= 998.0f, "MergTime should be capped at 998.0");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_mass_handling
- * @brief   Zero satellite mass returns -1.0
- */
-static int test_zero_mass_handling(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 0.0, 0.1, 100.0, 100, 0.001, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(halos[1].galaxy->MergTime < 0.0f, "Zero mass should give MergTime = -1.0 (invalid)");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_null_galaxy_handling
- * @brief   NULL galaxy pointers are handled safely
- */
-static int test_null_galaxy_handling(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct Halo satellite = create_test_halo(1, 20.0, 0.2, 100.0, 200, 25.0, NULL);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
-
-  TEST_ASSERT(result == 0, "Should handle NULL galaxy gracefully");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_no_central_returns_early
- * @brief   No Type 0 central returns 0 (early exit)
- */
-static int test_no_central_returns_early(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData sat_gal1 = create_test_galaxy(999.9f, 5.0, 2.0);
-  struct Halo satellite1 = create_test_halo(1, 20.0, 0.2, 100.0, 200, 25.0, &sat_gal1);
-  struct GalaxyData sat_gal2 = create_test_galaxy(999.9f, 3.0, 1.0);
-  struct Halo satellite2 = create_test_halo(2, 10.0, 0.1, 80.0, 100, 15.0, &sat_gal2);
-  ctx.central_galaxy = &satellite1;
-  struct Halo halos[2] = {satellite1, satellite2};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 2);
-
-  TEST_ASSERT(result == 0, "Should return 0 when no central found");
-  TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->MergTime, 999.9f, 0.01),
-              "Satellite 1 should remain at sentinel (no central)");
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->MergTime, 999.9f, 0.01),
-              "Satellite 2 should remain at sentinel (no central)");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_multiple_satellites
- * @brief   Multiple satellites are processed independently
- */
-static int test_multiple_satellites(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal = create_test_galaxy(999.9f, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
-  struct GalaxyData sat_gal1 = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo satellite1 = create_test_halo(1, 20.0, 0.2, 100.0, 200, 25.0, &sat_gal1);
-  struct GalaxyData sat_gal2 = create_test_galaxy(999.9f, 0.0, 0.0);
-  struct Halo satellite2 = create_test_halo(1, 5.0, 0.1, 50.0, 50, 8.0, &sat_gal2);
-  ctx.central_galaxy = &central;
-  struct Halo halos[3] = {central, satellite1, satellite2};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 3);
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(halos[1].galaxy->MergTime < 999.0f, "Satellite 1 should have MergTime calculated");
-  TEST_ASSERT(halos[2].galaxy->MergTime < 999.0f, "Satellite 2 should have MergTime calculated");
-  TEST_ASSERT(halos[2].galaxy->MergTime > halos[1].galaxy->MergTime,
-              "Less massive satellite should have longer merger time");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_empty_halos_array
- * @brief   Empty halos array handled gracefully
- */
-static int test_empty_halos_array(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-
-  int result1 = sage26_initialise_merger_clock_process(&ctx, NULL, 0);
-  TEST_ASSERT(result1 == 0, "Should handle NULL halos gracefully");
-
-  struct Halo dummy;
-  int result2 = sage26_initialise_merger_clock_process(&ctx, &dummy, 0);
-  TEST_ASSERT(result2 == 0, "Should handle ngal=0 gracefully");
-
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_type2_non_sentinel_preserved
- * @brief   Type 2 satellites with pre-set MergTime keep existing value
- */
-static int test_type2_non_sentinel_preserved(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData fof_central_gal = create_test_galaxy(999.9f, 50.0, 20.0);
-  struct Halo fof_central = create_test_halo(0, 200.0, 1.0, 300.0, 1000, 0.0, &fof_central_gal);
-  struct GalaxyData subhalo_central_gal = create_test_galaxy(999.9f, 5.0, 2.0);
-  struct Halo subhalo_central =
-      create_test_halo(1, 40.0, 0.2, 100.0, 20, 0.0, &subhalo_central_gal);
-  struct GalaxyData orphan_gal = create_test_galaxy(5.0f, 1.0, 0.5);
-  struct Halo orphan = create_test_halo(2, 5.0, 0.1, 50.0, 0, 10.0, &orphan_gal);
-  orphan.CentralHalo = 1;
-  ctx.central_galaxy = &fof_central;
-  struct Halo halos[3] = {fof_central, subhalo_central, orphan};
-
-  int result = sage26_initialise_merger_clock_process(&ctx, halos, 3);
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(FLOAT_EQ(halos[2].galaxy->MergTime, 5.0f, 0.01),
-              "Type 2 with non-sentinel MergTime should keep prior value");
-  check_memory_leaks();
+static int test_empty_and_null_rows(void) {
+  TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
+  struct ModuleContext ctx = make_context();
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, NULL, 0) == 0, "NULL halos");
+  struct Halo rows[2];
+  struct GalaxyData galaxies[2];
+  make_pair(rows, galaxies, 1, 0, SAGE_MERGTIME_UNSET);
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 0) == 0, "ngal 0");
+  rows[1].galaxy = NULL;
+  TEST_ASSERT(sage26_initialise_merger_clock_process(&ctx, rows, 2) == 0, "a NULL galaxy row");
+  TEST_ASSERT(sage26_initialise_merger_clock_process(NULL, rows, 2) != 0, "a NULL context");
+  finish_clock();
   return TEST_PASS;
 }
 
@@ -551,27 +473,26 @@ static int test_type2_non_sentinel_preserved(void) {
 // ============================================================================
 
 int main(void) {
-  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
-  setup_mock_config();
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: sage26_initialise_merger_clock\n");
+  printf("============================================================\n");
+  printf("%s", NC);
 
-  TEST_RUN(test_type0_central_skipped);
-  TEST_RUN(test_type0_mergtime_reset);
-  TEST_RUN(test_type1_satellite_calculation);
-  TEST_RUN(test_type2_orphan_forces_immediate_merge);
-  TEST_RUN(test_type3_plus_skipped);
-  TEST_RUN(test_already_calculated_skipped);
-  TEST_RUN(test_no_infall_mvir_still_calculated);
-  TEST_RUN(test_dynamical_friction_formula);
-  TEST_RUN(test_coulomb_logarithm);
-  TEST_RUN(test_small_satellite_immediate_merge);
-  TEST_RUN(test_baryonic_mass_included);
-  TEST_RUN(test_mergtime_cap);
-  TEST_RUN(test_zero_mass_handling);
-  TEST_RUN(test_null_galaxy_handling);
-  TEST_RUN(test_no_central_returns_early);
-  TEST_RUN(test_multiple_satellites);
-  TEST_RUN(test_empty_halos_array);
-  TEST_RUN(test_type2_non_sentinel_preserved);
+  initialize_error_handling(LOG_LEVEL_ERROR, NULL);
+
+  TEST_RUN(test_placement);
+  TEST_RUN(test_merger_time_factor);
+  TEST_RUN(test_central_clock_reset);
+  TEST_RUN(test_type0_to_type1);
+  TEST_RUN(test_type1_to_type1);
+  TEST_RUN(test_type0_to_type2);
+  TEST_RUN(test_type1_to_type2);
+  TEST_RUN(test_type2_untouched);
+  TEST_RUN(test_without_recorder);
+  TEST_RUN(test_history_reset);
+  TEST_RUN(test_missing_central);
+  TEST_RUN(test_empty_and_null_rows);
 
   TEST_SUMMARY();
   return TEST_RESULT();

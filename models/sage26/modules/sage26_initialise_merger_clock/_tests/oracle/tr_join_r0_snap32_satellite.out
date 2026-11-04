@@ -1,0 +1,132 @@
+# SAGE26 oracle output for tr_join_r0_snap32_satellite.in, written by oracle_c06 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine join_progenitors
+i32 return.ngal 1
+i32 galaxy[0].Type 1
+i32 galaxy[0].SnapNum 31
+i32 galaxy[0].mergeType 0
+i32 galaxy[0].mergeIntoID -1
+i32 galaxy[0].CentralGal 0
+i32 galaxy[0].Len 26
+f32 galaxy[0].Mvir 0x400f1aa0  # 2.23600006
+f32 galaxy[0].deltaMvir 0xbde4f768  # -0.111800015
+f32 galaxy[0].Rvir 0x3cbbc888  # 0.0229227692
+f32 galaxy[0].Vvir 0x42818a1f  # 64.7697678
+f32 galaxy[0].Vmax 0x42ac0f79  # 86.03022
+f32 galaxy[0].MergTime 0x3bd11b08  # 0.0063813962
+f32 galaxy[0].ColdGas 0x3f8aea4b  # 1.08527505
+f32 galaxy[0].MetalsColdGas 0x3c17e0cc  # 0.00926990435
+f32 galaxy[0].StellarMass 0x3ea167f4  # 0.315246224
+f32 galaxy[0].MetalsStellarMass 0x3aed05a0  # 0.00180833414
+f32 galaxy[0].BulgeMass 0x00000000  # 0
+f32 galaxy[0].MetalsBulgeMass 0x00000000  # 0
+f32 galaxy[0].MergerBulgeMass 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeMass 0x00000000  # 0
+f32 galaxy[0].HotGas 0x00000000  # 0
+f32 galaxy[0].MetalsHotGas 0x00000000  # 0
+f32 galaxy[0].EjectedMass 0x00000000  # 0
+f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[0].BlackHoleMass 0x00000000  # 0
+f32 galaxy[0].QuasarModeBHaccretionMass 0x00000000  # 0
+f32 galaxy[0].ICS 0x00000000  # 0
+f32 galaxy[0].MetalsICS 0x00000000  # 0
+f32 galaxy[0].ICS_disrupt 0x00000000  # 0
+f32 galaxy[0].ICS_accrete 0x00000000  # 0
+f32 galaxy[0].ICS_sum_mt 0x00000000  # 0
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[0].H1gas 0x3f42fae6  # 0.761640906
+f32 galaxy[0].H2gas 0x00000000  # 0
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+f32 galaxy[0].DiskScaleRadius 0x3bb0f5ae  # 0.00540038105
+f32 galaxy[0].BulgeRadius 0x00000000  # 0
+f32 galaxy[0].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeRadius 0x00000000  # 0
+f32 galaxy[0].TimeOfLastMajorMerger 0xbf800000  # -1
+f32 galaxy[0].TimeOfLastMinorMerger 0xbf800000  # -1
+f32 galaxy[0].infallMvir 0x4193582d  # 18.4180546
+f32 galaxy[0].infallVvir 0x431510b7  # 149.065292
+f32 galaxy[0].infallVmax 0x431d2151  # 157.130142
+f32 galaxy[0].infallStellarMass 0x3e0a675a  # 0.13515988
+f32 galaxy[0].TimeOfInfall 0x41e00000  # 28
+f64 galaxy[0].Cooling 0x0000000000000000  # 0
+f64 galaxy[0].Heating 0x0000000000000000  # 0
+i32 galaxy[0].HaloNr 1
+f32 galaxy[0].dT 0xbf800000  # -1
+f32 galaxy[0].SfrDisk[0] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[1] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[2] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[3] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[4] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[5] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[6] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[7] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[8] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[9] 0x00000000  # 0
+i32 intermediate.join.progenitor[0].branch 3
+i32 intermediate.join.progenitor[0].slot 0
+i32 intermediate.join.progenitor[0].retained 1
+i32 intermediate.join.progenitor[0].previousMvir_absent 0
+f64 intermediate.join.progenitor[0].previousMvir 0x4002c84b60000000  # 2.3478000164031982
+i32 intermediate.join.progenitor[0].previousVvir_absent 0
+f64 intermediate.join.progenitor[0].previousVvir 0x40503143e0000000  # 64.769767761230469
+i32 intermediate.join.progenitor[0].previousVmax_absent 0
+f64 intermediate.join.progenitor[0].previousVmax 0x405581ef20000000  # 86.030220031738281
+i32 intermediate.join.progenitor[0].new_Mvir_absent 0
+f64 intermediate.join.progenitor[0].new_Mvir 0x4001e353f7ced916  # 2.2359999999999998
+i32 intermediate.join.progenitor[0].halo_grew_absent 0
+i32 intermediate.join.progenitor[0].halo_grew 0
+i32 intermediate.join.progenitor[0].infall_recorded_absent 0
+i32 intermediate.join.progenitor[0].infall_recorded 0
+i32 intermediate.join.progenitor[0].clock_estimated_absent 0
+i32 intermediate.join.progenitor[0].clock_estimated 0

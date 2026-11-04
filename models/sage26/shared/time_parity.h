@@ -1,10 +1,12 @@
 /**
  * @file time_parity.h
- * @brief Per-object substep timestep and midpoint time helpers for SAGE parity
+ * @brief Per-object substep timestep helper for SAGE parity
  *
- * Provides substep dt and midpoint time calculation with strict boundary handling
- * matching SAGE's initial-snapshot sentinel and multi-substep loop. Used by
- * modules that accumulate rates or apply physics at substep midpoints.
+ * Provides the substep dt with strict boundary handling matching SAGE's
+ * initial-snapshot sentinel and multi-substep loop. Used by modules that
+ * accumulate rates or apply physics per substep. The merger pass forms SAGE26's
+ * fused event time itself (sage26_resolve_mergers_and_disruption,
+ * R/src/core_build_model.c:549).
  */
 
 #ifndef MIMIC_SHARED_TIME_PARITY_H
@@ -69,41 +71,6 @@ mimic_object_substep_dt(const struct Halo *halo, const struct ModuleContext *ctx
   }
 
   return MIMIC_OBJECT_TIME_INVALID;
-}
-
-/**
- * @brief Derive SAGE-equivalent substep midpoint time
- *
- * Computes: Age[obj] - (substep + 0.5) * (dT_obj / num_substeps),
- * where Age[obj] = ctx->time + halo->dT.
- *
- * @param halo      Halo with dT and SnapNum fields
- * @param ctx       Module context with substep_number, num_substeps, and time
- * @param time_out  Output: midpoint time (0.0 on non-OK status); must not be NULL
- * @return Status indicating OK, SKIP_INITIAL, or INVALID
- */
-static inline enum MimicObjectTimeStatus mimic_object_substep_time(const struct Halo *halo,
-                                                                   const struct ModuleContext *ctx,
-                                                                   double *time_out) {
-  double dt = 0.0;
-  enum MimicObjectTimeStatus dt_status;
-
-  if (time_out != NULL) {
-    *time_out = 0.0;
-  }
-
-  if (ctx == NULL || time_out == NULL || ctx->substep_number < 0 ||
-      ctx->substep_number >= ctx->num_substeps) {
-    return MIMIC_OBJECT_TIME_INVALID;
-  }
-
-  dt_status = mimic_object_substep_dt(halo, ctx, &dt);
-  if (dt_status != MIMIC_OBJECT_TIME_OK) {
-    return dt_status;
-  }
-
-  *time_out = (ctx->time + (double)halo->dT) - ((double)ctx->substep_number + 0.5) * dt;
-  return MIMIC_OBJECT_TIME_OK;
 }
 
 #endif /* MIMIC_SHARED_TIME_PARITY_H */

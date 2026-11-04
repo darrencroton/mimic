@@ -26,6 +26,9 @@
  * - oracle_c05_*(): the c05 group's (star formation, feedback, instability,
  *   histories and outflow) galaxy fields, R0 flags and carried values (oracle
  *   README "The c05 Group").
+ * - oracle_c06_*(): the c06 group's merger-family galaxy block, R0 flags, carried
+ *   values and branch flags, for the black-hole, wind and burst tests (oracle README
+ *   "The c06 Group").
  *
  * Fixtures are found through MIMIC_COMPILED_MODEL_PATH, which is repository
  * relative; the unit runner runs from the repository root. Include this header
@@ -36,6 +39,7 @@
 #define SAGE26_ORACLE_FIXTURE_H
 
 #include <inttypes.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1161,6 +1165,289 @@ static inline int oracle_c05_check_writer(struct oracle_fixture *out, const char
     mismatches += oracle_check_f32(out, field, floats[k].value);
   }
   return mismatches;
+}
+
+// ============================================================================
+// THE C06 GROUP: BLACK HOLES, WINDS AND BURSTS
+// ============================================================================
+
+/**
+ * @brief The package's float galaxy member for a c06 SAGE26 name, or NULL
+ *
+ * Extends oracle_c05_galaxy_float() with the members the c06 merger-family block adds
+ * (oracle README "The c06 Group", "Format Additions"): the merger channel, the three
+ * bulge radii, the two merger timestamps and the merger clock. The names are the
+ * package's.
+ */
+static inline float *oracle_c06_galaxy_float(struct GalaxyData *galaxy, const char *sage26_name) {
+  struct member {
+    const char *sage26;
+    float *address;
+  };
+  const struct member table[] = {
+      {"MergerBulgeMass", &galaxy->MergerBulgeMass},
+      {"BulgeRadius", &galaxy->BulgeRadius},
+      {"MergerBulgeRadius", &galaxy->MergerBulgeRadius},
+      {"InstabilityBulgeRadius", &galaxy->InstabilityBulgeRadius},
+      {"TimeOfLastMajorMerger", &galaxy->TimeOfLastMajorMerger},
+      {"TimeOfLastMinorMerger", &galaxy->TimeOfLastMinorMerger},
+      {"MergTime", &galaxy->MergTime},
+  };
+  for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
+    if (strcmp(table[i].sage26, sage26_name) == 0) {
+      return table[i].address;
+    }
+  }
+  return oracle_c05_galaxy_float(galaxy, sage26_name);
+}
+
+/**
+ * @brief The thirty float reservoirs, channels, radii and timestamps of the c06 galaxy block
+ *
+ * Every merger-family fixture sets them for every galaxy, and every recorded galaxy
+ * block holds them (oracle README "Format Additions", SAGE26 names).
+ */
+static inline const char *const *oracle_c06_block_names(size_t *count) {
+  static const char *const names[] = {"ColdGas",
+                                      "MetalsColdGas",
+                                      "StellarMass",
+                                      "MetalsStellarMass",
+                                      "BulgeMass",
+                                      "MetalsBulgeMass",
+                                      "MergerBulgeMass",
+                                      "InstabilityBulgeMass",
+                                      "HotGas",
+                                      "MetalsHotGas",
+                                      "EjectedMass",
+                                      "MetalsEjectedMass",
+                                      "BlackHoleMass",
+                                      "QuasarModeBHaccretionMass",
+                                      "ICS",
+                                      "MetalsICS",
+                                      "ICS_disrupt",
+                                      "ICS_accrete",
+                                      "ICS_sum_mt",
+                                      "CGMgas",
+                                      "MetalsCGMgas",
+                                      "H1gas",
+                                      "H2gas",
+                                      "OutflowRate",
+                                      "DiskScaleRadius",
+                                      "BulgeRadius",
+                                      "MergerBulgeRadius",
+                                      "InstabilityBulgeRadius",
+                                      "TimeOfLastMajorMerger",
+                                      "TimeOfLastMinorMerger"};
+  *count = sizeof(names) / sizeof(names[0]);
+  return names;
+}
+
+/**
+ * @brief Build one merger-family galaxy and its halo from "galaxy[index].*"
+ *
+ * Poisons both structs (as the oracle poisons its state) and then sets, from the
+ * fixture: the halo's Type, SnapNum, Len, Mvir, deltaMvir, Rvir, Vvir and Vmax (SAGE26's
+ * float members, given to the package's double halo fields exactly widened), the
+ * galaxy's MergTime, the thirty block floats and the sixty history elements. SAGE26's
+ * driver bookkeeping mergeType, mergeIntoID and CentralGal has no package galaxy member
+ * and is read by no black-hole, wind or burst routine: it is consumed unapplied.
+ *
+ * @return Number of problems (names with no package member)
+ */
+static inline int oracle_c06_in_galaxy(struct oracle_fixture *in, const int index,
+                                       struct Halo *halo, struct GalaxyData *galaxy) {
+  int problems = 0;
+  oracle_poison(halo, sizeof(*halo));
+  oracle_poison(galaxy, sizeof(*galaxy));
+  halo->galaxy = galaxy;
+  halo->HaloNr = index;
+  halo->Type = oracle_in_i32(in, oracle_galaxy_field(index, "Type"));
+  halo->SnapNum = oracle_in_i32(in, oracle_galaxy_field(index, "SnapNum"));
+  halo->Len = oracle_in_i32(in, oracle_galaxy_field(index, "Len"));
+  halo->Mvir = oracle_in_f32(in, oracle_galaxy_field(index, "Mvir"));
+  halo->deltaMvir = oracle_in_f32(in, oracle_galaxy_field(index, "deltaMvir"));
+  halo->Rvir = oracle_in_f32(in, oracle_galaxy_field(index, "Rvir"));
+  halo->Vvir = oracle_in_f32(in, oracle_galaxy_field(index, "Vvir"));
+  halo->Vmax = oracle_in_f32(in, oracle_galaxy_field(index, "Vmax"));
+  (void)oracle_in_i32(in, oracle_galaxy_field(index, "mergeType"));
+  (void)oracle_in_i32(in, oracle_galaxy_field(index, "mergeIntoID"));
+  (void)oracle_in_i32(in, oracle_galaxy_field(index, "CentralGal"));
+
+  const char *const clock[] = {"MergTime"};
+  size_t count;
+  const char *const *block = oracle_c06_block_names(&count);
+  for (int pass = 0; pass < 2; pass++) {
+    const char *const *names = pass == 0 ? clock : block;
+    const size_t n = pass == 0 ? 1 : count;
+    for (size_t k = 0; k < n; k++) {
+      float *member = oracle_c06_galaxy_float(galaxy, names[k]);
+      if (member == NULL) {
+        fprintf(stderr, "oracle: %s: no package member for '%s'\n", in->path, names[k]);
+        problems++;
+        continue;
+      }
+      *member = oracle_in_f32(in, oracle_galaxy_field(index, names[k]));
+    }
+  }
+  problems += oracle_c05_in_histories(in, index, galaxy);
+  return problems;
+}
+
+/**
+ * @brief Compare a galaxy's thirty block floats (and, if asked, its histories) with the oracle
+ * @return Number of mismatches
+ */
+static inline int oracle_c06_check_galaxy(struct oracle_fixture *out, const char *prefix,
+                                          const int index, struct GalaxyData *galaxy,
+                                          const int with_histories) {
+  int mismatches = 0;
+  size_t count;
+  const char *const *names = oracle_c06_block_names(&count);
+  for (size_t k = 0; k < count; k++) {
+    float *member = oracle_c06_galaxy_float(galaxy, names[k]);
+    if (member == NULL) {
+      fprintf(stderr, "oracle: %s: no package member for '%s'\n", out->path, names[k]);
+      mismatches++;
+      continue;
+    }
+    mismatches +=
+        oracle_check_f32(out, oracle_prefixed_galaxy_field(prefix, index, names[k]), *member);
+  }
+  if (with_histories) {
+    mismatches += oracle_c05_check_histories(out, prefix, index, galaxy);
+  }
+  return mismatches;
+}
+
+/**
+ * @brief Require every galaxy member outside the c06 block and histories to be unchanged
+ *
+ * Copies the block floats and the histories from `after` into a copy of `before` and
+ * compares the whole struct, so a write to any other member (a diagnostic, a transport
+ * property) is reported.
+ *
+ * @return 1 if another member changed, else 0
+ */
+static inline int oracle_c06_check_rest_unchanged(const char *path, const int index,
+                                                  const struct GalaxyData *before,
+                                                  struct GalaxyData *after) {
+  struct GalaxyData expected = *before;
+  size_t count;
+  const char *const *names = oracle_c06_block_names(&count);
+  for (size_t k = 0; k < count; k++) {
+    *oracle_c06_galaxy_float(&expected, names[k]) = *oracle_c06_galaxy_float(after, names[k]);
+  }
+  for (size_t h = 0; h < (size_t)MIMIC_SFR_HISTORY_COUNT; h++) {
+    for (int k = 0; k < ORACLE_C05_STEPS; k++) {
+      *oracle_c05_history_element(&expected, h, k) = *oracle_c05_history_element(after, h, k);
+    }
+  }
+  if (memcmp(&expected, after, sizeof(expected)) != 0) {
+    fprintf(stderr, "oracle: %s: galaxy[%d] changed a member outside the c06 block\n", path, index);
+    return 1;
+  }
+  return 0;
+}
+
+/** @brief Counters of the c06 carried-value assertions a test made, for its report */
+struct oracle_c06_carried_tally {
+  int asserted;      /**< validated two-sided and compared bit for bit */
+  int binding;       /**< a binding clamp or floor: compared with the value it was set to */
+  int not_validated; /**< present, checked, not validated two-sided: recorded, not asserted */
+  int absent;        /**< the path leaves it undefined (and the port agrees) */
+};
+
+/**
+ * @brief Read one c06 carried value's record and assert it where the oracle allows
+ *
+ * Reads "intermediate.<name>_absent" and requires the port's value to be NaN exactly when
+ * the oracle marks it absent. When present, reads _checked (must be 1), _check_kind (must
+ * be `kind`: 1 continuation, 2 tail), _validated_up, _validated_down and _validated (must
+ * be their conjunction), and compares the value bit for bit when it is validated
+ * two-sided or when `binds` is set (a clamp or floor bound it, so the recorded value is
+ * the reservoir or zero it was set to); otherwise it is consumed unasserted.
+ *
+ * @return Number of mismatches and marker errors
+ */
+static inline int oracle_c06_check_carried(struct oracle_fixture *out, const char *name,
+                                           const int kind, const double actual, const int binds,
+                                           struct oracle_c06_carried_tally *tally) {
+  char field[ORACLE_MAX_NAME];
+  snprintf(field, sizeof(field), "intermediate.%s_absent", name);
+  const int absent = oracle_in_i32(out, field);
+  if (absent != (isnan(actual) ? 1 : 0)) {
+    fprintf(stderr, "oracle: %s: %s is %s in the oracle but %s in the port\n", out->path, name,
+            absent ? "absent" : "present", isnan(actual) ? "absent" : "present");
+    return 1;
+  }
+  if (absent) {
+    tally->absent++;
+    return 0;
+  }
+  int problems = 0;
+  snprintf(field, sizeof(field), "intermediate.%s_checked", name);
+  if (oracle_in_i32(out, field) != 1) {
+    fprintf(stderr, "oracle: %s: %s is not marked checked\n", out->path, name);
+    problems++;
+  }
+  snprintf(field, sizeof(field), "intermediate.%s_check_kind", name);
+  if (oracle_in_i32(out, field) != kind) {
+    fprintf(stderr, "oracle: %s: %s is not of check kind %d\n", out->path, name, kind);
+    problems++;
+  }
+  snprintf(field, sizeof(field), "intermediate.%s_validated_up", name);
+  const int up = oracle_in_i32(out, field);
+  snprintf(field, sizeof(field), "intermediate.%s_validated_down", name);
+  const int down = oracle_in_i32(out, field);
+  snprintf(field, sizeof(field), "intermediate.%s_validated", name);
+  const int validated = oracle_in_i32(out, field);
+  if (validated != (up && down)) {
+    fprintf(stderr, "oracle: %s: %s_validated disagrees with its two directions\n", out->path,
+            name);
+    problems++;
+  }
+  snprintf(field, sizeof(field), "intermediate.%s", name);
+  if (validated) {
+    problems += oracle_check_f64(out, field, actual);
+    tally->asserted++;
+  } else if (binds) {
+    problems += oracle_check_f64(out, field, actual);
+    tally->binding++;
+  } else {
+    oracle_exclude(out, field);
+    tally->not_validated++;
+  }
+  return problems;
+}
+
+/**
+ * @brief Compare one c06 branch flag (i32, -1 where the path does not evaluate it)
+ * @return 1 on a mismatch
+ */
+static inline int oracle_c06_check_flag(struct oracle_fixture *out, const char *flag,
+                                        const int actual) {
+  char field[ORACLE_MAX_NAME];
+  snprintf(field, sizeof(field), "intermediate.%s", flag);
+  return oracle_check_i32(out, field, actual);
+}
+
+/**
+ * @brief Require the R0 flags every c06 merger-family fixture carries (oracle README
+ *        "The c06 Group", "Flags and Parameters")
+ * @return Number of flags that differ from R0's values
+ */
+static inline int oracle_c06_require_r0_flags(struct oracle_fixture *in) {
+  int problems = 0;
+  problems += oracle_c05_require_flag(in, "params.SFprescription", 0);
+  problems += oracle_c05_require_flag(in, "params.SupernovaRecipeOn", 1);
+  problems += oracle_c05_require_flag(in, "params.CGMrecipeOn", 0);
+  problems += oracle_c05_require_flag(in, "params.FIREmodeOn", 0);
+  problems += oracle_c05_require_flag(in, "params.BulgeSizeOn", 0);
+  problems += oracle_c05_require_flag(in, "params.SaveFullSFH", 0);
+  problems += oracle_c05_require_flag(in, "params.AGNrecipeOn", 2);
+  problems += oracle_c05_require_flag(in, "params.StarburstColdGasOn", 1);
+  problems += oracle_c05_require_flag(in, "params.DiskInstabilityOn", 1);
+  return problems;
 }
 
 #endif /* SAGE26_ORACLE_FIXTURE_H */

@@ -12,7 +12,8 @@
 # every other fixture runs through oracle_c03, except that a fixture whose
 # routine line names a c05 routine (C05_ROUTINES below) runs through oracle_c05,
 # whichever module owns it (sage26_finalize_cooling_heating holds both c04 and
-# c05 fixtures).
+# c05 fixtures), and a fixture whose routine line names a c06 routine
+# (C06_ROUTINES below) runs through oracle_c06.
 #
 # Environment: as build.sh (SAGE26_SRC, ORACLE_OUT, ORACLE_ALLOW_ANY_TOOLCHAIN).
 # See README.md in this directory.
@@ -81,6 +82,12 @@ ORACLE_C05=$ORACLE_OUT/oracle_c05
 C05_ROUTINES="starformation_and_feedback starformation_and_feedback_sequence
 update_from_star_formation update_from_feedback check_disk_instability step_bin_map
 sfr_history_average normalise_outflow_rate"
+# The c06 group (merger clocks, mergers, black holes, bursts, disruption and the
+# driver transcriptions) has its own oracle main and is selected by routine.
+ORACLE_C06=$ORACLE_OUT/oracle_c06
+C06_ROUTINES="estimate_merging_time grow_black_hole quasar_mode_wind
+collisional_starburst_recipe add_galaxies_together make_bulge_from_burst
+deal_with_galaxy_merger disrupt_satellite_to_ICS merger_pass join_progenitors join_and_pass"
 
 # Each oracle run writes to a fresh temporary file under ORACLE_OUT, which
 # replaces the committed output only if the oracle exited 0 AND the file is a
@@ -114,6 +121,11 @@ for input in $listed; do
   for name in $C05_ROUTINES; do
     if [ "$routine" = "$name" ]; then
       oracle=$ORACLE_C05
+    fi
+  done
+  for name in $C06_ROUTINES; do
+    if [ "$routine" = "$name" ]; then
+      oracle=$ORACLE_C06
     fi
   done
   tmp=$TMP_OUT/output

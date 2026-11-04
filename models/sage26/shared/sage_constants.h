@@ -13,16 +13,20 @@
 /*
  * MergTime sentinel protocol (galaxy property MergTime, init 999.9 in
  * models/sage26/model_properties.yaml):
- * - SAGE_MERGTIME_UNSET (999.9): no merger clock assigned yet; written at
- *   property init and when a satellite is promoted back to a Type 0 central.
- * - Values above SAGE_MERGTIME_UNSET_THRESHOLD (999.0) mean "unset";
- *   sage26_initialise_merger_clock assigns a clock only in this state, and
+ * - SAGE_MERGTIME_UNSET (999.9f): no merger clock assigned; SAGE26's creation
+ *   value (R/src/model_misc.c:174), written for every FoF central at progenitor
+ *   joining (R/src/core_build_model.c:288) by sage26_initialise_merger_clock.
+ * - Values above SAGE_MERGTIME_UNSET_THRESHOLD (999.0) mean "unset": joining
+ *   estimates a clock for a Type 1 in this state and starts a new orphan's
+ *   clock at 0 (R/src/core_build_model.c:315, :327), and
  *   sage26_resolve_mergers_and_disruption treats it as a wiring error.
- * - Computed dynamical-friction times at or above the threshold are capped
- *   to SAGE_MERGTIME_CEILING (998.0) so they remain distinguishable from
- *   the unset state.
- * - SAGE_MERGTIME_IMMEDIATE (-1.0): forced immediate merger (satellite below
- *   the SAGE particle-count floor, or an unresolved Type 2 orphan).
+ * - estimate_merging_time caps computed dynamical-friction times at or above
+ *   999 to SAGE_MERGTIME_CEILING (998.0, R/src/model_mergers.c:112-117) so they
+ *   stay below the unset threshold.
+ * - SAGE_MERGTIME_IMMEDIATE (-1.0): estimate_merging_time's result for a
+ *   same-halo call or a failed mass, Coulomb-logarithm or particle-count guard
+ *   (R/src/model_mergers.c:97, :109); the satellite merges at its first eligible
+ *   substep.
  */
 #define SAGE_MERGTIME_UNSET 999.9f
 #define SAGE_MERGTIME_UNSET_THRESHOLD 999.0
