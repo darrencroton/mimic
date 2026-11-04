@@ -52,6 +52,9 @@
  *     bin with the satellite's substep dt carried in the event (value1)
  *   - test_post_merger_recheck_samples_with_event_dt: the post-merger instability burst
  *     samples the same bin with the same dt
+ *   - test_consecutive_bursts_bulge_excess_grows: three consecutive instability bursts
+ *     leave BulgeMass two floats above StellarMass, bit for bit as SAGE26's own routine
+ *     does; pins the limit of the integration tests' bulge bound
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -68,7 +71,9 @@
 #include "util/memory.h"
 #include "module_system/generated/event_contracts.h"
 #include "shared/sage_sfr_history.h"
+#include "shared/sage_starburst_physics.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2214,6 +2219,91 @@ int test_post_merger_recheck_samples_with_event_dt(void) {
 // ============================================================================
 
 /**
+ * @test    test_consecutive_bursts_bulge_excess_grows
+ * @brief   Consecutive bursts can leave BulgeMass more than one float above StellarMass
+ *
+ * A burst adds the rounded double recycled_stars to BulgeMass
+ * (R/src/model_mergers.c:770-772) while update_from_star_formation adds the same product
+ * to StellarMass as one fused multiply-add (R/src/model_starformation_and_feedback.c:1125),
+ * so each burst can move BulgeMass - StellarMass by one float, and the excess can
+ * accumulate over consecutive bursts. A reviewer reproduced it with SAGE26's own
+ * collisional_starburst_recipe under R0's parameters: ColdGas 1, StellarMass = BulgeMass =
+ * 0x3f800001, three mode-1 bursts, each fed the previous output. The shared burst
+ * transaction must give the same bits: StellarMass/BulgeMass 0x3f800001/0x3f800002, then
+ * 0x3f800002/0x3f800003, then 0x3f800002/0x3f800004, a two-float excess. Those bits depend
+ * only on ColdGas, the ratios, FeedbackReheatingEpsilon and RecycleFraction (the ejection,
+ * the hot gas and the metals do not feed the host's ColdGas, StellarMass or BulgeMass).
+ *
+ * The integration tests' bulge bound (test_integration_sage26_starburst_feedback.py,
+ * bulge_upper_bound) therefore grows with the number of bursts; this case pins why a
+ * one-float bound is not SAGE26's.
+ */
+int test_consecutive_bursts_bulge_excess_grows(void) {
+  struct GalaxyData gal;
+  struct Halo halo;
+  memset(&gal, 0, sizeof(gal));
+  memset(&halo, 0, sizeof(halo));
+  halo.galaxy = &gal;
+  halo.Type = 0;
+  halo.Mvir = 100.0;
+  halo.Vvir = 200.0;
+  halo.Vmax = 200.0;
+
+  uint32_t bits;
+  bits = 0x3f800001u;
+  memcpy(&gal.StellarMass, &bits, sizeof(bits));
+  memcpy(&gal.BulgeMass, &bits, sizeof(bits));
+  gal.ColdGas = 1.0f;
+  gal.HotGas = 10.0f;
+
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.params = &MimicConfig;
+  MimicConfig.G = 43.00707785642063;
+  MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
+
+  /* R0's parameters at the oracle fixtures' bit patterns (R0.par:69-83) */
+  const struct MimicStarburstParams params = {
+      .feedback_reheating_epsilon = 0x1.7333333333333p+1,   /* 2.9 */
+      .feedback_ejection_efficiency = 0x1.3333333333333p-2, /* 0.3 */
+      .recycle_fraction = 0x1.b851eb851eb85p-2,             /* 0.43 */
+      .yield = 0x1.999999999999ap-6,                        /* 0.025 */
+      .frac_z_leave_disk = 0.0,
+      .threshold_major_merger = 0x1.3333333333333p-2, /* 0.3 */
+      .energy_sn_code = 0x1.e10f01e10f01dp-9,
+      .eta_sn_code = 0x1.0547d7abd5eafp+26,
+      .disk_instability_on = 1,
+      .star_forming_disk_factor = 3.0,
+      .agn_recipe_on = 1,
+      .black_hole_growth_rate = 0x1.eb851eb851eb8p-7, /* 0.015 */
+      .quasar_mode_efficiency = 0x1.47ae147ae147bp-8, /* 0.005 */
+  };
+
+  const double ratios[3] = {0x1.c11f7039d3166p-24, 0x1.c11f7ace98f2cp-23, 0x1.c11f8fdc142f7p-24};
+  const uint32_t expected_stellar[3] = {0x3f800001u, 0x3f800002u, 0x3f800002u};
+  const uint32_t expected_bulge[3] = {0x3f800002u, 0x3f800003u, 0x3f800004u};
+
+  for (int k = 0; k < 3; k++) {
+    mimic_apply_collisional_starburst(ratios[k], &halo, &halo, 1, 0, 0.0, 0, 0.01, &ctx, &params,
+                                      NULL);
+    uint32_t stellar_bits;
+    uint32_t bulge_bits;
+    memcpy(&stellar_bits, &gal.StellarMass, sizeof(stellar_bits));
+    memcpy(&bulge_bits, &gal.BulgeMass, sizeof(bulge_bits));
+    printf("\n  burst %d: StellarMass 0x%08x BulgeMass 0x%08x", k + 1, (unsigned)stellar_bits,
+           (unsigned)bulge_bits);
+    TEST_ASSERT(stellar_bits == expected_stellar[k],
+                "StellarMass must match SAGE26's own routine bit for bit");
+    TEST_ASSERT(bulge_bits == expected_bulge[k],
+                "BulgeMass must match SAGE26's own routine bit for bit");
+  }
+  TEST_ASSERT(gal.BulgeMass > nextafterf(gal.StellarMass, INFINITY),
+              "three bursts leave BulgeMass two floats above StellarMass");
+  printf(" ");
+  return TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  *
  * Executes all sage26_starburst_feedback unit tests and reports results.
@@ -2270,6 +2360,7 @@ int main(void) {
   TEST_RUN(test_instability_burst_samples_bulge_history);
   TEST_RUN(test_merger_burst_samples_with_event_dt);
   TEST_RUN(test_post_merger_recheck_samples_with_event_dt);
+  TEST_RUN(test_consecutive_bursts_bulge_excess_grows);
 
   /* Print summary and return result */
   TEST_SUMMARY();

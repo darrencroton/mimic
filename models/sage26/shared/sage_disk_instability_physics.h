@@ -158,8 +158,10 @@ static inline double mimic_sage_check_disk_instability(struct Halo *halo,
 /**
  * @brief Apply SAGE26's disk-instability stellar transfer and return the unstable gas fraction
  *
- * mimic_sage_check_disk_instability() without its locals; the entry point both
- * callers use.
+ * mimic_sage_check_disk_instability() without its locals; the entry point
+ * sage26_disk_instability uses. The burst transaction's post-minor-merger recheck
+ * (sage_starburst_physics.h) calls mimic_sage_check_disk_instability() directly, for its
+ * locals' record of whether SAGE26's gas branch is taken.
  *
  * @param halo                     Halo holding the galaxy
  * @param ctx                      Module context with the gravitational constant G
