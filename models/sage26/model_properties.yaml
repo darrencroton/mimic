@@ -423,27 +423,27 @@ galaxy_properties:
 
   - name: TimeOfLastMajorMerger
     type: float
-    units: Gyr/h
-    description: Cosmic time of last major merger (mass ratio > threshold)
+    units: Myr
+    description: Lookback time of the galaxy's last major merger (mass ratio strictly above ThresholdMajorMerger), as SAGE26 writes it; -1 times the unit factor if it never had one
+    notes: SAGE26's float member TimeOfLastMajorMerger (src/core_allvars.h:192), a lookback time in code units. Created as -1 (src/model_misc.c:179). sage26_resolve_mergers_and_disruption sets it to the merger's event time on a major merger only, a ratio strictly above ThresholdMajorMerger (src/model_mergers.c:299, :310). SAGE26's writer multiplies the member by UnitTime_in_Megayears, the creation value -1 included (src/io/save_gals_hdf5.c:992), so a galaxy that never had a major merger is written as -1 times that factor, float(-978028.53) = -978028.5 for Millennium units, which is why -1 is the init_value and not a sentinel (a sentinel would skip the conversion). The unit is SAGE26's HDF5 label (src/io/save_gals_hdf5_fields.h:180-182); the code time unit, (Mpc/h) / (km/s), carries the 1/h of core dT's Myr/h.
     output: true
     init_source: default
-    init_value: 0.0
+    init_value: -1.0
     output_source: galaxy_property
-    output_convert: MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR / 1000.0
-    range: [0.0, 14.0]  # Age of universe
-    sentinels: [0.0]  # Zero if no major merger occurred
+    output_convert: MimicConfig.UnitTime_in_Megayears
+    range: [-978029.0, 14000.0]  # never merged (-1 x 978028.53 Myr) to a lookback beyond the age of the universe
 
   - name: TimeOfLastMinorMerger
     type: float
-    units: Gyr/h
-    description: Cosmic time of last minor merger (mass ratio > 0.1)
+    units: Myr
+    description: Lookback time of the galaxy's last minor merger (every merger not above ThresholdMajorMerger), as SAGE26 writes it; -1 times the unit factor if it never had one
+    notes: SAGE26's float member TimeOfLastMinorMerger (src/core_allvars.h:193), a lookback time in code units. Created as -1 (src/model_misc.c:180). sage26_resolve_mergers_and_disruption sets it to the merger's event time on every merger that is not major, a ratio of 0, a ratio at or below 0.1 and a ratio equal to ThresholdMajorMerger included (src/model_mergers.c:299, :312-316). SAGE26's writer multiplies the member by UnitTime_in_Megayears, the creation value -1 included (src/io/save_gals_hdf5.c:993), so a galaxy that never had a minor merger is written as -1 times that factor, float(-978028.53) = -978028.5 for Millennium units, which is why -1 is the init_value and not a sentinel (a sentinel would skip the conversion). The unit is SAGE26's HDF5 label (src/io/save_gals_hdf5_fields.h:183-185); the code time unit, (Mpc/h) / (km/s), carries the 1/h of core dT's Myr/h.
     output: true
     init_source: default
-    init_value: 0.0
+    init_value: -1.0
     output_source: galaxy_property
-    output_convert: MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR / 1000.0
-    range: [0.0, 14.0]  # Age of universe
-    sentinels: [0.0]  # Zero if no minor merger occurred
+    output_convert: MimicConfig.UnitTime_in_Megayears
+    range: [-978029.0, 14000.0]  # never merged (-1 x 978028.53 Myr) to a lookback beyond the age of the universe
 
   # =============================================================================
   # DISK INSTABILITY & MERGER TRIGGERS
@@ -460,6 +460,17 @@ galaxy_properties:
     init_repeat: true  # Reset each snapshot
     range: [0.0, 1.0]
     sentinels: [0.0]
+
+  - name: MergerDiskDominated
+    type: int
+    units: dimensionless
+    description: The merger target's morphology before the satellite was added, 1 if disk-dominated (its float disk mass above half its StellarMass), else 0
+    notes: Transport field of the merger event. SAGE26 reads the flag is_disk_dominated before add_galaxies_together (src/model_mergers.c:253-254) and passes the burst the channel it selects (:266-282). The merger event's payload holds only the ratio and the satellite's dt, so sage26_resolve_mergers_and_disruption writes the flag on the target immediately before each merger event, and sage26_starburst_feedback's merger consumer, which receives the target, reads it to select the burst's bulge channel. Each merger rewrites it before its event, so a stale value is never read; reset at each snapshot's inheritance (init_repeat)
+    output: false
+    init_source: default
+    init_value: 0
+    init_repeat: true  # Reset each snapshot; rewritten before every merger event
+    range: [0, 1]
 
   # =============================================================================
   # SAGE26 OUTPUT CONTRACT

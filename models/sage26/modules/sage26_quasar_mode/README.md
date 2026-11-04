@@ -36,7 +36,7 @@ The arithmetic lives in `shared/sage_agn_physics.h` (`mimic_apply_black_hole_gro
 
 ## Events
 
-Consumes `merger` events from `sage26_resolve_mergers_and_disruption`. A merger event with a non-positive ratio is still skipped here, where SAGE26 grows the black hole with that ratio; the merger transaction's port removes that return.
+Consumes `merger` events from `sage26_resolve_mergers_and_disruption` and grows the target's black hole for every merger, a ratio of 0 included, as SAGE26 does (`src/model_mergers.c:262-264`). In the merger phase it must precede `sage26_starburst_feedback`'s merger consumer, which the resolver enforces at init.
 
 ## Tests
 

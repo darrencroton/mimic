@@ -1,13 +1,32 @@
 /**
  * @file    sage26_resolve_mergers_and_disruption.c
- * @brief   SAGE single-pass merger/disruption ordering parity handler
+ * @brief   SAGE26's per-substep merger and disruption pass and its merger transaction
  *
- * Reproduces SAGE's immediate in-loop merger handling:
- *   - decrement MergTime inside one satellite pass
- *   - decide disruption vs merger from live substep state
- *   - resolve the current execution target with one-hop redirect
- *   - mutate target state immediately before advancing to the next satellite
- *   - emit per-merger events immediately for downstream consumers
+ * The pass (still the package's, until SAGE26's R/src/core_build_model.c:519-587 is
+ * ported): decrement MergTime inside one satellite pass, decide disruption vs merger
+ * from live substep state, resolve the current target with a one-hop redirect, and
+ * mutate the target immediately before advancing to the next satellite.
+ *
+ * The merger transaction reproduces SAGE26's deal_with_galaxy_merger on the R0 path
+ * (R/src/model_mergers.c:228-333, M below), in its statement order:
+ *
+ *   1. the mass ratio from the float StellarMass + ColdGas sums (M:235-249);
+ *   2. the target's pre-transfer morphology flag (M:253-254), carried with the event;
+ *   3. add_galaxies_together (M:259, :456-543);
+ *   4. the merger event, whose consumers run immediately in the phase's YAML order:
+ *      sage26_quasar_mode's grow_black_hole (M:262-264), then sage26_starburst_feedback's
+ *      burst into the channel the carried flag selects (M:266-287), with the satellite's
+ *      substep dt in the event for the burst's history bin;
+ *   5. get_bulge_radius (M:293), which zeroes the bulge radii on R0 (BulgeSizeOn 0), so
+ *      the remnant radius SAGE26 computes next (M:297) never reaches the state and is
+ *      not formed here;
+ *   6. for a ratio strictly above ThresholdMajorMerger, make_bulge_from_burst (M:302)
+ *      and TimeOfLastMajorMerger; otherwise TimeOfLastMinorMerger, on every other merger
+ *      (M:299-331); each branch ends with get_bulge_radius again;
+ *   7. the satellite leaves the pass as Type 3 (SAGE26's mergeType 1 or 2, M:311, :315).
+ *
+ * A ratio of 0 (both baryon sums zero) is not suppressed: the transaction, the event and
+ * its consumers run as in SAGE26.
  */
 
 #include <math.h>
@@ -78,12 +97,15 @@ static int validate_immediate_target(struct Halo *halos, int ngal, int source_id
   return 0;
 }
 
-static int emit_merger_event(struct ModuleContext *ctx, int source_idx, int target_idx,
-                             double mass_ratio, double source_dt) {
-  if (mass_ratio <= 0.0) {
-    return 0;
-  }
-
+/**
+ * @brief The production event sink: emit the merger event to the phase's consumers
+ *
+ * module_emit_event() dispatches it immediately to every subscribed process_per_event
+ * consumer of the phase, in YAML order, before it returns.
+ */
+static int emit_merger_event(struct ModuleContext *ctx, struct Halo *halos, int source_idx,
+                             int target_idx, double mass_ratio, double source_dt) {
+  (void)halos;
   if (module_emit_event(ctx, SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER, source_idx,
                         target_idx, mass_ratio, source_dt) != 0) {
     ERROR_LOG("Failed to emit immediate merger event (source=%d, target=%d, ratio=%.6f)",
@@ -98,6 +120,65 @@ static void apply_disruption(struct Halo *source_halo, struct GalaxyData *target
   mimic_sage_disruption_transfer(target, source_halo->galaxy);
   source_halo->Type = 3;
   record_action("disrupt", source_idx, target_idx, 0.0);
+}
+
+int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struct Halo *halos,
+                                                int ngal, int satellite_idx, int target_idx,
+                                                double event_time, double source_dt,
+                                                MimicSageMergerEmitFn emit,
+                                                struct MimicSageMergerLocals *merger_locals,
+                                                struct MimicSageAddLocals *add_locals) {
+  mimic_sage_merger_locals_reset(merger_locals);
+  mimic_sage_add_locals_reset(add_locals);
+  if (ctx == NULL || halos == NULL || emit == NULL || satellite_idx < 0 || satellite_idx >= ngal ||
+      halos[satellite_idx].galaxy == NULL ||
+      validate_immediate_target(halos, ngal, satellite_idx, target_idx) != 0) {
+    ERROR_LOG("Invalid merger transaction (satellite=%d, target=%d, ngal=%d)", satellite_idx,
+              target_idx, ngal);
+    return -1;
+  }
+  struct GalaxyData *satellite = halos[satellite_idx].galaxy;
+  struct GalaxyData *target = halos[target_idx].galaxy;
+
+  // SAGE parity: the ratio and the morphology flag before the addition (M:235-254)
+  const double mass_ratio = mimic_sage_merger_mass_ratio(satellite, target, merger_locals);
+  const int is_disk_dominated = mimic_sage_merger_target_disk_dominated(target, merger_locals);
+
+  // SAGE parity: add_galaxies_together before the black hole and the burst (M:259)
+  mimic_sage_add_galaxies_together(target, satellite, add_locals);
+
+  /* The flag travels with the event on the target, the halo its consumers receive: the
+   * burst selects its channel from it (M:266-282), never from a re-read after the
+   * transfer */
+  target->MergerDiskDominated = is_disk_dominated;
+
+  /* SAGE parity: grow_black_hole, then the burst, for every merger, ratio 0 included
+   * (M:262-287); the consumers run inside the emission */
+  if (emit(ctx, halos, satellite_idx, target_idx, mass_ratio, source_dt) != 0) {
+    return -1;
+  }
+
+  // SAGE parity: get_bulge_radius after the burst (M:293) zeroes the radii on R0
+  mimic_sage_reset_bulge_radii(target);
+
+  // SAGE parity: strictly above the threshold is major, everything else minor (M:299-331)
+  const int major_merger = mass_ratio > THRESHOLD_MAJOR_MERGER;
+  if (major_merger) {
+    mimic_sage_make_bulge_from_burst(target);
+    // The remnant radius set at M:307 is zeroed again at once on R0 (M:308)
+    mimic_sage_reset_bulge_radii(target);
+    target->TimeOfLastMajorMerger = event_time;
+  } else {
+    target->TimeOfLastMinorMerger = event_time;
+    mimic_sage_reset_bulge_radii(target);
+  }
+  if (merger_locals != NULL) {
+    merger_locals->major_merger = major_merger;
+  }
+
+  halos[satellite_idx].Type = 3;
+  record_action("merge", satellite_idx, target_idx, mass_ratio);
+  return 0;
 }
 
 // ============================================================================
@@ -129,6 +210,18 @@ int sage26_resolve_mergers_and_disruption_init(void) {
                                 MimicConfig.num_pre_timestep)) {
     ERROR_LOG("sage26_resolve_mergers_and_disruption requires sage26_initialise_merger_clock "
               "to precede it in pre_timestep — clock comes after the resolver");
+    return -1;
+  }
+
+  /* SAGE parity: the merger transaction grows the black hole before the burst
+   * (R/src/model_mergers.c:262-287); the event reaches its consumers in YAML order */
+  if (modules_in_same_substep_phase("sage26_quasar_mode", PROCESSING_MODE_PER_EVENT,
+                                    "sage26_starburst_feedback", PROCESSING_MODE_PER_EVENT) &&
+      !module_precedes_in_substep_phase("sage26_quasar_mode", PROCESSING_MODE_PER_EVENT,
+                                        "sage26_starburst_feedback", PROCESSING_MODE_PER_EVENT)) {
+    ERROR_LOG("sage26_resolve_mergers_and_disruption requires sage26_quasar_mode to precede "
+              "sage26_starburst_feedback as merger event consumers — SAGE26 grows the black "
+              "hole before the merger burst");
     return -1;
   }
 
@@ -223,26 +316,11 @@ int sage26_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, str
       return -1;
     }
 
-    const double mass_ratio = mimic_sage_calculate_merger_mass_ratio(satellite, target);
-
-    mimic_sage_merge_transfer(target, satellite);
-
-    if (emit_merger_event(ctx, i, target_idx, mass_ratio, source_dt) != 0) {
+    if (sage26_resolve_mergers_and_disruption_merge(ctx, halos, ngal, i, target_idx, source_time,
+                                                    source_dt, emit_merger_event, NULL,
+                                                    NULL) != 0) {
       return -1;
     }
-
-    if (mass_ratio > 0.1) {
-      target->TimeOfLastMinorMerger = source_time;
-    }
-
-    if (mass_ratio > THRESHOLD_MAJOR_MERGER) {
-      target->BulgeMass = target->StellarMass;
-      target->MetalsBulgeMass = target->MetalsStellarMass;
-      target->TimeOfLastMajorMerger = source_time;
-    }
-
-    halos[i].Type = 3;
-    record_action("merge", i, target_idx, mass_ratio);
   }
 
   return 0;

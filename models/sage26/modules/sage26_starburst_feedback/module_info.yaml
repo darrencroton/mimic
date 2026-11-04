@@ -32,6 +32,7 @@ module:
       - QuasarModeBHaccretionMass
       - DiskScaleRadius
       - UnstableDiskGasFraction
+      - MergerDiskDominated
       - StarFormationRate
       - SupernovaOutflowRate
       - SfrBulgeBin0

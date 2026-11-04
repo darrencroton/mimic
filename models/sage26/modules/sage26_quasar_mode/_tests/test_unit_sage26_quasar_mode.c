@@ -20,7 +20,7 @@
  *   - test_bh_growth_merger: By-galaxy path ignores merger flags
  *   - test_bh_growth_both_triggers: Disk trigger processed while merger trigger preserved
  *   - test_bh_growth_per_event_merger: Merger event processed in process_per_event mode
- *   - test_per_event_unknown_code_noop: Unknown per-event code ignored safely
+ *   - test_per_event_zero_ratio_accretes_nothing: a zero-ratio merger runs grow_black_hole
  *   - test_vvir_suppression: Low Vvir suppresses accretion
  *   - test_mass_conservation_accretion: Mass conserved
  *   - test_metallicity_preservation_accretion: Metallicity preserved
@@ -365,16 +365,20 @@ int test_bh_growth_per_event_merger(void) {
 }
 
 /**
- * @test    test_per_event_unknown_code_noop
- * @brief   Test zero merger ratio event is a graceful no-op
+ * @test    test_per_event_zero_ratio_accretes_nothing
+ * @brief   A zero merger ratio event runs grow_black_hole, which accretes nothing
  *
- * Subscription routing ensures only valid events reach this module.
- * The remaining guard is value0 <= 0.0 (zero/negative merger ratio).
+ * SAGE26 grows the black hole on every merger, a ratio of 0 included
+ * (R/src/model_mergers.c:262-264); with ratio 0 the accretion BlackHoleGrowthRate * ratio
+ * * ColdGas / (...) is 0 (:351-352), so the wind has no energy. The call still floors a
+ * negative MetalsColdGas at zero (:363-365), which R0's tiny negative metal reservoirs
+ * reach: the one effect that distinguishes running grow_black_hole from skipping it.
  *
- * Expected: No property changes and success return
- * Validates: Zero-ratio early-exit guard in process_per_event path
+ * Expected: success; BlackHoleMass, ColdGas and QuasarModeBHaccretionMass unchanged;
+ *           a negative MetalsColdGas floored to exactly 0
+ * Validates: a zero-ratio merger event runs grow_black_hole as SAGE26 does
  */
-int test_per_event_unknown_code_noop(void) {
+int test_per_event_zero_ratio_accretes_nothing(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
   reset_config();
@@ -393,22 +397,29 @@ int test_per_event_unknown_code_noop(void) {
                               .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
                               .source_index = 1,
                               .target_index = 0,
-                              .value0 = 0.0, /* zero ratio — must be a no-op */
+                              .value0 = 0.0, /* zero ratio: grow_black_hole still runs */
                               .value1 = 0.0};
   ctx.active_event = &event;
 
+  /* A tiny negative cold-metal reservoir, as float cancellation leaves on R0 */
+  gal.MetalsColdGas = -1.0e-9f;
   const double initial_bh = gal.BlackHoleMass;
   const double initial_cold = gal.ColdGas;
+  const double initial_accretion = gal.QuasarModeBHaccretionMass;
 
   /* ===== EXECUTE ===== */
   int result = sage26_quasar_mode_process(&ctx, &halo, 1);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Zero merger ratio event should be a no-op success");
+  TEST_ASSERT(result == 0, "Zero merger ratio event should succeed");
   TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-12,
-                           "BH mass should remain unchanged for zero-ratio event");
+                           "A zero-ratio merger accretes nothing onto the black hole");
   TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
-                           "Cold gas should remain unchanged for zero-ratio event");
+                           "A zero-ratio merger takes no cold gas");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.QuasarModeBHaccretionMass, initial_accretion, 1e-12,
+                           "A zero-ratio merger records no accretion");
+  TEST_ASSERT(gal.MetalsColdGas == 0.0f,
+              "grow_black_hole floors a negative MetalsColdGas at 0 even at ratio 0 (M:363-365)");
 
   /* ===== CLEANUP ===== */
   sage26_quasar_mode_cleanup();
@@ -1222,7 +1233,7 @@ int main(void) {
   TEST_RUN(test_bh_growth_merger);
   TEST_RUN(test_bh_growth_both_triggers);
   TEST_RUN(test_bh_growth_per_event_merger);
-  TEST_RUN(test_per_event_unknown_code_noop);
+  TEST_RUN(test_per_event_zero_ratio_accretes_nothing);
   TEST_RUN(test_vvir_suppression);
   TEST_RUN(test_mass_conservation_accretion);
   TEST_RUN(test_metallicity_preservation_accretion);

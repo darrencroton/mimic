@@ -3,7 +3,10 @@
 Immediate merger event consumer integration tests.
 
 Validates the production runtime chain:
-sage26_resolve_mergers_and_disruption -> module_emit_event() -> process_per_event consumers.
+sage26_resolve_mergers_and_disruption -> module_emit_event() -> process_per_event consumers,
+the written merger timestamps (SAGE26's lookback times times UnitTime_in_Megayears, the
+never-merged -1 included), and the bound SAGE26's arithmetic puts on the merger
+transaction's bulge writes.
 """
 
 import shutil
@@ -11,6 +14,8 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
+from scipy.integrate import quad
 
 # Add tests directory to path to import framework
 # This test is one level deeper than models/sage26/modules/_tests/ so needs 5 parent hops
@@ -140,6 +145,119 @@ def common_merger_field_values(halos_a, halos_b, field_name):
     return common_ids, values_a, values_b
 
 
+# The merger-bound pipeline: the supply, cooling and disk star formation of the base
+# pipeline, without the disk instability and without any burst (no process_by_galaxy
+# quasar or burst, no merger-event burst consumer), so the merger transaction's own
+# writes are the only bulge writes. The quasar consumer stays (it writes no stars).
+BOUND_GALAXY_PHYSICS_MODULES = [
+    module
+    for module in GALAXY_PHYSICS_MODULES
+    if module[0]
+    not in ("sage26_disk_instability", "sage26_quasar_mode", "sage26_starburst_feedback")
+]
+
+# SAGE26's never-merged timestamp, -1 (src/model_misc.c:179-180)
+NEVER_MERGED = -1.0
+
+
+def unit_time_in_megayears():
+    """Mimic's UnitTime_in_Megayears, as src/core/init.c:84-85 forms it
+
+    UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s, divided by
+    SEC_PER_MEGAYEAR (src/module_system/physical_constants.h), in double precision, the
+    same operations as SAGE26's set_units (src/core_init.c:94-95). Mimic's reference units
+    are fixed (src/core/core_properties.yaml reference_units).
+    """
+    unit_length_in_cm = 3.08568e24
+    unit_velocity_in_cm_per_s = 1.0e5
+    sec_per_megayear = 3.155e13
+    return (unit_length_in_cm / unit_velocity_in_cm_per_s) / sec_per_megayear
+
+
+def substep_event_times(param_file):
+    """Every substep midpoint lookback time of the run, in code units
+
+    Mimic's event time is Age[SnapNum] - (step + 0.5) * dT / SubSteps, with Age the
+    lookback time to each snapshot (src/core/init.c:202-235, shared/time_parity.h) and
+    dT the interval back to the progenitor's snapshot. Returns the midpoints of every
+    interval of up to five snapshots, enough for any progenitor gap of these trees.
+    """
+    with open(param_file) as handle:
+        params = yaml.safe_load(handle)
+    substeps = int(params.get("SubSteps", 1))
+    with open(params["simulation"]["config"]) as handle:
+        simulation = yaml.safe_load(handle)
+    cosmology = simulation["simulation"]["cosmology"]
+    omega = float(cosmology["omega_matter"])
+    omega_lambda = float(cosmology["omega_lambda"])
+    a_list = Path(simulation["input"]["snapshot_list_file"])
+    if not a_list.is_absolute():
+        a_list = REPO_ROOT / a_list
+    scale_factors = [float(line) for line in a_list.read_text().split() if line.strip()]
+    hubble = 3.2407789e-18 * 3.08568e24 / 1.0e5
+
+    def lookback(a):
+        integrand = lambda x: 1.0 / np.sqrt(
+            omega / x + (1 - omega - omega_lambda) + omega_lambda * x * x
+        )
+        return quad(integrand, a, 1.0, epsabs=1e-13, epsrel=1e-12)[0] / hubble
+
+    ages = [lookback(a) for a in scale_factors]
+    times = []
+    for snap in range(1, len(ages)):
+        for gap in range(1, 6):
+            if snap - gap < 0:
+                break
+            interval = ages[snap - gap] - ages[snap]
+            for step in range(substeps):
+                times.append(ages[snap - gap] - (step + 0.5) * interval / substeps)
+    return np.array(sorted(times)), substeps
+
+
+def run_bound_pipeline(output_name):
+    """Run the merger-bound pipeline; returns (param_file, output_dir, temp_dir)"""
+    phase_config = build_phase_config(enable_phase2_starburst=False)
+    phase_config["galaxy_physics"] = BOUND_GALAXY_PHYSICS_MODULES
+    return create_test_param_file(
+        output_name=output_name, phase_config=phase_config, model_params=MERGER_MODEL_PARAMS
+    )
+
+
+def merger_bulge_bound_holds(stellar, bulge):
+    """SAGE26's arithmetic bound on the merger transaction's bulge writes: bulge <= stellar
+
+    Applies to BulgeMass <= StellarMass and MetalsBulgeMass <= MetalsStellarMass of every
+    row of the merger-bound pipeline, exactly, with no rounding allowance.
+
+    Why it holds. In that pipeline a galaxy's StellarMass, BulgeMass and their metals
+    start at 0 (creation) and change only through:
+
+    - disk star formation, StellarMass += (1 - RecycleFraction) * stars and its metals
+      += Z * (1 - RecycleFraction) * stars, each one fused multiply-add rounded to double
+      and then to float (src/model_starformation_and_feedback.c:1123-1126), with stars >= 0
+      and Z >= 0 (get_metallicity): a non-negative addend, and rounding is monotone, so
+      the float result is never below the old float value, and the bulge is untouched;
+    - add_galaxies_together, StellarMass += p.StellarMass and BulgeMass += p.StellarMass
+      (src/model_mergers.c:461, :500), and the same for the metals (:462, :501): the same
+      float addend on both sides, and float addition is monotone (x <= y implies
+      fl(x + s) <= fl(y + s) for any s), so bulge <= stellar survives;
+    - make_bulge_from_burst, BulgeMass = StellarMass and MetalsBulgeMass =
+      MetalsStellarMass (:556, :559): exact float copies, equality.
+
+    Nothing else writes these four fields here (no burst, no disk instability, and a
+    satellite's own bulge excess never reaches its target, which adds the satellite's
+    StellarMass to its bulge). By induction bulge <= stellar holds after every write,
+    and the copy shows the bound is attained, so it cannot be tightened. With the
+    merger-event burst or the instability in the pipeline the excess can grow with the
+    number of burst writes (test_integration_sage26_starburst_feedback.py,
+    bulge_upper_bound), and the number of merger bursts a galaxy receives has no limit
+    the run's configuration fixes, so this test isolates the merger writes.
+    """
+    stellar = np.asarray(stellar, dtype=np.float32)
+    bulge = np.asarray(bulge, dtype=np.float32)
+    return bulge <= stellar
+
+
 def test_invalid_processing_mode_rejected():
     """Immediate merger handler must reject non-full-halo configuration at startup."""
     param_file, output_dir, temp_dir = run_merger_pipeline(
@@ -255,7 +373,8 @@ def test_starburst_consumer_receives_merger_events():
         ), "satellite_mergers starburst consumer should form additional stars in merger remnants"
         # The burst net-consumes a few M_sun/h of cold gas. SAGE parity note: the
         # merger quasar wind (grow_black_hole -> quasar_mode_wind, which fires
-        # BEFORE the starburst in SAGE deal_with_galaxy_merger) ejects some cold
+        # BEFORE the starburst in SAGE deal_with_galaxy_merger,
+        # src/model_mergers.c:262-287) ejects some cold
         # gas first, so the net cold-gas reduction attributable to the burst is a
         # few M_sun/h (~-4.7 here), not the larger value seen before the quasar
         # wind energy was unit-corrected.
@@ -265,6 +384,104 @@ def test_starburst_consumer_receives_merger_events():
     finally:
         shutil.rmtree(base_temp_dir)
         shutil.rmtree(no_starburst_temp_dir)
+
+
+def test_merger_bulge_bound():
+    """The merger transaction's bulge writes keep BulgeMass <= StellarMass exactly
+
+    Runs the merger-bound pipeline (see merger_bulge_bound_holds), which reaches the
+    writes of src/model_mergers.c:461-462, :500-501 (every merger) and :556, :559 (major
+    mergers), and requires both bounds on every row, with major and minor mergers present
+    and the bound attained.
+    """
+    param_file, output_dir, temp_dir = run_bound_pipeline("merger_bulge_bound")
+    try:
+        returncode, stdout, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Merger-bound pipeline should succeed\nSTDERR: {stderr}"
+        halos = load_output_halos(output_dir)
+
+        never = np.float32(np.float32(NEVER_MERGED) * unit_time_in_megayears())
+        major = halos["TimeOfLastMajorMerger"] != never
+        minor = halos["TimeOfLastMinorMerger"] != never
+        assert np.count_nonzero(major) >= 10, "the pipeline should reach major mergers"
+        assert np.count_nonzero(minor) >= 10, "the pipeline should reach minor mergers"
+
+        stellar_ok = merger_bulge_bound_holds(halos["StellarMass"], halos["BulgeMass"])
+        metals_ok = merger_bulge_bound_holds(halos["MetalsStellarMass"], halos["MetalsBulgeMass"])
+        attained = (halos["BulgeMass"] == halos["StellarMass"]) & (halos["StellarMass"] > 0)
+        print(
+            f"  rows {len(halos)}, with a major merger {np.count_nonzero(major)}, with a minor "
+            f"merger {np.count_nonzero(minor)}; BulgeMass <= StellarMass violated "
+            f"{np.count_nonzero(~stellar_ok)}, MetalsBulgeMass <= MetalsStellarMass violated "
+            f"{np.count_nonzero(~metals_ok)}; bound attained (BulgeMass == StellarMass > 0) "
+            f"{np.count_nonzero(attained)}"
+        )
+        assert stellar_ok.all(), "BulgeMass must not exceed StellarMass"
+        assert metals_ok.all(), "MetalsBulgeMass must not exceed MetalsStellarMass"
+        assert np.count_nonzero(attained) >= 1, "major mergers should attain the bound"
+    finally:
+        shutil.rmtree(temp_dir)
+
+
+def test_written_merger_timestamps():
+    """The timestamps are written as SAGE26 writes them: value * UnitTime_in_Megayears
+
+    A galaxy that never had a merger of a kind is written as float(-1 * factor); a merged
+    one as float(t * factor) for its float lookback time t, a substep midpoint event time
+    (src/model_mergers.c:310, :316, src/io/save_gals_hdf5.c:992-993).
+    """
+    param_file, output_dir, temp_dir = run_bound_pipeline("merger_timestamps")
+    try:
+        returncode, stdout, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Merger pipeline should succeed\nSTDERR: {stderr}"
+        halos = load_output_halos(output_dir)
+        factor = unit_time_in_megayears()
+        never = np.float32(np.float64(np.float32(NEVER_MERGED)) * factor)
+        event_times, substeps = substep_event_times(param_file)
+        print(
+            f"  UnitTime_in_Megayears = {factor!r} ({float(factor).hex()}); never merged "
+            f"written as {never!r} ({hex(never.view(np.uint32))})"
+        )
+
+        for field in ("TimeOfLastMajorMerger", "TimeOfLastMinorMerger"):
+            written = np.asarray(halos[field], dtype=np.float32)
+            never_rows = written == never
+            merged = written[~never_rows]
+            assert np.count_nonzero(never_rows) >= 1, f"{field}: some galaxy never merged"
+            assert len(merged) >= 10, f"{field}: the pipeline should reach mergers"
+            assert np.all(written[never_rows].view(np.uint32) == never.view(np.uint32))
+
+            # Each merged value is float(t * factor) for a float lookback time t: the
+            # float nearest written / factor, or a neighbour, reproduces it exactly
+            lookback = np.float32(merged.astype(np.float64) / factor)
+            candidates = [
+                lookback,
+                np.nextafter(lookback, np.float32(np.inf)),
+                np.nextafter(lookback, np.float32(-np.inf)),
+            ]
+            reproduced = np.zeros(len(merged), dtype=bool)
+            t = np.full(len(merged), np.nan)
+            for c in candidates:
+                hit = np.float32(c.astype(np.float64) * factor) == merged
+                t = np.where(hit & ~reproduced, c.astype(np.float64), t)
+                reproduced |= hit
+            assert reproduced.all(), f"{field}: a written value is not float(t * factor)"
+
+            # And t is a substep midpoint lookback time of the run
+            nearest = np.searchsorted(event_times, t)
+            lo = event_times[np.clip(nearest - 1, 0, len(event_times) - 1)]
+            hi = event_times[np.clip(nearest, 0, len(event_times) - 1)]
+            distance = np.minimum(np.abs(t - lo), np.abs(t - hi)) / t
+            print(
+                f"  {field}: never merged {np.count_nonzero(never_rows)}, merged "
+                f"{len(merged)} with lookback t in [{t.min():.6g}, {t.max():.6g}] code units, "
+                f"written [{merged.min():.6g}, {merged.max():.6g}] Myr, largest relative "
+                f"distance to a substep midpoint ({substeps} substeps) {distance.max():.2e}"
+            )
+            assert np.all(t > 0), f"{field}: a merged lookback time must be positive"
+            assert distance.max() < 1e-5, f"{field}: t is not a substep midpoint event time"
+    finally:
+        shutil.rmtree(temp_dir)
 
 
 def main():
@@ -278,6 +495,8 @@ def main():
         test_invalid_processing_mode_rejected,
         test_quasar_consumer_receives_merger_events,
         test_starburst_consumer_receives_merger_events,
+        test_merger_bulge_bound,
+        test_written_merger_timestamps,
     ]
 
     if not MIMIC_EXE.exists():

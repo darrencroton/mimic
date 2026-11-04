@@ -92,12 +92,9 @@ int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, in
     /* Subscription routing (see module_info.yaml events.consumes) ensures
      * only merger events reach this module — no event_id check needed. */
     const double merger_ratio = event->value0;
-    if (merger_ratio <= 0.0) {
-      return 0;
-    }
 
-    /* SAGE parity: grow_black_hole on the merger target, its quasar wind included
-     * (R/src/model_mergers.c:262-264, :346-378) */
+    /* SAGE parity: grow_black_hole on the merger target, its quasar wind included, for
+     * every merger, a ratio of 0 included (R/src/model_mergers.c:262-264, :346-378) */
     (void)mimic_apply_black_hole_growth(event_halo, merger_ratio, BLACK_HOLE_GROWTH_RATE,
                                         QUASAR_MODE_EFFICIENCY, ctx, NULL);
 

@@ -1,0 +1,918 @@
+/**
+ * @file    test_unit_sage26_resolve_mergers_and_disruption_oracle.c
+ * @brief   Bit-exact comparison of the merger transaction with SAGE26's
+ *
+ * Runs every SAGE26 oracle fixture fixtures.manifest lists for
+ * sage26_resolve_mergers_and_disruption (its _tests/oracle/ directory), with R0's flags
+ * (M = R/src/model_mergers.c):
+ *
+ * - add_galaxies_together (M:456-543, add_*) and make_bulge_from_burst (M:553-570, mbb_*):
+ *   the shared helpers mimic_sage_add_galaxies_together and mimic_sage_make_bulge_from_burst
+ *   (shared/sage_merger_physics.h), called directly at SAGE26's routine boundary;
+ * - deal_with_galaxy_merger (M:228-333, merge_*): the resolver's whole transaction,
+ *   sage26_resolve_mergers_and_disruption_merge, with the fixture's call.time and call.dt,
+ *   whose merger event runs the module's real consumers in the order of the production
+ *   phase: sage26_quasar_mode's and then sage26_starburst_feedback's process_per_event
+ *   entry, with the event the registry would hand them (target halo, ratio, satellite dt),
+ *   then the resolver's completion. Zero-ratio fixtures are included;
+ * - tr_pass_two_mergers_one_bin: two mergers into the FoF central in one substep and bin,
+ *   run as two transactions in the pass's order from the event times, dts, bins and targets
+ *   the oracle's pass transcription recorded (intermediate.pass.*), freezing the immediate
+ *   event order across them: the second sees the central the first changed.
+ *
+ * The test configures the phases of the production run file (sage26_disk_instability in a
+ * galaxy-physics phase, so the burst runs SAGE26's post-minor-merger recheck, and the
+ * resolver, the quasar consumer and the burst consumer in that order in a merger phase)
+ * and initialises the three modules from the fixture's parameters, so the consumers run
+ * exactly as configured in production. The burst module derives its supernova constants
+ * from the unit factors and Hubble_h 0.73 (R0.par); the test requires them to equal the
+ * fixture's EnergySNcode and EtaSNcode bit for bit.
+ *
+ * Asserted bit for bit: the thirty floats of every recorded galaxy block and the target's
+ * sixty history elements; every other galaxy member unchanged (the transport field
+ * MergerDiskDominated aside, which carries the pre-transfer flag to the burst); the halo
+ * fields unchanged except the satellite's Type, which becomes 3 exactly when SAGE26's
+ * mergeType is set; SAGE26's mergeType 2 for a major and 1 for a minor merger against the
+ * port's split; the merger's own flags; is_disk_dominated and the burst channel it selects;
+ * and each of the merger's carried values where the oracle validates it two-sided.
+ *
+ * Not asserted, each named: SAGE26's driver bookkeeping mergeIntoID and CentralGal (no
+ * package member); the black-hole, wind and burst locals of the merge fixtures, which the
+ * consumers do not expose (their effect is the asserted end state, and the quasar and burst
+ * oracle tests assert those locals at their own routine boundary); old_disk_radius, read on
+ * R0 only by update_instability_bulge_radius, which returns at once (R/src/model_misc.c:395);
+ * and new_merger_radius, which the port does not form because get_bulge_radius zeroes every
+ * radius after it (M:293-331, R/src/model_misc.c:241-246): the test asserts that
+ * inertness, the three radii zero in SAGE26's own output wherever the remnant radius it
+ * computed was not. The pass fixture's MergTime (the pass's clock decrement) and its other
+ * pass records belong to the pass's port.
+ *
+ * Deferred, counted and reported: the disruption (dis_*), pass (tr_pass_*, the two-merger
+ * fixture aside) and joining (tr_jp_*) fixtures, whose routines this module does not yet
+ * port. Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test
+ * reports SKIP.
+ *
+ * Test cases:
+ *   - test_oracle_fixture_count: every fixture the manifest lists is present
+ *   - test_oracle_bit_identity: every merger-transaction fixture reproduces the oracle bit
+ *     for bit
+ */
+
+#include "../../../../tests/framework/test_framework.h"
+#include "../../../../tests/framework/test_phase_config.h"
+#include "core/module_interface.h"
+#include "include/globals.h"
+#include "include/types.h"
+#include "module_system/generated/event_contracts.h"
+#include "util/error.h"
+#include "util/memory.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "modules/_tests/sage_test_fixtures.h"
+#include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/sage26_resolve_mergers_and_disruption/sage_merger_ops.h"
+#include "shared/sage_sf_feedback_physics.h"
+
+extern int sage26_resolve_mergers_and_disruption_init(void);
+extern int sage26_resolve_mergers_and_disruption_cleanup(void);
+extern int sage26_quasar_mode_init(void);
+extern int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage26_quasar_mode_cleanup(void);
+extern int sage26_starburst_feedback_init(void);
+extern int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *halos,
+                                             int ngal);
+extern int sage26_starburst_feedback_cleanup(void);
+
+static const char *MODULE = "sage26_resolve_mergers_and_disruption";
+
+#define MAX_GALAXIES 4 /* the initialisers of merged_major list MAX_GALAXIES entries */
+#define MAX_EVENTS 8
+#define COUNT(a) (sizeof(a) / sizeof((a)[0]))
+
+/* SAGE26's STEPS and the substep count of the transaction fixtures' bins: with ten
+ * substeps the bin of substep k is k (R/src/core_build_model.c:514-515) */
+#define FIXTURE_SUBSTEPS 10
+
+/* SAGE26's TOOMRE_DISK_FACTOR (R/src/model_disk_instability.c:35), the recheck's factor */
+#define SAGE26_TOOMRE_DISK_FACTOR 3.0
+
+/* SAGE26's R0 unit factors and Hubble_h (R0.par:40, :106-107), from which the burst module
+ * derives EnergySNcode and EtaSNcode (R/src/core_init.c:102-103) */
+#define SAGE26_UNIT_LENGTH_IN_CM 3.08568e+24
+#define SAGE26_UNIT_MASS_IN_G 1.989e+43
+#define SAGE26_HUBBLE_H 0.73
+
+/* The resolver's ThresholdSatDisruption, read by its init only (the pass's gate, R0.par:79);
+ * no transaction fixture carries it */
+#define SAGE26_THRESHOLD_SAT_DISRUPTION 1.0
+
+/* Carried-value check kinds (oracle README "Carried Values, Check Kinds") */
+#define KIND_CONTINUATION 1
+#define KIND_TAIL 2
+
+static struct oracle_c06_carried_tally tally;
+static int counts_add = 0, counts_mbb = 0, counts_merge = 0, counts_multi = 0;
+static int counts_ratio_zero = 0, counts_deferred = 0, counts_inert_radius = 0;
+static int counts_consumer_locals_validated = 0;
+
+/* The merger events the test's sink delivered, in order */
+static int event_count = 0;
+static int event_source[MAX_EVENTS];
+static int event_target[MAX_EVENTS];
+
+// ============================================================================
+// SETUP
+// ============================================================================
+
+/** @brief Consume every input field whose name starts with `prefix` (applied elsewhere) */
+static void consume_prefix(struct oracle_fixture *fx, const char *prefix) {
+  const size_t n = strlen(prefix);
+  for (int i = 0; i < fx->num_fields; i++) {
+    if (strncmp(fx->fields[i].name, prefix, n) == 0) {
+      fx->fields[i].consumed = 1;
+    }
+  }
+}
+
+/**
+ * @brief Consume one carried value's whole record without asserting it
+ *
+ * "intermediate.<name>" and its markers (_absent, _checked, _check_kind, _validated_up,
+ * _validated_down, _validated, _validated_flip).
+ *
+ * @return 1 if the record says the value was validated two-sided, else 0
+ */
+static int consume_record(struct oracle_fixture *out, const char *name) {
+  static const char *const suffixes[] = {
+      "",           "_absent",        "_checked", "_check_kind", "_validated_up", "_validated_down",
+      "_validated", "_validated_flip"};
+  int validated = 0;
+  for (size_t k = 0; k < COUNT(suffixes); k++) {
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "intermediate.%s%s", name, suffixes[k]);
+    for (int i = 0; i < out->num_fields; i++) {
+      if (strcmp(out->fields[i].name, field) == 0) {
+        out->fields[i].consumed = 1;
+        if (strcmp(suffixes[k], "_validated") == 0 && out->fields[i].ivalue == 1) {
+          validated = 1;
+        }
+      }
+    }
+  }
+  return validated;
+}
+
+/**
+ * @brief Apply the fixture's parameters and initialise the resolver and its consumers
+ * @return Number of problems
+ */
+static int setup_modules(struct oracle_fixture *in) {
+  int problems = oracle_c06_require_r0_flags(in);
+
+  MimicConfig.G = oracle_in_f64(in, "params.G");
+  MimicConfig.Hubble_h = SAGE26_HUBBLE_H;
+  MimicConfig.UnitLength_in_cm = SAGE26_UNIT_LENGTH_IN_CM;
+  MimicConfig.UnitMass_in_g = SAGE26_UNIT_MASS_IN_G;
+  MimicConfig.UnitVelocity_in_cm_per_s = oracle_in_f64(in, "params.UnitVelocity_in_cm_per_s");
+  MimicConfig.UnitTime_in_s = MimicConfig.UnitLength_in_cm / MimicConfig.UnitVelocity_in_cm_per_s;
+  MimicConfig.UnitEnergy_in_cgs = MimicConfig.UnitMass_in_g *
+                                  (MimicConfig.UnitLength_in_cm * MimicConfig.UnitLength_in_cm) /
+                                  (MimicConfig.UnitTime_in_s * MimicConfig.UnitTime_in_s);
+  const double energy_sn_code =
+      mimic_sage_energy_sn_code(MimicConfig.UnitEnergy_in_cgs, MimicConfig.Hubble_h);
+  const double eta_sn_code =
+      mimic_sage_eta_sn_code(MimicConfig.UnitMass_in_g, MimicConfig.Hubble_h);
+  if (oracle_f64_to_bits(energy_sn_code) !=
+          oracle_f64_to_bits(oracle_in_f64(in, "params.EnergySNcode")) ||
+      oracle_f64_to_bits(eta_sn_code) !=
+          oracle_f64_to_bits(oracle_in_f64(in, "params.EtaSNcode"))) {
+    fprintf(stderr, "oracle: %s: the package's EnergySNcode or EtaSNcode differs from SAGE26's\n",
+            in->path);
+    problems++;
+  }
+
+  // SAGE26's names and the package's (ThreshMajorMerger is ThresholdMajorMerger)
+  const struct {
+    const char *sage26;
+    const char *package;
+  } params[] = {{"FeedbackReheatingEpsilon", "FeedbackReheatingEpsilon"},
+                {"FeedbackEjectionEfficiency", "FeedbackEjectionEfficiency"},
+                {"RecycleFraction", "RecycleFraction"},
+                {"Yield", "Yield"},
+                {"FracZleaveDisk", "FracZleaveDisk"},
+                {"ThreshMajorMerger", "ThresholdMajorMerger"},
+                {"BlackHoleGrowthRate", "BlackHoleGrowthRate"},
+                {"QuasarModeEfficiency", "QuasarModeEfficiency"}};
+  for (size_t k = 0; k < COUNT(params); k++) {
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "params.%s", params[k].sage26);
+    if (oracle_set_model_param(params[k].package, oracle_in_f64(in, field)) != 0) {
+      problems++;
+    }
+  }
+  const double threshold_sat_disruption = oracle_has(in, "params.ThresholdSatDisruption")
+                                              ? oracle_in_f64(in, "params.ThresholdSatDisruption")
+                                              : SAGE26_THRESHOLD_SAT_DISRUPTION;
+  if (oracle_set_model_param("StarFormingDiskFactor", SAGE26_TOOMRE_DISK_FACTOR) != 0 ||
+      oracle_set_model_param("ThresholdSatDisruption", threshold_sat_disruption) != 0) {
+    problems++;
+  }
+
+  if (sage26_resolve_mergers_and_disruption_init() != 0 || sage26_quasar_mode_init() != 0 ||
+      sage26_starburst_feedback_init() != 0) {
+    fprintf(stderr, "oracle: %s: the resolver or its consumers failed to initialise\n", in->path);
+    problems++;
+  }
+  return problems;
+}
+
+static void cleanup_modules(void) {
+  sage26_starburst_feedback_cleanup();
+  sage26_quasar_mode_cleanup();
+  sage26_resolve_mergers_and_disruption_cleanup();
+}
+
+/**
+ * @brief The test's merger-event sink: the registry's immediate dispatch, by hand
+ *
+ * Hands the target halo and the event to the process_per_event consumers in the
+ * production phase's order (module_registry.c dispatch_events_range): the quasar consumer,
+ * then the burst consumer.
+ */
+static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, int source_idx,
+                                 int target_idx, double mass_ratio, double source_dt) {
+  struct ModuleEvent event;
+  memset(&event, 0, sizeof(event));
+  event.event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER;
+  event.source_index = source_idx;
+  event.target_index = target_idx;
+  event.value0 = mass_ratio;
+  event.value1 = source_dt;
+  if (event_count < MAX_EVENTS) {
+    event_source[event_count] = source_idx;
+    event_target[event_count] = target_idx;
+  }
+  event_count++;
+
+  ctx->active_event = &event;
+  int status = sage26_quasar_mode_process(ctx, &halos[target_idx], 1);
+  if (status == 0) {
+    status = sage26_starburst_feedback_process(ctx, &halos[target_idx], 1);
+  }
+  ctx->active_event = NULL;
+  return status;
+}
+
+// ============================================================================
+// COMPARISONS
+// ============================================================================
+
+/**
+ * @brief Require every galaxy member outside the recorded fields to be unchanged
+ *
+ * Copies the thirty block floats, the histories when the output records them, and the
+ * transport field MergerDiskDominated from `after` into a copy of `before`.
+ *
+ * @return 1 if another member changed, else 0
+ */
+static int check_rest_unchanged(const char *name, const int index, const struct GalaxyData *before,
+                                struct GalaxyData *after, const int with_histories) {
+  struct GalaxyData expected = *before;
+  size_t count;
+  const char *const *names = oracle_c06_block_names(&count);
+  for (size_t k = 0; k < count; k++) {
+    *oracle_c06_galaxy_float(&expected, names[k]) = *oracle_c06_galaxy_float(after, names[k]);
+  }
+  if (with_histories) {
+    for (size_t h = 0; h < (size_t)MIMIC_SFR_HISTORY_COUNT; h++) {
+      for (int k = 0; k < ORACLE_C05_STEPS; k++) {
+        *oracle_c05_history_element(&expected, h, k) = *oracle_c05_history_element(after, h, k);
+      }
+    }
+  }
+  expected.MergerDiskDominated = after->MergerDiskDominated;
+  if (memcmp(&expected, after, sizeof(expected)) != 0) {
+    fprintf(stderr, "oracle: %s: galaxy[%d] changed a member outside its recorded fields\n", name,
+            index);
+    return 1;
+  }
+  return 0;
+}
+
+/** @brief Whether the output records the histories of galaxy[index] */
+static int records_histories(const struct oracle_fixture *out, const int index) {
+  char field[ORACLE_MAX_NAME];
+  snprintf(field, sizeof(field), "galaxy[%d].SfrDisk[0]", index);
+  return oracle_has(out, field);
+}
+
+/**
+ * @brief Compare every recorded galaxy and require the rest of each unchanged
+ * @return Number of mismatches
+ */
+static int check_galaxies(const char *name, struct oracle_fixture *out, const int ngal,
+                          struct GalaxyData *galaxies, const struct GalaxyData *before) {
+  int problems = 0;
+  for (int i = 0; i < ngal; i++) {
+    const int with_histories = records_histories(out, i);
+    problems += oracle_c06_check_galaxy(out, "", i, &galaxies[i], with_histories);
+    problems += check_rest_unchanged(name, i, &before[i], &galaxies[i], with_histories);
+  }
+  return problems;
+}
+
+/**
+ * @brief Assert the integer identity fields of each galaxy against the port's halos
+ *
+ * SAGE26 keeps a merged satellite's Type and sets its mergeType (2 major, 1 minor,
+ * M:311, :315); the package marks the row Type 3. Every other halo field is unchanged.
+ * SAGE26's driver bookkeeping mergeIntoID and CentralGal has no package member.
+ *
+ * @param merged_major  Per galaxy: -1 if it did not merge, else the port's split (1 major)
+ * @return Number of mismatches
+ */
+static int check_identities(struct oracle_fixture *out, const int ngal, struct Halo *halos,
+                            const struct Halo *halos_before, const int *merged_major) {
+  int problems = 0;
+  for (int i = 0; i < ngal; i++) {
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "galaxy[%d].mergeType", i);
+    if (!oracle_has(out, field)) {
+      continue;
+    }
+    const int merge_type = oracle_in_i32(out, field);
+    const int expected_merge_type = merged_major[i] < 0 ? 0 : (merged_major[i] ? 2 : 1);
+    if (merge_type != expected_merge_type) {
+      fprintf(stderr, "oracle: %s: galaxy[%d] mergeType %d, the port's split gives %d\n", out->path,
+              i, merge_type, expected_merge_type);
+      problems++;
+    }
+    snprintf(field, sizeof(field), "galaxy[%d].Type", i);
+    const int sage26_type = oracle_in_i32(out, field);
+    const int expected_type = merge_type > 0 ? 3 : sage26_type;
+    if (halos[i].Type != expected_type) {
+      fprintf(stderr, "oracle: %s: halo[%d].Type %d, expected %d (SAGE26 Type %d, mergeType %d)\n",
+              out->path, i, halos[i].Type, expected_type, sage26_type, merge_type);
+      problems++;
+    }
+    struct Halo expected = halos_before[i];
+    expected.Type = halos[i].Type;
+    if (memcmp(&expected, &halos[i], sizeof(expected)) != 0) {
+      fprintf(stderr, "oracle: %s: halo[%d] changed a field other than Type\n", out->path, i);
+      problems++;
+    }
+    problems += oracle_check_i32(out, oracle_galaxy_field(i, "SnapNum"), halos[i].SnapNum);
+    problems += oracle_check_i32(out, oracle_galaxy_field(i, "Len"), halos[i].Len);
+    oracle_exclude(out, oracle_galaxy_field(i, "mergeIntoID"));
+    oracle_exclude(out, oracle_galaxy_field(i, "CentralGal"));
+  }
+  return problems;
+}
+
+/** @brief Assert add_galaxies_together's flags and carried values; returns the problems */
+static int check_add_locals(struct oracle_fixture *out, const struct MimicSageAddLocals *a) {
+  int problems = 0;
+  problems += oracle_c06_check_flag(out, "satellite_disk_positive", a->satellite_disk_positive);
+  problems += oracle_c06_check_flag(out, "disk_fraction_above_half", a->disk_fraction_above_half);
+  problems += oracle_c06_check_flag(out, "satellite_ics_positive", a->satellite_ics_positive);
+  problems += oracle_c06_check_carried(out, "satellite_disk_mass", KIND_CONTINUATION,
+                                       a->satellite_disk_mass, 0, &tally);
+  problems +=
+      oracle_c06_check_carried(out, "disk_mass_post", KIND_TAIL, a->disk_mass_post, 0, &tally);
+  problems += oracle_c06_check_carried(out, "disk_fraction_post", KIND_TAIL, a->disk_fraction_post,
+                                       0, &tally);
+  return problems;
+}
+
+/** @brief Assert the merger's own flags and carried values; returns the problems */
+static int check_merger_locals(struct oracle_fixture *out, const struct MimicSageMergerLocals *m,
+                               const double threshold_major_merger) {
+  int problems = 0;
+  problems += oracle_c06_check_flag(out, "mass_ratio_path", m->mass_ratio_path);
+  problems += oracle_c06_check_flag(out, "major_merger", m->major_merger);
+  problems += oracle_c06_check_carried(out, "mi", KIND_TAIL, m->mi, 0, &tally);
+  problems += oracle_c06_check_carried(out, "ma", KIND_TAIL, m->ma, 0, &tally);
+  problems +=
+      oracle_c06_check_carried(out, "mass_ratio", KIND_CONTINUATION, m->mass_ratio, 0, &tally);
+  problems += oracle_c06_check_carried(out, "central_disk_mass", KIND_TAIL, m->central_disk_mass, 0,
+                                       &tally);
+
+  /* The two carried integers: their values are the port's (the flag the resolver carries
+   * on the target, and the channel the burst consumer selects from it); the markers are
+   * the oracle's record of its own checks */
+  problems += oracle_check_i32(out, "intermediate.is_disk_dominated", m->is_disk_dominated);
+  problems += oracle_check_i32(
+      out, "intermediate.burst_to_merger_bulge",
+      mimic_sage_merger_burst_channel(m->mass_ratio, threshold_major_merger, m->is_disk_dominated));
+  (void)consume_record(out, "is_disk_dominated");
+  (void)consume_record(out, "burst_to_merger_bulge");
+  return problems;
+}
+
+/**
+ * @brief The remnant radius is output-inert: SAGE26's own output zeroes the three radii
+ *
+ * new_merger_radius is never formed by the port (get_bulge_radius zeroes the radii after
+ * it on every path, M:293-331, R/src/model_misc.c:241-246); the record shows SAGE26's
+ * value and its three radii.
+ *
+ * @return Number of problems
+ */
+static int check_remnant_radius_inert(struct oracle_fixture *out, const int target) {
+  int problems = 0;
+  const char *const radii[] = {"BulgeRadius", "MergerBulgeRadius", "InstabilityBulgeRadius"};
+  for (size_t k = 0; k < COUNT(radii); k++) {
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "galaxy[%d].%s", target, radii[k]);
+    for (int i = 0; i < out->num_fields; i++) {
+      if (strcmp(out->fields[i].name, field) == 0 && out->fields[i].bits != 0) {
+        fprintf(stderr, "oracle: %s: SAGE26 left %s non-zero\n", out->path, field);
+        problems++;
+      }
+    }
+  }
+  if (oracle_in_i32(out, "intermediate.new_merger_radius_absent") == 0 &&
+      oracle_in_f64(out, "intermediate.new_merger_radius") != 0.0 && problems == 0) {
+    counts_inert_radius++;
+  }
+  (void)consume_record(out, "new_merger_radius");
+  // Read on R0 only by update_instability_bulge_radius, which returns at once (misc.c:395)
+  (void)consume_record(out, "old_disk_radius");
+  return problems;
+}
+
+/**
+ * @brief Consume the black-hole, wind and burst records of a merge fixture
+ *
+ * The consumers' process() entries do not expose their locals; their effect is the
+ * asserted end state. Counts the values the oracle validated two-sided, for the report.
+ */
+static void consume_consumer_records(struct oracle_fixture *out) {
+  static const char *const values[] = {"BHaccrete_pre_cap",
+                                       "BHaccrete",
+                                       "bh_metallicity",
+                                       "quasar_energy",
+                                       "cold_gas_energy",
+                                       "hot_gas_energy",
+                                       "eburst",
+                                       "gas_for_starburst",
+                                       "stars_pre_renorm",
+                                       "reheated_mass_pre_renorm",
+                                       "renorm_fac",
+                                       "stars",
+                                       "reheated_mass",
+                                       "ejected_mass_pre_floor",
+                                       "ejected_mass",
+                                       "metallicity_sf",
+                                       "recycled_stars",
+                                       "metallicity_fb",
+                                       "reheated_mass_fb_clamped",
+                                       "ejected_mass_capped",
+                                       "metallicity_hot",
+                                       "metals_hot_to_eject",
+                                       "metals_hot_to_eject_capped",
+                                       "FracZleaveDiskVal",
+                                       "yield_metals_to_hot"};
+  static const char *const flags[] = {"bh_coldgas_positive",
+                                      "bh_accretion_cap_binds",
+                                      "bh_metals_floor_binds",
+                                      "wind_ejects_cold",
+                                      "wind_ejects_hot",
+                                      "burst_gas_floored",
+                                      "burst_stars_floored",
+                                      "burst_renorm_active",
+                                      "burst_ejection_vvir_nonpositive",
+                                      "burst_ejected_floored",
+                                      "reheat_clamp_fb_binds",
+                                      "ejected_cap_binds",
+                                      "metals_cap_binds",
+                                      "burst_instability_recheck_ran",
+                                      "burst_instability_recheck_changed_state",
+                                      "burst_yield_minor_branch"};
+  for (size_t k = 0; k < COUNT(values); k++) {
+    counts_consumer_locals_validated += consume_record(out, values[k]);
+  }
+  for (size_t k = 0; k < COUNT(flags); k++) {
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "intermediate.%s", flags[k]);
+    oracle_exclude(out, field);
+  }
+}
+
+// ============================================================================
+// FIXTURE CHECKS
+// ============================================================================
+
+/**
+ * @brief Build the fixture's galaxies; returns the number of problems
+ */
+static int load_galaxies(struct oracle_fixture *in, const int ngal, struct Halo *halos,
+                         struct GalaxyData *galaxies) {
+  int problems = 0;
+  for (int i = 0; i < ngal; i++) {
+    problems += oracle_c06_in_galaxy(in, i, &halos[i], &galaxies[i]);
+  }
+  return problems;
+}
+
+/** @brief add_galaxies_together, called directly */
+static int check_add(const char *name) {
+  static struct oracle_fixture in, out;
+  if (oracle_load_pair(MODULE, name, "add_galaxies_together", &in, &out) != 0) {
+    return 1;
+  }
+  int problems = oracle_c06_require_r0_flags(&in);
+  // The routine reads no parameter on R0 beyond the flags; the rest are the group's
+  consume_prefix(&in, "params.");
+  const int ngal = oracle_in_i32(&in, "call.ngal");
+  const int t = oracle_in_i32(&in, "call.t");
+  const int p = oracle_in_i32(&in, "call.p");
+  if (ngal < 2 || ngal > MAX_GALAXIES || t < 0 || t >= ngal || p < 0 || p >= ngal || t == p) {
+    fprintf(stderr, "oracle: %s: call.ngal, call.t or call.p out of range\n", name);
+    return problems + 1;
+  }
+
+  static struct GalaxyData galaxies[MAX_GALAXIES], before[MAX_GALAXIES];
+  static struct Halo halos[MAX_GALAXIES];
+  problems += load_galaxies(&in, ngal, halos, galaxies);
+  if (problems != 0) {
+    return problems;
+  }
+  memcpy(before, galaxies, sizeof(before));
+
+  struct MimicSageAddLocals locals;
+  mimic_sage_add_galaxies_together(&galaxies[t], &galaxies[p], &locals);
+
+  problems += check_galaxies(name, &out, ngal, galaxies, before);
+  problems += check_add_locals(&out, &locals);
+  counts_add++;
+  problems += oracle_report_unconsumed(&in);
+  problems += oracle_report_unconsumed(&out);
+  return problems;
+}
+
+/** @brief make_bulge_from_burst, called directly on galaxy 0 */
+static int check_mbb(const char *name) {
+  static struct oracle_fixture in, out;
+  if (oracle_load_pair(MODULE, name, "make_bulge_from_burst", &in, &out) != 0) {
+    return 1;
+  }
+  int problems = 0;
+  consume_prefix(&in, "params.");
+  static struct GalaxyData galaxies[1], before[1];
+  static struct Halo halos[1];
+  problems += load_galaxies(&in, 1, halos, galaxies);
+  if (problems != 0) {
+    return problems;
+  }
+  memcpy(before, galaxies, sizeof(before));
+
+  mimic_sage_make_bulge_from_burst(&galaxies[0]);
+
+  problems += check_galaxies(name, &out, 1, galaxies, before);
+  counts_mbb++;
+  problems += oracle_report_unconsumed(&in);
+  problems += oracle_report_unconsumed(&out);
+  return problems;
+}
+
+/** @brief A module context for a transaction at history bin `step` of ten substeps */
+static int make_context(const char *name, struct ModuleContext *ctx, struct Halo *central,
+                        const int step, const int num_substeps) {
+  memset(ctx, 0, sizeof(*ctx));
+  ctx->params = &MimicConfig;
+  ctx->central_galaxy = central;
+  ctx->num_substeps = num_substeps;
+  ctx->substep_number = step;
+  if (mimic_sage_sfr_step_bin(step, num_substeps) < 0) {
+    fprintf(stderr, "oracle: %s: substep %d of %d has no history bin\n", name, step, num_substeps);
+    return 1;
+  }
+  return 0;
+}
+
+/** @brief deal_with_galaxy_merger through the resolver's transaction and its consumers */
+static int check_merge(const char *name) {
+  static struct oracle_fixture in, out;
+  if (oracle_load_pair(MODULE, name, "deal_with_galaxy_merger", &in, &out) != 0) {
+    return 1;
+  }
+  int problems = setup_modules(&in);
+  const double threshold_major_merger = oracle_in_f64(&in, "params.ThreshMajorMerger");
+  const int ngal = oracle_in_i32(&in, "call.ngal");
+  const int p = oracle_in_i32(&in, "call.p");
+  const int target = oracle_in_i32(&in, "call.merger_centralgal");
+  const int central = oracle_in_i32(&in, "call.centralgal");
+  const double time = oracle_in_f64(&in, "call.time");
+  const double dt = oracle_in_f64(&in, "call.dt");
+  const int step = oracle_in_i32(&in, "call.step");
+  if (ngal < 2 || ngal > MAX_GALAXIES || p < 0 || p >= ngal || target < 0 || target >= ngal ||
+      central < 0 || central >= ngal || p == target) {
+    fprintf(stderr, "oracle: %s: a call index is out of range\n", name);
+    cleanup_modules();
+    return problems + 1;
+  }
+
+  static struct GalaxyData galaxies[MAX_GALAXIES], before[MAX_GALAXIES];
+  static struct Halo halos[MAX_GALAXIES], halos_before[MAX_GALAXIES];
+  problems += load_galaxies(&in, ngal, halos, galaxies);
+  struct ModuleContext ctx;
+  problems += make_context(name, &ctx, &halos[central], step, FIXTURE_SUBSTEPS);
+  if (problems != 0) {
+    cleanup_modules();
+    return problems;
+  }
+  memcpy(before, galaxies, sizeof(before));
+  memcpy(halos_before, halos, sizeof(halos_before));
+
+  struct MimicSageMergerLocals merger;
+  struct MimicSageAddLocals add;
+  event_count = 0;
+  if (sage26_resolve_mergers_and_disruption_merge(&ctx, halos, ngal, p, target, time, dt,
+                                                  dispatch_merger_event, &merger, &add) != 0) {
+    fprintf(stderr, "oracle: %s: the merger transaction failed\n", name);
+    problems++;
+  }
+  if (event_count != 1 || event_source[0] != p || event_target[0] != target) {
+    fprintf(stderr, "oracle: %s: expected one merger event %d -> %d, got %d\n", name, p, target,
+            event_count);
+    problems++;
+  }
+  if (oracle_f64_to_bits(merger.mass_ratio) == oracle_f64_to_bits(0.0)) {
+    counts_ratio_zero++;
+  }
+
+  int merged_major[MAX_GALAXIES] = {-1, -1, -1, -1};
+  merged_major[p] = merger.major_merger;
+  problems += check_galaxies(name, &out, ngal, galaxies, before);
+  problems += check_identities(&out, ngal, halos, halos_before, merged_major);
+  problems += check_merger_locals(&out, &merger, threshold_major_merger);
+  problems += check_add_locals(&out, &add);
+  problems += check_remnant_radius_inert(&out, target);
+  consume_consumer_records(&out);
+  counts_merge++;
+
+  cleanup_modules();
+  problems += oracle_report_unconsumed(&in);
+  problems += oracle_report_unconsumed(&out);
+  return problems;
+}
+
+/**
+ * @brief Several mergers in one substep and bin, in the pass's order
+ *
+ * Runs one transaction per galaxy the oracle's pass merged (intermediate.pass.galaxy[i]
+ * action 1), in index order, at the event time, dt, bin and target the pass recorded.
+ */
+static int check_multiple_mergers(const char *name) {
+  static struct oracle_fixture in, out;
+  if (oracle_load_pair(MODULE, name, "merger_pass", &in, &out) != 0) {
+    return 1;
+  }
+  int problems = setup_modules(&in);
+  const int ngal = oracle_in_i32(&in, "call.ngal");
+  const int central = oracle_in_i32(&in, "call.centralgal");
+  const int step = oracle_in_i32(&in, "call.step");
+  const int num_substeps = oracle_in_i32(&in, "call.effective_steps");
+  // The pass's own timing and bookkeeping inputs; the pass records their effect
+  consume_prefix(&in, "call.");
+  if (ngal < 2 || ngal > MAX_GALAXIES || central < 0 || central >= ngal) {
+    fprintf(stderr, "oracle: %s: call.ngal or call.centralgal out of range\n", name);
+    cleanup_modules();
+    return problems + 1;
+  }
+
+  static struct GalaxyData galaxies[MAX_GALAXIES], before[MAX_GALAXIES];
+  static struct Halo halos[MAX_GALAXIES], halos_before[MAX_GALAXIES];
+  problems += load_galaxies(&in, ngal, halos, galaxies);
+  struct ModuleContext ctx;
+  problems += make_context(name, &ctx, &halos[central], step, num_substeps);
+  if (problems != 0) {
+    cleanup_modules();
+    return problems;
+  }
+  memcpy(before, galaxies, sizeof(before));
+  memcpy(halos_before, halos, sizeof(halos_before));
+
+  int merged_major[MAX_GALAXIES] = {-1, -1, -1, -1};
+  int expected_events = 0;
+  int expected_source[MAX_EVENTS], expected_target[MAX_EVENTS];
+  event_count = 0;
+  for (int i = 0; i < ngal; i++) {
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "intermediate.pass.galaxy[%d].action", i);
+    const int action = oracle_in_i32(&out, field);
+    if (action == 0) {
+      continue;
+    }
+    if (action != 1) {
+      fprintf(stderr, "oracle: %s: galaxy[%d] action %d is not a merger\n", name, i, action);
+      problems++;
+      continue;
+    }
+    snprintf(field, sizeof(field), "intermediate.pass.galaxy[%d].merger_centralgal", i);
+    const int target = oracle_in_i32(&out, field);
+    snprintf(field, sizeof(field), "intermediate.pass.galaxy[%d].event_time", i);
+    const double time = oracle_in_f64(&out, field);
+    snprintf(field, sizeof(field), "intermediate.pass.galaxy[%d].dt", i);
+    const double dt = oracle_in_f64(&out, field);
+    snprintf(field, sizeof(field), "intermediate.pass.galaxy[%d].step_bin", i);
+    const int bin = oracle_in_i32(&out, field);
+    if (bin != mimic_sage_sfr_step_bin(step, num_substeps)) {
+      fprintf(stderr, "oracle: %s: galaxy[%d] bin %d is not substep %d's\n", name, i, bin, step);
+      problems++;
+    }
+    if (expected_events < MAX_EVENTS) {
+      expected_source[expected_events] = i;
+      expected_target[expected_events] = target;
+    }
+    expected_events++;
+
+    struct MimicSageMergerLocals merger;
+    if (sage26_resolve_mergers_and_disruption_merge(&ctx, halos, ngal, i, target, time, dt,
+                                                    dispatch_merger_event, &merger, NULL) != 0) {
+      fprintf(stderr, "oracle: %s: the transaction of galaxy[%d] failed\n", name, i);
+      problems++;
+    }
+    merged_major[i] = merger.major_merger;
+  }
+
+  // The immediate event order across the mergers: one event per merger, in pass order
+  if (expected_events < 2 || event_count != expected_events) {
+    fprintf(stderr, "oracle: %s: %d mergers recorded, %d events delivered\n", name, expected_events,
+            event_count);
+    problems++;
+  } else {
+    for (int e = 0; e < event_count && e < MAX_EVENTS; e++) {
+      if (event_source[e] != expected_source[e] || event_target[e] != expected_target[e]) {
+        fprintf(stderr, "oracle: %s: event %d is %d -> %d, expected %d -> %d\n", name, e,
+                event_source[e], event_target[e], expected_source[e], expected_target[e]);
+        problems++;
+      }
+    }
+  }
+
+  problems += check_galaxies(name, &out, ngal, galaxies, before);
+  problems += check_identities(&out, ngal, halos, halos_before, merged_major);
+  for (int i = 0; i < ngal; i++) {
+    // The halo fields the pass records are unchanged by the transactions
+    const char *const halo_fields[] = {"Mvir", "deltaMvir", "Rvir", "Vvir", "Vmax"};
+    const double values[] = {halos[i].Mvir, halos[i].deltaMvir, halos[i].Rvir, halos[i].Vvir,
+                             halos[i].Vmax};
+    for (size_t k = 0; k < COUNT(halo_fields); k++) {
+      problems += oracle_check_f32(&out, oracle_galaxy_field(i, halo_fields[k]), (float)values[k]);
+    }
+    // The pass's clock decrement (B:529-530) belongs to the pass's port
+    oracle_exclude(&out, oracle_galaxy_field(i, "MergTime"));
+  }
+  // The pass's per-galaxy records (gates, targets, timing) belong to the pass's port
+  consume_prefix(&out, "intermediate.pass.");
+  counts_multi++;
+
+  cleanup_modules();
+  problems += oracle_report_unconsumed(&in);
+  problems += oracle_report_unconsumed(&out);
+  return problems;
+}
+
+/** @brief Dispatch one fixture by its name */
+static int check_fixture(const char *name) {
+  if (strncmp(name, "add_", 4) == 0) {
+    return check_add(name);
+  }
+  if (strncmp(name, "mbb_", 4) == 0) {
+    return check_mbb(name);
+  }
+  if (strncmp(name, "merge_", 6) == 0) {
+    return check_merge(name);
+  }
+  if (strcmp(name, "tr_pass_two_mergers_one_bin") == 0) {
+    return check_multiple_mergers(name);
+  }
+  fprintf(stderr, "oracle: %s: no check for this fixture\n", name);
+  return 1;
+}
+
+/**
+ * @brief Whether a fixture's routine is one this module does not yet port
+ *
+ * disrupt_satellite_to_ICS (dis_*), the per-substep pass (tr_pass_*, the two-merger
+ * fixture aside, which runs as two transactions) and joining followed by the pass
+ * (tr_jp_*).
+ */
+static int is_deferred(const char *name) {
+  if (strcmp(name, "tr_pass_two_mergers_one_bin") == 0) {
+    return 0;
+  }
+  return strncmp(name, "dis_", 4) == 0 || strncmp(name, "tr_pass_", 8) == 0 ||
+         strncmp(name, "tr_jp_", 6) == 0;
+}
+
+/**
+ * @brief Run every listed fixture: the ported ones bit for bit, the deferred ones reported
+ * @return 1 if the manifest lists its declared count and every ported fixture is identical
+ */
+static int run_fixtures(void) {
+  static char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
+  int declared = -1;
+  const int listed = oracle_manifest_fixtures(MODULE, names, &declared);
+  int checked = 0;
+  int identical = 0;
+  for (int i = 0; i < listed; i++) {
+    if (is_deferred(names[i])) {
+      counts_deferred++;
+      printf("\n  oracle: %s/%s deferred (routine not yet ported; not asserted)", MODULE, names[i]);
+      continue;
+    }
+    checked++;
+    const int problems = check_fixture(names[i]);
+    if (problems == 0) {
+      identical++;
+      printf("\n  oracle: %s/%s bit-identical", MODULE, names[i]);
+    } else {
+      printf("\n  oracle: %s/%s DIFFERS (%d problems; details on stderr)", MODULE, names[i],
+             problems);
+    }
+  }
+  printf("\n  oracle: %s bit-identical %d of %d checked fixtures; %d deferred; %d listed "
+         "(manifest declares %d) ",
+         MODULE, identical, checked, counts_deferred, listed, declared);
+  return declared > 0 && listed == declared && checked > 0 && identical == checked;
+}
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
+/**
+ * @test    test_oracle_fixture_count
+ * @brief   Every fixture fixtures.manifest lists for the module is present (platform independent)
+ */
+int test_oracle_fixture_count(void) {
+  TEST_ASSERT(oracle_fixture_count_ok(MODULE),
+              "fixtures.manifest must list its declared count and every listed fixture must exist");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_oracle_bit_identity
+ * @brief   Every merger-transaction fixture reproduces the SAGE26 oracle bit for bit (SKIP
+ *          outside its environment)
+ */
+int test_oracle_bit_identity(void) {
+  const char *mismatch = oracle_environment_mismatch();
+  if (mismatch != NULL) {
+    return TEST_SKIP_WITH(mismatch);
+  }
+  memset(&tally, 0, sizeof(tally));
+  counts_add = counts_mbb = counts_merge = counts_multi = 0;
+  counts_ratio_zero = counts_deferred = counts_inert_radius = 0;
+  counts_consumer_locals_validated = 0;
+
+  const int identical = run_fixtures();
+  printf("\n  oracle: add_galaxies_together %d, make_bulge_from_burst %d, "
+         "deal_with_galaxy_merger %d (ratio 0: %d), several mergers in one bin %d; deferred "
+         "(disruption, pass, joining) %d",
+         counts_add, counts_mbb, counts_merge, counts_ratio_zero, counts_multi, counts_deferred);
+  printf("\n  oracle: carried values asserted %d (validated two-sided), binding %d, not validated "
+         "%d, absent %d; remnant radius non-zero and inert %d; consumer locals validated by the "
+         "oracle but not exposed %d ",
+         tally.asserted, tally.binding, tally.not_validated, tally.absent, counts_inert_radius,
+         counts_consumer_locals_validated);
+  TEST_ASSERT(identical, "every merger-transaction fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(counts_ratio_zero >= 1, "a ratio-0 merger must run through the transaction");
+  TEST_ASSERT(counts_multi >= 1, "the several-mergers-in-one-bin fixture must be asserted");
+  return TEST_PASS;
+}
+
+int main(void) {
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: sage26_resolve_mergers_and_disruption SAGE26 oracle (bit-exact)\n");
+  printf("============================================================\n");
+  printf("%s", NC);
+
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+  reset_config();
+  init_memory_system(0);
+
+  // The production run file's phases (models/sage26/input/sage26_mini-millennium.yaml)
+  test_pre_timestep_add("sage26_initialise_merger_clock", PROCESSING_MODE_FULL_HALO);
+  test_phase_add("galaxy_physics", "sage26_disk_instability", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("satellite_mergers", MODULE, PROCESSING_MODE_FULL_HALO);
+  test_phase_add("satellite_mergers", "sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
+  test_phase_add("satellite_mergers", "sage26_starburst_feedback", PROCESSING_MODE_PER_EVENT);
+
+  TEST_RUN(test_oracle_fixture_count);
+  TEST_RUN(test_oracle_bit_identity);
+
+  test_free_substep_phases();
+  test_free_pre_timestep();
+  check_memory_leaks();
+
+  TEST_SUMMARY();
+  return TEST_RESULT();
+}

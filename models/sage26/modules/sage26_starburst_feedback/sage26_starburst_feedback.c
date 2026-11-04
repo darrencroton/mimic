@@ -50,6 +50,7 @@
 #include "shared/sage_starburst_physics.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_sfr_history.h"
+#include "shared/sage_merger_physics.h"
 #include "module_system/generated/event_contracts.h"
 #include "shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
@@ -217,11 +218,8 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
     }
 
     /* Subscription routing (see module_info.yaml events.consumes) ensures
-     * only merger events reach this module — no event_id check needed. */
-    if (event->value0 <= 0.0) {
-      return 0;
-    }
-
+     * only merger events reach this module — no event_id check needed. SAGE26 bursts on
+     * every merger, a ratio of 0 included (R/src/model_mergers.c:284-287). */
     if (event->value1 <= 0.0) {
       ERROR_LOG("Merger event missing valid source dt (value1=%.3e, source=%d, target=%d)",
                 event->value1, event->source_index, event->target_index);
@@ -244,11 +242,11 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
      * unaffected: rate_dt only scales that diagnostic. The outflow is committed
      * undivided by the shared feedback commit, as SAGE26's update_from_feedback
      * does (R/src/model_starformation_and_feedback.c:1249). */
-    /* The merger event does not yet carry SAGE26's pre-transfer morphology choice of the
-     * bulge channel (R/src/model_mergers.c:251-282). Until it does, every merger burst
-     * credits the merger channel, SAGE26's choice for a major merger (:268-270) and for a
-     * minor merger onto a spheroid-dominated target (:278-281). */
-    const int burst_to_merger_bulge = 1;
+    /* SAGE parity: the channel from the target's morphology BEFORE the satellite was
+     * added, which the resolver carries with the event in MergerDiskDominated
+     * (R/src/model_mergers.c:251-254, :266-282) */
+    const int burst_to_merger_bulge = mimic_sage_merger_burst_channel(
+        event->value0, THRESHOLD_MAJOR_MERGER, gal->MergerDiskDominated);
     /* SAGE26's whole burst transaction, the post-minor-merger instability recheck before
      * the yield included (R/src/model_mergers.c:584-831) */
     mimic_apply_collisional_starburst(event->value0, event_halo, central_halo, 0,
