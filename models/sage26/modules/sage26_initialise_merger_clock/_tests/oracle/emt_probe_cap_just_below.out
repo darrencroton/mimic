@@ -1,0 +1,49 @@
+# SAGE26 oracle output for emt_probe_cap_just_below.in, written by oracle_c06 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine estimate_merging_time
+f64 return.mergtime 0x408f33fb8e4e631b  # 998.49783002128549
+i32 intermediate.clock_same_halo 0
+i32 intermediate.clock_guard_passed 1
+i32 intermediate.clock_capped 0
+i32 intermediate.sat_virial_mass_absent 0
+f64 intermediate.sat_virial_mass 0x3f66c61520000000  # 0.0027799999807029963
+i32 intermediate.sat_virial_mass_checked 1
+i32 intermediate.sat_virial_mass_check_kind 2
+i32 intermediate.sat_virial_mass_validated_up 0
+i32 intermediate.sat_virial_mass_validated_down 1
+i32 intermediate.sat_virial_mass_validated 0
+i32 intermediate.coulomb_absent 0
+f64 intermediate.coulomb 0x4021663ca3fdbd25  # 8.6996814009895136
+i32 intermediate.coulomb_checked 1
+i32 intermediate.coulomb_check_kind 2
+i32 intermediate.coulomb_validated_up 0
+i32 intermediate.coulomb_validated_down 1
+i32 intermediate.coulomb_validated 0
+i32 intermediate.SatelliteMass_absent 0
+f64 intermediate.SatelliteMass 0x3f66c61520000000  # 0.0027799999807029963
+i32 intermediate.SatelliteMass_checked 1
+i32 intermediate.SatelliteMass_check_kind 2
+i32 intermediate.SatelliteMass_validated_up 0
+i32 intermediate.SatelliteMass_validated_down 1
+i32 intermediate.SatelliteMass_validated 0
+i32 intermediate.SatelliteRadius_absent 0
+f64 intermediate.SatelliteRadius 0x3fe868cb966acfad  # 0.76279239061704163
+i32 intermediate.SatelliteRadius_checked 1
+i32 intermediate.SatelliteRadius_check_kind 2
+i32 intermediate.SatelliteRadius_validated_up 1
+i32 intermediate.SatelliteRadius_validated_down 1
+i32 intermediate.SatelliteRadius_validated 1
+i32 intermediate.mother_virial_velocity_absent 0
+f64 intermediate.mother_virial_velocity 0x4087d657da4967d6  # 762.79289681766636
+i32 intermediate.mother_virial_velocity_checked 1
+i32 intermediate.mother_virial_velocity_check_kind 2
+i32 intermediate.mother_virial_velocity_validated_up 0
+i32 intermediate.mother_virial_velocity_validated_down 1
+i32 intermediate.mother_virial_velocity_validated 0
+i32 intermediate.mergtime_pre_cap_absent 0
+f64 intermediate.mergtime_pre_cap 0x408f33fb8e4e631b  # 998.49783002128549
+i32 intermediate.mergtime_pre_cap_checked 1
+i32 intermediate.mergtime_pre_cap_check_kind 2
+i32 intermediate.mergtime_pre_cap_validated_up 1
+i32 intermediate.mergtime_pre_cap_validated_down 1
+i32 intermediate.mergtime_pre_cap_validated 1
