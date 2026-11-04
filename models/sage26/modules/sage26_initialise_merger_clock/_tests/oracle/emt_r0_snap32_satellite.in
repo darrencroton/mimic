@@ -1,22 +1,19 @@
 # estimate_merging_time on a real R0 satellite subhalo and its FoF mother halo.
 # End-of-snapshot output values used as plausible call inputs, not reconstructed call-time state.
 # Source: R0 reference /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R0/model_0.hdf5 (SHA-256 6d859a3a2ea422e31ec04a403221d5a477c49f4dfdba303082dc59f1c6003399), Snap_32 rows 15443 (GalaxyIndex 3000057000000068, Type 0) and 15444 (GalaxyIndex 3000057000000071, Type 1).
-# The galaxies carry SnapNum 31 and the halo snapshot is 32 (Age and ZZ from a scratch
-# restatement of SAGE26's time_to_present on the run's a_list, R/src/core_init.c:159-206).
-# Converted back to code units: OutflowRate (times deltaT), TimeOfLast*Merger (divided by
-# UnitTime_in_Megayears); histories: every bin holds the output SFR in code units and ColdGas or
-# ColdGas*Sfr*Z as the gas samples (plausible, not SAGE26's own bins); deltaMvir constructed
-# (central +2% of Mvir, satellite -5% of Mvir); Cooling and Heating set to 0.
+# SnapNum: the rows store 32; the galaxies' SnapNum 31 is a constructed call-time value (the
+# snapshot they arrive from), and the halo snapshot is 32 (ZZ from a scratch restatement of
+# SAGE26's time_to_present on the run's a_list, R/src/core_init.c:159-206).
 # Halo 0 is the mother (the central's Len and Mvir), halo 1 the satellite's subhalo.
 # Reachability: R0-reachable.
 format sage26-oracle-fixture 1
 routine estimate_merging_time
 
-f64 params.PartMass 0x3fb604189374bc6a  # 0.086  (R/input/millennium.par:41)
+f64 params.PartMass 0x3fb604189374bc6a  # 0.086  (R0.par:41)
 f64 params.MergerTimeFactor 0x4000000000000000  # 2.0  (default, R/src/core_read_parameter_file.c:128)
-f64 params.Hubble 0x40590001165723b7  # 100.00006636151998  (HUBBLE * UnitTime_in_s, R/src/core_init.c:109)
-f64 params.Omega 0x3fd0000000000000  # 0.25  (R/input/millennium.par:37)
-f64 params.OmegaLambda 0x3fe8000000000000  # 0.75  (R/input/millennium.par:38)
+f64 params.Hubble 0x40590001165723b7  # 100.00006636151998  (HUBBLE * UnitTime_in_s, R/src/core_init.c:106)
+f64 params.Omega 0x3fd0000000000000  # 0.25  (R0.par:37)
+f64 params.OmegaLambda 0x3fe8000000000000  # 0.75  (R0.par:38)
 f64 params.G 0x404580e7ed5ced1b  # 43.00707785642063  (GRAVITY / CUBE(L) * M * SQR(T), R/src/core_init.c:96)
 
 i32 call.nhalos 2

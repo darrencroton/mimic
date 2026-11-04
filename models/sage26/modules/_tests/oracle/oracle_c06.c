@@ -625,8 +625,13 @@ static int32_t require_flag(const char *name, const int value) {
 
 /**
  * @brief R0's flags and parameters for every routine that can reach a merger, a burst or the
- *        instability (R/input/millennium.par:48-89; StarburstColdGasOn and SaveFullSFH are
- *        SAGE26's defaults, R/src/core_read_parameter_file.c:93-130)
+ *        instability
+ *
+ * The pins are R0's run config, the campaign's par/R0.par (an edit of the upstream template
+ * R/input/millennium.par, whose flag lines 48-57 differ): SFprescription 0 (R0.par:48),
+ * AGNrecipeOn 2 (:49), SupernovaRecipeOn 1 (:50), DiskInstabilityOn 1 (:52), CGMrecipeOn 0
+ * (:54), FIREmodeOn 0 (:55), SaveFullSFH 0 (:60) and BulgeSizeOn 0 (:109); StarburstColdGasOn 1
+ * is SAGE26's default (R/src/core_read_parameter_file.c:109), which R0.par leaves alone.
  *
  * The transcriptions below implement R0's paths only: SFprescription 0 (no H2 tracking), the
  * SN recipe without FIRE, no CGM, the Bondi AGN recipe (AGNrecipeOn 2), cold-gas starbursts,
@@ -660,7 +665,7 @@ static void read_merger_config(void) {
 /**
  * @brief The clock's parameters (estimate_merging_time and the virial helpers it calls,
  *        R/src/model_halo_properties.c:31-85): PartMass, MergerTimeFactor and the cosmology,
- *        with G and Hubble at SAGE26's derived bit patterns (R/src/core_init.c:96, :109)
+ *        with G and Hubble at SAGE26's derived bit patterns (R/src/core_init.c:96, :106)
  */
 static void read_clock_params(const int read_g) {
   run_params.PartMass = in_f64("params.PartMass");
@@ -2375,36 +2380,48 @@ static void transcribe_merger_pass(const struct pass_args *a, struct pass_galaxy
   }
 }
 
+/** @brief An i32 record field with its _absent marker: the value only where the path sets it */
+static void out_optional_i32(const char *base, const char *name, const int present,
+                             const int value) {
+  out_i32(field_name("%s%s_absent", base, name), present ? 0 : 1);
+  if (present) {
+    out_i32(field_name("%s%s", base, name), value);
+  }
+}
+
+/** @brief An f64 record field with its _absent marker: the value only where the path sets it */
+static void out_optional_f64(const char *base, const char *name, const int present,
+                             const double value) {
+  out_i32(field_name("%s%s_absent", base, name), present ? 0 : 1);
+  if (present) {
+    out_f64(field_name("%s%s", base, name), value);
+  }
+}
+
+/**
+ * @brief The pass record of every galaxy: considered and action on every path, and each other
+ *        field with an _absent marker (1 where the path does not evaluate it)
+ */
 static void write_pass_record(const char *prefix, const int ngal, const struct pass_galaxy *rec) {
   for (int p = 0; p < ngal; p++) {
     const struct pass_galaxy *r = &rec[p];
     char base[NAME_LEN];
     snprintf(base, sizeof(base), "intermediate.%sgalaxy[%d].", prefix, p);
-    out_i32(field_name("%sconsidered", base), r->considered);
-    if (!r->considered) {
-      continue;
-    }
-    out_f64(field_name("%sdeltaT", base), r->deltaT);
-    out_f64(field_name("%scurrentMvir", base), r->currentMvir);
-    out_f64(field_name("%sgalaxyBaryons", base), r->galaxyBaryons);
-    out_i32(field_name("%sgate_zero_baryons", base), r->gate_zero_baryons);
-    out_i32(field_name("%sgate_passed", base), r->gate_passed);
-    if (!r->gate_passed) {
-      continue;
-    }
-    out_i32(field_name("%smerger_centralgal", base), r->merger_centralgal);
-    out_i32(field_name("%sredirected", base), r->redirected);
-    out_i32(field_name("%sclock_finite", base), r->clock_finite);
+    const int considered = r->considered;
+    const int gated = considered && r->gate_passed;
+    out_i32(field_name("%sconsidered", base), considered);
     out_i32(field_name("%saction", base), r->action);
-    out_i32(field_name("%sevent_time_absent", base), r->clock_finite ? 0 : 1);
-    if (r->clock_finite) {
-      out_f64(field_name("%sevent_time", base), r->event_time);
-    }
-    out_i32(field_name("%sdt_absent", base), r->action == 1 ? 0 : 1);
-    if (r->action == 1) {
-      out_i32(field_name("%sstep_bin", base), r->step_bin);
-      out_f64(field_name("%sdt", base), r->dt);
-    }
+    out_optional_f64(base, "deltaT", considered, r->deltaT);
+    out_optional_f64(base, "currentMvir", considered, r->currentMvir);
+    out_optional_f64(base, "galaxyBaryons", considered, r->galaxyBaryons);
+    out_optional_i32(base, "gate_zero_baryons", considered, r->gate_zero_baryons);
+    out_optional_i32(base, "gate_passed", considered, r->gate_passed);
+    out_optional_i32(base, "merger_centralgal", gated, r->merger_centralgal);
+    out_optional_i32(base, "redirected", gated, r->redirected);
+    out_optional_i32(base, "clock_finite", gated, r->clock_finite);
+    out_optional_f64(base, "event_time", gated && r->clock_finite, r->event_time);
+    out_optional_i32(base, "step_bin", r->action == 1, r->step_bin);
+    out_optional_f64(base, "dt", r->action == 1, r->dt);
   }
 }
 
@@ -2478,19 +2495,21 @@ static void run_merger_pass(void) {
   write_pass_record("pass.", ngal, rec);
 }
 
-/** What joining did to one galaxy (intermediate.join.galaxy[i].*) */
-struct join_galaxy {
-  int branch; /* JOIN_* below */
-  double previousMvir, previousVvir, previousVmax;
-  double new_Mvir; /* main branch only */
-  int halo_grew;   /* main branch only: B:267 */
-  int infall_recorded;
-  int clock_estimated;
+/** What joining did to one progenitor galaxy (intermediate.join.progenitor[k].*) */
+struct join_progenitor {
+  int branch;   /* JOIN_* below */
+  int slot;     /* the galaxies[] slot B:234 copied it into */
+  int retained; /* 1 if B:341 counted the slot; 0 if the B:244 continue skipped it */
+  double previousMvir, previousVvir, previousVmax; /* B:248-250 */
+  double new_Mvir;                                 /* main branch only: B:264 */
+  int halo_grew;                                   /* main branch only: B:267 */
+  int infall_recorded;                             /* B:306 (satellite) or B:327 (orphan) */
+  int clock_estimated;                             /* B:315, satellite only */
 };
 
 enum join_branch {
   JOIN_UNTOUCHED = 0,      /* Type 2 or 3 progenitor: copied, B:240 false */
-  JOIN_ALREADY_MERGED = 1, /* mergeType != 0: Type 3, B:242-245 */
+  JOIN_ALREADY_MERGED = 1, /* mergeType != 0: Type 3 and dropped, B:242-245 */
   JOIN_CENTRAL = 2,        /* main branch, FoF central: B:284-300 */
   JOIN_SATELLITE = 3,      /* main branch, subhalo: B:301-321 */
   JOIN_ORPHAN = 4          /* not the main branch: B:322-338 */
@@ -2498,42 +2517,57 @@ enum join_branch {
 
 /** The arguments of one join call */
 struct join_args {
-  int ngal;
+  int nprog; /* progenitor galaxies, in the order B:213-214 visits them */
   int halonr;
   int first_occupied;
   int prog[MAX_GALAXIES];
 };
 
+/** The progenitor galaxies as halogal holds them (B:234's source), call.galaxy[k] in the input */
+static struct GALAXY progenitor_galaxies[MAX_GALAXIES];
+
 /**
  * @brief SOURCE-REVIEWED TRANSCRIPTION of the per-galaxy block of join_galaxies_of_progenitors,
- *        B:234-345, and the central assignment, B:358-370, for one descendant halo
+ *        B:210-345, and the central assignment, B:358-370, for one descendant halo
  *
- * The galaxies arrive as their progenitors left them (B:234 copies them in), in progenitor
- * order, each with the progenitor halo it came from (call.galaxy[i].prog) and the progenitor
- * B:181-208 selects as first_occupied (call.first_occupied: tree bookkeeping, not c06 physics,
- * taken as an input). Not transcribed: MostBoundID, Pos and Vel (B:254-259, identity data no
- * c06 routine reads), the concentration (B:291-295, ConcentrationOn 0 on R0), the array growth
- * (B:215-227) and the creation of a new galaxy when no progenitor has one (B:347-351, c03's
- * init_galaxy). The halo helpers, estimate_merging_time, get_disk_radius and get_bulge_radius
- * are SAGE26's own. B:361-362 returns -1 when two galaxies are Type 0 or 1; the oracle refuses
- * the fixture there instead.
+ * The progenitor galaxies arrive as halogal holds them, in the order B:213-214 visits them, each
+ * with the progenitor halo it came from (call.galaxy[k].prog) and the progenitor B:181-208
+ * selects as first_occupied (call.first_occupied: tree bookkeeping, not c06 physics, taken as an
+ * input). ngalstart is 0. As in SAGE26, the progenitor index and the galaxies[] slot are
+ * separate: B:234 copies each progenitor into slot ngal, and the B:244 continue skips B:341's
+ * ngal++, so an already-merged galaxy's slot is overwritten by the next progenitor (or left past
+ * the returned count) and never enters B:358-370. Returns ngal (B:372). Not transcribed:
+ * MostBoundID, Pos and Vel (B:254-259, identity data no c06 routine reads), the concentration
+ * (B:291-295, ConcentrationOn 0 on R0, R0.par:57), the array growth (B:215-227) and the creation
+ * of a new galaxy when no progenitor leaves one (B:347-351, c03's init_galaxy), which the oracle
+ * refuses. The halo helpers, estimate_merging_time, get_disk_radius and get_bulge_radius are
+ * SAGE26's own. B:361-362 returns -1 when two galaxies are Type 0 or 1; the oracle refuses the
+ * fixture there instead.
  */
-static void transcribe_join_progenitors(const struct join_args *a, struct join_galaxy *rec) {
+static int transcribe_join_progenitors(const struct join_args *a, struct join_progenitor *rec) {
   const int halonr = a->halonr;
-  for (int ngal = 0; ngal < a->ngal; ngal++) {
-    struct join_galaxy *r = &rec[ngal];
+
+  /* B:210, with ngalstart 0 */
+  int ngal = 0;
+
+  /* B:213-214 */
+  for (int k = 0; k < a->nprog; k++) {
+    struct join_progenitor *r = &rec[k];
     memset(r, 0, sizeof(*r));
     r->branch = JOIN_UNTOUCHED;
-    const int prog = a->prog[ngal];
+    r->slot = ngal;
+    const int prog = a->prog[k];
 
-    /* B:235, B:237 */
+    /* B:234-235 */
+    galaxies[ngal] = progenitor_galaxies[k];
     galaxies[ngal].HaloNr = halonr;
 
+    /* B:237 */
     galaxies[ngal].dT = -1.0;
 
     /* B:240 */
     if (galaxies[ngal].Type == 0 || galaxies[ngal].Type == 1) {
-      /* B:242-245 */
+      /* B:242-245: the continue skips B:341 */
       if (galaxies[ngal].mergeType != 0) {
         galaxies[ngal].Type = 3;
         r->branch = JOIN_ALREADY_MERGED;
@@ -2642,11 +2676,21 @@ static void transcribe_join_progenitors(const struct join_args *a, struct join_g
         galaxies[ngal].Type = 2;
       }
     }
+
+    /* B:341 */
+    r->retained = 1;
+    ngal++;
+  }
+
+  /* B:347-351 */
+  if (ngal == 0) {
+    fatal("no progenitor galaxy is retained: SAGE26 creates a new galaxy (B:347-351, c03's "
+          "init_galaxy), which this transcription does not cover");
   }
 
   /* B:358-366 */
   int centralgal = -1;
-  for (int i = 0; i < a->ngal; i++) {
+  for (int i = 0; i < ngal; i++) {
     if (galaxies[i].Type == 0 || galaxies[i].Type == 1) {
       if (centralgal != -1) {
         fatal("two Type 0 or 1 galaxies (%d and %d) after joining: SAGE26 returns -1 (B:361-362)",
@@ -2657,78 +2701,102 @@ static void transcribe_join_progenitors(const struct join_args *a, struct join_g
   }
 
   /* B:368-370 */
-  for (int i = 0; i < a->ngal; i++) {
+  for (int i = 0; i < ngal; i++) {
     galaxies[i].CentralGal = centralgal;
   }
+
+  /* B:372 */
+  return ngal;
 }
 
-static void write_join_record(const int ngal, const struct join_galaxy *rec) {
-  for (int i = 0; i < ngal; i++) {
-    const struct join_galaxy *r = &rec[i];
+static void write_join_record(const char *prefix, const int nprog,
+                              const struct join_progenitor *rec) {
+  for (int k = 0; k < nprog; k++) {
+    const struct join_progenitor *r = &rec[k];
     char base[NAME_LEN];
-    snprintf(base, sizeof(base), "intermediate.join.galaxy[%d].", i);
+    snprintf(base, sizeof(base), "intermediate.%sprogenitor[%d].", prefix, k);
+    const int main_branch = r->branch == JOIN_CENTRAL || r->branch == JOIN_SATELLITE;
+    const int previous = main_branch || r->branch == JOIN_ORPHAN;
     out_i32(field_name("%sbranch", base), r->branch);
-    if (r->branch == JOIN_UNTOUCHED || r->branch == JOIN_ALREADY_MERGED) {
-      continue;
-    }
-    out_f64(field_name("%spreviousMvir", base), r->previousMvir);
-    out_f64(field_name("%spreviousVvir", base), r->previousVvir);
-    out_f64(field_name("%spreviousVmax", base), r->previousVmax);
-    out_i32(field_name("%snew_Mvir_absent", base),
-            r->branch == JOIN_CENTRAL || r->branch == JOIN_SATELLITE ? 0 : 1);
-    if (r->branch == JOIN_CENTRAL || r->branch == JOIN_SATELLITE) {
-      out_f64(field_name("%snew_Mvir", base), r->new_Mvir);
-      out_i32(field_name("%shalo_grew", base), r->halo_grew);
-    }
-    out_i32(field_name("%sinfall_recorded", base), r->infall_recorded);
-    out_i32(field_name("%sclock_estimated", base), r->clock_estimated);
+    out_i32(field_name("%sslot", base), r->slot);
+    out_i32(field_name("%sretained", base), r->retained);
+    out_optional_f64(base, "previousMvir", previous, r->previousMvir);
+    out_optional_f64(base, "previousVvir", previous, r->previousVvir);
+    out_optional_f64(base, "previousVmax", previous, r->previousVmax);
+    out_optional_f64(base, "new_Mvir", main_branch, r->new_Mvir);
+    out_optional_i32(base, "halo_grew", main_branch, r->halo_grew);
+    out_optional_i32(base, "infall_recorded",
+                     r->branch == JOIN_SATELLITE || r->branch == JOIN_ORPHAN, r->infall_recorded);
+    out_optional_i32(base, "clock_estimated", r->branch == JOIN_SATELLITE, r->clock_estimated);
   }
 }
 
 /** @brief Read the join's call inputs and parameters */
-static void read_join_args(struct join_args *a, const int ngal, const int nhalos) {
-  a->ngal = ngal;
+static void read_join_args(struct join_args *a, const int nprog, const int nhalos) {
+  a->nprog = nprog;
   a->halonr = read_index("call.halonr", nhalos);
   a->first_occupied = read_index("call.first_occupied", nhalos);
-  for (int i = 0; i < ngal; i++) {
-    a->prog[i] = read_index(field_name("call.galaxy[%d].prog", i), nhalos);
+  for (int k = 0; k < nprog; k++) {
+    a->prog[k] = read_index(field_name("call.galaxy[%d].prog", k), nhalos);
   }
 }
 
-/** @brief The flags joining reads: ConcentrationOn 0 (B:291), BulgeSizeOn 0 (get_bulge_radius) */
+/**
+ * @brief Read the progenitor galaxies (call.ngal of them, galaxy[k] in the input) into
+ *        progenitor_galaxies[] and leave galaxies[], the slots joining fills, poisoned
+ */
+static void read_progenitor_galaxies(const int nprog) {
+  for (int k = 0; k < nprog; k++) {
+    read_galaxy(k, BLOCK_JOIN_INPUT);
+    progenitor_galaxies[k] = galaxies[k];
+  }
+  memset(galaxies, 0xff, sizeof(galaxies));
+}
+
+/**
+ * @brief The flags joining reads: ConcentrationOn 0 (B:291, R0.par:57) and BulgeSizeOn 0
+ *        (get_bulge_radius, R0.par:109)
+ */
 static void read_join_flags(void) {
   run_params.ConcentrationOn = require_flag("ConcentrationOn", 0);
 }
 
-/** @brief Clock, infall and history assignment of progenitor joining (a transcription) */
+/**
+ * @brief Clock, infall and history assignment of progenitor joining (a transcription)
+ *
+ * Records the returned count (return.ngal), every member of each retained galaxy
+ * (galaxy[0 .. ngal-1]) and what joining did to each progenitor.
+ */
 static void run_join_progenitors(void) {
   read_join_flags();
   run_params.BulgeSizeOn = require_flag("BulgeSizeOn", 0);
   read_clock_params(1);
   const int nhalos = read_halo_catalogue(HALO_BASIC | HALO_JOIN);
-  const int ngal = read_ngal();
+  const int nprog = read_ngal();
   struct join_args a;
-  read_join_args(&a, ngal, nhalos);
-  for (int i = 0; i < ngal; i++) {
-    read_galaxy(i, BLOCK_JOIN_INPUT);
-  }
+  read_join_args(&a, nprog, nhalos);
+  read_progenitor_galaxies(nprog);
   check_all_fields_used();
 
-  struct join_galaxy rec[MAX_GALAXIES];
-  transcribe_join_progenitors(&a, rec);
+  struct join_progenitor rec[MAX_GALAXIES];
+  const int ngal = transcribe_join_progenitors(&a, rec);
 
+  out_i32("return.ngal", ngal);
   for (int i = 0; i < ngal; i++) {
     write_galaxy("", i, &galaxies[i], BLOCK_ALL);
   }
-  write_join_record(ngal, rec);
+  write_join_record("join.", nprog, rec);
 }
 
 /**
  * @brief Joining followed by one substep of the pass: the orphan history retention
  *        (B:252-282, B:322-337) carried into a merger in the same snapshot
  *
- * Both halves are the source-reviewed transcriptions above. The ordinary physics of the
- * substeps (B:466-517) between them is not composed: the pass sees the joined state.
+ * Both halves are the source-reviewed transcriptions above, and the pass sees the ngal galaxies
+ * joining retained (B:152 passes the returned count to evolve_galaxies). The ordinary physics of
+ * the substeps (B:466-517) between them is not composed: the pass sees the joined state. Every
+ * member of each retained galaxy is recorded after joining (intermediate.join.galaxy[i]) and
+ * after the pass (galaxy[i]).
  */
 static void run_join_and_pass(void) {
   read_merger_config();
@@ -2736,31 +2804,34 @@ static void run_join_and_pass(void) {
   read_join_flags();
   read_clock_params(0);
   const int nhalos = read_halo_catalogue(HALO_BASIC | HALO_JOIN);
-  const int ngal = read_ngal();
+  const int nprog = read_ngal();
   struct join_args ja;
-  read_join_args(&ja, ngal, nhalos);
+  read_join_args(&ja, nprog, nhalos);
   struct pass_args pa;
-  read_pass_args(&pa, ngal);
-  for (int i = 0; i < ngal; i++) {
-    read_galaxy(i, BLOCK_JOIN_INPUT);
-  }
+  read_pass_args(&pa, nprog);
+  read_progenitor_galaxies(nprog);
+
+  struct join_progenitor jrec[MAX_GALAXIES];
+  const int ngal = transcribe_join_progenitors(&ja, jrec);
+
+  /* The pass's Age per galaxy snapshot, for the retained galaxies (joining keeps SnapNum) */
+  pa.ngal = ngal;
   read_pass_ages(&pa);
   check_all_fields_used();
-
-  struct join_galaxy jrec[MAX_GALAXIES];
-  transcribe_join_progenitors(&ja, jrec);
   check_pass_layout(&pa);
+
+  out_i32("intermediate.join.ngal", ngal);
   for (int i = 0; i < ngal; i++) {
-    write_galaxy("intermediate.join.", i, &galaxies[i], BLOCK_IDENT | BLOCK_HALO | BLOCK_HISTORIES);
+    write_galaxy("intermediate.join.", i, &galaxies[i], BLOCK_ALL);
   }
 
   struct pass_galaxy prec[MAX_GALAXIES];
   transcribe_merger_pass(&pa, prec);
 
   for (int i = 0; i < ngal; i++) {
-    write_galaxy("", i, &galaxies[i], BLOCK_MERGER_INPUT);
+    write_galaxy("", i, &galaxies[i], BLOCK_ALL);
   }
-  write_join_record(ngal, jrec);
+  write_join_record("join.", nprog, jrec);
   write_pass_record("pass.", ngal, prec);
 }
 

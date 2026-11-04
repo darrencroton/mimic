@@ -308,19 +308,52 @@ f32 galaxy[2].SfrBulgeColdGasMetals[7] 0x3a917d6b  # 0.00110999995
 f32 galaxy[2].SfrBulgeColdGasMetals[8] 0x3a956c0d  # 0.00113999995
 f32 galaxy[2].SfrBulgeColdGasMetals[9] 0x3a995aaf  # 0.00116999994
 i32 intermediate.pass.galaxy[0].considered 0
+i32 intermediate.pass.galaxy[0].action 0
+i32 intermediate.pass.galaxy[0].deltaT_absent 1
+i32 intermediate.pass.galaxy[0].currentMvir_absent 1
+i32 intermediate.pass.galaxy[0].galaxyBaryons_absent 1
+i32 intermediate.pass.galaxy[0].gate_zero_baryons_absent 1
+i32 intermediate.pass.galaxy[0].gate_passed_absent 1
+i32 intermediate.pass.galaxy[0].merger_centralgal_absent 1
+i32 intermediate.pass.galaxy[0].redirected_absent 1
+i32 intermediate.pass.galaxy[0].clock_finite_absent 1
+i32 intermediate.pass.galaxy[0].event_time_absent 1
+i32 intermediate.pass.galaxy[0].step_bin_absent 1
+i32 intermediate.pass.galaxy[0].dt_absent 1
 i32 intermediate.pass.galaxy[1].considered 0
+i32 intermediate.pass.galaxy[1].action 0
+i32 intermediate.pass.galaxy[1].deltaT_absent 1
+i32 intermediate.pass.galaxy[1].currentMvir_absent 1
+i32 intermediate.pass.galaxy[1].galaxyBaryons_absent 1
+i32 intermediate.pass.galaxy[1].gate_zero_baryons_absent 1
+i32 intermediate.pass.galaxy[1].gate_passed_absent 1
+i32 intermediate.pass.galaxy[1].merger_centralgal_absent 1
+i32 intermediate.pass.galaxy[1].redirected_absent 1
+i32 intermediate.pass.galaxy[1].clock_finite_absent 1
+i32 intermediate.pass.galaxy[1].event_time_absent 1
+i32 intermediate.pass.galaxy[1].step_bin_absent 1
+i32 intermediate.pass.galaxy[1].dt_absent 1
 i32 intermediate.pass.galaxy[2].considered 1
-f64 intermediate.pass.galaxy[2].deltaT 0x3f3106eab0f23f40  # 0.00025981168523346934
-f64 intermediate.pass.galaxy[2].currentMvir 0x0000000000000000  # 0
-f64 intermediate.pass.galaxy[2].galaxyBaryons 0x3fc0a3d700000000  # 0.12999999523162842
-i32 intermediate.pass.galaxy[2].gate_zero_baryons 0
-i32 intermediate.pass.galaxy[2].gate_passed 1
-i32 intermediate.pass.galaxy[2].merger_centralgal 1
-i32 intermediate.pass.galaxy[2].redirected 1
-i32 intermediate.pass.galaxy[2].clock_finite 1
 i32 intermediate.pass.galaxy[2].action 1
+i32 intermediate.pass.galaxy[2].deltaT_absent 0
+f64 intermediate.pass.galaxy[2].deltaT 0x3f3106eab0f23f40  # 0.00025981168523346934
+i32 intermediate.pass.galaxy[2].currentMvir_absent 0
+f64 intermediate.pass.galaxy[2].currentMvir 0x0000000000000000  # 0
+i32 intermediate.pass.galaxy[2].galaxyBaryons_absent 0
+f64 intermediate.pass.galaxy[2].galaxyBaryons 0x3fc0a3d700000000  # 0.12999999523162842
+i32 intermediate.pass.galaxy[2].gate_zero_baryons_absent 0
+i32 intermediate.pass.galaxy[2].gate_zero_baryons 0
+i32 intermediate.pass.galaxy[2].gate_passed_absent 0
+i32 intermediate.pass.galaxy[2].gate_passed 1
+i32 intermediate.pass.galaxy[2].merger_centralgal_absent 0
+i32 intermediate.pass.galaxy[2].merger_centralgal 1
+i32 intermediate.pass.galaxy[2].redirected_absent 0
+i32 intermediate.pass.galaxy[2].redirected 1
+i32 intermediate.pass.galaxy[2].clock_finite_absent 0
+i32 intermediate.pass.galaxy[2].clock_finite 1
 i32 intermediate.pass.galaxy[2].event_time_absent 0
 f64 intermediate.pass.galaxy[2].event_time 0x3f772b3038f6d8e8  # 0.0056564220134786916
-i32 intermediate.pass.galaxy[2].dt_absent 0
+i32 intermediate.pass.galaxy[2].step_bin_absent 0
 i32 intermediate.pass.galaxy[2].step_bin 9
+i32 intermediate.pass.galaxy[2].dt_absent 0
 f64 intermediate.pass.galaxy[2].dt 0x3efb3e444e506533  # 2.5981168523346933e-05

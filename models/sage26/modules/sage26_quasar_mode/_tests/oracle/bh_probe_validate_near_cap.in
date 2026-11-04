@@ -8,26 +8,26 @@
 format sage26-oracle-fixture 1
 routine grow_black_hole
 
-i32 params.SFprescription 0  # R0 (R/input/millennium.par:48)
-i32 params.SupernovaRecipeOn 1  # R0
-i32 params.CGMrecipeOn 0  # R0
-i32 params.FIREmodeOn 0  # R0
-i32 params.BulgeSizeOn 0  # R0
-i32 params.SaveFullSFH 0  # R0
-i32 params.AGNrecipeOn 2  # R0 (R/input/millennium.par:49)
-i32 params.StarburstColdGasOn 1  # R0; default, R/src/core_read_parameter_file.c:109
-i32 params.DiskInstabilityOn 1  # R0
-f64 params.FeedbackReheatingEpsilon 0x4007333333333333  # 2.9  (R/input/millennium.par:69)
-f64 params.FeedbackEjectionEfficiency 0x3fd3333333333333  # 0.3  (R/input/millennium.par:70)
+i32 params.SFprescription 0  # R0 (R0.par:48)
+i32 params.SupernovaRecipeOn 1  # R0 (R0.par:50)
+i32 params.CGMrecipeOn 0  # R0 (R0.par:54)
+i32 params.FIREmodeOn 0  # R0 (R0.par:55)
+i32 params.BulgeSizeOn 0  # R0 (R0.par:109)
+i32 params.SaveFullSFH 0  # R0 (R0.par:60)
+i32 params.AGNrecipeOn 2  # R0 (R0.par:49)
+i32 params.StarburstColdGasOn 1  # R0: SAGE26's default, R/src/core_read_parameter_file.c:109 (R0.par does not set it)
+i32 params.DiskInstabilityOn 1  # R0 (R0.par:52)
+f64 params.FeedbackReheatingEpsilon 0x4007333333333333  # 2.9  (R0.par:69)
+f64 params.FeedbackEjectionEfficiency 0x3fd3333333333333  # 0.3  (R0.par:70)
 f64 params.EtaSNcode 0x4190547d7abd5eaf  # 68493150.6849315  (EtaSN * (UnitMass_in_g / SOLAR_MASS) / Hubble_h, R/src/core_init.c:103)
 f64 params.EnergySNcode 0x3f6e10f01e10f01d  # 0.003670186023127199  (EnergySN / UnitEnergy_in_cgs * Hubble_h, R/src/core_init.c:102)
-f64 params.RecycleFraction 0x3fdb851eb851eb85  # 0.43  (R/input/millennium.par:82)
-f64 params.Yield 0x3f9999999999999a  # 0.025  (R/input/millennium.par:81)
-f64 params.FracZleaveDisk 0x0000000000000000  # 0.0  (R/input/millennium.par:83)
-f64 params.ThreshMajorMerger 0x3fd3333333333333  # 0.3  (R/input/millennium.par:78)
-f64 params.BlackHoleGrowthRate 0x3f8eb851eb851eb8  # 0.015  (R/input/millennium.par:76)
-f64 params.QuasarModeEfficiency 0x3f747ae147ae147b  # 0.005  (R/input/millennium.par:75)
-f64 params.UnitVelocity_in_cm_per_s 0x40f86a0000000000  # 100000.0  (run file)
+f64 params.RecycleFraction 0x3fdb851eb851eb85  # 0.43  (R0.par:82)
+f64 params.Yield 0x3f9999999999999a  # 0.025  (R0.par:81)
+f64 params.FracZleaveDisk 0x0000000000000000  # 0.0  (R0.par:83)
+f64 params.ThreshMajorMerger 0x3fd3333333333333  # 0.3  (R0.par:78)
+f64 params.BlackHoleGrowthRate 0x3f8eb851eb851eb8  # 0.015  (R0.par:76)
+f64 params.QuasarModeEfficiency 0x3f747ae147ae147b  # 0.005  (R0.par:75)
+f64 params.UnitVelocity_in_cm_per_s 0x40f86a0000000000  # 100000.0  (R0.par:108)
 f64 params.G 0x404580e7ed5ced1b  # 43.00707785642063  (GRAVITY / CUBE(L) * M * SQR(T), R/src/core_init.c:96)
 
 f64 call.mass_ratio 0x4060aaaaaaaaaaaa  # 133.33333333333331

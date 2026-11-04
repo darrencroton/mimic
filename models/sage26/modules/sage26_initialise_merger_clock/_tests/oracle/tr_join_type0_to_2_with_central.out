@@ -1,6 +1,7 @@
 # SAGE26 oracle output for tr_join_type0_to_2_with_central.in, written by oracle_c06 (regenerate.sh); do not edit.
 format sage26-oracle-fixture 1
 routine join_progenitors
+i32 return.ngal 2
 i32 galaxy[0].Type 0
 i32 galaxy[0].SnapNum 40
 i32 galaxy[0].mergeType 0
@@ -223,19 +224,32 @@ f32 galaxy[1].SfrBulgeColdGasMetals[6] 0x3c8ce704  # 0.0172000006
 f32 galaxy[1].SfrBulgeColdGasMetals[7] 0x3c8e8a72  # 0.0174000002
 f32 galaxy[1].SfrBulgeColdGasMetals[8] 0x3c902de0  # 0.0175999999
 f32 galaxy[1].SfrBulgeColdGasMetals[9] 0x3c91d14e  # 0.0177999996
-i32 intermediate.join.galaxy[0].branch 2
-f64 intermediate.join.galaxy[0].previousMvir 0x4059333340000000  # 100.80000305175781
-f64 intermediate.join.galaxy[0].previousVvir 0x4062200000000000  # 145
-f64 intermediate.join.galaxy[0].previousVmax 0x4064000000000000  # 160
-i32 intermediate.join.galaxy[0].new_Mvir_absent 0
-f64 intermediate.join.galaxy[0].new_Mvir 0x4059ccccc0000000  # 103.19999694824219
-i32 intermediate.join.galaxy[0].halo_grew 1
-i32 intermediate.join.galaxy[0].infall_recorded 0
-i32 intermediate.join.galaxy[0].clock_estimated 0
-i32 intermediate.join.galaxy[1].branch 4
-f64 intermediate.join.galaxy[1].previousMvir 0x400b333340000000  # 3.4000000953674316
-f64 intermediate.join.galaxy[1].previousVvir 0x4052000000000000  # 72
-f64 intermediate.join.galaxy[1].previousVmax 0x4053c00000000000  # 79
-i32 intermediate.join.galaxy[1].new_Mvir_absent 1
-i32 intermediate.join.galaxy[1].infall_recorded 1
-i32 intermediate.join.galaxy[1].clock_estimated 0
+i32 intermediate.join.progenitor[0].branch 2
+i32 intermediate.join.progenitor[0].slot 0
+i32 intermediate.join.progenitor[0].retained 1
+i32 intermediate.join.progenitor[0].previousMvir_absent 0
+f64 intermediate.join.progenitor[0].previousMvir 0x4059333340000000  # 100.80000305175781
+i32 intermediate.join.progenitor[0].previousVvir_absent 0
+f64 intermediate.join.progenitor[0].previousVvir 0x4062200000000000  # 145
+i32 intermediate.join.progenitor[0].previousVmax_absent 0
+f64 intermediate.join.progenitor[0].previousVmax 0x4064000000000000  # 160
+i32 intermediate.join.progenitor[0].new_Mvir_absent 0
+f64 intermediate.join.progenitor[0].new_Mvir 0x4059ccccc0000000  # 103.19999694824219
+i32 intermediate.join.progenitor[0].halo_grew_absent 0
+i32 intermediate.join.progenitor[0].halo_grew 1
+i32 intermediate.join.progenitor[0].infall_recorded_absent 1
+i32 intermediate.join.progenitor[0].clock_estimated_absent 1
+i32 intermediate.join.progenitor[1].branch 4
+i32 intermediate.join.progenitor[1].slot 1
+i32 intermediate.join.progenitor[1].retained 1
+i32 intermediate.join.progenitor[1].previousMvir_absent 0
+f64 intermediate.join.progenitor[1].previousMvir 0x400b333340000000  # 3.4000000953674316
+i32 intermediate.join.progenitor[1].previousVvir_absent 0
+f64 intermediate.join.progenitor[1].previousVvir 0x4052000000000000  # 72
+i32 intermediate.join.progenitor[1].previousVmax_absent 0
+f64 intermediate.join.progenitor[1].previousVmax 0x4053c00000000000  # 79
+i32 intermediate.join.progenitor[1].new_Mvir_absent 1
+i32 intermediate.join.progenitor[1].halo_grew_absent 1
+i32 intermediate.join.progenitor[1].infall_recorded_absent 0
+i32 intermediate.join.progenitor[1].infall_recorded 1
+i32 intermediate.join.progenitor[1].clock_estimated_absent 1

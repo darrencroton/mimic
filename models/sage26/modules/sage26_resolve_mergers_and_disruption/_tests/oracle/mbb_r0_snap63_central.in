@@ -1,12 +1,15 @@
 # make_bulge_from_burst on a real R0 central.
 # End-of-snapshot output values used as plausible call inputs, not reconstructed call-time state.
 # Source: R0 reference /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R0/model_0.hdf5 (SHA-256 6d859a3a2ea422e31ec04a403221d5a477c49f4dfdba303082dc59f1c6003399), Snap_63 rows 14608 (GalaxyIndex 3000106000000002, Type 0) and 14611 (GalaxyIndex 3000106000000016, Type 1).
-# The galaxies carry SnapNum 62 and the halo snapshot is 63 (Age and ZZ from a scratch
-# restatement of SAGE26's time_to_present on the run's a_list, R/src/core_init.c:159-206).
-# Converted back to code units: OutflowRate (times deltaT), TimeOfLast*Merger (divided by
-# UnitTime_in_Megayears); histories: every bin holds the output SFR in code units and ColdGas or
-# ColdGas*Sfr*Z as the gas samples (plausible, not SAGE26's own bins); deltaMvir constructed
-# (central +2% of Mvir, satellite -5% of Mvir); Cooling and Heating set to 0.
+# SnapNum: the rows store 63; the galaxies' SnapNum 62 is a constructed call-time value (the
+# snapshot they arrive from), and the halo snapshot is 63 (ZZ from a scratch restatement of
+# SAGE26's time_to_present on the run's a_list, R/src/core_init.c:159-206).
+# Converted back to code units: OutflowRate (times deltaT) and TimeOfLast*Merger (divided by
+# UnitTime_in_Megayears).
+# Histories: every bin holds the output SFR in code units and ColdGas or ColdGas*Sfr*Z as the
+# gas samples (plausible, not SAGE26's own bins).
+# deltaMvir constructed (central +2% of Mvir, satellite -5% of Mvir).
+# The output stores no MergTime: galaxy 0's 999.9 is SAGE26's central clock (B:288).
 # Reachability: R0-reachable.
 format sage26-oracle-fixture 1
 routine make_bulge_from_burst
