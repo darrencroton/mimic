@@ -81,6 +81,7 @@ MODEL_PARAMS = {
     "StarFormingDiskFactor": 3.0,
     "FeedbackReheatingEpsilon": 2.9,
     "FeedbackEjectionEfficiency": 0.3,
+    "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
     "RecycleFraction": 0.43,
     "Yield": 0.025,
     "FracZleaveDisk": 0.0,

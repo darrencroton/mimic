@@ -92,6 +92,7 @@ modules:
     # Supernova Feedback
     FeedbackReheatingEpsilon: 2.9       # Reheating efficiency (SAGE26 R0, input/millennium.par:69)
     FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
+    FIREmodeOn: 0                       # SN feedback: 0 = fixed-epsilon Croton et al. 2016 (SAGE26 R0-R2, R2.par:55); 1 = FIRE scaling, capped loading and energy-based ejection (R3, R3.par:55); required
 
     # Gas Reincorporation
     ReIncorporationFactor: 0.19         # Scales Vcrit = 354.53 km/s (SAGE26 R0, input/millennium.par:72)

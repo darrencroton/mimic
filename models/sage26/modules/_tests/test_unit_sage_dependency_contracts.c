@@ -165,6 +165,8 @@ int test_dep_supernova_wrong_order_error(void) {
   set_test_model_parameters();
   /* The SF module's and the apply step's required SFprescription parameters, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
+  /* The SN module's required FIREmodeOn (D33), at R2's value, so the init fails on the order */
+  sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int result = module_system_init();
   TEST_ASSERT(
@@ -313,6 +315,9 @@ int test_dep_sn_missing_apply_error(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The SN module's required FIREmodeOn (D33), at R2's value, so the init fails on the dependency
+   */
+  sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int result = module_system_init();
   TEST_ASSERT(result != 0, "sage26_calculate_supernova_feedback without apply step must fail init");

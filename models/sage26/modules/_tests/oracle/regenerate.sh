@@ -12,7 +12,7 @@
 # every other fixture runs through oracle_c03, except that a fixture whose
 # routine line names a c05 routine (C05_ROUTINES below) runs through oracle_c05,
 # whichever module owns it (sage26_finalize_cooling_heating holds both c04 and
-# c05 fixtures), a fixture whose routine line names a c06 routine
+# c05 fixtures; c09's starformation_and_feedback_fire is a c05 routine), a fixture whose routine line names a c06 routine
 # (C06_ROUTINES below) runs through oracle_c06, one whose routine line names
 # a c07 routine (C07_ROUTINES below) runs through oracle_c07, and one whose
 # routine line names a c08 routine (C08_ROUTINES below) runs through oracle_c08.
@@ -81,8 +81,8 @@ sage26_finalize_cooling_heating"
 # The c05 group (star formation, feedback, instability, histories, outflow) has
 # its own oracle main and is selected by routine, not by module.
 ORACLE_C05=$ORACLE_OUT/oracle_c05
-C05_ROUTINES="starformation_and_feedback starformation_and_feedback_sequence
-update_from_star_formation update_from_feedback check_disk_instability step_bin_map
+C05_ROUTINES="starformation_and_feedback starformation_and_feedback_fire
+starformation_and_feedback_sequence update_from_star_formation update_from_feedback check_disk_instability step_bin_map
 sfr_history_average normalise_outflow_rate"
 # The c06 group (merger clocks, mergers, black holes, bursts, disruption and the
 # driver transcriptions) has its own oracle main and is selected by routine.
