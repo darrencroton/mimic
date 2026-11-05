@@ -40,7 +40,7 @@
 #include "generated/parameter_unit_conversions.h"
 
 /** Maximum number of modules that can be registered */
-#define MAX_MODULES 32
+#define MAX_MODULES 64
 
 /** Array of all registered modules (available for use) */
 static struct Module *registered_modules[MAX_MODULES];

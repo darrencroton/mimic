@@ -14,8 +14,10 @@
 # whichever module owns it (sage26_finalize_cooling_heating holds both c04 and
 # c05 fixtures; c09's starformation_and_feedback_fire is a c05 routine), a fixture whose routine line names a c06 routine
 # (C06_ROUTINES below) runs through oracle_c06, one whose routine line names
-# a c07 routine (C07_ROUTINES below) runs through oracle_c07, and one whose
-# routine line names a c08 routine (C08_ROUTINES below) runs through oracle_c08.
+# a c07 routine (C07_ROUTINES below) runs through oracle_c07, one whose
+# routine line names a c08 routine (C08_ROUTINES below) runs through oracle_c08,
+# and one whose routine line names a c10 routine (C10_ROUTINES below) runs
+# through oracle_c10.
 #
 # Environment: as build.sh (SAGE26_SRC, ORACLE_OUT, ORACLE_ALLOW_ANY_TOOLCHAIN).
 # See README.md in this directory.
@@ -99,6 +101,10 @@ C07_ROUTINES="get_bulge_radius update_instability_bulge_radius central_disk_and_
 # directly) has its own oracle main and is selected by routine.
 ORACLE_C08=$ORACLE_OUT/oracle_c08
 C08_ROUTINES="calculate_molecular_fraction_BR06 calculate_molecular_fraction_radial_integration"
+# The c10 group (the CGM regime classifier, called directly with the fixture's rand()
+# queue) has its own oracle main and is selected by routine.
+ORACLE_C10=$ORACLE_OUT/oracle_c10
+C10_ROUTINES="determine_and_store_regime"
 
 # Each oracle run writes to a fresh temporary file under ORACLE_OUT, which
 # replaces the committed output only if the oracle exited 0 AND the file is a
@@ -147,6 +153,11 @@ for input in $listed; do
   for name in $C08_ROUTINES; do
     if [ "$routine" = "$name" ]; then
       oracle=$ORACLE_C08
+    fi
+  done
+  for name in $C10_ROUTINES; do
+    if [ "$routine" = "$name" ]; then
+      oracle=$ORACLE_C10
     fi
   done
   tmp=$TMP_OUT/output
