@@ -3,9 +3,9 @@
  * @brief SAGE26's collisional starburst transaction (collisional_starburst_recipe)
  *
  * Ports SAGE26's collisional_starburst_recipe (R/src/model_mergers.c:584-831, R = the
- * staged SAGE26 source) on the R0 path: StarburstColdGasOn 1, SFprescription 0,
- * SupernovaRecipeOn 1, FIREmodeOn 0, SaveFullSFH 0, BulgeSizeOn 0, CGMrecipeOn 0. One
- * shared function owns SAGE26's whole sequence, for both burst channels:
+ * staged SAGE26 source) on the R0 and R1 paths: StarburstColdGasOn 1, SFprescription 0,
+ * SupernovaRecipeOn 1, FIREmodeOn 0, SaveFullSFH 0, CGMrecipeOn 0, and BulgeSizeOn 0 or 3.
+ * One shared function owns SAGE26's whole sequence, for both burst channels:
  *
  *  1. the bursting fraction eburst: the trigger itself for mode 1 (a disk instability) and
  *     0.56 * ratio^0.7 for mode 0 (a merger), as SAGE26's code has them (:600-604; its
@@ -19,8 +19,9 @@
  *     the host's ColdGas (metals), accumulated, before any gas is consumed (:754-757);
  *  6. update_from_star_formation with the cold-gas metallicity (:759-760), then the locked
  *     stars recycled_stars = (1 - RecycleFraction) * stars into BulgeMass, MetalsBulgeMass
- *     and the channel the caller selects, MergerBulgeMass or InstabilityBulgeMass
- *     (:770-782);
+ *     and the channel the caller selects, MergerBulgeMass or InstabilityBulgeMass, the
+ *     instability channel followed by the incremental instability-bulge radius from the
+ *     caller's saved disk radius (:770-784, sage_bulge_size_physics.h);
  *  7. update_from_feedback with the recomputed cold metallicity, reheated gas and ejection
  *     going to the FoF central (:787-791);
  *  8. for a merger burst (mode 0) whose ratio is strictly below ThreshMajorMerger, the
@@ -40,8 +41,9 @@
  * SAGE26's update_from_star_formation and update_from_feedback
  * (sage_sf_feedback_physics.h), the functions SAGE26's own burst calls.
  *
- * Rounding points. SAGE26's object fuses two multiply-adds in this routine on R0 (the
- * oracle README's c06 fused-instruction table): MetalsBulgeMass += metallicity *
+ * Rounding points. SAGE26's object fuses two multiply-adds in this routine on R0 and R1 (the
+ * oracle README's c06 fused-instruction table; the radius update's own are in
+ * sage_bulge_size_physics.h): MetalsBulgeMass += metallicity *
  * recycled_stars (:773) and MetalsColdGas += Yield * (1.0 - FracZleaveDiskVal) * stars
  * (:819). Both are written as explicit fma() calls; every other expression is one C
  * expression with SAGE26's operand order and types. BulgeMass += recycled_stars (:772)
@@ -63,6 +65,7 @@
 #include "types.h"
 #include "shared/metallicity.h"
 #include "shared/sage_agn_physics.h"
+#include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_sf_feedback_physics.h"
@@ -76,9 +79,12 @@
 /**
  * @brief Parameter bundle for the collisional starburst and its post-merger recheck
  *
- * The last five members drive the post-minor-merger instability recheck (step 8 above):
- * SAGE26 runs it when DiskInstabilityOn is set, and grows the black hole in its gas branch
- * when AGNrecipeOn is positive (R/src/model_mergers.c:807, R/src/model_disk_instability.c:102).
+ * Five members drive the post-minor-merger instability recheck (step 8 above): SAGE26 runs
+ * it when DiskInstabilityOn is set, and grows the black hole in its gas branch when
+ * AGNrecipeOn is positive (R/src/model_mergers.c:807, R/src/model_disk_instability.c:102).
+ * The last, bulge_size, is SAGE26's BulgeSizeOn and Hubble_h, which the burst's and the
+ * recheck's radius updates read (R/src/model_misc.c:395, :398); a zero-initialised bundle is
+ * BulgeSizeOn 0.
  */
 struct MimicStarburstParams {
   double feedback_reheating_epsilon;
@@ -89,11 +95,12 @@ struct MimicStarburstParams {
   double threshold_major_merger;
   double energy_sn_code;
   double eta_sn_code;
-  int disk_instability_on;         /**< SAGE26's DiskInstabilityOn: the recheck runs */
-  double star_forming_disk_factor; /**< SAGE26's TOOMRE_DISK_FACTOR (3.0) for the recheck */
-  int agn_recipe_on;               /**< SAGE26's AGNrecipeOn > 0: the recheck grows the BH */
-  double black_hole_growth_rate;   /**< BlackHoleGrowthRate, for the recheck's BH growth */
-  double quasar_mode_efficiency;   /**< QuasarModeEfficiency, for the recheck's wind */
+  int disk_instability_on;              /**< SAGE26's DiskInstabilityOn: the recheck runs */
+  double star_forming_disk_factor;      /**< SAGE26's TOOMRE_DISK_FACTOR (3.0) for the recheck */
+  int agn_recipe_on;                    /**< SAGE26's AGNrecipeOn > 0: the recheck grows the BH */
+  double black_hole_growth_rate;        /**< BlackHoleGrowthRate, for the recheck's BH growth */
+  double quasar_mode_efficiency;        /**< QuasarModeEfficiency, for the recheck's wind */
+  struct MimicSageBulgeSize bulge_size; /**< BulgeSizeOn and Hubble_h, for the radius updates */
 };
 
 /**
@@ -157,7 +164,8 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
 }
 
 /**
- * @brief SAGE26's collisional_starburst_recipe on the R0 path (R/src/model_mergers.c:584-831)
+ * @brief SAGE26's collisional_starburst_recipe on the R0 and R1 paths
+ *        (R/src/model_mergers.c:584-831)
  *
  * @param mass_ratio            The trigger: the merger mass ratio (mode 0) or the unstable gas
  *                              fraction (mode 1), SAGE26's mass_ratio
@@ -169,6 +177,9 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
  * @param mode                  1 = disk instability, 0 = merger (R/src/model_mergers.c:600)
  * @param burst_to_merger_bulge 1 credits the locked stars to MergerBulgeMass, 0 to
  *                              InstabilityBulgeMass (:775-782)
+ * @param old_disk_radius       The disk radius the caller saved, SAGE26's old_disk_radius
+ *                              argument (:585-586): the instability channel's radius update
+ *                              uses it (:783-784)
  * @param rate_dt               Interval for the package's StarFormationRate diagnostic (0 skips it)
  * @param sfr_bin               History bin of the substep (mimic_sage_sfr_step_bin), SAGE26's step
  * @param sfr_dt                The substep interval, SAGE26's dt, the bulge history's denominator;
@@ -182,9 +193,9 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
  */
 static inline void mimic_apply_collisional_starburst(
     const double mass_ratio, struct Halo *host_halo, struct Halo *central_halo, const int mode,
-    const int burst_to_merger_bulge, const double rate_dt, const int sfr_bin, const double sfr_dt,
-    const struct ModuleContext *ctx, const struct MimicStarburstParams *p,
-    struct MimicSageStarburstLocals *locals) {
+    const int burst_to_merger_bulge, const double old_disk_radius, const double rate_dt,
+    const int sfr_bin, const double sfr_dt, const struct ModuleContext *ctx,
+    const struct MimicStarburstParams *p, struct MimicSageStarburstLocals *locals) {
   mimic_sage_starburst_locals_reset(locals);
   /* Calling-contract guards only: SAGE26 is always called with both galaxies and its run
    * parameters; no R0 call reaches this return */
@@ -268,9 +279,10 @@ static inline void mimic_apply_collisional_starburst(
   /* SAGE parity: the locked stars are one rounded double, recycled_stars, added to the
    * bulge and to the selected channel (R/src/model_mergers.c:770-782); SAGE26's object
    * fuses the bulge-metal update into one multiply-add (:773). (1 - RecycleFraction) is
-   * formed from the int literal 1, which converts exactly to 1.0. On R0 (BulgeSizeOn 0)
-   * update_instability_bulge_radius returns at once (R/src/model_misc.c:395), so no radius
-   * is written. */
+   * formed from the int literal 1, which converts exactly to 1.0. The instability channel is
+   * followed at once, before the feedback, by the incremental radius from the caller's saved
+   * disk radius (:778-784), which returns at once in BulgeSizeOn 0 (R/src/model_misc.c:395);
+   * the merger channel writes no radius here (:775-777). */
   const double recycled_stars = (1.0 - p->recycle_fraction) * stars;
   gal->BulgeMass += recycled_stars;
   gal->MetalsBulgeMass = (float)fma(metallicity_sf, recycled_stars, (double)gal->MetalsBulgeMass);
@@ -278,6 +290,8 @@ static inline void mimic_apply_collisional_starburst(
     gal->MergerBulgeMass += recycled_stars;
   } else {
     gal->InstabilityBulgeMass += recycled_stars;
+    mimic_sage_update_instability_bulge_radius(gal, recycled_stars, old_disk_radius, &p->bulge_size,
+                                               NULL);
   }
 
   if (rate_dt > 0.0) {
@@ -294,13 +308,16 @@ static inline void mimic_apply_collisional_starburst(
    * ThreshMajorMerger (R/src/model_mergers.c:806-811): a ratio equal to the threshold is a
    * minor merger (:299) with no recheck. Its gas branch grows the black hole (with its wind)
    * and bursts the unstable fraction in mode 1 into the instability channel
-   * (R/src/model_disk_instability.c:90-108). The SFprescription 0 H1/H2 refresh (:799-804)
-   * does not run on R0. */
+   * (R/src/model_disk_instability.c:90-108). The recheck saves and passes its own disk
+   * radius to its stellar transfer's radius update (:68-83), and its burst passes the
+   * host's current DiskScaleRadius (:106-107). The SFprescription 0 H1/H2 refresh
+   * (:799-804) does not run on R0 or R1. */
   const int instability_recheck_ran =
       p->disk_instability_on && mode == 0 && mass_ratio < p->threshold_major_merger;
   if (instability_recheck_ran) {
     struct MimicSageInstabilityLocals recheck;
-    (void)mimic_sage_check_disk_instability(host_halo, ctx, p->star_forming_disk_factor, &recheck);
+    (void)mimic_sage_check_disk_instability_with_sizes(host_halo, ctx, p->star_forming_disk_factor,
+                                                       &p->bulge_size, &recheck);
     if (!isnan(recheck.unstable_gas_fraction)) {
       if (p->agn_recipe_on) {
         (void)mimic_apply_black_hole_growth(host_halo, recheck.unstable_gas_fraction,
@@ -308,7 +325,8 @@ static inline void mimic_apply_collisional_starburst(
                                             ctx, NULL);
       }
       mimic_apply_collisional_starburst(recheck.unstable_gas_fraction, host_halo, central_halo, 1,
-                                        0, rate_dt, sfr_bin, sfr_dt, ctx, p, NULL);
+                                        0, (double)gal->DiskScaleRadius, rate_dt, sfr_bin, sfr_dt,
+                                        ctx, p, NULL);
     }
   }
 

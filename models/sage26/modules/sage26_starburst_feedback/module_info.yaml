@@ -2,8 +2,9 @@ module:
   name: sage26_starburst_feedback
   description: >-
     SAGE26's collisional_starburst_recipe (Somerville et al. 2001) for the disk instability
-    (process_by_galaxy) and merger events (process_per_event), with the post-minor-merger
-    disk-instability recheck (and its black-hole growth) before the burst's metal yield
+    (process_by_galaxy) and merger events (process_per_event), with the instability channel's
+    bulge-radius update (BulgeSizeOn 3) and the post-minor-merger disk-instability recheck (and its
+    black-hole growth) before the burst's metal yield
 
   supported_processing_modes: [process_by_galaxy, process_per_event]
 
@@ -24,6 +25,9 @@ module:
       - MetalsBulgeMass
       - MergerBulgeMass
       - InstabilityBulgeMass
+      - BulgeRadius
+      - MergerBulgeRadius
+      - InstabilityBulgeRadius
       - HotGas
       - MetalsHotGas
       - EjectedGas
@@ -75,6 +79,7 @@ module:
       - BlackHoleGrowthRate
       - QuasarModeEfficiency
       - ThresholdMajorMerger
+      - BulgeSizeOn
 
   events:
     consumes:

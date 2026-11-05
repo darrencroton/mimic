@@ -7,8 +7,9 @@
  * which owns SAGE26's whole sequence: the bursting fraction, the burst gas, the
  * reheating and the ejection from the burst host's own Vvir, the bulge history
  * sampling, the star-formation commit, the locked stars into the bulge and the selected
- * channel, the feedback commit to the FoF central, the post-minor-merger instability
- * recheck, and only then the burst's metal yield.
+ * channel (the instability channel followed by its incremental bulge radius, BulgeSizeOn
+ * 3), the feedback commit to the FoF central, the post-minor-merger instability recheck,
+ * and only then the burst's metal yield.
  *
  * Trigger channels:
  *   - process_by_galaxy: the disk instability (UnstableDiskGasFraction > 0, mode 1, the
@@ -31,6 +32,17 @@
  * event's value1, for the merger channel and its post-merger instability recheck
  * (R/src/core_build_model.c:581, R/src/model_mergers.c:285, :809).
  *
+ * Each call also passes SAGE26's old_disk_radius, the disk radius its caller saved, which
+ * the instability channel's radius update reads (R/src/model_mergers.c:783-784): the
+ * instability's burst passes the galaxy's current DiskScaleRadius, as SAGE26's
+ * check_disk_instability does (R/src/model_disk_instability.c:106-107); the merger burst
+ * passes the target's DiskScaleRadius, which SAGE26 saves before add_galaxies_together
+ * (R/src/model_mergers.c:257, :285-287). No package writer of DiskScaleRadius runs between
+ * that point of the resolver's transaction and this consumer (the addition and the
+ * black-hole growth leave it alone, R/src/model_mergers.c:346-543; only
+ * sage26_set_disk_scale_radius writes it, at pre-timestep), so the target's field read
+ * here is the saved value.
+ *
  * References:
  *   - SAGE26 R/src/model_mergers.c:584-831 (collisional_starburst_recipe)
  *   - Somerville et al. (2001): starburst efficiency scaling
@@ -47,6 +59,7 @@
 #include "module_registry.h"
 #include "types.h"
 #include "shared/sage_agn_physics.h"
+#include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_starburst_physics.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_sfr_history.h"
@@ -69,6 +82,10 @@ static double THRESHOLD_MAJOR_MERGER;
 static double POST_MERGER_STAR_FORMING_DISK_FACTOR;
 static double POST_MERGER_BLACK_HOLE_GROWTH_RATE;
 static double POST_MERGER_QUASAR_MODE_EFFICIENCY;
+
+/* SAGE26's BulgeSizeOn: 0 (R0) or 3 (Tonini sizes), the mode of the instability channel's
+ * radius update and of the recheck's (R/src/model_misc.c:395) */
+static int BULGE_SIZE_ON;
 
 // ============================================================================
 // MODULE-LOCAL CONSTANTS (converted from physical constants)
@@ -95,6 +112,10 @@ int sage26_starburst_feedback_init(void) {
                                     "frac Z leave disk");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThresholdMajorMerger", THRESHOLD_MAJOR_MERGER, 0.0, 1.0,
                                     "major merger threshold");
+  LOAD_PARAM_INT("BulgeSizeOn", BULGE_SIZE_ON);
+  if (mimic_sage_validate_bulge_size_on("sage26_starburst_feedback", BULGE_SIZE_ON) != 0) {
+    return -1;
+  }
 
   /* Dependency checks */
 
@@ -161,6 +182,7 @@ int sage26_starburst_feedback_init(void) {
   VERBOSE_LOG("  FeedbackEjectionEfficiency = %.3f", FEEDBACK_EJECTION_EFFICIENCY);
   VERBOSE_LOG("  RecycleFraction = %.3f", RECYCLE_FRACTION);
   VERBOSE_LOG("  Yield = %.4f", YIELD);
+  VERBOSE_LOG("  BulgeSizeOn = %d", BULGE_SIZE_ON);
   VERBOSE_LOG("  energy_sn_code = %.6e (from ENERGY_SN physical constant)", energy_sn_code);
   VERBOSE_LOG("  eta_sn_code = %.6e (from ETA_SN physical constant)", eta_sn_code);
   VERBOSE_LOG("  post-minor-merger disk instability follow-up = %s",
@@ -195,6 +217,8 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
       .agn_recipe_on = POST_MERGER_QUASAR_FOLLOWUP_ENABLED,
       .black_hole_growth_rate = POST_MERGER_BLACK_HOLE_GROWTH_RATE,
       .quasar_mode_efficiency = POST_MERGER_QUASAR_MODE_EFFICIENCY,
+      /* SAGE26's run_params->BulgeSizeOn and Hubble_h (R/src/model_misc.c:395, :398) */
+      .bulge_size = {BULGE_SIZE_ON, ctx->params != NULL ? ctx->params->Hubble_h : 0.0},
   };
 
   if (ctx->active_event != NULL) {
@@ -247,11 +271,15 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
      * (R/src/model_mergers.c:251-254, :266-282) */
     const int burst_to_merger_bulge = mimic_sage_merger_burst_channel(
         event->value0, THRESHOLD_MAJOR_MERGER, gal->MergerDiskDominated);
+    /* SAGE parity: SAGE26's old_disk_radius is the target's DiskScaleRadius saved before
+     * add_galaxies_together (R/src/model_mergers.c:257); nothing since has written it (file
+     * comment), so the target's field is that value */
+    const double old_disk_radius = gal->DiskScaleRadius;
     /* SAGE26's whole burst transaction, the post-minor-merger instability recheck before
      * the yield included (R/src/model_mergers.c:584-831) */
     mimic_apply_collisional_starburst(event->value0, event_halo, central_halo, 0,
-                                      burst_to_merger_bulge, event_halo->dT, sfr_bin, event->value1,
-                                      ctx, &params, NULL);
+                                      burst_to_merger_bulge, old_disk_radius, event_halo->dT,
+                                      sfr_bin, event->value1, ctx, &params, NULL);
     DEBUG_LOG("Starburst from merger event (ratio=%.3f, source=%d, target=%d)", event->value0,
               event->source_index, event->target_index);
     return 0;
@@ -308,10 +336,12 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
      * (R/src/model_starformation_and_feedback.c:1249). The substep interval disk_dt
      * is the bulge history's denominator. */
     /* SAGE parity: the instability's burst, mode 1 into the instability channel
-     * (burst_to_merger_bulge 0), after sage26_quasar_mode's black-hole growth
+     * (burst_to_merger_bulge 0) with the galaxy's current DiskScaleRadius as its
+     * old_disk_radius, after sage26_quasar_mode's black-hole growth
      * (R/src/model_disk_instability.c:101-108) */
     mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, halo, central_halo, 1, 0,
-                                      halo->dT, sfr_bin, disk_dt, ctx, &params, NULL);
+                                      (double)gal->DiskScaleRadius, halo->dT, sfr_bin, disk_dt, ctx,
+                                      &params, NULL);
     DEBUG_LOG("Starburst from disk instability (eff=%.3f)", gal->UnstableDiskGasFraction);
   }
 
@@ -324,6 +354,7 @@ int sage26_starburst_feedback_cleanup(void) {
   POST_MERGER_STAR_FORMING_DISK_FACTOR = 0.0;
   POST_MERGER_BLACK_HOLE_GROWTH_RATE = 0.0;
   POST_MERGER_QUASAR_MODE_EFFICIENCY = 0.0;
+  BULGE_SIZE_ON = MIMIC_SAGE_BULGE_SIZE_OFF;
   VERBOSE_LOG("SAGE starburst feedback module cleaned up");
   return 0;
 }

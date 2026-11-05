@@ -108,3 +108,6 @@ modules:
     ThresholdMajorMerger: 0.3           # Mass ratio threshold for major mergers
     ThresholdSatDisruption: 1.0         # Mvir-to-baryonic mass ratio threshold for sat merger/disruption
     MergerTimeFactor: 2.0               # Merger-clock scaling (SAGE26 R0: the default, core_read_parameter_file.c:128; R0.par does not set it)
+
+    # Bulge Sizes
+    BulgeSizeOn: 0                      # Bulge-size mode: 0 = none, the radii zeroed (SAGE26 R0, R0.par:109); 3 = Tonini merger and instability bulges (R1.par:109); 1 and 2 not ported

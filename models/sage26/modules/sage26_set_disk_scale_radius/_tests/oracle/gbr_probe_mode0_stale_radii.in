@@ -1,0 +1,17 @@
+# get_bulge_radius with BulgeSizeOn 0 on stale non-zero radii: all three are zeroed
+# (R/src/model_misc.c:242-247).
+# Reachability: constructed routine-domain probe (R0 never holds a non-zero radius).
+format sage26-oracle-fixture 1
+routine get_bulge_radius
+
+i32 params.BulgeSizeOn 0  # R0 (R0.par:109)
+
+i32 call.ngal 1
+i32 call.p 0
+
+f32 galaxy[0].MergerBulgeMass 0x3e800000  # 0.25
+f32 galaxy[0].InstabilityBulgeMass 0x3e000000  # 0.125
+f32 galaxy[0].DiskScaleRadius 0x3b83126f  # 0.00400000019
+f32 galaxy[0].BulgeRadius 0x3a03126f  # 0.000500000024
+f32 galaxy[0].MergerBulgeRadius 0x3a378034  # 0.000699999975
+f32 galaxy[0].InstabilityBulgeRadius 0x399d4952  # 0.000300000014

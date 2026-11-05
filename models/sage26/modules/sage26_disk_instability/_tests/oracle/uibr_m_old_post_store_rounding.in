@@ -1,0 +1,24 @@
+# Mode 3, M_old recovered from the POST-store float mass (R/src/model_misc.c:399): the channel
+# held 0.125 (0x3e000000) before the caller's store and holds float(0.125 + d) = 0x3e03f767
+# after it, so M_old = 0x3e03f767 - d is not 0.125. Using the pre-store 0.125 instead gives
+# InstabilityBulgeRadius 0x3998775c rather than SAGE26's 0x3998775b (scratch search and an
+# executed mutant, validation record). MergerBulgeMass 0, so the closing average is the
+# instability radius alone.
+# Reachability: R1-reachable.
+format sage26-oracle-fixture 1
+routine update_instability_bulge_radius
+
+i32 params.BulgeSizeOn 3  # R1 (R1.par:109)
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.72999999999999998  (R1.par:40; read in mode 3, R/src/model_misc.c:249,398)
+
+i32 call.ngal 1
+i32 call.p 0
+f64 call.delta_mass 0x3f6fbb3a478dc555  # 0.0038734567901249997  (the transfer just credited to InstabilityBulgeMass)
+f64 call.old_disk_radius 0x3f6e84c180000000  # 0.0037254123017191887  (the disk radius the caller saved)
+
+f32 galaxy[0].MergerBulgeMass 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeMass 0x3e03f767  # 0.128873453
+f32 galaxy[0].DiskScaleRadius 0x3b74260c  # 0.0037254123
+f32 galaxy[0].BulgeRadius 0x3951b717  # 0.000199999995
+f32 galaxy[0].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeRadius 0x399115fb  # 0.000276729319

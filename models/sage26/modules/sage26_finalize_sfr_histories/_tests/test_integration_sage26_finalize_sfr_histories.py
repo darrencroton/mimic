@@ -84,6 +84,7 @@ MODEL_PARAMS = {
     "RecycleFraction": 0.43,
     "Yield": 0.025,
     "FracZleaveDisk": 0.0,
+    "BulgeSizeOn": 0,
 }
 
 

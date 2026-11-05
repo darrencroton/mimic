@@ -1,0 +1,28 @@
+# TRANSCRIPTION of B:297-298, mode 3, on a real R1 central: R1 reference /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R1/model_0.hdf5 (SHA-256 870acea288250919624ae8a4b984a4dde7106e6355cdb972cf4880ff04635ca0), Snap_63 row 172
+# (GalaxyIndex 6000000000, Type 0): its Vvir, Rvir, halo spin and the six size fields as written.
+# End-of-snapshot output values used as plausible call inputs, not reconstructed call-time
+# state; the input DiskScaleRadius is the stale value the store overwrites.
+# Reachability: R1-reachable.
+format sage26-oracle-fixture 1
+routine central_disk_and_bulge_radius
+
+i32 params.BulgeSizeOn 3  # R1 (R1.par:109)
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.72999999999999998  (R1.par:40; read in mode 3, R/src/model_misc.c:249,398)
+
+i32 call.ngal 1
+i32 call.p 0
+
+i32 galaxy[0].Type 0
+f32 galaxy[0].Vvir 0x43c7cf02  # 399.617249
+f32 galaxy[0].Rvir 0x3ecc9a99  # 0.399616987
+
+f32 halo.Spin[0] 0xc1350fdb  # -11.316371
+f32 halo.Spin[1] 0xc02da11e  # -2.71295881
+f32 halo.Spin[2] 0x40a44b25  # 5.13417292
+
+f32 galaxy[0].MergerBulgeMass 0x3fbb6596  # 1.46403766
+f32 galaxy[0].InstabilityBulgeMass 0x3fc459ea  # 1.53399396
+f32 galaxy[0].DiskScaleRadius 0x3c8268da  # 0.0159191377
+f32 galaxy[0].BulgeRadius 0x3b93e11f  # 0.00451292051
+f32 galaxy[0].MergerBulgeRadius 0x3c15c8e9  # 0.009142139
+f32 galaxy[0].InstabilityBulgeRadius 0x38c6d633  # 9.48127345e-05

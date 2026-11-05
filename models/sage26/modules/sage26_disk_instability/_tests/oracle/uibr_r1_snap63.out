@@ -1,0 +1,83 @@
+# SAGE26 oracle output for uibr_r1_snap63.in, written by oracle_c07 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine update_instability_bulge_radius
+f32 galaxy[0].MergerBulgeMass 0x3fbb6596  # 1.46403766
+f32 galaxy[0].InstabilityBulgeMass 0x3fc8473c  # 1.5646739
+f32 galaxy[0].DiskScaleRadius 0x3c8268da  # 0.0159191377
+f32 galaxy[0].BulgeRadius 0x3b93702f  # 0.00449945731
+f32 galaxy[0].MergerBulgeRadius 0x3c15c8e9  # 0.009142139
+f32 galaxy[0].InstabilityBulgeRadius 0x3922edff  # 0.000155381844
+i32 intermediate.returned_early 0
+i32 intermediate.incremental 1
+i32 intermediate.M_old_absent 0
+f64 intermediate.M_old 0x3ff88b3d35cbe470  # 1.5339939214157106
+i32 intermediate.M_old_checked 1
+i32 intermediate.M_old_check_kind 2
+i32 intermediate.M_old_validated_up 0
+i32 intermediate.M_old_validated_down 0
+i32 intermediate.M_old_validated 0
+i32 intermediate.M_old_narrowing_limited 1
+i32 intermediate.R_old_absent 0
+f64 intermediate.R_old 0x3f18dac660000000  # 9.4812734459992498e-05
+i32 intermediate.R_old_checked 1
+i32 intermediate.R_old_check_kind 2
+i32 intermediate.R_old_validated_up 0
+i32 intermediate.R_old_validated_down 0
+i32 intermediate.R_old_validated 0
+i32 intermediate.R_old_narrowing_limited 1
+i32 intermediate.R_disc_kpc_absent 0
+f64 intermediate.R_disc_kpc 0x4035ce9a0afc7e3f  # 21.807038008350215
+i32 intermediate.R_disc_kpc_checked 1
+i32 intermediate.R_disc_kpc_check_kind 2
+i32 intermediate.R_disc_kpc_validated_up 0
+i32 intermediate.R_disc_kpc_validated_down 0
+i32 intermediate.R_disc_kpc_validated 0
+i32 intermediate.R_disc_kpc_narrowing_limited 1
+i32 intermediate.R_new_contribution_kpc_absent 0
+f64 intermediate.R_new_contribution_kpc 0x40117214d596cb66  # 4.3614076016700434
+i32 intermediate.R_new_contribution_kpc_checked 1
+i32 intermediate.R_new_contribution_kpc_check_kind 2
+i32 intermediate.R_new_contribution_kpc_validated_up 0
+i32 intermediate.R_new_contribution_kpc_validated_down 0
+i32 intermediate.R_new_contribution_kpc_validated 0
+i32 intermediate.R_new_contribution_kpc_narrowing_limited 1
+i32 intermediate.R_new_contribution_absent 0
+f64 intermediate.R_new_contribution 0x3f6a14f866666666  # 0.0031838275492191313
+i32 intermediate.R_new_contribution_checked 1
+i32 intermediate.R_new_contribution_check_kind 2
+i32 intermediate.R_new_contribution_validated_up 0
+i32 intermediate.R_new_contribution_validated_down 0
+i32 intermediate.R_new_contribution_validated 0
+i32 intermediate.R_new_contribution_narrowing_limited 1
+i32 intermediate.R_old_kpc_absent 0
+f64 intermediate.R_old_kpc 0x3fc09fec401a4d27  # 0.1298804581643733
+i32 intermediate.R_old_kpc_checked 1
+i32 intermediate.R_old_kpc_check_kind 2
+i32 intermediate.R_old_kpc_validated_up 0
+i32 intermediate.R_old_kpc_validated_down 0
+i32 intermediate.R_old_kpc_validated 0
+i32 intermediate.R_old_kpc_narrowing_limited 1
+i32 intermediate.M_new_absent 0
+f64 intermediate.M_new 0x3ff908e780000000  # 1.564673900604248
+i32 intermediate.M_new_checked 1
+i32 intermediate.M_new_check_kind 2
+i32 intermediate.M_new_validated_up 0
+i32 intermediate.M_new_validated_down 0
+i32 intermediate.M_new_validated 0
+i32 intermediate.M_new_narrowing_limited 1
+i32 intermediate.R_new_kpc_absent 0
+f64 intermediate.R_new_kpc 0x3fcb3ebab2422285  # 0.21285184577961416
+i32 intermediate.R_new_kpc_checked 1
+i32 intermediate.R_new_kpc_check_kind 2
+i32 intermediate.R_new_kpc_validated_up 0
+i32 intermediate.R_new_kpc_validated_down 0
+i32 intermediate.R_new_kpc_validated 0
+i32 intermediate.R_new_kpc_narrowing_limited 1
+i32 intermediate.R_new_absent 0
+f64 intermediate.R_new 0x3f245dbfe7f71c2e  # 0.00015538184741911834
+i32 intermediate.R_new_checked 1
+i32 intermediate.R_new_check_kind 2
+i32 intermediate.R_new_validated_up 0
+i32 intermediate.R_new_validated_down 0
+i32 intermediate.R_new_validated 0
+i32 intermediate.R_new_narrowing_limited 1

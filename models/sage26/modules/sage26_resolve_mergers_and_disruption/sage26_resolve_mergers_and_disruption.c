@@ -29,14 +29,17 @@
  *
  *   1. the mass ratio from the float StellarMass + ColdGas sums (M:235-249);
  *   2. the target's pre-transfer morphology flag (M:253-254), carried with the event;
- *   3. add_galaxies_together (M:259, :456-543);
+ *   3. add_galaxies_together (M:259, :456-543), whose satellite disk stars credited to the
+ *      instability channel update the target's instability-bulge radius with BulgeSizeOn 3
+ *      (M:516-522);
  *   4. the merger event, whose consumers run immediately in the phase's YAML order:
  *      sage26_quasar_mode's grow_black_hole (M:262-264), then sage26_starburst_feedback's
  *      burst into the channel the carried flag selects (M:266-287), with the satellite's
  *      substep dt in the event for the burst's history bin;
  *   5. get_bulge_radius (M:293), which zeroes the bulge radii on R0 (BulgeSizeOn 0), so
  *      the remnant radius SAGE26 computes next (M:297) never reaches the state and is
- *      not formed here;
+ *      not formed here; BulgeSizeOn 3's synchronisation, remnant radius and assignment
+ *      (M:293-330) are not ported, and these resets run in both modes;
  *   6. for a ratio strictly above ThresholdMajorMerger, make_bulge_from_burst (M:302)
  *      and TimeOfLastMajorMerger; otherwise TimeOfLastMinorMerger, on every other merger
  *      (M:299-331); each branch ends with get_bulge_radius again;
@@ -52,6 +55,7 @@
 #include <math.h>
 
 #include "shared/central_link.h"
+#include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_constants.h"
 #include "module_system/generated/event_contracts.h"
 #include "sage_merger_ops.h"
@@ -69,6 +73,10 @@
 
 static double THRESHOLD_MAJOR_MERGER;
 static double THRESHOLD_SAT_DISRUPTION;
+
+/* SAGE26's BulgeSizeOn: 0 (R0) or 3 (Tonini sizes), the mode of add_galaxies_together's
+ * satellite disk-star radius update (R/src/model_misc.c:395) */
+static int BULGE_SIZE_ON;
 
 // ============================================================================
 // TEST HOOKS
@@ -180,8 +188,12 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
   const double mass_ratio = mimic_sage_merger_mass_ratio(satellite, target, merger_locals);
   const int is_disk_dominated = mimic_sage_merger_target_disk_dominated(target, merger_locals);
 
-  // SAGE parity: add_galaxies_together before the black hole and the burst (M:259)
-  mimic_sage_add_galaxies_together(target, satellite, add_locals);
+  /* SAGE parity: add_galaxies_together before the black hole and the burst (M:259), with
+   * SAGE26's run_params->BulgeSizeOn and Hubble_h for its radius update (R/src/model_misc.c:395,
+   * :398) */
+  const double hubble_h = ctx->params != NULL ? ctx->params->Hubble_h : 0.0;
+  const struct MimicSageBulgeSize sizes = {BULGE_SIZE_ON, hubble_h};
+  mimic_sage_add_galaxies_together(target, satellite, &sizes, add_locals);
 
   /* The flag travels with the event on the target, the halo its consumers receive: the
    * burst selects its channel from it (M:266-282), never from a re-read after the
@@ -194,7 +206,9 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
     return -1;
   }
 
-  // SAGE parity: get_bulge_radius after the burst (M:293) zeroes the radii on R0
+  /* SAGE parity: get_bulge_radius after the burst (M:293) zeroes the radii on R0. Mode 3's
+   * synchronisation and remnant (M:293-330) are not ported: this reset and the two below run
+   * in both modes */
   mimic_sage_reset_bulge_radii(target);
 
   // SAGE parity: strictly above the threshold is major, everything else minor (M:299-331)
@@ -391,6 +405,11 @@ int sage26_resolve_mergers_and_disruption_init(void) {
                                     "major merger mass ratio threshold");
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ThresholdSatDisruption", THRESHOLD_SAT_DISRUPTION, 0.0, 1000.0,
                                     "halo-to-baryonic mass ratio threshold");
+  LOAD_PARAM_INT("BulgeSizeOn", BULGE_SIZE_ON);
+  if (mimic_sage_validate_bulge_size_on("sage26_resolve_mergers_and_disruption", BULGE_SIZE_ON) !=
+      0) {
+    return -1;
+  }
 
   /* sage26_initialise_merger_clock must be in pre_timestep so all satellites have a valid
    * MergTime before any substep runs. When both modules are in pre_timestep together,
@@ -429,6 +448,7 @@ int sage26_resolve_mergers_and_disruption_init(void) {
   VERBOSE_LOG("SAGE merger/disruption resolver initialized");
   VERBOSE_LOG("  ThresholdMajorMerger = %.3f", THRESHOLD_MAJOR_MERGER);
   VERBOSE_LOG("  ThresholdSatDisruption = %.3f", THRESHOLD_SAT_DISRUPTION);
+  VERBOSE_LOG("  BulgeSizeOn = %d", BULGE_SIZE_ON);
   return 0;
 }
 
@@ -439,6 +459,7 @@ int sage26_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, str
 
 int sage26_resolve_mergers_and_disruption_cleanup(void) {
   action_hook = NULL;
+  BULGE_SIZE_ON = MIMIC_SAGE_BULGE_SIZE_OFF;
   VERBOSE_LOG("SAGE merger/disruption resolver cleaned up");
   return 0;
 }

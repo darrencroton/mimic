@@ -1,0 +1,17 @@
+# get_bulge_radius with BulgeSizeOn 0 (R0): the three radii are zeroed and 0 returned
+# (R/src/model_misc.c:242-247), whatever the channel masses. Every R0 radius is already 0.
+# Reachability: R0-reachable.
+format sage26-oracle-fixture 1
+routine get_bulge_radius
+
+i32 params.BulgeSizeOn 0  # R0 (R0.par:109)
+
+i32 call.ngal 1
+i32 call.p 0
+
+f32 galaxy[0].MergerBulgeMass 0x3e800000  # 0.25
+f32 galaxy[0].InstabilityBulgeMass 0x3e000000  # 0.125
+f32 galaxy[0].DiskScaleRadius 0x3b83126f  # 0.00400000019
+f32 galaxy[0].BulgeRadius 0x00000000  # 0
+f32 galaxy[0].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeRadius 0x00000000  # 0

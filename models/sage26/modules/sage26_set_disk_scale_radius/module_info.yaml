@@ -1,8 +1,9 @@
 module:
   name: sage26_set_disk_scale_radius
   description: >-
-    Computes disk scale radius for the FOF Type 0 central using Mo, Mao & White (1998) model; Type
-    1 satellites keep their inherited DiskScaleRadius
+    Computes disk scale radius for the FOF Type 0 central using Mo, Mao & White (1998) model and
+    then synchronises its bulge radii (SAGE26's get_bulge_radius, BulgeSizeOn 0 or 3); Type 1
+    satellites keep their inherited DiskScaleRadius and bulge radii
 
   supported_processing_modes: [process_full_halo]
 
@@ -13,7 +14,13 @@ module:
       - Vvir
       - Rvir
       - DiskScaleRadius
-    parameters: []
+      - MergerBulgeMass
+      - InstabilityBulgeMass
+      - BulgeRadius
+      - MergerBulgeRadius
+      - InstabilityBulgeRadius
+    parameters:
+      - BulgeSizeOn
 
   tests:
     unit:

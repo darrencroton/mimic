@@ -8,7 +8,10 @@
  *
  * - add_galaxies_together (M:456-543, add_*) and make_bulge_from_burst (M:553-570, mbb_*):
  *   the shared helpers mimic_sage_add_galaxies_together and mimic_sage_make_bulge_from_burst
- *   (shared/sage_merger_physics.h), called directly at SAGE26's routine boundary;
+ *   (shared/sage_merger_physics.h), called directly at SAGE26's routine boundary. The c07
+ *   add_s3_* fixtures run add_galaxies_together with BulgeSizeOn 3 (R1.par:109) and the
+ *   fixture's Hubble_h, so the satellite disk stars credited to the instability channel
+ *   update the target's instability radius (M:516-522); every other fixture has R0's 0;
  * - deal_with_galaxy_merger (M:228-333, merge_*): the resolver's whole transaction,
  *   sage26_resolve_mergers_and_disruption_merge, with the fixture's call.time and call.dt,
  *   whose merger event runs the module's real consumers in the order of the production
@@ -92,6 +95,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_sizes.h"
 #include "modules/_tests/sage26_oracle_join.h"
 #include "modules/sage26_resolve_mergers_and_disruption/sage_merger_ops.h"
 #include "shared/central_link.h"
@@ -140,6 +144,8 @@ static const char *MODULE = "sage26_resolve_mergers_and_disruption";
 
 static struct oracle_c06_carried_tally tally;
 static int counts_add = 0, counts_mbb = 0, counts_merge = 0, counts_multi = 0;
+/* add_galaxies_together fixtures run with BulgeSizeOn 3 (c07) */
+static int counts_add_sizes = 0;
 static int counts_ratio_zero = 0, counts_inert_radius = 0;
 static int counts_consumer_locals_validated = 0;
 static int counts_disrupt = 0, counts_pass = 0, counts_join_and_pass = 0;
@@ -261,8 +267,10 @@ static int setup_modules(struct oracle_fixture *in) {
   const double threshold_sat_disruption = oracle_has(in, "params.ThresholdSatDisruption")
                                               ? oracle_in_f64(in, "params.ThresholdSatDisruption")
                                               : SAGE26_THRESHOLD_SAT_DISRUPTION;
+  /* BulgeSizeOn: the flags above require R0's 0, the value the three modules require */
   if (oracle_set_model_param("StarFormingDiskFactor", SAGE26_TOOMRE_DISK_FACTOR) != 0 ||
-      oracle_set_model_param("ThresholdSatDisruption", threshold_sat_disruption) != 0) {
+      oracle_set_model_param("ThresholdSatDisruption", threshold_sat_disruption) != 0 ||
+      oracle_set_model_param("BulgeSizeOn", 0.0) != 0) {
     problems++;
   }
 
@@ -574,7 +582,9 @@ static int check_add(const char *name) {
   if (oracle_load_pair(MODULE, name, "add_galaxies_together", &in, &out) != 0) {
     return 1;
   }
-  int problems = oracle_c06_require_r0_flags(&in);
+  /* BulgeSizeOn 0 (R0) or 3 (the c07 add_s3_* fixtures), with Hubble_h for 3 */
+  struct MimicSageBulgeSize sizes;
+  int problems = oracle_c07_require_merger_flags(&in, &sizes);
   // The routine reads no parameter on R0 beyond the flags; the rest are the group's
   consume_prefix(&in, "params.");
   const int ngal = oracle_in_i32(&in, "call.ngal");
@@ -594,11 +604,14 @@ static int check_add(const char *name) {
   memcpy(before, galaxies, sizeof(before));
 
   struct MimicSageAddLocals locals;
-  mimic_sage_add_galaxies_together(&galaxies[t], &galaxies[p], &locals);
+  mimic_sage_add_galaxies_together(&galaxies[t], &galaxies[p], &sizes, &locals);
 
   problems += check_galaxies(name, &out, ngal, galaxies, before);
   problems += check_add_locals(&out, &locals);
   counts_add++;
+  if (sizes.bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI) {
+    counts_add_sizes++;
+  }
   problems += oracle_report_unconsumed(&in);
   problems += oracle_report_unconsumed(&out);
   return problems;
@@ -1276,6 +1289,7 @@ int test_oracle_bit_identity(void) {
   }
   memset(&tally, 0, sizeof(tally));
   counts_add = counts_mbb = counts_merge = counts_multi = 0;
+  counts_add_sizes = 0;
   counts_ratio_zero = counts_inert_radius = 0;
   counts_consumer_locals_validated = 0;
   counts_disrupt = counts_pass = counts_join_and_pass = 0;
@@ -1283,6 +1297,7 @@ int test_oracle_bit_identity(void) {
   counts_orphan_exclusions = 0;
 
   const int identical = run_fixtures();
+  printf("\n  oracle: add_galaxies_together with BulgeSizeOn 3 %d", counts_add_sizes);
   printf("\n  oracle: add_galaxies_together %d, make_bulge_from_burst %d, "
          "deal_with_galaxy_merger %d (ratio 0: %d), disrupt_satellite_to_ICS %d, pass %d, "
          "joining then pass %d",
@@ -1299,6 +1314,7 @@ int test_oracle_bit_identity(void) {
          counts_consumer_locals_validated);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   TEST_ASSERT(counts_ratio_zero >= 1, "a ratio-0 merger must run through the transaction");
+  TEST_ASSERT(counts_add_sizes >= 1, "an add_galaxies_together fixture must run BulgeSizeOn 3");
   TEST_ASSERT(counts_multi >= 1, "a pass with several mergers in one bin must be asserted");
   TEST_ASSERT(counts_disrupt >= 1 && counts_pass >= 1 && counts_join_and_pass >= 1,
               "the disruption, pass and joining fixtures must be asserted");

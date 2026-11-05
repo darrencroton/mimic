@@ -144,6 +144,7 @@ def test_module_pipeline_integration():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
             "RecycleFraction": 0.43,
@@ -237,6 +238,7 @@ def test_starburst_physics_correctness():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
             "RecycleFraction": 0.43,
@@ -325,6 +327,7 @@ def test_disk_instability_trigger():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
             "RecycleFraction": 0.43,
@@ -385,6 +388,7 @@ def test_merger_trigger():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
             "RecycleFraction": 0.43,
@@ -433,6 +437,7 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 1.0,  # Low
             "FeedbackEjectionEfficiency": 0.5,
             "RecycleFraction": 0.43,
@@ -465,6 +470,7 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 5.0,  # High (5x)
             "FeedbackEjectionEfficiency": 0.5,
             "RecycleFraction": 0.43,
@@ -497,6 +503,7 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.1,  # Low
             "RecycleFraction": 0.43,
@@ -529,6 +536,7 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 2.0,  # High (20x)
             "RecycleFraction": 0.43,
@@ -589,6 +597,7 @@ def test_memory_and_performance():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
             "RecycleFraction": 0.43,
@@ -656,6 +665,7 @@ def test_full_pipeline_star_formation():
             "post_timestep": [],
         },
         model_params={
+            "BulgeSizeOn": 0,
             # Infall/Reionization
             "GlobalBaryonFraction": 0.17,
             # Cooling (AGN off for simplicity)

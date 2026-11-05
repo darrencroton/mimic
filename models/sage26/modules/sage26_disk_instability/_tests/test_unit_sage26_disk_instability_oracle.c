@@ -1,13 +1,18 @@
 /**
  * @file    test_unit_sage26_disk_instability_oracle.c
  * @brief   Bit-exact comparison of sage26_disk_instability with SAGE26's check_disk_instability
+ *          and update_instability_bulge_radius
  *
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_disk_instability
- * (its _tests/oracle/ directory): SAGE26's check_disk_instability
- * (R/src/model_disk_instability.c:47-108) on galaxy call.p, with R0's flags. The test
+ * (its _tests/oracle/ directory), dispatching on the fixture's routine:
+ *
+ * check_disk_instability (R/src/model_disk_instability.c:47-108) on galaxy call.p, with R0's
+ * flags and BulgeSizeOn 0 (R0) or 3 (the c07 di_s3_* fixtures, R1.par:109). The test
  * runs the module's process() on that galaxy and asserts bit for bit, on every galaxy
  * of the fixture, the fourteen fields the c05 oracle records (OutflowRate being the
- * package's SupernovaOutflowRate) and BlackHoleMass and QuasarModeBHaccretionMass:
+ * package's SupernovaOutflowRate) and BlackHoleMass and QuasarModeBHaccretionMass, and,
+ * with BulgeSizeOn 3, MergerBulgeMass and the three bulge radii, which the oracle then
+ * records too (the instability's radius update, D:83, R/src/model_misc.c:385-424):
  *
  * - intermediate.state_is_post_transfer 0 (a stable disk, a non-positive disk mass, or
  *   an unstable disk with no cold gas): SAGE26's own end state, which is every field
@@ -24,10 +29,11 @@
  *   SAGE26's full end state, intermediate.c06.*, is asserted bit for bit on every galaxy:
  *   the sixteen recorded fields and the sixty history elements.
  *
- * The module must also leave every other member of every galaxy as it was, bulge radii
- * included (on R0, BulgeSizeOn 0, update_instability_bulge_radius returns at once,
- * R/src/model_misc.c:395): the test sets the radii to non-zero values and compares the
- * whole struct, apart from the four members the module writes.
+ * The module must also leave every other member of every galaxy as it was. With BulgeSizeOn 0
+ * that includes the bulge radii (update_instability_bulge_radius returns at once,
+ * R/src/model_misc.c:395): the test sets them to non-zero values and compares the whole
+ * struct, apart from the four members the module writes. With BulgeSizeOn 3 the radii are
+ * the fixture's and are asserted against the oracle; every other member is compared.
  *
  * Carried values. The shared helper reports SAGE26's locals
  * (mimic_sage_check_disk_instability); its replay on a copy must end in exactly the
@@ -55,8 +61,17 @@
  * histories of the instability's own recorded state, which check_disk_instability does
  * not write before its burst call (required unchanged by the whole-struct check);
  * call.time, which the R0 continuation does not read; and SfrEfficiency, which no
- * statement of the routine or its continuation reads. Outside the oracle environment
- * (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
+ * statement of the routine or its continuation reads.
+ *
+ * update_instability_bulge_radius (R/src/model_misc.c:385-424, uibr_*, oracle_c07): the
+ * shared helper mimic_sage_update_instability_bulge_radius (shared/sage_bulge_size_physics.h)
+ * called directly with the fixture's call.delta_mass and call.old_disk_radius. Asserted bit
+ * for bit: the six-member size block, every other galaxy member unchanged, the two branch
+ * flags and every local the oracle records, each named by the oracle as narrowing-limited
+ * (its only path to the state is one float store, so it is validated in neither direction).
+ *
+ * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
+ * SKIP.
  *
  * Test cases:
  *   - test_oracle_fixture_count: every fixture the manifest lists is present
@@ -76,6 +91,8 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_sizes.h"
+#include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_sf_feedback_physics.h"
 
@@ -111,6 +128,13 @@ static const char *MODULE = "sage26_disk_instability";
 static struct oracle_c05_carried_tally tally;
 static int handed_fraction_asserted = 0;
 static int end_to_end_asserted = 0;
+static int sizes_asserted = 0;
+static int update_fixtures = 0;
+static struct oracle_c07_local_tally local_tally;
+
+/** @brief The members BulgeSizeOn 3 adds to every c05 galaxy (oracle README "The c07 Group") */
+static const char *const SIZES[] = {"MergerBulgeMass", "BulgeRadius", "MergerBulgeRadius",
+                                    "InstabilityBulgeRadius"};
 
 /** @brief The galaxy fields the routine records beyond the fourteen, unchanged before c06 */
 static const char *const UNTOUCHED[] = {"BlackHoleMass", "QuasarModeBHaccretionMass"};
@@ -119,14 +143,18 @@ static const char *const UNTOUCHED[] = {"BlackHoleMass", "QuasarModeBHaccretionM
 static const char *const FLAGS[] = {"instability_disk_positive", "instability_mcrit_capped",
                                     "instability_stars_transferred", "instability_gas_branch"};
 
-/** @brief The fields whose post-transfer value the oracle validates on gas-unstable fixtures */
-static const char *const POST_TRANSFER[] = {"BulgeMass", "MetalsBulgeMass", "InstabilityBulgeMass"};
+/** @brief The fields whose post-transfer value the oracle validates on gas-unstable fixtures:
+ *         the three masses, and the three radii with BulgeSizeOn 3 */
+static const char *const POST_TRANSFER[] = {
+    "BulgeMass",   "MetalsBulgeMass",   "InstabilityBulgeMass",
+    "BulgeRadius", "MergerBulgeRadius", "InstabilityBulgeRadius"};
+#define POST_TRANSFER_R0 3
 
 /**
  * @brief Apply the fixture's flags and parameters, then initialise the module
  * @return Number of problems
  */
-static int setup_parameters(struct oracle_fixture *in) {
+static int setup_parameters(struct oracle_fixture *in, int *bulge_size_on) {
   int problems = 0;
   reset_config();
 
@@ -136,7 +164,14 @@ static int setup_parameters(struct oracle_fixture *in) {
   problems += oracle_c05_require_flag(in, "params.CGMrecipeOn", 0);
   problems += oracle_c05_require_flag(in, "params.FIREmodeOn", 0);
   problems += oracle_c05_require_flag(in, "params.EnhancedStarFormationOn", 0);
-  problems += oracle_c05_require_flag(in, "params.BulgeSizeOn", 0);
+  /* BulgeSizeOn 0 (R0) or 3 (R1.par:109); c05 fixtures carry Hubble_h in both modes */
+  *bulge_size_on = oracle_in_i32(in, "params.BulgeSizeOn");
+  if (*bulge_size_on != MIMIC_SAGE_BULGE_SIZE_OFF &&
+      *bulge_size_on != MIMIC_SAGE_BULGE_SIZE_TONINI) {
+    fprintf(stderr, "oracle: %s: params.BulgeSizeOn %d is neither 0 nor 3\n", in->path,
+            *bulge_size_on);
+    problems++;
+  }
   problems += oracle_c05_require_flag(in, "params.KarpovModeOn", 0);
   problems += oracle_c05_require_flag(in, "params.SaveFullSFH", 0);
   problems += oracle_c05_require_flag(in, "params.AGNrecipeOn", 2);
@@ -146,7 +181,7 @@ static int setup_parameters(struct oracle_fixture *in) {
   /* The core-owned gravitational constant, at SAGE26's bit pattern (R/src/core_init.c:96) */
   MimicConfig.G = oracle_in_f64(in, "params.G");
   /* Read by the routine only in update_instability_bulge_radius past its BulgeSizeOn 3 test
-   * (R/src/model_misc.c:395-397), which R0 never passes; the burst module derives its
+   * (R/src/model_misc.c:395-398), which R0 never passes; the burst module derives its
    * supernova constants from it */
   MimicConfig.Hubble_h = oracle_in_f64(in, "params.Hubble_h");
 
@@ -195,7 +230,8 @@ static int setup_parameters(struct oracle_fixture *in) {
     }
   }
 
-  if (oracle_set_model_param("StarFormingDiskFactor", SAGE26_TOOMRE_DISK_FACTOR) != 0) {
+  if (oracle_set_model_param("StarFormingDiskFactor", SAGE26_TOOMRE_DISK_FACTOR) != 0 ||
+      oracle_set_model_param("BulgeSizeOn", (double)*bulge_size_on) != 0) {
     problems++;
   }
   if (sage26_disk_instability_init() != 0) {
@@ -237,7 +273,7 @@ static int chain_halo_dT(const double dt, double *dT) {
  * @brief Build the galaxies and their halos from the fixture
  * @return Number of problems
  */
-static int setup_galaxies(struct oracle_fixture *in, const int ngal,
+static int setup_galaxies(struct oracle_fixture *in, const int ngal, const int sizes_on,
                           struct GalaxyData galaxies[MAX_GALAXIES],
                           struct Halo halos[MAX_GALAXIES]) {
   int problems = 0;
@@ -264,9 +300,16 @@ static int setup_galaxies(struct oracle_fixture *in, const int ngal,
     /* The six histories: written only by the continuation's burst */
     problems += oracle_c05_in_histories(in, i, g);
 
-    g->BulgeRadius = TEST_BULGE_RADIUS;
-    g->MergerBulgeRadius = TEST_MERGER_BULGE_RADIUS;
-    g->InstabilityBulgeRadius = TEST_INSTABILITY_BULGE_RADIUS;
+    if (sizes_on) {
+      /* BulgeSizeOn 3: the merger channel and the three radii are the fixture's */
+      for (size_t k = 0; k < COUNT(SIZES); k++) {
+        *oracle_c06_galaxy_float(g, SIZES[k]) = oracle_in_f32(in, oracle_galaxy_field(i, SIZES[k]));
+      }
+    } else {
+      g->BulgeRadius = TEST_BULGE_RADIUS;
+      g->MergerBulgeRadius = TEST_MERGER_BULGE_RADIUS;
+      g->InstabilityBulgeRadius = TEST_INSTABILITY_BULGE_RADIUS;
+    }
     g->UnstableDiskGasFraction = 0.0;
   }
   return problems;
@@ -276,7 +319,7 @@ static int setup_galaxies(struct oracle_fixture *in, const int ngal,
  * @brief Require every galaxy member the module does not write to be bit-identical to before
  * @return Number of galaxies with a changed member
  */
-static int check_rest_unchanged(const char *path, const int ngal,
+static int check_rest_unchanged(const char *path, const int ngal, const int sizes_on,
                                 const struct GalaxyData before[MAX_GALAXIES],
                                 const struct GalaxyData after[MAX_GALAXIES]) {
   int problems = 0;
@@ -286,6 +329,12 @@ static int check_rest_unchanged(const char *path, const int ngal,
     expected.MetalsBulgeMass = after[i].MetalsBulgeMass;
     expected.InstabilityBulgeMass = after[i].InstabilityBulgeMass;
     expected.UnstableDiskGasFraction = after[i].UnstableDiskGasFraction;
+    if (sizes_on) {
+      /* BulgeSizeOn 3: the radius update writes the three radii (asserted separately) */
+      expected.BulgeRadius = after[i].BulgeRadius;
+      expected.MergerBulgeRadius = after[i].MergerBulgeRadius;
+      expected.InstabilityBulgeRadius = after[i].InstabilityBulgeRadius;
+    }
     if (memcmp(&expected, &after[i], sizeof(expected)) != 0) {
       fprintf(stderr,
               "oracle: %s: galaxy[%d] changed a member other than BulgeMass, MetalsBulgeMass, "
@@ -356,7 +405,8 @@ static int check_handed_fraction(struct oracle_fixture *out, const double local,
  * @brief Read the post-transfer validation markers, requiring each to be checked and consistent
  * @return Number of marker errors
  */
-static int check_post_transfer_markers(struct oracle_fixture *out, const int state_post) {
+static int check_post_transfer_markers(struct oracle_fixture *out, const int state_post,
+                                       const int sizes_on) {
   int problems = 0;
   const int absent = oracle_in_i32(out, "intermediate.post_transfer_absent");
   if (absent != !state_post) {
@@ -367,7 +417,8 @@ static int check_post_transfer_markers(struct oracle_fixture *out, const int sta
   if (absent) {
     return 0;
   }
-  for (size_t k = 0; k < COUNT(POST_TRANSFER); k++) {
+  const size_t post_count = sizes_on ? COUNT(POST_TRANSFER) : POST_TRANSFER_R0;
+  for (size_t k = 0; k < post_count; k++) {
     char field[ORACLE_MAX_NAME];
     snprintf(field, sizeof(field), "intermediate.post_transfer.%s_checked", POST_TRANSFER[k]);
     problems += oracle_in_i32(out, field) != 1;
@@ -397,7 +448,8 @@ static int check_post_transfer_markers(struct oracle_fixture *out, const int sta
  * @return Number of mismatches and errors
  */
 static int check_end_to_end(const char *name, struct oracle_fixture *out, struct ModuleContext *ctx,
-                            const int ngal, const int p, struct GalaxyData galaxies[MAX_GALAXIES],
+                            const int ngal, const int p, const int sizes_on,
+                            struct GalaxyData galaxies[MAX_GALAXIES],
                             struct Halo halos[MAX_GALAXIES]) {
   int problems = 0;
   static struct GalaxyData post_transfer[MAX_GALAXIES];
@@ -416,6 +468,13 @@ static int check_end_to_end(const char *name, struct oracle_fixture *out, struct
     problems += oracle_c05_check_floats(out, "intermediate.c06.", i, &galaxies[i], UNTOUCHED,
                                         COUNT(UNTOUCHED));
     problems += oracle_c05_check_histories(out, "intermediate.c06.", i, &galaxies[i]);
+    if (sizes_on) {
+      for (size_t k = 0; k < COUNT(SIZES); k++) {
+        problems +=
+            oracle_check_f32(out, oracle_prefixed_galaxy_field("intermediate.c06.", i, SIZES[k]),
+                             *oracle_c06_galaxy_float(&galaxies[i], SIZES[k]));
+      }
+    }
 
     struct GalaxyData expected = post_transfer[i];
     for (size_t k = 0; k < count; k++) {
@@ -432,6 +491,12 @@ static int check_end_to_end(const char *name, struct oracle_fixture *out, struct
             *oracle_c05_history_element(&galaxies[i], h, k);
       }
     }
+    if (sizes_on) {
+      for (size_t k = 0; k < COUNT(SIZES); k++) {
+        *oracle_c06_galaxy_float(&expected, SIZES[k]) =
+            *oracle_c06_galaxy_float(&galaxies[i], SIZES[k]);
+      }
+    }
     /* The package's diagnostic, which SAGE26 does not hold */
     expected.StarFormationRate = galaxies[i].StarFormationRate;
     if (memcmp(&expected, &galaxies[i], sizeof(expected)) != 0) {
@@ -446,14 +511,17 @@ static int check_end_to_end(const char *name, struct oracle_fixture *out, struct
   return problems;
 }
 
-/** @brief Compare one fixture; returns the number of mismatches and errors */
-static int check_fixture(const char *name) {
+/** @brief check_disk_instability through process(); returns the number of mismatches and errors */
+static int check_instability(const char *name) {
   static struct oracle_fixture in, out;
   if (oracle_load_pair(MODULE, name, "check_disk_instability", &in, &out) != 0) {
     return 1;
   }
 
-  int problems = setup_parameters(&in);
+  int bulge_size_on = MIMIC_SAGE_BULGE_SIZE_OFF;
+  int problems = setup_parameters(&in, &bulge_size_on);
+  const int sizes_on = bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI;
+  const struct MimicSageBulgeSize sizes = {bulge_size_on, MimicConfig.Hubble_h};
   const int ngal = oracle_in_i32(&in, "call.ngal");
   const int p = oracle_in_i32(&in, "call.p");
   const int centralgal = oracle_in_i32(&in, "call.centralgal");
@@ -475,7 +543,7 @@ static int check_fixture(const char *name) {
 
   static struct GalaxyData galaxies[MAX_GALAXIES], before[MAX_GALAXIES], replay[MAX_GALAXIES];
   static struct Halo halos[MAX_GALAXIES], replay_halos[MAX_GALAXIES];
-  problems += setup_galaxies(&in, ngal, galaxies, halos);
+  problems += setup_galaxies(&in, ngal, sizes_on, galaxies, halos);
   if (problems != 0) {
     return problems;
   }
@@ -498,8 +566,8 @@ static int check_fixture(const char *name) {
     replay_halos[i].galaxy = &replay[i];
   }
   struct MimicSageInstabilityLocals locals;
-  const double replay_fraction =
-      mimic_sage_check_disk_instability(&replay_halos[p], &ctx, SAGE26_TOOMRE_DISK_FACTOR, &locals);
+  const double replay_fraction = mimic_sage_check_disk_instability_with_sizes(
+      &replay_halos[p], &ctx, SAGE26_TOOMRE_DISK_FACTOR, &sizes, &locals);
 
   /* The module itself */
   if (sage26_disk_instability_process(&ctx, &halos[p], 1) != 0) {
@@ -520,9 +588,18 @@ static int check_fixture(const char *name) {
     problems += oracle_c05_check_floats(&out, "", i, &galaxies[i], written, count);
     problems += oracle_c05_check_floats(&out, "", i, &galaxies[i], UNTOUCHED, COUNT(UNTOUCHED));
     oracle_c05_exclude_histories(&out, "", i);
+    if (sizes_on) {
+      for (size_t k = 0; k < COUNT(SIZES); k++) {
+        problems += oracle_check_f32(&out, oracle_galaxy_field(i, SIZES[k]),
+                                     *oracle_c06_galaxy_float(&galaxies[i], SIZES[k]));
+      }
+    }
   }
-  problems += check_rest_unchanged(name, ngal, before, galaxies);
-  problems += check_post_transfer_markers(&out, state_post);
+  if (sizes_on) {
+    sizes_asserted++;
+  }
+  problems += check_rest_unchanged(name, ngal, sizes_on, before, galaxies);
+  problems += check_post_transfer_markers(&out, state_post, sizes_on);
 
   /* SAGE26's locals */
   problems += check_local(&out, "diskmass", &locals.diskmass);
@@ -547,12 +624,79 @@ static int check_fixture(const char *name) {
   /* SAGE26's full end state after the gas branch's continuation, through the package's
    * continuation as a run configures it */
   if (state_post) {
-    problems += check_end_to_end(name, &out, &ctx, ngal, p, galaxies, halos);
+    problems += check_end_to_end(name, &out, &ctx, ngal, p, sizes_on, galaxies, halos);
   }
 
   problems += oracle_report_unconsumed(&in);
   problems += oracle_report_unconsumed(&out);
   return problems;
+}
+
+/**
+ * @brief update_instability_bulge_radius (R/src/model_misc.c:385-424) through the shared helper
+ * @return Number of mismatches and errors
+ */
+static int check_update(const char *name) {
+  static struct oracle_fixture in, out;
+  if (oracle_load_pair(MODULE, name, "update_instability_bulge_radius", &in, &out) != 0) {
+    return 1;
+  }
+  struct MimicSageBulgeSize sizes;
+  int problems = oracle_c07_read_sizes(&in, &sizes);
+  if (oracle_in_i32(&in, "call.ngal") != 1 || oracle_in_i32(&in, "call.p") != 0) {
+    fprintf(stderr, "oracle: %s: call.ngal must be 1 and call.p 0\n", name);
+    problems++;
+  }
+  const double delta_mass = oracle_in_f64(&in, "call.delta_mass");
+  const double old_disk_radius = oracle_in_f64(&in, "call.old_disk_radius");
+
+  struct GalaxyData galaxy, before;
+  oracle_poison(&galaxy, sizeof(galaxy));
+  oracle_c07_in_size_block(&in, 0, &galaxy);
+  before = galaxy;
+
+  struct MimicSageInstabilityRadiusLocals l;
+  mimic_sage_update_instability_bulge_radius(&galaxy, delta_mass, old_disk_radius, &sizes, &l);
+
+  problems += oracle_c07_check_size_block(&out, 0, &galaxy);
+  struct GalaxyData expected = before;
+  expected.BulgeRadius = galaxy.BulgeRadius;
+  expected.MergerBulgeRadius = galaxy.MergerBulgeRadius;
+  expected.InstabilityBulgeRadius = galaxy.InstabilityBulgeRadius;
+  if (memcmp(&expected, &galaxy, sizeof(expected)) != 0) {
+    fprintf(stderr, "oracle: %s: the update changed a member other than the three radii\n", name);
+    problems++;
+  }
+  problems += oracle_check_i32(&out, "intermediate.returned_early", l.returned_early);
+  problems += oracle_check_i32(&out, "intermediate.incremental", l.incremental);
+  const struct {
+    const char *name;
+    double value;
+  } values[] = {{"M_old", l.M_old},
+                {"R_old", l.R_old},
+                {"R_disc_kpc", l.R_disc_kpc},
+                {"R_new_contribution_kpc", l.R_new_contribution_kpc},
+                {"R_new_contribution", l.R_new_contribution},
+                {"R_old_kpc", l.R_old_kpc},
+                {"M_new", l.M_new},
+                {"R_new_kpc", l.R_new_kpc},
+                {"R_new", l.R_new}};
+  for (size_t k = 0; k < COUNT(values); k++) {
+    problems += oracle_c07_check_local(&out, values[k].name, values[k].value, 1, &local_tally);
+  }
+  update_fixtures++;
+
+  problems += oracle_report_unconsumed(&in);
+  problems += oracle_report_unconsumed(&out);
+  return problems;
+}
+
+/** @brief Dispatch one fixture by its routine */
+static int check_fixture(const char *name) {
+  if (strncmp(name, "uibr_", 5) == 0) {
+    return check_update(name);
+  }
+  return check_instability(name);
 }
 
 /**
@@ -577,6 +721,9 @@ int test_oracle_bit_identity(void) {
   memset(&tally, 0, sizeof(tally));
   handed_fraction_asserted = 0;
   end_to_end_asserted = 0;
+  sizes_asserted = 0;
+  update_fixtures = 0;
+  memset(&local_tally, 0, sizeof(local_tally));
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: locals asserted %d (validated two-sided), not validated %d, absent %d; "
          "Mcrit caps asserted equal to the disk mass %d; handed unstable_gas_fraction asserted "
@@ -584,9 +731,17 @@ int test_oracle_bit_identity(void) {
          "through the quasar and burst modules %d ",
          tally.asserted, tally.not_validated, tally.absent, tally.binding, handed_fraction_asserted,
          end_to_end_asserted);
+  printf(
+      "\n  oracle: check_disk_instability with BulgeSizeOn 3 %d; update_instability_bulge_radius "
+      "%d, its locals validated %d, narrowing-limited %d, not validated %d, absent %d ",
+      sizes_asserted, update_fixtures, local_tally.validated, local_tally.narrowing_limited,
+      local_tally.not_validated, local_tally.absent);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
-  TEST_ASSERT(end_to_end_asserted == 6,
-              "the six gas-unstable fixtures must be asserted end to end");
+  TEST_ASSERT(end_to_end_asserted == 9,
+              "the nine gas-unstable fixtures (six R0, three BulgeSizeOn 3) must be asserted end "
+              "to end");
+  TEST_ASSERT(sizes_asserted >= 1 && update_fixtures >= 1,
+              "the BulgeSizeOn 3 instability and the direct radius update must be asserted");
   return TEST_PASS;
 }
 

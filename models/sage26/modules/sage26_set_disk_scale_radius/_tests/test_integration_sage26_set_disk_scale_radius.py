@@ -66,7 +66,7 @@ def test_module_pipeline_integration():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={},
+        model_params={"BulgeSizeOn": 0},
     )
 
     # Execute Mimic
@@ -114,7 +114,7 @@ def test_disk_radius_physics():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={},
+        model_params={"BulgeSizeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -197,7 +197,7 @@ def test_disk_radius_type_filtering():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={},
+        model_params={"BulgeSizeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -271,7 +271,7 @@ def test_memory_and_performance():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={},
+        model_params={"BulgeSizeOn": 0},
     )
 
     # Execute and time

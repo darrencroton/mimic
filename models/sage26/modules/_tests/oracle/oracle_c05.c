@@ -387,6 +387,10 @@ ARRAY_ACCESSOR(SfrDiskColdGas)
 ARRAY_ACCESSOR(SfrDiskColdGasMetals)
 ARRAY_ACCESSOR(SfrBulgeColdGas)
 ARRAY_ACCESSOR(SfrBulgeColdGasMetals)
+SCALAR_ACCESSOR(MergerBulgeMass)
+SCALAR_ACCESSOR(BulgeRadius)
+SCALAR_ACCESSOR(MergerBulgeRadius)
+SCALAR_ACCESSOR(InstabilityBulgeRadius)
 
 #define MEMBER(m) {#m, access_##m}
 #define COUNT(array) (sizeof(array) / sizeof((array)[0]))
@@ -420,6 +424,21 @@ static const struct member HISTORY_MEMBERS[] = {
     MEMBER(SfrDisk),         MEMBER(SfrBulge),
     MEMBER(SfrDiskColdGas),  MEMBER(SfrDiskColdGasMetals),
     MEMBER(SfrBulgeColdGas), MEMBER(SfrBulgeColdGasMetals)};
+
+/**
+ * The bulge-size members BulgeSizeOn 3 adds (c07): the merger channel and the three radii,
+ * which get_bulge_radius reads and writes in mode 3 (R/src/model_misc.c:317-369) after an
+ * instability transfer (update_instability_bulge_radius, R/src/model_misc.c:385-424, D:83).
+ * Read, recorded and compared, after STATE_MEMBERS, for every galaxy of a routine whose flags
+ * read_r0_flags read with BulgeSizeOn 3, and never in mode 0, so every mode-0 fixture reads
+ * and records exactly what it did before c07.
+ */
+static const struct member SIZE_MEMBERS[] = {MEMBER(MergerBulgeMass), MEMBER(BulgeRadius),
+                                             MEMBER(MergerBulgeRadius),
+                                             MEMBER(InstabilityBulgeRadius)};
+
+/** Set by read_r0_flags: BulgeSizeOn is 3, so SIZE_MEMBERS are read and recorded */
+static int sizes_recorded = 0;
 
 /** Which groups of members a routine reads and records */
 enum block {
@@ -457,6 +476,11 @@ static void read_galaxy(const int i, const int blocks) {
   for (size_t m = 0; m < COUNT(STATE_MEMBERS); m++) {
     *member_ptr(g, &STATE_MEMBERS[m]) = in_f32(galaxy_field("", i, STATE_MEMBERS[m].name));
   }
+  if (sizes_recorded) {
+    for (size_t m = 0; m < COUNT(SIZE_MEMBERS); m++) {
+      *member_ptr(g, &SIZE_MEMBERS[m]) = in_f32(galaxy_field("", i, SIZE_MEMBERS[m].name));
+    }
+  }
   if (blocks & BLOCK_BH) {
     for (size_t m = 0; m < COUNT(BH_MEMBERS); m++) {
       *member_ptr(g, &BH_MEMBERS[m]) = in_f32(galaxy_field("", i, BH_MEMBERS[m].name));
@@ -477,6 +501,11 @@ static void write_galaxy(const char *prefix, const int i, const struct GALAXY *g
                          const int blocks) {
   for (size_t m = 0; m < COUNT(STATE_MEMBERS); m++) {
     out_f32(galaxy_field(prefix, i, STATE_MEMBERS[m].name), member_value(g, &STATE_MEMBERS[m], 0));
+  }
+  if (sizes_recorded) {
+    for (size_t m = 0; m < COUNT(SIZE_MEMBERS); m++) {
+      out_f32(galaxy_field(prefix, i, SIZE_MEMBERS[m].name), member_value(g, &SIZE_MEMBERS[m], 0));
+    }
   }
   if (blocks & BLOCK_BH) {
     for (size_t m = 0; m < COUNT(BH_MEMBERS); m++) {
@@ -501,6 +530,14 @@ static int same_galaxies(const struct GALAXY *a, const struct GALAXY *b, const i
       if (!same_f32(member_value(&a[i], &STATE_MEMBERS[m], 0),
                     member_value(&b[i], &STATE_MEMBERS[m], 0))) {
         return 0;
+      }
+    }
+    if (sizes_recorded) {
+      for (size_t m = 0; m < COUNT(SIZE_MEMBERS); m++) {
+        if (!same_f32(member_value(&a[i], &SIZE_MEMBERS[m], 0),
+                      member_value(&b[i], &SIZE_MEMBERS[m], 0))) {
+          return 0;
+        }
       }
     }
     if (blocks & BLOCK_BH) {
@@ -567,7 +604,8 @@ static int32_t read_bulge_size_on(void) {
  * starbursts (StarburstColdGasOn defaults to 1, R/src/core_read_parameter_file.c:109).
  * BulgeSizeOn is read, not pinned: 0 (R0) or 3 (R1 onward, read_bulge_size_on); Hubble_h,
  * which mode 3's size fallbacks read (R/src/model_misc.c:249,398), is read for every
- * configuration by read_r0_params. DiskInstabilityOn may be 0 (a labelled non-R0 value)
+ * configuration by read_r0_params. With BulgeSizeOn 3 every galaxy also reads and records
+ * SIZE_MEMBERS (sizes_recorded). DiskInstabilityOn may be 0 (a labelled non-R0 value)
  * where allow_no_instability is set.
  */
 static void read_r0_flags(const int allow_no_instability) {
@@ -577,6 +615,7 @@ static void read_r0_flags(const int allow_no_instability) {
   run_params.FIREmodeOn = require_flag("FIREmodeOn", 0);
   run_params.EnhancedStarFormationOn = require_flag("EnhancedStarFormationOn", 0);
   run_params.BulgeSizeOn = read_bulge_size_on();
+  sizes_recorded = run_params.BulgeSizeOn == 3;
   run_params.KarpovModeOn = require_flag("KarpovModeOn", 0);
   run_params.SaveFullSFH = require_flag("SaveFullSFH", 0);
   run_params.AGNrecipeOn = require_flag("AGNrecipeOn", 2);
@@ -725,8 +764,21 @@ enum im_id {
   IM_COUNT
 };
 
-/** Float fields of the instability's post-transfer state, perturbed with nextafterf */
-enum post_transfer_id { PT_BULGE, PT_METALS_BULGE, PT_INSTABILITY_BULGE, PT_COUNT };
+/**
+ * Float fields of the instability's post-transfer state, perturbed with nextafterf: the three
+ * masses (every gas-unstable fixture) and, with BulgeSizeOn 3, the three radii the radius
+ * update writes (PT_R0_COUNT is the number perturbed in mode 0)
+ */
+enum post_transfer_id {
+  PT_BULGE,
+  PT_METALS_BULGE,
+  PT_INSTABILITY_BULGE,
+  PT_R0_COUNT,
+  PT_BULGE_RADIUS = PT_R0_COUNT,
+  PT_MERGER_BULGE_RADIUS,
+  PT_INSTABILITY_BULGE_RADIUS,
+  PT_COUNT
+};
 
 static const struct {
   const char *name;
@@ -1010,8 +1062,9 @@ struct instability_run {
  * product (D:57-60), the double fractions (D:63-66), the stellar transfer into the float
  * BulgeMass, InstabilityBulgeMass and MetalsBulgeMass with SAGE26's own get_metallicity of
  * the float disk differences (D:73-80), and SAGE26's own update_instability_bulge_radius,
- * which returns at once on R0 (BulgeSizeOn 0, R/src/model_misc.c:395). The VERBOSE
- * diagnostic of D:91-99 prints and sets run_params->interrupted only; it is not
+ * which returns at once on R0 (BulgeSizeOn 0, R/src/model_misc.c:395) and with BulgeSizeOn 3
+ * updates the instability radius and synchronises the three radii (R/src/model_misc.c:385-424). The
+ * VERBOSE diagnostic of D:91-99 prints and sets run_params->interrupted only; it is not
  * transcribed. If the gas branch (D:90) is reached, the unstable gas fraction is formed
  * (D:101) and, when continue_to_c06 is set, SAGE26's own grow_black_hole and
  * collisional_starburst_recipe run with exactly the arguments of D:102-108.
@@ -1072,6 +1125,12 @@ static void transcribe_check_disk_instability(const int p, const int centralgal,
     galaxies[p].MetalsBulgeMass = tap_post(pt, PT_METALS_BULGE, galaxies[p].MetalsBulgeMass);
     galaxies[p].InstabilityBulgeMass =
         tap_post(pt, PT_INSTABILITY_BULGE, galaxies[p].InstabilityBulgeMass);
+    /* BulgeSizeOn 3 only: no perturbation names these ids in mode 0 */
+    galaxies[p].BulgeRadius = tap_post(pt, PT_BULGE_RADIUS, galaxies[p].BulgeRadius);
+    galaxies[p].MergerBulgeRadius =
+        tap_post(pt, PT_MERGER_BULGE_RADIUS, galaxies[p].MergerBulgeRadius);
+    galaxies[p].InstabilityBulgeRadius =
+        tap_post(pt, PT_INSTABILITY_BULGE_RADIUS, galaxies[p].InstabilityBulgeRadius);
 
     /* D:90 */
     l->flag[FL_GAS_BRANCH] = 0;
@@ -1844,8 +1903,10 @@ static void run_check_disk_instability(void) {
       sens[id] = instability_sensitivity(&call, input, end, id, -1);
     }
   }
+  /* The post-transfer fields perturbed: the three masses, and the three radii in mode 3 */
+  const int post_count = sizes_recorded ? PT_COUNT : PT_R0_COUNT;
   if (gas) {
-    for (int k = 0; k < PT_COUNT; k++) {
+    for (int k = 0; k < post_count; k++) {
       post_sens[k] = instability_sensitivity(&call, input, end, -1, k);
     }
   }
@@ -1859,11 +1920,12 @@ static void run_check_disk_instability(void) {
     const int id = INSTABILITY_VALUES[k];
     out_carried("", IM_INFO[id].name, l.present[id], l.value[id], &sens[id]);
   }
-  static const char *const POST_NAMES[PT_COUNT] = {"BulgeMass", "MetalsBulgeMass",
-                                                   "InstabilityBulgeMass"};
+  static const char *const POST_NAMES[PT_COUNT] = {
+      "BulgeMass",   "MetalsBulgeMass",   "InstabilityBulgeMass",
+      "BulgeRadius", "MergerBulgeRadius", "InstabilityBulgeRadius"};
   out_i32("intermediate.post_transfer_absent", gas ? 0 : 1);
   if (gas) {
-    for (int k = 0; k < PT_COUNT; k++) {
+    for (int k = 0; k < post_count; k++) {
       out_i32(field_name("intermediate.post_transfer.%s_checked", POST_NAMES[k]), 1);
       out_i32(field_name("intermediate.post_transfer.%s_validated_up", POST_NAMES[k]),
               post_sens[k].up);

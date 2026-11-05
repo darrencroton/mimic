@@ -210,6 +210,10 @@ static void setup_test_parameters(double reheating_eps, double ejection_eff, dou
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold_major);
 
+  /* The required bulge-size mode, SAGE26's R0 0 (no sizes) */
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", 0);
+
   MimicConfig.NumModelParams = idx;
 }
 
@@ -1940,6 +1944,8 @@ int test_module_initialization(void) {
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.5");
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.3");
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0");
   MimicConfig.NumModelParams = idx;
 
   /* ===== EXECUTE ===== */
@@ -2301,8 +2307,8 @@ int test_consecutive_bursts_bulge_excess_grows(void) {
   const uint32_t expected_bulge[3] = {0x3f800002u, 0x3f800003u, 0x3f800004u};
 
   for (int k = 0; k < 3; k++) {
-    mimic_apply_collisional_starburst(ratios[k], &halo, &halo, 1, 0, 0.0, 0, 0.01, &ctx, &params,
-                                      NULL);
+    mimic_apply_collisional_starburst(ratios[k], &halo, &halo, 1, 0, (double)gal.DiskScaleRadius,
+                                      0.0, 0, 0.01, &ctx, &params, NULL);
     uint32_t stellar_bits;
     uint32_t bulge_bits;
     memcpy(&stellar_bits, &gal.StellarMass, sizeof(stellar_bits));

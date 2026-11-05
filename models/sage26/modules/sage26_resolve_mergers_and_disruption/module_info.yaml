@@ -24,6 +24,7 @@ module:
       - BulgeRadius
       - MergerBulgeRadius
       - InstabilityBulgeRadius
+      - DiskScaleRadius
       - ColdGas
       - EjectedGas
       - HotGas
@@ -107,6 +108,7 @@ module:
     parameters:
       - ThresholdMajorMerger
       - ThresholdSatDisruption
+      - BulgeSizeOn
 
   events:
     emits:

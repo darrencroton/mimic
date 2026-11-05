@@ -61,6 +61,9 @@ static void setup_model_parameters(double threshold_sat_disruption, double thres
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold_sat_disruption);
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold_major_merger);
+  /* The required bulge-size mode, SAGE26's R0 0 (no sizes) */
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", 0);
 
   MimicConfig.NumModelParams = idx;
 }

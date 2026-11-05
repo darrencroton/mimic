@@ -262,6 +262,11 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
   if (oracle_set_model_param("StarFormingDiskFactor", SAGE26_SF_DISK_RADIUS_FRAC) != 0) {
     problems++;
   }
+  /* sage26_disk_instability's required BulgeSizeOn, at the fixtures' R0 value 0 (checked
+   * above) */
+  if (oracle_set_model_param("BulgeSizeOn", 0.0) != 0) {
+    problems++;
+  }
   /* Read only by the instability's c06 continuation (black-hole growth, quasar wind,
    * burst), which no fixture of this chain reaches */
   (void)oracle_in_f64(in, "params.ThreshMajorMerger");

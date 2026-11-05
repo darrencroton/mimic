@@ -1,6 +1,6 @@
 /**
  * @file    sage_merger_physics.h
- * @brief   SAGE26's merger transaction pieces on live galaxies (R0 path)
+ * @brief   SAGE26's merger transaction pieces on live galaxies (R0 and R1 paths)
  *
  * The pieces of SAGE26's merger transaction that run outside the black-hole growth and
  * the burst (R = the staged SAGE26 source, M = R/src/model_mergers.c):
@@ -11,7 +11,8 @@
  *   (M:253-254), which selects the burst's bulge channel;
  * - mimic_sage_merger_burst_channel(): that selection (M:266-282), used by the burst's
  *   merger-event consumer (sage26_starburst_feedback);
- * - mimic_sage_add_galaxies_together(): add_galaxies_together (M:456-543);
+ * - mimic_sage_add_galaxies_together(): add_galaxies_together (M:456-543), with its satellite
+ *   disk-star radius update (M:516-522, sage_bulge_size_physics.h);
  * - mimic_sage_make_bulge_from_burst(): make_bulge_from_burst (M:553-570);
  * - mimic_sage_reset_bulge_radii(): get_bulge_radius on R0 (BulgeSizeOn 0,
  *   R/src/model_misc.c:239-247), which zeroes the three bulge radii;
@@ -25,7 +26,8 @@
  * SAGE26's objects fuse, the disruption's ICS_sum_mt += StellarMass * time (M:871, the
  * oracle README's c06 table), is written as an explicit fma(); no other helper here
  * contains a multiply-add (the table lists none for add_galaxies_together and
- * make_bulge_from_burst).
+ * make_bulge_from_burst; the radius update's own fused site is in
+ * sage_bulge_size_physics.h).
  */
 
 #ifndef MIMIC_SHARED_SAGE_MERGER_PHYSICS_H
@@ -35,6 +37,7 @@
 #include <stddef.h>
 
 #include "types.h"
+#include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_sfr_history.h"
 
 /**
@@ -183,27 +186,30 @@ static inline int mimic_sage_merger_burst_channel(const double mass_ratio,
 }
 
 /**
- * @brief SAGE26's add_galaxies_together on the R0 path (R/src/model_mergers.c:456-543)
+ * @brief SAGE26's add_galaxies_together on the R0 and R1 paths (R/src/model_mergers.c:456-543)
  *
  * Adds the satellite's reservoirs to the target: cold, stellar, hot and ejected gas with
  * their metals; the ICS, booking a positive satellite ICS and its deposit-time
  * accumulator as accreted and clearing the satellite's ICS history; the black hole; the
  * CGM gas; the satellite's stars and stellar metals into the bulge, its two bulge
  * channels into the target's, and its remaining disk stars into the instability channel
- * if the target's post-addition disk fraction exceeds 0.5, else the merger channel; and
- * each bin of the satellite's disk and bulge histories into the target's bulge
- * histories. The satellite's other reservoirs are left as they are, as in SAGE26.
+ * if the target's post-addition disk fraction exceeds 0.5, the instability channel then
+ * updating the target's instability-bulge radius from its own disk radius (a no-op in
+ * BulgeSizeOn 0, R/src/model_misc.c:395), else the merger channel; and each bin of the
+ * satellite's disk and bulge histories into the target's bulge histories. The satellite's
+ * other reservoirs are left as they are, as in SAGE26, and its component radii are not
+ * averaged into the target's.
  *
- * Not run on R0: update_instability_bulge_radius returns at once with BulgeSizeOn 0
- * (R/src/model_misc.c:395), and the full star-formation history needs SaveFullSFH
- * (M:536-541).
+ * Not run: the full star-formation history needs SaveFullSFH (M:536-541).
  *
  * @param target     SAGE26's t
  * @param satellite  SAGE26's p
+ * @param sizes      The bulge-size configuration (BulgeSizeOn, Hubble_h)
  * @param locals     Optional: receives the satellite-disk values and flags
  */
 static inline void mimic_sage_add_galaxies_together(struct GalaxyData *target,
                                                     struct GalaxyData *satellite,
+                                                    const struct MimicSageBulgeSize *sizes,
                                                     struct MimicSageAddLocals *locals) {
   mimic_sage_add_locals_reset(locals);
 
@@ -246,7 +252,8 @@ static inline void mimic_sage_add_galaxies_together(struct GalaxyData *target,
   target->MergerBulgeMass += satellite->MergerBulgeMass;
 
   /* SAGE parity: the satellite's float disk mass is classified by the target's disk
-   * fraction AFTER the addition (M:509-528) */
+   * fraction AFTER the addition (M:509-528). Only the instability branch updates a radius:
+   * the target's, from the target's own disk radius, after the channel store (M:516-522) */
   const double satellite_disk_mass = satellite->StellarMass - satellite->BulgeMass;
   const int satellite_disk_positive = satellite_disk_mass > 0.0;
   double disk_mass = NAN;
@@ -260,6 +267,9 @@ static inline void mimic_sage_add_galaxies_together(struct GalaxyData *target,
 
     if (disk_fraction_above_half) {
       target->InstabilityBulgeMass += satellite_disk_mass;
+      const double old_disk_radius = target->DiskScaleRadius;
+      mimic_sage_update_instability_bulge_radius(target, satellite_disk_mass, old_disk_radius,
+                                                 sizes, NULL);
     } else {
       target->MergerBulgeMass += satellite_disk_mass;
     }
