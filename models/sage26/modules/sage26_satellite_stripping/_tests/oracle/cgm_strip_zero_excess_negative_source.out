@@ -1,0 +1,37 @@
+# SAGE26 oracle output for cgm_strip_zero_excess_negative_source.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine strip_from_satellite
+f64 intermediate.reionization_modifier 0x0000000000000000  # 0
+f64 intermediate.HaloBaryonFraction 0x0000000000000000  # 0
+i32 intermediate.strip_from_satellite_called 1
+f32 galaxy[0].HotGas 0x40800000  # 4
+f32 galaxy[0].MetalsHotGas 0x3d23d70a  # 0.0399999991
+f32 galaxy[0].CGMgas 0x40000000  # 2
+f32 galaxy[0].MetalsCGMgas 0x3cf5c28f  # 0.0299999993
+f32 galaxy[1].HotGas 0x00000000  # 0
+f32 galaxy[1].MetalsHotGas 0x00000000  # 0
+f32 galaxy[1].CGMgas 0xbe800000  # -0.25
+f32 galaxy[1].MetalsCGMgas 0x00000000  # 0
+i32 intermediate.stripped 0
+i32 intermediate.take_from_cgm -1
+i32 intermediate.give_to_cgm -1
+i32 intermediate.gas_cap_binds -1
+i32 intermediate.metals_cap_binds -1
+i32 intermediate.satBaryons_absent 0
+f64 intermediate.satBaryons 0x0000000000000000  # 0
+i32 intermediate.satBaryons_checked 1
+i32 intermediate.satBaryons_check_kind 2
+i32 intermediate.satBaryons_validated_up 0
+i32 intermediate.satBaryons_validated_down 0
+i32 intermediate.satBaryons_validated 0
+i32 intermediate.strippedGas_pre_cap_absent 0
+f64 intermediate.strippedGas_pre_cap 0x0000000000000000  # 0
+i32 intermediate.strippedGas_pre_cap_checked 1
+i32 intermediate.strippedGas_pre_cap_check_kind 2
+i32 intermediate.strippedGas_pre_cap_validated_up 1
+i32 intermediate.strippedGas_pre_cap_validated_down 0
+i32 intermediate.strippedGas_pre_cap_validated 0
+i32 intermediate.metallicity_absent 1
+i32 intermediate.strippedGasMetals_pre_cap_absent 1
+i32 intermediate.strippedGas_absent 1
+i32 intermediate.strippedGasMetals_absent 1

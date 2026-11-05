@@ -721,6 +721,7 @@ def test_full_pipeline_star_formation():
             "Yield": 0.03,
             "FracZleaveDisk": 0.5,
             "ThresholdMajorMerger": 0.3,
+            "CGMrecipeOn": 0,  # required by the infall modules (D33), R3's value
         },
     )
 

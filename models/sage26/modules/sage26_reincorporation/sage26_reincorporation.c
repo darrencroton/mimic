@@ -2,10 +2,15 @@
  * @file    sage26_reincorporation.c
  * @brief   SAGE26 reincorporation module - returns ejected gas to hot halo in massive systems
  *
- * Ports SAGE26's reincorporate_gas (model_reincorporation.c:44-66) on the R0 path
- * (CGMrecipeOn 0): a central whose Vvir exceeds Vcrit = 354.53 * ReIncorporationFactor
- * recaptures previously ejected gas into its hot halo at the rate
- * (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir), with the ejected metallicity.
+ * Ports SAGE26's reincorporate_gas (R = the staged SAGE26 source,
+ * R/src/model_reincorporation.c:44-66): a central whose Vvir exceeds
+ * Vcrit = 354.53 * ReIncorporationFactor recaptures previously ejected gas at the rate
+ * (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir), with the ejected metallicity. The required
+ * parameter CGMrecipeOn (campaign decision D33) selects only the destination, through SAGE26's
+ * regime-aware add_gas_to_hot_reservoir (R/src/model_misc.h:76-85,
+ * shared/sage_cgm_routing.h): the central's CGM pair with CGMrecipeOn 1 and Regime 0, its hot
+ * pair otherwise. The amount, guards, cap, metallicity and ejected debits are the same either
+ * way (R/src/model_reincorporation.c:46-61).
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand
  * order and types, so that compiler contraction treats both alike.
@@ -19,6 +24,7 @@
 #include "module_registry.h"
 #include "types.h"
 #include "shared/metallicity.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
 
@@ -26,7 +32,13 @@
 // MODULE PARAMETERS AND CONSTANTS
 // ============================================================================
 
+#define MODULE_NAME "sage26_reincorporation"
+
 static double REINCORPORATION_FACTOR;
+
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
+ * init (campaign decision D33) */
+static int CGM_RECIPE_ON;
 
 /* SAGE26 model_reincorporation.c:28-34: SN ejecta leave the disk at ~501 km/s; a
  * halo retains them when its escape velocity sqrt(2) * Vvir exceeds that, i.e.
@@ -34,33 +46,23 @@ static double REINCORPORATION_FACTOR;
 static const double REINC_VCRIT_KMS = 354.53;
 
 // ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/**
- * @brief SAGE26 add_gas_to_hot_reservoir (model_misc.h:76-85), CGMrecipeOn 0 branch
- *
- * SAGE parity: the metal mass arrives as an argument already rounded to double,
- * so the caller's product and this sum are two operations, as in SAGE26
- * (model_reincorporation.c:64), not one fused multiply-add.
- */
-static inline void add_gas_to_hot_reservoir(struct GalaxyData *central, const double gas,
-                                            const double metals) {
-  central->HotGas += gas;
-  central->MetalsHotGas += metals;
-}
-
-// ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
 int sage26_reincorporation_init(void) {
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
+  if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
+    return -1;
+  }
+
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ReIncorporationFactor", REINCORPORATION_FACTOR, 0.0, 10.0,
                                     "reincorporation efficiency factor");
 
   VERBOSE_LOG("SAGE reincorporation module initialized");
   VERBOSE_LOG("  ReIncorporationFactor = %.3f", REINCORPORATION_FACTOR);
   VERBOSE_LOG("  Critical velocity = %.2f km/s", REINC_VCRIT_KMS * REINCORPORATION_FACTOR);
+  VERBOSE_LOG("  CGMrecipeOn = %d", CGM_RECIPE_ON);
 
   return 0;
 }
@@ -142,11 +144,17 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
 
   const double metallicity = mimic_get_metallicity(gal->EjectedGas, gal->MetalsEjectedGas);
 
-  // Remove from the ejected reservoir, add to the hot one (model_reincorporation.c:59-64)
+  // Remove from the ejected reservoir, the same for every regime
+  // (R/src/model_reincorporation.c:59-61)
   gal->EjectedGas -= reincorporated;
   gal->MetalsEjectedGas -= metallicity * reincorporated;
 
-  add_gas_to_hot_reservoir(gal, reincorporated, metallicity * reincorporated);
+  /* Add to the central's regime-selected reservoir (:63-64). SAGE parity: the metal mass
+   * arrives at SAGE26's add_gas_to_hot_reservoir as an argument already rounded to double, so
+   * the caller's product and the helper's sum are two operations, as in SAGE26's object
+   * (R/src/model_reincorporation.c:64, R/src/model_misc.h:76-85), not one fused multiply-add. */
+  mimic_sage_add_gas_to_hot_reservoir(gal, CGM_RECIPE_ON, reincorporated,
+                                      metallicity * reincorporated);
 
   return 0;
 }

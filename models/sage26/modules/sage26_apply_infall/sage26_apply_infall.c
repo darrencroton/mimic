@@ -1,13 +1,17 @@
 /**
  * @file    sage26_apply_infall.c
- * @brief   SAGE26 infall application - distributes infalling gas budget to hot reservoir over
- * substeps
+ * @brief   SAGE26 infall application - distributes infalling gas budget to the central's hot or
+ * CGM reservoir over substeps
  *
- * Ports SAGE26's add_infall_to_hot, non-CGM branch (model_infall.c:351-369, :400-413),
- * with its call-site share infallingGas / effective_steps (core_build_model.c:488):
+ * Ports SAGE26's add_infall_to_hot (R = the staged SAGE26 source, R/src/model_infall.c:351-414),
+ * with its call-site share infallingGas / effective_steps (R/src/core_build_model.c:488):
  * distributes the infalling gas budget from sage26_prepare_infall_budget to the
- * central's hot reservoir over substeps with metallicity tracking. For negative
- * infall (mass loss), removes from the ejected reservoir first, then hot gas.
+ * central's selected reservoir over substeps with metallicity tracking. For negative
+ * infall (mass loss), removes from the ejected reservoir first, then from the selected
+ * reservoir. The required parameter CGMrecipeOn (campaign decision D33) selects it: the
+ * central's CGM pair (CGMgas, MetalsCGMgas) with CGMrecipeOn 1 and Regime 0
+ * (R/src/model_infall.c:371-385), and its hot pair otherwise (:386-399 with CGMrecipeOn 1,
+ * :400-413 with CGMrecipeOn 0, the same arithmetic). Positive infall adds gas and no metals.
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand
  * order and types, so that compiler contraction treats both alike.
@@ -20,16 +24,34 @@
 #include "globals.h"
 #include "shared/central_link.h"
 #include "shared/metallicity.h"
+#include "shared/sage_cgm_routing.h"
+#include "module_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
 #include "types.h"
 
 // ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
+
+#define MODULE_NAME "sage26_apply_infall"
+
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
+ * init (campaign decision D33) */
+static int CGM_RECIPE_ON;
+
+// ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
 int sage26_apply_infall_init(void) {
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
+  if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
+    return -1;
+  }
+
   /* Dependency check: sage26_prepare_infall_budget must be present in pre_timestep */
   if (!module_configured_in_phase("sage26_prepare_infall_budget", MimicConfig.pre_timestep,
                                   MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO)) {
@@ -40,6 +62,7 @@ int sage26_apply_infall_init(void) {
   }
 
   VERBOSE_LOG("SAGE apply infall module initialized");
+  VERBOSE_LOG("  CGMrecipeOn = %d", CGM_RECIPE_ON);
   return 0;
 }
 
@@ -64,9 +87,11 @@ int sage26_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, i
   // The per-substep share of the snapshot budget (core_build_model.c:488)
   double infallingGas = galaxy->InfallingGas / (double)ctx->num_substeps;
 
-  // SAGE parity: add_infall_to_hot removes from ejected first, then hot, with a float
-  // metallicity and double products accumulated into float reservoirs, no intermediate
-  // rounding (model_infall.c:354-368, :403-412)
+  // SAGE parity: add_infall_to_hot removes from ejected first, then from the selected (CGM or
+  // hot) reservoir, with a float metallicity and double products accumulated into float
+  // reservoirs, no intermediate rounding (R/src/model_infall.c:354-368, :376-384, :390-398,
+  // :404-412). The residual recovered when the ejected gas runs out is the already narrowed
+  // negative float EjectedGas (:362-364).
   if (infallingGas < 0.0 && galaxy->EjectedGas > 0.0f) {
     const float metallicity = mimic_get_metallicity(galaxy->EjectedGas, galaxy->MetalsEjectedGas);
     galaxy->MetalsEjectedGas += infallingGas * metallicity;
@@ -84,24 +109,35 @@ int sage26_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, i
     }
   }
 
-  // CGMrecipeOn != 1: the hot reservoir (model_infall.c:400-413)
-  if (infallingGas < 0.0 && galaxy->MetalsHotGas > 0.0f) {
-    const float metallicity = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
-    galaxy->MetalsHotGas += infallingGas * metallicity;
-    if (galaxy->MetalsHotGas < 0.0f) {
-      galaxy->MetalsHotGas = 0.0f;
+  // The central's CGM pair for CGMrecipeOn 1 and Regime 0, else its hot pair
+  // (R/src/model_infall.c:371-372, :386, :400). The three branches of SAGE26 share one
+  // arithmetic: the selected metals are debited only while positive and floored at zero, the
+  // signed gas added, and both selected fields cleared if the gas becomes negative.
+  const int to_cgm =
+      (CGM_RECIPE_ON == MIMIC_SAGE_CGM_RECIPE_ON && galaxy->Regime == MIMIC_SAGE_REGIME_CGM);
+  float *const gas = to_cgm ? &galaxy->CGMgas : &galaxy->HotGas;
+  float *const metals = to_cgm ? &galaxy->MetalsCGMgas : &galaxy->MetalsHotGas;
+
+  // If the halo has lost mass, debit the selected metals first (:376-380, :390-394, :404-408)
+  if (infallingGas < 0.0 && *metals > 0.0f) {
+    const float metallicity = mimic_get_metallicity(*gas, *metals);
+    *metals += infallingGas * metallicity;
+    if (*metals < 0.0f) {
+      *metals = 0.0f;
     }
   }
 
-  galaxy->HotGas += infallingGas;
-  if (galaxy->HotGas < 0.0f) {
-    galaxy->HotGas = 0.0f;
-    galaxy->MetalsHotGas = 0.0f;
+  // Add (subtract) the infalling gas; a negative result clears both (:383-384, :397-398,
+  // :411-412)
+  *gas += infallingGas;
+  if (*gas < 0.0f) {
+    *gas = 0.0f;
+    *metals = 0.0f;
   }
 
-  DEBUG_LOG("AddInfall: Mvir=%.3e, InfallingGas/step=%.3e, HotGas=%.3e, substep=%d/%d",
-            halos[central_idx].Mvir, infallingGas, galaxy->HotGas, ctx->substep_number + 1,
-            ctx->num_substeps);
+  DEBUG_LOG("AddInfall: Mvir=%.3e, InfallingGas/step=%.3e, %s=%.3e, substep=%d/%d",
+            halos[central_idx].Mvir, infallingGas, to_cgm ? "CGMgas" : "HotGas", *gas,
+            ctx->substep_number + 1, ctx->num_substeps);
 
   return 0;
 }

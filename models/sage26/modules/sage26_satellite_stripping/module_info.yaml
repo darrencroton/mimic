@@ -1,8 +1,9 @@
 module:
   name: sage26_satellite_stripping
   description: >-
-    Strips hot gas from Type 1 satellites when baryon content exceeds HaloBaryonFraction × Mvir;
-    transfers stripped gas to central hot reservoir
+    Strips gas from Type 1 satellites when baryon content exceeds HaloBaryonFraction × Mvir;
+    transfers it to the central. With CGMrecipeOn 1 the satellite's Regime selects the source
+    (CGM or hot) and the central's Regime the destination; with CGMrecipeOn 0 both are hot gas
 
   supported_processing_modes: [process_by_galaxy]
 
@@ -18,8 +19,12 @@ module:
       - EjectedGas
       - BlackHoleMass
       - ICS
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the satellite's selects the source, the central's the destination
     parameters:
       - GlobalBaryonFraction
+      - CGMrecipeOn     # required: 0 or 1
 
   tests:
     unit:

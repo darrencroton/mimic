@@ -66,6 +66,7 @@ int test_dep_apply_infall_missing_prepare_error(void) {
   test_phase_add("galaxy_physics", "sage26_apply_infall", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   int result = module_system_init();
   TEST_ASSERT(result != 0,
@@ -93,6 +94,7 @@ int test_dep_prepare_infall_reionization_wrong_order_error(void) {
   test_pre_timestep_add("sage26_reionization", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   FILE *capture = tmpfile();
   FILE *old_out = set_log_output(capture);

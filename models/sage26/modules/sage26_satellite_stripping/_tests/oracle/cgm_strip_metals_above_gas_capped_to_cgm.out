@@ -1,0 +1,61 @@
+# SAGE26 oracle output for cgm_strip_metals_above_gas_capped_to_cgm.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine strip_from_satellite
+f64 intermediate.reionization_modifier 0x3fd624607fab8e9a  # 0.34597027271068159
+f64 intermediate.HaloBaryonFraction 0x3fae1cfe1e457a43  # 0.058814946360815877
+i32 intermediate.strip_from_satellite_called 1
+f32 galaxy[0].HotGas 0x40800000  # 4
+f32 galaxy[0].MetalsHotGas 0x3d23d70a  # 0.0399999991
+f32 galaxy[0].CGMgas 0x40033333  # 2.04999995
+f32 galaxy[0].MetalsCGMgas 0x3da3d70a  # 0.0799999982
+f32 galaxy[1].HotGas 0x3f4ccccd  # 0.800000012
+f32 galaxy[1].MetalsHotGas 0x3c03126f  # 0.00800000038
+f32 galaxy[1].CGMgas 0x00000000  # 0
+f32 galaxy[1].MetalsCGMgas 0x00000000  # 0
+i32 intermediate.stripped 1
+i32 intermediate.take_from_cgm 1
+i32 intermediate.give_to_cgm 1
+i32 intermediate.gas_cap_binds 1
+i32 intermediate.metals_cap_binds 1
+i32 intermediate.satBaryons_absent 0
+f64 intermediate.satBaryons 0x400747ae00000000  # 2.9099998474121094
+i32 intermediate.satBaryons_checked 1
+i32 intermediate.satBaryons_check_kind 2
+i32 intermediate.satBaryons_validated_up 0
+i32 intermediate.satBaryons_validated_down 0
+i32 intermediate.satBaryons_validated 0
+i32 intermediate.strippedGas_pre_cap_absent 0
+f64 intermediate.strippedGas_pre_cap 0x3fd1df04d8d7dcf2  # 0.27923699546904779
+i32 intermediate.strippedGas_pre_cap_checked 1
+i32 intermediate.strippedGas_pre_cap_check_kind 2
+i32 intermediate.strippedGas_pre_cap_validated_up 0
+i32 intermediate.strippedGas_pre_cap_validated_down 0
+i32 intermediate.strippedGas_pre_cap_validated 0
+i32 intermediate.metallicity_absent 0
+f64 intermediate.metallicity 0x3ff0000000000000  # 1
+i32 intermediate.metallicity_checked 1
+i32 intermediate.metallicity_check_kind 2
+i32 intermediate.metallicity_validated_up 0
+i32 intermediate.metallicity_validated_down 0
+i32 intermediate.metallicity_validated 0
+i32 intermediate.strippedGasMetals_pre_cap_absent 0
+f64 intermediate.strippedGasMetals_pre_cap 0x3fd1df04d8d7dcf2  # 0.27923699546904779
+i32 intermediate.strippedGasMetals_pre_cap_checked 1
+i32 intermediate.strippedGasMetals_pre_cap_check_kind 2
+i32 intermediate.strippedGasMetals_pre_cap_validated_up 0
+i32 intermediate.strippedGasMetals_pre_cap_validated_down 0
+i32 intermediate.strippedGasMetals_pre_cap_validated 0
+i32 intermediate.strippedGas_absent 0
+f64 intermediate.strippedGas 0x3fa99999a0000000  # 0.05000000074505806
+i32 intermediate.strippedGas_checked 1
+i32 intermediate.strippedGas_check_kind 2
+i32 intermediate.strippedGas_validated_up 1
+i32 intermediate.strippedGas_validated_down 1
+i32 intermediate.strippedGas_validated 1
+i32 intermediate.strippedGasMetals_absent 0
+f64 intermediate.strippedGasMetals 0x3fb3333340000000  # 0.075000002980232239
+i32 intermediate.strippedGasMetals_checked 1
+i32 intermediate.strippedGasMetals_check_kind 2
+i32 intermediate.strippedGasMetals_validated_up 1
+i32 intermediate.strippedGasMetals_validated_down 1
+i32 intermediate.strippedGasMetals_validated 1

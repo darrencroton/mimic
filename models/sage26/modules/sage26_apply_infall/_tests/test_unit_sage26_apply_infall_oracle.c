@@ -5,7 +5,11 @@
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_apply_infall (its
  * _tests/oracle/ directory) through the module's process() entry and asserts
  * bit-for-bit equality with the oracle output: the central's ejected and hot
- * reservoirs after add_infall_to_hot's non-CGM branch (model_infall.c:351-413).
+ * reservoirs after add_infall_to_hot (R/src/model_infall.c:351-414), and for a CGMrecipeOn 1
+ * fixture (c10) also its CGM pair. A CGMrecipeOn 1 fixture sets the central's Regime and CGM
+ * pair and the module's CGMrecipeOn 1; the test asserts the oracle's reservoir selection
+ * (intermediate.reservoir_cgm) against the input's CGMrecipeOn 1 && Regime 0, the unselected
+ * pair unchanged, and each recorded local's markers (oracle README, "The c10 Group").
  *
  * The snapshot budget call.InfallingGas is supplied as the package's InfallingGas
  * and call.effective_steps as the substep count; the module forms the per-substep
@@ -42,6 +46,9 @@ static const char *MODULE = "sage26_apply_infall";
 static const char *const RESERVOIRS[] = {"EjectedMass", "MetalsEjectedMass", "HotGas",
                                          "MetalsHotGas"};
 
+/* The tallies of the c10 locals over one run of the bit-exact test */
+static struct oracle_c10_tally c10_tally;
+
 #define COUNT(array) (sizeof(array) / sizeof((array)[0]))
 
 /** @brief Compare one fixture; returns the number of mismatches and errors */
@@ -52,8 +59,9 @@ static int check_fixture(const char *name) {
   }
 
   int problems = 0;
-  if (oracle_in_i32(&in, "params.CGMrecipeOn") != 0) {
-    fprintf(stderr, "oracle: %s: not an R0 fixture (CGMrecipeOn 0)\n", name);
+  const int cgm_recipe_on = oracle_in_i32(&in, "params.CGMrecipeOn");
+  if (cgm_recipe_on != 0 && cgm_recipe_on != 1) {
+    fprintf(stderr, "oracle: %s: CGMrecipeOn must be 0 (R0) or 1 (c10)\n", name);
     problems++;
   }
 
@@ -65,7 +73,8 @@ static int check_fixture(const char *name) {
   pre_timestep[0].resolved = NULL;
   MimicConfig.pre_timestep = pre_timestep;
   MimicConfig.num_pre_timestep = 1;
-  if (sage26_apply_infall_init() != 0) {
+  if (oracle_set_model_param("CGMrecipeOn", cgm_recipe_on) != 0 ||
+      sage26_apply_infall_init() != 0) {
     fprintf(stderr, "oracle: %s: module init failed\n", name);
     MimicConfig.pre_timestep = NULL;
     return problems + 1;
@@ -80,6 +89,11 @@ static int check_fixture(const char *name) {
   halo.Mvir = 0.0; /* read only by a debug log */
   oracle_in_galaxy_floats(&in, 0, &galaxy, RESERVOIRS, COUNT(RESERVOIRS));
   galaxy.InfallingGas = oracle_in_f64(&in, "call.InfallingGas");
+  if (cgm_recipe_on == 1) {
+    galaxy.Regime = oracle_in_i32(&in, oracle_galaxy_field(0, "Regime"));
+    oracle_in_galaxy_floats(&in, 0, &galaxy, oracle_c10_pair(1), 2);
+  }
+  const struct GalaxyData before = galaxy;
 
   struct ModuleContext ctx;
   memset(&ctx, 0, sizeof(ctx));
@@ -97,6 +111,32 @@ static int check_fixture(const char *name) {
 
   oracle_exclude(&out, "intermediate.infallingGas_per_step"); /* package local, not state */
   problems += oracle_check_galaxy_floats(&out, 0, &galaxy, RESERVOIRS, COUNT(RESERVOIRS));
+
+  if (cgm_recipe_on == 1) {
+    problems += oracle_check_galaxy_floats(&out, 0, &galaxy, oracle_c10_pair(1), 2);
+    /* SAGE26's selection, independently of the package: CGMrecipeOn 1 && Regime 0 (I:371-372) */
+    const int to_cgm = (before.Regime == 0);
+    problems += oracle_check_i32(&out, "intermediate.reservoir_cgm", to_cgm);
+    problems +=
+        oracle_c10_check_unselected(out.path, 0, &before, &galaxy, oracle_c10_pair(!to_cgm), 2);
+    /* Branch flags of the transcription: the reservoirs above show each outcome */
+    const char *const flags[] = {"ejected_withdrawal_ran",      "ejected_metals_floor_binds",
+                                 "ejected_exhausted",           "selected_metals_debit_ran",
+                                 "selected_metals_floor_binds", "selected_gas_cleared"};
+    for (size_t k = 0; k < COUNT(flags); k++) {
+      char field[ORACLE_MAX_NAME];
+      snprintf(field, sizeof(field), "intermediate.%s", flags[k]);
+      (void)oracle_in_i32(&out, field);
+    }
+    problems += oracle_c10_check_local(&out, "infallingGas_per_step", ORACLE_C10_CONTINUATION, 0, 1,
+                                       0, 0.0f, &c10_tally);
+    problems += oracle_c10_check_local(&out, "infallingGas_after_ejected", ORACLE_C10_TAIL, 0, 0, 0,
+                                       0.0f, &c10_tally);
+    problems += oracle_c10_check_local(&out, "metallicity_ejected", ORACLE_C10_TAIL, 1, 0, 0, 0.0f,
+                                       &c10_tally);
+    problems += oracle_c10_check_local(&out, "metallicity_selected", ORACLE_C10_TAIL, 1, 0, 0, 0.0f,
+                                       &c10_tally);
+  }
 
   problems += oracle_report_unconsumed(&in);
   problems += oracle_report_unconsumed(&out);
@@ -122,8 +162,10 @@ int test_oracle_bit_identity(void) {
   if (mismatch != NULL) {
     return TEST_SKIP_WITH(mismatch);
   }
-  TEST_ASSERT(oracle_all_bit_identical(MODULE, check_fixture),
-              "every fixture must reproduce the oracle bit for bit");
+  memset(&c10_tally, 0, sizeof(c10_tally));
+  const int identical = oracle_all_bit_identical(MODULE, check_fixture);
+  oracle_c10_print_tally(MODULE, &c10_tally);
+  TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   return TEST_PASS;
 }
 

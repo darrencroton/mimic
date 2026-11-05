@@ -5,7 +5,12 @@
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_reincorporation (its
  * _tests/oracle/ directory) through the module's process() entry and asserts
  * bit-for-bit equality with the oracle output: the central's ejected and hot
- * reservoirs after reincorporate_gas (model_reincorporation.c:44-66).
+ * reservoirs after reincorporate_gas (R/src/model_reincorporation.c:44-66), and for a
+ * CGMrecipeOn 1 fixture (c10) also its CGM pair. A CGMrecipeOn 1 fixture sets the central's Regime
+ * and CGM pair and the module's CGMrecipeOn 1; the test asserts the oracle's destination
+ * (intermediate.reservoir_cgm) against the input's CGMrecipeOn 1 && Regime 0, the unselected
+ * pair unchanged, and each recorded local's markers, with reincorporated equal to the ejected
+ * gas where the cap binds (oracle README, "The c10 Group").
  *
  * The snapshot interval is core-owned: the oracle's intermediate.deltaT
  * (Age[SnapNum] - halo_age, core_build_model.c:479) is supplied as the halo's dT
@@ -46,6 +51,9 @@ static const char *MODULE = "sage26_reincorporation";
 static const char *const RESERVOIRS[] = {"EjectedMass", "MetalsEjectedMass", "HotGas",
                                          "MetalsHotGas"};
 
+/* The tallies of the c10 locals over one run of the bit-exact test */
+static struct oracle_c10_tally c10_tally;
+
 #define COUNT(array) (sizeof(array) / sizeof((array)[0]))
 
 /** @brief Compare one fixture; returns the number of mismatches and errors */
@@ -56,14 +64,16 @@ static int check_fixture(const char *name) {
   }
 
   int problems = 0;
-  if (oracle_in_i32(&in, "params.CGMrecipeOn") != 0) {
-    fprintf(stderr, "oracle: %s: not an R0 fixture (CGMrecipeOn 0)\n", name);
+  const int cgm_recipe_on = oracle_in_i32(&in, "params.CGMrecipeOn");
+  if (cgm_recipe_on != 0 && cgm_recipe_on != 1) {
+    fprintf(stderr, "oracle: %s: CGMrecipeOn must be 0 (R0) or 1 (c10)\n", name);
     problems++;
   }
 
   const double factor = oracle_in_f64(&in, "params.ReIncorporationFactor");
   reset_config();
   if (oracle_set_model_param("ReIncorporationFactor", factor) != 0 ||
+      oracle_set_model_param("CGMrecipeOn", cgm_recipe_on) != 0 ||
       sage26_reincorporation_init() != 0) {
     fprintf(stderr, "oracle: %s: module init failed\n", name);
     return problems + 1;
@@ -86,6 +96,10 @@ static int check_fixture(const char *name) {
   halo.Rvir = oracle_in_f32(&in, oracle_galaxy_field(0, "Rvir"));
   halo.dT = oracle_in_f64(&out, "intermediate.deltaT");
   oracle_in_galaxy_floats(&in, 0, &galaxy, RESERVOIRS, COUNT(RESERVOIRS));
+  if (cgm_recipe_on == 1) {
+    galaxy.Regime = oracle_in_i32(&in, oracle_galaxy_field(0, "Regime"));
+    oracle_in_galaxy_floats(&in, 0, &galaxy, oracle_c10_pair(1), 2);
+  }
 
   struct ModuleContext ctx;
   memset(&ctx, 0, sizeof(ctx));
@@ -118,6 +132,34 @@ static int check_fixture(const char *name) {
 
   problems += oracle_check_galaxy_floats(&out, 0, &galaxy, RESERVOIRS, COUNT(RESERVOIRS));
 
+  if (cgm_recipe_on == 1) {
+    problems += oracle_check_galaxy_floats(&out, 0, &galaxy, oracle_c10_pair(1), 2);
+    const int guards_passed = oracle_in_i32(&out, "intermediate.guards_passed");
+    /* SAGE26's destination, independently of the package: CGMrecipeOn 1 && Regime 0 (X:78),
+     * evaluated only when the guards pass (G:48) */
+    const int to_cgm = (before.Regime == 0);
+    problems +=
+        oracle_check_i32(&out, "intermediate.reservoir_cgm", guards_passed == 1 ? to_cgm : -1);
+    if (guards_passed == 1) {
+      problems +=
+          oracle_c10_check_unselected(out.path, 0, &before, &galaxy, oracle_c10_pair(!to_cgm), 2);
+    } else {
+      problems +=
+          oracle_c10_check_unselected(out.path, 0, &before, &galaxy, RESERVOIRS, COUNT(RESERVOIRS));
+      problems += oracle_c10_check_unselected(out.path, 0, &before, &galaxy, oracle_c10_pair(1), 2);
+    }
+    const int cap_binds = oracle_in_i32(&out, "intermediate.reincorporation_cap_binds") == 1;
+    problems += oracle_c10_check_local(&out, "Vcrit", ORACLE_C10_TAIL, 0, 0, 0, 0.0f, &c10_tally);
+    problems += oracle_c10_check_local(&out, "reincorporated_pre_cap", ORACLE_C10_TAIL, 0, 0, 0,
+                                       0.0f, &c10_tally);
+    problems += oracle_c10_check_local(&out, "reincorporated", ORACLE_C10_CONTINUATION, 0, 0,
+                                       cap_binds, before.EjectedGas, &c10_tally);
+    problems +=
+        oracle_c10_check_local(&out, "metallicity", ORACLE_C10_TAIL, 0, 0, 0, 0.0f, &c10_tally);
+    problems += oracle_c10_check_local(&out, "metals_reincorporated", ORACLE_C10_CONTINUATION, 0, 0,
+                                       0, 0.0f, &c10_tally);
+  }
+
   problems += oracle_report_unconsumed(&in);
   problems += oracle_report_unconsumed(&out);
   return problems;
@@ -142,8 +184,10 @@ int test_oracle_bit_identity(void) {
   if (mismatch != NULL) {
     return TEST_SKIP_WITH(mismatch);
   }
-  TEST_ASSERT(oracle_all_bit_identical(MODULE, check_fixture),
-              "every fixture must reproduce the oracle bit for bit");
+  memset(&c10_tally, 0, sizeof(c10_tally));
+  const int identical = oracle_all_bit_identical(MODULE, check_fixture);
+  oracle_c10_print_tally(MODULE, &c10_tally);
+  TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   return TEST_PASS;
 }
 

@@ -1,0 +1,23 @@
+# Negative infall of exactly the CGM gas 1.5 (effective_steps 1, no ejected gas) with the smallest
+# subnormal metal mass: the float metallicity rounds up to that subnormal, so the fused debit is
+# -0.5 of it, which narrows to -0.0; the strict floor (I:379) keeps -0.0, a non-strict one would
+# store +0. The gas reaches +0 and is not cleared.
+# Reachability: constructed routine-domain probe (signed zeros or an exact equality, built for the
+# mutation sweep).
+# R4's flags: CGMrecipeOn 1 (par/R4.par:54); ReionizationOn 1, BaryonFrac 0.17,
+# ReIncorporationFactor 0.19 and Reionization_z0/zr 8/7 as R3 (R4.par:51, :39, :72, :85-86).
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+
+i32 params.CGMrecipeOn 1
+
+f64 call.InfallingGas 0xbff8000000000000  # -1.5  (the snapshot budget infall_recipe returned)
+i32 call.effective_steps 1
+i32 galaxy[0].Type 0
+i32 galaxy[0].Regime 0
+f32 galaxy[0].EjectedMass 0x00000000  # 0
+f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[0].HotGas 0x40000000  # 2
+f32 galaxy[0].MetalsHotGas 0x3ca3d70a  # 0.0199999996
+f32 galaxy[0].CGMgas 0x3fc00000  # 1.5
+f32 galaxy[0].MetalsCGMgas 0x00000001  # 1.40129846e-45

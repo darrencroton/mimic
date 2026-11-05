@@ -9,7 +9,7 @@
  * per-object dT rather than a single global value.
  *
  * SAGE parity rule: deltaT_p = Age[snap_of_p] - Age[current_halo_snap]
- * Per-substep dt for object p: deltaT_p / num_substeps
+ * Per-substep dt for object p: deltaT_p / num_substeps (SAGE26 src/core_build_model.c:479, :491)
  *
  * Test cases:
  *   MERGER TIME TESTS (IMMEDIATE HANDLER):
@@ -254,6 +254,7 @@ int test_mixed_dt_reincorporation(void) {
   init_memory_system(0);
   reset_config();
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   sage26_reincorporation_init();
 
   const float central_dT = 0.3;
@@ -325,6 +326,7 @@ int test_boundary_sentinel_reincorporation_noop(void) {
   init_memory_system(0);
   reset_config();
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   sage26_reincorporation_init();
 
   struct GalaxyData *gal = alloc_galaxy();
@@ -369,6 +371,7 @@ int test_invalid_nonboundary_reincorporation_error(void) {
   init_memory_system(0);
   reset_config();
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   sage26_reincorporation_init();
 
   struct GalaxyData *gal = alloc_galaxy();

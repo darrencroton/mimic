@@ -1,0 +1,140 @@
+# Real FoF group (central first, its satellites in file order): the Regime 1 central's migration and
+# its satellites' retained CGM.
+# Real halo values from the R4 reference output,
+# /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R4/model_0.hdf5 (SHA-256
+# 2b606ee7ac82559e32c7c91161f1edb44f89288ec57016e80da884e118ed0807), Snap_63: end-of-snapshot output
+# values used as plausible call inputs, not reconstructed call-time state. Zcurr = ZZ[63] from the
+# file header.
+# Reachability: R4-reachable.
+# R4's flags: CGMrecipeOn 1 (par/R4.par:54); ReionizationOn 1, BaryonFrac 0.17,
+# ReIncorporationFactor 0.19 and Reionization_z0/zr 8/7 as R3 (R4.par:51, :39, :72, :85-86).
+format sage26-oracle-fixture 1
+routine infall_recipe
+
+i32 params.ReionizationOn 1
+i32 params.CGMrecipeOn 1
+f64 params.BaryonFrac 0x3fc5c28f5c28f5c3  # 0.17000000000000001
+f64 params.a0 0x3fbc71c71c71c71c  # 0.1111111111111111  (1/(1+Reionization_z0), z0 = 8)
+f64 params.ar 0x3fc0000000000000  # 0.125  (1/(1+Reionization_zr), zr = 7)
+f64 params.Omega 0x3fd0000000000000  # 0.25
+f64 params.OmegaLambda 0x3fe8000000000000  # 0.75
+f64 params.Hubble 0x40590001165723b7  # 100.00006636151998  (HUBBLE * UnitTime_in_s)
+f64 params.G 0x404580e7ed5ced1b  # 43.007077856420629  (GRAVITY / CUBE(L) * M * SQR(T))
+
+i32 call.ngal 6
+i32 call.centralgal 0
+f64 call.Zcurr 0x0000000000000000  # 0.0  (ZZ[63])
+# galaxy[0]: R4 Snap_63 row 14532, GalaxyIndex 3000092000000000, Type 0, Regime 1
+
+i32 galaxy[0].Type 0
+i32 galaxy[0].Regime 1
+f32 galaxy[0].Mvir 0x43ee45d7  # 476.545624
+f32 galaxy[0].StellarMass 0x4145c145  # 12.3596849
+f32 galaxy[0].BlackHoleMass 0x3b62f37d  # 0.00346299936
+f32 galaxy[0].ColdGas 0x4012048a  # 2.28152704
+f32 galaxy[0].HotGas 0x426232f6  # 56.5497665
+f32 galaxy[0].MetalsHotGas 0x3e4a2f8e  # 0.197447032
+f32 galaxy[0].EjectedMass 0x3e2ce6c5  # 0.168849066
+f32 galaxy[0].MetalsEjectedMass 0x3a23b1b2  # 0.000624443521
+f32 galaxy[0].ICS 0x3f52a406  # 0.822815299
+f32 galaxy[0].MetalsICS 0x3b73a9a0  # 0.00371799618
+f32 galaxy[0].CGMgas 0x3d4f3c90  # 0.0505948663
+f32 galaxy[0].MetalsCGMgas 0x2a12b1d6  # 1.30291042e-13
+f32 galaxy[0].ICS_disrupt 0x3f3a992f  # 0.728899896
+f32 galaxy[0].ICS_accrete 0x3dc056b9  # 0.0939154103
+f32 galaxy[0].ICS_sum_mt 0x3b939923  # 0.0045043393
+# galaxy[1]: R4 Snap_63 row 14533, GalaxyIndex 3000092000000026, Type 1, Regime 0
+
+i32 galaxy[1].Type 1
+i32 galaxy[1].Regime 0
+f32 galaxy[1].Mvir 0x41790e56  # 15.566
+f32 galaxy[1].StellarMass 0x3efae4e7  # 0.490027636
+f32 galaxy[1].BlackHoleMass 0x385685b3  # 5.1146093e-05
+f32 galaxy[1].ColdGas 0x3fe32b22  # 1.77475381
+f32 galaxy[1].HotGas 0x00000000  # 0
+f32 galaxy[1].MetalsHotGas 0x00000000  # 0
+f32 galaxy[1].EjectedMass 0x00000000  # 0
+f32 galaxy[1].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[1].ICS 0x00000000  # 0
+f32 galaxy[1].MetalsICS 0x00000000  # 0
+f32 galaxy[1].CGMgas 0x00000000  # 0
+f32 galaxy[1].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[1].ICS_disrupt 0x00000000  # 0
+f32 galaxy[1].ICS_accrete 0x00000000  # 0
+f32 galaxy[1].ICS_sum_mt 0x00000000  # 0
+# galaxy[2]: R4 Snap_63 row 14534, GalaxyIndex 3000092000000022, Type 1, Regime 0
+
+i32 galaxy[2].Type 1
+i32 galaxy[2].Regime 0
+f32 galaxy[2].Mvir 0x4143645a  # 12.2119999
+f32 galaxy[2].StellarMass 0x4011a398  # 2.27560997
+f32 galaxy[2].BlackHoleMass 0x38ee7d43  # 0.000113720562
+f32 galaxy[2].ColdGas 0x3e4ba819  # 0.198883429
+f32 galaxy[2].HotGas 0x4014190e  # 2.31402922
+f32 galaxy[2].MetalsHotGas 0x3ca70ef2  # 0.0203928687
+f32 galaxy[2].EjectedMass 0x00000000  # 0
+f32 galaxy[2].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[2].ICS 0x00000000  # 0
+f32 galaxy[2].MetalsICS 0x00000000  # 0
+f32 galaxy[2].CGMgas 0x00000000  # 0
+f32 galaxy[2].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[2].ICS_disrupt 0x00000000  # 0
+f32 galaxy[2].ICS_accrete 0x00000000  # 0
+f32 galaxy[2].ICS_sum_mt 0x00000000  # 0
+# galaxy[3]: R4 Snap_63 row 14535, GalaxyIndex 3000092000000033, Type 1, Regime 0
+
+i32 galaxy[3].Type 1
+i32 galaxy[3].Regime 0
+f32 galaxy[3].Mvir 0x40e1a9fc  # 7.05200005
+f32 galaxy[3].StellarMass 0x3ce1473c  # 0.0274997875
+f32 galaxy[3].BlackHoleMass 0x39af070c  # 0.000333838514
+f32 galaxy[3].ColdGas 0x3cc80d7d  # 0.0244204942
+f32 galaxy[3].HotGas 0x00000000  # 0
+f32 galaxy[3].MetalsHotGas 0x00000000  # 0
+f32 galaxy[3].EjectedMass 0x00000000  # 0
+f32 galaxy[3].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[3].ICS 0x00000000  # 0
+f32 galaxy[3].MetalsICS 0x00000000  # 0
+f32 galaxy[3].CGMgas 0x3f34c040  # 0.706058502
+f32 galaxy[3].MetalsCGMgas 0x38c975db  # 9.60637917e-05
+f32 galaxy[3].ICS_disrupt 0x00000000  # 0
+f32 galaxy[3].ICS_accrete 0x00000000  # 0
+f32 galaxy[3].ICS_sum_mt 0x00000000  # 0
+# galaxy[4]: R4 Snap_63 row 14536, GalaxyIndex 3000092000000043, Type 1, Regime 0
+
+i32 galaxy[4].Type 1
+i32 galaxy[4].Regime 0
+f32 galaxy[4].Mvir 0x402a9fbe  # 2.66599989
+f32 galaxy[4].StellarMass 0x396b0033  # 0.000224114207
+f32 galaxy[4].BlackHoleMass 0x00000000  # 0
+f32 galaxy[4].ColdGas 0x3eb768cb  # 0.358221382
+f32 galaxy[4].HotGas 0x00000000  # 0
+f32 galaxy[4].MetalsHotGas 0x00000000  # 0
+f32 galaxy[4].EjectedMass 0x00000000  # 0
+f32 galaxy[4].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[4].ICS 0x00000000  # 0
+f32 galaxy[4].MetalsICS 0x00000000  # 0
+f32 galaxy[4].CGMgas 0x00000000  # 0
+f32 galaxy[4].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[4].ICS_disrupt 0x00000000  # 0
+f32 galaxy[4].ICS_accrete 0x00000000  # 0
+f32 galaxy[4].ICS_sum_mt 0x00000000  # 0
+# galaxy[5]: R4 Snap_63 row 14537, GalaxyIndex 3000092000000039, Type 1, Regime 0
+
+i32 galaxy[5].Type 1
+i32 galaxy[5].Regime 0
+f32 galaxy[5].Mvir 0x401f9db2  # 2.49399996
+f32 galaxy[5].StellarMass 0x3c51eaa8  # 0.0128122941
+f32 galaxy[5].BlackHoleMass 0x00000000  # 0
+f32 galaxy[5].ColdGas 0x3dd52d2f  # 0.104090087
+f32 galaxy[5].HotGas 0x00000000  # 0
+f32 galaxy[5].MetalsHotGas 0x00000000  # 0
+f32 galaxy[5].EjectedMass 0x00000000  # 0
+f32 galaxy[5].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[5].ICS 0x00000000  # 0
+f32 galaxy[5].MetalsICS 0x00000000  # 0
+f32 galaxy[5].CGMgas 0x3d6b73a5  # 0.0574833341
+f32 galaxy[5].MetalsCGMgas 0x35afa75b  # 1.30872229e-06
+f32 galaxy[5].ICS_disrupt 0x00000000  # 0
+f32 galaxy[5].ICS_accrete 0x00000000  # 0
+f32 galaxy[5].ICS_sum_mt 0x00000000  # 0

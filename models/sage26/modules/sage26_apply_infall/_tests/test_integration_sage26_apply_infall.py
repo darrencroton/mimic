@@ -73,7 +73,7 @@ def test_module_loads():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -121,7 +121,7 @@ def test_output_properties_exist():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -168,7 +168,7 @@ def test_with_sage26_prepare_infall_budget():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -211,7 +211,7 @@ def test_memory_safety():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -249,7 +249,7 @@ def test_execution_completes():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
         first_file=0,
         last_file=0,
     )
@@ -291,7 +291,7 @@ def test_substep_distribution():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # Update substeps in the parameter file (SubSteps is a top-level key)
@@ -346,7 +346,7 @@ def test_negative_infall_physics():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====

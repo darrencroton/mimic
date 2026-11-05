@@ -2,11 +2,15 @@
  * @file    sage26_satellite_stripping.c
  * @brief   SAGE26 satellite stripping module - environmental gas stripping from satellites
  *
- * Ports SAGE26's strip_from_satellite (model_infall.c:225-273) on the R0 path
- * (CGMrecipeOn 0): each substep a live Type 1 satellite gives the central's hot
- * reservoir 1/N of its baryon excess over HaloBaryonFraction * Mvir, taken from its
- * own hot gas. HaloBaryonFraction is the satellite's own once-rounded
- * reionization_modifier * BaryonFrac, carried from sage26_reionization.
+ * Ports SAGE26's strip_from_satellite (R = the staged SAGE26 source,
+ * R/src/model_infall.c:225-273): each substep a live Type 1 satellite gives the FoF central
+ * 1/N of its baryon excess over HaloBaryonFraction * Mvir. HaloBaryonFraction is the
+ * satellite's own once-rounded reionization_modifier * BaryonFrac, carried from
+ * sage26_reionization. The required parameter CGMrecipeOn (campaign decision D33) selects the
+ * reservoirs (R/src/model_infall.c:247-254): with CGMrecipeOn 1 the gas is taken from the
+ * satellite's CGM pair if the satellite is in the CGM regime (its own Regime 0) and given to
+ * the central's CGM pair if the central is (the central's Regime 0), each independently, and
+ * from or to the hot pair otherwise; with CGMrecipeOn 0 both are the hot pair.
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand
  * order and types, so that compiler contraction treats both alike.
@@ -17,6 +21,7 @@
 #include "error.h"
 #include "module_system/parameter_helpers.h"
 #include "shared/metallicity.h"
+#include "shared/sage_cgm_routing.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "types.h"
@@ -25,18 +30,31 @@
 // MODULE PARAMETERS
 // ============================================================================
 
+#define MODULE_NAME "sage26_satellite_stripping"
+
 static double GLOBAL_BARYON_FRAC;
+
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
+ * init (campaign decision D33) */
+static int CGM_RECIPE_ON;
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
 int sage26_satellite_stripping_init(void) {
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
+  if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
+    return -1;
+  }
+
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
 
   VERBOSE_LOG("SAGE satellite stripping module initialized");
   VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
+  VERBOSE_LOG("  CGMrecipeOn = %d", CGM_RECIPE_ON);
 
   return 0;
 }
@@ -44,10 +62,11 @@ int sage26_satellite_stripping_init(void) {
 int sage26_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
   // SAGE parity: stripping runs process_by_galaxy so it interleaves with
   // cooling in the galaxy-major loop, exactly as SAGE26 strips a Type 1
-  // satellite just before that satellite cools (core_build_model.c:493-509).
+  // satellite just before that satellite cools (R/src/core_build_model.c:493-509).
   // Because the FOF central is normally processed earlier in the galaxy loop,
   // it has already cooled before satellites strip, so stripped gas reaches the
-  // central's hot reservoir and cools on the next substep (not the current one).
+  // central's selected reservoir (its hot gas, or its CGM with CGMrecipeOn 1 and
+  // the central's Regime 0) and cools on the next substep (not the current one).
   if (ngal != 1) {
     ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
     return -1;
@@ -77,8 +96,9 @@ int sage26_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *h
       (sat_gal->HaloBaryonFraction == -1.0) ? GLOBAL_BARYON_FRAC : sat_gal->HaloBaryonFraction;
 
   /* SAGE parity: SAGE26's baryon sum is float arithmetic, its CGM term included,
-   * rounded once to double on assignment (model_infall.c:236-241). CGMgas is zero
-   * for satellites when the CGM recipe is off. */
+   * rounded once to double on assignment (R/src/model_infall.c:236-241). CGMgas is zero
+   * for satellites when the CGM recipe is off; with it on, a satellite keeps its CGM
+   * (sage26_prepare_infall_budget), so the term counts. */
   const double satBaryons = sat_gal->StellarMass + sat_gal->ColdGas + sat_gal->HotGas +
                             sat_gal->CGMgas + sat_gal->EjectedGas + sat_gal->BlackHoleMass +
                             sat_gal->ICS;
@@ -97,27 +117,46 @@ int sage26_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *h
   double strippedGas = -1.0 * (halo_baryon_frac * sat_Mvir - satBaryons) / ctx->num_substeps;
 
   if (strippedGas > 0.0) {
-    // CGMrecipeOn != 1: both the satellite's source and the central's target
-    // reservoir are HotGas (model_infall.c:250-254)
-    const double metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
+    /* SAGE parity (R/src/model_infall.c:247-254): the source pair is the one the satellite's
+     * own regime uses and the destination pair the one the FoF central's regime uses, chosen
+     * independently, so a satellite whose regime changed is stripped from the reservoir its
+     * regime names even if its gas is held in the other (classification moves no gas). With
+     * CGMrecipeOn 0 both are the hot pair. */
+    const int take_from_cgm =
+        (CGM_RECIPE_ON == MIMIC_SAGE_CGM_RECIPE_ON && sat_gal->Regime == MIMIC_SAGE_REGIME_CGM);
+    const int give_to_cgm =
+        (CGM_RECIPE_ON == MIMIC_SAGE_CGM_RECIPE_ON && cen_gal->Regime == MIMIC_SAGE_REGIME_CGM);
+
+    float *const sat_gas = take_from_cgm ? &sat_gal->CGMgas : &sat_gal->HotGas;
+    float *const sat_metals = take_from_cgm ? &sat_gal->MetalsCGMgas : &sat_gal->MetalsHotGas;
+
+    // The double metallicity of the source pair, and the metals of the uncapped gas, formed
+    // before the gas cap (:256-257)
+    const double metallicity = mimic_get_metallicity(*sat_gas, *sat_metals);
     double strippedGasMetals = strippedGas * metallicity;
 
-    if (strippedGas > sat_gal->HotGas)
-      strippedGas = sat_gal->HotGas;
-    if (strippedGasMetals > sat_gal->MetalsHotGas)
-      strippedGasMetals = sat_gal->MetalsHotGas;
+    // The gas and the source metal debit are capped independently (:259-260)
+    if (strippedGas > *sat_gas)
+      strippedGas = *sat_gas;
+    if (strippedGasMetals > *sat_metals)
+      strippedGasMetals = *sat_metals;
 
-    sat_gal->HotGas -= strippedGas;
-    sat_gal->MetalsHotGas -= strippedGasMetals;
+    *sat_gas -= strippedGas;
+    *sat_metals -= strippedGasMetals;
 
-    /* SAGE parity: asymmetric metal transfer (model_infall.c:256-270). The
-     * satellite is debited the unclamped-gas metals capped at its own metals,
-     * but the central is credited the clamped gas times the original
-     * metallicity. When the gas clamp engages with metals above gas (Z capped
-     * at 1), the two differ and metals are not conserved. This is SAGE26's
-     * deliberate source quirk, mirrored exactly. */
-    cen_gal->HotGas += strippedGas;
-    cen_gal->MetalsHotGas += strippedGas * metallicity;
+    /* SAGE parity: asymmetric metal transfer (R/src/model_infall.c:256-270), on whichever
+     * pairs are selected. The satellite is debited the unclamped-gas metals capped at its own
+     * metals, but the central is credited the clamped gas times the original metallicity,
+     * one expression that SAGE26's build fuses into a multiply-add (:267, :270). When the gas
+     * clamp engages with metals above gas (Z capped at 1), the two differ and metals are not
+     * conserved. This is SAGE26's deliberate source quirk, mirrored exactly. */
+    if (give_to_cgm) {
+      cen_gal->CGMgas += strippedGas;
+      cen_gal->MetalsCGMgas += strippedGas * metallicity;
+    } else {
+      cen_gal->HotGas += strippedGas;
+      cen_gal->MetalsHotGas += strippedGas * metallicity;
+    }
   }
 
   return 0;

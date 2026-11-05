@@ -7,7 +7,14 @@
  * satellite (call.satellite), with the fixture's central as the FoF central, and
  * asserts bit-for-bit equality with the oracle output: the hot and CGM reservoirs
  * of every galaxy after the call-site gate and strip_from_satellite
- * (core_build_model.c:493-498, model_infall.c:225-273).
+ * (R/src/core_build_model.c:493-498, R/src/model_infall.c:225-273).
+ *
+ * A CGMrecipeOn 1 fixture (c10) also sets every galaxy's Regime and the module's CGMrecipeOn 1;
+ * the test asserts the oracle's source and destination selections (intermediate.take_from_cgm,
+ * intermediate.give_to_cgm) against the satellite's and the central's input Regime 0, the
+ * unselected pair of each galaxy unchanged, and each recorded local's markers, with strippedGas
+ * and strippedGasMetals equal to the source reservoir where their cap binds (oracle README,
+ * "The c10 Group").
  *
  * The satellite's HaloBaryonFraction is supplied as the package stores it: the
  * oracle's intermediate.HaloBaryonFraction, SAGE26's once-rounded
@@ -58,7 +65,56 @@ static const char *const INPUT_RESERVOIRS[] = {
 /* Reservoirs the oracle records after the call */
 static const char *const OUTPUT_RESERVOIRS[] = {"HotGas", "MetalsHotGas", "CGMgas", "MetalsCGMgas"};
 
+/* The tallies of the c10 locals over one run of the bit-exact test */
+static struct oracle_c10_tally c10_tally;
+
 #define COUNT(array) (sizeof(array) / sizeof((array)[0]))
+
+/**
+ * @brief The c10 assertions of a CGMrecipeOn 1 fixture: selections, unselected pairs, locals
+ * @return Number of mismatches and marker errors
+ */
+static int check_c10(struct oracle_fixture *out, const int ngal, const int centralgal,
+                     const int satellite, const struct GalaxyData *before,
+                     struct GalaxyData *galaxies) {
+  int problems = 0;
+  const int stripped = oracle_in_i32(out, "intermediate.stripped");
+  /* SAGE26's selections, independently of the package (I:250-251), evaluated only when the
+   * satellite has an excess (I:246) */
+  const int take_from_cgm = (before[satellite].Regime == 0);
+  const int give_to_cgm = (before[centralgal].Regime == 0);
+  problems +=
+      oracle_check_i32(out, "intermediate.take_from_cgm", stripped == 1 ? take_from_cgm : -1);
+  problems += oracle_check_i32(out, "intermediate.give_to_cgm", stripped == 1 ? give_to_cgm : -1);
+  for (int i = 0; i < ngal; i++) {
+    if (stripped == 1 && i == satellite) {
+      problems += oracle_c10_check_unselected(out->path, i, &before[i], &galaxies[i],
+                                              oracle_c10_pair(!take_from_cgm), 2);
+    } else if (stripped == 1 && i == centralgal) {
+      problems += oracle_c10_check_unselected(out->path, i, &before[i], &galaxies[i],
+                                              oracle_c10_pair(!give_to_cgm), 2);
+    } else {
+      problems += oracle_c10_check_unselected(out->path, i, &before[i], &galaxies[i],
+                                              OUTPUT_RESERVOIRS, COUNT(OUTPUT_RESERVOIRS));
+    }
+  }
+  const int gas_cap_binds = oracle_in_i32(out, "intermediate.gas_cap_binds") == 1;
+  const int metals_cap_binds = oracle_in_i32(out, "intermediate.metals_cap_binds") == 1;
+  const struct GalaxyData *sat = &before[satellite];
+  const float source_gas = take_from_cgm ? sat->CGMgas : sat->HotGas;
+  const float source_metals = take_from_cgm ? sat->MetalsCGMgas : sat->MetalsHotGas;
+  const char *const tail_locals[] = {"satBaryons", "strippedGas_pre_cap", "metallicity",
+                                     "strippedGasMetals_pre_cap"};
+  for (size_t k = 0; k < COUNT(tail_locals); k++) {
+    problems +=
+        oracle_c10_check_local(out, tail_locals[k], ORACLE_C10_TAIL, 0, 0, 0, 0.0f, &c10_tally);
+  }
+  problems += oracle_c10_check_local(out, "strippedGas", ORACLE_C10_TAIL, 0, 0, gas_cap_binds,
+                                     source_gas, &c10_tally);
+  problems += oracle_c10_check_local(out, "strippedGasMetals", ORACLE_C10_TAIL, 0, 0,
+                                     metals_cap_binds, source_metals, &c10_tally);
+  return problems;
+}
 
 /** @brief Compare one fixture; returns the number of mismatches and errors */
 static int check_fixture(const char *name) {
@@ -68,9 +124,13 @@ static int check_fixture(const char *name) {
   }
 
   int problems = 0;
+  const int cgm_recipe_on = oracle_in_i32(&in, "params.CGMrecipeOn");
   if (oracle_in_i32(&in, "params.ReionizationOn") != 1 ||
-      oracle_in_i32(&in, "params.CGMrecipeOn") != 0) {
-    fprintf(stderr, "oracle: %s: not an R0 fixture (ReionizationOn 1, CGMrecipeOn 0)\n", name);
+      (cgm_recipe_on != 0 && cgm_recipe_on != 1)) {
+    fprintf(stderr,
+            "oracle: %s: not an R0 (CGMrecipeOn 0) or c10 (CGMrecipeOn 1) fixture with "
+            "ReionizationOn 1\n",
+            name);
     problems++;
   }
   /* The reionization inputs are applied by sage26_reionization, upstream; here they
@@ -84,6 +144,7 @@ static int check_fixture(const char *name) {
   reset_config();
   if (oracle_set_model_param("GlobalBaryonFraction", oracle_in_f64(&in, "params.BaryonFrac")) !=
           0 ||
+      oracle_set_model_param("CGMrecipeOn", cgm_recipe_on) != 0 ||
       sage26_satellite_stripping_init() != 0) {
     fprintf(stderr, "oracle: %s: module init failed\n", name);
     return problems + 1;
@@ -109,6 +170,9 @@ static int check_fixture(const char *name) {
     /* SAGE26's float Mvir, exactly widened to the core's double */
     halos[i].Mvir = oracle_in_f32(&in, oracle_galaxy_field(i, "Mvir"));
     oracle_in_galaxy_floats(&in, i, &galaxies[i], INPUT_RESERVOIRS, COUNT(INPUT_RESERVOIRS));
+    if (cgm_recipe_on == 1) {
+      galaxies[i].Regime = oracle_in_i32(&in, oracle_galaxy_field(i, "Regime"));
+    }
   }
 
   /* Every galaxy's state before the call, for the not-called check below */
@@ -148,6 +212,10 @@ static int check_fixture(const char *name) {
                                            COUNT(OUTPUT_RESERVOIRS));
   }
 
+  if (cgm_recipe_on == 1) {
+    problems += check_c10(&out, ngal, centralgal, satellite, before, galaxies);
+  }
+
   problems += oracle_report_unconsumed(&in);
   problems += oracle_report_unconsumed(&out);
   return problems;
@@ -172,8 +240,10 @@ int test_oracle_bit_identity(void) {
   if (mismatch != NULL) {
     return TEST_SKIP_WITH(mismatch);
   }
-  TEST_ASSERT(oracle_all_bit_identical(MODULE, check_fixture),
-              "every fixture must reproduce the oracle bit for bit");
+  memset(&c10_tally, 0, sizeof(c10_tally));
+  const int identical = oracle_all_bit_identical(MODULE, check_fixture);
+  oracle_c10_print_tally(MODULE, &c10_tally);
+  TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   return TEST_PASS;
 }
 

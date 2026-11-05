@@ -1,0 +1,30 @@
+# Real central: Vvir and Rvir of R4 Snap_32 row 26830 (GalaxyIndex 5000115000000000, the output's
+# recomputed virial values), its reservoirs after its real infall_recipe call (cgm_r4_snap32_group's
+# oracle output). Age values are the plausible lookback times of the r0_snap32_central fixture.
+# Real halo values from the R4 reference output,
+# /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R4/model_0.hdf5 (SHA-256
+# 2b606ee7ac82559e32c7c91161f1edb44f89288ec57016e80da884e118ed0807), Snap_32: end-of-snapshot output
+# values used as plausible call inputs, not reconstructed call-time state. Zcurr = ZZ[32] from the
+# file header.
+# Reachability: R4-reachable.
+# R4's flags: CGMrecipeOn 1 (par/R4.par:54); ReionizationOn 1, BaryonFrac 0.17,
+# ReIncorporationFactor 0.19 and Reionization_z0/zr 8/7 as R3 (R4.par:51, :39, :72, :85-86).
+format sage26-oracle-fixture 1
+routine reincorporate_gas
+
+f64 params.ReIncorporationFactor 0x3fc851eb851eb852  # 0.19
+i32 params.CGMrecipeOn 1
+
+f64 call.Age_galaxy_snap 0x3f80253c9c200d22  # 0.00788352347809124  (Age[galaxies[p].SnapNum])
+f64 call.halo_age 0x3f7f8a39f725e713  # 0.0077001823686886515  (Age[halo_snapnum])
+i32 call.effective_steps 10
+i32 galaxy[0].Type 0
+i32 galaxy[0].Regime 0
+f32 galaxy[0].Vvir 0x4320ba15  # 160.726883
+f32 galaxy[0].Rvir 0x3d68fe43  # 0.0568831079
+f32 galaxy[0].EjectedMass 0x3ccb4e0a  # 0.0248174854
+f32 galaxy[0].MetalsEjectedMass 0x3973944d  # 0.000232295322
+f32 galaxy[0].HotGas 0x00000000  # 0
+f32 galaxy[0].MetalsHotGas 0x00000000  # 0
+f32 galaxy[0].CGMgas 0x3fba41b5  # 1.45513022
+f32 galaxy[0].MetalsCGMgas 0x3c8623e8  # 0.0163745433

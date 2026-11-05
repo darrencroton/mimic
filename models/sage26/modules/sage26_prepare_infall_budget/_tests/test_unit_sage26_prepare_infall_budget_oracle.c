@@ -16,6 +16,12 @@
  * halo's Mvir, the redshift) come from the fixture. Outside the oracle environment
  * (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *
+ * A CGMrecipeOn 1 fixture (c10) also sets every galaxy's Regime and the module's CGMrecipeOn 1;
+ * the test asserts the oracle's migration direction (intermediate.central_regime_cgm) against
+ * the central's input Regime 0, every satellite's hot and CGM pairs unchanged (satellites keep
+ * their CGM and are not consolidated), and consumes the CGM safety-check flags, whose outcomes
+ * the asserted reservoirs show (oracle README, "The c10 Group").
+ *
  * Test cases:
  *   - test_oracle_fixture_count: every fixture the manifest lists is present
  *   - test_oracle_bit_identity: every fixture reproduces the oracle bit for bit
@@ -68,10 +74,14 @@ static int check_fixture(const char *name) {
 
   int problems = 0;
 
-  /* R0: reionization on (its result arrives as HaloBaryonFraction), CGM recipe off */
+  /* R0 or c10: reionization on (its result arrives as HaloBaryonFraction), CGM recipe 0 or 1 */
+  const int cgm_recipe_on = oracle_in_i32(&in, "params.CGMrecipeOn");
   if (oracle_in_i32(&in, "params.ReionizationOn") != 1 ||
-      oracle_in_i32(&in, "params.CGMrecipeOn") != 0) {
-    fprintf(stderr, "oracle: %s: not an R0 fixture (ReionizationOn 1, CGMrecipeOn 0)\n", name);
+      (cgm_recipe_on != 0 && cgm_recipe_on != 1)) {
+    fprintf(stderr,
+            "oracle: %s: not an R0 (CGMrecipeOn 0) or c10 (CGMrecipeOn 1) fixture with "
+            "ReionizationOn 1\n",
+            name);
     problems++;
   }
   /* The reionization inputs are applied by sage26_reionization, upstream; here they
@@ -85,6 +95,7 @@ static int check_fixture(const char *name) {
   reset_config();
   if (oracle_set_model_param("GlobalBaryonFraction", oracle_in_f64(&in, "params.BaryonFrac")) !=
           0 ||
+      oracle_set_model_param("CGMrecipeOn", cgm_recipe_on) != 0 ||
       sage26_prepare_infall_budget_init() != 0) {
     fprintf(stderr, "oracle: %s: module init failed\n", name);
     return problems + 1;
@@ -108,6 +119,13 @@ static int check_fixture(const char *name) {
     /* SAGE26's float Mvir, exactly widened to the core's double */
     halos[i].Mvir = oracle_in_f32(&in, oracle_galaxy_field(i, "Mvir"));
     oracle_in_galaxy_floats(&in, i, &galaxies[i], INPUT_RESERVOIRS, COUNT(INPUT_RESERVOIRS));
+    if (cgm_recipe_on == 1) {
+      galaxies[i].Regime = oracle_in_i32(&in, oracle_galaxy_field(i, "Regime"));
+    }
+  }
+  struct GalaxyData before[MAX_GALAXIES];
+  for (int i = 0; i < ngal; i++) {
+    before[i] = galaxies[i];
   }
 
   /* The package finds the FoF central as the first Type 0; the fixture's must be it */
@@ -147,6 +165,25 @@ static int check_fixture(const char *name) {
   for (int i = 0; i < ngal; i++) {
     problems += oracle_check_galaxy_floats(&out, i, &galaxies[i], OUTPUT_RESERVOIRS,
                                            COUNT(OUTPUT_RESERVOIRS));
+  }
+
+  if (cgm_recipe_on == 1) {
+    /* SAGE26's migration direction, independently of the package (I:164) */
+    problems +=
+        oracle_check_i32(&out, "intermediate.central_regime_cgm", before[centralgal].Regime == 0);
+    /* Satellites keep their CGM (I:115-117) and their hot gas (never consolidated) */
+    for (int i = 0; i < ngal; i++) {
+      if (i != centralgal) {
+        problems += oracle_c10_check_unselected(out.path, i, &before[i], &galaxies[i],
+                                                oracle_c10_pair(1), 2);
+        problems += oracle_c10_check_unselected(out.path, i, &before[i], &galaxies[i],
+                                                oracle_c10_pair(0), 2);
+      }
+    }
+    /* The CGM safety checks' flags (I:184-193): the asserted CGM pair shows each outcome */
+    (void)oracle_in_i32(&out, "intermediate.cgm_metals_cap_binds");
+    (void)oracle_in_i32(&out, "intermediate.cgm_gas_negative_clears");
+    (void)oracle_in_i32(&out, "intermediate.cgm_metals_floor_binds");
   }
 
   problems += oracle_report_unconsumed(&in);

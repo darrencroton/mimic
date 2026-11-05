@@ -27,6 +27,9 @@
  *   - test_zero_mass_halo: Mvir=0 handled correctly
  *   - test_no_satellites: Single central works
  *   - test_multiple_satellites: Multiple satellites consolidated
+ *   - test_cgm_central_migration_by_regime: CGMrecipeOn 1 migrates only the central's own gas by
+ *     its regime, no satellite CGM pooled; CGMrecipeOn 0 on the same input pools it (c10)
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it (c10, D33)
  *
  */
 
@@ -67,6 +70,7 @@ static void setup_module_for_physics_test(double global_baryon_frac) {
 
   /* Set test parameters */
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   /* Override GlobalBaryonFraction */
   snprintf(MimicConfig.ModelParams[0].value, sizeof(MimicConfig.ModelParams[0].value), "%.6f",
            global_baryon_frac);
@@ -141,6 +145,7 @@ int test_module_initialization(void) {
   MimicConfig.num_pre_timestep = 1;
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -181,6 +186,7 @@ int test_parameter_reading(void) {
   MimicConfig.SubSteps = 1;
 
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   strcpy(MimicConfig.ModelParams[0].value, "0.20");
 
   /* ===== EXECUTE ===== */
@@ -225,6 +231,7 @@ int test_invalid_parameter_fails(void) {
     MimicConfig.SubSteps = 1;
 
     set_test_model_parameters();
+    add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
     snprintf(MimicConfig.ModelParams[0].value, sizeof(MimicConfig.ModelParams[0].value), "%.6f",
              invalid_values[i]);
 
@@ -491,9 +498,9 @@ int test_satellite_ics_consolidation(void) {
  * @test    test_orphan_hot_gas_retained
  * @brief   SAGE parity: Type 2 orphan hot gas is NOT consolidated to the
  *          central. SAGE26 infall_recipe consolidates satellites' ejected gas,
- *          ICS and CGM, never their hot gas (SAGE26 src/model_infall.c:79-117); with
- *          the CGM recipe off it adds the group's CGM, zero here, to the
- *          central's hot gas (:177-181). Orphans keep their hot gas and cool it
+ *          ICS and, with CGMrecipeOn 0 (as here), CGM, never their hot gas (SAGE26
+ *          src/model_infall.c:79-117); with the CGM recipe off it adds the group's CGM,
+ *          zero here, to the central's hot gas (:177-181). Orphans keep their hot gas and cool it
  *          themselves until merging.
  *
  * Expected: Central keeps only its own hot gas; orphan retains its hot gas.
@@ -531,8 +538,9 @@ int test_orphan_hot_gas_retained(void) {
   /* SAGE parity: hot gas is NOT consolidated. The central keeps only its own
    * hot gas, and the Type 2 orphan retains its hot gas (it cools it itself
    * until it merges). SAGE26 infall_recipe consolidates satellites' ejected
-   * gas, ICS and CGM (SAGE26 src/model_infall.c:79-117) and adds the group's CGM to
-   * the central's hot gas (:177-181); both CGM reservoirs are zero here. */
+   * gas, ICS and, with CGMrecipeOn 0 (as here), CGM (SAGE26 src/model_infall.c:79-117)
+   * and adds the group's CGM to the central's hot gas (:177-181); both CGM reservoirs
+   * are zero here. */
   TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->HotGas, 5.0, 0.01,
                            "Central keeps only its own hot gas");
   TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->MetalsHotGas, 0.1, 0.01,
@@ -710,6 +718,181 @@ int test_multiple_satellites(void) {
   return TEST_PASS;
 }
 
+// ============================================================================
+// CGMrecipeOn 1 AGAINST 0 (c10 Slice 2, platform independent)
+// ============================================================================
+//
+// SAGE26's infall_recipe (R = the staged SAGE26 source, R/src/model_infall.c:67-213) with
+// CGMrecipeOn 1 keeps the satellites' CGM (:111-117), adds none of it to the central and migrates
+// only the central's own gas by its Regime (:159-176); with CGMrecipeOn 0 it zeroes the satellites'
+// CGM and adds the group's CGM totals to the central's hot gas (:177-181). Every input below is a
+// short binary fraction, so each float-plus-float migration, each double sum and the budget are
+// exact, and each expectation is written as its literal value.
+
+extern int sage26_prepare_infall_budget_init(void);
+extern int sage26_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
+
+/** @brief Read a captured log stream into a static buffer (valid until the next call) */
+static const char *c10_read_log(FILE *fp) {
+  static char buf[8192];
+  rewind(fp);
+  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+  buf[n] = '\0';
+  return buf;
+}
+
+/** @brief Initialise the module with GlobalBaryonFraction 0.17 and CGMrecipeOn `cgm` (NULL:
+ * missing) */
+static int c10_init(const char *cgm, const char **log) {
+  reset_config();
+  sage26_test_append_model_parameter("GlobalBaryonFraction", "0.17");
+  if (cgm != NULL) {
+    sage26_test_append_model_parameter("CGMrecipeOn", cgm);
+  }
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_prepare_infall_budget_init();
+  if (capture != NULL) {
+    set_log_output(old_out);
+    *log = c10_read_log(capture);
+    fclose(capture);
+  } else {
+    *log = "";
+  }
+  return status;
+}
+
+struct c10_group {
+  struct Halo halos[2];
+  struct GalaxyData gal[2];
+};
+
+/** @brief A Type 0 central (Mvir 64) and a Type 1 satellite (Mvir 8), both holding both pairs */
+static void c10_make_group(struct c10_group *g, const int central_regime,
+                           const int satellite_regime) {
+  memset(g, 0, sizeof(*g));
+  for (int i = 0; i < 2; i++) {
+    g->halos[i].galaxy = &g->gal[i];
+    g->halos[i].SnapNum = 63;
+  }
+  g->halos[0].Type = 0;
+  g->halos[0].Mvir = 64.0;
+  g->halos[1].Type = 1;
+  g->halos[1].Mvir = 8.0;
+
+  struct GalaxyData *c = &g->gal[0];
+  c->Regime = central_regime;
+  c->HaloBaryonFraction = 0.25;
+  c->StellarMass = 1.0f;
+  c->BlackHoleMass = 0.0625f;
+  c->ColdGas = 0.5f;
+  c->HotGas = 2.0f;
+  c->MetalsHotGas = 0.25f;
+  c->CGMgas = 1.5f;
+  c->MetalsCGMgas = 0.125f;
+  c->EjectedGas = 0.5f;
+  c->MetalsEjectedGas = 0.0625f;
+  c->ICS = 0.25f;
+  c->MetalsICS = 0.03125f;
+
+  struct GalaxyData *s = &g->gal[1];
+  s->Regime = satellite_regime;
+  s->HaloBaryonFraction = 0.25;
+  s->StellarMass = 0.5f;
+  s->ColdGas = 0.25f;
+  s->HotGas = 0.75f;
+  s->MetalsHotGas = 0.0625f;
+  s->CGMgas = 0.5f;
+  s->MetalsCGMgas = 0.0625f;
+  s->EjectedGas = 0.25f;
+  s->MetalsEjectedGas = 0.03125f;
+}
+
+static int c10_run(struct c10_group *g) {
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.params = &MimicConfig;
+  ctx.num_substeps = 1;
+  ctx.central_galaxy = &g->halos[0];
+  return sage26_prepare_infall_budget_process(&ctx, g->halos, 2);
+}
+
+/**
+ * @test    test_cgm_central_migration_by_regime
+ * @brief   CGMrecipeOn 1 migrates only the central's own gas by its regime, pooling no satellite
+ *          CGM; CGMrecipeOn 0 on the same input pools the group's CGM into the central's hot gas
+ *
+ * Group CGM 1.5 + 0.5 = 2.0 (metals 0.1875); budget 0.25 * 64 - 8.0625 = 7.9375 either way, since
+ * SAGE26 counts every galaxy's CGM in the baryon sum (I:87, :128-130).
+ */
+int test_cgm_central_migration_by_regime(void) {
+  const char *log = "";
+  for (int regime = 0; regime <= 1; regime++) {
+    struct c10_group g;
+
+    /* CGMrecipeOn 1 */
+    TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+    c10_make_group(&g, regime, 1 - regime);
+    TEST_ASSERT(c10_run(&g) == 0, "process must succeed");
+    const struct GalaxyData *c = &g.gal[0];
+    const struct GalaxyData *s = &g.gal[1];
+    TEST_ASSERT(c->InfallingGas == 7.9375, "the budget counts every galaxy's CGM (I:128-130)");
+    if (regime == 0) {
+      /* I:166-169: hot folds into CGM */
+      TEST_ASSERT(c->CGMgas == 3.5f && c->MetalsCGMgas == 0.375f,
+                  "a Regime 0 central's CGM must gain only its own hot pair (no satellite CGM)");
+      TEST_ASSERT(c->HotGas == 0.0f && c->MetalsHotGas == 0.0f,
+                  "a Regime 0 central's hot pair must be zeroed");
+    } else {
+      /* I:172-175: CGM folds into hot */
+      TEST_ASSERT(
+          c->HotGas == 3.5f && c->MetalsHotGas == 0.375f,
+          "a Regime 1 central's hot gas must gain only its own CGM pair (no satellite CGM)");
+      TEST_ASSERT(c->CGMgas == 0.0f && c->MetalsCGMgas == 0.0f,
+                  "a Regime 1 central's CGM pair must be zeroed");
+    }
+    TEST_ASSERT(s->CGMgas == 0.5f && s->MetalsCGMgas == 0.0625f,
+                "a satellite must keep its CGM with CGMrecipeOn 1 (I:115-117)");
+    TEST_ASSERT(s->HotGas == 0.75f && s->MetalsHotGas == 0.0625f,
+                "a satellite's hot pair must be unchanged");
+    TEST_ASSERT(c->EjectedGas == 0.75f && c->MetalsEjectedGas == 0.09375f && s->EjectedGas == 0.0f,
+                "the ejected pooling must be unchanged");
+
+    /* CGMrecipeOn 0, the same input */
+    TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+    c10_make_group(&g, regime, 1 - regime);
+    TEST_ASSERT(c10_run(&g) == 0, "process must succeed");
+    TEST_ASSERT(c->InfallingGas == 7.9375, "the budget must not depend on CGMrecipeOn");
+    TEST_ASSERT(c->HotGas == 4.0f && c->MetalsHotGas == 0.4375f,
+                "CGMrecipeOn 0 adds the group's CGM totals to the central's hot gas (I:179-180)");
+    TEST_ASSERT(c->CGMgas == 1.5f && c->MetalsCGMgas == 0.125f,
+                "CGMrecipeOn 0 leaves the central's own CGM in place (SAGE26's off-branch quirk)");
+    TEST_ASSERT(s->CGMgas == 0.0f && s->MetalsCGMgas == 0.0f,
+                "CGMrecipeOn 0 zeroes a satellite's CGM (I:115-117)");
+    TEST_ASSERT(s->HotGas == 0.75f && s->MetalsHotGas == 0.0625f,
+                "a satellite's hot pair must be unchanged");
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_recipe_on_refused
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
+ *          naming the parameter (campaign decision D33)
+ */
+int test_cgm_recipe_on_refused(void) {
+  const char *log = "";
+  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  return TEST_PASS;
+}
+
 /**
  * @brief   Main test runner
  *
@@ -743,6 +926,11 @@ int main(void) {
   TEST_RUN(test_zero_mass_halo);
   TEST_RUN(test_no_satellites);
   TEST_RUN(test_multiple_satellites);
+
+  /* c10: CGMrecipeOn 1 against 0 (platform independent) */
+  printf("\n%s=== CGM Regime Routing Tests (c10) ===%s\n", BLUE, NC);
+  TEST_RUN(test_cgm_central_migration_by_regime);
+  TEST_RUN(test_cgm_recipe_on_refused);
 
   /* Print summary and return result */
   TEST_SUMMARY();

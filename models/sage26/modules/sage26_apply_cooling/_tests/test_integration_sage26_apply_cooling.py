@@ -80,7 +80,7 @@ def test_module_loads():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -132,7 +132,7 @@ def test_output_properties_exist():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -186,7 +186,7 @@ def test_with_sage26_calculate_cooling_budget():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -239,7 +239,7 @@ def test_memory_safety():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -281,7 +281,7 @@ def test_execution_completes():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
         first_file=0,
         last_file=0,
     )
@@ -325,7 +325,7 @@ def test_gas_transfer_physics():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -385,7 +385,7 @@ def test_metallicity_preservation():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -460,7 +460,7 @@ def test_cooling_energy_tracking():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
