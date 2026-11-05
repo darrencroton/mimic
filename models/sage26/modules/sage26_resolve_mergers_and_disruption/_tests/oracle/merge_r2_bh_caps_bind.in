@@ -1,7 +1,8 @@
 # deal_with_galaxy_merger with R2's flags, merge_r2_snap63_minor's galaxies with each
-# galaxy's H2gas and H1gas stale at its whole cold gas: the addition sums them (M:456-543),
-# and the black-hole growth then caps both at the hydrogen of the target's remaining cold gas
-# (M:366-372), before the wind and the burst's caps and refresh.
+# galaxy's H2gas and H1gas stale at its whole cold gas: the addition sums the cold gas but
+# not H2gas or H1gas (M:456-543), so the target keeps its own stale values, and the black-hole
+# growth then caps both at the hydrogen of the target's remaining cold gas (M:366-372), before
+# the wind and the burst's caps and refresh.
 # Source: R2 reference /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R2/model_0.hdf5 (SHA-256 c6af6c9385d41adcccbd5f19e064323486706b0965183f61ebded290331f6714), Snap_63 rows 14849 (GalaxyIndex 3000165000000000, Type 0) and 14850 (GalaxyIndex 3000165000000011, Type 1).
 # End-of-snapshot output values used as plausible call inputs, not reconstructed call-time
 # state; the writer stores every galaxy field below verbatim (R/src/io/save_gals_hdf5.c:895-1005;

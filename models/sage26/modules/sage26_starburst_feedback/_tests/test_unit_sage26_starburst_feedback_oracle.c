@@ -37,8 +37,10 @@
  * SFprescription, so the commits cap the hydrogen (S:1131-1135, S:1169-1173), the burst refreshes
  * it after the feedback (M:798-803) and the recheck's black-hole growth caps it (M:366-372); the
  * test also asserts the burst's hydrogen record bit for bit (sage26_oracle_hydrogen.h). The
- * recheck's own growth and burst record no locals (SAGE26's own routines in the oracle); the end
- * state asserts their effect.
+ * recheck's black-hole cap is end-state invariant (its burst re-caps and refreshes the
+ * hydrogen): the oracle's observation of SAGE26's own recheck growth (its capped flags and, where
+ * a cap binds, the bound it stored) is asserted against the port's recheck cap locals. The
+ * recheck's own burst records no locals; the end state asserts its effect.
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
  * SKIP.
  *
@@ -82,6 +84,10 @@ static int sizes_fixtures = 0;
 /* c08: fixtures run with SFprescription 1, and their hydrogen values */
 static int br06_fixtures = 0;
 static struct oracle_c08_local_tally h_tally;
+/* c08: SFprescription 1 bursts whose recheck grew the black hole, and the binding recheck caps
+ * whose bound was asserted (oracle_c08_check_recheck_bh) */
+static int recheck_growth_fixtures = 0;
+static int recheck_binding = 0;
 
 /**
  * @brief Read the fixture's flags and parameters into the burst's parameter bundle
@@ -277,6 +283,12 @@ static int check_fixture(const char *name) {
   problems += check_flags(&out, &locals);
   problems += check_carried(&out, &locals);
   problems += oracle_c08_check_burst_hydrogen(&out, params.sf_prescription, &locals, &h_tally);
+  if (params.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06 &&
+      locals.recheck_bh_caps.tracks_h2 != -1) {
+    recheck_growth_fixtures++;
+  }
+  problems += oracle_c08_check_recheck_bh(&out, params.sf_prescription, &locals.recheck_bh_caps,
+                                          &recheck_binding);
 
   problems += oracle_report_unconsumed(&in);
   problems += oracle_report_unconsumed(&out);
@@ -307,6 +319,8 @@ int test_oracle_bit_identity(void) {
   sizes_fixtures = 0;
   br06_fixtures = 0;
   memset(&h_tally, 0, sizeof(h_tally));
+  recheck_growth_fixtures = 0;
+  recheck_binding = 0;
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), binding %d, "
          "not validated %d, absent %d; ratio-0 merger bursts through the direct call %d ",
@@ -316,9 +330,14 @@ int test_oracle_bit_identity(void) {
          "narrowing-limited %d, not validated %d, absent %d ",
          br06_fixtures, h_tally.validated, h_tally.narrowing_limited, h_tally.not_validated,
          h_tally.absent);
+  printf("\n  oracle: SFprescription 1 rechecks that grew the black hole %d, their binding "
+         "caps asserted at the bound %d ",
+         recheck_growth_fixtures, recheck_binding);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   TEST_ASSERT(sizes_fixtures >= 1, "a burst fixture must run BulgeSizeOn 3");
   TEST_ASSERT(br06_fixtures >= 1, "a burst fixture must run SFprescription 1");
+  TEST_ASSERT(recheck_growth_fixtures >= 1 && recheck_binding >= 1,
+              "an SFprescription 1 recheck must grow the black hole with a binding cap");
   TEST_ASSERT(ratio_zero_fixtures >= 1, "the ratio-0 merger burst fixture must be asserted");
   return TEST_PASS;
 }

@@ -165,6 +165,11 @@ struct MimicSageStarburstLocals {
   struct MimicSageHydrogenCapLocals sf_caps; /**< the burst's update_from_star_formation cap */
   struct MimicSageFeedbackLocals feedback;   /**< the burst's update_from_feedback locals */
   struct MimicSageBurstHydrogenRefreshLocals hydrogen_refresh; /**< the refresh (:798-803) */
+  struct MimicSageHydrogenCapLocals recheck_bh_caps; /**< the hydrogen cap of the recheck's
+                                                          black-hole growth (:366-372 through
+                                                          R/src/model_disk_instability.c:102-104);
+                                                          all -1/NaN where that growth did not
+                                                          run, tracks_h2 0 for SFprescription 0 */
 };
 
 /** @brief Mark every value of a burst locals record as not formed */
@@ -202,6 +207,10 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
   locals->hydrogen_refresh.h1_refresh = NAN;
   locals->hydrogen_refresh.h2_cap_binds = -1;
   locals->hydrogen_refresh.h1_floored = -1;
+  locals->recheck_bh_caps.tracks_h2 = -1;
+  locals->recheck_bh_caps.max_h = NAN;
+  locals->recheck_bh_caps.h2_cap_binds = -1;
+  locals->recheck_bh_caps.h1_cap_binds = -1;
 }
 
 /**
@@ -229,7 +238,8 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
  * @param ctx                   Module context: G for the recheck, UnitVelocity_in_cm_per_s for
  *                              its wind
  * @param p                     Parameter bundle (struct MimicStarburstParams)
- * @param locals                Optional (NULL in production): receives this burst's locals; the
+ * @param locals                Optional (NULL in production): receives this burst's locals,
+ *                              with the hydrogen cap of the recheck's black-hole growth; the
  *                              recheck's own burst records none
  */
 static inline void mimic_apply_collisional_starburst(
@@ -384,15 +394,24 @@ static inline void mimic_apply_collisional_starburst(
    * (:106-107). */
   const int instability_recheck_ran =
       p->disk_instability_on && mode == 0 && mass_ratio < p->threshold_major_merger;
+  /* The recheck growth's hydrogen-cap locals, for tests only (no effect on the state): the cap
+   * is end-state invariant (the recheck's burst re-caps and refreshes the hydrogen after it), so
+   * its locals are the only evidence that the growth received SFprescription */
+  struct MimicSageHydrogenCapLocals recheck_bh_caps = {-1, NAN, -1, -1};
   if (instability_recheck_ran) {
     struct MimicSageInstabilityLocals recheck;
     (void)mimic_sage_check_disk_instability_with_sizes(host_halo, ctx, p->star_forming_disk_factor,
                                                        &p->bulge_size, &recheck);
     if (!isnan(recheck.unstable_gas_fraction)) {
       if (p->agn_recipe_on) {
+        struct MimicSageBlackHoleLocals recheck_bh;
         (void)mimic_apply_black_hole_growth(host_halo, recheck.unstable_gas_fraction,
                                             p->black_hole_growth_rate, p->quasar_mode_efficiency,
-                                            ctx, p->sf_prescription, NULL);
+                                            ctx, p->sf_prescription,
+                                            locals != NULL ? &recheck_bh : NULL);
+        if (locals != NULL) {
+          recheck_bh_caps = recheck_bh.hydrogen_caps;
+        }
       }
       mimic_apply_collisional_starburst(recheck.unstable_gas_fraction, host_halo, central_halo, 1,
                                         0, (double)gal->DiskScaleRadius, rate_dt, sfr_bin, sfr_dt,
@@ -445,6 +464,7 @@ static inline void mimic_apply_collisional_starburst(
     locals->instability_recheck_ran = instability_recheck_ran;
     locals->yield_minor_branch = yield_minor_branch;
     locals->hydrogen_refresh = hydrogen_refresh;
+    locals->recheck_bh_caps = recheck_bh_caps;
   }
 }
 

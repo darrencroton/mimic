@@ -62,8 +62,10 @@
  *   - test_hydrogen_refresh_invariants: the refresh (R/src/model_mergers.c:798-803) overwrites
  *     a stale H1gas with the fused atomic remainder, caps H2gas only against the double budget,
  *     floors a negative remainder to 0, keeps a -0.0 H2gas and runs for a zero-star burst
+ *   - test_hydrogen_cap_recheck_growth: the post-minor-merger recheck's black-hole growth
+ *     receives the burst's SFprescription (its hydrogen-cap locals, R/src/model_mergers.c:366-372)
  *
- * The two hydrogen tests are platform independent (no oracle bit pattern; the remainder is
+ * The three hydrogen tests are platform independent (no oracle bit pattern; the remainder is
  * formed with C's correctly rounded fma, as the shared helper forms it), so they run on every
  * platform.
  *
@@ -2471,6 +2473,82 @@ int test_hydrogen_refresh_invariants(void) {
   return TEST_PASS;
 }
 
+/**
+ * @brief One minor-merger burst (mode 0, ratio 0.2 below ThresholdMajorMerger 0.3) whose
+ *        instability recheck reaches its gas branch and grows the black hole (AGN on)
+ *
+ * The host's disk is far above its critical mass (Vmax 50 km/s, DiskScaleRadius 0.001), so the
+ * recheck bursts most of the cold gas; H2gas 0 makes the burst refresh set H1gas to the whole
+ * hydrogen of the cold gas, which the recheck's accretion then leaves above the new bound.
+ */
+static void recheck_growth_burst(const int sf_prescription, struct GalaxyData *gal,
+                                 struct MimicSageStarburstLocals *locals) {
+  static struct Halo central, host;
+  static struct GalaxyData central_gal;
+  setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+  setup_test_galaxy(&host, gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+  host.Vmax = 50.0f;
+  gal->DiskScaleRadius = 0.001f;
+  gal->BlackHoleMass = 0.05f;
+  gal->H2gas = 0.0f;
+  gal->H1gas = 0.0f;
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.params = &MimicConfig;
+  MimicConfig.G = 43.00707785642063;
+  MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
+  const struct MimicStarburstParams params = {
+      .feedback_reheating_epsilon = 2.9,
+      .feedback_ejection_efficiency = 0.3,
+      .recycle_fraction = 0.43,
+      .yield = 0.025,
+      .threshold_major_merger = 0.3,
+      .energy_sn_code = 0.0036701860231271991,
+      .eta_sn_code = 68493150.684931502,
+      .disk_instability_on = 1,
+      .star_forming_disk_factor = 3.0,
+      .agn_recipe_on = 1,
+      .black_hole_growth_rate = 0.015,
+      .quasar_mode_efficiency = 0.001,
+      .sf_prescription = sf_prescription,
+  };
+  mimic_apply_collisional_starburst(0.2, &host, &central, 0, 1, 0.0, 0.0, 0, 0.01, &ctx, &params,
+                                    locals);
+}
+
+/**
+ * @test    test_hydrogen_cap_recheck_growth
+ * @brief   The post-minor-merger recheck's black-hole growth receives the burst's SFprescription
+ *          (R/src/model_mergers.c:806-811 into R/src/model_disk_instability.c:102-104, cap
+ *          :366-372)
+ *
+ * The cap is end-state invariant here (the recheck's own burst re-caps and refreshes the
+ * hydrogen), so its locals are the evidence: with SFprescription 1 the growth's guard holds and
+ * the refreshed H1gas binds its cap at a positive float bound; with SFprescription 0 the guard
+ * fails and nothing is capped. Dropping the recheck's sf_prescription argument fails this test.
+ */
+int test_hydrogen_cap_recheck_growth(void) {
+  struct GalaxyData gal;
+  struct MimicSageStarburstLocals b;
+
+  recheck_growth_burst(1, &gal, &b);
+  TEST_ASSERT(b.instability_recheck_ran == 1, "the minor merger runs the recheck");
+  TEST_ASSERT(b.recheck_bh_caps.tracks_h2 == 1,
+              "SFprescription 1: the recheck's growth evaluates the hydrogen cap");
+  TEST_ASSERT(b.recheck_bh_caps.max_h > 0.0f, "the bound is the float 0.74 of the cold gas left");
+  TEST_ASSERT(b.recheck_bh_caps.h2_cap_binds == 0, "H2gas 0 lies below the bound");
+  TEST_ASSERT(b.recheck_bh_caps.h1_cap_binds == 1,
+              "the refreshed H1gas lies above the bound the accretion lowered");
+
+  recheck_growth_burst(0, &gal, &b);
+  TEST_ASSERT(b.instability_recheck_ran == 1, "the minor merger runs the recheck");
+  TEST_ASSERT(b.recheck_bh_caps.tracks_h2 == 0,
+              "SFprescription 0: the recheck's growth skips the hydrogen cap");
+  TEST_ASSERT(isnan(b.recheck_bh_caps.max_h) && b.recheck_bh_caps.h1_cap_binds == -1,
+              "no bound is formed and no cap evaluated");
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -2526,6 +2604,7 @@ int main(void) {
   TEST_RUN(test_consecutive_bursts_bulge_excess_grows);
   TEST_RUN(test_hydrogen_refresh_module_wiring);
   TEST_RUN(test_hydrogen_refresh_invariants);
+  TEST_RUN(test_hydrogen_cap_recheck_growth);
 
   /* Print summary and return result */
   TEST_SUMMARY();

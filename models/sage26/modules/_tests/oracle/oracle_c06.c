@@ -53,7 +53,10 @@
  * cap (M:366-372, guard SFprescription != 0 && != 2), the post-reheating cap of the burst's
  * update_from_feedback (S:1169-1173) and the burst's hydrogen refresh (M:798-803, guard
  * sf_prescription_tracks_h2); their flags and values are recorded after every earlier field,
- * so an SFprescription 0 output is unchanged (README "The c08 Group").
+ * so an SFprescription 0 output is unchanged (README "The c08 Group"). The black-hole cap of the
+ * post-minor-merger recheck runs inside SAGE26's own check_disk_instability; the burst record
+ * holds an OBSERVATION of it (SAGE26's own grow_black_hole on a copy of the recheck's state,
+ * checked against SAGE26's recheck), struct recheck_bh_observation.
  *
  * Driver transcriptions. evolve_galaxies and join_galaxies_of_progenitors are static in
  * core_build_model.c, which this link excludes, so no SAGE26 code can anchor merger_pass,
@@ -1084,6 +1087,25 @@ static const char *const H_FLAG_NAMES[FLH_COUNT] = {
     [FLH_REFRESH_H1_FLOORED] = "burst_refresh_h1_floored",
 };
 
+/**
+ * c08: an OBSERVATION of the post-minor-merger recheck's black-hole growth (M:807-811 into
+ * D:102-104), which runs inside SAGE26's own check_disk_instability. The oracle restates the
+ * recheck's unstable gas fraction (D:54-66, D:90, D:101, as oracle_c05.c's transcription does)
+ * on a copy of the state the recheck receives and runs SAGE26's own grow_black_hole on that
+ * copy; the copy's BlackHoleMass and QuasarModeBHaccretionMass must equal SAGE26's after its own
+ * recheck (the recheck's burst writes neither), or the fixture is refused. The cap is
+ * end-state invariant (the recheck's burst re-caps and refreshes the hydrogen), so this record
+ * is its only evidence. grown is -1 where the recheck did not run, 0 where it ran without
+ * growing the black hole.
+ */
+struct recheck_bh_observation {
+  int grown;      /* the recheck reached its gas branch with AGNrecipeOn > 0 (D:90, D:102) */
+  int h2_capped;  /* SAGE26's own growth changed H2gas (its strict cap, M:370) */
+  int h1_capped;  /* the same for H1gas (M:371) */
+  float h2_after; /* H2gas after that growth */
+  float h1_after; /* H1gas after that growth */
+};
+
 /** The carried values, carried flags and branch flags of one composition */
 struct locals {
   double value[IM_COUNT];
@@ -1094,6 +1116,7 @@ struct locals {
   double h_value[IMH_COUNT]; /* c08: a float local widened exactly */
   int h_present[IMH_COUNT];
   int h_flag[FLH_COUNT];
+  struct recheck_bh_observation recheck_bh; /* c08, SFprescription 1 only */
   int out_of_domain; /* a SAGE26 assertion would abort on this path (perturbed runs only) */
 };
 
@@ -1105,6 +1128,9 @@ static void init_locals(struct locals *l) {
   for (int f = 0; f < FLH_COUNT; f++) {
     l->h_flag[f] = -1;
   }
+  l->recheck_bh.grown = -1;
+  l->recheck_bh.h2_capped = -1;
+  l->recheck_bh.h1_capped = -1;
 }
 
 /** A replacement of one carried value by a neighbour, or of one carried flag by its negation */
@@ -1441,6 +1467,62 @@ static void transcribe_update_from_feedback(struct context *ctx, const int p, co
   galaxies[p].OutflowRate += reheated_mass;
 }
 
+/* SAGE26's TOOMRE_DISK_FACTOR (D:35), for the recheck observation */
+#define C08_TOOMRE_DISK_FACTOR 3.0
+
+/**
+ * @brief c08: observe the recheck's black-hole growth on a copy of the state it receives
+ *
+ * The statements of D:54-66, D:90 and D:101 restated from SAGE26 (the stellar transfer of
+ * D:73-84 writes no field grow_black_hole reads, so it is not repeated), then SAGE26's own
+ * grow_black_hole (D:102-104) on the copy. Called before SAGE26's own recheck runs on the
+ * oracle's galaxies; check_recheck_bh_observation() compares the copy with its result.
+ */
+static void observe_recheck_growth(struct locals *l, const int p, const struct GALAXY *state,
+                                   struct GALAXY *observed) {
+  memcpy(observed, state, MAX_GALAXIES * sizeof(observed[0]));
+  l->recheck_bh.grown = 0;
+  /* D:54 */
+  const double diskmass = observed[p].ColdGas + (observed[p].StellarMass - observed[p].BulgeMass);
+  if (!(diskmass > 0.0)) {
+    return;
+  }
+  /* D:57-60 */
+  double Mcrit = observed[p].Vmax * observed[p].Vmax *
+                 (C08_TOOMRE_DISK_FACTOR * observed[p].DiskScaleRadius) / run_params.G;
+  if (Mcrit > diskmass) {
+    Mcrit = diskmass;
+  }
+  /* D:63-64 */
+  const double gas_fraction = observed[p].ColdGas / diskmass;
+  const double unstable_gas = gas_fraction * (diskmass - Mcrit);
+  /* D:90, D:101-104 */
+  if (unstable_gas > 0.0 && observed[p].ColdGas > 0.0 && run_params.AGNrecipeOn > 0) {
+    const double unstable_gas_fraction = unstable_gas / observed[p].ColdGas;
+    const float h2_before = observed[p].H2gas;
+    const float h1_before = observed[p].H1gas;
+    grow_black_hole(p, unstable_gas_fraction, observed, &run_params);
+    l->recheck_bh.grown = 1;
+    l->recheck_bh.h2_capped = memcmp(&h2_before, &observed[p].H2gas, sizeof(float)) != 0;
+    l->recheck_bh.h1_capped = memcmp(&h1_before, &observed[p].H1gas, sizeof(float)) != 0;
+    l->recheck_bh.h2_after = observed[p].H2gas;
+    l->recheck_bh.h1_after = observed[p].H1gas;
+  }
+}
+
+/**
+ * @brief c08: refuse the fixture unless the observation's black hole is SAGE26's after its
+ *        own recheck (BlackHoleMass and QuasarModeBHaccretionMass, bit for bit)
+ */
+static void check_recheck_bh_observation(const int p, const struct GALAXY *observed) {
+  if (memcmp(&observed[p].BlackHoleMass, &galaxies[p].BlackHoleMass, sizeof(float)) != 0 ||
+      memcmp(&observed[p].QuasarModeBHaccretionMass, &galaxies[p].QuasarModeBHaccretionMass,
+             sizeof(float)) != 0) {
+    fatal("recheck observation check failed: SAGE26's own grow_black_hole on the restated "
+          "unstable gas fraction does not reproduce the black hole of SAGE26's recheck");
+  }
+}
+
 /**
  * @brief TRANSCRIPTION of collisional_starburst_recipe, M:584-832, on R0's, R1's and R2's paths
  *
@@ -1621,7 +1703,15 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
       l->flag[FL_BURST_RECHECK_RAN] = 1;
       struct GALAXY before[MAX_GALAXIES];
       memcpy(before, galaxies, sizeof(before));
+      /* c08: the recheck's black-hole growth observed on a copy (SFprescription 1 only) */
+      struct GALAXY observed[MAX_GALAXIES];
+      if (run_params.SFprescription == 1) {
+        observe_recheck_growth(l, m, before, observed);
+      }
       check_disk_instability(m, centralgal, ORACLE_HALONR, time, dt, step, galaxies, &run_params);
+      if (run_params.SFprescription == 1) {
+        check_recheck_bh_observation(m, observed);
+      }
       struct record_spec watched = {MAX_GALAXIES, {0}};
       watched.blocks[m] = BLOCK_RESERVOIRS | BLOCK_HISTORIES;
       watched.blocks[centralgal] |= BLOCK_RESERVOIRS;
@@ -2446,6 +2536,15 @@ static void write_h_record(const struct checked_record *rec, const int with_bh,
     out_carried_h(rec, IMH_MAX_H_FB);
     out_carried_h(rec, IMH_BURST_H2_BUDGET);
     out_carried_h(rec, IMH_BURST_H1_REFRESH);
+    /* the recheck's black-hole growth, OBSERVED (struct recheck_bh_observation) */
+    const struct recheck_bh_observation *o = &rec->locals.recheck_bh;
+    out_i32("intermediate.burst_recheck_bh_grown", o->grown);
+    if (o->grown == 1) {
+      out_i32("intermediate.burst_recheck_bh_h2_capped", o->h2_capped);
+      out_i32("intermediate.burst_recheck_bh_h1_capped", o->h1_capped);
+      out_f32("intermediate.burst_recheck_after_bh.H2gas", o->h2_after);
+      out_f32("intermediate.burst_recheck_after_bh.H1gas", o->h1_after);
+    }
   }
 }
 

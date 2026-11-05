@@ -255,3 +255,8 @@ i32 intermediate.burst_h1_refresh_validated_up 0
 i32 intermediate.burst_h1_refresh_validated_down 0
 i32 intermediate.burst_h1_refresh_validated 0
 i32 intermediate.burst_h1_refresh_narrowing_limited 1
+i32 intermediate.burst_recheck_bh_grown 1
+i32 intermediate.burst_recheck_bh_h2_capped 0
+i32 intermediate.burst_recheck_bh_h1_capped 1
+f32 intermediate.burst_recheck_after_bh.H2gas 0x00000000  # 0
+f32 intermediate.burst_recheck_after_bh.H1gas 0x3f3914dd  # 0.722974598

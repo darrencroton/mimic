@@ -261,3 +261,4 @@ i32 intermediate.burst_h1_refresh_validated_up 0
 i32 intermediate.burst_h1_refresh_validated_down 0
 i32 intermediate.burst_h1_refresh_validated 0
 i32 intermediate.burst_h1_refresh_narrowing_limited 1
+i32 intermediate.burst_recheck_bh_grown -1

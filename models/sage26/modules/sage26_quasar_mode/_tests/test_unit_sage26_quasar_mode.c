@@ -44,8 +44,9 @@
  *   - test_hydrogen_cap_off_prescription_zero: SFprescription 0 leaves H2gas and H1gas alone
  *   - test_hydrogen_cap_then_wind_no_refresh: the cap precedes the wind, which refreshes nothing
  *   - test_hydrogen_cap_module_wiring: the module passes its SFprescription 1 to the growth
+ *   - test_hydrogen_cap_module_wiring_per_event: the merger channel passes it too
  *
- * The four hydrogen-cap tests (R/src/model_mergers.c:366-372) are platform independent: they
+ * The five hydrogen-cap tests (R/src/model_mergers.c:366-372) are platform independent: they
  * assert the cap's invariants from the package's own float arithmetic, with no oracle bit
  * pattern, so they run on every platform (the bit-exact oracle test reports SKIP off macOS
  * arm64 / Apple clang 21).
@@ -1369,6 +1370,65 @@ int test_hydrogen_cap_module_wiring(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_hydrogen_cap_module_wiring_per_event
+ * @brief   Initialised with SFprescription 1, the module's merger channel (a merger event,
+ *          process_per_event) caps the hydrogen: the per-event growth passes the module's
+ *          required parameter on as the instability channel's does (R/src/model_mergers.c:262-264,
+ *          :366-372)
+ *
+ * Expected: H2gas above the float bound is capped to it, H1gas above it is capped to it, and
+ *           H1gas or H2gas below it is kept; with the same galaxy at SFprescription 0 both stay
+ * Validates: the per-event call's SFprescription argument (a 0 there leaves both fields above
+ *            the bound)
+ */
+int test_hydrogen_cap_module_wiring_per_event(void) {
+  for (int sf_prescription = 0; sf_prescription <= 1; sf_prescription++) {
+    init_memory_system(0);
+    reset_config();
+    setup_test_parameters(0.01, 0.001);
+    for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+      if (strcmp(MimicConfig.ModelParams[i].param_name, "SFprescription") == 0) {
+        snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%d", sf_prescription);
+      }
+    }
+    TEST_ASSERT(sage26_quasar_mode_init() == 0, "init with SFprescription 0 or 1 succeeds");
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+    gal.H2gas = 7.5f;
+    gal.H1gas = 7.6f;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+    struct ModuleEvent event = {.producer_module_id =
+                                    MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                                .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                                .source_index = 1,
+                                .target_index = 0,
+                                .value0 = 0.5,
+                                .value1 = 0.0};
+    ctx.active_event = &event;
+    TEST_ASSERT(sage26_quasar_mode_process(&ctx, &halo, 1) == 0, "per-event process succeeds");
+    TEST_ASSERT(gal.ColdGas < 10.0f && gal.ColdGas > 0.0f,
+                "the merger accreted part of the cold gas and the wind kept the rest");
+
+    const float bound = hydrogen_bound(gal.ColdGas);
+    TEST_ASSERT(bound < 7.5f, "the bound lies below both fields' input values");
+    if (sf_prescription == 1) {
+      TEST_ASSERT(gal.H2gas == bound, "SFprescription 1: H2gas above the bound is capped to it");
+      TEST_ASSERT(gal.H1gas == bound, "SFprescription 1: H1gas above the bound is capped to it");
+    } else {
+      TEST_ASSERT(gal.H2gas == 7.5f && gal.H1gas == 7.6f,
+                  "SFprescription 0: H2gas and H1gas are left alone");
+    }
+
+    sage26_quasar_mode_cleanup();
+    check_memory_leaks();
+  }
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -1413,6 +1473,7 @@ int main(void) {
   TEST_RUN(test_hydrogen_cap_off_prescription_zero);
   TEST_RUN(test_hydrogen_cap_then_wind_no_refresh);
   TEST_RUN(test_hydrogen_cap_module_wiring);
+  TEST_RUN(test_hydrogen_cap_module_wiring_per_event);
 
   /* Print summary and return result */
   TEST_SUMMARY();
