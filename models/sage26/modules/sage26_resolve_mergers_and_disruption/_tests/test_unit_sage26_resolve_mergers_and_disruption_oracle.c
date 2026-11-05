@@ -490,11 +490,13 @@ static int check_merger_locals(struct oracle_fixture *out, const struct MimicSag
 }
 
 /**
- * @brief The remnant radius is output-inert: SAGE26's own output zeroes the three radii
+ * @brief BulgeSizeOn 0 only: the remnant radius is output-inert, SAGE26's own output zeroes
+ *        the three radii
  *
- * new_merger_radius is never formed by the port (get_bulge_radius zeroes the radii after
- * it on every path, M:293-331, R/src/model_misc.c:241-246); the record shows SAGE26's
- * value and its three radii.
+ * With BulgeSizeOn 0 the port does not form new_merger_radius (get_bulge_radius zeroes the
+ * radii after it on every path, M:293-331, R/src/model_misc.c:241-246); the record shows
+ * SAGE26's value and its three radii. With BulgeSizeOn 3 the port forms it and
+ * check_remnant_record() compares it instead.
  *
  * @return Number of problems
  */

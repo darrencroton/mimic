@@ -525,6 +525,13 @@ static inline void mimic_sage_disrupt_satellite_to_ics(struct GalaxyData *target
  * fused-instruction table), each written as an explicit fma() with the other product rounded
  * first: M_disk * R_disk_half onto the rounded M_bulge * R_bulge_half for each progenitor
  * (:158, :171), and M1 * R1 onto the rounded M2 * R2 in the fallback (:204).
+ * Every other expression rounds as written; in particular SAGE26's object does not fuse
+ * E_rad = C_rad * E_init * f_gas into E_final = E_init + E_orb + E_rad (separate statements,
+ * :195, :199), so a compiler that contracts across statements (e.g. GCC's default
+ * -ffp-contract=fast on an FMA target) could fuse it and round differently: the bit-for-bit
+ * parity claim is for the oracle environment (Apple clang on arm64, whose default
+ * -ffp-contract=on fuses only within one expression) only, as in
+ * shared/sage_sf_feedback_physics.h.
  *
  * In deal_with_galaxy_merger g1 is the target after the addition, the black hole and the
  * burst (its BulgeRadius just synchronised), and g2 the satellite, still populated (:293-297).

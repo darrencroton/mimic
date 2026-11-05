@@ -16,7 +16,7 @@ Ports SAGE26's `check_disk_instability` up to its black-hole and burst calls (`R
 ## Parameters
 
 - `StarFormingDiskFactor`: enters `Mcrit` exactly where SAGE26's `TOOMRE_DISK_FACTOR`, the double `3.0`, does (`R/src/model_disk_instability.c:35`, `:57`). The run files hold `3.0`; any other value departs from SAGE26.
-- `BulgeSizeOn` (required, 0 or 3): SAGE26's bulge-size mode. 0, the run files' value and SAGE26's R0, computes no sizes (`R/src/model_misc.c:242-247`, `:395`); 3 is SAGE26's Tonini et al. (2016) merger and instability bulges (`:317-424`, `R1.par:109`). Modes 1 and 2 are not ported: any value other than 0 or 3, or a missing key, fails initialisation with an error naming the parameter. Mode 3 also reads the core's `Hubble_h`.
+- `BulgeSizeOn` (required, 0 or 3): SAGE26's bulge-size mode. 0, SAGE26's R0, computes no sizes (`R/src/model_misc.c:242-247`, `:395`); 3, the run files' value, is SAGE26's Tonini et al. (2016) merger and instability bulges (`:317-424`, `R1.par:109`). Modes 1 and 2 are not ported: any value other than 0 or 3, or a missing key, fails initialisation with an error naming the parameter. Mode 3 also reads the core's `Hubble_h`.
 
 ## Physics
 

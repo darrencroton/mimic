@@ -3,7 +3,8 @@
  * @brief   Immediate-order parity fixtures for SAGE merger/disruption ordering
  *
  * These tests exercise the dedicated immediate-order parity handler against the
- * live SAGE ordering contract documented in the module README.
+ * live SAGE ordering contract documented in the module README, and the merger
+ * transaction's refusal of BulgeSizeOn 3 without the core parameters.
  */
 
 #include "../../../../tests/framework/parity_trace.h"
@@ -14,6 +15,8 @@
 #include "include/types.h"
 #include "util/error.h"
 #include "util/memory.h"
+
+#include "modules/sage26_resolve_mergers_and_disruption/sage_merger_ops.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -54,18 +57,24 @@ static void reset_config(void) {
   MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
 }
 
-static void setup_model_parameters(double threshold_sat_disruption, double threshold_major_merger) {
+static void setup_model_parameters_with_sizes(double threshold_sat_disruption,
+                                              double threshold_major_merger, int bulge_size_on) {
   int idx = 0;
 
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold_sat_disruption);
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold_major_merger);
-  /* The required bulge-size mode, SAGE26's R0 0 (no sizes) */
+  /* The required bulge-size mode */
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
-  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", 0);
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", bulge_size_on);
 
   MimicConfig.NumModelParams = idx;
+}
+
+/** @brief The ordering fixtures' parameters, with SAGE26's R0 bulge-size mode 0 (no sizes) */
+static void setup_model_parameters(double threshold_sat_disruption, double threshold_major_merger) {
+  setup_model_parameters_with_sizes(threshold_sat_disruption, threshold_major_merger, 0);
 }
 
 static void setup_context(struct ModuleContext *ctx) {
@@ -346,6 +355,66 @@ int test_consumed_target_redirect_changes_major_minor_state(void) {
   return parity_failure ? TEST_FAIL : TEST_PASS;
 }
 
+/* Merger events the refusal test's sink received */
+static int refusal_emits = 0;
+
+static int count_emit(struct ModuleContext *ctx, struct Halo *halos, int source_idx, int target_idx,
+                      double mass_ratio, double source_dt) {
+  (void)ctx;
+  (void)halos;
+  (void)source_idx;
+  (void)target_idx;
+  (void)mass_ratio;
+  (void)source_dt;
+  refusal_emits++;
+  return 0;
+}
+
+/**
+ * @test    test_mode3_merge_refuses_missing_core_parameters
+ * @brief   With BulgeSizeOn 3 the merger transaction needs the core's Hubble_h
+ *          (R/src/model_misc.c:249, :398): a context without parameters is refused with -1
+ *          before any galaxy or halo changes and before the merger event is emitted. The same
+ *          call with the parameters runs, so the refusal is the mode-3 guard's.
+ */
+int test_mode3_merge_refuses_missing_core_parameters(void) {
+  struct ModuleContext ctx;
+  struct Halo halos[3], halos_before[3];
+  struct GalaxyData galaxies[3], galaxies_before[3];
+
+  reset_config();
+  setup_model_parameters_with_sizes(TEST_THRESHOLD_DISRUPTION, TEST_THRESHOLD_MAJOR, 3);
+  TEST_ASSERT(init_parity_modules() == 0, "the resolver must initialise with BulgeSizeOn 3");
+
+  setup_shared_target_fixture(&ctx, halos, galaxies);
+  memcpy(halos_before, halos, sizeof(halos));
+  memcpy(galaxies_before, galaxies, sizeof(galaxies));
+
+  ctx.params = NULL;
+  refusal_emits = 0;
+  struct MimicSageMergerLocals locals;
+  const int status = sage26_resolve_mergers_and_disruption_merge(&ctx, halos, 3, 1, 0, 13.75, 0.1,
+                                                                 count_emit, &locals, NULL);
+  const int galaxies_unchanged = memcmp(galaxies, galaxies_before, sizeof(galaxies)) == 0;
+  const int halos_unchanged = memcmp(halos, halos_before, sizeof(halos)) == 0;
+  const int emitted_when_refused = refusal_emits;
+
+  ctx.params = &MimicConfig;
+  const int status_with_params = sage26_resolve_mergers_and_disruption_merge(
+      &ctx, halos, 3, 1, 0, 13.75, 0.1, count_emit, &locals, NULL);
+
+  cleanup_parity_modules();
+  check_memory_leaks();
+
+  TEST_ASSERT(status == -1, "BulgeSizeOn 3 without ctx->params must be refused with -1");
+  TEST_ASSERT(galaxies_unchanged, "the refused merger must leave the target and satellite as "
+                                  "they were");
+  TEST_ASSERT(halos_unchanged, "the refused merger must leave every halo as it was");
+  TEST_ASSERT(emitted_when_refused == 0, "the refused merger must not emit its event");
+  TEST_ASSERT(status_with_params == 0, "the same merger with the core parameters must run");
+  return TEST_PASS;
+}
+
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
@@ -358,6 +427,7 @@ int main(void) {
   TEST_RUN(test_shared_target_immediate_trace);
   TEST_RUN(test_consumed_target_redirect_trace);
   TEST_RUN(test_consumed_target_redirect_changes_major_minor_state);
+  TEST_RUN(test_mode3_merge_refuses_missing_core_parameters);
 
   TEST_SUMMARY();
   return TEST_RESULT();

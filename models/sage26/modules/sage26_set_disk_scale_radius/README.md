@@ -22,7 +22,7 @@ Immediately after the store, SAGE26's `get_bulge_radius` on the same central (`s
 
 ## Parameters
 
-- `BulgeSizeOn` (required, 0 or 3): SAGE26's bulge-size mode. 0, the run files' value and SAGE26's R0, computes no sizes (`R/src/model_misc.c:242-247`, `:395`); 3 is SAGE26's Tonini et al. (2016) merger and instability bulges (`:317-424`, `R1.par:109`). Modes 1 and 2 are not ported: any value other than 0 or 3, or a missing key, fails initialisation with an error naming the parameter. Mode 3 also reads the core's `Hubble_h`.
+- `BulgeSizeOn` (required, 0 or 3): SAGE26's bulge-size mode. 0, SAGE26's R0, computes no sizes (`R/src/model_misc.c:242-247`, `:395`); 3, the run files' value, is SAGE26's Tonini et al. (2016) merger and instability bulges (`:317-424`, `R1.par:109`). Modes 1 and 2 are not ported: any value other than 0 or 3, or a missing key, fails initialisation with an error naming the parameter. Mode 3 also reads the core's `Hubble_h`.
 
 ## Ordering
 

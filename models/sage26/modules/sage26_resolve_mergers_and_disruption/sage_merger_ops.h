@@ -30,11 +30,14 @@ typedef int (*MimicSageMergerEmitFn)(struct ModuleContext *ctx, struct Halo *hal
                                      int target_idx, double mass_ratio, double source_dt);
 
 /**
- * @brief SAGE26's deal_with_galaxy_merger on the R0 path (R/src/model_mergers.c:228-333)
+ * @brief SAGE26's deal_with_galaxy_merger with BulgeSizeOn 0 or 3
+ *        (R/src/model_mergers.c:228-333)
  *
- * Defined in sage26_resolve_mergers_and_disruption.c, where the pass calls it for each
- * merging satellite; exported so its oracle test can run one transaction at SAGE26's
- * call boundary.
+ * With the module's BulgeSizeOn 3 (R1 onward) the transaction ends with SAGE26's bulge-radius
+ * synchronisation, remnant radius and major/minor assignment (M:293-330); with 0 (R0) it
+ * zeroes the three bulge radii instead, as get_bulge_radius does there. Defined in
+ * sage26_resolve_mergers_and_disruption.c, where the pass calls it for each merging
+ * satellite; exported so its oracle test can run one transaction at SAGE26's call boundary.
  *
  * @param ctx            Module context of the substep
  * @param halos          The FoF workspace
@@ -44,9 +47,14 @@ typedef int (*MimicSageMergerEmitFn)(struct ModuleContext *ctx, struct Halo *hal
  * @param event_time     The event time, a lookback time in code units (SAGE26's time)
  * @param source_dt      The satellite's substep interval (SAGE26's dt), carried in the event
  * @param emit           The event sink (the module's own in production)
- * @param merger_locals  Optional: the ratio, morphology and split values
+ * @param merger_locals  Optional: the ratio, morphology and split values, the target's
+ *                       DiskScaleRadius before the addition (old_disk_radius, M:257) and, with
+ *                       BulgeSizeOn 3, the remnant radius's locals (remnant, M:135-212; all
+ *                       absent with BulgeSizeOn 0)
  * @param add_locals     Optional: add_galaxies_together's values
- * @return 0 on success, -1 on an invalid call or a failed emission
+ * @return 0 on success; -1 on an invalid call, on BulgeSizeOn 3 without the core parameters
+ *         (ctx->params NULL, so no Hubble_h), or on a failed emission. The two refusals come
+ *         before any galaxy is changed
  */
 int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struct Halo *halos,
                                                 int ngal, int satellite_idx, int target_idx,
