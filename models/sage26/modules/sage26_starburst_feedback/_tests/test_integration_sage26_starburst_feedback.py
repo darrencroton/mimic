@@ -147,6 +147,7 @@ def test_module_pipeline_integration():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -244,6 +245,7 @@ def test_starburst_physics_correctness():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -336,6 +338,7 @@ def test_disk_instability_trigger():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -400,6 +403,7 @@ def test_merger_trigger():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -452,6 +456,7 @@ def test_parameter_sensitivity():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 1.0,  # Low
             "FeedbackEjectionEfficiency": 0.5,
@@ -488,6 +493,7 @@ def test_parameter_sensitivity():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 5.0,  # High (5x)
             "FeedbackEjectionEfficiency": 0.5,
@@ -524,6 +530,7 @@ def test_parameter_sensitivity():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.1,  # Low
@@ -560,6 +567,7 @@ def test_parameter_sensitivity():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 2.0,  # High (20x)
@@ -624,6 +632,7 @@ def test_memory_and_performance():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -695,6 +704,7 @@ def test_full_pipeline_star_formation():
             # Required by the burst module, at R1's values
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
+            "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
             # Infall/Reionization
             "GlobalBaryonFraction": 0.17,

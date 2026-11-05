@@ -5,7 +5,10 @@
  * Runs SAGE26's collisional_starburst_recipe (R/src/model_mergers.c:584-831) through the
  * shared transaction mimic_apply_collisional_starburst (shared/sage_starburst_physics.h),
  * which owns SAGE26's whole sequence: the bursting fraction, the burst gas, the
- * reheating and the ejection from the burst host's own Vvir, the bulge history
+ * reheating and the ejection from the burst host's own Vvir (fixed-epsilon with FIREmodeOn 0;
+ * with FIREmodeOn 1 the FIRE scaling from the host's float Vvir and the redshift of its stored
+ * snapshot, the capped loading without a MassLoading write and the energy-based ejection,
+ * :690-752), the bulge history
  * sampling, the star-formation commit, the locked stars into the bulge and the selected
  * channel (the instability channel followed by its incremental bulge radius, BulgeSizeOn
  * 3), the feedback commit to the FoF central, the post-minor-merger instability recheck,
@@ -18,6 +21,12 @@
  *     (R/src/model_disk_instability.c:101-108);
  *   - process_per_event: the merger event (mode 0), after sage26_quasar_mode's merger
  *     black-hole growth (R/src/model_mergers.c:262-287).
+ *
+ * FIREmodeOn is a required parameter (campaign decision D33), 0 or 1, refused otherwise. This
+ * module builds the burst parameter bundle, so it passes FIREmodeOn and the run's redshift table
+ * to every burst it runs: the instability's, the merger's and the recheck's. A FIREmodeOn 1 burst
+ * whose host's stored SnapNum lies outside the redshift table is refused (campaign decision D35)
+ * and process() returns -1.
  *
  * The post-minor-merger recheck (R/src/model_mergers.c:806-811) runs inside the shared
  * transaction when sage26_disk_instability is configured (SAGE26's DiskInstabilityOn);
@@ -60,6 +69,7 @@
 #include "types.h"
 #include "shared/sage_agn_physics.h"
 #include "shared/sage_bulge_size_physics.h"
+#include "shared/sage_fire_feedback_physics.h"
 #include "shared/sage_h2_physics.h"
 #include "shared/sage_starburst_physics.h"
 #include "shared/sage_disk_instability_physics.h"
@@ -98,6 +108,11 @@ static int SF_PRESCRIPTION;
  * 0, the H2 burst fuel, is not ported */
 static int STARBURST_COLD_GAS_ON;
 
+/* SAGE26's FIREmodeOn: 0 (R0-R2, fixed-epsilon) or 1 (R3, the FIRE budget of every burst,
+ * R/src/model_mergers.c:690-752), required and checked at init
+ * (shared/sage_fire_feedback_physics.h) */
+static int FIRE_MODE_ON;
+
 // ============================================================================
 // MODULE-LOCAL CONSTANTS (converted from physical constants)
 // ============================================================================
@@ -134,6 +149,11 @@ int sage26_starburst_feedback_init(void) {
   LOAD_PARAM_INT("StarburstColdGasOn", STARBURST_COLD_GAS_ON);
   if (mimic_sage_validate_starburst_cold_gas_on("sage26_starburst_feedback",
                                                 STARBURST_COLD_GAS_ON) != 0) {
+    return -1;
+  }
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("FIREmodeOn", FIRE_MODE_ON);
+  if (mimic_sage_validate_fire_mode("sage26_starburst_feedback", FIRE_MODE_ON) != 0) {
     return -1;
   }
 
@@ -205,6 +225,7 @@ int sage26_starburst_feedback_init(void) {
   VERBOSE_LOG("  BulgeSizeOn = %d", BULGE_SIZE_ON);
   VERBOSE_LOG("  SFprescription = %d", SF_PRESCRIPTION);
   VERBOSE_LOG("  StarburstColdGasOn = %d", STARBURST_COLD_GAS_ON);
+  VERBOSE_LOG("  FIREmodeOn = %d", FIRE_MODE_ON);
   VERBOSE_LOG("  energy_sn_code = %.6e (from ENERGY_SN physical constant)", energy_sn_code);
   VERBOSE_LOG("  eta_sn_code = %.6e (from ETA_SN physical constant)", eta_sn_code);
   VERBOSE_LOG("  post-minor-merger disk instability follow-up = %s",
@@ -244,6 +265,10 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
       /* SAGE26's run_params->SFprescription (R/src/model_starformation_and_feedback.c:1131,
        * :1169; R/src/model_mergers.c:366-367, :798) */
       .sf_prescription = SF_PRESCRIPTION,
+      /* SAGE26's run_params->FIREmodeOn and ZZ, which every burst's FIRE budget reads with its
+       * host's stored SnapNum (R/src/model_mergers.c:692-694) */
+      .fire_mode_on = FIRE_MODE_ON,
+      .redshift_config = ctx->params,
   };
 
   if (ctx->active_event != NULL) {
@@ -302,9 +327,13 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
     const double old_disk_radius = gal->DiskScaleRadius;
     /* SAGE26's whole burst transaction, the post-minor-merger instability recheck before
      * the yield included (R/src/model_mergers.c:584-831) */
-    mimic_apply_collisional_starburst(event->value0, event_halo, central_halo, 0,
-                                      burst_to_merger_bulge, old_disk_radius, event_halo->dT,
-                                      sfr_bin, event->value1, ctx, &params, NULL);
+    if (mimic_apply_collisional_starburst(event->value0, event_halo, central_halo, 0,
+                                          burst_to_merger_bulge, old_disk_radius, event_halo->dT,
+                                          sfr_bin, event->value1, ctx, &params, NULL) != 0) {
+      ERROR_LOG("Merger starburst refused (source=%d, target=%d)", event->source_index,
+                event->target_index);
+      return -1;
+    }
     DEBUG_LOG("Starburst from merger event (ratio=%.3f, source=%d, target=%d)", event->value0,
               event->source_index, event->target_index);
     return 0;
@@ -364,9 +393,12 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
      * (burst_to_merger_bulge 0) with the galaxy's current DiskScaleRadius as its
      * old_disk_radius, after sage26_quasar_mode's black-hole growth
      * (R/src/model_disk_instability.c:101-108) */
-    mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, halo, central_halo, 1, 0,
-                                      (double)gal->DiskScaleRadius, halo->dT, sfr_bin, disk_dt, ctx,
-                                      &params, NULL);
+    if (mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, halo, central_halo, 1, 0,
+                                          (double)gal->DiskScaleRadius, halo->dT, sfr_bin, disk_dt,
+                                          ctx, &params, NULL) != 0) {
+      ERROR_LOG("Disk-instability starburst refused for halo %lld", halo->HaloNr);
+      return -1;
+    }
     DEBUG_LOG("Starburst from disk instability (eff=%.3f)", gal->UnstableDiskGasFraction);
   }
 
@@ -380,6 +412,7 @@ int sage26_starburst_feedback_cleanup(void) {
   POST_MERGER_BLACK_HOLE_GROWTH_RATE = 0.0;
   POST_MERGER_QUASAR_MODE_EFFICIENCY = 0.0;
   BULGE_SIZE_ON = MIMIC_SAGE_BULGE_SIZE_OFF;
+  FIRE_MODE_ON = MIMIC_SAGE_FIRE_MODE_OFF;
   VERBOSE_LOG("SAGE starburst feedback module cleaned up");
   return 0;
 }

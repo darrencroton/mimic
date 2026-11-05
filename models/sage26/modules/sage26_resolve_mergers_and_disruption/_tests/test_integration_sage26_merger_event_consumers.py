@@ -45,6 +45,7 @@ MERGER_MODEL_PARAMS = {
     "StarFormingDiskFactor": 3.0,
     "FeedbackReheatingEpsilon": 3.0,
     "FeedbackEjectionEfficiency": 0.3,
+    "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
     "ReIncorporationFactor": 0.15,
     "AGNrecipe": 2,
     "RadioModeEfficiency": 0.08,

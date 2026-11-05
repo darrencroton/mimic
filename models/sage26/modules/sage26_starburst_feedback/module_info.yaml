@@ -4,7 +4,9 @@ module:
     SAGE26's collisional_starburst_recipe (Somerville et al. 2001) for the disk instability
     (process_by_galaxy) and merger events (process_per_event), with the instability channel's
     bulge-radius update (BulgeSizeOn 3) and the post-minor-merger disk-instability recheck (and its
-    black-hole growth) before the burst's metal yield
+    black-hole growth) before the burst's metal yield; its supernova budget fixed-epsilon
+    (FIREmodeOn 0) or the FIRE scaling from the host's own Vvir and stored snapshot's redshift,
+    capped loading (MassLoading not written) and energy-based ejection (FIREmodeOn 1)
 
   supported_processing_modes: [process_by_galaxy, process_per_event]
 
@@ -84,6 +86,7 @@ module:
       - BulgeSizeOn
       - SFprescription
       - StarburstColdGasOn
+      - FIREmodeOn
 
   events:
     consumes:

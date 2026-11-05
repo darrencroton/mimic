@@ -85,6 +85,7 @@ def test_full_pipeline_conservation():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -176,6 +177,7 @@ def test_gas_transfer_physics():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -274,6 +276,7 @@ def test_metal_enrichment():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.03,  # Higher yield for testing
             "FracZleaveDisk": 0.5,
@@ -354,6 +357,7 @@ def test_parameter_sensitivity():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
             "RecycleFraction": 0.3,  # Lower recycling
             "Yield": 0.015,  # Lower yield
             "FracZleaveDisk": 0.0,
@@ -389,6 +393,7 @@ def test_parameter_sensitivity():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
             "RecycleFraction": 0.5,  # Higher recycling
             "Yield": 0.035,  # Higher yield
             "FracZleaveDisk": 0.0,
@@ -480,6 +485,7 @@ def test_edge_cases():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -577,6 +583,7 @@ def test_memory_and_performance():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
