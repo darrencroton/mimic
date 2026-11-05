@@ -17,7 +17,11 @@
  *
  * FIREmodeOn 1 (R3), the FIRE budgets (shared/sage_fire_feedback_physics.h):
  * - the Muratov et al. (2015) scaling from the forming galaxy's own float Vvir and the redshift
- *   of its stored snapshot, ZZ[SnapNum] (:743-753); an out-of-range SnapNum is refused (D35);
+ *   of its stored snapshot, ZZ[SnapNum] (:743-753); an out-of-range SnapNum is refused (D35),
+ *   except in the initial-boundary state the package's time guard skips (a galaxy with
+ *   SnapNum < 0 and dT <= 0, MIMIC_OBJECT_TIME_SKIP_INITIAL, shared/time_parity.h), where SAGE26
+ *   is undefined and the module returns at once, writing nothing, as the SF and burst modules do
+ *   (campaign decision D37);
  * - the reheating loading FeedbackReheatingEpsilon * scaling capped at
  *   2 * EtaSNcode * EnergySNcode / Vvir^2 (capped_eta_reheat, R/src/model_misc.h:141-149),
  *   written to MassLoading as a float before the renormalisation, also when no stars form
@@ -46,6 +50,7 @@
 #include "module_system/physical_constants.h"
 #include "shared/sage_fire_feedback_physics.h"
 #include "shared/sage_sf_feedback_physics.h"
+#include "shared/time_parity.h"
 
 // ============================================================================
 // MODULE PARAMETERS
@@ -141,6 +146,15 @@ int sage26_calculate_supernova_feedback_process(struct ModuleContext *ctx, struc
    * before the velocity test as SAGE26 orders it; FIREmodeOn 0 leaves it 0 and unused */
   double fire_scaling = 0.0;
   if (FIRE_MODE_ON == MIMIC_SAGE_FIRE_MODE_ON) {
+    /* Campaign decision D37: the initial-boundary state writes nothing, MassLoading included */
+    double substep_dt = 0.0;
+    if (ctx != NULL &&
+        mimic_object_substep_dt(halo, ctx, &substep_dt) == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
+      // SAGE parity: SAGE26 is undefined in this state (Age[-1] at R/src/core_build_model.c:479;
+      // ZZ[-1] at R/src/model_starformation_and_feedback.c:745), and the package follows its
+      // SKIP_INITIAL convention (SF and burst modules).
+      return 0;
+    }
     double z_fire = 0.0;
     if (ctx == NULL || mimic_sage_fire_stored_redshift(ctx->params, halo->SnapNum, &z_fire) != 0) {
       ERROR_LOG("sage26_calculate_supernova_feedback: no FIRE scaling for galaxy HaloNr %d",

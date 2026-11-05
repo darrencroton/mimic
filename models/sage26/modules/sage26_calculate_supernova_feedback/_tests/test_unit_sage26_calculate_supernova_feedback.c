@@ -20,13 +20,15 @@
  * - FIREmodeOn (c09): the required parameter and its refusals, FIREmodeOn 1 against 0 on the same
  *   galaxy, the scaling's guards, floor and slopes, the high-velocity division SAGE26's object
  *   computes, the reheating cap and MassLoading (also with no stars, before the renormalisation),
- *   the energy-based ejection with the float Vvir, and D35's refusal of a stored SnapNum outside
- *   the redshift table (SAGE26 R/src/model_starformation_and_feedback.c:743-792,
+ *   the energy-based ejection with the float Vvir, D37's skip of the initial-boundary state
+ *   (SnapNum -1, dT 0) and D35's refusal of a stored SnapNum outside
+ *   the redshift table otherwise (SAGE26 R/src/model_starformation_and_feedback.c:743-792,
  *   R/src/model_misc.h:118-149). Each FIRE helper and the module's FIREmodeOn 1 branch is asserted
  *   against an expectation derived without the helpers: literal inputs whose results are exact, or
  *   SAGE26's own expressions written in the test with its operand order and literal constants
  *   (test_fire_helpers_independent_expectations and the expectations of the other FIRE tests). The
- *   oracle tests skip off macOS arm64, so these are CI's guard of the FIRE arithmetic.
+ *   oracle tests skip off macOS arm64, so these are the platform-independent guard of the FIRE
+ *   arithmetic (run with MODEL=sage26).
  *
  * Reference: Croton et al. (2006, 2016) - SAGE model
  *
@@ -1282,7 +1284,8 @@ int test_fire_energy_ejection(void) {
 /**
  * @test    test_fire_stored_snapshot_refused
  * @brief   D35: a stored SnapNum of -1 or of the table size reaching the FIRE helper fails with
- *          an error naming the SnapNum and the table size; FIREmodeOn 0 never reads it
+ *          an error naming the SnapNum and the table size; FIREmodeOn 0 never reads it. Each halo
+ *          has dT > 0, so SnapNum -1 is not the initial-boundary state D37's guard skips.
  */
 int test_fire_stored_snapshot_refused(void) {
   const int bad[] = {-1, 64};
@@ -1293,6 +1296,9 @@ int test_fire_stored_snapshot_refused(void) {
     struct GalaxyData gal;
     setup_test_halo(&halo, &gal, 0, 100.0, 80.0, 10.0, 0.01);
     halo.SnapNum = bad[k];
+    /* A positive interval, so SnapNum -1 is not the initial-boundary state the time guard
+     * skips (campaign decision D37) and reaches the refusal */
+    halo.dT = 0.1;
     const int status = fire_process_captured(&halo, &log);
     char expect[64];
     snprintf(expect, sizeof(expect), "SnapNum = %d", bad[k]);
@@ -1307,6 +1313,60 @@ int test_fire_stored_snapshot_refused(void) {
     TEST_ASSERT(fire_process_captured(&halo, &log) == 0,
                 "FIREmodeOn 0 never reads the redshift, so the same galaxy is processed");
   }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_fire_initial_boundary_skipped
+ * @brief   Campaign decision D37: with FIREmodeOn 1, a galaxy in the initial-boundary state
+ *          (stored SnapNum -1, dT 0: MIMIC_OBJECT_TIME_SKIP_INITIAL) is skipped before the
+ *          ZZ[SnapNum] read: process() succeeds, logs no refusal, and writes nothing
+ *          (NewStellarMass, SupernovaReheatedMass, SupernovaEjectedMass and MassLoading keep
+ *          their inputs, every other member too)
+ */
+int test_fire_initial_boundary_skipped(void) {
+  const char *log = "";
+  TEST_ASSERT(fire_init_captured("1", &log) == 0, "init must succeed");
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_halo(&halo, &gal, 0, 100.0, 80.0, 10.0, 0.01);
+  halo.SnapNum = -1;
+  halo.dT = 0.0;
+  gal.SupernovaReheatedMass = 0.125;
+  gal.SupernovaEjectedMass = 0.25;
+  gal.MassLoading = 7.5f;
+  const struct GalaxyData before = gal;
+  const int status = fire_process_captured(&halo, &log);
+  printf("\n  SnapNum -1, dT 0: process %d", status);
+  TEST_ASSERT(status == 0, "the initial-boundary state is skipped, not refused");
+  TEST_ASSERT(strstr(log, "SnapNum") == NULL, "no refusal is logged");
+  TEST_ASSERT(gal.NewStellarMass == 0.01 && gal.SupernovaReheatedMass == 0.125 &&
+                  gal.SupernovaEjectedMass == 0.25 && gal.MassLoading == 7.5f,
+              "the module's outputs and MassLoading keep their inputs");
+  TEST_ASSERT(memcmp(&before, &gal, sizeof(gal)) == 0, "no member is written");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_fire_negative_snapnum_positive_dt_refused
+ * @brief   Campaign decision D37 keeps D35: a stored SnapNum of -1 with dT > 0 (not the
+ *          initial-boundary state) is still refused, naming the SnapNum, and writes nothing
+ */
+int test_fire_negative_snapnum_positive_dt_refused(void) {
+  const char *log = "";
+  TEST_ASSERT(fire_init_captured("1", &log) == 0, "init must succeed");
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_halo(&halo, &gal, 0, 100.0, 80.0, 10.0, 0.01);
+  halo.SnapNum = -1;
+  halo.dT = 0.05;
+  gal.MassLoading = 7.5f;
+  const struct GalaxyData before = gal;
+  const int status = fire_process_captured(&halo, &log);
+  printf("\n  SnapNum -1, dT 0.05: process %d", status);
+  TEST_ASSERT(status != 0, "SnapNum -1 with a positive interval must be refused");
+  TEST_ASSERT(strstr(log, "SnapNum = -1") != NULL, "the error must name the SnapNum");
+  TEST_ASSERT(memcmp(&before, &gal, sizeof(gal)) == 0, "a refused galaxy is not written");
   return TEST_PASS;
 }
 
@@ -1362,6 +1422,8 @@ int main(void) {
   TEST_RUN(test_fire_reheating_cap_and_mass_loading);
   TEST_RUN(test_fire_energy_ejection);
   TEST_RUN(test_fire_stored_snapshot_refused);
+  TEST_RUN(test_fire_initial_boundary_skipped);
+  TEST_RUN(test_fire_negative_snapnum_positive_dt_refused);
 
   /* Print summary and return result */
   TEST_SUMMARY();

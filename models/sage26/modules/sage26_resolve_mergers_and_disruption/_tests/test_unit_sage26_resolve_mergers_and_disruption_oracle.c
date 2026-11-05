@@ -114,6 +114,7 @@
 #include <string.h>
 
 #include "modules/_tests/sage_test_fixtures.h"
+#include "modules/_tests/sage26_oracle_fire.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
 #include "modules/_tests/sage26_oracle_hydrogen.h"
 #include "modules/_tests/sage26_oracle_sizes.h"
@@ -191,6 +192,23 @@ static struct MimicSageBlackHoleLocals shadow_bh;
 static struct oracle_c08_local_tally bh_h_tally;
 static int counts_merge_bh_caps = 0;
 
+/* c09: a deal_with_galaxy_merger_fire or merger_pass_fire fixture, its FIREmodeOn, stored
+ * snapshots and input, for the replay of the burst consumer's call (dispatch_merger_event); the
+ * last replay, its problems, and the counts of the c09 assertions */
+static int fixture_fire = 0;
+static int fixture_fire_mode_on = 0;
+static int fixture_ngal = 0;
+static int fixture_snapnum[MAX_GALAXIES];
+static struct MimicSageBulgeSize fixture_sizes;
+static struct oracle_fixture *fixture_input = NULL;
+static const char *fixture_name = NULL;
+static struct oracle_c09_burst_replay last_burst_replay;
+static int burst_replay_problems = 0;
+static struct oracle_c09_tally fire_tally;
+static int counts_fire_merge = 0, counts_fire_pass = 0;
+static int counts_merger_wiring = 0, counts_recheck_wiring = 0, counts_pass_observed = 0;
+static int counts_mass_loading = 0;
+
 /* The removals the resolver's action hook reported, in order */
 static int action_count = 0;
 static int action_source[MAX_EVENTS];
@@ -265,7 +283,11 @@ static int setup_modules(struct oracle_fixture *in) {
    * configuration) */
   struct MimicSageBulgeSize sizes;
   int sf_prescription = 0;
-  int problems = oracle_c08_require_merger_flags(in, &sizes, &sf_prescription);
+  /* FIREmodeOn: 0, or 0 or 1 for a c09 fixture (validated by oracle_c09_read_fire_config) */
+  int problems = fixture_fire ? oracle_c09_require_merger_flags(in, &sizes, &sf_prescription)
+                              : oracle_c08_require_merger_flags(in, &sizes, &sf_prescription);
+  fixture_fire_mode_on = fixture_fire ? oracle_in_i32(in, "params.FIREmodeOn") : 0;
+  fixture_sizes = sizes;
   if (sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
     counts_br06++;
   }
@@ -340,6 +362,11 @@ static int setup_modules(struct oracle_fixture *in) {
       oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
     problems++;
   }
+  /* The burst consumer's required FIREmodeOn (campaign decision D33): the fixture's, 0 for every
+   * fixture before c09 */
+  if (oracle_set_model_param("FIREmodeOn", (double)fixture_fire_mode_on) != 0) {
+    problems++;
+  }
 
   if (sage26_resolve_mergers_and_disruption_init() != 0 || sage26_quasar_mode_init() != 0 ||
       sage26_starburst_feedback_init() != 0) {
@@ -402,11 +429,80 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
       status = -1;
     }
   }
+  /* c09: the burst consumer's call replayed on copies, for its FIRE record (the c08 pattern) */
+  const int replay = fixture_fire && status == 0 && fixture_ngal <= ORACLE_C09_REPLAY_GALAXIES &&
+                     ctx->central_galaxy != NULL;
+  if (replay) {
+    struct GalaxyData copies[ORACLE_C09_REPLAY_GALAXIES];
+    for (int i = 0; i < fixture_ngal; i++) {
+      if (halos[i].galaxy != NULL) {
+        copies[i] = *halos[i].galaxy;
+      } else {
+        oracle_poison(&copies[i], sizeof(copies[i]));
+      }
+    }
+    struct MimicStarburstParams bundle;
+    oracle_c09_burst_bundle(fixture_input, &fixture_sizes, fixture_sf_prescription,
+                            fixture_fire_mode_on, 1, &bundle);
+    oracle_c09_replay_merger_burst(&last_burst_replay, copies, halos, fixture_ngal, target_idx,
+                                   (int)(ctx->central_galaxy - halos), ctx, &bundle);
+  }
   if (status == 0) {
     status = sage26_starburst_feedback_process(ctx, &halos[target_idx], 1);
   }
+  if (replay) {
+    /* The replay ends in the consumer's state, and its burst read the TARGET's own stored
+     * SnapNum, float Vvir and redshift (the fixture's), never the satellite's or the central's */
+    int mismatch = last_burst_replay.status != 0;
+    for (int i = 0; i < fixture_ngal && !mismatch; i++) {
+      mismatch = halos[i].galaxy != NULL && memcmp(&last_burst_replay.galaxies[i], halos[i].galaxy,
+                                                   sizeof(struct GalaxyData)) != 0;
+    }
+    if (mismatch) {
+      fprintf(stderr, "oracle: %s: the merger-burst replay differs from the consumer\n",
+              fixture_name);
+      burst_replay_problems++;
+    }
+    burst_replay_problems += oracle_c09_check_burst_wiring(
+        fixture_name, "merger burst", &last_burst_replay.locals.fire, fixture_fire_mode_on,
+        fixture_snapnum[target_idx], (float)halos[target_idx].Vvir);
+    counts_merger_wiring++;
+  }
   ctx->active_event = NULL;
   return status;
+}
+
+/**
+ * @brief c09: read a *_fire fixture's FIREmodeOn, stored snapshots (the redshift table) and
+ *        MassLoading, after its galaxies
+ * @return Number of problems
+ */
+static int load_fire(struct oracle_fixture *in, const char *name, const int ngal,
+                     struct GalaxyData *galaxies) {
+  fixture_ngal = ngal;
+  fixture_input = in;
+  fixture_name = name;
+  burst_replay_problems = 0;
+  if (!fixture_fire) {
+    return 0;
+  }
+  int mode = MIMIC_SAGE_FIRE_MODE_OFF;
+  const int problems = oracle_c09_read_fire_config(in, ngal, fixture_snapnum, &mode);
+  oracle_c09_read_mass_loading(in, ngal, galaxies);
+  return problems;
+}
+
+/** @brief c09: every recorded galaxy's MassLoading, equal to its input */
+static int check_fire_mass_loading(struct oracle_fixture *out, const int ngal,
+                                   const struct GalaxyData *before,
+                                   const struct GalaxyData *galaxies) {
+  int problems = 0;
+  for (int i = 0; i < ngal; i++) {
+    problems +=
+        oracle_c09_check_mass_loading(out, "", i, before[i].MassLoading, galaxies[i].MassLoading);
+    counts_mass_loading++;
+  }
+  return problems;
 }
 
 // ============================================================================
@@ -868,7 +964,15 @@ static int make_context(const char *name, struct ModuleContext *ctx, struct Halo
 /** @brief deal_with_galaxy_merger through the resolver's transaction and its consumers */
 static int check_merge(const char *name) {
   static struct oracle_fixture in, out;
-  if (oracle_load_pair(MODULE, name, "deal_with_galaxy_merger", &in, &out) != 0) {
+  char path[ORACLE_MAX_PATH];
+  oracle_fixture_path(path, sizeof(path), MODULE, name, ".in");
+  if (oracle_load(path, &in) != 0) {
+    return 1;
+  }
+  fixture_fire = strcmp(in.routine, ORACLE_C09_MERGER_ROUTINE) == 0;
+  if (oracle_load_pair(MODULE, name,
+                       fixture_fire ? ORACLE_C09_MERGER_ROUTINE : "deal_with_galaxy_merger", &in,
+                       &out) != 0) {
     return 1;
   }
   int problems = setup_modules(&in);
@@ -890,6 +994,7 @@ static int check_merge(const char *name) {
   static struct GalaxyData galaxies[MAX_GALAXIES], before[MAX_GALAXIES];
   static struct Halo halos[MAX_GALAXIES], halos_before[MAX_GALAXIES];
   problems += load_galaxies(&in, ngal, halos, galaxies);
+  problems += load_fire(&in, name, ngal, galaxies);
   struct ModuleContext ctx;
   problems += make_context(name, &ctx, &halos[central], step, FIXTURE_SUBSTEPS);
   if (problems != 0) {
@@ -935,6 +1040,26 @@ static int check_merge(const char *name) {
     problems += oracle_c08_check_bh_hydrogen(&out, fixture_sf_prescription,
                                              &shadow_bh.hydrogen_caps, &bh_h_tally);
     counts_merge_bh_caps++;
+  }
+  /* c09: MassLoading, the burst's FIRE record and its wiring, and the recheck burst's where the
+   * oracle observes it took the FIRE branch (the replay of the consumer's call holds the locals) */
+  if (fixture_fire) {
+    problems += check_fire_mass_loading(&out, ngal, before, galaxies);
+    problems += burst_replay_problems;
+    const struct MimicSageStarburstLocals *b = &last_burst_replay.locals;
+    problems +=
+        oracle_c09_check_fire_record(&out, fixture_fire_mode_on, &b->fire.l, 0, &fire_tally);
+    const int recheck_mode = oracle_c09_observed(&out, "burst_recheck_fire_mode_sensitive");
+    const int recheck_z = oracle_c09_observed(&out, "burst_recheck_fire_redshift_sensitive");
+    if (recheck_mode == 1 || recheck_z == 1) {
+      problems += oracle_c09_check_burst_wiring(name, "recheck burst", &b->recheck_fire,
+                                                fixture_fire_mode_on, fixture_snapnum[target],
+                                                (float)halos[target].Vvir);
+      problems +=
+          oracle_c09_check_same_host_budget(name, "recheck burst", &b->recheck_fire.l, &b->fire.l);
+      counts_recheck_wiring++;
+    }
+    counts_fire_merge++;
   }
   consume_consumer_records(&out);
   counts_merge++;
@@ -1179,7 +1304,14 @@ static int check_halo_floats(struct oracle_fixture *out, const char *prefix, con
 /** @brief SAGE26's per-substep pass (B:519-587) through the resolver's pass */
 static int check_pass(const char *name) {
   static struct oracle_fixture in, out;
-  if (oracle_load_pair(MODULE, name, "merger_pass", &in, &out) != 0) {
+  char path[ORACLE_MAX_PATH];
+  oracle_fixture_path(path, sizeof(path), MODULE, name, ".in");
+  if (oracle_load(path, &in) != 0) {
+    return 1;
+  }
+  fixture_fire = strcmp(in.routine, ORACLE_C09_PASS_ROUTINE) == 0;
+  if (oracle_load_pair(MODULE, name, fixture_fire ? ORACLE_C09_PASS_ROUTINE : "merger_pass", &in,
+                       &out) != 0) {
     return 1;
   }
   int problems = setup_modules(&in);
@@ -1199,6 +1331,7 @@ static int check_pass(const char *name) {
   static struct Halo halos[MAX_GALAXIES], halos_before[MAX_GALAXIES];
   int input_merge_type[MAX_GALAXIES];
   problems += load_pass_galaxies(&in, ngal, halos, galaxies, input_merge_type);
+  problems += load_fire(&in, name, ngal, galaxies);
   struct ModuleContext ctx;
   problems += make_context(name, &ctx, &halos[central], step, num_substeps);
   ctx.time = oracle_in_f64(&in, "call.halo_age");
@@ -1235,6 +1368,17 @@ static int check_pass(const char *name) {
   problems += check_galaxies(name, &out, ngal, galaxies, before);
   problems += check_identities(&out, ngal, halos, halos_before, expected_merge_type);
   problems += check_pass_order(name, ngal, records);
+  /* c09: MassLoading, each merger burst's wiring (dispatch_merger_event), and the oracle's
+   * observations of SAGE26's pass under FIREmodeOn 0 and a replaced target redshift */
+  if (fixture_fire) {
+    problems += check_fire_mass_loading(&out, ngal, before, galaxies);
+    problems += burst_replay_problems;
+    problems += oracle_check_i32(&out, "intermediate.fire_mode", fixture_fire_mode_on);
+    const int mode_sensitive = oracle_c09_observed(&out, "pass_fire_mode_sensitive");
+    const int z_sensitive = oracle_c09_observed(&out, "pass_fire_redshift_sensitive");
+    counts_pass_observed += mode_sensitive == 1 && z_sensitive == 1;
+    counts_fire_pass++;
+  }
   counts_pass++;
 
   cleanup_modules();
@@ -1438,6 +1582,8 @@ static int check_join_and_pass(const char *name) {
 
 /** @brief Dispatch one fixture by its name */
 static int check_fixture(const char *name) {
+  /* c09: set by check_merge and check_pass for a *_fire routine */
+  fixture_fire = 0;
   if (strncmp(name, "add_", 4) == 0) {
     return check_add(name);
   }
@@ -1523,6 +1669,10 @@ int test_oracle_bit_identity(void) {
   counts_disrupt = counts_pass = counts_join_and_pass = 0;
   counts_pass_mergers = counts_pass_disruptions = counts_pass_redirects = 0;
   counts_orphan_exclusions = 0;
+  memset(&fire_tally, 0, sizeof(fire_tally));
+  counts_fire_merge = counts_fire_pass = 0;
+  counts_merger_wiring = counts_recheck_wiring = counts_pass_observed = 0;
+  counts_mass_loading = 0;
 
   const int identical = run_fixtures();
   printf("\n  oracle: add_galaxies_together with BulgeSizeOn 3 %d", counts_add_sizes);
@@ -1556,7 +1706,18 @@ int test_oracle_bit_identity(void) {
   printf("\n  oracle: merger black-hole caps asserted through the consumer's shadow %d (max_h_bh "
          "validated %d, not validated %d, absent %d) ",
          counts_merge_bh_caps, bh_h_tally.validated, bh_h_tally.not_validated, bh_h_tally.absent);
+  printf("\n  oracle: c09 deal_with_galaxy_merger %d and passes %d (FIREmodeOn 1 %d, 0 %d; FIRE "
+         "values validated %d, not validated %d, absent %d; binding caps %d); merger-burst FIRE "
+         "wiring asserted %d, recheck-burst %d; passes observed FIRE- and redshift-sensitive %d; "
+         "MassLoading unchanged %d ",
+         counts_fire_merge, counts_fire_pass, fire_tally.fire_on, fire_tally.fire_off,
+         fire_tally.validated, fire_tally.not_validated, fire_tally.absent, fire_tally.binding,
+         counts_merger_wiring, counts_recheck_wiring, counts_pass_observed, counts_mass_loading);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(counts_fire_merge >= 1 && counts_fire_pass >= 1 && counts_merger_wiring >= 2 &&
+                  counts_recheck_wiring >= 1 && counts_pass_observed >= 1,
+              "the c09 mergers and chained mergers must assert their bursts' FIRE wiring, and a "
+              "recheck burst's");
   TEST_ASSERT(counts_br06 >= 1, "a merger fixture must run SFprescription 1");
   TEST_ASSERT(counts_merge_bh_caps >= 1,
               "an SFprescription 1 merger must assert its black-hole cap");

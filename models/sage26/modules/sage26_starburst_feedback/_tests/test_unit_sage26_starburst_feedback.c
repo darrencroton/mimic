@@ -65,9 +65,27 @@
  *   - test_hydrogen_cap_recheck_growth: the post-minor-merger recheck's black-hole growth
  *     receives the burst's SFprescription (its hydrogen-cap locals, R/src/model_mergers.c:366-372)
  *
+ *   - test_fire_burst_budget_independent: FIREmodeOn 1 (c09): the burst's FIRE budget against
+ *     SAGE26's expressions written in the test (R/src/model_mergers.c:692-752), across the
+ *     scaling's guards, floor and slopes and both caps, MassLoading left unwritten
+ *   - test_fire_burst_on_versus_off: the same burst with FIREmodeOn 1 and 0 (the fixed-epsilon
+ *     budget), neither writing MassLoading
+ *   - test_fire_burst_wiring_direct: the burst reads its host's float Vvir and stored SnapNum
+ *     (and that snapshot's redshift), not its FoF central's
+ *   - test_fire_burst_wiring_merger_event: the merger channel bursts the target with its own
+ *     values (process_per_event)
+ *   - test_fire_burst_wiring_instability_channel: the instability channel bursts the satellite
+ *     with its own values (process_by_galaxy)
+ *   - test_fire_burst_wiring_recheck: the post-minor-merger recheck's own burst takes the FIRE
+ *     branch with the host's values
+ *   - test_fire_mode_refused: FIREmodeOn is required (D33): missing or 2 or -1 refused, naming it
+ *   - test_fire_burst_snapnum_refused: D35 through a burst: a stored SnapNum of -1 or the table
+ *     size is refused, naming it and the table size, and the burst writes nothing
  * The three hydrogen tests are platform independent (no oracle bit pattern; the remainder is
  * formed with C's correctly rounded fma, as the shared helper forms it), so they run on every
- * platform.
+ * platform. So are the FIRE tests: each expectation is SAGE26's expression written in the test
+ * with its operand order and literal constants (sb_fire_expected), or the fixture's input, never
+ * a call of the package's FIRE helpers.
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -2549,6 +2567,590 @@ int test_hydrogen_cap_recheck_growth(void) {
   return TEST_PASS;
 }
 
+// ============================================================================
+// FIREmodeOn (c09): THE BURST'S FIRE BUDGET (R/src/model_mergers.c:690-752)
+// ============================================================================
+
+/* The burst parameters the FIRE tests use: SAGE26's R3 values (R3.par:69-70, :75-82) and its
+ * EtaSNcode and EnergySNcode bit patterns (R/src/core_init.c:102-103) */
+#define FIRE_TEST_EPS 2.9
+#define FIRE_TEST_EJ 0.3
+#define FIRE_TEST_ETA_SN 68493150.684931502
+#define FIRE_TEST_ENERGY_SN 0.0036701860231271991
+
+/** @brief Bit pattern of a double, for exact comparisons */
+static uint64_t sb_fire_bits(const double v) {
+  uint64_t b;
+  memcpy(&b, &v, sizeof(b));
+  return b;
+}
+
+/** @brief SAGE26's budget of one burst, written in the test (see sb_fire_expected) */
+struct sb_fire_budget {
+  double scaling;
+  double eta;
+  double stars;
+  double reheated;
+  double ejected;
+};
+
+/**
+ * @brief SAGE26's burst FIRE budget written inline with its operand order and literal constants
+ *        (R/src/model_mergers.c:692-752, capped_eta_reheat and sn_energy_coupling of
+ *        R/src/model_misc.h:118-149): an expectation that calls no package helper
+ *
+ * The high-velocity term is the division SAGE26's object computes for its pow(x, -1.0) (fdiv at
+ * model_mergers.o offset 0xdc8).
+ *
+ * @param vvir      The host's float Vvir
+ * @param z         The redshift of the host's stored snapshot
+ * @param stars_in  The stars before the renormalisation (eburst * gas, floored)
+ * @param gas       The burst gas
+ */
+static struct sb_fire_budget sb_fire_expected(const float vvir, const double z,
+                                              const double stars_in, const double gas) {
+  struct sb_fire_budget r;
+  double fire_scaling = 0.0;
+  const double vc_fire = vvir;                                               /* M:695 */
+  if (vc_fire > 0.0 && z >= 0.0) {                                           /* M:696 */
+    const double vc_floored = (vc_fire < 1.0) ? 1.0 : vc_fire;               /* M:697 */
+    const double v_term = (vc_floored < 60.0) ? pow(vc_floored / 60.0, -3.2) /* M:698-699 */
+                                              : 1.0 / (vc_floored / 60.0);   /* M:700, fdiv */
+    fire_scaling = pow(1.0 + z, 1.25) * v_term;                              /* M:701 */
+  }
+  double eta = FIRE_TEST_EPS * fire_scaling; /* M:709, X:144-149 */
+  if (vc_fire > 0.0) {
+    const double eta_max = 2.0 * (FIRE_TEST_ETA_SN * FIRE_TEST_ENERGY_SN) / (vc_fire * vc_fire);
+    if (eta > eta_max) {
+      eta = eta_max;
+    }
+  }
+  double stars = stars_in;
+  double reheated = eta * stars;  /* M:708-710 */
+  if ((stars + reheated) > gas) { /* M:721 */
+    const double fac = gas / (stars + reheated);
+    stars *= fac;
+    reheated *= fac;
+  }
+  double ejected = 0.0;
+  if (vc_fire > 0.0) {                             /* M:728 */
+    double coupling = FIRE_TEST_EJ * fire_scaling; /* X:120-123 */
+    if (coupling > 2.0) {
+      coupling = 2.0;
+    }
+    const double E_FB = coupling * 0.5 * stars * (FIRE_TEST_ETA_SN * FIRE_TEST_ENERGY_SN);
+    const double E_lift = 0.5 * reheated * vc_fire * vc_fire;
+    ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc_fire * vc_fire) : 0.0; /* M:733-736 */
+  }
+  if (ejected < 0.0) { /* M:746-748 */
+    ejected = 0.0;
+  }
+  r.scaling = fire_scaling;
+  r.eta = eta;
+  r.stars = stars;
+  r.reheated = reheated;
+  r.ejected = ejected;
+  return r;
+}
+
+/**
+ * @brief Give the run a 64-entry redshift table (Snaplistlen 64), each entry a distinct value
+ *        ZZ[s] = (63 - s) / 10.0 + 0.05, so ZZ[40] = 2.35 and ZZ[50] = 1.35
+ */
+static void sb_fire_redshift_table(void) {
+  MimicConfig.Snaplistlen = 64;
+  for (int s = 0; s < 64; s++) {
+    MimicConfig.ZZ[s] = (63 - s) / 10.0 + 0.05;
+  }
+}
+
+/** @brief The burst bundle of the FIRE helper-level tests */
+static struct MimicStarburstParams sb_fire_params(const int fire_mode_on, const int recheck) {
+  struct MimicStarburstParams p;
+  memset(&p, 0, sizeof(p));
+  p.feedback_reheating_epsilon = FIRE_TEST_EPS;
+  p.feedback_ejection_efficiency = FIRE_TEST_EJ;
+  p.recycle_fraction = 0.43;
+  p.yield = 0.025;
+  p.threshold_major_merger = 0.3;
+  p.energy_sn_code = FIRE_TEST_ENERGY_SN;
+  p.eta_sn_code = FIRE_TEST_ETA_SN;
+  p.disk_instability_on = recheck;
+  p.star_forming_disk_factor = 3.0;
+  p.agn_recipe_on = recheck;
+  p.black_hole_growth_rate = 0.015;
+  p.quasar_mode_efficiency = 0.001;
+  p.fire_mode_on = fire_mode_on;
+  p.redshift_config = &MimicConfig;
+  return p;
+}
+
+/**
+ * @brief A host (Type 1, Vvir 80 km/s, stored SnapNum 40) and its FoF central (Type 0, Vvir
+ *        300 km/s, SnapNum 50) that differ in both: the burst must read the host's
+ */
+static void sb_fire_pair(struct Halo *host, struct GalaxyData *host_gal, struct Halo *central,
+                         struct GalaxyData *central_gal) {
+  setup_test_galaxy(central, central_gal, 0, 120.0, 300.0, 4.0, 0.08, 6.0, 1.5, 400.0, 0.8);
+  central->SnapNum = 50;
+  setup_test_galaxy(host, host_gal, 1, 30.0, 80.0, 1.0, 0.02, 2.0, 0.5, 5.0, 0.1);
+  host->SnapNum = 40;
+  host->Vmax = 120.0f;
+  host_gal->DiskScaleRadius = 5.0f; /* a stable disk: no recheck burst */
+  host_gal->MassLoading = 7.25f;    /* a stale value no burst may write */
+  central_gal->MassLoading = 3.5f;
+}
+
+/**
+ * @test    test_fire_burst_budget_independent
+ * @brief   The burst's FIRE budget against SAGE26's expressions written in the test, across the
+ *          scaling's guards, floor and slopes and both caps (R/src/model_mergers.c:692-752)
+ *
+ * A mode-1 burst (fraction 0.1) of one galaxy with ColdGas 1 and ample hot gas, at a host Vvir
+ * below, at and above 1 and 60 km/s, zero and negative, and a stored-snapshot redshift of 0, 2.35,
+ * 14.09 (both caps binding at 100 km/s) and -0.5, and at 30 km/s (the coupling capped at 2 while
+ * the loading is not, so the cap decides the ejection): the transaction's stars, reheated and
+ * ejected mass and the FIRE scaling must equal the inline expectation bit for bit, and MassLoading
+ * must keep its stale value (no burst writes it, M:707-710).
+ */
+int test_fire_burst_budget_independent(void) {
+  reset_config();
+  sb_fire_redshift_table();
+  const struct {
+    float vvir;
+    double z;
+  } cases[] = {{0.5f, 2.35},          {1.0f, 2.35},  {1.5f, 2.35},   {59.5f, 2.35},   {60.0f, 0.0},
+               {0x1.e00168p+5f, 0.0}, {80.0f, 2.35}, {300.0f, 2.35}, {100.0f, 14.09}, {30.0f, 2.35},
+               {0.0f, 2.35},          {-5.0f, 2.35}, {80.0f, -0.5}};
+  const struct MimicStarburstParams params = sb_fire_params(MIMIC_SAGE_FIRE_MODE_ON, 0);
+  for (size_t k = 0; k < sizeof(cases) / sizeof(cases[0]); k++) {
+    struct Halo host;
+    struct GalaxyData gal;
+    setup_test_galaxy(&host, &gal, 0, 120.0, 0.0, 1.0, 0.02, 2.0, 0.5, 500.0, 1.0);
+    host.Vvir = cases[k].vvir;
+    host.SnapNum = 40;
+    MimicConfig.ZZ[40] = cases[k].z;
+    gal.MassLoading = 7.25f;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &host);
+    struct MimicSageStarburstLocals b;
+    const int status = mimic_apply_collisional_starburst(0.1, &host, &host, 1, 0, 0.0, 0.0, 0, 0.01,
+                                                         &ctx, &params, &b);
+    const struct sb_fire_budget e =
+        sb_fire_expected(cases[k].vvir, cases[k].z, 0.1 * (double)1.0f, (double)1.0f);
+    printf("\n  Vvir %.9g z %.4g: scaling %.17g reheated %.17g ejected %.17g", cases[k].vvir,
+           cases[k].z, b.fire.l.scaling, b.reheated_mass, b.ejected_mass);
+    TEST_ASSERT(status == 0, "the burst must run");
+    TEST_ASSERT(b.fire.fire_mode == 1 && b.fire.snapnum == 40, "the FIRE branch, SnapNum 40");
+    TEST_ASSERT(sb_fire_bits(b.fire.l.scaling) == sb_fire_bits(e.scaling),
+                "the FIRE scaling must equal SAGE26's expression");
+    TEST_ASSERT(sb_fire_bits(b.stars) == sb_fire_bits(e.stars) &&
+                    sb_fire_bits(b.reheated_mass) == sb_fire_bits(e.reheated) &&
+                    sb_fire_bits(b.ejected_mass) == sb_fire_bits(e.ejected),
+                "stars, reheated and ejected mass must equal SAGE26's expressions bit for bit");
+    TEST_ASSERT(gal.MassLoading == 7.25f, "a burst must not write MassLoading");
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_fire_burst_on_versus_off
+ * @brief   The same burst with FIREmodeOn 1 and 0: 1 is the inline FIRE budget, 0 the
+ *          fixed-epsilon one (M:711-712, M:738-743, the float Vvir squared in float); neither
+ *          writes MassLoading
+ */
+int test_fire_burst_on_versus_off(void) {
+  reset_config();
+  sb_fire_redshift_table();
+  double reheated[2], ejected[2];
+  for (int fire = 0; fire <= 1; fire++) {
+    struct Halo host, central;
+    struct GalaxyData host_gal, central_gal;
+    sb_fire_pair(&host, &host_gal, &central, &central_gal);
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &central);
+    const struct MimicStarburstParams params = sb_fire_params(fire, 0);
+    struct MimicSageStarburstLocals b;
+    TEST_ASSERT(mimic_apply_collisional_starburst(0.1, &host, &central, 1, 0, 0.0, 0.0, 0, 0.01,
+                                                  &ctx, &params, &b) == 0,
+                "the burst must run");
+    reheated[fire] = b.reheated_mass;
+    ejected[fire] = b.ejected_mass;
+    TEST_ASSERT(host_gal.MassLoading == 7.25f && central_gal.MassLoading == 3.5f,
+                "no burst writes MassLoading, in either mode");
+    const double stars = 0.1 * (double)1.0f;
+    if (fire) {
+      const struct sb_fire_budget e = sb_fire_expected(80.0f, MimicConfig.ZZ[40], stars, 1.0);
+      TEST_ASSERT(sb_fire_bits(b.reheated_mass) == sb_fire_bits(e.reheated) &&
+                      sb_fire_bits(b.ejected_mass) == sb_fire_bits(e.ejected),
+                  "FIREmodeOn 1: SAGE26's FIRE budget with the host's values");
+    } else {
+      const float v = 80.0f;
+      const double e_reheated = FIRE_TEST_EPS * stars; /* M:712 */
+      double e_ejected =
+          (FIRE_TEST_EJ * (FIRE_TEST_ETA_SN * FIRE_TEST_ENERGY_SN) / (v * v) - FIRE_TEST_EPS) *
+          stars; /* M:739-741 */
+      if (e_ejected < 0.0) {
+        e_ejected = 0.0;
+      }
+      TEST_ASSERT(b.fire.fire_mode == 0 && b.fire.snapnum == -1 && isnan(b.fire.l.scaling),
+                  "FIREmodeOn 0 forms no FIRE value");
+      TEST_ASSERT(sb_fire_bits(b.reheated_mass) == sb_fire_bits(e_reheated) &&
+                      sb_fire_bits(b.ejected_mass) == sb_fire_bits(e_ejected),
+                  "FIREmodeOn 0: the fixed-epsilon budget");
+    }
+  }
+  printf("\n  reheated %.17g (0) / %.17g (1), ejected %.17g / %.17g", reheated[0], reheated[1],
+         ejected[0], ejected[1]);
+  TEST_ASSERT(reheated[0] != reheated[1] && ejected[0] != ejected[1],
+              "the two modes must differ on this input");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_fire_burst_wiring_direct
+ * @brief   The burst reads its HOST's float Vvir and stored SnapNum, not the FoF central's
+ *          (R/src/model_mergers.c:694-695): host Vvir 80 at SnapNum 40, central 300 at 50
+ */
+int test_fire_burst_wiring_direct(void) {
+  reset_config();
+  sb_fire_redshift_table();
+  struct Halo host, central;
+  struct GalaxyData host_gal, central_gal;
+  sb_fire_pair(&host, &host_gal, &central, &central_gal);
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &central);
+  const struct MimicStarburstParams params = sb_fire_params(MIMIC_SAGE_FIRE_MODE_ON, 0);
+  struct MimicSageStarburstLocals b;
+  TEST_ASSERT(mimic_apply_collisional_starburst(0.1, &host, &central, 1, 0, 0.0, 0.0, 0, 0.01, &ctx,
+                                                &params, &b) == 0,
+              "the burst must run");
+  TEST_ASSERT(b.fire.fire_mode == 1 && b.fire.snapnum == 40 && b.fire.vvir == (double)80.0f,
+              "the burst read its host's SnapNum and Vvir");
+  TEST_ASSERT(sb_fire_bits(b.fire.l.redshift) == sb_fire_bits(MimicConfig.ZZ[40]),
+              "the burst read ZZ[40], its host's stored snapshot");
+  const struct sb_fire_budget host_e = sb_fire_expected(80.0f, MimicConfig.ZZ[40], 0.1, 1.0);
+  const struct sb_fire_budget central_e = sb_fire_expected(300.0f, MimicConfig.ZZ[50], 0.1, 1.0);
+  TEST_ASSERT(sb_fire_bits(b.reheated_mass) == sb_fire_bits(host_e.reheated),
+              "the reheated mass is the host's budget");
+  TEST_ASSERT(host_e.reheated != central_e.reheated, "the central's budget would differ");
+  return TEST_PASS;
+}
+
+/** @brief Set or replace a model parameter's value; NULL removes it */
+static void sb_fire_set_param(const char *name, const char *value) {
+  int n = MimicConfig.NumModelParams;
+  for (int i = 0; i < n; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, name) == 0) {
+      if (value == NULL) {
+        MimicConfig.ModelParams[i] = MimicConfig.ModelParams[n - 1];
+        MimicConfig.NumModelParams = n - 1;
+      } else {
+        snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%s", value);
+      }
+      return;
+    }
+  }
+  if (value != NULL) {
+    sage26_test_append_model_parameter(name, value);
+  }
+}
+
+/** @brief Read a captured log into a static buffer (valid until the next call) */
+static const char *sb_fire_read_log(FILE *fp) {
+  static char buf[8192];
+  rewind(fp);
+  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+  buf[n] = '\0';
+  return buf;
+}
+
+/**
+ * @brief Initialise the module with R3's burst parameters and FIREmodeOn `value` (NULL: the key
+ *        missing), capturing the log
+ * @return The init status
+ */
+static int sb_fire_init(const char *value, const char **log) {
+  init_memory_system(0);
+  reset_config();
+  setup_test_parameters(FIRE_TEST_EPS, FIRE_TEST_EJ, 0.43, 0.025, 0.0, 0.3);
+  sb_fire_set_param("FIREmodeOn", value);
+  sb_fire_redshift_table();
+  MimicConfig.G = 43.00707785642063;
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_starburst_feedback_init();
+  if (capture != NULL) {
+    set_log_output(old_out);
+    *log = sb_fire_read_log(capture);
+    fclose(capture);
+  } else {
+    *log = "";
+  }
+  return status;
+}
+
+/** @brief The module's own EtaSNcode * EnergySNcode budget, for the module-level expectations */
+static double sb_fire_module_esn(void) {
+  return mimic_sage_eta_sn_code(MimicConfig.UnitMass_in_g, MimicConfig.Hubble_h) *
+         mimic_sage_energy_sn_code(MimicConfig.UnitEnergy_in_cgs, MimicConfig.Hubble_h);
+}
+
+/**
+ * @brief SAGE26's burst budget at the module's own SN constants (the module derives them from the
+ *        run's units, R/src/core_init.c:102-103): sb_fire_expected's expressions with that
+ *        product, which is all the budget reads of them
+ */
+static struct sb_fire_budget sb_fire_module_expected(const float vvir, const double z,
+                                                     const double stars_in, const double gas) {
+  const double esn = sb_fire_module_esn();
+  struct sb_fire_budget r;
+  double fire_scaling = 0.0;
+  const double vc_fire = vvir;
+  if (vc_fire > 0.0 && z >= 0.0) {
+    const double vc_floored = (vc_fire < 1.0) ? 1.0 : vc_fire;
+    const double v_term =
+        (vc_floored < 60.0) ? pow(vc_floored / 60.0, -3.2) : 1.0 / (vc_floored / 60.0);
+    fire_scaling = pow(1.0 + z, 1.25) * v_term;
+  }
+  double eta = FIRE_TEST_EPS * fire_scaling;
+  if (vc_fire > 0.0) {
+    const double eta_max = 2.0 * esn / (vc_fire * vc_fire);
+    if (eta > eta_max) {
+      eta = eta_max;
+    }
+  }
+  double stars = stars_in;
+  double reheated = eta * stars;
+  if ((stars + reheated) > gas) {
+    const double fac = gas / (stars + reheated);
+    stars *= fac;
+    reheated *= fac;
+  }
+  double ejected = 0.0;
+  if (vc_fire > 0.0) {
+    double coupling = FIRE_TEST_EJ * fire_scaling;
+    if (coupling > 2.0) {
+      coupling = 2.0;
+    }
+    const double E_FB = coupling * 0.5 * stars * esn;
+    const double E_lift = 0.5 * reheated * vc_fire * vc_fire;
+    ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc_fire * vc_fire) : 0.0;
+  }
+  r.scaling = fire_scaling;
+  r.eta = eta;
+  r.stars = stars;
+  r.reheated = reheated;
+  r.ejected = ejected < 0.0 ? 0.0 : ejected;
+  return r;
+}
+
+/**
+ * @test    test_fire_burst_wiring_merger_event
+ * @brief   The merger channel (process_per_event) bursts the TARGET with its own Vvir and stored
+ *          SnapNum, not the FoF central's: the target's SupernovaOutflowRate holds its reheated
+ *          mass and the central's EjectedGas the ejection, as SAGE26's budget for the target
+ */
+int test_fire_burst_wiring_merger_event(void) {
+  const char *log = "";
+  TEST_ASSERT(sb_fire_init("1", &log) == 0, "init must succeed with FIREmodeOn 1");
+  struct Halo target, central;
+  struct GalaxyData target_gal, central_gal;
+  sb_fire_pair(&target, &target_gal, &central, &central_gal);
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &central);
+  ctx.num_substeps = 10;
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 2,
+                              .target_index = 1,
+                              .value0 = 0.2,
+                              .value1 = 0.01};
+  ctx.active_event = &event;
+  TEST_ASSERT(sage26_starburst_feedback_process(&ctx, &target, 1) == 0, "the merger bursts");
+  const double eburst = 0.56 * pow(0.2, 0.7); /* M:603 */
+  const struct sb_fire_budget e =
+      sb_fire_module_expected(80.0f, MimicConfig.ZZ[40], eburst * (double)1.0f, (double)1.0f);
+  const struct sb_fire_budget c =
+      sb_fire_module_expected(300.0f, MimicConfig.ZZ[50], eburst * (double)1.0f, (double)1.0f);
+  printf("\n  target outflow %.9g (expected %.9g), central ejected %.9g (expected %.9g)",
+         target_gal.SupernovaOutflowRate, (float)e.reheated, central_gal.EjectedGas,
+         (float)e.ejected);
+  TEST_ASSERT(target_gal.SupernovaOutflowRate == (float)e.reheated,
+              "the target's outflow is its own FIRE reheated mass");
+  TEST_ASSERT(central_gal.EjectedGas == (float)e.ejected,
+              "the central's ejected gas is the target's FIRE ejection");
+  TEST_ASSERT((float)c.reheated != (float)e.reheated, "the central's values would differ");
+  TEST_ASSERT(target_gal.MassLoading == 7.25f && central_gal.MassLoading == 3.5f,
+              "the merger burst writes no MassLoading");
+  sage26_starburst_feedback_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_fire_burst_wiring_instability_channel
+ * @brief   The instability channel (process_by_galaxy) bursts the satellite with its own Vvir and
+ *          stored SnapNum, not its FoF central's (R/src/model_disk_instability.c:106)
+ */
+int test_fire_burst_wiring_instability_channel(void) {
+  const char *log = "";
+  TEST_ASSERT(sb_fire_init("1", &log) == 0, "init must succeed with FIREmodeOn 1");
+  struct Halo host, central;
+  struct GalaxyData host_gal, central_gal;
+  sb_fire_pair(&host, &host_gal, &central, &central_gal);
+  host_gal.UnstableDiskGasFraction = 0.1;
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &central);
+  ctx.num_substeps = 10;
+  TEST_ASSERT(sage26_starburst_feedback_process(&ctx, &host, 1) == 0, "the instability bursts");
+  const struct sb_fire_budget e =
+      sb_fire_module_expected(80.0f, MimicConfig.ZZ[40], 0.1 * (double)1.0f, (double)1.0f);
+  TEST_ASSERT(host_gal.SupernovaOutflowRate == (float)e.reheated,
+              "the satellite's outflow is its own FIRE reheated mass");
+  TEST_ASSERT(central_gal.EjectedGas == (float)e.ejected,
+              "the central's ejected gas is the satellite's FIRE ejection");
+  TEST_ASSERT(host_gal.MassLoading == 7.25f, "the instability burst writes no MassLoading");
+  sage26_starburst_feedback_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_fire_burst_wiring_recheck
+ * @brief   The post-minor-merger recheck's own burst (R/src/model_mergers.c:806-811 into
+ *          R/src/model_disk_instability.c:106-108) takes the FIRE branch with the host's own
+ *          stored SnapNum, float Vvir and redshift, not the central's
+ */
+int test_fire_burst_wiring_recheck(void) {
+  reset_config();
+  sb_fire_redshift_table();
+  static struct Halo central, host;
+  static struct GalaxyData central_gal, gal;
+  setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+  central.SnapNum = 50;
+  setup_test_galaxy(&host, &gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+  host.SnapNum = 40;
+  host.Vmax = 50.0f;
+  gal.DiskScaleRadius = 0.001f;
+  gal.BlackHoleMass = 0.05f;
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.params = &MimicConfig;
+  MimicConfig.G = 43.00707785642063;
+  MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
+  const struct MimicStarburstParams params = sb_fire_params(MIMIC_SAGE_FIRE_MODE_ON, 1);
+  struct MimicSageStarburstLocals b;
+  TEST_ASSERT(mimic_apply_collisional_starburst(0.2, &host, &central, 0, 1, 0.0, 0.0, 0, 0.01, &ctx,
+                                                &params, &b) == 0,
+              "the merger burst and its recheck must run");
+  TEST_ASSERT(b.instability_recheck_ran == 1, "the minor merger runs the recheck");
+  TEST_ASSERT(b.recheck_fire.fire_mode == 1 && b.recheck_fire.snapnum == 40 &&
+                  b.recheck_fire.vvir == (double)140.0f,
+              "the recheck's burst took the FIRE branch with the host's SnapNum and Vvir");
+  TEST_ASSERT(sb_fire_bits(b.recheck_fire.l.redshift) == sb_fire_bits(MimicConfig.ZZ[40]),
+              "the recheck's burst read ZZ[40], the host's stored snapshot");
+  const struct sb_fire_budget e = sb_fire_expected(140.0f, MimicConfig.ZZ[40], 0.0, 0.0);
+  TEST_ASSERT(sb_fire_bits(b.recheck_fire.l.scaling) == sb_fire_bits(e.scaling),
+              "the recheck burst's scaling is SAGE26's for the host");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_fire_mode_refused
+ * @brief   sage26_starburst_feedback's FIREmodeOn (campaign decision D33): a missing key fails
+ *          initialisation and 2 and -1 are refused, each naming the parameter; 0 and 1 initialise
+ */
+int test_fire_mode_refused(void) {
+  const char *log = "";
+  int status = sb_fire_init(NULL, &log);
+  printf("\n  without FIREmodeOn: init %d", status);
+  TEST_ASSERT(status != 0 && strstr(log, "FIREmodeOn") != NULL,
+              "a missing FIREmodeOn must fail initialisation, naming it");
+  const char *refused[] = {"2", "-1"};
+  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
+    status = sb_fire_init(refused[k], &log);
+    printf("\n  FIREmodeOn %s: init %d", refused[k], status);
+    TEST_ASSERT(status != 0 && strstr(log, "FIREmodeOn") != NULL,
+                "an unsupported FIREmodeOn must be refused, naming it");
+  }
+  const char *accepted[] = {"0", "1"};
+  for (size_t k = 0; k < sizeof(accepted) / sizeof(accepted[0]); k++) {
+    status = sb_fire_init(accepted[k], &log);
+    TEST_ASSERT(status == 0, "FIREmodeOn 0 and 1 initialise");
+    sage26_starburst_feedback_cleanup();
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_fire_burst_snapnum_refused
+ * @brief   D35 through a burst: a host whose stored SnapNum is -1 or the table size (64) is
+ *          refused with an error naming the SnapNum and the table, and writes nothing; FIREmodeOn
+ *          0 reads no redshift and bursts; the merger channel's process() fails on the refusal
+ */
+int test_fire_burst_snapnum_refused(void) {
+  reset_config();
+  sb_fire_redshift_table();
+  const int refused[] = {-1, 64};
+  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
+    struct Halo host, central;
+    struct GalaxyData host_gal, central_gal;
+    sb_fire_pair(&host, &host_gal, &central, &central_gal);
+    host.SnapNum = refused[k];
+    const struct GalaxyData host_before = host_gal, central_before = central_gal;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &central);
+    const struct MimicStarburstParams params = sb_fire_params(MIMIC_SAGE_FIRE_MODE_ON, 0);
+    FILE *capture = tmpfile();
+    FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+    const int status = mimic_apply_collisional_starburst(0.1, &host, &central, 1, 0, 0.0, 0.0, 0,
+                                                         0.01, &ctx, &params, NULL);
+    const char *log = "";
+    if (capture != NULL) {
+      set_log_output(old_out);
+      log = sb_fire_read_log(capture);
+      fclose(capture);
+    }
+    printf("\n  SnapNum %d: status %d", refused[k], status);
+    TEST_ASSERT(status != 0, "an out-of-range stored SnapNum must be refused");
+    TEST_ASSERT(strstr(log, "SnapNum") != NULL && strstr(log, "64 entries") != NULL,
+                "the error must name the SnapNum and the table size");
+    TEST_ASSERT(memcmp(&host_before, &host_gal, sizeof(host_gal)) == 0 &&
+                    memcmp(&central_before, &central_gal, sizeof(central_gal)) == 0,
+                "a refused burst writes nothing");
+    const struct MimicStarburstParams off = sb_fire_params(MIMIC_SAGE_FIRE_MODE_OFF, 0);
+    TEST_ASSERT(mimic_apply_collisional_starburst(0.1, &host, &central, 1, 0, 0.0, 0.0, 0, 0.01,
+                                                  &ctx, &off, NULL) == 0,
+                "FIREmodeOn 0 reads no redshift and bursts");
+  }
+
+  const char *log = "";
+  TEST_ASSERT(sb_fire_init("1", &log) == 0, "init must succeed with FIREmodeOn 1");
+  struct Halo target, central;
+  struct GalaxyData target_gal, central_gal;
+  sb_fire_pair(&target, &target_gal, &central, &central_gal);
+  target.SnapNum = -1;
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &central);
+  ctx.num_substeps = 10;
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 2,
+                              .target_index = 1,
+                              .value0 = 0.2,
+                              .value1 = 0.01};
+  ctx.active_event = &event;
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_starburst_feedback_process(&ctx, &target, 1);
+  if (capture != NULL) {
+    set_log_output(old_out);
+    fclose(capture);
+  }
+  TEST_ASSERT(status != 0, "the merger channel's process() fails on the refusal");
+  sage26_starburst_feedback_cleanup();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -2605,6 +3207,14 @@ int main(void) {
   TEST_RUN(test_hydrogen_refresh_module_wiring);
   TEST_RUN(test_hydrogen_refresh_invariants);
   TEST_RUN(test_hydrogen_cap_recheck_growth);
+  TEST_RUN(test_fire_burst_budget_independent);
+  TEST_RUN(test_fire_burst_on_versus_off);
+  TEST_RUN(test_fire_burst_wiring_direct);
+  TEST_RUN(test_fire_burst_wiring_merger_event);
+  TEST_RUN(test_fire_burst_wiring_instability_channel);
+  TEST_RUN(test_fire_burst_wiring_recheck);
+  TEST_RUN(test_fire_mode_refused);
+  TEST_RUN(test_fire_burst_snapnum_refused);
 
   /* Print summary and return result */
   TEST_SUMMARY();

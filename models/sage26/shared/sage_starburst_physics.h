@@ -3,8 +3,8 @@
  * @brief SAGE26's collisional starburst transaction (collisional_starburst_recipe)
  *
  * Ports SAGE26's collisional_starburst_recipe (R/src/model_mergers.c:584-831, R = the
- * staged SAGE26 source) on the R0, R1 and R2 paths: StarburstColdGasOn 1, SFprescription 0 or 1,
- * SupernovaRecipeOn 1, FIREmodeOn 0, SaveFullSFH 0, CGMrecipeOn 0, and BulgeSizeOn 0 or 3.
+ * staged SAGE26 source) on the R0 to R3 paths: StarburstColdGasOn 1, SFprescription 0 or 1,
+ * SupernovaRecipeOn 1, FIREmodeOn 0 or 1, SaveFullSFH 0, CGMrecipeOn 0, and BulgeSizeOn 0 or 3.
  * With SFprescription 1 the star-formation and feedback commits apply their hydrogen caps
  * (sage_sf_feedback_physics.h), the burst refreshes the hydrogen after its feedback (step 7b
  * below) and the recheck's black-hole growth applies its accretion cap (sage_agn_physics.h).
@@ -15,9 +15,16 @@
  *     header comment at :577 has the two modes reversed);
  *  2. the burst gas: the host's total ColdGas (StarburstColdGasOn 1, :680-683), floored at
  *     zero (:683), times eburst, the stars floored at zero (:685-688);
- *  3. the reheated mass FeedbackReheatingEpsilon * stars (:711-712), both scaled down
- *     together when they exceed the burst gas (:720-725);
- *  4. the ejected mass from the burst HOST's own float Vvir squared (:727-749);
+ *  3. the reheated mass: FeedbackReheatingEpsilon * stars with FIREmodeOn 0 (:711-712); with
+ *     FIREmodeOn 1 the FIRE loading capped_eta_reheat(FeedbackReheatingEpsilon * fire_scaling,
+ *     Vvir) times the stars (:706-710), the scaling (:690-703) from the burst HOST's (the
+ *     target's) own float Vvir and the redshift of its stored snapshot, ZZ[SnapNum], and NO
+ *     MassLoading write (sage_fire_feedback_physics.h); both scaled down together when they
+ *     exceed the burst gas, with no positive-sum clause (:720-725);
+ *  4. the ejected mass from the burst HOST's own float Vvir (:727-749): with FIREmodeOn 0 the
+ *     fixed-epsilon formula with that float squared in float; with FIREmodeOn 1 the energy-based
+ *     ejection (E_FB - E_lift) / (0.5 * V^2) from the renormalised stars and reheated mass, the
+ *     velocity widened to double (:729-734); zero for a non-positive Vvir, then floored at zero;
  *  5. the bulge history sampling: SfrBulge += stars / dt and SfrBulgeColdGas(Metals) +=
  *     the host's ColdGas (metals), accumulated, before any gas is consumed (:754-757);
  *  6. update_from_star_formation with the cold-gas metallicity (:759-760), then the locked
@@ -44,7 +51,9 @@
  * A burst always runs to its end: there is no early return on a non-positive trigger,
  * zero cold gas or zero stars, so a zero-star burst still samples the bulge history and
  * runs its feedback and yield with zero mass, as SAGE26 does. Only calling-contract NULL
- * checks return early (no R0 call reaches them).
+ * checks return early (no R0 call reaches them), and, with FIREmodeOn 1, the refusal of a
+ * stored SnapNum outside the run's redshift table (campaign decision D35), which SAGE26 would
+ * read out of bounds (:694): that burst writes nothing and returns -1.
  *
  * The star-formation and feedback commits are the package's one implementation of
  * SAGE26's update_from_star_formation and update_from_feedback
@@ -61,7 +70,9 @@
  * fma(ColdGas, 0.74, -H2gas); the refresh's cap compares the widened float H2gas with the
  * unfused double product and stores that product narrowed (:799-800). BulgeMass += recycled_stars
  * (:772) adds the rounded double, unfused. The host's Vvir and the central's Mvir are read as the
- * floats SAGE26 holds (R/src/core_allvars.h:129-131).
+ * floats SAGE26 holds (R/src/core_allvars.h:129-131). The FIRE budget (:690-752) fuses no
+ * multiply-add in SAGE26's object (the oracle README's c09 table): each of its expressions is one
+ * C expression with SAGE26's operand order and types, in sage_fire_feedback_physics.h.
  *
  * The package's StarFormationRate diagnostic (stars / rate_dt) has no SAGE26 counterpart;
  * it is written beside the commit and changes no SAGE26 field.
@@ -81,6 +92,7 @@
 #include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_disk_instability_physics.h"
+#include "shared/sage_fire_feedback_physics.h"
 #include "shared/sage_sf_feedback_physics.h"
 #include "shared/sage_sfr_history.h"
 
@@ -98,8 +110,11 @@
  * The last, bulge_size, is SAGE26's BulgeSizeOn and Hubble_h, which the burst's and the
  * recheck's radius updates read (R/src/model_misc.c:395, :398). sf_prescription is SAGE26's
  * SFprescription, which the commits' hydrogen caps, the hydrogen refresh and the recheck's
- * black-hole accretion cap test. A zero-initialised bundle is BulgeSizeOn 0 and
- * SFprescription 0.
+ * black-hole accretion cap test. fire_mode_on is SAGE26's FIREmodeOn and redshift_config the run's
+ * redshift table (ZZ and Snaplistlen), from which a FIREmodeOn 1 burst reads the redshift of its
+ * host's stored snapshot (R/src/model_mergers.c:692-694); every burst, the recheck's included,
+ * receives both through this bundle. A zero-initialised bundle is BulgeSizeOn 0, SFprescription 0
+ * and FIREmodeOn 0.
  */
 struct MimicStarburstParams {
   double feedback_reheating_epsilon;
@@ -117,7 +132,33 @@ struct MimicStarburstParams {
   double quasar_mode_efficiency;        /**< QuasarModeEfficiency, for the recheck's wind */
   struct MimicSageBulgeSize bulge_size; /**< BulgeSizeOn and Hubble_h, for the radius updates */
   int sf_prescription; /**< SFprescription (0 or 1): the commits' and BH H caps, the refresh */
+  int fire_mode_on;    /**< FIREmodeOn (0 or 1): the burst's FIRE budget (:690-752) */
+  const struct MimicConfig *redshift_config; /**< ZZ and Snaplistlen, FIREmodeOn 1's stored-snapshot
+                                                  redshift (:694); unread for FIREmodeOn 0 */
 };
+
+/**
+ * @brief The FIRE budget one burst received (R/src/model_mergers.c:690-752), for tests
+ *
+ * fire_mode is the bundle's FIREmodeOn (-1 where the burst did not run). With FIREmodeOn 1,
+ * snapnum and vvir are the host's stored SnapNum and its float Vvir widened to double, the inputs
+ * the scaling read (:694-695), and l holds the shared helpers' locals; otherwise snapnum is -1,
+ * vvir NaN and l not formed (NaN and -1).
+ */
+struct MimicSageBurstFireRecord {
+  int fire_mode;                /**< FIREmodeOn of the burst, -1 where it did not run */
+  int snapnum;                  /**< the host's stored SnapNum read for ZZ (:694), -1 if unread */
+  double vvir;                  /**< the host's float Vvir widened (:695), NaN if unread */
+  struct MimicSageFireLocals l; /**< the scaling, loading, coupling and energies */
+};
+
+/** @brief Mark a burst's FIRE record as not formed */
+static inline void mimic_sage_burst_fire_record_reset(struct MimicSageBurstFireRecord *r) {
+  r->fire_mode = -1;
+  r->snapnum = -1;
+  r->vvir = NAN;
+  mimic_sage_fire_locals_init(&r->l);
+}
 
 /**
  * @brief The locals of the burst's hydrogen refresh (R/src/model_mergers.c:798-803)
@@ -140,28 +181,30 @@ struct MimicSageBurstHydrogenRefreshLocals {
  * is left as NaN, a flag it does not evaluate as -1.
  */
 struct MimicSageStarburstLocals {
-  double eburst;                   /**< bursting fraction (:600-604) */
-  double gas_for_starburst;        /**< burst gas after its floor (:680-683) */
-  double stars_pre_renorm;         /**< eburst * gas, after the floor (:685-688) */
-  double reheated_mass_pre_renorm; /**< FeedbackReheatingEpsilon * stars (:712) */
-  double renorm_fac;               /**< gas / (stars + reheated), where it applies (:722) */
-  double stars;                    /**< stars after the renormalisation (:721-725) */
-  double reheated_mass;            /**< reheated mass after the renormalisation */
-  double ejected_mass_pre_floor;   /**< the ejection formula before its floor (:738-743); not
-                                        formed where the host's Vvir is not positive */
-  double ejected_mass;             /**< the ejection after its floor (:746-748) */
-  double metallicity_sf;           /**< cold metallicity of the star formation (:759) */
-  double recycled_stars;           /**< (1 - RecycleFraction) * stars (:770) */
-  double metallicity_fb;           /**< cold metallicity of the feedback (:788) */
-  double frac_z_leave_disk_val;    /**< FracZleaveDisk * exp(-Mvir / 30), minor yield (:816) */
-  double yield_metals_to_hot;      /**< metals_leaving_disk or all_metals (:822, :828) */
-  int gas_floored;                 /**< 1 if the burst gas was negative (:683) */
-  int stars_floored;               /**< 1 if the stars were negative (:686) */
-  int renorm_active;               /**< 1 if stars + reheated > gas (:721) */
-  int ejection_vvir_nonpositive;   /**< 1 if the host's Vvir > 0.0 failed (:728) */
-  int ejected_floored;             /**< 1 if the ejection was negative (:746) */
-  int instability_recheck_ran;     /**< 1 if the post-minor-merger recheck ran (:807-808) */
-  int yield_minor_branch;          /**< 1 if the yield took the retained branch (:814) */
+  double eburst;            /**< bursting fraction (:600-604) */
+  double gas_for_starburst; /**< burst gas after its floor (:680-683) */
+  double stars_pre_renorm;  /**< eburst * gas, after the floor (:685-688) */
+  double
+      reheated_mass_pre_renorm;  /**< FeedbackReheatingEpsilon * stars (:712), or with
+                                      FIREmodeOn 1 the capped loading times the stars (:707-710) */
+  double renorm_fac;             /**< gas / (stars + reheated), where it applies (:722) */
+  double stars;                  /**< stars after the renormalisation (:721-725) */
+  double reheated_mass;          /**< reheated mass after the renormalisation */
+  double ejected_mass_pre_floor; /**< the ejection formula before its floor (:731-743); not
+                                      formed where the host's Vvir is not positive */
+  double ejected_mass;           /**< the ejection after its floor (:746-748) */
+  double metallicity_sf;         /**< cold metallicity of the star formation (:759) */
+  double recycled_stars;         /**< (1 - RecycleFraction) * stars (:770) */
+  double metallicity_fb;         /**< cold metallicity of the feedback (:788) */
+  double frac_z_leave_disk_val;  /**< FracZleaveDisk * exp(-Mvir / 30), minor yield (:816) */
+  double yield_metals_to_hot;    /**< metals_leaving_disk or all_metals (:822, :828) */
+  int gas_floored;               /**< 1 if the burst gas was negative (:683) */
+  int stars_floored;             /**< 1 if the stars were negative (:686) */
+  int renorm_active;             /**< 1 if stars + reheated > gas (:721) */
+  int ejection_vvir_nonpositive; /**< 1 if the host's Vvir > 0.0 failed (:728) */
+  int ejected_floored;           /**< 1 if the ejection was negative (:746) */
+  int instability_recheck_ran;   /**< 1 if the post-minor-merger recheck ran (:807-808) */
+  int yield_minor_branch;        /**< 1 if the yield took the retained branch (:814) */
   struct MimicSageHydrogenCapLocals sf_caps; /**< the burst's update_from_star_formation cap */
   struct MimicSageFeedbackLocals feedback;   /**< the burst's update_from_feedback locals */
   struct MimicSageBurstHydrogenRefreshLocals hydrogen_refresh; /**< the refresh (:798-803) */
@@ -170,6 +213,10 @@ struct MimicSageStarburstLocals {
                                                           R/src/model_disk_instability.c:102-104);
                                                           all -1/NaN where that growth did not
                                                           run, tracks_h2 0 for SFprescription 0 */
+  struct MimicSageBurstFireRecord fire;              /**< this burst's FIRE budget (:690-752) */
+  struct MimicSageBurstFireRecord recheck_fire;      /**< the FIRE budget of the recheck's own burst
+                                                          (R/src/model_disk_instability.c:106-108);
+                                                          not formed where that burst did not run */
 };
 
 /** @brief Mark every value of a burst locals record as not formed */
@@ -211,16 +258,20 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
   locals->recheck_bh_caps.max_h = NAN;
   locals->recheck_bh_caps.h2_cap_binds = -1;
   locals->recheck_bh_caps.h1_cap_binds = -1;
+  mimic_sage_burst_fire_record_reset(&locals->fire);
+  mimic_sage_burst_fire_record_reset(&locals->recheck_fire);
 }
 
 /**
- * @brief SAGE26's collisional_starburst_recipe on the R0 and R1 paths
+ * @brief SAGE26's collisional_starburst_recipe on the R0 to R3 paths
  *        (R/src/model_mergers.c:584-831)
  *
  * @param mass_ratio            The trigger: the merger mass ratio (mode 0) or the unstable gas
  *                              fraction (mode 1), SAGE26's mass_ratio
  * @param host_halo             Halo of the bursting galaxy (SAGE26's merger_centralgal); its
- *                              float Vvir sets the ejection, its Vmax the recheck
+ *                              float Vvir sets the ejection (and with FIREmodeOn 1 the scaling and
+ *                              the loading cap, with its stored SnapNum's redshift), its Vmax the
+ *                              recheck
  * @param central_halo          Halo of the FoF central (SAGE26's centralgal), which receives the
  *                              reheated and ejected gas and the escaping metals; its float Mvir
  *                              sets the fraction of metals leaving the disk; may be host_halo
@@ -239,10 +290,13 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
  *                              its wind
  * @param p                     Parameter bundle (struct MimicStarburstParams)
  * @param locals                Optional (NULL in production): receives this burst's locals,
- *                              with the hydrogen cap of the recheck's black-hole growth; the
- *                              recheck's own burst records none
+ *                              with the hydrogen cap of the recheck's black-hole growth and the
+ *                              FIRE record of the recheck's own burst
+ * @return 0; -1 when a FIREmodeOn 1 burst (this one or the recheck's) refuses its host's stored
+ *         SnapNum (D35), with an error logged; this burst then writes nothing (the recheck's
+ *         refusal comes after this burst's commits)
  */
-static inline void mimic_apply_collisional_starburst(
+static inline int mimic_apply_collisional_starburst(
     const double mass_ratio, struct Halo *host_halo, struct Halo *central_halo, const int mode,
     const int burst_to_merger_bulge, const double old_disk_radius, const double rate_dt,
     const int sfr_bin, const double sfr_dt, const struct ModuleContext *ctx,
@@ -252,7 +306,7 @@ static inline void mimic_apply_collisional_starburst(
    * parameters; no R0 call reaches this return */
   if (host_halo == NULL || host_halo->galaxy == NULL || central_halo == NULL ||
       central_halo->galaxy == NULL || ctx == NULL || p == NULL) {
-    return;
+    return 0;
   }
 
   struct GalaxyData *gal = host_halo->galaxy;
@@ -282,12 +336,47 @@ static inline void mimic_apply_collisional_starburst(
     stars = 0.0;
   }
 
-  // SN feedback of the burst: reheating (SupernovaRecipeOn 1, FIREmodeOn 0, :711-712)
-  double reheated_mass = p->feedback_reheating_epsilon * stars;
+  /* SAGE parity: the burst's FIRE scaling (FIREmodeOn 1, SupernovaRecipeOn 1) reads the burst
+   * HOST's (the target's, merger_centralgal's) own float Vvir and the redshift of ITS stored
+   * snapshot, ZZ[SnapNum], never the satellite's or the FoF central's, nor the current halo
+   * snapshot's (R/src/model_mergers.c:690-703); ZZ is read before the velocity test, as SAGE26
+   * orders it, and an out-of-range SnapNum is refused (D35). FIREmodeOn 0 leaves it 0, unread. */
+  const float host_vvir = (float)host_halo->Vvir;
+  struct MimicSageBurstFireRecord fire_record;
+  mimic_sage_burst_fire_record_reset(&fire_record);
+  fire_record.fire_mode = p->fire_mode_on;
+  double fire_scaling = 0.0;
+  if (p->fire_mode_on == MIMIC_SAGE_FIRE_MODE_ON) {
+    double z_fire = 0.0;
+    if (mimic_sage_fire_stored_redshift(p->redshift_config, host_halo->SnapNum, &z_fire) != 0) {
+      ERROR_LOG("collisional starburst: no FIRE scaling for the burst host, HaloNr %lld",
+                (long long)host_halo->HaloNr);
+      return -1;
+    }
+    fire_record.snapnum = host_halo->SnapNum;
+    fire_record.vvir = host_vvir;
+    fire_scaling = mimic_sage_fire_scaling(host_vvir, z_fire, &fire_record.l);
+  }
+
+  /* SN feedback of the burst (SupernovaRecipeOn 1): with FIREmodeOn 1 the capped FIRE loading,
+   * from the unfloored float Vvir widened, times the stars (:706-710); SAGE parity: unlike the
+   * disk path, the burst does NOT record the loading in MassLoading (:707-710). FIREmodeOn 0:
+   * FeedbackReheatingEpsilon * stars (:711-712). */
+  double reheated_mass;
+  if (p->fire_mode_on == MIMIC_SAGE_FIRE_MODE_ON) {
+    reheated_mass =
+        mimic_sage_capped_eta_reheat(p->feedback_reheating_epsilon * fire_scaling, host_vvir,
+                                     p->eta_sn_code, p->energy_sn_code, &fire_record.l) *
+        stars;
+  } else {
+    reheated_mass = p->feedback_reheating_epsilon * stars;
+  }
   const double stars_pre_renorm = stars;
   const double reheated_mass_pre_renorm = reheated_mass;
 
-  // Cannot use more gas than is available for the burst (:720-725)
+  /* Cannot use more gas than is available for the burst (:720-725); SAGE parity: the burst's
+   * guard has no positive-sum clause, unlike the disk path's
+   * (R/src/model_starformation_and_feedback.c:775) */
   double renorm_fac = NAN;
   const int renorm_active = (stars + reheated_mass) > gas_for_starburst;
   if (renorm_active) {
@@ -296,17 +385,28 @@ static inline void mimic_apply_collisional_starburst(
     reheated_mass *= renorm_fac;
   }
 
-  /* SAGE parity: the ejection uses the burst HOST's own Vvir, squared in float as SAGE26's
-   * float member makes it, not the FoF central's (R/src/model_mergers.c:727-743); the gas
-   * it ejects still leaves the central's hot gas (update_from_feedback below) */
-  const float host_vvir = (float)host_halo->Vvir;
+  /* SAGE parity: the ejection uses the burst HOST's own Vvir, not the FoF central's
+   * (R/src/model_mergers.c:727-743); the gas it ejects still leaves the central's hot gas
+   * (update_from_feedback below). A non-positive Vvir ejects nothing in either mode (:728). */
   double ejected_mass;
   const int ejection_vvir_nonpositive = !(host_vvir > 0.0);
   if (!ejection_vvir_nonpositive) {
-    ejected_mass = (p->feedback_ejection_efficiency * (p->eta_sn_code * p->energy_sn_code) /
-                        (host_vvir * host_vvir) -
-                    p->feedback_reheating_epsilon) *
-                   stars;
+    if (p->fire_mode_on == MIMIC_SAGE_FIRE_MODE_ON) {
+      /* FIREmodeOn 1: the energy-based ejection from the renormalised stars and reheated mass,
+       * the float Vvir widened to double and squared in double (:729-734) */
+      const double coupling = mimic_sage_sn_energy_coupling(
+          fire_scaling, p->feedback_ejection_efficiency, &fire_record.l);
+      ejected_mass =
+          mimic_sage_fire_energy_ejection(coupling, stars, reheated_mass, host_vvir, p->eta_sn_code,
+                                          p->energy_sn_code, &fire_record.l);
+    } else {
+      /* SAGE parity: with FIREmodeOn 0 only, the float Vvir is squared in float, as SAGE26's
+       * float member makes it (:738-743) */
+      ejected_mass = (p->feedback_ejection_efficiency * (p->eta_sn_code * p->energy_sn_code) /
+                          (host_vvir * host_vvir) -
+                      p->feedback_reheating_epsilon) *
+                     stars;
+    }
   } else {
     ejected_mass = 0.0;
   }
@@ -391,13 +491,17 @@ static inline void mimic_apply_collisional_starburst(
    * instability channel (R/src/model_disk_instability.c:90-108), that burst refreshing the
    * hydrogen in turn. The recheck saves and passes its own disk radius to its stellar
    * transfer's radius update (:68-83), and its burst passes the host's current DiskScaleRadius
-   * (:106-107). */
+   * (:106-107). The recheck's burst takes the same bundle, so with FIREmodeOn 1 its FIRE budget
+   * reads the same host's float Vvir and stored SnapNum (R/src/model_disk_instability.c:106). */
   const int instability_recheck_ran =
       p->disk_instability_on && mode == 0 && mass_ratio < p->threshold_major_merger;
   /* The recheck growth's hydrogen-cap locals, for tests only (no effect on the state): the cap
    * is end-state invariant (the recheck's burst re-caps and refreshes the hydrogen after it), so
    * its locals are the only evidence that the growth received SFprescription */
   struct MimicSageHydrogenCapLocals recheck_bh_caps = {-1, NAN, -1, -1};
+  /* The recheck burst's FIRE record, for tests only (no effect on the state) */
+  struct MimicSageBurstFireRecord recheck_fire;
+  mimic_sage_burst_fire_record_reset(&recheck_fire);
   if (instability_recheck_ran) {
     struct MimicSageInstabilityLocals recheck;
     (void)mimic_sage_check_disk_instability_with_sizes(host_halo, ctx, p->star_forming_disk_factor,
@@ -413,9 +517,16 @@ static inline void mimic_apply_collisional_starburst(
           recheck_bh_caps = recheck_bh.hydrogen_caps;
         }
       }
-      mimic_apply_collisional_starburst(recheck.unstable_gas_fraction, host_halo, central_halo, 1,
-                                        0, (double)gal->DiskScaleRadius, rate_dt, sfr_bin, sfr_dt,
-                                        ctx, p, NULL);
+      struct MimicSageStarburstLocals recheck_burst;
+      if (mimic_apply_collisional_starburst(recheck.unstable_gas_fraction, host_halo, central_halo,
+                                            1, 0, (double)gal->DiskScaleRadius, rate_dt, sfr_bin,
+                                            sfr_dt, ctx, p,
+                                            locals != NULL ? &recheck_burst : NULL) != 0) {
+        return -1;
+      }
+      if (locals != NULL) {
+        recheck_fire = recheck_burst.fire;
+      }
     }
   }
 
@@ -465,7 +576,10 @@ static inline void mimic_apply_collisional_starburst(
     locals->yield_minor_branch = yield_minor_branch;
     locals->hydrogen_refresh = hydrogen_refresh;
     locals->recheck_bh_caps = recheck_bh_caps;
+    locals->fire = fire_record;
+    locals->recheck_fire = recheck_fire;
   }
+  return 0;
 }
 
 #endif /* MIMIC_SHARED_SAGE_STARBURST_PHYSICS_H */

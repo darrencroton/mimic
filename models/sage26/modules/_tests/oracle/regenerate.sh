@@ -83,13 +83,14 @@ sage26_finalize_cooling_heating"
 ORACLE_C05=$ORACLE_OUT/oracle_c05
 C05_ROUTINES="starformation_and_feedback starformation_and_feedback_fire
 starformation_and_feedback_sequence update_from_star_formation update_from_feedback check_disk_instability step_bin_map
-sfr_history_average normalise_outflow_rate"
+sfr_history_average normalise_outflow_rate check_disk_instability_fire"
 # The c06 group (merger clocks, mergers, black holes, bursts, disruption and the
 # driver transcriptions) has its own oracle main and is selected by routine.
 ORACLE_C06=$ORACLE_OUT/oracle_c06
 C06_ROUTINES="estimate_merging_time grow_black_hole quasar_mode_wind
 collisional_starburst_recipe add_galaxies_together make_bulge_from_burst
-deal_with_galaxy_merger disrupt_satellite_to_ICS merger_pass join_progenitors join_and_pass"
+deal_with_galaxy_merger disrupt_satellite_to_ICS merger_pass join_progenitors join_and_pass
+collisional_starburst_recipe_fire deal_with_galaxy_merger_fire merger_pass_fire"
 # The c07 group (the bulge-size routines and the central's synchronisation
 # transcription) has its own oracle main and is selected by routine.
 ORACLE_C07=$ORACLE_OUT/oracle_c07
@@ -106,7 +107,7 @@ C08_ROUTINES="calculate_molecular_fraction_BR06 calculate_molecular_fraction_rad
 # malformed cooling table, exits with status 0 and writes nothing, and would
 # otherwise leave the old output in place while this script reports it written.
 TMP_OUT=$(mktemp -d "$ORACLE_OUT/regenerate.XXXXXX")
-trap 'rm -rf "$TMP_OUT"' EXIT
+trap 'rm -rf "${TMP_OUT:?}"' EXIT
 
 # A complete output: the oracle's header, format and routine lines, at least
 # one field, every later line a typed field, and a final newline.
@@ -149,7 +150,7 @@ for input in $listed; do
     fi
   done
   tmp=$TMP_OUT/output
-  rm -f "$tmp"
+  rm -f "${tmp:?}"
   "$oracle" "$MODULES_DIR/$input" "$tmp" ||
     fail "oracle failed on $input"
   complete_output "$tmp" ||

@@ -16,6 +16,13 @@
  * - oracle_c09_check_fire_record(): the c09 branch flags and values, each value's markers checked
  *   (c06's, with its check kind, and c07's narrowing limitation) and compared bit for bit
  *   whatever its validation status; a binding cap's value is asserted equal to its bound.
+ * - c09's second slice (the burst, routines collisional_starburst_recipe_fire,
+ *   deal_with_galaxy_merger_fire, merger_pass_fire, check_disk_instability_fire and the
+ *   gas-unstable starformation_and_feedback_fire): oracle_c09_check_burst_wiring(), the per-path
+ *   wiring assertion that a burst took the FIRE branch with its host's own stored SnapNum, float
+ *   Vvir and the fixture's redshift of that snapshot; oracle_c09_read_mass_loading() and
+ *   oracle_c09_check_mass_loading(), the invariant MassLoading of a burst's galaxies; and
+ *   oracle_c09_observed(), an observation of the oracle's (intermediate.*_sensitive).
  *
  * Test-only: included by module oracle tests, never by package code.
  */
@@ -29,7 +36,12 @@
 
 #include "include/globals.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_hydrogen.h"
 #include "shared/sage_fire_feedback_physics.h"
+#include "shared/sage_merger_physics.h"
+#include "shared/sage_starburst_physics.h"
+#include "shared/sage_sfr_history.h"
+#include "shared/time_parity.h"
 
 /** @brief The routine of the c09 fixtures */
 #define ORACLE_C09_ROUTINE "starformation_and_feedback_fire"
@@ -275,6 +287,264 @@ static inline int oracle_c09_check_fire_record(struct oracle_fixture *out, const
     tally->fire_off++;
   }
   return problems;
+}
+
+// ============================================================================
+// c09's second slice: the burst's FIRE budget (R/src/model_mergers.c:690-752)
+// ============================================================================
+
+/** @brief The routines of c09's second slice */
+#define ORACLE_C09_BURST_ROUTINE "collisional_starburst_recipe_fire"
+#define ORACLE_C09_MERGER_ROUTINE "deal_with_galaxy_merger_fire"
+#define ORACLE_C09_PASS_ROUTINE "merger_pass_fire"
+#define ORACLE_C09_INSTABILITY_ROUTINE "check_disk_instability_fire"
+
+/**
+ * @brief The per-path FIRE wiring assertion: the burst a path ran took the branch of the fixture's
+ *        FIREmodeOn and, with FIREmodeOn 1, read its host's own stored SnapNum, its float Vvir and
+ *        the redshift of that snapshot
+ *
+ * Each expectation is the fixture's input, independent of the port: host_snapnum and host_vvir
+ * are the host's galaxy[<i>].SnapNum and Vvir, and the redshift is MimicConfig.ZZ[host_snapnum],
+ * the fixture's params.ZZ entry (oracle_c09_read_fire_config). A full end-state comparison may not
+ * show which galaxy's values a burst received; this record does (plan lesson 31).
+ *
+ * @param site  The path, for the message ("merger burst", "recheck burst", ...)
+ * @return Number of mismatches
+ */
+static inline int oracle_c09_check_burst_wiring(const char *path, const char *site,
+                                                const struct MimicSageBurstFireRecord *r,
+                                                const int fire_mode_on, const int host_snapnum,
+                                                const float host_vvir) {
+  int problems = 0;
+  if (r->fire_mode != fire_mode_on) {
+    fprintf(stderr, "oracle: %s: the %s took FIREmodeOn %d, the fixture's is %d\n", path, site,
+            r->fire_mode, fire_mode_on);
+    return 1;
+  }
+  if (fire_mode_on != MIMIC_SAGE_FIRE_MODE_ON) {
+    return 0;
+  }
+  if (r->snapnum != host_snapnum) {
+    fprintf(stderr, "oracle: %s: the %s read SnapNum %d, its host's is %d\n", path, site,
+            r->snapnum, host_snapnum);
+    problems++;
+  }
+  if (oracle_f64_to_bits(r->vvir) != oracle_f64_to_bits((double)host_vvir)) {
+    fprintf(stderr, "oracle: %s: the %s read Vvir %.9g, its host's float is %.9g\n", path, site,
+            r->vvir, (double)host_vvir);
+    problems++;
+  }
+  if (host_snapnum < 0 || host_snapnum >= ORACLE_C09_SNAPLISTLEN ||
+      oracle_f64_to_bits(r->l.redshift) != oracle_f64_to_bits(MimicConfig.ZZ[host_snapnum])) {
+    fprintf(stderr, "oracle: %s: the %s read redshift %.17g, not its host's ZZ[%d]\n", path, site,
+            r->l.redshift, host_snapnum);
+    problems++;
+  }
+  return problems;
+}
+
+/**
+ * @brief The merger family's flags of a c09 burst fixture: oracle_c08_require_merger_flags with
+ *        FIREmodeOn left to oracle_c09_read_fire_config (0 or 1, R3.par:55)
+ * @return Number of problems
+ */
+static inline int oracle_c09_require_merger_flags(struct oracle_fixture *in,
+                                                  struct MimicSageBulgeSize *sizes,
+                                                  int *sf_prescription) {
+  struct oracle_c08_sf_config cfg;
+  int problems = oracle_c08_read_sf_config(in, 0, &cfg);
+  *sf_prescription = cfg.sf_prescription;
+  problems += oracle_c05_require_flag(in, "params.SupernovaRecipeOn", 1);
+  problems += oracle_c05_require_flag(in, "params.CGMrecipeOn", 0);
+  problems += oracle_c07_read_sizes(in, sizes);
+  problems += oracle_c05_require_flag(in, "params.SaveFullSFH", 0);
+  problems += oracle_c05_require_flag(in, "params.AGNrecipeOn", 2);
+  problems += oracle_c05_require_flag(in, "params.StarburstColdGasOn", 1);
+  problems += oracle_c05_require_flag(in, "params.DiskInstabilityOn", 1);
+  return problems;
+}
+
+/** @brief Each galaxy's input MassLoading (the invariant field of a burst fixture) */
+static inline void oracle_c09_read_mass_loading(struct oracle_fixture *in, const int ngal,
+                                                struct GalaxyData *galaxies) {
+  for (int i = 0; i < ngal; i++) {
+    galaxies[i].MassLoading = oracle_in_f32(in, oracle_galaxy_field(i, "MassLoading"));
+  }
+}
+
+/**
+ * @brief A recorded galaxy's MassLoading against the oracle's and its own input: a burst never
+ *        writes it (R/src/model_mergers.c:707-710)
+ * @return Number of mismatches
+ */
+static inline int oracle_c09_check_mass_loading(struct oracle_fixture *out, const char *prefix,
+                                                const int index, const float input,
+                                                const float actual) {
+  int problems =
+      oracle_check_f32(out, oracle_prefixed_galaxy_field(prefix, index, "MassLoading"), actual);
+  if (oracle_f32_to_bits(actual) != oracle_f32_to_bits(input)) {
+    fprintf(stderr, "oracle: %s: galaxy[%d].MassLoading changed from its input\n", out->path,
+            index);
+    problems++;
+  }
+  return problems;
+}
+
+/** @brief An oracle observation (an i32 -1, 0 or 1), consumed */
+static inline int oracle_c09_observed(struct oracle_fixture *out, const char *name) {
+  char field[ORACLE_MAX_NAME];
+  snprintf(field, sizeof(field), "intermediate.%s", name);
+  return oracle_in_i32(out, field);
+}
+
+/**
+ * @brief The recheck's or instability's own burst against the outer burst of the same host: the
+ *        path-invariant FIRE values (the scaling, the raw and capped loading and the coupling
+ *        depend only on the host's Vvir and redshift and the parameters)
+ * @return Number of mismatches
+ */
+static inline int oracle_c09_check_same_host_budget(const char *path, const char *site,
+                                                    const struct MimicSageFireLocals *nested,
+                                                    const struct MimicSageFireLocals *outer) {
+  const double pairs[][2] = {{nested->scaling, outer->scaling},
+                             {nested->eta_raw, outer->eta_raw},
+                             {nested->eta, outer->eta},
+                             {nested->coupling, outer->coupling}};
+  int problems = 0;
+  for (size_t k = 0; k < sizeof(pairs) / sizeof(pairs[0]); k++) {
+    if (oracle_f64_to_bits(pairs[k][0]) != oracle_f64_to_bits(pairs[k][1])) {
+      fprintf(stderr, "oracle: %s: the %s's FIRE value %zu differs from its host's\n", path, site,
+              k);
+      problems++;
+    }
+  }
+  return problems;
+}
+
+/** @brief The most galaxies a replay copies */
+#define ORACLE_C09_REPLAY_GALAXIES 4
+
+/**
+ * @brief A replay of sage26_starburst_feedback's call of the shared transaction, on copies of the
+ *        galaxies and halos, with the transaction's locals (the c08 pattern: the replay must end
+ *        in the state process() produced, so its locals are process()'s)
+ */
+struct oracle_c09_burst_replay {
+  struct GalaxyData galaxies[ORACLE_C09_REPLAY_GALAXIES];
+  struct Halo halos[ORACLE_C09_REPLAY_GALAXIES];
+  struct MimicSageStarburstLocals locals;
+  int ngal;
+  int status; /* the transaction's return value */
+};
+
+/**
+ * @brief The parameter bundle sage26_starburst_feedback's process() builds, from a fixture's
+ *        parameters (SAGE26's names) and the test's configuration
+ *
+ * recheck_on stands for the module's configured post-minor-merger recheck and its black-hole
+ * growth (sage26_disk_instability and the quasar event consumer in the run); a mode-1 burst
+ * never reads them.
+ */
+static inline void oracle_c09_burst_bundle(struct oracle_fixture *in,
+                                           const struct MimicSageBulgeSize *sizes,
+                                           const int sf_prescription, const int fire_mode_on,
+                                           const int recheck_on, struct MimicStarburstParams *p) {
+  memset(p, 0, sizeof(*p));
+  p->feedback_reheating_epsilon = oracle_in_f64(in, "params.FeedbackReheatingEpsilon");
+  p->feedback_ejection_efficiency = oracle_in_f64(in, "params.FeedbackEjectionEfficiency");
+  p->recycle_fraction = oracle_in_f64(in, "params.RecycleFraction");
+  p->yield = oracle_in_f64(in, "params.Yield");
+  p->frac_z_leave_disk = oracle_in_f64(in, "params.FracZleaveDisk");
+  p->threshold_major_merger = oracle_in_f64(in, "params.ThreshMajorMerger");
+  p->energy_sn_code = oracle_in_f64(in, "params.EnergySNcode");
+  p->eta_sn_code = oracle_in_f64(in, "params.EtaSNcode");
+  p->disk_instability_on = recheck_on;
+  p->star_forming_disk_factor =
+      3.0; /* SAGE26's TOOMRE_DISK_FACTOR, R/src/model_disk_instability.c:35 */
+  p->agn_recipe_on = recheck_on;
+  p->black_hole_growth_rate = recheck_on ? oracle_in_f64(in, "params.BlackHoleGrowthRate") : 0.0;
+  p->quasar_mode_efficiency = recheck_on ? oracle_in_f64(in, "params.QuasarModeEfficiency") : 0.0;
+  p->bulge_size = *sizes;
+  p->sf_prescription = sf_prescription;
+  p->fire_mode_on = fire_mode_on;
+  p->redshift_config = &MimicConfig;
+}
+
+/** @brief Copy the galaxies and halos, each copied halo pointing at its copied galaxy */
+static inline void oracle_c09_replay_copy(struct oracle_c09_burst_replay *r,
+                                          const struct GalaxyData *galaxies,
+                                          const struct Halo *halos, const int ngal) {
+  r->ngal = ngal;
+  memcpy(r->galaxies, galaxies, sizeof(struct GalaxyData) * (size_t)ngal);
+  memcpy(r->halos, halos, sizeof(struct Halo) * (size_t)ngal);
+  for (int i = 0; i < ngal; i++) {
+    r->halos[i].galaxy = &r->galaxies[i];
+  }
+  mimic_sage_starburst_locals_reset(&r->locals);
+  r->status = -1;
+}
+
+/**
+ * @brief Replay the instability channel's burst (process_by_galaxy, mode 1, the instability
+ *        channel, the galaxy's current DiskScaleRadius as old_disk_radius) as the module calls it,
+ *        its FoF central the galaxy itself for a Type 0 and centralgal otherwise
+ */
+static inline void oracle_c09_replay_instability_burst(struct oracle_c09_burst_replay *r,
+                                                       const struct GalaxyData *galaxies,
+                                                       const struct Halo *halos, const int ngal,
+                                                       const int host, const int centralgal,
+                                                       const struct ModuleContext *ctx,
+                                                       const struct MimicStarburstParams *p) {
+  oracle_c09_replay_copy(r, galaxies, halos, ngal);
+  const int central = r->halos[host].Type == 0 ? host : centralgal;
+  double sub_dt = 0.0;
+  (void)mimic_object_substep_dt(&r->halos[host], ctx, &sub_dt);
+  const int bin = mimic_sage_sfr_step_bin(ctx->substep_number, ctx->num_substeps);
+  const struct GalaxyData *g = &r->galaxies[host];
+  r->status = mimic_apply_collisional_starburst(
+      g->UnstableDiskGasFraction, &r->halos[host], &r->halos[central], 1, 0,
+      (double)g->DiskScaleRadius, r->halos[host].dT, bin, sub_dt, ctx, p, &r->locals);
+}
+
+/**
+ * @brief Replay the merger channel's burst (process_per_event, mode 0) as the module calls it: the
+ *        event's ratio and substep interval, the channel from the target's pre-merger morphology,
+ *        the target's DiskScaleRadius as old_disk_radius
+ */
+static inline void oracle_c09_replay_merger_burst(struct oracle_c09_burst_replay *r,
+                                                  const struct GalaxyData *galaxies,
+                                                  const struct Halo *halos, const int ngal,
+                                                  const int target, const int centralgal,
+                                                  const struct ModuleContext *ctx,
+                                                  const struct MimicStarburstParams *p) {
+  oracle_c09_replay_copy(r, galaxies, halos, ngal);
+  const struct ModuleEvent *event = ctx->active_event;
+  const int bin = mimic_sage_sfr_step_bin(ctx->substep_number, ctx->num_substeps);
+  const struct GalaxyData *g = &r->galaxies[target];
+  const int channel = mimic_sage_merger_burst_channel(event->value0, p->threshold_major_merger,
+                                                      g->MergerDiskDominated);
+  r->status = mimic_apply_collisional_starburst(
+      event->value0, &r->halos[target], &r->halos[centralgal], 0, channel,
+      (double)g->DiskScaleRadius, r->halos[target].dT, bin, event->value1, ctx, p, &r->locals);
+}
+
+/**
+ * @brief Require the replay to have ended in process()'s state, every member of every galaxy
+ * @return Number of mismatches
+ */
+static inline int oracle_c09_replay_matches(const char *path, const char *site,
+                                            const struct oracle_c09_burst_replay *r,
+                                            const struct GalaxyData *galaxies) {
+  if (r->status != 0) {
+    fprintf(stderr, "oracle: %s: the %s replay refused its host\n", path, site);
+    return 1;
+  }
+  if (memcmp(r->galaxies, galaxies, sizeof(struct GalaxyData) * (size_t)r->ngal) != 0) {
+    fprintf(stderr, "oracle: %s: the %s replay differs from process()\n", path, site);
+    return 1;
+  }
+  return 0;
 }
 
 #endif /* SAGE26_ORACLE_FIRE_H */

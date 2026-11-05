@@ -41,7 +41,7 @@ The scaling and the ejection use the forming galaxy's own `Vvir` and stored `Sna
 
 - `FeedbackReheatingEpsilon`
 - `FeedbackEjectionEfficiency`
-- `FIREmodeOn` (required, 0 or 1, no default): a missing key fails initialisation and any other value is refused, naming the parameter
+- `FIREmodeOn` (required, 0 or 1, no default; campaign decision D33): 1, the run files' value (SAGE26's R3, `R3.par:55`), selects the FIRE budgets, 0 (R0-R2) the fixed-epsilon ones. A missing key fails initialisation and any other value is refused, naming the parameter. `sage26_starburst_feedback` reads the same parameter for every burst's budget (`src/model_mergers.c:690-752`).
 
 ## Notes
 

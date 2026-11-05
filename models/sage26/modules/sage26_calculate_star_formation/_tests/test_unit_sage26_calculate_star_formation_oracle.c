@@ -128,7 +128,15 @@
  * on the state it received, which must end in the budgets and MassLoading process() produced; the
  * c09 branch flags and values the oracle records are asserted against that replay bit for bit
  * (sage26_oracle_fire.h). Every earlier fixture is read as before, with the feedback module's
- * required FIREmodeOn set to the fixture's 0.
+ * required FIREmodeOn set to the fixture's 0. c09's second slice admits a FIREmodeOn 1 fixture
+ * whose disk is gas-unstable after the feedback (sf_fire_*_unstable*): the continuation runs as
+ * at SFprescription 1, with the burst module reading the fixture's FIREmodeOn and the redshift
+ * table; the test also asserts the disk MassLoading the feedback module wrote, unchanged through
+ * the black-hole growth (intermediate.after_bh.*) and the burst (R/src/model_mergers.c:707-710),
+ * and the instability burst's FIRE wiring through a replay of the burst module's call on copies,
+ * required to end in process()'s state: the forming galaxy's own stored SnapNum, float Vvir and
+ * that snapshot's redshift, never its FoF central's. The oracle's observations of SAGE26's burst
+ * (intermediate.nested_burst_fire_*_sensitive) are read and counted.
  *
  * Test cases:
  *   - test_oracle_fixture_count: every fixture the manifest lists is present
@@ -212,6 +220,12 @@ static struct oracle_c08_local_tally h2_tally;
 static struct oracle_c09_tally fire_tally;
 /* c08: SFprescription 1 gas-unstable continuations run through the quasar and burst modules */
 static int continuations_br06 = 0;
+/* c09's second slice: gas-unstable FIRE fixtures, their instability-burst FIRE wiring asserted,
+ * SAGE26's burst observed FIRE- and redshift-sensitive, and the disk MassLoading kept */
+static int fire_continuations = 0;
+static int fire_wiring_asserted = 0;
+static int fire_nested_observed = 0;
+static int fire_mass_loading_kept = 0;
 
 /** @brief Names of the branch flags every single-call output records */
 static const char *const FLAGS[] = {"sf_vvir_nonpositive",
@@ -276,6 +290,8 @@ struct substep_record {
   /* SFprescription 1 gas-unstable continuation (c08): galaxy p after sage26_quasar_mode */
   int after_bh_present;
   struct GalaxyData after_bh;
+  /* c09: the MassLoading the feedback module wrote, before the continuation */
+  float mass_loading_sn;
   int rs_nonpositive;
   int radial_returned_early;
   int h2_cap_binds;
@@ -627,6 +643,7 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
   }
   r->reheated_mass = gal->SupernovaReheatedMass;
   r->ejected_mass = gal->SupernovaEjectedMass;
+  r->mass_loading_sn = gal->MassLoading;
 
   /* Replay the apply step through the shared commits on a copy, for its locals */
   struct GalaxyData replay[MAX_GALAXIES];
@@ -694,8 +711,28 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
         }
         r->after_bh = *gal;
         r->after_bh_present = 1;
+        /* c09: the burst module's call replayed on copies, for its FIRE record */
+        static struct oracle_c09_burst_replay burst_replay;
+        if (c->fire) {
+          const struct MimicSageBulgeSize burst_sizes = {c->bulge_size_on, MimicConfig.Hubble_h};
+          struct MimicStarburstParams bundle;
+          oracle_c09_burst_bundle(in, &burst_sizes, c->sf.sf_prescription, c->fire_mode_on, 0,
+                                  &bundle);
+          oracle_c09_replay_instability_burst(&burst_replay, c->galaxies, c->halos, c->ngal, c->p,
+                                              c->centralgal, &c->ctx, &bundle);
+        }
         if (sage26_starburst_feedback_process(&c->ctx, halo, 1) != 0) {
           problems++;
+        }
+        if (c->fire) {
+          /* The instability burst's wiring: the forming galaxy's own stored SnapNum, float Vvir
+           * and redshift (the fixture's), never its FoF central's */
+          problems +=
+              oracle_c09_replay_matches(in->path, "instability burst", &burst_replay, c->galaxies);
+          problems += oracle_c09_check_burst_wiring(in->path, "instability burst",
+                                                    &burst_replay.locals.fire, c->fire_mode_on,
+                                                    c->snapnum[c->p], (float)halo->Vvir);
+          fire_wiring_asserted++;
         }
         continuations_br06++;
       }
@@ -856,6 +893,11 @@ static int check_after_bh(struct oracle_fixture *out, const struct chain *c,
   problems += oracle_check_f32(
       out, oracle_prefixed_galaxy_field("intermediate.after_bh.", c->p, "H2DepletionTime_Gyr"),
       g.H2DepletionTime_Gyr);
+  /* c09: the MassLoading the disk path wrote, which the growth leaves */
+  if (c->fire) {
+    problems += oracle_c09_check_mass_loading(out, "intermediate.after_bh.", c->p,
+                                              r->mass_loading_sn, g.MassLoading);
+  }
   return problems;
 }
 
@@ -883,6 +925,20 @@ static int check_single(struct oracle_fixture *in, struct oracle_fixture *out, s
   if (c->fire) {
     problems += oracle_c09_check_fire_record(out, c->fire_mode_on, &r.fire.l,
                                              r.stars_pre_renorm == 0.0, &fire_tally);
+    /* c09's second slice: the gas-unstable continuation's burst leaves the MassLoading the disk
+     * path wrote (R/src/model_mergers.c:707-710); SAGE26's burst observed */
+    if (r.after_bh_present) {
+      const float end = c->galaxies[c->p].MassLoading;
+      if (oracle_f32_to_bits(end) != oracle_f32_to_bits(r.mass_loading_sn)) {
+        fprintf(stderr, "oracle: %s: the continuation's burst changed MassLoading\n", in->path);
+        problems++;
+      }
+      fire_mass_loading_kept++;
+      fire_continuations++;
+      const int mode_sensitive = oracle_c09_observed(out, "nested_burst_fire_mode_sensitive");
+      const int z_sensitive = oracle_c09_observed(out, "nested_burst_fire_redshift_sensitive");
+      fire_nested_observed += mode_sensitive == 1 && z_sensitive == 1;
+    }
   }
 
   /* The bin the apply step sampled (R/src/core_build_model.c:514-515) */
@@ -1131,6 +1187,10 @@ int test_oracle_bit_identity(void) {
   memset(&h2_tally, 0, sizeof(h2_tally));
   memset(&fire_tally, 0, sizeof(fire_tally));
   continuations_br06 = 0;
+  fire_continuations = 0;
+  fire_wiring_asserted = 0;
+  fire_nested_observed = 0;
+  fire_mass_loading_kept = 0;
   const int ok = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), not validated %d, "
          "not package values %d, absent %d; binding clamps and caps asserted equal to their "
@@ -1152,7 +1212,15 @@ int test_oracle_bit_identity(void) {
          fire_tally.continuation, fire_tally.tail, fire_tally.validated,
          fire_tally.narrowing_limited, fire_tally.not_validated, fire_tally.absent,
          fire_tally.binding);
+  printf("\n  oracle: c09 gas-unstable continuations %d: instability-burst FIRE wiring asserted %d "
+         "(SAGE26's burst observed FIRE- and redshift-sensitive on %d), the disk MassLoading kept "
+         "through the burst %d ",
+         fire_continuations, fire_wiring_asserted, fire_nested_observed, fire_mass_loading_kept);
   TEST_ASSERT(ok, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(fire_continuations >= 1 && fire_wiring_asserted == fire_continuations &&
+                  fire_nested_observed >= 1 && fire_mass_loading_kept == fire_continuations,
+              "every c09 gas-unstable continuation must have its burst's FIRE wiring asserted and "
+              "keep the disk MassLoading, and SAGE26's burst must be observed FIRE-sensitive");
   TEST_ASSERT(continuations_br06 >= 1,
               "an SFprescription 1 gas-unstable continuation must be asserted");
   TEST_ASSERT(fire_tally.fire_on >= 1 && fire_tally.fire_off >= 1,

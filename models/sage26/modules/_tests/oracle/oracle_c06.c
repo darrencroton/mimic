@@ -35,6 +35,12 @@
  *   join_and_pass                 join_progenitors followed by merger_pass for one substep: the
  *                                 orphan history retention (B:252-282, B:322-337) carried into a
  *                                 merger in the same snapshot
+ *   collisional_starburst_recipe_fire, deal_with_galaxy_merger_fire, merger_pass_fire
+ *                                 (c09, R3) the same three calls with FIREmodeOn 0 or 1: each
+ *                                 galaxy's stored-snapshot redshift read explicitly, MassLoading
+ *                                 read and recorded as an invariant field, and the burst's FIRE
+ *                                 budget (M:690-752) transcribed and recorded (README "The c09
+ *                                 Group")
  *
  * Routine-internal intermediates. Every value of a SAGE26 routine that the package carries and
  * SAGE26 does not return is obtained from a TRANSCRIPTION of that routine below (each statement
@@ -57,6 +63,18 @@
  * post-minor-merger recheck runs inside SAGE26's own check_disk_instability; the burst record
  * holds an OBSERVATION of it (SAGE26's own grow_black_hole on a copy of the recheck's state,
  * checked against SAGE26's recheck), struct recheck_bh_observation.
+ *
+ * FIREmodeOn 1 (c09, R3). The routines named *_fire read FIREmodeOn 0 or 1 (every other routine
+ * still requires 0), each galaxy's stored SnapNum and, for each distinct one, params.ZZ[<s>],
+ * and the float MassLoading of every galaxy, which no c06 routine writes. The burst's
+ * transcription runs SAGE26's FIRE budget (M:690-752): the scaling from the TARGET's
+ * (merger_centralgal's) float Vvir and ZZ[SnapNum], capped_eta_reheat's loading times the stars
+ * with no MassLoading write, the burst's renormalisation, sn_energy_coupling and the energy-based
+ * ejection; its values and flags are recorded after every earlier field. The post-minor-merger
+ * recheck's own burst runs inside SAGE26's check_disk_instability; the record holds two
+ * OBSERVATIONS of it (struct recheck_fire_observation): whether SAGE26's recheck changes the state
+ * when its burst runs with FIREmodeOn 0, and when the target's stored-snapshot redshift is
+ * replaced.
  *
  * Driver transcriptions. evolve_galaxies and join_galaxies_of_progenitors are static in
  * core_build_model.c, which this link excludes, so no SAGE26 code can anchor merger_pass,
@@ -107,12 +125,18 @@
 #define ORACLE_HALONR 0
 
 /* SAGE26 file-static constants, restated (values and lines of the staged source) */
-static const double DISK_HALF_MASS_FRAC = 1.68;  /* M:37 */
-static const double COVINGTON11_C_RAD = 2.75;    /* M:41 */
-static const double BH_GROWTH_V_KMS = 280.0;     /* M:45 */
-static const double STARBURST_FRAC_COEFF = 0.56; /* M:50 */
-static const double STARBURST_MASS_POWER = 0.7;  /* M:51 */
-static const double KD11_METAL_HALO_MASS = 30.0; /* M:65 */
+static const double DISK_HALF_MASS_FRAC = 1.68;    /* M:37 */
+static const double COVINGTON11_C_RAD = 2.75;      /* M:41 */
+static const double BH_GROWTH_V_KMS = 280.0;       /* M:45 */
+static const double STARBURST_FRAC_COEFF = 0.56;   /* M:50 */
+static const double STARBURST_MASS_POWER = 0.7;    /* M:51 */
+static const double KD11_METAL_HALO_MASS = 30.0;   /* M:65 */
+static const double FIRE_V_CRIT_KMS = 60.0;        /* M:56 (c09) */
+static const double FIRE_REDSHIFT_EXPONENT = 1.25; /* M:60 (c09) */
+
+/* c09: set by the *_fire routines: FIREmodeOn may be 1, each galaxy's stored-snapshot redshift is
+ * read, and MassLoading (BLOCK_FIRE) is read and recorded */
+static int fire_routine = 0;
 
 enum field_type { FIELD_F32, FIELD_F64, FIELD_I32 };
 
@@ -445,6 +469,11 @@ static const struct member HISTORY_MEMBERS[] = {
     HISTORY_MEMBER(SfrDiskColdGas),  HISTORY_MEMBER(SfrDiskColdGasMetals),
     HISTORY_MEMBER(SfrBulgeColdGas), HISTORY_MEMBER(SfrBulgeColdGasMetals)};
 
+/** c09: the float MassLoading (core_allvars.h), which the disk FIRE path writes
+ * (R/src/model_starformation_and_feedback.c:762-764) and no c06 routine writes: the burst's FIRE
+ * budget leaves it as it was (M:707-710). Read and recorded by the *_fire routines only. */
+static const struct member FIRE_MEMBERS[] = {F32_MEMBER(MassLoading)};
+
 /** Which groups of members a galaxy reads or records */
 enum block {
   BLOCK_IDENT = 1,
@@ -453,6 +482,7 @@ enum block {
   BLOCK_INFALL = 8,
   BLOCK_JOIN_WRITTEN = 16,
   BLOCK_HISTORIES = 32,
+  BLOCK_FIRE = 64, /* c09: MassLoading, after every other block of the galaxy */
   BLOCK_MERGER_INPUT = BLOCK_IDENT | BLOCK_HALO | BLOCK_RESERVOIRS | BLOCK_HISTORIES,
   BLOCK_JOIN_INPUT = BLOCK_MERGER_INPUT | BLOCK_INFALL,
   BLOCK_ALL = BLOCK_JOIN_INPUT | BLOCK_JOIN_WRITTEN
@@ -469,6 +499,7 @@ static const struct {
     {BLOCK_INFALL, INFALL_MEMBERS, COUNT(INFALL_MEMBERS)},
     {BLOCK_JOIN_WRITTEN, JOIN_WRITTEN_MEMBERS, COUNT(JOIN_WRITTEN_MEMBERS)},
     {BLOCK_HISTORIES, HISTORY_MEMBERS, COUNT(HISTORY_MEMBERS)},
+    {BLOCK_FIRE, FIRE_MEMBERS, COUNT(FIRE_MEMBERS)},
 };
 
 static void *member_address(const struct GALAXY *g, const struct member *m, const int element) {
@@ -705,6 +736,46 @@ static void read_sf_prescription(void) {
 }
 
 /**
+ * @brief FIREmodeOn as a c09 fixture sets it: 0 (R0-R2, fixed-epsilon feedback) or 1 (R3, the
+ *        FIRE budget of every burst, M:690-752); any other value is refused, naming the parameter
+ *        (oracle_c05.c's read_fire_mode_on restated)
+ */
+static int32_t read_fire_mode_on(void) {
+  const int read = in_i32("params.FIREmodeOn");
+  if (read != 0 && read != 1) {
+    fatal("params.FIREmodeOn = %d, but the oracle supports only 0 (R0-R2) and 1 (R3)", read);
+  }
+  return read;
+}
+
+/**
+ * @brief c09: each galaxy's stored-snapshot redshift, read explicitly
+ *
+ * The burst's FIRE scaling reads ZZ[galaxies[merger_centralgal].SnapNum] (M:694), the snapshot the
+ * target carries, not the current halo's. params.ZZ[<s>] is read once for each distinct stored
+ * SnapNum of the fixture's galaxies; every other entry stays poisoned, so the poisoned state never
+ * supplies a redshift. A SnapNum outside [0, ABSOLUTEMAXSNAPS), an index SAGE26 would read out of
+ * bounds, is refused (the package refuses an index outside its redshift table instead, campaign
+ * decision D35). A FIREmodeOn 0 fixture reads the same fields as its FIREmodeOn 1 twin.
+ */
+static void read_fire_snapshots(const int ngal) {
+  for (int i = 0; i < ngal; i++) {
+    const int snap = galaxies[i].SnapNum;
+    if (snap < 0 || snap >= ABSOLUTEMAXSNAPS) {
+      fatal("galaxy[%d].SnapNum = %d is outside [0, %d): SAGE26 would read ZZ out of bounds", i,
+            snap, ABSOLUTEMAXSNAPS);
+    }
+    int seen = 0;
+    for (int j = 0; j < i; j++) {
+      seen |= galaxies[j].SnapNum == snap;
+    }
+    if (!seen) {
+      run_params.ZZ[snap] = in_f64(field_name("params.ZZ[%d]", snap));
+    }
+  }
+}
+
+/**
  * @brief R0's flags and parameters for every routine that can reach a merger, a burst or the
  *        instability
  *
@@ -715,7 +786,8 @@ static void read_sf_prescription(void) {
  * (R/src/core_read_parameter_file.c:109), which R0.par leaves alone. BulgeSizeOn is read, not
  * pinned: 0 (R0.par:109) or 3 (R1.par:109), with Hubble_h for 3 (read_bulge_size_config).
  * SFprescription is read, not pinned: 0 (R0.par:48, R1.par:48) or 1 (R2.par:48), with the H2
- * configuration for 1 (read_sf_prescription, c08).
+ * configuration for 1 (read_sf_prescription, c08). FIREmodeOn is 0, or 0 or 1 (R3.par:55, c09,
+ * through read_fire_mode_on) for the *_fire routines.
  *
  * The transcriptions below implement R0's and R1's paths and, with SFprescription 1, R2's: the
  * SN recipe without FIRE, no CGM, the Bondi AGN recipe (AGNrecipeOn 2), cold-gas starbursts,
@@ -727,7 +799,7 @@ static void read_merger_config(void) {
   read_sf_prescription();
   run_params.SupernovaRecipeOn = require_flag("SupernovaRecipeOn", 1);
   run_params.CGMrecipeOn = require_flag("CGMrecipeOn", 0);
-  run_params.FIREmodeOn = require_flag("FIREmodeOn", 0);
+  run_params.FIREmodeOn = fire_routine ? read_fire_mode_on() : require_flag("FIREmodeOn", 0);
   read_bulge_size_config();
   run_params.SaveFullSFH = require_flag("SaveFullSFH", 0);
   run_params.AGNrecipeOn = require_flag("AGNrecipeOn", 2);
@@ -785,14 +857,15 @@ static int read_ngal(void) {
 
 /** The SAGE26 routine a carried value is a local of */
 enum stage {
-  STAGE_CLOCK,    /* estimate_merging_time */
-  STAGE_MERGER,   /* deal_with_galaxy_merger */
-  STAGE_ADD,      /* add_galaxies_together */
-  STAGE_BH,       /* grow_black_hole */
-  STAGE_WIND,     /* quasar_mode_wind */
-  STAGE_BURST,    /* collisional_starburst_recipe */
-  STAGE_FEEDBACK, /* update_from_feedback, as the burst calls it */
-  STAGE_DISRUPT   /* disrupt_satellite_to_ICS */
+  STAGE_CLOCK,      /* estimate_merging_time */
+  STAGE_MERGER,     /* deal_with_galaxy_merger */
+  STAGE_ADD,        /* add_galaxies_together */
+  STAGE_BH,         /* grow_black_hole */
+  STAGE_WIND,       /* quasar_mode_wind */
+  STAGE_BURST,      /* collisional_starburst_recipe */
+  STAGE_FEEDBACK,   /* update_from_feedback, as the burst calls it */
+  STAGE_DISRUPT,    /* disrupt_satellite_to_ICS */
+  STAGE_FIRE_HELPER /* c09: a local of capped_eta_reheat or sn_energy_coupling, in the burst */
 };
 
 /** How a carried value's transcription is checked (README "Carried Values") */
@@ -1056,6 +1129,84 @@ static const struct {
     [IMH_BURST_H1_REFRESH] = {"burst_h1_refresh", STAGE_BURST, 0, 1},
 };
 
+/**
+ * The values FIREmodeOn 1 adds (c09), recorded only by the *_fire routines that run the burst's
+ * transcription: the locals of the burst's FIRE budget (M:690-752) and of the two header-inline
+ * helpers it calls, capped_eta_reheat (R/src/model_misc.h:141-149) and sn_energy_coupling
+ * (R/src/model_misc.h:118-124). Each is a double, recorded with c06's markers and c07's narrowing
+ * limitation (0: a burst never writes MassLoading, so every value reaches the state only through
+ * the reheated and ejected masses, or not at all on a zero-star burst).
+ */
+enum fire_id {
+  IMF_REDSHIFT, /* z_fire = ZZ[galaxies[merger_centralgal].SnapNum] (M:694) */
+  IMF_V_TERM,   /* the velocity term (M:698-700) */
+  IMF_SCALING,  /* fire_scaling (M:692-703), passed to sn_energy_coupling (M:733) */
+  IMF_ETA_RAW,  /* FeedbackReheatingEpsilon * fire_scaling, passed to capped_eta_reheat (M:709) */
+  IMF_ETA_MAX,  /* capped_eta_reheat's eta_max (X:148) */
+  IMF_ETA,      /* capped_eta_reheat's return value (M:708-710) */
+  IMF_EPS_EFF,  /* sn_energy_coupling's eps_eff (X:120) */
+  IMF_COUPLING, /* sn_energy_coupling's return value (M:733) */
+  IMF_E_FB,     /* E_FB (M:733-734) */
+  IMF_E_LIFT,   /* E_lift (M:735) */
+  IMF_COUNT
+};
+
+static const struct {
+  const char *name;
+  enum stage stage;
+  enum check_kind check;
+} IMF_INFO[IMF_COUNT] = {
+    [IMF_REDSHIFT] = {"fire_redshift", STAGE_BURST, CHECK_TAIL},
+    [IMF_V_TERM] = {"fire_v_term", STAGE_BURST, CHECK_TAIL},
+    [IMF_SCALING] = {"fire_scaling", STAGE_BURST, CHECK_CONTINUATION},
+    [IMF_ETA_RAW] = {"eta_raw", STAGE_BURST, CHECK_CONTINUATION},
+    [IMF_ETA_MAX] = {"eta_max", STAGE_FIRE_HELPER, CHECK_TAIL},
+    [IMF_ETA] = {"eta", STAGE_BURST, CHECK_TAIL},
+    [IMF_EPS_EFF] = {"eps_eff", STAGE_FIRE_HELPER, CHECK_TAIL},
+    [IMF_COUPLING] = {"coupling", STAGE_BURST, CHECK_TAIL},
+    [IMF_E_FB] = {"E_FB", STAGE_BURST, CHECK_TAIL},
+    [IMF_E_LIFT] = {"E_lift", STAGE_BURST, CHECK_TAIL},
+};
+
+/** The branch flags FIREmodeOn 1 adds (c09): -1 not evaluated on this path, else 0 or 1 */
+enum fire_flag_id {
+  FLF_SCALING_VALID,            /* vc_fire > 0.0 && z_fire >= 0.0 (M:696) */
+  FLF_VC_FLOORED,               /* vc_fire < 1.0 (M:697) */
+  FLF_HIGH_VELOCITY,            /* vc_floored >= FIRE_V_CRIT_KMS: the slope -1.0 (M:698-700) */
+  FLF_ETA_CAP_VVIR_NONPOSITIVE, /* vvir <= 0.0 in capped_eta_reheat (X:144) */
+  FLF_ETA_CAP_BINDS,            /* eta_reheat > eta_max (X:149) */
+  FLF_COUPLING_CAPPED,          /* eps_eff > MAX_SN_ENERGY_COUPLING (X:121) */
+  FLF_ENERGY_EJECTS,            /* E_FB > E_lift (M:736) */
+  FLF_COUNT
+};
+
+static const char *const FIRE_FLAG_NAMES[FLF_COUNT] = {
+    [FLF_SCALING_VALID] = "fire_scaling_valid",
+    [FLF_VC_FLOORED] = "fire_vc_floored",
+    [FLF_HIGH_VELOCITY] = "fire_high_velocity",
+    [FLF_ETA_CAP_VVIR_NONPOSITIVE] = "eta_cap_vvir_nonpositive",
+    [FLF_ETA_CAP_BINDS] = "eta_cap_binds",
+    [FLF_COUPLING_CAPPED] = "coupling_capped",
+    [FLF_ENERGY_EJECTS] = "fire_energy_ejects",
+};
+
+/**
+ * c09: OBSERVATIONS of the post-minor-merger recheck's own burst (M:807-811 into D:106-108), which
+ * runs inside SAGE26's own check_disk_instability. On copies of the state the recheck receives,
+ * SAGE26's own check_disk_instability is run again with one change to a copy of the run
+ * parameters: FIREmodeOn 0 (mode_sensitive), or the redshift of the target's stored snapshot,
+ * ZZ[galaxies[merger_centralgal].SnapNum], replaced by itself plus 1.0 (redshift_sensitive). Each
+ * is 1 if the recheck's end state (the target's reservoirs and histories, the FoF central's
+ * reservoirs) then differs from SAGE26's: within the merger family only the burst reads FIREmodeOn
+ * and ZZ (M:693-694, :707, :730), so a difference shows that the recheck's burst took the FIRE
+ * branch and read the target's stored-snapshot redshift. -1 where the recheck did not run or
+ * FIREmodeOn is 0.
+ */
+struct recheck_fire_observation {
+  int mode_sensitive;
+  int redshift_sensitive;
+};
+
 /** The branch flags SFprescription 1 adds (c08): -1 not evaluated on this path, else 0 or 1 */
 enum h_flag_id {
   FLH_BH_CAPS_TRACKED,      /* SFprescription != 0 && != 2 at M:366-367 */
@@ -1117,6 +1268,10 @@ struct locals {
   int h_present[IMH_COUNT];
   int h_flag[FLH_COUNT];
   struct recheck_bh_observation recheck_bh; /* c08, SFprescription 1 only */
+  double fire_value[IMF_COUNT];             /* c09 */
+  int fire_present[IMF_COUNT];
+  int fire_flag[FLF_COUNT];
+  struct recheck_fire_observation recheck_fire; /* c09, FIREmodeOn 1 only */
   int out_of_domain; /* a SAGE26 assertion would abort on this path (perturbed runs only) */
 };
 
@@ -1131,29 +1286,36 @@ static void init_locals(struct locals *l) {
   l->recheck_bh.grown = -1;
   l->recheck_bh.h2_capped = -1;
   l->recheck_bh.h1_capped = -1;
+  for (int f = 0; f < FLF_COUNT; f++) {
+    l->fire_flag[f] = -1;
+  }
+  l->recheck_fire.mode_sensitive = -1;
+  l->recheck_fire.redshift_sensitive = -1;
 }
 
 /** A replacement of one carried value by a neighbour, or of one carried flag by its negation */
 struct perturbation {
-  int im; /* enum im_id to perturb, or -1 */
-  int cf; /* enum carried_flag_id to flip, or -1 */
-  int up; /* 1: toward +inf; 0: toward -inf */
-  int h;  /* enum h_id to perturb (c08), or -1 */
+  int im;   /* enum im_id to perturb, or -1 */
+  int cf;   /* enum carried_flag_id to flip, or -1 */
+  int up;   /* 1: toward +inf; 0: toward -inf */
+  int h;    /* enum h_id to perturb (c08), or -1 */
+  int fire; /* enum fire_id to perturb (c09), or -1 */
 };
 
-static const struct perturbation NO_PERTURBATION = {-1, -1, 0, -1};
+static const struct perturbation NO_PERTURBATION = {-1, -1, 0, -1, -1};
 
 /** Which SAGE26 routines a composition replaces by their transcriptions */
 struct composition {
-  int add;      /* add_galaxies_together */
-  int bh;       /* grow_black_hole */
-  int wind;     /* quasar_mode_wind (inside grow_black_hole) */
-  int burst;    /* collisional_starburst_recipe */
-  int feedback; /* update_from_feedback (inside the burst) */
+  int add;          /* add_galaxies_together */
+  int bh;           /* grow_black_hole */
+  int wind;         /* quasar_mode_wind (inside grow_black_hole) */
+  int burst;        /* collisional_starburst_recipe */
+  int feedback;     /* update_from_feedback (inside the burst) */
+  int fire_helpers; /* c09: capped_eta_reheat and sn_energy_coupling (inside the burst) */
 };
 
-static const struct composition OWN_ROUTINES = {0, 0, 0, 0, 0};
-static const struct composition ALL_TRANSCRIBED = {1, 1, 1, 1, 1};
+static const struct composition OWN_ROUTINES = {0, 0, 0, 0, 0, 0};
+static const struct composition ALL_TRANSCRIBED = {1, 1, 1, 1, 1, 1};
 
 /** @brief The routines that must be transcribed for a value of the given stage to be reached */
 static struct composition composition_for(const enum stage stage) {
@@ -1161,8 +1323,9 @@ static struct composition composition_for(const enum stage stage) {
   c.add = stage == STAGE_ADD;
   c.bh = stage == STAGE_BH || stage == STAGE_WIND;
   c.wind = stage == STAGE_WIND;
-  c.burst = stage == STAGE_BURST || stage == STAGE_FEEDBACK;
+  c.burst = stage == STAGE_BURST || stage == STAGE_FEEDBACK || stage == STAGE_FIRE_HELPER;
   c.feedback = stage == STAGE_FEEDBACK;
+  c.fire_helpers = stage == STAGE_FIRE_HELPER;
   return c;
 }
 
@@ -1197,6 +1360,16 @@ static double tap_h_f64(struct context *ctx, const enum h_id id, const double v)
   ctx->l->h_value[id] = v;
   ctx->l->h_present[id] = 1;
   if (ctx->pt->h == (int)id) {
+    return nextafter(v, ctx->pt->up ? INFINITY : -INFINITY);
+  }
+  return v;
+}
+
+/** @brief Record a c09 value, then return it, or its neighbour when it is perturbed */
+static double tap_fire(struct context *ctx, const enum fire_id id, const double v) {
+  ctx->l->fire_value[id] = v;
+  ctx->l->fire_present[id] = 1;
+  if (ctx->pt->fire == (int)id) {
     return nextafter(v, ctx->pt->up ? INFINITY : -INFINITY);
   }
   return v;
@@ -1524,13 +1697,89 @@ static void check_recheck_bh_observation(const int p, const struct GALAXY *obser
 }
 
 /**
- * @brief TRANSCRIPTION of collisional_starburst_recipe, M:584-832, on R0's, R1's and R2's paths
+ * @brief c09: TRANSCRIPTION of capped_eta_reheat, R/src/model_misc.h:141-149 (header-inline in
+ *        SAGE26; its own copy is what the burst calls unless the composition transcribes it)
+ *
+ *   if(vvir <= 0.0) return eta_reheat;
+ *   const double esn_per_mass = run_params->EtaSNcode * run_params->EnergySNcode;
+ *   const double eta_max = MAX_SN_ENERGY_COUPLING * esn_per_mass / (vvir * vvir);
+ *   return (eta_reheat > eta_max) ? eta_max : eta_reheat;
+ */
+static double transcribe_capped_eta_reheat(struct context *ctx, const double eta_reheat,
+                                           const double vvir) {
+  struct locals *l = ctx->l;
+  l->fire_flag[FLF_ETA_CAP_VVIR_NONPOSITIVE] = 0;
+  if (vvir <= 0.0) { /* X:144-146 */
+    l->fire_flag[FLF_ETA_CAP_VVIR_NONPOSITIVE] = 1;
+    return eta_reheat;
+  }
+  const double esn_per_mass = run_params.EtaSNcode * run_params.EnergySNcode; /* X:147 */
+  double eta_max = MAX_SN_ENERGY_COUPLING * esn_per_mass / (vvir * vvir);     /* X:148 */
+  eta_max = tap_fire(ctx, IMF_ETA_MAX, eta_max);
+  l->fire_flag[FLF_ETA_CAP_BINDS] = eta_reheat > eta_max;
+  return (eta_reheat > eta_max) ? eta_max : eta_reheat; /* X:149 */
+}
+
+/**
+ * @brief c09: TRANSCRIPTION of sn_energy_coupling, R/src/model_misc.h:118-124
+ *
+ *   const double eps_eff = run_params->FeedbackEjectionEfficiency * fire_scaling;
+ *   if(eps_eff > MAX_SN_ENERGY_COUPLING) return MAX_SN_ENERGY_COUPLING;
+ *   return eps_eff;
+ */
+static double transcribe_sn_energy_coupling(struct context *ctx, const double fire_scaling) {
+  struct locals *l = ctx->l;
+  double eps_eff = run_params.FeedbackEjectionEfficiency * fire_scaling; /* X:120 */
+  eps_eff = tap_fire(ctx, IMF_EPS_EFF, eps_eff);
+  l->fire_flag[FLF_COUPLING_CAPPED] = 0;
+  if (eps_eff > MAX_SN_ENERGY_COUPLING) { /* X:121-123 */
+    l->fire_flag[FLF_COUPLING_CAPPED] = 1;
+    return MAX_SN_ENERGY_COUPLING;
+  }
+  return eps_eff;
+}
+
+/**
+ * @brief c09: observe the recheck's own burst (struct recheck_fire_observation)
+ *
+ * before is the state the recheck received and after SAGE26's state after its own recheck; each
+ * counterfactual runs SAGE26's own check_disk_instability on a copy of before, with a copy of the
+ * run parameters changed in one member, and is compared with after on the watched blocks.
+ */
+static void observe_recheck_fire(struct locals *l, const int m, const int centralgal,
+                                 const double time, const double dt, const int step,
+                                 const struct GALAXY *before, const struct GALAXY *after,
+                                 const struct record_spec *watched) {
+  static struct params cf;
+  struct GALAXY copy[MAX_GALAXIES];
+  for (int which = 0; which < 2; which++) {
+    memcpy(&cf, &run_params, sizeof(cf));
+    if (which == 0) {
+      cf.FIREmodeOn = 0;
+    } else {
+      cf.ZZ[before[m].SnapNum] = cf.ZZ[before[m].SnapNum] + 1.0;
+    }
+    memcpy(copy, before, sizeof(copy));
+    check_disk_instability(m, centralgal, ORACLE_HALONR, time, dt, step, copy, &cf);
+    const int changed = !same_recorded(copy, after, watched);
+    if (which == 0) {
+      l->recheck_fire.mode_sensitive = changed;
+    } else {
+      l->recheck_fire.redshift_sensitive = changed;
+    }
+  }
+}
+
+/**
+ * @brief TRANSCRIPTION of collisional_starburst_recipe, M:584-832, on R0's to R3's paths
  *
  * StarburstColdGasOn 1 (M:680-682), SFprescription 0 or 1 (for 1, the hydrogen refresh of
  * M:798-803 after the feedback and before the instability recheck, c08; the star-formation
  * commit, M:760, is SAGE26's own update_from_star_formation, whose S:1131-1135 cap the oracle
- * observes), FIREmodeOn 0 (fire_scaling stays 0 and
- * is never read, M:692-703), SupernovaRecipeOn 1, SaveFullSFH 0 (M:763-768 does not run),
+ * observes), FIREmodeOn 0 (fire_scaling stays 0 and is never read, M:692-703) or, for the *_fire
+ * routines, 1 (R3, c09: the FIRE budget M:690-752 with SAGE26's own or the transcribed
+ * capped_eta_reheat and sn_energy_coupling, per the composition), SupernovaRecipeOn 1,
+ * SaveFullSFH 0 (M:763-768 does not run),
  * BulgeSizeOn 0 or 3 (the instability channel's update_instability_bulge_radius, M:783-784, is
  * SAGE26's own: it returns at once in mode 0, R/src/model_misc.c:395) and
  * CGMrecipeOn 0 (add_metals_to_hot_reservoir adds to MetalsHotGas, model_misc.h:67-74).
@@ -1582,8 +1831,42 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
   }
   stars = tap(ctx, IM_STARS_PRE_RENORM, stars);
 
-  /* M:706-716: SupernovaRecipeOn 1, FIREmodeOn 0 */
-  double reheated_mass = run_params.FeedbackReheatingEpsilon * stars;
+  /* M:690-703 (c09): the FIRE scaling from the TARGET's float Vvir widened to double and the
+   * redshift of its stored snapshot, ZZ[SnapNum], read before the velocity test */
+  double fire_scaling = 0.0;
+  if (run_params.FIREmodeOn == 1 && run_params.SupernovaRecipeOn == 1) {
+    double z_fire = run_params.ZZ[galaxies[m].SnapNum]; /* M:694 */
+    z_fire = tap_fire(ctx, IMF_REDSHIFT, z_fire);
+    const double vc_fire = galaxies[m].Vvir; /* M:695 */
+    l->fire_flag[FLF_SCALING_VALID] = 0;
+    if (vc_fire > 0.0 && z_fire >= 0.0) { /* M:696 */
+      l->fire_flag[FLF_SCALING_VALID] = 1;
+      const double vc_floored = (vc_fire < 1.0) ? 1.0 : vc_fire; /* M:697 */
+      l->fire_flag[FLF_VC_FLOORED] = vc_fire < 1.0;
+      l->fire_flag[FLF_HIGH_VELOCITY] = !(vc_floored < FIRE_V_CRIT_KMS);
+      double v_term = (vc_floored < FIRE_V_CRIT_KMS) /* M:698-700 */
+                          ? pow(vc_floored / FIRE_V_CRIT_KMS, -3.2)
+                          : pow(vc_floored / FIRE_V_CRIT_KMS, -1.0);
+      v_term = tap_fire(ctx, IMF_V_TERM, v_term);
+      fire_scaling = pow(1.0 + z_fire, FIRE_REDSHIFT_EXPONENT) * v_term; /* M:701 */
+    }
+    fire_scaling = tap_fire(ctx, IMF_SCALING, fire_scaling);
+  }
+
+  /* M:706-716: SupernovaRecipeOn 1; FIREmodeOn 1 (c09) the capped loading times the stars, with
+   * no MassLoading write (M:707-710), FIREmodeOn 0 the fixed epsilon (M:711-712) */
+  double reheated_mass;
+  if (run_params.FIREmodeOn == 1) {
+    double eta_raw = run_params.FeedbackReheatingEpsilon * fire_scaling; /* M:709 */
+    eta_raw = tap_fire(ctx, IMF_ETA_RAW, eta_raw);
+    double eta = ctx->comp.fire_helpers
+                     ? transcribe_capped_eta_reheat(ctx, eta_raw, galaxies[m].Vvir)
+                     : capped_eta_reheat(eta_raw, galaxies[m].Vvir, &run_params); /* M:708-710 */
+    eta = tap_fire(ctx, IMF_ETA, eta);
+    reheated_mass = eta * stars;
+  } else {
+    reheated_mass = run_params.FeedbackReheatingEpsilon * stars;
+  }
   reheated_mass = tap(ctx, IM_REHEATED_PRE_RENORM, reheated_mass);
 
   /* M:718 */
@@ -1604,15 +1887,31 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
   stars = tap(ctx, IM_STARS, stars);
   reheated_mass = tap(ctx, IM_REHEATED, reheated_mass);
 
-  /* M:728-752: SupernovaRecipeOn 1, FIREmodeOn 0 */
+  /* M:728-752: SupernovaRecipeOn 1; FIREmodeOn 1 (c09) the energy-based ejection (M:730-736),
+   * FIREmodeOn 0 the fixed-epsilon formula (M:738-742) */
   double ejected_mass;
   l->flag[FL_BURST_EJECTION_VVIR_NONPOSITIVE] = 0;
   if (galaxies[m].Vvir > 0.0) {
-    ejected_mass =
-        (run_params.FeedbackEjectionEfficiency * (run_params.EtaSNcode * run_params.EnergySNcode) /
-             (galaxies[m].Vvir * galaxies[m].Vvir) -
-         run_params.FeedbackReheatingEpsilon) *
-        stars;
+    if (run_params.FIREmodeOn == 1) {
+      const double vc = galaxies[m].Vvir; /* M:732 */
+      double coupling = ctx->comp.fire_helpers
+                            ? transcribe_sn_energy_coupling(ctx, fire_scaling)
+                            : sn_energy_coupling(fire_scaling, &run_params); /* M:733 */
+      coupling = tap_fire(ctx, IMF_COUPLING, coupling);
+      double E_FB =
+          coupling * 0.5 * stars * (run_params.EtaSNcode * run_params.EnergySNcode); /* M:733-734 */
+      E_FB = tap_fire(ctx, IMF_E_FB, E_FB);
+      double E_lift = 0.5 * reheated_mass * vc * vc; /* M:735 */
+      E_lift = tap_fire(ctx, IMF_E_LIFT, E_lift);
+      l->fire_flag[FLF_ENERGY_EJECTS] = E_FB > E_lift;
+      ejected_mass = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc * vc) : 0.0; /* M:736 */
+    } else {
+      ejected_mass = (run_params.FeedbackEjectionEfficiency *
+                          (run_params.EtaSNcode * run_params.EnergySNcode) /
+                          (galaxies[m].Vvir * galaxies[m].Vvir) -
+                      run_params.FeedbackReheatingEpsilon) *
+                     stars;
+    }
     ejected_mass = tap(ctx, IM_EJECTED_PRE_FLOOR, ejected_mass);
   } else {
     ejected_mass = 0.0;
@@ -1716,6 +2015,10 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
       watched.blocks[m] = BLOCK_RESERVOIRS | BLOCK_HISTORIES;
       watched.blocks[centralgal] |= BLOCK_RESERVOIRS;
       l->flag[FL_BURST_RECHECK_CHANGED] = !same_recorded(before, galaxies, &watched);
+      /* c09: the recheck's own burst observed under FIREmodeOn 0 and a replaced redshift */
+      if (run_params.FIREmodeOn == 1) {
+        observe_recheck_fire(l, m, centralgal, time, dt, step, before, galaxies, &watched);
+      }
     }
   }
 
@@ -2343,7 +2646,8 @@ struct checked_record {
   struct locals locals;
   struct sensitivity sens[IM_COUNT];
   int cflag_changes[CF_COUNT];
-  struct sensitivity h_sens[IMH_COUNT]; /* c08 */
+  struct sensitivity h_sens[IMH_COUNT];    /* c08 */
+  struct sensitivity fire_sens[IMF_COUNT]; /* c09 */
 };
 
 /**
@@ -2391,7 +2695,7 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
             IM_INFO[id].name, routine_name);
     }
     for (int up = 0; up <= 1; up++) {
-      const struct perturbation pt = {id, -1, up, -1};
+      const struct perturbation pt = {id, -1, up, -1, -1};
       value = compose(input, a, &comp, &pt, &lp, result);
       const int changed = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
                                                  same_f64(value, rec->end_value));
@@ -2418,7 +2722,7 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
             IMH_INFO[id].name, routine_name);
     }
     for (int up = 0; up <= 1; up++) {
-      const struct perturbation pt = {-1, -1, up, id};
+      const struct perturbation pt = {-1, -1, up, id, -1};
       value = compose(input, a, &comp, &pt, &lp, result);
       const int changed = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
                                                  same_f64(value, rec->end_value));
@@ -2429,12 +2733,39 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
       }
     }
   }
+  /* c09: the FIREmodeOn 1 values, each in the composition of the routine it is a local of */
+  for (int id = 0; id < IMF_COUNT; id++) {
+    rec->fire_sens[id].up = 0;
+    rec->fire_sens[id].down = 0;
+    if (!rec->locals.fire_present[id]) {
+      continue;
+    }
+    const struct composition comp = composition_for(IMF_INFO[id].stage);
+    struct locals lp;
+    value = compose(input, a, &comp, &NO_PERTURBATION, &lp, result);
+    if (!composition_matches(result, value, &lp, rec->end, rec->end_value, spec)) {
+      fatal("transcription check failed: the validation composition for %s does not reproduce "
+            "SAGE26's %s bit for bit",
+            IMF_INFO[id].name, routine_name);
+    }
+    for (int up = 0; up <= 1; up++) {
+      const struct perturbation pt = {-1, -1, up, -1, id};
+      value = compose(input, a, &comp, &pt, &lp, result);
+      const int changed = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
+                                                 same_f64(value, rec->end_value));
+      if (up) {
+        rec->fire_sens[id].up = changed;
+      } else {
+        rec->fire_sens[id].down = changed;
+      }
+    }
+  }
   for (int id = 0; id < CF_COUNT; id++) {
     rec->cflag_changes[id] = 0;
     if (!rec->locals.cflag_present[id]) {
       continue;
     }
-    const struct perturbation pt = {-1, id, 0, -1};
+    const struct perturbation pt = {-1, id, 0, -1, -1};
     struct locals lp;
     value = compose(input, a, &OWN_ROUTINES, &pt, &lp, result);
     rec->cflag_changes[id] = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
@@ -2548,13 +2879,64 @@ static void write_h_record(const struct checked_record *rec, const int with_bh,
   }
 }
 
+/**
+ * @brief c09: one FIREmodeOn 1 value: c06's markers with its check kind and c07's narrowing
+ *        limitation (always 0 in a burst, which never writes MassLoading)
+ */
+static void out_carried_fire(const struct checked_record *rec, const int id) {
+  const char *name = IMF_INFO[id].name;
+  const int present = rec->locals.fire_present[id];
+  out_i32(field_name("intermediate.%s_absent", name), present ? 0 : 1);
+  if (!present) {
+    return;
+  }
+  out_f64(field_name("intermediate.%s", name), rec->locals.fire_value[id]);
+  out_i32(field_name("intermediate.%s_checked", name), 1);
+  out_i32(field_name("intermediate.%s_check_kind", name), (int)IMF_INFO[id].check);
+  out_i32(field_name("intermediate.%s_validated_up", name), rec->fire_sens[id].up);
+  out_i32(field_name("intermediate.%s_validated_down", name), rec->fire_sens[id].down);
+  out_i32(field_name("intermediate.%s_validated", name),
+          rec->fire_sens[id].up && rec->fire_sens[id].down);
+  out_i32(field_name("intermediate.%s_narrowing_limited", name), 0);
+}
+
+/**
+ * @brief c09: the record of a *_fire routine that runs the burst's transcription, written after
+ *        every earlier field: FIREmodeOn, the FIRE flags and values, and the observations of the
+ *        recheck's own burst
+ */
+static void write_fire_record(const struct checked_record *rec) {
+  out_i32("intermediate.fire_mode", run_params.FIREmodeOn);
+  for (int f = 0; f < FLF_COUNT; f++) {
+    out_i32(field_name("intermediate.%s", FIRE_FLAG_NAMES[f]), rec->locals.fire_flag[f]);
+  }
+  for (int id = 0; id < IMF_COUNT; id++) {
+    out_carried_fire(rec, id);
+  }
+  out_i32("intermediate.burst_recheck_fire_mode_sensitive",
+          rec->locals.recheck_fire.mode_sensitive);
+  out_i32("intermediate.burst_recheck_fire_redshift_sensitive",
+          rec->locals.recheck_fire.redshift_sensitive);
+}
+
 // ============================================================================
 // ROUTINES: SAGE26'S OWN, CHECKED
 // ============================================================================
 
+/** @brief The blocks a merger-family galaxy reads: c06's, and MassLoading for a *_fire routine */
+static int merger_input_blocks(void) {
+  return BLOCK_MERGER_INPUT | (fire_routine ? BLOCK_FIRE : 0);
+}
+
+/** @brief The c09 block added to a recorded galaxy of a *_fire routine */
+static int fire_block(void) { return fire_routine ? BLOCK_FIRE : 0; }
+
 static void read_merger_galaxies(const int ngal) {
   for (int i = 0; i < ngal; i++) {
-    read_galaxy(i, BLOCK_MERGER_INPUT);
+    read_galaxy(i, merger_input_blocks());
+  }
+  if (fire_routine) {
+    read_fire_snapshots(ngal);
   }
 }
 
@@ -2669,8 +3051,13 @@ static void run_collisional_starburst_recipe(void) {
   struct GALAXY input[MAX_GALAXIES];
   memcpy(input, galaxies, (size_t)a.ngal * sizeof(input[0]));
   struct record_spec spec = {a.ngal, {0}};
-  spec.blocks[a.centralgal] = BLOCK_RESERVOIRS;
-  spec.blocks[a.target] = BLOCK_RESERVOIRS | BLOCK_HISTORIES;
+  /* c09: a *_fire fixture also records any other galaxy (a merging satellite the burst is not
+   * given), which must stay as it was */
+  for (int i = 0; i < a.ngal; i++) {
+    spec.blocks[i] = fire_routine ? BLOCK_RESERVOIRS | BLOCK_FIRE : 0;
+  }
+  spec.blocks[a.centralgal] = BLOCK_RESERVOIRS | fire_block();
+  spec.blocks[a.target] = BLOCK_RESERVOIRS | BLOCK_HISTORIES | fire_block();
   static struct checked_record rec;
   run_checked(input, &a, &spec, &rec);
 
@@ -2678,6 +3065,15 @@ static void run_collisional_starburst_recipe(void) {
   out_flags(&rec.locals, FL_BURST_GAS_FLOORED, FL_BURST_YIELD_STAYS_IN_DISK);
   out_values(&rec, IM_EBURST, IM_YIELD_TO_HOT);
   write_h_record(&rec, 0, 1);
+  if (fire_routine) {
+    write_fire_record(&rec);
+  }
+}
+
+/** @brief c09: collisional_starburst_recipe with FIREmodeOn 0 or 1 (README "The c09 Group") */
+static void run_collisional_starburst_recipe_fire(void) {
+  fire_routine = 1;
+  run_collisional_starburst_recipe();
 }
 
 /** @brief add_galaxies_together (M:456-543) */
@@ -2761,9 +3157,9 @@ static void run_deal_with_galaxy_merger(void) {
   struct GALAXY input[MAX_GALAXIES];
   memcpy(input, galaxies, (size_t)a.ngal * sizeof(input[0]));
   struct record_spec spec = {a.ngal, {0}};
-  spec.blocks[a.centralgal] = BLOCK_IDENT | BLOCK_RESERVOIRS;
-  spec.blocks[a.p] = BLOCK_IDENT | BLOCK_RESERVOIRS;
-  spec.blocks[a.target] = BLOCK_IDENT | BLOCK_RESERVOIRS | BLOCK_HISTORIES;
+  spec.blocks[a.centralgal] = BLOCK_IDENT | BLOCK_RESERVOIRS | fire_block();
+  spec.blocks[a.p] = BLOCK_IDENT | BLOCK_RESERVOIRS | fire_block();
+  spec.blocks[a.target] = BLOCK_IDENT | BLOCK_RESERVOIRS | BLOCK_HISTORIES | fire_block();
   static struct checked_record rec;
   run_checked(input, &a, &spec, &rec);
 
@@ -2777,6 +3173,15 @@ static void run_deal_with_galaxy_merger(void) {
     write_remnant_record(&rec);
   }
   write_h_record(&rec, 1, 1);
+  if (fire_routine) {
+    write_fire_record(&rec);
+  }
+}
+
+/** @brief c09: deal_with_galaxy_merger with FIREmodeOn 0 or 1 (README "The c09 Group") */
+static void run_deal_with_galaxy_merger_fire(void) {
+  fire_routine = 1;
+  run_deal_with_galaxy_merger();
 }
 
 /** @brief disrupt_satellite_to_ICS (M:845-903) */
@@ -2977,6 +3382,61 @@ static void write_pass_record(const char *prefix, const int ngal, const struct p
   }
 }
 
+/**
+ * @brief c09: the record of a merger_pass_fire fixture, after every earlier field
+ *
+ * intermediate.fire_mode, and for FIREmodeOn 1 two OBSERVATIONS of the pass's bursts, which run
+ * inside SAGE26's own deal_with_galaxy_merger: whether the pass's end state (every galaxy's
+ * members) differs when the pass runs again on the input with FIREmodeOn 0
+ * (pass_fire_mode_sensitive), and when the redshift of each merger target's stored snapshot,
+ * ZZ[SnapNum], is replaced by itself plus 1.0 (pass_fire_redshift_sensitive); -1 for FIREmodeOn 0
+ * or a pass that merges nothing. Only the burst reads FIREmodeOn and ZZ on these paths (M:693-694,
+ * :707, :730).
+ */
+static void write_pass_fire_record(const struct pass_args *a, const struct GALAXY *input,
+                                   const struct pass_galaxy *rec) {
+  out_i32("intermediate.fire_mode", run_params.FIREmodeOn);
+  int merged = 0;
+  for (int i = 0; i < a->ngal; i++) {
+    merged |= rec[i].action == 1;
+  }
+  int sensitive[2] = {-1, -1};
+  if (run_params.FIREmodeOn == 1 && merged) {
+    struct GALAXY end[MAX_GALAXIES];
+    memcpy(end, galaxies, (size_t)a->ngal * sizeof(end[0]));
+    static struct params saved;
+    memcpy(&saved, &run_params, sizeof(saved));
+    const struct record_spec spec = {a->ngal,
+                                     {merger_input_blocks(), merger_input_blocks(),
+                                      merger_input_blocks(), merger_input_blocks()}};
+    for (int which = 0; which < 2; which++) {
+      memcpy(&run_params, &saved, sizeof(run_params));
+      if (which == 0) {
+        run_params.FIREmodeOn = 0;
+      } else {
+        int done[ABSOLUTEMAXSNAPS] = {0};
+        for (int i = 0; i < a->ngal; i++) {
+          if (rec[i].action == 1) {
+            const int snap = input[rec[i].merger_centralgal].SnapNum;
+            if (!done[snap]) {
+              run_params.ZZ[snap] = saved.ZZ[snap] + 1.0;
+              done[snap] = 1;
+            }
+          }
+        }
+      }
+      memcpy(galaxies, input, (size_t)a->ngal * sizeof(galaxies[0]));
+      struct pass_galaxy cf[MAX_GALAXIES];
+      transcribe_merger_pass(a, cf);
+      sensitive[which] = !same_recorded(galaxies, end, &spec);
+    }
+    memcpy(&run_params, &saved, sizeof(run_params));
+    memcpy(galaxies, end, (size_t)a->ngal * sizeof(galaxies[0]));
+  }
+  out_i32("intermediate.pass_fire_mode_sensitive", sensitive[0]);
+  out_i32("intermediate.pass_fire_redshift_sensitive", sensitive[1]);
+}
+
 /** @brief Read the pass's call inputs: the substep, Age per galaxy snapshot, layout */
 static void read_pass_args(struct pass_args *a, const int ngal) {
   a->ngal = ngal;
@@ -3038,13 +3498,26 @@ static void run_merger_pass(void) {
   check_all_fields_used();
   check_pass_layout(&a);
 
+  /* c09: the input, for the FIREmodeOn 1 pass's observations */
+  struct GALAXY input[MAX_GALAXIES];
+  memcpy(input, galaxies, (size_t)ngal * sizeof(input[0]));
+
   struct pass_galaxy rec[MAX_GALAXIES];
   transcribe_merger_pass(&a, rec);
 
   for (int i = 0; i < ngal; i++) {
-    write_galaxy("", i, &galaxies[i], BLOCK_MERGER_INPUT);
+    write_galaxy("", i, &galaxies[i], merger_input_blocks());
   }
   write_pass_record("pass.", ngal, rec);
+  if (fire_routine) {
+    write_pass_fire_record(&a, input, rec);
+  }
+}
+
+/** @brief c09: the merger pass with FIREmodeOn 0 or 1 (README "The c09 Group") */
+static void run_merger_pass_fire(void) {
+  fire_routine = 1;
+  run_merger_pass();
 }
 
 /** What joining did to one progenitor galaxy (intermediate.join.progenitor[k].*) */
@@ -3409,6 +3882,9 @@ static const struct routine_entry routines[] = {
     {"merger_pass", run_merger_pass},
     {"join_progenitors", run_join_progenitors},
     {"join_and_pass", run_join_and_pass},
+    {"collisional_starburst_recipe_fire", run_collisional_starburst_recipe_fire},
+    {"deal_with_galaxy_merger_fire", run_deal_with_galaxy_merger_fire},
+    {"merger_pass_fire", run_merger_pass_fire},
 };
 
 static const char *base_name(const char *path) {

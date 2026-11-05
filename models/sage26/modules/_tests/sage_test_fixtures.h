@@ -95,19 +95,21 @@ static inline void set_test_model_parameters(void) {
  * Each test adds exactly the keys its modules read (a union of the flags below):
  * sage26_calculate_star_formation reads SFprescription and the three H2 integration parameters,
  * sage26_apply_star_formation_supernova and sage26_quasar_mode SFprescription, and
- * sage26_starburst_feedback SFprescription and StarburstColdGasOn. A key already present is not
- * added twice.
+ * sage26_starburst_feedback SFprescription, StarburstColdGasOn and FIREmodeOn (0, R2's
+ * fixed-epsilon feedback: the required parameter of campaign decision D33). A key already present
+ * is not added twice.
  */
 #define SAGE26_TEST_KEY_SF_PRESCRIPTION 1 /* SFprescription: 0 (R1, the Croton law) */
 #define SAGE26_TEST_KEYS_H2_RADIAL                                                                 \
   2                                          /* H2RadialIntegrationOn 1, H2RadialNBins 25,         \
                                                 H2RadialRMaxFactor 5.0 (SAGE26's defaults) */
 #define SAGE26_TEST_KEY_STARBURST_COLD_GAS 4 /* StarburstColdGasOn: 1 (cold-gas bursts) */
+#define SAGE26_TEST_KEY_FIRE_MODE 8          /* FIREmodeOn: 0 (fixed-epsilon feedback, D33) */
 #define SAGE26_TEST_KEYS_SF_MODULE (SAGE26_TEST_KEY_SF_PRESCRIPTION | SAGE26_TEST_KEYS_H2_RADIAL)
 #define SAGE26_TEST_KEYS_APPLY_MODULE SAGE26_TEST_KEY_SF_PRESCRIPTION
 #define SAGE26_TEST_KEYS_QUASAR_MODULE SAGE26_TEST_KEY_SF_PRESCRIPTION
 #define SAGE26_TEST_KEYS_STARBURST_MODULE                                                          \
-  (SAGE26_TEST_KEY_SF_PRESCRIPTION | SAGE26_TEST_KEY_STARBURST_COLD_GAS)
+  (SAGE26_TEST_KEY_SF_PRESCRIPTION | SAGE26_TEST_KEY_STARBURST_COLD_GAS | SAGE26_TEST_KEY_FIRE_MODE)
 
 static inline void sage26_test_append_model_parameter(const char *name, const char *value) {
   for (int i = 0; i < MimicConfig.NumModelParams; i++) {
@@ -132,6 +134,9 @@ static inline void add_test_sf_prescription_parameters(const int keys) {
   }
   if (keys & SAGE26_TEST_KEY_STARBURST_COLD_GAS) {
     sage26_test_append_model_parameter("StarburstColdGasOn", "1");
+  }
+  if (keys & SAGE26_TEST_KEY_FIRE_MODE) {
+    sage26_test_append_model_parameter("FIREmodeOn", "0");
   }
 }
 

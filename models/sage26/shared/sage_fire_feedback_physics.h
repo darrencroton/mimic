@@ -29,17 +29,21 @@
  * once and every FIRE local widens that float to double (S:746, S:763, S:787); every local is a
  * double. The non-FIRE ejection's float-squared Vvir does not apply here.
  *
- * Rounding points. SAGE26's object (Apple clang -O2 -march=native, arm64; objdump -d -l of
- * model_starformation_and_feedback.o, the oracle README's c09 table) fuses no multiply-add on
- * these lines: E_FB, E_lift and their difference keep separate roundings. Each expression here is
- * one C expression with SAGE26's operand order and types, none of which clang contracts. The object
- * evaluates two of the scaling's three pow calls with pow (S:750, S:752; never powf) but compiles
- * the high-velocity pow(x, -1.0) (S:751) to the division 1.0 / x (fdiv at offset 0x8fc), which
- * macOS pow(x, -1.0) does not reproduce for every x; the package writes that division (see
+ * Rounding points. SAGE26's objects (Apple clang -O2 -march=native, arm64; objdump -d -l of
+ * model_starformation_and_feedback.o and model_mergers.o, the oracle README's c09 table) fuse no
+ * multiply-add on these lines, on the disk path or the burst's copy (M = R/src/model_mergers.c,
+ * M:690-752): E_FB, E_lift and their difference keep separate roundings. Each expression here is
+ * one C expression with SAGE26's operand order and types, none of which clang contracts. The
+ * objects evaluate two of the scaling's three pow calls with pow (S:750, S:752; M:699, M:701;
+ * never powf) but compile the high-velocity pow(x, -1.0) (S:751, M:700) to the division 1.0 / x
+ * (fdiv at model_starformation_and_feedback.o offset 0x8fc and model_mergers.o offset 0xdc8),
+ * which macOS pow(x, -1.0) does not reproduce for every x; the package writes that division (see
  * mimic_sage_fire_scaling).
  *
- * @note Used by sage26_calculate_supernova_feedback (the disk path, S:732-889), and by the oracle
- *       and unit tests of that module, which call the helpers with locals.
+ * @note Used by sage26_calculate_supernova_feedback (the disk path, S:732-889) and by the burst
+ *       transaction mimic_apply_collisional_starburst (shared/sage_starburst_physics.h, M:690-752,
+ *       the burst host's own float Vvir and stored SnapNum, no MassLoading write), and by the
+ *       oracle and unit tests of those modules, which call the helpers with locals.
  */
 
 #ifndef MIMIC_SHARED_SAGE_FIRE_FEEDBACK_PHYSICS_H
@@ -193,11 +197,13 @@ static inline double mimic_sage_fire_scaling(const float vvir, const double reds
                                   ? MIMIC_SAGE_FIRE_VELOCITY_FLOOR_KMS
                                   : vc_fire;
     /* SAGE parity: SAGE26 writes the high-velocity term as pow(vc_floored / FIRE_V_CRIT_KMS, -1.0)
-     * (R/src/model_starformation_and_feedback.c:751), and its object computes it as the division
-     * 1.0 / x (fdiv at model_starformation_and_feedback.o offset 0x8fc, clang's simplification of
-     * pow with exponent -1). macOS pow(x, -1.0) differs from 1.0 / x for 1352565 of the floats
-     * from 60 km/s up (an exhaustive check), so the division is written as the object has it,
-     * correctly rounded at every optimisation level. The low-velocity term stays pow (:750). */
+     * (R/src/model_starformation_and_feedback.c:751; the burst's copy R/src/model_mergers.c:700),
+     * and its objects compute it as the division 1.0 / x (fdiv at
+     * model_starformation_and_feedback.o offset 0x8fc and model_mergers.o offset 0xdc8, clang's
+     * simplification of pow with exponent -1). macOS pow(x, -1.0) differs from 1.0 / x for 1352565
+     * of the floats from 60 km/s up (an exhaustive check), so the division is written as the object
+     * has it, correctly rounded at every optimisation level. The low-velocity term stays pow
+     * (:750). */
     const double v_term =
         (vc_floored < MIMIC_SAGE_FIRE_V_CRIT_KMS)
             ? pow(vc_floored / MIMIC_SAGE_FIRE_V_CRIT_KMS, MIMIC_SAGE_FIRE_LOW_V_EXPONENT)

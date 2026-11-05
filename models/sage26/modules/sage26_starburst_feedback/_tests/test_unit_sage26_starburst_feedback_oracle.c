@@ -41,6 +41,16 @@
  * hydrogen): the oracle's observation of SAGE26's own recheck growth (its capped flags and, where
  * a cap binds, the bound it stored) is asserted against the port's recheck cap locals. The
  * recheck's own burst records no locals; the end state asserts its effect.
+ * FIREmodeOn (the c09 fixtures, routine collisional_starburst_recipe_fire, R3's flags): the bundle
+ * carries the fixture's FIREmodeOn and the redshift table its params.ZZ entries fill
+ * (sage26_oracle_fire.h), and the test also asserts bit for bit: every recorded galaxy's
+ * MassLoading, equal to its input (a burst never writes it, R/src/model_mergers.c:707-710); the
+ * burst's c09 flags and values (oracle_c09_check_fire_record, check kinds and markers included);
+ * the burst's wiring (it took the FIREmodeOn branch with the host's own stored SnapNum, float Vvir
+ * and that snapshot's redshift, the fixture's, never the FoF central's or a satellite's); and,
+ * where the oracle observes that the post-minor-merger recheck's own burst took the FIRE branch
+ * (intermediate.burst_recheck_fire_*_sensitive 1), the port's record of that nested burst: the
+ * same wiring and the host's path-invariant scaling, loadings and coupling.
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
  * SKIP.
  *
@@ -60,6 +70,7 @@
 #include <string.h>
 
 #include "modules/_tests/sage_test_fixtures.h"
+#include "modules/_tests/sage26_oracle_fire.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
 #include "modules/_tests/sage26_oracle_hydrogen.h"
 #include "modules/_tests/sage26_oracle_sizes.h"
@@ -88,17 +99,26 @@ static struct oracle_c08_local_tally h_tally;
  * whose bound was asserted (oracle_c08_check_recheck_bh) */
 static int recheck_growth_fixtures = 0;
 static int recheck_binding = 0;
+/* c09: the FIRE fixtures' values, and the per-path wiring asserted (the burst, and the recheck's
+ * own burst where the oracle observes it took the FIRE branch) */
+static struct oracle_c09_tally fire_tally;
+static int burst_wiring_asserted = 0;
+static int recheck_wiring_asserted = 0;
+static int mass_loading_asserted = 0;
 
 /**
  * @brief Read the fixture's flags and parameters into the burst's parameter bundle
  * @return Number of problems
  */
-static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstParams *p) {
+static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstParams *p,
+                            const int fire) {
   /* SFprescription 0 or 1 (with the H2 configuration for 1), BulgeSizeOn 0 or 3 with Hubble_h
-   * for 3 (the other flags R0's, R1's and R2's) */
+   * for 3 (the other flags R0's, R1's and R2's; FIREmodeOn 0 or 1 for a c09 fixture, read by
+   * oracle_c09_read_fire_config) */
   struct MimicSageBulgeSize sizes;
   int sf_prescription = 0;
-  int problems = oracle_c08_require_merger_flags(in, &sizes, &sf_prescription);
+  int problems = fire ? oracle_c09_require_merger_flags(in, &sizes, &sf_prescription)
+                      : oracle_c08_require_merger_flags(in, &sizes, &sf_prescription);
   reset_config();
   MimicConfig.G = oracle_in_f64(in, "params.G");
   MimicConfig.UnitVelocity_in_cm_per_s = oracle_in_f64(in, "params.UnitVelocity_in_cm_per_s");
@@ -213,15 +233,53 @@ static int check_carried(struct oracle_fixture *out, const struct MimicSageStarb
   return problems;
 }
 
+/**
+ * @brief c09: the FIRE record, the burst's wiring and the recheck burst's, and MassLoading
+ * @return Number of mismatches
+ */
+static int check_fire(struct oracle_fixture *out, const int fire_mode_on, const int ngal,
+                      const int host, const struct MimicSageStarburstLocals *b,
+                      const struct GalaxyData *before, const struct GalaxyData *galaxies,
+                      const struct Halo *halos) {
+  int problems = oracle_c09_check_fire_record(out, fire_mode_on, &b->fire.l, 0, &fire_tally);
+  problems += oracle_c09_check_burst_wiring(out->path, "burst", &b->fire, fire_mode_on,
+                                            halos[host].SnapNum, (float)halos[host].Vvir);
+  burst_wiring_asserted++;
+  const int mode_sensitive = oracle_c09_observed(out, "burst_recheck_fire_mode_sensitive");
+  const int z_sensitive = oracle_c09_observed(out, "burst_recheck_fire_redshift_sensitive");
+  if (mode_sensitive == 1 || z_sensitive == 1) {
+    /* SAGE26's recheck burst took the FIRE branch with the host's redshift: the port's must */
+    problems +=
+        oracle_c09_check_burst_wiring(out->path, "recheck burst", &b->recheck_fire, fire_mode_on,
+                                      halos[host].SnapNum, (float)halos[host].Vvir);
+    problems += oracle_c09_check_same_host_budget(out->path, "recheck burst", &b->recheck_fire.l,
+                                                  &b->fire.l);
+    recheck_wiring_asserted++;
+  }
+  /* Every galaxy of a c09 burst fixture is recorded, an uninvolved satellite included */
+  for (int i = 0; i < ngal; i++) {
+    problems +=
+        oracle_c09_check_mass_loading(out, "", i, before[i].MassLoading, galaxies[i].MassLoading);
+    mass_loading_asserted++;
+  }
+  return problems;
+}
+
 /** @brief Compare one fixture; returns the number of mismatches and errors */
 static int check_fixture(const char *name) {
   static struct oracle_fixture in, out;
-  if (oracle_load_pair(MODULE, name, ROUTINE, &in, &out) != 0) {
+  char path[ORACLE_MAX_PATH];
+  oracle_fixture_path(path, sizeof(path), MODULE, name, ".in");
+  if (oracle_load(path, &in) != 0) {
+    return 1;
+  }
+  const int fire = strcmp(in.routine, ORACLE_C09_BURST_ROUTINE) == 0;
+  if (oracle_load_pair(MODULE, name, fire ? ORACLE_C09_BURST_ROUTINE : ROUTINE, &in, &out) != 0) {
     return 1;
   }
 
   struct MimicStarburstParams params;
-  int problems = setup_parameters(&in, &params);
+  int problems = setup_parameters(&in, &params, fire);
   const int ngal = oracle_in_i32(&in, "call.ngal");
   const int host = oracle_in_i32(&in, "call.merger_centralgal");
   const int central = oracle_in_i32(&in, "call.centralgal");
@@ -247,6 +305,15 @@ static int check_fixture(const char *name) {
   for (int i = 0; i < ngal; i++) {
     problems += oracle_c06_in_galaxy(&in, i, &halos[i], &galaxies[i]);
   }
+  /* c09: FIREmodeOn, the stored snapshots' redshifts (the bundle's table) and MassLoading */
+  int fire_mode_on = MIMIC_SAGE_FIRE_MODE_OFF;
+  if (fire) {
+    int snapnum[MAX_GALAXIES];
+    problems += oracle_c09_read_fire_config(&in, ngal, snapnum, &fire_mode_on);
+    oracle_c09_read_mass_loading(&in, ngal, galaxies);
+    params.fire_mode_on = fire_mode_on;
+    params.redshift_config = &MimicConfig;
+  }
   if (problems != 0) {
     return problems;
   }
@@ -262,9 +329,12 @@ static int check_fixture(const char *name) {
 
   /* rate_dt 0: the package's StarFormationRate diagnostic is left off and must not change */
   struct MimicSageStarburstLocals locals;
-  mimic_apply_collisional_starburst(mass_ratio, &halos[host], &halos[central], mode,
-                                    burst_to_merger_bulge, old_disk_radius, 0.0, step, dt, &ctx,
-                                    &params, &locals);
+  if (mimic_apply_collisional_starburst(mass_ratio, &halos[host], &halos[central], mode,
+                                        burst_to_merger_bulge, old_disk_radius, 0.0, step, dt, &ctx,
+                                        &params, &locals) != 0) {
+    fprintf(stderr, "oracle: %s: the burst refused its host\n", name);
+    return problems + 1;
+  }
   if (params.bulge_size.bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI) {
     sizes_fixtures++;
   }
@@ -289,6 +359,9 @@ static int check_fixture(const char *name) {
   }
   problems += oracle_c08_check_recheck_bh(&out, params.sf_prescription, &locals.recheck_bh_caps,
                                           &recheck_binding);
+  if (fire) {
+    problems += check_fire(&out, fire_mode_on, ngal, host, &locals, before, galaxies, halos);
+  }
 
   problems += oracle_report_unconsumed(&in);
   problems += oracle_report_unconsumed(&out);
@@ -321,6 +394,10 @@ int test_oracle_bit_identity(void) {
   memset(&h_tally, 0, sizeof(h_tally));
   recheck_growth_fixtures = 0;
   recheck_binding = 0;
+  memset(&fire_tally, 0, sizeof(fire_tally));
+  burst_wiring_asserted = 0;
+  recheck_wiring_asserted = 0;
+  mass_loading_asserted = 0;
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), binding %d, "
          "not validated %d, absent %d; ratio-0 merger bursts through the direct call %d ",
@@ -333,7 +410,17 @@ int test_oracle_bit_identity(void) {
   printf("\n  oracle: SFprescription 1 rechecks that grew the black hole %d, their binding "
          "caps asserted at the bound %d ",
          recheck_growth_fixtures, recheck_binding);
+  printf("\n  oracle: c09 bursts with FIREmodeOn 1 %d, with 0 %d; c09 values validated %d, "
+         "not validated %d, absent %d (continuation %d, tail %d), binding caps %d ",
+         fire_tally.fire_on, fire_tally.fire_off, fire_tally.validated, fire_tally.not_validated,
+         fire_tally.absent, fire_tally.continuation, fire_tally.tail, fire_tally.binding);
+  printf("\n  oracle: c09 wiring asserted: bursts %d, recheck bursts %d; MassLoading unchanged %d ",
+         burst_wiring_asserted, recheck_wiring_asserted, mass_loading_asserted);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(fire_tally.fire_on >= 1 && fire_tally.fire_off >= 1,
+              "the c09 bursts must run FIREmodeOn 1 and its 0 twin");
+  TEST_ASSERT(recheck_wiring_asserted >= 1,
+              "a recheck burst's FIRE wiring must be asserted where the oracle observes it");
   TEST_ASSERT(sizes_fixtures >= 1, "a burst fixture must run BulgeSizeOn 3");
   TEST_ASSERT(br06_fixtures >= 1, "a burst fixture must run SFprescription 1");
   TEST_ASSERT(recheck_growth_fixtures >= 1 && recheck_binding >= 1,

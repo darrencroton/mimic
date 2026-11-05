@@ -22,7 +22,9 @@
  *                                        scaling, capped loading and energy-based ejection of
  *                                        compute_sn_feedback (S:739-792), each galaxy's stored
  *                                        SnapNum and its redshift ZZ[SnapNum], and MassLoading
- *                                        recorded on every galaxy
+ *                                        recorded on every galaxy; c09's second slice admits the
+ *                                        gas-unstable continuation, whose burst SAGE26 runs with
+ *                                        FIREmodeOn 1, and records two observations of it
  *   starformation_and_feedback_sequence  the same call over every substep of one galaxy
  *                                        (B:470-516), then SubstepsUsed (B:466-467) and the
  *                                        writer's averaging (W:934-959)
@@ -33,6 +35,11 @@
  *                                        (R/src/model_mergers.c:790-791); with SFprescription 1
  *                                        its hydrogen cap (S:1169-1173) is recorded (c08)
  *   check_disk_instability               D:47-110
+ *   check_disk_instability_fire          the same call with FIREmodeOn 0 or 1 (c09): the
+ *                                        continuation's burst (D:106-108) with SAGE26's FIRE
+ *                                        budget (R/src/model_mergers.c:690-752), each galaxy's
+ *                                        stored SnapNum and ZZ[SnapNum], MassLoading recorded on
+ *                                        every galaxy, and two observations of the burst
  *   step_bin_map                         a TRANSCRIPTION of B:513-516 (bin and dt)
  *   sfr_history_average                  a TRANSCRIPTION of W:934-959, with SAGE26's own
  *                                        sfr_rate_divisor and sfr_metallicity_divisor
@@ -1522,6 +1529,17 @@ static void call_update_from_feedback(const int p, const int centralgal, const d
 // TRANSCRIPTION OF SAGE26 SOURCE (model_disk_instability.c)
 // ============================================================================
 
+/**
+ * c09: a counterfactual applied to the instability continuation's burst only (D:106-108): 0 none;
+ * NESTED_CF_FIRE_OFF runs SAGE26's own collisional_starburst_recipe with a copy of the run
+ * parameters whose FIREmodeOn is 0; NESTED_CF_REDSHIFT with the redshift of the bursting galaxy's
+ * stored snapshot, ZZ[galaxies[p].SnapNum], replaced by itself plus 1.0. Set only by the
+ * observations of observe_nested_burst_fire(); every composition that checks or validates runs
+ * with 0.
+ */
+enum nested_counterfactual { NESTED_CF_NONE, NESTED_CF_FIRE_OFF, NESTED_CF_REDSHIFT };
+static enum nested_counterfactual nested_cf = NESTED_CF_NONE;
+
 /** @brief What a transcribed instability did, and its state before the c06 continuation */
 struct instability_run {
   int reached_gas_branch;
@@ -1630,6 +1648,19 @@ static void transcribe_check_disk_instability(const int p, const int centralgal,
          * SFprescription 1) and before the burst, recorded for SFprescription 1 */
         memcpy(run->after_bh, galaxies, (size_t)ngal * sizeof(galaxies[0]));
         run->after_bh_present = 1;
+      }
+      if (nested_cf != NESTED_CF_NONE) {
+        /* c09: the counterfactual of an observation (observe_nested_burst_fire) */
+        static struct params cf;
+        memcpy(&cf, &run_params, sizeof(cf));
+        if (nested_cf == NESTED_CF_FIRE_OFF) {
+          cf.FIREmodeOn = 0;
+        } else {
+          cf.ZZ[galaxies[p].SnapNum] = cf.ZZ[galaxies[p].SnapNum] + 1.0;
+        }
+        collisional_starburst_recipe(unstable_gas_fraction, p, centralgal, time, dt, ORACLE_HALONR,
+                                     1, step, 0, galaxies[p].DiskScaleRadius, galaxies, &cf);
+        return;
       }
       collisional_starburst_recipe(unstable_gas_fraction, p, centralgal, time, dt, ORACLE_HALONR, 1,
                                    step, 0, galaxies[p].DiskScaleRadius, galaxies, &run_params);
@@ -2060,7 +2091,53 @@ struct wrapper_record {
   int p;                                   /* the forming galaxy */
   int after_bh_present;                    /* c08: the instability's continuation grew the BH */
   struct GALAXY after_bh[MAX_GALAXIES];    /* c08: the state after that growth, before the burst */
+  int nested_gas_branch;                   /* c09: the continuation's burst ran */
+  int nested_fire_sensitive[2];            /* c09: observe_nested_burst_fire(), FIRE off, z */
 };
+
+/**
+ * @brief c09: OBSERVATIONS of the instability continuation's burst (D:106-108), which is SAGE26's
+ *        own collisional_starburst_recipe
+ *
+ * The fully transcribed composition (the wrapper's, or the instability's) runs again from the
+ * input with the burst's run parameters changed in one member (enum nested_counterfactual):
+ * FIREmodeOn 0, then the bursting galaxy's stored-snapshot redshift plus 1.0. sensitive[k] is 1 if
+ * the end state then differs from SAGE26's in a recorded field. Within the burst and the
+ * instability only the burst reads FIREmodeOn and ZZ (R/src/model_mergers.c:693-694, :707, :730),
+ * so a difference shows that the burst took the FIRE branch and read the bursting galaxy's
+ * stored-snapshot redshift. -1 where FIREmodeOn is 0 or the gas branch was not reached.
+ */
+static void observe_nested_burst_fire(int (*rerun)(const void *), const void *args,
+                                      const int gas_branch, int sensitive[2]) {
+  sensitive[0] = -1;
+  sensitive[1] = -1;
+  if (!gas_branch || run_params.FIREmodeOn != 1) {
+    return;
+  }
+  for (int k = 0; k < 2; k++) {
+    nested_cf = k == 0 ? NESTED_CF_FIRE_OFF : NESTED_CF_REDSHIFT;
+    sensitive[k] = rerun(args);
+    nested_cf = NESTED_CF_NONE;
+  }
+}
+
+/** c09: what observe_nested_burst_fire() reruns for the wrapper */
+struct wrapper_rerun {
+  const struct GALAXY *input;
+  const struct wrapper_args *a;
+  const struct GALAXY *end;
+};
+
+/** @brief c09: the fully transcribed recomposition again; 1 if it changes a recorded field */
+static int rerun_wrapper_changed(const void *args) {
+  const struct wrapper_rerun *r = args;
+  const struct composition all_transcribed = {1, 1, 1, 1};
+  struct locals l;
+  struct GALAXY result[MAX_GALAXIES];
+  static struct instability_run inst;
+  compose_wrapper(r->input, r->a, &all_transcribed, &NO_PERTURBATION, &l, result, &inst);
+  return l.out_of_domain || !same_galaxies(result, r->end, r->a->layout.ngal, BLOCK_FULL);
+}
 
 /**
  * @brief Call SAGE26's starformation_and_feedback, check the recomposition, validate
@@ -2097,12 +2174,8 @@ static void run_checked_wrapper(const struct GALAXY *input, const struct wrapper
           "grow_black_hole and collisional_starburst_recipe (c06); use DiskInstabilityOn 0 or "
           "a check_disk_instability fixture");
   }
-  if (inst.reached_gas_branch && fire_block_recorded) {
-    fatal("the disk is gas-unstable after feedback: starformation_and_feedback_fire covers a "
-          "stable disk after star formation only (c09 Slice 1); the continuation's burst is "
-          "not in its domain");
-  }
   rec->p = a->layout.p;
+  rec->nested_gas_branch = inst.reached_gas_branch; /* c09 */
   rec->after_bh_present = inst.after_bh_present;
   memcpy(rec->after_bh, inst.after_bh, (size_t)ngal * sizeof(rec->after_bh[0]));
   if (!same_galaxies(result, rec->end, ngal, BLOCK_FULL)) {
@@ -2142,6 +2215,11 @@ static void run_checked_wrapper(const struct GALAXY *input, const struct wrapper
       rec->fire_sens[id] = validate_wrapper_fire_value(input, a, rec->end, id);
     }
   }
+
+  /* c09: the gas-unstable continuation's burst observed (FIREmodeOn 1 only) */
+  const struct wrapper_rerun rerun = {input, a, rec->end};
+  observe_nested_burst_fire(rerun_wrapper_changed, &rerun, rec->nested_gas_branch,
+                            rec->nested_fire_sensitive);
 }
 
 /** @brief Write one carried value: absent marker, value, checked and validated markers */
@@ -2296,6 +2374,12 @@ static void write_wrapper_record(const char *prefix, const struct wrapper_record
   /* FIREmodeOn (c09): starformation_and_feedback_fire's record, after every earlier one */
   if (fire_block_recorded) {
     write_fire_record(rec);
+    /* c09's second slice: the gas-unstable continuation's burst, only where it ran, so every
+     * earlier (stable) fixture's output is unchanged */
+    if (rec->nested_gas_branch) {
+      out_i32("intermediate.nested_burst_fire_mode_sensitive", rec->nested_fire_sensitive[0]);
+      out_i32("intermediate.nested_burst_fire_redshift_sensitive", rec->nested_fire_sensitive[1]);
+    }
   }
 }
 
@@ -2695,15 +2779,39 @@ static struct sensitivity instability_sensitivity(const struct instability_call 
  * state (before the c06 continuation) and SAGE26's full end state is recorded separately,
  * as c06's, under intermediate.c06.
  */
-static void run_check_disk_instability(void) {
-  read_r0_flags(0, 1, 0);
+/** c09: what observe_nested_burst_fire() reruns for the instability */
+struct instability_rerun {
+  const struct instability_call *call;
+  const struct GALAXY *input;
+  const struct GALAXY *end;
+};
+
+/** @brief c09: the transcribed instability with its continuation again; 1 if a field changes */
+static int rerun_instability_changed(const void *args) {
+  const struct instability_rerun *r = args;
+  const struct instability_call *c = r->call;
+  struct locals l;
+  init_locals(&l);
+  static struct instability_run run;
+  memcpy(galaxies, r->input, (size_t)c->ngal * sizeof(galaxies[0]));
+  transcribe_check_disk_instability(c->p, c->centralgal, c->time, c->dt, c->step, c->ngal, 1, &l,
+                                    &NO_PERTURBATION, &run);
+  return !same_galaxies(galaxies, r->end, c->ngal, BLOCK_FULL);
+}
+
+static void run_instability_fixture(const int fire) {
+  read_r0_flags(0, 1, fire);
   read_r0_params();
+  fire_block_recorded = fire;
   const struct layout layout = read_layout();
   const double time = in_f64("call.time");
   const double dt = in_f64("call.dt");
   const int step = in_i32("call.step_bin");
   for (int i = 0; i < layout.ngal; i++) {
     read_galaxy(i, BLOCK_FULL);
+  }
+  if (fire) {
+    read_fire_snapshots(layout.ngal);
   }
   check_all_fields_used();
   /* collisional_starburst_recipe's assertions (R/src/model_mergers.c:589-592) */
@@ -2793,7 +2901,21 @@ static void run_check_disk_instability(void) {
   if (run_params.SFprescription == 1) {
     write_after_bh_record("", run.after_bh_present, p, run.after_bh);
   }
+  /* c09: FIREmodeOn and the observations of the continuation's burst, after every earlier record */
+  if (fire) {
+    int sensitive[2];
+    const struct instability_rerun rerun = {&call, input, end};
+    observe_nested_burst_fire(rerun_instability_changed, &rerun, gas, sensitive);
+    out_i32("intermediate.fire_mode", run_params.FIREmodeOn);
+    out_i32("intermediate.nested_burst_fire_mode_sensitive", sensitive[0]);
+    out_i32("intermediate.nested_burst_fire_redshift_sensitive", sensitive[1]);
+  }
 }
+
+static void run_check_disk_instability(void) { run_instability_fixture(0); }
+
+/** @brief c09: check_disk_instability with FIREmodeOn 0 or 1 (README "The c09 Group") */
+static void run_check_disk_instability_fire(void) { run_instability_fixture(1); }
 
 /** @brief TRANSCRIPTION of the step bin and dt for every substep of a snapshot (B:513-516) */
 static void run_step_bin_map(void) {
@@ -2919,6 +3041,7 @@ struct routine_entry {
 static const struct routine_entry routines[] = {
     {"starformation_and_feedback", run_starformation_and_feedback},
     {"starformation_and_feedback_fire", run_starformation_and_feedback_fire},
+    {"check_disk_instability_fire", run_check_disk_instability_fire},
     {"starformation_and_feedback_sequence", run_starformation_and_feedback_sequence},
     {"update_from_star_formation", run_update_from_star_formation},
     {"update_from_feedback", run_update_from_feedback},

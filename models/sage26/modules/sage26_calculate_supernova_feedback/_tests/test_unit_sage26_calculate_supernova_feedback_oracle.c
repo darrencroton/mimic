@@ -453,8 +453,9 @@ static int run_fixture(struct oracle_fixture *in, struct oracle_fixture *out, st
   }
   problems += oracle_c06_check_flag(out, "ejection_vvir_nonpositive", vvir > 0.0 ? 0 : 1);
   /* The FIRE ejection is +0.0 or a positive quotient, so the floor never binds on that path
-   * (S:792, S:880-882); with FIREmodeOn 0 a floored ejection is legitimate and the flag is left to
-   * the end-state comparison (consumed below) */
+   * (S:792, S:880-882) and the flag is asserted 0; with FIREmodeOn 0 a floored ejection is
+   * legitimate and the flag is consumed without an assertion (below), the floored budget itself
+   * asserted by the feedback boundary above */
   if (c->fire_mode_on == MIMIC_SAGE_FIRE_MODE_ON) {
     problems += oracle_c06_check_flag(out, "ejected_floored", 0);
   }
