@@ -33,6 +33,14 @@
  * params.G is applied (the recheck's Mcrit). The observation
  * intermediate.burst_instability_recheck_changed_state is not a port value (it records
  * whether SAGE26's own recheck changed the state); the end state asserts its effect.
+ * SFprescription 1 (the c08 burst_r2_* fixtures, R2's flags): the bundle carries the fixture's
+ * SFprescription, so the commits cap the hydrogen (S:1131-1135, S:1169-1173), the burst refreshes
+ * it after the feedback (M:798-803) and the recheck's black-hole growth caps it (M:366-372); the
+ * test also asserts the burst's hydrogen record bit for bit (sage26_oracle_hydrogen.h). The
+ * recheck's black-hole cap is end-state invariant (its burst re-caps and refreshes the
+ * hydrogen): the oracle's observation of SAGE26's own recheck growth (its capped flags and, where
+ * a cap binds, the bound it stored) is asserted against the port's recheck cap locals. The
+ * recheck's own burst records no locals; the end state asserts its effect.
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
  * SKIP.
  *
@@ -53,6 +61,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_hydrogen.h"
 #include "modules/_tests/sage26_oracle_sizes.h"
 #include "shared/sage_starburst_physics.h"
 
@@ -72,15 +81,24 @@ static struct oracle_c06_carried_tally tally;
 static int ratio_zero_fixtures = 0;
 /* Fixtures run with BulgeSizeOn 3 (c07) */
 static int sizes_fixtures = 0;
+/* c08: fixtures run with SFprescription 1, and their hydrogen values */
+static int br06_fixtures = 0;
+static struct oracle_c08_local_tally h_tally;
+/* c08: SFprescription 1 bursts whose recheck grew the black hole, and the binding recheck caps
+ * whose bound was asserted (oracle_c08_check_recheck_bh) */
+static int recheck_growth_fixtures = 0;
+static int recheck_binding = 0;
 
 /**
  * @brief Read the fixture's flags and parameters into the burst's parameter bundle
  * @return Number of problems
  */
 static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstParams *p) {
-  /* BulgeSizeOn 0 or 3 with Hubble_h for 3 (the other flags R0's) */
+  /* SFprescription 0 or 1 (with the H2 configuration for 1), BulgeSizeOn 0 or 3 with Hubble_h
+   * for 3 (the other flags R0's, R1's and R2's) */
   struct MimicSageBulgeSize sizes;
-  int problems = oracle_c07_require_merger_flags(in, &sizes);
+  int sf_prescription = 0;
+  int problems = oracle_c08_require_merger_flags(in, &sizes, &sf_prescription);
   reset_config();
   MimicConfig.G = oracle_in_f64(in, "params.G");
   MimicConfig.UnitVelocity_in_cm_per_s = oracle_in_f64(in, "params.UnitVelocity_in_cm_per_s");
@@ -101,6 +119,7 @@ static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstPara
   p->black_hole_growth_rate = oracle_in_f64(in, "params.BlackHoleGrowthRate");
   p->quasar_mode_efficiency = oracle_in_f64(in, "params.QuasarModeEfficiency");
   p->bulge_size = sizes;
+  p->sf_prescription = sf_prescription;
   return problems;
 }
 
@@ -249,6 +268,9 @@ static int check_fixture(const char *name) {
   if (params.bulge_size.bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI) {
     sizes_fixtures++;
   }
+  if (params.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+    br06_fixtures++;
+  }
 
   for (int i = 0; i < ngal; i++) {
     problems += oracle_c06_check_galaxy(&out, "", i, &galaxies[i], i == host);
@@ -260,6 +282,13 @@ static int check_fixture(const char *name) {
   }
   problems += check_flags(&out, &locals);
   problems += check_carried(&out, &locals);
+  problems += oracle_c08_check_burst_hydrogen(&out, params.sf_prescription, &locals, &h_tally);
+  if (params.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06 &&
+      locals.recheck_bh_caps.tracks_h2 != -1) {
+    recheck_growth_fixtures++;
+  }
+  problems += oracle_c08_check_recheck_bh(&out, params.sf_prescription, &locals.recheck_bh_caps,
+                                          &recheck_binding);
 
   problems += oracle_report_unconsumed(&in);
   problems += oracle_report_unconsumed(&out);
@@ -288,13 +317,27 @@ int test_oracle_bit_identity(void) {
   memset(&tally, 0, sizeof(tally));
   ratio_zero_fixtures = 0;
   sizes_fixtures = 0;
+  br06_fixtures = 0;
+  memset(&h_tally, 0, sizeof(h_tally));
+  recheck_growth_fixtures = 0;
+  recheck_binding = 0;
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), binding %d, "
          "not validated %d, absent %d; ratio-0 merger bursts through the direct call %d ",
          tally.asserted, tally.binding, tally.not_validated, tally.absent, ratio_zero_fixtures);
   printf("\n  oracle: bursts with BulgeSizeOn 3 %d ", sizes_fixtures);
+  printf("\n  oracle: bursts with SFprescription 1 %d; c08 values validated %d, "
+         "narrowing-limited %d, not validated %d, absent %d ",
+         br06_fixtures, h_tally.validated, h_tally.narrowing_limited, h_tally.not_validated,
+         h_tally.absent);
+  printf("\n  oracle: SFprescription 1 rechecks that grew the black hole %d, their binding "
+         "caps asserted at the bound %d ",
+         recheck_growth_fixtures, recheck_binding);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   TEST_ASSERT(sizes_fixtures >= 1, "a burst fixture must run BulgeSizeOn 3");
+  TEST_ASSERT(br06_fixtures >= 1, "a burst fixture must run SFprescription 1");
+  TEST_ASSERT(recheck_growth_fixtures >= 1 && recheck_binding >= 1,
+              "an SFprescription 1 recheck must grow the black hole with a binding cap");
   TEST_ASSERT(ratio_zero_fixtures >= 1, "the ratio-0 merger burst fixture must be asserted");
   return TEST_PASS;
 }

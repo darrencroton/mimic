@@ -70,6 +70,14 @@
  * flags and every local the oracle records, each named by the oracle as narrowing-limited
  * (its only path to the state is one float store, so it is validated in neither direction).
  *
+ * SFprescription 1 (the c08 di_r2_* fixtures, R2's flags with BulgeSizeOn 3): the three modules
+ * read the fixture's SFprescription, so the continuation's black-hole growth caps the hydrogen
+ * (M:366-372) and its burst caps and refreshes it (S:1131-1135, S:1169-1173, M:798-803). Besides
+ * SAGE26's end state (intermediate.c06.*), the test asserts the gas-unstable galaxy's state after
+ * sage26_quasar_mode and before sage26_starburst_feedback (intermediate.after_bh.*, the fourteen
+ * written fields, the size members and the two black-hole fields) against the oracle's state
+ * after SAGE26's own grow_black_hole: the accretion cap's effect on H2gas and H1gas, isolated.
+ *
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
  * SKIP.
  *
@@ -91,6 +99,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_h2.h"
 #include "modules/_tests/sage26_oracle_sizes.h"
 #include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_disk_instability_physics.h"
@@ -128,6 +137,10 @@ static const char *MODULE = "sage26_disk_instability";
 static struct oracle_c05_carried_tally tally;
 static int handed_fraction_asserted = 0;
 static int end_to_end_asserted = 0;
+/* c08: the fixture's SFprescription (setup_parameters), and the SFprescription 1 counts */
+static int fixture_sf_prescription = 0;
+static int end_to_end_br06 = 0;
+static int after_bh_asserted = 0;
 static int sizes_asserted = 0;
 static int update_fixtures = 0;
 static struct oracle_c07_local_tally local_tally;
@@ -158,8 +171,11 @@ static int setup_parameters(struct oracle_fixture *in, int *bulge_size_on) {
   int problems = 0;
   reset_config();
 
-  /* R0's fixed flags (oracle README "Flags and Parameters") */
-  problems += oracle_c05_require_flag(in, "params.SFprescription", 0);
+  /* R0's fixed flags (oracle README "Flags and Parameters"), with SFprescription read: 0 (R0,
+   * R1) or 1 (R2, with its H2 configuration) */
+  struct oracle_c08_sf_config sf_config;
+  problems += oracle_c08_read_sf_config(in, 0, &sf_config);
+  fixture_sf_prescription = sf_config.sf_prescription;
   problems += oracle_c05_require_flag(in, "params.SupernovaRecipeOn", 1);
   problems += oracle_c05_require_flag(in, "params.CGMrecipeOn", 0);
   problems += oracle_c05_require_flag(in, "params.FIREmodeOn", 0);
@@ -232,6 +248,13 @@ static int setup_parameters(struct oracle_fixture *in, int *bulge_size_on) {
 
   if (oracle_set_model_param("StarFormingDiskFactor", SAGE26_TOOMRE_DISK_FACTOR) != 0 ||
       oracle_set_model_param("BulgeSizeOn", (double)*bulge_size_on) != 0) {
+    problems++;
+  }
+  /* sage26_quasar_mode's and sage26_starburst_feedback's required SFprescription, the fixture's
+   * (0: the hydrogen caps and refresh off; 1, R2: on), and StarburstColdGasOn 1 (cold-gas
+   * bursts) */
+  if (oracle_set_model_param("SFprescription", (double)fixture_sf_prescription) != 0 ||
+      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
     problems++;
   }
   if (sage26_disk_instability_init() != 0) {
@@ -455,14 +478,32 @@ static int check_end_to_end(const char *name, struct oracle_fixture *out, struct
   static struct GalaxyData post_transfer[MAX_GALAXIES];
   memcpy(post_transfer, galaxies, sizeof(post_transfer));
 
-  if (sage26_quasar_mode_process(ctx, &halos[p], 1) != 0 ||
-      sage26_starburst_feedback_process(ctx, &halos[p], 1) != 0) {
-    fprintf(stderr, "oracle: %s: the continuation's process() failed\n", name);
+  size_t count;
+  const char *const *written = oracle_c05_written_names(&count);
+  if (sage26_quasar_mode_process(ctx, &halos[p], 1) != 0) {
+    fprintf(stderr, "oracle: %s: the continuation's quasar process() failed\n", name);
+    problems++;
+  }
+  /* c08: SFprescription 1, the state after the black-hole growth (its hydrogen cap) */
+  if (fixture_sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+    problems +=
+        oracle_c05_check_floats(out, "intermediate.after_bh.", p, &galaxies[p], written, count);
+    problems += oracle_c05_check_floats(out, "intermediate.after_bh.", p, &galaxies[p], UNTOUCHED,
+                                        COUNT(UNTOUCHED));
+    if (sizes_on) {
+      for (size_t k = 0; k < COUNT(SIZES); k++) {
+        problems += oracle_check_f32(
+            out, oracle_prefixed_galaxy_field("intermediate.after_bh.", p, SIZES[k]),
+            *oracle_c06_galaxy_float(&galaxies[p], SIZES[k]));
+      }
+    }
+    after_bh_asserted++;
+  }
+  if (sage26_starburst_feedback_process(ctx, &halos[p], 1) != 0) {
+    fprintf(stderr, "oracle: %s: the continuation's burst process() failed\n", name);
     problems++;
   }
 
-  size_t count;
-  const char *const *written = oracle_c05_written_names(&count);
   for (int i = 0; i < ngal; i++) {
     problems += oracle_c05_check_floats(out, "intermediate.c06.", i, &galaxies[i], written, count);
     problems += oracle_c05_check_floats(out, "intermediate.c06.", i, &galaxies[i], UNTOUCHED,
@@ -508,6 +549,9 @@ static int check_end_to_end(const char *name, struct oracle_fixture *out, struct
     }
   }
   end_to_end_asserted++;
+  if (fixture_sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+    end_to_end_br06++;
+  }
   return problems;
 }
 
@@ -721,6 +765,8 @@ int test_oracle_bit_identity(void) {
   memset(&tally, 0, sizeof(tally));
   handed_fraction_asserted = 0;
   end_to_end_asserted = 0;
+  end_to_end_br06 = 0;
+  after_bh_asserted = 0;
   sizes_asserted = 0;
   update_fixtures = 0;
   memset(&local_tally, 0, sizeof(local_tally));
@@ -736,10 +782,16 @@ int test_oracle_bit_identity(void) {
       "%d, its locals validated %d, narrowing-limited %d, not validated %d, absent %d ",
       sizes_asserted, update_fixtures, local_tally.validated, local_tally.narrowing_limited,
       local_tally.not_validated, local_tally.absent);
+  printf("\n  oracle: gas-unstable fixtures with SFprescription 1 asserted end to end %d, their "
+         "state after the black-hole growth %d ",
+         end_to_end_br06, after_bh_asserted);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
-  TEST_ASSERT(end_to_end_asserted == 9,
-              "the nine gas-unstable fixtures (six R0, three BulgeSizeOn 3) must be asserted end "
-              "to end");
+  TEST_ASSERT(end_to_end_asserted - end_to_end_br06 == 9,
+              "the nine SFprescription 0 gas-unstable fixtures (six R0, three BulgeSizeOn 3) must "
+              "be asserted end to end");
+  TEST_ASSERT(end_to_end_br06 >= 1 && after_bh_asserted == end_to_end_br06,
+              "the SFprescription 1 gas-unstable fixtures must be asserted end to end and after "
+              "the black-hole growth");
   TEST_ASSERT(sizes_asserted >= 1 && update_fixtures >= 1,
               "the BulgeSizeOn 3 instability and the direct radius update must be asserted");
   return TEST_PASS;

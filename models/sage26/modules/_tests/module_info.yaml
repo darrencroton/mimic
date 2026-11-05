@@ -37,6 +37,7 @@ module:
       - test_unit_sage_dependency_contracts.c
       - test_unit_sage26_oracle_reader.c
       - test_unit_sage26_bulge_size_parameter.c
+      - test_unit_sage26_sf_prescription_parameters.c
 
     integration:
       - test_integration_processing_mode_contracts.py

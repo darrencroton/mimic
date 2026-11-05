@@ -32,6 +32,9 @@
  *   - test_zero_stars_no_updates: A zero event leaves positive reservoirs unchanged
  *   - test_zero_event_caps_negative_hot_metals: A zero event still runs the metal cap
  *   - test_sf_commit_fused_rounding: the shared SF commit rounds as SAGE26's fused build
+ *   - test_sf_commit_hydrogen_caps: SFprescription 1's post-SF H2/H1 caps (S:1131-1135)
+ *   - test_feedback_commit_hydrogen_caps: SFprescription 1's post-reheating H2/H1 caps on the
+ *     reheated galaxy only (S:1169-1173)
  *   - test_ejection_exceeds_hot_gas: Ejection limited to HotGas
  *   - test_satellite_reheats_to_central: Satellites reheat to central's hot halo
  *   - test_temporary_properties_reset: Cleanup after processing
@@ -113,6 +116,8 @@ static void setup_test_parameters(double recycle, double yield, double frac_z) {
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", frac_z);
 
   MimicConfig.NumModelParams = idx;
+  /* The module's required SFprescription, at R1's value */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   /* Update test variables */
   test_recycle_fraction = recycle;
@@ -216,6 +221,8 @@ int test_module_initialization(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* the module's required SFprescription */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -251,6 +258,8 @@ int test_memory_safety(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* the module's required SFprescription */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -1119,8 +1128,10 @@ int test_sf_commit_fused_rounding(void) {
     TEST_ASSERT(metallicity == f64_from_bits(cases[c].metallicity),
                 "the cold-gas metallicity must equal SAGE26's get_metallicity");
 
+    /* SFprescription 0: SAGE26's R0 and R1 commit, with no hydrogen cap */
     mimic_sage_update_from_star_formation(&gal, f64_from_bits(cases[c].stars), metallicity,
-                                          recycle_fraction);
+                                          recycle_fraction, MIMIC_SAGE_SF_PRESCRIPTION_CROTON,
+                                          NULL);
 
     TEST_ASSERT(f32_bits(gal.ColdGas) == cases[c].sage26_out[0],
                 "ColdGas must round as SAGE26's fused update (S:1123)");
@@ -1131,6 +1142,182 @@ int test_sf_commit_fused_rounding(void) {
     TEST_ASSERT(f32_bits(gal.MetalsStellarMass) == cases[c].sage26_out[3],
                 "MetalsStellarMass must round as SAGE26's fused update (S:1126)");
   }
+  return TEST_PASS;
+}
+
+// ============================================================================
+// HYDROGEN CAPS OF THE SHARED COMMITS (SFPRESCRIPTION 1)
+// ============================================================================
+//
+// Platform-independent invariants of the two hydrogen caps SAGE26 runs for a prescription that
+// tracks H2: update_from_star_formation's after its four reservoir stores (S:1131-1135) and
+// update_from_feedback's after the cold-gas and metal debits (S:1169-1173). Each bound is the
+// float max_h = (ColdGas > 0.0f) ? ColdGas * 0.74 : 0.0f of the cold gas the commit leaves,
+// formed here as the commit forms it (one double product, narrowed: no operation a compiler can
+// contract). They carry no oracle fixture and no reference-build bit pattern; the bit-for-bit
+// parity with SAGE26 is the oracle test's
+// (test_unit_sage26_apply_star_formation_supernova_oracle.c).
+
+/** @brief The float hydrogen bound of a cold-gas reservoir, as both commits form it */
+static float hydrogen_bound(const float cold_gas) {
+  return (float)((cold_gas > 0.0f) ? cold_gas * 0.74 : 0.0f);
+}
+
+/** @brief A star-formation commit of a galaxy with the given cold gas, H2gas and H1gas */
+static void commit_star_formation(struct GalaxyData *gal, const float cold_gas, const float h2,
+                                  const float h1, const double stars, const int sf_prescription,
+                                  struct MimicSageHydrogenCapLocals *caps) {
+  memset(gal, 0, sizeof(*gal));
+  gal->ColdGas = cold_gas;
+  gal->StellarMass = 1.0f;
+  gal->H2gas = h2;
+  gal->H1gas = h1;
+  mimic_sage_update_from_star_formation(gal, stars, 0.0, 0.43, sf_prescription, caps);
+}
+
+/**
+ * @test    test_sf_commit_hydrogen_caps
+ * @brief   update_from_star_formation at SFprescription 1 caps H2gas and H1gas independently and
+ *          strictly at max_h of the cold gas it leaves, never their sum (S:1131-1135)
+ */
+int test_sf_commit_hydrogen_caps(void) {
+  struct GalaxyData gal;
+  struct MimicSageHydrogenCapLocals caps;
+  const float bound = hydrogen_bound(1.0f); /* a zero-star event leaves ColdGas 1.0 */
+  const float above = nextafterf(bound, INFINITY);
+  const float below = nextafterf(bound, 0.0f);
+
+  /* H2 above (capped to the bound), H1 at the bound (unchanged) */
+  commit_star_formation(&gal, 1.0f, above, bound, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
+  TEST_ASSERT(caps.tracks_h2 == 1 && caps.max_h == bound, "the bound is max_h of the cold gas");
+  TEST_ASSERT(gal.H2gas == bound && caps.h2_cap_binds == 1, "H2gas above the bound is capped");
+  TEST_ASSERT(gal.H1gas == bound && caps.h1_cap_binds == 0, "H1gas at the bound is unchanged");
+
+  /* H2 at the bound (unchanged), H1 above (capped) */
+  commit_star_formation(&gal, 1.0f, bound, above, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
+  TEST_ASSERT(gal.H2gas == bound && caps.h2_cap_binds == 0, "H2gas at the bound is unchanged");
+  TEST_ASSERT(gal.H1gas == bound && caps.h1_cap_binds == 1, "H1gas above the bound is capped");
+
+  /* Both below the bound (unchanged) */
+  commit_star_formation(&gal, 1.0f, below, below, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
+  TEST_ASSERT(gal.H2gas == below && gal.H1gas == below, "H2gas and H1gas below are unchanged");
+
+  /* Both below, their sum above: the caps never act on the sum */
+  commit_star_formation(&gal, 1.0f, 0.5f, 0.5f, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
+  TEST_ASSERT(0.5f + 0.5f > bound, "the sum is above the bound");
+  TEST_ASSERT(gal.H2gas == 0.5f && gal.H1gas == 0.5f, "the caps never act on the sum");
+
+  /* The bound is the cold gas the stars leave, not the cold gas before them */
+  commit_star_formation(&gal, 2.0f, 1.4f, 0.1f, 0.5, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
+  TEST_ASSERT(gal.ColdGas < 2.0f, "the stars deplete the cold gas");
+  TEST_ASSERT(caps.max_h == hydrogen_bound(gal.ColdGas), "the bound uses the remaining cold gas");
+  TEST_ASSERT(1.4f < hydrogen_bound(2.0f) && gal.H2gas == hydrogen_bound(gal.ColdGas),
+              "H2gas within the hydrogen before SF is capped to the hydrogen after it");
+  TEST_ASSERT(gal.H1gas == 0.1f, "H1gas below the remaining hydrogen is unchanged");
+
+  /* No cold gas: the bound is +0.0 */
+  commit_star_formation(&gal, 0.0f, 0.1f, 0.2f, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
+  TEST_ASSERT(caps.max_h == 0.0f && !signbit(caps.max_h), "with no cold gas the bound is +0.0");
+  TEST_ASSERT(gal.H2gas == 0.0f && !signbit(gal.H2gas), "H2gas is capped to +0.0");
+  TEST_ASSERT(gal.H1gas == 0.0f && !signbit(gal.H1gas), "H1gas is capped to +0.0");
+
+  /* The caps are strict: a -0.0 H2gas or H1gas at a +0.0 bound is kept as -0.0 */
+  commit_star_formation(&gal, 0.0f, -0.0f, -0.0f, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
+  TEST_ASSERT(gal.H2gas == 0.0f && signbit(gal.H2gas), "a -0.0 H2gas at a +0.0 bound is kept");
+  TEST_ASSERT(gal.H1gas == 0.0f && signbit(gal.H1gas), "a -0.0 H1gas at a +0.0 bound is kept");
+
+  /* SFprescription 0: no cap, H2gas and H1gas not written */
+  commit_star_formation(&gal, 1.0f, 5.0f, 6.0f, 0.5, MIMIC_SAGE_SF_PRESCRIPTION_CROTON, &caps);
+  TEST_ASSERT(caps.tracks_h2 == 0, "SFprescription 0 does not track H2");
+  TEST_ASSERT(gal.H2gas == 5.0f && gal.H1gas == 6.0f,
+              "at SFprescription 0 the commit writes neither H2gas nor H1gas");
+  return TEST_PASS;
+}
+
+/** @brief A feedback commit of a galaxy (reheating into a separate central) */
+static void commit_feedback(struct GalaxyData *gal, struct GalaxyData *central,
+                            const float cold_gas, const float h2, const float h1,
+                            const double reheated, const int sf_prescription,
+                            struct MimicSageFeedbackLocals *locals) {
+  memset(gal, 0, sizeof(*gal));
+  memset(central, 0, sizeof(*central));
+  gal->ColdGas = cold_gas;
+  gal->H2gas = h2;
+  gal->H1gas = h1;
+  /* The central holds far more H2 and H1 than any bound here: a cap on it would show */
+  central->HotGas = 10.0f;
+  central->H2gas = 50.0f;
+  central->H1gas = 60.0f;
+  mimic_sage_update_from_feedback(gal, central, reheated, 0.0, 0.0, sf_prescription, locals);
+}
+
+/**
+ * @test    test_feedback_commit_hydrogen_caps
+ * @brief   update_from_feedback at SFprescription 1 caps the reheated galaxy's H2gas and H1gas
+ *          independently and strictly at max_h of its cold gas after the debit, never their sum,
+ *          and never the central's (S:1169-1173)
+ */
+int test_feedback_commit_hydrogen_caps(void) {
+  struct GalaxyData gal;
+  struct GalaxyData central;
+  struct MimicSageFeedbackLocals locals;
+  const float bound = hydrogen_bound(0.75f); /* 1.0 - 0.25 reheated, exact in float */
+  const float above = nextafterf(bound, INFINITY);
+  const float below = nextafterf(bound, 0.0f);
+
+  /* H2 above (capped), H1 at the bound (unchanged); the central untouched */
+  commit_feedback(&gal, &central, 1.0f, above, bound, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_BR06,
+                  &locals);
+  TEST_ASSERT(gal.ColdGas == 0.75f, "the reheated gas leaves the cold gas");
+  TEST_ASSERT(locals.hydrogen_caps.max_h == bound, "the bound is max_h of the debited cold gas");
+  TEST_ASSERT(gal.H2gas == bound && locals.hydrogen_caps.h2_cap_binds == 1,
+              "H2gas above the bound is capped");
+  TEST_ASSERT(gal.H1gas == bound && locals.hydrogen_caps.h1_cap_binds == 0,
+              "H1gas at the bound is unchanged");
+  TEST_ASSERT(central.HotGas == 10.25f, "the reheated gas reaches the central's hot gas");
+  TEST_ASSERT(central.H2gas == 50.0f && central.H1gas == 60.0f,
+              "the cap acts on the reheated galaxy only, not the central");
+
+  /* H2 at the bound (unchanged), H1 above (capped) */
+  commit_feedback(&gal, &central, 1.0f, bound, above, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_BR06,
+                  &locals);
+  TEST_ASSERT(gal.H2gas == bound && locals.hydrogen_caps.h2_cap_binds == 0,
+              "H2gas at the bound is unchanged");
+  TEST_ASSERT(gal.H1gas == bound && locals.hydrogen_caps.h1_cap_binds == 1,
+              "H1gas above the bound is capped");
+
+  /* Both below (unchanged) */
+  commit_feedback(&gal, &central, 1.0f, below, below, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_BR06,
+                  &locals);
+  TEST_ASSERT(gal.H2gas == below && gal.H1gas == below, "H2gas and H1gas below are unchanged");
+
+  /* Both below, their sum above: the caps never act on the sum */
+  commit_feedback(&gal, &central, 1.0f, 0.4f, 0.4f, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &locals);
+  TEST_ASSERT(0.4f + 0.4f > bound, "the sum is above the bound");
+  TEST_ASSERT(gal.H2gas == 0.4f && gal.H1gas == 0.4f, "the caps never act on the sum");
+
+  /* All the cold gas reheated (the clamp): the bound is +0.0 */
+  commit_feedback(&gal, &central, 0.5f, 0.1f, 0.2f, 1.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &locals);
+  TEST_ASSERT(gal.ColdGas == 0.0f, "the clamped reheating empties the cold gas");
+  TEST_ASSERT(locals.hydrogen_caps.max_h == 0.0f && !signbit(locals.hydrogen_caps.max_h),
+              "with no cold gas the bound is +0.0");
+  TEST_ASSERT(gal.H2gas == 0.0f && !signbit(gal.H2gas), "H2gas is capped to +0.0");
+  TEST_ASSERT(gal.H1gas == 0.0f && !signbit(gal.H1gas), "H1gas is capped to +0.0");
+  TEST_ASSERT(central.H2gas == 50.0f && central.H1gas == 60.0f,
+              "the central's H2gas and H1gas are untouched");
+
+  /* The caps are strict: a -0.0 H2gas or H1gas at a +0.0 bound is kept as -0.0 */
+  commit_feedback(&gal, &central, 0.5f, -0.0f, -0.0f, 1.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06,
+                  &locals);
+  TEST_ASSERT(gal.H2gas == 0.0f && signbit(gal.H2gas), "a -0.0 H2gas at a +0.0 bound is kept");
+  TEST_ASSERT(gal.H1gas == 0.0f && signbit(gal.H1gas), "a -0.0 H1gas at a +0.0 bound is kept");
+
+  /* SFprescription 0: no cap, H2gas and H1gas not written */
+  commit_feedback(&gal, &central, 1.0f, 5.0f, 6.0f, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_CROTON,
+                  &locals);
+  TEST_ASSERT(locals.hydrogen_caps.tracks_h2 == 0, "SFprescription 0 does not track H2");
+  TEST_ASSERT(gal.H2gas == 5.0f && gal.H1gas == 6.0f,
+              "at SFprescription 0 the commit writes neither H2gas nor H1gas");
   return TEST_PASS;
 }
 
@@ -1598,6 +1785,8 @@ int main(void) {
   TEST_RUN(test_zero_stars_no_updates);
   TEST_RUN(test_zero_event_caps_negative_hot_metals);
   TEST_RUN(test_sf_commit_fused_rounding);
+  TEST_RUN(test_sf_commit_hydrogen_caps);
+  TEST_RUN(test_feedback_commit_hydrogen_caps);
   TEST_RUN(test_satellite_reheats_to_central);
 
   /* Run cleanup and conservation tests */

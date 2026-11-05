@@ -10,8 +10,9 @@
 # The c04 oracle main, oracle_c04.c, is compiled and linked the same way, with
 # the same objects, compiler and flags, into output/oracle/oracle_c04, and so is
 # the c05 oracle main, oracle_c05.c, into output/oracle/oracle_c05, the c06
-# oracle main, oracle_c06.c, into output/oracle/oracle_c06, and the c07 oracle
-# main, oracle_c07.c, into output/oracle/oracle_c07.
+# oracle main, oracle_c06.c, into output/oracle/oracle_c06, the c07 oracle
+# main, oracle_c07.c, into output/oracle/oracle_c07, and the c08 oracle main,
+# oracle_c08.c, into output/oracle/oracle_c08.
 #
 # Environment:
 #   SAGE26_SRC         staged SAGE26 source root
@@ -151,3 +152,15 @@ clang $objects "$OBJ_DIR/oracle_c07.o" -o "$ORACLE_OUT/oracle_c07" \
 { set +x; } 2>/dev/null
 
 echo "build.sh: built $ORACLE_OUT/oracle_c07"
+
+# The c08 oracle main (the BR06 molecular fraction and its radial integration): built
+# exactly as oracle_c03, against the same twelve objects, with the same flags and link.
+compile "$ORACLE_DIR/oracle_c08.c" "$OBJ_DIR/oracle_c08.o" -I"$SAGE26_SRC/src"
+
+set -x
+# shellcheck disable=SC2086 # $objects is a deliberately split list of paths
+clang $objects "$OBJ_DIR/oracle_c08.o" -o "$ORACLE_OUT/oracle_c08" \
+  -L"$GSL_PREFIX/lib" -lgsl -lgslcblas -Xlinker -rpath -Xlinker "$GSL_PREFIX/lib" -lm
+{ set +x; } 2>/dev/null
+
+echo "build.sh: built $ORACLE_OUT/oracle_c08"

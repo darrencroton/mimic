@@ -1,0 +1,91 @@
+# SAGE26 oracle output for bh_r2_h2_at_h1_at.in, written by oracle_c06 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine grow_black_hole
+f32 galaxy[0].ColdGas 0x40a35aa2  # 5.10481358
+f32 galaxy[0].MetalsColdGas 0x3db3271c  # 0.087476939
+f32 galaxy[0].StellarMass 0x40d30946  # 6.59488201
+f32 galaxy[0].MetalsStellarMass 0x3d9ce831  # 0.076614745
+f32 galaxy[0].BulgeMass 0x3e3852c3  # 0.180003211
+f32 galaxy[0].MetalsBulgeMass 0x3aab1b0c  # 0.00130543252
+f32 galaxy[0].MergerBulgeMass 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeMass 0x3e3852c3  # 0.180003211
+f32 galaxy[0].HotGas 0x413f302f  # 11.9492636
+f32 galaxy[0].MetalsHotGas 0x3e038baa  # 0.128462464
+f32 galaxy[0].EjectedMass 0x3ce13c8c  # 0.0274946913
+f32 galaxy[0].MetalsEjectedMass 0x394520f4  # 0.0001879966
+f32 galaxy[0].BlackHoleMass 0x3afa8990  # 0.00191144831
+f32 galaxy[0].QuasarModeBHaccretionMass 0x3a545e3b  # 0.000810119964
+f32 galaxy[0].ICS 0x3f5ea2ca  # 0.869671464
+f32 galaxy[0].MetalsICS 0x3beb29c1  # 0.00717660831
+f32 galaxy[0].ICS_disrupt 0x3f5c1104  # 0.859634638
+f32 galaxy[0].ICS_accrete 0x3c24714e  # 0.0100367796
+f32 galaxy[0].ICS_sum_mt 0x3ba51ab2  # 0.00503858272
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[0].H1gas 0x4071c394  # 3.77756214
+f32 galaxy[0].H2gas 0x4071c394  # 3.77756214
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+f32 galaxy[0].DiskScaleRadius 0x3b9385ce  # 0.00450203475
+f32 galaxy[0].BulgeRadius 0x3a405ab1  # 0.000733773282
+f32 galaxy[0].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeRadius 0x3a405ab1  # 0.000733773282
+f32 galaxy[0].TimeOfLastMajorMerger 0xbf800000  # -1
+f32 galaxy[0].TimeOfLastMinorMerger 0xbf800000  # -1
+i32 intermediate.bh_coldgas_positive 1
+i32 intermediate.bh_accretion_cap_binds 0
+i32 intermediate.bh_metals_floor_binds 0
+i32 intermediate.wind_ejects_cold 0
+i32 intermediate.wind_ejects_hot 0
+i32 intermediate.BHaccrete_pre_cap_absent 0
+f64 intermediate.BHaccrete_pre_cap 0x3f4a8bc7682d48fb  # 0.00081011997859040065
+i32 intermediate.BHaccrete_pre_cap_checked 1
+i32 intermediate.BHaccrete_pre_cap_check_kind 1
+i32 intermediate.BHaccrete_pre_cap_validated_up 0
+i32 intermediate.BHaccrete_pre_cap_validated_down 0
+i32 intermediate.BHaccrete_pre_cap_validated 0
+i32 intermediate.BHaccrete_absent 0
+f64 intermediate.BHaccrete 0x3f4a8bc7682d48fb  # 0.00081011997859040065
+i32 intermediate.BHaccrete_checked 1
+i32 intermediate.BHaccrete_check_kind 1
+i32 intermediate.BHaccrete_validated_up 0
+i32 intermediate.BHaccrete_validated_down 0
+i32 intermediate.BHaccrete_validated 0
+i32 intermediate.bh_metallicity_absent 0
+f64 intermediate.bh_metallicity 0x3f918c24aed8853c  # 0.017136166736354527
+i32 intermediate.bh_metallicity_checked 1
+i32 intermediate.bh_metallicity_check_kind 2
+i32 intermediate.bh_metallicity_validated_up 0
+i32 intermediate.bh_metallicity_validated_down 0
+i32 intermediate.bh_metallicity_validated 0
+i32 intermediate.quasar_energy_absent 0
+f64 intermediate.quasar_energy 0x40e1c68c238fde1c  # 36404.379341062362
+i32 intermediate.quasar_energy_checked 1
+i32 intermediate.quasar_energy_check_kind 2
+i32 intermediate.quasar_energy_validated_up 0
+i32 intermediate.quasar_energy_validated_down 0
+i32 intermediate.quasar_energy_validated 0
+i32 intermediate.cold_gas_energy_absent 0
+f64 intermediate.cold_gas_energy 0x40f5b6138132c4af  # 88929.219042557044
+i32 intermediate.cold_gas_energy_checked 1
+i32 intermediate.cold_gas_energy_check_kind 2
+i32 intermediate.cold_gas_energy_validated_up 0
+i32 intermediate.cold_gas_energy_validated_down 0
+i32 intermediate.cold_gas_energy_validated 0
+i32 intermediate.hot_gas_energy_absent 0
+f64 intermediate.hot_gas_energy 0x410969206a1a7e78  # 208164.05180834583
+i32 intermediate.hot_gas_energy_checked 1
+i32 intermediate.hot_gas_energy_check_kind 2
+i32 intermediate.hot_gas_energy_validated_up 0
+i32 intermediate.hot_gas_energy_validated_down 0
+i32 intermediate.hot_gas_energy_validated 0
+i32 intermediate.bh_hydrogen_caps_tracked 1
+i32 intermediate.bh_h2_cap_binds 0
+i32 intermediate.bh_h1_cap_binds 0
+i32 intermediate.max_h_bh_absent 0
+f32 intermediate.max_h_bh 0x4071c394  # 3.77756214
+i32 intermediate.max_h_bh_checked 1
+i32 intermediate.max_h_bh_check_kind 2
+i32 intermediate.max_h_bh_validated_up 0
+i32 intermediate.max_h_bh_validated_down 1
+i32 intermediate.max_h_bh_validated 0
+i32 intermediate.max_h_bh_narrowing_limited 0

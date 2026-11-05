@@ -19,6 +19,9 @@
  *   reheated mass clamped to the remaining ColdGas             (:1079-1082)
  *   update_from_feedback(reheated, ejected, metallicity)       (OutflowRate += reheated)
  *
+ * With SFprescription 1 (BR06) each commit then caps H2gas and H1gas at the hydrogen of the
+ * remaining cold gas (:1128-1135, :1169-1173); with 0 (R0, R1) neither does.
+ *
  * The sample is taken at SAGE26's point: stars is the renormalised mass
  * sage26_calculate_supernova_feedback leaves in NewStellarMass, and the cold gas is
  * the reservoir before anything is committed. bin is the substep's history bin,
@@ -47,6 +50,7 @@
 #include "module_registry.h"
 #include "types.h"
 #include "shared/metallicity.h"
+#include "shared/sage_h2_physics.h"
 #include "shared/sage_sf_feedback_physics.h"
 #include "shared/sage_sfr_history.h"
 #include "shared/time_parity.h"
@@ -58,6 +62,10 @@
 // ============================================================================
 
 static double RECYCLE_FRACTION;
+
+/* SAGE26's SFprescription: 0 (R0, R1) or 1 (BR06), which the commits test for their hydrogen
+ * caps (R/src/model_starformation_and_feedback.c:1131, :1169) */
+static int SF_PRESCRIPTION;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -102,6 +110,11 @@ static int sample_disk_history(const struct ModuleContext *ctx, const struct Hal
 int sage26_apply_star_formation_supernova_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RecycleFraction", RECYCLE_FRACTION, 0.0, 1.0,
                                     "recycle fraction");
+  LOAD_PARAM_INT("SFprescription", SF_PRESCRIPTION);
+  if (mimic_sage_validate_sf_prescription("sage26_apply_star_formation_supernova",
+                                          SF_PRESCRIPTION) != 0) {
+    return -1;
+  }
 
   /* Dependency checks: this is an infrastructure apply step that must follow
    * its SF/SN prescription modules. */
@@ -146,6 +159,7 @@ int sage26_apply_star_formation_supernova_init(void) {
 
   VERBOSE_LOG("SAGE SF/SN apply step module initialized");
   VERBOSE_LOG("  RecycleFraction = %.3f", RECYCLE_FRACTION);
+  VERBOSE_LOG("  SFprescription = %d", SF_PRESCRIPTION);
 
   return 0;
 }
@@ -193,7 +207,8 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
   // ========================================================================
 
   double metallicity = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
-  mimic_sage_update_from_star_formation(gal, stars, metallicity, RECYCLE_FRACTION);
+  mimic_sage_update_from_star_formation(gal, stars, metallicity, RECYCLE_FRACTION, SF_PRESCRIPTION,
+                                        NULL);
 
   // Accumulate the package's snapshot-averaged StarFormationRate diagnostic (not a
   // SAGE26 output; SAGE26's SFR outputs come from its per-substep histories)
@@ -214,7 +229,8 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
     reheated_mass = gal->ColdGas;
   }
 
-  mimic_sage_update_from_feedback(gal, central_gal, reheated_mass, ejected_mass, metallicity, NULL);
+  mimic_sage_update_from_feedback(gal, central_gal, reheated_mass, ejected_mass, metallicity,
+                                  SF_PRESCRIPTION, NULL);
 
   // ========================================================================
   // CLEANUP: Zero out consumed SN transport properties

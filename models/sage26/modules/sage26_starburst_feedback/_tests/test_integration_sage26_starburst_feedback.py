@@ -144,6 +144,9 @@ def test_module_pipeline_integration():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -238,6 +241,9 @@ def test_starburst_physics_correctness():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -327,6 +333,9 @@ def test_disk_instability_trigger():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -388,6 +397,9 @@ def test_merger_trigger():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -437,6 +449,9 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 1.0,  # Low
             "FeedbackEjectionEfficiency": 0.5,
@@ -470,6 +485,9 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 5.0,  # High (5x)
             "FeedbackEjectionEfficiency": 0.5,
@@ -503,6 +521,9 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.1,  # Low
@@ -536,6 +557,9 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 2.0,  # High (20x)
@@ -597,6 +621,9 @@ def test_memory_and_performance():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -665,6 +692,9 @@ def test_full_pipeline_star_formation():
             "post_timestep": [],
         },
         model_params={
+            # Required by the burst module, at R1's values
+            "SFprescription": 0,
+            "StarburstColdGasOn": 1,
             "BulgeSizeOn": 0,
             # Infall/Reionization
             "GlobalBaryonFraction": 0.17,

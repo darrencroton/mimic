@@ -21,6 +21,11 @@
  * the float stores absorb a one-ulp change of most doubles). Outside the oracle
  * environment (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *
+ * SFprescription 1 (the c08 fixtures, R2's flags with BulgeSizeOn 3): the growth applies the
+ * accretion's hydrogen cap (:366-372), and the test also asserts its record (the guard, the two
+ * cap flags and the float bound max_h_bh, bit for bit), sage26_oracle_hydrogen.h. BulgeSizeOn
+ * and Hubble_h, which neither routine reads, are read and not applied.
+ *
  * Inputs read but not applied, each named: the burst parameters (FeedbackReheatingEpsilon,
  * FeedbackEjectionEfficiency, EtaSNcode, EnergySNcode, RecycleFraction, Yield,
  * FracZleaveDisk, ThreshMajorMerger) and G, which no black-hole or wind statement reads;
@@ -44,6 +49,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_hydrogen.h"
 #include "shared/sage_agn_physics.h"
 
 static const char *MODULE = "sage26_quasar_mode";
@@ -53,13 +59,16 @@ static const char *MODULE = "sage26_quasar_mode";
 #define KIND_TAIL 2
 
 static struct oracle_c06_carried_tally tally;
+static struct oracle_c08_local_tally h_tally;
 
 /**
  * @brief Read the fixture's flags and parameters into the run configuration
  * @return Number of problems
  */
-static int setup_parameters(struct oracle_fixture *in, double *growth_rate, double *efficiency) {
-  int problems = oracle_c06_require_r0_flags(in);
+static int setup_parameters(struct oracle_fixture *in, double *growth_rate, double *efficiency,
+                            int *sf_prescription) {
+  struct MimicSageBulgeSize sizes; /* read, not applied: neither routine reads the sizes */
+  int problems = oracle_c08_require_merger_flags(in, &sizes, sf_prescription);
   reset_config();
   MimicConfig.UnitVelocity_in_cm_per_s = oracle_in_f64(in, "params.UnitVelocity_in_cm_per_s");
   *growth_rate = oracle_in_f64(in, "params.BlackHoleGrowthRate");
@@ -118,7 +127,8 @@ static int check_fixture(const char *name) {
 
   double growth_rate = 0.0;
   double efficiency = 0.0;
-  int problems = setup_parameters(&in, &growth_rate, &efficiency);
+  int sf_prescription = 0;
+  int problems = setup_parameters(&in, &growth_rate, &efficiency, &sf_prescription);
 
   static struct GalaxyData galaxy, before;
   static struct Halo halo;
@@ -136,8 +146,8 @@ static int check_fixture(const char *name) {
   if (is_growth) {
     const double mass_ratio = oracle_in_f64(&in, "call.mass_ratio");
     struct MimicSageBlackHoleLocals bh;
-    const double accreted =
-        mimic_apply_black_hole_growth(&halo, mass_ratio, growth_rate, efficiency, &ctx, &bh);
+    const double accreted = mimic_apply_black_hole_growth(&halo, mass_ratio, growth_rate,
+                                                          efficiency, &ctx, sf_prescription, &bh);
     if (bh.coldgas_positive == 1 &&
         oracle_f64_to_bits(accreted) != oracle_f64_to_bits(bh.bh_accrete)) {
       fprintf(stderr, "oracle: %s: the returned accretion differs from the local\n", name);
@@ -154,6 +164,7 @@ static int check_fixture(const char *name) {
     problems +=
         oracle_c06_check_carried(&out, "bh_metallicity", KIND_TAIL, bh.bh_metallicity, 0, &tally);
     problems += check_wind(&out, &bh.wind);
+    problems += oracle_c08_check_bh_hydrogen(&out, sf_prescription, &bh.hydrogen_caps, &h_tally);
   } else {
     const double bh_accrete = oracle_in_f64(&in, "call.BHaccrete");
     struct MimicSageQuasarWindLocals wind;
@@ -189,10 +200,13 @@ int test_oracle_bit_identity(void) {
     return TEST_SKIP_WITH(mismatch);
   }
   memset(&tally, 0, sizeof(tally));
+  memset(&h_tally, 0, sizeof(h_tally));
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), binding %d, "
+         "not validated %d, absent %d; c08 values validated %d, narrowing-limited %d, "
          "not validated %d, absent %d ",
-         tally.asserted, tally.binding, tally.not_validated, tally.absent);
+         tally.asserted, tally.binding, tally.not_validated, tally.absent, h_tally.validated,
+         h_tally.narrowing_limited, h_tally.not_validated, h_tally.absent);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   return TEST_PASS;
 }

@@ -163,6 +163,8 @@ int test_dep_supernova_wrong_order_error(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The SF module's and the apply step's required SFprescription parameters, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
 
   int result = module_system_init();
   TEST_ASSERT(
@@ -194,6 +196,8 @@ int test_dep_apply_sfn_wrong_order_error(void) {
   test_phase_add("galaxy_physics", "sage26_calculate_star_formation", PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The SF module's and the apply step's required SFprescription parameters, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
 
   int result = module_system_init();
   TEST_ASSERT(result != 0,
@@ -220,6 +224,8 @@ int test_dep_quasar_per_event_missing_producer_error(void) {
   test_phase_add("satellite_mergers", "sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The module's required SFprescription, at R1's value, so the init fails on the dependency */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
 
   int result = module_system_init();
   TEST_ASSERT(result != 0, "sage26_quasar_mode per_event without merger producer must fail init");
@@ -245,6 +251,8 @@ int test_dep_starburst_per_event_missing_producer_error(void) {
   test_phase_add("satellite_mergers", "sage26_starburst_feedback", PROCESSING_MODE_PER_EVENT);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The burst module's required SFprescription and StarburstColdGasOn, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
 
   int result = module_system_init();
   TEST_ASSERT(result != 0,
@@ -274,6 +282,8 @@ int test_dep_sf_missing_apply_error(void) {
   test_phase_add("galaxy_physics", "sage26_calculate_star_formation", PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The SF module's required SFprescription and H2 integration parameters, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
 
   int result = module_system_init();
   TEST_ASSERT(result != 0, "sage26_calculate_star_formation without apply step must fail init");
@@ -329,6 +339,8 @@ int test_dep_apply_sfn_warns_no_prescriptions(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The apply step's required SFprescription, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   FILE *capture = tmpfile();
   FILE *old_out = set_log_output(capture);
@@ -399,6 +411,8 @@ int test_dep_starburst_warns_no_disk_instability(void) {
   test_phase_add("galaxy_physics", "sage26_starburst_feedback", PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The burst module's required SFprescription and StarburstColdGasOn, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
 
   FILE *capture = tmpfile();
   FILE *old_out = set_log_output(capture);
@@ -445,6 +459,8 @@ int test_dep_starburst_warns_no_quasar_mode(void) {
 
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The burst module's required SFprescription and StarburstColdGasOn, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
 
   FILE *capture = tmpfile();
   FILE *old_out = set_log_output(capture);

@@ -60,6 +60,7 @@
 #include "types.h"
 #include "shared/sage_agn_physics.h"
 #include "shared/sage_bulge_size_physics.h"
+#include "shared/sage_h2_physics.h"
 #include "shared/sage_starburst_physics.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_sfr_history.h"
@@ -86,6 +87,16 @@ static double POST_MERGER_QUASAR_MODE_EFFICIENCY;
 /* SAGE26's BulgeSizeOn: 0 (R0) or 3 (Tonini sizes), the mode of the instability channel's
  * radius update and of the recheck's (R/src/model_misc.c:395) */
 static int BULGE_SIZE_ON;
+
+/* SAGE26's SFprescription: 0 (R0, R1) or 1 (BR06, R2), which the burst's star-formation and
+ * feedback commits test for their hydrogen caps (R/src/model_starformation_and_feedback.c:1131,
+ * :1169), the burst for its hydrogen refresh (R/src/model_mergers.c:798) and the recheck's
+ * black-hole growth for its accretion cap (:366-367) */
+static int SF_PRESCRIPTION;
+
+/* SAGE26's StarburstColdGasOn: 1, every burst uses the cold gas (R/src/model_mergers.c:680-683);
+ * 0, the H2 burst fuel, is not ported */
+static int STARBURST_COLD_GAS_ON;
 
 // ============================================================================
 // MODULE-LOCAL CONSTANTS (converted from physical constants)
@@ -114,6 +125,15 @@ int sage26_starburst_feedback_init(void) {
                                     "major merger threshold");
   LOAD_PARAM_INT("BulgeSizeOn", BULGE_SIZE_ON);
   if (mimic_sage_validate_bulge_size_on("sage26_starburst_feedback", BULGE_SIZE_ON) != 0) {
+    return -1;
+  }
+  LOAD_PARAM_INT("SFprescription", SF_PRESCRIPTION);
+  if (mimic_sage_validate_sf_prescription("sage26_starburst_feedback", SF_PRESCRIPTION) != 0) {
+    return -1;
+  }
+  LOAD_PARAM_INT("StarburstColdGasOn", STARBURST_COLD_GAS_ON);
+  if (mimic_sage_validate_starburst_cold_gas_on("sage26_starburst_feedback",
+                                                STARBURST_COLD_GAS_ON) != 0) {
     return -1;
   }
 
@@ -183,6 +203,8 @@ int sage26_starburst_feedback_init(void) {
   VERBOSE_LOG("  RecycleFraction = %.3f", RECYCLE_FRACTION);
   VERBOSE_LOG("  Yield = %.4f", YIELD);
   VERBOSE_LOG("  BulgeSizeOn = %d", BULGE_SIZE_ON);
+  VERBOSE_LOG("  SFprescription = %d", SF_PRESCRIPTION);
+  VERBOSE_LOG("  StarburstColdGasOn = %d", STARBURST_COLD_GAS_ON);
   VERBOSE_LOG("  energy_sn_code = %.6e (from ENERGY_SN physical constant)", energy_sn_code);
   VERBOSE_LOG("  eta_sn_code = %.6e (from ETA_SN physical constant)", eta_sn_code);
   VERBOSE_LOG("  post-minor-merger disk instability follow-up = %s",
@@ -219,6 +241,9 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
       .quasar_mode_efficiency = POST_MERGER_QUASAR_MODE_EFFICIENCY,
       /* SAGE26's run_params->BulgeSizeOn and Hubble_h (R/src/model_misc.c:395, :398) */
       .bulge_size = {BULGE_SIZE_ON, ctx->params != NULL ? ctx->params->Hubble_h : 0.0},
+      /* SAGE26's run_params->SFprescription (R/src/model_starformation_and_feedback.c:1131,
+       * :1169; R/src/model_mergers.c:366-367, :798) */
+      .sf_prescription = SF_PRESCRIPTION,
   };
 
   if (ctx->active_event != NULL) {

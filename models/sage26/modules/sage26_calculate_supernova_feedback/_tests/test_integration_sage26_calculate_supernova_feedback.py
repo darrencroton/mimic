@@ -75,6 +75,11 @@ def test_module_loads():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -112,6 +117,11 @@ def test_output_properties_exist():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -154,6 +164,11 @@ def test_parameters_configurable():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 5.0,  # Custom value
@@ -188,6 +203,11 @@ def test_memory_safety():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -224,6 +244,11 @@ def test_execution_completes():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -265,6 +290,11 @@ def test_pipeline_with_star_formation():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -313,6 +343,11 @@ def test_feedback_values_nonnegative():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -358,6 +393,11 @@ def test_feedback_proportional_to_sf():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -417,6 +457,11 @@ def test_feedback_reasonable_magnitude():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,  # epsilon = 3
@@ -479,6 +524,11 @@ def test_edge_case_zero_efficiency():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 0.0,  # Zero reheating
@@ -529,6 +579,11 @@ def test_edge_case_very_high_efficiency():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 50.0,  # Very high reheating
@@ -572,6 +627,11 @@ def test_parameter_variation_effect():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 1.0,  # Low
@@ -603,6 +663,11 @@ def test_parameter_variation_effect():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 5.0,  # High

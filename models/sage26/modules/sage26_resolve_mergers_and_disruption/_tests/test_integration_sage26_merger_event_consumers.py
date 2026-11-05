@@ -55,6 +55,12 @@ MERGER_MODEL_PARAMS = {
     "FracZleaveDisk": 0.0,
     "ThresholdMajorMerger": 0.3,
     "ThresholdSatDisruption": 1.0,
+    # Required by the SF module, the apply step and the burst module, at R1's values
+    "SFprescription": 0,
+    "H2RadialIntegrationOn": 1,
+    "H2RadialNBins": 25,
+    "H2RadialRMaxFactor": 5.0,
+    "StarburstColdGasOn": 1,
 }
 
 PRE_TIMESTEP_PHASE = [

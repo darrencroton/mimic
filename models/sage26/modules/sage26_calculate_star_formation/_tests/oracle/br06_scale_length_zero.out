@@ -1,0 +1,15 @@
+# SAGE26 oracle output for br06_scale_length_zero.in, written by oracle_c08 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine calculate_molecular_fraction_BR06
+f32 return.f_mol 0x00000000  # 0
+i32 intermediate.scale_length_nonpositive 1
+i32 intermediate.pressure_branch -1
+i32 intermediate.stellar_floor_binds -1
+i32 intermediate.pressure_nonpositive -1
+i32 intermediate.log_h_star_absent 1
+i32 intermediate.h_star_pc_absent 1
+i32 intermediate.effective_sigma_stars_absent 1
+i32 intermediate.pressure_absent 1
+i32 intermediate.pressure_ratio_absent 1
+i32 intermediate.R_mol_absent 1
+i32 intermediate.f_mol_absent 1

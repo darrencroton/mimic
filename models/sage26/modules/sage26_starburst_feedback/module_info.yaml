@@ -28,6 +28,8 @@ module:
       - BulgeRadius
       - MergerBulgeRadius
       - InstabilityBulgeRadius
+      - H1gas
+      - H2gas
       - HotGas
       - MetalsHotGas
       - EjectedGas
@@ -80,6 +82,8 @@ module:
       - QuasarModeEfficiency
       - ThresholdMajorMerger
       - BulgeSizeOn
+      - SFprescription
+      - StarburstColdGasOn
 
   events:
     consumes:
