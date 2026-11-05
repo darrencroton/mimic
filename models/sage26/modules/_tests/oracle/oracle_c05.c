@@ -688,12 +688,13 @@ static void read_sf_prescription(const int read_starburst) {
 }
 
 /**
- * @brief The R0 flags (and DiskInstabilityOn) of every routine that can reach the
+ * @brief The pinned flags (and DiskInstabilityOn) of every routine that can reach the
  *        instability: starformation_and_feedback and check_disk_instability
  *
- * The transcriptions below implement the R0 paths only: SFprescription 0, SN recipe 1,
- * no CGM, no FIRE, no FFB, no Karpov, no full SFH, the Bondi AGN recipe, and cold-gas
- * starbursts (StarburstColdGasOn defaults to 1, R/src/core_read_parameter_file.c:109).
+ * The transcriptions below implement the R0 and R1 paths (SFprescription 0) and, where
+ * allow_br06 is set, R2's SFprescription 1: SN recipe 1, no CGM, no FIRE, no FFB, no Karpov,
+ * no full SFH, the Bondi AGN recipe, and cold-gas starbursts (StarburstColdGasOn defaults to
+ * 1, R/src/core_read_parameter_file.c:109).
  * BulgeSizeOn is read, not pinned: 0 (R0) or 3 (R1 onward, read_bulge_size_on); Hubble_h,
  * which mode 3's size fallbacks read (R/src/model_misc.c:249,398), is read for every
  * configuration by read_r0_params. With BulgeSizeOn 3 every galaxy also reads and records

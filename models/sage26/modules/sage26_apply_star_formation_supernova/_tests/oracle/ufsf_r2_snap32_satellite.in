@@ -4,9 +4,10 @@
 # galaxy 0: R2 reference
 # /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R2/model_0.hdf5
 # (SHA-256 c6af6c9385d41adcccbd5f19e064323486706b0965183f61ebded290331f6714), Snap_32 row 1
-# (GalaxyIndex 28, Type 1): the writer's verbatim floats; OutflowRate 0 (its substep-0 value).
-# End-of-snapshot values used as plausible call inputs. Constructed: stars, 0.2 of the cold
-# gas.
+# (GalaxyIndex 28, a Type 1 satellite in the reference): the floats are the row's verbatim
+# values; OutflowRate 0 (its substep-0 value). End-of-snapshot values used as plausible call
+# inputs. Constructed: stars, 0.2 of the cold gas; Type is set to 0 (update_from_star_formation
+# does not read it).
 # Reachability: R2-reachable.
 format sage26-oracle-fixture 1
 routine update_from_star_formation

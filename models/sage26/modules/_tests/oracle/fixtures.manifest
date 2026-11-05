@@ -298,9 +298,11 @@ fixture sage26_calculate_star_formation yield_frac_z_leave_positive
 fixture sage26_calculate_star_formation yield_frac_z_leave_satellite
 # c08 (SFprescription 1, R2's flags): calculate_molecular_fraction_BR06 (br06_*) and
 # calculate_molecular_fraction_radial_integration (radial_*) called directly (oracle_c08),
-# and starformation_and_feedback with sfr_br06 (sf_br06_*, oracle_c05). Names containing
-# _probe_ are constructed routine-domain probes; r2_snap<N> takes a real galaxy from the R2
-# reference; every other fixture is R2-reachable.
+# and starformation_and_feedback with sfr_br06 (sf_br06_*, oracle_c05). Each fixture's
+# Reachability: line in its .in is authoritative (R2-reachable or a constructed
+# routine-domain probe). _probe_ is a naming aid only: every name containing it is a probe,
+# but probes without it exist (e.g. br06_gas_negative, sf_br06_rs_negative_di_off).
+# r2_snap<N> takes a real galaxy from the R2 reference.
 fixture sage26_calculate_star_formation br06_gas_negative
 fixture sage26_calculate_star_formation br06_gas_zero
 fixture sage26_calculate_star_formation br06_high_pressure
