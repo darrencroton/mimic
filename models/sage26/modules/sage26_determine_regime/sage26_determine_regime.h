@@ -24,7 +24,7 @@
 #ifndef SAGE26_DETERMINE_REGIME_H
 #define SAGE26_DETERMINE_REGIME_H
 
-/** SAGE26's sigmoid width in dex, the double local delta_log_M (R/src/model_regimes.c:85) */
+/** SAGE26's sigmoid width in dex, the double local delta_log_M (R/src/model_regimes.c:82) */
 #define SAGE26_REGIME_DELTA_LOG_M 0.1
 
 /** The classifier's values for one row (each double as SAGE26 forms it) */
@@ -34,8 +34,8 @@ struct Sage26RegimeRowTrace {
   int snapshot;               /**< ctx->snapshot_number (the draw's key) */
   double mshock;       /**< MShockMsun * Hubble_h / 1.0e10, in 1e10 Msun/h (R/src/macros.h:47) */
   double mass_ratio;   /**< (double)(float)Mvir / Mshock (R/src/model_regimes.c:74) */
-  double x;            /**< log10(mass_ratio) / delta_log_M (:89); NaN on the no-draw branch */
-  double hot_fraction; /**< 1.0 / (1.0 + exp(-x)) (:93); NaN on the no-draw branch */
+  double x;            /**< log10(mass_ratio) / delta_log_M (:85); NaN on the no-draw branch */
+  double hot_fraction; /**< 1.0 / (1.0 + exp(-x)) (:89); NaN on the no-draw branch */
   double deviate;      /**< The deviate compared with hot_fraction (:94-95); NaN without one */
   int drew;            /**< 1 when the row requested a deviate (mass_ratio not <= 0.0) */
   int regime;          /**< The Regime written: 0 CGM, 1 hot (:77-98) */

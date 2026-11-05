@@ -407,8 +407,8 @@ struct row_trace {
   int regime;          /* the Regime it writes (:98); the input value for a skipped row */
   double mshock;       /* :71 */
   double mass_ratio;   /* :74 */
-  double x;            /* :89 */
-  double hot_fraction; /* :93 */
+  double x;            /* :85 */
+  double hot_fraction; /* :89 */
   double deviate;      /* :94 */
 };
 
@@ -454,14 +454,14 @@ static int transcribe_determine_and_store_regime(const int ngal, const struct GA
     if (mass_ratio <= 0.0) {
       new_regime = 0;
     } else {
-      /* :85 */
+      /* :82 */
       const double delta_log_M = 0.1;
 
-      /* :89 */
+      /* :85 */
       const double x = log10(mass_ratio) / delta_log_M;
       tr[p].x = x;
 
-      /* :93 */
+      /* :89 */
       const double hot_fraction = 1.0 / (1.0 + exp(-x));
       tr[p].hot_fraction = hot_fraction;
 

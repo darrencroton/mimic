@@ -14,8 +14,8 @@
  *   Mshock       = MShockMsun * Hubble_h / 1.0e10                     (double, R/src/macros.h:47)
  *   mass_ratio   = (double)(float)Mvir / Mshock                        (double, :74)
  *   mass_ratio <= 0.0:  Regime = 0, no draw                            (:77-78)
- *   otherwise:   x = log10(mass_ratio) / 0.1                           (double, :85-89)
- *                hot_fraction = 1.0 / (1.0 + exp(-x))                  (double, :93)
+ *   otherwise:   x = log10(mass_ratio) / 0.1                           (double, :82-85)
+ *                hot_fraction = 1.0 / (1.0 + exp(-x))                  (double, :89)
  *                Regime = (u < hot_fraction) ? 1 : 0                   (:94-95)
  *
  * with the deviate u from the package's keyed draw (campaign decision D1; below). A NaN
@@ -170,7 +170,7 @@ static int classify_row(const double mvir, const double mshock, struct Sage26Reg
   if (mass_ratio <= 0.0) {
     new_regime = 0;
   } else {
-    // Sigmoid of width delta_log_M dex about the shock mass (:85-93)
+    // Sigmoid of width delta_log_M dex about the shock mass (:82-89)
     const double delta_log_M = SAGE26_REGIME_DELTA_LOG_M;
     const double x = log10(mass_ratio) / delta_log_M;
     const double hot_fraction = 1.0 / (1.0 + exp(-x));

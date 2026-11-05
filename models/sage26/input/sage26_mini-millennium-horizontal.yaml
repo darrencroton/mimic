@@ -85,7 +85,7 @@ modules:
 
     # CGM regime
     CGMrecipeOn: 0                      # CGM regime classification: 0 = off, Regime keeps its creation value -1 (SAGE26 R0-R3, R3.par:54); 1 = SAGE26's classifier with the package's keyed draw (R4, R4.par:54), whose regime-aware routing and cooling are not complete yet; required
-    MShockMsun: 6.0e11                  # Dekel & Birnboim (2006) shock mass in physical Msun (SAGE26 default, core_read_parameter_file.c:114; R4.par does not set it); read only with CGMrecipeOn 1; required
+    MShockMsun: 6.0e11                  # Dekel & Birnboim (2006) shock mass in physical Msun (SAGE26 default, core_read_parameter_file.c:114; R4.par does not set it); used only with CGMrecipeOn 1, but always required and validated (positive, finite)
 
     # Star Formation
     SfrEfficiency: 0.05                 # Star formation efficiency

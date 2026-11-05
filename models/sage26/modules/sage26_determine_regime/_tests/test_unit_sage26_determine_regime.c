@@ -197,10 +197,31 @@ static uint64_t bits_of(const double v) {
  *
  * MSUN_TO_CODE_MASS(MShockMsun, Hubble_h) = ((x) * (h) / 1.0e10) (R/src/macros.h:47), the ratio
  * of the float Mvir to it (R/src/model_regimes.c:74), x = log10(ratio) / delta_log_M with
- * delta_log_M 0.1 (:85-89), hot_fraction = 1.0 / (1.0 + exp(-x)) (:93).
+ * delta_log_M 0.1 (:82, :85), hot_fraction = 1.0 / (1.0 + exp(-x)) (:89).
+ *
+ * The tests assert the module's runtime result bit for bit and at one-ulp boundaries, so this
+ * expectation must also be computed at run time by the same libm. The callers pass compile-time
+ * constants, and an optimising compiler could inline the helper and fold log10 and exp at
+ * compile time (GCC folds with MPFR, correctly rounded, which can differ from the runtime libm by
+ * one ulp). The helper is therefore never inlined, and its inputs pass through volatile locals the
+ * compiler cannot treat as constants.
  */
-static double sage26_hot_fraction(const float mvir, const double mshock_msun, const double hubble_h,
-                                  double *mshock_out) {
+#if defined(__GNUC__) || defined(__clang__)
+#define SAGE26_REGIME_TEST_NOINLINE __attribute__((noinline))
+#else
+#define SAGE26_REGIME_TEST_NOINLINE
+#endif
+static SAGE26_REGIME_TEST_NOINLINE double sage26_hot_fraction(const float mvir_in,
+                                                              const double mshock_msun_in,
+                                                              const double hubble_h_in,
+                                                              double *mshock_out) {
+  volatile float mvir_runtime = mvir_in;
+  volatile double mshock_msun_runtime = mshock_msun_in;
+  volatile double hubble_h_runtime = hubble_h_in;
+  const float mvir = mvir_runtime;
+  const double mshock_msun = mshock_msun_runtime;
+  const double hubble_h = hubble_h_runtime;
+
   const double Mshock = ((mshock_msun) * (hubble_h) / 1.0e10);
   const double mass_ratio = mvir / Mshock;
   const double delta_log_M = 0.1;
@@ -471,7 +492,7 @@ int test_ratio_above_at_below(void) {
       TEST_ASSERT(bits_of(s.trace[0].mshock) == bits_of(expected_mshock),
                   "Mshock must be MShockMsun * Hubble_h / 1.0e10 (R/src/macros.h:47)");
       TEST_ASSERT(bits_of(s.trace[0].hot_fraction) == bits_of(p),
-                  "hot_fraction must be SAGE26's sigmoid (R/src/model_regimes.c:74-93)");
+                  "hot_fraction must be SAGE26's sigmoid (R/src/model_regimes.c:74-89)");
       TEST_ASSERT(gals[0].Regime == expected_regime[d],
                   "Regime must be 1 exactly when the deviate is below hot_fraction");
     }

@@ -9,7 +9,7 @@ A port of SAGE26's `determine_and_store_regime` (`src/model_regimes.c:63-100`), 
 1. `Mshock = MShockMsun * Hubble_h / 1.0e10`, the double `MSUN_TO_CODE_MASS` in that operation order (`src/macros.h:47`), in 1e10 Msun/h;
 2. `mass_ratio = Mvir / Mshock` in double, from the float `Mvir` SAGE26 holds (`:74`);
 3. `mass_ratio <= 0.0`: `Regime = 0`, with no random draw (`:77-78`);
-4. otherwise `x = log10(mass_ratio) / 0.1` and `hot_fraction = 1 / (1 + exp(-x))` in double (`:85-93`), a sigmoid 0.1 dex wide about the shock mass, and `Regime = (u < hot_fraction) ? 1 : 0` for a uniform deviate `u` (`:94-95`).
+4. otherwise `x = log10(mass_ratio) / 0.1` and `hot_fraction = 1 / (1 + exp(-x))` in double (`:82-89`), a sigmoid 0.1 dex wide about the shock mass, and `Regime = (u < hot_fraction) ? 1 : 0` for a uniform deviate `u` (`:94-95`).
 
 A NaN `mass_ratio` is not `<= 0.0`, so it takes the draw branch, as SAGE26's test implies, and is classified 0: every ordered comparison with its NaN `hot_fraction` is false. There is no `Type` restriction (centrals, satellites and orphans are all classified; an orphan, whose `Mvir` is 0, takes the no-draw branch), no hysteresis, no redshift term and no reuse of a previous regime, and classification moves no gas: satellites keep whatever reservoirs they hold.
 
@@ -25,7 +25,7 @@ A NaN `mass_ratio` is not `<= 0.0`, so it takes the draw branch, as SAGE26's tes
 
 `init()` refuses any placement but exactly one `pre_timestep` entry with none in a substep phase or `post_timestep`, and, when `sage26_prepare_infall_budget` runs in `pre_timestep`, an entry after it: SAGE26 classifies before `infall_recipe`, whose regime-aware routing reads the central's regime. The run files place it after `sage26_reionization`, whose result it does not read, and immediately before `sage26_prepare_infall_budget`.
 
-**Rows.** SAGE26 skips only rows with `mergeType > 0`; the package's mark of such a row (merged or disrupted, never output) is `Type` 3, and a row without a galaxy is skipped as every dispatcher does. At `pre_timestep` neither occurs: the core discards an inherited `Type` 3 row at joining (`src/core/inheritance.c`) and only the merger pass, a substep phase, sets `Type` 3. In SAGE26 too every row at the call has `mergeType` 0 except the join guard's `Type` 3 rows (`src/core_build_model.c:241-243`). A row in the initial-boundary state (stored `SnapNum` -1, `dT` 0; campaign decision D37) is classified like any other: the classifier reads no snapshot-indexed table.
+**Rows.** SAGE26 skips only rows with `mergeType > 0`; the package's mark of such a row (merged or disrupted, never output) is `Type` 3, and a row without a galaxy is skipped as every dispatcher does. At `pre_timestep` neither occurs: the core discards an inherited `Type` 3 row at joining (`src/core/inheritance.c`) and only the merger pass, a substep phase, sets `Type` 3. In SAGE26 the join guard's `Type` 3 rows never reach the call either: the guard `continue`s before `ngal++` (`src/core_build_model.c:241-244`, `:341`), so such a row is never inside `[0, ngal)` when `determine_and_store_regime(ngal, ...)` runs (`:411`). A row in the initial-boundary state (stored `SnapNum` -1, `dT` 0; campaign decision D37) is classified like any other: the classifier reads no snapshot-indexed table.
 
 ## Properties
 
