@@ -24,7 +24,7 @@
  * early orphan purge and no forced clock, so an orphan's removal is the pass's outcome
  * (an orphan's interpolated Mvir reaches 0 at the last substep, B:323-325).
  *
- * The merger transaction reproduces SAGE26's deal_with_galaxy_merger on the R0 path
+ * The merger transaction reproduces SAGE26's deal_with_galaxy_merger with BulgeSizeOn 0 or 3
  * (R/src/model_mergers.c:228-333, M below), in its statement order:
  *
  *   1. the mass ratio from the float StellarMass + ColdGas sums (M:235-249);
@@ -36,13 +36,18 @@
  *      sage26_quasar_mode's grow_black_hole (M:262-264), then sage26_starburst_feedback's
  *      burst into the channel the carried flag selects (M:266-287), with the satellite's
  *      substep dt in the event for the burst's history bin;
- *   5. get_bulge_radius (M:293), which zeroes the bulge radii on R0 (BulgeSizeOn 0), so
- *      the remnant radius SAGE26 computes next (M:297) never reaches the state and is
- *      not formed here; BulgeSizeOn 3's synchronisation, remnant radius and assignment
- *      (M:293-330) are not ported, and these resets run in both modes;
- *   6. for a ratio strictly above ThresholdMajorMerger, make_bulge_from_burst (M:302)
- *      and TimeOfLastMajorMerger; otherwise TimeOfLastMinorMerger, on every other merger
- *      (M:299-331); each branch ends with get_bulge_radius again;
+ *   5. with BulgeSizeOn 3 (R1 onward): get_bulge_radius on the target (M:293), then the
+ *      remnant radius by energy conservation from the post-burst target and the still
+ *      populated satellite (M:297, :135-212, shared/sage_merger_physics.h);
+ *   6. for a ratio strictly above ThresholdMajorMerger, make_bulge_from_burst (M:302), the
+ *      remnant radius into MergerBulgeRadius, get_bulge_radius and TimeOfLastMajorMerger
+ *      (M:299-312); otherwise TimeOfLastMinorMerger and, onto a target that was
+ *      disk-dominated before the addition, get_bulge_radius alone (the remnant radius is
+ *      discarded), onto a spheroid-dominated one the remnant radius into MergerBulgeRadius
+ *      and get_bulge_radius (M:313-331). DiskScaleRadius is never zeroed. With BulgeSizeOn 0
+ *      (R0) every get_bulge_radius of steps 5 and 6 zeroes the three radii
+ *      (R/src/model_misc.c:242-247), so the remnant radius never reaches the state and is
+ *      not formed;
  *   7. the satellite leaves the pass as Type 3 (SAGE26's mergeType 1 or 2, M:311, :315).
  *
  * A ratio of 0 (both baryon sums zero) is not suppressed: the transaction, the event and
@@ -75,7 +80,8 @@ static double THRESHOLD_MAJOR_MERGER;
 static double THRESHOLD_SAT_DISRUPTION;
 
 /* SAGE26's BulgeSizeOn: 0 (R0) or 3 (Tonini sizes), the mode of add_galaxies_together's
- * satellite disk-star radius update (R/src/model_misc.c:395) */
+ * satellite disk-star radius update (R/src/model_misc.c:395) and of the transaction's bulge
+ * radii after the burst (M:293-330) */
 static int BULGE_SIZE_ON;
 
 // ============================================================================
@@ -181,18 +187,32 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
               target_idx, ngal);
     return -1;
   }
+  /* SAGE26's run_params->BulgeSizeOn and Hubble_h (R/src/model_misc.c:242, :249, :395, :398);
+   * mode 3 reads Hubble_h, so it refuses a context without the core's parameters, as
+   * sage26_set_disk_scale_radius does */
+  if (BULGE_SIZE_ON == MIMIC_SAGE_BULGE_SIZE_TONINI && ctx->params == NULL) {
+    ERROR_LOG("sage26_resolve_mergers_and_disruption: BulgeSizeOn 3 needs the core parameters "
+              "(Hubble_h)");
+    return -1;
+  }
+  const double hubble_h = ctx->params != NULL ? ctx->params->Hubble_h : 0.0;
+  const struct MimicSageBulgeSize sizes = {BULGE_SIZE_ON, hubble_h};
+
   struct GalaxyData *satellite = halos[satellite_idx].galaxy;
   struct GalaxyData *target = halos[target_idx].galaxy;
 
   // SAGE parity: the ratio and the morphology flag before the addition (M:235-254)
   const double mass_ratio = mimic_sage_merger_mass_ratio(satellite, target, merger_locals);
   const int is_disk_dominated = mimic_sage_merger_target_disk_dominated(target, merger_locals);
+  /* SAGE26 saves the target's disk radius before the addition for the burst (M:257); the burst
+   * consumer reads the target's DiskScaleRadius at the event, which equals it: nothing here or
+   * in the black-hole consumer writes DiskScaleRadius (sage26_set_disk_scale_radius, at
+   * pre-timestep, is its only writer) */
+  if (merger_locals != NULL) {
+    merger_locals->old_disk_radius = target->DiskScaleRadius;
+  }
 
-  /* SAGE parity: add_galaxies_together before the black hole and the burst (M:259), with
-   * SAGE26's run_params->BulgeSizeOn and Hubble_h for its radius update (R/src/model_misc.c:395,
-   * :398) */
-  const double hubble_h = ctx->params != NULL ? ctx->params->Hubble_h : 0.0;
-  const struct MimicSageBulgeSize sizes = {BULGE_SIZE_ON, hubble_h};
+  // SAGE parity: add_galaxies_together before the black hole and the burst (M:259)
   mimic_sage_add_galaxies_together(target, satellite, &sizes, add_locals);
 
   /* The flag travels with the event on the target, the halo its consumers receive: the
@@ -206,21 +226,47 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
     return -1;
   }
 
-  /* SAGE parity: get_bulge_radius after the burst (M:293) zeroes the radii on R0. Mode 3's
-   * synchronisation and remnant (M:293-330) are not ported: this reset and the two below run
-   * in both modes */
-  mimic_sage_reset_bulge_radii(target);
-
   // SAGE parity: strictly above the threshold is major, everything else minor (M:299-331)
   const int major_merger = mass_ratio > THRESHOLD_MAJOR_MERGER;
-  if (major_merger) {
-    mimic_sage_make_bulge_from_burst(target);
-    // The remnant radius set at M:307 is zeroed again at once on R0 (M:308)
-    mimic_sage_reset_bulge_radii(target);
-    target->TimeOfLastMajorMerger = event_time;
+  if (BULGE_SIZE_ON == MIMIC_SAGE_BULGE_SIZE_TONINI) {
+    /* SAGE parity: the target's bulge radius is synchronised after the addition and the burst
+     * (M:293), then the remnant radius is formed from that post-burst target and the
+     * satellite, which still holds its reservoirs (M:297) */
+    (void)mimic_sage_get_bulge_radius(target, &sizes, NULL);
+    const double new_merger_radius = mimic_sage_merger_remnant_radius(
+        target, satellite, merger_locals != NULL ? &merger_locals->remnant : NULL);
+    if (major_merger) {
+      /* SAGE parity: the whole stellar mass becomes a merger bulge with the remnant radius,
+       * then the radii are synchronised (M:302-308); DiskScaleRadius is not zeroed */
+      mimic_sage_make_bulge_from_burst(target);
+      target->MergerBulgeRadius = (float)new_merger_radius;
+      (void)mimic_sage_get_bulge_radius(target, &sizes, NULL);
+      target->TimeOfLastMajorMerger = event_time;
+    } else {
+      target->TimeOfLastMinorMerger = event_time;
+      if (is_disk_dominated) {
+        /* SAGE parity: a minor merger onto a target that was disk-dominated before the
+         * addition discards the remnant radius it formed and only synchronises (M:318-325) */
+        (void)mimic_sage_get_bulge_radius(target, &sizes, NULL);
+      } else {
+        // SAGE parity: onto a spheroid-dominated target the remnant radius is kept (M:326-330)
+        target->MergerBulgeRadius = (float)new_merger_radius;
+        (void)mimic_sage_get_bulge_radius(target, &sizes, NULL);
+      }
+    }
   } else {
-    target->TimeOfLastMinorMerger = event_time;
+    /* SAGE parity: with BulgeSizeOn 0 every get_bulge_radius of the transaction zeroes the
+     * radii (M:293, :308, :325, :330; R/src/model_misc.c:242-247), so the remnant radius SAGE26
+     * forms between them (M:297) never reaches the state and is not formed here */
     mimic_sage_reset_bulge_radii(target);
+    if (major_merger) {
+      mimic_sage_make_bulge_from_burst(target);
+      mimic_sage_reset_bulge_radii(target);
+      target->TimeOfLastMajorMerger = event_time;
+    } else {
+      target->TimeOfLastMinorMerger = event_time;
+      mimic_sage_reset_bulge_radii(target);
+    }
   }
   if (merger_locals != NULL) {
     merger_locals->major_merger = major_merger;

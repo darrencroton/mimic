@@ -4,7 +4,8 @@ module:
     SAGE26's per-substep merger and disruption pass (clock, gates, targets with the one-hop
     redirect, event time) with its two transactions: deal_with_galaxy_merger (ratio, pre-transfer
     morphology, add_galaxies_together, the merger event to the black-hole and burst consumers, the
-    major-merger bulge and the timestamps) and disrupt_satellite_to_ICS
+    major-merger bulge, with BulgeSizeOn 3 the bulge-radius synchronisation, remnant radius and
+    its major/minor assignment, and the timestamps) and disrupt_satellite_to_ICS
 
   supported_processing_modes: [process_full_halo]
 

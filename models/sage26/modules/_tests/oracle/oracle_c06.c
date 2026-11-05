@@ -20,7 +20,10 @@
  *   collisional_starburst_recipe  M:584-832, both modes
  *   add_galaxies_together         M:456-543
  *   make_bulge_from_burst         M:553-570
- *   deal_with_galaxy_merger       M:228-333 end to end
+ *   deal_with_galaxy_merger       M:228-333 end to end; with BulgeSizeOn 3 it also records the
+ *                                 locals and branch flags of the remnant radius (M:135-212, a
+ *                                 TRANSCRIPTION, the routine being static in SAGE26) and each
+ *                                 value's narrowing limitation (README "The c07 Group")
  *   disrupt_satellite_to_ICS      M:845-903
  *   merger_pass                   a SOURCE-REVIEWED TRANSCRIPTION of the per-substep merger and
  *                                 disruption pass, B:519-587, calling SAGE26's own
@@ -780,6 +783,28 @@ enum im_id {
   IM_YIELD_TO_HOT,
   IM_TOTAL_GAS,
   IM_TOTAL_METALS_GAS,
+  /* c07: the locals of calculate_merger_remnant_radius (M:138-199), recorded with
+   * BulgeSizeOn 3 only; new_merger_radius, its return value, is IM_NEW_MERGER_RADIUS */
+  IM_REM_M1,
+  IM_REM_M2,
+  IM_REM_M_TOT,
+  IM_REM_R1_DISK_HALF,
+  IM_REM_R1_BULGE_HALF,
+  IM_REM_M1_DISK,
+  IM_REM_M1_BULGE,
+  IM_REM_R1_PROGENITOR,
+  IM_REM_R2_DISK_HALF,
+  IM_REM_R2_BULGE_HALF,
+  IM_REM_M2_DISK,
+  IM_REM_M2_BULGE,
+  IM_REM_R2_PROGENITOR,
+  IM_REM_R1,
+  IM_REM_R2,
+  IM_REM_E_INIT,
+  IM_REM_E_ORB,
+  IM_REM_F_GAS,
+  IM_REM_E_RAD,
+  IM_REM_E_FINAL,
   IM_COUNT
 };
 
@@ -830,6 +855,26 @@ static const struct {
     [IM_YIELD_TO_HOT] = {"yield_metals_to_hot", STAGE_BURST, CHECK_CONTINUATION},
     [IM_TOTAL_GAS] = {"total_gas", STAGE_DISRUPT, CHECK_CONTINUATION},
     [IM_TOTAL_METALS_GAS] = {"total_metals_gas", STAGE_DISRUPT, CHECK_CONTINUATION},
+    [IM_REM_M1] = {"remnant_M1", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_M2] = {"remnant_M2", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_M_TOT] = {"remnant_M_tot", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_R1_DISK_HALF] = {"remnant_R1_disk_half", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_R1_BULGE_HALF] = {"remnant_R1_bulge_half", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_M1_DISK] = {"remnant_M1_disk", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_M1_BULGE] = {"remnant_M1_bulge", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_R1_PROGENITOR] = {"remnant_R1_progenitor", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_R2_DISK_HALF] = {"remnant_R2_disk_half", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_R2_BULGE_HALF] = {"remnant_R2_bulge_half", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_M2_DISK] = {"remnant_M2_disk", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_M2_BULGE] = {"remnant_M2_bulge", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_R2_PROGENITOR] = {"remnant_R2_progenitor", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_R1] = {"remnant_R1", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_R2] = {"remnant_R2", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_E_INIT] = {"remnant_E_init", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_E_ORB] = {"remnant_E_orb", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_F_GAS] = {"remnant_f_gas", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_E_RAD] = {"remnant_E_rad", STAGE_MERGER, CHECK_TAIL},
+    [IM_REM_E_FINAL] = {"remnant_E_final", STAGE_MERGER, CHECK_TAIL},
 };
 
 /** Carried integer values, validated by flipping them (README "Carried Values") */
@@ -871,6 +916,14 @@ enum flag_id {
   FL_BURST_YIELD_STAYS_IN_DISK,
   FL_DISRUPT_STARS_POSITIVE,
   FL_DISRUPT_ICS_POSITIVE,
+  /* c07: the branches of calculate_merger_remnant_radius (M:142-202), BulgeSizeOn 3 only */
+  FL_REM_TOTAL_NONPOSITIVE,
+  FL_REM_G1_MASS_POSITIVE,
+  FL_REM_G2_MASS_POSITIVE,
+  FL_REM_R1_FALLBACK,
+  FL_REM_R2_FALLBACK,
+  FL_REM_BOTH_RADII_ZERO,
+  FL_REM_ENERGY_NONPOSITIVE,
   FL_COUNT
 };
 
@@ -901,6 +954,13 @@ static const char *const FLAG_NAMES[FL_COUNT] = {
     [FL_BURST_YIELD_STAYS_IN_DISK] = "burst_yield_minor_branch",
     [FL_DISRUPT_STARS_POSITIVE] = "disrupt_stars_positive",
     [FL_DISRUPT_ICS_POSITIVE] = "disrupt_ics_positive",
+    [FL_REM_TOTAL_NONPOSITIVE] = "remnant_total_nonpositive",
+    [FL_REM_G1_MASS_POSITIVE] = "remnant_g1_mass_positive",
+    [FL_REM_G2_MASS_POSITIVE] = "remnant_g2_mass_positive",
+    [FL_REM_R1_FALLBACK] = "remnant_r1_fallback",
+    [FL_REM_R2_FALLBACK] = "remnant_r2_fallback",
+    [FL_REM_BOTH_RADII_ZERO] = "remnant_both_radii_zero",
+    [FL_REM_ENERGY_NONPOSITIVE] = "remnant_energy_nonpositive",
 };
 
 /** Values of intermediate.mass_ratio_path (M:243-249) */
@@ -1220,7 +1280,8 @@ static void transcribe_update_from_feedback(struct context *ctx, const int p, co
  *
  * StarburstColdGasOn 1 (M:680-682), SFprescription 0, FIREmodeOn 0 (fire_scaling stays 0 and
  * is never read, M:692-703), SupernovaRecipeOn 1, SaveFullSFH 0 (M:763-768 does not run),
- * BulgeSizeOn 0 (update_instability_bulge_radius returns at once, R/src/model_misc.c:395) and
+ * BulgeSizeOn 0 or 3 (the instability channel's update_instability_bulge_radius, M:783-784, is
+ * SAGE26's own: it returns at once in mode 0, R/src/model_misc.c:395) and
  * CGMrecipeOn 0 (add_metals_to_hot_reservoir adds to MetalsHotGas, model_misc.h:67-74).
  * SAGE26's assertions (M:589-592, M:718) are checked and mark the composition out of domain.
  * The instability recheck (M:807-811) is SAGE26's own check_disk_instability.
@@ -1396,8 +1457,9 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
 }
 
 /**
- * @brief TRANSCRIPTION of add_galaxies_together, M:456-543, on R0's path (SaveFullSFH 0, so
- *        M:537-542 does not run; BulgeSizeOn 0, so update_instability_bulge_radius returns)
+ * @brief TRANSCRIPTION of add_galaxies_together, M:456-543, on R0's and R1's paths (SaveFullSFH
+ *        0, so M:537-542 does not run; BulgeSizeOn 0 or 3, the radius update of M:522 being
+ *        SAGE26's own update_instability_bulge_radius, which returns at once in mode 0)
  */
 static void transcribe_add_galaxies_together(struct context *ctx, const int t, const int p) {
   struct locals *l = ctx->l;
@@ -1485,67 +1547,127 @@ static void transcribe_add_galaxies_together(struct context *ctx, const int t, c
 /**
  * @brief TRANSCRIPTION of calculate_merger_remnant_radius, M:135-212 (static in SAGE26)
  *
- * On R0 its result is output-inert: every path of deal_with_galaxy_merger that stores it in
- * MergerBulgeRadius then calls get_bulge_radius, which zeroes the radii (BulgeSizeOn 0,
- * R/src/model_misc.c:241-246). The value is recorded, never validated (README).
+ * Every statement is restated with its line, every branch included: the M_tot <= 0 return
+ * (M:142), each progenitor's positive and non-positive float stellar-plus-cold sum
+ * (M:153-161, M:168-174), the zero-radius fallbacks in order (M:177-179) and the E_final <= 0
+ * fallback (M:202-205). Each local is tapped (recorded, and replaced by a neighbour when it is
+ * perturbed) right after the statement that forms it; R1 and R2 are tapped as M:153-174 form
+ * them (remnant_R1_progenitor, remnant_R2_progenitor) and again after the fallbacks
+ * (remnant_R1, remnant_R2). C_rad (M:193) is the constant COVINGTON11_C_RAD and is not a
+ * carried value.
+ *
+ * The routine is static, so no SAGE26 call reaches it alone: the transcription is checked
+ * through SAGE26's own deal_with_galaxy_merger, whose end state it must reproduce (tail check).
+ * With BulgeSizeOn 0 every path of deal_with_galaxy_merger that stores the result in
+ * MergerBulgeRadius then calls get_bulge_radius, which zeroes the radii
+ * (R/src/model_misc.c:242-247), so the check covers nothing there. With BulgeSizeOn 3 the
+ * result reaches the state on the major and the spheroid-dominated minor branch (M:307, :328),
+ * by one narrowing into the float MergerBulgeRadius; the disk-dominated minor branch discards
+ * it (M:318-325). The three fused multiply-adds of SAGE26's object (M:158, :171, :204,
+ * README's c07 table) are the same single C expressions here, so clang contracts them alike.
  */
-static double transcribe_merger_remnant_radius(const struct GALAXY *g1, const struct GALAXY *g2) {
-  /* M:138-142 */
-  double M1 = g1->StellarMass + g1->ColdGas;
-  double M2 = g2->StellarMass + g2->ColdGas;
-  double M_tot = M1 + M2;
+static double transcribe_merger_remnant_radius(struct context *ctx, const struct GALAXY *g1,
+                                               const struct GALAXY *g2) {
+  struct locals *l = ctx->l;
 
+  /* M:138-140 */
+  double M1 = g1->StellarMass + g1->ColdGas;
+  M1 = tap(ctx, IM_REM_M1, M1);
+  double M2 = g2->StellarMass + g2->ColdGas;
+  M2 = tap(ctx, IM_REM_M2, M2);
+  double M_tot = M1 + M2;
+  M_tot = tap(ctx, IM_REM_M_TOT, M_tot);
+
+  /* M:142 */
+  l->flag[FL_REM_TOTAL_NONPOSITIVE] = 0;
   if (M_tot <= 0.0) {
+    l->flag[FL_REM_TOTAL_NONPOSITIVE] = 1;
     return 0.0;
   }
 
-  /* M:149-161 */
+  /* M:149-151 */
   double R1_disk_half = DISK_HALF_MASS_FRAC * g1->DiskScaleRadius;
+  R1_disk_half = tap(ctx, IM_REM_R1_DISK_HALF, R1_disk_half);
   double R1_bulge_half = g1->BulgeRadius;
+  R1_bulge_half = tap(ctx, IM_REM_R1_BULGE_HALF, R1_bulge_half);
   double R1;
 
+  /* M:153-161 */
+  l->flag[FL_REM_G1_MASS_POSITIVE] = 0;
   if (g1->StellarMass + g1->ColdGas > 0) {
+    l->flag[FL_REM_G1_MASS_POSITIVE] = 1;
     double M1_disk = g1->ColdGas + (g1->StellarMass - g1->BulgeMass);
+    M1_disk = tap(ctx, IM_REM_M1_DISK, M1_disk);
     double M1_bulge = g1->BulgeMass;
+    M1_bulge = tap(ctx, IM_REM_M1_BULGE, M1_bulge);
     R1 = (M1_disk * R1_disk_half + M1_bulge * R1_bulge_half) / M1;
   } else {
     R1 = 0.0;
   }
+  R1 = tap(ctx, IM_REM_R1_PROGENITOR, R1);
 
   /* M:164-174 */
   double R2_disk_half = DISK_HALF_MASS_FRAC * g2->DiskScaleRadius;
+  R2_disk_half = tap(ctx, IM_REM_R2_DISK_HALF, R2_disk_half);
   double R2_bulge_half = g2->BulgeRadius;
+  R2_bulge_half = tap(ctx, IM_REM_R2_BULGE_HALF, R2_bulge_half);
   double R2;
 
+  l->flag[FL_REM_G2_MASS_POSITIVE] = 0;
   if (g2->StellarMass + g2->ColdGas > 0) {
+    l->flag[FL_REM_G2_MASS_POSITIVE] = 1;
     double M2_disk = g2->ColdGas + (g2->StellarMass - g2->BulgeMass);
+    M2_disk = tap(ctx, IM_REM_M2_DISK, M2_disk);
     double M2_bulge = g2->BulgeMass;
+    M2_bulge = tap(ctx, IM_REM_M2_BULGE, M2_bulge);
     R2 = (M2_disk * R2_disk_half + M2_bulge * R2_bulge_half) / M2;
   } else {
     R2 = 0.0;
   }
+  R2 = tap(ctx, IM_REM_R2_PROGENITOR, R2);
 
   /* M:177-179 */
+  l->flag[FL_REM_R1_FALLBACK] = 0;
   if (R1 <= 0.0) {
+    l->flag[FL_REM_R1_FALLBACK] = 1;
     R1 = R2;
   }
+  l->flag[FL_REM_R2_FALLBACK] = 0;
   if (R2 <= 0.0) {
+    l->flag[FL_REM_R2_FALLBACK] = 1;
     R2 = R1;
   }
+  R1 = tap(ctx, IM_REM_R1, R1);
+  R2 = tap(ctx, IM_REM_R2, R2);
+  l->flag[FL_REM_BOTH_RADII_ZERO] = 0;
   if (R1 <= 0.0) {
+    l->flag[FL_REM_BOTH_RADII_ZERO] = 1;
     return 0.0;
   }
 
-  /* M:185-199 */
+  /* M:185 */
   double E_init = (M1 * M1) / R1 + (M2 * M2) / R2;
+  E_init = tap(ctx, IM_REM_E_INIT, E_init);
+
+  /* M:189 */
   double E_orb = (M1 * M2) / (R1 + R2);
+  E_orb = tap(ctx, IM_REM_E_ORB, E_orb);
+
+  /* M:193-195 */
   double C_rad = COVINGTON11_C_RAD;
   double f_gas = (g1->ColdGas + g2->ColdGas) / M_tot;
+  f_gas = tap(ctx, IM_REM_F_GAS, f_gas);
   double E_rad = C_rad * E_init * f_gas;
+  E_rad = tap(ctx, IM_REM_E_RAD, E_rad);
+
+  /* M:199 */
   double E_final = E_init + E_orb + E_rad;
+  E_final = tap(ctx, IM_REM_E_FINAL, E_final);
 
   /* M:202-205 */
+  l->flag[FL_REM_ENERGY_NONPOSITIVE] = 0;
   if (E_final <= 0.0) {
+    l->flag[FL_REM_ENERGY_NONPOSITIVE] = 1;
     return (M1 * R1 + M2 * R2) / M_tot;
   }
 
@@ -1641,7 +1763,8 @@ static void call_update_from_feedback(struct context *ctx, const int p, const in
 }
 
 /**
- * @brief TRANSCRIPTION of deal_with_galaxy_merger, M:228-333, on R0's path
+ * @brief TRANSCRIPTION of deal_with_galaxy_merger, M:228-333, on R0's and R1's paths
+ *        (BulgeSizeOn 0 or 3)
  *
  * The sub-routines it calls are SAGE26's own or their transcriptions above, per the
  * composition; get_bulge_radius and make_bulge_from_burst are always SAGE26's own;
@@ -1718,7 +1841,7 @@ static void transcribe_deal_with_galaxy_merger(struct context *ctx, const int p,
 
   /* M:293, M:297 */
   get_bulge_radius(t, galaxies, &run_params);
-  double new_merger_radius = transcribe_merger_remnant_radius(&galaxies[t], &galaxies[p]);
+  double new_merger_radius = transcribe_merger_remnant_radius(ctx, &galaxies[t], &galaxies[p]);
   new_merger_radius = tap(ctx, IM_NEW_MERGER_RADIUS, new_merger_radius);
 
   /* M:299-332 */
@@ -2214,6 +2337,31 @@ static void run_make_bulge_from_burst(void) {
   write_galaxy("", 0, &galaxies[0], BLOCK_RESERVOIRS | BLOCK_HISTORIES);
 }
 
+/**
+ * @brief The c07 record of a BulgeSizeOn 3 merger: the remnant radius's branch flags and
+ *        locals, and each radius value's narrowing limitation (README "The c07 Group")
+ *
+ * Written only with BulgeSizeOn 3, after the c06 record, so a mode-0 output is unchanged. Each
+ * remnant local is written with c06's markers and `_narrowing_limited` 1: its only path to the
+ * state is new_merger_radius's float store into MergerBulgeRadius (M:307, :328), one
+ * narrowing. new_merger_radius and old_disk_radius, already in the c06 record, get the same
+ * marker: new_merger_radius reaches the state only through that store, old_disk_radius only
+ * through the burst's update_instability_bulge_radius, whose result is one float store into
+ * InstabilityBulgeRadius (R/src/model_misc.c:422; the closing get_bulge_radius reads that
+ * float).
+ */
+static void write_remnant_record(const struct checked_record *rec) {
+  out_flags(&rec->locals, FL_REM_TOTAL_NONPOSITIVE, FL_REM_ENERGY_NONPOSITIVE);
+  out_i32("intermediate.new_merger_radius_narrowing_limited", 1);
+  out_i32("intermediate.old_disk_radius_narrowing_limited", 1);
+  for (int id = IM_REM_M1; id <= IM_REM_E_FINAL; id++) {
+    out_carried(rec, id);
+    if (rec->locals.present[id]) {
+      out_i32(field_name("intermediate.%s_narrowing_limited", IM_INFO[id].name), 1);
+    }
+  }
+}
+
 /** @brief deal_with_galaxy_merger (M:228-333) end to end */
 static void run_deal_with_galaxy_merger(void) {
   read_merger_config();
@@ -2246,6 +2394,9 @@ static void run_deal_with_galaxy_merger(void) {
     out_carried_flag(&rec, id);
   }
   out_values(&rec, IM_MI, IM_YIELD_TO_HOT);
+  if (run_params.BulgeSizeOn == 3) {
+    write_remnant_record(&rec);
+  }
 }
 
 /** @brief disrupt_satellite_to_ICS (M:845-903) */

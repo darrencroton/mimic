@@ -1,0 +1,561 @@
+# SAGE26 oracle output for merge_s3_r1_snap63_minor_disk.in, written by oracle_c06 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine deal_with_galaxy_merger
+i32 galaxy[0].Type 0
+i32 galaxy[0].SnapNum 62
+i32 galaxy[0].mergeType 0
+i32 galaxy[0].mergeIntoID -1
+i32 galaxy[0].CentralGal 0
+i32 galaxy[0].Len 2305
+f32 galaxy[0].ColdGas 0x00000000  # 0
+f32 galaxy[0].MetalsColdGas 0x00000000  # 0
+f32 galaxy[0].StellarMass 0x40f2dc10  # 7.5893631
+f32 galaxy[0].MetalsStellarMass 0x3e0ddf47  # 0.138547048
+f32 galaxy[0].BulgeMass 0x4054f526  # 3.32746267
+f32 galaxy[0].MetalsBulgeMass 0x3d4b3d57  # 0.0496190451
+f32 galaxy[0].MergerBulgeMass 0x3da6edf5  # 0.0815085545
+f32 galaxy[0].InstabilityBulgeMass 0x404fbdb7  # 3.24595428
+f32 galaxy[0].HotGas 0x4163d040  # 14.2383423
+f32 galaxy[0].MetalsHotGas 0x3d6a86c8  # 0.0572574437
+f32 galaxy[0].EjectedMass 0x3fe1ef54  # 1.76511621
+f32 galaxy[0].MetalsEjectedMass 0x3c8a2252  # 0.0168620683
+f32 galaxy[0].BlackHoleMass 0x3bbe26a4  # 0.00580294617
+f32 galaxy[0].QuasarModeBHaccretionMass 0x3af4f951  # 0.00186900247
+f32 galaxy[0].ICS 0x404837ee  # 3.12841368
+f32 galaxy[0].MetalsICS 0x3d435826  # 0.0476914868
+f32 galaxy[0].ICS_disrupt 0x4046444e  # 3.09791899
+f32 galaxy[0].ICS_accrete 0x3cf9cfd1  # 0.0304946024
+f32 galaxy[0].ICS_sum_mt 0x3c3ee482  # 0.0116511602
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[0].H1gas 0x3de95073  # 0.113922976
+f32 galaxy[0].H2gas 0x00000000  # 0
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+f32 galaxy[0].DiskScaleRadius 0x3b386201  # 0.00281345868
+f32 galaxy[0].BulgeRadius 0x39785113  # 0.000236813255
+f32 galaxy[0].MergerBulgeRadius 0x39fb844a  # 0.000479730137
+f32 galaxy[0].InstabilityBulgeRadius 0x3971eba9  # 0.000230713413
+f32 galaxy[0].TimeOfLastMajorMerger 0xbf800000  # -1
+f32 galaxy[0].TimeOfLastMinorMerger 0x3724f0fa  # 9.83126847e-06
+f32 galaxy[0].SfrDisk[0] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[1] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[2] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[3] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[4] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[5] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[6] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[7] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[8] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[9] 0x00000000  # 0
+i32 galaxy[1].Type 1
+i32 galaxy[1].SnapNum 62
+i32 galaxy[1].mergeType 1
+i32 galaxy[1].mergeIntoID -1
+i32 galaxy[1].CentralGal 1
+i32 galaxy[1].Len 247
+f32 galaxy[1].ColdGas 0x3f9e9f0f  # 1.23922908
+f32 galaxy[1].MetalsColdGas 0x3c08007f  # 0.00830089953
+f32 galaxy[1].StellarMass 0x3f3adaa1  # 0.729898512
+f32 galaxy[1].MetalsStellarMass 0x3bce90ee  # 0.00630389806
+f32 galaxy[1].BulgeMass 0x3c72aaef  # 0.0148112616
+f32 galaxy[1].MetalsBulgeMass 0x3917b77c  # 0.000144688354
+f32 galaxy[1].MergerBulgeMass 0x00000000  # 0
+f32 galaxy[1].InstabilityBulgeMass 0x3c72aaef  # 0.0148112616
+f32 galaxy[1].HotGas 0x3f6ac650  # 0.917088509
+f32 galaxy[1].MetalsHotGas 0x3a8e8b1d  # 0.00108751992
+f32 galaxy[1].EjectedMass 0x00000000  # 0
+f32 galaxy[1].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[1].BlackHoleMass 0x37ea5d00  # 2.79382803e-05
+f32 galaxy[1].QuasarModeBHaccretionMass 0x00000000  # 0
+f32 galaxy[1].ICS 0x00000000  # 0
+f32 galaxy[1].MetalsICS 0x00000000  # 0
+f32 galaxy[1].ICS_disrupt 0x00000000  # 0
+f32 galaxy[1].ICS_accrete 0x00000000  # 0
+f32 galaxy[1].ICS_sum_mt 0x00000000  # 0
+f32 galaxy[1].CGMgas 0x00000000  # 0
+f32 galaxy[1].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[1].H1gas 0x3f600048  # 0.875004292
+f32 galaxy[1].H2gas 0x00000000  # 0
+f32 galaxy[1].OutflowRate 0x00000000  # 0
+f32 galaxy[1].DiskScaleRadius 0x3bb94044  # 0.00565341301
+f32 galaxy[1].BulgeRadius 0x39c8d11e  # 0.000383027771
+f32 galaxy[1].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[1].InstabilityBulgeRadius 0x39c8d11e  # 0.000383027771
+f32 galaxy[1].TimeOfLastMajorMerger 0xbf800000  # -1
+f32 galaxy[1].TimeOfLastMinorMerger 0xbf800000  # -1
+i32 intermediate.mass_ratio_path 0
+i32 intermediate.major_merger 0
+i32 intermediate.satellite_disk_positive 1
+i32 intermediate.disk_fraction_above_half 1
+i32 intermediate.satellite_ics_positive 0
+i32 intermediate.bh_coldgas_positive 1
+i32 intermediate.bh_accretion_cap_binds 0
+i32 intermediate.bh_metals_floor_binds 0
+i32 intermediate.wind_ejects_cold 1
+i32 intermediate.wind_ejects_hot 0
+i32 intermediate.burst_gas_floored 0
+i32 intermediate.burst_stars_floored 0
+i32 intermediate.burst_renorm_active 0
+i32 intermediate.burst_ejection_vvir_nonpositive 0
+i32 intermediate.burst_ejected_floored 0
+i32 intermediate.reheat_clamp_fb_binds 0
+i32 intermediate.ejected_cap_binds 0
+i32 intermediate.metals_cap_binds 0
+i32 intermediate.burst_instability_recheck_ran 1
+i32 intermediate.burst_instability_recheck_changed_state 0
+i32 intermediate.burst_yield_minor_branch 0
+i32 intermediate.is_disk_dominated_absent 0
+i32 intermediate.is_disk_dominated 1
+i32 intermediate.is_disk_dominated_checked 1
+i32 intermediate.is_disk_dominated_check_kind 2
+i32 intermediate.is_disk_dominated_validated_flip 1
+i32 intermediate.burst_to_merger_bulge_absent 0
+i32 intermediate.burst_to_merger_bulge 0
+i32 intermediate.burst_to_merger_bulge_checked 1
+i32 intermediate.burst_to_merger_bulge_check_kind 1
+i32 intermediate.burst_to_merger_bulge_validated_flip 0
+i32 intermediate.mi_absent 0
+f64 intermediate.mi 0x3fff818c00000000  # 1.9691276550292969
+i32 intermediate.mi_checked 1
+i32 intermediate.mi_check_kind 2
+i32 intermediate.mi_validated_up 0
+i32 intermediate.mi_validated_down 0
+i32 intermediate.mi_validated 0
+i32 intermediate.ma_absent 0
+f64 intermediate.ma 0x401c1ee0e0000000  # 7.0301547050476074
+i32 intermediate.ma_checked 1
+i32 intermediate.ma_check_kind 2
+i32 intermediate.ma_validated_up 0
+i32 intermediate.ma_validated_down 0
+i32 intermediate.ma_validated 0
+i32 intermediate.mass_ratio_absent 0
+f64 intermediate.mass_ratio 0x3fd1ed1d6829efa5  # 0.28009734318015439
+i32 intermediate.mass_ratio_checked 1
+i32 intermediate.mass_ratio_check_kind 1
+i32 intermediate.mass_ratio_validated_up 0
+i32 intermediate.mass_ratio_validated_down 0
+i32 intermediate.mass_ratio_validated 0
+i32 intermediate.central_disk_mass_absent 0
+f64 intermediate.central_disk_mass 0x40110c2fa0000000  # 4.2619004249572754
+i32 intermediate.central_disk_mass_checked 1
+i32 intermediate.central_disk_mass_check_kind 2
+i32 intermediate.central_disk_mass_validated_up 0
+i32 intermediate.central_disk_mass_validated_down 0
+i32 intermediate.central_disk_mass_validated 0
+i32 intermediate.old_disk_radius_absent 0
+f64 intermediate.old_disk_radius 0x3f670c4020000000  # 0.0028134586755186319
+i32 intermediate.old_disk_radius_checked 1
+i32 intermediate.old_disk_radius_check_kind 1
+i32 intermediate.old_disk_radius_validated_up 0
+i32 intermediate.old_disk_radius_validated_down 0
+i32 intermediate.old_disk_radius_validated 0
+i32 intermediate.new_merger_radius_absent 0
+f64 intermediate.new_merger_radius 0x3f68daee18534a9b  # 0.0030340814870240657
+i32 intermediate.new_merger_radius_checked 1
+i32 intermediate.new_merger_radius_check_kind 2
+i32 intermediate.new_merger_radius_validated_up 0
+i32 intermediate.new_merger_radius_validated_down 0
+i32 intermediate.new_merger_radius_validated 0
+i32 intermediate.satellite_disk_mass_absent 0
+f64 intermediate.satellite_disk_mass 0x3fe6e1fea0000000  # 0.71508723497390747
+i32 intermediate.satellite_disk_mass_checked 1
+i32 intermediate.satellite_disk_mass_check_kind 1
+i32 intermediate.satellite_disk_mass_validated_up 0
+i32 intermediate.satellite_disk_mass_validated_down 0
+i32 intermediate.satellite_disk_mass_validated 0
+i32 intermediate.disk_mass_post_absent 0
+f64 intermediate.disk_mass_post 0x40110c2fa0000000  # 4.2619004249572754
+i32 intermediate.disk_mass_post_checked 1
+i32 intermediate.disk_mass_post_check_kind 2
+i32 intermediate.disk_mass_post_validated_up 0
+i32 intermediate.disk_mass_post_validated_down 0
+i32 intermediate.disk_mass_post_validated 0
+i32 intermediate.disk_fraction_post_absent 0
+f64 intermediate.disk_fraction_post 0x3fe1f8519046c927  # 0.56156233004575007
+i32 intermediate.disk_fraction_post_checked 1
+i32 intermediate.disk_fraction_post_check_kind 2
+i32 intermediate.disk_fraction_post_validated_up 0
+i32 intermediate.disk_fraction_post_validated_down 0
+i32 intermediate.disk_fraction_post_validated 0
+i32 intermediate.BHaccrete_pre_cap_absent 0
+f64 intermediate.BHaccrete_pre_cap 0x3f5e9f2a2bfc6ba5  # 0.0018690025171454819
+i32 intermediate.BHaccrete_pre_cap_checked 1
+i32 intermediate.BHaccrete_pre_cap_check_kind 1
+i32 intermediate.BHaccrete_pre_cap_validated_up 0
+i32 intermediate.BHaccrete_pre_cap_validated_down 0
+i32 intermediate.BHaccrete_pre_cap_validated 0
+i32 intermediate.BHaccrete_absent 0
+f64 intermediate.BHaccrete 0x3f5e9f2a2bfc6ba5  # 0.0018690025171454819
+i32 intermediate.BHaccrete_checked 1
+i32 intermediate.BHaccrete_check_kind 1
+i32 intermediate.BHaccrete_validated_up 0
+i32 intermediate.BHaccrete_validated_down 0
+i32 intermediate.BHaccrete_validated 0
+i32 intermediate.bh_metallicity_absent 0
+f64 intermediate.bh_metallicity 0x3f86532b313056c3  # 0.010900819243072296
+i32 intermediate.bh_metallicity_checked 1
+i32 intermediate.bh_metallicity_check_kind 2
+i32 intermediate.bh_metallicity_validated_up 0
+i32 intermediate.bh_metallicity_validated_down 0
+i32 intermediate.bh_metallicity_validated 0
+i32 intermediate.quasar_energy_absent 0
+f64 intermediate.quasar_energy 0x40f481368466aa63  # 83987.40732447202
+i32 intermediate.quasar_energy_checked 1
+i32 intermediate.quasar_energy_check_kind 2
+i32 intermediate.quasar_energy_validated_up 0
+i32 intermediate.quasar_energy_validated_down 0
+i32 intermediate.quasar_energy_validated 0
+i32 intermediate.cold_gas_energy_absent 0
+f64 intermediate.cold_gas_energy 0x40d8d888c15759ad  # 25442.13680061109
+i32 intermediate.cold_gas_energy_checked 1
+i32 intermediate.cold_gas_energy_check_kind 2
+i32 intermediate.cold_gas_energy_validated_up 0
+i32 intermediate.cold_gas_energy_validated_down 0
+i32 intermediate.cold_gas_energy_validated 0
+i32 intermediate.hot_gas_energy_absent 0
+f64 intermediate.hot_gas_energy 0x410f67cb2c3318fc  # 257273.39658183593
+i32 intermediate.hot_gas_energy_checked 1
+i32 intermediate.hot_gas_energy_check_kind 2
+i32 intermediate.hot_gas_energy_validated_up 0
+i32 intermediate.hot_gas_energy_validated_down 0
+i32 intermediate.hot_gas_energy_validated 0
+i32 intermediate.eburst_absent 0
+f64 intermediate.eburst 0x3fcd694b426b014c  # 0.22977581732812735
+i32 intermediate.eburst_checked 1
+i32 intermediate.eburst_check_kind 2
+i32 intermediate.eburst_validated_up 0
+i32 intermediate.eburst_validated_down 0
+i32 intermediate.eburst_validated 0
+i32 intermediate.gas_for_starburst_absent 0
+f64 intermediate.gas_for_starburst 0x0000000000000000  # 0
+i32 intermediate.gas_for_starburst_checked 1
+i32 intermediate.gas_for_starburst_check_kind 2
+i32 intermediate.gas_for_starburst_validated_up 0
+i32 intermediate.gas_for_starburst_validated_down 0
+i32 intermediate.gas_for_starburst_validated 0
+i32 intermediate.stars_pre_renorm_absent 0
+f64 intermediate.stars_pre_renorm 0x0000000000000000  # 0
+i32 intermediate.stars_pre_renorm_checked 1
+i32 intermediate.stars_pre_renorm_check_kind 1
+i32 intermediate.stars_pre_renorm_validated_up 0
+i32 intermediate.stars_pre_renorm_validated_down 0
+i32 intermediate.stars_pre_renorm_validated 0
+i32 intermediate.reheated_mass_pre_renorm_absent 0
+f64 intermediate.reheated_mass_pre_renorm 0x0000000000000000  # 0
+i32 intermediate.reheated_mass_pre_renorm_checked 1
+i32 intermediate.reheated_mass_pre_renorm_check_kind 1
+i32 intermediate.reheated_mass_pre_renorm_validated_up 0
+i32 intermediate.reheated_mass_pre_renorm_validated_down 0
+i32 intermediate.reheated_mass_pre_renorm_validated 0
+i32 intermediate.renorm_fac_absent 1
+i32 intermediate.stars_absent 0
+f64 intermediate.stars 0x0000000000000000  # 0
+i32 intermediate.stars_checked 1
+i32 intermediate.stars_check_kind 1
+i32 intermediate.stars_validated_up 1
+i32 intermediate.stars_validated_down 1
+i32 intermediate.stars_validated 1
+i32 intermediate.reheated_mass_absent 0
+f64 intermediate.reheated_mass 0x0000000000000000  # 0
+i32 intermediate.reheated_mass_checked 1
+i32 intermediate.reheated_mass_check_kind 1
+i32 intermediate.reheated_mass_validated_up 0
+i32 intermediate.reheated_mass_validated_down 0
+i32 intermediate.reheated_mass_validated 0
+i32 intermediate.ejected_mass_pre_floor_absent 0
+f64 intermediate.ejected_mass_pre_floor 0x8000000000000000  # -0
+i32 intermediate.ejected_mass_pre_floor_checked 1
+i32 intermediate.ejected_mass_pre_floor_check_kind 1
+i32 intermediate.ejected_mass_pre_floor_validated_up 0
+i32 intermediate.ejected_mass_pre_floor_validated_down 0
+i32 intermediate.ejected_mass_pre_floor_validated 0
+i32 intermediate.ejected_mass_absent 0
+f64 intermediate.ejected_mass 0x8000000000000000  # -0
+i32 intermediate.ejected_mass_checked 1
+i32 intermediate.ejected_mass_check_kind 1
+i32 intermediate.ejected_mass_validated_up 0
+i32 intermediate.ejected_mass_validated_down 0
+i32 intermediate.ejected_mass_validated 0
+i32 intermediate.metallicity_sf_absent 0
+f64 intermediate.metallicity_sf 0x0000000000000000  # 0
+i32 intermediate.metallicity_sf_checked 1
+i32 intermediate.metallicity_sf_check_kind 1
+i32 intermediate.metallicity_sf_validated_up 0
+i32 intermediate.metallicity_sf_validated_down 0
+i32 intermediate.metallicity_sf_validated 0
+i32 intermediate.recycled_stars_absent 0
+f64 intermediate.recycled_stars 0x0000000000000000  # 0
+i32 intermediate.recycled_stars_checked 1
+i32 intermediate.recycled_stars_check_kind 1
+i32 intermediate.recycled_stars_validated_up 0
+i32 intermediate.recycled_stars_validated_down 0
+i32 intermediate.recycled_stars_validated 0
+i32 intermediate.metallicity_fb_absent 0
+f64 intermediate.metallicity_fb 0x0000000000000000  # 0
+i32 intermediate.metallicity_fb_checked 1
+i32 intermediate.metallicity_fb_check_kind 1
+i32 intermediate.metallicity_fb_validated_up 0
+i32 intermediate.metallicity_fb_validated_down 0
+i32 intermediate.metallicity_fb_validated 0
+i32 intermediate.reheated_mass_fb_clamped_absent 0
+f64 intermediate.reheated_mass_fb_clamped 0x0000000000000000  # 0
+i32 intermediate.reheated_mass_fb_clamped_checked 1
+i32 intermediate.reheated_mass_fb_clamped_check_kind 2
+i32 intermediate.reheated_mass_fb_clamped_validated_up 0
+i32 intermediate.reheated_mass_fb_clamped_validated_down 0
+i32 intermediate.reheated_mass_fb_clamped_validated 0
+i32 intermediate.ejected_mass_capped_absent 0
+f64 intermediate.ejected_mass_capped 0x8000000000000000  # -0
+i32 intermediate.ejected_mass_capped_checked 1
+i32 intermediate.ejected_mass_capped_check_kind 2
+i32 intermediate.ejected_mass_capped_validated_up 0
+i32 intermediate.ejected_mass_capped_validated_down 0
+i32 intermediate.ejected_mass_capped_validated 0
+i32 intermediate.metallicity_hot_absent 0
+f64 intermediate.metallicity_hot 0x3f7078b28a71c42d  # 0.0040213560342730438
+i32 intermediate.metallicity_hot_checked 1
+i32 intermediate.metallicity_hot_check_kind 2
+i32 intermediate.metallicity_hot_validated_up 0
+i32 intermediate.metallicity_hot_validated_down 0
+i32 intermediate.metallicity_hot_validated 0
+i32 intermediate.metals_hot_to_eject_absent 0
+f64 intermediate.metals_hot_to_eject 0x8000000000000000  # -0
+i32 intermediate.metals_hot_to_eject_checked 1
+i32 intermediate.metals_hot_to_eject_check_kind 2
+i32 intermediate.metals_hot_to_eject_validated_up 0
+i32 intermediate.metals_hot_to_eject_validated_down 0
+i32 intermediate.metals_hot_to_eject_validated 0
+i32 intermediate.metals_hot_to_eject_capped_absent 0
+f64 intermediate.metals_hot_to_eject_capped 0x8000000000000000  # -0
+i32 intermediate.metals_hot_to_eject_capped_checked 1
+i32 intermediate.metals_hot_to_eject_capped_check_kind 2
+i32 intermediate.metals_hot_to_eject_capped_validated_up 0
+i32 intermediate.metals_hot_to_eject_capped_validated_down 0
+i32 intermediate.metals_hot_to_eject_capped_validated 0
+i32 intermediate.FracZleaveDiskVal_absent 1
+i32 intermediate.yield_metals_to_hot_absent 0
+f64 intermediate.yield_metals_to_hot 0x0000000000000000  # 0
+i32 intermediate.yield_metals_to_hot_checked 1
+i32 intermediate.yield_metals_to_hot_check_kind 1
+i32 intermediate.yield_metals_to_hot_validated_up 0
+i32 intermediate.yield_metals_to_hot_validated_down 0
+i32 intermediate.yield_metals_to_hot_validated 0
+i32 intermediate.remnant_total_nonpositive 0
+i32 intermediate.remnant_g1_mass_positive 1
+i32 intermediate.remnant_g2_mass_positive 1
+i32 intermediate.remnant_r1_fallback 0
+i32 intermediate.remnant_r2_fallback 0
+i32 intermediate.remnant_both_radii_zero 0
+i32 intermediate.remnant_energy_nonpositive 0
+i32 intermediate.new_merger_radius_narrowing_limited 1
+i32 intermediate.old_disk_radius_narrowing_limited 1
+i32 intermediate.remnant_M1_absent 0
+f64 intermediate.remnant_M1 0x401e5b8200000000  # 7.5893630981445312
+i32 intermediate.remnant_M1_checked 1
+i32 intermediate.remnant_M1_check_kind 2
+i32 intermediate.remnant_M1_validated_up 0
+i32 intermediate.remnant_M1_validated_down 0
+i32 intermediate.remnant_M1_validated 0
+i32 intermediate.remnant_M1_narrowing_limited 1
+i32 intermediate.remnant_M2_absent 0
+f64 intermediate.remnant_M2 0x3fff818c00000000  # 1.9691276550292969
+i32 intermediate.remnant_M2_checked 1
+i32 intermediate.remnant_M2_check_kind 2
+i32 intermediate.remnant_M2_validated_up 0
+i32 intermediate.remnant_M2_validated_down 0
+i32 intermediate.remnant_M2_validated 0
+i32 intermediate.remnant_M2_narrowing_limited 1
+i32 intermediate.remnant_M_tot_absent 0
+f64 intermediate.remnant_M_tot 0x40231df280000000  # 9.5584907531738281
+i32 intermediate.remnant_M_tot_checked 1
+i32 intermediate.remnant_M_tot_check_kind 2
+i32 intermediate.remnant_M_tot_validated_up 0
+i32 intermediate.remnant_M_tot_validated_down 0
+i32 intermediate.remnant_M_tot_validated 0
+i32 intermediate.remnant_M_tot_narrowing_limited 1
+i32 intermediate.remnant_R1_disk_half_absent 0
+f64 intermediate.remnant_R1_disk_half 0x3f735c35dd70a3d7  # 0.0047266105748713016
+i32 intermediate.remnant_R1_disk_half_checked 1
+i32 intermediate.remnant_R1_disk_half_check_kind 2
+i32 intermediate.remnant_R1_disk_half_validated_up 0
+i32 intermediate.remnant_R1_disk_half_validated_down 0
+i32 intermediate.remnant_R1_disk_half_validated 0
+i32 intermediate.remnant_R1_disk_half_narrowing_limited 1
+i32 intermediate.remnant_R1_bulge_half_absent 0
+f64 intermediate.remnant_R1_bulge_half 0x3f2f0a2260000000  # 0.00023681325546931475
+i32 intermediate.remnant_R1_bulge_half_checked 1
+i32 intermediate.remnant_R1_bulge_half_check_kind 2
+i32 intermediate.remnant_R1_bulge_half_validated_up 0
+i32 intermediate.remnant_R1_bulge_half_validated_down 0
+i32 intermediate.remnant_R1_bulge_half_validated 0
+i32 intermediate.remnant_R1_bulge_half_narrowing_limited 1
+i32 intermediate.remnant_M1_disk_absent 0
+f64 intermediate.remnant_M1_disk 0x40110c2fa0000000  # 4.2619004249572754
+i32 intermediate.remnant_M1_disk_checked 1
+i32 intermediate.remnant_M1_disk_check_kind 2
+i32 intermediate.remnant_M1_disk_validated_up 0
+i32 intermediate.remnant_M1_disk_validated_down 0
+i32 intermediate.remnant_M1_disk_validated 0
+i32 intermediate.remnant_M1_disk_narrowing_limited 1
+i32 intermediate.remnant_M1_bulge_absent 0
+f64 intermediate.remnant_M1_bulge 0x400a9ea4c0000000  # 3.3274626731872559
+i32 intermediate.remnant_M1_bulge_checked 1
+i32 intermediate.remnant_M1_bulge_check_kind 2
+i32 intermediate.remnant_M1_bulge_validated_up 0
+i32 intermediate.remnant_M1_bulge_validated_down 0
+i32 intermediate.remnant_M1_bulge_validated 0
+i32 intermediate.remnant_M1_bulge_narrowing_limited 1
+i32 intermediate.remnant_R1_progenitor_absent 0
+f64 intermediate.remnant_R1_progenitor 0x3f66982f56e42835  # 0.0027581142995858573
+i32 intermediate.remnant_R1_progenitor_checked 1
+i32 intermediate.remnant_R1_progenitor_check_kind 2
+i32 intermediate.remnant_R1_progenitor_validated_up 0
+i32 intermediate.remnant_R1_progenitor_validated_down 0
+i32 intermediate.remnant_R1_progenitor_validated 0
+i32 intermediate.remnant_R1_progenitor_narrowing_limited 1
+i32 intermediate.remnant_R2_disk_half_absent 0
+f64 intermediate.remnant_R2_disk_half 0x3f83738c428f5c29  # 0.0094977338612079621
+i32 intermediate.remnant_R2_disk_half_checked 1
+i32 intermediate.remnant_R2_disk_half_check_kind 2
+i32 intermediate.remnant_R2_disk_half_validated_up 0
+i32 intermediate.remnant_R2_disk_half_validated_down 0
+i32 intermediate.remnant_R2_disk_half_validated 0
+i32 intermediate.remnant_R2_disk_half_narrowing_limited 1
+i32 intermediate.remnant_R2_bulge_half_absent 0
+f64 intermediate.remnant_R2_bulge_half 0x3f391a23c0000000  # 0.00038302777102217078
+i32 intermediate.remnant_R2_bulge_half_checked 1
+i32 intermediate.remnant_R2_bulge_half_check_kind 2
+i32 intermediate.remnant_R2_bulge_half_validated_up 0
+i32 intermediate.remnant_R2_bulge_half_validated_down 0
+i32 intermediate.remnant_R2_bulge_half_validated 0
+i32 intermediate.remnant_R2_bulge_half_narrowing_limited 1
+i32 intermediate.remnant_M2_disk_absent 0
+f64 intermediate.remnant_M2_disk 0x3fff44e140000000  # 1.9543163776397705
+i32 intermediate.remnant_M2_disk_checked 1
+i32 intermediate.remnant_M2_disk_check_kind 2
+i32 intermediate.remnant_M2_disk_validated_up 0
+i32 intermediate.remnant_M2_disk_validated_down 0
+i32 intermediate.remnant_M2_disk_validated 0
+i32 intermediate.remnant_M2_disk_narrowing_limited 1
+i32 intermediate.remnant_M2_bulge_absent 0
+f64 intermediate.remnant_M2_bulge 0x3f8e555de0000000  # 0.014811261557042599
+i32 intermediate.remnant_M2_bulge_checked 1
+i32 intermediate.remnant_M2_bulge_check_kind 2
+i32 intermediate.remnant_M2_bulge_validated_up 0
+i32 intermediate.remnant_M2_bulge_validated_down 0
+i32 intermediate.remnant_M2_bulge_validated 0
+i32 intermediate.remnant_M2_bulge_narrowing_limited 1
+i32 intermediate.remnant_R2_progenitor_absent 0
+f64 intermediate.remnant_R2_progenitor 0x3f834f9a7e4c5f4b  # 0.0094291753571692696
+i32 intermediate.remnant_R2_progenitor_checked 1
+i32 intermediate.remnant_R2_progenitor_check_kind 2
+i32 intermediate.remnant_R2_progenitor_validated_up 0
+i32 intermediate.remnant_R2_progenitor_validated_down 0
+i32 intermediate.remnant_R2_progenitor_validated 0
+i32 intermediate.remnant_R2_progenitor_narrowing_limited 1
+i32 intermediate.remnant_R1_absent 0
+f64 intermediate.remnant_R1 0x3f66982f56e42835  # 0.0027581142995858573
+i32 intermediate.remnant_R1_checked 1
+i32 intermediate.remnant_R1_check_kind 2
+i32 intermediate.remnant_R1_validated_up 0
+i32 intermediate.remnant_R1_validated_down 0
+i32 intermediate.remnant_R1_validated 0
+i32 intermediate.remnant_R1_narrowing_limited 1
+i32 intermediate.remnant_R2_absent 0
+f64 intermediate.remnant_R2 0x3f834f9a7e4c5f4b  # 0.0094291753571692696
+i32 intermediate.remnant_R2_checked 1
+i32 intermediate.remnant_R2_check_kind 2
+i32 intermediate.remnant_R2_validated_up 0
+i32 intermediate.remnant_R2_validated_down 0
+i32 intermediate.remnant_R2_validated 0
+i32 intermediate.remnant_R2_narrowing_limited 1
+i32 intermediate.remnant_E_init_absent 0
+f64 intermediate.remnant_E_init 0x40d4cb9f09a4c821  # 21294.484963603438
+i32 intermediate.remnant_E_init_checked 1
+i32 intermediate.remnant_E_init_check_kind 2
+i32 intermediate.remnant_E_init_validated_up 0
+i32 intermediate.remnant_E_init_validated_down 0
+i32 intermediate.remnant_E_init_validated 0
+i32 intermediate.remnant_E_init_narrowing_limited 1
+i32 intermediate.remnant_E_orb_absent 0
+f64 intermediate.remnant_E_orb 0x409328ebe74eb130  # 1226.2303745551726
+i32 intermediate.remnant_E_orb_checked 1
+i32 intermediate.remnant_E_orb_check_kind 2
+i32 intermediate.remnant_E_orb_validated_up 0
+i32 intermediate.remnant_E_orb_validated_down 0
+i32 intermediate.remnant_E_orb_validated 0
+i32 intermediate.remnant_E_orb_narrowing_limited 1
+i32 intermediate.remnant_f_gas_absent 0
+f64 intermediate.remnant_f_gas 0x3fc098455cfcc728  # 0.12964694061661786
+i32 intermediate.remnant_f_gas_checked 1
+i32 intermediate.remnant_f_gas_check_kind 2
+i32 intermediate.remnant_f_gas_validated_up 0
+i32 intermediate.remnant_f_gas_validated_down 0
+i32 intermediate.remnant_f_gas_validated 0
+i32 intermediate.remnant_f_gas_narrowing_limited 1
+i32 intermediate.remnant_E_rad_absent 0
+f64 intermediate.remnant_E_rad 0x40bda81a704735cc  # 7592.1032757288303
+i32 intermediate.remnant_E_rad_checked 1
+i32 intermediate.remnant_E_rad_check_kind 2
+i32 intermediate.remnant_E_rad_validated_up 0
+i32 intermediate.remnant_E_rad_validated_down 0
+i32 intermediate.remnant_E_rad_validated 0
+i32 intermediate.remnant_E_rad_narrowing_limited 1
+i32 intermediate.remnant_E_final_absent 0
+f64 intermediate.remnant_E_final 0x40dd6834642b80a7  # 30112.818613887441
+i32 intermediate.remnant_E_final_checked 1
+i32 intermediate.remnant_E_final_check_kind 2
+i32 intermediate.remnant_E_final_validated_up 0
+i32 intermediate.remnant_E_final_validated_down 0
+i32 intermediate.remnant_E_final_validated 0
+i32 intermediate.remnant_E_final_narrowing_limited 1

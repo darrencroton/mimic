@@ -14,20 +14,22 @@
  * - mimic_sage_add_galaxies_together(): add_galaxies_together (M:456-543), with its satellite
  *   disk-star radius update (M:516-522, sage_bulge_size_physics.h);
  * - mimic_sage_make_bulge_from_burst(): make_bulge_from_burst (M:553-570);
+ * - mimic_sage_merger_remnant_radius(): the static calculate_merger_remnant_radius
+ *   (M:135-212), the remnant radius BulgeSizeOn 3 assigns (M:297-330);
  * - mimic_sage_reset_bulge_radii(): get_bulge_radius on R0 (BulgeSizeOn 0,
  *   R/src/model_misc.c:239-247), which zeroes the three bulge radii;
  * - mimic_sage_disrupt_satellite_to_ics(): disrupt_satellite_to_ICS (M:845-902).
  *
- * sage26_resolve_mergers_and_disruption composes the first six into
+ * sage26_resolve_mergers_and_disruption composes the first seven into
  * deal_with_galaxy_merger and calls the last from its pass. Each expression keeps
  * SAGE26's operand order and types: the struct GALAXY members are float, so a sum of two
  * members rounds in float before any widening, and a compound assignment of a double into
- * a float member rounds once into the float. The one multiply-add on these paths that
- * SAGE26's objects fuse, the disruption's ICS_sum_mt += StellarMass * time (M:871, the
- * oracle README's c06 table), is written as an explicit fma(); no other helper here
- * contains a multiply-add (the table lists none for add_galaxies_together and
- * make_bulge_from_burst; the radius update's own fused site is in
- * sage_bulge_size_physics.h).
+ * a float member rounds once into the float. The multiply-adds on these paths that
+ * SAGE26's objects fuse are written as explicit fma(): the disruption's ICS_sum_mt +=
+ * StellarMass * time (M:871, the oracle README's c06 table) and the remnant radius's three
+ * (M:158, :171, :204, its c07 table); no other helper here contains a multiply-add (the
+ * table lists none for add_galaxies_together and make_bulge_from_burst; the radius update's
+ * own fused site is in sage_bulge_size_physics.h).
  */
 
 #ifndef MIMIC_SHARED_SAGE_MERGER_PHYSICS_H
@@ -39,6 +41,88 @@
 #include "types.h"
 #include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_sfr_history.h"
+
+/* SAGE26's exponential-disk half-mass factor and Covington et al. (2011) radiative-loss
+ * coefficient, file-static constants of R/src/model_mergers.c (:37, :41) */
+#define MIMIC_SAGE_DISK_HALF_MASS_FRAC 1.68
+#define MIMIC_SAGE_COVINGTON11_C_RAD 2.75
+
+/**
+ * @brief The locals of one merger remnant-radius calculation, for tests that compare them
+ *
+ * Each double is SAGE26's local of the same name in calculate_merger_remnant_radius
+ * (R/src/model_mergers.c:135-212), NAN where the call does not form it; each flag is -1 where
+ * the call does not evaluate it. R1_progenitor and R2_progenitor are R1 and R2 as :153-174 form
+ * them, before the zero-radius fallbacks (:177-178); R1 and R2 are the values after them.
+ */
+struct MimicSageRemnantLocals {
+  double M1;                /**< g1's float StellarMass + ColdGas, widened (:138) */
+  double M2;                /**< g2's float StellarMass + ColdGas, widened (:139) */
+  double M_tot;             /**< M1 + M2 (:140) */
+  double R1_disk_half;      /**< 1.68 * g1's DiskScaleRadius (:149) */
+  double R1_bulge_half;     /**< g1's float BulgeRadius, widened (:150) */
+  double M1_disk;           /**< g1's float ColdGas + (StellarMass - BulgeMass), widened (:156) */
+  double M1_bulge;          /**< g1's float BulgeMass, widened (:157) */
+  double R1_progenitor;     /**< the fused average of :158, or 0.0 (:160) */
+  double R2_disk_half;      /**< 1.68 * g2's DiskScaleRadius (:164) */
+  double R2_bulge_half;     /**< g2's float BulgeRadius, widened (:165) */
+  double M2_disk;           /**< g2's float ColdGas + (StellarMass - BulgeMass), widened (:169) */
+  double M2_bulge;          /**< g2's float BulgeMass, widened (:170) */
+  double R2_progenitor;     /**< the fused average of :171, or 0.0 (:173) */
+  double R1;                /**< R1 after the fallbacks (:177) */
+  double R2;                /**< R2 after the fallbacks (:178) */
+  double E_init;            /**< M1 * M1 / R1 + M2 * M2 / R2 (:185) */
+  double E_orb;             /**< M1 * M2 / (R1 + R2) (:189) */
+  double f_gas;             /**< the float g1.ColdGas + g2.ColdGas, widened, over M_tot (:194) */
+  double E_rad;             /**< 2.75 * E_init * f_gas (:195) */
+  double E_final;           /**< E_init + E_orb + E_rad (:199) */
+  double new_merger_radius; /**< the value returned (:142, :179, :204, :209-211) */
+  int total_nonpositive;    /**< M_tot <= 0.0: returns 0 (:142) */
+  int g1_mass_positive;     /**< g1's float StellarMass + ColdGas > 0 (:153) */
+  int g2_mass_positive;     /**< g2's float StellarMass + ColdGas > 0 (:168) */
+  int r1_fallback;          /**< R1 <= 0.0: R1 takes R2 (:177) */
+  int r2_fallback;          /**< R2 <= 0.0: R2 takes R1 (:178) */
+  int both_radii_zero;      /**< R1 <= 0.0 after both fallbacks: returns 0 (:179) */
+  int energy_nonpositive;   /**< E_final <= 0.0: the mass-weighted fallback (:202-205) */
+};
+
+/** @brief Mark every value of a remnant locals record as not formed */
+static inline void mimic_sage_remnant_locals_reset(struct MimicSageRemnantLocals *locals) {
+  if (locals == NULL) {
+    return;
+  }
+  double *const values[] = {&locals->M1,
+                            &locals->M2,
+                            &locals->M_tot,
+                            &locals->R1_disk_half,
+                            &locals->R1_bulge_half,
+                            &locals->M1_disk,
+                            &locals->M1_bulge,
+                            &locals->R1_progenitor,
+                            &locals->R2_disk_half,
+                            &locals->R2_bulge_half,
+                            &locals->M2_disk,
+                            &locals->M2_bulge,
+                            &locals->R2_progenitor,
+                            &locals->R1,
+                            &locals->R2,
+                            &locals->E_init,
+                            &locals->E_orb,
+                            &locals->f_gas,
+                            &locals->E_rad,
+                            &locals->E_final,
+                            &locals->new_merger_radius};
+  for (size_t k = 0; k < sizeof(values) / sizeof(values[0]); k++) {
+    *values[k] = NAN;
+  }
+  locals->total_nonpositive = -1;
+  locals->g1_mass_positive = -1;
+  locals->g2_mass_positive = -1;
+  locals->r1_fallback = -1;
+  locals->r2_fallback = -1;
+  locals->both_radii_zero = -1;
+  locals->energy_nonpositive = -1;
+}
 
 /**
  * @brief The values and branch flags of one merger's own arithmetic, for tests
@@ -53,6 +137,10 @@ struct MimicSageMergerLocals {
   double central_disk_mass; /**< the target's float disk mass before the addition (M:253) */
   int is_disk_dominated;    /**< M:254 */
   int major_merger;         /**< mass_ratio > ThreshMajorMerger (M:268, :299) */
+  double old_disk_radius;   /**< the target's float DiskScaleRadius before the addition (M:257) */
+  /** BulgeSizeOn 3 only: the remnant radius's locals (M:297); all absent in mode 0, where the
+   *  radius is not formed (get_bulge_radius zeroes every radius after it) */
+  struct MimicSageRemnantLocals remnant;
 };
 
 /**
@@ -80,6 +168,8 @@ static inline void mimic_sage_merger_locals_reset(struct MimicSageMergerLocals *
   locals->central_disk_mass = NAN;
   locals->is_disk_dominated = -1;
   locals->major_merger = -1;
+  locals->old_disk_radius = NAN;
+  mimic_sage_remnant_locals_reset(&locals->remnant);
 }
 
 static inline void mimic_sage_add_locals_reset(struct MimicSageAddLocals *locals) {
@@ -417,12 +507,156 @@ static inline void mimic_sage_disrupt_satellite_to_ics(struct GalaxyData *target
 }
 
 /**
+ * @brief SAGE26's merger remnant radius by energy conservation
+ *        (calculate_merger_remnant_radius, R/src/model_mergers.c:135-212)
+ *
+ * Ports the routine's code, not its introductory comment's formula (:129-133). Each
+ * progenitor's mass is its float StellarMass + ColdGas, widened; its radius is the
+ * disk-and-bulge mass-weighted half-mass radius (1.68 times DiskScaleRadius for the disk, the
+ * stored BulgeRadius for the bulge) when that float sum is positive, else 0; a non-positive
+ * radius takes the other progenitor's, in that order, and two non-positive radii give 0. The
+ * self-binding, orbital and radiative energies (Covington et al. 2011) are doubles; a
+ * non-positive total energy falls back to the mass-weighted average of the two radii,
+ * otherwise the remnant radius is M_tot^2 / E_final.
+ *
+ * Every expression keeps SAGE26's operand order and types: the progenitor sums and
+ * M_disk = ColdGas + (StellarMass - BulgeMass) are float before widening, and so is the gas
+ * sum of f_gas. SAGE26's object fuses three multiply-adds here (oracle README, c07
+ * fused-instruction table), each written as an explicit fma() with the other product rounded
+ * first: M_disk * R_disk_half onto the rounded M_bulge * R_bulge_half for each progenitor
+ * (:158, :171), and M1 * R1 onto the rounded M2 * R2 in the fallback (:204).
+ *
+ * In deal_with_galaxy_merger g1 is the target after the addition, the black hole and the
+ * burst (its BulgeRadius just synchronised), and g2 the satellite, still populated (:293-297).
+ *
+ * @param g1      SAGE26's g1 (the merger target)
+ * @param g2      SAGE26's g2 (the satellite)
+ * @param locals  Optional (NULL in production): receives SAGE26's locals
+ * @return The remnant radius (code length units), 0.0 on the two early returns
+ */
+static inline double mimic_sage_merger_remnant_radius(const struct GalaxyData *g1,
+                                                      const struct GalaxyData *g2,
+                                                      struct MimicSageRemnantLocals *locals) {
+  mimic_sage_remnant_locals_reset(locals);
+
+  // SAGE parity: float sums of two float members, widened on assignment (M:138-140)
+  const double M1 = g1->StellarMass + g1->ColdGas;
+  const double M2 = g2->StellarMass + g2->ColdGas;
+  const double M_tot = M1 + M2;
+  const int total_nonpositive = M_tot <= 0.0;
+  if (locals != NULL) {
+    locals->M1 = M1;
+    locals->M2 = M2;
+    locals->M_tot = M_tot;
+    locals->total_nonpositive = total_nonpositive;
+  }
+  if (total_nonpositive) {
+    if (locals != NULL) {
+      locals->new_merger_radius = 0.0;
+    }
+    return 0.0;
+  }
+
+  /* SAGE parity: each progenitor's radius is formed only when its FLOAT stellar-plus-cold sum
+   * is positive (M:153, :168), with M_disk evaluated in float before widening (M:156, :169).
+   * SAGE26's object fuses the disk product onto the rounded bulge product (M:158, :171),
+   * written as fma() */
+  const double R1_disk_half = MIMIC_SAGE_DISK_HALF_MASS_FRAC * g1->DiskScaleRadius;
+  const double R1_bulge_half = g1->BulgeRadius;
+  double R1 = 0.0;
+  const int g1_mass_positive = g1->StellarMass + g1->ColdGas > 0;
+  if (g1_mass_positive) {
+    const double M1_disk = g1->ColdGas + (g1->StellarMass - g1->BulgeMass);
+    const double M1_bulge = g1->BulgeMass;
+    R1 = fma(M1_disk, R1_disk_half, M1_bulge * R1_bulge_half) / M1;
+    if (locals != NULL) {
+      locals->M1_disk = M1_disk;
+      locals->M1_bulge = M1_bulge;
+    }
+  }
+
+  const double R2_disk_half = MIMIC_SAGE_DISK_HALF_MASS_FRAC * g2->DiskScaleRadius;
+  const double R2_bulge_half = g2->BulgeRadius;
+  double R2 = 0.0;
+  const int g2_mass_positive = g2->StellarMass + g2->ColdGas > 0;
+  if (g2_mass_positive) {
+    const double M2_disk = g2->ColdGas + (g2->StellarMass - g2->BulgeMass);
+    const double M2_bulge = g2->BulgeMass;
+    R2 = fma(M2_disk, R2_disk_half, M2_bulge * R2_bulge_half) / M2;
+    if (locals != NULL) {
+      locals->M2_disk = M2_disk;
+      locals->M2_bulge = M2_bulge;
+    }
+  }
+  if (locals != NULL) {
+    locals->R1_disk_half = R1_disk_half;
+    locals->R1_bulge_half = R1_bulge_half;
+    locals->R1_progenitor = R1;
+    locals->R2_disk_half = R2_disk_half;
+    locals->R2_bulge_half = R2_bulge_half;
+    locals->R2_progenitor = R2;
+    locals->g1_mass_positive = g1_mass_positive;
+    locals->g2_mass_positive = g2_mass_positive;
+  }
+
+  // SAGE parity: the zero-radius fallbacks in SAGE26's order, R1 first (M:177-179)
+  const int r1_fallback = R1 <= 0.0;
+  if (r1_fallback) {
+    R1 = R2;
+  }
+  const int r2_fallback = R2 <= 0.0;
+  if (r2_fallback) {
+    R2 = R1;
+  }
+  const int both_radii_zero = R1 <= 0.0;
+  if (locals != NULL) {
+    locals->R1 = R1;
+    locals->R2 = R2;
+    locals->r1_fallback = r1_fallback;
+    locals->r2_fallback = r2_fallback;
+    locals->both_radii_zero = both_radii_zero;
+  }
+  if (both_radii_zero) {
+    if (locals != NULL) {
+      locals->new_merger_radius = 0.0;
+    }
+    return 0.0;
+  }
+
+  /* SAGE parity: the energies in double, in SAGE26's statement order (M:185-199); f_gas
+   * divides the float gas sum, widened, by M_tot (M:194) */
+  const double E_init = (M1 * M1) / R1 + (M2 * M2) / R2;
+  const double E_orb = (M1 * M2) / (R1 + R2);
+  const double f_gas = (g1->ColdGas + g2->ColdGas) / M_tot;
+  const double E_rad = MIMIC_SAGE_COVINGTON11_C_RAD * E_init * f_gas;
+  const double E_final = E_init + E_orb + E_rad;
+
+  /* SAGE parity: a non-positive total energy falls back to the mass-weighted radius (M:202-205);
+   * SAGE26's object fuses M1 * R1 onto the rounded M2 * R2 (M:204), written as fma() */
+  const int energy_nonpositive = E_final <= 0.0;
+  const double new_merger_radius =
+      energy_nonpositive ? fma(M1, R1, M2 * R2) / M_tot : (M_tot * M_tot) / E_final;
+
+  if (locals != NULL) {
+    locals->E_init = E_init;
+    locals->E_orb = E_orb;
+    locals->f_gas = f_gas;
+    locals->E_rad = E_rad;
+    locals->E_final = E_final;
+    locals->energy_nonpositive = energy_nonpositive;
+    locals->new_merger_radius = new_merger_radius;
+  }
+  return new_merger_radius;
+}
+
+/**
  * @brief get_bulge_radius on R0: BulgeSizeOn 0 zeroes the three bulge radii
  *        (R/src/model_misc.c:241-247)
  *
  * SAGE26's merger transaction calls it on the target after the burst and again on every
  * branch of the major/minor split (R/src/model_mergers.c:293, :308, :325, :330), so the
- * remnant radius it computes in between (:297) never reaches the state on R0.
+ * remnant radius it computes in between (:297) never reaches the state on R0. With BulgeSizeOn
+ * 3 the transaction calls mimic_sage_get_bulge_radius() instead (sage_bulge_size_physics.h).
  */
 static inline void mimic_sage_reset_bulge_radii(struct GalaxyData *gal) {
   gal->BulgeRadius = 0.0f;

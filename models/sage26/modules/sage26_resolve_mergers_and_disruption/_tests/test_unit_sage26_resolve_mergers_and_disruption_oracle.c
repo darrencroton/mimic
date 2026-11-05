@@ -17,7 +17,11 @@
  *   whose merger event runs the module's real consumers in the order of the production
  *   phase: sage26_quasar_mode's and then sage26_starburst_feedback's process_per_event
  *   entry, with the event the registry would hand them (target halo, ratio, satellite dt),
- *   then the resolver's completion. Zero-ratio fixtures are included;
+ *   then the resolver's completion. Zero-ratio fixtures are included. The c07 merge_s3_*
+ *   fixtures run it with BulgeSizeOn 3 (R1.par:109): the target's bulge-radius
+ *   synchronisation after the burst, the remnant radius (M:135-212, the oracle's checked
+ *   transcription of the static routine) with its locals and every branch, and the major,
+ *   disk-dominated minor and spheroid-dominated minor assignments (M:293-330);
  * - disrupt_satellite_to_ICS (M:845-902, dis_*): the resolver's disruption entry,
  *   sage26_resolve_mergers_and_disruption_disrupt, with the fixture's call.time, at
  *   SAGE26's routine boundary: SAGE26's mergeType 4 is the package's Type 3 with the
@@ -66,11 +70,13 @@
  * new_merger_radius, which the port does not form because get_bulge_radius zeroes every
  * radius after it (M:293-331, R/src/model_misc.c:241-246): the test asserts that
  * inertness, the three radii zero in SAGE26's own output wherever the remnant radius it
- * computed was not. For a galaxy that joining makes an orphan, SAGE26 keeps its Len, its
- * QuasarModeBHaccretionMass and OutflowRate and its Cooling and Heating (reset only on the
- * main branch, B:261, :273-276); the core zeros the orphan's Len (src/core/inheritance.c
- * make_orphan) and init_repeat resets the other four on every inherited row, so they are
- * excluded on that row only, by name, and counted.
+ * computed was not. Those two hold for BulgeSizeOn 0 only: with BulgeSizeOn 3 both are
+ * compared bit for bit, with the remnant radius's locals, as narrowing-limited values (one
+ * float store is the only path of each to the state). For a galaxy that joining makes an orphan,
+ * SAGE26 keeps its Len, its QuasarModeBHaccretionMass and OutflowRate and its Cooling and Heating
+ * (reset only on the main branch, B:261, :273-276); the core zeros the orphan's Len
+ * (src/core/inheritance.c make_orphan) and init_repeat resets the other four on every inherited
+ * row, so they are excluded on that row only, by name, and counted.
  *
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
  * SKIP.
@@ -147,6 +153,14 @@ static int counts_add = 0, counts_mbb = 0, counts_merge = 0, counts_multi = 0;
 /* add_galaxies_together fixtures run with BulgeSizeOn 3 (c07) */
 static int counts_add_sizes = 0;
 static int counts_ratio_zero = 0, counts_inert_radius = 0;
+/* deal_with_galaxy_merger fixtures run with BulgeSizeOn 3 (c07 Slice 3), per assignment branch
+ * (0 major, 1 minor onto a disk-dominated target, 2 minor onto a spheroid-dominated one), and
+ * per remnant-radius branch taken (the order of REMNANT_FLAGS) */
+static int counts_merge_sizes = 0;
+static int counts_merge_sizes_branch[3] = {0, 0, 0};
+#define REMNANT_BRANCHES 7
+static int counts_remnant_branch[REMNANT_BRANCHES];
+static struct oracle_c07_local_tally remnant_tally;
 static int counts_consumer_locals_validated = 0;
 static int counts_disrupt = 0, counts_pass = 0, counts_join_and_pass = 0;
 static int counts_pass_mergers = 0, counts_pass_disruptions = 0, counts_pass_redirects = 0;
@@ -221,7 +235,15 @@ static void observe_action(const char *action, int source_index, int target_inde
  * @return Number of problems
  */
 static int setup_modules(struct oracle_fixture *in) {
-  int problems = oracle_c06_require_r0_flags(in);
+  /* c06's flags with BulgeSizeOn read (0, or 3 for the c07 merge_s3_* fixtures, with the
+   * fixture's Hubble_h) */
+  struct MimicSageBulgeSize sizes;
+  int problems = oracle_c07_require_merger_flags(in, &sizes);
+  if (sizes.bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI &&
+      oracle_f64_to_bits(sizes.hubble_h) != oracle_f64_to_bits(SAGE26_HUBBLE_H)) {
+    fprintf(stderr, "oracle: %s: params.Hubble_h differs from R1.par's 0.73\n", in->path);
+    problems++;
+  }
 
   MimicConfig.G = oracle_in_f64(in, "params.G");
   MimicConfig.Hubble_h = SAGE26_HUBBLE_H;
@@ -267,10 +289,11 @@ static int setup_modules(struct oracle_fixture *in) {
   const double threshold_sat_disruption = oracle_has(in, "params.ThresholdSatDisruption")
                                               ? oracle_in_f64(in, "params.ThresholdSatDisruption")
                                               : SAGE26_THRESHOLD_SAT_DISRUPTION;
-  /* BulgeSizeOn: the flags above require R0's 0, the value the three modules require */
+  /* BulgeSizeOn: the fixture's, which the three modules read (their Hubble_h is the core's,
+   * MimicConfig.Hubble_h, R1.par's 0.73 as above) */
   if (oracle_set_model_param("StarFormingDiskFactor", SAGE26_TOOMRE_DISK_FACTOR) != 0 ||
       oracle_set_model_param("ThresholdSatDisruption", threshold_sat_disruption) != 0 ||
-      oracle_set_model_param("BulgeSizeOn", 0.0) != 0) {
+      oracle_set_model_param("BulgeSizeOn", (double)sizes.bulge_size_on) != 0) {
     problems++;
   }
 
@@ -499,6 +522,84 @@ static int check_remnant_radius_inert(struct oracle_fixture *out, const int targ
 }
 
 /**
+ * @brief The BulgeSizeOn 3 remnant record against the port's (oracle README "The c07 Group")
+ *
+ * The seven branch flags of calculate_merger_remnant_radius (M:142-202) and its twenty locals,
+ * each compared bit for bit with mimic_sage_merger_remnant_radius()'s, and new_merger_radius
+ * (M:297), all with the oracle's markers checked (tail-checked, _narrowing_limited 1: the only
+ * path of each to the state is the float store into MergerBulgeRadius). old_disk_radius
+ * (M:257, continuation-checked through the burst) is compared with the target's DiskScaleRadius
+ * the transaction saved before the addition: its only path to the state is the burst's float
+ * InstabilityBulgeRadius store (R/src/model_misc.c:422), so it too is narrowing-limited.
+ *
+ * @return Number of mismatches and marker errors
+ */
+static int check_remnant_record(struct oracle_fixture *out, const struct MimicSageMergerLocals *m) {
+  const struct MimicSageRemnantLocals *r = &m->remnant;
+  int problems = 0;
+  const struct {
+    const char *name;
+    int actual;
+  } flags[REMNANT_BRANCHES] = {{"remnant_total_nonpositive", r->total_nonpositive},
+                               {"remnant_g1_mass_positive", r->g1_mass_positive},
+                               {"remnant_g2_mass_positive", r->g2_mass_positive},
+                               {"remnant_r1_fallback", r->r1_fallback},
+                               {"remnant_r2_fallback", r->r2_fallback},
+                               {"remnant_both_radii_zero", r->both_radii_zero},
+                               {"remnant_energy_nonpositive", r->energy_nonpositive}};
+  for (int k = 0; k < REMNANT_BRANCHES; k++) {
+    problems += oracle_c06_check_flag(out, flags[k].name, flags[k].actual);
+  }
+  /* Branch coverage: a sum NOT positive (k = 1, 2) and every other flag set */
+  for (int k = 0; k < REMNANT_BRANCHES; k++) {
+    const int taken = (k == 1 || k == 2) ? flags[k].actual == 0 : flags[k].actual == 1;
+    counts_remnant_branch[k] += taken;
+  }
+
+  const struct {
+    const char *name;
+    double actual;
+  } locals[] = {{"remnant_M1", r->M1},
+                {"remnant_M2", r->M2},
+                {"remnant_M_tot", r->M_tot},
+                {"remnant_R1_disk_half", r->R1_disk_half},
+                {"remnant_R1_bulge_half", r->R1_bulge_half},
+                {"remnant_M1_disk", r->M1_disk},
+                {"remnant_M1_bulge", r->M1_bulge},
+                {"remnant_R1_progenitor", r->R1_progenitor},
+                {"remnant_R2_disk_half", r->R2_disk_half},
+                {"remnant_R2_bulge_half", r->R2_bulge_half},
+                {"remnant_M2_disk", r->M2_disk},
+                {"remnant_M2_bulge", r->M2_bulge},
+                {"remnant_R2_progenitor", r->R2_progenitor},
+                {"remnant_R1", r->R1},
+                {"remnant_R2", r->R2},
+                {"remnant_E_init", r->E_init},
+                {"remnant_E_orb", r->E_orb},
+                {"remnant_f_gas", r->f_gas},
+                {"remnant_E_rad", r->E_rad},
+                {"remnant_E_final", r->E_final},
+                {"new_merger_radius", r->new_merger_radius}};
+  for (size_t k = 0; k < COUNT(locals); k++) {
+    problems += oracle_c07_check_local(out, locals[k].name, locals[k].actual, 1, &remnant_tally);
+  }
+  (void)consume_record(out, "new_merger_radius");
+
+  // old_disk_radius: continuation-checked (passed to the burst), narrowing-limited
+  problems += oracle_check_i32(out, "intermediate.old_disk_radius_absent", 0);
+  problems += oracle_check_i32(out, "intermediate.old_disk_radius_checked", 1);
+  problems += oracle_check_i32(out, "intermediate.old_disk_radius_check_kind", KIND_CONTINUATION);
+  problems += oracle_check_i32(out, "intermediate.old_disk_radius_narrowing_limited", 1);
+  problems += oracle_check_f64(out, "intermediate.old_disk_radius", m->old_disk_radius);
+  if (consume_record(out, "old_disk_radius")) {
+    fprintf(stderr, "oracle: %s: old_disk_radius is narrowing-limited but validated two-sided\n",
+            out->path);
+    problems++;
+  }
+  return problems;
+}
+
+/**
  * @brief Consume the black-hole, wind and burst records of a merge fixture
  *
  * The consumers' process() entries do not expose their locals; their effect is the
@@ -714,7 +815,13 @@ static int check_merge(const char *name) {
   problems += check_identities(&out, ngal, halos, halos_before, expected_merge_type);
   problems += check_merger_locals(&out, &merger, threshold_major_merger);
   problems += check_add_locals(&out, &add);
-  problems += check_remnant_radius_inert(&out, target);
+  if (oracle_in_i32(&in, "params.BulgeSizeOn") == MIMIC_SAGE_BULGE_SIZE_TONINI) {
+    problems += check_remnant_record(&out, &merger);
+    counts_merge_sizes++;
+    counts_merge_sizes_branch[merger.major_merger ? 0 : (merger.is_disk_dominated ? 1 : 2)]++;
+  } else {
+    problems += check_remnant_radius_inert(&out, target);
+  }
   consume_consumer_records(&out);
   counts_merge++;
 
@@ -1290,6 +1397,10 @@ int test_oracle_bit_identity(void) {
   memset(&tally, 0, sizeof(tally));
   counts_add = counts_mbb = counts_merge = counts_multi = 0;
   counts_add_sizes = 0;
+  counts_merge_sizes = 0;
+  memset(counts_merge_sizes_branch, 0, sizeof(counts_merge_sizes_branch));
+  memset(counts_remnant_branch, 0, sizeof(counts_remnant_branch));
+  memset(&remnant_tally, 0, sizeof(remnant_tally));
   counts_ratio_zero = counts_inert_radius = 0;
   counts_consumer_locals_validated = 0;
   counts_disrupt = counts_pass = counts_join_and_pass = 0;
@@ -1298,6 +1409,18 @@ int test_oracle_bit_identity(void) {
 
   const int identical = run_fixtures();
   printf("\n  oracle: add_galaxies_together with BulgeSizeOn 3 %d", counts_add_sizes);
+  printf("\n  oracle: deal_with_galaxy_merger with BulgeSizeOn 3 %d (major %d, minor onto a "
+         "disk-dominated target %d, onto a spheroid-dominated one %d); remnant branches taken: "
+         "M_tot <= 0 %d, g1 sum not positive %d, g2 sum not positive %d, R1 fallback %d, R2 "
+         "fallback %d, both radii zero %d, E_final <= 0 %d; remnant and radius locals compared "
+         "%d (validated %d, narrowing-limited %d, neither %d), absent %d",
+         counts_merge_sizes, counts_merge_sizes_branch[0], counts_merge_sizes_branch[1],
+         counts_merge_sizes_branch[2], counts_remnant_branch[0], counts_remnant_branch[1],
+         counts_remnant_branch[2], counts_remnant_branch[3], counts_remnant_branch[4],
+         counts_remnant_branch[5], counts_remnant_branch[6],
+         remnant_tally.validated + remnant_tally.narrowing_limited + remnant_tally.not_validated,
+         remnant_tally.validated, remnant_tally.narrowing_limited, remnant_tally.not_validated,
+         remnant_tally.absent);
   printf("\n  oracle: add_galaxies_together %d, make_bulge_from_burst %d, "
          "deal_with_galaxy_merger %d (ratio 0: %d), disrupt_satellite_to_ICS %d, pass %d, "
          "joining then pass %d",
@@ -1315,6 +1438,12 @@ int test_oracle_bit_identity(void) {
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   TEST_ASSERT(counts_ratio_zero >= 1, "a ratio-0 merger must run through the transaction");
   TEST_ASSERT(counts_add_sizes >= 1, "an add_galaxies_together fixture must run BulgeSizeOn 3");
+  TEST_ASSERT(counts_merge_sizes_branch[0] >= 1 && counts_merge_sizes_branch[1] >= 1 &&
+                  counts_merge_sizes_branch[2] >= 1,
+              "each BulgeSizeOn 3 assignment branch must run through the transaction");
+  for (int k = 0; k < REMNANT_BRANCHES; k++) {
+    TEST_ASSERT(counts_remnant_branch[k] >= 1, "every remnant-radius branch must be asserted");
+  }
   TEST_ASSERT(counts_multi >= 1, "a pass with several mergers in one bin must be asserted");
   TEST_ASSERT(counts_disrupt >= 1 && counts_pass >= 1 && counts_join_and_pass >= 1,
               "the disruption, pass and joining fixtures must be asserted");

@@ -36,8 +36,10 @@
  *       radius, R/src/core_build_model.c:297-298), by the disk-instability transfer
  *       (sage_disk_instability_physics.h, R/src/model_disk_instability.c:83), by the satellite
  *       disk-star transfer of add_galaxies_together (sage_merger_physics.h,
- *       R/src/model_mergers.c:516-522) and by the burst's instability channel
- *       (sage_starburst_physics.h, R/src/model_mergers.c:778-784).
+ *       R/src/model_mergers.c:516-522), by the burst's instability channel
+ *       (sage_starburst_physics.h, R/src/model_mergers.c:778-784) and, with BulgeSizeOn 3, by
+ *       the merger transaction's synchronisation and remnant assignment
+ *       (sage26_resolve_mergers_and_disruption, R/src/model_mergers.c:293-330).
  */
 
 #ifndef MIMIC_SHARED_SAGE_BULGE_SIZE_PHYSICS_H

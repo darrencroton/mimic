@@ -110,4 +110,4 @@ modules:
     MergerTimeFactor: 2.0               # Merger-clock scaling (SAGE26 R0: the default, core_read_parameter_file.c:128; R0.par does not set it)
 
     # Bulge Sizes
-    BulgeSizeOn: 0                      # Bulge-size mode: 0 = none, the radii zeroed (SAGE26 R0, R0.par:109); 3 = Tonini merger and instability bulges (R1.par:109); 1 and 2 not ported
+    BulgeSizeOn: 3                      # Bulge-size mode: 3 = Tonini merger and instability bulges (SAGE26 R1, R1.par:109); 0 = none, the radii zeroed (R0.par:109); 1 and 2 not ported
