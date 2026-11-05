@@ -1,7 +1,8 @@
 /**
  * @file    test_unit_sage26_calculate_supernova_feedback_oracle.c
  * @brief   Bit-exact comparison of the package's disk supernova feedback with SAGE26's
- *          compute_sn_feedback on the FIRE path (FIREmodeOn 0 and 1, the c09 fixtures)
+ *          compute_sn_feedback on the FIRE path (the c09 fixtures of this group, all FIREmodeOn 1;
+ *          the FIREmodeOn 0 twins are in sage26_calculate_star_formation's group)
  *
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for
  * sage26_calculate_supernova_feedback (its _tests/oracle/ directory), each a call of SAGE26's
@@ -451,7 +452,12 @@ static int run_fixture(struct oracle_fixture *in, struct oracle_fixture *out, st
     problems += oracle_c06_check_flag(out, "renorm_active", r.renorm_active);
   }
   problems += oracle_c06_check_flag(out, "ejection_vvir_nonpositive", vvir > 0.0 ? 0 : 1);
-  problems += oracle_c06_check_flag(out, "ejected_floored", 0);
+  /* The FIRE ejection is +0.0 or a positive quotient, so the floor never binds on that path
+   * (S:792, S:880-882); with FIREmodeOn 0 a floored ejection is legitimate and the flag is left to
+   * the end-state comparison (consumed below) */
+  if (c->fire_mode_on == MIMIC_SAGE_FIRE_MODE_ON) {
+    problems += oracle_c06_check_flag(out, "ejected_floored", 0);
+  }
   problems +=
       oracle_c09_check_fire_record(out, c->fire_mode_on, &r.l, stars_in == 0.0, &fire_tally);
 
