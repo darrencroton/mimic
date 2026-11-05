@@ -1,0 +1,82 @@
+# SAGE26 oracle output for gbr_probe_merger_shen_negative_radius.in, written by oracle_c07 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine get_bulge_radius
+f64 return.R_bulge 0x3f4216ff2f9b754f  # 0.00055205784084547984
+f32 galaxy[0].MergerBulgeMass 0x3f000000  # 0.5
+f32 galaxy[0].InstabilityBulgeMass 0x3e800000  # 0.25
+f32 galaxy[0].DiskScaleRadius 0x3b83126f  # 0.00400000019
+f32 galaxy[0].BulgeRadius 0x3a10b7f9  # 0.000552057812
+f32 galaxy[0].MergerBulgeRadius 0x3a31c1a2  # 0.00067808677
+f32 galaxy[0].InstabilityBulgeRadius 0x399d4952  # 0.000300000014
+i32 intermediate.total_nonpositive 0
+i32 intermediate.merger_mass_zero 0
+i32 intermediate.instability_mass_zero 0
+i32 intermediate.merger_fallback 1
+i32 intermediate.instability_fallback 0
+i32 intermediate.M_merger_absent 0
+f64 intermediate.M_merger 0x3fe0000000000000  # 0.5
+i32 intermediate.M_merger_checked 1
+i32 intermediate.M_merger_check_kind 2
+i32 intermediate.M_merger_validated_up 0
+i32 intermediate.M_merger_validated_down 1
+i32 intermediate.M_merger_validated 0
+i32 intermediate.M_merger_narrowing_limited 0
+i32 intermediate.M_instability_absent 0
+f64 intermediate.M_instability 0x3fd0000000000000  # 0.25
+i32 intermediate.M_instability_checked 1
+i32 intermediate.M_instability_check_kind 2
+i32 intermediate.M_instability_validated_up 0
+i32 intermediate.M_instability_validated_down 0
+i32 intermediate.M_instability_validated 0
+i32 intermediate.M_instability_narrowing_limited 0
+i32 intermediate.M_total_absent 0
+f64 intermediate.M_total 0x3fe8000000000000  # 0.75
+i32 intermediate.M_total_checked 1
+i32 intermediate.M_total_check_kind 2
+i32 intermediate.M_total_validated_up 0
+i32 intermediate.M_total_validated_down 1
+i32 intermediate.M_total_validated 0
+i32 intermediate.M_total_narrowing_limited 0
+i32 intermediate.M_merger_sun_absent 0
+f64 intermediate.M_merger_sun 0x41f984040fc7e3f2  # 6849315068.4931507
+i32 intermediate.M_merger_sun_checked 1
+i32 intermediate.M_merger_sun_check_kind 2
+i32 intermediate.M_merger_sun_validated_up 0
+i32 intermediate.M_merger_sun_validated_down 1
+i32 intermediate.M_merger_sun_validated 0
+i32 intermediate.M_merger_sun_narrowing_limited 0
+i32 intermediate.log_R_merger_kpc_absent 0
+f64 intermediate.log_R_merger_kpc 0xbfa0673b71f33d7c  # -0.032037599239283815
+i32 intermediate.log_R_merger_kpc_checked 1
+i32 intermediate.log_R_merger_kpc_check_kind 2
+i32 intermediate.log_R_merger_kpc_validated_up 1
+i32 intermediate.log_R_merger_kpc_validated_down 0
+i32 intermediate.log_R_merger_kpc_validated 0
+i32 intermediate.log_R_merger_kpc_narrowing_limited 0
+i32 intermediate.R_merger_absent 0
+f64 intermediate.R_merger 0x3f46383437692ff7  # 0.00067808675414360211
+i32 intermediate.R_merger_checked 1
+i32 intermediate.R_merger_check_kind 2
+i32 intermediate.R_merger_validated_up 1
+i32 intermediate.R_merger_validated_down 0
+i32 intermediate.R_merger_validated 0
+i32 intermediate.R_merger_narrowing_limited 0
+i32 intermediate.R_disc_absent 1
+i32 intermediate.M_inst_sun_absent 1
+i32 intermediate.log_R_inst_kpc_absent 1
+i32 intermediate.R_instability_absent 0
+f64 intermediate.R_instability 0x3f33a92a40000000  # 0.00030000001424923539
+i32 intermediate.R_instability_checked 1
+i32 intermediate.R_instability_check_kind 2
+i32 intermediate.R_instability_validated_up 0
+i32 intermediate.R_instability_validated_down 0
+i32 intermediate.R_instability_validated 0
+i32 intermediate.R_instability_narrowing_limited 0
+i32 intermediate.R_bulge_absent 0
+f64 intermediate.R_bulge 0x3f4216ff2f9b754f  # 0.00055205784084547984
+i32 intermediate.R_bulge_checked 1
+i32 intermediate.R_bulge_check_kind 2
+i32 intermediate.R_bulge_validated_up 1
+i32 intermediate.R_bulge_validated_down 1
+i32 intermediate.R_bulge_validated 1
+i32 intermediate.R_bulge_narrowing_limited 0

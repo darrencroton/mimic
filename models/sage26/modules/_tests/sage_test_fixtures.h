@@ -78,6 +78,8 @@ static inline void set_test_model_parameters(void) {
       {"ThresholdSatDisruption", "1.0"},
       /* Disk instability */
       {"StarFormingDiskFactor", "3.0"},
+      /* Bulge sizes: SAGE26's R0 mode (no sizes) */
+      {"BulgeSizeOn", "0"},
   };
   const int n = (int)(sizeof(params) / sizeof(params[0]));
   for (int i = 0; i < n; i++) {

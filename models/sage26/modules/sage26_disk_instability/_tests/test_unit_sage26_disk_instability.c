@@ -67,6 +67,9 @@ static void setup_test_parameters(double disk_factor) {
   int idx = 0;
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "StarFormingDiskFactor");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", disk_factor);
+  /* The required bulge-size mode, SAGE26's R0 0 (no sizes) */
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", 0);
   MimicConfig.NumModelParams = idx;
 }
 

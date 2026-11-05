@@ -4,14 +4,17 @@
  *
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_starburst_feedback
  * (its _tests/oracle/ directory): SAGE26's collisional_starburst_recipe
- * (R/src/model_mergers.c:584-831), in both modes, with R0's flags. The test calls the
+ * (R/src/model_mergers.c:584-831), in both modes, with R0's flags, BulgeSizeOn 0 (R0) or 3
+ * (the c07 burst_s3_* fixtures, R1.par:109, with the fixture's Hubble_h). The test calls the
  * shared transaction the module calls, mimic_apply_collisional_starburst
  * (shared/sage_starburst_physics.h), directly, with the fixture's inputs standing in for
  * the module's trigger: call.mass_ratio (the merger event's ratio or the instability's
  * fraction), call.mode, call.burst_to_merger_bulge (the channel SAGE26's caller selects
  * from the pre-transfer morphology), call.merger_centralgal (the burst host),
- * call.centralgal (its FoF central), call.step (the history bin) and call.dt (the substep
- * interval). The post-minor-merger instability recheck runs inside the transaction, as it
+ * call.centralgal (its FoF central), call.step (the history bin), call.dt (the substep
+ * interval) and call.old_disk_radius (the disk radius SAGE26's caller saved, which the
+ * instability channel's radius update reads in mode 3, :783-784). The post-minor-merger
+ * instability recheck runs inside the transaction, as it
  * does in SAGE26 (:806-811), with SAGE26's TOOMRE_DISK_FACTOR 3.0
  * (R/src/model_disk_instability.c:35), DiskInstabilityOn and AGNrecipeOn from the fixture.
  *
@@ -23,10 +26,10 @@
  * clamp or floor binds it. Checked values that are not validated are recorded, not
  * asserted (c05's rule: the float stores absorb a one-ulp change of most doubles).
  *
- * Not applied, each named: call.time (the event time, which on R0 reaches no statement:
- * the recheck passes it on to a burst that does not read it) and call.old_disk_radius
- * (read only by update_instability_bulge_radius, which returns at once on R0,
- * R/src/model_misc.c:395; the galaxies' bulge radii are applied and must stay unchanged).
+ * Not applied, named: call.time (the event time, which reaches no statement on R0 or R1:
+ * the recheck passes it on to a burst that does not read it). call.old_disk_radius is
+ * applied; with BulgeSizeOn 0 it is read only by update_instability_bulge_radius, which
+ * returns at once (R/src/model_misc.c:395), and the bulge radii must stay unchanged.
  * params.G is applied (the recheck's Mcrit). The observation
  * intermediate.burst_instability_recheck_changed_state is not a port value (it records
  * whether SAGE26's own recheck changed the state); the end state asserts its effect.
@@ -50,6 +53,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_sizes.h"
 #include "shared/sage_starburst_physics.h"
 
 static const char *MODULE = "sage26_starburst_feedback";
@@ -66,13 +70,17 @@ static const char *ROUTINE = "collisional_starburst_recipe";
 
 static struct oracle_c06_carried_tally tally;
 static int ratio_zero_fixtures = 0;
+/* Fixtures run with BulgeSizeOn 3 (c07) */
+static int sizes_fixtures = 0;
 
 /**
  * @brief Read the fixture's flags and parameters into the burst's parameter bundle
  * @return Number of problems
  */
 static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstParams *p) {
-  int problems = oracle_c06_require_r0_flags(in);
+  /* BulgeSizeOn 0 or 3 with Hubble_h for 3 (the other flags R0's) */
+  struct MimicSageBulgeSize sizes;
+  int problems = oracle_c07_require_merger_flags(in, &sizes);
   reset_config();
   MimicConfig.G = oracle_in_f64(in, "params.G");
   MimicConfig.UnitVelocity_in_cm_per_s = oracle_in_f64(in, "params.UnitVelocity_in_cm_per_s");
@@ -92,6 +100,7 @@ static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstPara
   p->agn_recipe_on = 1;
   p->black_hole_growth_rate = oracle_in_f64(in, "params.BlackHoleGrowthRate");
   p->quasar_mode_efficiency = oracle_in_f64(in, "params.QuasarModeEfficiency");
+  p->bulge_size = sizes;
   return problems;
 }
 
@@ -210,9 +219,9 @@ static int check_fixture(const char *name) {
   const int burst_to_merger_bulge = oracle_in_i32(&in, "call.burst_to_merger_bulge");
   const int step = oracle_in_i32(&in, "call.step");
   const double dt = oracle_in_f64(&in, "call.dt");
-  /* Output-inert or unread on R0 (see the file comment) */
+  const double old_disk_radius = oracle_in_f64(&in, "call.old_disk_radius");
+  /* Unread on R0 and R1 (see the file comment) */
   (void)oracle_in_f64(&in, "call.time");
-  (void)oracle_in_f64(&in, "call.old_disk_radius");
 
   static struct GalaxyData galaxies[MAX_GALAXIES], before[MAX_GALAXIES];
   static struct Halo halos[MAX_GALAXIES];
@@ -235,7 +244,11 @@ static int check_fixture(const char *name) {
   /* rate_dt 0: the package's StarFormationRate diagnostic is left off and must not change */
   struct MimicSageStarburstLocals locals;
   mimic_apply_collisional_starburst(mass_ratio, &halos[host], &halos[central], mode,
-                                    burst_to_merger_bulge, 0.0, step, dt, &ctx, &params, &locals);
+                                    burst_to_merger_bulge, old_disk_radius, 0.0, step, dt, &ctx,
+                                    &params, &locals);
+  if (params.bulge_size.bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI) {
+    sizes_fixtures++;
+  }
 
   for (int i = 0; i < ngal; i++) {
     problems += oracle_c06_check_galaxy(&out, "", i, &galaxies[i], i == host);
@@ -274,11 +287,14 @@ int test_oracle_bit_identity(void) {
   }
   memset(&tally, 0, sizeof(tally));
   ratio_zero_fixtures = 0;
+  sizes_fixtures = 0;
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), binding %d, "
          "not validated %d, absent %d; ratio-0 merger bursts through the direct call %d ",
          tally.asserted, tally.binding, tally.not_validated, tally.absent, ratio_zero_fixtures);
+  printf("\n  oracle: bursts with BulgeSizeOn 3 %d ", sizes_fixtures);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(sizes_fixtures >= 1, "a burst fixture must run BulgeSizeOn 3");
   TEST_ASSERT(ratio_zero_fixtures >= 1, "the ratio-0 merger burst fixture must be asserted");
   return TEST_PASS;
 }

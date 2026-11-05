@@ -1,0 +1,10 @@
+# SAGE26 oracle output for tr_sync_probe_vvir_zero.in, written by oracle_c07 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine central_disk_and_bulge_radius
+f64 return.r_disk 0x3f947ae14ccccccd  # 0.020000000298023225
+f32 galaxy[0].MergerBulgeMass 0x3e800000  # 0.25
+f32 galaxy[0].InstabilityBulgeMass 0x3e000000  # 0.125
+f32 galaxy[0].DiskScaleRadius 0x3ca3d70a  # 0.0199999996
+f32 galaxy[0].BulgeRadius 0x3aebedfa  # 0.00179999997
+f32 galaxy[0].MergerBulgeRadius 0x3a378034  # 0.000699999975
+f32 galaxy[0].InstabilityBulgeRadius 0x3b83126e  # 0.00399999972

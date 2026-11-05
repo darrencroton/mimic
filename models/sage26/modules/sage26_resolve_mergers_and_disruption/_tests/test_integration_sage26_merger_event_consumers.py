@@ -39,6 +39,7 @@ from framework import (
 )
 
 MERGER_MODEL_PARAMS = {
+    "BulgeSizeOn": 0,
     "GlobalBaryonFraction": 0.17,
     "SfrEfficiency": 0.05,
     "StarFormingDiskFactor": 3.0,

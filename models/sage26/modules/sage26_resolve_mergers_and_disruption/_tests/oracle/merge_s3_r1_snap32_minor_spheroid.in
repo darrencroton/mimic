@@ -1,0 +1,252 @@
+# deal_with_galaxy_merger with BulgeSizeOn 3 of a real R1 satellite (galaxy 1) into its real
+# central (galaxy 0), also the FoF central: a minor merger onto a spheroid-dominated target, which keeps the remnant radius.
+# The burst, the target's bulge-radius synchronisation (M:293), the remnant radius of the
+# post-burst target and the still-populated satellite (M:297) and its assignment (M:299-330).
+# Source: R1 reference /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R1/model_0.hdf5 (SHA-256 870acea288250919624ae8a4b984a4dde7106e6355cdb972cf4880ff04635ca0), Snap_32 rows 9128 (GalaxyIndex 2000031000000000, Type 0) and 9129 (GalaxyIndex 2000031000000029, Type 1).
+# End-of-snapshot output values used as plausible call inputs, not reconstructed call-time
+# state; the writer stores every galaxy field below verbatim (R/src/io/save_gals_hdf5.c:895-1005;
+# Rvir and Vvir are the halo's, :901-902), the bulge radii included.
+# Constructed: the galaxies' SnapNum (one less than the row's), deltaMvir (central +2% of
+# Mvir, satellite -5%), the clocks (999.9 for the central, B:288; 0.0 for the satellite,
+# unread), OutflowRate 0, TimeOfLast*Merger -1 (SAGE26's creation sentinel), zero histories,
+# and the call time, dt and bin (merge_r0_snap32's: the last bin of the substeps from
+# Age[31]).
+# Reachability: R1-reachable.
+format sage26-oracle-fixture 1
+routine deal_with_galaxy_merger
+
+i32 params.SFprescription 0  # R0 (R0.par:48)
+i32 params.SupernovaRecipeOn 1  # R0 (R0.par:50)
+i32 params.CGMrecipeOn 0  # R0 (R0.par:54)
+i32 params.FIREmodeOn 0  # R0 (R0.par:55)
+i32 params.BulgeSizeOn 3  # R1 (R1.par:109)
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.72999999999999998  (R1.par:40; read by mode 3, R/src/model_misc.c:249,398)
+i32 params.SaveFullSFH 0  # R0 (R0.par:60)
+i32 params.AGNrecipeOn 2  # R0 (R0.par:49)
+i32 params.StarburstColdGasOn 1  # R0: SAGE26's default, R/src/core_read_parameter_file.c:109 (R0.par does not set it)
+i32 params.DiskInstabilityOn 1  # R0 (R0.par:52)
+f64 params.FeedbackReheatingEpsilon 0x4007333333333333  # 2.9  (R0.par:69)
+f64 params.FeedbackEjectionEfficiency 0x3fd3333333333333  # 0.3  (R0.par:70)
+f64 params.EtaSNcode 0x4190547d7abd5eaf  # 68493150.6849315  (EtaSN * (UnitMass_in_g / SOLAR_MASS) / Hubble_h, R/src/core_init.c:103)
+f64 params.EnergySNcode 0x3f6e10f01e10f01d  # 0.003670186023127199  (EnergySN / UnitEnergy_in_cgs * Hubble_h, R/src/core_init.c:102)
+f64 params.RecycleFraction 0x3fdb851eb851eb85  # 0.43  (R0.par:82)
+f64 params.Yield 0x3f9999999999999a  # 0.025  (R0.par:81)
+f64 params.FracZleaveDisk 0x0000000000000000  # 0.0  (R0.par:83)
+f64 params.ThreshMajorMerger 0x3fd3333333333333  # 0.3  (R0.par:78)
+f64 params.BlackHoleGrowthRate 0x3f8eb851eb851eb8  # 0.015  (R0.par:76)
+f64 params.QuasarModeEfficiency 0x3f747ae147ae147b  # 0.005  (R0.par:75)
+f64 params.UnitVelocity_in_cm_per_s 0x40f86a0000000000  # 100000.0  (R0.par:108)
+f64 params.G 0x404580e7ed5ced1b  # 43.00707785642063  (GRAVITY / CUBE(L) * M * SQR(T), R/src/core_init.c:96)
+
+i32 call.ngal 2
+i32 call.p 1
+i32 call.merger_centralgal 0
+i32 call.centralgal 0
+f64 call.time 0x3f7f93d6ba67366f  # 0.0077093494241587809  (Age[31] - 9.5 * dt)
+f64 call.dt 0x3ef33986829eb81a  # 1.8334110940258862e-05  ((Age[31] - Age[32]) / 10)
+i32 call.step 9  # the last bin
+
+i32 galaxy[0].Type 0
+i32 galaxy[0].SnapNum 31  # constructed call-time value (the row stores 32)
+i32 galaxy[0].mergeType 0
+i32 galaxy[0].mergeIntoID -1
+i32 galaxy[0].CentralGal 0
+i32 galaxy[0].Len 6622
+f32 galaxy[0].Mvir 0x4418e54a  # 611.582642
+f32 galaxy[0].deltaMvir 0x4143b4d9  # constructed (+2% of Mvir)
+f32 galaxy[0].Rvir 0x3e185e4e  # 0.148797244
+f32 galaxy[0].Vvir 0x43d237d5  # 420.436188
+f32 galaxy[0].Vmax 0x43e07021  # 448.876007
+f32 galaxy[0].MergTime 0x4479f99a  # 999.9, SAGE26's central clock (B:288)
+f32 galaxy[0].ColdGas 0x3e30dffb  # 0.172729418
+f32 galaxy[0].MetalsColdGas 0x3b2d5991  # 0.00264510908
+f32 galaxy[0].StellarMass 0x3fa1c2c4  # 1.26375628
+f32 galaxy[0].MetalsStellarMass 0x3c8e89e8  # 0.0173997432
+f32 galaxy[0].BulgeMass 0x3f2d1ff6  # 0.676268935
+f32 galaxy[0].MetalsBulgeMass 0x3c013e37  # 0.00788836833
+f32 galaxy[0].MergerBulgeMass 0x3dcd9eea  # 0.100400761
+f32 galaxy[0].InstabilityBulgeMass 0x3f136c19  # 0.575868189
+f32 galaxy[0].HotGas 0x42be3f98  # 95.1242065
+f32 galaxy[0].MetalsHotGas 0x3dd65f49  # 0.10467393
+f32 galaxy[0].EjectedMass 0x3e01d25d  # 0.126779035
+f32 galaxy[0].MetalsEjectedMass 0x39507d91  # 0.000198832029
+f32 galaxy[0].BlackHoleMass 0x3be8ffe4  # 0.00711058266
+f32 galaxy[0].QuasarModeBHaccretionMass 0x38eac94a  # 0.000111954825
+f32 galaxy[0].ICS 0x40cbb134  # 6.36538124
+f32 galaxy[0].MetalsICS 0x3d8925e5  # 0.0669668093
+f32 galaxy[0].ICS_disrupt 0x40b959ee  # 5.79222775
+f32 galaxy[0].ICS_accrete 0x3f12ba2f  # 0.573153436
+f32 galaxy[0].ICS_sum_mt 0x3d518abd  # 0.0511577018
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[0].H1gas 0x3df59352  # 0.119909897
+f32 galaxy[0].H2gas 0x00000000  # 0
+f32 galaxy[0].OutflowRate 0x00000000  # constructed
+f32 galaxy[0].DiskScaleRadius 0x3b23c5d9  # 0.00249897526
+f32 galaxy[0].BulgeRadius 0x39b92691  # 0.000353146839
+f32 galaxy[0].MergerBulgeRadius 0x3ae42864  # 0.00174070569
+f32 galaxy[0].InstabilityBulgeRadius 0x38e94464  # 0.000111230445
+f32 galaxy[0].TimeOfLastMajorMerger 0xbf800000  # SAGE26's creation sentinel
+f32 galaxy[0].TimeOfLastMinorMerger 0xbf800000  # SAGE26's creation sentinel
+f32 galaxy[0].SfrDisk[0] 0x00000000  # constructed
+f32 galaxy[0].SfrDisk[1] 0x00000000  # constructed
+f32 galaxy[0].SfrDisk[2] 0x00000000  # constructed
+f32 galaxy[0].SfrDisk[3] 0x00000000  # constructed
+f32 galaxy[0].SfrDisk[4] 0x00000000  # constructed
+f32 galaxy[0].SfrDisk[5] 0x00000000  # constructed
+f32 galaxy[0].SfrDisk[6] 0x00000000  # constructed
+f32 galaxy[0].SfrDisk[7] 0x00000000  # constructed
+f32 galaxy[0].SfrDisk[8] 0x00000000  # constructed
+f32 galaxy[0].SfrDisk[9] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[0] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[1] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[2] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[3] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[4] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[5] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[6] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[7] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[8] 0x00000000  # constructed
+f32 galaxy[0].SfrBulge[9] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[0] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[1] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[2] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[3] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[4] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[5] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[6] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[7] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[8] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGas[9] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[0] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[1] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[2] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[3] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[4] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[5] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[6] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[7] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[8] 0x00000000  # constructed
+f32 galaxy[0].SfrDiskColdGasMetals[9] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[0] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[1] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[2] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[3] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[4] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[5] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[6] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[7] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[8] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGas[9] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[0] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[1] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[2] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[3] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[4] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[5] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[6] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[7] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[8] 0x00000000  # constructed
+f32 galaxy[0].SfrBulgeColdGasMetals[9] 0x00000000  # constructed
+i32 galaxy[1].Type 1
+i32 galaxy[1].SnapNum 31  # constructed call-time value (the row stores 32)
+i32 galaxy[1].mergeType 0
+i32 galaxy[1].mergeIntoID -1
+i32 galaxy[1].CentralGal 1
+i32 galaxy[1].Len 27
+f32 galaxy[1].Mvir 0x40149ba6  # 2.32200003
+f32 galaxy[1].deltaMvir 0xbdedc5d7  # constructed (-5% of Mvir)
+f32 galaxy[1].Rvir 0x3cbe291c  # 0.0232129619
+f32 galaxy[1].Vvir 0x42832df0  # 65.5897217
+f32 galaxy[1].Vmax 0x42b4ccc1  # 90.39991
+f32 galaxy[1].MergTime 0x00000000  # constructed; no code this fixture runs reads it
+f32 galaxy[1].ColdGas 0x3d375931  # 0.0447627939
+f32 galaxy[1].MetalsColdGas 0x3a8b1b99  # 0.00106130831
+f32 galaxy[1].StellarMass 0x3ebf9473  # 0.374179453
+f32 galaxy[1].MetalsStellarMass 0x3b67e568  # 0.00353845395
+f32 galaxy[1].BulgeMass 0x3c66253d  # 0.0140469642
+f32 galaxy[1].MetalsBulgeMass 0x38a7a610  # 7.99411209e-05
+f32 galaxy[1].MergerBulgeMass 0x00000000  # 0
+f32 galaxy[1].InstabilityBulgeMass 0x3c66253d  # 0.0140469642
+f32 galaxy[1].HotGas 0x00000000  # 0
+f32 galaxy[1].MetalsHotGas 0x00000000  # 0
+f32 galaxy[1].EjectedMass 0x00000000  # 0
+f32 galaxy[1].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[1].BlackHoleMass 0x388badee  # 6.66043343e-05
+f32 galaxy[1].QuasarModeBHaccretionMass 0x00000000  # 0
+f32 galaxy[1].ICS 0x00000000  # 0
+f32 galaxy[1].MetalsICS 0x00000000  # 0
+f32 galaxy[1].ICS_disrupt 0x00000000  # 0
+f32 galaxy[1].ICS_accrete 0x00000000  # 0
+f32 galaxy[1].ICS_sum_mt 0x00000000  # 0
+f32 galaxy[1].CGMgas 0x00000000  # 0
+f32 galaxy[1].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[1].H1gas 0x3d064f2b  # 0.0327903442
+f32 galaxy[1].H2gas 0x00000000  # 0
+f32 galaxy[1].OutflowRate 0x00000000  # constructed
+f32 galaxy[1].DiskScaleRadius 0x3a467145  # 0.000756997906
+f32 galaxy[1].BulgeRadius 0x394f079a  # 0.000197438902
+f32 galaxy[1].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[1].InstabilityBulgeRadius 0x394f079a  # 0.000197438902
+f32 galaxy[1].TimeOfLastMajorMerger 0xbf800000  # SAGE26's creation sentinel
+f32 galaxy[1].TimeOfLastMinorMerger 0xbf800000  # SAGE26's creation sentinel
+f32 galaxy[1].SfrDisk[0] 0x00000000  # constructed
+f32 galaxy[1].SfrDisk[1] 0x00000000  # constructed
+f32 galaxy[1].SfrDisk[2] 0x00000000  # constructed
+f32 galaxy[1].SfrDisk[3] 0x00000000  # constructed
+f32 galaxy[1].SfrDisk[4] 0x00000000  # constructed
+f32 galaxy[1].SfrDisk[5] 0x00000000  # constructed
+f32 galaxy[1].SfrDisk[6] 0x00000000  # constructed
+f32 galaxy[1].SfrDisk[7] 0x00000000  # constructed
+f32 galaxy[1].SfrDisk[8] 0x00000000  # constructed
+f32 galaxy[1].SfrDisk[9] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[0] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[1] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[2] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[3] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[4] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[5] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[6] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[7] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[8] 0x00000000  # constructed
+f32 galaxy[1].SfrBulge[9] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[0] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[1] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[2] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[3] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[4] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[5] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[6] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[7] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[8] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGas[9] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[0] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[1] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[2] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[3] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[4] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[5] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[6] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[7] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[8] 0x00000000  # constructed
+f32 galaxy[1].SfrDiskColdGasMetals[9] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[0] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[1] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[2] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[3] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[4] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[5] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[6] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[7] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[8] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGas[9] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[0] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[1] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[2] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[3] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[4] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[5] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[6] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[7] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[8] 0x00000000  # constructed
+f32 galaxy[1].SfrBulgeColdGasMetals[9] 0x00000000  # constructed

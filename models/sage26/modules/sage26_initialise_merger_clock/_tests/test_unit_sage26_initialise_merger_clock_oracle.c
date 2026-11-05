@@ -337,10 +337,12 @@ static int check_join_and_pass(const char *name) {
     return 1;
   }
   int problems = set_params(&in);
+  /* BulgeSizeOn: the resolver's required parameter, at the fixtures' R0 value 0 */
   if (oracle_set_model_param("ThresholdMajorMerger",
                              oracle_in_f64(&in, "params.ThreshMajorMerger")) != 0 ||
       oracle_set_model_param("ThresholdSatDisruption",
-                             oracle_in_f64(&in, "params.ThresholdSatDisruption")) != 0) {
+                             oracle_in_f64(&in, "params.ThresholdSatDisruption")) != 0 ||
+      oracle_set_model_param("BulgeSizeOn", 0.0) != 0) {
     problems++;
   }
   if (problems == 0 && sage26_resolve_mergers_and_disruption_init() != 0) {

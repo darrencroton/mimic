@@ -1,0 +1,10 @@
+# SAGE26 oracle output for tr_sync_instability_disk_fallback.in, written by oracle_c07 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine central_disk_and_bulge_radius
+f64 return.r_disk 0x3fb5515457323f30  # 0.083272239006188853
+f32 galaxy[0].MergerBulgeMass 0x3e800000  # 0.25
+f32 galaxy[0].InstabilityBulgeMass 0x3e000000  # 0.125
+f32 galaxy[0].DiskScaleRadius 0x3daa8aa3  # 0.0832722411
+f32 galaxy[0].BulgeRadius 0x3bc533e5  # 0.0060181492
+f32 galaxy[0].MergerBulgeRadius 0x3a378034  # 0.000699999975
+f32 galaxy[0].InstabilityBulgeRadius 0x3c886ee9  # 0.0166544486

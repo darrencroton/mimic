@@ -76,7 +76,7 @@ def test_module_loads():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"StarFormingDiskFactor": 3.0},
+        model_params={"BulgeSizeOn": 0, "StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
@@ -117,7 +117,7 @@ def test_output_properties_exist():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"StarFormingDiskFactor": 3.0},
+        model_params={"BulgeSizeOn": 0, "StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
@@ -164,7 +164,7 @@ def test_parameters_configurable():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"StarFormingDiskFactor": 5.0},  # Custom value
+        model_params={"BulgeSizeOn": 0, "StarFormingDiskFactor": 5.0},  # Custom value
     )
 
     # ===== EXECUTE =====
@@ -206,7 +206,7 @@ def test_property_values_physical():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"StarFormingDiskFactor": 3.0},
+        model_params={"BulgeSizeOn": 0, "StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
@@ -259,7 +259,7 @@ def test_handles_zero_mass_galaxies():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"StarFormingDiskFactor": 3.0},
+        model_params={"BulgeSizeOn": 0, "StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
@@ -300,7 +300,7 @@ def test_parameter_sensitivity():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"StarFormingDiskFactor": 1.0},
+        model_params={"BulgeSizeOn": 0, "StarFormingDiskFactor": 1.0},
     )
 
     returncode_low, stdout_low, stderr_low = run_mimic(param_file_low)
@@ -318,7 +318,7 @@ def test_parameter_sensitivity():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"StarFormingDiskFactor": 10.0},
+        model_params={"BulgeSizeOn": 0, "StarFormingDiskFactor": 10.0},
     )
 
     returncode_high, stdout_high, stderr_high = run_mimic(param_file_high)
@@ -348,7 +348,7 @@ def test_memory_safety():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"StarFormingDiskFactor": 3.0},
+        model_params={"BulgeSizeOn": 0, "StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
@@ -383,7 +383,7 @@ def test_execution_completes():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"StarFormingDiskFactor": 3.0},
+        model_params={"BulgeSizeOn": 0, "StarFormingDiskFactor": 3.0},
         first_file=0,
         last_file=0,
     )

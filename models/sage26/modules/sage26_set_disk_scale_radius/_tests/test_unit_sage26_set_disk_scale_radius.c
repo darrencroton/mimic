@@ -47,8 +47,17 @@
 #include <string.h>
 #include <math.h>
 
-/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+/* Shared SAGE16 test fixture boilerplate (counters, module registration); this file keeps its
+ * own reset_config(), which adds the module's required BulgeSizeOn at SAGE26's R0 value 0 */
+#define SAGE_TEST_LOCAL_RESET_CONFIG
 #include "modules/_tests/sage_test_fixtures.h"
+
+static void reset_config(void) {
+  memset(&MimicConfig, 0, sizeof(MimicConfig));
+  snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "BulgeSizeOn");
+  snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "%d", 0);
+  MimicConfig.NumModelParams = 1;
+}
 
 /* Module functions (extern declarations for direct testing) */
 extern int sage26_set_disk_scale_radius_init(void);
@@ -654,8 +663,7 @@ int test_module_initialization(void) {
   MimicConfig.num_pre_timestep = 1;
   MimicConfig.SubSteps = 1;
 
-  /* No parameters needed for this module */
-  MimicConfig.NumModelParams = 0;
+  /* The module's one parameter, BulgeSizeOn, is set by reset_config() (R0's 0) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();

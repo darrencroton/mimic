@@ -1,0 +1,229 @@
+# SAGE26 oracle output for di_s3_r1_snap32_central_unstable.in, written by oracle_c05 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine check_disk_instability
+i32 intermediate.state_is_post_transfer 1
+f32 galaxy[0].ColdGas 0x3fbc84d3  # 1.47280347
+f32 galaxy[0].MetalsColdGas 0x3d08455b  # 0.0332692675
+f32 galaxy[0].StellarMass 0x4035a270  # 2.8380394
+f32 galaxy[0].MetalsStellarMass 0x3d34693e  # 0.0440456793
+f32 galaxy[0].BulgeMass 0x3f6dfe07  # 0.9296574
+f32 galaxy[0].MetalsBulgeMass 0x3c441c32  # 0.0119696129
+f32 galaxy[0].InstabilityBulgeMass 0x3f68b253  # 0.908971012
+f32 galaxy[0].HotGas 0x405c639e  # 3.44358015
+f32 galaxy[0].MetalsHotGas 0x3d594591  # 0.0530448593
+f32 galaxy[0].EjectedMass 0x00000000  # 0
+f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[0].H1gas 0x3f7c5d2d  # 0.98579675
+f32 galaxy[0].H2gas 0x00000000  # 0
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+f32 galaxy[0].MergerBulgeMass 0x3ca9767e  # 0.0206863843
+f32 galaxy[0].BulgeRadius 0x38ea393f  # 0.000111686524
+f32 galaxy[0].MergerBulgeRadius 0x38eeeebc  # 0.000113931921
+f32 galaxy[0].InstabilityBulgeRadius 0x38ea1dd0  # 0.000111635425
+f32 galaxy[0].BlackHoleMass 0x3afba846  # 0.00191999297
+f32 galaxy[0].QuasarModeBHaccretionMass 0x00000000  # 0
+f32 galaxy[0].SfrDisk[0] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[1] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[2] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[3] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[4] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[5] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[6] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[7] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[8] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[9] 0x00000000  # 0
+i32 intermediate.instability_disk_positive 1
+i32 intermediate.instability_mcrit_capped 0
+i32 intermediate.instability_stars_transferred 1
+i32 intermediate.instability_gas_branch 1
+i32 intermediate.diskmass_absent 0
+f64 intermediate.diskmass 0x400c5d6640000000  # 3.5456051826477051
+i32 intermediate.diskmass_checked 1
+i32 intermediate.diskmass_validated_up 0
+i32 intermediate.diskmass_validated_down 0
+i32 intermediate.diskmass_validated 0
+i32 intermediate.Mcrit_absent 0
+f64 intermediate.Mcrit 0x400a1d6855ac8b8f  # 3.2643591588288881
+i32 intermediate.Mcrit_checked 1
+i32 intermediate.Mcrit_validated_up 0
+i32 intermediate.Mcrit_validated_down 0
+i32 intermediate.Mcrit_validated 0
+i32 intermediate.unstable_gas_absent 0
+f64 intermediate.unstable_gas 0x3fbde854f3295450  # 0.11682635246809636
+i32 intermediate.unstable_gas_checked 1
+i32 intermediate.unstable_gas_validated_up 0
+i32 intermediate.unstable_gas_validated_down 0
+i32 intermediate.unstable_gas_validated 0
+i32 intermediate.unstable_stars_absent 0
+f64 intermediate.unstable_stars 0x3fc50bb42ba29ce8  # 0.16441967135072066
+i32 intermediate.unstable_stars_checked 1
+i32 intermediate.unstable_stars_validated_up 0
+i32 intermediate.unstable_stars_validated_down 0
+i32 intermediate.unstable_stars_validated 0
+i32 intermediate.instability_metallicity_absent 0
+f64 intermediate.instability_metallicity 0x3f91361d2bca9cc0  # 0.016807990835016495
+i32 intermediate.instability_metallicity_checked 1
+i32 intermediate.instability_metallicity_validated_up 0
+i32 intermediate.instability_metallicity_validated_down 0
+i32 intermediate.instability_metallicity_validated 0
+i32 intermediate.unstable_gas_fraction_absent 0
+f64 intermediate.unstable_gas_fraction 0x3fb44e7990a3410b  # 0.079322431384984224
+i32 intermediate.unstable_gas_fraction_checked 1
+i32 intermediate.unstable_gas_fraction_validated_up 0
+i32 intermediate.unstable_gas_fraction_validated_down 0
+i32 intermediate.unstable_gas_fraction_validated 0
+i32 intermediate.post_transfer_absent 0
+i32 intermediate.post_transfer.BulgeMass_checked 1
+i32 intermediate.post_transfer.BulgeMass_validated_up 1
+i32 intermediate.post_transfer.BulgeMass_validated_down 1
+i32 intermediate.post_transfer.BulgeMass_validated 1
+i32 intermediate.post_transfer.MetalsBulgeMass_checked 1
+i32 intermediate.post_transfer.MetalsBulgeMass_validated_up 1
+i32 intermediate.post_transfer.MetalsBulgeMass_validated_down 1
+i32 intermediate.post_transfer.MetalsBulgeMass_validated 1
+i32 intermediate.post_transfer.InstabilityBulgeMass_checked 1
+i32 intermediate.post_transfer.InstabilityBulgeMass_validated_up 1
+i32 intermediate.post_transfer.InstabilityBulgeMass_validated_down 1
+i32 intermediate.post_transfer.InstabilityBulgeMass_validated 1
+i32 intermediate.post_transfer.BulgeRadius_checked 1
+i32 intermediate.post_transfer.BulgeRadius_validated_up 0
+i32 intermediate.post_transfer.BulgeRadius_validated_down 0
+i32 intermediate.post_transfer.BulgeRadius_validated 0
+i32 intermediate.post_transfer.MergerBulgeRadius_checked 1
+i32 intermediate.post_transfer.MergerBulgeRadius_validated_up 1
+i32 intermediate.post_transfer.MergerBulgeRadius_validated_down 1
+i32 intermediate.post_transfer.MergerBulgeRadius_validated 1
+i32 intermediate.post_transfer.InstabilityBulgeRadius_checked 1
+i32 intermediate.post_transfer.InstabilityBulgeRadius_validated_up 0
+i32 intermediate.post_transfer.InstabilityBulgeRadius_validated_down 1
+i32 intermediate.post_transfer.InstabilityBulgeRadius_validated 0
+f32 intermediate.c06.galaxy[0].ColdGas 0x3f88954b  # 1.06705606
+f32 intermediate.c06.galaxy[0].MetalsColdGas 0x3cdd605b  # 0.0270234849
+f32 intermediate.c06.galaxy[0].StellarMass 0x4039e519  # 2.90460801
+f32 intermediate.c06.galaxy[0].MetalsStellarMass 0x3d3a9202  # 0.0455494002
+f32 intermediate.c06.galaxy[0].BulgeMass 0x3f7f08aa  # 0.996225953
+f32 intermediate.c06.galaxy[0].MetalsBulgeMass 0x3c5cbf44  # 0.0134733357
+f32 intermediate.c06.galaxy[0].InstabilityBulgeMass 0x3f79bcf6  # 0.975539565
+f32 intermediate.c06.galaxy[0].HotGas 0x40721096  # 3.78226233
+f32 intermediate.c06.galaxy[0].MetalsHotGas 0x3d789bb7  # 0.0606953762
+f32 intermediate.c06.galaxy[0].EjectedMass 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].H1gas 0x3f7c5d2d  # 0.98579675
+f32 intermediate.c06.galaxy[0].H2gas 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].OutflowRate 0x3ead67c0  # 0.338682175
+f32 intermediate.c06.galaxy[0].MergerBulgeMass 0x3ca9767e  # 0.0206863843
+f32 intermediate.c06.galaxy[0].BulgeRadius 0x3900ca3c  # 0.000122823694
+f32 intermediate.c06.galaxy[0].MergerBulgeRadius 0x38eeeebc  # 0.000113931921
+f32 intermediate.c06.galaxy[0].InstabilityBulgeRadius 0x3900fcd9  # 0.000123012243
+f32 intermediate.c06.galaxy[0].BlackHoleMass 0x3b1e6011  # 0.00241661468
+f32 intermediate.c06.galaxy[0].QuasarModeBHaccretionMass 0x3a022fb7  # 0.000496621651
+f32 intermediate.c06.galaxy[0].SfrDisk[0] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDisk[1] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDisk[2] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDisk[3] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDisk[4] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDisk[5] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDisk[6] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDisk[7] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDisk[8] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDisk[9] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulge[0] 0x45c70f6c  # 6369.92773
+f32 intermediate.c06.galaxy[0].SfrBulge[1] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulge[2] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulge[3] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulge[4] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulge[5] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulge[6] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulge[7] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulge[8] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulge[9] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[0] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[1] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[2] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[3] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[4] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[5] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[6] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[7] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[8] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGas[9] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[0] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[1] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[2] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[3] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[4] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[5] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[6] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[7] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[8] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrDiskColdGasMetals[9] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[0] 0x3fbc748d  # 1.47230685
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[1] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[2] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[3] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[4] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[5] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[6] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[7] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[8] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGas[9] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[0] 0x3d083998  # 0.0332580507
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[1] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[2] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[3] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[4] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[5] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[6] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[7] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[8] 0x00000000  # 0
+f32 intermediate.c06.galaxy[0].SfrBulgeColdGasMetals[9] 0x00000000  # 0

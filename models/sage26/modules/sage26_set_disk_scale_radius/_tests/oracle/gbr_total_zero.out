@@ -1,0 +1,47 @@
+# SAGE26 oracle output for gbr_total_zero.in, written by oracle_c07 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine get_bulge_radius
+f64 return.R_bulge 0x0000000000000000  # 0
+f32 galaxy[0].MergerBulgeMass 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeMass 0x00000000  # 0
+f32 galaxy[0].DiskScaleRadius 0x3b83126f  # 0.00400000019
+f32 galaxy[0].BulgeRadius 0x00000000  # 0
+f32 galaxy[0].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeRadius 0x00000000  # 0
+i32 intermediate.total_nonpositive 1
+i32 intermediate.merger_mass_zero -1
+i32 intermediate.instability_mass_zero -1
+i32 intermediate.merger_fallback -1
+i32 intermediate.instability_fallback -1
+i32 intermediate.M_merger_absent 0
+f64 intermediate.M_merger 0x0000000000000000  # 0
+i32 intermediate.M_merger_checked 1
+i32 intermediate.M_merger_check_kind 2
+i32 intermediate.M_merger_validated_up 0
+i32 intermediate.M_merger_validated_down 0
+i32 intermediate.M_merger_validated 0
+i32 intermediate.M_merger_narrowing_limited 0
+i32 intermediate.M_instability_absent 0
+f64 intermediate.M_instability 0x0000000000000000  # 0
+i32 intermediate.M_instability_checked 1
+i32 intermediate.M_instability_check_kind 2
+i32 intermediate.M_instability_validated_up 1
+i32 intermediate.M_instability_validated_down 0
+i32 intermediate.M_instability_validated 0
+i32 intermediate.M_instability_narrowing_limited 0
+i32 intermediate.M_total_absent 0
+f64 intermediate.M_total 0x0000000000000000  # 0
+i32 intermediate.M_total_checked 1
+i32 intermediate.M_total_check_kind 2
+i32 intermediate.M_total_validated_up 0
+i32 intermediate.M_total_validated_down 0
+i32 intermediate.M_total_validated 0
+i32 intermediate.M_total_narrowing_limited 0
+i32 intermediate.M_merger_sun_absent 1
+i32 intermediate.log_R_merger_kpc_absent 1
+i32 intermediate.R_merger_absent 1
+i32 intermediate.R_disc_absent 1
+i32 intermediate.M_inst_sun_absent 1
+i32 intermediate.log_R_inst_kpc_absent 1
+i32 intermediate.R_instability_absent 1
+i32 intermediate.R_bulge_absent 1
