@@ -118,8 +118,11 @@ static double ionized_gas_fraction(const double coldgas_code, const double rs_co
  * sfr_br06 has just written. Under SFprescription 0 H I is not resynchronised after the
  * depletion (the commits' caps, :1131-1135, :1169-1173, run only for prescriptions that
  * track H2), so it can exceed the hydrogen left after star formation and feedback: a
- * deliberate SAGE26 quirk. Under SFprescription 1 the commits cap it
- * (shared/sage_sf_feedback_physics.h).
+ * deliberate SAGE26 quirk. Under SFprescription 1 the commits and the black-hole accretion cap
+ * it (shared/sage_sf_feedback_physics.h, shared/sage_agn_physics.h, :1131-1135, :1169-1173,
+ * R/src/model_mergers.c:366-372), and every burst overwrites it with the un-ionised atomic
+ * remainder (shared/sage_starburst_physics.h, R/src/model_mergers.c:798-803), which this block
+ * replaces with the ionisation-corrected value at the next call.
  */
 static void calculate_h1gas(struct GalaxyData *gal, const double hubble_h) {
   /* SAGE parity: SAGE26's build fuses ColdGas * HYDROGEN_MASS_FRAC - H2gas into one

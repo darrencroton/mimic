@@ -10,8 +10,11 @@
  *   sage26_calculate_star_formation        SFprescription, H2RadialIntegrationOn, H2RadialNBins,
  *                                          H2RadialRMaxFactor (the BR06 branch, sfr_br06)
  *   sage26_apply_star_formation_supernova  SFprescription (the commits' hydrogen caps)
- *   sage26_starburst_feedback              SFprescription (the burst's commits' caps) and
- *                                          StarburstColdGasOn (the burst fuel)
+ *   sage26_quasar_mode                     SFprescription (the black-hole accretion's hydrogen
+ *                                          cap, R/src/model_mergers.c:366-372)
+ *   sage26_starburst_feedback              SFprescription (the burst's commits' caps, its
+ *                                          hydrogen refresh and its recheck's black-hole cap)
+ *                                          and StarburstColdGasOn (the burst fuel)
  *
  * Supported: SFprescription 0 (Croton) and 1 (BR06 with radial integration);
  * H2RadialIntegrationOn 1, H2RadialNBins 25 and H2RadialRMaxFactor 5.0 (SAGE26's defaults,
@@ -44,6 +47,8 @@ extern int sage26_calculate_star_formation_init(void);
 extern int sage26_calculate_star_formation_cleanup(void);
 extern int sage26_apply_star_formation_supernova_init(void);
 extern int sage26_apply_star_formation_supernova_cleanup(void);
+extern int sage26_quasar_mode_init(void);
+extern int sage26_quasar_mode_cleanup(void);
 extern int sage26_starburst_feedback_init(void);
 extern int sage26_starburst_feedback_cleanup(void);
 
@@ -62,6 +67,8 @@ static const struct sf_module MODULES[] = {
      sage26_calculate_star_formation_cleanup, SAGE26_TEST_KEYS_SF_MODULE},
     {"sage26_apply_star_formation_supernova", sage26_apply_star_formation_supernova_init,
      sage26_apply_star_formation_supernova_cleanup, SAGE26_TEST_KEYS_APPLY_MODULE},
+    {"sage26_quasar_mode", sage26_quasar_mode_init, sage26_quasar_mode_cleanup,
+     SAGE26_TEST_KEYS_QUASAR_MODULE},
     {"sage26_starburst_feedback", sage26_starburst_feedback_init, sage26_starburst_feedback_cleanup,
      SAGE26_TEST_KEYS_STARBURST_MODULE},
 };

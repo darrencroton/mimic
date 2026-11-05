@@ -78,6 +78,14 @@
  * (src/core/inheritance.c make_orphan) and init_repeat resets the other four on every inherited
  * row, so they are excluded on that row only, by name, and counted.
  *
+ * SFprescription 1 (the c08 merge_r2_* and tr_pass_r2_* fixtures, R2's flags): the three modules
+ * read the fixture's SFprescription, so the merger's black-hole growth caps the hydrogen
+ * (M:366-372), the burst's commits cap it and the burst refreshes it (M:798-803), the
+ * post-minor-merger recheck included; the end state, H2gas and H1gas among the thirty floats, is
+ * asserted bit for bit. The oracle's c08 record of those sites (the cap flags and bounds, the
+ * refresh's budget and remainder) is consumed, not asserted, as the consumers' other locals: the
+ * quasar and burst oracle tests assert it at their routine boundary.
+ *
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
  * SKIP.
  *
@@ -101,6 +109,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_hydrogen.h"
 #include "modules/_tests/sage26_oracle_sizes.h"
 #include "modules/_tests/sage26_oracle_join.h"
 #include "modules/sage26_resolve_mergers_and_disruption/sage_merger_ops.h"
@@ -165,6 +174,8 @@ static int counts_consumer_locals_validated = 0;
 static int counts_disrupt = 0, counts_pass = 0, counts_join_and_pass = 0;
 static int counts_pass_mergers = 0, counts_pass_disruptions = 0, counts_pass_redirects = 0;
 static int counts_orphan_exclusions = 0;
+/* c08: merge and pass fixtures run with SFprescription 1 */
+static int counts_br06 = 0;
 
 /* The removals the resolver's action hook reported, in order */
 static int action_count = 0;
@@ -236,9 +247,14 @@ static void observe_action(const char *action, int source_index, int target_inde
  */
 static int setup_modules(struct oracle_fixture *in) {
   /* c06's flags with BulgeSizeOn read (0, or 3 for the c07 merge_s3_* fixtures, with the
-   * fixture's Hubble_h) */
+   * fixture's Hubble_h) and SFprescription read (0, or 1 for the c08 fixtures, with the H2
+   * configuration) */
   struct MimicSageBulgeSize sizes;
-  int problems = oracle_c07_require_merger_flags(in, &sizes);
+  int sf_prescription = 0;
+  int problems = oracle_c08_require_merger_flags(in, &sizes, &sf_prescription);
+  if (sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+    counts_br06++;
+  }
   if (sizes.bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI &&
       oracle_f64_to_bits(sizes.hubble_h) != oracle_f64_to_bits(SAGE26_HUBBLE_H)) {
     fprintf(stderr, "oracle: %s: params.Hubble_h differs from R1.par's 0.73\n", in->path);
@@ -296,9 +312,10 @@ static int setup_modules(struct oracle_fixture *in) {
       oracle_set_model_param("BulgeSizeOn", (double)sizes.bulge_size_on) != 0) {
     problems++;
   }
-  /* sage26_starburst_feedback's required SFprescription and StarburstColdGasOn, at R1's values
-   * (0, the commits' hydrogen caps off, as these fixtures' SFprescription 0; 1, cold-gas bursts) */
-  if (oracle_set_model_param("SFprescription", 0.0) != 0 ||
+  /* sage26_quasar_mode's and sage26_starburst_feedback's required SFprescription, the fixture's
+   * (0: the hydrogen caps and refresh off; 1, R2: on), and the burst's StarburstColdGasOn 1
+   * (cold-gas bursts) */
+  if (oracle_set_model_param("SFprescription", (double)sf_prescription) != 0 ||
       oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
     problems++;
   }
@@ -661,6 +678,36 @@ static void consume_consumer_records(struct oracle_fixture *out) {
   for (size_t k = 0; k < COUNT(flags); k++) {
     char field[ORACLE_MAX_NAME];
     snprintf(field, sizeof(field), "intermediate.%s", flags[k]);
+    oracle_exclude(out, field);
+  }
+  /* c08: the SFprescription 1 record (present only on those fixtures), likewise consumed */
+  if (!oracle_has(out, "intermediate.bh_hydrogen_caps_tracked")) {
+    return;
+  }
+  static const char *const h_values[] = {"max_h_bh", "max_h_fb", "burst_h2_budget",
+                                         "burst_h1_refresh"};
+  static const char *const h_flags[] = {"bh_hydrogen_caps_tracked",
+                                        "bh_h2_cap_binds",
+                                        "bh_h1_cap_binds",
+                                        "burst_sf_commit_h2_capped",
+                                        "burst_sf_commit_h1_capped",
+                                        "hydrogen_caps_fb_tracked",
+                                        "h2_cap_fb_binds",
+                                        "h1_cap_fb_binds",
+                                        "burst_hydrogen_refresh_tracked",
+                                        "burst_refresh_h2_cap_binds",
+                                        "burst_refresh_h1_floored"};
+  for (size_t k = 0; k < COUNT(h_values); k++) {
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "intermediate.%s_narrowing_limited", h_values[k]);
+    if (oracle_has(out, field)) {
+      oracle_exclude(out, field);
+    }
+    counts_consumer_locals_validated += consume_record(out, h_values[k]);
+  }
+  for (size_t k = 0; k < COUNT(h_flags); k++) {
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "intermediate.%s", h_flags[k]);
     oracle_exclude(out, field);
   }
 }
@@ -1411,6 +1458,7 @@ int test_oracle_bit_identity(void) {
   memset(&remnant_tally, 0, sizeof(remnant_tally));
   counts_ratio_zero = counts_inert_radius = 0;
   counts_consumer_locals_validated = 0;
+  counts_br06 = 0;
   counts_disrupt = counts_pass = counts_join_and_pass = 0;
   counts_pass_mergers = counts_pass_disruptions = counts_pass_redirects = 0;
   counts_orphan_exclusions = 0;
@@ -1443,7 +1491,9 @@ int test_oracle_bit_identity(void) {
          "oracle but not exposed %d ",
          tally.asserted, tally.binding, tally.not_validated, tally.absent, counts_inert_radius,
          counts_consumer_locals_validated);
+  printf("\n  oracle: merge and pass fixtures with SFprescription 1 %d ", counts_br06);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(counts_br06 >= 1, "a merger fixture must run SFprescription 1");
   TEST_ASSERT(counts_ratio_zero >= 1, "a ratio-0 merger must run through the transaction");
   TEST_ASSERT(counts_add_sizes >= 1, "an add_galaxies_together fixture must run BulgeSizeOn 3");
   TEST_ASSERT(counts_merge_sizes_branch[0] >= 1 && counts_merge_sizes_branch[1] >= 1 &&

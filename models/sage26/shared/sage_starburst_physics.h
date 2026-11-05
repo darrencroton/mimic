@@ -3,12 +3,11 @@
  * @brief SAGE26's collisional starburst transaction (collisional_starburst_recipe)
  *
  * Ports SAGE26's collisional_starburst_recipe (R/src/model_mergers.c:584-831, R = the
- * staged SAGE26 source) on the R0 and R1 paths: StarburstColdGasOn 1, SFprescription 0,
+ * staged SAGE26 source) on the R0, R1 and R2 paths: StarburstColdGasOn 1, SFprescription 0 or 1,
  * SupernovaRecipeOn 1, FIREmodeOn 0, SaveFullSFH 0, CGMrecipeOn 0, and BulgeSizeOn 0 or 3.
  * With SFprescription 1 the star-formation and feedback commits apply their hydrogen caps
- * (sage_sf_feedback_physics.h); the black-hole accretion cap and the hydrogen refresh after the
- * burst feedback that SFprescription 1 also runs (R/src/model_mergers.c:366-372, :798-803) are
- * not ported here.
+ * (sage_sf_feedback_physics.h), the burst refreshes the hydrogen after its feedback (step 7b
+ * below) and the recheck's black-hole growth applies its accretion cap (sage_agn_physics.h).
  * One shared function owns SAGE26's whole sequence, for both burst channels:
  *
  *  1. the bursting fraction eburst: the trigger itself for mode 1 (a disk instability) and
@@ -28,6 +27,12 @@
  *     caller's saved disk radius (:770-784, sage_bulge_size_physics.h);
  *  7. update_from_feedback with the recomputed cold metallicity, reheated gas and ejection
  *     going to the FoF central (:787-791);
+ *  7b. for a prescription that tracks H2 (sf_prescription_tracks_h2, :798), the hydrogen
+ *     refresh: H2gas capped at the double ColdGas * 0.74 (:799-800), then H1gas overwritten with
+ *     the atomic remainder ColdGas * 0.74 - H2gas whatever it held (:801-802), a negative result
+ *     floored at zero (:803). It is not a pair of independent caps, and it applies no ionisation
+ *     correction: an H1gas the disk star formation reduced for ionisation is restored to the full
+ *     atomic remainder, until the next disk SF recomputes it (:794-797);
  *  8. for a merger burst (mode 0) whose ratio is strictly below ThreshMajorMerger, the
  *     post-minor-merger check_disk_instability on the host, whose gas branch grows the
  *     black hole and bursts again in mode 1 (:806-811, R/src/model_disk_instability.c:47-108);
@@ -50,8 +55,12 @@
  * sage_bulge_size_physics.h): MetalsBulgeMass += metallicity *
  * recycled_stars (:773) and MetalsColdGas += Yield * (1.0 - FracZleaveDiskVal) * stars
  * (:819). Both are written as explicit fma() calls; every other expression is one C
- * expression with SAGE26's operand order and types. BulgeMass += recycled_stars (:772)
- * adds the rounded double, unfused. The host's Vvir and the central's Mvir are read as the
+ * expression with SAGE26's operand order and types. With SFprescription 1 the refresh's
+ * H1gas = ColdGas * 0.74 - H2gas (:802) is a third, one fused multiply-subtract (fnmsub) in
+ * SAGE26's object (the oracle README's c08 fused-instruction table), written as
+ * fma(ColdGas, 0.74, -H2gas); the refresh's cap compares the widened float H2gas with the
+ * unfused double product and stores that product narrowed (:799-800). BulgeMass += recycled_stars
+ * (:772) adds the rounded double, unfused. The host's Vvir and the central's Mvir are read as the
  * floats SAGE26 holds (R/src/core_allvars.h:129-131).
  *
  * The package's StarFormationRate diagnostic (stars / rate_dt) has no SAGE26 counterpart;
@@ -88,8 +97,9 @@
  * AGNrecipeOn is positive (R/src/model_mergers.c:807, R/src/model_disk_instability.c:102).
  * The last, bulge_size, is SAGE26's BulgeSizeOn and Hubble_h, which the burst's and the
  * recheck's radius updates read (R/src/model_misc.c:395, :398). sf_prescription is SAGE26's
- * SFprescription, which the commits' hydrogen caps test. A zero-initialised bundle is
- * BulgeSizeOn 0 and SFprescription 0.
+ * SFprescription, which the commits' hydrogen caps, the hydrogen refresh and the recheck's
+ * black-hole accretion cap test. A zero-initialised bundle is BulgeSizeOn 0 and
+ * SFprescription 0.
  */
 struct MimicStarburstParams {
   double feedback_reheating_epsilon;
@@ -106,7 +116,21 @@ struct MimicStarburstParams {
   double black_hole_growth_rate;        /**< BlackHoleGrowthRate, for the recheck's BH growth */
   double quasar_mode_efficiency;        /**< QuasarModeEfficiency, for the recheck's wind */
   struct MimicSageBulgeSize bulge_size; /**< BulgeSizeOn and Hubble_h, for the radius updates */
-  int sf_prescription;                  /**< SFprescription (0 or 1), for the commits' H caps */
+  int sf_prescription; /**< SFprescription (0 or 1): the commits' and BH H caps, the refresh */
+};
+
+/**
+ * @brief The locals of the burst's hydrogen refresh (R/src/model_mergers.c:798-803)
+ *
+ * tracks_h2 is the site's guard, sf_prescription_tracks_h2(SFprescription); where it is false
+ * the doubles are NaN and the flags -1.
+ */
+struct MimicSageBurstHydrogenRefreshLocals {
+  int tracks_h2;     /**< sf_prescription_tracks_h2(SFprescription) (:798) */
+  double h2_budget;  /**< the double ColdGas * HYDROGEN_MASS_FRAC (:799-800) */
+  double h1_refresh; /**< the fused double ColdGas * HYDROGEN_MASS_FRAC - H2gas (:801-802) */
+  int h2_cap_binds;  /**< 1 if H2gas > h2_budget: H2gas set to h2_budget narrowed (:799-800) */
+  int h1_floored;    /**< 1 if the stored H1gas < 0.0: set to 0 (:803) */
 };
 
 /**
@@ -138,7 +162,9 @@ struct MimicSageStarburstLocals {
   int ejected_floored;             /**< 1 if the ejection was negative (:746) */
   int instability_recheck_ran;     /**< 1 if the post-minor-merger recheck ran (:807-808) */
   int yield_minor_branch;          /**< 1 if the yield took the retained branch (:814) */
-  struct MimicSageFeedbackLocals feedback; /**< the burst's update_from_feedback locals */
+  struct MimicSageHydrogenCapLocals sf_caps; /**< the burst's update_from_star_formation cap */
+  struct MimicSageFeedbackLocals feedback;   /**< the burst's update_from_feedback locals */
+  struct MimicSageBurstHydrogenRefreshLocals hydrogen_refresh; /**< the refresh (:798-803) */
 };
 
 /** @brief Mark every value of a burst locals record as not formed */
@@ -167,6 +193,15 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
   locals->ejected_floored = -1;
   locals->instability_recheck_ran = -1;
   locals->yield_minor_branch = -1;
+  locals->sf_caps.tracks_h2 = -1;
+  locals->sf_caps.max_h = NAN;
+  locals->sf_caps.h2_cap_binds = -1;
+  locals->sf_caps.h1_cap_binds = -1;
+  locals->hydrogen_refresh.tracks_h2 = -1;
+  locals->hydrogen_refresh.h2_budget = NAN;
+  locals->hydrogen_refresh.h1_refresh = NAN;
+  locals->hydrogen_refresh.h2_cap_binds = -1;
+  locals->hydrogen_refresh.h1_floored = -1;
 }
 
 /**
@@ -281,7 +316,8 @@ static inline void mimic_apply_collisional_starburst(
 
   const double metallicity_sf = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
   mimic_sage_update_from_star_formation(gal, stars, metallicity_sf, p->recycle_fraction,
-                                        p->sf_prescription, NULL);
+                                        p->sf_prescription,
+                                        locals != NULL ? &locals->sf_caps : NULL);
 
   /* SAGE parity: the locked stars are one rounded double, recycled_stars, added to the
    * bulge and to the selected channel (R/src/model_mergers.c:770-782); SAGE26's object
@@ -310,16 +346,42 @@ static inline void mimic_apply_collisional_starburst(
   mimic_sage_update_from_feedback(gal, central_gal, reheated_mass, ejected_mass, metallicity_fb,
                                   p->sf_prescription, locals != NULL ? &locals->feedback : NULL);
 
+  /* SAGE parity: after the feedback and before the instability recheck, a prescription that
+   * tracks H2 refreshes the hydrogen (R/src/model_mergers.c:798-803): H2gas is capped at the
+   * double ColdGas * 0.74 (the widened float compared with the unfused product, which is
+   * narrowed on a binding store, :799-800); H1gas is then OVERWRITTEN with the atomic remainder,
+   * fused in SAGE26's object (:801-802, fnmsub), so a stale H1gas is replaced and an ionised
+   * fraction the disk star formation removed is restored (no ionisation correction, :794-797);
+   * a negative stored H1gas is floored at zero (:803). Every burst runs it, a zero-star burst
+   * included. SFprescription 0 (R0, R1) does not track H2 and skips it. */
+  struct MimicSageBurstHydrogenRefreshLocals hydrogen_refresh = {0, NAN, NAN, -1, -1};
+  hydrogen_refresh.tracks_h2 = mimic_sage_sf_prescription_tracks_h2(p->sf_prescription);
+  if (hydrogen_refresh.tracks_h2) {
+    const double h2_budget = gal->ColdGas * SAGE_HYDROGEN_MASS_FRAC;
+    hydrogen_refresh.h2_budget = h2_budget;
+    hydrogen_refresh.h2_cap_binds = gal->H2gas > h2_budget;
+    if (hydrogen_refresh.h2_cap_binds) {
+      gal->H2gas = (float)h2_budget;
+    }
+    const double h1_refresh =
+        fma((double)gal->ColdGas, SAGE_HYDROGEN_MASS_FRAC, -(double)gal->H2gas);
+    hydrogen_refresh.h1_refresh = h1_refresh;
+    gal->H1gas = (float)h1_refresh;
+    hydrogen_refresh.h1_floored = gal->H1gas < 0.0;
+    if (hydrogen_refresh.h1_floored) {
+      gal->H1gas = 0.0;
+    }
+  }
+
   /* SAGE parity: the post-minor-merger disk-instability check runs inside the burst, BEFORE
    * this burst's metal yield, only for a merger burst (mode 0) whose ratio is strictly below
    * ThreshMajorMerger (R/src/model_mergers.c:806-811): a ratio equal to the threshold is a
-   * minor merger (:299) with no recheck. Its gas branch grows the black hole (with its wind)
-   * and bursts the unstable fraction in mode 1 into the instability channel
-   * (R/src/model_disk_instability.c:90-108). The recheck saves and passes its own disk
-   * radius to its stellar transfer's radius update (:68-83), and its burst passes the
-   * host's current DiskScaleRadius (:106-107). SAGE26's H2/H1 refresh after the feedback
-   * (:798-803) runs only for a prescription that tracks H2, so not on R0 or R1; it is not
-   * ported here. */
+   * minor merger (:299) with no recheck. Its gas branch grows the black hole (with its wind and,
+   * for SFprescription 1, its hydrogen cap) and bursts the unstable fraction in mode 1 into the
+   * instability channel (R/src/model_disk_instability.c:90-108), that burst refreshing the
+   * hydrogen in turn. The recheck saves and passes its own disk radius to its stellar
+   * transfer's radius update (:68-83), and its burst passes the host's current DiskScaleRadius
+   * (:106-107). */
   const int instability_recheck_ran =
       p->disk_instability_on && mode == 0 && mass_ratio < p->threshold_major_merger;
   if (instability_recheck_ran) {
@@ -330,7 +392,7 @@ static inline void mimic_apply_collisional_starburst(
       if (p->agn_recipe_on) {
         (void)mimic_apply_black_hole_growth(host_halo, recheck.unstable_gas_fraction,
                                             p->black_hole_growth_rate, p->quasar_mode_efficiency,
-                                            ctx, NULL);
+                                            ctx, p->sf_prescription, NULL);
       }
       mimic_apply_collisional_starburst(recheck.unstable_gas_fraction, host_halo, central_halo, 1,
                                         0, (double)gal->DiskScaleRadius, rate_dt, sfr_bin, sfr_dt,
@@ -382,6 +444,7 @@ static inline void mimic_apply_collisional_starburst(
     locals->ejected_floored = ejected_floored;
     locals->instability_recheck_ran = instability_recheck_ran;
     locals->yield_minor_branch = yield_minor_branch;
+    locals->hydrogen_refresh = hydrogen_refresh;
   }
 }
 

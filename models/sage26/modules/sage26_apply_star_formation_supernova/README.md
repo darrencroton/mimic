@@ -39,7 +39,7 @@ SAGE26 samples and makes both calls on every substep, also when no stars formed,
 ## Parameters
 
 - `RecycleFraction`
-- `SFprescription` (required, 0 or 1): 0 (the run files' R1 value) commits without the hydrogen caps, 1 (BR06, R2) with them (`:1131`, `:1169`); any other value, or a missing key, fails initialisation with an error naming the parameter.
+- `SFprescription` (required, 0 or 1): 1 (the run files' value, BR06, SAGE26's R2) commits with the hydrogen caps, 0 (R0, R1) without them (`:1131`, `:1169`); any other value, or a missing key, fails initialisation with an error naming the parameter.
 
 ## Notes
 

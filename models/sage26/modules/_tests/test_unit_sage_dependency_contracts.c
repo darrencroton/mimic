@@ -224,6 +224,8 @@ int test_dep_quasar_per_event_missing_producer_error(void) {
   test_phase_add("satellite_mergers", "sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* The module's required SFprescription, at R1's value, so the init fails on the dependency */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
 
   int result = module_system_init();
   TEST_ASSERT(result != 0, "sage26_quasar_mode per_event without merger producer must fail init");

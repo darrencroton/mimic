@@ -16,6 +16,10 @@
  *   sage26_apply_star_formation_supernova update_from_star_formation, the reheating clamp,
  *                                        update_from_feedback
  *   sage26_disk_instability              check_disk_instability (DiskInstabilityOn 1 only)
+ *   sage26_quasar_mode                   the instability's grow_black_hole (SFprescription 1
+ *                                        gas-unstable fixtures only, see below)
+ *   sage26_starburst_feedback            the instability's collisional_starburst_recipe (the
+ *                                        same fixtures)
  *   sage26_apply_metal_enrichment        the disk yield
  *
  * and, after the last substep of a sequence fixture, the post_timestep finaliser
@@ -52,23 +56,24 @@
  * and not asserted):
  *
  * - The instability (DiskInstabilityOn 1) runs sage26_disk_instability, SAGE26's
- *   check_disk_instability up to its black-hole and burst calls. The oracle admits a
- *   wrapper fixture only where that routine does not reach them: a stable disk, or an
- *   unstable disk with no cold gas after feedback, whose stellar transfer into
+ *   check_disk_instability up to its black-hole and burst calls. With SFprescription 0 the
+ *   oracle admits a wrapper fixture only where that routine does not reach them: a stable
+ *   disk, or an unstable disk with no cold gas after feedback, whose stellar transfer into
  *   BulgeMass, MetalsBulgeMass and InstabilityBulgeMass
  *   (R/src/model_disk_instability.c:77-79) is asserted here like every other field
- *   (instability_unstable_no_coldgas). The chain requires the module to hand on no
- *   unstable gas fraction. DiskInstabilityOn 0 fixtures (a labelled non-R0 value) do
- *   not run it.
+ *   (instability_unstable_no_coldgas), and the chain requires the module to hand on no
+ *   unstable gas fraction. With SFprescription 1 the continuation runs (below).
+ *   DiskInstabilityOn 0 fixtures (a labelled non-R0 value) do not run it.
  * - The SAGE26 locals the package never forms as named values (tdyn, cold_crit,
  *   strdot, atomicH, f_ion, the pre-renormalisation reheated mass, renorm_fac, the
  *   pre-floor ejected mass, FracZleaveDiskVal and the yield's escaping metals) reach
  *   the asserted fields and are not asserted themselves. The branch flags are read
  *   only to key the binding equalities.
- * - call.time (the substep midpoint) is read by no module of this chain on R0; the
- *   instability's c06 continuation, which reads it, is not reached. The parameters
- *   only that continuation reads (ThreshMajorMerger, BlackHoleGrowthRate,
- *   QuasarModeEfficiency, UnitVelocity_in_cm_per_s) are likewise not applied.
+ * - call.time (the substep midpoint) is read by no module of this chain: the
+ *   instability's c06 continuation passes it to a mode-1 burst, which does not read it.
+ *   The parameters only that continuation reads (ThreshMajorMerger, BlackHoleGrowthRate,
+ *   QuasarModeEfficiency, UnitVelocity_in_cm_per_s) are applied to the quasar and burst
+ *   modules and reach the state only on the SFprescription 1 gas-unstable fixtures.
  *
  * The core-owned inputs are supplied as SAGE26 forms them: Vvir and Mvir widened
  * from SAGE26's floats, the row's dT = call.deltaT and num_substeps = effective_steps
@@ -82,6 +87,20 @@
  * (R/src/model_disk_instability.c:35).
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test
  * reports SKIP.
+ *
+ * The gas-unstable continuation at SFprescription 1 (c08, Slice 2). The oracle admits a
+ * prescription-1 wrapper fixture whose disk is gas-unstable after feedback
+ * (R/src/model_starformation_and_feedback.c:1088 into R/src/model_disk_instability.c:90): the
+ * instability hands on its unstable gas fraction, and the chain runs sage26_quasar_mode and then
+ * sage26_starburst_feedback (process_by_galaxy) on the galaxy, as the production phase does, so
+ * the black-hole growth caps the hydrogen (R/src/model_mergers.c:366-372) and the burst caps and
+ * refreshes it (S:1131-1135, S:1169-1173, R/src/model_mergers.c:798-803). The test asserts the
+ * galaxy's state after sage26_quasar_mode against the oracle's state after SAGE26's own
+ * grow_black_hole (intermediate.after_bh.*, the hydrogen fields after the cap) and the end state
+ * after the burst and the yield, H2gas and H1gas after the refresh among the fourteen fields.
+ * With SFprescription 0 the chain still requires no unstable gas to be handed on. The two modules
+ * are initialised for every fixture, with the fixture's ThreshMajorMerger, BlackHoleGrowthRate
+ * and QuasarModeEfficiency and StarburstColdGasOn 1.
  *
  * SFprescription 1 (the c08 fixtures, R2's flags: BR06 with radial integration and
  * BulgeSizeOn 3): the chain runs the module's BR06 branch, and the test also asserts, on
@@ -140,6 +159,11 @@ extern int sage26_apply_star_formation_supernova_process(struct ModuleContext *c
                                                          struct Halo *halos, int ngal);
 extern int sage26_disk_instability_init(void);
 extern int sage26_disk_instability_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage26_quasar_mode_init(void);
+extern int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage26_starburst_feedback_init(void);
+extern int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *halos,
+                                             int ngal);
 extern int sage26_apply_metal_enrichment_init(void);
 extern int sage26_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo *halos,
                                                  int ngal);
@@ -160,16 +184,22 @@ static const char *MODULE = "sage26_calculate_star_formation";
 #define SAGE26_UNIT_MASS_IN_G 1.989e+43
 
 /* The chain's modules, in substep order (static storage: no memory system needed) */
-static char chain_names[5][64] = {"sage26_calculate_star_formation",
-                                  "sage26_calculate_supernova_feedback",
-                                  "sage26_apply_star_formation_supernova",
-                                  "sage26_disk_instability", "sage26_apply_metal_enrichment"};
+#define CHAIN_MODULES 7
+static char chain_names[CHAIN_MODULES][64] = {"sage26_calculate_star_formation",
+                                              "sage26_calculate_supernova_feedback",
+                                              "sage26_apply_star_formation_supernova",
+                                              "sage26_disk_instability",
+                                              "sage26_quasar_mode",
+                                              "sage26_starburst_feedback",
+                                              "sage26_apply_metal_enrichment"};
 static char chain_phase_name[] = "galaxy_physics";
-static struct PhaseModuleConfig chain_modules[5];
+static struct PhaseModuleConfig chain_modules[CHAIN_MODULES];
 static struct ModulePhaseConfig chain_phase;
 
 static struct oracle_c05_carried_tally tally;
 static struct oracle_c08_local_tally h2_tally;
+/* c08: SFprescription 1 gas-unstable continuations run through the quasar and burst modules */
+static int continuations_br06 = 0;
 
 /** @brief Names of the branch flags every single-call output records */
 static const char *const FLAGS[] = {"sf_vvir_nonpositive",
@@ -228,6 +258,9 @@ struct substep_record {
   double h2_budget;
   float h2_sf;
   float h1_sf;
+  /* SFprescription 1 gas-unstable continuation (c08): galaxy p after sage26_quasar_mode */
+  int after_bh_present;
+  struct GalaxyData after_bh;
   int rs_nonpositive;
   int radial_returned_early;
   int h2_cap_binds;
@@ -316,26 +349,34 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
   /* The SF module's SFprescription and H2 integration parameters and the apply step's
    * SFprescription, the fixture's (the H2 parameters at R2's values for SFprescription 0) */
   problems += oracle_c08_set_sf_parameters(&c->sf);
-  /* Read only by the instability's c06 continuation (black-hole growth, quasar wind,
-   * burst), which no fixture of this chain reaches */
-  (void)oracle_in_f64(in, "params.ThreshMajorMerger");
-  (void)oracle_in_f64(in, "params.BlackHoleGrowthRate");
-  (void)oracle_in_f64(in, "params.QuasarModeEfficiency");
+  /* Read only by the instability's c06 continuation (black-hole growth, quasar wind, burst),
+   * which the SFprescription 1 gas-unstable fixtures reach (SAGE26's ThreshMajorMerger is the
+   * package's ThresholdMajorMerger), and the burst module's StarburstColdGasOn 1 */
+  if (oracle_set_model_param("ThresholdMajorMerger",
+                             oracle_in_f64(in, "params.ThreshMajorMerger")) != 0 ||
+      oracle_set_model_param("BlackHoleGrowthRate",
+                             oracle_in_f64(in, "params.BlackHoleGrowthRate")) != 0 ||
+      oracle_set_model_param("QuasarModeEfficiency",
+                             oracle_in_f64(in, "params.QuasarModeEfficiency")) != 0 ||
+      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
+    problems++;
+  }
 
   /* The substep phase the modules' init() dependency checks inspect */
-  for (int m = 0; m < 5; m++) {
+  for (int m = 0; m < CHAIN_MODULES; m++) {
     chain_modules[m].module_name = chain_names[m];
     chain_modules[m].processing_mode = PROCESSING_MODE_BY_GALAXY;
   }
   chain_phase.name = chain_phase_name;
   chain_phase.modules = chain_modules;
-  chain_phase.num_modules = 5;
+  chain_phase.num_modules = CHAIN_MODULES;
   MimicConfig.substep_phases = &chain_phase;
   MimicConfig.num_substep_phases = 1;
 
   if (sage26_calculate_star_formation_init() != 0 ||
       sage26_calculate_supernova_feedback_init() != 0 ||
       sage26_apply_star_formation_supernova_init() != 0 || sage26_disk_instability_init() != 0 ||
+      sage26_quasar_mode_init() != 0 || sage26_starburst_feedback_init() != 0 ||
       sage26_apply_metal_enrichment_init() != 0) {
     fprintf(stderr, "oracle: %s: a module init() failed\n", in->path);
     problems++;
@@ -555,6 +596,7 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
   }
 
   r->instability = (struct MimicSageInstabilityLocals){NAN, NAN, NAN, NAN, NAN, NAN};
+  r->after_bh_present = 0;
   if (c->disk_instability_on) {
     /* Replay the instability through its shared helper on a copy, for its locals */
     struct GalaxyData instability_replay[MAX_GALAXIES];
@@ -572,11 +614,25 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
       fprintf(stderr, "oracle: %s: the instability replay differs from process()\n", in->path);
       problems++;
     }
-    /* The oracle admits no wrapper fixture whose instability reaches the gas branch:
-     * no unstable gas is handed on */
+    /* SFprescription 0: the oracle admits no wrapper fixture whose instability reaches the gas
+     * branch, so no unstable gas is handed on. SFprescription 1 (c08): the continuation runs,
+     * the black-hole growth and then the burst, as the production phase orders them */
     if (gal->UnstableDiskGasFraction != 0.0) {
-      fprintf(stderr, "oracle: %s: the instability handed on an unstable gas fraction\n", in->path);
-      problems++;
+      if (!br06) {
+        fprintf(stderr, "oracle: %s: the instability handed on an unstable gas fraction\n",
+                in->path);
+        problems++;
+      } else {
+        if (sage26_quasar_mode_process(&c->ctx, halo, 1) != 0) {
+          problems++;
+        }
+        r->after_bh = *gal;
+        r->after_bh_present = 1;
+        if (sage26_starburst_feedback_process(&c->ctx, halo, 1) != 0) {
+          problems++;
+        }
+        continuations_br06++;
+      }
     }
   }
 
@@ -698,6 +754,45 @@ static int check_h2_record(struct oracle_fixture *out, const struct substep_reco
   return problems;
 }
 
+/**
+ * @brief Assert the gas-unstable continuation's state after the black-hole growth (c08)
+ *
+ * The oracle records galaxy p after SAGE26's own grow_black_hole (its hydrogen cap and wind)
+ * and before the burst only where the gas branch ran; the chain must have run the quasar
+ * module exactly there. The fourteen written fields, the size members, H2DepletionTime_Gyr and
+ * the two black-hole fields are compared bit for bit.
+ */
+static int check_after_bh(struct oracle_fixture *out, const struct chain *c,
+                          const struct substep_record *r) {
+  const char *probe = oracle_prefixed_galaxy_field("intermediate.after_bh.", c->p, "ColdGas");
+  if (oracle_has(out, probe) != r->after_bh_present) {
+    fprintf(stderr, "oracle: %s: the oracle %s a state after the black-hole growth, the chain %s\n",
+            out->path, r->after_bh_present ? "records no" : "records", "disagrees");
+    return 1;
+  }
+  if (!r->after_bh_present) {
+    return 0;
+  }
+  int problems = 0;
+  struct GalaxyData g = r->after_bh;
+  size_t count;
+  const char *const *written = oracle_c05_written_names(&count);
+  problems += oracle_c05_check_floats(out, "intermediate.after_bh.", c->p, &g, written, count);
+  problems +=
+      oracle_c05_check_floats(out, "intermediate.after_bh.", c->p, &g, UNTOUCHED, COUNT(UNTOUCHED));
+  if (c->bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI) {
+    for (size_t k = 0; k < COUNT(SIZES); k++) {
+      problems += oracle_check_f32(
+          out, oracle_prefixed_galaxy_field("intermediate.after_bh.", c->p, SIZES[k]),
+          *oracle_c06_galaxy_float(&g, SIZES[k]));
+    }
+  }
+  problems += oracle_check_f32(
+      out, oracle_prefixed_galaxy_field("intermediate.after_bh.", c->p, "H2DepletionTime_Gyr"),
+      g.H2DepletionTime_Gyr);
+  return problems;
+}
+
 /** @brief One starformation_and_feedback fixture: one call of the chain */
 static int check_single(struct oracle_fixture *in, struct oracle_fixture *out, struct chain *c) {
   int problems = 0;
@@ -715,6 +810,7 @@ static int check_single(struct oracle_fixture *in, struct oracle_fixture *out, s
   problems += check_carried(out, "intermediate.", &r, 1);
   if (c->sf.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
     problems += check_h2_record(out, &r);
+    problems += check_after_bh(out, c, &r);
   }
 
   /* The bin the apply step sampled (R/src/core_build_model.c:514-515) */
@@ -958,6 +1054,7 @@ int test_oracle_bit_identity(void) {
   }
   memset(&tally, 0, sizeof(tally));
   memset(&h2_tally, 0, sizeof(h2_tally));
+  continuations_br06 = 0;
   const int ok = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), not validated %d, "
          "not package values %d, absent %d; binding clamps and caps asserted equal to their "
@@ -968,7 +1065,12 @@ int test_oracle_bit_identity(void) {
          h2_tally.validated + h2_tally.narrowing_limited + h2_tally.not_validated,
          h2_tally.validated, h2_tally.narrowing_limited, h2_tally.not_validated, h2_tally.absent,
          h2_tally.binding);
+  printf("\n  oracle: SFprescription 1 gas-unstable continuations through the quasar and burst "
+         "modules %d ",
+         continuations_br06);
   TEST_ASSERT(ok, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(continuations_br06 >= 1,
+              "an SFprescription 1 gas-unstable continuation must be asserted");
   return TEST_PASS;
 }
 

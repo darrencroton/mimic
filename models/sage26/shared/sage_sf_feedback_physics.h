@@ -87,10 +87,12 @@ static inline double mimic_sage_eta_sn_code(const double unit_mass_in_g, const d
  * @brief The locals of one hydrogen cap, for tests that compare them with the oracle
  *
  * One record per cap site: update_from_star_formation's (:1131-1135) and update_from_feedback's
- * (:1169-1173). max_h is NAN, and the two flags -1, where the guard is false.
+ * (:1169-1173), and grow_black_hole's (R/src/model_mergers.c:366-372, sage_agn_physics.h). max_h
+ * is NAN, and the two flags -1, where the guard is false.
  */
 struct MimicSageHydrogenCapLocals {
-  int tracks_h2;    /**< the site's guard, sf_prescription_tracks_h2(SFprescription) */
+  int tracks_h2;    /**< the site's guard as SAGE26 writes it: sf_prescription_tracks_h2 at the
+                         commits, SFprescription != 0 && != 2 at the black-hole accretion */
   float max_h;      /**< (ColdGas > 0.0f) ? ColdGas * 0.74 : 0.0f, narrowed to float */
   int h2_cap_binds; /**< 1 if H2gas > max_h: H2gas set to max_h */
   int h1_cap_binds; /**< 1 if H1gas > max_h: H1gas set to max_h */

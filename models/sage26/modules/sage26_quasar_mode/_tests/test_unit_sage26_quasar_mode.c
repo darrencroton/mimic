@@ -39,6 +39,16 @@
  *   - test_parameter_sensitivity_quasar_efficiency: Efficiency parameter
  *   - test_module_initialization: Module lifecycle
  *   - test_memory_safety: No memory leaks
+ *   - test_hydrogen_cap_independent_strict: SFprescription 1 caps H2gas and H1gas each on its own,
+ *     strictly, at the float 0.74 of the cold gas the accretion leaves
+ *   - test_hydrogen_cap_off_prescription_zero: SFprescription 0 leaves H2gas and H1gas alone
+ *   - test_hydrogen_cap_then_wind_no_refresh: the cap precedes the wind, which refreshes nothing
+ *   - test_hydrogen_cap_module_wiring: the module passes its SFprescription 1 to the growth
+ *
+ * The four hydrogen-cap tests (R/src/model_mergers.c:366-372) are platform independent: they
+ * assert the cap's invariants from the package's own float arithmetic, with no oracle bit
+ * pattern, so they run on every platform (the bit-exact oracle test reports SKIP off macOS
+ * arm64 / Apple clang 21).
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -62,6 +72,7 @@
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
+#include "shared/sage_agn_physics.h"
 
 /* Module parameters (extern declarations to access module internals for testing) */
 extern double BLACK_HOLE_GROWTH_RATE;
@@ -130,6 +141,8 @@ static void setup_test_parameters(double growth_rate, double quasar_efficiency) 
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", quasar_efficiency);
 
   MimicConfig.NumModelParams = idx;
+  /* The module's required SFprescription, at R1's value */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
 }
 
 /**
@@ -1159,6 +1172,8 @@ int test_module_initialization(void) {
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "QuasarModeEfficiency");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.001");
   MimicConfig.NumModelParams = idx;
+  /* The module's required SFprescription, at R1's value */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -1218,6 +1233,142 @@ int test_memory_safety(void) {
  *
  * Executes all sage26_quasar_mode unit tests and reports results.
  */
+// ============================================================================
+// HYDROGEN CAP (SFprescription 1, R/src/model_mergers.c:366-372)
+// ============================================================================
+
+/** @brief The float bound SAGE26 forms from the cold gas the accretion leaves (:367-368) */
+static float hydrogen_bound(const float cold_gas_after) {
+  return (float)((cold_gas_after > 0.0f) ? cold_gas_after * 0.74 : 0.0f);
+}
+
+/**
+ * @brief Grow the black hole of a fresh galaxy with the given H2gas and H1gas
+ * @return The cold gas the accretion left
+ */
+static float grow_with_hydrogen(struct GalaxyData *gal, const double vvir, const float h2,
+                                const float h1, const int sf_prescription,
+                                struct MimicSageBlackHoleLocals *locals) {
+  struct Halo halo;
+  setup_test_galaxy(&halo, gal, 0, 100.0, vvir, 10.0, 0.2, 0.0, 0.0, 0.01);
+  gal->H2gas = h2;
+  gal->H1gas = h1;
+  struct ModuleContext ctx;
+  setup_test_context(&ctx);
+  (void)mimic_apply_black_hole_growth(&halo, 0.5, 0.01, 0.001, &ctx, sf_prescription, locals);
+  return gal->ColdGas;
+}
+
+/**
+ * @test    test_hydrogen_cap_independent_strict
+ * @brief   With SFprescription 1, H2gas and H1gas are each capped, strictly and on its own, at the
+ *          float bound of the remaining cold gas; never their sum
+ */
+int test_hydrogen_cap_independent_strict(void) {
+  struct GalaxyData gal;
+  struct MimicSageBlackHoleLocals bh;
+  /* The bound depends only on the accretion, which does not read the hydrogen */
+  const float cold_after = grow_with_hydrogen(&gal, 300.0, 0.0f, 0.0f, 1, &bh);
+  const float bound = hydrogen_bound(cold_after);
+  TEST_ASSERT(bh.hydrogen_caps.tracks_h2 == 1, "SFprescription 1 runs the cap");
+  TEST_ASSERT(bh.hydrogen_caps.max_h == bound, "the recorded bound is the float 0.74 * ColdGas");
+  TEST_ASSERT(bh.wind.ejects_cold == 0, "this galaxy's wind keeps its cold gas");
+
+  const float above = nextafterf(bound, INFINITY);
+  const float below = nextafterf(bound, -INFINITY);
+  const struct {
+    float h2, h1;
+    float want_h2, want_h1;
+    int binds_h2, binds_h1;
+  } cases[] = {
+      {above, below, bound, below, 1, 0},
+      {below, above, below, bound, 0, 1},
+      {bound, bound, bound, bound, 0, 0},
+      {above, above, bound, bound, 1, 1},
+      {above, bound, bound, bound, 1, 0},
+      {bound, above, bound, bound, 0, 1},
+      /* each below the bound, their sum above it: nothing changes */
+      {0.6f * bound, 0.6f * bound, 0.6f * bound, 0.6f * bound, 0, 0},
+  };
+  for (size_t k = 0; k < sizeof(cases) / sizeof(cases[0]); k++) {
+    (void)grow_with_hydrogen(&gal, 300.0, cases[k].h2, cases[k].h1, 1, &bh);
+    TEST_ASSERT(gal.H2gas == cases[k].want_h2, "H2gas is capped strictly at the bound");
+    TEST_ASSERT(gal.H1gas == cases[k].want_h1, "H1gas is capped strictly at the bound");
+    TEST_ASSERT(bh.hydrogen_caps.h2_cap_binds == cases[k].binds_h2, "the H2 cap's flag");
+    TEST_ASSERT(bh.hydrogen_caps.h1_cap_binds == cases[k].binds_h1, "the H1 cap's flag");
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_hydrogen_cap_off_prescription_zero
+ * @brief   With SFprescription 0 the guard (SFprescription != 0 && != 2) is false: stale hydrogen
+ *          above the bound is left alone
+ */
+int test_hydrogen_cap_off_prescription_zero(void) {
+  struct GalaxyData gal;
+  struct MimicSageBlackHoleLocals bh;
+  (void)grow_with_hydrogen(&gal, 300.0, 9.0f, 9.0f, 0, &bh);
+  TEST_ASSERT(bh.hydrogen_caps.tracks_h2 == 0, "SFprescription 0 skips the cap");
+  TEST_ASSERT(isnan(bh.hydrogen_caps.max_h), "no bound is formed");
+  TEST_ASSERT(gal.H2gas == 9.0f && gal.H1gas == 9.0f, "the hydrogen is unchanged");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_hydrogen_cap_then_wind_no_refresh
+ * @brief   The cap runs before the quasar wind (:366-374); a wind that ejects the whole cold gas
+ *          leaves the capped H2gas and H1gas behind (no refresh after it, :397-403)
+ */
+int test_hydrogen_cap_then_wind_no_refresh(void) {
+  struct GalaxyData gal;
+  struct MimicSageBlackHoleLocals bh;
+  /* A low Vvir: little accretion, and a cold binding energy the wind exceeds */
+  (void)grow_with_hydrogen(&gal, 50.0, 10.0f, 10.0f, 1, &bh);
+  TEST_ASSERT(bh.wind.ejects_cold == 1, "the wind ejects the cold gas");
+  TEST_ASSERT(gal.ColdGas == 0.0f, "no cold gas is left");
+  TEST_ASSERT(bh.hydrogen_caps.h2_cap_binds == 1 && bh.hydrogen_caps.h1_cap_binds == 1,
+              "both caps bound before the wind");
+  TEST_ASSERT(gal.H2gas == bh.hydrogen_caps.max_h && gal.H1gas == bh.hydrogen_caps.max_h,
+              "the hydrogen keeps the bound of the cold gas before the wind");
+  TEST_ASSERT(gal.H2gas > 0.0f, "the wind does not refresh the hydrogen");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_hydrogen_cap_module_wiring
+ * @brief   Initialised with SFprescription 1, the module's disk-instability channel caps the
+ *          hydrogen (the module passes its required parameter to the shared growth)
+ */
+int test_hydrogen_cap_module_wiring(void) {
+  init_memory_system(0);
+  reset_config();
+  setup_test_parameters(0.01, 0.001);
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, "SFprescription") == 0) {
+      snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "1");
+    }
+  }
+  TEST_ASSERT(sage26_quasar_mode_init() == 0, "init with SFprescription 1 succeeds");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+  gal.H2gas = 9.0f;
+  gal.H1gas = 1.0f;
+  gal.UnstableDiskGasFraction = 0.5;
+  struct ModuleContext ctx;
+  setup_test_context(&ctx);
+  TEST_ASSERT(sage26_quasar_mode_process(&ctx, &halo, 1) == 0, "process succeeds");
+  const float bound = hydrogen_bound(gal.ColdGas);
+  TEST_ASSERT(gal.H2gas == bound, "H2gas above the bound is capped to it");
+  TEST_ASSERT(gal.H1gas == 1.0f, "H1gas below the bound is kept");
+
+  sage26_quasar_mode_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -1258,6 +1409,10 @@ int main(void) {
   /* Run infrastructure tests */
   TEST_RUN(test_module_initialization);
   TEST_RUN(test_memory_safety);
+  TEST_RUN(test_hydrogen_cap_independent_strict);
+  TEST_RUN(test_hydrogen_cap_off_prescription_zero);
+  TEST_RUN(test_hydrogen_cap_then_wind_no_refresh);
+  TEST_RUN(test_hydrogen_cap_module_wiring);
 
   /* Print summary and return result */
   TEST_SUMMARY();

@@ -13,6 +13,8 @@ module:
       - QuasarModeBHaccretionMass
       - ColdGas
       - MetalsColdGas
+      - H1gas
+      - H2gas
       - HotGas
       - MetalsHotGas
       - EjectedGas
@@ -22,6 +24,7 @@ module:
     parameters:
       - BlackHoleGrowthRate
       - QuasarModeEfficiency
+      - SFprescription
 
   events:
     consumes:

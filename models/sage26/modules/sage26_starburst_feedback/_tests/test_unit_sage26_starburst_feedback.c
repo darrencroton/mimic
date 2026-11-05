@@ -56,6 +56,16 @@
  *   - test_consecutive_bursts_bulge_excess_grows: three consecutive instability bursts
  *     leave BulgeMass two floats above StellarMass, bit for bit as SAGE26's own routine
  *     does; pins the limit of the integration tests' bulge bound
+ *   - test_hydrogen_refresh_module_wiring: initialised with SFprescription 1 the module wires the
+ *     prescription into the burst (the commits' caps and the hydrogen refresh run), and with
+ *     SFprescription 0 it does not
+ *   - test_hydrogen_refresh_invariants: the refresh (R/src/model_mergers.c:798-803) overwrites
+ *     a stale H1gas with the fused atomic remainder, caps H2gas only against the double budget,
+ *     floors a negative remainder to 0, keeps a -0.0 H2gas and runs for a zero-star burst
+ *
+ * The two hydrogen tests are platform independent (no oracle bit pattern; the remainder is
+ * formed with C's correctly rounded fma, as the shared helper forms it), so they run on every
+ * platform.
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -2335,6 +2345,132 @@ int test_consecutive_bursts_bulge_excess_grows(void) {
  *
  * Executes all sage26_starburst_feedback unit tests and reports results.
  */
+/**
+ * @brief The refresh's expected H1gas for a galaxy's final ColdGas and H2gas (M:801-803)
+ */
+static float expected_refreshed_h1(const struct GalaxyData *gal) {
+  const float h1 = (float)fma((double)gal->ColdGas, 0.74, -(double)gal->H2gas);
+  return h1 < 0.0f ? 0.0f : h1;
+}
+
+/**
+ * @test    test_hydrogen_refresh_module_wiring
+ * @brief   The module passes its required SFprescription into the burst's parameter bundle
+ *
+ * One instability burst through process() on a galaxy whose stale H2gas is far above the
+ * hydrogen of the cold gas the burst leaves: with SFprescription 1 the commits cap H2gas at the
+ * float 0.74 of the remaining cold gas and the refresh overwrites the stale H1gas of 0 with the
+ * atomic remainder; with SFprescription 0 neither runs. Dropping the bundle's sf_prescription
+ * initialiser would silently disable every burst's caps and refresh, which this test catches.
+ */
+int test_hydrogen_refresh_module_wiring(void) {
+  const int prescriptions[2] = {1, 0};
+  for (int k = 0; k < 2; k++) {
+    init_memory_system(0);
+    reset_config();
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+      if (strcmp(MimicConfig.ModelParams[i].param_name, "SFprescription") == 0) {
+        snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%d", prescriptions[k]);
+      }
+    }
+    TEST_ASSERT(sage26_starburst_feedback_init() == 0, "init succeeds");
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+    gal.H2gas = 9.0f;
+    gal.H1gas = 0.0f;
+    gal.UnstableDiskGasFraction = 0.5;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &halo);
+    TEST_ASSERT(sage26_starburst_feedback_process(&ctx, &halo, 1) == 0, "process succeeds");
+    TEST_ASSERT(gal.ColdGas < 10.0f && gal.ColdGas > 0.0f, "the burst consumes some cold gas");
+
+    if (prescriptions[k] == 1) {
+      const float bound = (float)(gal.ColdGas * 0.74);
+      TEST_ASSERT(gal.H2gas == bound, "SFprescription 1: H2gas is capped at the float bound");
+      TEST_ASSERT(gal.H1gas == expected_refreshed_h1(&gal),
+                  "SFprescription 1: H1gas is the refreshed atomic remainder");
+    } else {
+      TEST_ASSERT(gal.H2gas == 9.0f && gal.H1gas == 0.0f,
+                  "SFprescription 0: no cap and no refresh");
+    }
+    sage26_starburst_feedback_cleanup();
+    check_memory_leaks();
+  }
+  return TEST_PASS;
+}
+
+/** @brief One zero-star instability burst (mode 1, trigger 0) with SFprescription 1 */
+static void zero_star_burst(struct GalaxyData *gal, const float cold_gas, const float h2,
+                            const float h1, struct MimicSageStarburstLocals *locals) {
+  struct Halo halo;
+  setup_test_galaxy(&halo, gal, 0, 100.0, 300.0, 1.0, 0.02, 5.0, 1.0, 50.0, 1.0);
+  gal->ColdGas = cold_gas;
+  gal->MetalsColdGas = 0.0f;
+  gal->H2gas = h2;
+  gal->H1gas = h1;
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.params = &MimicConfig;
+  MimicConfig.G = 43.00707785642063;
+  MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
+  const struct MimicStarburstParams params = {
+      .feedback_reheating_epsilon = 2.9,
+      .feedback_ejection_efficiency = 0.3,
+      .recycle_fraction = 0.43,
+      .yield = 0.025,
+      .threshold_major_merger = 0.3,
+      .energy_sn_code = 0.0036701860231271991,
+      .eta_sn_code = 68493150.684931502,
+      .star_forming_disk_factor = 3.0,
+      .sf_prescription = 1,
+  };
+  mimic_apply_collisional_starburst(0.0, &halo, &halo, 1, 0, 0.0, 0.0, 0, 0.01, &ctx, &params,
+                                    locals);
+}
+
+/**
+ * @test    test_hydrogen_refresh_invariants
+ * @brief   The burst's hydrogen refresh is not a pair of caps (R/src/model_mergers.c:798-803)
+ */
+int test_hydrogen_refresh_invariants(void) {
+  struct GalaxyData gal;
+  struct MimicSageStarburstLocals b;
+
+  /* A zero-star burst moves no gas, and still refreshes: a stale H1gas of 0 is replaced */
+  zero_star_burst(&gal, 2.0f, 0.5f, 0.0f, &b);
+  TEST_ASSERT(b.stars == 0.0, "a zero trigger forms no stars");
+  TEST_ASSERT(gal.ColdGas == 2.0f, "a zero-star burst leaves the cold gas");
+  TEST_ASSERT(b.hydrogen_refresh.tracks_h2 == 1, "SFprescription 1 runs the refresh");
+  TEST_ASSERT(gal.H2gas == 0.5f && b.hydrogen_refresh.h2_cap_binds == 0, "H2gas below is kept");
+  TEST_ASSERT(gal.H1gas == expected_refreshed_h1(&gal) && gal.H1gas > 0.0f,
+              "the stale H1gas is overwritten with the atomic remainder");
+
+  /* An H1gas reduced for ionisation is restored to the full remainder (no ionisation term) */
+  const float ionised = 0.5f * expected_refreshed_h1(&gal);
+  zero_star_burst(&gal, 2.0f, 0.5f, ionised, &b);
+  TEST_ASSERT(gal.H1gas == expected_refreshed_h1(&gal) && gal.H1gas > ionised,
+              "a reduced H1gas is restored to the full remainder");
+
+  /* ColdGas 1.0: the float bound 0.74f lies above the double budget 1.0 * 0.74, so an H2gas at
+   * the float bound binds the refresh's cap (storing the same float), and the fused remainder
+   * is negative and floored to 0 */
+  zero_star_burst(&gal, 1.0f, 0.74f, 0.25f, &b);
+  TEST_ASSERT((double)0.74f > 1.0 * 0.74, "the float bound rounds up");
+  TEST_ASSERT(b.hydrogen_refresh.h2_cap_binds == 1 && gal.H2gas == 0.74f,
+              "the refresh's cap compares with the double budget and stores the same float");
+  TEST_ASSERT(b.hydrogen_refresh.h1_refresh < 0.0, "the fused remainder is negative");
+  TEST_ASSERT(b.hydrogen_refresh.h1_floored == 1 && gal.H1gas == 0.0f, "and is floored to 0");
+
+  /* No cold gas, H2gas -0.0: the strict caps keep -0.0; H1gas is 0 * 0.74 - (-0.0) = +0.0 */
+  zero_star_burst(&gal, 0.0f, -0.0f, -0.0f, &b);
+  TEST_ASSERT(gal.H2gas == 0.0f && signbit(gal.H2gas), "H2gas -0.0 is kept");
+  TEST_ASSERT(gal.H1gas == 0.0f && !signbit(gal.H1gas), "H1gas becomes +0.0");
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -2388,6 +2524,8 @@ int main(void) {
   TEST_RUN(test_merger_burst_samples_with_event_dt);
   TEST_RUN(test_post_merger_recheck_samples_with_event_dt);
   TEST_RUN(test_consecutive_bursts_bulge_excess_grows);
+  TEST_RUN(test_hydrogen_refresh_module_wiring);
+  TEST_RUN(test_hydrogen_refresh_invariants);
 
   /* Print summary and return result */
   TEST_SUMMARY();

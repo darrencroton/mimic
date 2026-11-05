@@ -88,9 +88,10 @@ static double POST_MERGER_QUASAR_MODE_EFFICIENCY;
  * radius update and of the recheck's (R/src/model_misc.c:395) */
 static int BULGE_SIZE_ON;
 
-/* SAGE26's SFprescription: 0 (R0, R1) or 1 (BR06), which the burst's star-formation and
+/* SAGE26's SFprescription: 0 (R0, R1) or 1 (BR06, R2), which the burst's star-formation and
  * feedback commits test for their hydrogen caps (R/src/model_starformation_and_feedback.c:1131,
- * :1169) */
+ * :1169), the burst for its hydrogen refresh (R/src/model_mergers.c:798) and the recheck's
+ * black-hole growth for its accretion cap (:366-367) */
 static int SF_PRESCRIPTION;
 
 /* SAGE26's StarburstColdGasOn: 1, every burst uses the cold gas (R/src/model_mergers.c:680-683);
@@ -241,7 +242,7 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
       /* SAGE26's run_params->BulgeSizeOn and Hubble_h (R/src/model_misc.c:395, :398) */
       .bulge_size = {BULGE_SIZE_ON, ctx->params != NULL ? ctx->params->Hubble_h : 0.0},
       /* SAGE26's run_params->SFprescription (R/src/model_starformation_and_feedback.c:1131,
-       * :1169) */
+       * :1169; R/src/model_mergers.c:366-367, :798) */
       .sf_prescription = SF_PRESCRIPTION,
   };
 

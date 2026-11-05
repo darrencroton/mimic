@@ -1358,6 +1358,8 @@ static void call_update_from_feedback(const int p, const int centralgal, const d
 struct instability_run {
   int reached_gas_branch;
   struct GALAXY post_transfer[MAX_GALAXIES]; /* the state after D:54-83 (and D:101) */
+  int after_bh_present;                      /* c08: SAGE26's grow_black_hole ran (D:102-104) */
+  struct GALAXY after_bh[MAX_GALAXIES];      /* c08: the state after it, before the burst */
 };
 
 /**
@@ -1381,6 +1383,7 @@ static void transcribe_check_disk_instability(const int p, const int centralgal,
                                               const struct perturbation *pt,
                                               struct instability_run *run) {
   run->reached_gas_branch = 0;
+  run->after_bh_present = 0;
   l->flag[FL_DISK_POSITIVE] = 0;
 
   /* D:54 */
@@ -1455,6 +1458,10 @@ static void transcribe_check_disk_instability(const int p, const int centralgal,
       /* D:102-108: SAGE26's own continuation (c06's routines), not a transcription */
       if (run_params.AGNrecipeOn > 0) {
         grow_black_hole(p, unstable_gas_fraction, galaxies, &run_params);
+        /* c08: the state after SAGE26's own black-hole growth (its hydrogen cap, M:366-372, at
+         * SFprescription 1) and before the burst, recorded for SFprescription 1 */
+        memcpy(run->after_bh, galaxies, (size_t)ngal * sizeof(galaxies[0]));
+        run->after_bh_present = 1;
       }
       collisional_starburst_recipe(unstable_gas_fraction, p, centralgal, time, dt, ORACLE_HALONR, 1,
                                    step, 0, galaxies[p].DiskScaleRadius, galaxies, &run_params);
@@ -1513,6 +1520,7 @@ static void compose_wrapper(const struct GALAXY *input, const struct wrapper_arg
   memcpy(galaxies, input, (size_t)ngal * sizeof(galaxies[0]));
   init_locals(l);
   instability->reached_gas_branch = 0;
+  instability->after_bh_present = 0;
 
   /* 1. S:1015-1017: TRANSCRIPTION of sfr_br06 (SFprescription 1) or of sfr_croton06,
    * S:162-183 (SFprescription 0) */
@@ -1757,6 +1765,9 @@ struct wrapper_record {
   struct locals locals;
   struct sensitivity sens[IM_COUNT];
   struct sensitivity h2_sens[IMH_COUNT];
+  int p;                                /* the forming galaxy */
+  int after_bh_present;                 /* c08: the instability's continuation grew the BH */
+  struct GALAXY after_bh[MAX_GALAXIES]; /* c08: the state after that growth, before the burst */
 };
 
 /**
@@ -1765,9 +1776,11 @@ struct wrapper_record {
  * The oracle refuses the fixture unless (a) the composition with every transcription,
  * and (b) the composition with SAGE26's own update_from_star_formation, update_from_feedback
  * and check_disk_instability, each reproduce SAGE26's end state in every recorded field bit
- * for bit, and unless the instability (when on) stays off its gas branch: a gas-unstable
- * disk reaches grow_black_hole and collisional_starburst_recipe (c06), which the
- * check_disk_instability fixtures cover instead.
+ * for bit. With SFprescription 0 the instability (when on) must stay off its gas branch: a
+ * gas-unstable disk reaches grow_black_hole and collisional_starburst_recipe (c06), which the
+ * check_disk_instability fixtures cover instead. With SFprescription 1 (c08) the gas branch is
+ * admitted: the continuation is SAGE26's own grow_black_hole and collisional_starburst_recipe in
+ * both compositions, and the state after the black-hole growth is recorded.
  */
 static void run_checked_wrapper(const struct GALAXY *input, const struct wrapper_args *a,
                                 struct wrapper_record *rec) {
@@ -1787,11 +1800,14 @@ static void run_checked_wrapper(const struct GALAXY *input, const struct wrapper
   if (rec->locals.out_of_domain) {
     fatal("the recomposition left SAGE26's domain without a perturbation (oracle bug)");
   }
-  if (inst.reached_gas_branch) {
+  if (inst.reached_gas_branch && run_params.SFprescription != 1) {
     fatal("the disk is gas-unstable after feedback: check_disk_instability would reach "
           "grow_black_hole and collisional_starburst_recipe (c06); use DiskInstabilityOn 0 or "
           "a check_disk_instability fixture");
   }
+  rec->p = a->layout.p;
+  rec->after_bh_present = inst.after_bh_present;
+  memcpy(rec->after_bh, inst.after_bh, (size_t)ngal * sizeof(rec->after_bh[0]));
   if (!same_galaxies(result, rec->end, ngal, BLOCK_FULL)) {
     fatal("transcription check failed: the fully transcribed recomposition does not reproduce "
           "starformation_and_feedback bit for bit");
@@ -1903,6 +1919,24 @@ static void out_h2_flags(const struct locals *l, const int first, const int last
   }
 }
 
+/**
+ * @brief The c08 record of a gas-unstable continuation at SFprescription 1: the forming galaxy's
+ *        state after SAGE26's own grow_black_hole (D:102-104, its hydrogen cap M:366-372 and its
+ *        wind) and before the burst, from the transcribed instability; written after every
+ *        earlier field and only where the gas branch ran (instability_gas_branch 1, AGNrecipeOn
+ *        2), so no earlier output changes
+ */
+static void write_after_bh_record(const char *prefix, const int present, const int p,
+                                  const struct GALAXY *after_bh) {
+  if (!present) {
+    return;
+  }
+  /* A copy: field_name's buffer is reused by write_galaxy */
+  char block_prefix[NAME_LEN];
+  snprintf(block_prefix, sizeof(block_prefix), "intermediate.%safter_bh.", prefix);
+  write_galaxy(block_prefix, p, &after_bh[p], BLOCK_STATE | BLOCK_BH);
+}
+
 static void write_wrapper_record(const char *prefix, const struct wrapper_record *rec) {
   out_flags(prefix, &rec->locals, 0, FL_COUNT - 1);
   for (size_t k = 0; k < COUNT(WRAPPER_VALUES); k++) {
@@ -1916,6 +1950,7 @@ static void write_wrapper_record(const char *prefix, const struct wrapper_record
     for (int id = 0; id < IMH_COUNT; id++) {
       out_carried_h2(&rec->locals, id, &rec->h2_sens[id]);
     }
+    write_after_bh_record(prefix, rec->after_bh_present, rec->p, rec->after_bh);
   }
 }
 
@@ -2302,7 +2337,7 @@ static struct sensitivity instability_sensitivity(const struct instability_call 
  * as c06's, under intermediate.c06.
  */
 static void run_check_disk_instability(void) {
-  read_r0_flags(0, 0);
+  read_r0_flags(0, 1);
   read_r0_params();
   const struct layout layout = read_layout();
   const double time = in_f64("call.time");
@@ -2394,6 +2429,10 @@ static void run_check_disk_instability(void) {
     for (int i = 0; i < ngal; i++) {
       write_galaxy("intermediate.c06.", i, &end[i], BLOCK_FULL);
     }
+  }
+  /* SFprescription 1 (c08): the state after the continuation's black-hole growth */
+  if (run_params.SFprescription == 1) {
+    write_after_bh_record("", run.after_bh_present, p, run.after_bh);
   }
 }
 

@@ -94,8 +94,9 @@ static inline void set_test_model_parameters(void) {
  * test that initialises a module reading them with its own parameters rather than the run files'.
  * Each test adds exactly the keys its modules read (a union of the flags below):
  * sage26_calculate_star_formation reads SFprescription and the three H2 integration parameters,
- * sage26_apply_star_formation_supernova SFprescription, and sage26_starburst_feedback
- * SFprescription and StarburstColdGasOn. A key already present is not added twice.
+ * sage26_apply_star_formation_supernova and sage26_quasar_mode SFprescription, and
+ * sage26_starburst_feedback SFprescription and StarburstColdGasOn. A key already present is not
+ * added twice.
  */
 #define SAGE26_TEST_KEY_SF_PRESCRIPTION 1 /* SFprescription: 0 (R1, the Croton law) */
 #define SAGE26_TEST_KEYS_H2_RADIAL                                                                 \
@@ -104,6 +105,7 @@ static inline void set_test_model_parameters(void) {
 #define SAGE26_TEST_KEY_STARBURST_COLD_GAS 4 /* StarburstColdGasOn: 1 (cold-gas bursts) */
 #define SAGE26_TEST_KEYS_SF_MODULE (SAGE26_TEST_KEY_SF_PRESCRIPTION | SAGE26_TEST_KEYS_H2_RADIAL)
 #define SAGE26_TEST_KEYS_APPLY_MODULE SAGE26_TEST_KEY_SF_PRESCRIPTION
+#define SAGE26_TEST_KEYS_QUASAR_MODULE SAGE26_TEST_KEY_SF_PRESCRIPTION
 #define SAGE26_TEST_KEYS_STARBURST_MODULE                                                          \
   (SAGE26_TEST_KEY_SF_PRESCRIPTION | SAGE26_TEST_KEY_STARBURST_COLD_GAS)
 
