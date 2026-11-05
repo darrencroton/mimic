@@ -1,6 +1,6 @@
 # `sage26_starburst_feedback`
 
-Ports SAGE26's collisional starburst, `collisional_starburst_recipe` (`src/model_mergers.c:584-831` in the staged SAGE26 source), on the R0 path with `BulgeSizeOn` 0 or 3, for disk-instability triggers and merger events.
+Ports SAGE26's collisional starburst, `collisional_starburst_recipe` (`src/model_mergers.c:584-831` in the staged SAGE26 source), on the R0 path with `BulgeSizeOn` 0 or 3, for disk-instability triggers and merger events. With `SFprescription 1` the burst's star-formation and feedback commits apply their hydrogen caps (`shared/sage_sf_feedback_physics.h`); the black-hole accretion cap and the burst's own hydrogen refresh, which SAGE26 also runs for that prescription (`R/src/model_mergers.c:366-372`, `:798-803`), are not ported.
 
 ## The Burst Transaction
 
@@ -27,8 +27,8 @@ Each channel passes SAGE26's `old_disk_radius`: the galaxy's current `DiskScaleR
 
 ## Properties
 
-- Reads: `Type`, `HaloNr`, `SnapNum`, `dT`, `Mvir`, `Vvir`, `Vmax`, `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, `BulgeMass`, `MetalsBulgeMass`, `MergerBulgeMass`, `InstabilityBulgeMass`, the three bulge radii (`BulgeSizeOn` 3), `HotGas`, `MetalsHotGas`, `EjectedGas`, `MetalsEjectedGas`, `BlackHoleMass`, `QuasarModeBHaccretionMass`, `DiskScaleRadius`, `UnstableDiskGasFraction`
-- Writes: `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, `BulgeMass`, `MetalsBulgeMass`, `MergerBulgeMass`, `InstabilityBulgeMass`, `HotGas`, `MetalsHotGas`, `EjectedGas`, `MetalsEjectedGas`, `StarFormationRate`, `SupernovaOutflowRate`, the bulge history elements `SfrBulgeBin<k>`, `SfrBulgeColdGasBin<k>`, `SfrBulgeColdGasMetalsBin<k>` of the substep's bin, and, through the post-minor-merger recheck's black-hole growth, `BlackHoleMass` and `QuasarModeBHaccretionMass`; with `BulgeSizeOn 3`, the three bulge radii (the instability channel's updates)
+- Reads: `Type`, `HaloNr`, `SnapNum`, `dT`, `Mvir`, `Vvir`, `Vmax`, `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, `BulgeMass`, `MetalsBulgeMass`, `MergerBulgeMass`, `InstabilityBulgeMass`, the three bulge radii (`BulgeSizeOn` 3), `HotGas`, `MetalsHotGas`, `EjectedGas`, `MetalsEjectedGas`, `BlackHoleMass`, `QuasarModeBHaccretionMass`, `DiskScaleRadius`, `UnstableDiskGasFraction`, and with `SFprescription 1` `H2gas` and `H1gas`
+- Writes: `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, `BulgeMass`, `MetalsBulgeMass`, `MergerBulgeMass`, `InstabilityBulgeMass`, `HotGas`, `MetalsHotGas`, `EjectedGas`, `MetalsEjectedGas`, `StarFormationRate`, `SupernovaOutflowRate`, the bulge history elements `SfrBulgeBin<k>`, `SfrBulgeColdGasBin<k>`, `SfrBulgeColdGasMetalsBin<k>` of the substep's bin, and, through the post-minor-merger recheck's black-hole growth, `BlackHoleMass` and `QuasarModeBHaccretionMass`; with `BulgeSizeOn 3`, the three bulge radii (the instability channel's updates); with `SFprescription 1`, `H2gas` and `H1gas` (the commits' caps)
 
 ## Parameters
 
@@ -42,6 +42,8 @@ Each channel passes SAGE26's `old_disk_radius`: the galaxy's current `DiskScaleR
 - `QuasarModeEfficiency`
 - `ThresholdMajorMerger`
 - `BulgeSizeOn` (required, 0 or 3): SAGE26's bulge-size mode. 0, SAGE26's R0, computes no sizes (`R/src/model_misc.c:242-247`, `:395`); 3, the run files' value, is SAGE26's Tonini et al. (2016) merger and instability bulges (`:317-424`, `R1.par:109`). Modes 1 and 2 are not ported: any value other than 0 or 3, or a missing key, fails initialisation with an error naming the parameter. Mode 3 also reads the core's `Hubble_h`.
+- `SFprescription` (required, 0 or 1): the prescription the burst's commits test for their hydrogen caps (`R/src/model_starformation_and_feedback.c:1131`, `:1169`); 0 is the run files' R1 value. Any other value, or a missing key, fails initialisation with an error naming the parameter.
+- `StarburstColdGasOn` (required, 1): bursts use the cold gas (`R/src/model_mergers.c:680-683`), SAGE26's default (`R/src/core_read_parameter_file.c:109`); 0, the H2 burst fuel, is not ported and is refused, as is a missing key.
 
 ## Ordering
 

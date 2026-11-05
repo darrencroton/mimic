@@ -110,6 +110,8 @@ static void setup_test_parameters(double efficiency, double disk_factor) {
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", disk_factor);
 
   MimicConfig.NumModelParams = idx;
+  /* The module's required SFprescription and H2 integration parameters, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
 
   /* The SF dependency check requires sage26_apply_star_formation_supernova to be
    * visible in MimicConfig when sage26_calculate_star_formation_init() is called directly. */
@@ -462,6 +464,8 @@ int test_module_initialization(void) {
 
   /* Set required parameters — use full set since apply step is also initialized */
   set_test_model_parameters();
+  /* The module's required SFprescription and H2 parameters (and the apply step's SFprescription) */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();

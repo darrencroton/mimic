@@ -414,6 +414,8 @@ int test_mixed_dt_star_formation(void) {
   init_memory_system(0);
   reset_config();
   set_test_model_parameters();
+  /* The SF module's required SFprescription and H2 integration parameters, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
   sage26_calculate_star_formation_init();
 
   /* Halo A: dT = 0.1 */
@@ -477,6 +479,8 @@ int test_mixed_dt_star_formation_ignores_global(void) {
   init_memory_system(0);
   reset_config();
   set_test_model_parameters();
+  /* The SF module's required SFprescription and H2 integration parameters, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
   sage26_calculate_star_formation_init();
 
   const float halo_dT = 0.2;

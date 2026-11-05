@@ -89,6 +89,50 @@ static inline void set_test_model_parameters(void) {
   MimicConfig.NumModelParams = n;
 }
 
+/*
+ * Test fixture: the required parameters SAGE26's SF prescription selects, at R1's values, for a
+ * test that initialises a module reading them with its own parameters rather than the run files'.
+ * Each test adds exactly the keys its modules read (a union of the flags below):
+ * sage26_calculate_star_formation reads SFprescription and the three H2 integration parameters,
+ * sage26_apply_star_formation_supernova SFprescription, and sage26_starburst_feedback
+ * SFprescription and StarburstColdGasOn. A key already present is not added twice.
+ */
+#define SAGE26_TEST_KEY_SF_PRESCRIPTION 1 /* SFprescription: 0 (R1, the Croton law) */
+#define SAGE26_TEST_KEYS_H2_RADIAL                                                                 \
+  2                                          /* H2RadialIntegrationOn 1, H2RadialNBins 25,         \
+                                                H2RadialRMaxFactor 5.0 (SAGE26's defaults) */
+#define SAGE26_TEST_KEY_STARBURST_COLD_GAS 4 /* StarburstColdGasOn: 1 (cold-gas bursts) */
+#define SAGE26_TEST_KEYS_SF_MODULE (SAGE26_TEST_KEY_SF_PRESCRIPTION | SAGE26_TEST_KEYS_H2_RADIAL)
+#define SAGE26_TEST_KEYS_APPLY_MODULE SAGE26_TEST_KEY_SF_PRESCRIPTION
+#define SAGE26_TEST_KEYS_STARBURST_MODULE                                                          \
+  (SAGE26_TEST_KEY_SF_PRESCRIPTION | SAGE26_TEST_KEY_STARBURST_COLD_GAS)
+
+static inline void sage26_test_append_model_parameter(const char *name, const char *value) {
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, name) == 0) {
+      return;
+    }
+  }
+  const int idx = MimicConfig.NumModelParams;
+  strncpy(MimicConfig.ModelParams[idx].param_name, name, MAX_STRING_LEN - 1);
+  strncpy(MimicConfig.ModelParams[idx].value, value, MAX_STRING_LEN - 1);
+  MimicConfig.NumModelParams = idx + 1;
+}
+
+static inline void add_test_sf_prescription_parameters(const int keys) {
+  if (keys & SAGE26_TEST_KEY_SF_PRESCRIPTION) {
+    sage26_test_append_model_parameter("SFprescription", "0");
+  }
+  if (keys & SAGE26_TEST_KEYS_H2_RADIAL) {
+    sage26_test_append_model_parameter("H2RadialIntegrationOn", "1");
+    sage26_test_append_model_parameter("H2RadialNBins", "25");
+    sage26_test_append_model_parameter("H2RadialRMaxFactor", "5.0");
+  }
+  if (keys & SAGE26_TEST_KEY_STARBURST_COLD_GAS) {
+    sage26_test_append_model_parameter("StarburstColdGasOn", "1");
+  }
+}
+
 /* Test fixture: free the galaxy attached to a locally-built test halo */
 static inline void free_test_halo(struct Halo *halo) {
   if (halo->galaxy != NULL) {

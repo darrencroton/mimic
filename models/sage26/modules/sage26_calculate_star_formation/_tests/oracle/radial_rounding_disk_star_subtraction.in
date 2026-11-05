@@ -1,0 +1,24 @@
+# calculate_molecular_fraction_radial_integration called directly as sfr_br06 calls it (R/src/model_starformation_and_feedback.c:222): SFprescription 1, a NULL SFR-output pointer.
+# The disk stellar mass subtracts BulgeMass from StellarMass in float before the unit conversion
+# (H:147, CODE_MASS_TO_MSUN of the float difference): for this galaxy the float difference is
+# inexact, and subtracting in double instead changes the stored H2gas. Found by a scratch
+# random search with the transcription.
+# Constructed input (not R2 output); every value is set explicitly.
+# Reachability: R2-reachable.
+format sage26-oracle-fixture 1
+routine calculate_molecular_fraction_radial_integration
+
+i32 params.SFprescription 1  # R2 (R2.par:48): BR06 with radial integration
+i32 params.H2RadialIntegrationOn 1  # SAGE26's default, R/src/core_read_parameter_file.c:99; R2.par does not set it
+i32 params.H2RadialNBins 25  # default, R/src/core_read_parameter_file.c:100
+f64 params.H2RadialRMaxFactor 0x4014000000000000  # 5  (default, R/src/core_read_parameter_file.c:101)
+i32 params.StarburstColdGasOn 1  # default, R/src/core_read_parameter_file.c:109; required with SFprescription 1
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.72999999999999998  (R2.par:40)
+
+f32 galaxy[0].DiskScaleRadius 0x3c826c72  # 0.0159208514
+f32 galaxy[0].ColdGas 0x3c6440ea  # 0.0139314923
+f32 galaxy[0].MetalsColdGas 0x00000000  # 0
+f32 galaxy[0].StellarMass 0x3e27670a  # 0.163479
+f32 galaxy[0].BulgeMass 0x3c8844c3  # 0.0166343506
+f32 galaxy[0].H2gas 0x3d23d70a  # 0.0399999991
+f32 galaxy[0].H2DepletionTime_Gyr 0xbf800000  # -1

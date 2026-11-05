@@ -1,0 +1,29 @@
+# SAGE26 oracle output for ufsf_r2_snap32_satellite.in, written by oracle_c05 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine update_from_star_formation
+f64 intermediate.metallicity 0x3f842fc8917cf5cc  # 0.0098567647361233121
+f32 galaxy[0].ColdGas 0x3f3487bb  # 0.705196083
+f32 galaxy[0].MetalsColdGas 0x3be3c4cf  # 0.00695095165
+f32 galaxy[0].StellarMass 0x3f4c5a92  # 0.798256993
+f32 galaxy[0].MetalsStellarMass 0x3be3a34a  # 0.00694695581
+f32 galaxy[0].BulgeMass 0x3d9bed45  # 0.0761361495
+f32 galaxy[0].MetalsBulgeMass 0x3a06189c  # 0.000511536142
+f32 galaxy[0].InstabilityBulgeMass 0x3d9bed45  # 0.0761361495
+f32 galaxy[0].HotGas 0x3f77d4ae  # 0.968088984
+f32 galaxy[0].MetalsHotGas 0x3bd985a6  # 0.00663824659
+f32 galaxy[0].EjectedMass 0x00000000  # 0
+f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[0].H1gas 0x3e8799bb  # 0.264844745
+f32 galaxy[0].H2gas 0x3eb1ab38  # 0.34700942
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+i32 intermediate.hydrogen_caps_sf_tracked 1
+i32 intermediate.h2_cap_sf_binds 0
+i32 intermediate.h1_cap_sf_binds 0
+i32 intermediate.max_h_sf_absent 0
+f32 intermediate.max_h_sf 0x3f0597a4  # 0.521845102
+i32 intermediate.max_h_sf_checked 1
+i32 intermediate.max_h_sf_check_kind 2
+i32 intermediate.max_h_sf_validated_up 0
+i32 intermediate.max_h_sf_validated_down 0
+i32 intermediate.max_h_sf_validated 0
+i32 intermediate.max_h_sf_narrowing_limited 0

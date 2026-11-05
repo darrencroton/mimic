@@ -234,6 +234,12 @@ static int setup_parameters(struct oracle_fixture *in, int *bulge_size_on) {
       oracle_set_model_param("BulgeSizeOn", (double)*bulge_size_on) != 0) {
     problems++;
   }
+  /* sage26_starburst_feedback's required SFprescription and StarburstColdGasOn, at R1's values
+   * (0, the commits' hydrogen caps off, as these fixtures' SFprescription 0; 1, cold-gas bursts) */
+  if (oracle_set_model_param("SFprescription", 0.0) != 0 ||
+      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
+    problems++;
+  }
   if (sage26_disk_instability_init() != 0) {
     fprintf(stderr, "oracle: %s: sage26_disk_instability_init() failed\n", in->path);
     problems++;

@@ -215,6 +215,8 @@ static void setup_test_parameters(double reheating_eps, double ejection_eff, dou
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", 0);
 
   MimicConfig.NumModelParams = idx;
+  /* The module's required SFprescription and StarburstColdGasOn, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
 }
 
 static void append_model_param(const char *param_name, double value) {
@@ -1947,6 +1949,8 @@ int test_module_initialization(void) {
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0");
   MimicConfig.NumModelParams = idx;
+  /* The module's required SFprescription and StarburstColdGasOn, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();

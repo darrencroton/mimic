@@ -15,14 +15,18 @@
  * root, S = R/src/model_starformation_and_feedback.c, D = R/src/model_disk_instability.c,
  * B = R/src/core_build_model.c, W = R/src/io/save_gals_hdf5.c):
  *   starformation_and_feedback           S:995-1110 with R0's flags, called as B:513-516
- *                                        calls it (step bin, dt = deltaT / effective_steps)
+ *                                        calls it (step bin, dt = deltaT / effective_steps);
+ *                                        SFprescription 0 (sfr_croton06) or 1 (sfr_br06 with
+ *                                        radial integration, R2's flags, c08)
  *   starformation_and_feedback_sequence  the same call over every substep of one galaxy
  *                                        (B:470-516), then SubstepsUsed (B:466-467) and the
  *                                        writer's averaging (W:934-959)
  *   update_from_star_formation           S:1119-1136, called as bursts call it
- *                                        (R/src/model_mergers.c:759-760)
+ *                                        (R/src/model_mergers.c:759-760); with SFprescription 1
+ *                                        its hydrogen cap (S:1131-1135) is recorded (c08)
  *   update_from_feedback                 S:1146-1251, called as bursts call it
- *                                        (R/src/model_mergers.c:790-791)
+ *                                        (R/src/model_mergers.c:790-791); with SFprescription 1
+ *                                        its hydrogen cap (S:1169-1173) is recorded (c08)
  *   check_disk_instability               D:47-110
  *   step_bin_map                         a TRANSCRIPTION of B:513-516 (bin and dt)
  *   sfr_history_average                  a TRANSCRIPTION of W:934-959, with SAGE26's own
@@ -32,16 +36,17 @@
  *                                        OutflowRate) and of the writer's OutflowRate
  *                                        conversion (W:995)
  *
- * sfr_croton06 and compute_sn_feedback are static in S, and evolve_galaxies and the writer
- * are not in this link, so every value they form that the package carries is a labelled
- * TRANSCRIPTION below. The transcriptions of S are checked: compose_wrapper() recomposes
- * starformation_and_feedback in SAGE26's statement order from the transcribed blocks and
- * SAGE26's own public routines, and the oracle refuses a fixture unless that recomposition
- * reproduces SAGE26's own end state bit for bit, once with SAGE26's own update_from_feedback
- * and check_disk_instability and once with their transcriptions. Each carried value is then
- * replaced by its upward and its downward neighbour (two-sided validation) and the
- * recomposition rerun. The instability transcription is checked the same way, composed with
- * SAGE26's own grow_black_hole and collisional_starburst_recipe where the disk is
+ * sfr_croton06, sfr_br06 and compute_sn_feedback are static in S, and evolve_galaxies and the
+ * writer are not in this link, so every value they form that the package carries is a labelled
+ * TRANSCRIPTION below. sfr_br06's radial integration is SAGE26's own public routine
+ * (R/src/model_h2_chemistry.c:134-290; oracle_c08.c holds its transcription). The transcriptions of
+ * S are checked: compose_wrapper() recomposes starformation_and_feedback in SAGE26's statement
+ * order from the transcribed blocks and SAGE26's own public routines, and the oracle refuses a
+ * fixture unless that recomposition reproduces SAGE26's own end state bit for bit, once with
+ * SAGE26's own update_from_feedback and check_disk_instability and once with their transcriptions.
+ * Each carried value is then replaced by its upward and its downward neighbour (two-sided
+ * validation) and the recomposition rerun. The instability transcription is checked the same way,
+ * composed with SAGE26's own grow_black_hole and collisional_starburst_recipe where the disk is
  * gas-unstable. README.md documents every output.
  *
  * Every transcription restates SAGE26's statements with the same expression shapes and
@@ -68,6 +73,7 @@
 
 #include "core_allvars.h"
 #include "model_disk_instability.h"
+#include "model_h2_chemistry.h"
 #include "model_mergers.h"
 #include "model_misc.h"
 #include "model_starformation_and_feedback.h"
@@ -90,6 +96,11 @@ static const double KD11_METAL_HALO_MASS = 30.0;     /* S:84 */
 static const double SIGMA_HI_CRIT = 0.5;             /* S:97 */
 static const double GAS_DISK_RADIUS_FACTOR = 1.0;    /* S:106 */
 static const double TOOMRE_DISK_FACTOR = 3.0;        /* D:35 */
+
+/* The H2 configuration the oracle supports with SFprescription 1: SAGE26's defaults
+ * H2RadialNBins 25 and H2RadialRMaxFactor 5.0 (R/src/core_read_parameter_file.c:100-101) */
+#define SUPPORTED_H2_NBINS 25
+#define SUPPORTED_H2_RMAX_FACTOR 5.0
 
 enum field_type { FIELD_F32, FIELD_F64, FIELD_I32 };
 
@@ -391,6 +402,7 @@ SCALAR_ACCESSOR(MergerBulgeMass)
 SCALAR_ACCESSOR(BulgeRadius)
 SCALAR_ACCESSOR(MergerBulgeRadius)
 SCALAR_ACCESSOR(InstabilityBulgeRadius)
+SCALAR_ACCESSOR(H2DepletionTime_Gyr)
 
 #define MEMBER(m) {#m, access_##m}
 #define COUNT(array) (sizeof(array) / sizeof((array)[0]))
@@ -440,6 +452,19 @@ static const struct member SIZE_MEMBERS[] = {MEMBER(MergerBulgeMass), MEMBER(Bul
 /** Set by read_r0_flags: BulgeSizeOn is 3, so SIZE_MEMBERS are read and recorded */
 static int sizes_recorded = 0;
 
+/**
+ * The member SFprescription 1 adds to a starformation_and_feedback fixture (c08): the K13
+ * depletion time, which sfr_br06's radial integration writes only with an SFR-output pointer
+ * (R/src/model_h2_chemistry.c:279-285) and sfr_br06 passes NULL (S:222), so it must come out as
+ * it went in. Read, recorded and compared after SIZE_MEMBERS for every galaxy of such a fixture
+ * (h2_block_recorded), never for SFprescription 0, so every earlier fixture reads and records
+ * exactly what it did before.
+ */
+static const struct member H2_MEMBERS[] = {MEMBER(H2DepletionTime_Gyr)};
+
+/** Set by run_starformation_and_feedback for SFprescription 1: H2_MEMBERS are recorded */
+static int h2_block_recorded = 0;
+
 /** Which groups of members a routine reads and records */
 enum block {
   BLOCK_STATE = 1,     /* Type and STATE_MEMBERS (always) */
@@ -481,6 +506,11 @@ static void read_galaxy(const int i, const int blocks) {
       *member_ptr(g, &SIZE_MEMBERS[m]) = in_f32(galaxy_field("", i, SIZE_MEMBERS[m].name));
     }
   }
+  if (h2_block_recorded) {
+    for (size_t m = 0; m < COUNT(H2_MEMBERS); m++) {
+      *member_ptr(g, &H2_MEMBERS[m]) = in_f32(galaxy_field("", i, H2_MEMBERS[m].name));
+    }
+  }
   if (blocks & BLOCK_BH) {
     for (size_t m = 0; m < COUNT(BH_MEMBERS); m++) {
       *member_ptr(g, &BH_MEMBERS[m]) = in_f32(galaxy_field("", i, BH_MEMBERS[m].name));
@@ -505,6 +535,11 @@ static void write_galaxy(const char *prefix, const int i, const struct GALAXY *g
   if (sizes_recorded) {
     for (size_t m = 0; m < COUNT(SIZE_MEMBERS); m++) {
       out_f32(galaxy_field(prefix, i, SIZE_MEMBERS[m].name), member_value(g, &SIZE_MEMBERS[m], 0));
+    }
+  }
+  if (h2_block_recorded) {
+    for (size_t m = 0; m < COUNT(H2_MEMBERS); m++) {
+      out_f32(galaxy_field(prefix, i, H2_MEMBERS[m].name), member_value(g, &H2_MEMBERS[m], 0));
     }
   }
   if (blocks & BLOCK_BH) {
@@ -536,6 +571,14 @@ static int same_galaxies(const struct GALAXY *a, const struct GALAXY *b, const i
       for (size_t m = 0; m < COUNT(SIZE_MEMBERS); m++) {
         if (!same_f32(member_value(&a[i], &SIZE_MEMBERS[m], 0),
                       member_value(&b[i], &SIZE_MEMBERS[m], 0))) {
+          return 0;
+        }
+      }
+    }
+    if (h2_block_recorded) {
+      for (size_t m = 0; m < COUNT(H2_MEMBERS); m++) {
+        if (!same_f32(member_value(&a[i], &H2_MEMBERS[m], 0),
+                      member_value(&b[i], &H2_MEMBERS[m], 0))) {
           return 0;
         }
       }
@@ -596,6 +639,55 @@ static int32_t read_bulge_size_on(void) {
 }
 
 /**
+ * @brief SFprescription as the fixture sets it: 0 (R0, R1) or 1 (R2: BR06 with radial
+ *        integration), and, for 1, the H2 configuration it is supported with (c08)
+ *
+ * SFprescription 1 requires, explicitly and at exactly these values, H2RadialIntegrationOn 1,
+ * H2RadialNBins 25 and H2RadialRMaxFactor 5.0 (SAGE26's defaults,
+ * R/src/core_read_parameter_file.c:99-101; R2.par sets none of them) and, when read_starburst is
+ * set, StarburstColdGasOn 1 (:109); read_r0_flags pins that flag itself for every
+ * configuration. Any other value is refused, naming the parameter. H2DiskAreaOption stays
+ * poisoned: only the single-slab branch (S:225-236) and the StarburstColdGasOn 0 burst fuel
+ * (R/src/model_mergers.c:625-629) read it, neither of them supported, so the poisoned state never
+ * supplies an H2 parameter. SFprescription 0 reads nothing more, so every earlier fixture is
+ * read unchanged.
+ */
+static void read_sf_prescription(const int read_starburst) {
+  run_params.SFprescription = in_i32("params.SFprescription");
+  if (run_params.SFprescription != 0 && run_params.SFprescription != 1) {
+    fatal("params.SFprescription = %d, but the oracle supports only 0 (R0, R1) and 1 (R2: BR06 "
+          "with radial integration)",
+          run_params.SFprescription);
+  }
+  if (run_params.SFprescription != 1) {
+    return;
+  }
+  run_params.H2RadialIntegrationOn = in_i32("params.H2RadialIntegrationOn");
+  if (run_params.H2RadialIntegrationOn != 1) {
+    fatal("params.H2RadialIntegrationOn = %d, but the oracle supports only 1 (radial "
+          "integration; the single-slab branch, S:225-236, is not ported)",
+          run_params.H2RadialIntegrationOn);
+  }
+  run_params.H2RadialNBins = in_i32("params.H2RadialNBins");
+  if (run_params.H2RadialNBins != SUPPORTED_H2_NBINS) {
+    fatal("params.H2RadialNBins = %d, but the oracle supports only %d", run_params.H2RadialNBins,
+          SUPPORTED_H2_NBINS);
+  }
+  run_params.H2RadialRMaxFactor = in_f64("params.H2RadialRMaxFactor");
+  if (!same_f64(run_params.H2RadialRMaxFactor, SUPPORTED_H2_RMAX_FACTOR)) {
+    fatal("params.H2RadialRMaxFactor = %.17g, but the oracle supports only %.1f",
+          run_params.H2RadialRMaxFactor, SUPPORTED_H2_RMAX_FACTOR);
+  }
+  if (read_starburst) {
+    run_params.StarburstColdGasOn = in_i32("params.StarburstColdGasOn");
+    if (run_params.StarburstColdGasOn != 1) {
+      fatal("params.StarburstColdGasOn = %d, but the oracle supports only 1 (cold-gas bursts)",
+            run_params.StarburstColdGasOn);
+    }
+  }
+}
+
+/**
  * @brief The R0 flags (and DiskInstabilityOn) of every routine that can reach the
  *        instability: starformation_and_feedback and check_disk_instability
  *
@@ -606,10 +698,15 @@ static int32_t read_bulge_size_on(void) {
  * which mode 3's size fallbacks read (R/src/model_misc.c:249,398), is read for every
  * configuration by read_r0_params. With BulgeSizeOn 3 every galaxy also reads and records
  * SIZE_MEMBERS (sizes_recorded). DiskInstabilityOn may be 0 (a labelled non-R0 value)
- * where allow_no_instability is set.
+ * where allow_no_instability is set. SFprescription is 0 (R0, R1), or 1 (R2, c08, through
+ * read_sf_prescription) where allow_br06 is set: starformation_and_feedback only.
  */
-static void read_r0_flags(const int allow_no_instability) {
-  run_params.SFprescription = require_flag("SFprescription", 0);
+static void read_r0_flags(const int allow_no_instability, const int allow_br06) {
+  if (allow_br06) {
+    read_sf_prescription(0);
+  } else {
+    run_params.SFprescription = require_flag("SFprescription", 0);
+  }
   run_params.SupernovaRecipeOn = require_flag("SupernovaRecipeOn", 1);
   run_params.CGMrecipeOn = require_flag("CGMrecipeOn", 0);
   run_params.FIREmodeOn = require_flag("FIREmodeOn", 0);
@@ -729,7 +826,8 @@ enum stage {
   STAGE_WRAPPER,     /* formed in starformation_and_feedback or its static helpers */
   STAGE_FEEDBACK,    /* a local of update_from_feedback */
   STAGE_INSTABILITY, /* a local of check_disk_instability */
-  STAGE_YIELD        /* a local of the yield block, after the instability */
+  STAGE_YIELD,       /* a local of the yield block, after the instability */
+  STAGE_SF_COMMIT    /* a local of update_from_star_formation (c08) */
 };
 
 enum im_id {
@@ -865,11 +963,75 @@ enum f_ion_path {
   F_ION_CLAMPED_HIGH = 4   /* the general expression clamped down to 1 (S:150) */
 };
 
+/**
+ * The values SFprescription 1 adds (c08), recorded only for SFprescription 1 fixtures: sfr_br06's
+ * (S:193-252), the H I the SF step hands on, and the two commits' hydrogen caps (S:1131-1135,
+ * S:1169-1173). Each is tail-checked (its routine passes it to no SAGE26 function) and recorded
+ * with c06's markers and the narrowing limitation.
+ */
+enum h2_id {
+  IMH_RS_PC,     /* sfr_br06's float rs_pc (S:215) */
+  IMH_H2_RADIAL, /* H2gas after SAGE26's own radial integration, before the cap (S:222) */
+  IMH_H2_BUDGET, /* the double ColdGas * HYDROGEN_MASS_FRAC of the cap (S:239-240) */
+  IMH_H2_SF,     /* H2gas after the cap (S:239-242), the H2 the SF step hands on */
+  IMH_H1_SF,     /* H1gas after the H I block (S:1045), the H I the SF step hands on */
+  IMH_MAX_H_SF,  /* update_from_star_formation's float max_h (S:1132) */
+  IMH_MAX_H_FB,  /* update_from_feedback's float max_h_fb (S:1170) */
+  IMH_COUNT
+};
+
+static const struct {
+  const char *name;
+  enum stage stage;
+  int is_f32;            /* the local is a float (a float field after its store) */
+  int narrowing_limited; /* 1: its only path to the state is one double-to-float narrowing */
+} IMH_INFO[IMH_COUNT] = {
+    [IMH_RS_PC] = {"rs_pc", STAGE_WRAPPER, 1, 0},
+    [IMH_H2_RADIAL] = {"H2gas_radial", STAGE_WRAPPER, 1, 0},
+    /* compared with H2gas and, when the cap binds, narrowed into it (S:239-240) */
+    [IMH_H2_BUDGET] = {"h2_budget", STAGE_WRAPPER, 0, 1},
+    [IMH_H2_SF] = {"H2gas_sf", STAGE_WRAPPER, 1, 0},
+    [IMH_H1_SF] = {"H1gas_sf", STAGE_WRAPPER, 1, 0},
+    [IMH_MAX_H_SF] = {"max_h_sf", STAGE_SF_COMMIT, 1, 0},
+    [IMH_MAX_H_FB] = {"max_h_fb", STAGE_FEEDBACK, 1, 0},
+};
+
+/** The branch flags SFprescription 1 adds (c08): -1 not evaluated on this path, else 0 or 1 */
+enum h2_flag_id {
+  FLH_RS_NONPOSITIVE,        /* rs_pc <= 0.0 (S:216) */
+  FLH_RADIAL_RETURNED_EARLY, /* the radial integration's rs_pc <= 0 || ColdGas <= 0 (H:141) */
+  FLH_H2_CAP_BINDS,          /* H2gas > ColdGas * HYDROGEN_MASS_FRAC (S:239) */
+  FLH_SF_FROM_H2,            /* H2gas > 0.0 && tdyn > 0.0 (S:244) */
+  FLH_CAPS_SF_TRACKED,       /* sf_prescription_tracks_h2 at S:1131 */
+  FLH_H2_CAP_SF_BINDS,       /* H2gas > max_h (S:1133) */
+  FLH_H1_CAP_SF_BINDS,       /* H1gas > max_h (S:1134) */
+  FLH_CAPS_FB_TRACKED,       /* sf_prescription_tracks_h2 at S:1169 */
+  FLH_H2_CAP_FB_BINDS,       /* H2gas > max_h_fb (S:1171) */
+  FLH_H1_CAP_FB_BINDS,       /* H1gas > max_h_fb (S:1172) */
+  FLH_COUNT
+};
+
+static const char *const H2_FLAG_NAMES[FLH_COUNT] = {
+    [FLH_RS_NONPOSITIVE] = "br06_rs_nonpositive",
+    [FLH_RADIAL_RETURNED_EARLY] = "br06_radial_returned_early",
+    [FLH_H2_CAP_BINDS] = "br06_h2_cap_binds",
+    [FLH_SF_FROM_H2] = "br06_sf_from_h2",
+    [FLH_CAPS_SF_TRACKED] = "hydrogen_caps_sf_tracked",
+    [FLH_H2_CAP_SF_BINDS] = "h2_cap_sf_binds",
+    [FLH_H1_CAP_SF_BINDS] = "h1_cap_sf_binds",
+    [FLH_CAPS_FB_TRACKED] = "hydrogen_caps_fb_tracked",
+    [FLH_H2_CAP_FB_BINDS] = "h2_cap_fb_binds",
+    [FLH_H1_CAP_FB_BINDS] = "h1_cap_fb_binds",
+};
+
 /** The carried values and branch flags of one composition */
 struct locals {
   double value[IM_COUNT];
   int present[IM_COUNT];
   int flag[FL_COUNT];
+  double h2_value[IMH_COUNT]; /* a float local widened exactly */
+  int h2_present[IMH_COUNT];
+  int h2_flag[FLH_COUNT];
   int out_of_domain; /* a SAGE26 assertion would abort on this path (perturbed runs only) */
 };
 
@@ -878,6 +1040,9 @@ static void init_locals(struct locals *l) {
   for (int f = 0; f < FL_COUNT; f++) {
     l->flag[f] = -1;
   }
+  for (int f = 0; f < FLH_COUNT; f++) {
+    l->h2_flag[f] = -1;
+  }
 }
 
 /** A replacement of one carried value by its upward or downward neighbour */
@@ -885,9 +1050,10 @@ struct perturbation {
   int im;   /* enum im_id to perturb, or -1 */
   int post; /* enum post_transfer_id to perturb, or -1 */
   int up;   /* 1: toward +inf; 0: toward -inf */
+  int h2;   /* enum h2_id to perturb (c08), or -1 */
 };
 
-static const struct perturbation NO_PERTURBATION = {-1, -1, 0};
+static const struct perturbation NO_PERTURBATION = {-1, -1, 0, -1};
 
 /** @brief Record a carried value, then return it, or its neighbour when it is perturbed */
 static double tap(struct locals *l, const struct perturbation *pt, const enum im_id id,
@@ -895,6 +1061,28 @@ static double tap(struct locals *l, const struct perturbation *pt, const enum im
   l->value[id] = v;
   l->present[id] = 1;
   if (pt->im == (int)id) {
+    return nextafter(v, pt->up ? INFINITY : -INFINITY);
+  }
+  return v;
+}
+
+/** @brief Record a float c08 value, then return it, or its float neighbour when perturbed */
+static float tap_h2_f32(struct locals *l, const struct perturbation *pt, const enum h2_id id,
+                        const float v) {
+  l->h2_value[id] = v;
+  l->h2_present[id] = 1;
+  if (pt->h2 == (int)id) {
+    return nextafterf(v, pt->up ? INFINITY : -INFINITY);
+  }
+  return v;
+}
+
+/** @brief The double counterpart of tap_h2_f32() */
+static double tap_h2_f64(struct locals *l, const struct perturbation *pt, const enum h2_id id,
+                         const double v) {
+  l->h2_value[id] = v;
+  l->h2_present[id] = 1;
+  if (pt->h2 == (int)id) {
     return nextafter(v, pt->up ? INFINITY : -INFINITY);
   }
   return v;
@@ -955,12 +1143,120 @@ static double transcribe_ionized_gas_fraction(const double coldgas_code, const d
 }
 
 /**
- * @brief TRANSCRIPTION of update_from_feedback, S:1146-1250, on R0's path
+ * @brief TRANSCRIPTION of sfr_br06, S:193-252 (static in SAGE26), with radial integration
+ *
+ * SFprescription 1 with H2RadialIntegrationOn 1 (read_sf_prescription requires it), so the
+ * single-slab branch (S:225-236) does not run. The radial integration it calls (S:222) is
+ * SAGE26's own public calculate_molecular_fraction_radial_integration with its NULL SFR-output
+ * pointer; it writes H2gas except on its early return (R/src/model_h2_chemistry.c:141-143,
+ * recorded in br06_radial_returned_early). The cap's product ColdGas * HYDROGEN_MASS_FRAC
+ * (S:239-240) is formed once and used for the comparison and the store, as the two identical
+ * expressions of the source evaluate to the same double. The clamp counter (S:241) is a
+ * diagnostic and is not transcribed.
+ */
+static double transcribe_sfr_br06(const int p, struct locals *l, const struct perturbation *pt) {
+  /* S:195-198 */
+  double reff, tdyn, strdot;
+  strdot = 0.0;
+  tdyn = 0.0;
+
+  /* S:206 */
+  reff = SF_DISK_RADIUS_FRAC * galaxies[p].DiskScaleRadius;
+
+  /* S:208-210 */
+  l->flag[FL_SF_VVIR_NONPOSITIVE] = 0;
+  if (galaxies[p].Vvir <= 0.0) {
+    l->flag[FL_SF_VVIR_NONPOSITIVE] = 1;
+    galaxies[p].H2gas = 0.0;
+    strdot = 0.0;
+  } else {
+    /* S:212 */
+    tdyn = reff / galaxies[p].Vvir;
+    tdyn = tap(l, pt, IM_TDYN, tdyn);
+    /* S:214-215 */
+    const float h = run_params.Hubble_h;
+    float rs_pc = CODE_LENGTH_TO_PC(galaxies[p].DiskScaleRadius, h);
+    rs_pc = tap_h2_f32(l, pt, IMH_RS_PC, rs_pc);
+    /* S:216-218 */
+    l->h2_flag[FLH_RS_NONPOSITIVE] = 0;
+    if (rs_pc <= 0.0) {
+      l->h2_flag[FLH_RS_NONPOSITIVE] = 1;
+      galaxies[p].H2gas = 0.0;
+      strdot = 0.0;
+    } else {
+      /* S:221-223, with R/src/model_h2_chemistry.c:138-143 restated for the flag */
+      const float h_radial = run_params.Hubble_h;
+      const float rs_pc_radial = CODE_LENGTH_TO_PC(galaxies[p].DiskScaleRadius, h_radial);
+      l->h2_flag[FLH_RADIAL_RETURNED_EARLY] = rs_pc_radial <= 0.0 || galaxies[p].ColdGas <= 0.0;
+      calculate_molecular_fraction_radial_integration(p, galaxies, &run_params, NULL);
+      galaxies[p].H2gas = tap_h2_f32(l, pt, IMH_H2_RADIAL, galaxies[p].H2gas);
+
+      /* S:239-242 */
+      double h2_budget = galaxies[p].ColdGas * HYDROGEN_MASS_FRAC;
+      h2_budget = tap_h2_f64(l, pt, IMH_H2_BUDGET, h2_budget);
+      l->h2_flag[FLH_H2_CAP_BINDS] = 0;
+      if (galaxies[p].H2gas > h2_budget) {
+        galaxies[p].H2gas = h2_budget;
+        l->h2_flag[FLH_H2_CAP_BINDS] = 1;
+      }
+      galaxies[p].H2gas = tap_h2_f32(l, pt, IMH_H2_SF, galaxies[p].H2gas);
+
+      /* S:244-248 */
+      l->h2_flag[FLH_SF_FROM_H2] = 0;
+      if (galaxies[p].H2gas > 0.0 && tdyn > 0.0) {
+        l->h2_flag[FLH_SF_FROM_H2] = 1;
+        strdot = run_params.SfrEfficiency * galaxies[p].H2gas / tdyn;
+      } else {
+        strdot = 0.0;
+      }
+    }
+  }
+
+  /* S:252 */
+  return strdot;
+}
+
+/**
+ * @brief TRANSCRIPTION of update_from_star_formation, S:1119-1136 (c08)
+ *
+ * The four reservoir stores (S:1123-1126), each one C expression with SAGE26's operand order,
+ * which clang fuses as SAGE26's object does (README "The c08 Group"), then, for a prescription
+ * that tracks H2, the hydrogen cap (S:1131-1135): the float max_h of the remaining cold gas
+ * and the independent strict caps of H2gas and H1gas.
+ */
+static void transcribe_update_from_star_formation(const int p, const double stars,
+                                                  const double metallicity, struct locals *l,
+                                                  const struct perturbation *pt) {
+  /* S:1121 */
+  const double RecycleFraction = run_params.RecycleFraction;
+  /* S:1123-1126 */
+  galaxies[p].ColdGas -= (1 - RecycleFraction) * stars;
+  galaxies[p].MetalsColdGas -= metallicity * (1 - RecycleFraction) * stars;
+  galaxies[p].StellarMass += (1 - RecycleFraction) * stars;
+  galaxies[p].MetalsStellarMass += metallicity * (1 - RecycleFraction) * stars;
+
+  /* S:1131-1135 */
+  l->h2_flag[FLH_CAPS_SF_TRACKED] = sf_prescription_tracks_h2(run_params.SFprescription);
+  if (sf_prescription_tracks_h2(run_params.SFprescription)) {
+    float max_h = (galaxies[p].ColdGas > 0.0f) ? galaxies[p].ColdGas * HYDROGEN_MASS_FRAC : 0.0f;
+    max_h = tap_h2_f32(l, pt, IMH_MAX_H_SF, max_h);
+    l->h2_flag[FLH_H2_CAP_SF_BINDS] = galaxies[p].H2gas > max_h;
+    if (galaxies[p].H2gas > max_h)
+      galaxies[p].H2gas = max_h;
+    l->h2_flag[FLH_H1_CAP_SF_BINDS] = galaxies[p].H1gas > max_h;
+    if (galaxies[p].H1gas > max_h)
+      galaxies[p].H1gas = max_h;
+  }
+}
+
+/**
+ * @brief TRANSCRIPTION of update_from_feedback, S:1146-1250, on R0's path and R2's
  *
  * SupernovaRecipeOn 1, CGMrecipeOn 0 ("Original SAGE behavior", S:1224-1246) and
- * SFprescription 0 (sf_prescription_tracks_h2 false, so the H2/H1 resync of S:1169-1173 does
- * not run; the oracle refuses any other value). Its XASSERTs (S:1158-1163) are checked:
- * a violation marks the composition out of domain, as SAGE26 would abort there.
+ * SFprescription 0 or 1: for 1 (sf_prescription_tracks_h2), the hydrogen cap of S:1169-1173
+ * after the cold-gas and metal debits and before the hot-gas credit (c08). Its XASSERTs
+ * (S:1158-1163) are checked: a violation marks the composition out of domain, as SAGE26 would
+ * abort there.
  */
 static void transcribe_update_from_feedback(const int p, const int centralgal, double reheated_mass,
                                             double ejected_mass, const double metallicity,
@@ -979,8 +1275,17 @@ static void transcribe_update_from_feedback(const int p, const int centralgal, d
   /* S:1153-1156 (above), S:1167-1168 */
   galaxies[p].ColdGas -= reheated_mass;
   galaxies[p].MetalsColdGas -= metallicity * reheated_mass;
+  /* S:1169-1173 */
+  l->h2_flag[FLH_CAPS_FB_TRACKED] = sf_prescription_tracks_h2(run_params.SFprescription);
   if (sf_prescription_tracks_h2(run_params.SFprescription)) {
-    fatal("transcribe_update_from_feedback covers SFprescription 0 only");
+    float max_h_fb = (galaxies[p].ColdGas > 0.0f) ? galaxies[p].ColdGas * HYDROGEN_MASS_FRAC : 0.0f;
+    max_h_fb = tap_h2_f32(l, pt, IMH_MAX_H_FB, max_h_fb);
+    l->h2_flag[FLH_H2_CAP_FB_BINDS] = galaxies[p].H2gas > max_h_fb;
+    if (galaxies[p].H2gas > max_h_fb)
+      galaxies[p].H2gas = max_h_fb;
+    l->h2_flag[FLH_H1_CAP_FB_BINDS] = galaxies[p].H1gas > max_h_fb;
+    if (galaxies[p].H1gas > max_h_fb)
+      galaxies[p].H1gas = max_h_fb;
   }
 
   /* S:1228-1229 */
@@ -1174,6 +1479,7 @@ struct wrapper_args {
 struct composition {
   int transcribe_feedback;
   int transcribe_instability;
+  int transcribe_sf_commit; /* update_from_star_formation (c08) */
 };
 
 /**
@@ -1182,7 +1488,8 @@ struct composition {
  * On a copy of the input, from the transcribed blocks of S (each labelled with its lines)
  * and SAGE26's own get_metallicity, update_from_star_formation, update_from_feedback and
  * check_disk_instability (or, per comp, their transcriptions above):
- *   1. sfr_croton06 (S:160-184), the SFprescription 0 case of S:1016;
+ *   1. sfr_croton06 (S:160-184), the SFprescription 0 case of S:1016, or sfr_br06 (S:193-252),
+ *      the SFprescription 1 case of S:1017, with SAGE26's own radial integration (c08);
  *   2. the H I block (S:1035-1046) with ionized_gas_fraction (S:135-152);
  *   3. stars = strdot * dt and its floor (S:1048-1051);
  *   4. compute_sn_feedback's non-FIRE, non-Karpov path (S:732-799, S:876-889);
@@ -1206,9 +1513,12 @@ static void compose_wrapper(const struct GALAXY *input, const struct wrapper_arg
   init_locals(l);
   instability->reached_gas_branch = 0;
 
-  /* 1. TRANSCRIPTION of sfr_croton06, S:162-183 */
+  /* 1. S:1015-1017: TRANSCRIPTION of sfr_br06 (SFprescription 1) or of sfr_croton06,
+   * S:162-183 (SFprescription 0) */
   double strdot = 0.0;
-  {
+  if (run_params.SFprescription == 1) {
+    strdot = transcribe_sfr_br06(p, l, pt);
+  } else {
     double reff, tdyn;
     tdyn = 0.0;
     reff = SF_DISK_RADIUS_FRAC * galaxies[p].DiskScaleRadius;
@@ -1247,6 +1557,9 @@ static void compose_wrapper(const struct GALAXY *input, const struct wrapper_arg
     f_ion = tap(l, pt, IM_F_ION, f_ion);
     atomicH *= (1.0 - f_ion);
     galaxies[p].H1gas = atomicH;
+    if (run_params.SFprescription == 1) {
+      galaxies[p].H1gas = tap_h2_f32(l, pt, IMH_H1_SF, galaxies[p].H1gas);
+    }
   }
 
   /* 3. TRANSCRIPTION of S:1048-1051 */
@@ -1302,10 +1615,15 @@ static void compose_wrapper(const struct GALAXY *input, const struct wrapper_arg
   galaxies[p].SfrDiskColdGas[a->step_bin] = galaxies[p].ColdGas;
   galaxies[p].SfrDiskColdGasMetals[a->step_bin] = galaxies[p].MetalsColdGas;
 
-  /* 6. S:1063-1064: SAGE26's own get_metallicity and update_from_star_formation */
+  /* 6. S:1063-1064: SAGE26's own get_metallicity and update_from_star_formation (or its
+   * transcription, per comp) */
   double metallicity = get_metallicity(galaxies[p].ColdGas, galaxies[p].MetalsColdGas);
   metallicity = tap(l, pt, IM_METALLICITY_SF, metallicity);
-  update_from_star_formation(p, stars, metallicity, galaxies, &run_params);
+  if (comp->transcribe_sf_commit) {
+    transcribe_update_from_star_formation(p, stars, metallicity, l, pt);
+  } else {
+    update_from_star_formation(p, stars, metallicity, galaxies, &run_params);
+  }
 
   /* 7. S:1076: SAGE26's own get_metallicity; TRANSCRIPTION of the clamp, S:1079-1082 */
   metallicity = get_metallicity(galaxies[p].ColdGas, galaxies[p].MetalsColdGas);
@@ -1380,16 +1698,46 @@ struct sensitivity {
 static struct sensitivity validate_wrapper_value(const struct GALAXY *input,
                                                  const struct wrapper_args *a,
                                                  const struct GALAXY *expected, const int id) {
-  struct composition comp = {0, 0};
+  struct composition comp = {0, 0, 0};
   comp.transcribe_feedback = IM_INFO[id].stage == STAGE_FEEDBACK;
   comp.transcribe_instability = IM_INFO[id].stage == STAGE_INSTABILITY;
   struct sensitivity s = {0, 0};
   for (int up = 0; up <= 1; up++) {
-    struct perturbation pt = {id, -1, up};
+    struct perturbation pt = {id, -1, up, -1};
     struct locals l;
     struct GALAXY result[MAX_GALAXIES];
     struct instability_run inst;
     /* compose_wrapper fills result on every in-domain path; out of domain it is not read */
+    compose_wrapper(input, a, &comp, &pt, &l, result, &inst);
+    const int changed =
+        !l.out_of_domain && !same_galaxies(result, expected, a->layout.ngal, BLOCK_FULL);
+    if (up) {
+      s.up = changed;
+    } else {
+      s.down = changed;
+    }
+  }
+  return s;
+}
+
+/**
+ * @brief Two-sided validation of one c08 value of the wrapper (SFprescription 1)
+ *
+ * As validate_wrapper_value, with the routine the value is a local of (update_from_star_formation
+ * or update_from_feedback) replaced by its checked transcription.
+ */
+static struct sensitivity validate_wrapper_h2_value(const struct GALAXY *input,
+                                                    const struct wrapper_args *a,
+                                                    const struct GALAXY *expected, const int id) {
+  struct composition comp = {0, 0, 0};
+  comp.transcribe_feedback = IMH_INFO[id].stage == STAGE_FEEDBACK;
+  comp.transcribe_sf_commit = IMH_INFO[id].stage == STAGE_SF_COMMIT;
+  struct sensitivity s = {0, 0};
+  for (int up = 0; up <= 1; up++) {
+    struct perturbation pt = {-1, -1, up, id};
+    struct locals l;
+    struct GALAXY result[MAX_GALAXIES];
+    struct instability_run inst;
     compose_wrapper(input, a, &comp, &pt, &l, result, &inst);
     const int changed =
         !l.out_of_domain && !same_galaxies(result, expected, a->layout.ngal, BLOCK_FULL);
@@ -1407,14 +1755,15 @@ struct wrapper_record {
   struct GALAXY end[MAX_GALAXIES];
   struct locals locals;
   struct sensitivity sens[IM_COUNT];
+  struct sensitivity h2_sens[IMH_COUNT];
 };
 
 /**
  * @brief Call SAGE26's starformation_and_feedback, check the recomposition, validate
  *
  * The oracle refuses the fixture unless (a) the composition with every transcription,
- * and (b) the composition with SAGE26's own update_from_feedback and
- * check_disk_instability, each reproduce SAGE26's end state in every recorded field bit
+ * and (b) the composition with SAGE26's own update_from_star_formation, update_from_feedback
+ * and check_disk_instability, each reproduce SAGE26's end state in every recorded field bit
  * for bit, and unless the instability (when on) stays off its gas branch: a gas-unstable
  * disk reaches grow_black_hole and collisional_starburst_recipe (c06), which the
  * check_disk_instability fixtures cover instead.
@@ -1430,7 +1779,7 @@ static void run_checked_wrapper(const struct GALAXY *input, const struct wrapper
   memcpy(rec->end, galaxies, (size_t)ngal * sizeof(galaxies[0]));
 
   /* (a) every block transcribed: the recorded carried values come from this run */
-  const struct composition all_transcribed = {1, 1};
+  const struct composition all_transcribed = {1, 1, 1};
   struct GALAXY result[MAX_GALAXIES];
   struct instability_run inst;
   compose_wrapper(input, a, &all_transcribed, &NO_PERTURBATION, &rec->locals, result, &inst);
@@ -1447,13 +1796,15 @@ static void run_checked_wrapper(const struct GALAXY *input, const struct wrapper
           "starformation_and_feedback bit for bit");
   }
 
-  /* (b) SAGE26's own update_from_feedback and check_disk_instability */
-  const struct composition own_routines = {0, 0};
+  /* (b) SAGE26's own update_from_star_formation, update_from_feedback and
+   * check_disk_instability */
+  const struct composition own_routines = {0, 0, 0};
   struct locals own_locals;
   compose_wrapper(input, a, &own_routines, &NO_PERTURBATION, &own_locals, result, &inst);
   if (own_locals.out_of_domain || !same_galaxies(result, rec->end, ngal, BLOCK_FULL)) {
-    fatal("transcription check failed: the recomposition with SAGE26's own update_from_feedback "
-          "and check_disk_instability does not reproduce starformation_and_feedback bit for bit");
+    fatal("transcription check failed: the recomposition with SAGE26's own "
+          "update_from_star_formation, update_from_feedback and check_disk_instability does not "
+          "reproduce starformation_and_feedback bit for bit");
   }
 
   for (int id = 0; id < IM_COUNT; id++) {
@@ -1461,6 +1812,13 @@ static void run_checked_wrapper(const struct GALAXY *input, const struct wrapper
     rec->sens[id].down = 0;
     if (rec->locals.present[id]) {
       rec->sens[id] = validate_wrapper_value(input, a, rec->end, id);
+    }
+  }
+  for (int id = 0; id < IMH_COUNT; id++) {
+    rec->h2_sens[id].up = 0;
+    rec->h2_sens[id].down = 0;
+    if (rec->locals.h2_present[id]) {
+      rec->h2_sens[id] = validate_wrapper_h2_value(input, a, rec->end, id);
     }
   }
 }
@@ -1515,12 +1873,48 @@ static const int WRAPPER_VALUES[] = {IM_TDYN,
                                      IM_FRAC_Z_LEAVE,
                                      IM_YIELD_TO_HOT};
 
+/**
+ * @brief Write one c08 value: c06's markers (tail-checked, check kind 2) and the narrowing
+ *        limitation, the value as the float or double it is
+ */
+static void out_carried_h2(const struct locals *l, const int id, const struct sensitivity *s) {
+  const char *name = IMH_INFO[id].name;
+  out_i32(field_name("intermediate.%s_absent", name), l->h2_present[id] ? 0 : 1);
+  if (!l->h2_present[id]) {
+    return;
+  }
+  if (IMH_INFO[id].is_f32) {
+    out_f32(field_name("intermediate.%s", name), (float)l->h2_value[id]);
+  } else {
+    out_f64(field_name("intermediate.%s", name), l->h2_value[id]);
+  }
+  out_i32(field_name("intermediate.%s_checked", name), 1);
+  out_i32(field_name("intermediate.%s_check_kind", name), 2);
+  out_i32(field_name("intermediate.%s_validated_up", name), s->up);
+  out_i32(field_name("intermediate.%s_validated_down", name), s->down);
+  out_i32(field_name("intermediate.%s_validated", name), s->up && s->down);
+  out_i32(field_name("intermediate.%s_narrowing_limited", name), IMH_INFO[id].narrowing_limited);
+}
+
+static void out_h2_flags(const struct locals *l, const int first, const int last) {
+  for (int f = first; f <= last; f++) {
+    out_i32(field_name("intermediate.%s", H2_FLAG_NAMES[f]), l->h2_flag[f]);
+  }
+}
+
 static void write_wrapper_record(const char *prefix, const struct wrapper_record *rec) {
   out_flags(prefix, &rec->locals, 0, FL_COUNT - 1);
   for (size_t k = 0; k < COUNT(WRAPPER_VALUES); k++) {
     const int id = WRAPPER_VALUES[k];
     out_carried(prefix, IM_INFO[id].name, rec->locals.present[id], rec->locals.value[id],
                 &rec->sens[id]);
+  }
+  /* SFprescription 1 (c08): its flags and values, after every earlier record */
+  if (run_params.SFprescription == 1) {
+    out_h2_flags(&rec->locals, 0, FLH_COUNT - 1);
+    for (int id = 0; id < IMH_COUNT; id++) {
+      out_carried_h2(&rec->locals, id, &rec->h2_sens[id]);
+    }
   }
 }
 
@@ -1536,8 +1930,9 @@ static void read_wrapper_galaxies(const struct layout *layout) {
 }
 
 static void run_starformation_and_feedback(void) {
-  read_r0_flags(1);
+  read_r0_flags(1, 1);
   read_r0_params();
+  h2_block_recorded = run_params.SFprescription == 1;
   struct wrapper_args a;
   a.layout = read_layout();
   const int effective_steps = read_effective_steps();
@@ -1647,7 +2042,7 @@ static void read_writer_units(void) {
  * every galaxy. After it, the writer's averaging (W:934-959) of each galaxy.
  */
 static void run_starformation_and_feedback_sequence(void) {
-  read_r0_flags(1);
+  read_r0_flags(1, 0);
   read_r0_params();
   read_writer_units();
   struct wrapper_args a;
@@ -1699,19 +2094,55 @@ static void run_starformation_and_feedback_sequence(void) {
   }
 }
 
-/** @brief update_from_star_formation as a burst calls it (R/src/model_mergers.c:759-760) */
+/**
+ * @brief update_from_star_formation as a burst calls it (R/src/model_mergers.c:759-760)
+ *
+ * With SFprescription 1 (c08) the TRANSCRIPTION transcribe_update_from_star_formation must also
+ * reproduce SAGE26's end state bit for bit; it gives the hydrogen cap's flags and max_h
+ * (S:1131-1135), validated two-sided through that transcription's remainder.
+ */
 static void run_update_from_star_formation(void) {
-  run_params.SFprescription = require_flag("SFprescription", 0);
+  read_sf_prescription(1);
   run_params.RecycleFraction = in_f64("params.RecycleFraction");
   const double stars = in_f64("call.stars");
   read_galaxy(0, BLOCK_STATE);
   check_all_fields_used();
 
+  struct GALAXY input = galaxies[0];
   const double metallicity = get_metallicity(galaxies[0].ColdGas, galaxies[0].MetalsColdGas);
   update_from_star_formation(0, stars, metallicity, galaxies, &run_params);
+  const struct GALAXY end = galaxies[0];
 
   out_f64("intermediate.metallicity", metallicity);
-  write_galaxy("", 0, &galaxies[0], BLOCK_STATE);
+  write_galaxy("", 0, &end, BLOCK_STATE);
+  if (run_params.SFprescription != 1) {
+    return;
+  }
+
+  struct locals l;
+  init_locals(&l);
+  galaxies[0] = input;
+  transcribe_update_from_star_formation(0, stars, metallicity, &l, &NO_PERTURBATION);
+  if (!same_galaxies(galaxies, &end, 1, BLOCK_STATE)) {
+    fatal("transcription check failed: transcribe_update_from_star_formation does not reproduce "
+          "update_from_star_formation bit for bit");
+  }
+  struct sensitivity sens = {0, 0};
+  for (int up = 0; up <= 1; up++) {
+    const struct perturbation pt = {-1, -1, up, IMH_MAX_H_SF};
+    struct locals lp;
+    init_locals(&lp);
+    galaxies[0] = input;
+    transcribe_update_from_star_formation(0, stars, metallicity, &lp, &pt);
+    const int changed = !same_galaxies(galaxies, &end, 1, BLOCK_STATE);
+    if (up) {
+      sens.up = changed;
+    } else {
+      sens.down = changed;
+    }
+  }
+  out_h2_flags(&l, FLH_CAPS_SF_TRACKED, FLH_H1_CAP_SF_BINDS);
+  out_carried_h2(&l, IMH_MAX_H_SF, &sens);
 }
 
 /**
@@ -1721,10 +2152,12 @@ static void run_update_from_star_formation(void) {
  * R/src/model_mergers.c:788. The routine's locals (the clamped reheated mass, the capped
  * ejected mass, the hot metallicity and the metals ejected) come from the TRANSCRIPTION
  * transcribe_update_from_feedback, which must reproduce SAGE26's end state bit for bit,
- * and are validated two-sided through that transcription's remainder.
+ * and are validated two-sided through that transcription's remainder. With SFprescription 1
+ * (c08) the transcription includes the hydrogen cap (S:1169-1173), whose flags and max_h_fb are
+ * recorded after every earlier field.
  */
 static void run_update_from_feedback(void) {
-  run_params.SFprescription = require_flag("SFprescription", 0);
+  read_sf_prescription(1);
   run_params.SupernovaRecipeOn = require_flag("SupernovaRecipeOn", 1);
   run_params.CGMrecipeOn = require_flag("CGMrecipeOn", 0);
   const struct layout layout = read_layout();
@@ -1770,7 +2203,7 @@ static void run_update_from_feedback(void) {
   for (size_t k = 0; k < COUNT(FEEDBACK_VALUES); k++) {
     const int id = FEEDBACK_VALUES[k];
     for (int up = 0; up <= 1; up++) {
-      struct perturbation pt = {id, -1, up};
+      struct perturbation pt = {id, -1, up, -1};
       struct locals lp;
       init_locals(&lp);
       memcpy(galaxies, input, (size_t)ngal * sizeof(galaxies[0]));
@@ -1793,6 +2226,29 @@ static void run_update_from_feedback(void) {
     const int id = FEEDBACK_VALUES[k];
     out_carried("", IM_INFO[id].name, l.present[id], l.value[id], &sens[id]);
   }
+  if (run_params.SFprescription != 1) {
+    return;
+  }
+
+  /* SFprescription 1 (c08): the hydrogen cap's flags and max_h_fb, validated two-sided */
+  struct sensitivity h2_sens = {0, 0};
+  if (l.h2_present[IMH_MAX_H_FB]) {
+    for (int up = 0; up <= 1; up++) {
+      const struct perturbation pt = {-1, -1, up, IMH_MAX_H_FB};
+      struct locals lp;
+      init_locals(&lp);
+      memcpy(galaxies, input, (size_t)ngal * sizeof(galaxies[0]));
+      transcribe_update_from_feedback(p, c, reheated_mass, ejected_mass, metallicity, &lp, &pt);
+      const int changed = !lp.out_of_domain && !same_galaxies(galaxies, end, ngal, BLOCK_STATE);
+      if (up) {
+        h2_sens.up = changed;
+      } else {
+        h2_sens.down = changed;
+      }
+    }
+  }
+  out_h2_flags(&l, FLH_CAPS_FB_TRACKED, FLH_H1_CAP_FB_BINDS);
+  out_carried_h2(&l, IMH_MAX_H_FB, &h2_sens);
 }
 
 /** @brief The arguments of one check_disk_instability call */
@@ -1816,7 +2272,7 @@ static struct sensitivity instability_sensitivity(const struct instability_call 
                                                   const int post) {
   struct sensitivity s = {0, 0};
   for (int up = 0; up <= 1; up++) {
-    const struct perturbation pt = {im, post, up};
+    const struct perturbation pt = {im, post, up, -1};
     struct locals lp;
     init_locals(&lp);
     static struct instability_run rp;
@@ -1845,7 +2301,7 @@ static struct sensitivity instability_sensitivity(const struct instability_call 
  * as c06's, under intermediate.c06.
  */
 static void run_check_disk_instability(void) {
-  read_r0_flags(0);
+  read_r0_flags(0, 0);
   read_r0_params();
   const struct layout layout = read_layout();
   const double time = in_f64("call.time");

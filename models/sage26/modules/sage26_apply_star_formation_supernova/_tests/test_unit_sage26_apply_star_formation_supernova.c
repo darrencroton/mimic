@@ -113,6 +113,8 @@ static void setup_test_parameters(double recycle, double yield, double frac_z) {
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", frac_z);
 
   MimicConfig.NumModelParams = idx;
+  /* The module's required SFprescription, at R1's value */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   /* Update test variables */
   test_recycle_fraction = recycle;
@@ -216,6 +218,8 @@ int test_module_initialization(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* the module's required SFprescription */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -251,6 +255,8 @@ int test_memory_safety(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* the module's required SFprescription */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -1119,8 +1125,10 @@ int test_sf_commit_fused_rounding(void) {
     TEST_ASSERT(metallicity == f64_from_bits(cases[c].metallicity),
                 "the cold-gas metallicity must equal SAGE26's get_metallicity");
 
+    /* SFprescription 0: SAGE26's R0 and R1 commit, with no hydrogen cap */
     mimic_sage_update_from_star_formation(&gal, f64_from_bits(cases[c].stars), metallicity,
-                                          recycle_fraction);
+                                          recycle_fraction, MIMIC_SAGE_SF_PRESCRIPTION_CROTON,
+                                          NULL);
 
     TEST_ASSERT(f32_bits(gal.ColdGas) == cases[c].sage26_out[0],
                 "ColdGas must round as SAGE26's fused update (S:1123)");

@@ -85,6 +85,11 @@ MODEL_PARAMS = {
     "Yield": 0.025,
     "FracZleaveDisk": 0.0,
     "BulgeSizeOn": 0,
+    # Required by the SF module (and SFprescription by the apply step), at R1's values
+    "SFprescription": 0,
+    "H2RadialIntegrationOn": 1,
+    "H2RadialNBins": 25,
+    "H2RadialRMaxFactor": 5.0,
 }
 
 

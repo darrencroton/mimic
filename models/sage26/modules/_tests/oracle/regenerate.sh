@@ -13,8 +13,9 @@
 # routine line names a c05 routine (C05_ROUTINES below) runs through oracle_c05,
 # whichever module owns it (sage26_finalize_cooling_heating holds both c04 and
 # c05 fixtures), a fixture whose routine line names a c06 routine
-# (C06_ROUTINES below) runs through oracle_c06, and one whose routine line names
-# a c07 routine (C07_ROUTINES below) runs through oracle_c07.
+# (C06_ROUTINES below) runs through oracle_c06, one whose routine line names
+# a c07 routine (C07_ROUTINES below) runs through oracle_c07, and one whose
+# routine line names a c08 routine (C08_ROUTINES below) runs through oracle_c08.
 #
 # Environment: as build.sh (SAGE26_SRC, ORACLE_OUT, ORACLE_ALLOW_ANY_TOOLCHAIN).
 # See README.md in this directory.
@@ -93,6 +94,10 @@ deal_with_galaxy_merger disrupt_satellite_to_ICS merger_pass join_progenitors jo
 # transcription) has its own oracle main and is selected by routine.
 ORACLE_C07=$ORACLE_OUT/oracle_c07
 C07_ROUTINES="get_bulge_radius update_instability_bulge_radius central_disk_and_bulge_radius"
+# The c08 group (the BR06 molecular fraction and its radial integration, called
+# directly) has its own oracle main and is selected by routine.
+ORACLE_C08=$ORACLE_OUT/oracle_c08
+C08_ROUTINES="calculate_molecular_fraction_BR06 calculate_molecular_fraction_radial_integration"
 
 # Each oracle run writes to a fresh temporary file under ORACLE_OUT, which
 # replaces the committed output only if the oracle exited 0 AND the file is a
@@ -136,6 +141,11 @@ for input in $listed; do
   for name in $C07_ROUTINES; do
     if [ "$routine" = "$name" ]; then
       oracle=$ORACLE_C07
+    fi
+  done
+  for name in $C08_ROUTINES; do
+    if [ "$routine" = "$name" ]; then
+      oracle=$ORACLE_C08
     fi
   done
   tmp=$TMP_OUT/output

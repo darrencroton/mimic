@@ -1,0 +1,58 @@
+# update_from_feedback (S:1146-1251) as a burst calls it, with SFprescription 1: after the
+# cold-gas and metal debits the float max_h_fb = 0.74 of the remaining ColdGas caps H2gas and
+# H1gas, each on its own, strictly, before the central's hot-gas credit (S:1169-1173).
+# R2 reference
+# /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R2/model_0.hdf5
+# (SHA-256 c6af6c9385d41adcccbd5f19e064323486706b0965183f61ebded290331f6714); galaxy 0:
+# Snap_32 row 0 (GalaxyIndex 0, Type 0); galaxy 1: Snap_32 row 1 (GalaxyIndex 28, Type 1): the
+# writer's verbatim floats, OutflowRate 0 (its substep-0 value). End-of-snapshot values used
+# as plausible call inputs. Constructed: the reheated mass, 0.3 of the satellite's cold gas,
+# and the ejected mass, 0.1 of it.
+# Reachability: R2-reachable.
+format sage26-oracle-fixture 1
+routine update_from_feedback
+
+i32 params.SFprescription 1  # R2 (R2.par:48): BR06 with radial integration
+i32 params.H2RadialIntegrationOn 1  # SAGE26's default, R/src/core_read_parameter_file.c:99; R2.par does not set it
+i32 params.H2RadialNBins 25  # default, R/src/core_read_parameter_file.c:100
+f64 params.H2RadialRMaxFactor 0x4014000000000000  # 5  (default, R/src/core_read_parameter_file.c:101)
+i32 params.StarburstColdGasOn 1  # default, R/src/core_read_parameter_file.c:109; required with SFprescription 1
+i32 params.SupernovaRecipeOn 1  # R2.par:50
+i32 params.CGMrecipeOn 0  # R2.par:54
+i32 call.ngal 2
+i32 call.p 1  # the galaxy whose cold gas is reheated
+i32 call.centralgal 0  # the FoF central
+f64 call.reheated_mass 0x3fce905559999999  # 0.23877970576286314
+f64 call.ejected_mass 0x3fb46038e6666667  # 0.079593235254287728
+
+i32 galaxy[0].Type 0
+f32 galaxy[0].ColdGas 0x00000000  # 0
+f32 galaxy[0].MetalsColdGas 0x00000000  # 0
+f32 galaxy[0].StellarMass 0x3efbbed1  # 0.491690189
+f32 galaxy[0].MetalsStellarMass 0x3b25bb81  # 0.0025288763
+f32 galaxy[0].BulgeMass 0x3efbbed1  # 0.491690189
+f32 galaxy[0].MetalsBulgeMass 0x3b25bb81  # 0.0025288763
+f32 galaxy[0].InstabilityBulgeMass 0x00000000  # 0
+f32 galaxy[0].HotGas 0x4262770a  # 56.6162491
+f32 galaxy[0].MetalsHotGas 0x3d78f8b6  # 0.0607840642
+f32 galaxy[0].EjectedMass 0x3d70a153  # 0.0587476008
+f32 galaxy[0].MetalsEjectedMass 0x38f73775  # 0.000117882075
+f32 galaxy[0].H1gas 0x00000000  # 0
+f32 galaxy[0].H2gas 0x00000000  # 0
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+
+i32 galaxy[1].Type 1
+f32 galaxy[1].ColdGas 0x3f4bc239  # 0.795932353
+f32 galaxy[1].MetalsColdGas 0x3c0089a6  # 0.00784531794
+f32 galaxy[1].StellarMass 0x3f352014  # 0.707520723
+f32 galaxy[1].MetalsStellarMass 0x3bc654cd  # 0.00605258951
+f32 galaxy[1].BulgeMass 0x3d9bed45  # 0.0761361495
+f32 galaxy[1].MetalsBulgeMass 0x3a06189c  # 0.000511536142
+f32 galaxy[1].InstabilityBulgeMass 0x3d9bed45  # 0.0761361495
+f32 galaxy[1].HotGas 0x3f77d4ae  # 0.968088984
+f32 galaxy[1].MetalsHotGas 0x3bd985a6  # 0.00663824659
+f32 galaxy[1].EjectedMass 0x00000000  # 0
+f32 galaxy[1].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[1].H1gas 0x3e8799bb  # 0.264844745
+f32 galaxy[1].H2gas 0x3eb1ab38  # 0.34700942
+f32 galaxy[1].OutflowRate 0x00000000  # 0

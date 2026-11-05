@@ -76,6 +76,11 @@ def test_full_pipeline_conservation():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -162,6 +167,11 @@ def test_gas_transfer_physics():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -255,6 +265,11 @@ def test_metal_enrichment():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -330,6 +345,11 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -360,6 +380,11 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -446,6 +471,11 @@ def test_edge_cases():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
@@ -538,6 +568,11 @@ def test_memory_and_performance():
             "post_timestep": [],
         },
         model_params={
+            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
             "SfrEfficiency": 0.02,
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,

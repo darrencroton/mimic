@@ -83,6 +83,24 @@
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test
  * reports SKIP.
  *
+ * SFprescription 1 (the c08 fixtures, R2's flags: BR06 with radial integration and
+ * BulgeSizeOn 3): the chain runs the module's BR06 branch, and the test also asserts, on
+ * every galaxy, the four bulge-size members BulgeSizeOn 3 records and H2DepletionTime_Gyr,
+ * which must come out as it went in. It asserts the c08 values the oracle records, bit for
+ * bit whatever their validation status: H2gas and H1gas as the SF step hands them on
+ * (package state between modules), the commits' cap bounds max_h_sf and max_h_fb (from the
+ * apply-step replay's kernel locals), and sfr_br06's rs_pc, the radial H2 before its cap and
+ * the cap's double budget, from a replay of the BR06 branch through the shared H2 helper
+ * (shared/sage_h2_physics.h) on a copy, which must end in the H2gas process() produced. The
+ * c08 branch flags are asserted against the same replays.
+ *
+ * The module also owns the fixtures of the two public H2 routines SAGE26's BR06 branch calls
+ * (oracle_c08): calculate_molecular_fraction_BR06 and
+ * calculate_molecular_fraction_radial_integration, each called directly. For those the test
+ * calls the package's shared helpers (mimic_sage_br06_molecular_fraction,
+ * mimic_sage_h2_radial_integration) and asserts the return, H2gas and H2DepletionTime_Gyr, the
+ * branch flags, and every local and annulus the oracle records, bit for bit.
+ *
  * Test cases:
  *   - test_oracle_fixture_count: every fixture the manifest lists is present
  *   - test_oracle_bit_identity: every fixture reproduces the oracle bit for bit
@@ -101,8 +119,12 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_h2.h"
 #include "shared/metallicity.h"
+#include "shared/sage_bulge_size_physics.h"
+#include "shared/sage_constants.h"
 #include "shared/sage_disk_instability_physics.h"
+#include "shared/sage_h2_physics.h"
 #include "shared/sage_sf_feedback_physics.h"
 #include "shared/sage_sfr_history.h"
 #include "shared/time_parity.h"
@@ -147,6 +169,7 @@ static struct PhaseModuleConfig chain_modules[5];
 static struct ModulePhaseConfig chain_phase;
 
 static struct oracle_c05_carried_tally tally;
+static struct oracle_c08_local_tally h2_tally;
 
 /** @brief Names of the branch flags every single-call output records */
 static const char *const FLAGS[] = {"sf_vvir_nonpositive",
@@ -168,6 +191,10 @@ static const char *const FLAGS[] = {"sf_vvir_nonpositive",
 /** @brief The galaxy fields the chain must leave as they were, beyond the fourteen */
 static const char *const UNTOUCHED[] = {"BlackHoleMass", "QuasarModeBHaccretionMass"};
 
+/** @brief The bulge-size members a BulgeSizeOn 3 fixture records (oracle README "The c07 Group") */
+static const char *const SIZES[] = {"MergerBulgeMass", "BulgeRadius", "MergerBulgeRadius",
+                                    "InstabilityBulgeRadius"};
+
 /** @brief The state of one fixture's chain */
 struct chain {
   int ngal;
@@ -175,6 +202,8 @@ struct chain {
   int centralgal;
   int effective_steps;
   int disk_instability_on;
+  int bulge_size_on;              /* 0 or 3 */
+  struct oracle_c08_sf_config sf; /* SFprescription 0 or 1 and the H2 configuration */
   struct GalaxyData galaxies[MAX_GALAXIES];
   struct Halo halos[MAX_GALAXIES];
   struct ModuleContext ctx;
@@ -192,6 +221,18 @@ struct substep_record {
   float cold_gas_after_sf;
   struct MimicSageFeedbackLocals locals;
   struct MimicSageInstabilityLocals instability; /* NaN where not formed or not run */
+  /* SFprescription 1 (c08): the BR06 branch's replay and the values the SF step hands on, NaN
+   * (and the flags -1) where the branch does not form them */
+  float rs_pc;
+  float h2_radial;
+  double h2_budget;
+  float h2_sf;
+  float h1_sf;
+  int rs_nonpositive;
+  int radial_returned_early;
+  int h2_cap_binds;
+  int sf_from_h2;
+  struct MimicSageHydrogenCapLocals caps_sf;
 };
 
 /**
@@ -202,13 +243,19 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
   int problems = 0;
   reset_config();
 
-  /* R0's fixed flags (oracle README "Flags and Parameters") */
-  problems += oracle_c05_require_flag(in, "params.SFprescription", 0);
+  /* R0's fixed flags (oracle README "Flags and Parameters"); SFprescription 0, or 1 with R2's H2
+   * configuration (c08); BulgeSizeOn 0 or 3 (R1 onward) */
+  problems += oracle_c08_read_sf_config(in, 0, &c->sf);
   problems += oracle_c05_require_flag(in, "params.SupernovaRecipeOn", 1);
   problems += oracle_c05_require_flag(in, "params.CGMrecipeOn", 0);
   problems += oracle_c05_require_flag(in, "params.FIREmodeOn", 0);
   problems += oracle_c05_require_flag(in, "params.EnhancedStarFormationOn", 0);
-  problems += oracle_c05_require_flag(in, "params.BulgeSizeOn", 0);
+  c->bulge_size_on = oracle_in_i32(in, "params.BulgeSizeOn");
+  if (c->bulge_size_on != MIMIC_SAGE_BULGE_SIZE_OFF &&
+      c->bulge_size_on != MIMIC_SAGE_BULGE_SIZE_TONINI) {
+    fprintf(stderr, "oracle: %s: BulgeSizeOn must be 0 or 3\n", in->path);
+    problems++;
+  }
   problems += oracle_c05_require_flag(in, "params.KarpovModeOn", 0);
   problems += oracle_c05_require_flag(in, "params.SaveFullSFH", 0);
   problems += oracle_c05_require_flag(in, "params.AGNrecipeOn", 2);
@@ -262,11 +309,13 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
   if (oracle_set_model_param("StarFormingDiskFactor", SAGE26_SF_DISK_RADIUS_FRAC) != 0) {
     problems++;
   }
-  /* sage26_disk_instability's required BulgeSizeOn, at the fixtures' R0 value 0 (checked
-   * above) */
-  if (oracle_set_model_param("BulgeSizeOn", 0.0) != 0) {
+  /* sage26_disk_instability's required BulgeSizeOn, the fixture's (checked above) */
+  if (oracle_set_model_param("BulgeSizeOn", (double)c->bulge_size_on) != 0) {
     problems++;
   }
+  /* The SF module's SFprescription and H2 integration parameters and the apply step's
+   * SFprescription, the fixture's (the H2 parameters at R2's values for SFprescription 0) */
+  problems += oracle_c08_set_sf_parameters(&c->sf);
   /* Read only by the instability's c06 continuation (black-hole growth, quasar wind,
    * burst), which no fixture of this chain reaches */
   (void)oracle_in_f64(in, "params.ThreshMajorMerger");
@@ -330,6 +379,16 @@ static int setup_galaxies(struct oracle_fixture *in, struct chain *c) {
     const char *const extra[] = {"DiskScaleRadius", "BlackHoleMass", "QuasarModeBHaccretionMass"};
     problems += oracle_c05_in_floats(in, i, g, extra, COUNT(extra));
     problems += oracle_c05_in_floats(in, i, g, written, count);
+    /* BulgeSizeOn 3: the four size members (oracle README "The c07 Group") */
+    if (c->bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI) {
+      for (size_t k = 0; k < COUNT(SIZES); k++) {
+        *oracle_c06_galaxy_float(g, SIZES[k]) = oracle_in_f32(in, oracle_galaxy_field(i, SIZES[k]));
+      }
+    }
+    /* SFprescription 1: the K13 depletion time, which the chain must leave as it was */
+    if (c->sf.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+      g->H2DepletionTime_Gyr = oracle_in_f32(in, oracle_galaxy_field(i, "H2DepletionTime_Gyr"));
+    }
     /* The six histories, every element set explicitly (oracle README "Input Fields") */
     problems += oracle_c05_in_histories(in, i, g);
 
@@ -359,9 +418,62 @@ static int check_end_state(struct oracle_fixture *out, struct chain *c) {
   for (int i = 0; i < c->ngal; i++) {
     problems += oracle_c05_check_floats(out, "", i, &c->galaxies[i], written, count);
     problems += oracle_c05_check_floats(out, "", i, &c->galaxies[i], UNTOUCHED, COUNT(UNTOUCHED));
+    if (c->bulge_size_on == MIMIC_SAGE_BULGE_SIZE_TONINI) {
+      for (size_t k = 0; k < COUNT(SIZES); k++) {
+        problems += oracle_check_f32(out, oracle_galaxy_field(i, SIZES[k]),
+                                     *oracle_c06_galaxy_float(&c->galaxies[i], SIZES[k]));
+      }
+    }
+    if (c->sf.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+      problems += oracle_check_f32(out, oracle_galaxy_field(i, "H2DepletionTime_Gyr"),
+                                   c->galaxies[i].H2DepletionTime_Gyr);
+    }
     problems += oracle_c05_check_histories(out, "", i, &c->galaxies[i]);
   }
   return problems;
+}
+
+/**
+ * @brief Replay the module's BR06 branch (sfr_br06, R/src/model_starformation_and_feedback.c:
+ *        193-252) on a copy of the galaxy, through the shared H2 helper, for its values
+ *
+ * The values are formed with sfr_br06's own expressions: the float h and rs_pc (:214-215), the
+ * radial integration (:222), the double cap budget ColdGas * 0.74 (:239) and tdyn (:212).
+ * Leaves NaN (and -1 flags) where the branch does not form them.
+ */
+static void replay_br06(const struct chain *c, const struct GalaxyData *gal, const float vvir,
+                        struct substep_record *r) {
+  r->rs_pc = NAN;
+  r->h2_radial = NAN;
+  r->h2_budget = NAN;
+  r->h2_sf = NAN;
+  r->rs_nonpositive = -1;
+  r->radial_returned_early = -1;
+  r->h2_cap_binds = -1;
+  r->sf_from_h2 = -1;
+  if (vvir <= 0.0) {
+    return;
+  }
+  const double tdyn = SAGE26_SF_DISK_RADIUS_FRAC * gal->DiskScaleRadius / vvir;
+  const float h = (float)MimicConfig.Hubble_h;
+  r->rs_pc = (float)(gal->DiskScaleRadius * 1.0e6 / h);
+  r->rs_nonpositive = r->rs_pc <= 0.0;
+  if (r->rs_nonpositive) {
+    return;
+  }
+  struct GalaxyData copy = *gal;
+  struct MimicSageH2RadialLocals radial;
+  (void)mimic_sage_h2_radial_integration(&copy, MimicConfig.Hubble_h, c->sf.h2_radial_nbins,
+                                         c->sf.h2_radial_rmax_factor, &radial);
+  r->radial_returned_early = radial.returned_early;
+  r->h2_radial = copy.H2gas;
+  r->h2_budget = copy.ColdGas * SAGE_HYDROGEN_MASS_FRAC;
+  r->h2_cap_binds = copy.H2gas > r->h2_budget;
+  if (r->h2_cap_binds) {
+    copy.H2gas = (float)r->h2_budget;
+  }
+  r->h2_sf = copy.H2gas;
+  r->sf_from_h2 = copy.H2gas > 0.0 && tdyn > 0.0;
 }
 
 /**
@@ -383,10 +495,24 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
     problems++;
   }
 
+  const int br06 = c->sf.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06;
+  if (br06) {
+    replay_br06(c, gal, (float)halo->Vvir, r);
+  }
+
   if (sage26_calculate_star_formation_process(&c->ctx, halo, 1) != 0) {
     problems++;
   }
   r->stars_pre_renorm = gal->NewStellarMass;
+  /* What the SF step hands on: H2gas (where the BR06 branch formed it) and H1gas */
+  r->h1_sf = br06 ? gal->H1gas : NAN;
+  if (br06 && !isnan(r->h2_sf)) {
+    if (oracle_f32_to_bits(r->h2_sf) != oracle_f32_to_bits(gal->H2gas)) {
+      fprintf(stderr, "oracle: %s: the BR06 replay's H2gas differs from process()\n", in->path);
+      problems++;
+    }
+    r->h2_sf = gal->H2gas;
+  }
 
   if (sage26_calculate_supernova_feedback_process(&c->ctx, halo, 1) != 0) {
     problems++;
@@ -401,13 +527,15 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
   struct GalaxyData *rp = &replay[c->p];
   r->metallicity_sf = mimic_get_metallicity(rp->ColdGas, rp->MetalsColdGas);
   mimic_sage_update_from_star_formation(rp, r->stars, r->metallicity_sf,
-                                        oracle_in_f64(in, "params.RecycleFraction"));
+                                        oracle_in_f64(in, "params.RecycleFraction"),
+                                        c->sf.sf_prescription, &r->caps_sf);
   r->cold_gas_after_sf = rp->ColdGas;
   r->metallicity_fb = mimic_get_metallicity(rp->ColdGas, rp->MetalsColdGas);
   r->reheated_mass_sf_clamped =
       r->reheated_mass > rp->ColdGas ? (double)rp->ColdGas : r->reheated_mass;
   mimic_sage_update_from_feedback(rp, &replay[c->centralgal], r->reheated_mass_sf_clamped,
-                                  r->ejected_mass, r->metallicity_fb, &r->locals);
+                                  r->ejected_mass, r->metallicity_fb, c->sf.sf_prescription,
+                                  &r->locals);
 
   if (sage26_apply_star_formation_supernova_process(&c->ctx, halo, 1) != 0) {
     problems++;
@@ -433,8 +561,9 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
     memcpy(instability_replay, c->galaxies, sizeof(instability_replay));
     struct Halo replay_halo = *halo;
     replay_halo.galaxy = &instability_replay[c->p];
-    instability_replay[c->p].UnstableDiskGasFraction = mimic_sage_check_disk_instability(
-        &replay_halo, &c->ctx, SAGE26_TOOMRE_DISK_FACTOR, &r->instability);
+    const struct MimicSageBulgeSize sizes = {c->bulge_size_on, MimicConfig.Hubble_h};
+    instability_replay[c->p].UnstableDiskGasFraction = mimic_sage_check_disk_instability_with_sizes(
+        &replay_halo, &c->ctx, SAGE26_TOOMRE_DISK_FACTOR, &sizes, &r->instability);
 
     if (sage26_disk_instability_process(&c->ctx, halo, 1) != 0) {
       problems++;
@@ -533,6 +662,42 @@ static int check_carried(struct oracle_fixture *out, const char *prefix,
   return problems;
 }
 
+/**
+ * @brief Assert the c08 record of one SFprescription 1 call (oracle README "The c08 Group")
+ *
+ * The BR06 branch's flags and values from the replay, the H2gas and H1gas the SF step handed
+ * on, and the two commits' caps from the apply-step replay's kernel locals, each compared bit
+ * for bit; where a cap binds, its bound equals the field it set.
+ */
+static int check_h2_record(struct oracle_fixture *out, const struct substep_record *r) {
+  int problems = 0;
+  const struct MimicSageHydrogenCapLocals *fb = &r->locals.hydrogen_caps;
+  problems += oracle_c06_check_flag(out, "br06_rs_nonpositive", r->rs_nonpositive);
+  problems += oracle_c06_check_flag(out, "br06_radial_returned_early", r->radial_returned_early);
+  problems += oracle_c06_check_flag(out, "br06_h2_cap_binds", r->h2_cap_binds);
+  problems += oracle_c06_check_flag(out, "br06_sf_from_h2", r->sf_from_h2);
+  problems += oracle_c06_check_flag(out, "hydrogen_caps_sf_tracked", r->caps_sf.tracks_h2);
+  problems += oracle_c06_check_flag(out, "h2_cap_sf_binds", r->caps_sf.h2_cap_binds);
+  problems += oracle_c06_check_flag(out, "h1_cap_sf_binds", r->caps_sf.h1_cap_binds);
+  problems += oracle_c06_check_flag(out, "hydrogen_caps_fb_tracked", fb->tracks_h2);
+  problems += oracle_c06_check_flag(out, "h2_cap_fb_binds", fb->h2_cap_binds);
+  problems += oracle_c06_check_flag(out, "h1_cap_fb_binds", fb->h1_cap_binds);
+
+  problems += oracle_c08_check_local(out, "rs_pc", r->rs_pc, 1, 0, &h2_tally);
+  problems += oracle_c08_check_local(out, "H2gas_radial", r->h2_radial, 1, 0, &h2_tally);
+  problems += oracle_c08_check_local(out, "h2_budget", r->h2_budget, 0, 1, &h2_tally);
+  problems += oracle_c08_check_local(out, "H2gas_sf", r->h2_sf, 1, 0, &h2_tally);
+  problems += oracle_c08_check_local(out, "H1gas_sf", r->h1_sf, 1, 0, &h2_tally);
+  problems += oracle_c08_check_local(out, "max_h_sf", r->caps_sf.max_h, 1, 0, &h2_tally);
+  problems += oracle_c08_check_local(out, "max_h_fb", fb->max_h, 1, 0, &h2_tally);
+  /* The BR06 cap's binding value is the budget narrowed into H2gas */
+  if (r->h2_cap_binds == 1) {
+    h2_tally.binding++;
+    problems += oracle_f32_to_bits(r->h2_sf) != oracle_f32_to_bits((float)r->h2_budget);
+  }
+  return problems;
+}
+
 /** @brief One starformation_and_feedback fixture: one call of the chain */
 static int check_single(struct oracle_fixture *in, struct oracle_fixture *out, struct chain *c) {
   int problems = 0;
@@ -548,6 +713,9 @@ static int check_single(struct oracle_fixture *in, struct oracle_fixture *out, s
   problems += run_substep(in, c, step, &r);
   problems += check_end_state(out, c);
   problems += check_carried(out, "intermediate.", &r, 1);
+  if (c->sf.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+    problems += check_h2_record(out, &r);
+  }
 
   /* The bin the apply step sampled (R/src/core_build_model.c:514-515) */
   problems += oracle_check_i32(out, "intermediate.step_bin",
@@ -616,6 +784,115 @@ static int check_sequence(struct oracle_fixture *in, struct oracle_fixture *out,
   return problems;
 }
 
+/** @brief One calculate_molecular_fraction_BR06 fixture, called directly (oracle_c08) */
+static int check_br06(struct oracle_fixture *in, struct oracle_fixture *out) {
+  const float gas = oracle_in_f32(in, "call.gas_surface_density_msun_pc2");
+  const float stars = oracle_in_f32(in, "call.stellar_surface_density_msun_pc2");
+  const float rs = oracle_in_f32(in, "call.disk_scale_length_pc");
+
+  struct MimicSageBr06Locals l;
+  const float f_mol = mimic_sage_br06_molecular_fraction(gas, stars, rs, &l);
+
+  int problems = oracle_check_f32(out, "return.f_mol", f_mol);
+  problems += oracle_c06_check_flag(out, "scale_length_nonpositive", l.scale_length_nonpositive);
+  problems += oracle_c06_check_flag(out, "pressure_branch", l.pressure_branch);
+  problems += oracle_c06_check_flag(out, "stellar_floor_binds", l.stellar_floor_binds);
+  problems += oracle_c06_check_flag(out, "pressure_nonpositive", l.pressure_nonpositive);
+  problems += oracle_c08_check_local(out, "log_h_star", l.log_h_star, 1, 0, &h2_tally);
+  problems += oracle_c08_check_local(out, "h_star_pc", l.h_star_pc, 1, 0, &h2_tally);
+  problems += oracle_c08_check_local(out, "effective_sigma_stars", l.effective_sigma_stars, 1, 0,
+                                     &h2_tally);
+  problems += oracle_c08_check_local(out, "pressure", l.pressure, 1, 0, &h2_tally);
+  problems += oracle_c08_check_local(out, "pressure_ratio", l.pressure_ratio, 1, 0, &h2_tally);
+  problems += oracle_c08_check_local(out, "R_mol", l.R_mol, 1, 0, &h2_tally);
+  /* f_mol reaches the float return only through its narrowing */
+  problems += oracle_c08_check_local(out, "f_mol", l.f_mol, 0, 1, &h2_tally);
+  return problems;
+}
+
+/**
+ * @brief One calculate_molecular_fraction_radial_integration fixture, called directly as
+ *        sfr_br06 calls it (oracle_c08)
+ */
+static int check_radial(struct oracle_fixture *in, struct oracle_fixture *out) {
+  struct oracle_c08_sf_config cfg;
+  int problems = oracle_c08_read_sf_config(in, 1, &cfg);
+  if (cfg.sf_prescription != MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+    fprintf(stderr, "oracle: %s: the radial integration is supported only with SFprescription 1\n",
+            in->path);
+    return problems + 1;
+  }
+  const double hubble_h = oracle_in_f64(in, "params.Hubble_h");
+
+  struct GalaxyData gal;
+  oracle_poison(&gal, sizeof(gal));
+  gal.DiskScaleRadius = oracle_in_f32(in, "galaxy[0].DiskScaleRadius");
+  gal.ColdGas = oracle_in_f32(in, "galaxy[0].ColdGas");
+  gal.MetalsColdGas = oracle_in_f32(in, "galaxy[0].MetalsColdGas");
+  gal.StellarMass = oracle_in_f32(in, "galaxy[0].StellarMass");
+  gal.BulgeMass = oracle_in_f32(in, "galaxy[0].BulgeMass");
+  gal.H2gas = oracle_in_f32(in, "galaxy[0].H2gas");
+  gal.H2DepletionTime_Gyr = oracle_in_f32(in, "galaxy[0].H2DepletionTime_Gyr");
+  struct GalaxyData before = gal;
+
+  static struct MimicSageH2RadialLocals l;
+  const float h2 = mimic_sage_h2_radial_integration(&gal, hubble_h, cfg.h2_radial_nbins,
+                                                    cfg.h2_radial_rmax_factor, &l);
+
+  /* The helper writes H2gas and nothing else of the galaxy (R/src/model_h2_chemistry.c:288) */
+  before.H2gas = gal.H2gas;
+  if (memcmp(&before, &gal, sizeof(gal)) != 0) {
+    fprintf(stderr, "oracle: %s: the radial integration wrote a member other than H2gas\n",
+            in->path);
+    problems++;
+  }
+  problems += oracle_check_f32(out, "return.H2_code_units", h2);
+  problems += oracle_check_f32(out, "galaxy[0].H2gas", gal.H2gas);
+  problems += oracle_check_f32(out, "galaxy[0].H2DepletionTime_Gyr", gal.H2DepletionTime_Gyr);
+  problems += oracle_c06_check_flag(out, "returned_early", l.returned_early);
+  problems += oracle_c06_check_flag(out, "disk_stars_positive", l.disk_stars_positive);
+
+  const struct {
+    const char *name;
+    float value;
+  } scalars[] = {{"h", l.h},
+                 {"rs_pc", l.rs_pc},
+                 {"M_gas_total", l.M_gas_total},
+                 {"M_disk_star", l.M_disk_star},
+                 {"sigma_gas_0", l.sigma_gas_0},
+                 {"sigma_star_0", l.sigma_star_0},
+                 {"R_MAX", l.R_MAX},
+                 {"dr", l.dr},
+                 {"log_h_star", l.log_h_star},
+                 {"h_star_br06", l.h_star_br06}};
+  for (size_t k = 0; k < COUNT(scalars); k++) {
+    problems += oracle_c08_check_local(out, scalars[k].name, scalars[k].value, 1, 0, &h2_tally);
+  }
+  for (int i = 0; i < MIMIC_SAGE_H2_RADIAL_NBINS; i++) {
+    const struct MimicSageH2RadialBin *b = &l.bin[i];
+    char name[ORACLE_MAX_NAME];
+    snprintf(name, sizeof(name), "bin[%d].skipped", i);
+    problems += oracle_c06_check_flag(out, name, b->skipped);
+    snprintf(name, sizeof(name), "bin[%d].stellar_floor_binds", i);
+    problems += oracle_c06_check_flag(out, name, b->stellar_floor_binds);
+    const struct {
+      const char *name;
+      float value;
+    } bin_values[] = {{"r", b->r},
+                      {"exp_factor", b->exp_factor},
+                      {"sigma_gas_r", b->sigma_gas_r},
+                      {"sigma_star_r", b->sigma_star_r},
+                      {"f_mol_r", b->f_mol_r},
+                      {"dM_H2", b->dM_H2},
+                      {"M_H2_total", b->M_H2_total}};
+    for (size_t k = 0; k < COUNT(bin_values); k++) {
+      snprintf(name, sizeof(name), "bin[%d].%s", i, bin_values[k].name);
+      problems += oracle_c08_check_local(out, name, bin_values[k].value, 1, 0, &h2_tally);
+    }
+  }
+  return problems;
+}
+
 /** @brief Compare one fixture; returns the number of mismatches and errors */
 static int check_fixture(const char *name) {
   static struct oracle_fixture in, out;
@@ -623,6 +900,20 @@ static int check_fixture(const char *name) {
   oracle_fixture_path(path, sizeof(path), MODULE, name, ".in");
   if (oracle_load(path, &in) != 0) {
     return 1;
+  }
+  /* The two public H2 routines, called directly (oracle_c08) */
+  static const char *const H2_ROUTINES[] = {"calculate_molecular_fraction_BR06",
+                                            "calculate_molecular_fraction_radial_integration"};
+  for (size_t k = 0; k < COUNT(H2_ROUTINES); k++) {
+    if (strcmp(in.routine, H2_ROUTINES[k]) == 0) {
+      if (oracle_load_pair(MODULE, name, H2_ROUTINES[k], &in, &out) != 0) {
+        return 1;
+      }
+      int problems = k == 0 ? check_br06(&in, &out) : check_radial(&in, &out);
+      problems += oracle_report_unconsumed(&in);
+      problems += oracle_report_unconsumed(&out);
+      return problems;
+    }
   }
   const int sequence = strcmp(in.routine, "starformation_and_feedback_sequence") == 0;
   if (oracle_load_pair(MODULE, name,
@@ -666,11 +957,17 @@ int test_oracle_bit_identity(void) {
     return TEST_SKIP_WITH(mismatch);
   }
   memset(&tally, 0, sizeof(tally));
+  memset(&h2_tally, 0, sizeof(h2_tally));
   const int ok = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), not validated %d, "
          "not package values %d, absent %d; binding clamps and caps asserted equal to their "
          "reservoir %d ",
          tally.asserted, tally.not_validated, tally.not_carried, tally.absent, tally.binding);
+  printf("\n  oracle: c08 locals and values compared bit for bit %d (validated two-sided %d, "
+         "narrowing-limited %d, not validated %d), absent %d; binding caps asserted %d ",
+         h2_tally.validated + h2_tally.narrowing_limited + h2_tally.not_validated,
+         h2_tally.validated, h2_tally.narrowing_limited, h2_tally.not_validated, h2_tally.absent,
+         h2_tally.binding);
   TEST_ASSERT(ok, "every fixture must reproduce the oracle bit for bit");
   return TEST_PASS;
 }

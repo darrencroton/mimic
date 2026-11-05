@@ -20,6 +20,8 @@ module:
       - MetalsHotGas
       - EjectedGas
       - MetalsEjectedGas
+      - H1gas
+      - H2gas
       - NewStellarMass
       - SupernovaReheatedMass
       - SupernovaEjectedMass
@@ -57,6 +59,7 @@ module:
       - SfrDiskColdGasMetalsBin9
     parameters:
       - RecycleFraction
+      - SFprescription
 
   tests:
     unit:

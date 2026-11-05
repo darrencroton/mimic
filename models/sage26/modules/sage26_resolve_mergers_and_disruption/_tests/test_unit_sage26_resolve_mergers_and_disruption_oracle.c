@@ -296,6 +296,12 @@ static int setup_modules(struct oracle_fixture *in) {
       oracle_set_model_param("BulgeSizeOn", (double)sizes.bulge_size_on) != 0) {
     problems++;
   }
+  /* sage26_starburst_feedback's required SFprescription and StarburstColdGasOn, at R1's values
+   * (0, the commits' hydrogen caps off, as these fixtures' SFprescription 0; 1, cold-gas bursts) */
+  if (oracle_set_model_param("SFprescription", 0.0) != 0 ||
+      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
+    problems++;
+  }
 
   if (sage26_resolve_mergers_and_disruption_init() != 0 || sage26_quasar_mode_init() != 0 ||
       sage26_starburst_feedback_init() != 0) {

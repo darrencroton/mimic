@@ -83,6 +83,11 @@ modules:
     # Star Formation
     SfrEfficiency: 0.05                 # Star formation efficiency
     StarFormingDiskFactor: 3.0          # Number of disc scale radii to form stars over
+    SFprescription: 0                   # SF law: 0 = Croton et al. 2006 critical mass (SAGE26 R1, R1.par:48); 1 = Blitz & Rosolowsky 2006 H2 with radial integration (R2.par:48); 2-7 not ported
+    H2RadialIntegrationOn: 1            # BR06 H2 by radial integration of the exponential disk (SAGE26 default, core_read_parameter_file.c:99; R2); 0, the single-slab branch, not ported
+    H2RadialNBins: 25                   # Radial bins of the H2 integration (SAGE26 default, core_read_parameter_file.c:100; R2); only 25 supported
+    H2RadialRMaxFactor: 5.0             # H2 integration out to this many disc scale radii (SAGE26 default, core_read_parameter_file.c:101; R2); only 5.0 supported
+    StarburstColdGasOn: 1               # Starburst fuel: 1 = the cold gas (SAGE26 default, core_read_parameter_file.c:109; R0-R2); 0, the H2 fuel, not ported
 
     # Supernova Feedback
     FeedbackReheatingEpsilon: 2.9       # Reheating efficiency (SAGE26 R0, input/millennium.par:69)

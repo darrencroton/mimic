@@ -23,7 +23,11 @@
  *   which the kernel reports, wherever the oracle validates them two-sided; and,
  *   where a clamp or cap binds, that its recorded value equals the reservoir it
  *   binds to (the cold gas at the call; the central's hot gas and hot metals after
- *   the reheating, before the ejection debit).
+ *   the reheating, before the ejection debit);
+ * - with SFprescription 1 (the c08 fixtures, R2's flags), each commit's hydrogen cap
+ *   (S:1131-1135, S:1169-1173), which the kernel applies for that prescription: its
+ *   guard and two binding flags, and its bound max_h, compared bit for bit, and, where a
+ *   cap binds, the capped field equal to that bound.
  *
  * The branch flags are read to drive those equalities and are not asserted. Outside
  * the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
@@ -47,6 +51,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_h2.h"
 #include "shared/metallicity.h"
 #include "shared/sage_sf_feedback_physics.h"
 
@@ -55,6 +60,42 @@ static const char *MODULE = "sage26_apply_star_formation_supernova";
 #define MAX_GALAXIES 4
 
 static struct oracle_c05_carried_tally tally;
+static struct oracle_c08_local_tally h2_tally;
+
+/**
+ * @brief Compare one commit's hydrogen-cap record (SFprescription 1 fixtures only)
+ *
+ * The guard and the two binding flags, the bound max_h bit for bit, and, where a cap binds, the
+ * capped field of the end state equal to the bound.
+ *
+ * @param site   "sf" (update_from_star_formation) or "fb" (update_from_feedback)
+ * @return Number of mismatches
+ */
+static int check_hydrogen_caps(struct oracle_fixture *out, const char *site,
+                               const struct MimicSageHydrogenCapLocals *caps,
+                               const struct GalaxyData *gal) {
+  int problems = 0;
+  char flag[ORACLE_MAX_NAME];
+  snprintf(flag, sizeof(flag), "hydrogen_caps_%s_tracked", site);
+  problems += oracle_c06_check_flag(out, flag, caps->tracks_h2);
+  snprintf(flag, sizeof(flag), "h2_cap_%s_binds", site);
+  problems += oracle_c06_check_flag(out, flag, caps->h2_cap_binds);
+  snprintf(flag, sizeof(flag), "h1_cap_%s_binds", site);
+  problems += oracle_c06_check_flag(out, flag, caps->h1_cap_binds);
+  char name[ORACLE_MAX_NAME];
+  snprintf(name, sizeof(name), "max_h_%s", site);
+  problems += oracle_c08_check_local(out, name, caps->max_h, 1, 0, &h2_tally);
+  /* A binding cap sets its field to the bound (strict >: a field equal to it stays) */
+  if (caps->h2_cap_binds == 1) {
+    h2_tally.binding++;
+    problems += oracle_f32_to_bits(gal->H2gas) != oracle_f32_to_bits(caps->max_h);
+  }
+  if (caps->h1_cap_binds == 1) {
+    h2_tally.binding++;
+    problems += oracle_f32_to_bits(gal->H1gas) != oracle_f32_to_bits(caps->max_h);
+  }
+  return problems;
+}
 
 /**
  * @brief Set galaxies[0 .. ngal-1] from the fixture: Type and the fourteen written fields
@@ -88,7 +129,8 @@ static int check_galaxies(struct oracle_fixture *out, const int ngal,
 
 /** @brief One update_from_star_formation fixture */
 static int check_update_from_star_formation(struct oracle_fixture *in, struct oracle_fixture *out) {
-  int problems = oracle_c05_require_flag(in, "params.SFprescription", 0);
+  struct oracle_c08_sf_config cfg;
+  int problems = oracle_c08_read_sf_config(in, 1, &cfg);
   const double recycle_fraction = oracle_in_f64(in, "params.RecycleFraction");
   const double stars = oracle_in_f64(in, "call.stars");
 
@@ -99,16 +141,22 @@ static int check_update_from_star_formation(struct oracle_fixture *in, struct or
   const double metallicity = mimic_get_metallicity(galaxies[0].ColdGas, galaxies[0].MetalsColdGas);
   problems += oracle_check_f64(out, "intermediate.metallicity", metallicity);
 
-  mimic_sage_update_from_star_formation(&galaxies[0], stars, metallicity, recycle_fraction);
+  struct MimicSageHydrogenCapLocals caps;
+  mimic_sage_update_from_star_formation(&galaxies[0], stars, metallicity, recycle_fraction,
+                                        cfg.sf_prescription, &caps);
 
   problems += check_galaxies(out, 1, galaxies);
+  if (cfg.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+    problems += check_hydrogen_caps(out, "sf", &caps, &galaxies[0]);
+  }
   return problems;
 }
 
 /** @brief One update_from_feedback fixture */
 static int check_update_from_feedback(const char *name, struct oracle_fixture *in,
                                       struct oracle_fixture *out) {
-  int problems = oracle_c05_require_flag(in, "params.SFprescription", 0);
+  struct oracle_c08_sf_config cfg;
+  int problems = oracle_c08_read_sf_config(in, 1, &cfg);
   problems += oracle_c05_require_flag(in, "params.SupernovaRecipeOn", 1);
   problems += oracle_c05_require_flag(in, "params.CGMrecipeOn", 0);
 
@@ -133,7 +181,7 @@ static int check_update_from_feedback(const char *name, struct oracle_fixture *i
 
   struct MimicSageFeedbackLocals locals;
   mimic_sage_update_from_feedback(&galaxies[p], &galaxies[centralgal], reheated_mass, ejected_mass,
-                                  metallicity, &locals);
+                                  metallicity, cfg.sf_prescription, &locals);
 
   problems += check_galaxies(out, ngal, galaxies);
 
@@ -157,6 +205,9 @@ static int check_update_from_feedback(const char *name, struct oracle_fixture *i
                                        &locals.metals_hot_to_eject, &tally);
   problems += oracle_c05_check_carried(out, "intermediate.", "metals_hot_to_eject_capped",
                                        &locals.metals_hot_to_eject_capped, &tally);
+  if (cfg.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
+    problems += check_hydrogen_caps(out, "fb", &locals.hydrogen_caps, &galaxies[p]);
+  }
   return problems;
 }
 
@@ -202,10 +253,15 @@ int test_oracle_bit_identity(void) {
     return TEST_SKIP_WITH(mismatch);
   }
   memset(&tally, 0, sizeof(tally));
+  memset(&h2_tally, 0, sizeof(h2_tally));
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried locals asserted %d (validated two-sided), not validated %d, "
          "absent %d; binding clamps and caps asserted equal to their reservoir %d ",
          tally.asserted, tally.not_validated, tally.absent, tally.binding);
+  printf("\n  oracle: hydrogen-cap bounds compared %d (validated two-sided %d, not validated %d, "
+         "absent %d); binding hydrogen caps asserted equal to their bound %d ",
+         h2_tally.validated + h2_tally.not_validated + h2_tally.narrowing_limited,
+         h2_tally.validated, h2_tally.not_validated, h2_tally.absent, h2_tally.binding);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   return TEST_PASS;
 }

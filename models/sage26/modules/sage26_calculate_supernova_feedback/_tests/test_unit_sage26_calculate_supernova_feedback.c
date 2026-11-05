@@ -221,6 +221,8 @@ int test_module_initialization(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* sage26_apply_star_formation_supernova's required SFprescription */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -259,6 +261,8 @@ int test_parameter_reading(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* sage26_apply_star_formation_supernova's required SFprescription */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -297,6 +301,8 @@ int test_memory_safety(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  /* sage26_apply_star_formation_supernova's required SFprescription */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();

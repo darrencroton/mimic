@@ -14,7 +14,14 @@
  * channels, so that every caller commits an event exactly as SAGE26 does. It also
  * holds the supernova code constants both feedback callers derive at init.
  *
- * Only the R0 path is ported: SFprescription 0, SupernovaRecipeOn 1, CGMrecipeOn 0.
+ * The ported paths are SupernovaRecipeOn 1 and CGMrecipeOn 0, with SFprescription 0 (R0, R1) or 1
+ * (R2 onward). Under SFprescription 1, which tracks H2 (sf_prescription_tracks_h2,
+ * R/src/model_misc.h:93-96), each routine then caps H2gas and H1gas, independently, at the
+ * hydrogen of the cold gas it leaves: update_from_star_formation after its four reservoir stores
+ * (:1128-1135) and update_from_feedback after the cold-gas and metal debits, before the reheated
+ * gas reaches the central's hot gas (:1169-1173). Each cap is its own block under its own guard, as
+ * SAGE26 writes it; the bound is the float max_h = (ColdGas > 0.0f) ? ColdGas * 0.74 : 0.0f (the
+ * double product narrowed), compared strictly, H2 and H1 each on its own and never their sum.
  *
  * Rounding points. Every reservoir is a float, every mass and metallicity a double,
  * so each `+=`/`-=` widens the reservoir, operates in double and narrows the result.
@@ -36,8 +43,8 @@
  * patterns produced by SAGE26's own compiled routine.
  *
  * @note SAGE26's prescription-0 path does not resynchronise H2gas and H1gas after the
- *       depletion (:1128-1135, :1169-1172 run only for SFprescription values that track
- *       H2), so on R0 neither routine writes H1gas or H2gas.
+ *       depletion (:1131 and :1169 test sf_prescription_tracks_h2), so under SFprescription 0
+ *       (R0, R1) neither routine writes H1gas or H2gas.
  */
 
 #ifndef MIMIC_SHARED_SAGE_SF_FEEDBACK_PHYSICS_H
@@ -48,6 +55,8 @@
 
 #include "types.h"
 #include "shared/metallicity.h"
+#include "shared/sage_constants.h"
+#include "shared/sage_h2_physics.h"
 #include "module_system/physical_constants.h"
 
 /**
@@ -75,21 +84,39 @@ static inline double mimic_sage_eta_sn_code(const double unit_mass_in_g, const d
 }
 
 /**
+ * @brief The locals of one hydrogen cap, for tests that compare them with the oracle
+ *
+ * One record per cap site: update_from_star_formation's (:1131-1135) and update_from_feedback's
+ * (:1169-1173). max_h is NAN, and the two flags -1, where the guard is false.
+ */
+struct MimicSageHydrogenCapLocals {
+  int tracks_h2;    /**< the site's guard, sf_prescription_tracks_h2(SFprescription) */
+  float max_h;      /**< (ColdGas > 0.0f) ? ColdGas * 0.74 : 0.0f, narrowed to float */
+  int h2_cap_binds; /**< 1 if H2gas > max_h: H2gas set to max_h */
+  int h1_cap_binds; /**< 1 if H1gas > max_h: H1gas set to max_h */
+};
+
+/**
  * @brief Commit one star-formation event: SAGE26's update_from_star_formation
  *
  * Locks (1 - RecycleFraction) * stars of cold gas into stars, with the cold gas's
  * metallicity (R/src/model_starformation_and_feedback.c:1119-1126). The recycled
  * fraction stays in the cold gas. Each of the four updates is one fused multiply-add,
- * as in SAGE26's build.
+ * as in SAGE26's build. Then, for a prescription that tracks H2, H2gas and H1gas are
+ * each capped at the hydrogen of the remaining cold gas (:1128-1135).
  *
  * @param gal               Galaxy forming the stars
  * @param stars             Stellar mass formed, 1e10 Msun/h (double, as SAGE26's argument)
  * @param metallicity       Cold-gas metallicity at the call (get_metallicity of the cold gas)
  * @param recycle_fraction  RecycleFraction
+ * @param sf_prescription   SFprescription (0 or 1), which selects the hydrogen cap
+ * @param caps              Optional (NULL in production): receives the cap's locals
  */
 static inline void mimic_sage_update_from_star_formation(struct GalaxyData *gal, const double stars,
                                                          const double metallicity,
-                                                         const double recycle_fraction) {
+                                                         const double recycle_fraction,
+                                                         const int sf_prescription,
+                                                         struct MimicSageHydrogenCapLocals *caps) {
   /* SAGE parity: SAGE26's build fuses all four updates (:1123-1126): (1 - R) and
    * Z * (1 - R) are rounded first, then each widened float reservoir takes one fused
    * multiply-add with stars, the debits with the negated coefficient (fmla.2d over
@@ -103,6 +130,28 @@ static inline void mimic_sage_update_from_star_formation(struct GalaxyData *gal,
   gal->StellarMass = (float)fma(locked_fraction, stars, (double)gal->StellarMass);
   gal->MetalsColdGas = (float)fma(-metals_fraction, stars, (double)gal->MetalsColdGas);
   gal->MetalsStellarMass = (float)fma(metals_fraction, stars, (double)gal->MetalsStellarMass);
+
+  /* SAGE parity: H2gas and H1gas were formed before the star formation depleted the cold gas, so
+   * a prescription that tracks H2 caps each, on its own and strictly, at the float hydrogen of the
+   * cold gas now left, 0 when none is left (:1128-1135); the sum is not capped */
+  struct MimicSageHydrogenCapLocals cap = {0, NAN, -1, -1};
+  cap.tracks_h2 = mimic_sage_sf_prescription_tracks_h2(sf_prescription);
+  if (cap.tracks_h2) {
+    const float max_h =
+        (float)((gal->ColdGas > 0.0f) ? gal->ColdGas * SAGE_HYDROGEN_MASS_FRAC : 0.0f);
+    cap.max_h = max_h;
+    cap.h2_cap_binds = gal->H2gas > max_h;
+    if (cap.h2_cap_binds) {
+      gal->H2gas = max_h;
+    }
+    cap.h1_cap_binds = gal->H1gas > max_h;
+    if (cap.h1_cap_binds) {
+      gal->H1gas = max_h;
+    }
+  }
+  if (caps != NULL) {
+    *caps = cap;
+  }
 }
 
 /**
@@ -123,6 +172,7 @@ struct MimicSageFeedbackLocals {
   int reheat_clamp_binds;      /**< 1 if reheated mass > ColdGas */
   int ejected_cap_binds;       /**< 1 if ejected mass > HotGas */
   int metals_cap_binds;        /**< 1 if the metal transfer > MetalsHotGas */
+  struct MimicSageHydrogenCapLocals hydrogen_caps; /**< the post-reheating cap (:1169-1173) */
 };
 
 /**
@@ -134,6 +184,9 @@ struct MimicSageFeedbackLocals {
  * CGMrecipeOn 0 branch :1224-1247):
  *
  * - the reheated mass is clamped to the forming galaxy's ColdGas (:1153-1156);
+ * - after the cold gas and metal debits, a prescription that tracks H2 caps the galaxy's H2gas
+ *   and H1gas, each on its own, at the hydrogen of its remaining cold gas (:1169-1173), before
+ *   the reheated gas reaches the central's hot gas;
  * - the ejected mass is capped to the central's HotGas after the reheating
  *   (:1232-1234), and the metal transfer metallicityHot * ejected mass is capped
  *   separately to the central's MetalsHotGas (:1237-1240), so metals above gas
@@ -151,13 +204,13 @@ struct MimicSageFeedbackLocals {
  * @param reheated_mass  Reheated mass, 1e10 Msun/h (double)
  * @param ejected_mass   Ejected mass, 1e10 Msun/h (double)
  * @param metallicity    Cold-gas metallicity of gal at the call (get_metallicity)
+ * @param sf_prescription SFprescription (0 or 1), which selects the hydrogen cap
  * @param locals         Optional: receives the call's locals (NULL in production)
  */
-static inline void mimic_sage_update_from_feedback(struct GalaxyData *gal,
-                                                   struct GalaxyData *central_gal,
-                                                   double reheated_mass, double ejected_mass,
-                                                   const double metallicity,
-                                                   struct MimicSageFeedbackLocals *locals) {
+static inline void
+mimic_sage_update_from_feedback(struct GalaxyData *gal, struct GalaxyData *central_gal,
+                                double reheated_mass, double ejected_mass, const double metallicity,
+                                const int sf_prescription, struct MimicSageFeedbackLocals *locals) {
   /* SAGE parity: the clamp to the remaining cold gas, for floating-point overshoot
    * (R/src/model_starformation_and_feedback.c:1153-1156) */
   const int reheat_clamp_binds = reheated_mass > gal->ColdGas;
@@ -169,6 +222,25 @@ static inline void mimic_sage_update_from_feedback(struct GalaxyData *gal,
   // fuses the metal debit into one multiply-subtract (:1168).
   gal->ColdGas -= reheated_mass;
   gal->MetalsColdGas = (float)fma(-metallicity, reheated_mass, (double)gal->MetalsColdGas);
+
+  /* SAGE parity: after the debits and before the hot-gas credit, a prescription that tracks H2
+   * caps H2gas and H1gas, each on its own and strictly, at the float hydrogen of the cold gas
+   * now left, 0 when none is left (:1169-1173); the sum is not capped */
+  struct MimicSageHydrogenCapLocals hydrogen_caps = {0, NAN, -1, -1};
+  hydrogen_caps.tracks_h2 = mimic_sage_sf_prescription_tracks_h2(sf_prescription);
+  if (hydrogen_caps.tracks_h2) {
+    const float max_h_fb =
+        (float)((gal->ColdGas > 0.0f) ? gal->ColdGas * SAGE_HYDROGEN_MASS_FRAC : 0.0f);
+    hydrogen_caps.max_h = max_h_fb;
+    hydrogen_caps.h2_cap_binds = gal->H2gas > max_h_fb;
+    if (hydrogen_caps.h2_cap_binds) {
+      gal->H2gas = max_h_fb;
+    }
+    hydrogen_caps.h1_cap_binds = gal->H1gas > max_h_fb;
+    if (hydrogen_caps.h1_cap_binds) {
+      gal->H1gas = max_h_fb;
+    }
+  }
 
   // Add reheated gas to the central's hot gas (:1228-1229). SAGE parity: the metal
   // credit is fused into one multiply-add in SAGE26's build (:1229).
@@ -215,6 +287,7 @@ static inline void mimic_sage_update_from_feedback(struct GalaxyData *gal,
     locals->reheat_clamp_binds = reheat_clamp_binds;
     locals->ejected_cap_binds = ejected_cap_binds;
     locals->metals_cap_binds = metals_cap_binds;
+    locals->hydrogen_caps = hydrogen_caps;
   }
 }
 

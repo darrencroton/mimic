@@ -45,6 +45,13 @@
  * :1094 and R/src/model_mergers.c:816). */
 #define SAGE_METAL_EJECTION_MVIR_SCALE 30.0
 
+/* SAGE26's HYDROGEN_MASS_FRAC, the primordial hydrogen mass fraction, the double literal 0.74
+ * (R/src/model_starformation_and_feedback.h:14). Used by the H I diagnostic
+ * (R/src/model_starformation_and_feedback.c:1036), sfr_br06's H2 cap (:239-240) and the
+ * commits' hydrogen caps (:1132, :1170). The radial H2 annulus uses the float 0.74f instead
+ * (R/src/model_h2_chemistry.c:263, shared/sage_h2_physics.h). */
+#define SAGE_HYDROGEN_MASS_FRAC 0.74
+
 /* Virial temperature coefficient: T_vir[K] = 35.9 * (Vvir[km/s])^2,
  * i.e. T = mu * m_p * Vvir^2 / (2 k_B) with mu = 0.59 for ionized gas. */
 #define SAGE_TVIR_K_PER_SQKMS 35.9

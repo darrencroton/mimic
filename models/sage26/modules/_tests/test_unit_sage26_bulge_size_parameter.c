@@ -96,6 +96,8 @@ static void setup(const char *value) {
     snprintf(MimicConfig.ModelParams[n].value, MAX_STRING_LEN, "%s", value);
     MimicConfig.NumModelParams = n + 1;
   }
+  /* sage26_starburst_feedback's required SFprescription and StarburstColdGasOn, at R1's values */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
   MimicConfig.Hubble_h = 0.73;
   MimicConfig.UnitLength_in_cm = 3.08568e24;
   MimicConfig.UnitMass_in_g = 1.989e43;
