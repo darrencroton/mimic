@@ -27,9 +27,9 @@
  * and no disk instability (S:1365-1367). Every value carried between the steps is a local of the
  * call; no transport property is written. The arithmetic is the package's shared code: the H I
  * block (shared/sage_hi_physics.h), the history (shared/sage_sfr_history.h), the commits
- * (shared/sage_sf_feedback_physics.h), the FFB budget and the yield
- * (shared/sage_metal_yield_physics.h). The package's StarFormationRate diagnostic (not a SAGE26
- * output) gains the stars formed over the snapshot interval, as
+ * (shared/sage_sf_feedback_physics.h), the FFB budget (shared/sage_ffb_feedback_physics.h) and the
+ * yield (shared/sage_metal_yield_physics.h). The package's StarFormationRate diagnostic (not a
+ * SAGE26 output) gains the stars formed over the snapshot interval, as
  * sage26_apply_star_formation_supernova does for the ordinary path.
  *
  * Mvir and Vvir are SAGE26 floats; the core holds them as doubles and they are read here as the
@@ -43,6 +43,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "constants.h"
 #include "error.h"
@@ -207,8 +208,12 @@ static double ffb_stars(const float cold_gas, const float vvir, const double ref
   return stars;
 }
 
-/** @brief A trace with every value marked as not formed */
+/**
+ * @brief A trace with every value marked as not formed: NAN for every value, -1 for every flag,
+ *        nested locals included (sage26_ffb_star_formation.h)
+ */
 static void trace_init(struct Sage26FfbStarFormationTrace *t) {
+  memset(t, 0, sizeof(*t));
   t->path = SAGE26_FFB_PATH_INITIAL_BOUNDARY;
   t->dt = NAN;
   t->bin = -1;
@@ -224,12 +229,41 @@ static void trace_init(struct Sage26FfbStarFormationTrace *t) {
   t->stars_rejected = -1;
   t->stars_formed = NAN;
   t->metallicity = NAN;
-  t->sf_caps = (struct MimicSageHydrogenCapLocals){0, NAN, -1, -1};
+  t->sf_caps = (struct MimicSageHydrogenCapLocals){-1, NAN, -1, -1};
+
+  /* compute_sn_feedback_ffb's locals */
   mimic_sage_fire_locals_init(&t->feedback.fire);
+  t->feedback.stars_in = NAN;
+  t->feedback.mass_loading_written = -1;
+  t->feedback.reheated_pre_renorm = NAN;
+  t->feedback.renorm_binds = -1;
+  t->feedback.renorm_fac = NAN;
+  t->feedback.stars_out = NAN;
+  t->feedback.reheated_out = NAN;
+  t->feedback.ejection_evaluated = -1;
+  t->feedback.ejected_pre_floor = NAN;
+  t->feedback.ejected_floored = -1;
+  t->feedback.ejected_out = NAN;
+
   t->reheated_from_budget = NAN;
   t->reheat_clamp_binds = -1;
   t->reheated_to_commit = NAN;
   t->ejected_to_commit = NAN;
+
+  /* update_from_feedback's locals */
+  t->commit.reheated_mass_clamped = NAN;
+  t->commit.ejected_mass_capped = NAN;
+  t->commit.metallicity_selected = NAN;
+  t->commit.metals_to_eject = NAN;
+  t->commit.metals_to_eject_capped = NAN;
+  t->commit.selected_gas_at_cap = NAN;
+  t->commit.selected_metals_at_cap = NAN;
+  t->commit.reservoir_cgm = -1;
+  t->commit.reheat_clamp_binds = -1;
+  t->commit.ejected_cap_binds = -1;
+  t->commit.metals_cap_binds = -1;
+  t->commit.hydrogen_caps = (struct MimicSageHydrogenCapLocals){-1, NAN, -1, -1};
+
   t->yield_stars = NAN;
   t->yield = (struct MimicSageDiskYieldLocals){-1, NAN, NAN, -1};
 }
