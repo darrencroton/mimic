@@ -136,7 +136,8 @@ static int validate_placement(void) {
     for (int i = 1; i < phase->num_modules; i++) {
       const struct PhaseModuleConfig *entry = &phase->modules[i];
       const struct PhaseModuleConfig *previous = &phase->modules[i - 1];
-      if (strcmp(entry->module_name, MODULE_NAME) == 0 &&
+      if (entry->module_name != NULL && previous->module_name != NULL &&
+          strcmp(entry->module_name, MODULE_NAME) == 0 &&
           entry->processing_mode == PROCESSING_MODE_BY_GALAXY &&
           strcmp(previous->module_name, "sage26_apply_cooling") == 0 &&
           previous->processing_mode == PROCESSING_MODE_BY_GALAXY) {
@@ -311,6 +312,11 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
   const double total_cooling = cgm_cooling + hot_cooling;
   galaxy->CoolingRate = mimic_sage_cooling_rate(total_cooling, dt, params);
   t->total_cooling = total_cooling;
+
+  // SAGE parity: SAGE26 ends the wrapper with XASSERT(total_cooling >= 0.0)
+  // (R/src/model_cooling_heating.c:503-504), which is not ported: from a valid state it cannot
+  // fire, since each application runs only for a positive mass and caps it to its non-negative
+  // reservoir, so both terms of the total are non-negative
   return 0;
 }
 

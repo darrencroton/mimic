@@ -17,6 +17,8 @@
  *   - test_hot_agn_before_cgm_cooling: the hot AGN's heating radius is what the CGM AGN reads
  *   - test_cgm_applied_before_hot: CGM then hot application, each capped (C:475-496)
  *   - test_hot_apply_fresh_cap: the hot application is capped to the post-AGN HotGas
+ *   - test_cgm_apply_after_cgm_agn: with the CGM AGN on, the CGM application moves the CGM pair
+ *     as that AGN left it, with its own metallicity (C:475-483 after C:630-680)
  *   - test_equality_metals: no "move all metals" branch at equality; metals above the
  *     proportional split (C:479-483, :491-495)
  *   - test_diagnostics_reset_survival_restoration: every diagnostic path (C:436-469)
@@ -418,6 +420,135 @@ int test_hot_apply_fresh_cap(void) {
               "precondition: the recipe capped to HotGas and the AGN accreted from it");
   TEST_ASSERT(gal.HotGas == 0.0f, "the application emptied the post-AGN HotGas exactly");
   TEST_ASSERT(gal.BlackHoleMass > 0.1f, "the black hole grew");
+  sage26_calculate_cooling_budget_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_apply_after_cgm_agn
+ * @brief   The CGM application uses the CGM pair as the CGM AGN left it (C:475-483 after
+ *          C:630-680)
+ *
+ * A Regime 0 central with CGMgas 5 and metals 0.3 (metallicity 0.06, not a fixed fraction of the
+ * gas moved), no hot gas, Rheat 0 (no suppression), a black hole of 0.1 and AGNrecipe 2 (Bondi),
+ * dt 1e12. The CGM recipe caps its mass to CGMgas (C:366-367); the Bondi and Eddington rates over
+ * that dt exceed the reservoir, so the accretion is capped to it (C:559-560) and then by the
+ * heating cap to mass / AGNcoeff (C:562-571), a few 1e-6 of the gas, drawn from CGMgas and its
+ * metals at their metallicity (C:653-656); the returned mass is re-capped to the post-accretion
+ * CGMgas (C:675-677), so the application moves exactly the post-AGN pair, with the post-AGN
+ * metallicity (C:479-483), leaving CGMgas 0 and a metal residual of rounding size.
+ *
+ * Expected: ColdGas, MetalsColdGas, CGMgas, MetalsCGMgas, BlackHoleMass, Rheat and CoolingRate as
+ * SAGE26's statements written inline give them (every input read through opaque(), so the inline
+ * fused metal statements contract as the module's do). Preconditions assert that the pre-AGN
+ * metallicity, the hot pair's metallicity (0: no hot gas) and the pre-AGN CGMgas would each give a
+ * different end state.
+ */
+int test_cgm_apply_after_cgm_agn(void) {
+  TEST_ASSERT(load_tables() == 0, "cooling tables load");
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_galaxy(&halo, &gal, 0);
+  gal.HotGas = 0.0f;
+  gal.MetalsHotGas = 0.0f;
+  gal.CGMgas = 5.0f;
+  gal.MetalsCGMgas = 0.3f;
+  gal.ColdGas = 1.0f;
+  gal.MetalsColdGas = 0.01f;
+  gal.BlackHoleMass = 0.1f;
+  gal.Rheat = 0.0f;
+  const double dt = 1.0e12;
+  TEST_ASSERT(sage26_regime_aware_cooling_run(&halo, &MimicConfig, &AGN_BONDI, dt, NULL) == 0,
+              "the transaction succeeds");
+
+  /* SAGE26's float inputs (R/src/core_allvars.h:106-221), read at run time */
+  const float mvir = opaque(100.0f), rvir = opaque(0.2f), vvir = opaque(150.0f);
+  float cgm = opaque(5.0f), zcgm = opaque(0.3f), bh = opaque(0.1f), rheat = opaque(0.0f);
+  float cold = opaque(1.0f), zcold = opaque(0.01f);
+  const double efficiency = 0.08;
+
+  /* cooling_recipe_cgm up to the AGN step (C:322-370) */
+  const double temp = 35.9 * vvir * vvir;                                                /* C:322 */
+  const double lambda = get_metaldependent_cooling_rate(log10(temp), log10(zcgm / cgm)); /* :329 */
+  double x = PROTONMASS * BOLTZMANN * temp / lambda;                                     /* C:332 */
+  x /= (T_UNIT_DENSITY * T_UNIT_TIME);                                                   /* C:333 */
+  const double alpha = 1.4, r0 = 0.1 * rvir, ratio = 10.0;                           /* C:336-338 */
+  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);                /* C:341 */
+  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha); /* C:342 */
+  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);                       /* C:345 */
+  const double rho_eff = rho0 * (I_cool / I_M);                                      /* C:346 */
+  const double tcool = (x / rho_eff) * (1.5 * 0.59);                                 /* C:349 */
+  const double g_accel = T_G * mvir / (rvir * rvir);                                 /* C:352 */
+  const double tff = sqrt(2.0 * rvir / g_accel);                                     /* C:353 */
+  const double rcool = rvir;                                                         /* C:360 */
+  double cooling = (cgm / (tcool + tff)) * dt;                                       /* C:364 */
+  TEST_ASSERT(cooling > cgm, "precondition: the CGM recipe caps its mass to CGMgas");
+  cooling = cgm; /* C:366-367 */
+
+  /* do_AGN_heating_cgm (C:635-680) with agn_accretion_compute's Bondi branch (C:526-576) */
+  if (rheat < rcool && !(rheat >= 0.99 * rcool)) { /* C:638-643 */
+    cooling = (1.0 - rheat / rcool) * cooling;
+  } else {
+    cooling = 0.0;
+  }
+  const double bh_mass = bh;
+  double rate = (2.5 * M_PI * T_G) * (0.375 * 0.6 * x) * bh_mass * efficiency; /* C:540 */
+  const double edd = (1.3e38 * bh_mass * 1e10 / T_HUBBLE) / (T_UNIT_ENERGY / T_UNIT_TIME) /
+                     (0.1 * 9.0e10); /* C:553-556 */
+  if (rate > edd)                    /* C:557 */
+    rate = edd;
+  double accreted = rate * dt; /* C:559 */
+  if (accreted > cgm)          /* C:560 */
+    accreted = cgm;
+  double heating = 0.0;
+  const double vvir_d = vvir;
+  if (vvir_d > 0.0) { /* C:562-572 */
+    const double coeff = (1.34e5 / vvir_d) * (1.34e5 / vvir_d);
+    heating = coeff * accreted;
+    if (heating > cooling && coeff > 0.0) {
+      accreted = cooling / coeff;
+      heating = cooling;
+    }
+  }
+  const double z_pre = (cgm > 0.0 && zcgm > 0.0) ? fmin((double)zcgm / cgm, 1.0) : 0.0; /* :653 */
+  const float cgm_pre = cgm;
+  bh += accreted;                       /* C:654 */
+  cgm -= accreted;                      /* C:655 */
+  zcgm -= z_pre * accreted;             /* C:656 */
+  if (rheat < rcool && cooling > 0.0) { /* C:658-662 */
+    const double rheat_new = (heating / cooling) * rcool;
+    if (rheat_new > rheat)
+      rheat = rheat_new;
+  }
+  if (rheat > rvir) /* C:663-664 */
+    rheat = rvir;
+  if (cooling > cgm) /* C:675-677 */
+    cooling = cgm;
+  TEST_ASSERT(accreted > 0.0 && cgm < cgm_pre && cooling == (double)cgm,
+              "precondition: the AGN drew CGM gas and the returned mass is the post-AGN CGMgas");
+
+  /* the CGM application (C:475-483) */
+  if (cooling > cgm) /* C:476-478 */
+    cooling = cgm;
+  const double z_post = (cgm > 0.0 && zcgm > 0.0) ? fmin((double)zcgm / cgm, 1.0) : 0.0; /* :479 */
+  const float zcgm_post_agn = zcgm;
+  cold += cooling;           /* C:480 */
+  zcold += z_post * cooling; /* C:481 */
+  cgm -= cooling;            /* C:482 */
+  zcgm -= z_post * cooling;  /* C:483 */
+
+  /* What the pre-AGN metallicity would leave (mutants a and c) */
+  float zcgm_with_pre_z = zcgm_post_agn;
+  zcgm_with_pre_z -= z_pre * cooling;
+  TEST_ASSERT(zcgm_with_pre_z != zcgm, "precondition: the pre-AGN metallicity leaves other metals");
+  TEST_ASSERT(z_post > 0.0, "precondition: the hot pair's metallicity (0) credits other metals");
+
+  TEST_ASSERT(gal.CGMgas == cgm && cgm == 0.0f, "the application empties the post-AGN CGMgas");
+  TEST_ASSERT(gal.MetalsCGMgas == zcgm, "the CGM metals debited at the post-AGN metallicity");
+  TEST_ASSERT(gal.ColdGas == cold, "ColdGas gains the post-AGN CGM mass (C:480)");
+  TEST_ASSERT(gal.MetalsColdGas == zcold, "MetalsColdGas gains the CGM pair's metals (C:481)");
+  TEST_ASSERT(gal.BlackHoleMass == bh && gal.Rheat == rheat, "the CGM AGN's accretion and Rheat");
+  TEST_ASSERT(gal.CoolingRate == expected_rate(cooling, dt), "CoolingRate of the applied mass");
   sage26_calculate_cooling_budget_cleanup();
   return TEST_PASS;
 }
@@ -827,6 +958,7 @@ int main(void) {
   TEST_RUN(test_hot_agn_before_cgm_cooling);
   TEST_RUN(test_cgm_applied_before_hot);
   TEST_RUN(test_hot_apply_fresh_cap);
+  TEST_RUN(test_cgm_apply_after_cgm_agn);
   TEST_RUN(test_equality_metals);
   TEST_RUN(test_diagnostics_reset_survival_restoration);
   TEST_RUN(test_initial_boundary_matches_classic);
