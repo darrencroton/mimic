@@ -1,0 +1,105 @@
+# SAGE26 oracle output for cgm_agn_off.in, written by oracle_c11 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine cooling_recipe_cgm
+f64 intermediate.deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426
+f64 intermediate.dt 0x3ef49e1f39c7d84e  # 1.9662536589103428e-05
+f64 return.coolingGas 0x3fbfd8ae83e087b6  # 0.12440005035071419
+f32 galaxy[0].HotGas 0x3f800000  # 1
+f32 galaxy[0].MetalsHotGas 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].CGMgas 0x40a00000  # 5
+f32 galaxy[0].MetalsCGMgas 0x3d4ccccd  # 0.0500000007
+f32 galaxy[0].ColdGas 0x3f800000  # 1
+f32 galaxy[0].MetalsColdGas 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].BlackHoleMass 0x3a83126f  # 0.00100000005
+f32 galaxy[0].r_heat 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].tcool 0x3dd909b7  # 0.105975561
+f32 galaxy[0].tff 0x3f2abd91  # 0.666955054
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33
+f32 galaxy[0].CoolingRate 0x51a50ede  # 8.86148792e+10
+f32 galaxy[0].mdot_cool 0xc29a0000  # -77
+f32 galaxy[0].mdot_stream 0xc2b00000  # -88
+f64 galaxy[0].Cooling 0x40a3020083fdcad5  # 2433.0010070142839
+f64 galaxy[0].Heating 0xc050800000000000  # -66
+i32 intermediate.cgm_entered 1
+i32 intermediate.lambda_positive 1
+i32 intermediate.reservoir_cap 0
+i32 intermediate.agn_entered 0
+i32 intermediate.recapped -1
+i32 intermediate.agn_suppressed -1
+i32 intermediate.agn_saturated -1
+i32 intermediate.agn_reservoir_positive -1
+i32 intermediate.eddington_capped -1
+i32 intermediate.accretion_capped -1
+i32 intermediate.heating_capped -1
+i32 intermediate.ratchet_raised -1
+i32 intermediate.rheat_capped -1
+i32 intermediate.lambda_absent 0
+f64 intermediate.lambda 0x3b53d0523b0880cb  # 6.5558215129106943e-23
+i32 intermediate.lambda_checked 1
+i32 intermediate.lambda_check_kind 2
+i32 intermediate.lambda_validated_up 0
+i32 intermediate.lambda_validated_down 0
+i32 intermediate.lambda_validated 0
+i32 intermediate.x_absent 0
+f64 intermediate.x 0x3fcefe3827feab37  # 0.24213315918799491
+i32 intermediate.x_checked 1
+i32 intermediate.x_check_kind 2
+i32 intermediate.x_validated_up 0
+i32 intermediate.x_validated_down 0
+i32 intermediate.x_validated 0
+i32 intermediate.rcool_absent 0
+f64 intermediate.rcool 0x3fb99999a0000000  # 0.10000000149011612
+i32 intermediate.rcool_checked 1
+i32 intermediate.rcool_check_kind 2
+i32 intermediate.rcool_validated_up 0
+i32 intermediate.rcool_validated_down 0
+i32 intermediate.rcool_validated 0
+i32 intermediate.rho0_absent 0
+f64 intermediate.rho0 0x40d004cc741bcbca  # 16403.19458670522
+i32 intermediate.rho0_checked 1
+i32 intermediate.rho0_check_kind 2
+i32 intermediate.rho0_validated_up 0
+i32 intermediate.rho0_validated_down 0
+i32 intermediate.rho0_validated 0
+i32 intermediate.rho_eff_absent 0
+f64 intermediate.rho_eff 0x409ee67d1c30e8eb  # 1977.6221778528368
+i32 intermediate.rho_eff_checked 1
+i32 intermediate.rho_eff_check_kind 2
+i32 intermediate.rho_eff_validated_up 0
+i32 intermediate.rho_eff_validated_down 0
+i32 intermediate.rho_eff_validated 0
+i32 intermediate.tcool_absent 0
+f64 intermediate.tcool 0x3f1c67ab444d9b65  # 0.00010835631208082131
+i32 intermediate.tcool_checked 1
+i32 intermediate.tcool_check_kind 2
+i32 intermediate.tcool_validated_up 0
+i32 intermediate.tcool_validated_down 0
+i32 intermediate.tcool_validated 0
+i32 intermediate.g_accel_absent 0
+f64 intermediate.g_accel 0x411a3fdafe141b62  # 430070.74812357698
+i32 intermediate.g_accel_checked 1
+i32 intermediate.g_accel_check_kind 2
+i32 intermediate.g_accel_validated_up 0
+i32 intermediate.g_accel_validated_down 1
+i32 intermediate.g_accel_validated 0
+i32 intermediate.tff_absent 0
+f64 intermediate.tff 0x3f4658833c04b42f  # 0.00068193824703189309
+i32 intermediate.tff_checked 1
+i32 intermediate.tff_check_kind 2
+i32 intermediate.tff_validated_up 1
+i32 intermediate.tff_validated_down 1
+i32 intermediate.tff_validated 1
+i32 intermediate.CoolingGas_precap_absent 0
+f64 intermediate.CoolingGas_precap 0x3fbfd8ae83e087b6  # 0.12440005035071419
+i32 intermediate.CoolingGas_precap_checked 1
+i32 intermediate.CoolingGas_precap_check_kind 2
+i32 intermediate.CoolingGas_precap_validated_up 1
+i32 intermediate.CoolingGas_precap_validated_down 1
+i32 intermediate.CoolingGas_precap_validated 1
+i32 intermediate.CoolingGas_postcap_absent 0
+f64 intermediate.CoolingGas_postcap 0x3fbfd8ae83e087b6  # 0.12440005035071419
+i32 intermediate.CoolingGas_postcap_checked 1
+i32 intermediate.CoolingGas_postcap_check_kind 2
+i32 intermediate.CoolingGas_postcap_validated_up 1
+i32 intermediate.CoolingGas_postcap_validated_down 1
+i32 intermediate.CoolingGas_postcap_validated 1

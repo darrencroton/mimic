@@ -12,6 +12,13 @@
  *
  * - normalise_cooling_heating (the c04 fixtures): Cooling and Heating, and the four
  *   cooling diagnostics left as they were;
+ * - writer_mdot_conversion (the c11 fixtures, campaign decision D39): SAGE26's writer
+ *   conversion of its raw float mdot rates (R/src/io/save_gals_hdf5.c:996-997), transcribed in
+ *   the oracle; the test runs process() on one live galaxy holding the raw rates in
+ *   mdot_cool_raw and mdot_stream_raw, with a positive interval and again without one, and
+ *   asserts the written mdot_cool and mdot_stream bit for bit on both paths. Where the oracle
+ *   records that the conversion regrouped as one constant factor rounds differently, the test
+ *   also asserts that the package does not compute the regrouped value;
  * - normalise_outflow_rate (the c05 fixtures): Cooling, Heating and the float
  *   OutflowRate (the package's SupernovaOutflowRate), in SAGE26's statement order.
  *   Their intermediate.writer.galaxy[i].OutflowRate is SAGE26's float output value
@@ -174,6 +181,73 @@ static int check_normalisation(const char *name, struct oracle_fixture *in,
   return problems;
 }
 
+/* writer_mdot_conversion fixtures checked */
+static int writer_mdot_fixtures = 0;
+
+/**
+ * @brief One writer_mdot_conversion fixture: process() writes SAGE26's written float rates
+ *
+ * The raw rates are SAGE26's float members; the units are the writer's. The galaxy is finalised
+ * once with a positive interval and once without one (the non-positive-interval branch), and
+ * both must write the oracle's values.
+ */
+static int check_writer_mdot(const char *name, struct oracle_fixture *in,
+                             struct oracle_fixture *out) {
+  reset_config();
+  MimicConfig.UnitMass_in_g = oracle_in_f64(in, "params.UnitMass_in_g");
+  MimicConfig.UnitTime_in_s = oracle_in_f64(in, "params.UnitTime_in_s");
+  const float raw_cool = oracle_in_f32(in, "galaxy[0].mdot_cool");
+  const float raw_stream = oracle_in_f32(in, "galaxy[0].mdot_stream");
+  int problems = 0;
+  float written[2][2];
+  for (int branch = 0; branch < 2; branch++) {
+    struct GalaxyData galaxy;
+    struct Halo halo;
+    struct ModuleContext ctx;
+    oracle_poison(&galaxy, sizeof(galaxy));
+    oracle_poison(&halo, sizeof(halo));
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.params = &MimicConfig;
+    halo.galaxy = &galaxy;
+    halo.Type = 0;
+    halo.dT = (branch == 0) ? 1.0 : -1.0; /* a positive interval, then none */
+    galaxy.Cooling = 0.0;
+    galaxy.Heating = 0.0;
+    galaxy.SupernovaOutflowRate = 0.0f;
+    galaxy.mdot_cool_raw = raw_cool;
+    galaxy.mdot_stream_raw = raw_stream;
+    if (sage26_finalize_cooling_heating_process(&ctx, &halo, 1) != 0) {
+      fprintf(stderr, "oracle: %s: process() failed\n", name);
+      return problems + 1;
+    }
+    written[branch][0] = galaxy.mdot_cool;
+    written[branch][1] = galaxy.mdot_stream;
+  }
+  problems += oracle_check_f32(out, "output.mdot_cool", written[0][0]);
+  problems += oracle_check_f32(out, "output.mdot_stream", written[0][1]);
+  if (memcmp(written[0], written[1], sizeof(written[0])) != 0) {
+    fprintf(stderr, "oracle: %s: the non-positive-interval branch writes different rates\n", name);
+    problems++;
+  }
+  const char *const which[2] = {"mdot_cool", "mdot_stream"};
+  for (int k = 0; k < 2; k++) {
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "intermediate.grouped_%s", which[k]);
+    const float grouped = oracle_in_f32(out, field);
+    snprintf(field, sizeof(field), "intermediate.grouped_differs_%s", which[k]);
+    const int differs = oracle_in_i32(out, field);
+    if (differs && memcmp(&grouped, &written[0][k], sizeof(grouped)) == 0) {
+      fprintf(stderr, "oracle: %s: the package computes the regrouped %s conversion\n", name,
+              which[k]);
+      problems++;
+    }
+  }
+  writer_mdot_fixtures++;
+  problems += oracle_report_unconsumed(in);
+  problems += oracle_report_unconsumed(out);
+  return problems;
+}
+
 /** @brief Compare one fixture; dispatches on its routine line */
 static int check_fixture(const char *name) {
   static struct oracle_fixture in, out;
@@ -181,6 +255,12 @@ static int check_fixture(const char *name) {
   oracle_fixture_path(path, sizeof(path), MODULE, name, ".in");
   if (oracle_load(path, &in) != 0) {
     return 1;
+  }
+  if (strcmp(in.routine, "writer_mdot_conversion") == 0) {
+    if (oracle_load_pair(MODULE, name, "writer_mdot_conversion", &in, &out) != 0) {
+      return 1;
+    }
+    return check_writer_mdot(name, &in, &out);
   }
   const int outflow = strcmp(in.routine, "normalise_outflow_rate") == 0;
   if (oracle_load_pair(MODULE, name,
@@ -212,7 +292,10 @@ int test_oracle_bit_identity(void) {
   }
   writer_conversion_galaxies = 0;
   writer_conversion_agree = 0;
+  writer_mdot_fixtures = 0;
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
+  printf("\n  oracle: c11 writer_mdot_conversion fixtures checked bit for bit on both branches: %d",
+         writer_mdot_fixtures);
   printf("\n  oracle: core boundary (not asserted): the generated SupernovaOutflowRate output "
          "conversion equals SAGE26's writer value on %d of %d galaxies ",
          writer_conversion_agree, writer_conversion_galaxies);

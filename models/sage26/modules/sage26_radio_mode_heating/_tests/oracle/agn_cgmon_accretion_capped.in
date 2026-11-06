@@ -1,0 +1,45 @@
+# do_AGN_heating (C:587-627) called on its own with CGMrecipeOn 1 and AGNrecipeOn 2:
+# the 0.99 saturation (C:591) and the Rvir cap outside the block (C:623-624).
+# A massive black hole on a tiny hot reservoir at Vvir 3000 km/s: AGNaccreted
+# is capped to HotGas (C:560) and the heating cap (C:568) does not then
+# rewrite it, so the reservoir cap alone sets the accreted mass.
+# x is the oracle's intermediate.x of hs_sigmoid_no_cutoff (the same galaxy).
+# Reachability: constructed routine-domain probe.
+format sage26-oracle-fixture 1
+routine do_AGN_heating_cgm_on
+
+i32 params.AGNrecipeOn 2  # R4.par:49
+i32 params.CGMrecipeOn 1  # R4.par:54
+f64 params.G 0x404580e7ed5ced1b  # 43.00707785642063  43.007077856420629  (GRAVITY / CUBE(L) * M * SQR(T))
+f64 params.RadioModeEfficiency 0x3fb47ae147ae147b  # 0.08  0.08  (R4.par:74)
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.73  0.73  (R4.par:40)
+f64 params.UnitEnergy_in_cgs 0x4b009ce7388de074  # 1.989e+53  1.989e+53  (M * SQR(L) / SQR(T))
+f64 params.UnitTime_in_s 0x43fac39601d1945f  # 3.0856799999999996e+19  3.0856799999999996e+19  (L / V)
+f64 params.UnitDensity_in_cgs 0x39ab764398088fc8  # 6.769898014440631e-31  6.7698980144406312e-31  (M / CUBE(L))
+f64 call.Age_galaxy_snap 0x3f29c5a70839ce61  # 0.00019662536589103426  Age[galaxies[p].SnapNum] (plausible)
+f64 call.halo_age 0x0000000000000000  # 0.0  Age[halo_snapnum] (plausible)
+i32 call.effective_steps 10
+f64 call.coolingGas 0x3fa999999999999a  # 0.05
+f64 call.x 0x3fcefe3827feab37  # 0.2421331591879949
+f64 call.rcool 0x3fb999999999999a  # 0.1
+i32 galaxy[0].Type 0
+i32 galaxy[0].SnapNum 40  # the stored snapshot
+f32 galaxy[0].Mvir 0x42c80000  # 100.0
+f32 galaxy[0].Rvir 0x3dcccccd  # 0.10000000149011612
+f32 galaxy[0].Vvir 0x453b8000  # 3000.0
+f32 galaxy[0].HotGas 0x358637bd  # 9.999999974752427e-07
+f32 galaxy[0].MetalsHotGas 0x322bcc77  # 9.99999993922529e-09
+f32 galaxy[0].CGMgas 0x3f000000  # 0.5
+f32 galaxy[0].MetalsCGMgas 0x3ba3d70a  # 0.004999999888241291
+f32 galaxy[0].ColdGas 0x3f800000  # 1.0
+f32 galaxy[0].MetalsColdGas 0x3c23d70a  # 0.009999999776482582
+f32 galaxy[0].BlackHoleMass 0x41200000  # 10.0
+f32 galaxy[0].r_heat 0x3c23d70a  # 0.009999999776482582
+f64 galaxy[0].Cooling 0xc04b800000000000  # -55.0  input bit pattern no routine here writes
+f64 galaxy[0].Heating 0xc050800000000000  # -66.0  input bit pattern no routine here writes
+f32 galaxy[0].tcool 0xc1300000  # -11.0  input bit pattern no routine here writes
+f32 galaxy[0].tff 0xc1b00000  # -22.0  input bit pattern no routine here writes
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33.0  input bit pattern no routine here writes
+f32 galaxy[0].CoolingRate 0xc2300000  # -44.0  input bit pattern no routine here writes
+f32 galaxy[0].mdot_cool 0xc29a0000  # -77.0  input bit pattern no routine here writes
+f32 galaxy[0].mdot_stream 0xc2b00000  # -88.0  input bit pattern no routine here writes

@@ -18,6 +18,10 @@
  *   - test_no_positive_interval_zeroes: first galaxy dT <= 0 zeroes live galaxies' energies
  *   - test_diagnostics_untouched: tcool, tff, RcoolToRvir, CoolingRate are not changed
  *   - test_empty_input: NULL halos or ngal 0 is a no-op
+ *   - test_mdot_writer_conversion: the output mdot rates are SAGE26's writer expression of the
+ *     raw rates (save_gals_hdf5.c:996-997), left to right, for every live galaxy
+ *   - test_mdot_on_nonpositive_interval: the conversion also runs where the first galaxy has no
+ *     positive interval, and a never-assigned (zero) raw rate is written as 0
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -31,6 +35,7 @@
 #include "util/memory.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -284,6 +289,122 @@ int test_empty_input(void) {
   return TEST_PASS;
 }
 
+// ============================================================================
+// THE WRITTEN MDOT RATES (campaign decision D39)
+// ============================================================================
+
+/** @brief A float from its IEEE-754 bit pattern */
+static float float_from_bits(const uint32_t bits) {
+  float value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+/** @brief A double the compiler cannot constant-fold (the expectation is evaluated at run time) */
+static double opaque_double(const double value) {
+  volatile double v = value;
+  return v;
+}
+
+/*
+ * A unit mass and two raw rates for which SAGE26's left-to-right conversion and the same
+ * conversion regrouped as one constant factor round to different floats (found by an exhaustive
+ * scratch search, recorded in the slice's validation): UnitMass_in_g = 1.989e43 * (1 + 25e-6),
+ * UnitTime_in_s the mini-Millennium 3.08568e24 / 1e5.
+ */
+#define T_UNIT_MASS 0x1.c8a9d5f481618p+143
+#define T_UNIT_TIME 0x1.ac39601d1945fp+64
+#define T_RAW_COOL_BITS 0x3fa9c5eau   /* 1.32635236 */
+#define T_RAW_STREAM_BITS 0x3ff90024u /* 1.94531679 */
+
+/** @brief SAGE26's writer expression (R/src/io/save_gals_hdf5.c:996-997), inline */
+static float writer_value(const float raw) {
+  return (float)(raw * opaque_double(T_UNIT_MASS) / opaque_double(T_UNIT_TIME) * 3.155e7 /
+                 1.989e33);
+}
+
+/** @brief The same conversion regrouped as one constant factor (the form it must not take) */
+static float grouped_value(const float raw) {
+  return (float)(raw *
+                 (opaque_double(T_UNIT_MASS) / opaque_double(T_UNIT_TIME) * 3.155e7 / 1.989e33));
+}
+
+/** @brief Rows with distinguishable raw rates and stale output values */
+static void setup_mdot_rows(void) {
+  setup_rows();
+  MimicConfig.UnitMass_in_g = T_UNIT_MASS;
+  MimicConfig.UnitTime_in_s = T_UNIT_TIME;
+  for (int i = 0; i < NROWS; i++) {
+    galaxies[i].mdot_cool = -77.0f;
+    galaxies[i].mdot_stream = -88.0f;
+  }
+  galaxies[0].mdot_cool_raw = float_from_bits(T_RAW_COOL_BITS);
+  galaxies[0].mdot_stream_raw = float_from_bits(T_RAW_STREAM_BITS);
+  galaxies[1].mdot_cool_raw = 0.0f; /* never assigned: SAGE26's creation value */
+  galaxies[1].mdot_stream_raw = 0.0f;
+  galaxies[2].mdot_cool_raw = 3.0f;
+  galaxies[2].mdot_stream_raw = 0.25f;
+  galaxies[3].mdot_cool_raw = 7.0f;
+  galaxies[3].mdot_stream_raw = 9.0f;
+  halos[3].Type = 3; /* merged this snapshot: not finalised */
+}
+
+/**
+ * @test    test_mdot_writer_conversion
+ * @brief   mdot_cool and mdot_stream are SAGE26's writer conversion of the raw float rates
+ *
+ * Expected: every live galaxy's outputs equal raw * UnitMass_in_g / UnitTime_in_s *
+ * SEC_PER_YEAR / SOLAR_MASS evaluated left to right and narrowed (SAGE26's writer, with
+ * 3.155e7 and 1.989e33, R/src/macros.h:24, :38); for row 0 that differs from the regrouped
+ * constant factor; a zero raw rate is written 0; the merged row keeps its stale outputs.
+ */
+int test_mdot_writer_conversion(void) {
+  setup_mdot_rows();
+  TEST_ASSERT(writer_value(float_from_bits(T_RAW_COOL_BITS)) !=
+                      grouped_value(float_from_bits(T_RAW_COOL_BITS)) &&
+                  writer_value(float_from_bits(T_RAW_STREAM_BITS)) !=
+                      grouped_value(float_from_bits(T_RAW_STREAM_BITS)),
+              "precondition: the regrouped conversion rounds differently on row 0");
+  TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, NROWS) == 0,
+              "process should succeed");
+  for (int i = 0; i < 3; i++) {
+    TEST_ASSERT(galaxies[i].mdot_cool == writer_value(galaxies[i].mdot_cool_raw) &&
+                    galaxies[i].mdot_stream == writer_value(galaxies[i].mdot_stream_raw),
+                "a live galaxy's outputs are the writer conversion of its raw rates");
+  }
+  TEST_ASSERT(galaxies[1].mdot_cool == 0.0f && galaxies[1].mdot_stream == 0.0f,
+              "a never-assigned rate is written 0");
+  TEST_ASSERT(galaxies[3].mdot_cool == -77.0f && galaxies[3].mdot_stream == -88.0f,
+              "a merged galaxy is not finalised");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_mdot_on_nonpositive_interval
+ * @brief   The conversion runs on the branch where the first galaxy has no positive interval
+ *
+ * Expected: with the first row's dT -1 (the energies zeroed) every live galaxy's outputs are
+ * still the writer conversion of its raw rates, the zero raw rate is written 0 over the stale
+ * output, and the merged row keeps its stale outputs.
+ */
+int test_mdot_on_nonpositive_interval(void) {
+  setup_mdot_rows();
+  halos[0].dT = -1.0;
+  TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, NROWS) == 0,
+              "process should succeed");
+  TEST_ASSERT(galaxies[0].Cooling == 0.0, "precondition: the non-positive-interval branch ran");
+  for (int i = 0; i < 3; i++) {
+    TEST_ASSERT(galaxies[i].mdot_cool == writer_value(galaxies[i].mdot_cool_raw) &&
+                    galaxies[i].mdot_stream == writer_value(galaxies[i].mdot_stream_raw),
+                "a live galaxy's outputs are written on this branch too");
+  }
+  TEST_ASSERT(galaxies[1].mdot_cool == 0.0f && galaxies[1].mdot_stream == 0.0f,
+              "a never-assigned rate is written 0 over the stale output");
+  TEST_ASSERT(galaxies[3].mdot_cool == -77.0f && galaxies[3].mdot_stream == -88.0f,
+              "a merged galaxy is not finalised");
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -302,6 +423,8 @@ int main(void) {
   TEST_RUN(test_no_positive_interval_zeroes);
   TEST_RUN(test_diagnostics_untouched);
   TEST_RUN(test_empty_input);
+  TEST_RUN(test_mdot_writer_conversion);
+  TEST_RUN(test_mdot_on_nonpositive_interval);
 
   TEST_SUMMARY();
   return TEST_RESULT();

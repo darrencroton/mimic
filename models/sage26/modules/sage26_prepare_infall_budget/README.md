@@ -32,7 +32,7 @@ A port of SAGE26's `infall_recipe` (`src/model_infall.c:67-213`), with both sett
 ## Parameters
 
 - `GlobalBaryonFraction`
-- `CGMrecipeOn` (required, 0 or 1; any other value, or a missing key, fails initialisation naming it; the run files keep 0, R3's value, until c11 completes R4)
+- `CGMrecipeOn` (required, 0 or 1; any other value, or a missing key, fails initialisation naming it; the run files hold 1, SAGE26's R4)
 
 ## Tests
 

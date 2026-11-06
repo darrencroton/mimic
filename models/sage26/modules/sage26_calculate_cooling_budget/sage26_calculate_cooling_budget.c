@@ -13,6 +13,19 @@
  *   3. sage26_apply_cooling: the routine's tail, Cooling and CoolingRate
  *      (:301-313), then cool_gas_onto_galaxy (R/src/core_build_model.c:508-509).
  *
+ * The arithmetic is shared/sage_cooling_physics.h's mimic_sage_hot_cooling_budget, called
+ * with CGMrecipeOn 0 (the R0-R3 behaviour).
+ *
+ * CGMrecipeOn (required, 0 or 1; campaign decision D33) selects the path. With CGMrecipeOn 1
+ * SAGE26 calls cooling_recipe_regime_aware instead (R/src/core_build_model.c:503-509,
+ * R/src/model_cooling_heating.c:125-132), which sage26_regime_aware_cooling owns whole (campaign
+ * decision D38): this module then writes only its no-cooling transport (CoolingGas = CoolingX =
+ * Rcool = 0, CoolingReturnPath = -1) and no galaxy property, so sage26_radio_mode_heating and
+ * sage26_apply_cooling skip by their own gates. Because a CGMrecipeOn 1 run without the
+ * transaction would cool nothing, and one without the classifier would route every galaxy
+ * through the hot branch, init() then refuses unless sage26_regime_aware_cooling is configured
+ * in the substep phase that holds this module and sage26_determine_regime in pre_timestep.
+ *
  * It carries SAGE26's locals between them in package-private transport
  * properties, written on every call because init_repeat resets them only once per
  * snapshot: the post-cap mass (CoolingGas), x (CoolingX), rcool (Rcool) and the
@@ -26,133 +39,75 @@
 
 #include "constants.h"
 #include "error.h"
+#include "globals.h"
 #include "shared/sage_constants.h"
+#include "shared/sage_cooling_physics.h"
 #include "shared/time_parity.h"
-#include "module_system/physical_constants.h"
+#include "module_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "types.h"
 #include "cooling_tables.h"
 
 // ============================================================================
-// MODULE-LOCAL CONSTANTS
+// MODULE PARAMETERS
 // ============================================================================
 
-/* Mean molecular weight of a fully ionised gas (R/src/model_cooling_heating.c:52) */
-static const double MU_IONISED = 0.59;
+#define MODULE_NAME "sage26_calculate_cooling_budget"
+
+/* SAGE26's CGMrecipeOn (0 off, 1 on), required and checked at init (campaign decision D33) */
+static int CGM_RECIPE_ON;
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-/** @brief SAGE26's locals of cooling_recipe_hot that later modules need */
-struct cooling_locals {
-  double x;     /* PROTONMASS * BOLTZMANN * temp / lambda in code units (:163-164) */
-  double rcool; /* cooling radius (:173) */
-  int path;     /* SAGE_COOLING_PATH_* */
-};
+/**
+ * @brief Refuse a CGMrecipeOn other than 0 or 1, naming the parameter
+ * @return 0 when supported; -1 otherwise
+ */
+static int validate_cgm_recipe_on(const int value) {
+  if (value != 0 && value != 1) {
+    ERROR_LOG("%s: CGMrecipeOn = %d is not supported: the package ports only 0 (classic hot "
+              "cooling) and 1 (SAGE26's regime-aware cooling, sage26_regime_aware_cooling)",
+              MODULE_NAME, value);
+    return -1;
+  }
+  return 0;
+}
 
 /**
- * @brief SAGE26's cooling_recipe_hot up to the AGN step: the post-cap cooling mass
+ * @brief With CGMrecipeOn 1, require the cooling transaction and the regime classifier
  *
- * Writes tcool, tff and RcoolToRvir as SAGE26 does, including its early returns,
- * which leave RcoolToRvir (and, through sage26_apply_cooling, Cooling and
- * CoolingRate) untouched. Mvir, Rvir and Vvir are SAGE26 floats
- * (R/src/core_allvars.h:106-221); the core's doubles are read as those floats.
+ * With CGMrecipeOn 1 this module writes no cooling (D38): without sage26_regime_aware_cooling in
+ * the substep phase that holds this module no galaxy would cool, and without
+ * sage26_determine_regime in pre_timestep every Regime would stay -1 and route every galaxy
+ * through the hot branch (R/src/model_cooling_heating.c:446). With CGMrecipeOn 0 nothing is
+ * required.
  *
- * @param halo    Halo whose galaxy cools (galaxy not NULL)
- * @param params  Run configuration (unit factors, Hubble_h)
- * @param dt      Substep interval, SAGE26's deltaT / effective_steps
- * @param locals  Output: x, rcool and the return path
- * @return The post-cap, pre-suppression cooling mass (0 on every early return)
+ * @return 0 when the configuration is complete (or CGMrecipeOn is 0); -1 otherwise
  */
-static double cooling_recipe_hot(struct Halo *halo, const struct MimicConfig *params,
-                                 const double dt, struct cooling_locals *locals) {
-  struct GalaxyData *galaxy = halo->galaxy;
-  const float rvir = (float)halo->Rvir;
-  const float vvir = (float)halo->Vvir;
-  double coolingGas;
-
-  locals->x = 0.0;
-  locals->rcool = 0.0;
-
-  galaxy->tcool = 0.0f;
-
-  if (!(galaxy->HotGas > 0.0 && vvir > 0.0)) {
-    locals->path = SAGE_COOLING_PATH_OUTER_GUARD;
-    return 0.0;
+static int validate_cgm_configuration(void) {
+  if (CGM_RECIPE_ON != 1) {
+    return 0;
   }
-
-  // SAGE parity: SAGE26 divides its float Rvir by its float Vvir in float and
-  // stores the result in a double (R/src/model_cooling_heating.c:142); both
-  // cooling branches then use that tcool (:190-200).
-  const double tcool = rvir / vvir;
-  const double tff = M_SQRT2 * tcool;
-
-  // SAGE parity: tcool and tff are written with SAGE26's conversion, a mass-rate
-  // factor applied to a time, so neither is a time in Gyr
-  // (R/src/model_cooling_heating.c:142-148).
-  galaxy->tcool =
-      (float)((tcool * 1.0e10 / params->Hubble_h * SAGE_SEC_PER_GIGAYEAR / params->UnitTime_in_s));
-  galaxy->tff =
-      (float)((tff * 1.0e10 / params->Hubble_h * SAGE_SEC_PER_GIGAYEAR / params->UnitTime_in_s));
-
-  const double temp = SAGE_TVIR_K_PER_SQKMS * vvir * vvir; // T_vir in Kelvin
-
-  // The float MetalsHotGas / HotGas is a float division, as in SAGE26 (:152-155)
-  double logZ = -10.0;
-  if (galaxy->MetalsHotGas > 0) {
-    logZ = log10(galaxy->MetalsHotGas / galaxy->HotGas);
+  if (!modules_in_same_substep_phase(MODULE_NAME, PROCESSING_MODE_BY_GALAXY,
+                                     "sage26_regime_aware_cooling", PROCESSING_MODE_BY_GALAXY)) {
+    ERROR_LOG("%s: CGMrecipeOn = 1 requires sage26_regime_aware_cooling (process_by_galaxy) in "
+              "the same substep phase (galaxy_physics in the run files): with CGMrecipeOn 1 this "
+              "module writes no cooling and that module owns SAGE26's regime-aware cooling",
+              MODULE_NAME);
+    return -1;
   }
-
-  const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ);
-
-  // SAGE parity: the lambda <= 0 and rho_rcool <= 0 early returns come after
-  // tcool and tff are written and skip the rest of the routine, so RcoolToRvir,
-  // Cooling and CoolingRate keep their previous values
-  // (R/src/model_cooling_heating.c:157-169, :175, :302, :310).
-  if (lambda <= 0.0) {
-    locals->path = SAGE_COOLING_PATH_LAMBDA;
-    return 0.0;
+  if (!module_configured_in_phase("sage26_determine_regime", MimicConfig.pre_timestep,
+                                  MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO)) {
+    ERROR_LOG("%s: CGMrecipeOn = 1 requires sage26_determine_regime (process_full_halo) in "
+              "pre_timestep: without the classifier every Regime stays -1 and the regime-aware "
+              "cooling routes every galaxy through the hot branch",
+              MODULE_NAME);
+    return -1;
   }
-
-  double x = PROTONMASS * BOLTZMANN * temp / lambda;         // sec g/cm^3
-  x /= (params->UnitDensity_in_cgs * params->UnitTime_in_s); // internal units
-  const double rho_rcool = x / tcool * (1.5 * MU_IONISED);   // 3/2 mu, ionised gas
-  locals->x = x;
-
-  if (rho_rcool <= 0.0) {
-    locals->path = SAGE_COOLING_PATH_RHO_RCOOL;
-    return 0.0;
-  }
-
-  // An isothermal density profile for the hot gas
-  const double rho0 = galaxy->HotGas / (4 * M_PI * rvir);
-  const double rcool = sqrt(rho0 / rho_rcool);
-  locals->rcool = rcool;
-
-  galaxy->RcoolToRvir = rcool / rvir;
-
-  // SAGE parity: rcool is left uncapped, and the rapid branch cools the whole
-  // corona in one tcool while the static branch cools at half that rate at
-  // rcool == Rvir: the branches are discontinuous by a factor 2, as SAGE26
-  // keeps them (R/src/model_cooling_heating.c:177-200).
-  if (rcool > rvir) {
-    coolingGas = galaxy->HotGas / tcool * dt;
-  } else {
-    // HotGas / Rvir is a float division, as in SAGE26 (:199)
-    coolingGas = (galaxy->HotGas / rvir) * (rcool / (2.0 * tcool)) * dt;
-  }
-
-  if (coolingGas > galaxy->HotGas) {
-    coolingGas = galaxy->HotGas;
-  } else {
-    if (coolingGas < 0.0)
-      coolingGas = 0.0;
-  }
-
-  locals->path = SAGE_COOLING_PATH_TAIL;
-  return coolingGas;
+  return 0;
 }
 
 // ============================================================================
@@ -160,6 +115,15 @@ static double cooling_recipe_hot(struct Halo *halo, const struct MimicConfig *pa
 // ============================================================================
 
 int sage26_calculate_cooling_budget_init(void) {
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
+  if (validate_cgm_recipe_on(CGM_RECIPE_ON) != 0) {
+    return -1;
+  }
+  if (validate_cgm_configuration() != 0) {
+    return -1;
+  }
+
   if (cooling_tables_init(MIMIC_COMPILED_MODEL_PATH
                           "/modules/sage26_calculate_cooling_budget/CoolFunctions") != 0) {
     ERROR_LOG("Failed to initialize cooling function tables");
@@ -167,6 +131,9 @@ int sage26_calculate_cooling_budget_init(void) {
   }
 
   VERBOSE_LOG("SAGE calculate cooling budget module initialized");
+  VERBOSE_LOG("  CGMrecipeOn = %d%s", CGM_RECIPE_ON,
+              CGM_RECIPE_ON == 1 ? " (no-cooling transport only: sage26_regime_aware_cooling cools)"
+                                 : "");
   return 0;
 }
 
@@ -193,6 +160,19 @@ int sage26_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Ha
 
   struct GalaxyData *galaxy = halo->galaxy;
 
+  // With CGMrecipeOn 1 SAGE26 calls cooling_recipe_regime_aware instead of cooling_recipe_hot
+  // (R/src/model_cooling_heating.c:128-129), which sage26_regime_aware_cooling owns whole
+  // (campaign decision D38). The carried state says no cooling, so sage26_radio_mode_heating
+  // (CoolingGas > 0 gate) and sage26_apply_cooling (path -1, zero mass) write nothing, and no
+  // galaxy property is written here.
+  if (CGM_RECIPE_ON == 1) {
+    galaxy->CoolingGas = 0.0;
+    galaxy->CoolingX = 0.0;
+    galaxy->Rcool = 0.0;
+    galaxy->CoolingReturnPath = SAGE_COOLING_PATH_NOT_EVALUATED;
+    return 0;
+  }
+
   dt_status = mimic_object_substep_dt(halo, ctx, &dt_obj);
   if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
     // No positive interval (the core's snapshot-zero birth): cooling does not
@@ -210,8 +190,15 @@ int sage26_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Ha
     return -1;
   }
 
-  struct cooling_locals locals;
-  const double coolingGas = cooling_recipe_hot(halo, ctx->params, dt_obj, &locals);
+  // SAGE26's cooling_recipe_hot up to the AGN step, with CGMrecipeOn 0 (R0-R3): the shared
+  // implementation writes tcool, tff and RcoolToRvir as SAGE26 does, including its early
+  // returns, and never refuses with CGMrecipeOn 0 (only the CGMrecipeOn 1 streams read the
+  // stored snapshot's redshift).
+  struct MimicSageHotCoolingLocals locals;
+  double coolingGas = 0.0;
+  if (mimic_sage_hot_cooling_budget(halo, ctx->params, dt_obj, 0, 0.0, &locals, &coolingGas) != 0) {
+    return -1;
+  }
 
   // Carried to the radio and apply modules as doubles, as SAGE26 keeps these
   // locals; every entry is written on every call.

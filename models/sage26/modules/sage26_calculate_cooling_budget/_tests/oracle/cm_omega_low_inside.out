@@ -1,0 +1,25 @@
+# SAGE26 oracle output for cm_omega_low_inside.in, written by oracle_c11 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine interpolate_clustering_mass
+f64 return.log_mstar 0x40269ec56d5cfaad  # 11.3101
+i32 intermediate.uchuu 1
+i32 intermediate.z_clamped_low 0
+i32 intermediate.z_clamped_high 0
+i32 intermediate.iz 2
+i32 intermediate.iz_clamped 0
+i32 intermediate.zz_absent 0
+f64 intermediate.zz 0x3ff0000000000000  # 1
+i32 intermediate.zz_checked 1
+i32 intermediate.zz_check_kind 2
+i32 intermediate.zz_validated_up 0
+i32 intermediate.zz_validated_down 1
+i32 intermediate.zz_validated 0
+i32 intermediate.fz_absent 0
+f64 intermediate.fz 0x0000000000000000  # 0
+i32 intermediate.fz_checked 1
+i32 intermediate.fz_check_kind 2
+i32 intermediate.fz_validated_up 0
+i32 intermediate.fz_validated_down 0
+i32 intermediate.fz_validated 0
+f64 intermediate.unfused_log_mstar 0x40269ec56d5cfaad  # 11.3101
+i32 intermediate.fused_differs_from_unfused 0

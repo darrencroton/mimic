@@ -1,0 +1,25 @@
+# SAGE26 oracle output for cm_fused_differs_uchuu.in, written by oracle_c11 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine interpolate_clustering_mass
+f64 return.log_mstar 0x40299ae204045a21  # 12.802505612879999
+i32 intermediate.uchuu 1
+i32 intermediate.z_clamped_low 0
+i32 intermediate.z_clamped_high 0
+i32 intermediate.iz 0
+i32 intermediate.iz_clamped 0
+i32 intermediate.zz_absent 0
+f64 intermediate.zz 0x3f2a3a3de96f9ac3  # 0.00020010000000000001
+i32 intermediate.zz_checked 1
+i32 intermediate.zz_check_kind 2
+i32 intermediate.zz_validated_up 0
+i32 intermediate.zz_validated_down 0
+i32 intermediate.zz_validated 0
+i32 intermediate.fz_absent 0
+f64 intermediate.fz 0x3f3a3a3de96f9ac3  # 0.00040020000000000002
+i32 intermediate.fz_checked 1
+i32 intermediate.fz_check_kind 2
+i32 intermediate.fz_validated_up 0
+i32 intermediate.fz_validated_down 0
+i32 intermediate.fz_validated 0
+f64 intermediate.unfused_log_mstar 0x40299ae204045a22  # 12.802505612880001
+i32 intermediate.fused_differs_from_unfused 1

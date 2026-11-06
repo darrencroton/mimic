@@ -42,10 +42,13 @@ modules:
       # Satellite stripping
       - sage26_satellite_stripping:     process_by_galaxy
 
-      # Cooling and AGN suppression
+      # Cooling and AGN suppression: with CGMrecipeOn 0 the classic hot path (budget, radio,
+      # apply); with CGMrecipeOn 1 the budget writes no cooling and sage26_regime_aware_cooling
+      # runs SAGE26's whole regime-aware cooling (it writes nothing with CGMrecipeOn 0)
       - sage26_calculate_cooling_budget: process_by_galaxy
       - sage26_radio_mode_heating:      process_by_galaxy
       - sage26_apply_cooling:           process_by_galaxy
+      - sage26_regime_aware_cooling:    process_by_galaxy
 
       # Star formation and supernova feedback
       - sage26_calculate_star_formation:        process_by_galaxy
@@ -84,7 +87,7 @@ modules:
     GlobalBaryonFraction: 0.17          # Cosmic baryon fraction (Planck 2018)
 
     # CGM regime
-    CGMrecipeOn: 0                      # CGM regime classification: 0 = off, Regime keeps its creation value -1 (SAGE26 R0-R3, R3.par:54); 1 = SAGE26's classifier with the package's keyed draw (R4, R4.par:54), whose regime-aware routing and cooling are not complete yet; required
+    CGMrecipeOn: 1                      # CGM regime recipe: 1 = SAGE26's R4 (R4.par:54), the classifier with the package's keyed draw, regime-aware routing and regime-aware cooling; 0 = off, Regime keeps its creation value -1 and cooling takes the classic hot path (SAGE26 R0-R3, R3.par:54); required
     MShockMsun: 6.0e11                  # Dekel & Birnboim (2006) shock mass in physical Msun (SAGE26 default, core_read_parameter_file.c:114; R4.par does not set it); used only with CGMrecipeOn 1, but always required and validated (positive, finite)
 
     # Star Formation

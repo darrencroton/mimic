@@ -1,0 +1,8 @@
+# interpolate_clustering_mass (H:98-132), called directly.
+# Uchuu floor, z = 12 (its own floor entries).
+# Reachability: constructed routine-domain probe.
+format sage26-oracle-fixture 1
+routine interpolate_clustering_mass
+
+f64 params.Omega 0x3fd3c504816f0069  # 0.3089
+f64 call.z 0x4028000000000000  # 12.0

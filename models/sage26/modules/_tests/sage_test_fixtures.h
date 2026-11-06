@@ -144,8 +144,9 @@ static inline void add_test_sf_prescription_parameters(const int keys) {
  * Test fixture: the required CGMrecipeOn (campaign decision D33) at R3's value 0, for a test that
  * initialises sage26_prepare_infall_budget, sage26_apply_infall, sage26_satellite_stripping,
  * sage26_reincorporation, sage26_apply_star_formation_supernova, sage26_apply_metal_enrichment,
- * sage26_starburst_feedback, sage26_quasar_mode or sage26_resolve_mergers_and_disruption with its
- * own parameters rather than the run files'. A key already present is not added twice.
+ * sage26_starburst_feedback, sage26_quasar_mode, sage26_resolve_mergers_and_disruption or
+ * sage26_calculate_cooling_budget with its own parameters rather than the run files'. A key
+ * already present is not added twice.
  */
 static inline void add_test_cgm_recipe_parameter(void) {
   sage26_test_append_model_parameter("CGMrecipeOn", "0");

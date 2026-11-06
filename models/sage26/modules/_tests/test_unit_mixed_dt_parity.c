@@ -550,6 +550,7 @@ int test_mixed_dt_cooling_ignores_global(void) {
   MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
   MimicConfig.UnitTime_in_s = 3.08568e16;
 
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   sage26_calculate_cooling_budget_init();
 
   const float halo_dT = 0.2;
@@ -613,6 +614,7 @@ int test_mixed_dt_cooling_scales_with_dt(void) {
   MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
   MimicConfig.UnitTime_in_s = 3.08568e16;
 
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   sage26_calculate_cooling_budget_init();
 
   /* Use very small dT values to stay well below HotGas cap.

@@ -1,0 +1,9 @@
+# SAGE26 oracle output for mdot_writer_subnormal_raw.in, written by oracle_c11 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine writer_mdot_conversion
+f32 output.mdot_cool 0x00000000  # 0
+f32 output.mdot_stream 0x00014f0b  # 1.20190771e-40
+f32 intermediate.grouped_mdot_cool 0x00000000  # 0
+f32 intermediate.grouped_mdot_stream 0x00014f0b  # 1.20190771e-40
+i32 intermediate.grouped_differs_mdot_cool 0
+i32 intermediate.grouped_differs_mdot_stream 0

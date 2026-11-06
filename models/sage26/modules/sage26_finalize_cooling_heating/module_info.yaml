@@ -3,7 +3,8 @@ module:
   description: >-
     Normalises the Cooling and Heating energies and the SupernovaOutflowRate reheated mass
     accumulated over the substeps by the FoF's snapshot interval once per halo, as SAGE26 does
-    after its last substep
+    after its last substep, and writes the output mdot rates from the raw rates with SAGE26's
+    writer arithmetic
 
   supported_processing_modes: [process_full_halo]
 
@@ -14,6 +15,10 @@ module:
       - Cooling
       - Heating
       - SupernovaOutflowRate
+      - mdot_cool_raw     # read: the raw float rate sage26_regime_aware_cooling stores (D39)
+      - mdot_stream_raw   # read
+      - mdot_cool         # written: SAGE26's writer conversion of the raw rate
+      - mdot_stream       # written
     parameters: []
 
   tests:

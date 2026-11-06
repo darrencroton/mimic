@@ -1,0 +1,9 @@
+# SAGE26 oracle output for mdot_writer_grouping_differs.in, written by oracle_c11 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine writer_mdot_conversion
+f32 output.mdot_cool 0x3c5e326f  # 0.013561829
+f32 output.mdot_stream 0x3ca2f1c9  # 0.0198906828
+f32 intermediate.grouped_mdot_cool 0x3c5e326e  # 0.0135618281
+f32 intermediate.grouped_mdot_stream 0x3ca2f1c8  # 0.0198906809
+i32 intermediate.grouped_differs_mdot_cool 1
+i32 intermediate.grouped_differs_mdot_stream 1

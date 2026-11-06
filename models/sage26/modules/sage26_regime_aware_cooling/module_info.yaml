@@ -1,0 +1,50 @@
+module:
+  name: sage26_regime_aware_cooling
+  description: >-
+    SAGE26's regime-aware cooling transaction (CGMrecipeOn 1): the hot recipe with its cold streams
+    and AGN, the CGM recipe with its AGN, the diagnostic reset and restoration, the CGM then hot
+    application and the final CoolingRate, with the raw mdot rates stored for the finalizer; writes
+    nothing with CGMrecipeOn 0
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - HaloNr
+      - SnapNum           # read: the stored snapshot whose ZZ the cold streams read (D35)
+      - dT
+      - Mvir
+      - Rvir
+      - Vvir
+      - Regime            # read: 0 the CGM branch, any other value the hot branch
+      - HotGas
+      - MetalsHotGas
+      - CGMgas
+      - MetalsCGMgas
+      - ColdGas
+      - MetalsColdGas
+      - BlackHoleMass
+      - Rheat
+      - Cooling
+      - Heating
+      - tcool
+      - tff
+      - RcoolToRvir
+      - CoolingRate
+      - mdot_cool_raw     # written: SAGE26's raw float mdot_cool (D39)
+      - mdot_stream_raw   # written: SAGE26's raw float mdot_stream (D39)
+    parameters:
+      - CGMrecipeOn         # required: 0 (writes nothing) or 1 (the transaction)
+      - MShockMsun          # required: the streams' shock mass in physical Msun, positive and finite
+      - AGNrecipe           # the AGN recipe both nested AGN calls use (as sage26_radio_mode_heating)
+      - RadioModeEfficiency # the radio-mode efficiency (as sage26_radio_mode_heating)
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_regime_aware_cooling.c
+      - _tests/test_unit_sage26_regime_aware_cooling_oracle.c
+    integration: []
+    scientific: []
+
+  docs:
+    physics: README.md

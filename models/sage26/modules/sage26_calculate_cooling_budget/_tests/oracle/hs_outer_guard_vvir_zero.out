@@ -1,0 +1,39 @@
+# SAGE26 oracle output for hs_outer_guard_vvir_zero.in, written by oracle_c11 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine cooling_recipe_hot_streams
+f64 intermediate.deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426
+f64 intermediate.dt 0x3ef49e1f39c7d84e  # 1.9662536589103428e-05
+f64 return.coolingGas 0x0000000000000000  # 0
+f32 galaxy[0].HotGas 0x41200000  # 10
+f32 galaxy[0].MetalsHotGas 0x3dcccccd  # 0.100000001
+f32 galaxy[0].CGMgas 0x3f000000  # 0.5
+f32 galaxy[0].MetalsCGMgas 0x3ba3d70a  # 0.00499999989
+f32 galaxy[0].ColdGas 0x3f800000  # 1
+f32 galaxy[0].MetalsColdGas 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].BlackHoleMass 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].r_heat 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].tcool 0x00000000  # 0
+f32 galaxy[0].tff 0xc1b00000  # -22
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33
+f32 galaxy[0].CoolingRate 0x00000000  # 0
+f32 galaxy[0].mdot_cool 0xc29a0000  # -77
+f32 galaxy[0].mdot_stream 0xc2b00000  # -88
+f64 galaxy[0].Cooling 0xc04b800000000000  # -55
+f64 galaxy[0].Heating 0xc050800000000000  # -66
+i32 intermediate.return_path 1
+i32 intermediate.ratio_nonpositive -1
+i32 intermediate.exponent_capped_high -1
+i32 intermediate.exponent_capped_low -1
+i32 intermediate.stream_cutoff -1
+i32 intermediate.f_stream_capped_high -1
+i32 intermediate.f_stream_floored -1
+i32 intermediate.reservoir_cap -1
+i32 intermediate.agn_entered -1
+i32 intermediate.agn_suppressed -1
+i32 intermediate.agn_saturated -1
+i32 intermediate.agn_reservoir_positive -1
+i32 intermediate.eddington_capped -1
+i32 intermediate.accretion_capped -1
+i32 intermediate.heating_capped -1
+i32 intermediate.ratchet_raised -1
+i32 intermediate.rheat_capped -1

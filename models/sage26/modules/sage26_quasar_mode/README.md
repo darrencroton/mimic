@@ -1,6 +1,6 @@
 # `sage26_quasar_mode`
 
-Ports SAGE26's black-hole growth and quasar-mode wind, `grow_black_hole` and `quasar_mode_wind` (`R/src/model_mergers.c:346-441`, `R` = the staged SAGE26 source), with `CGMrecipeOn` 0 (the run files' value, R0-R3) or 1 (SAGE26's R4) and `SFprescription` 1 (the run files' value, SAGE26's R2) or 0 (R0, R1), for disk-instability triggers and merger events.
+Ports SAGE26's black-hole growth and quasar-mode wind, `grow_black_hole` and `quasar_mode_wind` (`R/src/model_mergers.c:346-441`, `R` = the staged SAGE26 source), with `CGMrecipeOn` 1 (the run files' value, SAGE26's R4) or 0 (R0-R3) and `SFprescription` 1 (the run files' value, SAGE26's R2) or 0 (R0, R1), for disk-instability triggers and merger events.
 
 ## Processing Contract
 
@@ -29,7 +29,7 @@ The arithmetic lives in `shared/sage_agn_physics.h` (`mimic_apply_black_hole_gro
 - `BlackHoleGrowthRate`
 - `QuasarModeEfficiency`
 - `SFprescription` (required, 0 or 1): 1, the run files' value (BR06, SAGE26's R2), applies the accretion's hydrogen cap (`:366-372`); 0 (R0, R1) does not. Any other value, or a missing key, fails initialisation with an error naming the parameter; there is no default.
-- `CGMrecipeOn` (required, 0 or 1, campaign decision D33): 1 (SAGE26's R4) selects the wind's second pair by the wind host's `Regime`; 0, the run files' value (R0-R3), always the hot pair. Any other value, or a missing key, fails initialisation with an error naming the parameter; there is no default.
+- `CGMrecipeOn` (required, 0 or 1, campaign decision D33): 1, the run files' value (SAGE26's R4), selects the wind's second pair by the wind host's `Regime`; 0 (R0-R3) always the hot pair. Any other value, or a missing key, fails initialisation with an error naming the parameter; there is no default.
 
 ## Ordering
 
