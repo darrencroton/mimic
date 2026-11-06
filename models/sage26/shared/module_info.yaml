@@ -36,6 +36,7 @@ module:
       - _tests/test_unit_sage_keyed_draw.c
       - _tests/test_unit_sage_cgm_routing.c
       - _tests/test_unit_sage_halo_concentration.c
+      - _tests/test_unit_sage_ffb_regime.c
 
     integration: []
     scientific: []

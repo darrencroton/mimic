@@ -1,0 +1,483 @@
+# SAGE26 oracle output for cls_r6_snap16_rows.in, written by oracle_c13 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine determine_and_store_ffb_regime
+i32 intermediate.RAND_MAX 2147483647
+i32 intermediate.draws_discarded 9
+i32 intermediate.rand_queue_independent 1
+i32 galaxy[0].FFBRegime 1
+i32 reference.galaxy[0].FFBRegime 1
+i32 intermediate.galaxy[0].skipped 0
+i32 intermediate.galaxy[0].discarded_draw 1
+i64 intermediate.galaxy[0].draw_bits 1494573817076582907  # 0x14bdcaf7d17309fb
+f64 intermediate.galaxy[0].Mvir 0x4031b74bc0000000  # 17.715999603271484
+i32 intermediate.galaxy[0].draw_absent 0
+f64 intermediate.galaxy[0].draw 0x3fb4bdcaf7d1730c  # 0.081021008970719233
+i32 intermediate.galaxy[0].draw_checked 1
+i32 intermediate.galaxy[0].draw_check_kind 1
+i32 intermediate.galaxy[0].draw_validated_up 0
+i32 intermediate.galaxy[0].draw_validated_down 0
+i32 intermediate.galaxy[0].draw_validated 0
+i32 intermediate.galaxy[0].z_norm_absent 0
+f64 intermediate.galaxy[0].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.galaxy[0].z_norm_checked 1
+i32 intermediate.galaxy[0].z_norm_check_kind 2
+i32 intermediate.galaxy[0].z_norm_validated_up 0
+i32 intermediate.galaxy[0].z_norm_validated_down 0
+i32 intermediate.galaxy[0].z_norm_validated 0
+i32 intermediate.galaxy[0].log_Mvir_ffb_code_absent 0
+f64 intermediate.galaxy[0].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.galaxy[0].log_Mvir_ffb_code_checked 1
+i32 intermediate.galaxy[0].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.galaxy[0].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.galaxy[0].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.galaxy[0].log_Mvir_ffb_code_validated 0
+i32 intermediate.galaxy[0].pow_equals_exp10 1
+i32 intermediate.galaxy[0].unfused_threshold_differs 0
+i32 intermediate.galaxy[0].Mvir_ffb_absent 0
+f64 intermediate.galaxy[0].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.galaxy[0].Mvir_ffb_checked 1
+i32 intermediate.galaxy[0].Mvir_ffb_check_kind 2
+i32 intermediate.galaxy[0].Mvir_ffb_validated_up 0
+i32 intermediate.galaxy[0].Mvir_ffb_validated_down 0
+i32 intermediate.galaxy[0].Mvir_ffb_validated 0
+i32 intermediate.galaxy[0].guard_returned 0
+i32 intermediate.galaxy[0].x_absent 0
+f64 intermediate.galaxy[0].x 0x3fdfb25edfe57a16  # 0.49526187767870178
+i32 intermediate.galaxy[0].x_checked 1
+i32 intermediate.galaxy[0].x_check_kind 2
+i32 intermediate.galaxy[0].x_validated_up 0
+i32 intermediate.galaxy[0].x_validated_down 0
+i32 intermediate.galaxy[0].x_validated 0
+i32 intermediate.galaxy[0].f_ffb_absent 0
+f64 intermediate.galaxy[0].f_ffb 0x3fe3e20f59d5231b  # 0.62134521050856806
+i32 intermediate.galaxy[0].f_ffb_checked 1
+i32 intermediate.galaxy[0].f_ffb_check_kind 2
+i32 intermediate.galaxy[0].f_ffb_validated_up 0
+i32 intermediate.galaxy[0].f_ffb_validated_down 0
+i32 intermediate.galaxy[0].f_ffb_validated 0
+i32 intermediate.galaxy[0].draw_below_f_ffb 1
+i32 intermediate.galaxy[0].draw_equals_f_ffb 0
+i32 galaxy[1].FFBRegime 1
+i32 reference.galaxy[1].FFBRegime 1
+i32 intermediate.galaxy[1].skipped 0
+i32 intermediate.galaxy[1].discarded_draw 1
+i64 intermediate.galaxy[1].draw_bits 118898817876203859  # 0x01a669d84bb99953
+f64 intermediate.galaxy[1].Mvir 0x40305a3c00000000  # 16.35247802734375
+i32 intermediate.galaxy[1].draw_absent 0
+f64 intermediate.galaxy[1].draw 0x3f7a669d84bb99c0  # 0.0064455178323669648
+i32 intermediate.galaxy[1].draw_checked 1
+i32 intermediate.galaxy[1].draw_check_kind 1
+i32 intermediate.galaxy[1].draw_validated_up 0
+i32 intermediate.galaxy[1].draw_validated_down 0
+i32 intermediate.galaxy[1].draw_validated 0
+i32 intermediate.galaxy[1].z_norm_absent 0
+f64 intermediate.galaxy[1].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.galaxy[1].z_norm_checked 1
+i32 intermediate.galaxy[1].z_norm_check_kind 2
+i32 intermediate.galaxy[1].z_norm_validated_up 0
+i32 intermediate.galaxy[1].z_norm_validated_down 0
+i32 intermediate.galaxy[1].z_norm_validated 0
+i32 intermediate.galaxy[1].log_Mvir_ffb_code_absent 0
+f64 intermediate.galaxy[1].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.galaxy[1].log_Mvir_ffb_code_checked 1
+i32 intermediate.galaxy[1].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.galaxy[1].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.galaxy[1].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.galaxy[1].log_Mvir_ffb_code_validated 0
+i32 intermediate.galaxy[1].pow_equals_exp10 1
+i32 intermediate.galaxy[1].unfused_threshold_differs 0
+i32 intermediate.galaxy[1].Mvir_ffb_absent 0
+f64 intermediate.galaxy[1].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.galaxy[1].Mvir_ffb_checked 1
+i32 intermediate.galaxy[1].Mvir_ffb_check_kind 2
+i32 intermediate.galaxy[1].Mvir_ffb_validated_up 0
+i32 intermediate.galaxy[1].Mvir_ffb_validated_down 0
+i32 intermediate.galaxy[1].Mvir_ffb_validated 0
+i32 intermediate.galaxy[1].guard_returned 0
+i32 intermediate.galaxy[1].x_absent 0
+f64 intermediate.galaxy[1].x 0x3fd0db3d366596d8  # 0.2633812934130737
+i32 intermediate.galaxy[1].x_checked 1
+i32 intermediate.galaxy[1].x_check_kind 2
+i32 intermediate.galaxy[1].x_validated_up 0
+i32 intermediate.galaxy[1].x_validated_down 0
+i32 intermediate.galaxy[1].x_validated 0
+i32 intermediate.galaxy[1].f_ffb_absent 0
+f64 intermediate.galaxy[1].f_ffb 0x3fe2184ee4637f4a  # 0.56546730620537144
+i32 intermediate.galaxy[1].f_ffb_checked 1
+i32 intermediate.galaxy[1].f_ffb_check_kind 2
+i32 intermediate.galaxy[1].f_ffb_validated_up 0
+i32 intermediate.galaxy[1].f_ffb_validated_down 0
+i32 intermediate.galaxy[1].f_ffb_validated 0
+i32 intermediate.galaxy[1].draw_below_f_ffb 1
+i32 intermediate.galaxy[1].draw_equals_f_ffb 0
+i32 galaxy[2].FFBRegime 1
+i32 reference.galaxy[2].FFBRegime 1
+i32 intermediate.galaxy[2].skipped 0
+i32 intermediate.galaxy[2].discarded_draw 1
+i64 intermediate.galaxy[2].draw_bits 106668255212528098  # 0x017af63684c0e1e2
+f64 intermediate.galaxy[2].Mvir 0x4040c86600000000  # 33.56561279296875
+i32 intermediate.galaxy[2].draw_absent 0
+f64 intermediate.galaxy[2].draw 0x3f77af63684c0e40  # 0.0057824977018330892
+i32 intermediate.galaxy[2].draw_checked 1
+i32 intermediate.galaxy[2].draw_check_kind 1
+i32 intermediate.galaxy[2].draw_validated_up 0
+i32 intermediate.galaxy[2].draw_validated_down 0
+i32 intermediate.galaxy[2].draw_validated 0
+i32 intermediate.galaxy[2].z_norm_absent 0
+f64 intermediate.galaxy[2].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.galaxy[2].z_norm_checked 1
+i32 intermediate.galaxy[2].z_norm_check_kind 2
+i32 intermediate.galaxy[2].z_norm_validated_up 0
+i32 intermediate.galaxy[2].z_norm_validated_down 0
+i32 intermediate.galaxy[2].z_norm_validated 0
+i32 intermediate.galaxy[2].log_Mvir_ffb_code_absent 0
+f64 intermediate.galaxy[2].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.galaxy[2].log_Mvir_ffb_code_checked 1
+i32 intermediate.galaxy[2].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.galaxy[2].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.galaxy[2].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.galaxy[2].log_Mvir_ffb_code_validated 0
+i32 intermediate.galaxy[2].pow_equals_exp10 1
+i32 intermediate.galaxy[2].unfused_threshold_differs 0
+i32 intermediate.galaxy[2].Mvir_ffb_absent 0
+f64 intermediate.galaxy[2].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.galaxy[2].Mvir_ffb_checked 1
+i32 intermediate.galaxy[2].Mvir_ffb_check_kind 2
+i32 intermediate.galaxy[2].Mvir_ffb_validated_up 0
+i32 intermediate.galaxy[2].Mvir_ffb_validated_down 0
+i32 intermediate.galaxy[2].Mvir_ffb_validated 0
+i32 intermediate.galaxy[2].guard_returned 0
+i32 intermediate.galaxy[2].x_absent 0
+f64 intermediate.galaxy[2].x 0x4002c37dbc904954  # 2.3454546672375418
+i32 intermediate.galaxy[2].x_checked 1
+i32 intermediate.galaxy[2].x_check_kind 2
+i32 intermediate.galaxy[2].x_validated_up 0
+i32 intermediate.galaxy[2].x_validated_down 0
+i32 intermediate.galaxy[2].x_validated 0
+i32 intermediate.galaxy[2].f_ffb_absent 0
+f64 intermediate.galaxy[2].f_ffb 0x3fed33cabe539e04  # 0.91257226155443094
+i32 intermediate.galaxy[2].f_ffb_checked 1
+i32 intermediate.galaxy[2].f_ffb_check_kind 2
+i32 intermediate.galaxy[2].f_ffb_validated_up 0
+i32 intermediate.galaxy[2].f_ffb_validated_down 0
+i32 intermediate.galaxy[2].f_ffb_validated 0
+i32 intermediate.galaxy[2].draw_below_f_ffb 1
+i32 intermediate.galaxy[2].draw_equals_f_ffb 0
+i32 galaxy[3].FFBRegime 1
+i32 reference.galaxy[3].FFBRegime 1
+i32 intermediate.galaxy[3].skipped 0
+i32 intermediate.galaxy[3].discarded_draw 1
+i64 intermediate.galaxy[3].draw_bits 1258427061648377918  # 0x1176d4bec14a483e
+f64 intermediate.galaxy[3].Mvir 0x403b4866c0000000  # 27.282817840576172
+i32 intermediate.galaxy[3].draw_absent 0
+f64 intermediate.galaxy[3].draw 0x3fb176d4bec14a4c  # 0.06821946770768611
+i32 intermediate.galaxy[3].draw_checked 1
+i32 intermediate.galaxy[3].draw_check_kind 1
+i32 intermediate.galaxy[3].draw_validated_up 0
+i32 intermediate.galaxy[3].draw_validated_down 0
+i32 intermediate.galaxy[3].draw_validated 0
+i32 intermediate.galaxy[3].z_norm_absent 0
+f64 intermediate.galaxy[3].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.galaxy[3].z_norm_checked 1
+i32 intermediate.galaxy[3].z_norm_check_kind 2
+i32 intermediate.galaxy[3].z_norm_validated_up 0
+i32 intermediate.galaxy[3].z_norm_validated_down 0
+i32 intermediate.galaxy[3].z_norm_validated 0
+i32 intermediate.galaxy[3].log_Mvir_ffb_code_absent 0
+f64 intermediate.galaxy[3].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.galaxy[3].log_Mvir_ffb_code_checked 1
+i32 intermediate.galaxy[3].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.galaxy[3].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.galaxy[3].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.galaxy[3].log_Mvir_ffb_code_validated 0
+i32 intermediate.galaxy[3].pow_equals_exp10 1
+i32 intermediate.galaxy[3].unfused_threshold_differs 0
+i32 intermediate.galaxy[3].Mvir_ffb_absent 0
+f64 intermediate.galaxy[3].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.galaxy[3].Mvir_ffb_checked 1
+i32 intermediate.galaxy[3].Mvir_ffb_check_kind 2
+i32 intermediate.galaxy[3].Mvir_ffb_validated_up 0
+i32 intermediate.galaxy[3].Mvir_ffb_validated_down 0
+i32 intermediate.galaxy[3].Mvir_ffb_validated 0
+i32 intermediate.galaxy[3].guard_returned 0
+i32 intermediate.galaxy[3].x_absent 0
+f64 intermediate.galaxy[3].x 0x3ffbed3c6ce2bdde  # 1.7454189542148622
+i32 intermediate.galaxy[3].x_checked 1
+i32 intermediate.galaxy[3].x_check_kind 2
+i32 intermediate.galaxy[3].x_validated_up 0
+i32 intermediate.galaxy[3].x_validated_down 0
+i32 intermediate.galaxy[3].x_validated 0
+i32 intermediate.galaxy[3].f_ffb_absent 0
+f64 intermediate.galaxy[3].f_ffb 0x3feb3e74d3550d14  # 0.85137406612230615
+i32 intermediate.galaxy[3].f_ffb_checked 1
+i32 intermediate.galaxy[3].f_ffb_check_kind 2
+i32 intermediate.galaxy[3].f_ffb_validated_up 0
+i32 intermediate.galaxy[3].f_ffb_validated_down 0
+i32 intermediate.galaxy[3].f_ffb_validated 0
+i32 intermediate.galaxy[3].draw_below_f_ffb 1
+i32 intermediate.galaxy[3].draw_equals_f_ffb 0
+i32 galaxy[4].FFBRegime 0
+i32 reference.galaxy[4].FFBRegime 0
+i32 intermediate.galaxy[4].skipped 0
+i32 intermediate.galaxy[4].discarded_draw 1
+i64 intermediate.galaxy[4].draw_bits -3803902482335999881  # 0xcb35d2d8a422d877
+f64 intermediate.galaxy[4].Mvir 0x4034e9f920000000  # 20.913957595825195
+i32 intermediate.galaxy[4].draw_absent 0
+f64 intermediate.galaxy[4].draw 0x3fe966ba5b14845c  # 0.79379003323641539
+i32 intermediate.galaxy[4].draw_checked 1
+i32 intermediate.galaxy[4].draw_check_kind 1
+i32 intermediate.galaxy[4].draw_validated_up 0
+i32 intermediate.galaxy[4].draw_validated_down 0
+i32 intermediate.galaxy[4].draw_validated 0
+i32 intermediate.galaxy[4].z_norm_absent 0
+f64 intermediate.galaxy[4].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.galaxy[4].z_norm_checked 1
+i32 intermediate.galaxy[4].z_norm_check_kind 2
+i32 intermediate.galaxy[4].z_norm_validated_up 0
+i32 intermediate.galaxy[4].z_norm_validated_down 0
+i32 intermediate.galaxy[4].z_norm_validated 0
+i32 intermediate.galaxy[4].log_Mvir_ffb_code_absent 0
+f64 intermediate.galaxy[4].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.galaxy[4].log_Mvir_ffb_code_checked 1
+i32 intermediate.galaxy[4].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.galaxy[4].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.galaxy[4].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.galaxy[4].log_Mvir_ffb_code_validated 0
+i32 intermediate.galaxy[4].pow_equals_exp10 1
+i32 intermediate.galaxy[4].unfused_threshold_differs 0
+i32 intermediate.galaxy[4].Mvir_ffb_absent 0
+f64 intermediate.galaxy[4].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.galaxy[4].Mvir_ffb_checked 1
+i32 intermediate.galaxy[4].Mvir_ffb_check_kind 2
+i32 intermediate.galaxy[4].Mvir_ffb_validated_up 0
+i32 intermediate.galaxy[4].Mvir_ffb_validated_down 0
+i32 intermediate.galaxy[4].Mvir_ffb_validated 0
+i32 intermediate.galaxy[4].guard_returned 0
+i32 intermediate.galaxy[4].x_absent 0
+f64 intermediate.galaxy[4].x 0x3fef3932ea3a2e4a  # 0.97573228595269623
+i32 intermediate.galaxy[4].x_checked 1
+i32 intermediate.galaxy[4].x_check_kind 2
+i32 intermediate.galaxy[4].x_validated_up 0
+i32 intermediate.galaxy[4].x_validated_down 0
+i32 intermediate.galaxy[4].x_validated 0
+i32 intermediate.galaxy[4].f_ffb_absent 0
+f64 intermediate.galaxy[4].f_ffb 0x3fe73d86d867b756  # 0.72626058832768581
+i32 intermediate.galaxy[4].f_ffb_checked 1
+i32 intermediate.galaxy[4].f_ffb_check_kind 2
+i32 intermediate.galaxy[4].f_ffb_validated_up 0
+i32 intermediate.galaxy[4].f_ffb_validated_down 0
+i32 intermediate.galaxy[4].f_ffb_validated 0
+i32 intermediate.galaxy[4].draw_below_f_ffb 0
+i32 intermediate.galaxy[4].draw_equals_f_ffb 0
+i32 galaxy[5].FFBRegime 0
+i32 reference.galaxy[5].FFBRegime 0
+i32 intermediate.galaxy[5].skipped 0
+i32 intermediate.galaxy[5].discarded_draw 1
+i64 intermediate.galaxy[5].draw_bits -1606386719494607788  # 0xe9b4f7ca249e6c54
+f64 intermediate.galaxy[5].Mvir 0x4031a4ba00000000  # 17.643463134765625
+i32 intermediate.galaxy[5].draw_absent 0
+f64 intermediate.galaxy[5].draw 0x3fed369ef94493ce  # 0.91291760144360423
+i32 intermediate.galaxy[5].draw_checked 1
+i32 intermediate.galaxy[5].draw_check_kind 1
+i32 intermediate.galaxy[5].draw_validated_up 0
+i32 intermediate.galaxy[5].draw_validated_down 0
+i32 intermediate.galaxy[5].draw_validated 0
+i32 intermediate.galaxy[5].z_norm_absent 0
+f64 intermediate.galaxy[5].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.galaxy[5].z_norm_checked 1
+i32 intermediate.galaxy[5].z_norm_check_kind 2
+i32 intermediate.galaxy[5].z_norm_validated_up 0
+i32 intermediate.galaxy[5].z_norm_validated_down 0
+i32 intermediate.galaxy[5].z_norm_validated 0
+i32 intermediate.galaxy[5].log_Mvir_ffb_code_absent 0
+f64 intermediate.galaxy[5].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.galaxy[5].log_Mvir_ffb_code_checked 1
+i32 intermediate.galaxy[5].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.galaxy[5].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.galaxy[5].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.galaxy[5].log_Mvir_ffb_code_validated 0
+i32 intermediate.galaxy[5].pow_equals_exp10 1
+i32 intermediate.galaxy[5].unfused_threshold_differs 0
+i32 intermediate.galaxy[5].Mvir_ffb_absent 0
+f64 intermediate.galaxy[5].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.galaxy[5].Mvir_ffb_checked 1
+i32 intermediate.galaxy[5].Mvir_ffb_check_kind 2
+i32 intermediate.galaxy[5].Mvir_ffb_validated_up 0
+i32 intermediate.galaxy[5].Mvir_ffb_validated_down 0
+i32 intermediate.galaxy[5].Mvir_ffb_validated 0
+i32 intermediate.galaxy[5].guard_returned 0
+i32 intermediate.galaxy[5].x_absent 0
+f64 intermediate.galaxy[5].x 0x3fdeefbf5d90ebac  # 0.48338302743257588
+i32 intermediate.galaxy[5].x_checked 1
+i32 intermediate.galaxy[5].x_check_kind 2
+i32 intermediate.galaxy[5].x_validated_up 0
+i32 intermediate.galaxy[5].x_validated_down 0
+i32 intermediate.galaxy[5].x_validated 0
+i32 intermediate.galaxy[5].f_ffb_absent 0
+f64 intermediate.galaxy[5].f_ffb 0x3fe3cb21d67d3512  # 0.61854640858078569
+i32 intermediate.galaxy[5].f_ffb_checked 1
+i32 intermediate.galaxy[5].f_ffb_check_kind 2
+i32 intermediate.galaxy[5].f_ffb_validated_up 0
+i32 intermediate.galaxy[5].f_ffb_validated_down 0
+i32 intermediate.galaxy[5].f_ffb_validated 0
+i32 intermediate.galaxy[5].draw_below_f_ffb 0
+i32 intermediate.galaxy[5].draw_equals_f_ffb 0
+i32 galaxy[6].FFBRegime 0
+i32 reference.galaxy[6].FFBRegime 0
+i32 intermediate.galaxy[6].skipped 0
+i32 intermediate.galaxy[6].discarded_draw 1
+i64 intermediate.galaxy[6].draw_bits -3059452774553663394  # 0xd58aa3e945a5485e
+f64 intermediate.galaxy[6].Mvir 0x402f27e0c0000000  # 15.577886581420898
+i32 intermediate.galaxy[6].draw_absent 0
+f64 intermediate.galaxy[6].draw 0x3feab1547d28b4aa  # 0.8341467327606058
+i32 intermediate.galaxy[6].draw_checked 1
+i32 intermediate.galaxy[6].draw_check_kind 1
+i32 intermediate.galaxy[6].draw_validated_up 0
+i32 intermediate.galaxy[6].draw_validated_down 0
+i32 intermediate.galaxy[6].draw_validated 0
+i32 intermediate.galaxy[6].z_norm_absent 0
+f64 intermediate.galaxy[6].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.galaxy[6].z_norm_checked 1
+i32 intermediate.galaxy[6].z_norm_check_kind 2
+i32 intermediate.galaxy[6].z_norm_validated_up 0
+i32 intermediate.galaxy[6].z_norm_validated_down 0
+i32 intermediate.galaxy[6].z_norm_validated 0
+i32 intermediate.galaxy[6].log_Mvir_ffb_code_absent 0
+f64 intermediate.galaxy[6].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.galaxy[6].log_Mvir_ffb_code_checked 1
+i32 intermediate.galaxy[6].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.galaxy[6].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.galaxy[6].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.galaxy[6].log_Mvir_ffb_code_validated 0
+i32 intermediate.galaxy[6].pow_equals_exp10 1
+i32 intermediate.galaxy[6].unfused_threshold_differs 0
+i32 intermediate.galaxy[6].Mvir_ffb_absent 0
+f64 intermediate.galaxy[6].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.galaxy[6].Mvir_ffb_checked 1
+i32 intermediate.galaxy[6].Mvir_ffb_check_kind 2
+i32 intermediate.galaxy[6].Mvir_ffb_validated_up 0
+i32 intermediate.galaxy[6].Mvir_ffb_validated_down 0
+i32 intermediate.galaxy[6].Mvir_ffb_validated 0
+i32 intermediate.galaxy[6].guard_returned 0
+i32 intermediate.galaxy[6].x_absent 0
+f64 intermediate.galaxy[6].x 0x3fbf7521e5219d50  # 0.1228810486223797
+i32 intermediate.galaxy[6].x_checked 1
+i32 intermediate.galaxy[6].x_check_kind 2
+i32 intermediate.galaxy[6].x_validated_up 0
+i32 intermediate.galaxy[6].x_validated_down 0
+i32 intermediate.galaxy[6].x_validated 0
+i32 intermediate.galaxy[6].f_ffb_absent 0
+f64 intermediate.galaxy[6].f_ffb 0x3fe0fb581d54b36a  # 0.5306816647404109
+i32 intermediate.galaxy[6].f_ffb_checked 1
+i32 intermediate.galaxy[6].f_ffb_check_kind 2
+i32 intermediate.galaxy[6].f_ffb_validated_up 0
+i32 intermediate.galaxy[6].f_ffb_validated_down 0
+i32 intermediate.galaxy[6].f_ffb_validated 0
+i32 intermediate.galaxy[6].draw_below_f_ffb 0
+i32 intermediate.galaxy[6].draw_equals_f_ffb 0
+i32 galaxy[7].FFBRegime 0
+i32 reference.galaxy[7].FFBRegime 0
+i32 intermediate.galaxy[7].skipped 0
+i32 intermediate.galaxy[7].discarded_draw 1
+i64 intermediate.galaxy[7].draw_bits -1431178719142273199  # 0xec236e89a36d1f51
+f64 intermediate.galaxy[7].Mvir 0x3fffa5e360000000  # 1.9780000448226929
+i32 intermediate.galaxy[7].draw_absent 0
+f64 intermediate.galaxy[7].draw 0x3fed846dd1346da4  # 0.9224156461745463
+i32 intermediate.galaxy[7].draw_checked 1
+i32 intermediate.galaxy[7].draw_check_kind 1
+i32 intermediate.galaxy[7].draw_validated_up 0
+i32 intermediate.galaxy[7].draw_validated_down 0
+i32 intermediate.galaxy[7].draw_validated 0
+i32 intermediate.galaxy[7].z_norm_absent 0
+f64 intermediate.galaxy[7].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.galaxy[7].z_norm_checked 1
+i32 intermediate.galaxy[7].z_norm_check_kind 2
+i32 intermediate.galaxy[7].z_norm_validated_up 0
+i32 intermediate.galaxy[7].z_norm_validated_down 0
+i32 intermediate.galaxy[7].z_norm_validated 0
+i32 intermediate.galaxy[7].log_Mvir_ffb_code_absent 0
+f64 intermediate.galaxy[7].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.galaxy[7].log_Mvir_ffb_code_checked 1
+i32 intermediate.galaxy[7].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.galaxy[7].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.galaxy[7].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.galaxy[7].log_Mvir_ffb_code_validated 0
+i32 intermediate.galaxy[7].pow_equals_exp10 1
+i32 intermediate.galaxy[7].unfused_threshold_differs 0
+i32 intermediate.galaxy[7].Mvir_ffb_absent 0
+f64 intermediate.galaxy[7].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.galaxy[7].Mvir_ffb_checked 1
+i32 intermediate.galaxy[7].Mvir_ffb_check_kind 2
+i32 intermediate.galaxy[7].Mvir_ffb_validated_up 0
+i32 intermediate.galaxy[7].Mvir_ffb_validated_down 0
+i32 intermediate.galaxy[7].Mvir_ffb_validated 0
+i32 intermediate.galaxy[7].guard_returned 0
+i32 intermediate.galaxy[7].x_absent 0
+f64 intermediate.galaxy[7].x 0xc01768ca36f13def  # -5.8523338875524891
+i32 intermediate.galaxy[7].x_checked 1
+i32 intermediate.galaxy[7].x_check_kind 2
+i32 intermediate.galaxy[7].x_validated_up 0
+i32 intermediate.galaxy[7].x_validated_down 0
+i32 intermediate.galaxy[7].x_validated 0
+i32 intermediate.galaxy[7].f_ffb_absent 0
+f64 intermediate.galaxy[7].f_ffb 0x3f67783e83d5b5e9  # 0.002864954089708095
+i32 intermediate.galaxy[7].f_ffb_checked 1
+i32 intermediate.galaxy[7].f_ffb_check_kind 2
+i32 intermediate.galaxy[7].f_ffb_validated_up 0
+i32 intermediate.galaxy[7].f_ffb_validated_down 0
+i32 intermediate.galaxy[7].f_ffb_validated 0
+i32 intermediate.galaxy[7].draw_below_f_ffb 0
+i32 intermediate.galaxy[7].draw_equals_f_ffb 0
+i32 galaxy[8].FFBRegime 0
+i32 reference.galaxy[8].FFBRegime 0
+i32 intermediate.galaxy[8].skipped 0
+i32 intermediate.galaxy[8].discarded_draw 1
+i64 intermediate.galaxy[8].draw_bits -5390673731637273253  # 0xb5307acd55bb1d5b
+f64 intermediate.galaxy[8].Mvir 0x400ce56040000000  # 3.6119999885559082
+i32 intermediate.galaxy[8].draw_absent 0
+f64 intermediate.galaxy[8].draw 0x3fe6a60f59aab764  # 0.7077709914499164
+i32 intermediate.galaxy[8].draw_checked 1
+i32 intermediate.galaxy[8].draw_check_kind 1
+i32 intermediate.galaxy[8].draw_validated_up 0
+i32 intermediate.galaxy[8].draw_validated_down 0
+i32 intermediate.galaxy[8].draw_validated 0
+i32 intermediate.galaxy[8].z_norm_absent 0
+f64 intermediate.galaxy[8].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.galaxy[8].z_norm_checked 1
+i32 intermediate.galaxy[8].z_norm_check_kind 2
+i32 intermediate.galaxy[8].z_norm_validated_up 0
+i32 intermediate.galaxy[8].z_norm_validated_down 0
+i32 intermediate.galaxy[8].z_norm_validated 0
+i32 intermediate.galaxy[8].log_Mvir_ffb_code_absent 0
+f64 intermediate.galaxy[8].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.galaxy[8].log_Mvir_ffb_code_checked 1
+i32 intermediate.galaxy[8].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.galaxy[8].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.galaxy[8].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.galaxy[8].log_Mvir_ffb_code_validated 0
+i32 intermediate.galaxy[8].pow_equals_exp10 1
+i32 intermediate.galaxy[8].unfused_threshold_differs 0
+i32 intermediate.galaxy[8].Mvir_ffb_absent 0
+f64 intermediate.galaxy[8].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.galaxy[8].Mvir_ffb_checked 1
+i32 intermediate.galaxy[8].Mvir_ffb_check_kind 2
+i32 intermediate.galaxy[8].Mvir_ffb_validated_up 0
+i32 intermediate.galaxy[8].Mvir_ffb_validated_down 0
+i32 intermediate.galaxy[8].Mvir_ffb_validated 0
+i32 intermediate.galaxy[8].guard_returned 0
+i32 intermediate.galaxy[8].x_absent 0
+f64 intermediate.galaxy[8].x 0xc0106f785ddc3de1  # -4.1088575997996211
+i32 intermediate.galaxy[8].x_checked 1
+i32 intermediate.galaxy[8].x_check_kind 2
+i32 intermediate.galaxy[8].x_validated_up 0
+i32 intermediate.galaxy[8].x_validated_down 0
+i32 intermediate.galaxy[8].x_validated 0
+i32 intermediate.galaxy[8].f_ffb_absent 0
+f64 intermediate.galaxy[8].f_ffb 0x3f908c8655bf1aeb  # 0.016161059363890933
+i32 intermediate.galaxy[8].f_ffb_checked 1
+i32 intermediate.galaxy[8].f_ffb_check_kind 2
+i32 intermediate.galaxy[8].f_ffb_validated_up 0
+i32 intermediate.galaxy[8].f_ffb_validated_down 0
+i32 intermediate.galaxy[8].f_ffb_validated 0
+i32 intermediate.galaxy[8].draw_below_f_ffb 0
+i32 intermediate.galaxy[8].draw_equals_f_ffb 0

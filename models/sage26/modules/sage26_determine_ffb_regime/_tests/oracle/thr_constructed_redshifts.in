@@ -1,0 +1,24 @@
+# calculate_ffb_threshold_mass at constructed redshifts, Hubble_h 0.73:
+# z 9 (z_norm exactly 1, log10 0: the threshold is 10^(0.8 + log10 h)); -0.0 and 0;
+# 1e54 and 1e300 (the exponent below the smallest subnormal: the threshold underflows to 0);
+# 8e51 (a subnormal threshold); -1 (z_norm 0, log10 -inf, the threshold +inf);
+# -1 + 2^-53 (the redshift above -1 nearest to it: the largest finite threshold at h 0.73, about
+# 10^106, so no redshift but -1 overflows at this h);
+# -2 (z_norm negative: a NaN threshold); NaN; +inf (z_norm +inf: the threshold 0); -inf (NaN)
+# Reachability: constructed routine-domain probe
+format sage26-oracle-fixture 1
+routine calculate_ffb_threshold_mass
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.73
+i32 call.ncase 12
+f64 case[0].z 0x4022000000000000  # 9.0
+f64 case[1].z 0x8000000000000000  # -0.0
+f64 case[2].z 0x0000000000000000  # 0.0
+f64 case[3].z 0x4b24e1878814c9ce  # 1e+54
+f64 case[4].z 0x7e37e43c8800759c  # 1e+300
+f64 case[5].z 0x4ab561d276ddfdc0  # 8e+51
+f64 case[6].z 0xbff0000000000000  # -1.0
+f64 case[7].z 0xbfefffffffffffff  # -0.9999999999999999
+f64 case[8].z 0xc000000000000000  # -2.0
+f64 case[9].z 0x7ff8000000000000  # nan
+f64 case[10].z 0x7ff0000000000000  # inf
+f64 case[11].z 0xfff0000000000000  # -inf

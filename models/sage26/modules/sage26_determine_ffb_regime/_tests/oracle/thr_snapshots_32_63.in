@@ -1,0 +1,42 @@
+# calculate_ffb_threshold_mass at every mini-Millennium snapshot redshift 32-63, Hubble_h 0.73
+# (R6.par:40)
+# ZZ = 1 / a - 1 of simulations/mini-millennium/mini-millennium.a_list (SAGE26's
+# R/src/core_init.c:66, Mimic's src/core/init.c:60), equal bit for bit to the R6 reference's
+# Header/snapshot_redshifts
+# Reachability: R6-reachable (each a Zcurr the R6 run passes, R/src/core_build_model.c:408)
+format sage26-oracle-fixture 1
+routine calculate_ffb_threshold_mass
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.73
+i32 call.ncase 32
+f64 case[0].z 0x40008f6a7c393f36  # ZZ[32] = 2.0700273232431767
+f64 case[1].z 0x3ffe9a24b70b5010  # ZZ[33] = 1.9126326704181373
+f64 case[2].z 0x3ffc42e97022bab0  # ZZ[34] = 1.7663359051036132
+f64 case[3].z 0x3ffa1596c3d27514  # ZZ[35] = 1.6302707337666265
+f64 case[4].z 0x3ff80ee52e247da2  # ZZ[36] = 1.503636532062821
+f64 case[5].z 0x3ff62be6c7fa71d6  # ZZ[37] = 1.3857181369449925
+f64 case[6].z 0x3ff469ddb8ead28e  # ZZ[38] = 1.2758462165194575
+f64 case[7].z 0x3ff2c650d6ade98c  # ZZ[39] = 1.1734169374381933
+f64 case[8].z 0x3ff13ef96b5f2dc4  # ZZ[40] = 1.0778745836458805
+f64 case[9].z 0x3fefa37f33930522  # ZZ[41] = 0.9887081153212061
+f64 case[10].z 0x3fecf98c4294a096  # ZZ[42] = 0.9054623890306341
+f64 case[11].z 0x3fea7c82eb6d824c  # ZZ[43] = 0.8276991460989591
+f64 case[12].z 0x3fe829407e7db646  # ZZ[44] = 0.755035635998589
+f64 case[13].z 0x3fe5fccb98fbb614  # ZZ[45] = 0.6871088016466183
+f64 case[14].z 0x3fe3f47341b80168  # ZZ[46] = 0.6235901149339442
+f64 case[15].z 0x3fe20dbc16bc19ce  # ZZ[47] = 0.5641766017950489
+f64 case[16].z 0x3fe0466187e25eec  # ZZ[48] = 0.5085914281835051
+f64 case[17].z 0x3fdd388fc668aa30  # ZZ[49] = 0.4565772473894496
+f64 case[18].z 0x3fda1b064310e0ec  # ZZ[50] = 0.4078994421902411
+f64 case[19].z 0x3fd730954bfb2368  # ZZ[51] = 0.36234028263111506
+f64 case[20].z 0x3fd4760566c58094  # ZZ[52] = 0.31970343624380715
+f64 case[21].z 0x3fd1e845be3b7bd4  # ZZ[53] = 0.27980178429964764
+f64 case[22].z 0x3fcf093a1999b088  # ZZ[54] = 0.24246908426301084
+f64 case[23].z 0x3fca90f414c244d0  # ZZ[55] = 0.20754862798324902
+f64 case[24].z 0x3fc6630b788d9ab8  # ZZ[56] = 0.17489760767349138
+f64 case[25].z 0x3fc27b27f0beb018  # ZZ[57] = 0.14438342337723564
+f64 case[26].z 0x3fbdaa885e528820  # ZZ[58] = 0.11588337233345714
+f64 case[27].z 0x3fb6db9149230810  # ZZ[59] = 0.08928783450667788
+f64 case[28].z 0x3fb082a3a6b28110  # ZZ[60] = 0.06449339694745881
+f64 case[29].z 0x3fa532c836565160  # ZZ[61] = 0.04140306151672024
+f64 case[30].z 0x3f9469323a40a680  # ZZ[62] = 0.019932541661694447
+f64 case[31].z 0x0000000000000000  # ZZ[63] = 0.0

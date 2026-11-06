@@ -1,0 +1,803 @@
+# SAGE26 oracle output for frac_sigmoid_r6_redshifts.in, written by oracle_c13 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine calculate_ffb_fraction
+f64 return.case[0] 0x3fa848346e8e7c9c  # 0.047425878997495036
+i32 intermediate.case[0].z_norm_absent 0
+f64 intermediate.case[0].z_norm 0x3ff82330c3f12f76  # 1.5085914281835051
+i32 intermediate.case[0].z_norm_checked 1
+i32 intermediate.case[0].z_norm_check_kind 2
+i32 intermediate.case[0].z_norm_validated_up 1
+i32 intermediate.case[0].z_norm_validated_down 1
+i32 intermediate.case[0].z_norm_validated 1
+i32 intermediate.case[0].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[0].log_Mvir_ffb_code 0xbfdc679160329d36  # -0.44382128137881993
+i32 intermediate.case[0].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[0].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[0].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[0].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.case[0].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[0].pow_equals_exp10 1
+i32 intermediate.case[0].unfused_threshold_differs 1
+i32 intermediate.case[0].Mvir_ffb_absent 0
+f64 intermediate.case[0].Mvir_ffb 0x3fd7088f231ce855  # 0.35989740780826668
+i32 intermediate.case[0].Mvir_ffb_checked 1
+i32 intermediate.case[0].Mvir_ffb_check_kind 2
+i32 intermediate.case[0].Mvir_ffb_validated_up 1
+i32 intermediate.case[0].Mvir_ffb_validated_down 0
+i32 intermediate.case[0].Mvir_ffb_validated 0
+i32 intermediate.case[0].guard_returned 0
+i32 intermediate.case[0].x_absent 0
+f64 intermediate.case[0].x 0xc007ffffeeb5929c  # -2.9999998711740101
+i32 intermediate.case[0].x_checked 1
+i32 intermediate.case[0].x_check_kind 2
+i32 intermediate.case[0].x_validated_up 1
+i32 intermediate.case[0].x_validated_down 1
+i32 intermediate.case[0].x_validated 1
+f64 return.case[1] 0x3fd829a07701991a  # 0.37754069921210631
+i32 intermediate.case[1].z_norm_absent 0
+f64 intermediate.case[1].z_norm 0x3ff82330c3f12f76  # 1.5085914281835051
+i32 intermediate.case[1].z_norm_checked 1
+i32 intermediate.case[1].z_norm_check_kind 2
+i32 intermediate.case[1].z_norm_validated_up 1
+i32 intermediate.case[1].z_norm_validated_down 1
+i32 intermediate.case[1].z_norm_validated 1
+i32 intermediate.case[1].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[1].log_Mvir_ffb_code 0xbfdc679160329d36  # -0.44382128137881993
+i32 intermediate.case[1].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[1].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[1].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[1].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[1].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[1].pow_equals_exp10 1
+i32 intermediate.case[1].unfused_threshold_differs 1
+i32 intermediate.case[1].Mvir_ffb_absent 0
+f64 intermediate.case[1].Mvir_ffb 0x3fd7088f231ce855  # 0.35989740780826668
+i32 intermediate.case[1].Mvir_ffb_checked 1
+i32 intermediate.case[1].Mvir_ffb_check_kind 2
+i32 intermediate.case[1].Mvir_ffb_validated_up 1
+i32 intermediate.case[1].Mvir_ffb_validated_down 1
+i32 intermediate.case[1].Mvir_ffb_validated 1
+i32 intermediate.case[1].guard_returned 0
+i32 intermediate.case[1].x_absent 0
+f64 intermediate.case[1].x 0xbfdfffff75098f05  # -0.49999987058093637
+i32 intermediate.case[1].x_checked 1
+i32 intermediate.case[1].x_check_kind 2
+i32 intermediate.case[1].x_validated_up 0
+i32 intermediate.case[1].x_validated_down 1
+i32 intermediate.case[1].x_validated 0
+f64 return.case[2] 0x3fdffffff9bd434f  # 0.49999999416927648
+i32 intermediate.case[2].z_norm_absent 0
+f64 intermediate.case[2].z_norm 0x3ff82330c3f12f76  # 1.5085914281835051
+i32 intermediate.case[2].z_norm_checked 1
+i32 intermediate.case[2].z_norm_check_kind 2
+i32 intermediate.case[2].z_norm_validated_up 1
+i32 intermediate.case[2].z_norm_validated_down 1
+i32 intermediate.case[2].z_norm_validated 1
+i32 intermediate.case[2].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[2].log_Mvir_ffb_code 0xbfdc679160329d36  # -0.44382128137881993
+i32 intermediate.case[2].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[2].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[2].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[2].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[2].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[2].pow_equals_exp10 1
+i32 intermediate.case[2].unfused_threshold_differs 1
+i32 intermediate.case[2].Mvir_ffb_absent 0
+f64 intermediate.case[2].Mvir_ffb 0x3fd7088f231ce855  # 0.35989740780826668
+i32 intermediate.case[2].Mvir_ffb_checked 1
+i32 intermediate.case[2].Mvir_ffb_check_kind 2
+i32 intermediate.case[2].Mvir_ffb_validated_up 1
+i32 intermediate.case[2].Mvir_ffb_validated_down 1
+i32 intermediate.case[2].Mvir_ffb_validated 1
+i32 intermediate.case[2].guard_returned 0
+i32 intermediate.case[2].x_absent 0
+f64 intermediate.case[2].x 0xbe590af2c4535b82  # -2.3322894078559866e-08
+i32 intermediate.case[2].x_checked 1
+i32 intermediate.case[2].x_check_kind 2
+i32 intermediate.case[2].x_validated_up 0
+i32 intermediate.case[2].x_validated_down 0
+i32 intermediate.case[2].x_validated 0
+f64 return.case[3] 0x3fe3eb2fd8841a90  # 0.62245933807646914
+i32 intermediate.case[3].z_norm_absent 0
+f64 intermediate.case[3].z_norm 0x3ff82330c3f12f76  # 1.5085914281835051
+i32 intermediate.case[3].z_norm_checked 1
+i32 intermediate.case[3].z_norm_check_kind 2
+i32 intermediate.case[3].z_norm_validated_up 1
+i32 intermediate.case[3].z_norm_validated_down 1
+i32 intermediate.case[3].z_norm_validated 1
+i32 intermediate.case[3].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[3].log_Mvir_ffb_code 0xbfdc679160329d36  # -0.44382128137881993
+i32 intermediate.case[3].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[3].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[3].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[3].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[3].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[3].pow_equals_exp10 1
+i32 intermediate.case[3].unfused_threshold_differs 1
+i32 intermediate.case[3].Mvir_ffb_absent 0
+f64 intermediate.case[3].Mvir_ffb 0x3fd7088f231ce855  # 0.35989740780826668
+i32 intermediate.case[3].Mvir_ffb_checked 1
+i32 intermediate.case[3].Mvir_ffb_check_kind 2
+i32 intermediate.case[3].Mvir_ffb_validated_up 1
+i32 intermediate.case[3].Mvir_ffb_validated_down 1
+i32 intermediate.case[3].Mvir_ffb_validated 1
+i32 intermediate.case[3].guard_returned 0
+i32 intermediate.case[3].x_absent 0
+f64 intermediate.case[3].x 0x3fe000000fb48811  # 0.50000002925321685
+i32 intermediate.case[3].x_checked 1
+i32 intermediate.case[3].x_check_kind 2
+i32 intermediate.case[3].x_validated_up 0
+i32 intermediate.case[3].x_validated_down 0
+i32 intermediate.case[3].x_validated 0
+f64 return.case[4] 0x3fee7b7cbcb34229  # 0.95257412772668204
+i32 intermediate.case[4].z_norm_absent 0
+f64 intermediate.case[4].z_norm 0x3ff82330c3f12f76  # 1.5085914281835051
+i32 intermediate.case[4].z_norm_checked 1
+i32 intermediate.case[4].z_norm_check_kind 2
+i32 intermediate.case[4].z_norm_validated_up 0
+i32 intermediate.case[4].z_norm_validated_down 1
+i32 intermediate.case[4].z_norm_validated 0
+i32 intermediate.case[4].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[4].log_Mvir_ffb_code 0xbfdc679160329d36  # -0.44382128137881993
+i32 intermediate.case[4].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[4].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[4].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[4].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.case[4].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[4].pow_equals_exp10 1
+i32 intermediate.case[4].unfused_threshold_differs 1
+i32 intermediate.case[4].Mvir_ffb_absent 0
+f64 intermediate.case[4].Mvir_ffb 0x3fd7088f231ce855  # 0.35989740780826668
+i32 intermediate.case[4].Mvir_ffb_checked 1
+i32 intermediate.case[4].Mvir_ffb_check_kind 2
+i32 intermediate.case[4].Mvir_ffb_validated_up 1
+i32 intermediate.case[4].Mvir_ffb_validated_down 0
+i32 intermediate.case[4].Mvir_ffb_validated 0
+i32 intermediate.case[4].guard_returned 0
+i32 intermediate.case[4].x_absent 0
+f64 intermediate.case[4].x 0x4008000002afbd30  # 3.0000000200158397
+i32 intermediate.case[4].x_checked 1
+i32 intermediate.case[4].x_check_kind 2
+i32 intermediate.case[4].x_validated_up 0
+i32 intermediate.case[4].x_validated_down 1
+i32 intermediate.case[4].x_validated 0
+f64 return.case[5] 0x3fa8483450df7180  # 0.047425875541850182
+i32 intermediate.case[5].z_norm_absent 0
+f64 intermediate.case[5].z_norm 0x3ff1b7b0947f9c94  # 1.1073461342546453
+i32 intermediate.case[5].z_norm_checked 1
+i32 intermediate.case[5].z_norm_check_kind 2
+i32 intermediate.case[5].z_norm_validated_up 1
+i32 intermediate.case[5].z_norm_validated_down 1
+i32 intermediate.case[5].z_norm_validated 1
+i32 intermediate.case[5].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[5].log_Mvir_ffb_code 0x3fd8e18a06abc63a  # 0.38876581813301281
+i32 intermediate.case[5].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[5].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[5].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.case[5].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[5].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[5].pow_equals_exp10 1
+i32 intermediate.case[5].unfused_threshold_differs 0
+i32 intermediate.case[5].Mvir_ffb_absent 0
+f64 intermediate.case[5].Mvir_ffb 0x400394fa48d9fcc0  # 2.4477430049442717
+i32 intermediate.case[5].Mvir_ffb_checked 1
+i32 intermediate.case[5].Mvir_ffb_check_kind 2
+i32 intermediate.case[5].Mvir_ffb_validated_up 1
+i32 intermediate.case[5].Mvir_ffb_validated_down 1
+i32 intermediate.case[5].Mvir_ffb_validated 1
+i32 intermediate.case[5].guard_returned 0
+i32 intermediate.case[5].x_absent 0
+f64 intermediate.case[5].x 0xc007fffff8f9cfb4  # -2.9999999476658221
+i32 intermediate.case[5].x_checked 1
+i32 intermediate.case[5].x_check_kind 2
+i32 intermediate.case[5].x_validated_up 1
+i32 intermediate.case[5].x_validated_down 1
+i32 intermediate.case[5].x_validated 1
+f64 return.case[6] 0x3fd829a04f4ecd8e  # 0.3775406622400731
+i32 intermediate.case[6].z_norm_absent 0
+f64 intermediate.case[6].z_norm 0x3ff1b7b0947f9c94  # 1.1073461342546453
+i32 intermediate.case[6].z_norm_checked 1
+i32 intermediate.case[6].z_norm_check_kind 2
+i32 intermediate.case[6].z_norm_validated_up 1
+i32 intermediate.case[6].z_norm_validated_down 1
+i32 intermediate.case[6].z_norm_validated 1
+i32 intermediate.case[6].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[6].log_Mvir_ffb_code 0x3fd8e18a06abc63a  # 0.38876581813301281
+i32 intermediate.case[6].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[6].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[6].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.case[6].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[6].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[6].pow_equals_exp10 1
+i32 intermediate.case[6].unfused_threshold_differs 0
+i32 intermediate.case[6].Mvir_ffb_absent 0
+f64 intermediate.case[6].Mvir_ffb 0x400394fa48d9fcc0  # 2.4477430049442717
+i32 intermediate.case[6].Mvir_ffb_checked 1
+i32 intermediate.case[6].Mvir_ffb_check_kind 2
+i32 intermediate.case[6].Mvir_ffb_validated_up 1
+i32 intermediate.case[6].Mvir_ffb_validated_down 1
+i32 intermediate.case[6].Mvir_ffb_validated 1
+i32 intermediate.case[6].guard_returned 0
+i32 intermediate.case[6].x_absent 0
+f64 intermediate.case[6].x 0xbfe000000efb67e2  # -0.50000002790624998
+i32 intermediate.case[6].x_checked 1
+i32 intermediate.case[6].x_check_kind 2
+i32 intermediate.case[6].x_validated_up 1
+i32 intermediate.case[6].x_validated_down 1
+i32 intermediate.case[6].x_validated 1
+f64 return.case[7] 0x3fdfffffeb0f6246  # 0.49999998049819216
+i32 intermediate.case[7].z_norm_absent 0
+f64 intermediate.case[7].z_norm 0x3ff1b7b0947f9c94  # 1.1073461342546453
+i32 intermediate.case[7].z_norm_checked 1
+i32 intermediate.case[7].z_norm_check_kind 2
+i32 intermediate.case[7].z_norm_validated_up 1
+i32 intermediate.case[7].z_norm_validated_down 1
+i32 intermediate.case[7].z_norm_validated 1
+i32 intermediate.case[7].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[7].log_Mvir_ffb_code 0x3fd8e18a06abc63a  # 0.38876581813301281
+i32 intermediate.case[7].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[7].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[7].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.case[7].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[7].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[7].pow_equals_exp10 1
+i32 intermediate.case[7].unfused_threshold_differs 0
+i32 intermediate.case[7].Mvir_ffb_absent 0
+f64 intermediate.case[7].Mvir_ffb 0x400394fa48d9fcc0  # 2.4477430049442717
+i32 intermediate.case[7].Mvir_ffb_checked 1
+i32 intermediate.case[7].Mvir_ffb_check_kind 2
+i32 intermediate.case[7].Mvir_ffb_validated_up 1
+i32 intermediate.case[7].Mvir_ffb_validated_down 1
+i32 intermediate.case[7].Mvir_ffb_validated 1
+i32 intermediate.case[7].guard_returned 0
+i32 intermediate.case[7].x_absent 0
+f64 intermediate.case[7].x 0xbe74f09db9a50c52  # -7.8007231262215813e-08
+i32 intermediate.case[7].x_checked 1
+i32 intermediate.case[7].x_check_kind 2
+i32 intermediate.case[7].x_validated_up 0
+i32 intermediate.case[7].x_validated_down 0
+i32 intermediate.case[7].x_validated 0
+f64 return.case[8] 0x3fe3eb2fd056626b  # 0.62245932284265615
+i32 intermediate.case[8].z_norm_absent 0
+f64 intermediate.case[8].z_norm 0x3ff1b7b0947f9c94  # 1.1073461342546453
+i32 intermediate.case[8].z_norm_checked 1
+i32 intermediate.case[8].z_norm_check_kind 2
+i32 intermediate.case[8].z_norm_validated_up 1
+i32 intermediate.case[8].z_norm_validated_down 1
+i32 intermediate.case[8].z_norm_validated 1
+i32 intermediate.case[8].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[8].log_Mvir_ffb_code 0x3fd8e18a06abc63a  # 0.38876581813301281
+i32 intermediate.case[8].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[8].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[8].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.case[8].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[8].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[8].pow_equals_exp10 1
+i32 intermediate.case[8].unfused_threshold_differs 0
+i32 intermediate.case[8].Mvir_ffb_absent 0
+f64 intermediate.case[8].Mvir_ffb 0x400394fa48d9fcc0  # 2.4477430049442717
+i32 intermediate.case[8].Mvir_ffb_checked 1
+i32 intermediate.case[8].Mvir_ffb_check_kind 2
+i32 intermediate.case[8].Mvir_ffb_validated_up 0
+i32 intermediate.case[8].Mvir_ffb_validated_down 1
+i32 intermediate.case[8].Mvir_ffb_validated 0
+i32 intermediate.case[8].guard_returned 0
+i32 intermediate.case[8].x_absent 0
+f64 intermediate.case[8].x 0x3fdfffffd9ce74f5  # 0.49999996442950528
+i32 intermediate.case[8].x_checked 1
+i32 intermediate.case[8].x_check_kind 2
+i32 intermediate.case[8].x_validated_up 0
+i32 intermediate.case[8].x_validated_down 0
+i32 intermediate.case[8].x_validated 0
+f64 return.case[9] 0x3fee7b7cb9d7ce07  # 0.95257412240465633
+i32 intermediate.case[9].z_norm_absent 0
+f64 intermediate.case[9].z_norm 0x3ff1b7b0947f9c94  # 1.1073461342546453
+i32 intermediate.case[9].z_norm_checked 1
+i32 intermediate.case[9].z_norm_check_kind 2
+i32 intermediate.case[9].z_norm_validated_up 1
+i32 intermediate.case[9].z_norm_validated_down 1
+i32 intermediate.case[9].z_norm_validated 1
+i32 intermediate.case[9].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[9].log_Mvir_ffb_code 0x3fd8e18a06abc63a  # 0.38876581813301281
+i32 intermediate.case[9].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[9].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[9].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.case[9].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.case[9].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[9].pow_equals_exp10 1
+i32 intermediate.case[9].unfused_threshold_differs 0
+i32 intermediate.case[9].Mvir_ffb_absent 0
+f64 intermediate.case[9].Mvir_ffb 0x400394fa48d9fcc0  # 2.4477430049442717
+i32 intermediate.case[9].Mvir_ffb_checked 1
+i32 intermediate.case[9].Mvir_ffb_check_kind 2
+i32 intermediate.case[9].Mvir_ffb_validated_up 0
+i32 intermediate.case[9].Mvir_ffb_validated_down 0
+i32 intermediate.case[9].Mvir_ffb_validated 0
+i32 intermediate.case[9].guard_returned 0
+i32 intermediate.case[9].x_absent 0
+f64 intermediate.case[9].x 0x4007fffff2dfff90  # 2.9999999022110799
+i32 intermediate.case[9].x_checked 1
+i32 intermediate.case[9].x_check_kind 2
+i32 intermediate.case[9].x_validated_up 0
+i32 intermediate.case[9].x_validated_down 0
+i32 intermediate.case[9].x_validated 0
+f64 return.case[10] 0x3fa8483424810ac5  # 0.047425870376647285
+i32 intermediate.case[10].z_norm_absent 0
+f64 intermediate.case[10].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.case[10].z_norm_checked 1
+i32 intermediate.case[10].z_norm_check_kind 2
+i32 intermediate.case[10].z_norm_validated_up 1
+i32 intermediate.case[10].z_norm_validated_down 1
+i32 intermediate.case[10].z_norm_validated 1
+i32 intermediate.case[10].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[10].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.case[10].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[10].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[10].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[10].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[10].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[10].pow_equals_exp10 1
+i32 intermediate.case[10].unfused_threshold_differs 0
+i32 intermediate.case[10].Mvir_ffb_absent 0
+f64 intermediate.case[10].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.case[10].Mvir_ffb_checked 1
+i32 intermediate.case[10].Mvir_ffb_check_kind 2
+i32 intermediate.case[10].Mvir_ffb_validated_up 1
+i32 intermediate.case[10].Mvir_ffb_validated_down 1
+i32 intermediate.case[10].Mvir_ffb_validated 1
+i32 intermediate.case[10].guard_returned 0
+i32 intermediate.case[10].x_absent 0
+f64 intermediate.case[10].x 0xc008000008524747  # -3.0000000619992622
+i32 intermediate.case[10].x_checked 1
+i32 intermediate.case[10].x_check_kind 2
+i32 intermediate.case[10].x_validated_up 1
+i32 intermediate.case[10].x_validated_down 1
+i32 intermediate.case[10].x_validated 1
+f64 return.case[11] 0x3fd829a047a210e4  # 0.37754065509240164
+i32 intermediate.case[11].z_norm_absent 0
+f64 intermediate.case[11].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.case[11].z_norm_checked 1
+i32 intermediate.case[11].z_norm_check_kind 2
+i32 intermediate.case[11].z_norm_validated_up 1
+i32 intermediate.case[11].z_norm_validated_down 1
+i32 intermediate.case[11].z_norm_validated 1
+i32 intermediate.case[11].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[11].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.case[11].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[11].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[11].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[11].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[11].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[11].pow_equals_exp10 1
+i32 intermediate.case[11].unfused_threshold_differs 0
+i32 intermediate.case[11].Mvir_ffb_absent 0
+f64 intermediate.case[11].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.case[11].Mvir_ffb_checked 1
+i32 intermediate.case[11].Mvir_ffb_check_kind 2
+i32 intermediate.case[11].Mvir_ffb_validated_up 1
+i32 intermediate.case[11].Mvir_ffb_validated_down 1
+i32 intermediate.case[11].Mvir_ffb_validated 1
+i32 intermediate.case[11].guard_returned 0
+i32 intermediate.case[11].x_absent 0
+f64 intermediate.case[11].x 0xbfe000001f4fa198  # -0.50000005832139305
+i32 intermediate.case[11].x_checked 1
+i32 intermediate.case[11].x_check_kind 2
+i32 intermediate.case[11].x_validated_up 1
+i32 intermediate.case[11].x_validated_down 0
+i32 intermediate.case[11].x_validated 0
+f64 return.case[12] 0x3fdffffffb90d4b9  # 0.49999999587027905
+i32 intermediate.case[12].z_norm_absent 0
+f64 intermediate.case[12].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.case[12].z_norm_checked 1
+i32 intermediate.case[12].z_norm_check_kind 2
+i32 intermediate.case[12].z_norm_validated_up 1
+i32 intermediate.case[12].z_norm_validated_down 1
+i32 intermediate.case[12].z_norm_validated 1
+i32 intermediate.case[12].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[12].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.case[12].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[12].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[12].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[12].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[12].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[12].pow_equals_exp10 1
+i32 intermediate.case[12].unfused_threshold_differs 0
+i32 intermediate.case[12].Mvir_ffb_absent 0
+f64 intermediate.case[12].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.case[12].Mvir_ffb_checked 1
+i32 intermediate.case[12].Mvir_ffb_check_kind 2
+i32 intermediate.case[12].Mvir_ffb_validated_up 0
+i32 intermediate.case[12].Mvir_ffb_validated_down 1
+i32 intermediate.case[12].Mvir_ffb_validated 0
+i32 intermediate.case[12].guard_returned 0
+i32 intermediate.case[12].x_absent 0
+f64 intermediate.case[12].x 0xbe51bcad17cb50a1  # -1.6518883582905489e-08
+i32 intermediate.case[12].x_checked 1
+i32 intermediate.case[12].x_check_kind 2
+i32 intermediate.case[12].x_validated_up 0
+i32 intermediate.case[12].x_validated_down 0
+i32 intermediate.case[12].x_validated 0
+f64 return.case[13] 0x3fe3eb2fe37d3e4e  # 0.62245935851564993
+i32 intermediate.case[13].z_norm_absent 0
+f64 intermediate.case[13].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.case[13].z_norm_checked 1
+i32 intermediate.case[13].z_norm_check_kind 2
+i32 intermediate.case[13].z_norm_validated_up 1
+i32 intermediate.case[13].z_norm_validated_down 1
+i32 intermediate.case[13].z_norm_validated 1
+i32 intermediate.case[13].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[13].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.case[13].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[13].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[13].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[13].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[13].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[13].pow_equals_exp10 1
+i32 intermediate.case[13].unfused_threshold_differs 0
+i32 intermediate.case[13].Mvir_ffb_absent 0
+f64 intermediate.case[13].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.case[13].Mvir_ffb_checked 1
+i32 intermediate.case[13].Mvir_ffb_check_kind 2
+i32 intermediate.case[13].Mvir_ffb_validated_up 0
+i32 intermediate.case[13].Mvir_ffb_validated_down 1
+i32 intermediate.case[13].Mvir_ffb_validated 0
+i32 intermediate.case[13].guard_returned 0
+i32 intermediate.case[13].x_absent 0
+f64 intermediate.case[13].x 0x3fe000003e6620e8  # 0.50000011622708218
+i32 intermediate.case[13].x_checked 1
+i32 intermediate.case[13].x_check_kind 2
+i32 intermediate.case[13].x_validated_up 1
+i32 intermediate.case[13].x_validated_down 0
+i32 intermediate.case[13].x_validated 0
+f64 return.case[14] 0x3fee7b7cbc2be53f  # 0.95257412674178699
+i32 intermediate.case[14].z_norm_absent 0
+f64 intermediate.case[14].z_norm 0x3fea789393af5555  # 0.82721880764681066
+i32 intermediate.case[14].z_norm_checked 1
+i32 intermediate.case[14].z_norm_check_kind 2
+i32 intermediate.case[14].z_norm_validated_up 0
+i32 intermediate.case[14].z_norm_validated_down 1
+i32 intermediate.case[14].z_norm_validated 0
+i32 intermediate.case[14].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[14].log_Mvir_ffb_code 0x3ff2c9045081dfe3  # 1.1740763802354131
+i32 intermediate.case[14].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[14].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[14].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[14].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.case[14].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[14].pow_equals_exp10 1
+i32 intermediate.case[14].unfused_threshold_differs 0
+i32 intermediate.case[14].Mvir_ffb_absent 0
+f64 intermediate.case[14].Mvir_ffb 0x402ddc73a2dbbc2e  # 14.93056973392785
+i32 intermediate.case[14].Mvir_ffb_checked 1
+i32 intermediate.case[14].Mvir_ffb_check_kind 2
+i32 intermediate.case[14].Mvir_ffb_validated_up 0
+i32 intermediate.case[14].Mvir_ffb_validated_down 0
+i32 intermediate.case[14].Mvir_ffb_validated 0
+i32 intermediate.case[14].guard_returned 0
+i32 intermediate.case[14].x_absent 0
+f64 intermediate.case[14].x 0x4007ffffffc2a9d4  # 2.9999999982148697
+i32 intermediate.case[14].x_checked 1
+i32 intermediate.case[14].x_check_kind 2
+i32 intermediate.case[14].x_validated_up 0
+i32 intermediate.case[14].x_validated_down 0
+i32 intermediate.case[14].x_validated 0
+f64 return.case[15] 0x3fa84834262f495c  # 0.047425870572299827
+i32 intermediate.case[15].z_norm_absent 0
+f64 intermediate.case[15].z_norm 0x3fe41fcffc300a69  # 0.62888335471536749
+i32 intermediate.case[15].z_norm_checked 1
+i32 intermediate.case[15].z_norm_check_kind 2
+i32 intermediate.case[15].z_norm_validated_up 1
+i32 intermediate.case[15].z_norm_validated_down 1
+i32 intermediate.case[15].z_norm_validated 1
+i32 intermediate.case[15].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[15].log_Mvir_ffb_code 0x3ffe9852b23cc041  # 1.9121882402796617
+i32 intermediate.case[15].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[15].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[15].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[15].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[15].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[15].pow_equals_exp10 1
+i32 intermediate.case[15].unfused_threshold_differs 0
+i32 intermediate.case[15].Mvir_ffb_absent 0
+f64 intermediate.case[15].Mvir_ffb 0x40546c64938c0134  # 81.693638693545665
+i32 intermediate.case[15].Mvir_ffb_checked 1
+i32 intermediate.case[15].Mvir_ffb_check_kind 2
+i32 intermediate.case[15].Mvir_ffb_validated_up 1
+i32 intermediate.case[15].Mvir_ffb_validated_down 1
+i32 intermediate.case[15].Mvir_ffb_validated 1
+i32 intermediate.case[15].guard_returned 0
+i32 intermediate.case[15].x_absent 0
+f64 intermediate.case[15].x 0xc008000007bd78df  # -3.0000000576684296
+i32 intermediate.case[15].x_checked 1
+i32 intermediate.case[15].x_check_kind 2
+i32 intermediate.case[15].x_validated_up 1
+i32 intermediate.case[15].x_validated_down 1
+i32 intermediate.case[15].x_validated 1
+f64 return.case[16] 0x3fd829a071fddd8f  # 0.37754069454191436
+i32 intermediate.case[16].z_norm_absent 0
+f64 intermediate.case[16].z_norm 0x3fe41fcffc300a69  # 0.62888335471536749
+i32 intermediate.case[16].z_norm_checked 1
+i32 intermediate.case[16].z_norm_check_kind 2
+i32 intermediate.case[16].z_norm_validated_up 1
+i32 intermediate.case[16].z_norm_validated_down 1
+i32 intermediate.case[16].z_norm_validated 1
+i32 intermediate.case[16].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[16].log_Mvir_ffb_code 0x3ffe9852b23cc041  # 1.9121882402796617
+i32 intermediate.case[16].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[16].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[16].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[16].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[16].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[16].pow_equals_exp10 1
+i32 intermediate.case[16].unfused_threshold_differs 0
+i32 intermediate.case[16].Mvir_ffb_absent 0
+f64 intermediate.case[16].Mvir_ffb 0x40546c64938c0134  # 81.693638693545665
+i32 intermediate.case[16].Mvir_ffb_checked 1
+i32 intermediate.case[16].Mvir_ffb_check_kind 2
+i32 intermediate.case[16].Mvir_ffb_validated_up 1
+i32 intermediate.case[16].Mvir_ffb_validated_down 1
+i32 intermediate.case[16].Mvir_ffb_validated 1
+i32 intermediate.case[16].guard_returned 0
+i32 intermediate.case[16].x_absent 0
+f64 intermediate.case[16].x 0xbfdfffff8a602a02  # -0.49999989045377913
+i32 intermediate.case[16].x_checked 1
+i32 intermediate.case[16].x_check_kind 2
+i32 intermediate.case[16].x_validated_up 0
+i32 intermediate.case[16].x_validated_down 1
+i32 intermediate.case[16].x_validated 0
+f64 return.case[17] 0x3fe000000e1f88b6  # 0.50000002630647233
+i32 intermediate.case[17].z_norm_absent 0
+f64 intermediate.case[17].z_norm 0x3fe41fcffc300a69  # 0.62888335471536749
+i32 intermediate.case[17].z_norm_checked 1
+i32 intermediate.case[17].z_norm_check_kind 2
+i32 intermediate.case[17].z_norm_validated_up 1
+i32 intermediate.case[17].z_norm_validated_down 1
+i32 intermediate.case[17].z_norm_validated 1
+i32 intermediate.case[17].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[17].log_Mvir_ffb_code 0x3ffe9852b23cc041  # 1.9121882402796617
+i32 intermediate.case[17].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[17].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[17].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[17].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[17].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[17].pow_equals_exp10 1
+i32 intermediate.case[17].unfused_threshold_differs 0
+i32 intermediate.case[17].Mvir_ffb_absent 0
+f64 intermediate.case[17].Mvir_ffb 0x40546c64938c0134  # 81.693638693545665
+i32 intermediate.case[17].Mvir_ffb_checked 1
+i32 intermediate.case[17].Mvir_ffb_check_kind 2
+i32 intermediate.case[17].Mvir_ffb_validated_up 0
+i32 intermediate.case[17].Mvir_ffb_validated_down 1
+i32 intermediate.case[17].Mvir_ffb_validated 0
+i32 intermediate.case[17].guard_returned 0
+i32 intermediate.case[17].x_absent 0
+f64 intermediate.case[17].x 0x3e7c3f116cdfd4dd  # 1.0522588952940155e-07
+i32 intermediate.case[17].x_checked 1
+i32 intermediate.case[17].x_check_kind 2
+i32 intermediate.case[17].x_validated_up 0
+i32 intermediate.case[17].x_validated_down 0
+i32 intermediate.case[17].x_validated 0
+f64 return.case[18] 0x3fe3eb2fd2ad7a35  # 0.62245932720163089
+i32 intermediate.case[18].z_norm_absent 0
+f64 intermediate.case[18].z_norm 0x3fe41fcffc300a69  # 0.62888335471536749
+i32 intermediate.case[18].z_norm_checked 1
+i32 intermediate.case[18].z_norm_check_kind 2
+i32 intermediate.case[18].z_norm_validated_up 1
+i32 intermediate.case[18].z_norm_validated_down 1
+i32 intermediate.case[18].z_norm_validated 1
+i32 intermediate.case[18].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[18].log_Mvir_ffb_code 0x3ffe9852b23cc041  # 1.9121882402796617
+i32 intermediate.case[18].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[18].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[18].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[18].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[18].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[18].pow_equals_exp10 1
+i32 intermediate.case[18].unfused_threshold_differs 0
+i32 intermediate.case[18].Mvir_ffb_absent 0
+f64 intermediate.case[18].Mvir_ffb 0x40546c64938c0134  # 81.693638693545665
+i32 intermediate.case[18].Mvir_ffb_checked 1
+i32 intermediate.case[18].Mvir_ffb_check_kind 2
+i32 intermediate.case[18].Mvir_ffb_validated_up 1
+i32 intermediate.case[18].Mvir_ffb_validated_down 1
+i32 intermediate.case[18].Mvir_ffb_validated 1
+i32 intermediate.case[18].guard_returned 0
+i32 intermediate.case[18].x_absent 0
+f64 intermediate.case[18].x 0x3fdfffffedb90a18  # 0.4999999829780406
+i32 intermediate.case[18].x_checked 1
+i32 intermediate.case[18].x_check_kind 2
+i32 intermediate.case[18].x_validated_up 0
+i32 intermediate.case[18].x_validated_down 0
+i32 intermediate.case[18].x_validated 0
+f64 return.case[19] 0x3fee7b7cbc686243  # 0.9525741271818976
+i32 intermediate.case[19].z_norm_absent 0
+f64 intermediate.case[19].z_norm 0x3fe41fcffc300a69  # 0.62888335471536749
+i32 intermediate.case[19].z_norm_checked 1
+i32 intermediate.case[19].z_norm_check_kind 2
+i32 intermediate.case[19].z_norm_validated_up 0
+i32 intermediate.case[19].z_norm_validated_down 1
+i32 intermediate.case[19].z_norm_validated 0
+i32 intermediate.case[19].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[19].log_Mvir_ffb_code 0x3ffe9852b23cc041  # 1.9121882402796617
+i32 intermediate.case[19].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[19].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[19].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[19].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.case[19].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[19].pow_equals_exp10 1
+i32 intermediate.case[19].unfused_threshold_differs 0
+i32 intermediate.case[19].Mvir_ffb_absent 0
+f64 intermediate.case[19].Mvir_ffb 0x40546c64938c0134  # 81.693638693545665
+i32 intermediate.case[19].Mvir_ffb_checked 1
+i32 intermediate.case[19].Mvir_ffb_check_kind 2
+i32 intermediate.case[19].Mvir_ffb_validated_up 1
+i32 intermediate.case[19].Mvir_ffb_validated_down 0
+i32 intermediate.case[19].Mvir_ffb_validated 0
+i32 intermediate.case[19].guard_returned 0
+i32 intermediate.case[19].x_absent 0
+f64 intermediate.case[19].x 0x4008000001116545  # 3.0000000079568587
+i32 intermediate.case[19].x_checked 1
+i32 intermediate.case[19].x_check_kind 2
+i32 intermediate.case[19].x_validated_up 0
+i32 intermediate.case[19].x_validated_down 1
+i32 intermediate.case[19].x_validated 0
+f64 return.case[20] 0x3fa84834557cabd1  # 0.047425876079010394
+i32 intermediate.case[20].z_norm_absent 0
+f64 intermediate.case[20].z_norm 0x3fd9fc972e1c5b4e  # 0.40604190352444369
+i32 intermediate.case[20].z_norm_checked 1
+i32 intermediate.case[20].z_norm_check_kind 2
+i32 intermediate.case[20].z_norm_validated_up 1
+i32 intermediate.case[20].z_norm_validated_down 1
+i32 intermediate.case[20].z_norm_validated 1
+i32 intermediate.case[20].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[20].log_Mvir_ffb_code 0x4008b8b228575026  # 3.0901835586210096
+i32 intermediate.case[20].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[20].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[20].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[20].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[20].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[20].pow_equals_exp10 1
+i32 intermediate.case[20].unfused_threshold_differs 0
+i32 intermediate.case[20].Mvir_ffb_absent 0
+f64 intermediate.case[20].Mvir_ffb 0x40933b27cc4eae50  # 1230.7888653081791
+i32 intermediate.case[20].Mvir_ffb_checked 1
+i32 intermediate.case[20].Mvir_ffb_check_kind 2
+i32 intermediate.case[20].Mvir_ffb_validated_up 1
+i32 intermediate.case[20].Mvir_ffb_validated_down 0
+i32 intermediate.case[20].Mvir_ffb_validated 0
+i32 intermediate.case[20].guard_returned 0
+i32 intermediate.case[20].x_absent 0
+f64 intermediate.case[20].x 0xc007fffff7614445  # -2.9999999357756075
+i32 intermediate.case[20].x_checked 1
+i32 intermediate.case[20].x_check_kind 2
+i32 intermediate.case[20].x_validated_up 1
+i32 intermediate.case[20].x_validated_down 1
+i32 intermediate.case[20].x_validated 1
+f64 return.case[21] 0x3fd829a02c32f6a9  # 0.37754062954250373
+i32 intermediate.case[21].z_norm_absent 0
+f64 intermediate.case[21].z_norm 0x3fd9fc972e1c5b4e  # 0.40604190352444369
+i32 intermediate.case[21].z_norm_checked 1
+i32 intermediate.case[21].z_norm_check_kind 2
+i32 intermediate.case[21].z_norm_validated_up 1
+i32 intermediate.case[21].z_norm_validated_down 1
+i32 intermediate.case[21].z_norm_validated 1
+i32 intermediate.case[21].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[21].log_Mvir_ffb_code 0x4008b8b228575026  # 3.0901835586210096
+i32 intermediate.case[21].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[21].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[21].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[21].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[21].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[21].pow_equals_exp10 1
+i32 intermediate.case[21].unfused_threshold_differs 0
+i32 intermediate.case[21].Mvir_ffb_absent 0
+f64 intermediate.case[21].Mvir_ffb 0x40933b27cc4eae50  # 1230.7888653081791
+i32 intermediate.case[21].Mvir_ffb_checked 1
+i32 intermediate.case[21].Mvir_ffb_check_kind 2
+i32 intermediate.case[21].Mvir_ffb_validated_up 1
+i32 intermediate.case[21].Mvir_ffb_validated_down 1
+i32 intermediate.case[21].Mvir_ffb_validated 1
+i32 intermediate.case[21].guard_returned 0
+i32 intermediate.case[21].x_absent 0
+f64 intermediate.case[21].x 0xbfe0000059ae2ab4  # -0.5000001670426486
+i32 intermediate.case[21].x_checked 1
+i32 intermediate.case[21].x_check_kind 2
+i32 intermediate.case[21].x_validated_up 0
+i32 intermediate.case[21].x_validated_down 0
+i32 intermediate.case[21].x_validated 0
+f64 return.case[22] 0x3fdfffffe25a7ccd  # 0.49999997238951438
+i32 intermediate.case[22].z_norm_absent 0
+f64 intermediate.case[22].z_norm 0x3fd9fc972e1c5b4e  # 0.40604190352444369
+i32 intermediate.case[22].z_norm_checked 1
+i32 intermediate.case[22].z_norm_check_kind 2
+i32 intermediate.case[22].z_norm_validated_up 1
+i32 intermediate.case[22].z_norm_validated_down 1
+i32 intermediate.case[22].z_norm_validated 1
+i32 intermediate.case[22].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[22].log_Mvir_ffb_code 0x4008b8b228575026  # 3.0901835586210096
+i32 intermediate.case[22].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[22].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[22].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[22].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[22].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[22].pow_equals_exp10 1
+i32 intermediate.case[22].unfused_threshold_differs 0
+i32 intermediate.case[22].Mvir_ffb_absent 0
+f64 intermediate.case[22].Mvir_ffb 0x40933b27cc4eae50  # 1230.7888653081791
+i32 intermediate.case[22].Mvir_ffb_checked 1
+i32 intermediate.case[22].Mvir_ffb_check_kind 2
+i32 intermediate.case[22].Mvir_ffb_validated_up 1
+i32 intermediate.case[22].Mvir_ffb_validated_down 1
+i32 intermediate.case[22].Mvir_ffb_validated 1
+i32 intermediate.case[22].guard_returned 0
+i32 intermediate.case[22].x_absent 0
+f64 intermediate.case[22].x 0xbe7da58332bc9cad  # -1.104419424217719e-07
+i32 intermediate.case[22].x_checked 1
+i32 intermediate.case[22].x_check_kind 2
+i32 intermediate.case[22].x_validated_up 0
+i32 intermediate.case[22].x_validated_down 0
+i32 intermediate.case[22].x_validated 0
+f64 return.case[23] 0x3fe3eb2fcfdf152f  # 0.62245932197462206
+i32 intermediate.case[23].z_norm_absent 0
+f64 intermediate.case[23].z_norm 0x3fd9fc972e1c5b4e  # 0.40604190352444369
+i32 intermediate.case[23].z_norm_checked 1
+i32 intermediate.case[23].z_norm_check_kind 2
+i32 intermediate.case[23].z_norm_validated_up 1
+i32 intermediate.case[23].z_norm_validated_down 1
+i32 intermediate.case[23].z_norm_validated 1
+i32 intermediate.case[23].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[23].log_Mvir_ffb_code 0x4008b8b228575026  # 3.0901835586210096
+i32 intermediate.case[23].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[23].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[23].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[23].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[23].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[23].pow_equals_exp10 1
+i32 intermediate.case[23].unfused_threshold_differs 0
+i32 intermediate.case[23].Mvir_ffb_absent 0
+f64 intermediate.case[23].Mvir_ffb 0x40933b27cc4eae50  # 1230.7888653081791
+i32 intermediate.case[23].Mvir_ffb_checked 1
+i32 intermediate.case[23].Mvir_ffb_check_kind 2
+i32 intermediate.case[23].Mvir_ffb_validated_up 1
+i32 intermediate.case[23].Mvir_ffb_validated_down 1
+i32 intermediate.case[23].Mvir_ffb_validated 1
+i32 intermediate.case[23].guard_returned 0
+i32 intermediate.case[23].x_absent 0
+f64 intermediate.case[23].x 0x3fdfffffd5d723a5  # 0.49999996073580127
+i32 intermediate.case[23].x_checked 1
+i32 intermediate.case[23].x_check_kind 2
+i32 intermediate.case[23].x_validated_up 0
+i32 intermediate.case[23].x_validated_down 0
+i32 intermediate.case[23].x_validated 0
+f64 return.case[24] 0x3fee7b7cba292c78  # 0.95257412299669308
+i32 intermediate.case[24].z_norm_absent 0
+f64 intermediate.case[24].z_norm 0x3fd9fc972e1c5b4e  # 0.40604190352444369
+i32 intermediate.case[24].z_norm_checked 1
+i32 intermediate.case[24].z_norm_check_kind 2
+i32 intermediate.case[24].z_norm_validated_up 1
+i32 intermediate.case[24].z_norm_validated_down 0
+i32 intermediate.case[24].z_norm_validated 0
+i32 intermediate.case[24].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[24].log_Mvir_ffb_code 0x4008b8b228575026  # 3.0901835586210096
+i32 intermediate.case[24].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[24].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[24].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.case[24].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[24].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[24].pow_equals_exp10 1
+i32 intermediate.case[24].unfused_threshold_differs 0
+i32 intermediate.case[24].Mvir_ffb_absent 0
+f64 intermediate.case[24].Mvir_ffb 0x40933b27cc4eae50  # 1230.7888653081791
+i32 intermediate.case[24].Mvir_ffb_checked 1
+i32 intermediate.case[24].Mvir_ffb_check_kind 2
+i32 intermediate.case[24].Mvir_ffb_validated_up 0
+i32 intermediate.case[24].Mvir_ffb_validated_down 0
+i32 intermediate.case[24].Mvir_ffb_validated 0
+i32 intermediate.case[24].guard_returned 0
+i32 intermediate.case[24].x_absent 0
+f64 intermediate.case[24].x 0x4007fffff4a247b9  # 2.9999999153160073
+i32 intermediate.case[24].x_checked 1
+i32 intermediate.case[24].x_check_kind 2
+i32 intermediate.case[24].x_validated_up 0
+i32 intermediate.case[24].x_validated_down 0
+i32 intermediate.case[24].x_validated 0

@@ -16,7 +16,10 @@
  * - a manifest or fixture that cannot be read (a directory: fopen succeeds, fgets fails)
  *   fails with "read error", not as an early end of file;
  * - a truncated manifest (fewer fixtures than declared, or a listed fixture missing a
- *   file) still fails its count check, and a truncated fixture file fails to load.
+ *   file) still fails its count check, and a truncated fixture file fails to load;
+ * - the i64 field type (c13) reads INT64_MIN and INT64_MAX exactly, through oracle_in_i64 and
+ *   oracle_check_i64, beside the existing types, and refuses one past each end and a malformed
+ *   value.
  *
  * Error paths run in a forked child (tests/framework/child_capture.h) so their stderr
  * can be checked for the limit's name. Platform independent: no bit-exact comparison.
@@ -45,7 +48,7 @@ static int failed = 0;
 /** Scratch files at the top of the scratch directory (each removed at exit if present) */
 static const char *const scratch_leaves[] = {"manifest_full", "manifest_count", "manifest_over",
                                              "manifest_long", "fixture_full",   "fixture_over",
-                                             "fixture_bad"};
+                                             "fixture_bad",   "fixture_i64"};
 
 /** The fixture whose .out the missing-file case hides, and the extension it is hidden under */
 #define HIDDEN_FIXTURE 100
@@ -494,6 +497,62 @@ int test_file_truncated_or_overlong_refused(void) {
 }
 
 /**
+ * @test    test_file_i64_boundaries
+ * @brief   The i64 type reads the whole signed 64-bit range exactly and refuses anything outside it
+ *
+ * INT64_MIN and INT64_MAX (and a value above 2^53, which a double would round) are read through
+ * oracle_in_i64 and compared by oracle_check_i64, beside an f64 and an i32 field, so the new type
+ * is additive. One past each end (strtoll's ERANGE, never a wrap) and malformed values (a
+ * hexadecimal literal, trailing characters, a lone sign, a decimal point) are each refused.
+ */
+int test_file_i64_boundaries(void) {
+  static char text[4 * ORACLE_MAX_LINE];
+  static struct oracle_fixture fx;
+  char path[ORACLE_MAX_PATH];
+  scratch_path(path, sizeof(path), "fixture_i64");
+  snprintf(text, sizeof(text),
+           "%s\nroutine selftest\n"
+           "i64 id.min -9223372036854775808\n"
+           "i64 id.max 9223372036854775807\n"
+           "i64 id.above_2_53 9007199254740993\n"
+           "i64 id.zero 0\n"
+           "i32 call.n -2147483648\n"
+           "f64 field.one 0x3ff0000000000000\n",
+           ORACLE_FORMAT_LINE);
+  TEST_ASSERT(write_text(path, text) == 0, "scratch fixture must be written");
+  TEST_ASSERT(oracle_load(path, &fx) == 0, "a fixture with i64 fields must load");
+  const long long min_read = oracle_in_i64(&fx, "id.min");
+  const long long max_read = oracle_in_i64(&fx, "id.max");
+  printf("\n  i64 read: min %lld, max %lld", min_read, max_read);
+  TEST_ASSERT(min_read == INT64_MIN, "i64 INT64_MIN must read exactly");
+  TEST_ASSERT(max_read == INT64_MAX, "i64 INT64_MAX must read exactly");
+  TEST_ASSERT(oracle_check_i64(&fx, "id.above_2_53", 9007199254740993LL) == 0,
+              "an i64 above 2^53 must compare exactly");
+  TEST_ASSERT(oracle_check_i64(&fx, "id.zero", 1) == 1, "a differing i64 must be a mismatch");
+  TEST_ASSERT(oracle_in_i32(&fx, "call.n") == INT32_MIN, "an i32 must read as before");
+  TEST_ASSERT(oracle_in_f64(&fx, "field.one") == 1.0, "an f64 must read as before");
+  TEST_ASSERT(fx.errors == 0 && oracle_report_unconsumed(&fx) == 0,
+              "every field must be consumed with no type error");
+  /* An i64 read as an i32 (or the reverse) is a type error, not a narrowing */
+  TEST_ASSERT(oracle_load(path, &fx) == 0, "the fixture must load again");
+  (void)oracle_in_i32(&fx, "id.zero");
+  TEST_ASSERT(fx.errors == 1, "reading an i64 field as i32 must be a type error");
+
+  scratch_path(child_file, sizeof(child_file), "fixture_i64");
+  const char *const refused[] = {
+      "9223372036854775808", "-9223372036854775809", "0x10", "12a", "-", "1.0"};
+  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
+    snprintf(text, sizeof(text), "%s\nroutine selftest\ni64 id.bad %s\n", ORACLE_FORMAT_LINE,
+             refused[k]);
+    TEST_ASSERT(write_text(child_file, text) == 0, "scratch fixture must be written");
+    printf("\n  i64 %s: refused", refused[k]);
+    TEST_ASSERT(expect_refused(body_load_file, "bad field") == 1,
+                "an i64 outside the signed 64-bit range or not decimal must be refused");
+  }
+  return TEST_PASS;
+}
+
+/**
  * @test    test_path_over_limit_refused
  * @brief   A fixture path longer than ORACLE_MAX_PATH - 1 is refused naming ORACLE_MAX_PATH, in
  *          oracle_fixture_path_in (buffer emptied) and in oracle_load, never truncated
@@ -557,6 +616,7 @@ int main(void) {
   TEST_RUN(test_file_beyond_512_read_in_full);
   TEST_RUN(test_file_over_limit_refused);
   TEST_RUN(test_file_truncated_or_overlong_refused);
+  TEST_RUN(test_file_i64_boundaries);
   TEST_RUN(test_path_over_limit_refused);
   TEST_RUN(test_read_error_refused);
 
