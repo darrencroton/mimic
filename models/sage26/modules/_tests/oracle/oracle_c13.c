@@ -22,6 +22,16 @@
  *                                   call.Zcurr and call.snapnum, as SAGE26's driver calls it once
  *                                   per FoF with EnhancedStarFormationOn >= 1
  *                                   (R/src/core_build_model.c:425-427); mode 1 only
+ *   starformation_ffb               S:1262-1368 (c13 Slice 2; S = R/src/
+ *                                   model_starformation_and_feedback.c), called directly; the
+ *                                   static compute_sn_feedback_ffb (S:901-972) and the inlined
+ *                                   H I block are reached only through it
+ *   starformation_and_feedback_ffb  the wrapper starformation_and_feedback (S:995-1110) on an
+ *                                   FFBRegime 1 row at EnhancedStarFormationOn 1, whose early
+ *                                   return (S:1004-1008) calls starformation_ffb
+ *
+ * The c13 Slice 2 routines' carried values come from the checked transcription
+ * tr_starformation_ffb (README.md, "The c13 Group, Part 2: FFB Star Formation").
  *
  * THE TEST-ONLY rand() PROVIDER. SAGE26's classifier calls rand() once per unmerged row and
  * discards the value (:224), keeping its other draws in place; its useful draw is the static
@@ -78,6 +88,7 @@
 #include <inttypes.h>
 #include <math.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -85,7 +96,9 @@
 
 #include "core_allvars.h"
 #include "macros.h"
+#include "model_misc.h"
 #include "model_regimes.h"
+#include "model_starformation_and_feedback.h"
 
 #define ORACLE_FORMAT_LINE "format sage26-oracle-fixture 1"
 #define MAX_FIELDS 1024
@@ -1010,6 +1023,932 @@ static void run_determine_and_store_ffb_regime(void) {
 }
 
 // ============================================================================
+// c13 PART 2: FEEDBACK-FREE-BURST STAR FORMATION (starformation_ffb AND THE WRAPPER'S DISPATCH)
+// ============================================================================
+//
+// S = R/src/model_starformation_and_feedback.c, X = R/src/model_misc.h (README.md, "The c13
+// Group, Part 2: FFB Star Formation"). starformation_ffb (S:1262-1368) and the wrapper
+// starformation_and_feedback (S:995-1110), whose FFB early return (S:1004-1008) calls it, are
+// public and called directly for the end state. The static compute_sn_feedback_ffb (S:901-972)
+// and the inlined H I block (S:1280-1292, with atomic_disk_radius and ionized_gas_fraction,
+// S:130-152) are reached only through them, so the carried values come from the checked
+// transcription tr_starformation_ffb below, each statement cited to its line, composed with
+// SAGE26's own public get_metallicity, update_from_star_formation and update_from_feedback and its
+// own static inline capped_eta_reheat, sn_energy_coupling and add_metals_to_hot_reservoir
+// (X:67-74, X:118-149), compiled here from SAGE26's header.
+
+/* SAGE26's file-scope constants of S, restated with their values and types (S:60, :75, :79, :84,
+ * :97, :106) */
+static const double SF_DISK_RADIUS_FRAC = 3.0;
+static const double FIRE_V_CRIT_KMS = 60.0;
+static const double FIRE_REDSHIFT_EXPONENT = 1.25;
+static const double KD11_METAL_HALO_MASS = 30.0;
+static const double SIGMA_HI_CRIT = 0.5;
+static const double GAS_DISK_RADIUS_FACTOR = 1.0;
+/* R/src/model_disk_instability.c:35, for the instability observation only */
+static const double TOOMRE_DISK_FACTOR = 3.0;
+
+#define FFB_MAX_GALAXIES 4
+
+/** @brief A float member of SAGE26's struct GALAXY: a scalar, or STEPS elements */
+struct ffb_member {
+  const char *name;
+  size_t offset;
+  int elements;
+};
+
+#define FFB_SCALAR(m) {#m, offsetof(struct GALAXY, m), 1}
+#define FFB_ARRAY(m) {#m, offsetof(struct GALAXY, m), STEPS}
+
+/** The halo inputs: read, never written (float in SAGE26) */
+static const struct ffb_member FFB_HALO[] = {FFB_SCALAR(Mvir), FFB_SCALAR(Vvir), FFB_SCALAR(Vmax),
+                                             FFB_SCALAR(DiskScaleRadius)};
+
+/**
+ * The recorded float state of every galaxy: what starformation_ffb writes (the cold, stellar,
+ * hot, CGM and ejected pairs, H1gas, H2gas, OutflowRate, MassLoading and the three disk histories)
+ * and what it must leave as it was (the instability's bulge masses and radii, the depletion time,
+ * the black hole and the three bulge histories)
+ */
+static const struct ffb_member FFB_STATE[] = {FFB_SCALAR(ColdGas),
+                                              FFB_SCALAR(MetalsColdGas),
+                                              FFB_SCALAR(StellarMass),
+                                              FFB_SCALAR(MetalsStellarMass),
+                                              FFB_SCALAR(BulgeMass),
+                                              FFB_SCALAR(MetalsBulgeMass),
+                                              FFB_SCALAR(InstabilityBulgeMass),
+                                              FFB_SCALAR(MergerBulgeMass),
+                                              FFB_SCALAR(BulgeRadius),
+                                              FFB_SCALAR(MergerBulgeRadius),
+                                              FFB_SCALAR(InstabilityBulgeRadius),
+                                              FFB_SCALAR(HotGas),
+                                              FFB_SCALAR(MetalsHotGas),
+                                              FFB_SCALAR(CGMgas),
+                                              FFB_SCALAR(MetalsCGMgas),
+                                              FFB_SCALAR(EjectedMass),
+                                              FFB_SCALAR(MetalsEjectedMass),
+                                              FFB_SCALAR(H1gas),
+                                              FFB_SCALAR(H2gas),
+                                              FFB_SCALAR(H2DepletionTime_Gyr),
+                                              FFB_SCALAR(OutflowRate),
+                                              FFB_SCALAR(MassLoading),
+                                              FFB_SCALAR(BlackHoleMass),
+                                              FFB_SCALAR(QuasarModeBHaccretionMass),
+                                              FFB_ARRAY(SfrDisk),
+                                              FFB_ARRAY(SfrDiskColdGas),
+                                              FFB_ARRAY(SfrDiskColdGasMetals),
+                                              FFB_ARRAY(SfrBulge),
+                                              FFB_ARRAY(SfrBulgeColdGas),
+                                              FFB_ARRAY(SfrBulgeColdGasMetals)};
+
+#define FFB_COUNT(a) (sizeof(a) / sizeof((a)[0]))
+
+/** @brief Element k of a float member, read by its byte offset (memcpy, no pointer cast) */
+static float ffb_get(const struct GALAXY *g, const struct ffb_member *m, const int k) {
+  float value;
+  memcpy(&value, (const char *)g + m->offset + (size_t)k * sizeof(float), sizeof(value));
+  return value;
+}
+
+/** @brief Store element k of a float member by its byte offset */
+static void ffb_set(struct GALAXY *g, const struct ffb_member *m, const int k, const float value) {
+  memcpy((char *)g + m->offset + (size_t)k * sizeof(float), &value, sizeof(value));
+}
+
+static const char *ffb_member_field(const char *prefix, const int i, const struct ffb_member *m,
+                                    const int k) {
+  return m->elements == 1 ? field_name("%sgalaxy[%d].%s", prefix, i, m->name)
+                          : field_name("%sgalaxy[%d].%s[%d]", prefix, i, m->name, k);
+}
+
+static void out_f32(const char *name, const float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  fprintf(output_file, "f32 %s 0x%08" PRIx32 "  # %.9g\n", name, bits, (double)value);
+}
+
+/** The carried values of the transcription, in statement order (README "The c13 Group, Part 2") */
+enum ffb_local {
+  FL_REFF,            /* S:1273 */
+  FL_TDYN,            /* S:1274 */
+  FL_ATOMICH,         /* S:1285-1286, after the floor */
+  FL_F_ION,           /* S:1287-1289 */
+  FL_STRDOT,          /* S:1309 */
+  FL_STARS,           /* the stars formed, S:1306-1320 */
+  FL_METALLICITY,     /* S:1329, the pre-commit metallicity, reused at S:1348 */
+  FL_FIRE_SCALING,    /* S:912-924 */
+  FL_ETA_RAW,         /* FeedbackReheatingEpsilon * fire_scaling, S:931 */
+  FL_ETA,             /* capped_eta_reheat's return, S:930-931 */
+  FL_REHEATED_PRE,    /* eta * stars, S:933 (0 with an invalid scaling) */
+  FL_RENORM_FAC,      /* S:944 */
+  FL_STARS_RENORM,    /* the renormalised stars, S:945 (the stars formed when inactive) */
+  FL_REHEATED_RENORM, /* S:946 */
+  FL_COUPLING,        /* sn_energy_coupling's return, S:954 */
+  FL_E_FB,            /* S:954-956 */
+  FL_E_LIFT,          /* S:957 */
+  FL_EJECTED,         /* after the floor, S:958, :967 */
+  FL_REHEATED_COMMIT, /* after the clamp at S:1346, passed to update_from_feedback */
+  FL_UFF_REHEATED,    /* update_from_feedback's clamped reheated mass, S:1153-1156 */
+  FL_UFF_EJECTED, /* its ejection capped to the selected gas, S:1184-1186, :1208-1210, :1232-1234 */
+  FL_UFF_METALLICITY,   /* the selected pair's metallicity, S:1187, :1211, :1235 */
+  FL_UFF_METALS,        /* metallicity * ejected, S:1189, :1213, :1237 */
+  FL_UFF_METALS_CAPPED, /* after its cap, S:1190-1192, :1214-1216, :1238-1240 */
+  FL_FRAC_Z,            /* FracZleaveDiskVal, S:1354-1355 */
+  FL_YIELD_TO_HOT,      /* metals_leaving_disk (S:1358) or all_metals (S:1361) */
+  FL_COUNT
+};
+
+/**
+ * Each value's name, check kind (1 continuation: it is passed to a SAGE26 routine compiled from
+ * SAGE26's source, which runs to the end state; 2 tail: the transcription runs from it), whether
+ * it is a local of update_from_feedback (perturbed in the composition with that routine
+ * transcribed) and whether it is on the loading chain (narrowing-limited when no stars form)
+ */
+static const struct {
+  const char *name;
+  int kind;
+  int uff_local;
+  int loading_chain;
+} FFB_LOCALS[FL_COUNT] = {
+    {"reff", CHECK_TAIL, 0, 0},
+    {"tdyn", CHECK_TAIL, 0, 0},
+    {"atomicH", CHECK_TAIL, 0, 0},
+    {"f_ion", CHECK_TAIL, 0, 0},
+    {"strdot", CHECK_TAIL, 0, 0},
+    {"stars", CHECK_CONTINUATION, 0, 0},
+    {"metallicity", CHECK_CONTINUATION, 0, 0},
+    {"fire_scaling", CHECK_CONTINUATION, 0, 1},
+    {"eta_raw", CHECK_CONTINUATION, 0, 1},
+    {"eta_reheat", CHECK_TAIL, 0, 1},
+    {"reheated_mass_pre_renorm", CHECK_TAIL, 0, 0},
+    {"renorm_fac", CHECK_TAIL, 0, 0},
+    {"stars_renorm", CHECK_TAIL, 0, 0},
+    {"reheated_mass_renorm", CHECK_TAIL, 0, 0},
+    {"coupling", CHECK_TAIL, 0, 0},
+    {"E_FB", CHECK_TAIL, 0, 0},
+    {"E_lift", CHECK_TAIL, 0, 0},
+    {"ejected_mass", CHECK_CONTINUATION, 0, 0},
+    {"reheated_mass_commit", CHECK_CONTINUATION, 0, 0},
+    {"uff_reheated_mass_clamped", CHECK_TAIL, 1, 0},
+    {"uff_ejected_mass_capped", CHECK_TAIL, 1, 0},
+    {"uff_metallicity_selected", CHECK_TAIL, 1, 0},
+    {"uff_metals_to_eject", CHECK_TAIL, 1, 0},
+    {"uff_metals_to_eject_capped", CHECK_TAIL, 1, 0},
+    {"FracZleaveDiskVal", CHECK_TAIL, 0, 0},
+    {"yield_metals_to_hot", CHECK_CONTINUATION, 0, 0},
+};
+
+/** The branch flags (README "The c13 Group, Part 2"); -1 where the path does not evaluate one */
+enum ffb_flag {
+  FF_NONFINITE_GUARD,    /* S:1303-1306 */
+  FF_TDYN_GAS_POSITIVE,  /* S:1307 */
+  FF_STRDOT_REJECTED,    /* S:1311 */
+  FF_STARS_CAP_BINDS,    /* S:1315 */
+  FF_STARS_REJECTED,     /* S:1316 */
+  FF_ATOMICH_FLOORED,    /* S:1286 */
+  FF_F_ION_PATH,         /* S:138-151: 0 an input guard, 1 sigma0 <= crit, 2 the expression,
+                            3 clamped to 0, 4 clamped to 1 */
+  FF_SF_CAPS_TRACKED,    /* S:1131 */
+  FF_SF_H2_CAP_BINDS,    /* S:1133 */
+  FF_SF_H1_CAP_BINDS,    /* S:1134 */
+  FF_FIRE_SCALING_VALID, /* S:917 */
+  FF_FIRE_VC_FLOORED,    /* S:918 */
+  FF_FIRE_HIGH_VELOCITY, /* S:920 */
+  FF_ETA_CAP_BINDS,      /* X:149, observed: capped_eta_reheat returned other than its argument */
+  FF_RENORM_ACTIVE,      /* S:943 */
+  FF_EJECTION_EVALUATED, /* S:950, :952 */
+  FF_COUPLING_CAPPED,    /* X:121, observed: FeedbackEjectionEfficiency * scaling > 2 */
+  FF_ENERGY_EJECTS,      /* S:958, E_FB > E_lift */
+  FF_ENERGY_EQUAL,       /* E_FB == E_lift (no ejection) */
+  FF_EJECTED_FLOORED,    /* S:967 */
+  FF_REHEAT_CLAMP_FFB_BINDS, /* S:1346 */
+  FF_UFF_REHEAT_CLAMP_BINDS, /* S:1153 */
+  FF_FEEDBACK_RESERVOIR_CGM, /* S:1175-1176 */
+  FF_FB_CAPS_TRACKED,        /* S:1169 */
+  FF_FB_H2_CAP_BINDS,        /* S:1171 */
+  FF_FB_H1_CAP_BINDS,        /* S:1172 */
+  FF_EJECTED_CAP_BINDS,      /* S:1184, :1208, :1232 */
+  FF_METALS_CAP_BINDS,       /* S:1190, :1214, :1238 */
+  FF_YIELD_ABOVE_THRESHOLD,  /* S:1353 */
+  FF_YIELD_RESERVOIR_CGM,    /* X:69 */
+  FF_COUNT
+};
+
+static const char *const FFB_FLAG_NAMES[FF_COUNT] = {"nonfinite_guard",
+                                                     "tdyn_gas_positive",
+                                                     "strdot_rejected",
+                                                     "stars_cap_binds",
+                                                     "stars_rejected",
+                                                     "atomicH_floored",
+                                                     "f_ion_path",
+                                                     "sf_caps_tracked",
+                                                     "sf_h2_cap_binds",
+                                                     "sf_h1_cap_binds",
+                                                     "fire_scaling_valid",
+                                                     "fire_vc_floored",
+                                                     "fire_high_velocity",
+                                                     "eta_cap_binds",
+                                                     "renorm_active",
+                                                     "ejection_evaluated",
+                                                     "coupling_capped",
+                                                     "energy_ejects",
+                                                     "energy_equal",
+                                                     "ejected_floored",
+                                                     "reheat_clamp_ffb_binds",
+                                                     "uff_reheat_clamp_binds",
+                                                     "feedback_reservoir_cgm",
+                                                     "fb_caps_tracked",
+                                                     "fb_h2_cap_binds",
+                                                     "fb_h1_cap_binds",
+                                                     "ejected_cap_binds",
+                                                     "metals_cap_binds",
+                                                     "yield_coldgas_above_threshold",
+                                                     "yield_reservoir_cgm"};
+
+/** One composition's record: every value formed and every flag */
+struct ffb_trace {
+  double value[FL_COUNT];
+  int present[FL_COUNT];
+  int flag[FF_COUNT];
+  int out_of_domain;          /* a SAGE26 assertion would abort (S:940, S:1158-1163) */
+  double metallicity_post;    /* observation: get_metallicity after the commit (not SAGE26 state) */
+  float coldgas_after_commit; /* ColdGas as update_from_star_formation leaves it (S:1330), the
+                                 cold gas compute_sn_feedback_ffb renormalises against */
+};
+
+/** A composition's variant: which value is replaced by its neighbour, and which routines run */
+struct ffb_variant {
+  int local;                   /* the perturbed value, or -1 */
+  int direction;               /* +1 up, -1 down */
+  int uff_transcribed;         /* 1: update_from_feedback transcribed; 0: SAGE26's own */
+  int recompute_metallicity;   /* observation: the feedback with the post-commit metallicity */
+  int yield_with_formed_stars; /* observation: the yield from the stars formed */
+};
+
+static const struct ffb_variant FFB_PLAIN = {-1, 0, 0, 0, 0};
+
+/** The call's arguments */
+struct ffb_call {
+  int ngal;
+  int p;
+  int centralgal;
+  int step; /* the substep index */
+  int effective_steps;
+  int bin; /* the history bin SAGE26 passes as step (B:514-515) */
+  double deltaT;
+  double dt;
+  double time; /* the wrapper's time argument (not read on the FFB path) */
+  int wrapper; /* 1: the routine is the wrapper's dispatch */
+};
+
+static void ffb_trace_init(struct ffb_trace *t) {
+  for (int k = 0; k < FL_COUNT; k++) {
+    t->value[k] = NAN;
+    t->present[k] = 0;
+  }
+  for (int k = 0; k < FF_COUNT; k++) {
+    t->flag[k] = -1;
+  }
+  t->out_of_domain = 0;
+  t->metallicity_post = NAN;
+  t->coldgas_after_commit = NAN;
+}
+
+/** @brief Record a value where it is formed, and hand on its neighbour if the variant says so */
+static double ffb_tap(struct ffb_trace *t, const struct ffb_variant *v, const enum ffb_local id,
+                      const double value) {
+  t->value[id] = value;
+  t->present[id] = 1;
+  if (v->local == (int)id) {
+    return nextafter(value, v->direction > 0 ? INFINITY : -INFINITY);
+  }
+  return value;
+}
+
+/** @brief SAGE26's atomic_disk_radius (S:130-133), transcribed */
+static double tr_atomic_disk_radius(const double rs_code) {
+  return GAS_DISK_RADIUS_FACTOR * rs_code;
+}
+
+/** @brief SAGE26's ionized_gas_fraction (S:135-152), transcribed; *path the branch taken */
+static double tr_ionized_gas_fraction(const double coldgas_code, const double rs_code,
+                                      const double h, const double sigma_hi_crit, int *path) {
+  if (coldgas_code <= 0.0 || rs_code <= 0.0 || sigma_hi_crit <= 0.0 || h <= 0.0) { /* S:138 */
+    *path = 0;
+    return 0.0;
+  }
+  const double mgas = CODE_MASS_TO_MSUN(coldgas_code, h);    /* S:141 */
+  const double rs_pc = CODE_LENGTH_TO_PC(rs_code, h);        /* S:142 */
+  const double sigma0 = mgas / (2.0 * M_PI * rs_pc * rs_pc); /* S:143 */
+  if (sigma0 <= sigma_hi_crit) {                             /* S:144-146 */
+    *path = 1;
+    return 1.0;
+  }
+  const double x = log(sigma0 / sigma_hi_crit);      /* S:147 */
+  double f_ion = (1.0 + x) * sigma_hi_crit / sigma0; /* S:148 */
+  *path = 2;
+  if (f_ion < 0.0) { /* S:149 */
+    f_ion = 0.0;
+    *path = 3;
+  }
+  if (f_ion > 1.0) { /* S:150 */
+    f_ion = 1.0;
+    *path = 4;
+  }
+  return f_ion;
+}
+
+/**
+ * @brief SAGE26's static compute_sn_feedback_ffb (S:901-972), transcribed, with
+ *        SupernovaRecipeOn 1 and FIREmodeOn 1 (the reader requires both)
+ */
+static void tr_compute_sn_feedback_ffb(const int p, double *stars_inout, double *reheated_out,
+                                       double *ejected_out, struct ffb_trace *t,
+                                       const struct ffb_variant *v) {
+  double stars = *stars_inout; /* S:905 */
+  double reheated_mass = 0.0;  /* S:906 */
+  double ejected_mass = 0.0;   /* S:907 */
+
+  double fire_scaling = 0.0;                                             /* S:912 */
+  int fire_scaling_valid = 0;                                            /* S:913 */
+  if (run_params.SupernovaRecipeOn == 1 && run_params.FIREmodeOn == 1) { /* S:914 */
+    const double z = run_params.ZZ[galaxies[p].SnapNum];                 /* S:915 */
+    const double vc = galaxies[p].Vvir;                                  /* S:916 */
+    if (vc > 0.0 && z >= 0.0) {                                          /* S:917 */
+      const double vc_floored = (vc < 1.0) ? 1.0 : vc;                   /* S:918 */
+      const double z_term = pow(1.0 + z, FIRE_REDSHIFT_EXPONENT);        /* S:919 */
+      const double v_term = (vc_floored < FIRE_V_CRIT_KMS)               /* S:920-921 */
+                                ? pow(vc_floored / FIRE_V_CRIT_KMS, -3.2)
+                                : pow(vc_floored / FIRE_V_CRIT_KMS, -1.0);
+      fire_scaling = z_term * v_term; /* S:922 */
+      fire_scaling_valid = 1;         /* S:923 */
+      t->flag[FF_FIRE_VC_FLOORED] = vc < 1.0;
+      t->flag[FF_FIRE_HIGH_VELOCITY] = !(vc_floored < FIRE_V_CRIT_KMS);
+    }
+  }
+  t->flag[FF_FIRE_SCALING_VALID] = fire_scaling_valid;
+  if (fire_scaling_valid) {
+    fire_scaling = ffb_tap(t, v, FL_FIRE_SCALING, fire_scaling);
+  }
+
+  if (run_params.SupernovaRecipeOn == 1) {                                   /* S:927 */
+    if (run_params.FIREmodeOn == 1) {                                        /* S:928 */
+      if (fire_scaling_valid) {                                              /* S:929 */
+        double eta_raw = run_params.FeedbackReheatingEpsilon * fire_scaling; /* S:931 */
+        eta_raw = ffb_tap(t, v, FL_ETA_RAW, eta_raw);
+        double eta_reheat = capped_eta_reheat(eta_raw, galaxies[p].Vvir, &run_params); /* S:930 */
+        t->flag[FF_ETA_CAP_BINDS] = !same_f64(eta_reheat, eta_raw);
+        eta_reheat = ffb_tap(t, v, FL_ETA, eta_reheat);
+        galaxies[p].MassLoading = (float)eta_reheat; /* S:932 */
+        reheated_mass = eta_reheat * stars;          /* S:933 */
+      }
+    }
+  }
+  reheated_mass = ffb_tap(t, v, FL_REHEATED_PRE, reheated_mass);
+
+  /* S:940-941: SAGE26 aborts on a negative reheated mass */
+  if (!(reheated_mass >= 0.0)) {
+    t->out_of_domain = 1;
+    return;
+  }
+
+  t->flag[FF_RENORM_ACTIVE] = 0;
+  if ((stars + reheated_mass) > galaxies[p].ColdGas && (stars + reheated_mass) > 0.0) { /* S:943 */
+    double fac = galaxies[p].ColdGas / (stars + reheated_mass);                         /* S:944 */
+    fac = ffb_tap(t, v, FL_RENORM_FAC, fac);
+    stars *= fac;         /* S:945 */
+    reheated_mass *= fac; /* S:946 */
+    t->flag[FF_RENORM_ACTIVE] = 1;
+  }
+  stars = ffb_tap(t, v, FL_STARS_RENORM, stars);
+  reheated_mass = ffb_tap(t, v, FL_REHEATED_RENORM, reheated_mass);
+
+  if (run_params.SupernovaRecipeOn == 1) { /* S:949 */
+    t->flag[FF_EJECTION_EVALUATED] = 0;
+    if (galaxies[p].Vvir > 0.0) {       /* S:950 */
+      if (run_params.FIREmodeOn == 1) { /* S:951 */
+        if (fire_scaling_valid) {       /* S:952 */
+          t->flag[FF_EJECTION_EVALUATED] = 1;
+          const double vc = galaxies[p].Vvir; /* S:953 */
+          t->flag[FF_COUPLING_CAPPED] =
+              run_params.FeedbackEjectionEfficiency * fire_scaling > 2.0;  /* X:120-121 */
+          double coupling = sn_energy_coupling(fire_scaling, &run_params); /* S:954 */
+          coupling = ffb_tap(t, v, FL_COUPLING, coupling);
+          double E_FB = coupling * 0.5 * stars *
+                        (run_params.EtaSNcode * run_params.EnergySNcode); /* S:954-956 */
+          E_FB = ffb_tap(t, v, FL_E_FB, E_FB);
+          double E_lift = 0.5 * reheated_mass * vc * vc; /* S:957 */
+          E_lift = ffb_tap(t, v, FL_E_LIFT, E_lift);
+          t->flag[FF_ENERGY_EJECTS] = E_FB > E_lift;
+          t->flag[FF_ENERGY_EQUAL] = E_FB == E_lift;
+          ejected_mass = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc * vc) : 0.0; /* S:958 */
+        }
+      }
+    }
+    t->flag[FF_EJECTED_FLOORED] = ejected_mass < 0.0;
+    if (ejected_mass < 0.0) { /* S:967 */
+      ejected_mass = 0.0;
+    }
+  }
+  ejected_mass = ffb_tap(t, v, FL_EJECTED, ejected_mass);
+
+  *stars_inout = stars;          /* S:970 */
+  *reheated_out = reheated_mass; /* S:971 */
+  *ejected_out = ejected_mass;   /* S:972 */
+}
+
+/**
+ * @brief SAGE26's update_from_feedback (S:1146-1251), transcribed with SupernovaRecipeOn 1, its
+ *        locals recorded (as oracle_c05.c's transcription, with c10's CGM branch)
+ */
+static void tr_update_from_feedback(const int p, const int centralgal, double reheated_mass,
+                                    double ejected_mass, const double metallicity,
+                                    struct ffb_trace *t, const struct ffb_variant *v) {
+  t->flag[FF_UFF_REHEAT_CLAMP_BINDS] = reheated_mass > galaxies[p].ColdGas;
+  if (reheated_mass > galaxies[p].ColdGas) { /* S:1153-1156 */
+    reheated_mass = galaxies[p].ColdGas;
+  }
+  reheated_mass = ffb_tap(t, v, FL_UFF_REHEATED, reheated_mass);
+  if (!(reheated_mass >= 0.0) || !(reheated_mass <= galaxies[p].ColdGas)) { /* S:1158-1163 */
+    t->out_of_domain = 1;
+    return;
+  }
+
+  galaxies[p].ColdGas -= reheated_mass;                     /* S:1167 */
+  galaxies[p].MetalsColdGas -= metallicity * reheated_mass; /* S:1168 */
+  t->flag[FF_FB_CAPS_TRACKED] = sf_prescription_tracks_h2(run_params.SFprescription);
+  if (sf_prescription_tracks_h2(run_params.SFprescription)) { /* S:1169 */
+    const float max_h_fb =
+        (galaxies[p].ColdGas > 0.0f) ? galaxies[p].ColdGas * HYDROGEN_MASS_FRAC : 0.0f; /* S:1170 */
+    t->flag[FF_FB_H2_CAP_BINDS] = galaxies[p].H2gas > max_h_fb;
+    if (galaxies[p].H2gas > max_h_fb) /* S:1171 */
+      galaxies[p].H2gas = max_h_fb;
+    t->flag[FF_FB_H1_CAP_BINDS] = galaxies[p].H1gas > max_h_fb;
+    if (galaxies[p].H1gas > max_h_fb) /* S:1172 */
+      galaxies[p].H1gas = max_h_fb;
+  }
+
+  const int cgm = run_params.CGMrecipeOn == 1 && galaxies[centralgal].Regime == 0; /* S:1175-1176 */
+  t->flag[FF_FEEDBACK_RESERVOIR_CGM] = cgm;
+  if (cgm) {
+    galaxies[centralgal].CGMgas += reheated_mass;                     /* S:1180 */
+    galaxies[centralgal].MetalsCGMgas += metallicity * reheated_mass; /* S:1181 */
+    t->flag[FF_EJECTED_CAP_BINDS] = ejected_mass > galaxies[centralgal].CGMgas;
+    if (ejected_mass > galaxies[centralgal].CGMgas) { /* S:1184-1186 */
+      ejected_mass = galaxies[centralgal].CGMgas;
+    }
+    ejected_mass = ffb_tap(t, v, FL_UFF_EJECTED, ejected_mass);
+    double metallicityCGM = get_metallicity(galaxies[centralgal].CGMgas,
+                                            galaxies[centralgal].MetalsCGMgas); /* S:1187 */
+    metallicityCGM = ffb_tap(t, v, FL_UFF_METALLICITY, metallicityCGM);
+    double metalsCGM_to_eject = metallicityCGM * ejected_mass; /* S:1189 */
+    metalsCGM_to_eject = ffb_tap(t, v, FL_UFF_METALS, metalsCGM_to_eject);
+    t->flag[FF_METALS_CAP_BINDS] = metalsCGM_to_eject > galaxies[centralgal].MetalsCGMgas;
+    if (metalsCGM_to_eject > galaxies[centralgal].MetalsCGMgas) { /* S:1190-1192 */
+      metalsCGM_to_eject = galaxies[centralgal].MetalsCGMgas;
+    }
+    metalsCGM_to_eject = ffb_tap(t, v, FL_UFF_METALS_CAPPED, metalsCGM_to_eject);
+    galaxies[centralgal].CGMgas -= ejected_mass;                  /* S:1195 */
+    galaxies[centralgal].MetalsCGMgas -= metalsCGM_to_eject;      /* S:1196 */
+    galaxies[centralgal].EjectedMass += ejected_mass;             /* S:1197 */
+    galaxies[centralgal].MetalsEjectedMass += metalsCGM_to_eject; /* S:1198 */
+  } else {
+    /* S:1204-1205 (CGMrecipeOn 1, Regime not 0) and S:1228-1229 (CGMrecipeOn 0): the same
+     * statements on the hot pair */
+    galaxies[centralgal].HotGas += reheated_mass;
+    galaxies[centralgal].MetalsHotGas += metallicity * reheated_mass;
+    t->flag[FF_EJECTED_CAP_BINDS] = ejected_mass > galaxies[centralgal].HotGas;
+    if (ejected_mass > galaxies[centralgal].HotGas) { /* S:1208-1210, :1232-1234 */
+      ejected_mass = galaxies[centralgal].HotGas;
+    }
+    ejected_mass = ffb_tap(t, v, FL_UFF_EJECTED, ejected_mass);
+    double metallicityHot = get_metallicity(galaxies[centralgal].HotGas,
+                                            galaxies[centralgal].MetalsHotGas); /* S:1211, :1235 */
+    metallicityHot = ffb_tap(t, v, FL_UFF_METALLICITY, metallicityHot);
+    double metalsHot_to_eject = metallicityHot * ejected_mass; /* S:1213, :1237 */
+    metalsHot_to_eject = ffb_tap(t, v, FL_UFF_METALS, metalsHot_to_eject);
+    t->flag[FF_METALS_CAP_BINDS] = metalsHot_to_eject > galaxies[centralgal].MetalsHotGas;
+    if (metalsHot_to_eject > galaxies[centralgal].MetalsHotGas) { /* S:1214-1216, :1238-1240 */
+      metalsHot_to_eject = galaxies[centralgal].MetalsHotGas;
+    }
+    metalsHot_to_eject = ffb_tap(t, v, FL_UFF_METALS_CAPPED, metalsHot_to_eject);
+    galaxies[centralgal].HotGas -= ejected_mass;                  /* S:1219, :1243 */
+    galaxies[centralgal].MetalsHotGas -= metalsHot_to_eject;      /* S:1220, :1244 */
+    galaxies[centralgal].EjectedMass += ejected_mass;             /* S:1221, :1245 */
+    galaxies[centralgal].MetalsEjectedMass += metalsHot_to_eject; /* S:1222, :1246 */
+  }
+  galaxies[p].OutflowRate += reheated_mass; /* S:1249 */
+}
+
+/**
+ * @brief SAGE26's starformation_ffb (S:1262-1368), transcribed, on a copy of `input`
+ *
+ * Leaves the end state in `galaxies`. update_from_star_formation, get_metallicity and
+ * (unless the variant transcribes it) update_from_feedback are SAGE26's own; capped_eta_reheat,
+ * sn_energy_coupling and add_metals_to_hot_reservoir are SAGE26's own static inline helpers
+ * (X:67-74, :118-149).
+ */
+static void tr_starformation_ffb(const struct GALAXY *input, const struct ffb_call *c,
+                                 struct ffb_trace *t, const struct ffb_variant *v) {
+  memcpy(galaxies, input, sizeof(struct GALAXY) * (size_t)c->ngal);
+  ffb_trace_init(t);
+  const int p = c->p;
+  const int centralgal = c->centralgal;
+  const int step = c->bin;
+  const double dt = c->dt;
+
+  double reff = SF_DISK_RADIUS_FRAC * galaxies[p].DiskScaleRadius; /* S:1273 */
+  reff = ffb_tap(t, v, FL_REFF, reff);
+  double tdyn = (reff > 0.0 && galaxies[p].Vvir > 0.0) ? reff / galaxies[p].Vvir : 0.0; /* S:1274 */
+  tdyn = ffb_tap(t, v, FL_TDYN, tdyn);
+
+  galaxies[p].H2gas = 0.0; /* S:1280 */
+
+  {                                                                                /* S:1284-1292 */
+    double atomicH = galaxies[p].ColdGas * HYDROGEN_MASS_FRAC - galaxies[p].H2gas; /* S:1285 */
+    t->flag[FF_ATOMICH_FLOORED] = atomicH < 0.0;
+    if (atomicH < 0.0) { /* S:1286 */
+      atomicH = 0.0;
+    }
+    atomicH = ffb_tap(t, v, FL_ATOMICH, atomicH);
+    double f_ion = tr_ionized_gas_fraction(
+        galaxies[p].ColdGas, tr_atomic_disk_radius(galaxies[p].DiskScaleRadius),
+        run_params.Hubble_h, SIGMA_HI_CRIT, &t->flag[FF_F_ION_PATH]); /* S:1287-1289 */
+    f_ion = ffb_tap(t, v, FL_F_ION, f_ion);
+    atomicH *= (1.0 - f_ion);    /* S:1290 */
+    galaxies[p].H1gas = atomicH; /* S:1291 */
+  }
+
+  const double gas_for_sf = galaxies[p].ColdGas; /* S:1297 */
+  double stars;
+  t->flag[FF_NONFINITE_GUARD] = isnan(galaxies[p].ColdGas) || isinf(galaxies[p].ColdGas) ||
+                                isnan(galaxies[p].Vvir) || isinf(galaxies[p].Vvir) || isnan(reff) ||
+                                isinf(reff) || isnan(tdyn) || isinf(tdyn);
+  if (isnan(galaxies[p].ColdGas) || isinf(galaxies[p].ColdGas) || isnan(galaxies[p].Vvir) ||
+      isinf(galaxies[p].Vvir) || isnan(reff) || isinf(reff) || isnan(tdyn) ||
+      isinf(tdyn)) {                           /* S:1303-1305 */
+    stars = 0.0;                               /* S:1306 */
+  } else if (tdyn > 0.0 && gas_for_sf > 0.0) { /* S:1307 */
+    t->flag[FF_TDYN_GAS_POSITIVE] = 1;
+    const double epsilon_ffb = run_params.EnhancedSFEfficiency; /* S:1308 */
+    double strdot = epsilon_ffb * gas_for_sf / tdyn;            /* S:1309 */
+    strdot = ffb_tap(t, v, FL_STRDOT, strdot);
+    t->flag[FF_STRDOT_REJECTED] = isnan(strdot) || isinf(strdot) || strdot < 0.0;
+    if (isnan(strdot) || isinf(strdot) || strdot < 0.0) { /* S:1311 */
+      stars = 0.0;
+    } else {
+      stars = strdot * dt; /* S:1314 */
+      t->flag[FF_STARS_CAP_BINDS] = stars > galaxies[p].ColdGas;
+      if (stars > galaxies[p].ColdGas) /* S:1315 */
+        stars = galaxies[p].ColdGas;
+      t->flag[FF_STARS_REJECTED] = isnan(stars) || isinf(stars) || stars < 0.0;
+      if (isnan(stars) || isinf(stars) || stars < 0.0) /* S:1316 */
+        stars = 0.0;
+    }
+  } else {
+    t->flag[FF_TDYN_GAS_POSITIVE] = 0;
+    stars = 0.0; /* S:1319 */
+  }
+  stars = ffb_tap(t, v, FL_STARS, stars);
+
+  galaxies[p].SfrDisk[step] += stars / dt;                            /* S:1325 */
+  galaxies[p].SfrDiskColdGas[step] = galaxies[p].ColdGas;             /* S:1326 */
+  galaxies[p].SfrDiskColdGasMetals[step] = galaxies[p].MetalsColdGas; /* S:1327 */
+
+  double metallicity = get_metallicity(galaxies[p].ColdGas, galaxies[p].MetalsColdGas); /* S:1329 */
+  metallicity = ffb_tap(t, v, FL_METALLICITY, metallicity);
+  const float h2_before = galaxies[p].H2gas;
+  const float h1_before = galaxies[p].H1gas;
+  update_from_star_formation(p, stars, metallicity, galaxies, &run_params); /* S:1330 */
+  /* Its caps (S:1131-1135), observed and checked: each capped field is max_h, else as it was */
+  t->flag[FF_SF_CAPS_TRACKED] = sf_prescription_tracks_h2(run_params.SFprescription);
+  if (t->flag[FF_SF_CAPS_TRACKED]) {
+    const float max_h =
+        (galaxies[p].ColdGas > 0.0f) ? galaxies[p].ColdGas * HYDROGEN_MASS_FRAC : 0.0f;
+    t->flag[FF_SF_H2_CAP_BINDS] = h2_before > max_h;
+    t->flag[FF_SF_H1_CAP_BINDS] = h1_before > max_h;
+    if (!same_f64(galaxies[p].H2gas, t->flag[FF_SF_H2_CAP_BINDS] ? max_h : h2_before) ||
+        !same_f64(galaxies[p].H1gas, t->flag[FF_SF_H1_CAP_BINDS] ? max_h : h1_before)) {
+      fatal("the observed star-formation hydrogen caps disagree with SAGE26's commit");
+    }
+  }
+  /* S:1332-1337: SaveFullSFH is 0 (required by the reader) */
+  t->metallicity_post = get_metallicity(galaxies[p].ColdGas, galaxies[p].MetalsColdGas);
+  t->coldgas_after_commit = galaxies[p].ColdGas;
+
+  if (v->recompute_metallicity) {
+    /* Observation only: the ordinary path's recomputation (S:1076), not SAGE26's FFB path */
+    metallicity = get_metallicity(galaxies[p].ColdGas, galaxies[p].MetalsColdGas);
+  }
+
+  double reheated_mass = 0.0; /* S:1342 */
+  double ejected_mass = 0.0;  /* S:1343 */
+  double stars_fb = stars;
+  tr_compute_sn_feedback_ffb(p, &stars_fb, &reheated_mass, &ejected_mass, t, v); /* S:1344 */
+  if (t->out_of_domain) {
+    return;
+  }
+
+  t->flag[FF_REHEAT_CLAMP_FFB_BINDS] = reheated_mass > galaxies[p].ColdGas;
+  if (reheated_mass > galaxies[p].ColdGas) { /* S:1346 */
+    reheated_mass = galaxies[p].ColdGas;
+  }
+  reheated_mass = ffb_tap(t, v, FL_REHEATED_COMMIT, reheated_mass);
+
+  if (v->uff_transcribed) { /* S:1348 */
+    tr_update_from_feedback(p, centralgal, reheated_mass, ejected_mass, metallicity, t, v);
+    if (t->out_of_domain) {
+      return;
+    }
+  } else {
+    double clamped = reheated_mass;
+    if (clamped > galaxies[p].ColdGas) {
+      clamped = galaxies[p].ColdGas;
+    }
+    if (!(clamped >= 0.0) || !(clamped <= galaxies[p].ColdGas)) { /* S:1158-1163 would abort */
+      t->out_of_domain = 1;
+      return;
+    }
+    update_from_feedback(p, centralgal, reheated_mass, ejected_mass, metallicity, galaxies,
+                         &run_params);
+  }
+
+  const double yield_stars = v->yield_with_formed_stars ? stars : stars_fb;
+  t->flag[FF_YIELD_ABOVE_THRESHOLD] = galaxies[p].ColdGas > 1.0e-8;
+  t->flag[FF_YIELD_RESERVOIR_CGM] =
+      run_params.CGMrecipeOn == 1 && galaxies[centralgal].Regime == 0; /* X:69 */
+  if (galaxies[p].ColdGas > 1.0e-8) {                                  /* S:1353 */
+    double FracZleaveDiskVal =
+        run_params.FracZleaveDisk * exp(-1.0 * galaxies[centralgal].Mvir / KD11_METAL_HALO_MASS);
+    FracZleaveDiskVal = ffb_tap(t, v, FL_FRAC_Z, FracZleaveDiskVal); /* S:1354-1355 */
+    galaxies[p].MetalsColdGas +=
+        run_params.Yield * (1.0 - FracZleaveDiskVal) * yield_stars;                  /* S:1356 */
+    double metals_leaving_disk = run_params.Yield * FracZleaveDiskVal * yield_stars; /* S:1358 */
+    metals_leaving_disk = ffb_tap(t, v, FL_YIELD_TO_HOT, metals_leaving_disk);
+    add_metals_to_hot_reservoir(&galaxies[centralgal], &run_params,
+                                metals_leaving_disk); /* S:1359 */
+  } else {
+    double all_metals = run_params.Yield * yield_stars; /* S:1361 */
+    all_metals = ffb_tap(t, v, FL_YIELD_TO_HOT, all_metals);
+    add_metals_to_hot_reservoir(&galaxies[centralgal], &run_params, all_metals); /* S:1362 */
+  }
+  /* S:1365-1367: no disk instability */
+}
+
+static struct GALAXY ffb_input[FFB_MAX_GALAXIES];
+static struct GALAXY ffb_reference[FFB_MAX_GALAXIES]; /* SAGE26's own end state */
+
+/** @brief Whether the composition's end state is SAGE26's, byte for byte */
+static int ffb_reproduces(const struct ffb_call *c) {
+  return memcmp(galaxies, ffb_reference, sizeof(struct GALAXY) * (size_t)c->ngal) == 0;
+}
+
+/** @brief Read the call, the flags, the parameters and the galaxies */
+static void ffb_read_call(struct ffb_call *c) {
+  /* The flags the FFB path reads (S:914, :927, :949, :1131, :1169, :1175, :1332, X:69) */
+  run_params.SupernovaRecipeOn = in_i32("params.SupernovaRecipeOn");
+  run_params.FIREmodeOn = in_i32("params.FIREmodeOn");
+  if (run_params.SupernovaRecipeOn != 1 || run_params.FIREmodeOn != 1) {
+    fatal("params.SupernovaRecipeOn and params.FIREmodeOn must be 1: only the FIRE branch of "
+          "compute_sn_feedback_ffb is transcribed (its fixed-epsilon branch is on no rung)");
+  }
+  run_params.SFprescription = in_i32("params.SFprescription");
+  if (run_params.SFprescription != 0 && run_params.SFprescription != 1) {
+    fatal("params.SFprescription = %d: only 0 and 1 are ported", run_params.SFprescription);
+  }
+  run_params.CGMrecipeOn = in_i32("params.CGMrecipeOn");
+  if (run_params.CGMrecipeOn != 0 && run_params.CGMrecipeOn != 1) {
+    fatal("params.CGMrecipeOn = %d is not 0 or 1", run_params.CGMrecipeOn);
+  }
+  run_params.SaveFullSFH = in_i32("params.SaveFullSFH");
+  if (run_params.SaveFullSFH != 0) {
+    fatal("params.SaveFullSFH must be 0 (off on every rung, R6.par:60)");
+  }
+  if (c->wrapper) {
+    run_params.EnhancedStarFormationOn = in_i32("params.EnhancedStarFormationOn");
+    if (run_params.EnhancedStarFormationOn != 1) {
+      fatal("params.EnhancedStarFormationOn must be 1 for the wrapper's FFB dispatch");
+    }
+    run_params.G = in_f64("params.G"); /* the instability observation only */
+  }
+  run_params.EnhancedSFEfficiency = in_f64("params.EnhancedSFEfficiency");
+  run_params.RecycleFraction = in_f64("params.RecycleFraction");
+  run_params.FeedbackReheatingEpsilon = in_f64("params.FeedbackReheatingEpsilon");
+  run_params.FeedbackEjectionEfficiency = in_f64("params.FeedbackEjectionEfficiency");
+  run_params.EtaSNcode = in_f64("params.EtaSNcode");
+  run_params.EnergySNcode = in_f64("params.EnergySNcode");
+  run_params.Yield = in_f64("params.Yield");
+  run_params.FracZleaveDisk = in_f64("params.FracZleaveDisk");
+  run_params.Hubble_h = in_f64("params.Hubble_h");
+
+  c->ngal = in_i32("call.ngal");
+  c->p = in_i32("call.p");
+  c->centralgal = in_i32("call.centralgal");
+  c->step = in_i32("call.step");
+  c->effective_steps = in_i32("call.effective_steps");
+  c->deltaT = in_f64("call.deltaT");
+  c->dt = in_f64("call.dt");
+  c->time = c->wrapper ? in_f64("call.time") : NAN;
+  if (c->ngal < 1 || c->ngal > FFB_MAX_GALAXIES || c->p < 0 || c->p >= c->ngal ||
+      c->centralgal < 0 || c->centralgal >= c->ngal || c->effective_steps < 1 || c->step < 0 ||
+      c->step >= c->effective_steps) {
+    fatal("call indices, effective_steps or step out of range");
+  }
+  /* The substep interval and its history bin as the driver forms them (B:513-516) */
+  if (!same_f64(c->dt, c->deltaT / c->effective_steps) || !(c->dt > 0.0)) {
+    fatal("call.dt must be call.deltaT / call.effective_steps and positive");
+  }
+  c->bin = (c->step * STEPS) / c->effective_steps;
+  if (c->bin >= STEPS) {
+    c->bin = STEPS - 1;
+  }
+
+  for (int i = 0; i < c->ngal; i++) {
+    struct GALAXY *g = &galaxies[i];
+    g->Type = in_i32(field_name("galaxy[%d].Type", i));
+    g->SnapNum = in_i32(field_name("galaxy[%d].SnapNum", i));
+    g->Regime = in_i32(field_name("galaxy[%d].Regime", i));
+    g->FFBRegime = in_i32(field_name("galaxy[%d].FFBRegime", i));
+    for (size_t m = 0; m < FFB_COUNT(FFB_HALO); m++) {
+      ffb_set(g, &FFB_HALO[m], 0, in_f32(ffb_member_field("", i, &FFB_HALO[m], 0)));
+    }
+    for (size_t m = 0; m < FFB_COUNT(FFB_STATE); m++) {
+      for (int k = 0; k < FFB_STATE[m].elements; k++) {
+        ffb_set(g, &FFB_STATE[m], k, in_f32(ffb_member_field("", i, &FFB_STATE[m], k)));
+      }
+    }
+  }
+  if (c->wrapper && galaxies[c->p].FFBRegime != 1) {
+    fatal("galaxy[call.p].FFBRegime must be 1: the routine is the wrapper's FFB dispatch");
+  }
+  /* The stored snapshot's redshift, ZZ[SnapNum] (S:915): only the forming galaxy's is read */
+  const int snap = galaxies[c->p].SnapNum;
+  if (snap < 0 || snap >= ABSOLUTEMAXSNAPS) {
+    fatal("galaxy[call.p].SnapNum = %d is outside SAGE26's ZZ table", snap);
+  }
+  run_params.ZZ[snap] = in_f64(field_name("params.ZZ[%d]", snap));
+}
+
+/** @brief Write one carried value with its markers, checked and two-sided tested */
+static void ffb_record_local(const enum ffb_local id, const struct ffb_trace *t,
+                             const struct ffb_call *c, const int zero_stars) {
+  const char *name = FFB_LOCALS[id].name;
+  out_i32(field_name("intermediate.%s_absent", name), !t->present[id]);
+  if (!t->present[id]) {
+    return;
+  }
+  const double value = t->value[id];
+  /* Checked: the composition from the recorded value (the plain composition, in which the value
+   * is the one recorded) reproduces SAGE26's end state; the caller has verified it */
+  int changed[2];
+  for (int d = 0; d < 2; d++) {
+    struct ffb_variant v = {(int)id, d == 0 ? +1 : -1, FFB_LOCALS[id].uff_local, 0, 0};
+    struct ffb_trace scratch;
+    tr_starformation_ffb(ffb_input, c, &scratch, &v);
+    changed[d] = !scratch.out_of_domain && !ffb_reproduces(c);
+  }
+  const int narrowing_limited = FFB_LOCALS[id].loading_chain && zero_stars;
+  out_f64(field_name("intermediate.%s", name), value);
+  out_i32(field_name("intermediate.%s_checked", name), 1);
+  out_i32(field_name("intermediate.%s_check_kind", name), FFB_LOCALS[id].kind);
+  out_i32(field_name("intermediate.%s_validated_up", name), changed[0] && !isnan(value));
+  out_i32(field_name("intermediate.%s_validated_down", name), changed[1] && !isnan(value));
+  out_i32(field_name("intermediate.%s_validated", name),
+          changed[0] && changed[1] && !isnan(value) && !narrowing_limited);
+  out_i32(field_name("intermediate.%s_narrowing_limited", name), narrowing_limited);
+}
+
+/** @brief Whether any byte of the galaxies other than the recorded state changed */
+static int ffb_changed_unrecorded(const struct ffb_call *c) {
+  static struct GALAXY a[FFB_MAX_GALAXIES];
+  memcpy(a, ffb_input, sizeof(struct GALAXY) * (size_t)c->ngal);
+  for (int i = 0; i < c->ngal; i++) {
+    for (size_t m = 0; m < FFB_COUNT(FFB_STATE); m++) {
+      for (int k = 0; k < FFB_STATE[m].elements; k++) {
+        ffb_set(&a[i], &FFB_STATE[m], k, ffb_get(&ffb_reference[i], &FFB_STATE[m], k));
+      }
+    }
+  }
+  return memcmp(a, ffb_reference, sizeof(struct GALAXY) * (size_t)c->ngal) != 0;
+}
+
+/** @brief The one routine body: starformation_ffb, or the wrapper's dispatch to it */
+static void run_ffb(const int wrapper) {
+  struct ffb_call c;
+  memset(&c, 0, sizeof(c));
+  c.wrapper = wrapper;
+  ffb_read_call(&c);
+  check_all_fields_used();
+  memcpy(ffb_input, galaxies, sizeof(struct GALAXY) * (size_t)c.ngal);
+
+  /* 1. SAGE26's own call */
+  if (wrapper) {
+    starformation_and_feedback(c.p, c.centralgal, c.time, c.dt, 0, c.bin, galaxies, &run_params);
+  } else {
+    starformation_ffb(c.p, c.centralgal, c.dt, c.bin, galaxies, &run_params);
+  }
+  memcpy(ffb_reference, galaxies, sizeof(struct GALAXY) * (size_t)c.ngal);
+  if (ffb_changed_unrecorded(&c)) {
+    fatal("SAGE26's call changed a galaxy member outside the recorded state");
+  }
+  if (wrapper) {
+    /* The dispatch: the wrapper's end state is starformation_ffb's on the same input */
+    memcpy(galaxies, ffb_input, sizeof(struct GALAXY) * (size_t)c.ngal);
+    starformation_ffb(c.p, c.centralgal, c.dt, c.bin, galaxies, &run_params);
+    if (!ffb_reproduces(&c)) {
+      fatal("the wrapper's end state differs from starformation_ffb's on the same input");
+    }
+  }
+
+  /* 2. The transcription must reproduce it, with SAGE26's own update_from_feedback and with its
+   *    transcription */
+  struct ffb_trace t, t_uff;
+  tr_starformation_ffb(ffb_input, &c, &t, &FFB_PLAIN);
+  if (t.out_of_domain || !ffb_reproduces(&c)) {
+    fatal("the transcription does not reproduce SAGE26's end state");
+  }
+  const struct ffb_variant uff = {-1, 0, 1, 0, 0};
+  tr_starformation_ffb(ffb_input, &c, &t_uff, &uff);
+  if (t_uff.out_of_domain || !ffb_reproduces(&c)) {
+    fatal("the transcription with update_from_feedback transcribed does not reproduce SAGE26");
+  }
+  for (int k = 0; k < FL_COUNT; k++) {
+    if (!FFB_LOCALS[k].uff_local && (t.present[k] != t_uff.present[k] ||
+                                     (t.present[k] && !same_f64(t.value[k], t_uff.value[k])))) {
+      fatal("the two compositions disagree on %s", FFB_LOCALS[k].name);
+    }
+  }
+  for (int k = 0; k < FL_COUNT; k++) {
+    if (FFB_LOCALS[k].uff_local) {
+      t.value[k] = t_uff.value[k];
+      t.present[k] = t_uff.present[k];
+    }
+  }
+  const enum ffb_flag uff_flags[] = {
+      FF_UFF_REHEAT_CLAMP_BINDS, FF_FEEDBACK_RESERVOIR_CGM, FF_FB_CAPS_TRACKED, FF_FB_H2_CAP_BINDS,
+      FF_FB_H1_CAP_BINDS,        FF_EJECTED_CAP_BINDS,      FF_METALS_CAP_BINDS};
+  for (size_t k = 0; k < FFB_COUNT(uff_flags); k++) {
+    t.flag[uff_flags[k]] = t_uff.flag[uff_flags[k]];
+  }
+
+  /* 3. Observations (not SAGE26 state): the feedback with the post-commit metallicity, and the
+   *    yield from the stars formed, each changes the end state or not */
+  struct ffb_trace scratch;
+  const struct ffb_variant recompute = {-1, 0, 0, 1, 0};
+  tr_starformation_ffb(ffb_input, &c, &scratch, &recompute);
+  const int recompute_changes = scratch.out_of_domain || !ffb_reproduces(&c);
+  const struct ffb_variant formed = {-1, 0, 0, 0, 1};
+  tr_starformation_ffb(ffb_input, &c, &scratch, &formed);
+  const int formed_changes = scratch.out_of_domain || !ffb_reproduces(&c);
+
+  /* 4. The record: SAGE26's end state, every galaxy */
+  memcpy(galaxies, ffb_reference, sizeof(struct GALAXY) * (size_t)c.ngal);
+  out_i32("intermediate.step_bin", c.bin);
+  for (int i = 0; i < c.ngal; i++) {
+    for (size_t m = 0; m < FFB_COUNT(FFB_STATE); m++) {
+      for (int k = 0; k < FFB_STATE[m].elements; k++) {
+        out_f32(ffb_member_field("", i, &FFB_STATE[m], k),
+                ffb_get(&ffb_reference[i], &FFB_STATE[m], k));
+      }
+    }
+    out_i32(field_name("galaxy[%d].Regime", i), ffb_reference[i].Regime);
+    out_i32(field_name("galaxy[%d].FFBRegime", i), ffb_reference[i].FFBRegime);
+  }
+  for (int k = 0; k < FF_COUNT; k++) {
+    out_i32(field_name("intermediate.%s", FFB_FLAG_NAMES[k]), t.flag[k]);
+  }
+  const int zero_stars = t.present[FL_STARS] && t.value[FL_STARS] == 0.0;
+  for (int k = 0; k < FL_COUNT; k++) {
+    ffb_record_local((enum ffb_local)k, &t, &c, zero_stars);
+  }
+  /* Observation: the cold-gas metallicity after the commit, which the ordinary path would
+   * recompute (S:1076) and the FFB path does not (S:1348) */
+  out_f64("intermediate.metallicity_post_commit", t.metallicity_post);
+  out_i32("intermediate.metallicity_post_commit_differs",
+          !same_f64(t.metallicity_post, t.value[FL_METALLICITY]));
+  /* SAGE26's own state at that point (its update_from_star_formation's result in the plain
+   * composition, which reproduces SAGE26's end state) */
+  out_f32("intermediate.coldgas_after_sf_commit", t.coldgas_after_commit);
+  out_i32("intermediate.recomputed_metallicity_changes_state", recompute_changes);
+  out_i32("intermediate.yield_with_formed_stars_changes_state", formed_changes);
+  if (wrapper) {
+    /* The forming galaxy's disk after the call, by the Mo, Mao & White (1998) criterion of
+     * check_disk_instability (R/src/model_disk_instability.c:54-57), which the FFB return never
+     * reaches (S:1007-1008) */
+    const struct GALAXY *g = &ffb_reference[c.p];
+    const double diskmass = g->ColdGas + (g->StellarMass - g->BulgeMass);
+    const double Mcrit =
+        g->Vmax * g->Vmax * (TOOMRE_DISK_FACTOR * g->DiskScaleRadius) / run_params.G;
+    out_i32("intermediate.wrapper_equals_starformation_ffb", 1);
+    out_i32("intermediate.disk_unstable_after_call", diskmass > 0.0 && Mcrit < diskmass);
+  }
+}
+
+static void run_starformation_ffb(void) { run_ffb(0); }
+
+static void run_starformation_and_feedback_ffb(void) { run_ffb(1); }
+
+// ============================================================================
 // MAIN
 // ============================================================================
 
@@ -1022,6 +1961,8 @@ static const struct routine_entry routines[] = {
     {"calculate_ffb_threshold_mass", run_calculate_ffb_threshold_mass},
     {"calculate_ffb_fraction", run_calculate_ffb_fraction},
     {"determine_and_store_ffb_regime", run_determine_and_store_ffb_regime},
+    {"starformation_ffb", run_starformation_ffb},
+    {"starformation_and_feedback_ffb", run_starformation_and_feedback_ffb},
 };
 
 static const char *base_name(const char *path) {

@@ -37,6 +37,7 @@ module:
       - _tests/test_unit_sage_cgm_routing.c
       - _tests/test_unit_sage_halo_concentration.c
       - _tests/test_unit_sage_ffb_regime.c
+      - _tests/test_unit_sage_ffb_shared_helpers.c
 
     integration: []
     scientific: []

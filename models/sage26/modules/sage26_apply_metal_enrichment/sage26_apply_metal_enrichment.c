@@ -15,7 +15,9 @@
  *   else:
  *     selected metals (central) += Yield * stars
  *
- * The escaping metals go through SAGE26's add_metals_to_hot_reservoir
+ * The arithmetic is the package's one disk yield, shared/sage_metal_yield_physics.h, which
+ * sage26_ffb_star_formation also calls. The escaping metals go through SAGE26's
+ * add_metals_to_hot_reservoir
  * (R/src/model_misc.h:67-74, shared/sage_cgm_routing.h) to the FoF central's selected metals:
  * MetalsCGMgas with the required CGMrecipeOn (campaign decision D33) 1 and the CENTRAL's Regime 0,
  * MetalsHotGas otherwise (:1102, :1108).
@@ -41,6 +43,7 @@
 #include "types.h"
 #include "shared/sage_cgm_routing.h"
 #include "shared/sage_constants.h"
+#include "shared/sage_metal_yield_physics.h"
 #include "module_system/parameter_helpers.h"
 
 // ============================================================================
@@ -129,28 +132,13 @@ int sage26_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo
   /* SAGE parity: SAGE26 applies the yield on every call, also when no stars formed
    * (:1092-1109); adding a +0.0 yield turns a -0.0 metal reservoir into +0.0. */
 
-  // Formation of new metals - instantaneous recycling approximation - only SNII
-  if (gal->ColdGas > SAGE_COLD_GAS_YIELD_THRESHOLD) {
-    /* SAGE parity: the Krumholz & Dekel (2011) ejection scale uses the FoF central's
-     * float Mvir (:1094) */
-    const float central_mvir = (float)ctx->central_galaxy->Mvir;
-    const double FracZleaveDiskVal =
-        FRAC_Z_LEAVE_DISK * exp(-1.0 * central_mvir / SAGE_METAL_EJECTION_MVIR_SCALE);
-
-    /* SAGE parity: metals that stay in the disk, Yield * (1.0 - FracZleaveDiskVal)
-     * left to right, then one fused multiply-add with stars in SAGE26's build (:1097) */
-    const double yield_retained = YIELD * (1.0 - FracZleaveDiskVal);
-    gal->MetalsColdGas = (float)fma(yield_retained, stars, (double)gal->MetalsColdGas);
-
-    /* SAGE parity: the metals that leave the disk, formed in their own statement, go to the FoF
-     * CENTRAL's selected metals by its Regime (:1100-1102, R/src/model_misc.h:67-74) */
-    const double metals_leaving_disk = YIELD * FracZleaveDiskVal * stars;
-    mimic_sage_add_metals_to_hot_reservoir(central_gal, CGM_RECIPE_ON, metals_leaving_disk);
-  } else {
-    // All metals leave the disk when ColdGas is very low, to the same pair (:1105-1108)
-    const double all_metals = YIELD * stars;
-    mimic_sage_add_metals_to_hot_reservoir(central_gal, CGM_RECIPE_ON, all_metals);
-  }
+  // Formation of new metals - instantaneous recycling approximation - only SNII (:1092-1109),
+  // the package's one implementation of SAGE26's disk yield (shared/sage_metal_yield_physics.h):
+  // the retained metals into the cold gas above the 1e-8 floor, the escaping metals to the FoF
+  // CENTRAL's selected metals by its Regime. SAGE parity: the Krumholz & Dekel (2011) scale reads
+  // the FoF central's float Mvir (:1094).
+  mimic_sage_apply_disk_yield(gal, central_gal, (float)ctx->central_galaxy->Mvir, stars, YIELD,
+                              FRAC_Z_LEAVE_DISK, CGM_RECIPE_ON, NULL);
 
   DEBUG_LOG("Type=%d: Applied metal yield for stars=%.3e (ColdGas=%.3e)", halo->Type, stars,
             gal->ColdGas);

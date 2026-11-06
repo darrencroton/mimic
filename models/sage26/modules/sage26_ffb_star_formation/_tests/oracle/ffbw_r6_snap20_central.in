@@ -1,0 +1,124 @@
+# The wrapper's FFB dispatch on the R6 snapshot-20 Type 0 FFB central (row 252), R6 reference /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R6/model_0.hdf5 (SHA-256 819ba947eda92211a3ec078bd7133c5e9cfe58359b012d7db454ed231bbd5df3).
+# Reachability: R6-reachable (an R6 reference FFB row's values as call inputs)
+format sage26-oracle-fixture 1
+routine starformation_and_feedback_ffb
+
+i32 params.SupernovaRecipeOn 1  # R6.par:50
+i32 params.FIREmodeOn 1  # R6.par:55
+i32 params.SFprescription 1  # R6.par:48
+i32 params.CGMrecipeOn 1  # R6.par:54
+i32 params.SaveFullSFH 0  # R6.par:60
+f64 params.EnhancedSFEfficiency 0x3fc999999999999a  # 0.2  (R6.par:67)
+f64 params.RecycleFraction 0x3fdb851eb851eb85  # 0.43  (R6.par:82)
+f64 params.FeedbackReheatingEpsilon 0x4007333333333333  # 2.9  (R6.par:69)
+f64 params.FeedbackEjectionEfficiency 0x3fd3333333333333  # 0.3  (R6.par:70)
+f64 params.EtaSNcode 0x4190547d7abd5eaf  # 68493150.6849315  (EtaSN * (UnitMass_in_g / SOLAR_MASS) / Hubble_h, R/src/core_init.c:103)
+f64 params.EnergySNcode 0x3f6e10f01e10f01d  # 0.003670186023127199  (EnergySN / UnitEnergy_in_cgs * Hubble_h, R/src/core_init.c:102)
+f64 params.Yield 0x3f9999999999999a  # 0.025  (R6.par:81)
+f64 params.FracZleaveDisk 0x0000000000000000  # 0.0  (R6.par:83)
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.73  (R6.par:40)
+i32 params.EnhancedStarFormationOn 1  # R6.par:58
+f64 params.G 0x404580e7ed5ced1b  # 43.00707785642063  (GRAVITY / CUBE(L) * M * SQR(T), R/src/core_init.c:96)
+f64 params.ZZ[20] 0x401527c3fb3c0d03  # 5.288833547153675  (1/AA[20] - 1, R/src/core_init.c:66, mini-Millennium a_list)
+
+i32 call.ngal 1
+i32 call.p 0  # the forming (FFB) galaxy
+i32 call.centralgal 0  # its FoF central
+i32 call.step 3  # substep index; history bin (step * STEPS) / effective_steps
+i32 call.effective_steps 10  # STEPS, R/src/core_build_model.c:466
+f64 call.deltaT 0x3f150acb377d63c6  # 8.026948296214952e-05  (the R6 row's dT in Myr converted to code time (plausible))
+f64 call.dt 0x3ee0d56f5f978305  # 8.026948296214952e-06  (deltaT / effective_steps, R/src/core_build_model.c:516)
+f64 call.time 0x3f847ae147ae147b  # 0.01  (plausible; not read on the FFB path)
+
+i32 galaxy[0].Type 0
+i32 galaxy[0].SnapNum 20  # the stored snapshot
+i32 galaxy[0].Regime 0
+i32 galaxy[0].FFBRegime 1
+f32 galaxy[0].Mvir 0x42819d6a  # 64.8074493
+f32 galaxy[0].Vvir 0x438c55ec  # 280.671265
+f32 galaxy[0].Vmax 0x438e6fde  # 284.873962
+f32 galaxy[0].DiskScaleRadius 0x3a2aa310  # 0.000650928356
+f32 galaxy[0].ColdGas 0x3d3b6326  # 0.0457488522
+f32 galaxy[0].MetalsColdGas 0x3a60d346  # 0.000857640407
+f32 galaxy[0].StellarMass 0x3fb1741a  # 1.38635564
+f32 galaxy[0].MetalsStellarMass 0x3bd0679d  # 0.00636000792
+f32 galaxy[0].BulgeMass 0x3d1a0376  # 0.0376009569
+f32 galaxy[0].MetalsBulgeMass 0x38d4f68b  # 0.0001015487
+f32 galaxy[0].InstabilityBulgeMass 0x3c981e5e  # 0.0185691677
+f32 galaxy[0].MergerBulgeMass 0x3c9be88d  # 0.0190317873
+f32 galaxy[0].BulgeRadius 0x3a0201af  # 0.000495935732
+f32 galaxy[0].MergerBulgeRadius 0x3a61d0f6  # 0.000861420645
+f32 galaxy[0].InstabilityBulgeRadius 0x38fe7ad4  # 0.000121345423
+f32 galaxy[0].HotGas 0x00000000  # 0
+f32 galaxy[0].MetalsHotGas 0x00000000  # 0
+f32 galaxy[0].CGMgas 0x40f899d1  # 7.76877642
+f32 galaxy[0].MetalsCGMgas 0x3cc697ce  # 0.024242308
+f32 galaxy[0].EjectedMass 0x3dc37c3c  # 0.095451802
+f32 galaxy[0].MetalsEjectedMass 0x392d2e5b  # 0.000165158344
+f32 galaxy[0].H1gas 0x3d0aaaa6  # 0.0338541493
+f32 galaxy[0].H2gas 0x00000000  # 0
+f32 galaxy[0].H2DepletionTime_Gyr 0x3fa00000  # 1.25
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+f32 galaxy[0].MassLoading 0x40cc3ada  # 6.38218403
+f32 galaxy[0].BlackHoleMass 0x3930d6d8  # 0.000168647035
+f32 galaxy[0].QuasarModeBHaccretionMass 0x378ac041  # 1.65404072e-05
+f32 galaxy[0].SfrDisk[0] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[1] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[2] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[3] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[4] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[5] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[6] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[7] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[8] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[9] 0x00000000  # 0

@@ -123,10 +123,12 @@ do_AGN_heating_cgm_on cooling_recipe_regime_aware writer_mdot_conversion"
 ORACLE_C12=$ORACLE_OUT/oracle_c12
 C12_ROUTINES="concentration_from_vmax_vvir get_halo_concentration"
 # The c13 group (the feedback-free-burst classifier: the threshold, the fraction and
-# determine_and_store_ffb_regime with the fixture's rand() queue, each called directly) has its
-# own oracle main and is selected by routine.
+# determine_and_store_ffb_regime with the fixture's rand() queue, each called directly; and, since
+# c13 Slice 2, FFB star formation: starformation_ffb and the wrapper's FFB dispatch,
+# starformation_and_feedback_ffb) has its own oracle main and is selected by routine.
 ORACLE_C13=$ORACLE_OUT/oracle_c13
-C13_ROUTINES="calculate_ffb_threshold_mass calculate_ffb_fraction determine_and_store_ffb_regime"
+C13_ROUTINES="calculate_ffb_threshold_mass calculate_ffb_fraction determine_and_store_ffb_regime
+starformation_ffb starformation_and_feedback_ffb"
 
 # Each oracle run writes to a fresh temporary file under ORACLE_OUT, which
 # replaces the committed output only if the oracle exited 0 AND the file is a

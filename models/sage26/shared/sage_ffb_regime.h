@@ -58,7 +58,7 @@
  * same single rounding on every platform whose fma is correctly rounded, as C requires. SAGE26's
  * object computes pow(10.0, log_Mvir_ffb_code) as a call of __exp10 at the same three sites; the
  * package writes pow(10.0, ...), which Mimic's -O2 build on Apple clang also compiles to __exp10
- * and its -O0 unit-test build to pow. The equality was checked only for the redshifts of
+ * and its -O0 unit-test build to pow. The equality was established only for the redshifts of
  * mini-Millennium's snapshots at Hubble_h 0.73 and of the c13 fixtures, where the two give the same
  * double (the executed check in the oracle README). It does not hold for every simulation
  * package: at micro-Uchuu's snapshot 3 (z 10.458691417440129, Hubble_h 0.6774) the argument

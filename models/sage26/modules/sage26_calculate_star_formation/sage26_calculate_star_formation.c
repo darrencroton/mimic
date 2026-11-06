@@ -20,7 +20,8 @@
  * - the H I block (:1035-1046), on every call: the atomic remainder of the cold
  *   hydrogen, ColdGas * 0.74 - H2gas floored at zero, times the neutral fraction
  *   1 - f_ion of an exponential gas disk truncated at 0.5 Msun/pc^2
- *   (ionized_gas_fraction, :130-152), stored in the float H1gas.
+ *   (ionized_gas_fraction, :130-152), stored in the float H1gas; the package's one H I
+ *   block, shared/sage_hi_physics.h, which sage26_ffb_star_formation also calls.
  * - stars = strdot * dt, floored at zero (:1048-1051), stored in NewStellarMass
  *   for sage26_calculate_supernova_feedback.
  *
@@ -40,6 +41,7 @@
 #include "types.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_h2_physics.h"
+#include "shared/sage_hi_physics.h"
 #include "shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
 
@@ -64,50 +66,9 @@ static double H2_RADIAL_RMAX_FACTOR;
 /* Kauffmann (1996) eq. 7 critical cold-gas coefficient (:66) */
 static const double KAUFFMANN96_SF_THRESHOLD = 0.19;
 
-/* Critical neutral surface density of the H I ionisation cut, Msun/pc^2 (:97) */
-static const double SIGMA_HI_CRIT = 0.5;
-
-/* Atomic-disk to stellar-disk scale-length ratio chi (:106) */
-static const double GAS_DISK_RADIUS_FACTOR = 1.0;
-
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-/** @brief SAGE26's atomic_disk_radius: chi * r_s (:130-133) */
-static double atomic_disk_radius(const double rs_code) { return GAS_DISK_RADIUS_FACTOR * rs_code; }
-
-/**
- * @brief SAGE26's ionized_gas_fraction (:135-152): ionised mass fraction of the cold disk
- *
- * For an exponential gas disk of central surface density Sigma0 = M / (2 pi r_s^2)
- * the gas beyond the radius where Sigma falls to sigma_hi_crit is ionised:
- * f_ion = (1 + ln(Sigma0 / sigma_hi_crit)) * sigma_hi_crit / Sigma0, clamped to
- * [0, 1]. Non-positive inputs give 0; a disk entirely below the cut gives 1. The
- * code-to-physical conversions are SAGE26's CODE_MASS_TO_MSUN and CODE_LENGTH_TO_PC
- * macros (R/src/macros.h:45-46), each left to right.
- */
-static double ionized_gas_fraction(const double coldgas_code, const double rs_code, const double h,
-                                   const double sigma_hi_crit) {
-  if (coldgas_code <= 0.0 || rs_code <= 0.0 || sigma_hi_crit <= 0.0 || h <= 0.0) {
-    return 0.0;
-  }
-  const double mgas = coldgas_code * 1.0e10 / h;             /* Msun */
-  const double rs_pc = rs_code * 1.0e6 / h;                  /* pc */
-  const double sigma0 = mgas / (2.0 * M_PI * rs_pc * rs_pc); /* Msun/pc^2 */
-  if (sigma0 <= sigma_hi_crit) {
-    return 1.0;
-  }
-  const double x = log(sigma0 / sigma_hi_crit);
-  double f_ion = (1.0 + x) * sigma_hi_crit / sigma0;
-  if (f_ion < 0.0) {
-    f_ion = 0.0;
-  }
-  if (f_ion > 1.0) {
-    f_ion = 1.0;
-  }
-  return f_ion;
-}
 
 /**
  * @brief SAGE26's H I block of starformation_and_feedback (:1035-1046)
@@ -125,16 +86,10 @@ static double ionized_gas_fraction(const double coldgas_code, const double rs_co
  * replaces with the ionisation-corrected value at the next call.
  */
 static void calculate_h1gas(struct GalaxyData *gal, const double hubble_h) {
-  /* SAGE parity: SAGE26's build fuses ColdGas * HYDROGEN_MASS_FRAC - H2gas into one
-   * multiply-subtract (:1036, model_starformation_and_feedback.o offset 0x728) */
-  double atomicH = fma((double)gal->ColdGas, SAGE_HYDROGEN_MASS_FRAC, -(double)gal->H2gas);
-  if (atomicH < 0.0) {
-    atomicH = 0.0;
-  }
-  const double f_ion = ionized_gas_fraction(gal->ColdGas, atomic_disk_radius(gal->DiskScaleRadius),
-                                            hubble_h, SIGMA_HI_CRIT);
-  atomicH *= (1.0 - f_ion);
-  gal->H1gas = atomicH;
+  /* The package's one H I block (shared/sage_hi_physics.h): SAGE26's fused
+   * ColdGas * HYDROGEN_MASS_FRAC - H2gas (:1036, model_starformation_and_feedback.o offset
+   * 0x728) floored at zero, times 1 - ionized_gas_fraction (:130-152) */
+  mimic_sage_calculate_h1gas(gal, hubble_h);
 }
 
 /**

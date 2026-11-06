@@ -24,7 +24,9 @@
 # oracle_c13.c (the feedback-free-burst classifier: calculate_ffb_threshold_mass,
 # calculate_ffb_fraction and determine_and_store_ffb_regime, EnhancedStarFormationOn 1), is
 # compiled and linked the same way into output/oracle/oracle_c13; like oracle_c10.c it defines
-# a test-only rand() provider, linked into that executable only.
+# a test-only rand() provider, linked into that executable only. Since c13 Slice 2 oracle_c13.c
+# also calls SAGE26's starformation_ffb and the wrapper starformation_and_feedback's FFB dispatch
+# (the same twelve objects; no new SAGE26 source).
 #
 # Environment:
 #   SAGE26_SRC         staged SAGE26 source root

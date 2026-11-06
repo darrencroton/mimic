@@ -56,7 +56,11 @@ modules:
       - sage26_apply_cooling:           process_by_galaxy
       - sage26_regime_aware_cooling:    process_by_galaxy
 
-      # Star formation and supernova feedback
+      # Star formation and supernova feedback: first SAGE26's feedback-free-burst transaction
+      # (starformation_ffb, model_starformation_and_feedback.c:1262-1368), which with
+      # EnhancedStarFormationOn 1 forms, commits and feeds back an FFBRegime 1 row's stars in one
+      # step and writes nothing with EnhancedStarFormationOn 0; then the ordinary chain
+      - sage26_ffb_star_formation:              process_by_galaxy
       - sage26_calculate_star_formation:        process_by_galaxy
       - sage26_calculate_supernova_feedback:    process_by_galaxy
       - sage26_apply_star_formation_supernova:  process_by_galaxy
@@ -98,6 +102,7 @@ modules:
 
     # Feedback-free bursts
     EnhancedStarFormationOn: 0          # FFB mode: 0 = off, FFBRegime keeps its creation value 0 (SAGE26 R0-R5, R5.par:58); 1 = SAGE26's Li+24 classifier and FFB star formation (R6, R6.par:58, SAGE26's default); 2 not ported; required
+    EnhancedSFEfficiency: 0.2           # FFB star-formation efficiency epsilon_FFB of SAGE26's starformation_ffb (R6.par:67; SAGE26's default, core_read_parameter_file.c:104); read only with EnhancedStarFormationOn 1, but always required and validated (finite, within [0, 1])
 
     # Halo concentration
     ConcentrationOn: 3                  # NFW halo concentration: 0 = off, Concentration keeps its creation value 0 (SAGE26 R0-R4, R4.par:57); 3 = the Vmax/Vvir inversion, infall-frozen for a former satellite (R5, R5.par:57); 1 and 2 not ported; required
