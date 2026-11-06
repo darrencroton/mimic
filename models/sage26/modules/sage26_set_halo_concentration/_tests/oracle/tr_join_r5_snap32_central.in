@@ -3,6 +3,10 @@
 # halo's Mvir equals the galaxy's, so B:267 is not taken and the call reads the written Vvir with
 # the written Vmax (the halo's): the current pair (previous Type 0). The orphan keeps its written
 # Concentration.
+# Seeded input Concentration: 3.20363998 (0x404d0870), the galaxy's own written Concentration at
+# the previous output snapshot (Snap_27 row 163, GalaxyIndex 1000000022, Type 0), which differs
+# from the value the join stores (4.78166962, 0x40990370, the Snap_32 row's written value), so
+# the store is visible.
 # End-of-snapshot output values used as plausible call inputs, not reconstructed call-time state.
 # Source: R5 reference
 # /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R5/model_0.hdf5 (SHA-256
@@ -15,9 +19,10 @@
 # DiskScaleRadius, EjectedMass, H1gas, H2gas, HotGas, ICS, ICS_accrete, ICS_disrupt,
 # InstabilityBulgeMass, InstabilityBulgeRadius, Len, MergerBulgeMass, MergerBulgeRadius,
 # MetalsBulgeMass, MetalsCGMgas, MetalsColdGas, MetalsEjectedMass, MetalsHotGas, MetalsICS,
-# MetalsStellarMass, Mvir, QuasarModeBHaccretionMass, Rvir, StellarMass, Vmax, Vvir,
-# Concentration, and the satellite's infall record (raw, R/src/io/save_gals_hdf5.c:1005-1009);
-# the halo catalogue's Len, Mvir, Vmax and Spin from the same rows.
+# MetalsStellarMass, Mvir, QuasarModeBHaccretionMass, Rvir, StellarMass, Vmax, Vvir, the
+# satellite's Concentration (the central's is seeded, above), and the satellite's infall record
+# (raw, R/src/io/save_gals_hdf5.c:1005-1009); the halo catalogue's Len, Mvir, Vmax and Spin from
+# the same rows.
 # Constructed (the c06 template's values): ICS_sum_mt, OutflowRate, TimeOfLastMajorMerger,
 # TimeOfLastMinorMerger, the histories, deltaMvir (+2% of Mvir), Cooling and Heating (0), the
 # central's MergTime 999.9 and infall record (-1, the creation sentinels, R/src/model_misc.c:
@@ -131,7 +136,7 @@ f32 galaxy[0].infallStellarMass 0xbf800000  # -1
 f32 galaxy[0].TimeOfInfall 0xbf800000  # -1
 f64 galaxy[0].Cooling 0x0000000000000000  # 0
 f64 galaxy[0].Heating 0x0000000000000000  # 0
-f32 galaxy[0].Concentration 0x40990370  # 4.78166962
+f32 galaxy[0].Concentration 0x404d0870  # 3.20363998
 f32 galaxy[0].SfrDisk[0] 0x43160000  # 150
 f32 galaxy[0].SfrDisk[1] 0x43178000  # 151.5
 f32 galaxy[0].SfrDisk[2] 0x43190000  # 153
