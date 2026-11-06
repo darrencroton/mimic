@@ -140,13 +140,30 @@ trap 'rm -rf "${TMP_OUT:?}"' EXIT
 # A complete output: the oracle's header, format and routine lines, at least
 # one field, every later line a typed field (f32, f64, i32 or, since c13, the
 # decimal signed 64-bit i64), and a final newline.
+#
+# An i64 value must be an optionally signed decimal integer within
+# [INT64_MIN, INT64_MAX]. The bound is checked on the digit string (leading
+# zeros dropped, then length, then a lexical comparison of equal-length digit
+# strings, each prefixed so awk compares strings), never by awk's numeric
+# conversion, which is a double and cannot tell 2^63 - 1 from 2^63.
 complete_output() {
   [ -s "$1" ] && [ "$(tail -c 1 "$1" | od -An -c | tr -d ' ')" = '\n' ] &&
     awk '
+      function valid_i64(v,   digits, bound) {
+        digits = v
+        if (digits ~ /^[-+]/) { digits = substr(digits, 2) }
+        if (digits !~ /^[0-9]+$/) { return 0 }
+        sub(/^0+/, "", digits)
+        if (digits == "") { return 1 }
+        bound = (v ~ /^-/) ? "9223372036854775808" : "9223372036854775807"
+        if (length(digits) != length(bound)) { return length(digits) < length(bound) }
+        return ("d" digits) <= ("d" bound)
+      }
       NR == 1 { ok = ($0 ~ /^# SAGE26 oracle output for /); next }
       NR == 2 { ok = ok && ($0 == "format sage26-oracle-fixture 1"); next }
       NR == 3 { ok = ok && ($0 ~ /^routine [A-Za-z_0-9]+$/); next }
       { ok = ok && ($0 ~ /^(f32|f64|i32|i64) [^ ]+ [^ ]+/); fields++ }
+      $1 == "i64" { ok = ok && valid_i64($3) }
       END { exit !(ok && fields > 0) }
     ' "$1"
 }

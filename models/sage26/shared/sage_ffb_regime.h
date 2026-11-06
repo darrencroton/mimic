@@ -58,8 +58,11 @@
  * same single rounding on every platform whose fma is correctly rounded, as C requires. SAGE26's
  * object computes pow(10.0, log_Mvir_ffb_code) as a call of __exp10 at the same three sites; the
  * package writes pow(10.0, ...), which Mimic's -O2 build on Apple clang also compiles to __exp10
- * and its -O0 unit-test build to pow: the two give the same double at every snapshot redshift of
- * mini-Millennium and every fixture redshift (the executed check in the oracle README). The
+ * and its -O0 unit-test build to pow. The equality was checked only for the redshifts of
+ * mini-Millennium's snapshots at Hubble_h 0.73 and of the c13 fixtures, where the two give the same
+ * double (the executed check in the oracle README). It does not hold for every simulation
+ * package: at micro-Uchuu's snapshot 3 (z 10.458691417440129, Hubble_h 0.6774) the argument
+ * 0x1.0e8c8da54b3b8p-2 gives pow 0x1.d6610c1d85ba4p+0 and __exp10 0x1.d6610c1d85ba3p+0. The
  * fraction's exp(-x) is compiled as exp(log10(Mvir / Mvir_ffb) / -0.15), the division by the
  * negated constant (0x4a8, 0x88c), and x is never formed. That equals the source form bit for
  * bit for every non-NaN x (round-to-nearest division is sign-symmetric), but not for a NaN: a
@@ -144,8 +147,10 @@ static inline double mimic_sage_ffb_threshold_mass(const double z, const double 
     locals->z_norm = z_norm;
     locals->log_Mvir_ffb_code = log_Mvir_ffb_code;
   }
-  /* :312; SAGE26's object calls __exp10 here, which equals pow at every argument the run and the
-   * fixtures reach (oracle README, "The c13 Group") */
+  /* :312; SAGE26's object calls __exp10 here. pow equals it at every mini-Millennium snapshot
+   * redshift (Hubble_h 0.73) and every c13 fixture redshift, but not at every argument of every
+   * simulation package (one ulp apart at micro-Uchuu's snapshot 3; oracle README, "The c13
+   * Group") */
   return pow(10.0, log_Mvir_ffb_code);
 }
 
