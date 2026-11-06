@@ -18,7 +18,9 @@
 # executable only. The c11 oracle main, oracle_c11.c (the CGMrecipeOn 1 cooling routines,
 # the clustering-mass table, the CGM-on radio AGN, the regime-aware wrapper and the
 # transcribed writer conversion of the mdot rates), is compiled and linked the same way
-# into output/oracle/oracle_c11.
+# into output/oracle/oracle_c11. The c12 oracle main, oracle_c12.c (the halo concentration:
+# concentration_from_vmax_vvir and get_halo_concentration, ConcentrationOn 0 and 3), is
+# compiled and linked the same way into output/oracle/oracle_c12.
 #
 # Environment:
 #   SAGE26_SRC         staged SAGE26 source root
@@ -198,3 +200,16 @@ clang $objects "$OBJ_DIR/oracle_c11.o" -o "$ORACLE_OUT/oracle_c11" \
 { set +x; } 2>/dev/null
 
 echo "build.sh: built $ORACLE_OUT/oracle_c11"
+
+# The c12 oracle main (the halo concentration: the Vmax/Vvir inversion and the ConcentrationOn 0
+# and 3 dispatch of get_halo_concentration, both called directly): built exactly as oracle_c03,
+# against the same twelve objects, with the same flags and link.
+compile "$ORACLE_DIR/oracle_c12.c" "$OBJ_DIR/oracle_c12.o" -I"$SAGE26_SRC/src"
+
+set -x
+# shellcheck disable=SC2086 # $objects is a deliberately split list of paths
+clang $objects "$OBJ_DIR/oracle_c12.o" -o "$ORACLE_OUT/oracle_c12" \
+  -L"$GSL_PREFIX/lib" -lgsl -lgslcblas -Xlinker -rpath -Xlinker "$GSL_PREFIX/lib" -lm
+{ set +x; } 2>/dev/null
+
+echo "build.sh: built $ORACLE_OUT/oracle_c12"

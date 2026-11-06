@@ -1,0 +1,59 @@
+# Real galaxies of the R5 reference (/Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R5/model_0.hdf5,
+# SHA-256 b350d5d406066b9cecf94603d5aa9597e1dcf1074015bf4edb9131bd5139d7c3), Snap_32, matched by
+# GalaxyIndex to Snap_31. Rows whose Type at Snap_31 was 0 are halos that grew
+# (Mvir at Snap_32 above Mvir at Snap_31), so SAGE26's joining replaced Vvir with
+# get_virial_velocity of the new halo (R/src/core_build_model.c:267-270), which is the
+# Vvir the writer outputs (R/src/io/save_gals_hdf5.c:902), and Vmax is the halo's
+# (:260, :903): their written Vmax and Vvir are the pair SAGE26's call read, so the
+# oracle's float store must equal the written Concentration. Rows whose Type was 1 take
+# the infall pair written at Snap_31 (R/src/io/save_gals_hdf5.c:1005-1008).
+# ConcentrationOn 3 (R5.par:57); each galaxy's Type is its Type at the call, the one
+# before joining (Snap_31's).
+# Reachability: R5-reachable.
+format sage26-oracle-fixture 1
+routine get_halo_concentration
+i32 params.ConcentrationOn 3
+f64 call.z 0x40008f6a7c393f36  # 2.0700273232431767 (passed as SAGE26 passes ZZ[SnapNum]; read by neither mode)
+i32 call.ncase 7
+# galaxy[0]: 0 -> 0, written 0 (ratio below 1): Snap_32 row 4, GalaxyIndex 31, written Concentration 0x00000000 (0.0); infall pair the creation value -1 (unread on the Type 0 path; the writer zeroes it for a Type 0 row)
+i32 galaxy[0].Type 0
+f32 galaxy[0].Vmax 0x43982a44  # 304.3302001953125
+f32 galaxy[0].Vvir 0x439d5521  # 314.6650695800781
+f32 galaxy[0].infallVmax 0xbf800000  # -1.0
+f32 galaxy[0].infallVvir 0xbf800000  # -1.0
+# galaxy[1]: 0 -> 0, written exactly 1.0: Snap_32 row 579, GalaxyIndex 6000000065, written Concentration 0x3f800000 (1.0); infall pair the creation value -1 (unread on the Type 0 path; the writer zeroes it for a Type 0 row)
+i32 galaxy[1].Type 0
+f32 galaxy[1].Vmax 0x432a1905  # 170.0977325439453
+f32 galaxy[1].Vvir 0x4329e8aa  # 169.90884399414062
+f32 galaxy[1].infallVmax 0xbf800000  # -1.0
+f32 galaxy[1].infallVvir 0xbf800000  # -1.0
+# galaxy[2]: 0 -> 0, the smallest written value above 1: Snap_32 row 29442, GalaxyIndex 6000033000000343, written Concentration 0x4023912e (2.5557360649108887); infall pair the creation value -1 (unread on the Type 0 path; the writer zeroes it for a Type 0 row)
+i32 galaxy[2].Type 0
+f32 galaxy[2].Vmax 0x42e8754b  # 116.22908782958984
+f32 galaxy[2].Vvir 0x42e7df86  # 115.93656921386719
+f32 galaxy[2].infallVmax 0xbf800000  # -1.0
+f32 galaxy[2].infallVvir 0xbf800000  # -1.0
+# galaxy[3]: 0 -> 0, the median written value above 1: Snap_32 row 10790, GalaxyIndex 2000169000000004, written Concentration 0x40a58d87 (5.173526287078857); infall pair the creation value -1 (unread on the Type 0 path; the writer zeroes it for a Type 0 row)
+i32 galaxy[3].Type 0
+f32 galaxy[3].Vmax 0x42e81e57  # 116.05925750732422
+f32 galaxy[3].Vvir 0x42d983f3  # 108.7577133178711
+f32 galaxy[3].infallVmax 0xbf800000  # -1.0
+f32 galaxy[3].infallVvir 0xbf800000  # -1.0
+# galaxy[4]: 0 -> 0, the largest written value: Snap_32 row 18903, GalaxyIndex 3000470000000006, written Concentration 0x41f05d2d (30.045495986938477); infall pair the creation value -1 (unread on the Type 0 path; the writer zeroes it for a Type 0 row)
+i32 galaxy[4].Type 0
+f32 galaxy[4].Vmax 0x4298e348  # 76.44390869140625
+f32 galaxy[4].Vvir 0x423c75ab  # 47.11491012573242
+f32 galaxy[4].infallVmax 0xbf800000  # -1.0
+f32 galaxy[4].infallVvir 0xbf800000  # -1.0
+# galaxy[5]: 1 -> 0, written 0: Snap_32 row 364, GalaxyIndex 3000000046 (Snap_31 row 391, Type 1), written Concentration 0x00000000 (0.0); current pair Snap_32's written Vmax and Vvir (unread on this path)
+i32 galaxy[5].Type 1
+f32 galaxy[5].Vmax 0x4296a935  # 75.33048248291016
+f32 galaxy[5].Vvir 0x427fc772  # 63.94477081298828
+f32 galaxy[5].infallVmax 0x42a81841  # 84.04737091064453
+f32 galaxy[5].infallVvir 0x42a95311  # 84.66223907470703
+# galaxy[6]: 1 -> 0, the median written value above 1: Snap_32 row 15790, GalaxyIndex 3000063000000053 (Snap_31 row 15588, Type 1), written Concentration 0x408b7cc9 (4.358982563018799); current pair Snap_32's written Vmax and Vvir (unread on this path)
+i32 galaxy[6].Type 1
+f32 galaxy[6].Vmax 0x4298be28  # 76.37139892578125
+f32 galaxy[6].Vvir 0x429cb6c5  # 78.35697174072266
+f32 galaxy[6].infallVmax 0x42a703c5  # 83.50736236572266
+f32 galaxy[6].infallVvir 0x42a00a16  # 80.01969909667969

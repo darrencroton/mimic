@@ -1,0 +1,28 @@
+# ratio_sq below, at and just above 1 (R/src/model_halo_properties.c:306, a strict
+# ratio_sq < 1.0): below 1 returns 0; exactly 1 and just above it enter the bisection, in
+# which A c / mu(c) >= ratio_sq at every visited midpoint, so c_lo never moves (the
+# lower bound 1.0 binds), c_hi falls to the double just above 1 after 60 steps and the
+# return rounds to exactly 1.0. Vmax = Vvir = 1 is the plan's 59/61-iteration probe: the
+# return is 1.0 either way, the final c_hi is not.
+# Reachability: constructed routine-domain probe.
+format sage26-oracle-fixture 1
+routine concentration_from_vmax_vvir
+i32 call.ncase 6
+# case[0]: ratio_sq 0.990025: returns 0
+f64 case[0].Vmax 0x4068e00000000000  # 199.0
+f64 case[0].Vvir 0x4069000000000000  # 200.0
+# case[1]: Vmax the largest double below 1: ratio_sq 1 - 2^-52, below 1
+f64 case[1].Vmax 0x3fefffffffffffff  # 0.9999999999999999
+f64 case[1].Vvir 0x3ff0000000000000  # 1.0
+# case[2]: Vmax = Vvir = 200: ratio_sq exactly 1
+f64 case[2].Vmax 0x4069000000000000  # 200.0
+f64 case[2].Vvir 0x4069000000000000  # 200.0
+# case[3]: Vmax = Vvir = 1: ratio_sq exactly 1
+f64 case[3].Vmax 0x3ff0000000000000  # 1.0
+f64 case[3].Vvir 0x3ff0000000000000  # 1.0
+# case[4]: Vmax the smallest double above 1: ratio_sq 1 + 2^-51
+f64 case[4].Vmax 0x3ff0000000000001  # 1.0000000000000002
+f64 case[4].Vvir 0x3ff0000000000000  # 1.0
+# case[5]: ratio_sq 1.010025: above the jump, returns about 2.735
+f64 case[5].Vmax 0x4069200000000000  # 201.0
+f64 case[5].Vvir 0x4069000000000000  # 200.0

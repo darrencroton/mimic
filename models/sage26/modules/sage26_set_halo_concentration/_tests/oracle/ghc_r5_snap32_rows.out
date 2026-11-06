@@ -1,0 +1,388 @@
+# SAGE26 oracle output for ghc_r5_snap32_rows.in, written by oracle_c12 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine get_halo_concentration
+i32 intermediate.store_made 1
+f64 return.case[0] 0x0000000000000000  # 0
+f32 output.case[0].Concentration 0x00000000  # 0
+i32 intermediate.case[0].selected_infall 0
+i32 intermediate.case[0].vmax_absent 0
+f64 intermediate.case[0].vmax 0x4073054880000000  # 304.3302001953125
+i32 intermediate.case[0].vmax_checked 1
+i32 intermediate.case[0].vmax_check_kind 1
+i32 intermediate.case[0].vmax_validated_up 0
+i32 intermediate.case[0].vmax_validated_down 0
+i32 intermediate.case[0].vmax_validated 0
+i32 intermediate.case[0].vmax_store_changes_up 0
+i32 intermediate.case[0].vmax_store_changes_down 0
+i32 intermediate.case[0].vmax_narrowing_limited 0
+i32 intermediate.case[0].vvir_absent 0
+f64 intermediate.case[0].vvir 0x4073aaa420000000  # 314.66506958007812
+i32 intermediate.case[0].vvir_checked 1
+i32 intermediate.case[0].vvir_check_kind 1
+i32 intermediate.case[0].vvir_validated_up 0
+i32 intermediate.case[0].vvir_validated_down 0
+i32 intermediate.case[0].vvir_validated 0
+i32 intermediate.case[0].vvir_store_changes_up 0
+i32 intermediate.case[0].vvir_store_changes_down 0
+i32 intermediate.case[0].vvir_narrowing_limited 0
+i32 intermediate.case[0].guard_returned 0
+i32 intermediate.case[0].below_one 1
+i32 intermediate.case[0].iterations 0
+i32 intermediate.case[0].ratio_sq_absent 0
+f64 intermediate.case[0].ratio_sq 0x3fedeeb868ecdf31  # 0.93539066785067437
+i32 intermediate.case[0].ratio_sq_checked 1
+i32 intermediate.case[0].ratio_sq_check_kind 2
+i32 intermediate.case[0].ratio_sq_validated_up 0
+i32 intermediate.case[0].ratio_sq_validated_down 0
+i32 intermediate.case[0].ratio_sq_validated 0
+i32 intermediate.case[0].ratio_sq_store_changes_up 0
+i32 intermediate.case[0].ratio_sq_store_changes_down 0
+i32 intermediate.case[0].ratio_sq_narrowing_limited 0
+i32 intermediate.case[0].c_lo_absent 1
+i32 intermediate.case[0].c_hi_absent 1
+i32 intermediate.case[0].c_lo_at_initial_bound -1
+i32 intermediate.case[0].c_hi_at_initial_bound -1
+i32 intermediate.case[0].ties -1
+i32 intermediate.case[0].first_tie_step -1
+f64 return.case[1] 0x3ff0000000000000  # 1
+f32 output.case[1].Concentration 0x3f800000  # 1
+i32 intermediate.case[1].selected_infall 0
+i32 intermediate.case[1].vmax_absent 0
+f64 intermediate.case[1].vmax 0x40654320a0000000  # 170.09773254394531
+i32 intermediate.case[1].vmax_checked 1
+i32 intermediate.case[1].vmax_check_kind 1
+i32 intermediate.case[1].vmax_validated_up 0
+i32 intermediate.case[1].vmax_validated_down 0
+i32 intermediate.case[1].vmax_validated 0
+i32 intermediate.case[1].vmax_store_changes_up 0
+i32 intermediate.case[1].vmax_store_changes_down 0
+i32 intermediate.case[1].vmax_narrowing_limited 0
+i32 intermediate.case[1].vvir_absent 0
+f64 intermediate.case[1].vvir 0x40653d1540000000  # 169.90884399414062
+i32 intermediate.case[1].vvir_checked 1
+i32 intermediate.case[1].vvir_check_kind 1
+i32 intermediate.case[1].vvir_validated_up 0
+i32 intermediate.case[1].vvir_validated_down 0
+i32 intermediate.case[1].vvir_validated 0
+i32 intermediate.case[1].vvir_store_changes_up 0
+i32 intermediate.case[1].vvir_store_changes_down 0
+i32 intermediate.case[1].vvir_narrowing_limited 0
+i32 intermediate.case[1].guard_returned 0
+i32 intermediate.case[1].below_one 0
+i32 intermediate.case[1].iterations 60
+i32 intermediate.case[1].ratio_sq_absent 0
+f64 intermediate.case[1].ratio_sq 0x3ff0091cb5f46fc7  # 1.0022246463404245
+i32 intermediate.case[1].ratio_sq_checked 1
+i32 intermediate.case[1].ratio_sq_check_kind 2
+i32 intermediate.case[1].ratio_sq_validated_up 0
+i32 intermediate.case[1].ratio_sq_validated_down 0
+i32 intermediate.case[1].ratio_sq_validated 0
+i32 intermediate.case[1].ratio_sq_store_changes_up 0
+i32 intermediate.case[1].ratio_sq_store_changes_down 0
+i32 intermediate.case[1].ratio_sq_narrowing_limited 0
+i32 intermediate.case[1].c_lo_absent 0
+f64 intermediate.case[1].c_lo 0x3ff0000000000000  # 1
+i32 intermediate.case[1].c_lo_checked 1
+i32 intermediate.case[1].c_lo_check_kind 2
+i32 intermediate.case[1].c_lo_validated_up 1
+i32 intermediate.case[1].c_lo_validated_down 0
+i32 intermediate.case[1].c_lo_validated 0
+i32 intermediate.case[1].c_lo_store_changes_up 0
+i32 intermediate.case[1].c_lo_store_changes_down 0
+i32 intermediate.case[1].c_lo_narrowing_limited 0
+i32 intermediate.case[1].c_hi_absent 0
+f64 intermediate.case[1].c_hi 0x3ff0000000000001  # 1.0000000000000002
+i32 intermediate.case[1].c_hi_checked 1
+i32 intermediate.case[1].c_hi_check_kind 2
+i32 intermediate.case[1].c_hi_validated_up 1
+i32 intermediate.case[1].c_hi_validated_down 0
+i32 intermediate.case[1].c_hi_validated 0
+i32 intermediate.case[1].c_hi_store_changes_up 0
+i32 intermediate.case[1].c_hi_store_changes_down 0
+i32 intermediate.case[1].c_hi_narrowing_limited 0
+i32 intermediate.case[1].c_lo_at_initial_bound 1
+i32 intermediate.case[1].c_hi_at_initial_bound 0
+i32 intermediate.case[1].ties 0
+i32 intermediate.case[1].first_tie_step -1
+f64 return.case[2] 0x40047225c82e84b0  # 2.5557361258693945
+f32 output.case[2].Concentration 0x4023912e  # 2.55573606
+i32 intermediate.case[2].selected_infall 0
+i32 intermediate.case[2].vmax_absent 0
+f64 intermediate.case[2].vmax 0x405d0ea960000000  # 116.22908782958984
+i32 intermediate.case[2].vmax_checked 1
+i32 intermediate.case[2].vmax_check_kind 1
+i32 intermediate.case[2].vmax_validated_up 1
+i32 intermediate.case[2].vmax_validated_down 0
+i32 intermediate.case[2].vmax_validated 0
+i32 intermediate.case[2].vmax_store_changes_up 0
+i32 intermediate.case[2].vmax_store_changes_down 0
+i32 intermediate.case[2].vmax_narrowing_limited 0
+i32 intermediate.case[2].vvir_absent 0
+f64 intermediate.case[2].vvir 0x405cfbf0c0000000  # 115.93656921386719
+i32 intermediate.case[2].vvir_checked 1
+i32 intermediate.case[2].vvir_check_kind 1
+i32 intermediate.case[2].vvir_validated_up 0
+i32 intermediate.case[2].vvir_validated_down 1
+i32 intermediate.case[2].vvir_validated 0
+i32 intermediate.case[2].vvir_store_changes_up 0
+i32 intermediate.case[2].vvir_store_changes_down 0
+i32 intermediate.case[2].vvir_narrowing_limited 0
+i32 intermediate.case[2].guard_returned 0
+i32 intermediate.case[2].below_one 0
+i32 intermediate.case[2].iterations 60
+i32 intermediate.case[2].ratio_sq_absent 0
+f64 intermediate.case[2].ratio_sq 0x3ff014b1fb7e6776  # 1.0050525497412912
+i32 intermediate.case[2].ratio_sq_checked 1
+i32 intermediate.case[2].ratio_sq_check_kind 2
+i32 intermediate.case[2].ratio_sq_validated_up 1
+i32 intermediate.case[2].ratio_sq_validated_down 1
+i32 intermediate.case[2].ratio_sq_validated 1
+i32 intermediate.case[2].ratio_sq_store_changes_up 0
+i32 intermediate.case[2].ratio_sq_store_changes_down 0
+i32 intermediate.case[2].ratio_sq_narrowing_limited 1
+i32 intermediate.case[2].c_lo_absent 0
+f64 intermediate.case[2].c_lo 0x40047225c82e84af  # 2.555736125869394
+i32 intermediate.case[2].c_lo_checked 1
+i32 intermediate.case[2].c_lo_check_kind 2
+i32 intermediate.case[2].c_lo_validated_up 0
+i32 intermediate.case[2].c_lo_validated_down 1
+i32 intermediate.case[2].c_lo_validated 0
+i32 intermediate.case[2].c_lo_store_changes_up 0
+i32 intermediate.case[2].c_lo_store_changes_down 0
+i32 intermediate.case[2].c_lo_narrowing_limited 0
+i32 intermediate.case[2].c_hi_absent 0
+f64 intermediate.case[2].c_hi 0x40047225c82e84b0  # 2.5557361258693945
+i32 intermediate.case[2].c_hi_checked 1
+i32 intermediate.case[2].c_hi_check_kind 2
+i32 intermediate.case[2].c_hi_validated_up 0
+i32 intermediate.case[2].c_hi_validated_down 1
+i32 intermediate.case[2].c_hi_validated 0
+i32 intermediate.case[2].c_hi_store_changes_up 0
+i32 intermediate.case[2].c_hi_store_changes_down 0
+i32 intermediate.case[2].c_hi_narrowing_limited 0
+i32 intermediate.case[2].c_lo_at_initial_bound 0
+i32 intermediate.case[2].c_hi_at_initial_bound 0
+i32 intermediate.case[2].ties 3
+i32 intermediate.case[2].first_tie_step 57
+f64 return.case[3] 0x4014b1b0e5a6b444  # 5.1735263712881228
+f32 output.case[3].Concentration 0x40a58d87  # 5.17352629
+i32 intermediate.case[3].selected_infall 0
+i32 intermediate.case[3].vmax_absent 0
+f64 intermediate.case[3].vmax 0x405d03cae0000000  # 116.05925750732422
+i32 intermediate.case[3].vmax_checked 1
+i32 intermediate.case[3].vmax_check_kind 1
+i32 intermediate.case[3].vmax_validated_up 0
+i32 intermediate.case[3].vmax_validated_down 1
+i32 intermediate.case[3].vmax_validated 0
+i32 intermediate.case[3].vmax_store_changes_up 0
+i32 intermediate.case[3].vmax_store_changes_down 0
+i32 intermediate.case[3].vmax_narrowing_limited 0
+i32 intermediate.case[3].vvir_absent 0
+f64 intermediate.case[3].vvir 0x405b307e60000000  # 108.75771331787109
+i32 intermediate.case[3].vvir_checked 1
+i32 intermediate.case[3].vvir_check_kind 1
+i32 intermediate.case[3].vvir_validated_up 1
+i32 intermediate.case[3].vvir_validated_down 1
+i32 intermediate.case[3].vvir_validated 1
+i32 intermediate.case[3].vvir_store_changes_up 0
+i32 intermediate.case[3].vvir_store_changes_down 0
+i32 intermediate.case[3].vvir_narrowing_limited 1
+i32 intermediate.case[3].guard_returned 0
+i32 intermediate.case[3].below_one 0
+i32 intermediate.case[3].iterations 60
+i32 intermediate.case[3].ratio_sq_absent 0
+f64 intermediate.case[3].ratio_sq 0x3ff238704d53d456  # 1.1387789745906693
+i32 intermediate.case[3].ratio_sq_checked 1
+i32 intermediate.case[3].ratio_sq_check_kind 2
+i32 intermediate.case[3].ratio_sq_validated_up 0
+i32 intermediate.case[3].ratio_sq_validated_down 1
+i32 intermediate.case[3].ratio_sq_validated 0
+i32 intermediate.case[3].ratio_sq_store_changes_up 0
+i32 intermediate.case[3].ratio_sq_store_changes_down 0
+i32 intermediate.case[3].ratio_sq_narrowing_limited 0
+i32 intermediate.case[3].c_lo_absent 0
+f64 intermediate.case[3].c_lo 0x4014b1b0e5a6b443  # 5.1735263712881219
+i32 intermediate.case[3].c_lo_checked 1
+i32 intermediate.case[3].c_lo_check_kind 2
+i32 intermediate.case[3].c_lo_validated_up 0
+i32 intermediate.case[3].c_lo_validated_down 1
+i32 intermediate.case[3].c_lo_validated 0
+i32 intermediate.case[3].c_lo_store_changes_up 0
+i32 intermediate.case[3].c_lo_store_changes_down 0
+i32 intermediate.case[3].c_lo_narrowing_limited 0
+i32 intermediate.case[3].c_hi_absent 0
+f64 intermediate.case[3].c_hi 0x4014b1b0e5a6b444  # 5.1735263712881228
+i32 intermediate.case[3].c_hi_checked 1
+i32 intermediate.case[3].c_hi_check_kind 2
+i32 intermediate.case[3].c_hi_validated_up 0
+i32 intermediate.case[3].c_hi_validated_down 1
+i32 intermediate.case[3].c_hi_validated 0
+i32 intermediate.case[3].c_hi_store_changes_up 0
+i32 intermediate.case[3].c_hi_store_changes_down 0
+i32 intermediate.case[3].c_hi_narrowing_limited 0
+i32 intermediate.case[3].c_lo_at_initial_bound 0
+i32 intermediate.case[3].c_hi_at_initial_bound 0
+i32 intermediate.case[3].ties 0
+i32 intermediate.case[3].first_tie_step -1
+f64 return.case[4] 0x403e0ba5a166d778  # 30.045496070487815
+f32 output.case[4].Concentration 0x41f05d2d  # 30.045496
+i32 intermediate.case[4].selected_infall 0
+i32 intermediate.case[4].vmax_absent 0
+f64 intermediate.case[4].vmax 0x40531c6900000000  # 76.44390869140625
+i32 intermediate.case[4].vmax_checked 1
+i32 intermediate.case[4].vmax_check_kind 1
+i32 intermediate.case[4].vmax_validated_up 1
+i32 intermediate.case[4].vmax_validated_down 1
+i32 intermediate.case[4].vmax_validated 1
+i32 intermediate.case[4].vmax_store_changes_up 0
+i32 intermediate.case[4].vmax_store_changes_down 0
+i32 intermediate.case[4].vmax_narrowing_limited 1
+i32 intermediate.case[4].vvir_absent 0
+f64 intermediate.case[4].vvir 0x40478eb560000000  # 47.114910125732422
+i32 intermediate.case[4].vvir_checked 1
+i32 intermediate.case[4].vvir_check_kind 1
+i32 intermediate.case[4].vvir_validated_up 1
+i32 intermediate.case[4].vvir_validated_down 1
+i32 intermediate.case[4].vvir_validated 1
+i32 intermediate.case[4].vvir_store_changes_up 0
+i32 intermediate.case[4].vvir_store_changes_down 0
+i32 intermediate.case[4].vvir_narrowing_limited 1
+i32 intermediate.case[4].guard_returned 0
+i32 intermediate.case[4].below_one 0
+i32 intermediate.case[4].iterations 60
+i32 intermediate.case[4].ratio_sq_absent 0
+f64 intermediate.case[4].ratio_sq 0x40050f5e3ee10ec5  # 2.6325039780075223
+i32 intermediate.case[4].ratio_sq_checked 1
+i32 intermediate.case[4].ratio_sq_check_kind 2
+i32 intermediate.case[4].ratio_sq_validated_up 1
+i32 intermediate.case[4].ratio_sq_validated_down 1
+i32 intermediate.case[4].ratio_sq_validated 1
+i32 intermediate.case[4].ratio_sq_store_changes_up 0
+i32 intermediate.case[4].ratio_sq_store_changes_down 0
+i32 intermediate.case[4].ratio_sq_narrowing_limited 1
+i32 intermediate.case[4].c_lo_absent 0
+f64 intermediate.case[4].c_lo 0x403e0ba5a166d778  # 30.045496070487815
+i32 intermediate.case[4].c_lo_checked 1
+i32 intermediate.case[4].c_lo_check_kind 2
+i32 intermediate.case[4].c_lo_validated_up 1
+i32 intermediate.case[4].c_lo_validated_down 0
+i32 intermediate.case[4].c_lo_validated 0
+i32 intermediate.case[4].c_lo_store_changes_up 0
+i32 intermediate.case[4].c_lo_store_changes_down 0
+i32 intermediate.case[4].c_lo_narrowing_limited 0
+i32 intermediate.case[4].c_hi_absent 0
+f64 intermediate.case[4].c_hi 0x403e0ba5a166d779  # 30.045496070487818
+i32 intermediate.case[4].c_hi_checked 1
+i32 intermediate.case[4].c_hi_check_kind 2
+i32 intermediate.case[4].c_hi_validated_up 1
+i32 intermediate.case[4].c_hi_validated_down 0
+i32 intermediate.case[4].c_hi_validated 0
+i32 intermediate.case[4].c_hi_store_changes_up 0
+i32 intermediate.case[4].c_hi_store_changes_down 0
+i32 intermediate.case[4].c_hi_narrowing_limited 0
+i32 intermediate.case[4].c_lo_at_initial_bound 0
+i32 intermediate.case[4].c_hi_at_initial_bound 0
+i32 intermediate.case[4].ties 1
+i32 intermediate.case[4].first_tie_step 53
+f64 return.case[5] 0x0000000000000000  # 0
+f32 output.case[5].Concentration 0x00000000  # 0
+i32 intermediate.case[5].selected_infall 1
+i32 intermediate.case[5].vmax_absent 0
+f64 intermediate.case[5].vmax 0x4055030820000000  # 84.047370910644531
+i32 intermediate.case[5].vmax_checked 1
+i32 intermediate.case[5].vmax_check_kind 1
+i32 intermediate.case[5].vmax_validated_up 0
+i32 intermediate.case[5].vmax_validated_down 0
+i32 intermediate.case[5].vmax_validated 0
+i32 intermediate.case[5].vmax_store_changes_up 0
+i32 intermediate.case[5].vmax_store_changes_down 0
+i32 intermediate.case[5].vmax_narrowing_limited 0
+i32 intermediate.case[5].vvir_absent 0
+f64 intermediate.case[5].vvir 0x40552a6220000000  # 84.662239074707031
+i32 intermediate.case[5].vvir_checked 1
+i32 intermediate.case[5].vvir_check_kind 1
+i32 intermediate.case[5].vvir_validated_up 0
+i32 intermediate.case[5].vvir_validated_down 0
+i32 intermediate.case[5].vvir_validated 0
+i32 intermediate.case[5].vvir_store_changes_up 0
+i32 intermediate.case[5].vvir_store_changes_down 0
+i32 intermediate.case[5].vvir_narrowing_limited 0
+i32 intermediate.case[5].guard_returned 0
+i32 intermediate.case[5].below_one 1
+i32 intermediate.case[5].iterations 0
+i32 intermediate.case[5].ratio_sq_absent 0
+f64 intermediate.case[5].ratio_sq 0x3fef89710dbaa019  # 0.98552754098364226
+i32 intermediate.case[5].ratio_sq_checked 1
+i32 intermediate.case[5].ratio_sq_check_kind 2
+i32 intermediate.case[5].ratio_sq_validated_up 0
+i32 intermediate.case[5].ratio_sq_validated_down 0
+i32 intermediate.case[5].ratio_sq_validated 0
+i32 intermediate.case[5].ratio_sq_store_changes_up 0
+i32 intermediate.case[5].ratio_sq_store_changes_down 0
+i32 intermediate.case[5].ratio_sq_narrowing_limited 0
+i32 intermediate.case[5].c_lo_absent 1
+i32 intermediate.case[5].c_hi_absent 1
+i32 intermediate.case[5].c_lo_at_initial_bound -1
+i32 intermediate.case[5].c_hi_at_initial_bound -1
+i32 intermediate.case[5].ties -1
+i32 intermediate.case[5].first_tie_step -1
+f64 return.case[6] 0x40116f992ee922e4  # 4.3589827852053737
+f32 output.case[6].Concentration 0x408b7cc9  # 4.35898256
+i32 intermediate.case[6].selected_infall 1
+i32 intermediate.case[6].vmax_absent 0
+f64 intermediate.case[6].vmax 0x4054e078a0000000  # 83.507362365722656
+i32 intermediate.case[6].vmax_checked 1
+i32 intermediate.case[6].vmax_check_kind 1
+i32 intermediate.case[6].vmax_validated_up 1
+i32 intermediate.case[6].vmax_validated_down 1
+i32 intermediate.case[6].vmax_validated 1
+i32 intermediate.case[6].vmax_store_changes_up 0
+i32 intermediate.case[6].vmax_store_changes_down 0
+i32 intermediate.case[6].vmax_narrowing_limited 1
+i32 intermediate.case[6].vvir_absent 0
+f64 intermediate.case[6].vvir 0x40540142c0000000  # 80.019699096679688
+i32 intermediate.case[6].vvir_checked 1
+i32 intermediate.case[6].vvir_check_kind 1
+i32 intermediate.case[6].vvir_validated_up 1
+i32 intermediate.case[6].vvir_validated_down 1
+i32 intermediate.case[6].vvir_validated 1
+i32 intermediate.case[6].vvir_store_changes_up 0
+i32 intermediate.case[6].vvir_store_changes_down 0
+i32 intermediate.case[6].vvir_narrowing_limited 1
+i32 intermediate.case[6].guard_returned 0
+i32 intermediate.case[6].below_one 0
+i32 intermediate.case[6].iterations 60
+i32 intermediate.case[6].ratio_sq_absent 0
+f64 intermediate.case[6].ratio_sq 0x3ff16cd46d81851f  # 1.0890697743964848
+i32 intermediate.case[6].ratio_sq_checked 1
+i32 intermediate.case[6].ratio_sq_check_kind 2
+i32 intermediate.case[6].ratio_sq_validated_up 1
+i32 intermediate.case[6].ratio_sq_validated_down 1
+i32 intermediate.case[6].ratio_sq_validated 1
+i32 intermediate.case[6].ratio_sq_store_changes_up 0
+i32 intermediate.case[6].ratio_sq_store_changes_down 0
+i32 intermediate.case[6].ratio_sq_narrowing_limited 1
+i32 intermediate.case[6].c_lo_absent 0
+f64 intermediate.case[6].c_lo 0x40116f992ee922e3  # 4.3589827852053729
+i32 intermediate.case[6].c_lo_checked 1
+i32 intermediate.case[6].c_lo_check_kind 2
+i32 intermediate.case[6].c_lo_validated_up 0
+i32 intermediate.case[6].c_lo_validated_down 1
+i32 intermediate.case[6].c_lo_validated 0
+i32 intermediate.case[6].c_lo_store_changes_up 0
+i32 intermediate.case[6].c_lo_store_changes_down 0
+i32 intermediate.case[6].c_lo_narrowing_limited 0
+i32 intermediate.case[6].c_hi_absent 0
+f64 intermediate.case[6].c_hi 0x40116f992ee922e4  # 4.3589827852053737
+i32 intermediate.case[6].c_hi_checked 1
+i32 intermediate.case[6].c_hi_check_kind 2
+i32 intermediate.case[6].c_hi_validated_up 0
+i32 intermediate.case[6].c_hi_validated_down 1
+i32 intermediate.case[6].c_hi_validated 0
+i32 intermediate.case[6].c_hi_store_changes_up 0
+i32 intermediate.case[6].c_hi_store_changes_down 0
+i32 intermediate.case[6].c_hi_narrowing_limited 0
+i32 intermediate.case[6].c_lo_at_initial_bound 0
+i32 intermediate.case[6].c_hi_at_initial_bound 0
+i32 intermediate.case[6].ties 3
+i32 intermediate.case[6].first_tie_step 55
