@@ -31,7 +31,9 @@
  *   join_progenitors              a SOURCE-REVIEWED TRANSCRIPTION of the clock, infall and
  *                                 history assignment of progenitor joining, B:234-345 and
  *                                 B:358-370, calling SAGE26's own halo helpers,
- *                                 estimate_merging_time, get_disk_radius and get_bulge_radius
+ *                                 estimate_merging_time, get_disk_radius and get_bulge_radius,
+ *                                 and (c12) with ConcentrationOn 3 SAGE26's own
+ *                                 get_halo_concentration (B:290-295)
  *   join_and_pass                 join_progenitors followed by merger_pass for one substep: the
  *                                 orphan history retention (B:252-282, B:322-337) carried into a
  *                                 merger in the same snapshot
@@ -90,6 +92,15 @@
  * and the recheck wind's values are recorded after every earlier field, with observations of
  * SAGE26's nested routines (Regime flips). A CGMrecipeOn 0 fixture is read, run and written
  * exactly as before.
+ *
+ * ConcentrationOn 3 (c12, R5; README "The c12 Group", "Joining"). join_progenitors and
+ * join_and_pass read ConcentrationOn 0 or 3 (any other value is refused, naming
+ * params.ConcentrationOn). With 3 the joining transcription makes SAGE26's concentration store at
+ * its source position in the FoF central's branch (B:290-295: after MergTime, before the radii
+ * and Type = 0, so SAGE26's get_halo_concentration sees the Type before joining), every galaxy
+ * also reads and records its float Concentration (BLOCK_CONCENTRATION, after every other block),
+ * and each progenitor's record gains concentration_assigned. A ConcentrationOn 0 fixture is read,
+ * run and written exactly as before.
  *
  * Driver transcriptions. evolve_galaxies and join_galaxies_of_progenitors are static in
  * core_build_model.c, which this link excludes, so no SAGE26 code can anchor merger_pass,
@@ -160,6 +171,11 @@ static int cgm_routine = 0;
 /* c10: set by read_merger_config for a CGMrecipeOn 1 fixture: every galaxy reads and records its
  * Regime (BLOCK_CGM) and the routine records its c10 selections */
 static int cgm_block = 0;
+
+/* c12: set by read_join_flags for a ConcentrationOn 3 joining fixture: every galaxy reads and
+ * records its Concentration (BLOCK_CONCENTRATION) and each progenitor's record its
+ * concentration_assigned */
+static int concentration_block = 0;
 
 enum field_type { FIELD_F32, FIELD_F64, FIELD_I32 };
 
@@ -502,6 +518,11 @@ static const struct member FIRE_MEMBERS[] = {F32_MEMBER(MassLoading)};
  * CGMrecipeOn 1 fixture only (cgm_block); the CGM pair it selects is in RESERVOIR_MEMBERS. */
 static const struct member CGM_MEMBERS[] = {I32_MEMBER(Regime)};
 
+/** c12: the float Concentration (core_allvars.h:134), which progenitor joining writes with
+ * ConcentrationOn > 0 (B:290-295) and no other c06 routine reads or writes. Read and recorded by a
+ * ConcentrationOn 3 joining fixture only (concentration_block). */
+static const struct member CONCENTRATION_MEMBERS[] = {F32_MEMBER(Concentration)};
+
 /** Which groups of members a galaxy reads or records */
 enum block {
   BLOCK_IDENT = 1,
@@ -510,8 +531,9 @@ enum block {
   BLOCK_INFALL = 8,
   BLOCK_JOIN_WRITTEN = 16,
   BLOCK_HISTORIES = 32,
-  BLOCK_FIRE = 64, /* c09: MassLoading, after every other block of the galaxy */
-  BLOCK_CGM = 128, /* c10: Regime, after BLOCK_FIRE */
+  BLOCK_FIRE = 64,           /* c09: MassLoading, after every other block of the galaxy */
+  BLOCK_CGM = 128,           /* c10: Regime, after BLOCK_FIRE */
+  BLOCK_CONCENTRATION = 256, /* c12: Concentration, after BLOCK_CGM */
   BLOCK_MERGER_INPUT = BLOCK_IDENT | BLOCK_HALO | BLOCK_RESERVOIRS | BLOCK_HISTORIES,
   BLOCK_JOIN_INPUT = BLOCK_MERGER_INPUT | BLOCK_INFALL,
   BLOCK_ALL = BLOCK_JOIN_INPUT | BLOCK_JOIN_WRITTEN
@@ -530,6 +552,7 @@ static const struct {
     {BLOCK_HISTORIES, HISTORY_MEMBERS, COUNT(HISTORY_MEMBERS)},
     {BLOCK_FIRE, FIRE_MEMBERS, COUNT(FIRE_MEMBERS)},
     {BLOCK_CGM, CGM_MEMBERS, COUNT(CGM_MEMBERS)},
+    {BLOCK_CONCENTRATION, CONCENTRATION_MEMBERS, COUNT(CONCENTRATION_MEMBERS)},
 };
 
 static void *member_address(const struct GALAXY *g, const struct member *m, const int element) {
@@ -4368,6 +4391,7 @@ struct join_progenitor {
   int halo_grew;                                   /* main branch only: B:267 */
   int infall_recorded;                             /* B:306 (satellite) or B:327 (orphan) */
   int clock_estimated;                             /* B:315, satellite only */
+  int concentration_assigned; /* c12: B:291's gate taken, central only (ConcentrationOn 3) */
 };
 
 enum join_branch {
@@ -4399,13 +4423,14 @@ static struct GALAXY progenitor_galaxies[MAX_GALAXIES];
  * input). ngalstart is 0. As in SAGE26, the progenitor index and the galaxies[] slot are
  * separate: B:234 copies each progenitor into slot ngal, and the B:244 continue skips B:341's
  * ngal++, so an already-merged galaxy's slot is overwritten by the next progenitor (or left past
- * the returned count) and never enters B:358-370. Returns ngal (B:372). Not transcribed:
- * MostBoundID, Pos and Vel (B:254-259, identity data no c06 routine reads), the concentration
- * (B:291-295, ConcentrationOn 0 on R0, R0.par:57), the array growth (B:215-227) and the creation
- * of a new galaxy when no progenitor leaves one (B:347-351, c03's init_galaxy), which the oracle
- * refuses. The halo helpers, estimate_merging_time, get_disk_radius and get_bulge_radius are
- * SAGE26's own. B:361-362 returns -1 when two galaxies are Type 0 or 1; the oracle refuses the
- * fixture there instead.
+ * the returned count) and never enters B:358-370. Returns ngal (B:372). The concentration store
+ * (B:290-295, c12) sits at its source position, before the radii and Type = 0, so SAGE26's
+ * get_halo_concentration reads the galaxy's Type before joining. Not transcribed: MostBoundID, Pos
+ * and Vel (B:254-259, identity data no c06 routine reads), the array growth (B:215-227) and the
+ * creation of a new galaxy when no progenitor leaves one (B:347-351, c03's init_galaxy), which the
+ * oracle refuses. The halo helpers, estimate_merging_time, get_disk_radius, get_bulge_radius and
+ * get_halo_concentration are SAGE26's own. B:361-362 returns -1 when two galaxies are Type 0 or 1;
+ * the oracle refuses the fixture there instead.
  */
 static int transcribe_join_progenitors(const struct join_args *a, struct join_progenitor *rec) {
   const int halonr = a->halonr;
@@ -4485,7 +4510,12 @@ static int transcribe_join_progenitors(const struct join_args *a, struct join_pr
           galaxies[ngal].mergeIntoID = -1;
           galaxies[ngal].MergTime = 999.9f;
 
-          /* B:291-295: ConcentrationOn 0 on R0 */
+          /* B:290-295 (c12): before B:300's Type = 0, so the dispatch sees the old Type */
+          if (run_params.ConcentrationOn > 0) {
+            r->concentration_assigned = 1;
+            galaxies[ngal].Concentration = (float)get_halo_concentration(
+                ngal, run_params.ZZ[halos[halonr].SnapNum], galaxies, &run_params);
+          }
 
           /* B:297-300 */
           galaxies[ngal].DiskScaleRadius = get_disk_radius(halonr, ngal, halos, galaxies);
@@ -4591,6 +4621,11 @@ static void write_join_record(const char *prefix, const int nprog,
     out_optional_i32(base, "infall_recorded",
                      r->branch == JOIN_SATELLITE || r->branch == JOIN_ORPHAN, r->infall_recorded);
     out_optional_i32(base, "clock_estimated", r->branch == JOIN_SATELLITE, r->clock_estimated);
+    if (concentration_block) {
+      /* c12: B:291's gate is evaluated on the central branch only */
+      out_optional_i32(base, "concentration_assigned", r->branch == JOIN_CENTRAL,
+                       r->concentration_assigned);
+    }
   }
 }
 
@@ -4604,25 +4639,38 @@ static void read_join_args(struct join_args *a, const int nprog, const int nhalo
   }
 }
 
+/** @brief c12: the given joining blocks, with Concentration for a ConcentrationOn 3 fixture */
+static int join_blocks(const int blocks) {
+  return blocks | (concentration_block ? BLOCK_CONCENTRATION : 0);
+}
+
 /**
  * @brief Read the progenitor galaxies (call.ngal of them, galaxy[k] in the input) into
  *        progenitor_galaxies[] and leave galaxies[], the slots joining fills, poisoned
  */
 static void read_progenitor_galaxies(const int nprog) {
   for (int k = 0; k < nprog; k++) {
-    read_galaxy(k, BLOCK_JOIN_INPUT);
+    read_galaxy(k, join_blocks(BLOCK_JOIN_INPUT));
     progenitor_galaxies[k] = galaxies[k];
   }
   memset(galaxies, 0xff, sizeof(galaxies));
 }
 
 /**
- * @brief The flag joining pins: ConcentrationOn 0 (B:291, R0.par:57). Its other flag,
- *        BulgeSizeOn (get_bulge_radius), is read by read_bulge_size_config: in
- *        run_join_progenitors directly, in run_join_and_pass through read_merger_config.
+ * @brief The flag joining reads: ConcentrationOn 0 (R0-R4, R4.par:57) or 3 (R5, R5.par:57), B:291
+ *
+ * Modes 1 and 2 are not ported (the campaign supports exactly 0 and 3), and any other value is
+ * refused, naming the parameter. With 3 it sets concentration_block. Its other flag, BulgeSizeOn
+ * (get_bulge_radius), is read by read_bulge_size_config: in run_join_progenitors directly, in
+ * run_join_and_pass through read_merger_config.
  */
 static void read_join_flags(void) {
-  run_params.ConcentrationOn = require_flag("ConcentrationOn", 0);
+  const int read = in_i32("params.ConcentrationOn");
+  if (read != 0 && read != 3) {
+    fatal("params.ConcentrationOn = %d, but the oracle supports only 0 (R0-R4) and 3 (R5)", read);
+  }
+  run_params.ConcentrationOn = read;
+  concentration_block = read == 3;
 }
 
 /**
@@ -4647,7 +4695,7 @@ static void run_join_progenitors(void) {
 
   out_i32("return.ngal", ngal);
   for (int i = 0; i < ngal; i++) {
-    write_galaxy("", i, &galaxies[i], BLOCK_ALL);
+    write_galaxy("", i, &galaxies[i], join_blocks(BLOCK_ALL));
   }
   write_join_record("join.", nprog, rec);
 }
@@ -4686,14 +4734,14 @@ static void run_join_and_pass(void) {
 
   out_i32("intermediate.join.ngal", ngal);
   for (int i = 0; i < ngal; i++) {
-    write_galaxy("intermediate.join.", i, &galaxies[i], BLOCK_ALL);
+    write_galaxy("intermediate.join.", i, &galaxies[i], join_blocks(BLOCK_ALL));
   }
 
   struct pass_galaxy prec[MAX_GALAXIES];
   transcribe_merger_pass(&pa, prec);
 
   for (int i = 0; i < ngal; i++) {
-    write_galaxy("", i, &galaxies[i], BLOCK_ALL);
+    write_galaxy("", i, &galaxies[i], join_blocks(BLOCK_ALL));
   }
   write_join_record("join.", nprog, jrec);
   write_pass_record("pass.", ngal, prec);

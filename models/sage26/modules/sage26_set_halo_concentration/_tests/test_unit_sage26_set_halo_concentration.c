@@ -31,6 +31,19 @@
  *   exactly 1.0, one beyond f(200) exactly 200
  * - test_off_writes_nothing: with ConcentrationOn 0 no row changes
  * - test_empty_and_null_rows: an empty FoF and rows without a galaxy
+ *
+ * Joining compositions (ConcentrationOn 3): the core's inheritance service
+ * (inherit_descendant_halos, src/core/inheritance.c) joins one progenitor into its descendant,
+ * then the module runs on the joined rows, as the run files order them in pre_timestep. Each
+ * progenitor's PreviousType is its Type, as sage26_record_transition_state wrote it at the end of
+ * its snapshot. The expectations are SAGE26's inversion written here, fed the float pair SAGE26's
+ * joining has at the call (R/src/core_build_model.c:261-271, :290-294), never the module's or the
+ * shared helper's result:
+ * - test_join_type1_to_0_infall_pair: a Type 1 whose subhalo becomes its FoF's first halo takes
+ *   its infall pair; its current pair's result differs
+ * - test_join_type0_to_0_updated_current_pair: a central whose halo grew takes the updated pair
+ *   (the halo's Vmax and the new Vvir); its pre-join pair's result differs
+ * - test_join_type0_to_1_keeps: a central that becomes a satellite keeps its value
  */
 
 #include <math.h>
@@ -42,6 +55,8 @@
 #include "../../../../tests/framework/test_framework.h"
 #include "../../../../tests/framework/test_phase_config.h"
 
+#include "core/galaxy_pool.h"
+#include "core/inheritance.h"
 #include "core/module_interface.h"
 #include "core/module_registry.h"
 #include "include/globals.h"
@@ -524,6 +539,155 @@ int test_empty_and_null_rows(void) {
 }
 
 // ============================================================================
+// JOINING COMPOSITION TESTS (THE CORE'S INHERITANCE, THEN THE MODULE)
+// ============================================================================
+
+/**
+ * @brief A progenitor row as the previous snapshot left it: its Type, PreviousType equal to it
+ *        (the recorder's write), its double halo values and a seeded Concentration
+ */
+static void make_progenitor(struct Halo *halo, struct GalaxyData *gal, const int type,
+                            const double mvir, const double vmax, const double vvir,
+                            const double infall_vmax, const double infall_vvir) {
+  make_row(halo, gal, type, type, vmax, vvir, infall_vmax, infall_vvir);
+  halo->Mvir = mvir;
+  halo->Rvir = 0.1;
+  halo->Len = 100;
+  halo->SnapNum = 39;
+}
+
+/**
+ * @brief The descendant halo as the core's driver describes it: its virial values and
+ *        catalogue Vmax, and whether it is its FoF's first halo
+ */
+static struct InheritanceDescendant make_descendant(const double virial_mass,
+                                                    const double virial_velocity, const float vmax,
+                                                    const int is_fof_central) {
+  struct InheritanceDescendant d;
+  memset(&d, 0, sizeof(d));
+  d.halo_nr = 7;
+  d.current_snap = 40;
+  d.virial_mass = virial_mass;
+  d.virial_radius = 0.125;
+  d.virial_velocity = virial_velocity;
+  d.is_fof_central = is_fof_central;
+  d.halo_payload.Len = 120;
+  d.halo_payload.Vmax = vmax;
+  return d;
+}
+
+/**
+ * @brief Join one main-branch progenitor with the core's inheritance, then run the module
+ * @return The number of joined rows, or -1 when process() fails
+ */
+static int join_then_process(struct GalaxyPool *pool, struct Halo *workspace,
+                             const struct InheritanceDescendant *d, const struct Halo *source) {
+  struct InheritanceProgenitorGalaxy progenitor = {source, 0.0, 1};
+  const int end = (int)inherit_descendant_halos(pool, workspace, 0, 2, d, &progenitor, 1);
+  struct ModuleContext ctx = make_context();
+  if (sage26_set_halo_concentration_process(&ctx, workspace, end) != 0) {
+    return -1;
+  }
+  return end;
+}
+
+/**
+ * @test    test_join_type1_to_0_infall_pair
+ * @brief   A Type 1 whose subhalo becomes its FoF's first halo (Type 1 -> 0): SAGE26's call sits
+ *          before Type = 0 (B:290-300), so the dispatch sees Type 1 and inverts the infall pair
+ *          (R/src/model_halo_properties.c:345-347). The halo did not grow (B:267 not taken), so
+ *          the current pair at the call is the halo's Vmax 76 and the kept Vvir 70, whose result
+ *          differs
+ */
+int test_join_type1_to_0_infall_pair(void) {
+  TEST_ASSERT(init_ok("3") == 0, "init must succeed");
+  struct GalaxyPool *pool = galaxy_pool_create(4);
+  struct Halo source;
+  struct GalaxyData source_gal;
+  make_progenitor(&source, &source_gal, 1, 5.0, 75.0, 70.0, 95.0, 75.0);
+  const struct InheritanceDescendant d = make_descendant(4.0, 64.0, 76.0f, 1);
+  struct Halo workspace[2];
+  const int end = join_then_process(pool, workspace, &d, &source);
+  TEST_ASSERT(end == 1, "the join must keep one row, and process must succeed");
+
+  const float expected = (float)sage26_inline_concentration(95.0f, 75.0f);
+  const float current_pair = (float)sage26_inline_concentration(76.0f, 70.0f);
+  printf("\n  Type 1 -> 0: Type %d, Concentration %.9g (infall pair %.9g, current pair %.9g)",
+         workspace[0].Type, (double)workspace[0].galaxy->Concentration, (double)expected,
+         (double)current_pair);
+  TEST_ASSERT(workspace[0].Type == 0 && workspace[0].galaxy->PreviousType == 1,
+              "the joined row must be the new FoF central with PreviousType 1");
+  TEST_ASSERT(expected > 1.0f && current_pair > 1.0f && expected != current_pair,
+              "the two pairs must give distinct non-trivial concentrations");
+  TEST_ASSERT(bits32(workspace[0].galaxy->Concentration) == bits32(expected),
+              "a returning satellite must take its infall pair");
+  galaxy_pool_destroy(pool);
+  sage26_set_halo_concentration_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_join_type0_to_0_updated_current_pair
+ * @brief   A central whose halo grew (Type 0 -> 0, B:267 taken): SAGE26's call reads the updated
+ *          pair, the halo's Vmax (B:262) and the new Vvir (B:269), not the pre-join pair, whose
+ *          result differs (R/src/model_halo_properties.c:342-344)
+ */
+int test_join_type0_to_0_updated_current_pair(void) {
+  TEST_ASSERT(init_ok("3") == 0, "init must succeed");
+  struct GalaxyPool *pool = galaxy_pool_create(4);
+  struct Halo source;
+  struct GalaxyData source_gal;
+  make_progenitor(&source, &source_gal, 0, 50.0, 170.0, 150.0, -1.0, -1.0);
+  const struct InheritanceDescendant d = make_descendant(60.0, 160.5, 210.25f, 1);
+  struct Halo workspace[2];
+  const int end = join_then_process(pool, workspace, &d, &source);
+  TEST_ASSERT(end == 1, "the join must keep one row, and process must succeed");
+
+  const float expected = (float)sage26_inline_concentration(210.25f, 160.5f);
+  const float pre_join_pair = (float)sage26_inline_concentration(170.0f, 150.0f);
+  printf("\n  Type 0 -> 0, halo grew: Concentration %.9g (updated pair %.9g, pre-join pair %.9g)",
+         (double)workspace[0].galaxy->Concentration, (double)expected, (double)pre_join_pair);
+  TEST_ASSERT(workspace[0].Type == 0 && workspace[0].galaxy->PreviousType == 0,
+              "the joined row must be the FoF central with PreviousType 0");
+  TEST_ASSERT(expected > 1.0f && pre_join_pair > 1.0f && expected != pre_join_pair,
+              "the updated and pre-join pairs must give distinct non-trivial concentrations");
+  TEST_ASSERT(bits32(workspace[0].galaxy->Concentration) == bits32(expected),
+              "a central must take the updated current pair");
+  galaxy_pool_destroy(pool);
+  sage26_set_halo_concentration_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_join_type0_to_1_keeps
+ * @brief   A central whose halo becomes a subhalo (Type 0 -> 1, B:301-321) makes no call and keeps
+ *          its value; it holds valid current and infall pairs, so any write would be visible
+ */
+int test_join_type0_to_1_keeps(void) {
+  TEST_ASSERT(init_ok("3") == 0, "init must succeed");
+  struct GalaxyPool *pool = galaxy_pool_create(4);
+  struct Halo source;
+  struct GalaxyData source_gal;
+  make_progenitor(&source, &source_gal, 0, 50.0, 170.0, 150.0, -1.0, -1.0);
+  const struct InheritanceDescendant d = make_descendant(40.0, 140.0, 160.0f, 0);
+  struct Halo workspace[2];
+  const int end = join_then_process(pool, workspace, &d, &source);
+  TEST_ASSERT(end == 1, "the join must keep one row, and process must succeed");
+
+  printf("\n  Type 0 -> 1: Type %d, Concentration %.9g, infall pair %.9g/%.9g", workspace[0].Type,
+         (double)workspace[0].galaxy->Concentration, workspace[0].infallVmax,
+         workspace[0].infallVvir);
+  TEST_ASSERT(workspace[0].Type == 1 && workspace[0].infallVmax == 170.0 &&
+                  workspace[0].infallVvir == 150.0,
+              "the joined row must be a satellite with its infall pair recorded");
+  TEST_ASSERT(bits32(workspace[0].galaxy->Concentration) == bits32(SEED_CONCENTRATION),
+              "a central that becomes a satellite must keep its Concentration");
+  galaxy_pool_destroy(pool);
+  sage26_set_halo_concentration_cleanup();
+  return TEST_PASS;
+}
+
+// ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
 
@@ -550,6 +714,11 @@ int main(void) {
   TEST_RUN(test_ratio_cases);
   TEST_RUN(test_off_writes_nothing);
   TEST_RUN(test_empty_and_null_rows);
+
+  printf("\n%s--- Joining Composition Tests ---%s\n", BLUE, NC);
+  TEST_RUN(test_join_type1_to_0_infall_pair);
+  TEST_RUN(test_join_type0_to_0_updated_current_pair);
+  TEST_RUN(test_join_type0_to_1_keeps);
 
   TEST_SUMMARY();
   return TEST_RESULT();

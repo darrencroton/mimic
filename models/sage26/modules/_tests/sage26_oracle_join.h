@@ -8,13 +8,22 @@
  * core joins them (inherit_descendant_halos, src/core/inheritance.c) and the package makes
  * SAGE26's remaining joining writes in pre_timestep, in the shipped run files' order:
  * sage26_initialise_merger_clock (the history reset, the clock and the infall state), then
+ * sage26_set_halo_concentration (the FoF central's concentration, B:290-295), then
  * sage26_set_disk_scale_radius (the FoF central's disk radius). oracle_join() composes them
  * on a fixture's progenitor galaxies (oracle README "The c06 Group", join_progenitors and
- * join_and_pass), so an oracle test can assert the joined state and run the merger pass on
- * it.
+ * join_and_pass, and "The c12 Group"), so an oracle test can assert the joined state and run
+ * the merger pass on it.
+ *
+ * Each test that calls oracle_join() initialises sage26_set_halo_concentration with the
+ * fixture's params.ConcentrationOn. A ConcentrationOn 3 fixture carries each progenitor's float
+ * Concentration, which the progenitor galaxy takes; a ConcentrationOn 0 fixture carries none,
+ * and the module writes nothing. On a subhalo join the module also runs over the stand-in FoF
+ * central at row 0 (not a fixture galaxy); whatever it writes there is neither recorded by the
+ * oracle nor compared.
  *
  * Used by the oracle tests of sage26_initialise_merger_clock (join_progenitors and its
- * join_and_pass probe) and sage26_resolve_mergers_and_disruption (join_and_pass).
+ * join_and_pass probe), sage26_resolve_mergers_and_disruption (join_and_pass) and
+ * sage26_set_halo_concentration (its ConcentrationOn 3 join_progenitors fixtures).
  */
 
 #ifndef SAGE26_ORACLE_JOIN_H
@@ -34,6 +43,8 @@
 
 extern int sage26_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo *halos,
                                                   int ngal);
+extern int sage26_set_halo_concentration_process(struct ModuleContext *ctx, struct Halo *halos,
+                                                 int ngal);
 extern int sage26_set_disk_scale_radius_process(struct ModuleContext *ctx, struct Halo *halos,
                                                 int ngal);
 
@@ -91,8 +102,9 @@ static inline double oracle_join_halo_redshift(struct oracle_fixture *in, const 
  * as Type 3, and the core drops it (SAGE26 marks it Type 3 and skips it, B:242-245). Each
  * progenitor's PreviousType is its Type, as sage26_record_transition_state wrote it at the
  * end of its snapshot. Each progenitor galaxy starts from the package's creation defaults
- * and takes the fixture's clock, infall record, histories and, with full_state, every
- * float of the c06 galaxy block; its halo takes the fixture's halo values.
+ * and takes the fixture's clock, infall record, histories, its Concentration where the
+ * fixture's ConcentrationOn is 3 and, with full_state, every float of the c06 galaxy block;
+ * its halo takes the fixture's halo values.
  *
  * With full_state the rows also take the pass's timing: each progenitor's source time is
  * call.Age[<its SnapNum>] and the descendant's call.halo_age, so the core's dT is SAGE26's
@@ -113,6 +125,8 @@ static inline int oracle_join(struct oracle_fixture *in, struct GalaxyPool *pool
     return 1;
   }
   const double halo_age = full_state ? oracle_in_f64(in, "call.halo_age") : 0.0;
+  /* c12: a ConcentrationOn 3 fixture carries each galaxy's Concentration (B:290-295) */
+  const int concentration_recorded = oracle_in_i32(in, "params.ConcentrationOn") == 3;
 
   static struct Halo sources[ORACLE_JOIN_MAX_GALAXIES];
   static struct GalaxyData source_galaxies[ORACLE_JOIN_MAX_GALAXIES];
@@ -150,6 +164,9 @@ static inline int oracle_join(struct oracle_fixture *in, struct GalaxyPool *pool
     g->ColdGas = oracle_in_f32(in, oracle_galaxy_field(k, "ColdGas"));
     g->infallStellarMassState = oracle_in_f32(in, oracle_galaxy_field(k, "infallStellarMass"));
     g->TimeOfInfallState = oracle_in_f32(in, oracle_galaxy_field(k, "TimeOfInfall"));
+    if (concentration_recorded) {
+      g->Concentration = oracle_in_f32(in, oracle_galaxy_field(k, "Concentration"));
+    }
     problems += oracle_c05_in_histories(in, k, g);
     if (full_state) {
       size_t count;
@@ -257,6 +274,10 @@ static inline int oracle_join(struct oracle_fixture *in, struct GalaxyPool *pool
   ctx->central_galaxy = &result->workspace[0];
   if (sage26_initialise_merger_clock_process(ctx, result->workspace, result->end) != 0) {
     fprintf(stderr, "oracle: %s: the clock module's process() failed\n", in->path);
+    return 1;
+  }
+  if (sage26_set_halo_concentration_process(ctx, result->workspace, result->end) != 0) {
+    fprintf(stderr, "oracle: %s: the concentration module's process() failed\n", in->path);
     return 1;
   }
   if (full_state &&

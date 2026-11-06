@@ -84,6 +84,8 @@ extern int sage26_resolve_mergers_and_disruption_init(void);
 extern int sage26_resolve_mergers_and_disruption_process(struct ModuleContext *ctx,
                                                          struct Halo *halos, int ngal);
 extern int sage26_resolve_mergers_and_disruption_cleanup(void);
+extern int sage26_set_halo_concentration_init(void);
+extern int sage26_set_halo_concentration_cleanup(void);
 
 static const char *MODULE = "sage26_initialise_merger_clock";
 
@@ -130,6 +132,21 @@ static int set_params(struct oracle_fixture *in) {
   }
   if (sage26_initialise_merger_clock_init() != 0) {
     fprintf(stderr, "oracle: %s: module init failed\n", in->path);
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * @brief Initialise sage26_set_halo_concentration, which the joining harness runs after the
+ *        clock, with the fixture's ConcentrationOn (its required parameter, campaign decision
+ *        D33; 0 for every fixture of this module)
+ */
+static int init_concentration(struct oracle_fixture *in) {
+  if (oracle_set_model_param("ConcentrationOn",
+                             (double)oracle_in_i32(in, "params.ConcentrationOn")) != 0 ||
+      sage26_set_halo_concentration_init() != 0) {
+    fprintf(stderr, "oracle: %s: the concentration module failed to initialise\n", in->path);
     return 1;
   }
   return 0;
@@ -304,6 +321,7 @@ static int check_join(const char *name) {
     return 1;
   }
   int problems = set_params(&in);
+  problems += init_concentration(&in);
 
   struct GalaxyPool *pool = galaxy_pool_create(16);
   static struct oracle_join_result result;
@@ -337,6 +355,7 @@ static int check_join_and_pass(const char *name) {
     return 1;
   }
   int problems = set_params(&in);
+  problems += init_concentration(&in);
   /* BulgeSizeOn: the resolver's required parameter, at the fixtures' R0 value 0 */
   if (oracle_set_model_param("ThresholdMajorMerger",
                              oracle_in_f64(&in, "params.ThreshMajorMerger")) != 0 ||
@@ -470,12 +489,14 @@ int main(void) {
   reset_config();
   init_memory_system(0);
   test_pre_timestep_add(MODULE, PROCESSING_MODE_FULL_HALO);
+  test_pre_timestep_add("sage26_set_halo_concentration", PROCESSING_MODE_FULL_HALO);
   add_recorder_to_post_timestep();
 
   TEST_RUN(test_oracle_fixture_count);
   TEST_RUN(test_oracle_bit_identity);
 
   sage26_initialise_merger_clock_cleanup();
+  sage26_set_halo_concentration_cleanup();
   free_post_timestep();
   test_free_pre_timestep();
   check_memory_leaks();
