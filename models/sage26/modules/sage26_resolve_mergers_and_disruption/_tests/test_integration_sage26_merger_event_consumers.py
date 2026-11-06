@@ -62,6 +62,7 @@ MERGER_MODEL_PARAMS = {
     "H2RadialNBins": 25,
     "H2RadialRMaxFactor": 5.0,
     "StarburstColdGasOn": 1,
+    "CGMrecipeOn": 0,  # required by the infall modules (D33), R3's value
 }
 
 PRE_TIMESTEP_PHASE = [

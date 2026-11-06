@@ -76,7 +76,7 @@ def test_module_loads():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"ReIncorporationFactor": 1.0},
+        model_params={"ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -101,7 +101,7 @@ def test_parameters_configurable():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"ReIncorporationFactor": 0.5},  # Custom value
+        model_params={"ReIncorporationFactor": 0.5, "CGMrecipeOn": 0},  # Custom value
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -123,7 +123,7 @@ def test_memory_safety():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"ReIncorporationFactor": 1.0},
+        model_params={"ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -147,7 +147,7 @@ def test_execution_completes():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"ReIncorporationFactor": 1.0},
+        model_params={"ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -177,7 +177,7 @@ def test_multi_module_pipeline():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0},
+        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -218,7 +218,7 @@ def test_physics_mass_conservation():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0},
+        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -263,7 +263,7 @@ def test_physics_metallicity_conservation():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0},
+        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -313,7 +313,7 @@ def test_physics_central_only():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0},
+        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -364,7 +364,8 @@ def test_physics_velocity_threshold():
         },
         model_params={
             "GlobalBaryonFraction": 0.17,
-            "ReIncorporationFactor": 1.0,  # Vcrit = 354.53 km/s (SAGE26)
+            "ReIncorporationFactor": 1.0,  # Vcrit = 354.53 km/s (SAGE26),
+            "CGMrecipeOn": 0,  # required by the infall modules (D33), R3's value
         },
     )
 
@@ -412,7 +413,7 @@ def test_physics_output_properties():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"ReIncorporationFactor": 1.0},
+        model_params={"ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)

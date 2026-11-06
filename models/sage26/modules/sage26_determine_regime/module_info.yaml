@@ -1,0 +1,29 @@
+module:
+  name: sage26_determine_regime
+  description: >-
+    Classifies every live row of the FoF group as CGM regime (0) or hot-halo regime (1) from its
+    Mvir against the Dekel & Birnboim (2006) shock mass MShockMsun, with SAGE26's sigmoid of
+    width 0.1 dex and the package's keyed draw (campaign decision D1); runs only with
+    CGMrecipeOn 1 and writes nothing with CGMrecipeOn 0
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type            # read: Type 3 rows (SAGE26's mergeType > 0) are skipped
+      - Mvir            # read
+      - UniqueGalaxyID  # read: the keyed draw's galaxy key
+      - Regime          # written (CGMrecipeOn 1 only)
+    parameters:
+      - CGMrecipeOn     # required: 0 (no classification) or 1
+      - MShockMsun      # required: shock mass in physical Msun, positive and finite
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_determine_regime.c
+      - _tests/test_unit_sage26_determine_regime_oracle.c
+    integration: []
+    scientific: []
+
+  docs:
+    physics: README.md

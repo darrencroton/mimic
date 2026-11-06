@@ -1,0 +1,45 @@
+# SAGE26 oracle output for mvir_zero_negative_nan.in, written by oracle_c10 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine determine_and_store_regime
+i32 intermediate.RAND_MAX 2147483647
+i32 intermediate.draws_consumed 2
+i32 galaxy[0].Regime 0
+i32 intermediate.galaxy[0].skipped 0
+i32 intermediate.galaxy[0].drew 0
+i32 intermediate.galaxy[0].draw_index -1
+f64 intermediate.galaxy[0].Mshock 0x4045e66666666666  # 43.799999999999997
+f64 intermediate.galaxy[0].mass_ratio 0x0000000000000000  # 0
+i32 galaxy[1].Regime 0
+i32 intermediate.galaxy[1].skipped 0
+i32 intermediate.galaxy[1].drew 0
+i32 intermediate.galaxy[1].draw_index -1
+f64 intermediate.galaxy[1].Mshock 0x4045e66666666666  # 43.799999999999997
+f64 intermediate.galaxy[1].mass_ratio 0x8000000000000000  # -0
+i32 galaxy[2].Regime 0
+i32 intermediate.galaxy[2].skipped 0
+i32 intermediate.galaxy[2].drew 0
+i32 intermediate.galaxy[2].draw_index -1
+f64 intermediate.galaxy[2].Mshock 0x4045e66666666666  # 43.799999999999997
+f64 intermediate.galaxy[2].mass_ratio 0xbf976105d8417611  # -0.022831050228310504
+i32 galaxy[3].Regime 0
+i32 intermediate.galaxy[3].skipped 0
+i32 intermediate.galaxy[3].drew 1
+i32 intermediate.galaxy[3].draw_index 0
+f64 intermediate.galaxy[3].Mshock 0x4045e66666666666  # 43.799999999999997
+f64 intermediate.galaxy[3].mass_ratio 0x7ff8000000000000  # nan
+f64 intermediate.galaxy[3].x 0x7ff8000000000000  # nan
+f64 intermediate.galaxy[3].hot_fraction 0xfff8000000000000  # nan
+f64 intermediate.galaxy[3].deviate 0x0000000000000000  # 0
+i32 intermediate.galaxy[3].deviate_below_hot_fraction 0
+i32 intermediate.galaxy[3].deviate_equals_hot_fraction 0
+i32 galaxy[4].Regime 1
+i32 intermediate.galaxy[4].skipped 0
+i32 intermediate.galaxy[4].drew 1
+i32 intermediate.galaxy[4].draw_index 1
+f64 intermediate.galaxy[4].Mshock 0x4045e66666666666  # 43.799999999999997
+f64 intermediate.galaxy[4].mass_ratio 0x3ffffffff6a5fdaa  # 1.9999999651625822
+f64 intermediate.galaxy[4].x 0x400815181aa01551  # 3.0102998809913193
+f64 intermediate.galaxy[4].hot_fraction 0x3fee7f48089a3bb7  # 0.95303727798624649
+f64 intermediate.galaxy[4].deviate 0x3fee7f48087cfe90  # 0.95303727777350566
+i32 intermediate.galaxy[4].deviate_below_hot_fraction 1
+i32 intermediate.galaxy[4].deviate_equals_hot_fraction 0

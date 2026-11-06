@@ -1,0 +1,50 @@
+# SAGE26 oracle output for cgm_r4_snap63_central.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine reincorporate_gas
+f64 intermediate.deltaT 0x3f29c5a70839ce61  # 0.00019662536589103426
+f64 intermediate.dt 0x3ef49e1f39c7d84e  # 1.9662536589103428e-05
+i32 intermediate.reincorporate_gas_called 1
+f32 galaxy[0].EjectedMass 0x3e227d4c  # 0.158681095
+f32 galaxy[0].MetalsEjectedMass 0x3a19d62a  # 0.000586839975
+f32 galaxy[0].HotGas 0x4262712e  # 56.610527
+f32 galaxy[0].MetalsHotGas 0x3e4a396a  # 0.197484642
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+i32 intermediate.guards_passed 1
+i32 intermediate.reincorporation_cap_binds 0
+i32 intermediate.reservoir_cgm 0
+i32 intermediate.Vcrit_absent 0
+f64 intermediate.Vcrit 0x4050d715b573eab3  # 67.360699999999994
+i32 intermediate.Vcrit_checked 1
+i32 intermediate.Vcrit_check_kind 2
+i32 intermediate.Vcrit_validated_up 0
+i32 intermediate.Vcrit_validated_down 0
+i32 intermediate.Vcrit_validated 0
+i32 intermediate.reincorporated_pre_cap_absent 0
+f64 intermediate.reincorporated_pre_cap 0x3f84d2f27c184d6b  # 0.010167974865032922
+i32 intermediate.reincorporated_pre_cap_checked 1
+i32 intermediate.reincorporated_pre_cap_check_kind 2
+i32 intermediate.reincorporated_pre_cap_validated_up 0
+i32 intermediate.reincorporated_pre_cap_validated_down 0
+i32 intermediate.reincorporated_pre_cap_validated 0
+i32 intermediate.reincorporated_absent 0
+f64 intermediate.reincorporated 0x3f84d2f27c184d6b  # 0.010167974865032922
+i32 intermediate.reincorporated_checked 1
+i32 intermediate.reincorporated_check_kind 1
+i32 intermediate.reincorporated_validated_up 0
+i32 intermediate.reincorporated_validated_down 0
+i32 intermediate.reincorporated_validated 0
+i32 intermediate.metallicity_absent 0
+f64 intermediate.metallicity 0x3f6e4bc2c87b8418  # 0.0036982349737262436
+i32 intermediate.metallicity_checked 1
+i32 intermediate.metallicity_check_kind 2
+i32 intermediate.metallicity_validated_up 0
+i32 intermediate.metallicity_validated_down 0
+i32 intermediate.metallicity_validated 0
+i32 intermediate.metals_reincorporated_absent 0
+f64 intermediate.metals_reincorporated 0x3f03b7107dfe7e2f  # 3.7603560257834136e-05
+i32 intermediate.metals_reincorporated_checked 1
+i32 intermediate.metals_reincorporated_check_kind 1
+i32 intermediate.metals_reincorporated_validated_up 0
+i32 intermediate.metals_reincorporated_validated_down 0
+i32 intermediate.metals_reincorporated_validated 0

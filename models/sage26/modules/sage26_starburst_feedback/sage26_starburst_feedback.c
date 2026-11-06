@@ -28,6 +28,13 @@
  * whose host's stored SnapNum lies outside the redshift table is refused (campaign decision D35)
  * and process() returns -1.
  *
+ * CGMrecipeOn is a required parameter too (campaign decision D33), 0 or 1, refused otherwise; the
+ * bundle carries it to every burst's feedback commit and yield, which route to the FoF central's
+ * CGM pair with CGMrecipeOn 1 and the CENTRAL's Regime 0 and to its hot pair otherwise, and to the
+ * recheck's black-hole growth, whose wind selects the burst HOST's pair by the host's own Regime
+ * (R/src/model_starformation_and_feedback.c:1175, R/src/model_misc.h:69,
+ * R/src/model_mergers.c:406).
+ *
  * The post-minor-merger recheck (R/src/model_mergers.c:806-811) runs inside the shared
  * transaction when sage26_disk_instability is configured (SAGE26's DiskInstabilityOn);
  * its gas branch grows the black hole when the quasar event consumer is configured
@@ -69,6 +76,7 @@
 #include "types.h"
 #include "shared/sage_agn_physics.h"
 #include "shared/sage_bulge_size_physics.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_fire_feedback_physics.h"
 #include "shared/sage_h2_physics.h"
 #include "shared/sage_starburst_physics.h"
@@ -113,6 +121,11 @@ static int STARBURST_COLD_GAS_ON;
  * (shared/sage_fire_feedback_physics.h) */
 static int FIRE_MODE_ON;
 
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
+ * init (campaign decision D33); the bundle carries it to every burst
+ * (shared/sage_starburst_physics.h) */
+static int CGM_RECIPE_ON;
+
 // ============================================================================
 // MODULE-LOCAL CONSTANTS (converted from physical constants)
 // ============================================================================
@@ -154,6 +167,11 @@ int sage26_starburst_feedback_init(void) {
   /* Required, no default (campaign decision D33): a missing key fails here */
   LOAD_PARAM_INT("FIREmodeOn", FIRE_MODE_ON);
   if (mimic_sage_validate_fire_mode("sage26_starburst_feedback", FIRE_MODE_ON) != 0) {
+    return -1;
+  }
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
+  if (mimic_sage_validate_cgm_recipe_on("sage26_starburst_feedback", CGM_RECIPE_ON) != 0) {
     return -1;
   }
 
@@ -226,6 +244,7 @@ int sage26_starburst_feedback_init(void) {
   VERBOSE_LOG("  SFprescription = %d", SF_PRESCRIPTION);
   VERBOSE_LOG("  StarburstColdGasOn = %d", STARBURST_COLD_GAS_ON);
   VERBOSE_LOG("  FIREmodeOn = %d", FIRE_MODE_ON);
+  VERBOSE_LOG("  CGMrecipeOn = %d", CGM_RECIPE_ON);
   VERBOSE_LOG("  energy_sn_code = %.6e (from ENERGY_SN physical constant)", energy_sn_code);
   VERBOSE_LOG("  eta_sn_code = %.6e (from ETA_SN physical constant)", eta_sn_code);
   VERBOSE_LOG("  post-minor-merger disk instability follow-up = %s",
@@ -269,6 +288,10 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
        * host's stored SnapNum (R/src/model_mergers.c:692-694) */
       .fire_mode_on = FIRE_MODE_ON,
       .redshift_config = ctx->params,
+      /* SAGE26's run_params->CGMrecipeOn, which every burst's feedback and yield and the recheck's
+       * wind read (R/src/model_starformation_and_feedback.c:1175, R/src/model_misc.h:69,
+       * R/src/model_mergers.c:406) */
+      .cgm_recipe_on = CGM_RECIPE_ON,
   };
 
   if (ctx->active_event != NULL) {
@@ -413,6 +436,7 @@ int sage26_starburst_feedback_cleanup(void) {
   POST_MERGER_QUASAR_MODE_EFFICIENCY = 0.0;
   BULGE_SIZE_ON = MIMIC_SAGE_BULGE_SIZE_OFF;
   FIRE_MODE_ON = MIMIC_SAGE_FIRE_MODE_OFF;
+  CGM_RECIPE_ON = MIMIC_SAGE_CGM_RECIPE_OFF;
   VERBOSE_LOG("SAGE starburst feedback module cleaned up");
   return 0;
 }

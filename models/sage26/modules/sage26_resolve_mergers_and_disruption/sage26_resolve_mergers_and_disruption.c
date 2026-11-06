@@ -54,13 +54,19 @@
  * its consumers run as in SAGE26.
  *
  * The disruption reproduces SAGE26's disrupt_satellite_to_ICS (M:845-902) through
- * shared/sage_merger_physics.h; the satellite leaves as Type 3 (SAGE26's mergeType 4).
+ * shared/sage_merger_physics.h; the satellite leaves as Type 3 (SAGE26's mergeType 4). Its gas
+ * goes to the PASSED target's selected pair: its CGM pair with the required CGMrecipeOn (campaign
+ * decision D33) 1 and the target's own Regime 0, its hot pair otherwise (M:851,
+ * R/src/model_misc.h:76-85). For an orphan the target is its subhalo's central (step 4), which need
+ * not be the FoF central (B:539-543, :575). The merger's addition moves CGM to CGM and hot to hot
+ * whatever either regime (M:464-465, :496-497).
  */
 
 #include <math.h>
 
 #include "shared/central_link.h"
 #include "shared/sage_bulge_size_physics.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_constants.h"
 #include "module_system/generated/event_contracts.h"
 #include "sage_merger_ops.h"
@@ -83,6 +89,11 @@ static double THRESHOLD_SAT_DISRUPTION;
  * satellite disk-star radius update (R/src/model_misc.c:395) and of the transaction's bulge
  * radii after the burst (M:293-330) */
 static int BULGE_SIZE_ON;
+
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
+ * init (campaign decision D33), which with the disruption target's Regime selects its pair
+ * (R/src/model_misc.h:78) */
+static int CGM_RECIPE_ON;
 
 // ============================================================================
 // TEST HOOKS
@@ -163,8 +174,10 @@ int sage26_resolve_mergers_and_disruption_disrupt(struct Halo *halos, int ngal, 
     return -1;
   }
 
+  /* SAGE parity: the passed target's own regime routes the gas (M:851), the FoF central's only
+   * when it is the target */
   mimic_sage_disrupt_satellite_to_ics(halos[target_idx].galaxy, halos[satellite_idx].galaxy,
-                                      event_time, locals);
+                                      event_time, CGM_RECIPE_ON, locals);
 
   // SAGE parity: the satellite is marked disrupted (mergeType 4, M:902); here Type 3
   halos[satellite_idx].Type = 3;
@@ -456,6 +469,12 @@ int sage26_resolve_mergers_and_disruption_init(void) {
       0) {
     return -1;
   }
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
+  if (mimic_sage_validate_cgm_recipe_on("sage26_resolve_mergers_and_disruption", CGM_RECIPE_ON) !=
+      0) {
+    return -1;
+  }
 
   /* sage26_initialise_merger_clock must be in pre_timestep so all satellites have a valid
    * MergTime before any substep runs. When both modules are in pre_timestep together,
@@ -495,6 +514,7 @@ int sage26_resolve_mergers_and_disruption_init(void) {
   VERBOSE_LOG("  ThresholdMajorMerger = %.3f", THRESHOLD_MAJOR_MERGER);
   VERBOSE_LOG("  ThresholdSatDisruption = %.3f", THRESHOLD_SAT_DISRUPTION);
   VERBOSE_LOG("  BulgeSizeOn = %d", BULGE_SIZE_ON);
+  VERBOSE_LOG("  CGMrecipeOn = %d", CGM_RECIPE_ON);
   return 0;
 }
 
@@ -506,6 +526,7 @@ int sage26_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, str
 int sage26_resolve_mergers_and_disruption_cleanup(void) {
   action_hook = NULL;
   BULGE_SIZE_ON = MIMIC_SAGE_BULGE_SIZE_OFF;
+  CGM_RECIPE_ON = MIMIC_SAGE_CGM_RECIPE_OFF;
   VERBOSE_LOG("SAGE merger/disruption resolver cleaned up");
   return 0;
 }

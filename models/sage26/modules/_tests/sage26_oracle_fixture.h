@@ -1673,4 +1673,127 @@ static inline int oracle_c06_require_r0_flags(struct oracle_fixture *in) {
   return problems;
 }
 
+// ============================================================================
+// THE C10 GROUP: CGMrecipeOn 1 ROUTING OF THE C03 ROUTINES
+// ============================================================================
+
+/** @brief The check kinds the oracle records (oracle README, "The c06 Group") */
+#define ORACLE_C10_CONTINUATION 1
+#define ORACLE_C10_TAIL 2
+
+/** @brief Tallies of the c10 locals one fixture or test run recorded */
+struct oracle_c10_tally {
+  int continuation; /* present and continuation-checked */
+  int tail;         /* present and tail-checked */
+  int validated;    /* validated two-sided */
+  int binding;      /* recorded where a cap binds, asserted equal to the capped reservoir */
+  int absent;       /* not evaluated on the fixture's path */
+};
+
+/**
+ * @brief Check one c10 local of a CGMrecipeOn 1 c03 fixture (oracle README, "The c10 Group")
+ *
+ * Reads `intermediate.<name>_absent`; for a present local requires `_checked` 1 and `_check_kind`
+ * `kind`, and `_validated` equal to `_validated_up && _validated_down`. The locals are SAGE26's,
+ * which the package does not carry between modules, so the value is consumed unasserted, except
+ * where `binds` is set: then the cap bound it, and it must equal `reservoir`, the package's input
+ * reservoir it was capped to. `value_consumed` marks a value the caller has already consumed.
+ *
+ * @return Number of marker errors and mismatches
+ */
+static inline int oracle_c10_check_local(struct oracle_fixture *out, const char *name,
+                                         const int kind, const int is_f32, const int value_consumed,
+                                         const int binds, const float reservoir,
+                                         struct oracle_c10_tally *tally) {
+  char field[ORACLE_MAX_NAME];
+  snprintf(field, sizeof(field), "intermediate.%s_absent", name);
+  if (oracle_in_i32(out, field) != 0) {
+    tally->absent++;
+    return 0;
+  }
+  int problems = 0;
+  snprintf(field, sizeof(field), "intermediate.%s_checked", name);
+  if (oracle_in_i32(out, field) != 1) {
+    fprintf(stderr, "oracle: %s: %s is not marked checked\n", out->path, name);
+    problems++;
+  }
+  snprintf(field, sizeof(field), "intermediate.%s_check_kind", name);
+  if (oracle_in_i32(out, field) != kind) {
+    fprintf(stderr, "oracle: %s: %s is not of check kind %d\n", out->path, name, kind);
+    problems++;
+  }
+  if (kind == ORACLE_C10_CONTINUATION) {
+    tally->continuation++;
+  } else {
+    tally->tail++;
+  }
+  snprintf(field, sizeof(field), "intermediate.%s_validated_up", name);
+  const int up = oracle_in_i32(out, field);
+  snprintf(field, sizeof(field), "intermediate.%s_validated_down", name);
+  const int down = oracle_in_i32(out, field);
+  snprintf(field, sizeof(field), "intermediate.%s_validated", name);
+  const int validated = oracle_in_i32(out, field);
+  if (validated != (up && down)) {
+    fprintf(stderr, "oracle: %s: %s_validated disagrees with its two directions\n", out->path,
+            name);
+    problems++;
+  }
+  if (validated) {
+    tally->validated++;
+  }
+  snprintf(field, sizeof(field), "intermediate.%s", name);
+  if (binds) {
+    tally->binding++;
+    problems += is_f32 ? oracle_check_f32(out, field, reservoir)
+                       : oracle_check_f64(out, field, (double)reservoir);
+  } else if (!value_consumed) {
+    oracle_exclude(out, field); /* a SAGE26 local, not package state */
+  }
+  return problems;
+}
+
+/**
+ * @brief Check that each named float reservoir of galaxy[index] kept its input bits
+ *
+ * For a reservoir the routing did not select (CGMrecipeOn 1): the module must leave it untouched.
+ *
+ * @return Number of reservoirs that changed (each reported on stderr)
+ */
+static inline int oracle_c10_check_unselected(const char *path, const int index,
+                                              const struct GalaxyData *before,
+                                              struct GalaxyData *after, const char *const *names,
+                                              const size_t count) {
+  int changed = 0;
+  struct GalaxyData copy = *before;
+  for (size_t k = 0; k < count; k++) {
+    const float *old_member = oracle_galaxy_float(&copy, names[k]);
+    const float *new_member = oracle_galaxy_float(after, names[k]);
+    if (old_member == NULL || new_member == NULL) {
+      fprintf(stderr, "oracle: %s: no package member for '%s'\n", path, names[k]);
+      changed++;
+      continue;
+    }
+    if (oracle_f32_to_bits(*old_member) != oracle_f32_to_bits(*new_member)) {
+      fprintf(stderr, "oracle: %s: unselected galaxy[%d].%s changed\n", path, index, names[k]);
+      changed++;
+    }
+  }
+  return changed;
+}
+
+/** @brief The CGM pair (cgm 1) or the hot pair (cgm 0), by SAGE26 name; two names */
+static inline const char *const *oracle_c10_pair(const int cgm) {
+  static const char *const hot[] = {"HotGas", "MetalsHotGas"};
+  static const char *const cgm_pair[] = {"CGMgas", "MetalsCGMgas"};
+  return cgm ? cgm_pair : hot;
+}
+
+/** @brief Print the c10 local tallies of one test run (quoted in the validation record) */
+static inline void oracle_c10_print_tally(const char *module, const struct oracle_c10_tally *t) {
+  printf(
+      "\n  oracle c10 locals (%s): continuation-checked %d, tail-checked %d, validated two-sided "
+      "%d, binding-cap values %d, absent %d ",
+      module, t->continuation, t->tail, t->validated, t->binding, t->absent);
+}
+
 #endif /* SAGE26_ORACLE_FIXTURE_H */

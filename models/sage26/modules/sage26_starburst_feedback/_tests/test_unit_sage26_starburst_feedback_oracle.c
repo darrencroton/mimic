@@ -51,6 +51,18 @@
  * where the oracle observes that the post-minor-merger recheck's own burst took the FIRE branch
  * (intermediate.burst_recheck_fire_*_sensitive 1), the port's record of that nested burst: the
  * same wiring and the host's path-invariant scaling, loadings and coupling.
+ * CGMrecipeOn 1 (the c10 burst_cgm_* fixtures, routine collisional_starburst_recipe_fire with R4's
+ * flags; oracle README "The c10 Group, Part 3"): the bundle carries the fixture's CGMrecipeOn and
+ * every galaxy's Regime is set from the fixture. The test also asserts each routing site against
+ * the oracle's selection AND against the expected galaxy's input Regime: the burst's commit
+ * (feedback.reservoir_cgm) and yield (yield_reservoir_cgm) by the FoF central's; the
+ * post-minor-merger recheck's wind (recheck_wind, its two tests and its four energies bit for bit)
+ * by the burst HOST's; the recheck's own burst's commit and yield
+ * (recheck_feedback_reservoir_cgm, recheck_yield_reservoir_cgm) by the FoF central's. It asserts
+ * the pair the FoF central's Regime does not select, the pair the host's Regime does not select
+ * (the host differs from the central) and both pairs of any other galaxy unchanged against the
+ * input, and counts the oracle's observations of SAGE26's recheck
+ * (intermediate.recheck_*_regime_sensitive).
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
  * SKIP.
  *
@@ -70,6 +82,7 @@
 #include <string.h>
 
 #include "modules/_tests/sage_test_fixtures.h"
+#include "modules/_tests/sage26_oracle_cgm.h"
 #include "modules/_tests/sage26_oracle_fire.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
 #include "modules/_tests/sage26_oracle_hydrogen.h"
@@ -105,6 +118,11 @@ static struct oracle_c09_tally fire_tally;
 static int burst_wiring_asserted = 0;
 static int recheck_wiring_asserted = 0;
 static int mass_loading_asserted = 0;
+/* c10: the CGMrecipeOn 1 fixtures' assertions; the burst commits routed to each of the central's
+ * pairs; the recheck winds and recheck bursts asserted */
+static struct oracle_c10_site_tally cgm_tally;
+static int cgm_commit_cgm_pair = 0, cgm_commit_hot_pair = 0;
+static int cgm_recheck_winds = 0, cgm_recheck_bursts = 0;
 
 /**
  * @brief Read the fixture's flags and parameters into the burst's parameter bundle
@@ -114,11 +132,13 @@ static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstPara
                             const int fire) {
   /* SFprescription 0 or 1 (with the H2 configuration for 1), BulgeSizeOn 0 or 3 with Hubble_h
    * for 3 (the other flags R0's, R1's and R2's; FIREmodeOn 0 or 1 for a c09 fixture, read by
-   * oracle_c09_read_fire_config) */
+   * oracle_c09_read_fire_config; CGMrecipeOn 0, or 0 or 1 for a c09 routine, c10) */
   struct MimicSageBulgeSize sizes;
   int sf_prescription = 0;
-  int problems = fire ? oracle_c09_require_merger_flags(in, &sizes, &sf_prescription)
-                      : oracle_c08_require_merger_flags(in, &sizes, &sf_prescription);
+  int cgm_recipe_on = 0;
+  int fire_mode_unused = 0;
+  int problems = oracle_c10_require_merger_flags(in, &sizes, &sf_prescription, fire, fire,
+                                                 &cgm_recipe_on, &fire_mode_unused);
   reset_config();
   MimicConfig.G = oracle_in_f64(in, "params.G");
   MimicConfig.UnitVelocity_in_cm_per_s = oracle_in_f64(in, "params.UnitVelocity_in_cm_per_s");
@@ -140,6 +160,8 @@ static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstPara
   p->quasar_mode_efficiency = oracle_in_f64(in, "params.QuasarModeEfficiency");
   p->bulge_size = sizes;
   p->sf_prescription = sf_prescription;
+  /* c10: the module's bundle carries the run's CGMrecipeOn (sage26_starburst_feedback.c) */
+  p->cgm_recipe_on = cgm_recipe_on;
   return problems;
 }
 
@@ -219,13 +241,12 @@ static int check_carried(struct oracle_fixture *out, const struct MimicSageStarb
                                f->reheat_clamp_binds == 1, &tally);
   problems += oracle_c06_check_carried(out, "ejected_mass_capped", KIND_TAIL,
                                        f->ejected_mass_capped, f->ejected_cap_binds == 1, &tally);
-  problems +=
-      oracle_c06_check_carried(out, "metallicity_hot", KIND_TAIL, f->metallicity_hot, 0, &tally);
-  problems += oracle_c06_check_carried(out, "metals_hot_to_eject", KIND_TAIL,
-                                       f->metals_hot_to_eject, 0, &tally);
-  problems +=
-      oracle_c06_check_carried(out, "metals_hot_to_eject_capped", KIND_TAIL,
-                               f->metals_hot_to_eject_capped, f->metals_cap_binds == 1, &tally);
+  problems += oracle_c06_check_carried(out, "metallicity_hot", KIND_TAIL, f->metallicity_selected,
+                                       0, &tally);
+  problems += oracle_c06_check_carried(out, "metals_hot_to_eject", KIND_TAIL, f->metals_to_eject, 0,
+                                       &tally);
+  problems += oracle_c06_check_carried(out, "metals_hot_to_eject_capped", KIND_TAIL,
+                                       f->metals_to_eject_capped, f->metals_cap_binds == 1, &tally);
   problems += oracle_c06_check_carried(out, "FracZleaveDiskVal", KIND_TAIL,
                                        b->frac_z_leave_disk_val, 0, &tally);
   problems += oracle_c06_check_carried(out, "yield_metals_to_hot", KIND_CONTINUATION,
@@ -262,6 +283,92 @@ static int check_fire(struct oracle_fixture *out, const int fire_mode_on, const 
         oracle_c09_check_mass_loading(out, "", i, before[i].MassLoading, galaxies[i].MassLoading);
     mass_loading_asserted++;
   }
+  return problems;
+}
+
+/**
+ * @brief c10: the CGMrecipeOn 1 record of one burst: each routing site against the oracle's
+ *        selection and the expected galaxy's input Regime, the recheck wind's tests and values,
+ *        the unselected pairs unchanged against the input, and the observations counted
+ * @return Number of mismatches
+ */
+static int check_cgm(const char *name, struct oracle_fixture *out, const int ngal, const int host,
+                     const int central, const struct MimicSageStarburstLocals *b,
+                     const struct GalaxyData *before, struct GalaxyData *galaxies) {
+  int problems = oracle_check_i32(out, "intermediate.cgm_recipe_on", MIMIC_SAGE_CGM_RECIPE_ON);
+  const int central_regime = before[central].Regime;
+  const int host_regime = before[host].Regime;
+  /* The burst's commit and yield: the FoF central's (M:791, S:1175-1176; M:824, M:830) */
+  problems += oracle_c10_check_site(out, "burst_feedback_reservoir_cgm", b->feedback.reservoir_cgm,
+                                    central_regime, &cgm_tally);
+  problems += oracle_c10_check_site(out, "burst_yield_reservoir_cgm", b->yield_reservoir_cgm,
+                                    central_regime, &cgm_tally);
+  cgm_commit_cgm_pair += b->feedback.reservoir_cgm == 1;
+  cgm_commit_hot_pair += b->feedback.reservoir_cgm == 0;
+  /* The recheck (M:806-811): the oracle's gas branch is the package's recheck burst running */
+  const int gas_branch = oracle_in_i32(out, "intermediate.recheck_gas_branch");
+  const int package_gas_branch =
+      b->instability_recheck_ran == 1 ? (b->recheck_feedback_reservoir_cgm != -1) : -1;
+  if (gas_branch != package_gas_branch) {
+    fprintf(stderr, "oracle: %s: the recheck's gas branch is %d in the oracle, %d in the port\n",
+            name, gas_branch, package_gas_branch);
+    problems++;
+  }
+  /* Its wind by the HOST's Regime (D:103, M:406-407), its burst by the FoF central's (D:106) */
+  problems +=
+      oracle_c10_check_site(out, "recheck_wind_reservoir_cgm", b->recheck_wind.reservoir_cgm,
+                            gas_branch == 1 ? host_regime : -1, &cgm_tally);
+  problems += oracle_c06_check_flag(out, "recheck_wind_ejects_cold", b->recheck_wind.ejects_cold);
+  problems +=
+      oracle_c06_check_flag(out, "recheck_wind_ejects_selected", b->recheck_wind.ejects_selected);
+  problems += oracle_c10_check_site(out, "recheck_feedback_reservoir_cgm",
+                                    b->recheck_feedback_reservoir_cgm,
+                                    gas_branch == 1 ? central_regime : -1, &cgm_tally);
+  problems +=
+      oracle_c10_check_site(out, "recheck_yield_reservoir_cgm", b->recheck_yield_reservoir_cgm,
+                            gas_branch == 1 ? central_regime : -1, &cgm_tally);
+  const struct {
+    const char *name;
+    double actual;
+  } values[] = {{"recheck_wind_quasar_energy", b->recheck_wind.quasar_energy},
+                {"recheck_wind_cold_gas_energy", b->recheck_wind.cold_gas_energy},
+                {"recheck_wind_cgm_gas_energy", b->recheck_wind.cgm_gas_energy},
+                {"recheck_wind_hot_gas_energy", b->recheck_wind.hot_gas_energy}};
+  for (size_t k = 0; k < sizeof(values) / sizeof(values[0]); k++) {
+    problems += oracle_c10_check_value(out, values[k].name, values[k].actual, &cgm_tally);
+  }
+  if (gas_branch == 1) {
+    cgm_recheck_winds++;
+    cgm_recheck_bursts++;
+    const int distinct = host != central;
+    (void)oracle_c10_observed(out, "recheck_wind_host_regime_sensitive", 1, &cgm_tally);
+    (void)oracle_c10_observed(out, "recheck_burst_central_regime_sensitive", 1, &cgm_tally);
+    if (distinct) {
+      (void)oracle_c10_observed(out, "recheck_wind_central_regime_sensitive", 0, &cgm_tally);
+      (void)oracle_c10_observed(out, "recheck_burst_host_regime_sensitive", 0, &cgm_tally);
+    } else {
+      oracle_exclude(out, "intermediate.recheck_wind_central_regime_sensitive");
+      oracle_exclude(out, "intermediate.recheck_burst_host_regime_sensitive");
+    }
+  }
+  problems += oracle_c10_check_regimes(out, ngal, galaxies);
+  /* The pairs no site of this path writes: the central's unselected pair (the commits and yields
+   * select by its Regime), the host's unselected pair when it is not the central (only its own
+   * recheck wind writes its pairs, by its Regime), both pairs of any other galaxy */
+  for (int i = 0; i < ngal; i++) {
+    if (i == central || (i == host && host != central)) {
+      problems += oracle_c10_check_unselected(name, i, &before[i], &galaxies[i],
+                                              oracle_c10_pair(before[i].Regime != 0), 2);
+      cgm_tally.unselected++;
+    } else if (i != host) {
+      for (int pair = 0; pair <= 1; pair++) {
+        problems += oracle_c10_check_unselected(name, i, &before[i], &galaxies[i],
+                                                oracle_c10_pair(pair), 2);
+        cgm_tally.unselected++;
+      }
+    }
+  }
+  cgm_tally.fixtures++;
   return problems;
 }
 
@@ -314,6 +421,10 @@ static int check_fixture(const char *name) {
     params.fire_mode_on = fire_mode_on;
     params.redshift_config = &MimicConfig;
   }
+  /* c10: every galaxy's Regime, which the CGMrecipeOn 1 routing reads */
+  if (params.cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+    problems += oracle_c10_read_regimes(&in, ngal, galaxies);
+  }
   if (problems != 0) {
     return problems;
   }
@@ -362,6 +473,9 @@ static int check_fixture(const char *name) {
   if (fire) {
     problems += check_fire(&out, fire_mode_on, ngal, host, &locals, before, galaxies, halos);
   }
+  if (params.cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+    problems += check_cgm(name, &out, ngal, host, central, &locals, before, galaxies);
+  }
 
   problems += oracle_report_unconsumed(&in);
   problems += oracle_report_unconsumed(&out);
@@ -398,6 +512,11 @@ int test_oracle_bit_identity(void) {
   burst_wiring_asserted = 0;
   recheck_wiring_asserted = 0;
   mass_loading_asserted = 0;
+  memset(&cgm_tally, 0, sizeof(cgm_tally));
+  cgm_commit_cgm_pair = 0;
+  cgm_commit_hot_pair = 0;
+  cgm_recheck_winds = 0;
+  cgm_recheck_bursts = 0;
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), binding %d, "
          "not validated %d, absent %d; ratio-0 merger bursts through the direct call %d ",
@@ -416,7 +535,13 @@ int test_oracle_bit_identity(void) {
          fire_tally.absent, fire_tally.continuation, fire_tally.tail, fire_tally.binding);
   printf("\n  oracle: c09 wiring asserted: bursts %d, recheck bursts %d; MassLoading unchanged %d ",
          burst_wiring_asserted, recheck_wiring_asserted, mass_loading_asserted);
+  oracle_c10_print_site_tally(&cgm_tally);
+  printf("\n  oracle: c10 burst commits into the central's CGM pair %d, its hot pair %d; recheck "
+         "winds asserted %d, recheck bursts %d ",
+         cgm_commit_cgm_pair, cgm_commit_hot_pair, cgm_recheck_winds, cgm_recheck_bursts);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(cgm_commit_cgm_pair >= 1 && cgm_commit_hot_pair >= 1 && cgm_recheck_winds >= 1,
+              "CGMrecipeOn 1 bursts committing to each pair and a recheck wind must be asserted");
   TEST_ASSERT(fire_tally.fire_on >= 1 && fire_tally.fire_off >= 1,
               "the c09 bursts must run FIREmodeOn 1 and its 0 twin");
   TEST_ASSERT(recheck_wiring_asserted >= 1,

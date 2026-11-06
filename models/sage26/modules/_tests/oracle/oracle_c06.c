@@ -76,6 +76,21 @@
  * when its burst runs with FIREmodeOn 0, and when the target's stored-snapshot redshift is
  * replaced.
  *
+ * CGMrecipeOn 1 (c10, R4; README "The c10 Group, Part 3", c06 part). grow_black_hole,
+ * quasar_mode_wind, disrupt_satellite_to_ICS and the three *_fire routines read CGMrecipeOn 0 or 1
+ * (every other routine still requires 0); with 1 every galaxy also reads and records its Regime
+ * (0 or 1), the CGM pair being among the reservoirs already, and grow_black_hole, quasar_mode_wind
+ * and disrupt_satellite_to_ICS read FIREmodeOn 0 or 1, which none of them reads (R4's is 1). The
+ * transcriptions gain the CGM branches: the wind's second test on the WIND HOST's selected pair
+ * (M:406-429), the burst's update_from_feedback on the FoF central's selected pair (S:1175-1223),
+ * the burst's yield and the disruption through add_metals_to_hot_reservoir and
+ * add_gas_to_hot_reservoir (R/src/model_misc.h:67-85; the passed central's or recipient's Regime),
+ * and the post-minor-merger recheck (M:807-811 into R/src/model_disk_instability.c:54-108) with
+ * its growth and wind transcribed and its own burst SAGE26's; the site selections, the CGM energy
+ * and the recheck wind's values are recorded after every earlier field, with observations of
+ * SAGE26's nested routines (Regime flips). A CGMrecipeOn 0 fixture is read, run and written
+ * exactly as before.
+ *
  * Driver transcriptions. evolve_galaxies and join_galaxies_of_progenitors are static in
  * core_build_model.c, which this link excludes, so no SAGE26 code can anchor merger_pass,
  * join_progenitors or join_and_pass. They are SOURCE-REVIEWED TRANSCRIPTIONS: every statement
@@ -137,6 +152,14 @@ static const double FIRE_REDSHIFT_EXPONENT = 1.25; /* M:60 (c09) */
 /* c09: set by the *_fire routines: FIREmodeOn may be 1, each galaxy's stored-snapshot redshift is
  * read, and MassLoading (BLOCK_FIRE) is read and recorded */
 static int fire_routine = 0;
+
+/* c10: set by the routines that may read CGMrecipeOn 1 (grow_black_hole, quasar_mode_wind,
+ * disrupt_satellite_to_ICS and the *_fire routines) */
+static int cgm_routine = 0;
+
+/* c10: set by read_merger_config for a CGMrecipeOn 1 fixture: every galaxy reads and records its
+ * Regime (BLOCK_CGM) and the routine records its c10 selections */
+static int cgm_block = 0;
 
 enum field_type { FIELD_F32, FIELD_F64, FIELD_I32 };
 
@@ -474,6 +497,11 @@ static const struct member HISTORY_MEMBERS[] = {
  * budget leaves it as it was (M:707-710). Read and recorded by the *_fire routines only. */
 static const struct member FIRE_MEMBERS[] = {F32_MEMBER(MassLoading)};
 
+/** c10: the integer Regime (core_allvars.h:110), which the CGMrecipeOn 1 routing reads
+ * (M:407, R/src/model_misc.h:69, :78, S:1176) and no c06 routine writes. Read and recorded by a
+ * CGMrecipeOn 1 fixture only (cgm_block); the CGM pair it selects is in RESERVOIR_MEMBERS. */
+static const struct member CGM_MEMBERS[] = {I32_MEMBER(Regime)};
+
 /** Which groups of members a galaxy reads or records */
 enum block {
   BLOCK_IDENT = 1,
@@ -483,6 +511,7 @@ enum block {
   BLOCK_JOIN_WRITTEN = 16,
   BLOCK_HISTORIES = 32,
   BLOCK_FIRE = 64, /* c09: MassLoading, after every other block of the galaxy */
+  BLOCK_CGM = 128, /* c10: Regime, after BLOCK_FIRE */
   BLOCK_MERGER_INPUT = BLOCK_IDENT | BLOCK_HALO | BLOCK_RESERVOIRS | BLOCK_HISTORIES,
   BLOCK_JOIN_INPUT = BLOCK_MERGER_INPUT | BLOCK_INFALL,
   BLOCK_ALL = BLOCK_JOIN_INPUT | BLOCK_JOIN_WRITTEN
@@ -500,6 +529,7 @@ static const struct {
     {BLOCK_JOIN_WRITTEN, JOIN_WRITTEN_MEMBERS, COUNT(JOIN_WRITTEN_MEMBERS)},
     {BLOCK_HISTORIES, HISTORY_MEMBERS, COUNT(HISTORY_MEMBERS)},
     {BLOCK_FIRE, FIRE_MEMBERS, COUNT(FIRE_MEMBERS)},
+    {BLOCK_CGM, CGM_MEMBERS, COUNT(CGM_MEMBERS)},
 };
 
 static void *member_address(const struct GALAXY *g, const struct member *m, const int element) {
@@ -795,11 +825,33 @@ static void read_fire_snapshots(const int ngal) {
  * S:1169-1173 and M:798-803 run. The code constants are SAGE26's (EtaSNcode, EnergySNcode,
  * R/src/core_init.c:102-103; G, :96).
  */
+/**
+ * @brief c10: CGMrecipeOn as a fixture of a CGM-capable routine (cgm_routine) sets it: 0 (R0-R3,
+ *        hot-gas routing) or 1 (R4, R4.par:54); any other value is refused, naming the parameter
+ *        (SAGE26 accepts only those, R/src/core_read_parameter_file.c:526)
+ *
+ * With 1 it sets cgm_block, so every galaxy also reads and records its Regime and the routine
+ * records its c10 selections; with 0 nothing more is read.
+ */
+static int32_t read_cgm_recipe_on(void) {
+  const int read = in_i32("params.CGMrecipeOn");
+  if (read != 0 && read != 1) {
+    fatal("params.CGMrecipeOn = %d: SAGE26 accepts only 0 and 1 "
+          "(R/src/core_read_parameter_file.c:526)",
+          read);
+  }
+  cgm_block = read == 1;
+  return read;
+}
+
 static void read_merger_config(void) {
   read_sf_prescription();
   run_params.SupernovaRecipeOn = require_flag("SupernovaRecipeOn", 1);
-  run_params.CGMrecipeOn = require_flag("CGMrecipeOn", 0);
-  run_params.FIREmodeOn = fire_routine ? read_fire_mode_on() : require_flag("FIREmodeOn", 0);
+  run_params.CGMrecipeOn = cgm_routine ? read_cgm_recipe_on() : require_flag("CGMrecipeOn", 0);
+  /* c10: a CGMrecipeOn 1 fixture of grow_black_hole, quasar_mode_wind or disrupt_satellite_to_ICS
+   * carries R4's FIREmodeOn (R4.par:55), which none of them reads */
+  run_params.FIREmodeOn =
+      (fire_routine || cgm_block) ? read_fire_mode_on() : require_flag("FIREmodeOn", 0);
   read_bulge_size_config();
   run_params.SaveFullSFH = require_flag("SaveFullSFH", 0);
   run_params.AGNrecipeOn = require_flag("AGNrecipeOn", 2);
@@ -857,15 +909,16 @@ static int read_ngal(void) {
 
 /** The SAGE26 routine a carried value is a local of */
 enum stage {
-  STAGE_CLOCK,      /* estimate_merging_time */
-  STAGE_MERGER,     /* deal_with_galaxy_merger */
-  STAGE_ADD,        /* add_galaxies_together */
-  STAGE_BH,         /* grow_black_hole */
-  STAGE_WIND,       /* quasar_mode_wind */
-  STAGE_BURST,      /* collisional_starburst_recipe */
-  STAGE_FEEDBACK,   /* update_from_feedback, as the burst calls it */
-  STAGE_DISRUPT,    /* disrupt_satellite_to_ICS */
-  STAGE_FIRE_HELPER /* c09: a local of capped_eta_reheat or sn_energy_coupling, in the burst */
+  STAGE_CLOCK,       /* estimate_merging_time */
+  STAGE_MERGER,      /* deal_with_galaxy_merger */
+  STAGE_ADD,         /* add_galaxies_together */
+  STAGE_BH,          /* grow_black_hole */
+  STAGE_WIND,        /* quasar_mode_wind */
+  STAGE_BURST,       /* collisional_starburst_recipe */
+  STAGE_FEEDBACK,    /* update_from_feedback, as the burst calls it */
+  STAGE_DISRUPT,     /* disrupt_satellite_to_ICS */
+  STAGE_FIRE_HELPER, /* c09: a local of capped_eta_reheat or sn_energy_coupling, in the burst */
+  STAGE_RECHECK      /* c10: a local of the recheck's growth and wind, in the burst */
 };
 
 /** How a carried value's transcription is checked (README "Carried Values") */
@@ -1257,6 +1310,97 @@ struct recheck_bh_observation {
   float h1_after; /* H1gas after that growth */
 };
 
+/**
+ * The routing selections and tests CGMrecipeOn 1 adds (c10, README "The c10 Group, Part 3"),
+ * recorded only by CGMrecipeOn 1 fixtures: -1 not evaluated on this path, else 0 (the hot pair, or
+ * a test that fails) or 1 (the CGM pair, or a test that passes). Each selection is computed by the
+ * transcription of its selection test at its call site. M = R/src/model_mergers.c, S =
+ * model_starformation_and_feedback.c, X = R/src/model_misc.h, D = model_disk_instability.c.
+ */
+enum cgm_flag_id {
+  FLC_WIND_RESERVOIR_CGM,           /* M:406-407: the transcribed wind's host's Regime */
+  FLC_WIND_EJECTS_CGM,              /* M:411, the CGM pair selected (wind_ejects_hot is then -1) */
+  FLC_BURST_FEEDBACK_RESERVOIR_CGM, /* S:1175-1176 in the burst's commit (M:791): FoF central */
+  FLC_BURST_YIELD_RESERVOIR_CGM,    /* X:69 at M:824 or M:830: FoF central */
+  FLC_RECHECK_WIND_RESERVOIR_CGM,   /* M:406-407 in the recheck's growth (D:103): the host */
+  FLC_RECHECK_WIND_EJECTS_COLD,     /* M:397 in the recheck's wind */
+  FLC_RECHECK_WIND_EJECTS_SELECTED, /* M:411 or M:422 in the recheck's wind */
+  FLC_RECHECK_FEEDBACK_RESERVOIR_CGM, /* S:1175-1176 in the recheck burst's commit (D:106) */
+  FLC_RECHECK_YIELD_RESERVOIR_CGM,    /* X:69 in the recheck burst's yield (D:106) */
+  FLC_DISRUPT_RESERVOIR_CGM,          /* X:78 at M:851: the passed recipient's Regime */
+  FLC_COUNT
+};
+
+static const char *const CGM_FLAG_NAMES[FLC_COUNT] = {
+    [FLC_WIND_RESERVOIR_CGM] = "wind_reservoir_cgm",
+    [FLC_WIND_EJECTS_CGM] = "wind_ejects_cgm",
+    [FLC_BURST_FEEDBACK_RESERVOIR_CGM] = "burst_feedback_reservoir_cgm",
+    [FLC_BURST_YIELD_RESERVOIR_CGM] = "burst_yield_reservoir_cgm",
+    [FLC_RECHECK_WIND_RESERVOIR_CGM] = "recheck_wind_reservoir_cgm",
+    [FLC_RECHECK_WIND_EJECTS_COLD] = "recheck_wind_ejects_cold",
+    [FLC_RECHECK_WIND_EJECTS_SELECTED] = "recheck_wind_ejects_selected",
+    [FLC_RECHECK_FEEDBACK_RESERVOIR_CGM] = "recheck_feedback_reservoir_cgm",
+    [FLC_RECHECK_YIELD_RESERVOIR_CGM] = "recheck_yield_reservoir_cgm",
+    [FLC_DISRUPT_RESERVOIR_CGM] = "disrupt_reservoir_cgm",
+};
+
+/**
+ * The values CGMrecipeOn 1 adds (c10): the CGM binding energy of the transcribed wind (M:409; its
+ * hot counterpart is c06's hot_gas_energy, absent when the CGM pair is selected) and the locals of
+ * the recheck's wind (M:393-394, :409, :420), transcribed with the recheck's growth. Each is
+ * tail-checked (the transcription passes none to a SAGE26 function); the unselected pair's energy
+ * is absent.
+ */
+enum cgm_id {
+  IMC_CGM_GAS_ENERGY,               /* cgm_gas_energy (M:409), the transcribed wind */
+  IMC_RECHECK_WIND_QUASAR_ENERGY,   /* quasar_energy (M:393), the recheck's wind */
+  IMC_RECHECK_WIND_COLD_GAS_ENERGY, /* cold_gas_energy (M:394), before the cold ejection */
+  IMC_RECHECK_WIND_CGM_GAS_ENERGY,  /* cgm_gas_energy (M:409), the CGM pair selected */
+  IMC_RECHECK_WIND_HOT_GAS_ENERGY,  /* hot_gas_energy (M:420), the hot pair selected */
+  IMC_COUNT
+};
+
+static const struct {
+  const char *name;
+  enum stage stage;
+} IMC_INFO[IMC_COUNT] = {
+    [IMC_CGM_GAS_ENERGY] = {"cgm_gas_energy", STAGE_WIND},
+    [IMC_RECHECK_WIND_QUASAR_ENERGY] = {"recheck_wind_quasar_energy", STAGE_RECHECK},
+    [IMC_RECHECK_WIND_COLD_GAS_ENERGY] = {"recheck_wind_cold_gas_energy", STAGE_RECHECK},
+    [IMC_RECHECK_WIND_CGM_GAS_ENERGY] = {"recheck_wind_cgm_gas_energy", STAGE_RECHECK},
+    [IMC_RECHECK_WIND_HOT_GAS_ENERGY] = {"recheck_wind_hot_gas_energy", STAGE_RECHECK},
+};
+
+/**
+ * c10: OBSERVATIONS of the post-minor-merger recheck's SAGE26 routines at CGMrecipeOn 1, each a
+ * counterfactual of one Regime during one call only, restored after it: the burst host's
+ * (RECHECK_CF_WIND_HOST) or the FoF central's (RECHECK_CF_WIND_CENTRAL) Regime flipped during
+ * SAGE26's own grow_black_hole (D:102-104), and the FoF central's (RECHECK_CF_BURST_CENTRAL) or the
+ * host's (RECHECK_CF_BURST_HOST) during SAGE26's own collisional_starburst_recipe (D:106-108).
+ * No routine writes Regime, so the flip changes only what that call reads.
+ */
+enum recheck_cf {
+  RECHECK_CF_NONE,
+  RECHECK_CF_WIND_HOST,
+  RECHECK_CF_WIND_CENTRAL,
+  RECHECK_CF_BURST_CENTRAL,
+  RECHECK_CF_BURST_HOST
+};
+static enum recheck_cf recheck_cf = RECHECK_CF_NONE;
+
+/** The c10 recheck observations, in record order (enum recheck_cf) */
+#define RECHECK_OBSERVATIONS 4
+static const struct {
+  enum recheck_cf cf;
+  const char *name;
+  int needs_distinct_central; /* -1 where the host is its own FoF central: the flip is another's */
+} RECHECK_OBSERVATION_INFO[RECHECK_OBSERVATIONS] = {
+    {RECHECK_CF_WIND_HOST, "recheck_wind_host_regime_sensitive", 0},
+    {RECHECK_CF_WIND_CENTRAL, "recheck_wind_central_regime_sensitive", 1},
+    {RECHECK_CF_BURST_CENTRAL, "recheck_burst_central_regime_sensitive", 0},
+    {RECHECK_CF_BURST_HOST, "recheck_burst_host_regime_sensitive", 1},
+};
+
 /** The carried values, carried flags and branch flags of one composition */
 struct locals {
   double value[IM_COUNT];
@@ -1272,7 +1416,11 @@ struct locals {
   int fire_present[IMF_COUNT];
   int fire_flag[FLF_COUNT];
   struct recheck_fire_observation recheck_fire; /* c09, FIREmodeOn 1 only */
-  int out_of_domain; /* a SAGE26 assertion would abort on this path (perturbed runs only) */
+  double cgm_value[IMC_COUNT];                  /* c10 */
+  int cgm_present[IMC_COUNT];
+  int cgm_flag[FLC_COUNT];
+  int recheck_gas_branch; /* c10: the transcribed recheck reached D:90's gas branch (-1 not run) */
+  int out_of_domain;      /* a SAGE26 assertion would abort on this path (perturbed runs only) */
 };
 
 static void init_locals(struct locals *l) {
@@ -1280,6 +1428,10 @@ static void init_locals(struct locals *l) {
   for (int f = 0; f < FL_COUNT; f++) {
     l->flag[f] = -1;
   }
+  for (int f = 0; f < FLC_COUNT; f++) {
+    l->cgm_flag[f] = -1;
+  }
+  l->recheck_gas_branch = -1;
   for (int f = 0; f < FLH_COUNT; f++) {
     l->h_flag[f] = -1;
   }
@@ -1300,9 +1452,10 @@ struct perturbation {
   int up;   /* 1: toward +inf; 0: toward -inf */
   int h;    /* enum h_id to perturb (c08), or -1 */
   int fire; /* enum fire_id to perturb (c09), or -1 */
+  int cgm;  /* enum cgm_id to perturb (c10), or -1 */
 };
 
-static const struct perturbation NO_PERTURBATION = {-1, -1, 0, -1, -1};
+static const struct perturbation NO_PERTURBATION = {-1, -1, 0, -1, -1, -1};
 
 /** Which SAGE26 routines a composition replaces by their transcriptions */
 struct composition {
@@ -1312,20 +1465,30 @@ struct composition {
   int burst;        /* collisional_starburst_recipe */
   int feedback;     /* update_from_feedback (inside the burst) */
   int fire_helpers; /* c09: capped_eta_reheat and sn_energy_coupling (inside the burst) */
+  int routing;      /* c10: add_metals_to_hot_reservoir and add_gas_to_hot_reservoir (CGMrecipeOn 1
+                       only; SAGE26's own header-inline helpers otherwise) */
+  int recheck;      /* c10: the burst's check_disk_instability (CGMrecipeOn 1 only) */
 };
 
-static const struct composition OWN_ROUTINES = {0, 0, 0, 0, 0, 0};
-static const struct composition ALL_TRANSCRIBED = {1, 1, 1, 1, 1, 1};
+static const struct composition OWN_ROUTINES = {0, 0, 0, 0, 0, 0, 0, 0};
+static const struct composition ALL_TRANSCRIBED = {1, 1, 1, 1, 1, 1, 1, 1};
 
-/** @brief The routines that must be transcribed for a value of the given stage to be reached */
+/**
+ * @brief The routines that must be transcribed for a value of the given stage to be reached
+ *
+ * The routing helpers stay SAGE26's own in every such composition (c10), so a value the routine
+ * passes to one (yield_metals_to_hot, total_gas, total_metals_gas) is fed to SAGE26's helper.
+ */
 static struct composition composition_for(const enum stage stage) {
   struct composition c = OWN_ROUTINES;
   c.add = stage == STAGE_ADD;
   c.bh = stage == STAGE_BH || stage == STAGE_WIND;
   c.wind = stage == STAGE_WIND;
-  c.burst = stage == STAGE_BURST || stage == STAGE_FEEDBACK || stage == STAGE_FIRE_HELPER;
+  c.burst = stage == STAGE_BURST || stage == STAGE_FEEDBACK || stage == STAGE_FIRE_HELPER ||
+            stage == STAGE_RECHECK;
   c.feedback = stage == STAGE_FEEDBACK;
   c.fire_helpers = stage == STAGE_FIRE_HELPER;
+  c.recheck = stage == STAGE_RECHECK;
   return c;
 }
 
@@ -1370,6 +1533,16 @@ static double tap_fire(struct context *ctx, const enum fire_id id, const double 
   ctx->l->fire_value[id] = v;
   ctx->l->fire_present[id] = 1;
   if (ctx->pt->fire == (int)id) {
+    return nextafter(v, ctx->pt->up ? INFINITY : -INFINITY);
+  }
+  return v;
+}
+
+/** @brief Record a c10 value, then return it, or its neighbour when it is perturbed */
+static double tap_cgm(struct context *ctx, const enum cgm_id id, const double v) {
+  ctx->l->cgm_value[id] = v;
+  ctx->l->cgm_present[id] = 1;
+  if (ctx->pt->cgm == (int)id) {
     return nextafter(v, ctx->pt->up ? INFINITY : -INFINITY);
   }
   return v;
@@ -1452,7 +1625,14 @@ static double transcribe_estimate_merging_time(struct context *ctx, const int sa
 
 /**
  * @brief TRANSCRIPTION of quasar_mode_wind, M:390-442, on R0's path (CGMrecipeOn 0,
- *        M:430-441)
+ *        M:430-441) and (c10) R4's (CGMrecipeOn 1, M:406-429)
+ *
+ * With CGMrecipeOn 1 the WIND HOST gal's own Regime selects its CGM pair (Regime 0, M:407-417) or
+ * its hot pair (M:418-428) for the second test, which adds the ORIGINAL cold binding energy to the
+ * selected pair's (M:411, M:422) and compares the unreduced wind energy. The selection is recorded
+ * in wind_reservoir_cgm; the CGM test in wind_ejects_cgm and its energy in cgm_gas_energy (c10),
+ * the hot test in c06's wind_ejects_hot and its energy in hot_gas_energy, each -1 or absent where
+ * the other pair is selected.
  */
 static void transcribe_quasar_mode_wind(struct context *ctx, const int gal,
                                         const double BHaccrete) {
@@ -1477,10 +1657,44 @@ static void transcribe_quasar_mode_wind(struct context *ctx, const int gal,
     galaxies[gal].MetalsColdGas = 0.0;
   }
 
-  /* M:406 selects the non-CGM branch, M:430-441 */
+  /* M:406 (c10): CGMrecipeOn 1, the WIND HOST's own Regime selects the pair (M:407) */
   if (run_params.CGMrecipeOn == 1) {
-    fatal("transcribe_quasar_mode_wind covers CGMrecipeOn 0 only");
+    l->cgm_flag[FLC_WIND_RESERVOIR_CGM] = galaxies[gal].Regime == 0;
+    if (galaxies[gal].Regime == 0) { /* M:407 */
+      /* M:409 */
+      double cgm_gas_energy = 0.5 * galaxies[gal].CGMgas * galaxies[gal].Vvir * galaxies[gal].Vvir;
+      cgm_gas_energy = tap_cgm(ctx, IMC_CGM_GAS_ENERGY, cgm_gas_energy);
+
+      /* M:411-417 */
+      l->cgm_flag[FLC_WIND_EJECTS_CGM] = 0;
+      if (quasar_energy > cold_gas_energy + cgm_gas_energy) {
+        l->cgm_flag[FLC_WIND_EJECTS_CGM] = 1;
+        galaxies[gal].EjectedMass += galaxies[gal].CGMgas;
+        galaxies[gal].MetalsEjectedMass += galaxies[gal].MetalsCGMgas;
+
+        galaxies[gal].CGMgas = 0.0;
+        galaxies[gal].MetalsCGMgas = 0.0;
+      }
+    } else {
+      /* M:420 */
+      double hot_gas_energy = 0.5 * galaxies[gal].HotGas * galaxies[gal].Vvir * galaxies[gal].Vvir;
+      hot_gas_energy = tap(ctx, IM_HOT_GAS_ENERGY, hot_gas_energy);
+
+      /* M:422-428 */
+      l->flag[FL_WIND_EJECTS_HOT] = 0;
+      if (quasar_energy > cold_gas_energy + hot_gas_energy) {
+        l->flag[FL_WIND_EJECTS_HOT] = 1;
+        galaxies[gal].EjectedMass += galaxies[gal].HotGas;
+        galaxies[gal].MetalsEjectedMass += galaxies[gal].MetalsHotGas;
+
+        galaxies[gal].HotGas = 0.0;
+        galaxies[gal].MetalsHotGas = 0.0;
+      }
+    }
+    return;
   }
+
+  /* M:430-441: CGMrecipeOn 0 */
   double hot_gas_energy = 0.5 * galaxies[gal].HotGas * galaxies[gal].Vvir * galaxies[gal].Vvir;
   hot_gas_energy = tap(ctx, IM_HOT_GAS_ENERGY, hot_gas_energy);
 
@@ -1567,8 +1781,14 @@ static void transcribe_grow_black_hole(struct context *ctx, const int merger_cen
  * oracle_c05.c's transcription, restated: SupernovaRecipeOn 1, CGMrecipeOn 0 ("Original SAGE
  * behavior", S:1224-1246) and SFprescription 0 or 1: for 1 (sf_prescription_tracks_h2), the
  * hydrogen cap of S:1169-1173 after the cold-gas and metal debits and before the hot-gas credit
- * (c08). Its XASSERTs (S:1158-1163) are checked: a violation marks the composition out of
- * domain, as SAGE26 would abort there.
+ * (c08). With CGMrecipeOn 1 (c10, *_fire routines) the FoF central's Regime selects the branch
+ * (S:1175-1176): its CGM pair for Regime 0 (S:1177-1198), its hot pair otherwise (S:1200-1222),
+ * each statement for statement, the selection recorded in burst_feedback_reservoir_cgm. The
+ * carried values keep their c06 names on both branches (as oracle_c05.c's do): metallicity_hot,
+ * metals_hot_to_eject and metals_hot_to_eject_capped hold the SELECTED pair's values, and
+ * ejected_mass_capped the ejection capped to the selected gas after the reheating. Its XASSERTs
+ * (S:1158-1163) are checked: a violation marks the composition out of domain, as SAGE26 would
+ * abort there.
  */
 static void transcribe_update_from_feedback(struct context *ctx, const int p, const int centralgal,
                                             double reheated_mass, double ejected_mass,
@@ -1602,6 +1822,79 @@ static void transcribe_update_from_feedback(struct context *ctx, const int p, co
     l->h_flag[FLH_H1_CAP_FB_BINDS] = galaxies[p].H1gas > max_h_fb;
     if (galaxies[p].H1gas > max_h_fb)
       galaxies[p].H1gas = max_h_fb;
+  }
+
+  if (run_params.CGMrecipeOn == 1) { /* S:1175 (c10) */
+    l->cgm_flag[FLC_BURST_FEEDBACK_RESERVOIR_CGM] = galaxies[centralgal].Regime == 0;
+    if (galaxies[centralgal].Regime == 0) { /* S:1176 */
+      /* S:1180-1181 */
+      galaxies[centralgal].CGMgas += reheated_mass;
+      galaxies[centralgal].MetalsCGMgas += metallicity * reheated_mass;
+
+      /* S:1184-1186 */
+      l->flag[FL_EJECTED_CAP_BINDS] = 0;
+      if (ejected_mass > galaxies[centralgal].CGMgas) {
+        ejected_mass = galaxies[centralgal].CGMgas;
+        l->flag[FL_EJECTED_CAP_BINDS] = 1;
+      }
+      ejected_mass = tap(ctx, IM_EJECTED_CAPPED, ejected_mass);
+      /* S:1187 */
+      double metallicityCGM =
+          get_metallicity(galaxies[centralgal].CGMgas, galaxies[centralgal].MetalsCGMgas);
+      metallicityCGM = tap(ctx, IM_METALLICITY_HOT, metallicityCGM);
+
+      /* S:1189-1192 */
+      double metalsCGM_to_eject = metallicityCGM * ejected_mass;
+      metalsCGM_to_eject = tap(ctx, IM_METALS_TO_EJECT, metalsCGM_to_eject);
+      l->flag[FL_METALS_CAP_BINDS] = 0;
+      if (metalsCGM_to_eject > galaxies[centralgal].MetalsCGMgas) {
+        metalsCGM_to_eject = galaxies[centralgal].MetalsCGMgas;
+        l->flag[FL_METALS_CAP_BINDS] = 1;
+      }
+      metalsCGM_to_eject = tap(ctx, IM_METALS_TO_EJECT_CAPPED, metalsCGM_to_eject);
+
+      /* S:1195-1198 */
+      galaxies[centralgal].CGMgas -= ejected_mass;
+      galaxies[centralgal].MetalsCGMgas -= metalsCGM_to_eject;
+      galaxies[centralgal].EjectedMass += ejected_mass;
+      galaxies[centralgal].MetalsEjectedMass += metalsCGM_to_eject;
+    } else {
+      /* S:1204-1205 */
+      galaxies[centralgal].HotGas += reheated_mass;
+      galaxies[centralgal].MetalsHotGas += metallicity * reheated_mass;
+
+      /* S:1208-1210 */
+      l->flag[FL_EJECTED_CAP_BINDS] = 0;
+      if (ejected_mass > galaxies[centralgal].HotGas) {
+        ejected_mass = galaxies[centralgal].HotGas;
+        l->flag[FL_EJECTED_CAP_BINDS] = 1;
+      }
+      ejected_mass = tap(ctx, IM_EJECTED_CAPPED, ejected_mass);
+      /* S:1211 */
+      double metallicityHot =
+          get_metallicity(galaxies[centralgal].HotGas, galaxies[centralgal].MetalsHotGas);
+      metallicityHot = tap(ctx, IM_METALLICITY_HOT, metallicityHot);
+
+      /* S:1213-1216 */
+      double metalsHot_to_eject = metallicityHot * ejected_mass;
+      metalsHot_to_eject = tap(ctx, IM_METALS_TO_EJECT, metalsHot_to_eject);
+      l->flag[FL_METALS_CAP_BINDS] = 0;
+      if (metalsHot_to_eject > galaxies[centralgal].MetalsHotGas) {
+        metalsHot_to_eject = galaxies[centralgal].MetalsHotGas;
+        l->flag[FL_METALS_CAP_BINDS] = 1;
+      }
+      metalsHot_to_eject = tap(ctx, IM_METALS_TO_EJECT_CAPPED, metalsHot_to_eject);
+
+      /* S:1219-1222 */
+      galaxies[centralgal].HotGas -= ejected_mass;
+      galaxies[centralgal].MetalsHotGas -= metalsHot_to_eject;
+      galaxies[centralgal].EjectedMass += ejected_mass;
+      galaxies[centralgal].MetalsEjectedMass += metalsHot_to_eject;
+    }
+
+    /* S:1249 */
+    galaxies[p].OutflowRate += reheated_mass;
+    return;
   }
 
   /* S:1228-1229 */
@@ -1770,6 +2063,274 @@ static void observe_recheck_fire(struct locals *l, const int m, const int centra
   }
 }
 
+// ============================================================================
+// c10: TRANSCRIPTIONS OF THE ROUTING HELPERS AND OF THE RECHECK (CGMrecipeOn 1)
+// ============================================================================
+
+/**
+ * @brief c10: TRANSCRIPTION of add_metals_to_hot_reservoir, R/src/model_misc.h:67-74
+ *        (header-inline in SAGE26; its own copy is what a composition calls unless it transcribes
+ *        the routing)
+ *
+ *   if(run_params->CGMrecipeOn == 1 && central->Regime == 0) central->MetalsCGMgas += metals;
+ *   else central->MetalsHotGas += metals;
+ *
+ * The selection is recorded in cgm_flag[id]. The metals are an already completed double, added to
+ * the selected float field (one double sum narrowed on the store, as SAGE26's helper does).
+ */
+static void transcribe_add_metals_to_hot_reservoir(struct context *ctx, struct GALAXY *central,
+                                                   const double metals, const enum cgm_flag_id id) {
+  ctx->l->cgm_flag[id] = run_params.CGMrecipeOn == 1 && central->Regime == 0;
+  if (run_params.CGMrecipeOn == 1 && central->Regime == 0) { /* X:69 */
+    central->MetalsCGMgas += metals;                         /* X:70 */
+  } else {
+    central->MetalsHotGas += metals; /* X:72 */
+  }
+}
+
+/**
+ * @brief c10: TRANSCRIPTION of add_gas_to_hot_reservoir, R/src/model_misc.h:76-85
+ *
+ *   if(run_params->CGMrecipeOn == 1 && central->Regime == 0) {
+ *       central->CGMgas += gas; central->MetalsCGMgas += metals;
+ *   } else { central->HotGas += gas; central->MetalsHotGas += metals; }
+ *
+ * The selection is recorded in cgm_flag[id]; gas and metals are completed doubles, each added to
+ * its float field.
+ */
+static void transcribe_add_gas_to_hot_reservoir(struct context *ctx, struct GALAXY *central,
+                                                const double gas, const double metals,
+                                                const enum cgm_flag_id id) {
+  ctx->l->cgm_flag[id] = run_params.CGMrecipeOn == 1 && central->Regime == 0;
+  if (run_params.CGMrecipeOn == 1 && central->Regime == 0) { /* X:78 */
+    central->CGMgas += gas;                                  /* X:79 */
+    central->MetalsCGMgas += metals;                         /* X:80 */
+  } else {
+    central->HotGas += gas;          /* X:82 */
+    central->MetalsHotGas += metals; /* X:83 */
+  }
+}
+
+/**
+ * @brief c10: TRANSCRIPTION of quasar_mode_wind, M:390-429, as the recheck's growth calls it
+ *        (M:374 through D:103), with CGMrecipeOn 1
+ *
+ * The wind energy and the host's cold binding energy (M:393-394), the cold ejection (M:397-403),
+ * then the HOST's own Regime selecting its CGM pair (M:407-417) or its hot pair (M:418-428) for
+ * the second test, with the ORIGINAL cold binding energy (M:411, M:422). Its values and tests are
+ * recorded in the recheck_wind_* slots, so the merger's own wind (transcribe_quasar_mode_wind)
+ * keeps c06's.
+ */
+static void transcribe_recheck_quasar_mode_wind(struct context *ctx, const int gal,
+                                                const double BHaccrete) {
+  struct locals *l = ctx->l;
+
+  /* M:393-394 */
+  double quasar_energy = run_params.QuasarModeEfficiency * 0.1 * BHaccrete *
+                         (C / run_params.UnitVelocity_in_cm_per_s) *
+                         (C / run_params.UnitVelocity_in_cm_per_s);
+  quasar_energy = tap_cgm(ctx, IMC_RECHECK_WIND_QUASAR_ENERGY, quasar_energy);
+  double cold_gas_energy = 0.5 * galaxies[gal].ColdGas * galaxies[gal].Vvir * galaxies[gal].Vvir;
+  cold_gas_energy = tap_cgm(ctx, IMC_RECHECK_WIND_COLD_GAS_ENERGY, cold_gas_energy);
+
+  /* M:397-403 */
+  l->cgm_flag[FLC_RECHECK_WIND_EJECTS_COLD] = quasar_energy > cold_gas_energy;
+  if (quasar_energy > cold_gas_energy) {
+    galaxies[gal].EjectedMass += galaxies[gal].ColdGas;
+    galaxies[gal].MetalsEjectedMass += galaxies[gal].MetalsColdGas;
+
+    galaxies[gal].ColdGas = 0.0;
+    galaxies[gal].MetalsColdGas = 0.0;
+  }
+
+  /* M:406 */
+  if (run_params.CGMrecipeOn != 1) {
+    fatal("transcribe_recheck_quasar_mode_wind covers CGMrecipeOn 1 only (oracle bug)");
+  }
+  l->cgm_flag[FLC_RECHECK_WIND_RESERVOIR_CGM] = galaxies[gal].Regime == 0;
+  if (galaxies[gal].Regime == 0) { /* M:407 */
+    /* M:409 */
+    double cgm_gas_energy = 0.5 * galaxies[gal].CGMgas * galaxies[gal].Vvir * galaxies[gal].Vvir;
+    cgm_gas_energy = tap_cgm(ctx, IMC_RECHECK_WIND_CGM_GAS_ENERGY, cgm_gas_energy);
+
+    /* M:411-417 */
+    l->cgm_flag[FLC_RECHECK_WIND_EJECTS_SELECTED] =
+        quasar_energy > cold_gas_energy + cgm_gas_energy;
+    if (quasar_energy > cold_gas_energy + cgm_gas_energy) {
+      galaxies[gal].EjectedMass += galaxies[gal].CGMgas;
+      galaxies[gal].MetalsEjectedMass += galaxies[gal].MetalsCGMgas;
+
+      galaxies[gal].CGMgas = 0.0;
+      galaxies[gal].MetalsCGMgas = 0.0;
+    }
+  } else {
+    /* M:420 */
+    double hot_gas_energy = 0.5 * galaxies[gal].HotGas * galaxies[gal].Vvir * galaxies[gal].Vvir;
+    hot_gas_energy = tap_cgm(ctx, IMC_RECHECK_WIND_HOT_GAS_ENERGY, hot_gas_energy);
+
+    /* M:422-428 */
+    l->cgm_flag[FLC_RECHECK_WIND_EJECTS_SELECTED] =
+        quasar_energy > cold_gas_energy + hot_gas_energy;
+    if (quasar_energy > cold_gas_energy + hot_gas_energy) {
+      galaxies[gal].EjectedMass += galaxies[gal].HotGas;
+      galaxies[gal].MetalsEjectedMass += galaxies[gal].MetalsHotGas;
+
+      galaxies[gal].HotGas = 0.0;
+      galaxies[gal].MetalsHotGas = 0.0;
+    }
+  }
+}
+
+/**
+ * @brief c10: TRANSCRIPTION of grow_black_hole, M:346-378, as the recheck's gas branch calls it
+ *        (D:103, merger_centralgal = the burst host p), with CGMrecipeOn 1's wind
+ *
+ * The accretion (M:351-352) and its cap at the cold gas (M:355-357), SAGE26's own get_metallicity
+ * and the debits (M:359-365), the hydrogen cap with SAGE26's guard at this site (M:366-372, c08),
+ * the wind (M:374, transcribe_recheck_quasar_mode_wind) and the accretion record (M:376). Its own
+ * values are not recorded (c06's grow_black_hole fixtures record them); the wind's are.
+ */
+static void transcribe_recheck_grow_black_hole(struct context *ctx, const int merger_centralgal,
+                                               const double mass_ratio) {
+  const int g = merger_centralgal;
+  double BHaccrete, metallicity;
+
+  /* M:350 */
+  if (galaxies[g].ColdGas > 0.0) {
+    /* M:351-352 */
+    BHaccrete = run_params.BlackHoleGrowthRate * mass_ratio /
+                (1.0 + SQR(BH_GROWTH_V_KMS / galaxies[g].Vvir)) * galaxies[g].ColdGas;
+
+    /* M:355-357 */
+    if (BHaccrete > galaxies[g].ColdGas) {
+      BHaccrete = galaxies[g].ColdGas;
+    }
+
+    /* M:359-365 */
+    metallicity = get_metallicity(galaxies[g].ColdGas, galaxies[g].MetalsColdGas);
+    galaxies[g].BlackHoleMass += BHaccrete;
+    galaxies[g].ColdGas -= BHaccrete;
+    galaxies[g].MetalsColdGas -= metallicity * BHaccrete;
+    if (galaxies[g].MetalsColdGas < 0.0) {
+      galaxies[g].MetalsColdGas = 0.0;
+    }
+    /* M:366-372 */
+    const int sf_bh = run_params.SFprescription;
+    if (sf_bh != 0 && sf_bh != 2) {
+      const float max_h_bh =
+          (galaxies[g].ColdGas > 0.0f) ? galaxies[g].ColdGas * HYDROGEN_MASS_FRAC : 0.0f;
+      if (galaxies[g].H2gas > max_h_bh)
+        galaxies[g].H2gas = max_h_bh;
+      if (galaxies[g].H1gas > max_h_bh)
+        galaxies[g].H1gas = max_h_bh;
+    }
+
+    /* M:374 */
+    transcribe_recheck_quasar_mode_wind(ctx, g, BHaccrete);
+
+    /* M:376 */
+    galaxies[g].QuasarModeBHaccretionMass += BHaccrete;
+  }
+}
+
+/**
+ * @brief c10: TRANSCRIPTION of check_disk_instability, D:47-111 (D =
+ * R/src/model_disk_instability.c), as the burst's post-minor-merger recheck calls it (M:809), with
+ * CGMrecipeOn 1
+ *
+ * The disk mass (D:54), Mcrit and its cap (D:57-60), the unstable fractions (D:63-66), the stellar
+ * transfer with SAGE26's own get_metallicity and update_instability_bulge_radius (D:70-84), then
+ * the gas branch (D:90): the unstable gas fraction (D:101), the growth and its wind
+ * (D:102-104, transcribe_recheck_grow_black_hole: the wind host is the burst host p) and SAGE26's
+ * own mode-1 burst (D:106-108), whose commit (M:791) and yield (M:824, M:830) route by the FoF
+ * central's Regime: the two selections are recorded before the burst from that Regime (no
+ * statement between here and them writes Regime). The VERBOSE diagnostic of D:91-99 prints and sets
+ * run_params->interrupted only; it is not transcribed. recheck_cf selects an observation (enum
+ * recheck_cf): the growth or the burst is then SAGE26's own with one Regime flipped during it.
+ */
+static void transcribe_recheck_cgm(struct context *ctx, const int p, const int centralgal,
+                                   const double time, const double dt, const int step) {
+  struct locals *l = ctx->l;
+  l->recheck_gas_branch = 0;
+
+  /* D:54 */
+  const double diskmass = galaxies[p].ColdGas + (galaxies[p].StellarMass - galaxies[p].BulgeMass);
+  if (diskmass > 0.0) {
+    /* D:57-60 */
+    double Mcrit = galaxies[p].Vmax * galaxies[p].Vmax *
+                   (C08_TOOMRE_DISK_FACTOR * galaxies[p].DiskScaleRadius) / run_params.G;
+    if (Mcrit > diskmass) {
+      Mcrit = diskmass;
+    }
+
+    /* D:63-66 */
+    const double gas_fraction = galaxies[p].ColdGas / diskmass;
+    const double unstable_gas = gas_fraction * (diskmass - Mcrit);
+    const double star_fraction = 1.0 - gas_fraction;
+    const double unstable_stars = star_fraction * (diskmass - Mcrit);
+
+    /* D:70 */
+    const double old_disk_radius = galaxies[p].DiskScaleRadius;
+
+    /* D:73-84 */
+    if (unstable_stars > 0.0) {
+      const double metallicity =
+          get_metallicity(galaxies[p].StellarMass - galaxies[p].BulgeMass,
+                          galaxies[p].MetalsStellarMass - galaxies[p].MetalsBulgeMass);
+
+      galaxies[p].BulgeMass += unstable_stars;
+      galaxies[p].InstabilityBulgeMass += unstable_stars;
+      galaxies[p].MetalsBulgeMass += metallicity * unstable_stars;
+
+      update_instability_bulge_radius(p, unstable_stars, old_disk_radius, galaxies, &run_params);
+    }
+
+    /* D:90 */
+    if (unstable_gas > 0.0 && galaxies[p].ColdGas > 0.0) {
+      l->recheck_gas_branch = 1;
+
+      /* D:101 */
+      const double unstable_gas_fraction = unstable_gas / galaxies[p].ColdGas;
+
+      /* D:102-104 */
+      if (run_params.AGNrecipeOn > 0) {
+        if (recheck_cf == RECHECK_CF_WIND_HOST || recheck_cf == RECHECK_CF_WIND_CENTRAL) {
+          /* an observation of SAGE26's own growth and wind with one Regime flipped */
+          const int flipped = recheck_cf == RECHECK_CF_WIND_HOST ? p : centralgal;
+          galaxies[flipped].Regime = 1 - galaxies[flipped].Regime;
+          grow_black_hole(p, unstable_gas_fraction, galaxies, &run_params);
+          galaxies[flipped].Regime = 1 - galaxies[flipped].Regime;
+        } else {
+          transcribe_recheck_grow_black_hole(ctx, p, unstable_gas_fraction);
+        }
+      }
+
+      /* the recheck burst's two selections: S:1175-1176 in its commit (M:791 passes centralgal)
+       * and X:69 in its yield (M:824, M:830 pass &galaxies[centralgal]) */
+      l->cgm_flag[FLC_RECHECK_FEEDBACK_RESERVOIR_CGM] =
+          run_params.CGMrecipeOn == 1 && galaxies[centralgal].Regime == 0;
+      l->cgm_flag[FLC_RECHECK_YIELD_RESERVOIR_CGM] =
+          run_params.CGMrecipeOn == 1 && galaxies[centralgal].Regime == 0;
+
+      /* D:106-108: SAGE26's own burst (mode 1, the instability channel, the current radius) */
+      int flipped = -1;
+      if (recheck_cf == RECHECK_CF_BURST_CENTRAL) {
+        flipped = centralgal;
+      } else if (recheck_cf == RECHECK_CF_BURST_HOST) {
+        flipped = p;
+      }
+      if (flipped >= 0) {
+        galaxies[flipped].Regime = 1 - galaxies[flipped].Regime;
+      }
+      collisional_starburst_recipe(unstable_gas_fraction, p, centralgal, time, dt, ORACLE_HALONR, 1,
+                                   step, 0, galaxies[p].DiskScaleRadius, galaxies, &run_params);
+      if (flipped >= 0) {
+        galaxies[flipped].Regime = 1 - galaxies[flipped].Regime;
+      }
+    }
+  }
+}
+
 /**
  * @brief TRANSCRIPTION of collisional_starburst_recipe, M:584-832, on R0's to R3's paths
  *
@@ -1782,9 +2343,15 @@ static void observe_recheck_fire(struct locals *l, const int m, const int centra
  * SaveFullSFH 0 (M:763-768 does not run),
  * BulgeSizeOn 0 or 3 (the instability channel's update_instability_bulge_radius, M:783-784, is
  * SAGE26's own: it returns at once in mode 0, R/src/model_misc.c:395) and
- * CGMrecipeOn 0 (add_metals_to_hot_reservoir adds to MetalsHotGas, model_misc.h:67-74).
+ * CGMrecipeOn 0 (add_metals_to_hot_reservoir adds to MetalsHotGas, model_misc.h:67-74) or, for
+ * the *_fire routines, 1 (c10, R4): the feedback routes by the FoF central's Regime (the
+ * transcribed update_from_feedback), the yield through SAGE26's own or the transcribed
+ * add_metals_to_hot_reservoir on the FoF central (per the composition's routing), and the
+ * recheck is SAGE26's own check_disk_instability or its transcription (per the composition's
+ * recheck; CGMrecipeOn 1 only).
  * SAGE26's assertions (M:589-592, M:718) are checked and mark the composition out of domain.
- * The instability recheck (M:807-811) is SAGE26's own check_disk_instability.
+ * The instability recheck (M:807-811) is SAGE26's own check_disk_instability, or (c10) its
+ * transcription.
  */
 static void transcribe_collisional_starburst_recipe(struct context *ctx, const double mass_ratio,
                                                     const int merger_centralgal,
@@ -2007,7 +2574,11 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
       if (run_params.SFprescription == 1) {
         observe_recheck_growth(l, m, before, observed);
       }
-      check_disk_instability(m, centralgal, ORACLE_HALONR, time, dt, step, galaxies, &run_params);
+      if (ctx->comp.recheck && run_params.CGMrecipeOn == 1) {
+        transcribe_recheck_cgm(ctx, m, centralgal, time, dt, step); /* c10 */
+      } else {
+        check_disk_instability(m, centralgal, ORACLE_HALONR, time, dt, step, galaxies, &run_params);
+      }
       if (run_params.SFprescription == 1) {
         check_recheck_bh_observation(m, observed);
       }
@@ -2035,12 +2606,24 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
     double metals_leaving_disk = run_params.Yield * FracZleaveDiskVal * stars;
     metals_leaving_disk = tap(ctx, IM_YIELD_TO_HOT, metals_leaving_disk);
 
-    add_metals_to_hot_reservoir(&galaxies[centralgal], &run_params, metals_leaving_disk);
+    /* M:824 (c10: SAGE26's own helper, or its transcription per the composition) */
+    if (ctx->comp.routing && run_params.CGMrecipeOn == 1) {
+      transcribe_add_metals_to_hot_reservoir(ctx, &galaxies[centralgal], metals_leaving_disk,
+                                             FLC_BURST_YIELD_RESERVOIR_CGM);
+    } else {
+      add_metals_to_hot_reservoir(&galaxies[centralgal], &run_params, metals_leaving_disk);
+    }
   } else {
     double all_metals = run_params.Yield * stars;
     all_metals = tap(ctx, IM_YIELD_TO_HOT, all_metals);
 
-    add_metals_to_hot_reservoir(&galaxies[centralgal], &run_params, all_metals);
+    /* M:830 (c10: likewise) */
+    if (ctx->comp.routing && run_params.CGMrecipeOn == 1) {
+      transcribe_add_metals_to_hot_reservoir(ctx, &galaxies[centralgal], all_metals,
+                                             FLC_BURST_YIELD_RESERVOIR_CGM);
+    } else {
+      add_metals_to_hot_reservoir(&galaxies[centralgal], &run_params, all_metals);
+    }
   }
 }
 
@@ -2458,7 +3041,13 @@ static void transcribe_deal_with_galaxy_merger(struct context *ctx, const int p,
 
 /**
  * @brief TRANSCRIPTION of disrupt_satellite_to_ICS, M:845-903, on R0's path (CGMrecipeOn 0:
- *        add_gas_to_hot_reservoir adds to HotGas, R/src/model_misc.h:76-85)
+ *        add_gas_to_hot_reservoir adds to HotGas, R/src/model_misc.h:76-85) and (c10) R4's
+ *
+ * The satellite's cold, hot and CGM gas, and their metals, are summed in float and widened
+ * (M:848-849); with CGMrecipeOn 1 add_gas_to_hot_reservoir deposits them by the PASSED recipient
+ * centralgal's own Regime (M:851, X:78), which the pass gives as the merger target, an orphan's
+ * subhalo central included (B:539-543, B:575): SAGE26's own helper, or its transcription where
+ * the composition transcribes the routing (the selection recorded in disrupt_reservoir_cgm).
  */
 static void transcribe_disrupt_satellite_to_ICS(struct context *ctx, const int centralgal,
                                                 const int gal, const double time) {
@@ -2471,7 +3060,14 @@ static void transcribe_disrupt_satellite_to_ICS(struct context *ctx, const int c
       galaxies[gal].MetalsColdGas + galaxies[gal].MetalsHotGas + galaxies[gal].MetalsCGMgas;
   total_metals_gas = tap(ctx, IM_TOTAL_METALS_GAS, total_metals_gas);
 
-  add_gas_to_hot_reservoir(&galaxies[centralgal], &run_params, total_gas, total_metals_gas);
+  /* M:851 (c10: SAGE26's own helper, or its transcription per the composition; the PASSED
+   * recipient's Regime routes) */
+  if (ctx->comp.routing && run_params.CGMrecipeOn == 1) {
+    transcribe_add_gas_to_hot_reservoir(ctx, &galaxies[centralgal], total_gas, total_metals_gas,
+                                        FLC_DISRUPT_RESERVOIR_CGM);
+  } else {
+    add_gas_to_hot_reservoir(&galaxies[centralgal], &run_params, total_gas, total_metals_gas);
+  }
 
   /* M:854-863 */
   galaxies[centralgal].EjectedMass += galaxies[gal].EjectedMass;
@@ -2646,9 +3242,40 @@ struct checked_record {
   struct locals locals;
   struct sensitivity sens[IM_COUNT];
   int cflag_changes[CF_COUNT];
-  struct sensitivity h_sens[IMH_COUNT];    /* c08 */
-  struct sensitivity fire_sens[IMF_COUNT]; /* c09 */
+  struct sensitivity h_sens[IMH_COUNT];               /* c08 */
+  struct sensitivity fire_sens[IMF_COUNT];            /* c09 */
+  struct sensitivity cgm_sens[IMC_COUNT];             /* c10 */
+  int recheck_regime_sensitive[RECHECK_OBSERVATIONS]; /* c10: observe_recheck_regime() */
 };
+
+/**
+ * @brief c10: OBSERVATIONS of the post-minor-merger recheck's SAGE26 routines at CGMrecipeOn 1
+ *        (enum recheck_cf, RECHECK_OBSERVATION_INFO)
+ *
+ * The fully transcribed composition runs again from the input with one Regime flipped during one
+ * SAGE26 call of the recheck; sensitive[k] is 1 if the end state then differs from SAGE26's in a
+ * recorded field. A 1 shows that call reads that galaxy's Regime on this input; a 0 that it does
+ * not, or that its routing makes no difference here (an empty pair, a zero transfer, an energy test
+ * failing on both pairs). -1 where the recheck's gas branch was not reached, and for a flip of the
+ * FoF central other than the host when the host is its own FoF central.
+ */
+static void observe_recheck_regime(const struct GALAXY *input, const struct call_args *a,
+                                   const struct record_spec *spec, struct checked_record *rec) {
+  for (int k = 0; k < RECHECK_OBSERVATIONS; k++) {
+    rec->recheck_regime_sensitive[k] = -1;
+    if (rec->locals.recheck_gas_branch != 1 ||
+        (RECHECK_OBSERVATION_INFO[k].needs_distinct_central && a->target == a->centralgal)) {
+      continue;
+    }
+    recheck_cf = RECHECK_OBSERVATION_INFO[k].cf;
+    struct locals lp;
+    struct GALAXY result[MAX_GALAXIES];
+    const double value = compose(input, a, &ALL_TRANSCRIBED, &NO_PERTURBATION, &lp, result);
+    recheck_cf = RECHECK_CF_NONE;
+    rec->recheck_regime_sensitive[k] =
+        !composition_matches(result, value, &lp, rec->end, rec->end_value, spec);
+  }
+}
 
 /**
  * @brief Call SAGE26's routine, check every composition used, validate every carried value
@@ -2695,7 +3322,7 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
             IM_INFO[id].name, routine_name);
     }
     for (int up = 0; up <= 1; up++) {
-      const struct perturbation pt = {id, -1, up, -1, -1};
+      const struct perturbation pt = {id, -1, up, -1, -1, -1};
       value = compose(input, a, &comp, &pt, &lp, result);
       const int changed = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
                                                  same_f64(value, rec->end_value));
@@ -2722,7 +3349,7 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
             IMH_INFO[id].name, routine_name);
     }
     for (int up = 0; up <= 1; up++) {
-      const struct perturbation pt = {-1, -1, up, id, -1};
+      const struct perturbation pt = {-1, -1, up, id, -1, -1};
       value = compose(input, a, &comp, &pt, &lp, result);
       const int changed = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
                                                  same_f64(value, rec->end_value));
@@ -2749,7 +3376,7 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
             IMF_INFO[id].name, routine_name);
     }
     for (int up = 0; up <= 1; up++) {
-      const struct perturbation pt = {-1, -1, up, -1, id};
+      const struct perturbation pt = {-1, -1, up, -1, id, -1};
       value = compose(input, a, &comp, &pt, &lp, result);
       const int changed = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
                                                  same_f64(value, rec->end_value));
@@ -2765,12 +3392,42 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
     if (!rec->locals.cflag_present[id]) {
       continue;
     }
-    const struct perturbation pt = {-1, id, 0, -1, -1};
+    const struct perturbation pt = {-1, id, 0, -1, -1, -1};
     struct locals lp;
     value = compose(input, a, &OWN_ROUTINES, &pt, &lp, result);
     rec->cflag_changes[id] = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
                                                     same_f64(value, rec->end_value));
   }
+  /* c10: the CGMrecipeOn 1 values, each in the composition of the routine it is a local of */
+  for (int id = 0; id < IMC_COUNT; id++) {
+    rec->cgm_sens[id].up = 0;
+    rec->cgm_sens[id].down = 0;
+    if (!rec->locals.cgm_present[id]) {
+      continue;
+    }
+    struct composition comp = composition_for(IMC_INFO[id].stage);
+    /* a direct wind or growth fixture transcribes its routine whatever the stage (compose) */
+    struct locals lp;
+    value = compose(input, a, &comp, &NO_PERTURBATION, &lp, result);
+    if (!composition_matches(result, value, &lp, rec->end, rec->end_value, spec)) {
+      fatal("transcription check failed: the validation composition for %s does not reproduce "
+            "SAGE26's %s bit for bit",
+            IMC_INFO[id].name, routine_name);
+    }
+    for (int up = 0; up <= 1; up++) {
+      const struct perturbation pt = {-1, -1, up, -1, -1, id};
+      value = compose(input, a, &comp, &pt, &lp, result);
+      const int changed = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
+                                                 same_f64(value, rec->end_value));
+      if (up) {
+        rec->cgm_sens[id].up = changed;
+      } else {
+        rec->cgm_sens[id].down = changed;
+      }
+    }
+  }
+  /* c10: the recheck's SAGE26 routines observed (CGMrecipeOn 1, where its gas branch ran) */
+  observe_recheck_regime(input, a, spec, rec);
 }
 
 /** @brief Write one carried value: absent marker, value, check and validation markers */
@@ -2919,21 +3576,96 @@ static void write_fire_record(const struct checked_record *rec) {
           rec->locals.recheck_fire.redshift_sensitive);
 }
 
+/**
+ * @brief c10: one CGMrecipeOn 1 value: c06's markers (tail-checked, check kind 2), the value as the
+ *        double it is; none is narrowing-limited (each reaches the state through a strict
+ *        comparison)
+ */
+static void out_carried_cgm(const struct checked_record *rec, const int id) {
+  const char *name = IMC_INFO[id].name;
+  const int present = rec->locals.cgm_present[id];
+  out_i32(field_name("intermediate.%s_absent", name), present ? 0 : 1);
+  if (!present) {
+    return;
+  }
+  out_f64(field_name("intermediate.%s", name), rec->locals.cgm_value[id]);
+  out_i32(field_name("intermediate.%s_checked", name), 1);
+  out_i32(field_name("intermediate.%s_check_kind", name), (int)CHECK_TAIL);
+  out_i32(field_name("intermediate.%s_validated_up", name), rec->cgm_sens[id].up);
+  out_i32(field_name("intermediate.%s_validated_down", name), rec->cgm_sens[id].down);
+  out_i32(field_name("intermediate.%s_validated", name),
+          rec->cgm_sens[id].up && rec->cgm_sens[id].down);
+}
+
+/** The parts of the c10 record a routine writes */
+enum cgm_record_part {
+  CGM_RECORD_WIND = 1,   /* the transcribed wind: grow_black_hole, quasar_mode_wind, the merger */
+  CGM_RECORD_BURST = 2,  /* the burst's commit and yield and its recheck */
+  CGM_RECORD_DISRUPT = 4 /* the disruption's deposit */
+};
+
+static void out_cgm_flags(const struct locals *l, const int first, const int last) {
+  for (int f = first; f <= last; f++) {
+    out_i32(field_name("intermediate.%s", CGM_FLAG_NAMES[f]), l->cgm_flag[f]);
+  }
+}
+
+/**
+ * @brief c10: the record of a CGMrecipeOn 1 fixture, after every earlier field (nothing for
+ *        CGMrecipeOn 0, so an earlier output is unchanged): the configuration, the selections and
+ *        tests of the routine's sites, their values and, where the recheck's gas branch ran, the
+ *        observations of its SAGE26 routines
+ */
+static void write_cgm_record(const struct checked_record *rec, const int parts) {
+  if (!cgm_block) {
+    return;
+  }
+  out_i32("intermediate.cgm_recipe_on", run_params.CGMrecipeOn);
+  if (parts & CGM_RECORD_WIND) {
+    out_cgm_flags(&rec->locals, FLC_WIND_RESERVOIR_CGM, FLC_WIND_EJECTS_CGM);
+    out_carried_cgm(rec, IMC_CGM_GAS_ENERGY);
+  }
+  if (parts & CGM_RECORD_BURST) {
+    out_cgm_flags(&rec->locals, FLC_BURST_FEEDBACK_RESERVOIR_CGM, FLC_RECHECK_YIELD_RESERVOIR_CGM);
+    for (int id = IMC_RECHECK_WIND_QUASAR_ENERGY; id <= IMC_RECHECK_WIND_HOT_GAS_ENERGY; id++) {
+      out_carried_cgm(rec, id);
+    }
+    out_i32("intermediate.recheck_gas_branch", rec->locals.recheck_gas_branch);
+    if (rec->locals.recheck_gas_branch == 1) {
+      for (int k = 0; k < RECHECK_OBSERVATIONS; k++) {
+        out_i32(field_name("intermediate.%s", RECHECK_OBSERVATION_INFO[k].name),
+                rec->recheck_regime_sensitive[k]);
+      }
+    }
+  }
+  if (parts & CGM_RECORD_DISRUPT) {
+    out_cgm_flags(&rec->locals, FLC_DISRUPT_RESERVOIR_CGM, FLC_DISRUPT_RESERVOIR_CGM);
+  }
+}
+
 // ============================================================================
 // ROUTINES: SAGE26'S OWN, CHECKED
 // ============================================================================
 
-/** @brief The blocks a merger-family galaxy reads: c06's, and MassLoading for a *_fire routine */
+/** @brief The c10 block added to every galaxy of a CGMrecipeOn 1 fixture (Regime) */
+static int cgm_block_bit(void) { return cgm_block ? BLOCK_CGM : 0; }
+
+/** @brief The blocks a merger-family galaxy reads: c06's, MassLoading for a *_fire routine and
+ *         (c10) Regime for a CGMrecipeOn 1 fixture */
 static int merger_input_blocks(void) {
-  return BLOCK_MERGER_INPUT | (fire_routine ? BLOCK_FIRE : 0);
+  return BLOCK_MERGER_INPUT | (fire_routine ? BLOCK_FIRE : 0) | cgm_block_bit();
 }
 
-/** @brief The c09 block added to a recorded galaxy of a *_fire routine */
-static int fire_block(void) { return fire_routine ? BLOCK_FIRE : 0; }
+/** @brief The c09 block added to a recorded galaxy of a *_fire routine, and the c10 one */
+static int fire_block(void) { return (fire_routine ? BLOCK_FIRE : 0) | cgm_block_bit(); }
 
 static void read_merger_galaxies(const int ngal) {
   for (int i = 0; i < ngal; i++) {
     read_galaxy(i, merger_input_blocks());
+    /* c10: SAGE26's classifier assigns every evolved row 0 or 1 (R/src/model_regimes.c:77-95) */
+    if (cgm_block && galaxies[i].Regime != 0 && galaxies[i].Regime != 1) {
+      fatal("galaxy[%d].Regime = %d: the classifier assigns only 0 and 1", i, galaxies[i].Regime);
+    }
   }
   if (fire_routine) {
     read_fire_snapshots(ngal);
@@ -2971,6 +3703,7 @@ static void run_estimate_merging_time(void) {
 
 /** @brief grow_black_hole (M:346-378) on one galaxy, with the wind it calls */
 static void run_grow_black_hole(void) {
+  cgm_routine = 1; /* c10: CGMrecipeOn 0 or 1 */
   read_merger_config();
   struct call_args a;
   memset(&a, 0, sizeof(a));
@@ -2983,7 +3716,7 @@ static void run_grow_black_hole(void) {
 
   struct GALAXY input[MAX_GALAXIES];
   memcpy(input, galaxies, sizeof(input[0]));
-  const struct record_spec spec = {1, {BLOCK_RESERVOIRS}};
+  const struct record_spec spec = {1, {BLOCK_RESERVOIRS | cgm_block_bit()}};
   static struct checked_record rec;
   run_checked(input, &a, &spec, &rec);
 
@@ -2991,10 +3724,12 @@ static void run_grow_black_hole(void) {
   out_flags(&rec.locals, FL_BH_COLDGAS_POSITIVE, FL_WIND_EJECTS_HOT);
   out_values(&rec, IM_BH_ACCRETE_PRE_CAP, IM_HOT_GAS_ENERGY);
   write_h_record(&rec, 1, 0);
+  write_cgm_record(&rec, CGM_RECORD_WIND);
 }
 
 /** @brief quasar_mode_wind (M:390-442) on its own, with the accreted mass as input */
 static void run_quasar_mode_wind(void) {
+  cgm_routine = 1; /* c10: CGMrecipeOn 0 or 1 */
   read_merger_config();
   struct call_args a;
   memset(&a, 0, sizeof(a));
@@ -3007,13 +3742,14 @@ static void run_quasar_mode_wind(void) {
 
   struct GALAXY input[MAX_GALAXIES];
   memcpy(input, galaxies, sizeof(input[0]));
-  const struct record_spec spec = {1, {BLOCK_RESERVOIRS}};
+  const struct record_spec spec = {1, {BLOCK_RESERVOIRS | cgm_block_bit()}};
   static struct checked_record rec;
   run_checked(input, &a, &spec, &rec);
 
   write_recorded("", rec.end, &spec);
   out_flags(&rec.locals, FL_WIND_EJECTS_COLD, FL_WIND_EJECTS_HOT);
   out_values(&rec, IM_QUASAR_ENERGY, IM_HOT_GAS_ENERGY);
+  write_cgm_record(&rec, CGM_RECORD_WIND);
 }
 
 static void read_step_and_dt(struct call_args *a) {
@@ -3054,7 +3790,7 @@ static void run_collisional_starburst_recipe(void) {
   /* c09: a *_fire fixture also records any other galaxy (a merging satellite the burst is not
    * given), which must stay as it was */
   for (int i = 0; i < a.ngal; i++) {
-    spec.blocks[i] = fire_routine ? BLOCK_RESERVOIRS | BLOCK_FIRE : 0;
+    spec.blocks[i] = fire_routine ? BLOCK_RESERVOIRS | fire_block() : 0;
   }
   spec.blocks[a.centralgal] = BLOCK_RESERVOIRS | fire_block();
   spec.blocks[a.target] = BLOCK_RESERVOIRS | BLOCK_HISTORIES | fire_block();
@@ -3068,11 +3804,14 @@ static void run_collisional_starburst_recipe(void) {
   if (fire_routine) {
     write_fire_record(&rec);
   }
+  write_cgm_record(&rec, CGM_RECORD_BURST);
 }
 
-/** @brief c09: collisional_starburst_recipe with FIREmodeOn 0 or 1 (README "The c09 Group") */
+/** @brief c09: collisional_starburst_recipe with FIREmodeOn 0 or 1 (README "The c09 Group"), and
+ *         (c10) CGMrecipeOn 0 or 1 */
 static void run_collisional_starburst_recipe_fire(void) {
   fire_routine = 1;
+  cgm_routine = 1;
   run_collisional_starburst_recipe();
 }
 
@@ -3176,16 +3915,20 @@ static void run_deal_with_galaxy_merger(void) {
   if (fire_routine) {
     write_fire_record(&rec);
   }
+  write_cgm_record(&rec, CGM_RECORD_WIND | CGM_RECORD_BURST);
 }
 
-/** @brief c09: deal_with_galaxy_merger with FIREmodeOn 0 or 1 (README "The c09 Group") */
+/** @brief c09: deal_with_galaxy_merger with FIREmodeOn 0 or 1 (README "The c09 Group"), and (c10)
+ *         CGMrecipeOn 0 or 1 */
 static void run_deal_with_galaxy_merger_fire(void) {
   fire_routine = 1;
+  cgm_routine = 1;
   run_deal_with_galaxy_merger();
 }
 
 /** @brief disrupt_satellite_to_ICS (M:845-903) */
 static void run_disrupt_satellite_to_ICS(void) {
+  cgm_routine = 1; /* c10: CGMrecipeOn 0 or 1 */
   read_merger_config();
   struct call_args a;
   memset(&a, 0, sizeof(a));
@@ -3203,14 +3946,20 @@ static void run_disrupt_satellite_to_ICS(void) {
   struct GALAXY input[MAX_GALAXIES];
   memcpy(input, galaxies, (size_t)a.ngal * sizeof(input[0]));
   struct record_spec spec = {a.ngal, {0}};
-  spec.blocks[a.centralgal] = BLOCK_RESERVOIRS;
-  spec.blocks[a.p] = BLOCK_IDENT | BLOCK_RESERVOIRS | BLOCK_HISTORIES;
+  /* c10: a CGMrecipeOn 1 fixture records every galaxy (the FoF central that is not the recipient
+   * included), whose pairs must stay as they were unless the recipient's Regime selects them */
+  for (int i = 0; i < a.ngal; i++) {
+    spec.blocks[i] = cgm_block ? BLOCK_RESERVOIRS | BLOCK_CGM : 0;
+  }
+  spec.blocks[a.centralgal] = BLOCK_RESERVOIRS | cgm_block_bit();
+  spec.blocks[a.p] = BLOCK_IDENT | BLOCK_RESERVOIRS | BLOCK_HISTORIES | cgm_block_bit();
   static struct checked_record rec;
   run_checked(input, &a, &spec, &rec);
 
   write_recorded("", rec.end, &spec);
   out_flags(&rec.locals, FL_DISRUPT_STARS_POSITIVE, FL_DISRUPT_ICS_POSITIVE);
   out_values(&rec, IM_TOTAL_GAS, IM_TOTAL_METALS_GAS);
+  write_cgm_record(&rec, CGM_RECORD_DISRUPT);
 }
 
 // ============================================================================
@@ -3232,7 +3981,19 @@ struct pass_galaxy {
   int action;            /* 0 none, 1 deal_with_galaxy_merger, 4 disrupt_satellite_to_ICS */
   int step_bin;          /* B:579-580 */
   double dt;             /* B:581 */
+  /* c10 (CGMrecipeOn 1): the disruption's selection, X:78 at M:851 on the passed recipient
+   * merger_centralgal (B:575), -1 where the row is not disrupted; and the OBSERVATIONS of this
+   * row's SAGE26 call (write_pass_cgm_record), -1 where the row neither merges nor disrupts */
+  int disrupt_reservoir_cgm;
+  int recipient_regime_sensitive; /* the recipient's (target's) Regime flipped during the call */
+  int central_regime_sensitive;   /* the FoF central's, -1 where it is the recipient */
 };
+
+/* c10: an observation of the pass (write_pass_cgm_record): during row pass_flip_row's SAGE26 call
+ * (disrupt_satellite_to_ICS or deal_with_galaxy_merger) galaxy pass_flip_galaxy's Regime is flipped
+ * and restored after it; -1 for no observation */
+static int pass_flip_row = -1;
+static int pass_flip_galaxy = -1;
 
 /** The arguments of one substep of the pass */
 struct pass_args {
@@ -3265,6 +4026,9 @@ static void transcribe_merger_pass(const struct pass_args *a, struct pass_galaxy
     memset(r, 0, sizeof(*r));
     r->merger_centralgal = -1;
     r->event_time = NAN;
+    r->disrupt_reservoir_cgm = -1;
+    r->recipient_regime_sensitive = -1;
+    r->central_regime_sensitive = -1;
 
     /* B:523 */
     if ((galaxies[p].Type == 1 || galaxies[p].Type == 2) && galaxies[p].mergeType == 0) {
@@ -3315,9 +4079,18 @@ static void transcribe_merger_pass(const struct pass_args *a, struct pass_galaxy
           const double event_time = a->age[p] - (step + 0.5) * (deltaT / effective_steps);
           r->event_time = event_time;
 
+          /* c10: an observation flips one Regime during this row's call only */
+          const int flip = pass_flip_row == p ? pass_flip_galaxy : -1;
+          if (flip >= 0) {
+            galaxies[flip].Regime = 1 - galaxies[flip].Regime;
+          }
+
           /* B:574-582 */
           if (galaxies[p].MergTime > 0.0) {
             r->action = 4;
+            /* c10: the selection the deposit makes, X:78 on the passed recipient (M:851) */
+            r->disrupt_reservoir_cgm =
+                run_params.CGMrecipeOn == 1 && galaxies[merger_centralgal].Regime == 0;
             disrupt_satellite_to_ICS(merger_centralgal, p, event_time, galaxies, &run_params);
           } else {
             r->action = 1;
@@ -3330,6 +4103,9 @@ static void transcribe_merger_pass(const struct pass_args *a, struct pass_galaxy
             deal_with_galaxy_merger(p, merger_centralgal, centralgal, event_time,
                                     deltaT / effective_steps, ORACLE_HALONR, step_bin, galaxies,
                                     &run_params);
+          }
+          if (flip >= 0) {
+            galaxies[flip].Regime = 1 - galaxies[flip].Regime;
           }
         }
       }
@@ -3437,6 +4213,65 @@ static void write_pass_fire_record(const struct pass_args *a, const struct GALAX
   out_i32("intermediate.pass_fire_redshift_sensitive", sensitive[1]);
 }
 
+/**
+ * @brief c10: the record of a CGMrecipeOn 1 merger_pass_fire fixture, after every earlier field
+ *
+ * intermediate.cgm_recipe_on, and per galaxy (intermediate.pass.galaxy[i].*) the disruption's
+ * selection disrupt_reservoir_cgm (X:78 on the passed recipient at M:851, -1 where the row is not
+ * disrupted) and two OBSERVATIONS of the row's own SAGE26 call (disrupt_satellite_to_ICS or
+ * deal_with_galaxy_merger): the pass runs again on the input with the recipient's (the merger
+ * target's) Regime flipped during that call only (recipient_regime_sensitive), and with the FoF
+ * central's (central_regime_sensitive, -1 where the central is the recipient), each 1 if the
+ * pass's end state (every galaxy's members) then differs. -1 where the row neither merges nor
+ * disrupts.
+ */
+static void write_pass_cgm_record(const struct pass_args *a, const struct GALAXY *input,
+                                  struct pass_galaxy *rec) {
+  if (!cgm_block) {
+    return;
+  }
+  struct GALAXY end[MAX_GALAXIES];
+  memcpy(end, galaxies, (size_t)a->ngal * sizeof(end[0]));
+  struct record_spec spec = {a->ngal, {0}};
+  for (int i = 0; i < a->ngal; i++) {
+    spec.blocks[i] = merger_input_blocks();
+  }
+  for (int p = 0; p < a->ngal; p++) {
+    if (rec[p].action != 1 && rec[p].action != 4) {
+      continue;
+    }
+    for (int which = 0; which < 2; which++) {
+      const int flipped = which == 0 ? rec[p].merger_centralgal : a->centralgal;
+      if (which == 1 && flipped == rec[p].merger_centralgal) {
+        continue;
+      }
+      memcpy(galaxies, input, (size_t)a->ngal * sizeof(galaxies[0]));
+      pass_flip_row = p;
+      pass_flip_galaxy = flipped;
+      struct pass_galaxy cf[MAX_GALAXIES];
+      transcribe_merger_pass(a, cf);
+      pass_flip_row = -1;
+      pass_flip_galaxy = -1;
+      const int changed = !same_recorded(galaxies, end, &spec);
+      if (which == 0) {
+        rec[p].recipient_regime_sensitive = changed;
+      } else {
+        rec[p].central_regime_sensitive = changed;
+      }
+    }
+  }
+  memcpy(galaxies, end, (size_t)a->ngal * sizeof(galaxies[0]));
+
+  out_i32("intermediate.cgm_recipe_on", run_params.CGMrecipeOn);
+  for (int p = 0; p < a->ngal; p++) {
+    char base[NAME_LEN];
+    snprintf(base, sizeof(base), "intermediate.pass.galaxy[%d].", p);
+    out_i32(field_name("%sdisrupt_reservoir_cgm", base), rec[p].disrupt_reservoir_cgm);
+    out_i32(field_name("%srecipient_regime_sensitive", base), rec[p].recipient_regime_sensitive);
+    out_i32(field_name("%scentral_regime_sensitive", base), rec[p].central_regime_sensitive);
+  }
+}
+
 /** @brief Read the pass's call inputs: the substep, Age per galaxy snapshot, layout */
 static void read_pass_args(struct pass_args *a, const int ngal) {
   a->ngal = ngal;
@@ -3512,11 +4347,14 @@ static void run_merger_pass(void) {
   if (fire_routine) {
     write_pass_fire_record(&a, input, rec);
   }
+  write_pass_cgm_record(&a, input, rec);
 }
 
-/** @brief c09: the merger pass with FIREmodeOn 0 or 1 (README "The c09 Group") */
+/** @brief c09: the merger pass with FIREmodeOn 0 or 1 (README "The c09 Group"), and (c10)
+ *         CGMrecipeOn 0 or 1 */
 static void run_merger_pass_fire(void) {
   fire_routine = 1;
+  cgm_routine = 1;
   run_merger_pass();
 }
 

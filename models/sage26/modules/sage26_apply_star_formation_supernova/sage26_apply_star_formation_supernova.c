@@ -22,6 +22,11 @@
  * With SFprescription 1 (BR06) each commit then caps H2gas and H1gas at the hydrogen of the
  * remaining cold gas (:1128-1135, :1169-1173); with 0 (R0, R1) neither does.
  *
+ * The required parameter CGMrecipeOn (campaign decision D33, 0 or 1) selects the feedback's
+ * destination pair: the FoF central's CGM pair with CGMrecipeOn 1 and the CENTRAL's Regime 0, its
+ * hot pair otherwise, whatever the forming galaxy's own Regime (:1175-1247). The reheated gas is
+ * credited to that pair and the ejection capped against it after the reheating.
+ *
  * The sample is taken at SAGE26's point: stars is the renormalised mass
  * sage26_calculate_supernova_feedback leaves in NewStellarMass, and the cold gas is
  * the reservoir before anything is committed. bin is the substep's history bin,
@@ -50,6 +55,7 @@
 #include "module_registry.h"
 #include "types.h"
 #include "shared/metallicity.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_h2_physics.h"
 #include "shared/sage_sf_feedback_physics.h"
 #include "shared/sage_sfr_history.h"
@@ -66,6 +72,11 @@ static double RECYCLE_FRACTION;
 /* SAGE26's SFprescription: 0 (R0, R1) or 1 (BR06), which the commits test for their hydrogen
  * caps (R/src/model_starformation_and_feedback.c:1131, :1169) */
 static int SF_PRESCRIPTION;
+
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
+ * init (campaign decision D33), which with the FoF central's Regime selects the feedback's pair
+ * (R/src/model_starformation_and_feedback.c:1175) */
+static int CGM_RECIPE_ON;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -115,6 +126,12 @@ int sage26_apply_star_formation_supernova_init(void) {
                                           SF_PRESCRIPTION) != 0) {
     return -1;
   }
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
+  if (mimic_sage_validate_cgm_recipe_on("sage26_apply_star_formation_supernova", CGM_RECIPE_ON) !=
+      0) {
+    return -1;
+  }
 
   /* Dependency checks: this is an infrastructure apply step that must follow
    * its SF/SN prescription modules. */
@@ -160,6 +177,7 @@ int sage26_apply_star_formation_supernova_init(void) {
   VERBOSE_LOG("SAGE SF/SN apply step module initialized");
   VERBOSE_LOG("  RecycleFraction = %.3f", RECYCLE_FRACTION);
   VERBOSE_LOG("  SFprescription = %d", SF_PRESCRIPTION);
+  VERBOSE_LOG("  CGMrecipeOn = %d", CGM_RECIPE_ON);
 
   return 0;
 }
@@ -217,7 +235,7 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
   }
 
   // ========================================================================
-  // SUPERNOVA FEEDBACK: cold -> central hot -> central ejected (:1075-1085)
+  // SUPERNOVA FEEDBACK: cold -> central's selected pair -> central ejected (:1075-1085)
   // ========================================================================
 
   // Recompute the metallicity of the cold phase after star formation
@@ -229,8 +247,10 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
     reheated_mass = gal->ColdGas;
   }
 
+  /* SAGE parity: the FoF central (SAGE26's centralgal) receives the feedback, and ITS Regime
+   * selects the pair with CGMrecipeOn 1 (:1085, :1175-1176) */
   mimic_sage_update_from_feedback(gal, central_gal, reheated_mass, ejected_mass, metallicity,
-                                  SF_PRESCRIPTION, NULL);
+                                  SF_PRESCRIPTION, CGM_RECIPE_ON, NULL);
 
   // ========================================================================
   // CLEANUP: Zero out consumed SN transport properties

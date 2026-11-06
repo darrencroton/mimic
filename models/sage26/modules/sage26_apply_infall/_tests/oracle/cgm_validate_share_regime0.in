@@ -1,0 +1,22 @@
+# Two-sided validation of infallingGas_per_step and infallingGas_after_ejected: positive infall of
+# one double ulp above the float 1.25 into a CGM of -1.25 (effective_steps 1, no ejected gas), so
+# CGMgas stores that ulp exactly; the upward neighbour stores two ulps, the downward one zero.
+# Reachability: constructed routine-domain probe (a negative CGM reservoir built for two-sided
+# validation).
+# R4's flags: CGMrecipeOn 1 (par/R4.par:54); ReionizationOn 1, BaryonFrac 0.17,
+# ReIncorporationFactor 0.19 and Reionization_z0/zr 8/7 as R3 (R4.par:51, :39, :72, :85-86).
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+
+i32 params.CGMrecipeOn 1
+
+f64 call.InfallingGas 0x3ff4000000000001  # 1.2500000000000002  (the snapshot budget infall_recipe returned)
+i32 call.effective_steps 1
+i32 galaxy[0].Type 0
+i32 galaxy[0].Regime 0
+f32 galaxy[0].EjectedMass 0x00000000  # 0
+f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[0].HotGas 0x40000000  # 2
+f32 galaxy[0].MetalsHotGas 0x3ca3d70a  # 0.0199999996
+f32 galaxy[0].CGMgas 0xbfa00000  # -1.25
+f32 galaxy[0].MetalsCGMgas 0x3c75c28f  # 0.0149999997

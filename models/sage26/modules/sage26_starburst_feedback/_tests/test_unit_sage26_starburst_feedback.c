@@ -81,6 +81,16 @@
  *   - test_fire_mode_refused: FIREmodeOn is required (D33): missing or 2 or -1 refused, naming it
  *   - test_fire_burst_snapnum_refused: D35 through a burst: a stored SnapNum of -1 or the table
  *     size is refused, naming it and the table size, and the burst writes nothing
+ *   - test_cgm_burst_module_channels: CGMrecipeOn 1 against 0 on the same input, through the
+ *     module's two channels (the instability burst, process_by_galaxy; the merger burst,
+ *     process_per_event): the feedback and the escaping yield reach the FoF central's CGM pair
+ *     (its Regime 0) or hot pair (Regime 1, or CGMrecipeOn 0); the burst host holds the other
+ *     Regime; the unselected pair and the host's own pairs unchanged (the bundle's CGMrecipeOn)
+ *   - test_cgm_burst_recheck_sites: the post-minor-merger recheck's own sites: its quasar wind
+ *     selects by the burst HOST's Regime, its nested burst's feedback and yield by the FoF
+ *     central's, as do the outer burst's (R/src/model_mergers.c:806-831,
+ *     R/src/model_disk_instability.c:102-108)
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
  * The three hydrogen tests are platform independent (no oracle bit pattern; the remainder is
  * formed with C's correctly rounded fma, as the shared helper forms it), so they run on every
  * platform. So are the FIRE tests: each expectation is SAGE26's expression written in the test
@@ -247,6 +257,7 @@ static void setup_test_parameters(double reheating_eps, double ejection_eff, dou
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription and StarburstColdGasOn, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 }
 
 static void append_model_param(const char *param_name, double value) {
@@ -1981,6 +1992,7 @@ int test_module_initialization(void) {
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription and StarburstColdGasOn, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -3151,6 +3163,241 @@ int test_fire_burst_snapnum_refused(void) {
   return TEST_PASS;
 }
 
+// ============================================================================
+// CGM ROUTING TESTS (c10, CGMrecipeOn)
+// ============================================================================
+//
+// SAGE26's burst (R = the staged SAGE26 source, R/src/model_mergers.c:584-831) commits its feedback
+// through update_from_feedback to the FoF CENTRAL (:791), whose CGM pair it uses with CGMrecipeOn 1
+// and the central's Regime 0 and whose hot pair otherwise
+// (R/src/model_starformation_and_feedback.c:1175-1247), and sends its escaping yield through
+// add_metals_to_hot_reservoir to the same central's selected metals (:824, :830,
+// R/src/model_misc.h:67-74). The burst host is given the other Regime throughout. The parameters
+// make the instability burst exact: FeedbackReheatingEpsilon 1, FeedbackEjectionEfficiency 0 (the
+// ejection (0 - 1) * stars is floored to 0, :738-748), RecycleFraction 0.5, Yield 0.5,
+// FracZleaveDisk 1 with the central's Mvir 0 (FracZleaveDiskVal = 1 * exp(-0 / 30) = 1, :816),
+// ThreshMajorMerger 0.3, a host with ColdGas 1 and no cold metals:
+//   instability (mode 1, fraction 0.25): eburst 0.25 (:600-601), stars 0.25, reheated 0.25 (:712),
+//   no renormalisation (0.5 <= 1); the host keeps 1 - 0.125 - 0.25 = 0.625 of cold gas, so the
+//   yield takes the retained branch (:814) with nothing retained and 0.5 * 1 * 0.25 = 0.125
+//   escaping (:822); the central's selected pair 2 / 0.25 -> 2.25 / 0.375.
+//   merger (mode 0, ratio 0.5, a major merger: no recheck, :807-808, and all the yield escapes,
+//   :828): eburst = 0.56 * pow(0.5, 0.7) (:603), formed at run time below, stars = eburst * 1,
+//   reheated = stars; the selected pair -> (float)(2 + stars) / (float)(0.25 + 0.5 * stars).
+
+/** @brief SAGE26's merger burst stars from ColdGas 1 (R/src/model_mergers.c:603, :685) */
+static __attribute__((noinline)) double c10_merger_burst_stars(double mass_ratio) {
+  volatile double ratio = mass_ratio;
+  volatile float cold_gas = 1.0f;
+  return 0.56 * pow(ratio, 0.7) * cold_gas;
+}
+
+/** @brief Initialise with the exact-burst parameters and CGMrecipeOn `cgm` (NULL: missing) */
+static int c10_init(const char *cgm, const char **log) {
+  init_memory_system(0);
+  reset_config();
+  setup_test_parameters(1.0, 0.0, 0.5, 0.5, 1.0, 0.3);
+  sb_fire_set_param("CGMrecipeOn", cgm);
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_starburst_feedback_init();
+  if (capture != NULL) {
+    set_log_output(old_out);
+    *log = sb_fire_read_log(capture);
+    fclose(capture);
+  } else {
+    *log = "";
+  }
+  return status;
+}
+
+/**
+ * @test    test_cgm_burst_module_channels
+ * @brief   Both module channels pass CGMrecipeOn to the burst, whose feedback and yield reach the
+ *          FoF central's selected pair
+ */
+int test_cgm_burst_module_channels(void) {
+  const struct {
+    const char *cgm;
+    int central_regime;
+    int to_cgm;
+  } runs[] = {{"1", 0, 1}, {"1", 1, 0}, {"0", 0, 0}, {"0", 1, 0}};
+  const double merger_stars = c10_merger_burst_stars(0.5);
+  int ok = 1;
+  for (int channel = 0; channel < 2; channel++) { /* 0 the instability, 1 the merger event */
+    for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
+      const char *log = "";
+      TEST_ASSERT(c10_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+      struct Halo host, central;
+      struct GalaxyData host_gal, central_gal;
+      setup_test_galaxy(&central, &central_gal, 0, 0.0, 200.0, 3.0, 0.0, 4.0, 1.0, 2.0, 0.25);
+      central_gal.CGMgas = 2.0f;
+      central_gal.MetalsCGMgas = 0.25f;
+      central_gal.Regime = runs[r].central_regime;
+      setup_test_galaxy(&host, &host_gal, 1, 10.0, 120.0, 1.0, 0.0, 2.0, 0.5, 5.0, 0.5);
+      host_gal.MetalsStellarMass = 0.0f;
+      host_gal.MetalsBulgeMass = 0.0f;
+      host_gal.CGMgas = 5.0f;
+      host_gal.MetalsCGMgas = 0.5f;
+      host_gal.Regime = 1 - runs[r].central_regime;
+      struct ModuleContext ctx;
+      setup_test_context(&ctx, &central);
+      struct ModuleEvent event = {.producer_module_id =
+                                      MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                                  .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                                  .source_index = 2,
+                                  .target_index = 1,
+                                  .value0 = 0.5,
+                                  .value1 = 0.01};
+      if (channel == 1) {
+        ctx.active_event = &event;
+      } else {
+        host_gal.UnstableDiskGasFraction = 0.25;
+      }
+      const int status = sage26_starburst_feedback_process(&ctx, &host, 1);
+
+      const float gas_out = channel == 0 ? 2.25f : (float)(2.0 + merger_stars);
+      const float metals_out = channel == 0 ? 0.375f : (float)(0.25 + 0.5 * merger_stars);
+      const float *sel_gas = runs[r].to_cgm ? &central_gal.CGMgas : &central_gal.HotGas;
+      const float *sel_metals =
+          runs[r].to_cgm ? &central_gal.MetalsCGMgas : &central_gal.MetalsHotGas;
+      const float *oth_gas = runs[r].to_cgm ? &central_gal.HotGas : &central_gal.CGMgas;
+      const float *oth_metals =
+          runs[r].to_cgm ? &central_gal.MetalsHotGas : &central_gal.MetalsCGMgas;
+      const int central_ok = *sel_gas == gas_out && *sel_metals == metals_out && *oth_gas == 2.0f &&
+                             *oth_metals == 0.25f && central_gal.EjectedGas == 0.0f &&
+                             central_gal.ColdGas == 3.0f;
+      const int host_ok =
+          host_gal.HotGas == 5.0f && host_gal.MetalsHotGas == 0.5f && host_gal.CGMgas == 5.0f &&
+          host_gal.MetalsCGMgas == 0.5f && host_gal.EjectedGas == 0.0f &&
+          (channel == 1 || (host_gal.ColdGas == 0.625f && host_gal.MetalsColdGas == 0.0f &&
+                            host_gal.SupernovaOutflowRate == 0.25f));
+      if (status != 0 || !central_ok || !host_ok) {
+        printf("\n  channel %d, CGMrecipeOn %s, central Regime %d: status %d, central hot "
+               "%.9g/%.9g, CGM %.9g/%.9g (expected selected %.9g/%.9g), host cold %.9g",
+               channel, runs[r].cgm, runs[r].central_regime, status, (double)central_gal.HotGas,
+               (double)central_gal.MetalsHotGas, (double)central_gal.CGMgas,
+               (double)central_gal.MetalsCGMgas, (double)gas_out, (double)metals_out,
+               (double)host_gal.ColdGas);
+        ok = 0;
+      }
+      sage26_starburst_feedback_cleanup();
+    }
+  }
+  check_memory_leaks();
+  TEST_ASSERT(ok, "each burst channel must route its feedback and yield by the central's Regime");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_burst_recheck_sites
+ * @brief   The recheck's wind selects by the host's Regime; every burst's feedback and yield, the
+ *          nested instability burst's included, by the FoF central's
+ *
+ * The minor merger of recheck_growth_burst (ratio 0.2 below ThreshMajorMerger 0.3, a gas-unstable
+ * host disk) runs the recheck, its black-hole growth and wind on the host and its nested mode-1
+ * burst (R/src/model_mergers.c:806-811, R/src/model_disk_instability.c:90-108). Each galaxy's two
+ * pairs hold the same input. The central's selected pair receives both bursts; its unselected pair
+ * must keep its input, and so must the host's pair its wind does not select. The site selections
+ * are the transaction's locals, each compared with the Regime of the galaxy that must route it.
+ */
+int test_cgm_burst_recheck_sites(void) {
+  const struct {
+    int cgm;
+    int central_regime;
+    int host_regime;
+  } runs[] = {{1, 0, 1}, {1, 1, 0}, {0, 0, 1}, {0, 1, 0}};
+  int ok = 1;
+  for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
+    static struct Halo central, host;
+    static struct GalaxyData central_gal, gal;
+    setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+    central_gal.CGMgas = 40.0f;
+    central_gal.MetalsCGMgas = 0.8f;
+    central_gal.Regime = runs[r].central_regime;
+    setup_test_galaxy(&host, &gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+    host.Vmax = 50.0f;
+    gal.DiskScaleRadius = 0.001f;
+    gal.BlackHoleMass = 0.05f;
+    gal.CGMgas = 5.0f;
+    gal.MetalsCGMgas = 0.1f;
+    gal.Regime = runs[r].host_regime;
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.params = &MimicConfig;
+    MimicConfig.G = 43.00707785642063;
+    MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
+    const struct MimicStarburstParams params = {
+        .feedback_reheating_epsilon = 2.9,
+        .feedback_ejection_efficiency = 0.3,
+        .recycle_fraction = 0.43,
+        .yield = 0.025,
+        .threshold_major_merger = 0.3,
+        .energy_sn_code = 0.0036701860231271991,
+        .eta_sn_code = 68493150.684931502,
+        .disk_instability_on = 1,
+        .star_forming_disk_factor = 3.0,
+        .agn_recipe_on = 1,
+        .black_hole_growth_rate = 0.015,
+        .quasar_mode_efficiency = 0.001,
+        .cgm_recipe_on = runs[r].cgm,
+    };
+    struct MimicSageStarburstLocals b;
+    const int status = mimic_apply_collisional_starburst(0.2, &host, &central, 0, 1, 0.0, 0.0, 0,
+                                                         0.01, &ctx, &params, &b);
+    const int central_cgm = runs[r].cgm == 1 && runs[r].central_regime == 0;
+    const int host_cgm = runs[r].cgm == 1 && runs[r].host_regime == 0;
+    const int ran = b.instability_recheck_ran == 1 && b.recheck_wind.reservoir_cgm != -1 &&
+                    b.recheck_feedback_reservoir_cgm != -1 && b.recheck_yield_reservoir_cgm != -1;
+    const int sites_ok =
+        b.feedback.reservoir_cgm == central_cgm && b.yield_reservoir_cgm == central_cgm &&
+        b.recheck_feedback_reservoir_cgm == central_cgm &&
+        b.recheck_yield_reservoir_cgm == central_cgm && b.recheck_wind.reservoir_cgm == host_cgm &&
+        isnan(host_cgm ? b.recheck_wind.hot_gas_energy : b.recheck_wind.cgm_gas_energy);
+    const float central_unselected_gas = central_cgm ? central_gal.HotGas : central_gal.CGMgas;
+    const float central_unselected_metals =
+        central_cgm ? central_gal.MetalsHotGas : central_gal.MetalsCGMgas;
+    const float host_unselected_gas = host_cgm ? gal.HotGas : gal.CGMgas;
+    const float host_unselected_metals = host_cgm ? gal.MetalsHotGas : gal.MetalsCGMgas;
+    /* both of the host's pairs entered as 5 / 0.1, both of the central's as 40 / 0.8 */
+    const int unselected_ok = central_unselected_gas == 40.0f &&
+                              central_unselected_metals == 0.8f && host_unselected_gas == 5.0f &&
+                              host_unselected_metals == 0.1f;
+    if (status != 0 || !ran || !sites_ok || !unselected_ok) {
+      printf("\n  CGMrecipeOn %d, central Regime %d, host Regime %d: status %d, ran %d, feedback "
+             "%d, yield %d, recheck feedback %d, recheck yield %d, recheck wind %d, central "
+             "unselected %.9g/%.9g, host unselected %.9g/%.9g",
+             runs[r].cgm, runs[r].central_regime, runs[r].host_regime, status, ran,
+             b.feedback.reservoir_cgm, b.yield_reservoir_cgm, b.recheck_feedback_reservoir_cgm,
+             b.recheck_yield_reservoir_cgm, b.recheck_wind.reservoir_cgm,
+             (double)central_unselected_gas, (double)central_unselected_metals,
+             (double)host_unselected_gas, (double)host_unselected_metals);
+      ok = 0;
+    }
+  }
+  TEST_ASSERT(ok, "the recheck's wind must route by the host, every burst site by the central");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_recipe_on_refused
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
+ *          naming the parameter (campaign decision D33)
+ */
+int test_cgm_recipe_on_refused(void) {
+  const char *log = "";
+  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  sage26_starburst_feedback_cleanup();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -3215,6 +3462,9 @@ int main(void) {
   TEST_RUN(test_fire_burst_wiring_recheck);
   TEST_RUN(test_fire_mode_refused);
   TEST_RUN(test_fire_burst_snapnum_refused);
+  TEST_RUN(test_cgm_burst_module_channels);
+  TEST_RUN(test_cgm_burst_recheck_sites);
+  TEST_RUN(test_cgm_recipe_on_refused);
 
   /* Print summary and return result */
   TEST_SUMMARY();

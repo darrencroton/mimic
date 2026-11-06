@@ -26,6 +26,16 @@
  * cap flags and the float bound max_h_bh, bit for bit), sage26_oracle_hydrogen.h. BulgeSizeOn
  * and Hubble_h, which neither routine reads, are read and not applied.
  *
+ * CGMrecipeOn 1 (the c10 qw_cgm_* and bh_cgm_* fixtures, R4's flags; oracle README "The c10 Group,
+ * Part 3"): the fixture's CGMrecipeOn is passed to both helpers and the galaxy's Regime is set from
+ * the fixture; the wind's second test then selects the WIND HOST's pair, its CGM pair for Regime 0
+ * (M:406-428). The test also asserts the c10 record: the selection
+ * (intermediate.wind_reservoir_cgm) against the wind's reservoir_cgm AND against the host's input
+ * Regime, the CGM test (wind_ejects_cgm; c06's wind_ejects_hot is -1 where the CGM pair is selected
+ * and hot_gas_energy absent), cgm_gas_energy bit for bit, and the host's pair its Regime does not
+ * select unchanged against the input. FIREmodeOn (R4's 1, which neither routine reads) is read and
+ * not applied.
+ *
  * Inputs read but not applied, each named: the burst parameters (FeedbackReheatingEpsilon,
  * FeedbackEjectionEfficiency, EtaSNcode, EnergySNcode, RecycleFraction, Yield,
  * FracZleaveDisk, ThreshMajorMerger) and G, which no black-hole or wind statement reads;
@@ -48,6 +58,7 @@
 #include <string.h>
 
 #include "modules/_tests/sage_test_fixtures.h"
+#include "modules/_tests/sage26_oracle_cgm.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
 #include "modules/_tests/sage26_oracle_hydrogen.h"
 #include "shared/sage_agn_physics.h"
@@ -60,15 +71,22 @@ static const char *MODULE = "sage26_quasar_mode";
 
 static struct oracle_c06_carried_tally tally;
 static struct oracle_c08_local_tally h_tally;
+/* c10: the CGMrecipeOn 1 fixtures' assertions, and the fixtures whose wind selected each pair */
+static struct oracle_c10_site_tally cgm_tally;
+static int cgm_wind_cgm_pair = 0, cgm_wind_hot_pair = 0;
 
 /**
  * @brief Read the fixture's flags and parameters into the run configuration
  * @return Number of problems
  */
 static int setup_parameters(struct oracle_fixture *in, double *growth_rate, double *efficiency,
-                            int *sf_prescription) {
+                            int *sf_prescription, int *cgm_recipe_on) {
   struct MimicSageBulgeSize sizes; /* read, not applied: neither routine reads the sizes */
-  int problems = oracle_c08_require_merger_flags(in, &sizes, sf_prescription);
+  /* CGMrecipeOn 0, or 1 (c10, R4); FIREmodeOn 0, or R4's 1 with CGMrecipeOn 1, read and not
+   * applied (neither routine reads it) */
+  int fire_mode_on = 0;
+  int problems = oracle_c10_require_merger_flags(in, &sizes, sf_prescription, 0, 1, cgm_recipe_on,
+                                                 &fire_mode_on);
   reset_config();
   MimicConfig.UnitVelocity_in_cm_per_s = oracle_in_f64(in, "params.UnitVelocity_in_cm_per_s");
   *growth_rate = oracle_in_f64(in, "params.BlackHoleGrowthRate");
@@ -92,17 +110,52 @@ static int setup_parameters(struct oracle_fixture *in, double *growth_rate, doub
   return problems;
 }
 
-/** @brief Assert the wind's flags and carried values; returns the number of problems */
+/**
+ * @brief Assert the wind's flags and carried values; returns the number of problems
+ *
+ * c06's wind_ejects_hot is the second test on the hot pair; with CGMrecipeOn 1 and the CGM pair
+ * selected it is not evaluated (-1) and the c10 record holds the CGM test (check_wind_cgm).
+ */
 static int check_wind(struct oracle_fixture *out, const struct MimicSageQuasarWindLocals *wind) {
   int problems = 0;
   problems += oracle_c06_check_flag(out, "wind_ejects_cold", wind->ejects_cold);
-  problems += oracle_c06_check_flag(out, "wind_ejects_hot", wind->ejects_hot);
+  problems += oracle_c06_check_flag(out, "wind_ejects_hot",
+                                    wind->reservoir_cgm == 1 ? -1 : wind->ejects_selected);
   problems +=
       oracle_c06_check_carried(out, "quasar_energy", KIND_TAIL, wind->quasar_energy, 0, &tally);
   problems +=
       oracle_c06_check_carried(out, "cold_gas_energy", KIND_TAIL, wind->cold_gas_energy, 0, &tally);
   problems +=
       oracle_c06_check_carried(out, "hot_gas_energy", KIND_TAIL, wind->hot_gas_energy, 0, &tally);
+  return problems;
+}
+
+/**
+ * @brief c10: the CGMrecipeOn 1 record of a wind (direct or the growth's): the selection against
+ *        the package's and the wind host's input Regime, the CGM test, cgm_gas_energy, and the
+ *        host's unselected pair unchanged against the input
+ * @return Number of mismatches
+ */
+static int check_wind_cgm(const char *name, struct oracle_fixture *out,
+                          const struct MimicSageQuasarWindLocals *wind, const int wind_ran,
+                          const struct GalaxyData *before, struct GalaxyData *galaxy) {
+  int problems = oracle_check_i32(out, "intermediate.cgm_recipe_on", MIMIC_SAGE_CGM_RECIPE_ON);
+  /* The wind host is the galaxy itself (M:374, M:406-407) */
+  problems += oracle_c10_check_site(out, "wind_reservoir_cgm", wind->reservoir_cgm,
+                                    wind_ran ? before->Regime : -1, &cgm_tally);
+  problems += oracle_c06_check_flag(out, "wind_ejects_cgm",
+                                    wind->reservoir_cgm == 1 ? wind->ejects_selected : -1);
+  problems += oracle_c10_check_value(out, "cgm_gas_energy", wind->cgm_gas_energy, &cgm_tally);
+  problems += oracle_c10_check_regimes(out, 1, galaxy);
+  if (wind_ran) {
+    /* The pair the host's Regime does not select is never written (M:406-428) */
+    problems += oracle_c10_check_unselected(name, 0, before, galaxy,
+                                            oracle_c10_pair(before->Regime != 0), 2);
+    cgm_tally.unselected++;
+    cgm_wind_cgm_pair += wind->reservoir_cgm == 1;
+    cgm_wind_hot_pair += wind->reservoir_cgm == 0;
+  }
+  cgm_tally.fixtures++;
   return problems;
 }
 
@@ -128,11 +181,16 @@ static int check_fixture(const char *name) {
   double growth_rate = 0.0;
   double efficiency = 0.0;
   int sf_prescription = 0;
-  int problems = setup_parameters(&in, &growth_rate, &efficiency, &sf_prescription);
+  int cgm_recipe_on = 0;
+  int problems = setup_parameters(&in, &growth_rate, &efficiency, &sf_prescription, &cgm_recipe_on);
 
   static struct GalaxyData galaxy, before;
   static struct Halo halo;
   problems += oracle_c06_in_galaxy(&in, 0, &halo, &galaxy);
+  /* c10: the wind host's Regime, which its CGMrecipeOn 1 wind reads (M:407) */
+  if (cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+    problems += oracle_c10_read_regimes(&in, 1, &galaxy);
+  }
   if (problems != 0) {
     return problems;
   }
@@ -146,8 +204,8 @@ static int check_fixture(const char *name) {
   if (is_growth) {
     const double mass_ratio = oracle_in_f64(&in, "call.mass_ratio");
     struct MimicSageBlackHoleLocals bh;
-    const double accreted = mimic_apply_black_hole_growth(&halo, mass_ratio, growth_rate,
-                                                          efficiency, &ctx, sf_prescription, &bh);
+    const double accreted = mimic_apply_black_hole_growth(
+        &halo, mass_ratio, growth_rate, efficiency, &ctx, sf_prescription, cgm_recipe_on, &bh);
     if (bh.coldgas_positive == 1 &&
         oracle_f64_to_bits(accreted) != oracle_f64_to_bits(bh.bh_accrete)) {
       fprintf(stderr, "oracle: %s: the returned accretion differs from the local\n", name);
@@ -165,11 +223,17 @@ static int check_fixture(const char *name) {
         oracle_c06_check_carried(&out, "bh_metallicity", KIND_TAIL, bh.bh_metallicity, 0, &tally);
     problems += check_wind(&out, &bh.wind);
     problems += oracle_c08_check_bh_hydrogen(&out, sf_prescription, &bh.hydrogen_caps, &h_tally);
+    if (cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+      problems += check_wind_cgm(name, &out, &bh.wind, bh.coldgas_positive == 1, &before, &galaxy);
+    }
   } else {
     const double bh_accrete = oracle_in_f64(&in, "call.BHaccrete");
     struct MimicSageQuasarWindLocals wind;
-    mimic_apply_quasar_mode_wind(&halo, bh_accrete, efficiency, &ctx, &wind);
+    mimic_apply_quasar_mode_wind(&halo, bh_accrete, efficiency, &ctx, cgm_recipe_on, &wind);
     problems += check_wind(&out, &wind);
+    if (cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+      problems += check_wind_cgm(name, &out, &wind, 1, &before, &galaxy);
+    }
   }
 
   problems += oracle_c06_check_galaxy(&out, "", 0, &galaxy, 0);
@@ -201,13 +265,21 @@ int test_oracle_bit_identity(void) {
   }
   memset(&tally, 0, sizeof(tally));
   memset(&h_tally, 0, sizeof(h_tally));
+  memset(&cgm_tally, 0, sizeof(cgm_tally));
+  cgm_wind_cgm_pair = 0;
+  cgm_wind_hot_pair = 0;
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), binding %d, "
          "not validated %d, absent %d; c08 values validated %d, narrowing-limited %d, "
          "not validated %d, absent %d ",
          tally.asserted, tally.binding, tally.not_validated, tally.absent, h_tally.validated,
          h_tally.narrowing_limited, h_tally.not_validated, h_tally.absent);
+  oracle_c10_print_site_tally(&cgm_tally);
+  printf("\n  oracle: c10 winds selecting the host's CGM pair %d, its hot pair %d ",
+         cgm_wind_cgm_pair, cgm_wind_hot_pair);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(cgm_wind_cgm_pair >= 1 && cgm_wind_hot_pair >= 1,
+              "CGMrecipeOn 1 winds selecting each of the host's pairs must be asserted");
   return TEST_PASS;
 }
 

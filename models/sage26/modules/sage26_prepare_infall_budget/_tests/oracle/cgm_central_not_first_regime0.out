@@ -1,0 +1,32 @@
+# SAGE26 oracle output for cgm_central_not_first_regime0.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine infall_recipe
+f64 return.InfallingGas 0x40189cf76bd04584  # 6.1532875867718566
+f64 intermediate.reionization_modifier 0x3fef32db5233e47a  # 0.97495809607711625
+f64 intermediate.HaloBaryonFraction 0x3fc5371004b2a59b  # 0.16574287633310977
+f32 galaxy[0].EjectedMass 0x00000000  # 0
+f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[0].ICS 0x00000000  # 0
+f32 galaxy[0].MetalsICS 0x00000000  # 0
+f32 galaxy[0].ICS_disrupt 0x00000000  # 0
+f32 galaxy[0].ICS_accrete 0x00000000  # 0
+f32 galaxy[0].ICS_sum_mt 0x00000000  # 0
+f32 galaxy[0].CGMgas 0x3f19999a  # 0.600000024
+f32 galaxy[0].MetalsCGMgas 0x3c1374bc  # 0.00899999961
+f32 galaxy[0].HotGas 0x3ecccccd  # 0.400000006
+f32 galaxy[0].MetalsHotGas 0x3b83126f  # 0.00400000019
+f32 galaxy[1].EjectedMass 0x3f400000  # 0.75
+f32 galaxy[1].MetalsEjectedMass 0x3bf5c290  # 0.0075000003
+f32 galaxy[1].ICS 0x3e570a3e  # 0.210000008
+f32 galaxy[1].MetalsICS 0x3b09a028  # 0.00210000016
+f32 galaxy[1].ICS_disrupt 0x3dcccccd  # 0.100000001
+f32 galaxy[1].ICS_accrete 0x3de147ae  # 0.109999999
+f32 galaxy[1].ICS_sum_mt 0x3d54fdf4  # 0.0520000011
+f32 galaxy[1].CGMgas 0x40b80000  # 5.75
+f32 galaxy[1].MetalsCGMgas 0x3db851ec  # 0.0900000036
+f32 galaxy[1].HotGas 0x00000000  # 0
+f32 galaxy[1].MetalsHotGas 0x00000000  # 0
+i32 intermediate.central_regime_cgm 1
+i32 intermediate.cgm_metals_cap_binds 0
+i32 intermediate.cgm_gas_negative_clears 0
+i32 intermediate.cgm_metals_floor_binds 0

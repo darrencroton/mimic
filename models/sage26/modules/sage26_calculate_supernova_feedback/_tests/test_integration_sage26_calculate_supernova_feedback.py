@@ -77,6 +77,7 @@ def test_module_loads():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -120,6 +121,7 @@ def test_output_properties_exist():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -168,6 +170,7 @@ def test_parameters_configurable():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -208,6 +211,7 @@ def test_memory_safety():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -250,6 +254,7 @@ def test_execution_completes():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -297,6 +302,7 @@ def test_pipeline_with_star_formation():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -351,6 +357,7 @@ def test_feedback_values_nonnegative():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -402,6 +409,7 @@ def test_feedback_proportional_to_sf():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -467,6 +475,7 @@ def test_feedback_reasonable_magnitude():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -535,6 +544,7 @@ def test_edge_case_zero_efficiency():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -591,6 +601,7 @@ def test_edge_case_very_high_efficiency():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -640,6 +651,7 @@ def test_parameter_variation_effect():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -677,6 +689,7 @@ def test_parameter_variation_effect():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,

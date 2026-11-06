@@ -1,0 +1,21 @@
+# Mass ratio exactly 1: Hubble_h 0.5 makes Mshock 30 exactly, Mvir 30.0f, so x = 0 and hot_fraction = 0.5.
+# No rand() value gives the deviate 0.5 (RAND_MAX 2147483647 is odd); the two nearest, 1073741823 and 1073741824, lie either side.
+# Reachability: constructed routine-domain probe (Hubble_h 0.5 is not R4's 0.73).
+format sage26-oracle-fixture 1
+routine determine_and_store_regime
+f64 params.MShockMsun 0x426176592e000000  # 600000000000.0
+f64 params.Hubble_h 0x3fe0000000000000  # 0.5
+i32 call.ngal 2
+# galaxy[0]: Type 0, ratio 1, deviate just below 0.5: Regime 1
+i32 galaxy[0].Type 0
+i32 galaxy[0].mergeType 0
+f32 galaxy[0].Mvir 0x41f00000  # 30.0
+i32 galaxy[0].Regime -1
+# galaxy[1]: Type 0, ratio 1, deviate just above 0.5: Regime 0
+i32 galaxy[1].Type 0
+i32 galaxy[1].mergeType 0
+f32 galaxy[1].Mvir 0x41f00000  # 30.0
+i32 galaxy[1].Regime -1
+i32 rand.queue_length 2
+i32 rand.queue[0] 1073741823  # 1073741823 / RAND_MAX < 0.5
+i32 rand.queue[1] 1073741824  # 1073741824 / RAND_MAX > 0.5

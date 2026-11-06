@@ -12,7 +12,10 @@
 # the c05 oracle main, oracle_c05.c, into output/oracle/oracle_c05, the c06
 # oracle main, oracle_c06.c, into output/oracle/oracle_c06, the c07 oracle
 # main, oracle_c07.c, into output/oracle/oracle_c07, and the c08 oracle main,
-# oracle_c08.c, into output/oracle/oracle_c08.
+# oracle_c08.c, into output/oracle/oracle_c08. The c10 oracle main, oracle_c10.c,
+# is compiled and linked the same way into output/oracle/oracle_c10; it defines the
+# test-only rand() provider (the fixture's integer queue), which is linked into that
+# executable only.
 #
 # Environment:
 #   SAGE26_SRC         staged SAGE26 source root
@@ -164,3 +167,17 @@ clang $objects "$OBJ_DIR/oracle_c08.o" -o "$ORACLE_OUT/oracle_c08" \
 { set +x; } 2>/dev/null
 
 echo "build.sh: built $ORACLE_OUT/oracle_c08"
+
+# The c10 oracle main (the CGM regime classifier, determine_and_store_regime): built exactly
+# as oracle_c03, against the same twelve objects, with the same flags and link. Its own
+# object defines rand(), the test-only queue provider, which the linker prefers to libc's for
+# the SAGE26 objects' calls in this executable only.
+compile "$ORACLE_DIR/oracle_c10.c" "$OBJ_DIR/oracle_c10.o" -I"$SAGE26_SRC/src"
+
+set -x
+# shellcheck disable=SC2086 # $objects is a deliberately split list of paths
+clang $objects "$OBJ_DIR/oracle_c10.o" -o "$ORACLE_OUT/oracle_c10" \
+  -L"$GSL_PREFIX/lib" -lgsl -lgslcblas -Xlinker -rpath -Xlinker "$GSL_PREFIX/lib" -lm
+{ set +x; } 2>/dev/null
+
+echo "build.sh: built $ORACLE_OUT/oracle_c10"

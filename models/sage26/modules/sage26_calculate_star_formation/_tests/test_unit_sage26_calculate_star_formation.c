@@ -715,6 +715,7 @@ int test_module_initialization(void) {
   set_test_model_parameters();
   /* The module's required SFprescription and H2 parameters (and the apply step's SFprescription) */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();

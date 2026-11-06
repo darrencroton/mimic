@@ -91,6 +91,7 @@ MODEL_PARAMS = {
     "H2RadialIntegrationOn": 1,
     "H2RadialNBins": 25,
     "H2RadialRMaxFactor": 5.0,
+    "CGMrecipeOn": 0,  # required by the infall modules (D33), R3's value
 }
 
 

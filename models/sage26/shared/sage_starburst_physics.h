@@ -4,11 +4,15 @@
  *
  * Ports SAGE26's collisional_starburst_recipe (R/src/model_mergers.c:584-831, R = the
  * staged SAGE26 source) on the R0 to R3 paths: StarburstColdGasOn 1, SFprescription 0 or 1,
- * SupernovaRecipeOn 1, FIREmodeOn 0 or 1, SaveFullSFH 0, CGMrecipeOn 0, and BulgeSizeOn 0 or 3.
- * With SFprescription 1 the star-formation and feedback commits apply their hydrogen caps
- * (sage_sf_feedback_physics.h), the burst refreshes the hydrogen after its feedback (step 7b
- * below) and the recheck's black-hole growth applies its accretion cap (sage_agn_physics.h).
- * One shared function owns SAGE26's whole sequence, for both burst channels:
+ * SupernovaRecipeOn 1, FIREmodeOn 0 or 1, SaveFullSFH 0, CGMrecipeOn 0 or 1, and BulgeSizeOn 0
+ * or 3. With CGMrecipeOn 1 the burst's feedback commit and its escaping yield go to the FoF
+ * CENTRAL's CGM pair when the central's Regime is 0 and to its hot pair otherwise, and the
+ * recheck's quasar wind selects the burst HOST's pair by the host's own Regime
+ * (R/src/model_misc.h:67-85, R/src/model_starformation_and_feedback.c:1175-1223,
+ * R/src/model_mergers.c:406-428). With SFprescription 1 the star-formation and feedback commits
+ * apply their hydrogen caps (sage_sf_feedback_physics.h), the burst refreshes the hydrogen after
+ * its feedback (step 7b below) and the recheck's black-hole growth applies its accretion cap
+ * (sage_agn_physics.h). One shared function owns SAGE26's whole sequence, for both burst channels:
  *
  *  1. the bursting fraction eburst: the trigger itself for mode 1 (a disk instability) and
  *     0.56 * ratio^0.7 for mode 0 (a merger), as SAGE26's code has them (:600-604; its
@@ -33,7 +37,7 @@
  *     instability channel followed by the incremental instability-bulge radius from the
  *     caller's saved disk radius (:770-784, sage_bulge_size_physics.h);
  *  7. update_from_feedback with the recomputed cold metallicity, reheated gas and ejection
- *     going to the FoF central (:787-791);
+ *     going to the FoF central's selected pair, chosen by the central's Regime (:787-791);
  *  7b. for a prescription that tracks H2 (sf_prescription_tracks_h2, :798), the hydrogen
  *     refresh: H2gas capped at the double ColdGas * 0.74 (:799-800), then H1gas overwritten with
  *     the atomic remainder ColdGas * 0.74 - H2gas whatever it held (:801-802), a negative result
@@ -45,8 +49,9 @@
  *     black hole and bursts again in mode 1 (:806-811, R/src/model_disk_instability.c:47-108);
  *  9. only then this burst's metal yield: retained in the host's cold gas (less the
  *     fraction leaving the disk) when the host keeps more than 1e-8 of cold gas and the
- *     ratio is strictly below ThreshMajorMerger, otherwise all to the FoF central's hot gas
- *     (:813-830).
+ *     ratio is strictly below ThreshMajorMerger, otherwise all of it escapes; the escaping
+ *     metals go to the FoF central's selected pair, its CGM metals with CGMrecipeOn 1 and the
+ *     central's Regime 0, its hot metals otherwise (:813-830, R/src/model_misc.h:67-74).
  *
  * A burst always runs to its end: there is no early return on a non-positive trigger,
  * zero cold gas or zero stars, so a zero-star burst still samples the bulge history and
@@ -90,6 +95,7 @@
 #include "shared/metallicity.h"
 #include "shared/sage_agn_physics.h"
 #include "shared/sage_bulge_size_physics.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_fire_feedback_physics.h"
@@ -113,8 +119,10 @@
  * black-hole accretion cap test. fire_mode_on is SAGE26's FIREmodeOn and redshift_config the run's
  * redshift table (ZZ and Snaplistlen), from which a FIREmodeOn 1 burst reads the redshift of its
  * host's stored snapshot (R/src/model_mergers.c:692-694); every burst, the recheck's included,
- * receives both through this bundle. A zero-initialised bundle is BulgeSizeOn 0, SFprescription 0
- * and FIREmodeOn 0.
+ * receives both through this bundle. cgm_recipe_on is SAGE26's CGMrecipeOn, which the burst's
+ * feedback commit and yield (with the FoF central's Regime) and the recheck's quasar wind (with the
+ * host's Regime) read; every burst, the recheck's included, receives it through this bundle. A
+ * zero-initialised bundle is BulgeSizeOn 0, SFprescription 0, FIREmodeOn 0 and CGMrecipeOn 0.
  */
 struct MimicStarburstParams {
   double feedback_reheating_epsilon;
@@ -135,6 +143,8 @@ struct MimicStarburstParams {
   int fire_mode_on;    /**< FIREmodeOn (0 or 1): the burst's FIRE budget (:690-752) */
   const struct MimicConfig *redshift_config; /**< ZZ and Snaplistlen, FIREmodeOn 1's stored-snapshot
                                                   redshift (:694); unread for FIREmodeOn 0 */
+  int cgm_recipe_on; /**< CGMrecipeOn (0 or 1): the feedback's, the yield's and the recheck wind's
+                          pair selection (R/src/model_misc.h:69, :78; R/src/model_mergers.c:406) */
 };
 
 /**
@@ -197,7 +207,8 @@ struct MimicSageStarburstLocals {
   double recycled_stars;         /**< (1 - RecycleFraction) * stars (:770) */
   double metallicity_fb;         /**< cold metallicity of the feedback (:788) */
   double frac_z_leave_disk_val;  /**< FracZleaveDisk * exp(-Mvir / 30), minor yield (:816) */
-  double yield_metals_to_hot;    /**< metals_leaving_disk or all_metals (:822, :828) */
+  double yield_metals_to_hot;    /**< metals_leaving_disk or all_metals (:822, :828), added to the
+                                      central's selected metals */
   int gas_floored;               /**< 1 if the burst gas was negative (:683) */
   int stars_floored;             /**< 1 if the stars were negative (:686) */
   int renorm_active;             /**< 1 if stars + reheated > gas (:721) */
@@ -205,6 +216,7 @@ struct MimicSageStarburstLocals {
   int ejected_floored;           /**< 1 if the ejection was negative (:746) */
   int instability_recheck_ran;   /**< 1 if the post-minor-merger recheck ran (:807-808) */
   int yield_minor_branch;        /**< 1 if the yield took the retained branch (:814) */
+  int yield_reservoir_cgm;       /**< 1 if the escaping yield went to the central's CGM metals */
   struct MimicSageHydrogenCapLocals sf_caps; /**< the burst's update_from_star_formation cap */
   struct MimicSageFeedbackLocals feedback;   /**< the burst's update_from_feedback locals */
   struct MimicSageBurstHydrogenRefreshLocals hydrogen_refresh; /**< the refresh (:798-803) */
@@ -217,6 +229,14 @@ struct MimicSageStarburstLocals {
   struct MimicSageBurstFireRecord recheck_fire;      /**< the FIRE budget of the recheck's own burst
                                                           (R/src/model_disk_instability.c:106-108);
                                                           not formed where that burst did not run */
+  /* The routing of the recheck's own sites, for tests only: a later site can re-establish the end
+   * state a whole-state comparison sees, so each records its own selection */
+  struct MimicSageQuasarWindLocals recheck_wind; /**< the recheck's black-hole wind, selected by
+                                                      the host's Regime (:406); not formed (NaN,
+                                                      -1) where that growth did not run */
+  int recheck_feedback_reservoir_cgm; /**< the recheck burst's feedback selection (the central's
+                                           Regime), -1 where that burst did not run */
+  int recheck_yield_reservoir_cgm;    /**< the recheck burst's yield selection, -1 likewise */
 };
 
 /** @brief Mark every value of a burst locals record as not formed */
@@ -260,6 +280,11 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
   locals->recheck_bh_caps.h1_cap_binds = -1;
   mimic_sage_burst_fire_record_reset(&locals->fire);
   mimic_sage_burst_fire_record_reset(&locals->recheck_fire);
+  locals->feedback.reservoir_cgm = -1;
+  locals->yield_reservoir_cgm = -1;
+  mimic_sage_quasar_wind_locals_reset(&locals->recheck_wind);
+  locals->recheck_feedback_reservoir_cgm = -1;
+  locals->recheck_yield_reservoir_cgm = -1;
 }
 
 /**
@@ -386,8 +411,9 @@ static inline int mimic_apply_collisional_starburst(
   }
 
   /* SAGE parity: the ejection uses the burst HOST's own Vvir, not the FoF central's
-   * (R/src/model_mergers.c:727-743); the gas it ejects still leaves the central's hot gas
-   * (update_from_feedback below). A non-positive Vvir ejects nothing in either mode (:728). */
+   * (R/src/model_mergers.c:727-743); the gas it ejects still leaves the central's selected
+   * pair, chosen by the central's Regime (update_from_feedback below). A non-positive Vvir ejects
+   * nothing in either mode (:728). */
   double ejected_mass;
   const int ejection_vvir_nonpositive = !(host_vvir > 0.0);
   if (!ejection_vvir_nonpositive) {
@@ -454,7 +480,8 @@ static inline int mimic_apply_collisional_starburst(
   // Recompute the cold metallicity and commit the feedback (:787-791)
   const double metallicity_fb = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
   mimic_sage_update_from_feedback(gal, central_gal, reheated_mass, ejected_mass, metallicity_fb,
-                                  p->sf_prescription, locals != NULL ? &locals->feedback : NULL);
+                                  p->sf_prescription, p->cgm_recipe_on,
+                                  locals != NULL ? &locals->feedback : NULL);
 
   /* SAGE parity: after the feedback and before the instability recheck, a prescription that
    * tracks H2 refreshes the hydrogen (R/src/model_mergers.c:798-803): H2gas is capped at the
@@ -502,6 +529,11 @@ static inline int mimic_apply_collisional_starburst(
   /* The recheck burst's FIRE record, for tests only (no effect on the state) */
   struct MimicSageBurstFireRecord recheck_fire;
   mimic_sage_burst_fire_record_reset(&recheck_fire);
+  /* The recheck's wind and its burst's feedback and yield selections, for tests only */
+  struct MimicSageQuasarWindLocals recheck_wind;
+  mimic_sage_quasar_wind_locals_reset(&recheck_wind);
+  int recheck_feedback_reservoir_cgm = -1;
+  int recheck_yield_reservoir_cgm = -1;
   if (instability_recheck_ran) {
     struct MimicSageInstabilityLocals recheck;
     (void)mimic_sage_check_disk_instability_with_sizes(host_halo, ctx, p->star_forming_disk_factor,
@@ -509,12 +541,15 @@ static inline int mimic_apply_collisional_starburst(
     if (!isnan(recheck.unstable_gas_fraction)) {
       if (p->agn_recipe_on) {
         struct MimicSageBlackHoleLocals recheck_bh;
+        /* SAGE parity: the recheck's wind host is the burst host, whose own regime selects the
+         * second test's pair (R/src/model_disk_instability.c:102-104, R/src/model_mergers.c:406) */
         (void)mimic_apply_black_hole_growth(host_halo, recheck.unstable_gas_fraction,
                                             p->black_hole_growth_rate, p->quasar_mode_efficiency,
-                                            ctx, p->sf_prescription,
+                                            ctx, p->sf_prescription, p->cgm_recipe_on,
                                             locals != NULL ? &recheck_bh : NULL);
         if (locals != NULL) {
           recheck_bh_caps = recheck_bh.hydrogen_caps;
+          recheck_wind = recheck_bh.wind;
         }
       }
       struct MimicSageStarburstLocals recheck_burst;
@@ -526,16 +561,20 @@ static inline int mimic_apply_collisional_starburst(
       }
       if (locals != NULL) {
         recheck_fire = recheck_burst.fire;
+        recheck_feedback_reservoir_cgm = recheck_burst.feedback.reservoir_cgm;
+        recheck_yield_reservoir_cgm = recheck_burst.yield_reservoir_cgm;
       }
     }
   }
 
   /* SAGE parity: the burst's yield (instantaneous recycling, SNII only): a minor burst
    * whose host keeps more than 1e-8 of cold gas retains (1 - FracZleaveDiskVal) of it in
-   * the cold gas, the rest goes to the FoF central's hot gas; otherwise all of it does
-   * (R/src/model_mergers.c:813-830, add_metals_to_hot_reservoir R/src/model_misc.h:67-74
-   * with CGMrecipeOn 0). The condition is strict, so a ratio equal to the threshold sends
-   * all the yield to hot gas. SAGE26's object fuses the retained update (:819). */
+   * the cold gas and the rest escapes; otherwise all of it escapes (R/src/model_mergers.c:813-830).
+   * The condition is strict, so a ratio equal to the threshold makes all the yield escape. The
+   * escaping metals, a completed double, go through add_metals_to_hot_reservoir to the FoF
+   * CENTRAL's selected metals: its CGM metals with CGMrecipeOn 1 and the central's Regime 0, its
+   * hot metals otherwise (:824, :830, R/src/model_misc.h:67-74). SAGE26's object fuses the
+   * retained update (:819). */
   double frac_z_leave_disk_val = NAN;
   double yield_metals_to_hot;
   const int yield_minor_branch =
@@ -550,7 +589,9 @@ static inline int mimic_apply_collisional_starburst(
   } else {
     yield_metals_to_hot = p->yield * stars;
   }
-  central_gal->MetalsHotGas += yield_metals_to_hot;
+  const int yield_reservoir_cgm =
+      mimic_sage_cgm_reservoir_selected(p->cgm_recipe_on, central_gal->Regime);
+  mimic_sage_add_metals_to_hot_reservoir(central_gal, p->cgm_recipe_on, yield_metals_to_hot);
 
   if (locals != NULL) {
     locals->eburst = eburst;
@@ -574,10 +615,14 @@ static inline int mimic_apply_collisional_starburst(
     locals->ejected_floored = ejected_floored;
     locals->instability_recheck_ran = instability_recheck_ran;
     locals->yield_minor_branch = yield_minor_branch;
+    locals->yield_reservoir_cgm = yield_reservoir_cgm;
     locals->hydrogen_refresh = hydrogen_refresh;
     locals->recheck_bh_caps = recheck_bh_caps;
     locals->fire = fire_record;
     locals->recheck_fire = recheck_fire;
+    locals->recheck_wind = recheck_wind;
+    locals->recheck_feedback_reservoir_cgm = recheck_feedback_reservoir_cgm;
+    locals->recheck_yield_reservoir_cgm = recheck_yield_reservoir_cgm;
   }
   return 0;
 }

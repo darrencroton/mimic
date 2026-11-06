@@ -83,7 +83,10 @@ class TestSageCoolingIntegration:
                 "satellite_mergers": [],
                 "post_timestep": [],
             },
-            model_params={"GlobalBaryonFraction": 0.17},  # For sage26_prepare_infall_budget
+            model_params={
+                "GlobalBaryonFraction": 0.17,
+                "CGMrecipeOn": 0,
+            },  # For sage26_prepare_infall_budget
         )
 
         returncode, stdout, stderr = harness.run_mimic(param_file)
@@ -103,7 +106,10 @@ class TestSageCoolingIntegration:
                 "satellite_mergers": [],
                 "post_timestep": [],
             },
-            model_params={"GlobalBaryonFraction": 0.17},  # For sage26_prepare_infall_budget
+            model_params={
+                "GlobalBaryonFraction": 0.17,
+                "CGMrecipeOn": 0,
+            },  # For sage26_prepare_infall_budget
         )
 
         returncode, stdout, stderr = harness.run_mimic(param_file)
@@ -121,7 +127,10 @@ class TestSageCoolingIntegration:
                 "satellite_mergers": [],
                 "post_timestep": [],
             },
-            model_params={"GlobalBaryonFraction": 0.17},  # For sage26_prepare_infall_budget
+            model_params={
+                "GlobalBaryonFraction": 0.17,
+                "CGMrecipeOn": 0,
+            },  # For sage26_prepare_infall_budget
             first_file=0,
             last_file=0,
         )
@@ -146,7 +155,10 @@ class TestSageCoolingIntegration:
                 "satellite_mergers": [],
                 "post_timestep": [],
             },
-            model_params={"GlobalBaryonFraction": 0.17},  # For sage26_prepare_infall_budget
+            model_params={
+                "GlobalBaryonFraction": 0.17,
+                "CGMrecipeOn": 0,
+            },  # For sage26_prepare_infall_budget
         )
 
         returncode_correct, stdout, stderr = harness.run_mimic(param_file_correct)
@@ -163,7 +175,10 @@ class TestSageCoolingIntegration:
                 "satellite_mergers": [],
                 "post_timestep": [],
             },
-            model_params={"GlobalBaryonFraction": 0.17},  # For sage26_prepare_infall_budget
+            model_params={
+                "GlobalBaryonFraction": 0.17,
+                "CGMrecipeOn": 0,
+            },  # For sage26_prepare_infall_budget
         )
 
         returncode_wrong, stdout, stderr = harness.run_mimic(param_file_wrong)
@@ -188,7 +203,10 @@ class TestSageCoolingIntegration:
                 "satellite_mergers": [],
                 "post_timestep": [],
             },
-            model_params={"GlobalBaryonFraction": 0.17},  # For sage26_prepare_infall_budget
+            model_params={
+                "GlobalBaryonFraction": 0.17,
+                "CGMrecipeOn": 0,
+            },  # For sage26_prepare_infall_budget
             output_format="hdf5",
             first_file=0,
             last_file=0,
@@ -236,7 +254,10 @@ class TestSageCoolingIntegration:
                 "satellite_mergers": [],
                 "post_timestep": [],
             },
-            model_params={"GlobalBaryonFraction": 0.17},  # For sage26_prepare_infall_budget
+            model_params={
+                "GlobalBaryonFraction": 0.17,
+                "CGMrecipeOn": 0,
+            },  # For sage26_prepare_infall_budget
             output_format="hdf5",
             first_file=0,
             last_file=0,

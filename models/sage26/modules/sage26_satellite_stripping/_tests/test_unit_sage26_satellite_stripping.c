@@ -18,6 +18,13 @@
  *   - Substep distribution
  *   - The num_substeps-dependent stripped-fraction formula (inherited SAGE behavior,
  *     see test_stripped_fraction_follows_geometric_formula)
+ *   - c10 (platform independent): with CGMrecipeOn 1 the satellite's regime selects the source
+ *     and the FoF central's the destination, all four combinations with the gas cap binding and
+ *     not, against CGMrecipeOn 0 on the same input (test_cgm_stripping_source_and_destination);
+ *     the same four combinations with source metals above source gas and both caps binding, so
+ *     the destination credit (capped gas times metallicity 1) differs from the capped metal
+ *     debit (test_cgm_stripping_metals_above_gas);
+ *     CGMrecipeOn missing or not 0/1 refused, naming it (test_cgm_recipe_on_refused)
  */
 
 #include <math.h>
@@ -558,6 +565,279 @@ static int test_multiple_satellites(void) {
 // MAIN TEST RUNNER
 // ============================================================================
 
+// ============================================================================
+// CGMrecipeOn 1 AGAINST 0 (c10 Slice 2, platform independent)
+// ============================================================================
+//
+// SAGE26's strip_from_satellite (R = the staged SAGE26 source, R/src/model_infall.c:225-273) with
+// CGMrecipeOn 1 takes from the satellite's CGM pair if the satellite is in Regime 0 and gives to
+// the central's CGM pair if the central is in Regime 0, each independently (:250-254, :265-271);
+// with CGMrecipeOn 0 both are the hot pair. The satellite (Mvir 8, HaloBaryonFraction 0.125, so
+// 1.0 allowed) holds 3.5 of baryons: hot 1.0 / 0.125 (Z 1/8) and CGM 0.5 / 0.125 (Z 1/4). Its
+// excess 2.5 strips 2.5 / 8 = 0.3125 over 8 substeps (below either source: no cap) or 2.5 in one
+// (the gas cap binds at the source gas, the metal cap at the source metals, :259-260); the
+// destination metals gain the capped gas times the source metallicity (:267, :270). Every value
+// is a short binary fraction, so each expectation is an exact literal.
+
+/** @brief Read a captured log stream into a static buffer (valid until the next call) */
+static const char *c10_read_log(FILE *fp) {
+  static char buf[8192];
+  rewind(fp);
+  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+  buf[n] = '\0';
+  return buf;
+}
+
+static void c10_append_param(const char *name, const char *value) {
+  const int idx = MimicConfig.NumModelParams;
+  snprintf(MimicConfig.ModelParams[idx].param_name, sizeof(MimicConfig.ModelParams[idx].param_name),
+           "%s", name);
+  snprintf(MimicConfig.ModelParams[idx].value, sizeof(MimicConfig.ModelParams[idx].value), "%s",
+           value);
+  MimicConfig.NumModelParams = idx + 1;
+}
+
+/** @brief Initialise with GlobalBaryonFraction 0.17 and CGMrecipeOn `cgm` (NULL: missing) */
+static int c10_init(const char *cgm, const char **log) {
+  setup_mock_config();
+  c10_append_param("GlobalBaryonFraction", "0.17");
+  if (cgm != NULL) {
+    c10_append_param("CGMrecipeOn", cgm);
+  }
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_satellite_stripping_init();
+  if (capture != NULL) {
+    set_log_output(old_out);
+    *log = c10_read_log(capture);
+    fclose(capture);
+  } else {
+    *log = "";
+  }
+  return status;
+}
+
+/** @brief A galaxy's hot and CGM pairs */
+struct c10_pairs {
+  float hot, metals_hot, cgm, metals_cgm;
+};
+
+static int c10_same_bits(const float a, const float b) { return memcmp(&a, &b, sizeof(a)) == 0; }
+
+static int c10_pairs_equal(const struct c10_pairs *a, const struct c10_pairs *b) {
+  return c10_same_bits(a->hot, b->hot) && c10_same_bits(a->metals_hot, b->metals_hot) &&
+         c10_same_bits(a->cgm, b->cgm) && c10_same_bits(a->metals_cgm, b->metals_cgm);
+}
+
+/** @brief Strip the satellite once at CGMrecipeOn `cgm` with the given regimes and substeps */
+static int c10_strip_metals(const char *cgm, const int sat_regime, const int cen_regime,
+                            const int substeps, const float sat_metals_hot,
+                            const float sat_metals_cgm, struct c10_pairs *sat_out,
+                            struct c10_pairs *cen_out) {
+  const char *log = "";
+  if (c10_init(cgm, &log) != 0) {
+    return -1;
+  }
+  struct GalaxyData cen_gal, sat_gal;
+  memset(&cen_gal, 0, sizeof(cen_gal));
+  memset(&sat_gal, 0, sizeof(sat_gal));
+  cen_gal.Regime = cen_regime;
+  cen_gal.HotGas = 4.0f;
+  cen_gal.MetalsHotGas = 0.5f;
+  cen_gal.CGMgas = 2.0f;
+  cen_gal.MetalsCGMgas = 0.25f;
+  sat_gal.Regime = sat_regime;
+  sat_gal.HaloBaryonFraction = 0.125;
+  sat_gal.StellarMass = 1.0f;
+  sat_gal.ColdGas = 0.5f;
+  sat_gal.HotGas = 1.0f;
+  sat_gal.MetalsHotGas = sat_metals_hot;
+  sat_gal.CGMgas = 0.5f;
+  sat_gal.MetalsCGMgas = sat_metals_cgm;
+  sat_gal.EjectedGas = 0.25f;
+  sat_gal.ICS = 0.25f;
+  struct Halo central = create_test_halo(0, 64.0, &cen_gal);
+  struct Halo satellite = create_test_halo(1, 8.0, &sat_gal);
+  struct ModuleContext ctx = create_test_context(substeps);
+  ctx.central_galaxy = &central;
+  const int status = sage26_satellite_stripping_process(&ctx, &satellite, 1);
+  *sat_out = (struct c10_pairs){sat_gal.HotGas, sat_gal.MetalsHotGas, sat_gal.CGMgas,
+                                sat_gal.MetalsCGMgas};
+  *cen_out = (struct c10_pairs){cen_gal.HotGas, cen_gal.MetalsHotGas, cen_gal.CGMgas,
+                                cen_gal.MetalsCGMgas};
+  return status;
+}
+
+/** @brief c10_strip_metals() with the default source metals, 0.125 in each pair */
+static int c10_strip(const char *cgm, const int sat_regime, const int cen_regime,
+                     const int substeps, struct c10_pairs *sat_out, struct c10_pairs *cen_out) {
+  return c10_strip_metals(cgm, sat_regime, cen_regime, substeps, 0.125f, 0.125f, sat_out, cen_out);
+}
+
+/**
+ * @brief The expected pairs after one strip from `take_cgm` (else hot) to `give_cgm` (else hot)
+ *
+ * Literal values: uncapped (8 substeps) 0.3125 of gas with 0.078125 (CGM source, Z 1/4) or
+ * 0.0390625 (hot source, Z 1/8) of metals; capped (1 substep) the source gas, 0.5 or 1.0, with the
+ * source metals 0.125 debited and the capped gas times Z, 0.125 either way, credited.
+ */
+static void c10_expected(const int take_cgm, const int give_cgm, const int capped,
+                         struct c10_pairs *sat, struct c10_pairs *cen) {
+  *sat = (struct c10_pairs){1.0f, 0.125f, 0.5f, 0.125f};
+  *cen = (struct c10_pairs){4.0f, 0.5f, 2.0f, 0.25f};
+  float gas, credit_metals;
+  if (take_cgm) {
+    gas = capped ? 0.5f : 0.3125f;
+    credit_metals = capped ? 0.125f : 0.078125f;
+    sat->cgm = capped ? 0.0f : 0.1875f;
+    sat->metals_cgm = capped ? 0.0f : 0.046875f;
+  } else {
+    gas = capped ? 1.0f : 0.3125f;
+    credit_metals = capped ? 0.125f : 0.0390625f;
+    sat->hot = capped ? 0.0f : 0.6875f;
+    sat->metals_hot = capped ? 0.0f : 0.0859375f;
+  }
+  if (give_cgm) {
+    cen->cgm = 2.0f + gas;
+    cen->metals_cgm = 0.25f + credit_metals;
+  } else {
+    cen->hot = 4.0f + gas;
+    cen->metals_hot = 0.5f + credit_metals;
+  }
+}
+
+/**
+ * @test    test_cgm_stripping_source_and_destination
+ * @brief   All four source/destination combinations, the gas cap binding and not, at
+ *          CGMrecipeOn 1, and the same inputs at CGMrecipeOn 0 (hot to hot); each unselected pair
+ *          of both galaxies unchanged
+ */
+int test_cgm_stripping_source_and_destination(void) {
+  int ok = 1;
+  for (int take_cgm = 0; take_cgm <= 1; take_cgm++) {
+    for (int give_cgm = 0; give_cgm <= 1; give_cgm++) {
+      for (int capped = 0; capped <= 1; capped++) {
+        const int substeps = capped ? 1 : 8;
+        const int sat_regime = take_cgm ? 0 : 1;
+        const int cen_regime = give_cgm ? 0 : 1;
+        struct c10_pairs sat, cen, want_sat, want_cen;
+
+        if (c10_strip("1", sat_regime, cen_regime, substeps, &sat, &cen) != 0) {
+          printf("\n  CGMrecipeOn 1: init or process failed");
+          ok = 0;
+          continue;
+        }
+        c10_expected(take_cgm, give_cgm, capped, &want_sat, &want_cen);
+        if (!c10_pairs_equal(&sat, &want_sat) || !c10_pairs_equal(&cen, &want_cen)) {
+          printf("\n  CGMrecipeOn 1, %s to %s, %s: satellite %.9g/%.9g/%.9g/%.9g central "
+                 "%.9g/%.9g/%.9g/%.9g",
+                 take_cgm ? "CGM" : "hot", give_cgm ? "CGM" : "hot", capped ? "capped" : "uncapped",
+                 (double)sat.hot, (double)sat.metals_hot, (double)sat.cgm, (double)sat.metals_cgm,
+                 (double)cen.hot, (double)cen.metals_hot, (double)cen.cgm, (double)cen.metals_cgm);
+          ok = 0;
+        }
+
+        /* CGMrecipeOn 0, the same input: hot to hot whatever the regimes */
+        if (c10_strip("0", sat_regime, cen_regime, substeps, &sat, &cen) != 0) {
+          printf("\n  CGMrecipeOn 0: init or process failed");
+          ok = 0;
+          continue;
+        }
+        c10_expected(0, 0, capped, &want_sat, &want_cen);
+        if (!c10_pairs_equal(&sat, &want_sat) || !c10_pairs_equal(&cen, &want_cen)) {
+          printf("\n  CGMrecipeOn 0 (regimes %d, %d), %s: not hot to hot", sat_regime, cen_regime,
+                 capped ? "capped" : "uncapped");
+          ok = 0;
+        }
+      }
+    }
+  }
+  TEST_ASSERT(ok, "each combination must strip from and to exactly the selected pairs");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_stripping_metals_above_gas
+ * @brief   Source metals above source gas (metallicity capped at 1) with the gas cap binding: the
+ *          source is debited its capped metals, the destination credited the capped gas times the
+ *          original metallicity (R/src/model_infall.c:256-270), all four combinations at
+ *          CGMrecipeOn 1 and the same inputs at CGMrecipeOn 0 (hot to hot)
+ *
+ * The satellite holds hot 1.0 / 1.5 and CGM 0.5 / 0.75 (metals not part of the baryon sum, which
+ * stays 3.5): one substep strips 2.5, capped at the source gas (1.0 or 0.5); the metals of the
+ * uncapped gas, 2.5 * 1, are capped at the source metals (1.5 or 0.75), which the source loses in
+ * full, while the destination gains only the capped gas times 1 (1.0 or 0.5). A credit of the
+ * capped metal debit would give 1.5 or 0.75 instead.
+ */
+int test_cgm_stripping_metals_above_gas(void) {
+  int ok = 1;
+  for (int take_cgm = 0; take_cgm <= 1; take_cgm++) {
+    for (int give_cgm = 0; give_cgm <= 1; give_cgm++) {
+      const int sat_regime = take_cgm ? 0 : 1;
+      const int cen_regime = give_cgm ? 0 : 1;
+      for (int cgm_on = 1; cgm_on >= 0; cgm_on--) {
+        const int src_cgm = cgm_on ? take_cgm : 0;
+        const int dst_cgm = cgm_on ? give_cgm : 0;
+        struct c10_pairs sat, cen;
+        if (c10_strip_metals(cgm_on ? "1" : "0", sat_regime, cen_regime, 1, 1.5f, 0.75f, &sat,
+                             &cen) != 0) {
+          printf("\n  CGMrecipeOn %d: init or process failed", cgm_on);
+          ok = 0;
+          continue;
+        }
+        /* Literal expectations: the source pair emptied, the other source pair untouched */
+        struct c10_pairs want_sat = {1.0f, 1.5f, 0.5f, 0.75f};
+        struct c10_pairs want_cen = {4.0f, 0.5f, 2.0f, 0.25f};
+        if (src_cgm) {
+          want_sat.cgm = 0.0f;
+          want_sat.metals_cgm = 0.0f;
+        } else {
+          want_sat.hot = 0.0f;
+          want_sat.metals_hot = 0.0f;
+        }
+        /* Credit: the capped gas (0.5 from CGM, 1.0 from hot) times metallicity 1 */
+        if (dst_cgm) {
+          want_cen.cgm = src_cgm ? 2.5f : 3.0f;
+          want_cen.metals_cgm = src_cgm ? 0.75f : 1.25f;
+        } else {
+          want_cen.hot = src_cgm ? 4.5f : 5.0f;
+          want_cen.metals_hot = src_cgm ? 1.0f : 1.5f;
+        }
+        if (!c10_pairs_equal(&sat, &want_sat) || !c10_pairs_equal(&cen, &want_cen)) {
+          printf("\n  CGMrecipeOn %d, %s to %s: satellite %.9g/%.9g/%.9g/%.9g central "
+                 "%.9g/%.9g/%.9g/%.9g",
+                 cgm_on, src_cgm ? "CGM" : "hot", dst_cgm ? "CGM" : "hot", (double)sat.hot,
+                 (double)sat.metals_hot, (double)sat.cgm, (double)sat.metals_cgm, (double)cen.hot,
+                 (double)cen.metals_hot, (double)cen.cgm, (double)cen.metals_cgm);
+          ok = 0;
+        }
+      }
+    }
+  }
+  TEST_ASSERT(ok, "the destination must gain the capped gas times the original metallicity, not "
+                  "the capped metal debit");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_recipe_on_refused
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
+ *          naming the parameter (campaign decision D33)
+ */
+int test_cgm_recipe_on_refused(void) {
+  const char *log = "";
+  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  setup_mock_config();
+  return TEST_PASS;
+}
+
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
   setup_mock_config();
@@ -576,6 +856,11 @@ int main(void) {
   TEST_RUN(test_type_3_ejected_skipped);
   TEST_RUN(test_null_galaxy_handling);
   TEST_RUN(test_multiple_satellites);
+
+  /* c10: CGMrecipeOn 1 against 0 (platform independent) */
+  TEST_RUN(test_cgm_stripping_source_and_destination);
+  TEST_RUN(test_cgm_stripping_metals_above_gas);
+  TEST_RUN(test_cgm_recipe_on_refused);
 
   TEST_SUMMARY();
   return TEST_RESULT();

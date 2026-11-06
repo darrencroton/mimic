@@ -39,6 +39,10 @@
  *   - test_null_galaxy_safety: Handles NULL galaxy gracefully
  *   - test_negative_prevention: Catches negative reincorporation values
  *
+ * c10 (platform independent, CGMrecipeOn 1 against 0):
+ *   - test_cgm_reincorporation_destination: the destination by CGMrecipeOn and the central's Regime
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it (D33)
+ *
  * @author  Mimic Development Team
  * @date    2025-12-18
  */
@@ -76,6 +80,7 @@ extern int sage26_reincorporation_cleanup(void);
 static void setup_module_for_physics_test(void) {
   reset_config();
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* ReIncorporationFactor = 1.0 is default in test_stubs.c */
   /* This gives Vcrit = 354.53 km/s (SAGE26 model_reincorporation.c:34, :46) */
@@ -156,6 +161,7 @@ int test_module_initialization(void) {
   test_phase_add("galaxy_physics", "sage26_reincorporation", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   int result = module_system_init();
   TEST_ASSERT(result == 0, "Module system initialization should succeed");
@@ -183,6 +189,7 @@ int test_parameter_reading(void) {
   MimicConfig.SubSteps = 1;
 
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter();                  /* CGMrecipeOn: 0, required (D33) */
   strcpy(MimicConfig.ModelParams[14].value, "0.5"); /* ReIncorporationFactor custom value */
 
   int result = module_system_init();
@@ -210,6 +217,7 @@ int test_memory_safety(void) {
   test_phase_add("galaxy_physics", "sage26_reincorporation", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   int result = module_system_init();
   TEST_ASSERT(result == 0, "Module initialization should succeed");
@@ -757,6 +765,117 @@ int test_negative_prevention(void) {
 /* MAIN TEST RUNNER                                                          */
 /* ========================================================================== */
 
+// ============================================================================
+// CGMrecipeOn 1 AGAINST 0 (c10 Slice 2, platform independent)
+// ============================================================================
+//
+// SAGE26's reincorporate_gas (R = the staged SAGE26 source, R/src/model_reincorporation.c:44-66)
+// changes only its destination with CGMrecipeOn: add_gas_to_hot_reservoir
+// (R/src/model_misc.h:76-85) gives the central's CGM pair for CGMrecipeOn 1 and Regime 0, its hot
+// pair otherwise. The central (Vvir 800, Rvir 0.3, dT 1.0 over one substep,
+// ReIncorporationFactor 1.0) would reincorporate far more than its ejected 0.5, so the cap binds
+// (:54-55): all 0.5 returns, with its metals 0.0625 (metallicity 1/8), leaving 0 / 0 ejected. Every
+// value is a short binary fraction, so each expectation is an exact literal.
+
+/** @brief Read a captured log stream into a static buffer (valid until the next call) */
+static const char *c10_read_log(FILE *fp) {
+  static char buf[8192];
+  rewind(fp);
+  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+  buf[n] = '\0';
+  return buf;
+}
+
+/** @brief Initialise with ReIncorporationFactor 1.0 and CGMrecipeOn `cgm` (NULL: missing) */
+static int c10_init(const char *cgm, const char **log) {
+  reset_config();
+  sage26_test_append_model_parameter("ReIncorporationFactor", "1.0");
+  if (cgm != NULL) {
+    sage26_test_append_model_parameter("CGMrecipeOn", cgm);
+  }
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_reincorporation_init();
+  if (capture != NULL) {
+    set_log_output(old_out);
+    *log = c10_read_log(capture);
+    fclose(capture);
+  } else {
+    *log = "";
+  }
+  return status;
+}
+
+/**
+ * @test    test_cgm_reincorporation_destination
+ * @brief   The capped reincorporation goes to the CGM pair at CGMrecipeOn 1 with Regime 0 and to
+ *          the hot pair at CGMrecipeOn 1 with Regime 1 and at CGMrecipeOn 0; the other pair is
+ *          unchanged and the ejected debits are the same in each
+ */
+int test_cgm_reincorporation_destination(void) {
+  const struct {
+    const char *cgm;
+    int regime;
+    int to_cgm;
+  } runs[] = {{"1", 0, 1}, {"1", 1, 0}, {"0", 0, 0}};
+  int ok = 1;
+  init_memory_system(0);
+  for (size_t k = 0; k < sizeof(runs) / sizeof(runs[0]); k++) {
+    const char *log = "";
+    TEST_ASSERT(c10_init(runs[k].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+    struct Halo halo = create_test_halo(0, 800.0, 0.3);
+    halo.dT = 1.0;
+    struct GalaxyData *g = halo.galaxy;
+    g->Regime = runs[k].regime;
+    g->EjectedGas = 0.5f;
+    g->MetalsEjectedGas = 0.0625f;
+    g->HotGas = 3.0f;
+    g->MetalsHotGas = 0.375f;
+    g->CGMgas = 2.0f;
+    g->MetalsCGMgas = 0.25f;
+    struct ModuleContext ctx = create_test_context(1.0);
+    ctx.central_galaxy = &halo;
+    const int status = sage26_reincorporation_process(&ctx, &halo, 1);
+
+    const int dest_ok = runs[k].to_cgm ? (g->CGMgas == 2.5f && g->MetalsCGMgas == 0.3125f &&
+                                          g->HotGas == 3.0f && g->MetalsHotGas == 0.375f)
+                                       : (g->HotGas == 3.5f && g->MetalsHotGas == 0.4375f &&
+                                          g->CGMgas == 2.0f && g->MetalsCGMgas == 0.25f);
+    const int ejected_ok = g->EjectedGas == 0.0f && g->MetalsEjectedGas == 0.0f;
+    if (status != 0 || !dest_ok || !ejected_ok) {
+      printf("\n  CGMrecipeOn %s, Regime %d: status %d, hot %.9g/%.9g, CGM %.9g/%.9g, ejected "
+             "%.9g/%.9g",
+             runs[k].cgm, runs[k].regime, status, (double)g->HotGas, (double)g->MetalsHotGas,
+             (double)g->CGMgas, (double)g->MetalsCGMgas, (double)g->EjectedGas,
+             (double)g->MetalsEjectedGas);
+      ok = 0;
+    }
+    free_test_halo(&halo);
+    sage26_reincorporation_cleanup();
+  }
+  check_memory_leaks();
+  TEST_ASSERT(ok, "the reincorporated gas and metals must reach exactly the selected pair");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_recipe_on_refused
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
+ *          naming the parameter (campaign decision D33)
+ */
+int test_cgm_recipe_on_refused(void) {
+  const char *log = "";
+  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  return TEST_PASS;
+}
+
 /**
  * @brief   Main test runner
  *
@@ -795,6 +914,11 @@ int main(void) {
   printf("\n%sERROR HANDLING TESTS:%s\n", BLUE, NC);
   TEST_RUN(test_null_galaxy_safety);
   TEST_RUN(test_negative_prevention);
+
+  /* c10: CGMrecipeOn 1 against 0 (platform independent) */
+  printf("\n%sCGM REGIME ROUTING TESTS (c10):%s\n", BLUE, NC);
+  TEST_RUN(test_cgm_reincorporation_destination);
+  TEST_RUN(test_cgm_recipe_on_refused);
 
   /* Print summary and return result */
   TEST_SUMMARY();

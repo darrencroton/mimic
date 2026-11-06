@@ -13,10 +13,13 @@ module:
       - ColdGas
       - MetalsColdGas
       - MetalsHotGas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the FoF central's selects the escaping metals' pair
       - NewStellarMass
     parameters:
       - Yield
       - FracZleaveDisk
+      - CGMrecipeOn     # required: 0 or 1
 
   tests:
     unit: _tests/test_unit_sage26_apply_metal_enrichment.c

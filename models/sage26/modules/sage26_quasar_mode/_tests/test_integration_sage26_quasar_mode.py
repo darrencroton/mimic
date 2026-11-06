@@ -80,6 +80,7 @@ def test_module_pipeline_integration():
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             # Disk instability module parameters (required dependency)
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
@@ -161,6 +162,7 @@ def test_quasar_physics_correctness():
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
         },
@@ -241,6 +243,7 @@ def test_disk_instability_trigger():
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "fStabInstability": 0.5,  # Triggers disk instability
             "StarFormingDiskFactor": 3.0,
         },
@@ -292,6 +295,7 @@ def test_merger_trigger():
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
+            "CGMrecipeOn": 0,  # required (D33), R3's value
         },
     )
 
@@ -340,6 +344,7 @@ def test_parameter_sensitivity():
             "BlackHoleGrowthRate": 0.005,  # Low
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
         },
@@ -371,6 +376,7 @@ def test_parameter_sensitivity():
             "BlackHoleGrowthRate": 0.02,  # High (4x)
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
         },
@@ -402,6 +408,7 @@ def test_parameter_sensitivity():
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.0001,  # Low
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
         },
@@ -433,6 +440,7 @@ def test_parameter_sensitivity():
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.01,  # High (100x)
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
         },
@@ -492,6 +500,7 @@ def test_memory_and_performance():
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
         },

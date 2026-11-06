@@ -79,7 +79,7 @@ def test_module_loads():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -117,7 +117,7 @@ def test_parameter_configuration():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.20},
+        model_params={"GlobalBaryonFraction": 0.20, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -155,7 +155,7 @@ def test_memory_safety():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -191,7 +191,7 @@ def test_output_properties_exist():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
         first_file=0,
         last_file=0,
     )
@@ -237,7 +237,7 @@ def test_output_property_types():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
         first_file=0,
         last_file=0,
     )
@@ -283,7 +283,7 @@ def test_output_sanity_checks():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
         first_file=0,
         last_file=0,
     )
@@ -330,7 +330,7 @@ def test_data_flow_validation():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
         first_file=0,
         last_file=0,
     )
@@ -385,7 +385,7 @@ def test_standalone_execution():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
         first_file=0,
         last_file=0,
     )

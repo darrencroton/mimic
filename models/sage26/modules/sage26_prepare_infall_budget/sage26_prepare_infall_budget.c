@@ -3,12 +3,22 @@
  * @brief   SAGE26 infall budget preparation - consolidates satellite reservoirs and computes
  * cosmological gas infall
  *
- * Ports SAGE26's infall_recipe (model_infall.c:67-213) on the R0 path (CGMrecipeOn 0):
+ * Ports SAGE26's infall_recipe (R = the staged SAGE26 source, R/src/model_infall.c:67-213):
  * sums every galaxy's baryons in the FoF group (CGM included), surrenders the
- * satellites' ejected gas, ICS (with its assembly history) and CGM to the central,
+ * satellites' ejected gas and ICS (with its assembly history) to the central,
  * computes the infall budget HaloBaryonFraction * Mvir minus those baryons, and
  * applies SAGE26's consolidation clamps in its order. Stores the budget in
- * InfallingGas for sage26_apply_infall.
+ * InfallingGas for sage26_apply_infall. The required parameter CGMrecipeOn (campaign
+ * decision D33) selects the CGM handling (R/src/model_infall.c:111-117, :159-181):
+ *
+ *   CGMrecipeOn 0 (R0-R3): the satellites' CGM is zeroed and the FoF group's CGM totals
+ *     are added to the central's hot gas.
+ *   CGMrecipeOn 1 (R4): the satellites keep their CGM, which is never added to the
+ *     central; the central migrates only its own gas by its Regime, set this snapshot by
+ *     sage26_determine_regime: Regime 0 folds its hot pair into its CGM pair, any other
+ *     its CGM pair into its hot pair, each a float-plus-float store, after the budget.
+ *
+ * The central's CGM safety checks follow in SAGE26's order either way.
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand
  * order and types, so that compiler contraction treats both alike.
@@ -26,20 +36,27 @@
 #include "module_registry.h"
 #include "numeric.h"
 #include "shared/central_link.h"
+#include "shared/sage_cgm_routing.h"
 #include "types.h"
 
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
 
+#define MODULE_NAME "sage26_prepare_infall_budget"
+
 static double GLOBAL_BARYON_FRAC;
+
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
+ * init (campaign decision D33) */
+static int CGM_RECIPE_ON;
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
 /**
- * @brief SAGE26 infall_recipe (model_infall.c:67-213), CGMrecipeOn 0
+ * @brief SAGE26 infall_recipe (R/src/model_infall.c:67-213)
  *
  * Returns HaloBaryonFraction * Mvir minus the FoF group's total baryons (CGM
  * included). HaloBaryonFraction is SAGE26's once-rounded reionization_modifier *
@@ -81,8 +98,9 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
     tot_MetalsCGMgas += gal->MetalsCGMgas;
 
     if (i != central_idx) {
-      // SAGE parity (model_infall.c:79-109): satellites surrender only their
-      // ejected gas, ICS and CGM to the central. Hot gas is NOT consolidated:
+      // SAGE parity (R/src/model_infall.c:90-117): satellites surrender their ejected
+      // gas and ICS to the central, and their CGM only with CGMrecipeOn 0 (below; with
+      // CGMrecipeOn 1 they keep it). Hot gas is NOT consolidated:
       // Type 2 orphans keep their hot reservoir and cool it themselves until they
       // merge (orphans pass through cooling before destruction,
       // core_build_model.c:473-516).
@@ -102,8 +120,12 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
       }
       gal->ICS = gal->MetalsICS = 0.0f;
 
-      // CGMrecipeOn != 1: satellite CGM is unused and zeroed (model_infall.c:115-117)
-      gal->CGMgas = gal->MetalsCGMgas = 0.0f;
+      // SAGE parity (R/src/model_infall.c:111-117): with CGMrecipeOn 1 a satellite keeps its
+      // CGM across snapshots, after its contribution to the sums above, and loses it only
+      // through stripping's baryon-excess rule; otherwise its CGM is unused and zeroed here
+      if (CGM_RECIPE_ON != MIMIC_SAGE_CGM_RECIPE_ON) {
+        gal->CGMgas = gal->MetalsCGMgas = 0.0f;
+      }
     }
   }
 
@@ -131,15 +153,38 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
     central->MetalsEjectedGas = 0.0f;
   }
 
-  // SAGE parity (model_infall.c:177-181): with the CGM recipe off, the FoF
-  // group's original CGM totals, the central's own CGM included, are added to
-  // the central's hot gas, and the central's CGMgas is NOT cleared, so a
-  // carried central CGM stays in both reservoirs. This is SAGE26's deliberate
-  // source quirk, mirrored; it is inert while CGM stays zero, as R0 keeps it.
-  central->HotGas += tot_CGMgas;
-  central->MetalsHotGas += tot_MetalsCGMgas;
+  if (CGM_RECIPE_ON == MIMIC_SAGE_CGM_RECIPE_ON) {
+    // SAGE parity (R/src/model_infall.c:159-176): the satellites kept their CGM above, so the
+    // FoF CGM totals, which still include it, are NOT given to the central. Only the central's
+    // own gas migrates, by its regime (sage26_determine_regime); each line is a float-plus-float
+    // sum rounded into its float field, not a double-accumulator transfer. SAGE26's comment
+    // above the block (:148-158) describes an older pooling implementation; this is what its
+    // code does.
+    if (central->Regime == MIMIC_SAGE_REGIME_CGM) {
+      // CGM-regime central: its hot gas folds into its CGM (:164-169)
+      central->CGMgas += central->HotGas;
+      central->MetalsCGMgas += central->MetalsHotGas;
+      central->HotGas = 0.0f;
+      central->MetalsHotGas = 0.0f;
+    } else {
+      // Hot-regime central: its CGM folds into its hot gas (:170-176)
+      central->HotGas += central->CGMgas;
+      central->MetalsHotGas += central->MetalsCGMgas;
+      central->CGMgas = 0.0f;
+      central->MetalsCGMgas = 0.0f;
+    }
+  } else {
+    // SAGE parity (R/src/model_infall.c:177-181), CGMrecipeOn 0 only: the FoF group's
+    // original CGM totals, the central's own CGM included, are added to the central's hot
+    // gas, and the central's CGMgas is NOT cleared, so a carried central CGM stays in both
+    // reservoirs. This is SAGE26's deliberate off-branch quirk, mirrored; it is inert while
+    // CGM stays zero, as R0-R3 keep it. It is not R4 behaviour (CGMrecipeOn 1, above).
+    central->HotGas += tot_CGMgas;
+    central->MetalsHotGas += tot_MetalsCGMgas;
+  }
 
-  // Safety checks on the central's CGM (model_infall.c:183-194)
+  // Safety checks on the central's CGM, in SAGE26's order: metals capped to gas, then a
+  // negative gas clears both, then negative metals are floored (R/src/model_infall.c:183-194)
   if (central->MetalsCGMgas > central->CGMgas) {
     central->MetalsCGMgas = central->CGMgas;
   }
@@ -177,6 +222,12 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
 // ============================================================================
 
 int sage26_prepare_infall_budget_init(void) {
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
+  if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
+    return -1;
+  }
+
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
 
@@ -195,6 +246,7 @@ int sage26_prepare_infall_budget_init(void) {
 
   VERBOSE_LOG("SAGE prepare infall budget module initialized");
   VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
+  VERBOSE_LOG("  CGMrecipeOn = %d", CGM_RECIPE_ON);
 
   return 0;
 }

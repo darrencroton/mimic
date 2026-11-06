@@ -1,0 +1,41 @@
+# A Regime 0 central whose migrated CGM metals exceed its CGM gas: the metals cap binds (I:184-185).
+# Hot metals 2 over hot gas 1 make the sum 2.5 > 2.0.
+# Reachability: constructed routine-domain probe (metals above gas, which R4's reservoirs do not
+# hold).
+# R4's flags: CGMrecipeOn 1 (par/R4.par:54); ReionizationOn 1, BaryonFrac 0.17,
+# ReIncorporationFactor 0.19 and Reionization_z0/zr 8/7 as R3 (R4.par:51, :39, :72, :85-86).
+format sage26-oracle-fixture 1
+routine infall_recipe
+
+i32 params.ReionizationOn 1
+i32 params.CGMrecipeOn 1
+f64 params.BaryonFrac 0x3fc5c28f5c28f5c3  # 0.17000000000000001
+f64 params.a0 0x3fbc71c71c71c71c  # 0.1111111111111111  (1/(1+Reionization_z0), z0 = 8)
+f64 params.ar 0x3fc0000000000000  # 0.125  (1/(1+Reionization_zr), zr = 7)
+f64 params.Omega 0x3fd0000000000000  # 0.25
+f64 params.OmegaLambda 0x3fe8000000000000  # 0.75
+f64 params.Hubble 0x40590001165723b7  # 100.00006636151998  (HUBBLE * UnitTime_in_s)
+f64 params.G 0x404580e7ed5ced1b  # 43.007077856420629  (GRAVITY / CUBE(L) * M * SQR(T))
+
+i32 call.ngal 1
+i32 call.centralgal 0
+f64 call.Zcurr 0x0000000000000000  # 0.0  (z = 0)
+# galaxy[0]: metals above gas
+
+i32 galaxy[0].Type 0
+i32 galaxy[0].Regime 0
+f32 galaxy[0].Mvir 0x42c80000  # 100
+f32 galaxy[0].StellarMass 0x3fc00000  # 1.5
+f32 galaxy[0].BlackHoleMass 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].ColdGas 0x3f4ccccd  # 0.800000012
+f32 galaxy[0].HotGas 0x3f800000  # 1
+f32 galaxy[0].MetalsHotGas 0x40000000  # 2
+f32 galaxy[0].EjectedMass 0x3f333333  # 0.699999988
+f32 galaxy[0].MetalsEjectedMass 0x3be56042  # 0.00700000022
+f32 galaxy[0].ICS 0x3e4ccccd  # 0.200000003
+f32 galaxy[0].MetalsICS 0x3b03126f  # 0.00200000009
+f32 galaxy[0].CGMgas 0x3f800000  # 1
+f32 galaxy[0].MetalsCGMgas 0x3f000000  # 0.5
+f32 galaxy[0].ICS_disrupt 0x3dcccccd  # 0.100000001
+f32 galaxy[0].ICS_accrete 0x3dcccccd  # 0.100000001
+f32 galaxy[0].ICS_sum_mt 0x3d4ccccd  # 0.0500000007

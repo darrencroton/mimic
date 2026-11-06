@@ -133,7 +133,7 @@ def test_module_loads():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -181,7 +181,7 @@ def test_output_properties_exist():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -232,7 +232,7 @@ def test_parameters_configurable():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.20},
+        model_params={"GlobalBaryonFraction": 0.20, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -283,7 +283,7 @@ def test_with_satellite_stripping():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -330,7 +330,7 @@ def test_memory_safety():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -368,7 +368,7 @@ def test_execution_completes():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
         first_file=0,
         last_file=0,
     )
@@ -410,7 +410,7 @@ def test_infalling_gas_calculation():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====
@@ -539,7 +539,7 @@ def test_multiple_module_pipeline():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17},
+        model_params={"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0},
     )
 
     # ===== EXECUTE =====

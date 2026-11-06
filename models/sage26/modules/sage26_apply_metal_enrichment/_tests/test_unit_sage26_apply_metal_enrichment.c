@@ -20,6 +20,12 @@
  *   - test_null_galaxy: NULL galaxy handled gracefully
  *   - test_null_central: missing FOF central handled gracefully
  *   - test_invalid_ngal: error when ngal != 1
+ *   - test_cgm_yield_destination: CGMrecipeOn 1 against 0 on the same input: the escaping
+ *     metals of both branches (retained, ColdGas > 1e-8; all metals, ColdGas <= 1e-8) go to the FoF
+ *     central's CGM metals (its Regime 0) or hot metals (Regime 1, or CGMrecipeOn 0); the forming
+ *     satellite holds the other Regime; the unselected pair and the gas fields unchanged
+ *     (R/src/model_starformation_and_feedback.c:1093-1108, R/src/model_misc.h:67-74)
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
  */
 
 #include <math.h>
@@ -88,6 +94,7 @@ int test_init_valid(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* No SF/SN or starburst modules configured, so the ordering checks are skipped. */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0,
@@ -106,6 +113,7 @@ int test_init_rejects_sf_after(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* Wrong order: the SF/SN apply step must precede the yield. */
   test_phase_add("galaxy_physics", "sage26_apply_metal_enrichment", PROCESSING_MODE_BY_GALAXY);
@@ -128,6 +136,7 @@ int test_init_rejects_starburst_after(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* Wrong order: SAGE adds the disk yield after the disk-instability starburst. */
   test_phase_add("galaxy_physics", "sage26_apply_metal_enrichment", PROCESSING_MODE_BY_GALAXY);
@@ -150,6 +159,7 @@ int test_physics_cold_gas_above_threshold(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -192,6 +202,7 @@ int test_physics_cold_gas_below_threshold(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -229,6 +240,7 @@ int test_consumes_new_stellar_mass(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -261,6 +273,7 @@ int test_zero_new_stellar_mass(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -300,6 +313,7 @@ int test_zero_event_still_adds_yield(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -336,6 +350,7 @@ int test_null_galaxy(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   sage26_apply_metal_enrichment_init();
 
   struct ModuleContext ctx = create_test_context();
@@ -360,6 +375,7 @@ int test_null_central(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   sage26_apply_metal_enrichment_init();
 
   struct ModuleContext ctx = create_test_context();
@@ -387,6 +403,7 @@ int test_invalid_ngal(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   sage26_apply_metal_enrichment_init();
 
   struct ModuleContext ctx = create_test_context();
@@ -398,6 +415,137 @@ int test_invalid_ngal(void) {
   TEST_ASSERT(sage26_apply_metal_enrichment_process(&ctx, &halo, 2) == -1,
               "ngal != 1 should return an error");
   check_memory_leaks();
+  return TEST_PASS;
+}
+
+// ============================================================================
+// CGM ROUTING TESTS (c10, CGMrecipeOn)
+// ============================================================================
+//
+// SAGE26's disk yield (R = the staged SAGE26 source, R/src/model_starformation_and_feedback.c
+// :1093-1108) sends the escaping metals through add_metals_to_hot_reservoir
+// (R/src/model_misc.h:67-74) to the FoF CENTRAL's MetalsCGMgas when CGMrecipeOn is 1 and the
+// central's Regime is 0, and to its MetalsHotGas otherwise. With Yield 0.5, FracZleaveDisk 0.5 and
+// a central Mvir of 0 (exp(-0) = 1, so FracZleaveDiskVal = 0.5) and 1 star formed, every value is
+// exact: the retained branch (satellite ColdGas 4) keeps 0.5 * (1 - 0.5) * 1 = 0.25 in the
+// satellite's cold metals and sends 0.5 * 0.5 * 1 = 0.25 out; the all-metals branch (ColdGas 0)
+// sends 0.5 * 1 = 0.5 out. Both central metal fields start at 0.125.
+
+/** @brief Read a captured log stream into a static buffer (valid until the next call) */
+static const char *c10_read_log(FILE *fp) {
+  static char buf[8192];
+  rewind(fp);
+  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+  buf[n] = '\0';
+  return buf;
+}
+
+/** @brief Initialise with Yield 0.5, FracZleaveDisk 0.5 and CGMrecipeOn `cgm` (NULL: missing) */
+static int c10_init(const char *cgm, const char **log) {
+  reset_config();
+  sage26_test_append_model_parameter("Yield", "0.5");
+  sage26_test_append_model_parameter("FracZleaveDisk", "0.5");
+  if (cgm != NULL) {
+    sage26_test_append_model_parameter("CGMrecipeOn", cgm);
+  }
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_apply_metal_enrichment_init();
+  if (capture != NULL) {
+    set_log_output(old_out);
+    *log = c10_read_log(capture);
+    fclose(capture);
+  } else {
+    *log = "";
+  }
+  return status;
+}
+
+/**
+ * @test    test_cgm_yield_destination
+ * @brief   The escaping disk yield reaches the FoF central's metal field its Regime selects
+ */
+int test_cgm_yield_destination(void) {
+  const struct {
+    const char *cgm;
+    int central_regime;
+    int to_cgm;
+  } runs[] = {{"1", 0, 1}, {"1", 1, 0}, {"0", 0, 0}, {"0", 1, 0}};
+  const struct {
+    const char *name;
+    float cold_gas;    /* the satellite's ColdGas */
+    float cold_metals; /* the satellite's MetalsColdGas after the call (input 0.125) */
+    float selected;    /* the central's selected metals after the call (input 0.125) */
+  } branches[] = {{"retained", 4.0f, 0.375f, 0.375f}, {"all metals", 0.0f, 0.125f, 0.625f}};
+  int ok = 1;
+  init_memory_system(0);
+  for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
+    for (size_t b = 0; b < sizeof(branches) / sizeof(branches[0]); b++) {
+      const char *log = "";
+      TEST_ASSERT(c10_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+      struct ModuleContext ctx = create_test_context();
+      struct GalaxyData cen_gal;
+      memset(&cen_gal, 0, sizeof(cen_gal));
+      cen_gal.Regime = runs[r].central_regime;
+      cen_gal.HotGas = 1.0f;
+      cen_gal.MetalsHotGas = 0.125f;
+      cen_gal.CGMgas = 1.0f;
+      cen_gal.MetalsCGMgas = 0.125f;
+      struct GalaxyData sat_gal;
+      memset(&sat_gal, 0, sizeof(sat_gal));
+      sat_gal.Regime = 1 - runs[r].central_regime;
+      sat_gal.ColdGas = branches[b].cold_gas;
+      sat_gal.MetalsColdGas = 0.125f;
+      sat_gal.HotGas = 2.0f;
+      sat_gal.MetalsHotGas = 0.25f;
+      sat_gal.CGMgas = 3.0f;
+      sat_gal.MetalsCGMgas = 0.5f;
+      sat_gal.NewStellarMass = 1.0;
+      struct Halo halos[2] = {create_test_halo(0, 0.0, &cen_gal),
+                              create_test_halo(1, 10.0, &sat_gal)};
+      ctx.central_galaxy = &halos[0];
+
+      const int status = sage26_apply_metal_enrichment_process(&ctx, &halos[1], 1);
+
+      const float sel = runs[r].to_cgm ? cen_gal.MetalsCGMgas : cen_gal.MetalsHotGas;
+      const float oth = runs[r].to_cgm ? cen_gal.MetalsHotGas : cen_gal.MetalsCGMgas;
+      const int central_ok = sel == branches[b].selected && oth == 0.125f &&
+                             cen_gal.HotGas == 1.0f && cen_gal.CGMgas == 1.0f;
+      const int satellite_ok = sat_gal.MetalsColdGas == branches[b].cold_metals &&
+                               sat_gal.ColdGas == branches[b].cold_gas &&
+                               sat_gal.MetalsHotGas == 0.25f && sat_gal.MetalsCGMgas == 0.5f &&
+                               sat_gal.NewStellarMass == 0.0;
+      if (status != 0 || !central_ok || !satellite_ok) {
+        printf("\n  CGMrecipeOn %s, central Regime %d, %s: status %d, central hot metals %.9g, CGM "
+               "metals %.9g, satellite cold metals %.9g",
+               runs[r].cgm, runs[r].central_regime, branches[b].name, status,
+               (double)cen_gal.MetalsHotGas, (double)cen_gal.MetalsCGMgas,
+               (double)sat_gal.MetalsColdGas);
+        ok = 0;
+      }
+      sage26_apply_metal_enrichment_cleanup();
+    }
+  }
+  check_memory_leaks();
+  TEST_ASSERT(ok, "the escaping yield must reach exactly the FoF central's selected metals");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_recipe_on_refused
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
+ *          naming the parameter (campaign decision D33)
+ */
+int test_cgm_recipe_on_refused(void) {
+  const char *log = "";
+  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
   return TEST_PASS;
 }
 
@@ -422,6 +570,8 @@ int main(void) {
   TEST_RUN(test_null_galaxy);
   TEST_RUN(test_null_central);
   TEST_RUN(test_invalid_ngal);
+  TEST_RUN(test_cgm_yield_destination);
+  TEST_RUN(test_cgm_recipe_on_refused);
 
   TEST_SUMMARY();
   return TEST_RESULT();
