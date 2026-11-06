@@ -70,10 +70,28 @@ extern int sage26_apply_infall_cleanup(void);
 /**
  * @brief Initialize sage26_apply_infall module for physics testing
  *
- * Sets up minimal module state without full module system.
- * Module has no init-time parameters to configure.
+ * Sets up minimal module state without the full module system: the required CGMrecipeOn at 0
+ * (campaign decision D33; the hot reservoir, as these tests expect) and the budget module in
+ * pre_timestep, which init() requires. Every physics test asserts that init() succeeds, so none
+ * depends on run order or on the module's state left by an earlier test.
+ *
+ * @return init()'s status, 0 on success
  */
-static void setup_module_for_physics_test(void) { sage26_apply_infall_init(); }
+static int setup_module_for_physics_test(void) {
+  static struct PhaseModuleConfig pre_timestep[1];
+  static char budget_name[] = "sage26_prepare_infall_budget";
+  reset_config();
+  pre_timestep[0].module_name = budget_name;
+  pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+  pre_timestep[0].resolved = NULL;
+  MimicConfig.pre_timestep = pre_timestep;
+  MimicConfig.num_pre_timestep = 1;
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  const int status = sage26_apply_infall_init();
+  MimicConfig.pre_timestep = NULL;
+  MimicConfig.num_pre_timestep = 0;
+  return status;
+}
 
 /**
  * @brief Create a test halo with galaxy for physics tests
@@ -261,7 +279,7 @@ int test_property_access(void) {
 int test_physics_positive_infall_single_substep(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
+  TEST_ASSERT(setup_module_for_physics_test() == 0, "init must succeed with CGMrecipeOn 0");
 
   struct Halo test_halo = create_test_halo(0, 100.0); /* Type 0 central */
 
@@ -302,7 +320,7 @@ int test_physics_positive_infall_single_substep(void) {
 int test_physics_positive_infall_multiple_substeps(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
+  TEST_ASSERT(setup_module_for_physics_test() == 0, "init must succeed with CGMrecipeOn 0");
 
   struct Halo test_halo = create_test_halo(0, 100.0);
 
@@ -349,7 +367,7 @@ int test_physics_positive_infall_multiple_substeps(void) {
 int test_physics_positive_infall_max_dynamic_substeps(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
+  TEST_ASSERT(setup_module_for_physics_test() == 0, "init must succeed with CGMrecipeOn 0");
 
   struct Halo test_halo = create_test_halo(0, 100.0);
 
@@ -396,7 +414,7 @@ int test_physics_positive_infall_max_dynamic_substeps(void) {
 int test_physics_infall_budget_invariant_across_substep_counts(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
+  TEST_ASSERT(setup_module_for_physics_test() == 0, "init must succeed with CGMrecipeOn 0");
 
   const double initial_hot = 5.0;
   const double infall_budget = 12.7;
@@ -455,7 +473,7 @@ int test_physics_infall_budget_invariant_across_substep_counts(void) {
 int test_physics_negative_infall_from_ejected(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
+  TEST_ASSERT(setup_module_for_physics_test() == 0, "init must succeed with CGMrecipeOn 0");
 
   struct Halo test_halo = create_test_halo(0, 100.0);
 
@@ -508,7 +526,7 @@ int test_physics_negative_infall_from_ejected(void) {
 int test_physics_negative_infall_from_hot(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
+  TEST_ASSERT(setup_module_for_physics_test() == 0, "init must succeed with CGMrecipeOn 0");
 
   struct Halo test_halo = create_test_halo(0, 100.0);
 
@@ -561,7 +579,7 @@ int test_physics_negative_infall_from_hot(void) {
 int test_physics_negative_infall_cascade(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
+  TEST_ASSERT(setup_module_for_physics_test() == 0, "init must succeed with CGMrecipeOn 0");
 
   struct Halo test_halo = create_test_halo(0, 100.0);
 
@@ -616,7 +634,7 @@ int test_physics_negative_infall_cascade(void) {
 int test_zero_infall(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
+  TEST_ASSERT(setup_module_for_physics_test() == 0, "init must succeed with CGMrecipeOn 0");
 
   struct Halo test_halo = create_test_halo(0, 100.0);
 
@@ -660,7 +678,7 @@ int test_zero_infall(void) {
 int test_no_central_galaxy(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
+  TEST_ASSERT(setup_module_for_physics_test() == 0, "init must succeed with CGMrecipeOn 0");
 
   /* Create satellite-only group */
   struct Halo satellite = create_test_halo(1, 10.0); /* Type 1 satellite */

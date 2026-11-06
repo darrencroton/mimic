@@ -36,7 +36,7 @@ f32 galaxy[0].MetalsCGMgas 0x3cf5c28f  # 0.0299999993
 f32 galaxy[0].EjectedMass 0x3f000000  # 0.5
 f32 galaxy[0].BlackHoleMass 0x3ca3d70a  # 0.0199999996
 f32 galaxy[0].ICS 0x3e99999a  # 0.300000012
-# galaxy[1]: Type 1 satellite, Regime 0, both pairs non-empty
+# galaxy[1]: Type 1 satellite, Regime 0, hot pair non-empty, CGM pair empty (0 / 0)
 
 i32 galaxy[1].Type 1
 i32 galaxy[1].Regime 0

@@ -21,6 +21,9 @@
  *   - c10 (platform independent): with CGMrecipeOn 1 the satellite's regime selects the source
  *     and the FoF central's the destination, all four combinations with the gas cap binding and
  *     not, against CGMrecipeOn 0 on the same input (test_cgm_stripping_source_and_destination);
+ *     the same four combinations with source metals above source gas and both caps binding, so
+ *     the destination credit (capped gas times metallicity 1) differs from the capped metal
+ *     debit (test_cgm_stripping_metals_above_gas);
  *     CGMrecipeOn missing or not 0/1 refused, naming it (test_cgm_recipe_on_refused)
  */
 
@@ -627,8 +630,10 @@ static int c10_pairs_equal(const struct c10_pairs *a, const struct c10_pairs *b)
 }
 
 /** @brief Strip the satellite once at CGMrecipeOn `cgm` with the given regimes and substeps */
-static int c10_strip(const char *cgm, const int sat_regime, const int cen_regime,
-                     const int substeps, struct c10_pairs *sat_out, struct c10_pairs *cen_out) {
+static int c10_strip_metals(const char *cgm, const int sat_regime, const int cen_regime,
+                            const int substeps, const float sat_metals_hot,
+                            const float sat_metals_cgm, struct c10_pairs *sat_out,
+                            struct c10_pairs *cen_out) {
   const char *log = "";
   if (c10_init(cgm, &log) != 0) {
     return -1;
@@ -646,9 +651,9 @@ static int c10_strip(const char *cgm, const int sat_regime, const int cen_regime
   sat_gal.StellarMass = 1.0f;
   sat_gal.ColdGas = 0.5f;
   sat_gal.HotGas = 1.0f;
-  sat_gal.MetalsHotGas = 0.125f;
+  sat_gal.MetalsHotGas = sat_metals_hot;
   sat_gal.CGMgas = 0.5f;
-  sat_gal.MetalsCGMgas = 0.125f;
+  sat_gal.MetalsCGMgas = sat_metals_cgm;
   sat_gal.EjectedGas = 0.25f;
   sat_gal.ICS = 0.25f;
   struct Halo central = create_test_halo(0, 64.0, &cen_gal);
@@ -661,6 +666,12 @@ static int c10_strip(const char *cgm, const int sat_regime, const int cen_regime
   *cen_out = (struct c10_pairs){cen_gal.HotGas, cen_gal.MetalsHotGas, cen_gal.CGMgas,
                                 cen_gal.MetalsCGMgas};
   return status;
+}
+
+/** @brief c10_strip_metals() with the default source metals, 0.125 in each pair */
+static int c10_strip(const char *cgm, const int sat_regime, const int cen_regime,
+                     const int substeps, struct c10_pairs *sat_out, struct c10_pairs *cen_out) {
+  return c10_strip_metals(cgm, sat_regime, cen_regime, substeps, 0.125f, 0.125f, sat_out, cen_out);
 }
 
 /**
@@ -746,6 +757,69 @@ int test_cgm_stripping_source_and_destination(void) {
 }
 
 /**
+ * @test    test_cgm_stripping_metals_above_gas
+ * @brief   Source metals above source gas (metallicity capped at 1) with the gas cap binding: the
+ *          source is debited its capped metals, the destination credited the capped gas times the
+ *          original metallicity (R/src/model_infall.c:256-270), all four combinations at
+ *          CGMrecipeOn 1 and the same inputs at CGMrecipeOn 0 (hot to hot)
+ *
+ * The satellite holds hot 1.0 / 1.5 and CGM 0.5 / 0.75 (metals not part of the baryon sum, which
+ * stays 3.5): one substep strips 2.5, capped at the source gas (1.0 or 0.5); the metals of the
+ * uncapped gas, 2.5 * 1, are capped at the source metals (1.5 or 0.75), which the source loses in
+ * full, while the destination gains only the capped gas times 1 (1.0 or 0.5). A credit of the
+ * capped metal debit would give 1.5 or 0.75 instead.
+ */
+int test_cgm_stripping_metals_above_gas(void) {
+  int ok = 1;
+  for (int take_cgm = 0; take_cgm <= 1; take_cgm++) {
+    for (int give_cgm = 0; give_cgm <= 1; give_cgm++) {
+      const int sat_regime = take_cgm ? 0 : 1;
+      const int cen_regime = give_cgm ? 0 : 1;
+      for (int cgm_on = 1; cgm_on >= 0; cgm_on--) {
+        const int src_cgm = cgm_on ? take_cgm : 0;
+        const int dst_cgm = cgm_on ? give_cgm : 0;
+        struct c10_pairs sat, cen;
+        if (c10_strip_metals(cgm_on ? "1" : "0", sat_regime, cen_regime, 1, 1.5f, 0.75f, &sat,
+                             &cen) != 0) {
+          printf("\n  CGMrecipeOn %d: init or process failed", cgm_on);
+          ok = 0;
+          continue;
+        }
+        /* Literal expectations: the source pair emptied, the other source pair untouched */
+        struct c10_pairs want_sat = {1.0f, 1.5f, 0.5f, 0.75f};
+        struct c10_pairs want_cen = {4.0f, 0.5f, 2.0f, 0.25f};
+        if (src_cgm) {
+          want_sat.cgm = 0.0f;
+          want_sat.metals_cgm = 0.0f;
+        } else {
+          want_sat.hot = 0.0f;
+          want_sat.metals_hot = 0.0f;
+        }
+        /* Credit: the capped gas (0.5 from CGM, 1.0 from hot) times metallicity 1 */
+        if (dst_cgm) {
+          want_cen.cgm = src_cgm ? 2.5f : 3.0f;
+          want_cen.metals_cgm = src_cgm ? 0.75f : 1.25f;
+        } else {
+          want_cen.hot = src_cgm ? 4.5f : 5.0f;
+          want_cen.metals_hot = src_cgm ? 1.0f : 1.5f;
+        }
+        if (!c10_pairs_equal(&sat, &want_sat) || !c10_pairs_equal(&cen, &want_cen)) {
+          printf("\n  CGMrecipeOn %d, %s to %s: satellite %.9g/%.9g/%.9g/%.9g central "
+                 "%.9g/%.9g/%.9g/%.9g",
+                 cgm_on, src_cgm ? "CGM" : "hot", dst_cgm ? "CGM" : "hot", (double)sat.hot,
+                 (double)sat.metals_hot, (double)sat.cgm, (double)sat.metals_cgm, (double)cen.hot,
+                 (double)cen.metals_hot, (double)cen.cgm, (double)cen.metals_cgm);
+          ok = 0;
+        }
+      }
+    }
+  }
+  TEST_ASSERT(ok, "the destination must gain the capped gas times the original metallicity, not "
+                  "the capped metal debit");
+  return TEST_PASS;
+}
+
+/**
  * @test    test_cgm_recipe_on_refused
  * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
  *          naming the parameter (campaign decision D33)
@@ -785,6 +859,7 @@ int main(void) {
 
   /* c10: CGMrecipeOn 1 against 0 (platform independent) */
   TEST_RUN(test_cgm_stripping_source_and_destination);
+  TEST_RUN(test_cgm_stripping_metals_above_gas);
   TEST_RUN(test_cgm_recipe_on_refused);
 
   TEST_SUMMARY();

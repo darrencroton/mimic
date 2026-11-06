@@ -96,9 +96,17 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
 
   gal = central_halo->galaxy;
 
-  // Skip if no ejected gas to reincorporate. SAGE26 has no such guard, but on
-  // R0's domain (no negative reservoirs) it is a no-op there too: the
-  // reincorporated mass scales with EjectedMass, so zero stays zero.
+  // Skip if no ejected gas to reincorporate. SAGE26 has no such guard
+  // (R/src/model_reincorporation.c:48-64), and it now gates the CGM destination too. For
+  // EjectedGas +0.0 SAGE26 reincorporates +0.0 and its ejected debits leave both ejected fields
+  // as they are, but its destination additions (R/src/model_misc.h:79-80, :82-83) add +0.0,
+  // which turns a -0.0 destination field (hot or CGM, gas or metals) into +0.0, while this guard
+  // leaves -0.0: the two are equal in every value comparison and differ only in an exact-zero
+  // field's sign bit. A negative or -0.0 EjectedGas would differ more, but none occurs on the
+  // R4 domain: the R4 reference output (workspace/e01-reference/out/R4/model_0.hdf5) has no
+  // negative and no -0.0 EjectedMass or MetalsEjectedMass in any of its 64 snapshots (1519062
+  // rows), and the package floors the ejected gas at infall preparation and clears it to +0.0
+  // when infall exhausts it, as SAGE26 does (R/src/model_infall.c:140-141, :365).
   if (gal->EjectedGas <= 0.0f) {
     return 0;
   }

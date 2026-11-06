@@ -34,6 +34,7 @@ module:
       - _tests/test_unit_sage_sfr_history.c
       - _tests/test_unit_sage_merger_clock.c
       - _tests/test_unit_sage_keyed_draw.c
+      - _tests/test_unit_sage_cgm_routing.c
 
     integration: []
     scientific: []
