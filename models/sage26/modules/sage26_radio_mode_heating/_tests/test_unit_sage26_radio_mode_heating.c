@@ -1115,9 +1115,22 @@ int test_cgm_agn_recaps_to_post_accretion_cgm(void) {
   gal.Rheat = 0.0f;
   const double ret =
       mimic_sage_do_agn_heating_cgm(&halo, &MimicConfig, 2, 0.08, 1, 0.01, 1.0, 1.0, 0.1, &al);
-  TEST_ASSERT(al.accreted > 0.0 && gal.CGMgas < 1.0f, "the accretion drains the CGM");
+  /* C:540-571 inline: Bondi rate, Eddington cap, reservoir cap, AGNcoeff, heating cap */
+  const double bh = 1.0f, vv = 1.0e5f, m = 1.0, x = 1.0, dt = 0.01;
+  double rate = (2.5 * M_PI * 43.007077856420629) * (0.375 * 0.6 * x) * bh * 0.08;
+  const double edd = (1.3e38 * bh * 1e10 / 0.73) / (1.989e53 / 3.08568e19) / (0.1 * 9.0e10);
+  if (rate > edd)
+    rate = edd;
+  double acc = rate * dt;
+  if (acc > (double)1.0f)
+    acc = 1.0f;
+  const double coeff = (1.34e5 / vv) * (1.34e5 / vv);
+  if (coeff * acc > m && coeff > 0.0)
+    acc = m / coeff;
+  TEST_ASSERT(al.accreted == acc && acc > 0.0, "AGNaccreted from the inline accretion");
+  TEST_ASSERT(gal.CGMgas < 1.0f, "the accretion drains the CGM");
   TEST_ASSERT(ret == (double)gal.CGMgas && al.recapped == 1, "re-capped to the post-accretion CGM");
-  TEST_ASSERT(gal.CGMgas == (float)(1.0f - al.accreted), "CGMgas -= AGNaccreted (C:655)");
+  TEST_ASSERT(gal.CGMgas == (float)(1.0f - acc), "CGMgas -= AGNaccreted (C:655)");
   TEST_ASSERT(gal.HotGas == 10.0f, "the hot pair is not touched");
   return TEST_PASS;
 }

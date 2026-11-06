@@ -357,7 +357,10 @@ static inline int oracle_c11_check_hot(const char *fixture, struct oracle_fixtur
     return p + 1;
   }
   if (l.branch == MIMIC_SAGE_HOT_BRANCH_STREAMS) {
-    galaxy.mdot_cool = l.stream.mdot_cool; /* SAGE26's float stores (C:282-283) */
+    /* The helper writes no mdot field (campaign decision D39: the cooling transaction stores the
+     * raw rates). The harness places the helper's returned float stores where SAGE26 writes them
+     * (C:282-283), so the oracle compares those returned values with SAGE26's galaxy fields. */
+    galaxy.mdot_cool = l.stream.mdot_cool;
     galaxy.mdot_stream = l.stream.mdot_stream;
   }
   p += oracle_c11_check_hot_locals(fixture, out, &l, coolingGas, hot_gas_in);
@@ -407,6 +410,8 @@ static inline int oracle_c11_check_hot(const char *fixture, struct oracle_fixtur
     return p + 1;
   }
   if (cl.branch == MIMIC_SAGE_HOT_BRANCH_STREAMS) {
+    /* As above: the composed recipe writes no mdot field (D39); the harness places its returned
+     * float stores where SAGE26 writes them (C:282-283) for the comparison. */
     composed_galaxy.mdot_cool = cl.stream.mdot_cool;
     composed_galaxy.mdot_stream = cl.stream.mdot_stream;
   }

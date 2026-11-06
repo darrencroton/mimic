@@ -601,7 +601,16 @@ int test_streams_sigmoid_from_stored_snapshot(void) {
                   l.stream.exponent_capped_low == 0,
               "the exponent, unclamped");
   TEST_ASSERT(l.stream.cutoff == 0 && l.stream.f_stream == f_stream, "the sigmoid f_stream");
-  const double rcool = l.rcool;
+  /* C:150-173 from the literal inputs: the hot recipe's x and rcool */
+  const double temp = 35.9 * vvir * vvir;                                   /* C:150 */
+  const double logZ = log10(0.1f / hot);                                    /* C:154 */
+  const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ); /* C:157 */
+  double x = PROTONMASS * BOLTZMANN * temp / lambda;                        /* C:163 */
+  x /= (MimicConfig.UnitDensity_in_cgs * MimicConfig.UnitTime_in_s);        /* C:164 */
+  const double rho_rcool = x / tcool * (1.5 * 0.59);                        /* C:165 */
+  const double rho0 = hot / (4 * M_PI * rvir);                              /* C:172 */
+  const double rcool = sqrt(rho0 / rho_rcool);                              /* C:173 */
+  TEST_ASSERT(l.x == x && l.rcool == rcool, "x and rcool from the inline hot chain (C:150-173)");
   const double cold = f_stream * hot / tcool * dt; /* C:277 */
   const double hot_halo =
       (1.0 - f_stream) * (hot / rvir) * (rcool / (2.0 * tcool)) * dt; /* C:279 */
@@ -652,7 +661,8 @@ int test_streams_cutoff_equality(void) {
   double cooling;
   TEST_ASSERT(mimic_sage_hot_cooling_budget(&halo, &MimicConfig, dt, 1, mshock, &l, &cooling) == 0,
               "call succeeds");
-  TEST_ASSERT(l.stream.fMstar == l.stream.M_shock, "the equality is reached");
+  TEST_ASSERT(l.stream.fMstar == fMstar && l.stream.M_shock == fMstar,
+              "the equality is reached: fMstar and M_shock both equal the inline fMstar");
   TEST_ASSERT(l.stream.cutoff == 1 && l.stream.f_stream == 0.0, "fMstar >= M_shock cuts off");
   TEST_ASSERT(l.stream.cold_stream_cooling == 0.0 && l.stream.mdot_stream == 0.0f,
               "no cold streams after the cutoff");
@@ -664,7 +674,8 @@ int test_streams_cutoff_equality(void) {
   setup_stream_galaxy(&halo, &gal, 1.0);
   TEST_ASSERT(mimic_sage_hot_cooling_budget(&halo, &MimicConfig, dt, 1, above, &l, &cooling) == 0,
               "call succeeds");
-  TEST_ASSERT(l.stream.fMstar < l.stream.M_shock && l.stream.cutoff == 0 && l.stream.f_stream > 0.0,
+  TEST_ASSERT(l.stream.M_shock == above * 0.73 / 1.0e10 && above * 0.73 / 1.0e10 > fMstar &&
+                  l.stream.cutoff == 0 && l.stream.f_stream > 0.0,
               "just below the equality the streams survive");
 
   /* mass_ratio exactly 1: Mvir 100 and M_shock 100, at z = 0.5 where fMstar exceeds 100 */
@@ -678,7 +689,9 @@ int test_streams_cutoff_equality(void) {
   setup_stream_galaxy(&halo, &gal, 0.5);
   TEST_ASSERT(mimic_sage_hot_cooling_budget(&halo, &MimicConfig, dt, 1, unit, &l, &cooling) == 0,
               "call succeeds");
-  TEST_ASSERT(l.stream.mass_ratio == 1.0 && l.stream.fMstar >= l.stream.M_shock,
+  const double fMstar_half = 3.0 * (test_exp10(TEST_MSTAR_MILL[1]) * 0.73 / 1.0e10); /* z = 0.5 */
+  TEST_ASSERT(l.stream.mass_ratio == 1.0 && l.stream.fMstar == fMstar_half &&
+                  fMstar_half >= unit * 0.73 / 1.0e10,
               "mass_ratio is exactly 1 with fMstar above M_shock");
   TEST_ASSERT(l.stream.cutoff == 0, "mass_ratio > 1 is strict: no cutoff at 1");
 
@@ -787,6 +800,26 @@ static void setup_cgm_galaxy(struct Halo *halo, struct GalaxyData *gal) {
   gal->tcool = -11.0f;
   gal->tff = -22.0f;
   gal->RcoolToRvir = -33.0f;
+}
+
+/**
+ * @brief SAGE26's bulk CGM cooling mass (C:322-364) for setup_cgm_galaxy's literal inputs, inline
+ */
+static double expected_cgm_mass(const double dt) {
+  const float mvir = 100.0f, rvir = 0.1f, vvir = 200.0f, cgm = 5.0f, zcgm = 0.05f;
+  const double temp = 35.9 * vvir * vvir;                                                /* C:322 */
+  const double lambda = get_metaldependent_cooling_rate(log10(temp), log10(zcgm / cgm)); /* :329 */
+  double x = PROTONMASS * BOLTZMANN * temp / lambda;                                     /* C:332 */
+  x /= (MimicConfig.UnitDensity_in_cgs * MimicConfig.UnitTime_in_s);                     /* C:333 */
+  const double alpha = 1.4, r0 = 0.1 * rvir, ratio = 10.0;                           /* C:336-338 */
+  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);                /* C:341 */
+  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha); /* C:342 */
+  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);                       /* C:345 */
+  const double rho_eff = rho0 * (I_cool / I_M);                                      /* C:346 */
+  const double tcool = (x / rho_eff) * (1.5 * 0.59);                                 /* C:349 */
+  const double g_accel = MimicConfig.G * mvir / (rvir * rvir);                       /* C:352 */
+  const double tff = sqrt(2.0 * rvir / g_accel);                                     /* C:353 */
+  return (cgm / (tcool + tff)) * dt;                                                 /* C:364 */
 }
 
 /**
@@ -902,7 +935,9 @@ int test_cgm_recipe_composition_tail(void) {
   setup_cgm_galaxy(&halo, &gal);
   gal.Cooling = 2.0;
   gal.CoolingRate = -44.0f;
-  const double m = mimic_sage_cooling_recipe_cgm(&halo, &MimicConfig, &off, 1, dt, &l, NULL);
+  const double ret = mimic_sage_cooling_recipe_cgm(&halo, &MimicConfig, &off, 1, dt, &l, NULL);
+  const double m = expected_cgm_mass(dt); /* below CGMgas: no cap, and AGN is off */
+  TEST_ASSERT(ret == m, "the composed recipe returns SAGE26's mass (C:364, C:390)");
   const float vvir = 200.0f;
   TEST_ASSERT(m > 0.0 && gal.Cooling == 2.0 + 0.5 * m * vvir * vvir, "Cooling accumulates (C:377)");
   TEST_ASSERT(gal.CoolingRate == (float)((m / dt) * 1.0e10 / 0.73 * 3.155e16 / 3.08568e19),

@@ -7,8 +7,22 @@
  * source (R). One implementation of each piece of SAGE26's cooling arithmetic, used by the
  * classic three-module hot path (sage26_calculate_cooling_budget -> sage26_radio_mode_heating ->
  * sage26_apply_cooling, CGMrecipeOn 0) and written so that the CGMrecipeOn 1 cooling transaction
- * can call the same code. Every helper takes CGMrecipeOn and the run quantities as arguments; the
- * classic callers pass CGMrecipeOn 0, the R0-R3 behaviour.
+ * can call the same code. The helpers that serve both paths (mimic_sage_hot_cooling_budget,
+ * mimic_sage_do_agn_heating_hot, mimic_sage_do_agn_heating_cgm and the two composed recipes) take
+ * CGMrecipeOn as an argument, and the classic callers pass CGMrecipeOn 0, the R0-R3 behaviour; the
+ * others (the table, the streams, bulk CGM cooling, the accretion, the tail and the transfer) take
+ * the run quantities they read and no CGMrecipeOn.
+ *
+ * The cooling helpers (mimic_sage_hot_cooling_budget, mimic_sage_cgm_cooling_budget and the
+ * composed recipes) call get_metaldependent_cooling_rate from sage26_calculate_cooling_budget's
+ * cooling_tables.c, so the tables must be loaded (sage26_calculate_cooling_budget_init) before
+ * they run: unloaded tables return 0, which reads as lambda <= 0. That include of the budget
+ * module's header is the one coupling of this shared file to a module.
+ *
+ * No helper writes the galaxy's mdot_cool or mdot_stream. SAGE26 stores its float rates at
+ * C:282-283; here they are returned in the stream locals (struct MimicSageColdStreamLocals), and
+ * the CGMrecipeOn 1 cooling transaction stores them in its own raw-rate state properties
+ * (campaign decisions D38 and D39; the finalizer writes the output fields).
  *
  * The classic pieces, moved here from the three modules with every expression unchanged:
  *
@@ -40,7 +54,8 @@
  *   suppression, accretion from the CGM pair, the Rvir cap inside the positive-reservoir block and
  *   the re-cap of the returned mass to the post-accretion CGMgas.
  * - mimic_sage_cooling_recipe_hot() and mimic_sage_cooling_recipe_cgm(): the two recipes as SAGE26
- *   composes them (C:135-315, C:317-391), each with its AGN call and its tail.
+ *   composes them (C:135-315, C:317-391), each with its AGN call and its tail; the hot recipe
+ *   returns its mdot stores in its locals instead of writing them (below).
  *
  * Precision. SAGE26 holds the reservoirs and Mvir, Rvir, Vvir as floats and every local as a
  * double (R/src/core_allvars.h:106-221); the callers' core doubles are read as those floats.
@@ -64,6 +79,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "constants.h"
 #include "error.h"
@@ -218,7 +234,8 @@ struct MimicSageColdStreamLocals {
  * Reads the redshift of the galaxy's stored snapshot, ZZ[stored_snapnum] (C:205), never the
  * current snapshot's; a stored SnapNum outside the run's redshift table is refused with an error
  * naming it (campaign decision D35), where SAGE26 reads out of bounds. Every local is a double;
- * HotGas, Rvir and Mvir are SAGE26's floats.
+ * HotGas, Rvir and Mvir are SAGE26's floats. SAGE26's float mdot stores (C:282-283) are returned in
+ * s->mdot_cool and s->mdot_stream; no galaxy field is written (D38, D39).
  *
  * @param params          Run configuration (ZZ, Snaplistlen, Omega, Hubble_h)
  * @param stored_snapnum  The galaxy's stored SnapNum
@@ -340,7 +357,10 @@ struct MimicSageHotCoolingLocals {
  * RcoolToRvir untouched. Mvir, Rvir and Vvir are SAGE26 floats (R/src/core_allvars.h:106-221);
  * the core's doubles are read as those floats. With CGMrecipeOn 0 the cooling mass is the rapid
  * or static branch (C:190-201); with 1 it is the cold streams (C:202-286), which read the
- * galaxy's stored SnapNum (halo->SnapNum) and can refuse it (D35).
+ * galaxy's stored SnapNum (halo->SnapNum) and can refuse it (D35). The streams' float mdot stores
+ * (C:282-283) are returned in l->stream, never written to the galaxy (D38, D39). On the -1 return
+ * l->path is SAGE_COOLING_PATH_NOT_EVALUATED and the stream locals are zero except those formed
+ * before the refusal (none: the refusal is the streams' first step).
  *
  * @param halo           Halo whose galaxy cools (galaxy not NULL)
  * @param params         Run configuration
@@ -368,6 +388,7 @@ static inline int mimic_sage_hot_cooling_budget(struct Halo *halo, const struct 
   l->branch = MIMIC_SAGE_HOT_BRANCH_NONE;
   l->cooling_precap = 0.0;
   l->cap = MIMIC_SAGE_CAP_NOT_REACHED;
+  memset(&l->stream, 0, sizeof(l->stream));
   *cooling_out = 0.0;
 
   galaxy->tcool = 0.0f;
@@ -446,6 +467,7 @@ static inline int mimic_sage_hot_cooling_budget(struct Halo *halo, const struct 
       l->branch = MIMIC_SAGE_HOT_BRANCH_STATIC;
     }
   } else {
+    l->path = SAGE_COOLING_PATH_NOT_EVALUATED; /* the value a D35 refusal leaves */
     if (mimic_sage_cold_stream_cooling(params, halo->SnapNum, mshock_msun, (float)halo->Mvir,
                                        galaxy->HotGas, rvir, tcool, rcool, dt, &l->stream,
                                        &coolingGas) != 0) {
@@ -1001,11 +1023,14 @@ struct MimicSageAgnConfig {
 };
 
 /**
- * @brief SAGE26's whole cooling_recipe_hot (C:135-315), with its AGN call and its tail
+ * @brief SAGE26's cooling_recipe_hot (C:135-315), with its AGN call and its tail, except the mdot
+ * stores
  *
  * The budget, do_AGN_heating when AGNrecipe > 0 and the post-cap mass is positive (C:297-299),
  * the Cooling energy, and CoolingRate on the paths that reach the tail (the normal tail and the
- * outer guard; the two early returns leave it, C:159-169).
+ * outer guard; the two early returns leave it, C:159-169). The one exception to SAGE26's routine:
+ * its galaxy writes of mdot_cool and mdot_stream (C:282-283) are not made; their float values are
+ * returned in l->stream for the caller (D38, D39).
  *
  * @param agn_locals  Optional AGN locals (may be NULL); suppressed is -1 when AGN did not run
  * @param cooling_out Output: the mass SAGE26 returns
@@ -1043,7 +1068,7 @@ static inline int mimic_sage_cooling_recipe_hot(struct Halo *halo, const struct 
 }
 
 /**
- * @brief SAGE26's whole cooling_recipe_cgm (C:317-391), with its AGN call and its tail
+ * @brief SAGE26's cooling_recipe_cgm (C:317-391), with its AGN call and its tail
  *
  * The budget, do_AGN_heating_cgm when AGNrecipe > 0 and the post-cap mass is positive
  * (C:372-374), the Cooling energy (C:376-378) and CoolingRate, always written (C:382-385).

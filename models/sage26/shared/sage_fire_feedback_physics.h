@@ -7,7 +7,9 @@
  * Ports what SAGE26's FIREmodeOn 1 switches on in its supernova feedback (R = the staged SAGE26
  * source, S = R/src/model_starformation_and_feedback.c, X = R/src/model_misc.h):
  *
- * - mimic_sage_fire_stored_redshift(): the redshift of the galaxy's stored snapshot,
+ * - mimic_sage_fire_stored_redshift(): the redshift of the galaxy's stored snapshot (shared with
+ * the cold streams of shared/sage_cooling_physics.h, so its log names no single caller; each caller
+ *   logs its own context after a refusal),
  *   ZZ[SnapNum] (S:745), never the current halo snapshot's or a substep's. SAGE26 indexes ZZ
  *   without a bounds check; a stored SnapNum outside the redshift table is an out-of-bounds read
  *   in SAGE26, not a physics rule, so the package refuses it, naming the SnapNum and the table
@@ -107,15 +109,16 @@ static inline int mimic_sage_validate_fire_mode(const char *module_name, const i
 static inline int mimic_sage_fire_stored_redshift(const struct MimicConfig *params,
                                                   const int snapnum, double *z_out) {
   if (params == NULL || z_out == NULL) {
-    ERROR_LOG("FIRE feedback: no run configuration for the stored-snapshot redshift");
+    ERROR_LOG("Stored-snapshot redshift: no run configuration");
     return -1;
   }
   if (snapnum < 0 || snapnum >= params->Snaplistlen) {
-    ERROR_LOG("FIRE feedback: the galaxy's stored SnapNum = %d is outside the redshift table ZZ "
-              "of %d entries (snapshots 0 to %d); SAGE26 reads ZZ[SnapNum] without a bounds "
-              "check (R/src/model_starformation_and_feedback.c:745), so no redshift is defined "
-              "for it",
-              snapnum, params->Snaplistlen, params->Snaplistlen - 1);
+    ERROR_LOG(
+        "Stored-snapshot redshift: the galaxy's stored SnapNum = %d is outside the "
+        "redshift table ZZ of %d entries (snapshots 0 to %d); SAGE26 reads ZZ[SnapNum] "
+        "without a bounds check (FIRE feedback, R/src/model_starformation_and_feedback.c:745; "
+        "cold streams, R/src/model_cooling_heating.c:205), so no redshift is defined for it",
+        snapnum, params->Snaplistlen, params->Snaplistlen - 1);
     return -1;
   }
   *z_out = params->ZZ[snapnum];

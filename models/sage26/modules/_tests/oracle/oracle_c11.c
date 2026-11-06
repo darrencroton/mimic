@@ -99,7 +99,7 @@ static void fatal(const char *fmt, ...) __attribute__((format(printf, 1, 2), nor
 
 static void fatal(const char *fmt, ...) {
   va_list args;
-  fprintf(stderr, "oracle_c04: %s: ", input_path != NULL ? input_path : "(no input)");
+  fprintf(stderr, "oracle_c11: %s: ", input_path != NULL ? input_path : "(no input)");
   va_start(args, fmt);
   vfprintf(stderr, fmt, args);
   va_end(args);
