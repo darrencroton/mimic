@@ -20,8 +20,8 @@
 
 #include "constants.h"
 #include "error.h"
-#include "shared/metallicity.h"
 #include "shared/sage_constants.h"
+#include "shared/sage_cooling_physics.h"
 #include "shared/time_parity.h"
 #include "module_interface.h"
 #include "module_registry.h"
@@ -33,35 +33,12 @@
 // ============================================================================
 
 /**
- * @brief SAGE26's cool_gas_onto_galaxy: move the cooled mass from hot to cold gas
- *
- * Reproduces R/src/model_cooling_heating.c:689-705: below the hot reservoir the
- * mass moves with the hot gas's metallicity; at or above it the whole hot
- * reservoir, metals included, moves.
- */
-static void cool_gas_onto_galaxy(struct GalaxyData *galaxy, const double coolingGas) {
-  if (coolingGas > 0.0) {
-    if (coolingGas < galaxy->HotGas) {
-      const double metallicity = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
-      galaxy->ColdGas += coolingGas;
-      galaxy->MetalsColdGas += metallicity * coolingGas;
-      galaxy->HotGas -= coolingGas;
-      galaxy->MetalsHotGas -= metallicity * coolingGas;
-    } else {
-      galaxy->ColdGas += galaxy->HotGas;
-      galaxy->MetalsColdGas += galaxy->MetalsHotGas;
-      galaxy->HotGas = 0.0;
-      galaxy->MetalsHotGas = 0.0;
-    }
-  }
-}
-
-/**
  * @brief The tail of SAGE26's cooling_recipe_hot: Cooling and CoolingRate
  *
  * Reproduces R/src/model_cooling_heating.c:301-313 with SAGE26's float Vvir
- * (R/src/core_allvars.h:106-221). Each expression keeps SAGE26's operand order in
- * one C expression, so clang contracts it as SAGE26's build does.
+ * (R/src/core_allvars.h:106-221), through the shared mimic_sage_cooling_energy and
+ * mimic_sage_cooling_rate (shared/sage_cooling_physics.h), each one C expression with
+ * SAGE26's operand order, so clang contracts it as SAGE26's build does.
  *
  * @param galaxy      Galaxy that cooled
  * @param vvir        SAGE26's float Vvir
@@ -73,16 +50,12 @@ static void cooling_recipe_tail(struct GalaxyData *galaxy, const float vvir, con
                                 const double coolingGas, const struct MimicConfig *params) {
   // Accumulated undivided; the per-snapshot normalisation is applied once by
   // sage26_finalize_cooling_heating (R/src/core_build_model.c:590-603)
-  if (coolingGas > 0.0) {
-    galaxy->Cooling += 0.5 * coolingGas * vvir * vvir;
-  }
+  mimic_sage_cooling_energy(galaxy, vvir, coolingGas);
 
   // SAGE parity: CoolingRate is (mass / dt) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR /
   // UnitTime_in_s narrowed to float, the true Msun/Gyr rate over little h
   // (R/src/model_cooling_heating.c:310-313).
-  galaxy->CoolingRate = (dt > 0.0) ? (float)((coolingGas / dt) * 1.0e10 / params->Hubble_h *
-                                             SAGE_SEC_PER_GIGAYEAR / params->UnitTime_in_s)
-                                   : 0.0f;
+  galaxy->CoolingRate = mimic_sage_cooling_rate(coolingGas, dt, params);
 }
 
 // ============================================================================
@@ -116,8 +89,8 @@ int sage26_apply_cooling_process(struct ModuleContext *ctx, struct Halo *halos, 
   struct Halo *halo = &halos[0];
 
   // SAGE parity: cooling is applied for every non-merged galaxy, Type 2 orphans
-  // included: SAGE26 calls cool_gas_onto_galaxy for every galaxy with mergeType 0
-  // before the merger pass (R/src/core_build_model.c:473-516). CoolingGas is 0 for
+  // included: with CGMrecipeOn 0 SAGE26 calls cool_gas_onto_galaxy for every galaxy
+  // with mergeType 0 before the merger pass (R/src/core_build_model.c:473-516). CoolingGas is 0 for
   // a galaxy the budget module found could not cool.
   if (halo->galaxy == NULL) {
     return 0;
@@ -144,14 +117,17 @@ int sage26_apply_cooling_process(struct ModuleContext *ctx, struct Halo *halos, 
   // SAGE parity: the lambda <= 0 and rho_rcool <= 0 early returns skip the tail,
   // leaving Cooling and CoolingRate as they were; an outer-guard failure reaches
   // it with zero mass and writes CoolingRate 0 (R/src/model_cooling_heating.c:141,
-  // :157-169, :301-313).
+  // :157-169, :301-313). This is the CGMrecipeOn 0 tail; with CGMrecipeOn 1 the
+  // regime-aware wrapper overwrites CoolingRate at its own tail (:498-502).
   if (path == SAGE_COOLING_PATH_TAIL || path == SAGE_COOLING_PATH_OUTER_GUARD) {
     cooling_recipe_tail(galaxy, (float)halo->Vvir, dt_obj, coolingGas, ctx->params);
   }
 
   // SAGE parity: cool_gas_onto_galaxy applies for any coolingGas > 0.0
-  // (R/src/model_cooling_heating.c:693)
-  cool_gas_onto_galaxy(galaxy, coolingGas);
+  // (R/src/model_cooling_heating.c:693); it is the CGMrecipeOn 0 transfer: with
+  // CGMrecipeOn 1 SAGE26's regime-aware wrapper applies the CGM and hot masses itself,
+  // without the classic "move all metals on equality" branch (:472-496)
+  mimic_sage_cool_gas_onto_galaxy(galaxy, coolingGas);
 
   return 0;
 }

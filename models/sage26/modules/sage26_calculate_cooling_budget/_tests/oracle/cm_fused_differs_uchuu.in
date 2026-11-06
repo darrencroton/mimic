@@ -1,0 +1,8 @@
+# interpolate_clustering_mass (H:98-132), called directly.
+# z = 2.001e-04, Uchuu: the fused H:131 differs from the unfused sum (search.log).
+# Reachability: constructed routine-domain probe.
+format sage26-oracle-fixture 1
+routine interpolate_clustering_mass
+
+f64 params.Omega 0x3fd3c504816f0069  # 0.3089
+f64 call.z 0x3f2a3a3de96f9ac3  # 0.0002001

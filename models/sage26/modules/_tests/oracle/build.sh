@@ -15,7 +15,9 @@
 # oracle_c08.c, into output/oracle/oracle_c08. The c10 oracle main, oracle_c10.c,
 # is compiled and linked the same way into output/oracle/oracle_c10; it defines the
 # test-only rand() provider (the fixture's integer queue), which is linked into that
-# executable only.
+# executable only. The c11 oracle main, oracle_c11.c (the CGMrecipeOn 1 cooling routines,
+# the clustering-mass table and the CGM-on radio AGN), is compiled and linked the same way
+# into output/oracle/oracle_c11.
 #
 # Environment:
 #   SAGE26_SRC         staged SAGE26 source root
@@ -181,3 +183,16 @@ clang $objects "$OBJ_DIR/oracle_c10.o" -o "$ORACLE_OUT/oracle_c10" \
 { set +x; } 2>/dev/null
 
 echo "build.sh: built $ORACLE_OUT/oracle_c10"
+
+# The c11 oracle main (the clustering-mass table, the CGMrecipeOn 1 hot recipe with its cold
+# streams, bulk CGM cooling and the CGM-on radio AGN): built exactly as oracle_c03, against the
+# same twelve objects, with the same flags and link.
+compile "$ORACLE_DIR/oracle_c11.c" "$OBJ_DIR/oracle_c11.o" -I"$SAGE26_SRC/src"
+
+set -x
+# shellcheck disable=SC2086 # $objects is a deliberately split list of paths
+clang $objects "$OBJ_DIR/oracle_c11.o" -o "$ORACLE_OUT/oracle_c11" \
+  -L"$GSL_PREFIX/lib" -lgsl -lgslcblas -Xlinker -rpath -Xlinker "$GSL_PREFIX/lib" -lm
+{ set +x; } 2>/dev/null
+
+echo "build.sh: built $ORACLE_OUT/oracle_c11"

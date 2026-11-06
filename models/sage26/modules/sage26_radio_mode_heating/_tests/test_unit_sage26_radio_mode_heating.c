@@ -52,6 +52,7 @@
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
+#include "shared/sage_cooling_physics.h"
 
 /* Module parameters (extern declarations to access module internals for testing) */
 extern double RADIO_MODE_EFFICIENCY;
@@ -969,6 +970,158 @@ int test_memory_safety(void) {
 // MAIN TEST RUNNER
 // ============================================================================
 
+// ============================================================================
+// THE CGMrecipeOn 1 RADIO AGN (shared/sage_cooling_physics.h)
+// ============================================================================
+//
+// Platform-independent behavioural tests of the CGM-on AGN helpers. Each expectation is a literal
+// chosen so the result is exact, or SAGE26's expression written inline with its line cited (C =
+// R/src/model_cooling_heating.c), never a call of the helper under test.
+
+/** @brief A galaxy for the AGN helper tests (Millennium units, Bondi accretion) */
+static void setup_agn_helper_galaxy(struct Halo *halo, struct GalaxyData *gal) {
+  memset(halo, 0, sizeof(*halo));
+  memset(gal, 0, sizeof(*gal));
+  MimicConfig.G = 43.007077856420629;
+  MimicConfig.Hubble_h = 0.73;
+  MimicConfig.UnitTime_in_s = 3.08568e19;
+  MimicConfig.UnitEnergy_in_cgs = 1.989e53;
+  halo->galaxy = gal;
+  halo->Mvir = 100.0;
+  halo->Rvir = 0.1;
+  halo->Vvir = 200.0;
+  gal->HotGas = 10.0f;
+  gal->MetalsHotGas = 0.1f;
+  gal->CGMgas = 1.0f;
+  gal->MetalsCGMgas = 0.01f;
+  gal->BlackHoleMass = 0.0f; /* no accretion: only the suppression and the caps act */
+}
+
+/** @brief The largest float strictly below, and the smallest float at or above, 0.99 * rcool */
+static void saturation_pair(const double rcool, float *below, float *at) {
+  float f = (float)(0.99 * rcool);
+  while (!(f < 0.99 * rcool)) {
+    f = nextafterf(f, 0.0f);
+  }
+  *below = f;
+  float g = nextafterf(f, INFINITY);
+  while (g < 0.99 * rcool) {
+    g = nextafterf(g, INFINITY);
+  }
+  *at = g;
+}
+
+/**
+ * @test    test_cgm_on_saturation_either_side
+ * @brief   The CGMrecipeOn 1 saturation Rheat >= 0.99 * rcool (C:590-595, C:638-643)
+ *
+ * Expected: Rheat the largest float below 0.99 * rcool suppresses the mass to
+ * (1 - Rheat / rcool) * m (C:592), in both calls; the smallest float at or above zeroes it with
+ * CGMrecipeOn 1 but not with CGMrecipeOn 0 (the classic call).
+ */
+int test_cgm_on_saturation_either_side(void) {
+  struct Halo halo;
+  struct GalaxyData gal;
+  struct MimicSageAgnLocals al;
+  const double rcool = 0.25, m = 0.5, dt = 1.0e-4;
+  float below, at;
+  saturation_pair(rcool, &below, &at);
+  reset_config();
+
+  setup_agn_helper_galaxy(&halo, &gal);
+  gal.Rheat = below;
+  double ret =
+      mimic_sage_do_agn_heating_hot(&halo, &MimicConfig, 2, 0.08, 1, dt, m, 1.0, rcool, &al);
+  TEST_ASSERT(ret == (1.0 - below / rcool) * m && al.saturated == 0, "hot: below 0.99 suppresses");
+
+  setup_agn_helper_galaxy(&halo, &gal);
+  gal.Rheat = at;
+  ret = mimic_sage_do_agn_heating_hot(&halo, &MimicConfig, 2, 0.08, 1, dt, m, 1.0, rcool, &al);
+  TEST_ASSERT(ret == 0.0 && al.saturated == 1, "hot: at 0.99 the CGMrecipeOn 1 saturation zeroes");
+
+  setup_agn_helper_galaxy(&halo, &gal);
+  gal.Rheat = at;
+  ret = mimic_sage_do_agn_heating_hot(&halo, &MimicConfig, 2, 0.08, 0, dt, m, 1.0, rcool, &al);
+  TEST_ASSERT(ret == (1.0 - at / rcool) * m, "hot, CGMrecipeOn 0: no saturation");
+
+  setup_agn_helper_galaxy(&halo, &gal);
+  halo.Rvir = 1.0; /* keep the CGM call's Rvir cap out of the way */
+  gal.Rheat = below;
+  ret = mimic_sage_do_agn_heating_cgm(&halo, &MimicConfig, 2, 0.08, 1, dt, m, 1.0, rcool, &al);
+  TEST_ASSERT(ret == (1.0 - below / rcool) * m, "CGM: below 0.99 suppresses");
+  setup_agn_helper_galaxy(&halo, &gal);
+  halo.Rvir = 1.0;
+  gal.Rheat = at;
+  ret = mimic_sage_do_agn_heating_cgm(&halo, &MimicConfig, 2, 0.08, 1, dt, m, 1.0, rcool, &al);
+  TEST_ASSERT(ret == 0.0 && al.saturated == 1, "CGM: at 0.99 zeroes");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_on_rheat_caps
+ * @brief   The Rvir caps: the hot call's outside its positive-reservoir block, the CGM call's
+ * inside
+ *
+ * Expected: with HotGas 0 and Rheat 0.3 > Rvir 0.1 the hot call caps Rheat to the float Rvir with
+ * CGMrecipeOn 1 (C:623-624) and leaves it with 0; with CGMgas positive and Rheat above Rvir the
+ * CGM call caps it (C:663-664), and with CGMgas 0 it does not reach the cap.
+ */
+int test_cgm_on_rheat_caps(void) {
+  struct Halo halo;
+  struct GalaxyData gal;
+  struct MimicSageAgnLocals al;
+  reset_config();
+
+  setup_agn_helper_galaxy(&halo, &gal);
+  gal.HotGas = 0.0f;
+  gal.Rheat = 0.3f;
+  (void)mimic_sage_do_agn_heating_hot(&halo, &MimicConfig, 2, 0.08, 1, 1.0e-4, 0.5, 1.0, 0.5, &al);
+  TEST_ASSERT(al.reservoir_positive == 0 && gal.Rheat == 0.1f && al.rheat_capped == 1,
+              "hot: capped to Rvir without a reservoir");
+  setup_agn_helper_galaxy(&halo, &gal);
+  gal.HotGas = 0.0f;
+  gal.Rheat = 0.3f;
+  (void)mimic_sage_do_agn_heating_hot(&halo, &MimicConfig, 2, 0.08, 0, 1.0e-4, 0.5, 1.0, 0.5, &al);
+  TEST_ASSERT(gal.Rheat == 0.3f, "hot, CGMrecipeOn 0: no cap");
+
+  setup_agn_helper_galaxy(&halo, &gal);
+  gal.Rheat = 0.3f;
+  (void)mimic_sage_do_agn_heating_cgm(&halo, &MimicConfig, 2, 0.08, 1, 1.0e-4, 0.5, 1.0, 0.1, &al);
+  TEST_ASSERT(gal.Rheat == 0.1f && al.rheat_capped == 1, "CGM: capped inside the block");
+  setup_agn_helper_galaxy(&halo, &gal);
+  gal.CGMgas = 0.0f;
+  gal.Rheat = 0.3f;
+  (void)mimic_sage_do_agn_heating_cgm(&halo, &MimicConfig, 2, 0.08, 1, 1.0e-4, 0.5, 1.0, 0.1, &al);
+  TEST_ASSERT(gal.Rheat == 0.3f && al.rheat_capped == 0, "CGM: no reservoir, no cap");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_agn_recaps_to_post_accretion_cgm
+ * @brief   The CGM AGN re-caps the returned mass to the CGMgas left after accretion (C:675-677)
+ *
+ * Expected: m = CGMgas = 1, Rheat 0 (no suppression), a black hole of mass 1 at Vvir 1e5 km/s
+ * accretes from the CGM, so the returned mass is the post-accretion CGMgas, below 1; the CGM pair
+ * loses the accretion with its metallicity (C:653-656) and the heating is not subtracted.
+ */
+int test_cgm_agn_recaps_to_post_accretion_cgm(void) {
+  struct Halo halo;
+  struct GalaxyData gal;
+  struct MimicSageAgnLocals al;
+  reset_config();
+  setup_agn_helper_galaxy(&halo, &gal);
+  halo.Vvir = 1.0e5;
+  gal.BlackHoleMass = 1.0f;
+  gal.Rheat = 0.0f;
+  const double ret =
+      mimic_sage_do_agn_heating_cgm(&halo, &MimicConfig, 2, 0.08, 1, 0.01, 1.0, 1.0, 0.1, &al);
+  TEST_ASSERT(al.accreted > 0.0 && gal.CGMgas < 1.0f, "the accretion drains the CGM");
+  TEST_ASSERT(ret == (double)gal.CGMgas && al.recapped == 1, "re-capped to the post-accretion CGM");
+  TEST_ASSERT(gal.CGMgas == (float)(1.0f - al.accreted), "CGMgas -= AGNaccreted (C:655)");
+  TEST_ASSERT(gal.HotGas == 10.0f, "the hot pair is not touched");
+  return TEST_PASS;
+}
+
 /**
  * @brief   Main test runner
  *
@@ -1008,6 +1161,14 @@ int main(void) {
   /* Run infrastructure tests */
   TEST_RUN(test_module_initialization);
   TEST_RUN(test_memory_safety);
+
+  printf("\n");
+  printf("CGMrecipeOn 1 radio AGN (shared helpers)\n");
+  printf("------------------------------------------------------------\n");
+
+  TEST_RUN(test_cgm_on_saturation_either_side);
+  TEST_RUN(test_cgm_on_rheat_caps);
+  TEST_RUN(test_cgm_agn_recaps_to_post_accretion_cgm);
 
   /* Print summary and return result */
   TEST_SUMMARY();

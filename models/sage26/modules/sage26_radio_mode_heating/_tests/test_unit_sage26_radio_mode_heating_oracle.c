@@ -14,6 +14,12 @@
  * The other six fields of the c04 state, which do_AGN_heating does not write, are
  * asserted unchanged as the oracle records them.
  *
+ * The c11 fixtures (agn_cgmon_*, cgm_agn_*; oracle README "The c11 Group") are the CGM-on radio
+ * AGN: SAGE26's do_AGN_heating with CGMrecipeOn 1, and the static do_AGN_heating_cgm reached
+ * through cooling_recipe_cgm. They run through the package's shared helpers
+ * (shared/sage_cooling_physics.h) directly, since no production module calls them yet
+ * (modules/_tests/sage26_oracle_cooling.h); the cooling tables are loaded for them.
+ *
  * The snapshot interval is core-owned: the oracle's intermediate.deltaT is
  * supplied as the halo's dT and call.effective_steps as the substep count; the
  * module's substep dt (shared/time_parity.h) is asserted against intermediate.dt.
@@ -38,6 +44,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_cooling.h"
 #include "shared/sage_constants.h"
 #include "shared/time_parity.h"
 
@@ -45,12 +52,24 @@ extern int sage26_radio_mode_heating_init(void);
 extern int sage26_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halos,
                                              int ngal);
 extern int sage26_radio_mode_heating_cleanup(void);
+extern int sage26_calculate_cooling_budget_init(void);
+extern int sage26_calculate_cooling_budget_cleanup(void);
 
 static const char *MODULE = "sage26_radio_mode_heating";
 
 /** @brief Compare one fixture; returns the number of mismatches and errors */
 static int check_fixture(const char *name) {
   static struct oracle_fixture in, out;
+
+  /* c11 fixtures (the CGM-on radio AGN: do_AGN_heating with CGMrecipeOn 1, and the static
+   * do_AGN_heating_cgm through cooling_recipe_cgm) call the shared helpers directly
+   * (modules/_tests/sage26_oracle_cooling.h) */
+  int c11 = 0;
+  const int c11_problems = oracle_c11_check_fixture(MODULE, name, &c11);
+  if (c11) {
+    return c11_problems;
+  }
+
   if (oracle_load_pair(MODULE, name, "do_AGN_heating", &in, &out) != 0) {
     return 1;
   }
@@ -130,8 +149,14 @@ int test_oracle_bit_identity(void) {
   if (mismatch != NULL) {
     return TEST_SKIP_WITH(mismatch);
   }
-  TEST_ASSERT(oracle_all_bit_identical(MODULE, check_fixture),
-              "every fixture must reproduce the oracle bit for bit");
+
+  /* The c11 cooling_recipe_cgm fixtures read the cooling tables: loaded once for every fixture */
+  TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "cooling tables must load");
+  const int identical = oracle_all_bit_identical(MODULE, check_fixture);
+  sage26_calculate_cooling_budget_cleanup();
+  oracle_c11_report(MODULE);
+
+  TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   return TEST_PASS;
 }
 

@@ -5,11 +5,17 @@
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for
  * sage26_calculate_cooling_budget (its _tests/oracle/ directory) and asserts
  * bit-for-bit equality with the oracle output. The cooling tables are loaded once,
- * by the module's init(), for the whole run. Two kinds of fixture:
+ * by the module's init(), for the whole run. Three kinds of fixture:
  *
  * - get_metaldependent_cooling_rate (interp_*): the inputs are (logTemp, logZ),
  *   not a galaxy, so the package's get_metaldependent_cooling_rate
  *   (cooling_tables.c) is called directly and its lambda asserted.
+ *
+ * - the c11 fixtures (cm_*, hs_*, cgm_*; oracle README "The c11 Group"):
+ *   interpolate_clustering_mass, cooling_recipe_hot_streams (cooling_recipe_hot with
+ *   CGMrecipeOn 1) and cooling_recipe_cgm, each run through the package's shared helpers
+ *   (shared/sage_cooling_physics.h) directly, since no production module calls them yet
+ *   (modules/_tests/sage26_oracle_cooling.h).
  *
  * - cooling_recipe_hot (hot_*), a chained test: the package splits SAGE26's
  *   cooling_recipe_hot (model_cooling_heating.c:135-314) and the
@@ -47,6 +53,7 @@
 
 #include "modules/_tests/sage_test_fixtures.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
+#include "modules/_tests/sage26_oracle_cooling.h"
 #include "shared/sage_constants.h"
 #include "shared/time_parity.h"
 #include "cooling_tables.h"
@@ -222,6 +229,15 @@ static int check_sequence(const char *name, struct oracle_fixture *in, struct or
 /** @brief Compare one fixture; returns the number of mismatches and errors */
 static int check_fixture(const char *name) {
   static struct oracle_fixture in, out;
+
+  /* c11 fixtures (the clustering table, the CGMrecipeOn 1 hot recipe and CGM cooling) call the
+   * shared helpers directly (modules/_tests/sage26_oracle_cooling.h) */
+  int c11 = 0;
+  const int c11_problems = oracle_c11_check_fixture(MODULE, name, &c11);
+  if (c11) {
+    return c11_problems;
+  }
+
   char path[ORACLE_MAX_PATH];
   oracle_fixture_path(path, sizeof(path), MODULE, name, ".in");
   if (oracle_load(path, &in) != 0) {
@@ -275,6 +291,7 @@ int test_oracle_bit_identity(void) {
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "cooling tables must load");
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   sage26_calculate_cooling_budget_cleanup();
+  oracle_c11_report(MODULE);
 
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
   return TEST_PASS;
