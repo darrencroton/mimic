@@ -10,7 +10,7 @@
  *     Concentration = (float)get_halo_concentration(ngal, ZZ[SnapNum], galaxies, run_params);
  *
  * The branch is reached only by a galaxy that was a Type 0 or 1 before joining (:240), whose
- * progenitor is the first-occupied one (:251) and whose halo is its FoF's first (:283), so its
+ * progenitor is the first-occupied one (:252) and whose halo is its FoF's first (:284), so its
  * Type at the call is the old one. Mimic's core performs the joining (src/core/inheritance.c) and
  * gives that galaxy Type 0; this module makes SAGE26's concentration write once per FoF group in
  * pre_timestep, immediately after sage26_initialise_merger_clock (SAGE26's order: the clock at
@@ -171,7 +171,7 @@ int sage26_set_halo_concentration_process(struct ModuleContext *ctx, struct Halo
 
   for (int i = 0; i < ngal; i++) {
     struct GalaxyData *gal = halos[i].galaxy;
-    // SAGE parity (R/src/core_build_model.c:283-300): only the FoF central of the joined halo,
+    // SAGE parity (R/src/core_build_model.c:284-300): only the FoF central of the joined halo,
     // whose new Type is 0, is assigned
     if (gal == NULL || halos[i].Type != 0) {
       continue;

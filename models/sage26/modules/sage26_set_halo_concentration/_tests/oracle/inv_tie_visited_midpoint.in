@@ -1,6 +1,6 @@
 # The strict f_mid < ratio_sq (R/src/model_halo_properties.c:312) at a tie: ratio_sq equal
 # to f_mid at a visited midpoint moves c_hi (the else branch). Each Vmax (Vvir = 1) was
-# found by a scratch search (output/c12-s1/explore/search.log) such that
+# found by a scratch search (the slice's validation record) such that
 # fl(Vmax * Vmax) equals f at a bisection midpoint: 7.21875 (step 4), 13.4375 (step 3),
 # 50.75 (step 1) and 193.78125 (step 4); the output's ties count shows each tie. With
 # <= in place of <, cases 0, 1 and 3 return a different double (case 2 only a different
