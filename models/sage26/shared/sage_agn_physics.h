@@ -3,7 +3,7 @@
  * @brief SAGE26's black-hole growth and quasar-mode wind (grow_black_hole, quasar_mode_wind)
  *
  * Ports SAGE26's grow_black_hole and quasar_mode_wind (R/src/model_mergers.c:346-441,
- * R = the staged SAGE26 source) with CGMrecipeOn 0 and SFprescription 0 (R0, R1) or 1 (R2).
+ * R = the staged SAGE26 source) with CGMrecipeOn 0 or 1 and SFprescription 0 (R0, R1) or 1 (R2).
  * Three package callers use them, as SAGE26 calls grow_black_hole from three places:
  * sage26_quasar_mode for a merger (R/src/model_mergers.c:262-264) and for a disk
  * instability (R/src/model_disk_instability.c:102-104, through the
@@ -21,12 +21,15 @@
  *     quasar_mode_wind(BHaccrete)                                                  (:374)
  *     QuasarModeBHaccretionMass += BHaccrete                                      (:376)
  *
- * quasar_mode_wind (:390-441, the CGMrecipeOn 0 branch :430-440): the wind energy
- * QuasarModeEfficiency * 0.1 * BHaccrete * (C / UnitVelocity)^2 is compared with the cold
- * binding energy 0.5 * ColdGas * Vvir^2 and, separately, with that cold binding energy plus
- * the hot binding energy 0.5 * HotGas * Vvir^2; each comparison it exceeds ejects the whole
- * reservoir into the galaxy's own EjectedGas. The energy used by the cold ejection is not
- * subtracted before the hot comparison.
+ * quasar_mode_wind (:390-441): the wind energy QuasarModeEfficiency * 0.1 * BHaccrete *
+ * (C / UnitVelocity)^2 is compared with the cold binding energy 0.5 * ColdGas * Vvir^2 and,
+ * separately, with that cold binding energy plus the binding energy of the WIND HOST's selected
+ * pair: with CGMrecipeOn 1 and the host's own Regime 0 its CGM, 0.5 * CGMgas * Vvir^2 (:406-417),
+ * otherwise its hot gas, 0.5 * HotGas * Vvir^2 (:418-428 with CGMrecipeOn 1, :430-440 with 0).
+ * Each comparison it exceeds ejects the whole reservoir into the host's own EjectedGas; the
+ * unselected pair is not touched. The energy used by the cold ejection is not subtracted before
+ * the second comparison. The host is the galaxy that grew the black hole: the merger target, the
+ * unstable galaxy or the burst host of the recheck, never the FoF central as such.
  *
  * The hydrogen cap (SFprescription 1, R2). After the accretion and the negative-metal floor and
  * before the wind, SAGE26 caps H2gas and H1gas, each on its own and strictly, at the float
@@ -42,7 +45,8 @@
  * object fuses two multiply-adds here (the oracle README's c06 fused-instruction table):
  * the denominator 1.0 + SQR(280 / Vvir) (:352, fmadd) and the cold-metal debit (:362,
  * fmsub). Both are written as explicit fma() calls; every other expression rounds as
- * written, one C expression per SAGE26 expression, and quasar_mode_wind fuses nothing.
+ * written, one C expression per SAGE26 expression, and quasar_mode_wind fuses nothing on any of
+ * its three branches.
  * Vvir is read as the float SAGE26 holds (R/src/core_allvars.h:131), as the package's
  * other ports read it.
  */
@@ -57,6 +61,7 @@
 #include "module_interface.h"
 #include "types.h"
 #include "shared/metallicity.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_sf_feedback_physics.h"
 #include "module_system/physical_constants.h"
@@ -73,9 +78,12 @@
 struct MimicSageQuasarWindLocals {
   double quasar_energy;   /**< QuasarModeEfficiency * 0.1 * BHaccrete * (C / UnitVelocity)^2 */
   double cold_gas_energy; /**< 0.5 * ColdGas * Vvir * Vvir before the cold ejection (:394) */
-  double hot_gas_energy;  /**< 0.5 * HotGas * Vvir * Vvir (:432) */
+  double cgm_gas_energy;  /**< 0.5 * CGMgas * Vvir * Vvir, CGM pair selected (:409) */
+  double hot_gas_energy;  /**< 0.5 * HotGas * Vvir * Vvir, hot pair selected (:420, :432) */
+  int reservoir_cgm;      /**< 1 if the host's CGM pair was selected (CGMrecipeOn 1, Regime 0) */
   int ejects_cold;        /**< 1 if quasar_energy > cold_gas_energy (:397) */
-  int ejects_hot;         /**< 1 if quasar_energy > cold_gas_energy + hot_gas_energy (:434) */
+  int ejects_selected;    /**< 1 if quasar_energy > cold_gas_energy + the selected pair's energy
+                               (:411, :422, :434) */
 };
 
 /**
@@ -101,29 +109,36 @@ static inline void mimic_sage_quasar_wind_locals_reset(struct MimicSageQuasarWin
   if (locals != NULL) {
     locals->quasar_energy = NAN;
     locals->cold_gas_energy = NAN;
+    locals->cgm_gas_energy = NAN;
     locals->hot_gas_energy = NAN;
+    locals->reservoir_cgm = -1;
     locals->ejects_cold = -1;
-    locals->ejects_hot = -1;
+    locals->ejects_selected = -1;
   }
 }
 
 /**
- * @brief SAGE26's quasar_mode_wind, non-CGM branch (R/src/model_mergers.c:390-441)
+ * @brief SAGE26's quasar_mode_wind (R/src/model_mergers.c:390-441)
  *
- * Ejects the galaxy's whole cold gas when the wind energy exceeds its cold binding energy,
- * and its whole hot gas when the wind energy exceeds the cold plus hot binding energy, both
- * into the galaxy's own EjectedGas, with their metals. No guard on the accreted mass, the
- * efficiency or Vvir: SAGE26 has none (:390-441).
+ * Ejects the host's whole cold gas when the wind energy exceeds its cold binding energy, and
+ * then its whole selected pair (the CGM pair with CGMrecipeOn 1 and the HOST's own Regime 0, the
+ * hot pair otherwise) when the wind energy exceeds the ORIGINAL cold binding energy plus that
+ * pair's binding energy, both into the host's own EjectedGas, with their metals
+ * (:396-440). No guard on the accreted mass, the efficiency or Vvir: SAGE26 has none.
  *
- * @param halo                    Halo holding the galaxy (SAGE26's gal); its float Vvir is read
+ * @param halo                    Halo holding the wind host (SAGE26's gal); its float Vvir and its
+ *                                galaxy's Regime are read
  * @param bh_accrete              The accreted mass (SAGE26's BHaccrete), 1e10 Msun/h
  * @param quasar_mode_efficiency  QuasarModeEfficiency
  * @param ctx                     Module context with UnitVelocity_in_cm_per_s
+ * @param cgm_recipe_on           CGMrecipeOn (0 or 1), which with the host's Regime selects the
+ *                                pair of the second test
  * @param locals                  Optional (NULL in production): receives the call's locals
  */
 static inline void mimic_apply_quasar_mode_wind(struct Halo *halo, const double bh_accrete,
                                                 const double quasar_mode_efficiency,
                                                 const struct ModuleContext *ctx,
+                                                const int cgm_recipe_on,
                                                 struct MimicSageQuasarWindLocals *locals) {
   mimic_sage_quasar_wind_locals_reset(locals);
   /* Calling-contract guards only: SAGE26 is always called with a galaxy and its run
@@ -153,25 +168,45 @@ static inline void mimic_apply_quasar_mode_wind(struct Halo *halo, const double 
     gal->MetalsColdGas = 0.0;
   }
 
-  /* SAGE parity: the hot comparison adds the ORIGINAL cold binding energy to the hot
-   * binding energy and compares the unreduced wind energy (R/src/model_mergers.c:430-440,
-   * CGMrecipeOn 0); the cold ejection above uses none of the wind energy up */
-  const double hot_gas_energy = 0.5 * gal->HotGas * vvir * vvir;
-  const int ejects_hot = quasar_energy > cold_gas_energy + hot_gas_energy;
-  if (ejects_hot) {
-    gal->EjectedGas += gal->HotGas;
-    gal->MetalsEjectedGas += gal->MetalsHotGas;
+  /* SAGE parity: the WIND HOST's own regime selects the pair of the second test, its CGM for
+   * CGMrecipeOn 1 and Regime 0, its hot gas otherwise (R/src/model_mergers.c:406-407, :418,
+   * :430); the test adds the ORIGINAL cold binding energy to that pair's binding energy and
+   * compares the unreduced wind energy (:411, :422, :434): the cold ejection above uses none of
+   * the wind energy up. Each branch forms its energy as one expression of SAGE26's shape. */
+  const int reservoir_cgm = mimic_sage_cgm_reservoir_selected(cgm_recipe_on, gal->Regime);
+  double cgm_gas_energy = NAN;
+  double hot_gas_energy = NAN;
+  int ejects_selected;
+  if (reservoir_cgm) {
+    cgm_gas_energy = 0.5 * gal->CGMgas * vvir * vvir;
+    ejects_selected = quasar_energy > cold_gas_energy + cgm_gas_energy;
+    if (ejects_selected) {
+      gal->EjectedGas += gal->CGMgas;
+      gal->MetalsEjectedGas += gal->MetalsCGMgas;
 
-    gal->HotGas = 0.0;
-    gal->MetalsHotGas = 0.0;
+      gal->CGMgas = 0.0;
+      gal->MetalsCGMgas = 0.0;
+    }
+  } else {
+    hot_gas_energy = 0.5 * gal->HotGas * vvir * vvir;
+    ejects_selected = quasar_energy > cold_gas_energy + hot_gas_energy;
+    if (ejects_selected) {
+      gal->EjectedGas += gal->HotGas;
+      gal->MetalsEjectedGas += gal->MetalsHotGas;
+
+      gal->HotGas = 0.0;
+      gal->MetalsHotGas = 0.0;
+    }
   }
 
   if (locals != NULL) {
     locals->quasar_energy = quasar_energy;
     locals->cold_gas_energy = cold_gas_energy;
+    locals->cgm_gas_energy = cgm_gas_energy;
     locals->hot_gas_energy = hot_gas_energy;
+    locals->reservoir_cgm = reservoir_cgm;
     locals->ejects_cold = ejects_cold;
-    locals->ejects_hot = ejects_hot;
+    locals->ejects_selected = ejects_selected;
   }
 }
 
@@ -190,15 +225,15 @@ static inline void mimic_apply_quasar_mode_wind(struct Halo *halo, const double 
  * @param quasar_mode_efficiency  QuasarModeEfficiency, for the wind
  * @param ctx                     Module context with UnitVelocity_in_cm_per_s, for the wind
  * @param sf_prescription         SFprescription (0 or 1), which selects the hydrogen cap
+ * @param cgm_recipe_on           CGMrecipeOn (0 or 1), passed to the wind, whose second test
+ *                                selects the host's CGM or hot pair by it and the host's Regime
  * @param locals                  Optional (NULL in production): receives the call's locals
  * @return The accreted mass, 0.0 where ColdGas is not positive
  */
-static inline double mimic_apply_black_hole_growth(struct Halo *halo, const double mass_ratio,
-                                                   const double black_hole_growth_rate,
-                                                   const double quasar_mode_efficiency,
-                                                   const struct ModuleContext *ctx,
-                                                   const int sf_prescription,
-                                                   struct MimicSageBlackHoleLocals *locals) {
+static inline double mimic_apply_black_hole_growth(
+    struct Halo *halo, const double mass_ratio, const double black_hole_growth_rate,
+    const double quasar_mode_efficiency, const struct ModuleContext *ctx, const int sf_prescription,
+    const int cgm_recipe_on, struct MimicSageBlackHoleLocals *locals) {
   if (locals != NULL) {
     locals->bh_accrete_pre_cap = NAN;
     locals->bh_accrete = NAN;
@@ -276,7 +311,7 @@ static inline double mimic_apply_black_hole_growth(struct Halo *halo, const doub
   /* SAGE parity: the wind runs before the accreted mass is recorded
    * (R/src/model_mergers.c:374, :376); a wind that ejects the whole cold gas leaves H2gas and
    * H1gas as the cap left them, with no refresh after it (:397-403) */
-  mimic_apply_quasar_mode_wind(halo, bh_accrete, quasar_mode_efficiency, ctx,
+  mimic_apply_quasar_mode_wind(halo, bh_accrete, quasar_mode_efficiency, ctx, cgm_recipe_on,
                                locals != NULL ? &locals->wind : NULL);
 
   gal->QuasarModeBHaccretionMass += bh_accrete;

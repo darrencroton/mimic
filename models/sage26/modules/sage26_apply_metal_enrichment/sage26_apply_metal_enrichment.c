@@ -11,9 +11,14 @@
  *   if ColdGas > 1.0e-8:
  *     FracZleaveDiskVal = FracZleaveDisk * exp(-1.0 * Mvir_central / 30.0)
  *     MetalsColdGas            += Yield * (1.0 - FracZleaveDiskVal) * stars
- *     MetalsHotGas (central)   += Yield * FracZleaveDiskVal * stars
+ *     selected metals (central) += Yield * FracZleaveDiskVal * stars
  *   else:
- *     MetalsHotGas (central)   += Yield * stars
+ *     selected metals (central) += Yield * stars
+ *
+ * The escaping metals go through SAGE26's add_metals_to_hot_reservoir
+ * (R/src/model_misc.h:67-74, shared/sage_cgm_routing.h) to the FoF central's selected metals:
+ * MetalsCGMgas with the required CGMrecipeOn (campaign decision D33) 1 and the CENTRAL's Regime 0,
+ * MetalsHotGas otherwise (:1102, :1108).
  *
  * SAGE parity: SAGE26 adds the yield AFTER check_disk_instability() (:1088-1090),
  * so the disk-instability starburst sees the cold gas metallicity WITHOUT this
@@ -34,6 +39,7 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "types.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_constants.h"
 #include "module_system/parameter_helpers.h"
 
@@ -44,6 +50,11 @@
 static double YIELD;
 static double FRAC_Z_LEAVE_DISK;
 
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
+ * init (campaign decision D33), which with the FoF central's Regime selects where the escaping
+ * metals go (R/src/model_misc.h:69) */
+static int CGM_RECIPE_ON;
+
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
@@ -52,6 +63,11 @@ int sage26_apply_metal_enrichment_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("Yield", YIELD, 0.0, 1.0, "metal yield");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FracZleaveDisk", FRAC_Z_LEAVE_DISK, 0.0, 1.0,
                                     "metal outflow fraction");
+  /* Required, no default (campaign decision D33): a missing key fails here */
+  LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
+  if (mimic_sage_validate_cgm_recipe_on("sage26_apply_metal_enrichment", CGM_RECIPE_ON) != 0) {
+    return -1;
+  }
 
   /* ERROR: the SF/SN apply step must precede this module in the same phase —
    * the yield is keyed to the renormalised NewStellarMass it commits. */
@@ -81,6 +97,7 @@ int sage26_apply_metal_enrichment_init(void) {
   VERBOSE_LOG("SAGE metal enrichment module initialized");
   VERBOSE_LOG("  Yield = %.4f", YIELD);
   VERBOSE_LOG("  FracZleaveDisk = %.3f", FRAC_Z_LEAVE_DISK);
+  VERBOSE_LOG("  CGMrecipeOn = %d", CGM_RECIPE_ON);
 
   return 0;
 }
@@ -125,14 +142,14 @@ int sage26_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo
     const double yield_retained = YIELD * (1.0 - FracZleaveDiskVal);
     gal->MetalsColdGas = (float)fma(yield_retained, stars, (double)gal->MetalsColdGas);
 
-    // Metals that leave the disk go to the central's hot gas, formed in its own
-    // statement as SAGE26 does (:1100-1102)
+    /* SAGE parity: the metals that leave the disk, formed in their own statement, go to the FoF
+     * CENTRAL's selected metals by its Regime (:1100-1102, R/src/model_misc.h:67-74) */
     const double metals_leaving_disk = YIELD * FracZleaveDiskVal * stars;
-    central_gal->MetalsHotGas += metals_leaving_disk;
+    mimic_sage_add_metals_to_hot_reservoir(central_gal, CGM_RECIPE_ON, metals_leaving_disk);
   } else {
-    // All metals leave the disk when ColdGas is very low (:1105-1108)
+    // All metals leave the disk when ColdGas is very low, to the same pair (:1105-1108)
     const double all_metals = YIELD * stars;
-    central_gal->MetalsHotGas += all_metals;
+    mimic_sage_add_metals_to_hot_reservoir(central_gal, CGM_RECIPE_ON, all_metals);
   }
 
   DEBUG_LOG("Type=%d: Applied metal yield for stars=%.3e (ColdGas=%.3e)", halo->Type, stars,

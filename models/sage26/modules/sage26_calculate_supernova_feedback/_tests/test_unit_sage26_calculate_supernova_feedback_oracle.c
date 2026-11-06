@@ -227,7 +227,9 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
                              oracle_in_f64(in, "params.BlackHoleGrowthRate")) != 0 ||
       oracle_set_model_param("QuasarModeEfficiency",
                              oracle_in_f64(in, "params.QuasarModeEfficiency")) != 0 ||
-      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
+      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
+      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's modules (D33) */
+      oracle_set_model_param("CGMrecipeOn", 0.0) != 0) {
     problems++;
   }
 

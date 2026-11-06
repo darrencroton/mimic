@@ -17,6 +17,9 @@ module:
       - H2gas
       - HotGas
       - MetalsHotGas
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the wind host's selects the wind's second pair
       - EjectedGas
       - MetalsEjectedGas
       - UnstableDiskGasFraction
@@ -25,6 +28,7 @@ module:
       - BlackHoleGrowthRate
       - QuasarModeEfficiency
       - SFprescription
+      - CGMrecipeOn     # required: 0 or 1
 
   events:
     consumes:

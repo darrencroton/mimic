@@ -17,8 +17,8 @@ Applies the instantaneous-recycling metal yield for stars formed in the disk thi
 
 ## Properties
 
-- Reads: `Type`, `Mvir` (FoF central), `ColdGas`, `MetalsColdGas`, `NewStellarMass`
-- Writes: `MetalsColdGas`, `MetalsHotGas` (FoF central), `NewStellarMass` (zeroed after consuming)
+- Reads: `Type`, `Mvir` and `Regime` (FoF central), `ColdGas`, `MetalsColdGas`, `NewStellarMass`
+- Writes: `MetalsColdGas`, `MetalsHotGas` or `MetalsCGMgas` (the FoF central's selected metals), `NewStellarMass` (zeroed after consuming)
 
 ## Parameters
 
@@ -26,10 +26,11 @@ Applies the instantaneous-recycling metal yield for stars formed in the disk thi
 |-----------|-------------|
 | `Yield` | Metal yield per unit stellar mass formed |
 | `FracZleaveDisk` | Fraction of newly produced metals ejected directly to the hot halo |
+| `CGMrecipeOn` | Required, 0 or 1 (campaign decision D33): 1 sends the escaping metals to the FoF central's `MetalsCGMgas` when its `Regime` is 0 and to its `MetalsHotGas` otherwise (SAGE26's R4); 0, the run files' value (R0-R3), always to `MetalsHotGas`. Any other value, or a missing key, fails initialisation naming the parameter |
 
 ## Notes
 
-The metal split ports SAGE26's disk yield (`src/model_starformation_and_feedback.c:1092-1109` in the staged SAGE26 source), after the disk-instability chain as SAGE26 orders it (`:1088-1090`). It uses `f_Z = FracZleaveDisk * exp(-1.0 * Mvir_central / 30.0)` (Krumholz & Dekel 2011 Eq. 22) with the FoF central's float `Mvir`: if `ColdGas > 1.0e-8`, `MetalsColdGas += Yield * (1 - f_Z) * stars` (`Yield * (1 - f_Z)` first, then one fused multiply-add with `stars` in SAGE26's build, an explicit `fma` here) and the central's `MetalsHotGas += Yield * f_Z * stars`; otherwise the full yield goes to the central's hot halo. The escaping metals are formed in their own statement, as SAGE26 forms `metals_leaving_disk`. The yield is added on every call, also with no new stars, as SAGE26 does (a zero yield turns a `-0.0` metal reservoir into `+0.0`). On R0 `FracZleaveDisk` is 0. The starburst channel applies its own yield inside the burst kernel (`shared/sage_starburst_physics.h`); this module only handles the quiescent disk-SF yield. The chained oracle test of `sage26_calculate_star_formation` asserts it bit for bit against SAGE26.
+The metal split ports SAGE26's disk yield (`src/model_starformation_and_feedback.c:1092-1109` in the staged SAGE26 source), after the disk-instability chain as SAGE26 orders it (`:1088-1090`). It uses `f_Z = FracZleaveDisk * exp(-1.0 * Mvir_central / 30.0)` (Krumholz & Dekel 2011 Eq. 22) with the FoF central's float `Mvir`: if `ColdGas > 1.0e-8`, `MetalsColdGas += Yield * (1 - f_Z) * stars` (`Yield * (1 - f_Z)` first, then one fused multiply-add with `stars` in SAGE26's build, an explicit `fma` here) and the escaping `Yield * f_Z * stars` goes to the central's selected metals; otherwise the full yield does. The escaping metals are formed in their own statement, as SAGE26 forms `metals_leaving_disk`, and added as that completed double through SAGE26's `add_metals_to_hot_reservoir` (`src/model_misc.h:67-74`, `shared/sage_cgm_routing.h`): to the FoF CENTRAL's `MetalsCGMgas` with `CGMrecipeOn 1` and the central's `Regime` 0, to its `MetalsHotGas` otherwise (`:1102`, `:1108`). The yield is added on every call, also with no new stars, as SAGE26 does (a zero yield turns a `-0.0` metal reservoir into `+0.0`). On R0 `FracZleaveDisk` is 0. The starburst channel applies its own yield inside the burst kernel (`shared/sage_starburst_physics.h`); this module only handles the quiescent disk-SF yield. The chained oracle test of `sage26_calculate_star_formation` asserts it bit for bit against SAGE26. `_tests/test_unit_sage26_apply_metal_enrichment.c`'s `test_cgm_yield_destination` runs `CGMrecipeOn` 1 against 0 on the same input for both branches (the FoF central in each `Regime`, the forming satellite in the other, exact literal expectations), and `test_cgm_recipe_on_refused` the parameter's refusals.
 
 ## References
 

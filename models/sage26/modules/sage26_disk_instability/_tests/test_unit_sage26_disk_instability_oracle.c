@@ -283,7 +283,9 @@ static int setup_parameters(struct oracle_fixture *in, int *bulge_size_on) {
    * (0: the hydrogen caps and refresh off; 1, R2: on), and StarburstColdGasOn 1 (cold-gas
    * bursts) */
   if (oracle_set_model_param("SFprescription", (double)fixture_sf_prescription) != 0 ||
-      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
+      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
+      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's modules (D33) */
+      oracle_set_model_param("CGMrecipeOn", 0.0) != 0) {
     problems++;
   }
   /* sage26_starburst_feedback's required FIREmodeOn (campaign decision D33): the fixture's, 0 for

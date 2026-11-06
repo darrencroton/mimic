@@ -1,0 +1,84 @@
+# SAGE26 oracle output for uff_cgm_ejected_cap_binds.in, written by oracle_c05 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine update_from_feedback
+f64 intermediate.metallicity 0x3f6efb1d285d70e0  # 0.0037818498121123673
+f32 galaxy[0].ColdGas 0x3bebbc42  # 0.00719407294
+f32 galaxy[0].MetalsColdGas 0x36460604  # 2.95078007e-06
+f32 galaxy[0].StellarMass 0x3e678826  # 0.226105303
+f32 galaxy[0].MetalsStellarMass 0x3aa3ecaf  # 0.00125064503
+f32 galaxy[0].BulgeMass 0x3e65cf8e  # 0.224424571
+f32 galaxy[0].MetalsBulgeMass 0x3aa3c6f6  # 0.00124952081
+f32 galaxy[0].InstabilityBulgeMass 0x00000000  # 0
+f32 galaxy[0].HotGas 0x3f400000  # 0.75
+f32 galaxy[0].MetalsHotGas 0x3ac49ba6  # 0.00150000001
+f32 galaxy[0].EjectedMass 0x3c9f27e6  # 0.0194282047
+f32 galaxy[0].MetalsEjectedMass 0x38e1763c  # 0.000107508589
+f32 galaxy[0].H1gas 0x00000000  # 0
+f32 galaxy[0].H2gas 0x342aaf09  # 1.58961612e-07
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+i32 galaxy[0].Regime 0
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[1].ColdGas 0x4031f83a  # 2.78077555
+f32 galaxy[1].MetalsColdGas 0x3c2c4d4b  # 0.010516475
+f32 galaxy[1].StellarMass 0x3f3bfddf  # 0.734342515
+f32 galaxy[1].MetalsStellarMass 0x3b566290  # 0.00327125564
+f32 galaxy[1].BulgeMass 0x3ea9ee48  # 0.331896067
+f32 galaxy[1].MetalsBulgeMass 0x3add699e  # 0.00168924383
+f32 galaxy[1].InstabilityBulgeMass 0x3ea92353  # 0.330347627
+f32 galaxy[1].HotGas 0x4085d65f  # 4.18241835
+f32 galaxy[1].MetalsHotGas 0x3aecf225  # 0.00180775358
+f32 galaxy[1].EjectedMass 0x00000000  # 0
+f32 galaxy[1].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[1].H1gas 0x3fd9b438  # 1.70081234
+f32 galaxy[1].H2gas 0x3ea4c4a0  # 0.32181263
+f32 galaxy[1].OutflowRate 0x3a83126f  # 0.00100000005
+i32 galaxy[1].Regime 1
+f32 galaxy[1].CGMgas 0x3d4ccccd  # 0.0500000007
+f32 galaxy[1].MetalsCGMgas 0x38d1b717  # 9.99999975e-05
+i32 intermediate.reheat_clamp_fb_binds 0
+i32 intermediate.ejected_cap_binds 1
+i32 intermediate.metals_cap_binds 0
+i32 intermediate.reheated_mass_fb_clamped_absent 0
+f64 intermediate.reheated_mass_fb_clamped 0x3f50624dd2f1a9fc  # 0.001
+i32 intermediate.reheated_mass_fb_clamped_checked 1
+i32 intermediate.reheated_mass_fb_clamped_validated_up 0
+i32 intermediate.reheated_mass_fb_clamped_validated_down 0
+i32 intermediate.reheated_mass_fb_clamped_validated 0
+i32 intermediate.ejected_mass_capped_absent 0
+f64 intermediate.ejected_mass_capped 0x3f86872b00000000  # 0.010999999940395355
+i32 intermediate.ejected_mass_capped_checked 1
+i32 intermediate.ejected_mass_capped_validated_up 1
+i32 intermediate.ejected_mass_capped_validated_down 1
+i32 intermediate.ejected_mass_capped_validated 1
+i32 intermediate.metallicity_hot_absent 0
+f64 intermediate.metallicity_hot 0x3f835281c27bdd40  # 0.0094347131230124726
+i32 intermediate.metallicity_hot_checked 1
+i32 intermediate.metallicity_hot_validated_up 0
+i32 intermediate.metallicity_hot_validated_down 1
+i32 intermediate.metallicity_hot_validated 0
+i32 intermediate.metals_hot_to_eject_absent 0
+f64 intermediate.metals_hot_to_eject 0x3f1b34ae80000000  # 0.00010378184379078448
+i32 intermediate.metals_hot_to_eject_checked 1
+i32 intermediate.metals_hot_to_eject_validated_up 0
+i32 intermediate.metals_hot_to_eject_validated_down 1
+i32 intermediate.metals_hot_to_eject_validated 0
+i32 intermediate.metals_hot_to_eject_capped_absent 0
+f64 intermediate.metals_hot_to_eject_capped 0x3f1b34ae80000000  # 0.00010378184379078448
+i32 intermediate.metals_hot_to_eject_capped_checked 1
+i32 intermediate.metals_hot_to_eject_capped_validated_up 1
+i32 intermediate.metals_hot_to_eject_capped_validated_down 1
+i32 intermediate.metals_hot_to_eject_capped_validated 1
+i32 intermediate.hydrogen_caps_fb_tracked 1
+i32 intermediate.h2_cap_fb_binds 0
+i32 intermediate.h1_cap_fb_binds 0
+i32 intermediate.max_h_fb_absent 0
+f32 intermediate.max_h_fb 0x4003b291  # 2.05777383
+i32 intermediate.max_h_fb_checked 1
+i32 intermediate.max_h_fb_check_kind 2
+i32 intermediate.max_h_fb_validated_up 0
+i32 intermediate.max_h_fb_validated_down 0
+i32 intermediate.max_h_fb_validated 0
+i32 intermediate.max_h_fb_narrowing_limited 0
+i32 intermediate.cgm_recipe_on 1
+i32 intermediate.feedback_reservoir_cgm 1

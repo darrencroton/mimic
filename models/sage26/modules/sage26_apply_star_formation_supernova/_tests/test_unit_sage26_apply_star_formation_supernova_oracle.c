@@ -27,7 +27,18 @@
  * - with SFprescription 1 (the c08 fixtures, R2's flags), each commit's hydrogen cap
  *   (S:1131-1135, S:1169-1173), which the kernel applies for that prescription: its
  *   guard and two binding flags, and its bound max_h, compared bit for bit, and, where a
- *   cap binds, the capped field equal to that bound.
+ *   cap binds, the capped field equal to that bound;
+ * - with CGMrecipeOn 1 (the c10 uff_cgm_* fixtures, R4's flags; oracle README "The c10 Group,
+ *   Part 3"), the fixture's CGMrecipeOn passed to the commit, every galaxy's Regime and CGM pair
+ *   read and asserted with the other fields; the commit's selection (feedback_reservoir_cgm)
+ *   asserted against the kernel's (locals.reservoir_cgm) AND against the FoF central's input
+ *   Regime (1 exactly when it is 0: S:1175-1176 route by the central, never the forming galaxy);
+ *   the central's unselected pair, and both pairs of every other galaxy, asserted unchanged
+ *   against the input; the update_from_feedback locals mapped from SAGE26's names
+ *   (metallicity_hot, metals_hot_to_eject and metals_hot_to_eject_capped hold the selected
+ *   pair's metallicityCGM or metallicityHot and transfers) to the kernel's metallicity_selected,
+ *   metals_to_eject and metals_to_eject_capped, and the binding caps compared with the selected
+ *   pair at the cap (selected_gas_at_cap, selected_metals_at_cap).
  *
  * The branch flags are read to drive those equalities and are not asserted. Outside
  * the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
@@ -61,6 +72,11 @@ static const char *MODULE = "sage26_apply_star_formation_supernova";
 
 static struct oracle_c05_carried_tally tally;
 static struct oracle_c08_local_tally h2_tally;
+/* c10: CGMrecipeOn 1 fixtures, their selections asserted (each against the oracle and the central's
+ * Regime), how many selected the CGM pair, and the unselected pairs asserted unchanged */
+static int cgm_fixtures = 0;
+static int cgm_selections_cgm = 0;
+static int cgm_unselected_pairs = 0;
 
 /**
  * @brief Compare one commit's hydrogen-cap record (SFprescription 1 fixtures only)
@@ -97,11 +113,15 @@ static int check_hydrogen_caps(struct oracle_fixture *out, const char *site,
   return problems;
 }
 
+/** @brief The CGM pair a CGMrecipeOn 1 fixture adds to every galaxy (SAGE26 names) */
+static const char *const CGM_PAIR[] = {"CGMgas", "MetalsCGMgas"};
+
 /**
- * @brief Set galaxies[0 .. ngal-1] from the fixture: Type and the fourteen written fields
+ * @brief Set galaxies[0 .. ngal-1] from the fixture: Type and the fourteen written fields, and with
+ *        CGMrecipeOn 1 (c10) Regime and the CGM pair
  * @return Number of problems
  */
-static int read_galaxies(struct oracle_fixture *in, const int ngal,
+static int read_galaxies(struct oracle_fixture *in, const int ngal, const int cgm_recipe_on,
                          struct GalaxyData galaxies[MAX_GALAXIES]) {
   int problems = 0;
   size_t count;
@@ -111,19 +131,68 @@ static int read_galaxies(struct oracle_fixture *in, const int ngal,
     /* Type is set for the Mimic side; neither SAGE26 routine reads it (oracle README) */
     (void)oracle_in_i32(in, oracle_galaxy_field(i, "Type"));
     problems += oracle_c05_in_floats(in, i, &galaxies[i], written, count);
+    if (cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+      galaxies[i].Regime = oracle_in_i32(in, oracle_galaxy_field(i, "Regime"));
+      problems += oracle_c05_in_floats(in, i, &galaxies[i], CGM_PAIR, 2);
+    }
   }
   return problems;
 }
 
-/** @brief Compare the fourteen written fields of every galaxy */
-static int check_galaxies(struct oracle_fixture *out, const int ngal,
+/** @brief Compare the fourteen written fields of every galaxy, and with CGMrecipeOn 1 (c10) its
+ *         Regime and CGM pair */
+static int check_galaxies(struct oracle_fixture *out, const int ngal, const int cgm_recipe_on,
                           struct GalaxyData galaxies[MAX_GALAXIES]) {
   int problems = 0;
   size_t count;
   const char *const *written = oracle_c05_written_names(&count);
   for (int i = 0; i < ngal; i++) {
     problems += oracle_c05_check_floats(out, "", i, &galaxies[i], written, count);
+    if (cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+      problems += oracle_check_i32(out, oracle_galaxy_field(i, "Regime"), galaxies[i].Regime);
+      problems += oracle_c05_check_floats(out, "", i, &galaxies[i], CGM_PAIR, 2);
+    }
   }
+  return problems;
+}
+
+/**
+ * @brief The c10 assertions of one CGMrecipeOn 1 update_from_feedback fixture
+ *
+ * The selection against the oracle's and the kernel's, each against the FoF central's input
+ * Regime (the site's wiring: S:1175-1176 route by the central); the central's unselected pair and
+ * both pairs of every other galaxy (the commit touches only the forming galaxy's cold gas and the
+ * central's selected and ejected pairs) unchanged against the input.
+ *
+ * @return Number of mismatches
+ */
+static int check_cgm_routing(struct oracle_fixture *out, const int ngal, const int centralgal,
+                             const struct GalaxyData input[MAX_GALAXIES],
+                             struct GalaxyData galaxies[MAX_GALAXIES],
+                             const struct MimicSageFeedbackLocals *locals) {
+  int problems = oracle_check_i32(out, "intermediate.cgm_recipe_on", MIMIC_SAGE_CGM_RECIPE_ON);
+  const int expected = input[centralgal].Regime == 0;
+  problems += oracle_c06_check_flag(out, "feedback_reservoir_cgm", locals->reservoir_cgm);
+  if (locals->reservoir_cgm != expected) {
+    fprintf(stderr, "oracle: %s: the commit routed by a Regime other than the FoF central's\n",
+            out->path);
+    problems++;
+  }
+  cgm_selections_cgm += expected;
+  for (int i = 0; i < ngal; i++) {
+    if (i == centralgal) {
+      problems += oracle_c10_check_unselected(out->path, i, &input[i], &galaxies[i],
+                                              oracle_c10_pair(!expected), 2);
+      cgm_unselected_pairs++;
+    } else {
+      problems +=
+          oracle_c10_check_unselected(out->path, i, &input[i], &galaxies[i], oracle_c10_pair(0), 2);
+      problems +=
+          oracle_c10_check_unselected(out->path, i, &input[i], &galaxies[i], oracle_c10_pair(1), 2);
+      cgm_unselected_pairs += 2;
+    }
+  }
+  cgm_fixtures++;
   return problems;
 }
 
@@ -135,7 +204,7 @@ static int check_update_from_star_formation(struct oracle_fixture *in, struct or
   const double stars = oracle_in_f64(in, "call.stars");
 
   struct GalaxyData galaxies[MAX_GALAXIES];
-  problems += read_galaxies(in, 1, galaxies);
+  problems += read_galaxies(in, 1, MIMIC_SAGE_CGM_RECIPE_OFF, galaxies);
 
   /* The metallicity a burst passes: get_metallicity of the cold gas (model_mergers.c:759) */
   const double metallicity = mimic_get_metallicity(galaxies[0].ColdGas, galaxies[0].MetalsColdGas);
@@ -145,7 +214,7 @@ static int check_update_from_star_formation(struct oracle_fixture *in, struct or
   mimic_sage_update_from_star_formation(&galaxies[0], stars, metallicity, recycle_fraction,
                                         cfg.sf_prescription, &caps);
 
-  problems += check_galaxies(out, 1, galaxies);
+  problems += check_galaxies(out, 1, MIMIC_SAGE_CGM_RECIPE_OFF, galaxies);
   if (cfg.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
     problems += check_hydrogen_caps(out, "sf", &caps, &galaxies[0]);
   }
@@ -158,7 +227,12 @@ static int check_update_from_feedback(const char *name, struct oracle_fixture *i
   struct oracle_c08_sf_config cfg;
   int problems = oracle_c08_read_sf_config(in, 1, &cfg);
   problems += oracle_c05_require_flag(in, "params.SupernovaRecipeOn", 1);
-  problems += oracle_c05_require_flag(in, "params.CGMrecipeOn", 0);
+  /* CGMrecipeOn: 0 for every fixture before c10, 1 for the c10 uff_cgm_* fixtures (R4) */
+  const int cgm_recipe_on = oracle_in_i32(in, "params.CGMrecipeOn");
+  if (cgm_recipe_on != MIMIC_SAGE_CGM_RECIPE_OFF && cgm_recipe_on != MIMIC_SAGE_CGM_RECIPE_ON) {
+    fprintf(stderr, "oracle: %s: params.CGMrecipeOn must be 0 or 1\n", name);
+    return problems + 1;
+  }
 
   const int ngal = oracle_in_i32(in, "call.ngal");
   const int p = oracle_in_i32(in, "call.p");
@@ -172,8 +246,10 @@ static int check_update_from_feedback(const char *name, struct oracle_fixture *i
   const double ejected_mass = oracle_in_f64(in, "call.ejected_mass");
 
   struct GalaxyData galaxies[MAX_GALAXIES];
-  problems += read_galaxies(in, ngal, galaxies);
+  problems += read_galaxies(in, ngal, cgm_recipe_on, galaxies);
   const float cold_gas_at_call = galaxies[p].ColdGas;
+  struct GalaxyData input[MAX_GALAXIES];
+  memcpy(input, galaxies, sizeof(input));
 
   /* The metallicity a burst passes: get_metallicity of the cold gas (model_mergers.c:788) */
   const double metallicity = mimic_get_metallicity(galaxies[p].ColdGas, galaxies[p].MetalsColdGas);
@@ -181,32 +257,37 @@ static int check_update_from_feedback(const char *name, struct oracle_fixture *i
 
   struct MimicSageFeedbackLocals locals;
   mimic_sage_update_from_feedback(&galaxies[p], &galaxies[centralgal], reheated_mass, ejected_mass,
-                                  metallicity, cfg.sf_prescription, &locals);
+                                  metallicity, cfg.sf_prescription, cgm_recipe_on, &locals);
 
-  problems += check_galaxies(out, ngal, galaxies);
+  problems += check_galaxies(out, ngal, cgm_recipe_on, galaxies);
 
-  /* Binding clamps and caps: the recorded value equals the reservoir at that point */
+  /* Binding clamps and caps: the recorded value equals the reservoir at that point (with
+   * CGMrecipeOn 1 the selected pair's, c10) */
   problems += oracle_c05_check_binding(out, "intermediate.", "reheat_clamp_fb_binds",
                                        "reheated_mass_fb_clamped", cold_gas_at_call, &tally);
   problems += oracle_c05_check_binding(out, "intermediate.", "ejected_cap_binds",
-                                       "ejected_mass_capped", locals.hot_gas_at_cap, &tally);
+                                       "ejected_mass_capped", locals.selected_gas_at_cap, &tally);
   problems +=
       oracle_c05_check_binding(out, "intermediate.", "metals_cap_binds",
-                               "metals_hot_to_eject_capped", locals.metals_hot_gas_at_cap, &tally);
+                               "metals_hot_to_eject_capped", locals.selected_metals_at_cap, &tally);
 
-  /* The routine's locals, which the kernel reports: asserted where validated */
+  /* The routine's locals, which the kernel reports: asserted where validated (SAGE26's names, the
+   * selected pair's values with CGMrecipeOn 1, c10) */
   problems += oracle_c05_check_carried(out, "intermediate.", "reheated_mass_fb_clamped",
                                        &locals.reheated_mass_clamped, &tally);
   problems += oracle_c05_check_carried(out, "intermediate.", "ejected_mass_capped",
                                        &locals.ejected_mass_capped, &tally);
   problems += oracle_c05_check_carried(out, "intermediate.", "metallicity_hot",
-                                       &locals.metallicity_hot, &tally);
+                                       &locals.metallicity_selected, &tally);
   problems += oracle_c05_check_carried(out, "intermediate.", "metals_hot_to_eject",
-                                       &locals.metals_hot_to_eject, &tally);
+                                       &locals.metals_to_eject, &tally);
   problems += oracle_c05_check_carried(out, "intermediate.", "metals_hot_to_eject_capped",
-                                       &locals.metals_hot_to_eject_capped, &tally);
+                                       &locals.metals_to_eject_capped, &tally);
   if (cfg.sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
     problems += check_hydrogen_caps(out, "fb", &locals.hydrogen_caps, &galaxies[p]);
+  }
+  if (cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+    problems += check_cgm_routing(out, ngal, centralgal, input, galaxies, &locals);
   }
   return problems;
 }
@@ -254,6 +335,9 @@ int test_oracle_bit_identity(void) {
   }
   memset(&tally, 0, sizeof(tally));
   memset(&h2_tally, 0, sizeof(h2_tally));
+  cgm_fixtures = 0;
+  cgm_selections_cgm = 0;
+  cgm_unselected_pairs = 0;
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried locals asserted %d (validated two-sided), not validated %d, "
          "absent %d; binding clamps and caps asserted equal to their reservoir %d ",
@@ -262,7 +346,13 @@ int test_oracle_bit_identity(void) {
          "absent %d); binding hydrogen caps asserted equal to their bound %d ",
          h2_tally.validated + h2_tally.not_validated + h2_tally.narrowing_limited,
          h2_tally.validated, h2_tally.not_validated, h2_tally.absent, h2_tally.binding);
+  printf("\n  oracle: c10 CGMrecipeOn 1 fixtures %d: the commit's selection asserted against the "
+         "oracle and the FoF central's Regime on each (CGM pair %d, hot pair %d); unselected "
+         "pairs asserted unchanged %d ",
+         cgm_fixtures, cgm_selections_cgm, cgm_fixtures - cgm_selections_cgm, cgm_unselected_pairs);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(cgm_selections_cgm >= 1 && cgm_fixtures - cgm_selections_cgm >= 1,
+              "CGMrecipeOn 1 fixtures selecting each pair must be asserted");
   return TEST_PASS;
 }
 

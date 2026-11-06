@@ -1,6 +1,6 @@
 /**
  * @file    sage_merger_physics.h
- * @brief   SAGE26's merger transaction pieces on live galaxies (R0 and R1 paths)
+ * @brief   SAGE26's merger transaction pieces on live galaxies (R0 to R4 paths)
  *
  * The pieces of SAGE26's merger transaction that run outside the black-hole growth and
  * the burst (R = the staged SAGE26 source, M = R/src/model_mergers.c):
@@ -40,6 +40,7 @@
 
 #include "types.h"
 #include "shared/sage_bulge_size_physics.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_sfr_history.h"
 
 /* SAGE26's exponential-disk half-mass factor and Covington et al. (2011) radiative-loss
@@ -276,7 +277,7 @@ static inline int mimic_sage_merger_burst_channel(const double mass_ratio,
 }
 
 /**
- * @brief SAGE26's add_galaxies_together on the R0 and R1 paths (R/src/model_mergers.c:456-543)
+ * @brief SAGE26's add_galaxies_together on the R0 to R4 paths (R/src/model_mergers.c:456-543)
  *
  * Adds the satellite's reservoirs to the target: cold, stellar, hot and ejected gas with
  * their metals; the ICS, booking a positive satellite ICS and its deposit-time
@@ -330,7 +331,9 @@ static inline void mimic_sage_add_galaxies_together(struct GalaxyData *target,
 
   target->BlackHoleMass += satellite->BlackHoleMass;
 
-  // SAGE parity: the CGM gas is transferred as SAGE26's code does on every path (M:496-497)
+  /* SAGE parity: the CGM gas is transferred as SAGE26's code does on every path (M:496-497):
+   * CGM to CGM and hot to hot (M:464-465) whatever either galaxy's Regime or CGMrecipeOn, with no
+   * reclassification or consolidation, so a hot-regime target can keep CGM gas */
   target->CGMgas += satellite->CGMgas;
   target->MetalsCGMgas += satellite->MetalsCGMgas;
 
@@ -421,17 +424,22 @@ static inline void mimic_sage_make_bulge_from_burst(struct GalaxyData *gal) {
 struct MimicSageDisruptLocals {
   double total_gas;           /**< float ColdGas + HotGas + CGMgas, widened (M:848) */
   double total_metals_gas;    /**< the same sum of their metals (M:849) */
+  int reservoir_cgm;          /**< 1 if the target's CGM pair received them (misc.h:78) */
   int disrupt_stars_positive; /**< satellite StellarMass > 0.0 (M:869) */
   int disrupt_ics_positive;   /**< satellite ICS > 0.0 (M:881) */
 };
 
 /**
- * @brief SAGE26's disrupt_satellite_to_ICS on the R0 path (R/src/model_mergers.c:845-902)
+ * @brief SAGE26's disrupt_satellite_to_ICS (R/src/model_mergers.c:845-902)
  *
  * The satellite's cold, hot and CGM gas, and their metals, each summed in float (three
- * float members) and only then widened into the double locals, go to the target's hot
- * gas (add_gas_to_hot_reservoir, R/src/model_misc.h:76-85, takes the HotGas branch with
- * CGMrecipeOn 0); its ejected gas and existing ICS are transferred, and its stars and
+ * float members) and only then widened into the double locals, go to the TARGET's selected
+ * pair through SAGE26's add_gas_to_hot_reservoir (R/src/model_misc.h:76-85,
+ * shared/sage_cgm_routing.h): its CGM pair with CGMrecipeOn 1 and the target's own Regime 0, its
+ * hot pair otherwise. The target is the passed recipient, SAGE26's centralgal argument, which the
+ * pass sets to its merger_centralgal (R/src/core_build_model.c:539-543, :575): for an orphan that
+ * is its subhalo's central, not necessarily the FoF central. Its ejected gas and existing ICS
+ * are transferred, and its stars and
  * stellar metals added to the target's ICS. Positive stars are booked as disrupted with
  * StellarMass * time into ICS_sum_mt (fused, M:871); the black hole is transferred; a
  * positive existing ICS is booked as accreted with its deposit-time accumulator. Then
@@ -440,23 +448,26 @@ struct MimicSageDisruptLocals {
  * timestamps and the histories are not. The caller marks the satellite merged (SAGE26's
  * mergeType 4, M:902).
  *
- * @param target     SAGE26's centralgal (the pass's merger_centralgal)
- * @param satellite  SAGE26's gal
- * @param time       The event time, a lookback time in code units (B:549)
- * @param locals     Optional: receives the gas sums and the two flags
+ * @param target         SAGE26's centralgal (the pass's merger_centralgal), whose Regime selects
+ *                       the pair
+ * @param satellite      SAGE26's gal
+ * @param time           The event time, a lookback time in code units (B:549)
+ * @param cgm_recipe_on  CGMrecipeOn (0 or 1)
+ * @param locals         Optional: receives the gas sums, the selection and the two flags
  */
 static inline void mimic_sage_disrupt_satellite_to_ics(struct GalaxyData *target,
                                                        struct GalaxyData *satellite,
-                                                       const double time,
+                                                       const double time, const int cgm_recipe_on,
                                                        struct MimicSageDisruptLocals *locals) {
   // SAGE parity: float sums of three float members, widened on assignment (M:848-849)
   const double total_gas = satellite->ColdGas + satellite->HotGas + satellite->CGMgas;
   const double total_metals_gas =
       satellite->MetalsColdGas + satellite->MetalsHotGas + satellite->MetalsCGMgas;
 
-  // SAGE parity: add_gas_to_hot_reservoir's HotGas branch on R0 (M:851, misc.h:76-85)
-  target->HotGas += total_gas;
-  target->MetalsHotGas += total_metals_gas;
+  /* SAGE parity: add_gas_to_hot_reservoir on the passed TARGET, whose own regime selects its CGM
+   * or hot pair (M:851, misc.h:76-85); each double sum added to the selected float field */
+  const int reservoir_cgm = mimic_sage_cgm_reservoir_selected(cgm_recipe_on, target->Regime);
+  mimic_sage_add_gas_to_hot_reservoir(target, cgm_recipe_on, total_gas, total_metals_gas);
 
   target->EjectedGas += satellite->EjectedGas;
   target->MetalsEjectedGas += satellite->MetalsEjectedGas;
@@ -501,6 +512,7 @@ static inline void mimic_sage_disrupt_satellite_to_ics(struct GalaxyData *target
   if (locals != NULL) {
     locals->total_gas = total_gas;
     locals->total_metals_gas = total_metals_gas;
+    locals->reservoir_cgm = reservoir_cgm;
     locals->disrupt_stars_positive = stars_positive;
     locals->disrupt_ics_positive = ics_positive;
   }

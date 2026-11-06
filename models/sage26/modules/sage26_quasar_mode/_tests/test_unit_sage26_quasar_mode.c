@@ -45,6 +45,13 @@
  *   - test_hydrogen_cap_then_wind_no_refresh: the cap precedes the wind, which refreshes nothing
  *   - test_hydrogen_cap_module_wiring: the module passes its SFprescription 1 to the growth
  *   - test_hydrogen_cap_module_wiring_per_event: the merger channel passes it too
+ *   - test_cgm_wind_energy_tests: CGMrecipeOn 1 against 0 on the same input, through both channels
+ *     (the instability and the merger event): the wind's cold test and its second test on the
+ *     WIND HOST's CGM pair (host Regime 0) or hot pair (Regime 1, or CGMrecipeOn 0), ejecting both,
+ *     only the cold gas (the original cold binding energy in the second test) or nothing; the FoF
+ *     central always holds the other Regime and is untouched; the unselected pair unchanged
+ *     (R/src/model_mergers.c:390-441)
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
  *
  * The five hydrogen-cap tests (R/src/model_mergers.c:366-372) are platform independent: they
  * assert the cap's invariants from the package's own float arithmetic, with no oracle bit
@@ -144,6 +151,7 @@ static void setup_test_parameters(double growth_rate, double quasar_efficiency) 
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription, at R1's value */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 }
 
 /**
@@ -1175,6 +1183,7 @@ int test_module_initialization(void) {
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription, at R1's value */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -1256,7 +1265,8 @@ static float grow_with_hydrogen(struct GalaxyData *gal, const double vvir, const
   gal->H1gas = h1;
   struct ModuleContext ctx;
   setup_test_context(&ctx);
-  (void)mimic_apply_black_hole_growth(&halo, 0.5, 0.01, 0.001, &ctx, sf_prescription, locals);
+  (void)mimic_apply_black_hole_growth(&halo, 0.5, 0.01, 0.001, &ctx, sf_prescription,
+                                      MIMIC_SAGE_CGM_RECIPE_OFF, locals);
   return gal->ColdGas;
 }
 
@@ -1429,6 +1439,214 @@ int test_hydrogen_cap_module_wiring_per_event(void) {
   return TEST_PASS;
 }
 
+// ============================================================================
+// CGM ROUTING TESTS (c10, CGMrecipeOn)
+// ============================================================================
+//
+// SAGE26's quasar_mode_wind (R = the staged SAGE26 source, R/src/model_mergers.c:390-441) ejects
+// the WIND HOST's cold gas when the wind energy exceeds the cold binding energy (:394-403), then
+// tests the wind energy against the ORIGINAL cold binding energy plus the binding energy of the
+// host's CGM pair when CGMrecipeOn is 1 and the host's Regime is 0 (:406-417), and of its hot pair
+// otherwise (:418-428, :430-440), ejecting that whole pair when it is exceeded. The host is the
+// galaxy that grows the black hole (the unstable galaxy or the merger target); the FoF central in
+// ctx is given the other Regime, so a wind that read the central's regime would select the other
+// pair. The host's two pairs hold the same input, so the unselected pair must keep it.
+//
+// The growth makes every reservoir exact: BlackHoleGrowthRate 0.5, a trigger of 0.5 and Vvir 280
+// give BHaccrete = 0.5 * 0.5 / (1 + (280 / 280)^2) * ColdGas = 0.125 of ColdGas 1 (:351-352), so
+// 0.875 of cold gas is left (no cold metals). The cold binding energy is then exactly
+// 0.5 * 0.875 * 280 * 280 = 34300 (:394), and a pair of gas G binds 39200 * G (:409, :420). The
+// wind energy QuasarModeEfficiency * 0.1 * 0.125 * (C / UnitVelocity)^2 (:393, C = 2.9979e10,
+// R/src/macros.h:30, UnitVelocity 1e5) is about 1.1234e6 for an efficiency of 1e-3 and 1.1234e4
+// for 1e-5; the test forms it from SAGE26's expression at run time and asserts each case's side
+// of both tests before asserting the state:
+//   eject both:     efficiency 1e-3, pairs 1 / 0.125:     1.1234e6 > 34300 + 39200 = 73500
+//   cold only:      efficiency 1e-3, pairs 28.2 / 0.25:   34300 < 1.1234e6 < 34300 + 1105440, while
+//                   1.1234e6 > 1105440 alone (a wind that subtracted the cold ejection, or
+//                   recomputed the cold energy after it, would also eject the pair)
+//   neither:        efficiency 1e-5, pairs 1 / 0.125:     1.1234e4 < 34300
+
+/** @brief SAGE26's wind energy (R/src/model_mergers.c:393), from run-time inputs */
+static __attribute__((noinline)) double c10_quasar_energy(double efficiency, double bh_accrete) {
+  volatile double eff = efficiency;
+  volatile double acc = bh_accrete;
+  volatile double c = 2.9979e10; /* SAGE26's C (R/src/macros.h:30) */
+  volatile double unit_velocity = 1.0e5;
+  return eff * 0.1 * acc * (c / unit_velocity) * (c / unit_velocity);
+}
+
+/** @brief SAGE26's binding energy 0.5 * gas * Vvir * Vvir with float members (:394, :409, :420) */
+static __attribute__((noinline)) double c10_binding_energy(float gas, float vvir) {
+  volatile float g = gas;
+  volatile float v = vvir;
+  return 0.5 * g * v * v;
+}
+
+/** @brief Set the parameter list's CGMrecipeOn to `value`, or remove it for NULL */
+static void c10_set_cgm_recipe_on(const char *value) {
+  int n = 0;
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, "CGMrecipeOn") != 0) {
+      MimicConfig.ModelParams[n++] = MimicConfig.ModelParams[i];
+    }
+  }
+  if (value != NULL) {
+    snprintf(MimicConfig.ModelParams[n].param_name, MAX_STRING_LEN, "%s", "CGMrecipeOn");
+    snprintf(MimicConfig.ModelParams[n].value, MAX_STRING_LEN, "%s", value);
+    n++;
+  }
+  MimicConfig.NumModelParams = n;
+}
+
+/** @brief Read a captured log stream into a static buffer (valid until the next call) */
+static const char *c10_read_log(FILE *fp) {
+  static char buf[8192];
+  rewind(fp);
+  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+  buf[n] = '\0';
+  return buf;
+}
+
+/** @brief Initialise with growth rate 0.5, `efficiency` and CGMrecipeOn `cgm` (NULL: missing) */
+static int c10_init(const double efficiency, const char *cgm, const char **log) {
+  reset_config();
+  setup_test_parameters(0.5, efficiency);
+  c10_set_cgm_recipe_on(cgm);
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_quasar_mode_init();
+  if (capture != NULL) {
+    set_log_output(old_out);
+    *log = c10_read_log(capture);
+    fclose(capture);
+  } else {
+    *log = "";
+  }
+  return status;
+}
+
+/**
+ * @test    test_cgm_wind_energy_tests
+ * @brief   The wind's two tests select the wind host's pair, through both channels
+ */
+int test_cgm_wind_energy_tests(void) {
+  const struct {
+    const char *cgm;
+    int host_regime;
+    int to_cgm;
+  } runs[] = {{"1", 0, 1}, {"1", 1, 0}, {"0", 0, 0}, {"0", 1, 0}};
+  const struct {
+    const char *name;
+    double efficiency;
+    float pair_gas, pair_metals;
+    int ejects_cold, ejects_pair;
+  } cases[] = {{"eject both", 1.0e-3, 1.0f, 0.125f, 1, 1},
+               {"cold only", 1.0e-3, 28.2f, 0.25f, 1, 0},
+               {"neither", 1.0e-5, 1.0f, 0.125f, 0, 0}};
+  int ok = 1;
+  init_memory_system(0);
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+    /* The case's side of both tests, from SAGE26's expressions (:393-394, :409/:420, :411/:422) */
+    const double e_wind = c10_quasar_energy(cases[c].efficiency, 0.125);
+    const double e_cold = c10_binding_energy(0.875f, 280.0f);
+    const double e_pair = c10_binding_energy(cases[c].pair_gas, 280.0f);
+    TEST_ASSERT((e_wind > e_cold) == cases[c].ejects_cold, "the case's cold test outcome");
+    TEST_ASSERT((e_wind > e_cold + e_pair) == cases[c].ejects_pair, "the case's second outcome");
+    if (cases[c].ejects_cold && !cases[c].ejects_pair) {
+      TEST_ASSERT(e_wind > e_pair, "only the original cold energy keeps the pair from ejecting");
+    }
+    for (int channel = 0; channel < 2; channel++) { /* 0 the instability, 1 the merger event */
+      for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
+        const char *log = "";
+        TEST_ASSERT(c10_init(cases[c].efficiency, runs[r].cgm, &log) == 0,
+                    "init must accept CGMrecipeOn 0 and 1");
+        struct Halo host, central;
+        struct GalaxyData host_gal, central_gal;
+        setup_test_galaxy(&central, &central_gal, 0, 100.0, 300.0, 2.0, 0.0, 3.0, 0.375, 0.0);
+        central_gal.CGMgas = 3.0f;
+        central_gal.MetalsCGMgas = 0.375f;
+        central_gal.Regime = 1 - runs[r].host_regime;
+        setup_test_galaxy(&host, &host_gal, 1, 20.0, 280.0, 1.0, 0.0, cases[c].pair_gas,
+                          cases[c].pair_metals, 0.0);
+        host_gal.CGMgas = cases[c].pair_gas;
+        host_gal.MetalsCGMgas = cases[c].pair_metals;
+        host_gal.Regime = runs[r].host_regime;
+        host_gal.EjectedGas = 0.5f;
+        host_gal.MetalsEjectedGas = 0.0625f;
+
+        struct ModuleContext ctx;
+        setup_test_context(&ctx);
+        ctx.central_galaxy = &central;
+        struct ModuleEvent event = {.producer_module_id =
+                                        MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                                    .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                                    .source_index = 2,
+                                    .target_index = 1,
+                                    .value0 = 0.5,
+                                    .value1 = 0.01};
+        if (channel == 1) {
+          ctx.active_event = &event;
+        } else {
+          host_gal.UnstableDiskGasFraction = 0.5;
+        }
+        const int status = sage26_quasar_mode_process(&ctx, &host, 1);
+
+        const float *sel_gas = runs[r].to_cgm ? &host_gal.CGMgas : &host_gal.HotGas;
+        const float *sel_metals = runs[r].to_cgm ? &host_gal.MetalsCGMgas : &host_gal.MetalsHotGas;
+        const float *oth_gas = runs[r].to_cgm ? &host_gal.HotGas : &host_gal.CGMgas;
+        const float *oth_metals = runs[r].to_cgm ? &host_gal.MetalsHotGas : &host_gal.MetalsCGMgas;
+        const float cold_out = cases[c].ejects_cold ? 0.0f : 0.875f;
+        const float pair_out = cases[c].ejects_pair ? 0.0f : cases[c].pair_gas;
+        const float pair_metals_out = cases[c].ejects_pair ? 0.0f : cases[c].pair_metals;
+        const float ejected_out = 0.5f + (cases[c].ejects_cold ? 0.875f : 0.0f) +
+                                  (cases[c].ejects_pair ? cases[c].pair_gas : 0.0f);
+        const float ejected_metals_out =
+            0.0625f + (cases[c].ejects_pair ? cases[c].pair_metals : 0.0f);
+        const int host_ok = host_gal.BlackHoleMass == 0.125f && host_gal.ColdGas == cold_out &&
+                            *sel_gas == pair_out && *sel_metals == pair_metals_out &&
+                            *oth_gas == cases[c].pair_gas && *oth_metals == cases[c].pair_metals &&
+                            host_gal.EjectedGas == ejected_out &&
+                            host_gal.MetalsEjectedGas == ejected_metals_out &&
+                            host_gal.QuasarModeBHaccretionMass == 0.125f;
+        const int central_ok = central_gal.HotGas == 3.0f && central_gal.MetalsHotGas == 0.375f &&
+                               central_gal.CGMgas == 3.0f && central_gal.MetalsCGMgas == 0.375f &&
+                               central_gal.ColdGas == 2.0f && central_gal.EjectedGas == 0.0f;
+        if (status != 0 || !host_ok || !central_ok) {
+          printf("\n  %s, channel %d, CGMrecipeOn %s, host Regime %d: status %d, cold %.9g, hot "
+                 "%.9g/%.9g, CGM %.9g/%.9g, ejected %.9g/%.9g",
+                 cases[c].name, channel, runs[r].cgm, runs[r].host_regime, status,
+                 (double)host_gal.ColdGas, (double)host_gal.HotGas, (double)host_gal.MetalsHotGas,
+                 (double)host_gal.CGMgas, (double)host_gal.MetalsCGMgas,
+                 (double)host_gal.EjectedGas, (double)host_gal.MetalsEjectedGas);
+          ok = 0;
+        }
+        sage26_quasar_mode_cleanup();
+      }
+    }
+  }
+  check_memory_leaks();
+  TEST_ASSERT(ok, "the wind's second test must eject exactly the wind host's selected pair");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_recipe_on_refused
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
+ *          naming the parameter (campaign decision D33)
+ */
+int test_cgm_recipe_on_refused(void) {
+  const char *log = "";
+  TEST_ASSERT(c10_init(1.0e-3, NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
+  TEST_ASSERT(c10_init(1.0e-3, "2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init(1.0e-3, "-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init(1.0e-3, "1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(c10_init(1.0e-3, "0", &log) == 0, "init must accept CGMrecipeOn 0");
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -1474,6 +1692,8 @@ int main(void) {
   TEST_RUN(test_hydrogen_cap_then_wind_no_refresh);
   TEST_RUN(test_hydrogen_cap_module_wiring);
   TEST_RUN(test_hydrogen_cap_module_wiring_per_event);
+  TEST_RUN(test_cgm_wind_energy_tests);
+  TEST_RUN(test_cgm_recipe_on_refused);
 
   /* Print summary and return result */
   TEST_SUMMARY();

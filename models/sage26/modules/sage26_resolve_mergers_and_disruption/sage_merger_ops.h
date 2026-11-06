@@ -67,7 +67,9 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
  * @brief SAGE26's disrupt_satellite_to_ICS and the satellite's removal
  * (R/src/model_mergers.c:845-902)
  *
- * Runs mimic_sage_disrupt_satellite_to_ics() and marks the satellite's row Type 3, the
+ * Runs mimic_sage_disrupt_satellite_to_ics() with the module's CGMrecipeOn (loaded by init()), so
+ * the satellite's gas goes to the target's selected pair by the target's own Regime, and marks
+ * the satellite's row Type 3, the
  * package's merged row, standing for SAGE26's mergeType 4; the action hook reports it as
  * "disrupt", the package's disruption marker.
  *

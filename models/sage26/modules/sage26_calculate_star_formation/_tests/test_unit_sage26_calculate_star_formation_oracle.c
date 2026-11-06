@@ -138,6 +138,22 @@
  * that snapshot's redshift, never its FoF central's. The oracle's observations of SAGE26's burst
  * (intermediate.nested_burst_fire_*_sensitive) are read and counted.
  *
+ * CGMrecipeOn (the c10 cgm_sf_* fixtures, routine starformation_and_feedback_fire with R4's flags,
+ * oracle README "The c10 Group, Part 3"): the fixture's CGMrecipeOn is the run's (every module of
+ * the chain that reads it), each galaxy's Regime and CGM pair are set from the fixture and asserted
+ * after the call (Regime unchanged), and every routing site of the disk path is asserted against
+ * the oracle's selection AND against the expected galaxy's input Regime (the site's wiring): the
+ * disk commit's (the apply-step replay's kernel locals) and the disk yield's (a replay of the
+ * enrichment step through the shared routing helper on copies, required to end in process()'s
+ * state) by the FoF central's Regime; on gas-unstable fixtures the instability's wind (a replay of
+ * the quasar module's growth on copies, required to end in process()'s state, its locals compared
+ * with the oracle's wind values and energy tests) by the wind host's, the forming galaxy's, Regime;
+ * and the instability burst's commit and yield (the c09 burst replay, its bundle carrying the
+ * fixture's CGMrecipeOn) by the FoF central's. The central's pair its Regime does not select and
+ * the forming galaxy's pair its own Regime does not select (the wind's) are asserted unchanged
+ * against the input, and the oracle's observations of SAGE26's nested growth and burst
+ * (intermediate.instability_*_regime_sensitive) are read and counted.
+ *
  * Test cases:
  *   - test_oracle_fixture_count: every fixture the manifest lists is present
  *   - test_oracle_bit_identity: every fixture reproduces the oracle bit for bit
@@ -159,7 +175,9 @@
 #include "modules/_tests/sage26_oracle_fixture.h"
 #include "modules/_tests/sage26_oracle_h2.h"
 #include "shared/metallicity.h"
+#include "shared/sage_agn_physics.h"
 #include "shared/sage_bulge_size_physics.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_h2_physics.h"
@@ -226,6 +244,20 @@ static int fire_continuations = 0;
 static int fire_wiring_asserted = 0;
 static int fire_nested_observed = 0;
 static int fire_mass_loading_kept = 0;
+/* c10: CGMrecipeOn 1 fixtures; their routing sites asserted against the oracle and the expected
+ * galaxy's Regime (the disk commit, the disk yield, the instability's wind and its burst's commit
+ * and yield); the unselected pairs asserted unchanged; the wind values compared; the observations
+ */
+static int cgm_fixtures = 0;
+static int cgm_sites_asserted = 0;
+static int cgm_sites_cgm = 0;
+static int cgm_wind_sites = 0;
+static int cgm_burst_sites = 0;
+static int cgm_unselected_pairs = 0;
+static int cgm_wind_values = 0;
+static int cgm_wind_values_validated = 0;
+static int cgm_observed_host_sensitive = 0;
+static int cgm_observed_other_insensitive = 0;
 
 /** @brief Names of the branch flags every single-call output records */
 static const char *const FLAGS[] = {"sf_vvir_nonpositive",
@@ -247,6 +279,9 @@ static const char *const FLAGS[] = {"sf_vvir_nonpositive",
 /** @brief The galaxy fields the chain must leave as they were, beyond the fourteen */
 static const char *const UNTOUCHED[] = {"BlackHoleMass", "QuasarModeBHaccretionMass"};
 
+/** @brief The CGM pair a CGMrecipeOn 1 fixture records (oracle README "The c10 Group, Part 3") */
+static const char *const CGM_PAIR[] = {"CGMgas", "MetalsCGMgas"};
+
 /** @brief The bulge-size members a BulgeSizeOn 3 fixture records (oracle README "The c07 Group") */
 static const char *const SIZES[] = {"MergerBulgeMass", "BulgeRadius", "MergerBulgeRadius",
                                     "InstabilityBulgeRadius"};
@@ -258,11 +293,13 @@ struct chain {
   int centralgal;
   int effective_steps;
   int disk_instability_on;
-  int bulge_size_on;              /* 0 or 3 */
-  struct oracle_c08_sf_config sf; /* SFprescription 0 or 1 and the H2 configuration */
-  int fire;                       /* c09: a starformation_and_feedback_fire fixture */
-  int fire_mode_on;               /* its FIREmodeOn (0 for every earlier fixture) */
-  int snapnum[MAX_GALAXIES];      /* c09: each galaxy's stored SnapNum */
+  int bulge_size_on;                     /* 0 or 3 */
+  struct oracle_c08_sf_config sf;        /* SFprescription 0 or 1 and the H2 configuration */
+  int fire;                              /* c09: a starformation_and_feedback_fire fixture */
+  int fire_mode_on;                      /* its FIREmodeOn (0 for every earlier fixture) */
+  int snapnum[MAX_GALAXIES];             /* c09: each galaxy's stored SnapNum */
+  int cgm_recipe_on;                     /* c10: CGMrecipeOn, 0 for every earlier fixture */
+  struct GalaxyData input[MAX_GALAXIES]; /* c10: the galaxies as the fixture set them */
   struct GalaxyData galaxies[MAX_GALAXIES];
   struct Halo halos[MAX_GALAXIES];
   struct ModuleContext ctx;
@@ -300,6 +337,13 @@ struct substep_record {
   /* c09: the feedback module's FIRE budget replayed through the shared helpers (FIREmodeOn 1;
    * initialised locals for FIREmodeOn 0) */
   struct oracle_c09_sn_replay fire;
+  /* c10: the disk yield's selection (the enrichment replay), the instability's wind (the quasar
+   * module's replay, reservoir_cgm -1 where it does not run) and its burst's two selections (-1
+   * where the burst does not run) */
+  int yield_reservoir_cgm;
+  struct MimicSageQuasarWindLocals wind;
+  int burst_feedback_reservoir_cgm;
+  int burst_yield_reservoir_cgm;
 };
 
 /**
@@ -314,7 +358,15 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
    * configuration (c08); BulgeSizeOn 0 or 3 (R1 onward) */
   problems += oracle_c08_read_sf_config(in, 0, &c->sf);
   problems += oracle_c05_require_flag(in, "params.SupernovaRecipeOn", 1);
-  problems += oracle_c05_require_flag(in, "params.CGMrecipeOn", 0);
+  /* CGMrecipeOn: 0 for every earlier fixture; 0 or 1 for a starformation_and_feedback_fire
+   * fixture (c10: 1 for the cgm_sf_* fixtures, R4's flags), the run's for every module */
+  c->cgm_recipe_on = oracle_in_i32(in, "params.CGMrecipeOn");
+  if (c->cgm_recipe_on != MIMIC_SAGE_CGM_RECIPE_OFF &&
+      !(c->fire && c->cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON)) {
+    fprintf(stderr, "oracle: %s: params.CGMrecipeOn must be 0, or 1 for %s\n", in->path,
+            ORACLE_C09_ROUTINE);
+    problems++;
+  }
   /* FIREmodeOn: 0 for every earlier fixture; 0 or 1 with each galaxy's stored snapshot and its
    * redshift for a c09 fixture (applied to the run's redshift table) */
   if (c->fire) {
@@ -406,7 +458,10 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
                              oracle_in_f64(in, "params.BlackHoleGrowthRate")) != 0 ||
       oracle_set_model_param("QuasarModeEfficiency",
                              oracle_in_f64(in, "params.QuasarModeEfficiency")) != 0 ||
-      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
+      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
+      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's modules (D33),
+       * the fixture's (c10) */
+      oracle_set_model_param("CGMrecipeOn", (double)c->cgm_recipe_on) != 0) {
     problems++;
   }
 
@@ -484,6 +539,11 @@ static int setup_galaxies(struct oracle_fixture *in, struct chain *c) {
     if (c->fire) {
       g->MassLoading = oracle_in_f32(in, oracle_galaxy_field(i, "MassLoading"));
     }
+    /* c10: Regime and the CGM pair, which CGMrecipeOn 1 routes by and into */
+    if (c->cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+      g->Regime = oracle_in_i32(in, oracle_galaxy_field(i, "Regime"));
+      problems += oracle_c05_in_floats(in, i, g, CGM_PAIR, COUNT(CGM_PAIR));
+    }
     /* The six histories, every element set explicitly (oracle README "Input Fields") */
     problems += oracle_c05_in_histories(in, i, g);
 
@@ -495,6 +555,7 @@ static int setup_galaxies(struct oracle_fixture *in, struct chain *c) {
     g->StarFormationRate = 0.0f;
   }
 
+  memcpy(c->input, c->galaxies, sizeof(c->input));
   memset(&c->ctx, 0, sizeof(c->ctx));
   c->ctx.params = &MimicConfig;
   c->ctx.central_galaxy = &c->halos[c->centralgal];
@@ -526,6 +587,10 @@ static int check_end_state(struct oracle_fixture *out, struct chain *c) {
     if (c->fire) {
       problems +=
           oracle_check_f32(out, oracle_galaxy_field(i, "MassLoading"), c->galaxies[i].MassLoading);
+    }
+    if (c->cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+      problems += oracle_check_i32(out, oracle_galaxy_field(i, "Regime"), c->galaxies[i].Regime);
+      problems += oracle_c05_check_floats(out, "", i, &c->galaxies[i], CGM_PAIR, COUNT(CGM_PAIR));
     }
     problems += oracle_c05_check_histories(out, "", i, &c->galaxies[i]);
   }
@@ -659,7 +724,7 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
       r->reheated_mass > rp->ColdGas ? (double)rp->ColdGas : r->reheated_mass;
   mimic_sage_update_from_feedback(rp, &replay[c->centralgal], r->reheated_mass_sf_clamped,
                                   r->ejected_mass, r->metallicity_fb, c->sf.sf_prescription,
-                                  &r->locals);
+                                  c->cgm_recipe_on, &r->locals);
 
   if (sage26_apply_star_formation_supernova_process(&c->ctx, halo, 1) != 0) {
     problems++;
@@ -680,6 +745,9 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
 
   r->instability = (struct MimicSageInstabilityLocals){NAN, NAN, NAN, NAN, NAN, NAN};
   r->after_bh_present = 0;
+  mimic_sage_quasar_wind_locals_reset(&r->wind);
+  r->burst_feedback_reservoir_cgm = -1;
+  r->burst_yield_reservoir_cgm = -1;
   if (c->disk_instability_on) {
     /* Replay the instability through its shared helper on a copy, for its locals */
     struct GalaxyData instability_replay[MAX_GALAXIES];
@@ -706,9 +774,25 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
                 in->path);
         problems++;
       } else {
+        /* c10: the quasar module's growth and wind replayed on copies, for the wind's locals */
+        struct GalaxyData bh_replay[MAX_GALAXIES];
+        memcpy(bh_replay, c->galaxies, sizeof(bh_replay));
+        struct Halo bh_halo = *halo;
+        bh_halo.galaxy = &bh_replay[c->p];
+        struct MimicSageBlackHoleLocals bh;
+        (void)mimic_apply_black_hole_growth(&bh_halo, gal->UnstableDiskGasFraction,
+                                            oracle_in_f64(in, "params.BlackHoleGrowthRate"),
+                                            oracle_in_f64(in, "params.QuasarModeEfficiency"),
+                                            &c->ctx, c->sf.sf_prescription, c->cgm_recipe_on, &bh);
         if (sage26_quasar_mode_process(&c->ctx, halo, 1) != 0) {
           problems++;
         }
+        if (memcmp(bh_replay, c->galaxies, sizeof(struct GalaxyData) * (size_t)c->ngal) != 0) {
+          fprintf(stderr, "oracle: %s: the black-hole growth replay differs from process()\n",
+                  in->path);
+          problems++;
+        }
+        r->wind = bh.wind;
         r->after_bh = *gal;
         r->after_bh_present = 1;
         /* c09: the burst module's call replayed on copies, for its FIRE record */
@@ -718,6 +802,8 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
           struct MimicStarburstParams bundle;
           oracle_c09_burst_bundle(in, &burst_sizes, c->sf.sf_prescription, c->fire_mode_on, 0,
                                   &bundle);
+          /* c10: the module's bundle carries the run's CGMrecipeOn to the burst's routing */
+          bundle.cgm_recipe_on = c->cgm_recipe_on;
           oracle_c09_replay_instability_burst(&burst_replay, c->galaxies, c->halos, c->ngal, c->p,
                                               c->centralgal, &c->ctx, &bundle);
         }
@@ -733,13 +819,42 @@ static int run_substep(struct oracle_fixture *in, struct chain *c, const int ste
                                                     &burst_replay.locals.fire, c->fire_mode_on,
                                                     c->snapnum[c->p], (float)halo->Vvir);
           fire_wiring_asserted++;
+          r->burst_feedback_reservoir_cgm = burst_replay.locals.feedback.reservoir_cgm;
+          r->burst_yield_reservoir_cgm = burst_replay.locals.yield_reservoir_cgm;
         }
         continuations_br06++;
       }
     }
   }
 
+  /* c10: the enrichment step replayed on copies through the shared routing helper, as the module
+   * forms it (S:1093-1108), for its selection; it must end in process()'s state */
+  struct GalaxyData yield_replay[MAX_GALAXIES];
+  memcpy(yield_replay, c->galaxies, sizeof(yield_replay));
+  {
+    struct GalaxyData *yg = &yield_replay[c->p];
+    struct GalaxyData *yc = &yield_replay[c->centralgal];
+    const double stars = yg->NewStellarMass;
+    const double yield = oracle_in_f64(in, "params.Yield");
+    yg->NewStellarMass = 0.0;
+    double escaping;
+    if (yg->ColdGas > SAGE_COLD_GAS_YIELD_THRESHOLD) {
+      const float central_mvir = (float)c->halos[c->centralgal].Mvir;
+      const double frac = oracle_in_f64(in, "params.FracZleaveDisk") *
+                          exp(-1.0 * central_mvir / SAGE_METAL_EJECTION_MVIR_SCALE);
+      yg->MetalsColdGas = (float)fma(yield * (1.0 - frac), stars, (double)yg->MetalsColdGas);
+      escaping = yield * frac * stars;
+    } else {
+      escaping = yield * stars;
+    }
+    r->yield_reservoir_cgm = mimic_sage_cgm_reservoir_selected(c->cgm_recipe_on, yc->Regime);
+    mimic_sage_add_metals_to_hot_reservoir(yc, c->cgm_recipe_on, escaping);
+  }
   if (sage26_apply_metal_enrichment_process(&c->ctx, halo, 1) != 0) {
+    problems++;
+  }
+  if (memcmp(yield_replay, c->galaxies, sizeof(struct GalaxyData) * (size_t)c->ngal) != 0) {
+    fprintf(stderr, "oracle: %s: the enrichment replay differs from process()\n", in->path);
     problems++;
   }
   return problems;
@@ -765,10 +880,10 @@ static int check_carried(struct oracle_fixture *out, const char *prefix,
   problems += oracle_c05_check_binding(out, prefix, "reheat_clamp_fb_binds",
                                        "reheated_mass_fb_clamped", r->cold_gas_after_sf, &tally);
   problems += oracle_c05_check_binding(out, prefix, "ejected_cap_binds", "ejected_mass_capped",
-                                       r->locals.hot_gas_at_cap, &tally);
+                                       r->locals.selected_gas_at_cap, &tally);
   problems +=
       oracle_c05_check_binding(out, prefix, "metals_cap_binds", "metals_hot_to_eject_capped",
-                               r->locals.metals_hot_gas_at_cap, &tally);
+                               r->locals.selected_metals_at_cap, &tally);
   /* Where Mcrit is capped it equals the disk mass (the flag itself is not asserted) */
   char capped[ORACLE_MAX_NAME];
   snprintf(capped, sizeof(capped), "%sinstability_mcrit_capped", prefix);
@@ -797,9 +912,9 @@ static int check_carried(struct oracle_fixture *out, const char *prefix,
       {"reheated_mass_sf_clamped", &r->reheated_mass_sf_clamped},
       {"reheated_mass_fb_clamped", &r->locals.reheated_mass_clamped},
       {"ejected_mass_capped", &r->locals.ejected_mass_capped},
-      {"metallicity_hot", &r->locals.metallicity_hot},
-      {"metals_hot_to_eject", &r->locals.metals_hot_to_eject},
-      {"metals_hot_to_eject_capped", &r->locals.metals_hot_to_eject_capped},
+      {"metallicity_hot", &r->locals.metallicity_selected},
+      {"metals_hot_to_eject", &r->locals.metals_to_eject},
+      {"metals_hot_to_eject_capped", &r->locals.metals_to_eject_capped},
       /* The instability's locals, from the helper's replay */
       {"diskmass", &r->instability.diskmass},
       {"Mcrit", &r->instability.mcrit},
@@ -898,6 +1013,138 @@ static int check_after_bh(struct oracle_fixture *out, const struct chain *c,
     problems += oracle_c09_check_mass_loading(out, "intermediate.after_bh.", c->p,
                                               r->mass_loading_sn, g.MassLoading);
   }
+  /* c10: the wind host's Regime and CGM pair after its wind */
+  if (c->cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+    problems += oracle_check_i32(
+        out, oracle_prefixed_galaxy_field("intermediate.after_bh.", c->p, "Regime"), g.Regime);
+    problems +=
+        oracle_c05_check_floats(out, "intermediate.after_bh.", c->p, &g, CGM_PAIR, COUNT(CGM_PAIR));
+  }
+  return problems;
+}
+
+/**
+ * @brief Compare one routing site's selection (c10): the oracle's flag against the package's, and
+ *        the package's against the routing galaxy's input Regime (1 exactly when it is 0)
+ * @param expected_regime  The input Regime of the galaxy that must route this site, or -1 where
+ *                         the site does not run (the package's selection must then be -1)
+ * @return Number of mismatches
+ */
+static int check_site(struct oracle_fixture *out, const char *flag, const int actual,
+                      const int expected_regime) {
+  int problems = oracle_c06_check_flag(out, flag, actual);
+  const int expected = expected_regime < 0 ? -1 : expected_regime == 0;
+  if (actual != expected) {
+    fprintf(stderr, "oracle: %s: %s routed by the wrong galaxy's Regime (%d, expected %d)\n",
+            out->path, flag, actual, expected);
+    problems++;
+  }
+  if (actual >= 0) {
+    cgm_sites_asserted++;
+    cgm_sites_cgm += actual;
+  }
+  return problems;
+}
+
+/**
+ * @brief Compare one wind value (c10): the oracle's tail-checked markers and its value bit for bit
+ *        with the package's kernel local, NaN exactly where the oracle records it absent
+ * @return Number of mismatches and marker errors
+ */
+static int check_wind_value(struct oracle_fixture *out, const char *name, const double actual) {
+  char field[ORACLE_MAX_NAME];
+  snprintf(field, sizeof(field), "intermediate.%s_absent", name);
+  const int absent = oracle_in_i32(out, field);
+  if (absent != (isnan(actual) ? 1 : 0)) {
+    fprintf(stderr, "oracle: %s: %s is %s in the oracle but %s in the port\n", out->path, name,
+            absent ? "absent" : "present", isnan(actual) ? "absent" : "present");
+    return 1;
+  }
+  if (absent) {
+    return 0;
+  }
+  int problems = 0;
+  snprintf(field, sizeof(field), "intermediate.%s_checked", name);
+  problems += oracle_in_i32(out, field) != 1;
+  snprintf(field, sizeof(field), "intermediate.%s_check_kind", name);
+  problems += oracle_in_i32(out, field) != ORACLE_C10_TAIL;
+  snprintf(field, sizeof(field), "intermediate.%s_validated_up", name);
+  const int up = oracle_in_i32(out, field);
+  snprintf(field, sizeof(field), "intermediate.%s_validated_down", name);
+  const int down = oracle_in_i32(out, field);
+  snprintf(field, sizeof(field), "intermediate.%s_validated", name);
+  const int validated = oracle_in_i32(out, field);
+  problems += validated != (up && down);
+  snprintf(field, sizeof(field), "intermediate.%s", name);
+  problems += oracle_check_f64(out, field, actual);
+  cgm_wind_values++;
+  cgm_wind_values_validated += validated;
+  return problems;
+}
+
+/**
+ * @brief The c10 record of one CGMrecipeOn 1 call: every routing site's selection against the
+ *        oracle and the expected galaxy's input Regime, the wind's tests and values, the unselected
+ *        pairs unchanged, and the oracle's observations of SAGE26's nested routines counted
+ * @return Number of mismatches
+ */
+static int check_cgm_record(struct oracle_fixture *out, const struct chain *c,
+                            const struct substep_record *r) {
+  int problems = oracle_check_i32(out, "intermediate.cgm_recipe_on", MIMIC_SAGE_CGM_RECIPE_ON);
+  const int central_regime = c->input[c->centralgal].Regime;
+  const int host_regime = c->input[c->p].Regime;
+  const int continued = r->after_bh_present;
+  /* The disk commit and the disk yield: the FoF central's Regime (S:1175-1176, S:1102, S:1108) */
+  problems += check_site(out, "feedback_reservoir_cgm", r->locals.reservoir_cgm, central_regime);
+  problems += check_site(out, "yield_reservoir_cgm", r->yield_reservoir_cgm, central_regime);
+  /* The instability's wind: the wind host's, the forming galaxy's (D:103, M:406-407) */
+  problems += check_site(out, "instability_wind_reservoir_cgm", r->wind.reservoir_cgm,
+                         continued ? host_regime : -1);
+  problems += oracle_c06_check_flag(out, "instability_wind_ejects_cold", r->wind.ejects_cold);
+  problems +=
+      oracle_c06_check_flag(out, "instability_wind_ejects_selected", r->wind.ejects_selected);
+  /* The instability burst's commit and yield: the FoF central's (M:791, M:824, M:830) */
+  problems += check_site(out, "instability_burst_feedback_reservoir_cgm",
+                         r->burst_feedback_reservoir_cgm, continued ? central_regime : -1);
+  problems += check_site(out, "instability_burst_yield_reservoir_cgm", r->burst_yield_reservoir_cgm,
+                         continued ? central_regime : -1);
+  cgm_wind_sites += continued;
+  cgm_burst_sites += continued;
+  problems += check_wind_value(out, "instability_wind_quasar_energy", r->wind.quasar_energy);
+  problems += check_wind_value(out, "instability_wind_cold_gas_energy", r->wind.cold_gas_energy);
+  problems += check_wind_value(out, "instability_wind_cgm_gas_energy", r->wind.cgm_gas_energy);
+  problems += check_wind_value(out, "instability_wind_hot_gas_energy", r->wind.hot_gas_energy);
+
+  /* The pair each galaxy's own Regime does not select is never written on this path: the central's
+   * by the commits and yields, the wind host's by its wind; any other galaxy keeps both */
+  for (int i = 0; i < c->ngal; i++) {
+    struct GalaxyData end = c->galaxies[i];
+    if (i == c->centralgal || i == c->p) {
+      const int selects_cgm = c->input[i].Regime == 0;
+      problems += oracle_c10_check_unselected(out->path, i, &c->input[i], &end,
+                                              oracle_c10_pair(!selects_cgm), 2);
+      cgm_unselected_pairs++;
+    } else {
+      problems +=
+          oracle_c10_check_unselected(out->path, i, &c->input[i], &end, oracle_c10_pair(0), 2);
+      problems +=
+          oracle_c10_check_unselected(out->path, i, &c->input[i], &end, oracle_c10_pair(1), 2);
+      cgm_unselected_pairs += 2;
+    }
+  }
+
+  /* SAGE26's nested growth and burst observed (counted, not port values) */
+  if (continued) {
+    cgm_observed_host_sensitive +=
+        oracle_c09_observed(out, "instability_wind_host_regime_sensitive") == 1;
+    cgm_observed_host_sensitive +=
+        oracle_c09_observed(out, "instability_burst_central_regime_sensitive") == 1;
+    cgm_observed_other_insensitive +=
+        oracle_c09_observed(out, "instability_wind_central_regime_sensitive") == 0;
+    cgm_observed_other_insensitive +=
+        oracle_c09_observed(out, "instability_burst_host_regime_sensitive") == 0;
+  }
+  cgm_fixtures++;
   return problems;
 }
 
@@ -939,6 +1186,11 @@ static int check_single(struct oracle_fixture *in, struct oracle_fixture *out, s
       const int z_sensitive = oracle_c09_observed(out, "nested_burst_fire_redshift_sensitive");
       fire_nested_observed += mode_sensitive == 1 && z_sensitive == 1;
     }
+  }
+
+  /* c10: CGMrecipeOn 1's routing record */
+  if (c->cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+    problems += check_cgm_record(out, c, &r);
   }
 
   /* The bin the apply step sampled (R/src/core_build_model.c:514-515) */
@@ -1191,6 +1443,16 @@ int test_oracle_bit_identity(void) {
   fire_wiring_asserted = 0;
   fire_nested_observed = 0;
   fire_mass_loading_kept = 0;
+  cgm_fixtures = 0;
+  cgm_sites_asserted = 0;
+  cgm_sites_cgm = 0;
+  cgm_wind_sites = 0;
+  cgm_burst_sites = 0;
+  cgm_unselected_pairs = 0;
+  cgm_wind_values = 0;
+  cgm_wind_values_validated = 0;
+  cgm_observed_host_sensitive = 0;
+  cgm_observed_other_insensitive = 0;
   const int ok = oracle_all_bit_identical(MODULE, check_fixture);
   printf("\n  oracle: carried values asserted %d (validated two-sided), not validated %d, "
          "not package values %d, absent %d; binding clamps and caps asserted equal to their "
@@ -1216,7 +1478,19 @@ int test_oracle_bit_identity(void) {
          "(SAGE26's burst observed FIRE- and redshift-sensitive on %d), the disk MassLoading kept "
          "through the burst %d ",
          fire_continuations, fire_wiring_asserted, fire_nested_observed, fire_mass_loading_kept);
+  printf(
+      "\n  oracle: c10 CGMrecipeOn 1 fixtures %d: routing sites asserted against the oracle and "
+      "the expected galaxy's Regime %d (CGM pair %d, hot pair %d), of which instability winds "
+      "%d and instability bursts %d (commit and yield each); unselected pairs asserted unchanged "
+      "%d; wind values compared bit for bit %d (validated two-sided %d); SAGE26's nested "
+      "routines observed routing by the expected galaxy %d, insensitive to the other's Regime %d ",
+      cgm_fixtures, cgm_sites_asserted, cgm_sites_cgm, cgm_sites_asserted - cgm_sites_cgm,
+      cgm_wind_sites, cgm_burst_sites, cgm_unselected_pairs, cgm_wind_values,
+      cgm_wind_values_validated, cgm_observed_host_sensitive, cgm_observed_other_insensitive);
   TEST_ASSERT(ok, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(cgm_wind_sites >= 1 && cgm_sites_cgm >= 1 && cgm_sites_asserted - cgm_sites_cgm >= 1,
+              "CGMrecipeOn 1 fixtures selecting each pair, with an instability continuation, must "
+              "be asserted");
   TEST_ASSERT(fire_continuations >= 1 && fire_wiring_asserted == fire_continuations &&
                   fire_nested_observed >= 1 && fire_mass_loading_kept == fire_continuations,
               "every c09 gas-unstable continuation must have its burst's FIRE wiring asserted and "

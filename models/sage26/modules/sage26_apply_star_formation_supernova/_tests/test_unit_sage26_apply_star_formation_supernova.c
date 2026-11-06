@@ -45,6 +45,12 @@
  *   - test_disk_history_zero_stars: a zero-star call still assigns the gas samples
  *   - test_disk_history_without_central: the Mimic-only no-central path still samples
  *   - test_disk_history_initial_boundary: no interval (snapshot-zero birth) samples nothing
+ *   - test_cgm_feedback_destination: CGMrecipeOn 1 against 0 on the same input: the feedback into
+ *     the FoF central's CGM pair (central Regime 0) or hot pair (Regime 1, or CGMrecipeOn 0), the
+ *     ejection cap and the metal cap binding and not, the unselected pair and the satellite's own
+ *     pairs unchanged; the satellite's Regime is always the other value (the commit routes by the
+ *     FoF central's regime, S:1175-1247)
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
  *
  * @author  Mimic Development Team
  * @date    2025-12-18 (Refactored for comprehensive physics validation)
@@ -118,6 +124,7 @@ static void setup_test_parameters(double recycle, double yield, double frac_z) {
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription, at R1's value */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* Update test variables */
   test_recycle_fraction = recycle;
@@ -223,6 +230,7 @@ int test_module_initialization(void) {
   set_test_model_parameters();
   /* the module's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -260,6 +268,7 @@ int test_memory_safety(void) {
   set_test_model_parameters();
   /* the module's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -1248,7 +1257,8 @@ static void commit_feedback(struct GalaxyData *gal, struct GalaxyData *central,
   central->HotGas = 10.0f;
   central->H2gas = 50.0f;
   central->H1gas = 60.0f;
-  mimic_sage_update_from_feedback(gal, central, reheated, 0.0, 0.0, sf_prescription, locals);
+  mimic_sage_update_from_feedback(gal, central, reheated, 0.0, 0.0, sf_prescription,
+                                  MIMIC_SAGE_CGM_RECIPE_OFF, locals);
 }
 
 /**
@@ -1742,6 +1752,166 @@ int test_disk_history_initial_boundary(void) {
 
 // ============================================================================
 
+// ============================================================================
+// CGM ROUTING TESTS (c10, CGMrecipeOn)
+// ============================================================================
+//
+// SAGE26's update_from_feedback (R = the staged SAGE26 source,
+// R/src/model_starformation_and_feedback.c:1146-1251) credits the reheated gas to, caps the
+// ejection against and ejects from the FoF CENTRAL's CGM pair when CGMrecipeOn is 1 and the
+// central's Regime is 0 (:1175-1199), and its hot pair otherwise (:1200-1223, :1224-1247). The
+// forming galaxy's own Regime is never read. Each case below gives the central's two pairs the SAME
+// input values, so the selected pair ends at the case's literal values and the unselected one keeps
+// its input; the forming satellite always holds the other Regime. Every value is a short binary
+// fraction, so every expectation is an exact literal:
+//
+//   satellite ColdGas 4, MetalsColdGas 0.5 (Z 0.125), no stars, reheated 1 -> ColdGas 3,
+//   MetalsColdGas 0.375, outflow 1; the central's ejected pair 0.5 / 0.0625.
+//   A (no cap binds): pairs 2 / 0.25, ejected 0.5 -> selected 3 / 0.375 after the reheating,
+//     metallicity 0.125, -> 2.5 / 0.3125; ejected pair 1 / 0.125.
+//   B (the gas cap binds, :1184-1186 / :1208-1210 / :1232-1234): ejected 5 -> capped to the
+//     selected 3 after the reheating -> 0 / 0; ejected pair 3.5 / 0.4375.
+//   C (the metal cap binds, :1189-1192 / :1213-1216 / :1237-1240): pairs 2 / -0.5 -> 3 / -0.375
+//     after the reheating; metallicity 0 (get_metallicity of negative metals), the transfer 0 is
+//     above -0.375, so it is capped to -0.375 -> 2.5 / 0; ejected pair 1 / -0.3125. A constructed
+//     edge state (negative metals arise from float cancellation, as test_zero_event_caps_negative_
+//     hot_metals uses for the hot pair).
+
+/** @brief Set the parameter list's CGMrecipeOn to `value`, or remove it for NULL */
+static void c10_set_cgm_recipe_on(const char *value) {
+  int n = 0;
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, "CGMrecipeOn") != 0) {
+      MimicConfig.ModelParams[n++] = MimicConfig.ModelParams[i];
+    }
+  }
+  if (value != NULL) {
+    snprintf(MimicConfig.ModelParams[n].param_name, MAX_STRING_LEN, "%s", "CGMrecipeOn");
+    snprintf(MimicConfig.ModelParams[n].value, MAX_STRING_LEN, "%s", value);
+    n++;
+  }
+  MimicConfig.NumModelParams = n;
+}
+
+/** @brief Read a captured log stream into a static buffer (valid until the next call) */
+static const char *c10_read_log(FILE *fp) {
+  static char buf[8192];
+  rewind(fp);
+  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+  buf[n] = '\0';
+  return buf;
+}
+
+/** @brief Initialise the module with CGMrecipeOn `value` (NULL: missing), capturing the log */
+static int c10_init(const char *value, const char **log) {
+  setup_test_parameters(0.5, 0.0, 0.0);
+  c10_set_cgm_recipe_on(value);
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_apply_star_formation_supernova_init();
+  if (capture != NULL) {
+    set_log_output(old_out);
+    *log = c10_read_log(capture);
+    fclose(capture);
+  } else {
+    *log = "";
+  }
+  return status;
+}
+
+/**
+ * @test    test_cgm_feedback_destination
+ * @brief   The disk commit's feedback goes to the FoF central's pair its Regime selects
+ */
+int test_cgm_feedback_destination(void) {
+  const struct {
+    const char *cgm;
+    int central_regime;
+    int to_cgm;
+  } runs[] = {{"1", 0, 1}, {"1", 1, 0}, {"0", 0, 0}, {"0", 1, 0}};
+  const struct {
+    const char *name;
+    float pair_gas, pair_metals; /* both central pairs' input */
+    double ejected;              /* SupernovaEjectedMass */
+    float gas, metals;           /* the selected pair after the call */
+    float ejected_gas, ejected_metals;
+  } cases[] = {{"A no cap", 2.0f, 0.25f, 0.5, 2.5f, 0.3125f, 1.0f, 0.125f},
+               {"B gas cap", 2.0f, 0.25f, 5.0, 0.0f, 0.0f, 3.5f, 0.4375f},
+               {"C metal cap", 2.0f, -0.5f, 0.5, 2.5f, 0.0f, 1.0f, -0.3125f}};
+  int ok = 1;
+  init_memory_system(0);
+  for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
+    for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+      const char *log = "";
+      TEST_ASSERT(c10_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+
+      struct Halo central_halo, satellite_halo;
+      struct GalaxyData central, satellite;
+      setup_test_halo(&central_halo, &central, 0, 100.0, 0.1, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0625,
+                      0.0, 0.0, 0.0, 0.0);
+      central.Regime = runs[r].central_regime;
+      central.HotGas = cases[c].pair_gas;
+      central.MetalsHotGas = cases[c].pair_metals;
+      central.CGMgas = cases[c].pair_gas;
+      central.MetalsCGMgas = cases[c].pair_metals;
+      setup_test_halo(&satellite_halo, &satellite, 1, 20.0, 0.1, 4.0, 7.0, 0.0, 1.0, 0.5, 0.75, 0.0,
+                      0.0, 0.0, 1.0, cases[c].ejected);
+      satellite.Regime = 1 - runs[r].central_regime;
+      satellite.CGMgas = 6.0f;
+      satellite.MetalsCGMgas = 0.5f;
+
+      struct ModuleContext ctx;
+      setup_module_context(&ctx, &central_halo, 0.1);
+      const int status = sage26_apply_star_formation_supernova_process(&ctx, &satellite_halo, 1);
+
+      const float *sel_gas = runs[r].to_cgm ? &central.CGMgas : &central.HotGas;
+      const float *sel_metals = runs[r].to_cgm ? &central.MetalsCGMgas : &central.MetalsHotGas;
+      const float *oth_gas = runs[r].to_cgm ? &central.HotGas : &central.CGMgas;
+      const float *oth_metals = runs[r].to_cgm ? &central.MetalsHotGas : &central.MetalsCGMgas;
+      const int selected_ok = *sel_gas == cases[c].gas && *sel_metals == cases[c].metals;
+      const int unselected_ok =
+          *oth_gas == cases[c].pair_gas && *oth_metals == cases[c].pair_metals;
+      const int ejected_ok = central.EjectedGas == cases[c].ejected_gas &&
+                             central.MetalsEjectedGas == cases[c].ejected_metals;
+      const int satellite_ok = satellite.ColdGas == 3.0f && satellite.MetalsColdGas == 0.375f &&
+                               satellite.SupernovaOutflowRate == 1.0f && satellite.HotGas == 7.0f &&
+                               satellite.MetalsHotGas == 0.75f && satellite.CGMgas == 6.0f &&
+                               satellite.MetalsCGMgas == 0.5f && satellite.EjectedGas == 0.0f;
+      if (status != 0 || !selected_ok || !unselected_ok || !ejected_ok || !satellite_ok) {
+        printf("\n  CGMrecipeOn %s, central Regime %d, case %s: status %d, hot %.9g/%.9g, CGM "
+               "%.9g/%.9g, ejected %.9g/%.9g, satellite cold %.9g/%.9g",
+               runs[r].cgm, runs[r].central_regime, cases[c].name, status, (double)central.HotGas,
+               (double)central.MetalsHotGas, (double)central.CGMgas, (double)central.MetalsCGMgas,
+               (double)central.EjectedGas, (double)central.MetalsEjectedGas,
+               (double)satellite.ColdGas, (double)satellite.MetalsColdGas);
+        ok = 0;
+      }
+      sage26_apply_star_formation_supernova_cleanup();
+    }
+  }
+  check_memory_leaks();
+  TEST_ASSERT(ok, "the feedback must reach exactly the FoF central's selected pair");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_cgm_recipe_on_refused
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
+ *          naming the parameter (campaign decision D33)
+ */
+int test_cgm_recipe_on_refused(void) {
+  const char *log = "";
+  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
+  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  return TEST_PASS;
+}
+
 /**
  * @brief   Main test runner
  *
@@ -1799,6 +1969,8 @@ int main(void) {
   TEST_RUN(test_disk_history_zero_stars);
   TEST_RUN(test_disk_history_without_central);
   TEST_RUN(test_disk_history_initial_boundary);
+  TEST_RUN(test_cgm_feedback_destination);
+  TEST_RUN(test_cgm_recipe_on_refused);
 
   /* Print summary and return result */
   TEST_SUMMARY();

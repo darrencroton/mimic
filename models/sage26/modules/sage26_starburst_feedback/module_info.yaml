@@ -34,6 +34,9 @@ module:
       - H2gas
       - HotGas
       - MetalsHotGas
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the central's (feedback, yield), the host's (wind)
       - EjectedGas
       - MetalsEjectedGas
       - BlackHoleMass
@@ -87,6 +90,7 @@ module:
       - SFprescription
       - StarburstColdGasOn
       - FIREmodeOn
+      - CGMrecipeOn     # required: 0 or 1
 
   events:
     consumes:

@@ -146,6 +146,7 @@ def test_module_pipeline_integration():
         model_params={
             # Required by the burst module, at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "StarburstColdGasOn": 1,
             "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
@@ -244,6 +245,7 @@ def test_starburst_physics_correctness():
         model_params={
             # Required by the burst module, at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "StarburstColdGasOn": 1,
             "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
@@ -337,6 +339,7 @@ def test_disk_instability_trigger():
         model_params={
             # Required by the burst module, at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "StarburstColdGasOn": 1,
             "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
@@ -402,6 +405,7 @@ def test_merger_trigger():
         model_params={
             # Required by the burst module, at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "StarburstColdGasOn": 1,
             "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
@@ -455,6 +459,7 @@ def test_parameter_sensitivity():
         model_params={
             # Required by the burst module, at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "StarburstColdGasOn": 1,
             "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
@@ -492,6 +497,7 @@ def test_parameter_sensitivity():
         model_params={
             # Required by the burst module, at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "StarburstColdGasOn": 1,
             "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
@@ -529,6 +535,7 @@ def test_parameter_sensitivity():
         model_params={
             # Required by the burst module, at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "StarburstColdGasOn": 1,
             "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
@@ -566,6 +573,7 @@ def test_parameter_sensitivity():
         model_params={
             # Required by the burst module, at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "StarburstColdGasOn": 1,
             "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,
@@ -631,6 +639,7 @@ def test_memory_and_performance():
         model_params={
             # Required by the burst module, at R1's values
             "SFprescription": 0,
+            "CGMrecipeOn": 0,  # required (D33), R3's value
             "StarburstColdGasOn": 1,
             "FIREmodeOn": 0,  # required by the burst module (D33), R2's fixed-epsilon feedback
             "BulgeSizeOn": 0,

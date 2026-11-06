@@ -1,0 +1,46 @@
+# update_from_feedback with the forming galaxy its own FoF central (call.p = call.centralgal) in
+# Regime 0: its own cold gas reheated into its own CGM pair; its hot pair unselected and unchanged.
+# R4 Snap_63 row 375
+# (/Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R4/model_0.hdf5 (SHA-256
+# 2b606ee7ac82559e32c7c91161f1edb44f89288ec57016e80da884e118ed0807)); constructed: ColdGas and
+# MetalsColdGas raised x100, HotGas 0.3 and MetalsHotGas 6e-4, the reheated mass 0.3 and the ejected
+# mass 0.1 of its cold gas.
+# galaxy 0: R4 Snap_63 row 375 (GalaxyIndex 27000000000, Type 0, Regime 0)
+# Reachability: constructed routine-domain probe.
+# R4's flags (par/R4.par): CGMrecipeOn 1 (:54), FIREmodeOn 1 (:55), SFprescription 1 (:48),
+# BulgeSizeOn 3 (:109), SupernovaRecipeOn 1 (:50), DiskInstabilityOn 1 (:52), AGNrecipeOn 2 (:49);
+# every other parameter R3's (R4.par differs from R3.par only at :7 and :54).
+format sage26-oracle-fixture 1
+routine update_from_feedback
+
+i32 params.SFprescription 1  # R4.par:48: BR06 with radial integration
+i32 params.H2RadialIntegrationOn 1  # SAGE26's default, R/src/core_read_parameter_file.c:99; R4.par does not set it
+i32 params.H2RadialNBins 25  # default, R/src/core_read_parameter_file.c:100
+f64 params.H2RadialRMaxFactor 0x4014000000000000  # 5.0  (default, R/src/core_read_parameter_file.c:101)
+i32 params.StarburstColdGasOn 1  # default, R/src/core_read_parameter_file.c:109; required with SFprescription 1
+i32 params.SupernovaRecipeOn 1  # R4.par:50
+i32 params.CGMrecipeOn 1  # R4.par:54
+i32 call.ngal 1
+i32 call.p 0  # the galaxy whose cold gas is reheated
+i32 call.centralgal 0  # the FoF central
+f64 call.reheated_mass 0x3fcba00fcccccccd  # 0.2158221960067749
+f64 call.ejected_mass 0x3fb26ab533333333  # 0.0719407320022583
+
+i32 galaxy[0].Type 0
+f32 galaxy[0].ColdGas 0x3f382b14  # 0.71940732
+f32 galaxy[0].MetalsColdGas 0x399ab4b3  # 0.000295078004
+f32 galaxy[0].StellarMass 0x3e678826  # 0.226105303
+f32 galaxy[0].MetalsStellarMass 0x3aa3ecaf  # 0.00125064503
+f32 galaxy[0].BulgeMass 0x3e65cf8e  # 0.224424571
+f32 galaxy[0].MetalsBulgeMass 0x3aa3c6f6  # 0.00124952081
+f32 galaxy[0].InstabilityBulgeMass 0x00000000  # 0
+f32 galaxy[0].HotGas 0x3e99999a  # 0.300000012
+f32 galaxy[0].MetalsHotGas 0x3a1d4952  # 0.000600000028
+f32 galaxy[0].EjectedMass 0x3c0a1673  # 0.00842820387
+f32 galaxy[0].MetalsEjectedMass 0x367a1904  # 3.7267464e-06
+f32 galaxy[0].H1gas 0x00000000  # 0
+f32 galaxy[0].H2gas 0x342aaf09  # 1.58961612e-07
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+i32 galaxy[0].Regime 0
+f32 galaxy[0].CGMgas 0x4088d0f8  # 4.27550888
+f32 galaxy[0].MetalsCGMgas 0x3af8015c  # 0.00189213036

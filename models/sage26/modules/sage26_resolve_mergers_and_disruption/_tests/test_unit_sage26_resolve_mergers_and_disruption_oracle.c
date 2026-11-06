@@ -92,6 +92,24 @@
  * observation of the recheck's growth) is consumed, not asserted, as the consumers' other locals:
  * the burst oracle test asserts it against the shared burst's locals.
  *
+ * CGMrecipeOn 1 (the c10 merge_cgm_*, dis_cgm_* and tr_pass_cgm_* fixtures, R4's flags; oracle
+ * README "The c10 Group, Part 3"): the three modules are initialised with the fixture's CGMrecipeOn
+ * (the resolver's disruption, the quasar consumer's growth, the burst consumer's bundle), every
+ * galaxy's Regime is set from the fixture, and the consumer shadow and the burst replay take the
+ * fixture's CGMrecipeOn. The test also asserts each routing site against the oracle's selection
+ * AND against the expected galaxy's input Regime: the merger's wind (the shadow growth's wind
+ * locals, its CGM test and cgm_gas_energy bit for bit) by the TARGET's; the merger burst's commit
+ * and yield (the replay) by the FoF central's; the merger's post-minor-merger recheck's wind (its
+ * tests and energies bit for bit) by the target's and its own burst's commit and yield by the FoF
+ * central's; the direct disruption's deposit (the entry's locals) by the PASSED recipient's, which
+ * may be a Type 1 that is not the FoF central. In a pass the oracle's disruption selection is
+ * asserted against the recipient's input Regime, each merger event's shadow wind and replay
+ * burst against the target's and the central's, and the oracle's observations of SAGE26's own
+ * calls are counted. The pairs no site of the path writes are asserted unchanged against the
+ * input: the FoF central's unselected pair (and both pairs of a non-recipient FoF central in a
+ * disruption), and the merger target's unselected pair, which the addition alone changes
+ * (CGM to CGM, hot to hot: the target's input plus the satellite's, as floats).
+ *
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
  * SKIP.
  *
@@ -114,6 +132,7 @@
 #include <string.h>
 
 #include "modules/_tests/sage_test_fixtures.h"
+#include "modules/_tests/sage26_oracle_cgm.h"
 #include "modules/_tests/sage26_oracle_fire.h"
 #include "modules/_tests/sage26_oracle_fixture.h"
 #include "modules/_tests/sage26_oracle_hydrogen.h"
@@ -209,6 +228,19 @@ static int counts_fire_merge = 0, counts_fire_pass = 0;
 static int counts_merger_wiring = 0, counts_recheck_wiring = 0, counts_pass_observed = 0;
 static int counts_mass_loading = 0;
 
+/* c10: whether the fixture's routine admits CGMrecipeOn 1 (set by check_merge, check_disrupt and
+ * check_pass), its CGMrecipeOn, the per-event selections of the consumer shadow's wind and the
+ * burst replay (-1 where the site did not run), and the assertions' counters */
+static int fixture_cgm_allowed = 0;
+static int fixture_cgm_recipe_on = 0;
+static int event_wind_reservoir_cgm[MAX_EVENTS];
+static int event_feedback_reservoir_cgm[MAX_EVENTS];
+static int event_yield_reservoir_cgm[MAX_EVENTS];
+static struct oracle_c10_site_tally cgm_tally;
+static int counts_cgm_merge = 0, counts_cgm_disrupt = 0, counts_cgm_pass = 0;
+static int counts_cgm_recipient_not_central = 0, counts_cgm_pass_disruptions = 0;
+static int counts_cgm_pass_mergers = 0;
+
 /* The removals the resolver's action hook reported, in order */
 static int action_count = 0;
 static int action_source[MAX_EVENTS];
@@ -283,10 +315,14 @@ static int setup_modules(struct oracle_fixture *in) {
    * configuration) */
   struct MimicSageBulgeSize sizes;
   int sf_prescription = 0;
-  /* FIREmodeOn: 0, or 0 or 1 for a c09 fixture (validated by oracle_c09_read_fire_config) */
-  int problems = fixture_fire ? oracle_c09_require_merger_flags(in, &sizes, &sf_prescription)
-                              : oracle_c08_require_merger_flags(in, &sizes, &sf_prescription);
-  fixture_fire_mode_on = fixture_fire ? oracle_in_i32(in, "params.FIREmodeOn") : 0;
+  /* FIREmodeOn: 0, or 0 or 1 for a c09 fixture (validated by oracle_c09_read_fire_config), or R4's
+   * 1 for a CGMrecipeOn 1 disruption (unread there); CGMrecipeOn: 0, or 0 or 1 where the routine
+   * admits it (c10) */
+  int fire_mode_read = 0;
+  int problems =
+      oracle_c10_require_merger_flags(in, &sizes, &sf_prescription, fixture_fire,
+                                      fixture_cgm_allowed, &fixture_cgm_recipe_on, &fire_mode_read);
+  fixture_fire_mode_on = fixture_fire ? oracle_in_i32(in, "params.FIREmodeOn") : fire_mode_read;
   fixture_sizes = sizes;
   if (sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
     counts_br06++;
@@ -359,7 +395,10 @@ static int setup_modules(struct oracle_fixture *in) {
    * (0: the hydrogen caps and refresh off; 1, R2: on), and the burst's StarburstColdGasOn 1
    * (cold-gas bursts) */
   if (oracle_set_model_param("SFprescription", (double)sf_prescription) != 0 ||
-      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0) {
+      oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
+      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's modules (D33),
+       * the fixture's (c10) */
+      oracle_set_model_param("CGMrecipeOn", (double)fixture_cgm_recipe_on) != 0) {
     problems++;
   }
   /* The burst consumer's required FIREmodeOn (campaign decision D33): the fixture's, 0 for every
@@ -402,9 +441,13 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
   event.target_index = target_idx;
   event.value0 = mass_ratio;
   event.value1 = source_dt;
+  const int event_index = event_count;
   if (event_count < MAX_EVENTS) {
     event_source[event_count] = source_idx;
     event_target[event_count] = target_idx;
+    event_wind_reservoir_cgm[event_count] = -1;
+    event_feedback_reservoir_cgm[event_count] = -1;
+    event_yield_reservoir_cgm[event_count] = -1;
   }
   event_count++;
 
@@ -420,7 +463,10 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
   if (status == 0 && halos[target_idx].galaxy != NULL) {
     (void)mimic_apply_black_hole_growth(&shadow_halo, mass_ratio, fixture_black_hole_growth_rate,
                                         fixture_quasar_mode_efficiency, ctx,
-                                        fixture_sf_prescription, &shadow_bh);
+                                        fixture_sf_prescription, fixture_cgm_recipe_on, &shadow_bh);
+    if (event_index < MAX_EVENTS) {
+      event_wind_reservoir_cgm[event_index] = shadow_bh.wind.reservoir_cgm;
+    }
     if (memcmp(&shadow_gal, halos[target_idx].galaxy, sizeof(shadow_gal)) != 0) {
       fprintf(stderr,
               "oracle: the quasar consumer's merger growth differs from the shared growth with "
@@ -444,6 +490,8 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
     struct MimicStarburstParams bundle;
     oracle_c09_burst_bundle(fixture_input, &fixture_sizes, fixture_sf_prescription,
                             fixture_fire_mode_on, 1, &bundle);
+    /* c10: the module's bundle carries the run's CGMrecipeOn */
+    bundle.cgm_recipe_on = fixture_cgm_recipe_on;
     oracle_c09_replay_merger_burst(&last_burst_replay, copies, halos, fixture_ngal, target_idx,
                                    (int)(ctx->central_galaxy - halos), ctx, &bundle);
   }
@@ -467,6 +515,10 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
         fixture_name, "merger burst", &last_burst_replay.locals.fire, fixture_fire_mode_on,
         fixture_snapnum[target_idx], (float)halos[target_idx].Vvir);
     counts_merger_wiring++;
+    if (event_index < MAX_EVENTS) {
+      event_feedback_reservoir_cgm[event_index] = last_burst_replay.locals.feedback.reservoir_cgm;
+      event_yield_reservoir_cgm[event_index] = last_burst_replay.locals.yield_reservoir_cgm;
+    }
   }
   ctx->active_event = NULL;
   return status;
@@ -877,6 +929,121 @@ static int load_galaxies(struct oracle_fixture *in, const int ngal, struct Halo 
     problems += oracle_c06_in_galaxy(in, i, &halos[i], &galaxies[i]);
     halos[i].CentralHalo = oracle_in_i32(in, oracle_galaxy_field(i, "CentralGal"));
   }
+  /* c10: every galaxy's Regime, which the CGMrecipeOn 1 routing reads */
+  if (oracle_has(in, "galaxy[0].Regime")) {
+    problems += oracle_c10_read_regimes(in, ngal, galaxies);
+  }
+  return problems;
+}
+
+// ============================================================================
+// THE C10 GROUP: CGMrecipeOn 1
+// ============================================================================
+
+/**
+ * @brief c10: a galaxy's pair after a merger's addition alone: its input plus the satellite's
+ *        input, each a float sum (M:464-465, :496-497), for the target's unselected pair
+ * @return Number of mismatches
+ */
+static int check_pair_added_only(const char *name, const int index, const struct GalaxyData *before,
+                                 const struct GalaxyData *satellite, struct GalaxyData *after,
+                                 const int cgm) {
+  struct GalaxyData expected = *before;
+  if (cgm) {
+    expected.CGMgas = before->CGMgas + satellite->CGMgas;
+    expected.MetalsCGMgas = before->MetalsCGMgas + satellite->MetalsCGMgas;
+  } else {
+    expected.HotGas = before->HotGas + satellite->HotGas;
+    expected.MetalsHotGas = before->MetalsHotGas + satellite->MetalsHotGas;
+  }
+  cgm_tally.unselected++;
+  return oracle_c10_check_unselected(name, index, &expected, after, oracle_c10_pair(cgm), 2);
+}
+
+/**
+ * @brief c10: the recheck's record of a merger burst (the replay's locals): its wind by the
+ *        target's Regime, its own burst by the FoF central's, the wind's tests and energies, and
+ *        the observations of SAGE26's recheck counted
+ * @return Number of mismatches
+ */
+static int check_cgm_recheck(struct oracle_fixture *out, const struct MimicSageStarburstLocals *b,
+                             const int target_regime, const int central_regime,
+                             const int distinct) {
+  const int gas_branch = oracle_in_i32(out, "intermediate.recheck_gas_branch");
+  int problems = 0;
+  problems +=
+      oracle_c10_check_site(out, "recheck_wind_reservoir_cgm", b->recheck_wind.reservoir_cgm,
+                            gas_branch == 1 ? target_regime : -1, &cgm_tally);
+  problems += oracle_c06_check_flag(out, "recheck_wind_ejects_cold", b->recheck_wind.ejects_cold);
+  problems +=
+      oracle_c06_check_flag(out, "recheck_wind_ejects_selected", b->recheck_wind.ejects_selected);
+  problems += oracle_c10_check_site(out, "recheck_feedback_reservoir_cgm",
+                                    b->recheck_feedback_reservoir_cgm,
+                                    gas_branch == 1 ? central_regime : -1, &cgm_tally);
+  problems +=
+      oracle_c10_check_site(out, "recheck_yield_reservoir_cgm", b->recheck_yield_reservoir_cgm,
+                            gas_branch == 1 ? central_regime : -1, &cgm_tally);
+  problems += oracle_c10_check_value(out, "recheck_wind_quasar_energy",
+                                     b->recheck_wind.quasar_energy, &cgm_tally);
+  problems += oracle_c10_check_value(out, "recheck_wind_cold_gas_energy",
+                                     b->recheck_wind.cold_gas_energy, &cgm_tally);
+  problems += oracle_c10_check_value(out, "recheck_wind_cgm_gas_energy",
+                                     b->recheck_wind.cgm_gas_energy, &cgm_tally);
+  problems += oracle_c10_check_value(out, "recheck_wind_hot_gas_energy",
+                                     b->recheck_wind.hot_gas_energy, &cgm_tally);
+  if (gas_branch == 1) {
+    (void)oracle_c10_observed(out, "recheck_wind_host_regime_sensitive", 1, &cgm_tally);
+    (void)oracle_c10_observed(out, "recheck_burst_central_regime_sensitive", 1, &cgm_tally);
+    if (distinct) {
+      (void)oracle_c10_observed(out, "recheck_wind_central_regime_sensitive", 0, &cgm_tally);
+      (void)oracle_c10_observed(out, "recheck_burst_host_regime_sensitive", 0, &cgm_tally);
+    } else {
+      oracle_exclude(out, "intermediate.recheck_wind_central_regime_sensitive");
+      oracle_exclude(out, "intermediate.recheck_burst_host_regime_sensitive");
+    }
+  }
+  return problems;
+}
+
+/**
+ * @brief c10: the CGMrecipeOn 1 record of one merger: the merger's wind (the consumer shadow) by
+ *        the target's Regime, the burst's commit and yield (the replay) by the FoF central's, the
+ *        recheck, and the pairs no site writes
+ * @return Number of mismatches
+ */
+static int check_cgm_merge(const char *name, struct oracle_fixture *out, const int ngal,
+                           const int p, const int target, const int central,
+                           const struct GalaxyData *before, struct GalaxyData *galaxies) {
+  int problems = oracle_check_i32(out, "intermediate.cgm_recipe_on", MIMIC_SAGE_CGM_RECIPE_ON);
+  const int target_regime = before[target].Regime;
+  const int central_regime = before[central].Regime;
+  const struct MimicSageQuasarWindLocals *w = &shadow_bh.wind;
+  /* The merger's wind (M:262-264 into M:406-407): the TARGET's own Regime */
+  problems +=
+      oracle_c10_check_site(out, "wind_reservoir_cgm", w->reservoir_cgm,
+                            shadow_bh.coldgas_positive == 1 ? target_regime : -1, &cgm_tally);
+  problems += oracle_c06_check_flag(out, "wind_ejects_cgm",
+                                    w->reservoir_cgm == 1 ? w->ejects_selected : -1);
+  problems += oracle_c10_check_value(out, "cgm_gas_energy", w->cgm_gas_energy, &cgm_tally);
+  /* The merger's burst (M:285-287): the FoF central's (M:791, M:824, M:830) */
+  const struct MimicSageStarburstLocals *b = &last_burst_replay.locals;
+  problems += oracle_c10_check_site(out, "burst_feedback_reservoir_cgm", b->feedback.reservoir_cgm,
+                                    central_regime, &cgm_tally);
+  problems += oracle_c10_check_site(out, "burst_yield_reservoir_cgm", b->yield_reservoir_cgm,
+                                    central_regime, &cgm_tally);
+  problems += check_cgm_recheck(out, b, target_regime, central_regime, target != central);
+  problems += oracle_c10_check_regimes(out, ngal, galaxies);
+  /* The pairs no site writes: the target's unselected pair takes the satellite's by the addition
+   * only; the FoF central's unselected pair (when it is not the target) is unchanged */
+  problems += check_pair_added_only(name, target, &before[target], &before[p], &galaxies[target],
+                                    target_regime != 0);
+  if (central != target) {
+    problems += oracle_c10_check_unselected(name, central, &before[central], &galaxies[central],
+                                            oracle_c10_pair(central_regime != 0), 2);
+    cgm_tally.unselected++;
+  }
+  cgm_tally.fixtures++;
+  counts_cgm_merge++;
   return problems;
 }
 
@@ -970,6 +1137,7 @@ static int check_merge(const char *name) {
     return 1;
   }
   fixture_fire = strcmp(in.routine, ORACLE_C09_MERGER_ROUTINE) == 0;
+  fixture_cgm_allowed = fixture_fire; /* c10: the *_fire routine admits CGMrecipeOn 1 */
   if (oracle_load_pair(MODULE, name,
                        fixture_fire ? ORACLE_C09_MERGER_ROUTINE : "deal_with_galaxy_merger", &in,
                        &out) != 0) {
@@ -1061,6 +1229,9 @@ static int check_merge(const char *name) {
     }
     counts_fire_merge++;
   }
+  if (fixture_cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+    problems += check_cgm_merge(name, &out, ngal, p, target, central, before, galaxies);
+  }
   consume_consumer_records(&out);
   counts_merge++;
 
@@ -1080,7 +1251,17 @@ static int check_disrupt(const char *name) {
   if (oracle_load_pair(MODULE, name, "disrupt_satellite_to_ICS", &in, &out) != 0) {
     return 1;
   }
-  int problems = oracle_c06_require_r0_flags(&in);
+  /* c10: a CGMrecipeOn 1 fixture (R4's flags) initialises the resolver with it, whose disruption
+   * reads the module's CGMrecipeOn; every earlier fixture is read with R0's flags as before */
+  const int cgm = oracle_has(&in, "params.CGMrecipeOn") &&
+                  oracle_in_i32(&in, "params.CGMrecipeOn") == MIMIC_SAGE_CGM_RECIPE_ON;
+  int problems = 0;
+  if (cgm) {
+    fixture_cgm_allowed = 1;
+    problems += setup_modules(&in);
+  } else {
+    problems += oracle_c06_require_r0_flags(&in);
+  }
   // The routine reads no parameter on R0 beyond the flags; the rest are the group's
   consume_prefix(&in, "params.");
   const int ngal = oracle_in_i32(&in, "call.ngal");
@@ -1090,6 +1271,9 @@ static int check_disrupt(const char *name) {
   if (ngal < 2 || ngal > MAX_GALAXIES || target < 0 || target >= ngal || gal < 0 || gal >= ngal ||
       target == gal) {
     fprintf(stderr, "oracle: %s: a call index is out of range\n", name);
+    if (cgm) {
+      cleanup_modules();
+    }
     return problems + 1;
   }
 
@@ -1097,6 +1281,9 @@ static int check_disrupt(const char *name) {
   static struct Halo halos[MAX_GALAXIES], halos_before[MAX_GALAXIES];
   problems += load_galaxies(&in, ngal, halos, galaxies);
   if (problems != 0) {
+    if (cgm) {
+      cleanup_modules();
+    }
     return problems;
   }
   memcpy(before, galaxies, sizeof(before));
@@ -1127,6 +1314,33 @@ static int check_disrupt(const char *name) {
       oracle_c06_check_carried(&out, "total_gas", KIND_CONTINUATION, locals.total_gas, 0, &tally);
   problems += oracle_c06_check_carried(&out, "total_metals_gas", KIND_CONTINUATION,
                                        locals.total_metals_gas, 0, &tally);
+  if (cgm) {
+    /* c10: the deposit by the PASSED recipient's Regime (M:851, X:78), the recipient's other pair
+     * and every other galaxy's pairs (the FoF central's when it is not the recipient) unchanged */
+    problems += oracle_check_i32(&out, "intermediate.cgm_recipe_on", MIMIC_SAGE_CGM_RECIPE_ON);
+    problems += oracle_c10_check_site(&out, "disrupt_reservoir_cgm", locals.reservoir_cgm,
+                                      before[target].Regime, &cgm_tally);
+    problems += oracle_c10_check_regimes(&out, ngal, galaxies);
+    for (int i = 0; i < ngal; i++) {
+      if (i == gal) {
+        continue;
+      }
+      for (int pair = 0; pair <= 1; pair++) {
+        if (i == target && pair == (before[target].Regime == 0)) {
+          continue; /* the selected pair, which receives the gas */
+        }
+        problems += oracle_c10_check_unselected(name, i, &before[i], &galaxies[i],
+                                                oracle_c10_pair(pair), 2);
+        cgm_tally.unselected++;
+      }
+    }
+    if (halos[target].Type != 0) {
+      counts_cgm_recipient_not_central++;
+    }
+    cgm_tally.fixtures++;
+    counts_cgm_disrupt++;
+    cleanup_modules();
+  }
   counts_disrupt++;
 
   problems += oracle_report_unconsumed(&in);
@@ -1301,6 +1515,74 @@ static int check_halo_floats(struct oracle_fixture *out, const char *prefix, con
   return problems;
 }
 
+/**
+ * @brief c10: the CGMrecipeOn 1 record of a pass: per row, the oracle's disruption selection
+ *        against the passed recipient's input Regime and its observations counted; per merger
+ *        event, the consumer shadow's wind against the target's input Regime and the burst
+ *        replay's commit and yield against the FoF central's
+ * @return Number of mismatches
+ */
+static int check_cgm_pass(struct oracle_fixture *out, const int ngal, const int central,
+                          const struct MimicSagePassRecord *records,
+                          const struct GalaxyData *before, struct GalaxyData *galaxies) {
+  int problems = oracle_check_i32(out, "intermediate.cgm_recipe_on", MIMIC_SAGE_CGM_RECIPE_ON);
+  int merger = 0;
+  for (int i = 0; i < ngal; i++) {
+    const struct MimicSagePassRecord *r = &records[i];
+    const int recipient = r->merger_centralgal;
+    const int disrupted = r->action == 4;
+    char field[ORACLE_MAX_NAME];
+    snprintf(field, sizeof(field), "pass.galaxy[%d].disrupt_reservoir_cgm", i);
+    const int oracle_flag = oracle_in_i32(out, pass_field(i, "disrupt_reservoir_cgm", ""));
+    const int expected = disrupted ? before[recipient].Regime == 0 : -1;
+    if (oracle_flag != expected) {
+      fprintf(stderr, "oracle: %s: %s %d, the recipient's Regime gives %d\n", out->path, field,
+              oracle_flag, expected);
+      problems++;
+    }
+    if (disrupted) {
+      cgm_tally.sites++;
+      cgm_tally.sites_cgm += expected;
+      counts_cgm_pass_disruptions++;
+    }
+    /* SAGE26's own call observed: it follows the recipient's (target's) Regime, not the FoF
+     * central's (-1 where the central is the recipient or the row did nothing) */
+    snprintf(field, sizeof(field), "pass.galaxy[%d].recipient_regime_sensitive", i);
+    const int by_recipient = oracle_c10_observed(out, field, 1, &cgm_tally);
+    snprintf(field, sizeof(field), "pass.galaxy[%d].central_regime_sensitive", i);
+    const int by_central = oracle_c10_observed(out, field, disrupted ? 0 : 1, &cgm_tally);
+    if (r->action == 0 && (by_recipient != -1 || by_central != -1)) {
+      fprintf(stderr, "oracle: %s: row %d did nothing but has observations\n", out->path, i);
+      problems++;
+    }
+    if (r->action == 1 && merger < MAX_EVENTS) {
+      /* The merger event's consumer shadow and burst replay (dispatch_merger_event) */
+      const int target = r->merger_centralgal;
+      if (event_wind_reservoir_cgm[merger] != -1 &&
+          event_wind_reservoir_cgm[merger] != (before[target].Regime == 0)) {
+        fprintf(stderr, "oracle: %s: merger %d's wind routed by the wrong galaxy's Regime\n",
+                out->path, merger);
+        problems++;
+      }
+      const int central_cgm = before[central].Regime == 0;
+      if (event_feedback_reservoir_cgm[merger] != central_cgm ||
+          event_yield_reservoir_cgm[merger] != central_cgm) {
+        fprintf(stderr, "oracle: %s: merger %d's burst routed by the wrong galaxy's Regime\n",
+                out->path, merger);
+        problems++;
+      }
+      cgm_tally.sites += 2 + (event_wind_reservoir_cgm[merger] != -1);
+      cgm_tally.sites_cgm += 2 * central_cgm + (event_wind_reservoir_cgm[merger] == 1);
+      counts_cgm_pass_mergers++;
+      merger++;
+    }
+  }
+  problems += oracle_c10_check_regimes(out, ngal, galaxies);
+  cgm_tally.fixtures++;
+  counts_cgm_pass++;
+  return problems;
+}
+
 /** @brief SAGE26's per-substep pass (B:519-587) through the resolver's pass */
 static int check_pass(const char *name) {
   static struct oracle_fixture in, out;
@@ -1310,6 +1592,7 @@ static int check_pass(const char *name) {
     return 1;
   }
   fixture_fire = strcmp(in.routine, ORACLE_C09_PASS_ROUTINE) == 0;
+  fixture_cgm_allowed = fixture_fire; /* c10: the *_fire routine admits CGMrecipeOn 1 */
   if (oracle_load_pair(MODULE, name, fixture_fire ? ORACLE_C09_PASS_ROUTINE : "merger_pass", &in,
                        &out) != 0) {
     return 1;
@@ -1378,6 +1661,9 @@ static int check_pass(const char *name) {
     const int z_sensitive = oracle_c09_observed(&out, "pass_fire_redshift_sensitive");
     counts_pass_observed += mode_sensitive == 1 && z_sensitive == 1;
     counts_fire_pass++;
+  }
+  if (fixture_cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
+    problems += check_cgm_pass(&out, ngal, central, records, before, galaxies);
   }
   counts_pass++;
 
@@ -1584,6 +1870,10 @@ static int check_join_and_pass(const char *name) {
 static int check_fixture(const char *name) {
   /* c09: set by check_merge and check_pass for a *_fire routine */
   fixture_fire = 0;
+  /* c10: set by check_merge, check_disrupt and check_pass where the routine admits CGMrecipeOn 1,
+   * and by setup_modules from the fixture */
+  fixture_cgm_allowed = 0;
+  fixture_cgm_recipe_on = 0;
   if (strncmp(name, "add_", 4) == 0) {
     return check_add(name);
   }
@@ -1673,6 +1963,9 @@ int test_oracle_bit_identity(void) {
   counts_fire_merge = counts_fire_pass = 0;
   counts_merger_wiring = counts_recheck_wiring = counts_pass_observed = 0;
   counts_mass_loading = 0;
+  memset(&cgm_tally, 0, sizeof(cgm_tally));
+  counts_cgm_merge = counts_cgm_disrupt = counts_cgm_pass = 0;
+  counts_cgm_recipient_not_central = counts_cgm_pass_disruptions = counts_cgm_pass_mergers = 0;
 
   const int identical = run_fixtures();
   printf("\n  oracle: add_galaxies_together with BulgeSizeOn 3 %d", counts_add_sizes);
@@ -1713,7 +2006,17 @@ int test_oracle_bit_identity(void) {
          counts_fire_merge, counts_fire_pass, fire_tally.fire_on, fire_tally.fire_off,
          fire_tally.validated, fire_tally.not_validated, fire_tally.absent, fire_tally.binding,
          counts_merger_wiring, counts_recheck_wiring, counts_pass_observed, counts_mass_loading);
+  oracle_c10_print_site_tally(&cgm_tally);
+  printf("\n  oracle: c10 mergers %d, disruptions %d (recipient not the FoF central %d), passes %d "
+         "(disruptions %d, mergers %d) ",
+         counts_cgm_merge, counts_cgm_disrupt, counts_cgm_recipient_not_central, counts_cgm_pass,
+         counts_cgm_pass_disruptions, counts_cgm_pass_mergers);
   TEST_ASSERT(identical, "every fixture must reproduce the oracle bit for bit");
+  TEST_ASSERT(counts_cgm_merge >= 1 && counts_cgm_disrupt >= 1 &&
+                  counts_cgm_recipient_not_central >= 1 && counts_cgm_pass_disruptions >= 1 &&
+                  counts_cgm_pass_mergers >= 1,
+              "the c10 mergers, disruptions into a non-central recipient and passes must be "
+              "asserted");
   TEST_ASSERT(counts_fire_merge >= 1 && counts_fire_pass >= 1 && counts_merger_wiring >= 2 &&
                   counts_recheck_wiring >= 1 && counts_pass_observed >= 1,
               "the c09 mergers and chained mergers must assert their bursts' FIRE wiring, and a "

@@ -106,6 +106,7 @@ static void setup(const int keys, const char *key, const char *value) {
   reset_config();
   set_test_model_parameters();
   add_test_sf_prescription_parameters(keys);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   if (key != NULL) {
     int n = 0;
     for (int i = 0; i < MimicConfig.NumModelParams; i++) {

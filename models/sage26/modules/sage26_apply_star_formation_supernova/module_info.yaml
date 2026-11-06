@@ -18,6 +18,9 @@ module:
       - MetalsStellarMass
       - HotGas
       - MetalsHotGas
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the FoF central's selects the feedback's pair
       - EjectedGas
       - MetalsEjectedGas
       - H1gas
@@ -60,6 +63,7 @@ module:
     parameters:
       - RecycleFraction
       - SFprescription
+      - CGMrecipeOn     # required: 0 or 1
 
   tests:
     unit:
