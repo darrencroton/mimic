@@ -94,7 +94,7 @@ modules:
     MShockMsun: 6.0e11                  # Dekel & Birnboim (2006) shock mass in physical Msun (SAGE26 default, core_read_parameter_file.c:114; R4.par does not set it); used only with CGMrecipeOn 1, but always required and validated (positive, finite)
 
     # Halo concentration
-    ConcentrationOn: 0                  # NFW halo concentration: 0 = off, Concentration keeps its creation value 0 (SAGE26 R0-R4, R4.par:57); 3 = the Vmax/Vvir inversion, infall-frozen for a former satellite (R5, R5.par:57); 1 and 2 not ported; required
+    ConcentrationOn: 3                  # NFW halo concentration: 0 = off, Concentration keeps its creation value 0 (SAGE26 R0-R4, R4.par:57); 3 = the Vmax/Vvir inversion, infall-frozen for a former satellite (R5, R5.par:57); 1 and 2 not ported; required
 
     # Star Formation
     SfrEfficiency: 0.05                 # Star formation efficiency

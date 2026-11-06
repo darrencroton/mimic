@@ -12,7 +12,7 @@
  *
  * Software quality:
  * - test_module_lifecycle: registration, module_system_init in pre_timestep with ConcentrationOn
- *   0 (the run files' value), cleanup, no leaks
+ *   0 (SAGE26's R0-R4 value, which needs no recorder), cleanup, no leaks
  * - test_concentration_on_missing_refused: a missing ConcentrationOn fails init, naming it (D33)
  * - test_concentration_on_values: 1, 2 and 7 are refused naming ConcentrationOn; 0 and 3 accepted
  * - test_placement_refused: a substep-phase entry, a post_timestep entry, two pre_timestep
@@ -220,8 +220,8 @@ static CONCENTRATION_TEST_NOINLINE double sage26_inline_concentration(const floa
 
 /**
  * @test    test_module_lifecycle
- * @brief   The module registers, initialises through module_system_init in pre_timestep with the
- *          run files' ConcentrationOn 0, cleans up, no leaks
+ * @brief   The module registers, initialises through module_system_init in pre_timestep with
+ *          ConcentrationOn 0 (SAGE26's R0-R4 value), cleans up, no leaks
  */
 int test_module_lifecycle(void) {
   reset_config();
