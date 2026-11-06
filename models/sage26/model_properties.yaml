@@ -485,7 +485,7 @@ galaxy_properties:
     type: int
     units: dimensionless
     description: Gas accretion regime of the halo - 0 = CGM regime, 1 = hot-halo regime, -1 = not yet assigned
-    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_regime() (src/core_build_model.c:411), which runs only when CGMrecipeOn == 1 (default 1, src/core_read_parameter_file.c:102; gate at src/core_build_model.c:410), so with the CGM recipe off it stays -1. Created as -1 at src/model_misc.c:74; written verbatim at src/io/save_gals_hdf5.c:869. SAGE26 HDF5 label is Unitless with text 0 = CGM-regime, 1 = ICM-regime (the struct comment says hot-halo). Scaffold, holds -1 until a physics node fills it.
+    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_regime() (src/core_build_model.c:411), which runs only when CGMrecipeOn == 1 (default 1, src/core_read_parameter_file.c:102; gate at src/core_build_model.c:410), so with the CGM recipe off it stays -1. Created as -1 at src/model_misc.c:74; written verbatim at src/io/save_gals_hdf5.c:869. SAGE26 HDF5 label is Unitless with text 0 = CGM-regime, 1 = ICM-regime (the struct comment says hot-halo). In the package sage26_determine_regime (c10) ports the classifier in pre_timestep - with CGMrecipeOn 1, the run files' value (SAGE26's R4), it classifies every live row of the FoF group, satellites and orphans included, as 0 or 1 once per snapshot (the draw is the package's keyed deviate, campaign decision D1); with CGMrecipeOn 0 (R0-R3) it writes nothing and the value stays -1.
     output: true
     init_source: default
     init_value: -1
@@ -506,7 +506,7 @@ galaxy_properties:
     type: float
     units: 1e10 Msun/h
     description: Gas mass in the circumgalactic medium (CGM), the hot-phase reservoir of CGM-regime halos
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:130; written verbatim at src/io/save_gals_hdf5.c:913. Scaffold, holds 0 until a physics node fills it.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:130; written verbatim at src/io/save_gals_hdf5.c:913. With CGMrecipeOn 1, the run files' value (SAGE26's R4), the package's regime-aware routing (c10) and cooling (c11) fill it - the central's migration in sage26_prepare_infall_budget, infall, stripping, reincorporation, the supernova commits, the quasar wind and disruption deposit into or take from it by Regime, and sage26_regime_aware_cooling cools it; with CGMrecipeOn 0 (R0-R3) nothing adds to it and it stays 0.
     output: true
     init_source: default
     init_value: 0.0
@@ -516,7 +516,7 @@ galaxy_properties:
     type: float
     units: 1e10 Msun/h
     description: Metal mass in the circumgalactic medium (CGM) gas
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:140; written verbatim at src/io/save_gals_hdf5.c:924. Scaffold, holds 0 until a physics node fills it.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:140; written verbatim at src/io/save_gals_hdf5.c:924. With CGMrecipeOn 1, the run files' value (SAGE26's R4), it moves with CGMgas in the package's regime-aware routing (c10) and cooling (c11), and the disk yield's escaping metals reach it through sage26_apply_metal_enrichment and the burst yield when the FoF central's Regime is 0; with CGMrecipeOn 0 (R0-R3) it stays 0.
     output: true
     init_source: default
     init_value: 0.0
@@ -1246,7 +1246,7 @@ galaxy_properties:
     type: float
     units: dimensionless
     description: Supernova mass-loading factor eta, the ratio of reheated gas mass to stars formed in the current star formation episode
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:183; written verbatim at src/io/save_gals_hdf5.c:914. Assigned from eta_reheat only when SupernovaRecipeOn == 1 (default 1, src/core_read_parameter_file.c:94) and FIREmodeOn == 1 (default 1, src/core_read_parameter_file.c:103), at src/model_starformation_and_feedback.c:759-764 and, at the second site, only when fire_scaling_valid is set (src/model_starformation_and_feedback.c:928-932); otherwise it keeps its previous value (0 at creation, or stale). The HDF5 text calls it the ratio of outflow rate to star formation rate. In the package, sage26_calculate_supernova_feedback writes it on the disk path with FIREmodeOn 1, the run files' value (SAGE26's R3), as the capped reheating loading narrowed to float before the cold-gas renormalisation, also when no stars form (src/model_starformation_and_feedback.c:762-764); no burst writes it (src/model_mergers.c:707-710), and with FIREmodeOn 0 (R0-R2) it keeps its creation value 0. The second (FFB) site is unreachable on R3 (EnhancedStarFormationOn 0) and not ported. Inherited, not a snapshot accumulator.
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:183; written verbatim at src/io/save_gals_hdf5.c:914. Assigned from eta_reheat only when SupernovaRecipeOn == 1 (default 1, src/core_read_parameter_file.c:94) and FIREmodeOn == 1 (default 1, src/core_read_parameter_file.c:103), at src/model_starformation_and_feedback.c:759-764 and, at the second site, only when fire_scaling_valid is set (src/model_starformation_and_feedback.c:928-932); otherwise it keeps its previous value (0 at creation, or stale). The HDF5 text calls it the ratio of outflow rate to star formation rate. In the package, sage26_calculate_supernova_feedback writes it on the disk path with FIREmodeOn 1, the run files' value (SAGE26's R3), as the capped reheating loading narrowed to float before the cold-gas renormalisation, also when no stars form (src/model_starformation_and_feedback.c:762-764); no burst writes it (src/model_mergers.c:707-710), and with FIREmodeOn 0 (R0-R2) it keeps its creation value 0. The second (FFB) site is unreachable on R3 and R4 (EnhancedStarFormationOn 0 in both, R3.par:58, R4.par:58) and not ported. Inherited, not a snapshot accumulator.
     output: true
     init_source: default
     init_value: 0.0
