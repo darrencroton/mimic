@@ -18,6 +18,7 @@ SAGE26 samples and makes both calls on every substep, also when no stars formed,
 - Supported mode: `process_by_galaxy`
 - Expected phase: `galaxy_physics`, after `sage26_calculate_star_formation` and usually after `sage26_calculate_supernova_feedback`
 - Receives one galaxy at a time and uses the FoF central for feedback reservoir transfers
+- A row whose `FFBRegime` is 1 (written by `sage26_determine_ffb_regime` only with `EnhancedStarFormationOn` 1) is not processed: SAGE26 hands it to `starformation_ffb` and returns before its ordinary history sample and commits (`R/src/model_starformation_and_feedback.c:1004-1008`), so the module returns at once and writes nothing, before its history sample and time guard. `sage26_ffb_star_formation` runs that row's transaction. The module reads no new parameter: `FFBRegime` is 1 only where the classifier wrote it.
 
 ## Ordering
 
@@ -33,7 +34,7 @@ SAGE26 samples and makes both calls on every substep, also when no stars formed,
 
 ## Properties
 
-- Reads: `dT`, `Mvir`, `ColdGas`, `MetalsColdGas`, `HotGas`, `MetalsHotGas`, `CGMgas`, `MetalsCGMgas`, `Regime`, `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass` (the FoF central's `Regime` selects its pair with `CGMrecipeOn 1`, and that pair is read for the reheat/eject transfers), and with `SFprescription 1` `H2gas` and `H1gas`
+- Reads: `FFBRegime` (1 returns at once), `dT`, `Mvir`, `ColdGas`, `MetalsColdGas`, `HotGas`, `MetalsHotGas`, `CGMgas`, `MetalsCGMgas`, `Regime`, `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass` (the FoF central's `Regime` selects its pair with `CGMrecipeOn 1`, and that pair is read for the reheat/eject transfers), and with `SFprescription 1` `H2gas` and `H1gas`
 - Writes: `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, `HotGas`, `MetalsHotGas` or `CGMgas`, `MetalsCGMgas` (the central's selected pair), `EjectedGas`, `MetalsEjectedGas`, `StarFormationRate`, `SupernovaOutflowRate` (the undivided reheated mass), `H2gas` and `H1gas` (the caps, `SFprescription 1` only), and the disk history elements `SfrDiskBin<k>`, `SfrDiskColdGasBin<k>`, `SfrDiskColdGasMetalsBin<k>` of the substep's bin
 
 ## Parameters

@@ -91,6 +91,12 @@
  *     central's, as do the outer burst's (R/src/model_mergers.c:806-831,
  *     R/src/model_disk_instability.c:102-108)
  *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
+ *   - test_ffb_target_merger_continuation (c13 Slice 3): a minor merger on a feedback-free-burst
+ *     target (FFBRegime 1) grows its black hole (the quasar consumer), bursts and runs the
+ *     post-merger instability recheck exactly as on the same target with FFBRegime 0: the two end
+ *     states are bytewise equal but for FFBRegime, which each target keeps; the recheck is shown
+ *     to act (without it the end state differs), so the comparison discriminates a recheck that
+ *     skipped FFB targets
  * The three hydrogen tests are platform independent (no oracle bit pattern; the remainder is
  * formed with C's correctly rounded fma, as the shared helper forms it), so they run on every
  * platform. So are the FIRE tests: each expectation is SAGE26's expression written in the test
@@ -133,6 +139,9 @@ extern double FRAC_Z_LEAVE_DISK;
 extern double THRESHOLD_MAJOR_MERGER;
 
 /* Module functions (extern declarations for direct testing) */
+extern int sage26_quasar_mode_init(void);
+extern int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage26_quasar_mode_cleanup(void);
 extern int sage26_starburst_feedback_init(void);
 extern int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *halos,
                                              int ngal);
@@ -3398,6 +3407,106 @@ int test_cgm_recipe_on_refused(void) {
   return TEST_PASS;
 }
 
+// ============================================================================
+// FEEDBACK-FREE-BURST TARGETS (c13 Slice 3)
+// ============================================================================
+
+/**
+ * @brief Run one minor merger (ratio 0.2, below ThresholdMajorMerger 0.3) on a target with the
+ *        given FFBRegime through both merger consumers, sage26_quasar_mode then
+ *        sage26_starburst_feedback (R/src/model_mergers.c:262-287), with the post-merger recheck
+ *        configured or not (sage26_disk_instability by galaxy, SAGE26's DiskInstabilityOn), and
+ *        return the target's and the central's end states
+ */
+static int run_ffb_target_merger(const int ffb_regime, const int recheck,
+                                 struct GalaxyData *target_out, struct GalaxyData *central_out) {
+  init_memory_system(0);
+  reset_config();
+  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
+  setup_post_merger_recheck_parameters(1);
+  if (recheck) {
+    test_phase_add("galaxy_physics", "sage26_disk_instability", PROCESSING_MODE_BY_GALAXY);
+  }
+  test_phase_add("satellite_mergers", "sage26_resolve_mergers_and_disruption",
+                 PROCESSING_MODE_FULL_HALO);
+  test_phase_add("satellite_mergers", "sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
+  test_phase_add("satellite_mergers", "sage26_starburst_feedback", PROCESSING_MODE_PER_EVENT);
+  MimicConfig.G = 43007.1;
+  int status = sage26_quasar_mode_init() != 0 || sage26_starburst_feedback_init() != 0;
+
+  struct Halo central, target;
+  struct GalaxyData central_gal, target_gal;
+  setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+  setup_test_galaxy(&target, &target_gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+  target.Vmax = 120.0;
+  target_gal.DiskScaleRadius = 5.0;
+  target_gal.BlackHoleMass = 0.05;
+  target_gal.FFBRegime = ffb_regime;
+
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &central);
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 2,
+                              .target_index = 1,
+                              .value0 = 0.2,
+                              .value1 = 0.1};
+  ctx.active_event = &event;
+  status |= sage26_quasar_mode_process(&ctx, &target, 1) != 0;
+  status |= sage26_starburst_feedback_process(&ctx, &target, 1) != 0;
+  memcpy(target_out, &target_gal, sizeof(target_gal));
+  memcpy(central_out, &central_gal, sizeof(central_gal));
+
+  sage26_starburst_feedback_cleanup();
+  sage26_quasar_mode_cleanup();
+  test_free_substep_phases();
+  return status;
+}
+
+/**
+ * @test    test_ffb_target_merger_continuation
+ * @brief   A merger on an FFB target bursts, grows its black hole and runs the post-merger recheck
+ *          as on an ordinary target: SAGE26's merger routines do not read FFBRegime
+ *          (R/src/model_mergers.c:259-287, :806-811), and only the FFB disk call skips the
+ *          instability (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367)
+ */
+int test_ffb_target_merger_continuation(void) {
+  struct GalaxyData ffb_target, ffb_central, normal_target, normal_central;
+  TEST_ASSERT(run_ffb_target_merger(1, 1, &ffb_target, &ffb_central) == 0,
+              "the merger on the FFB target runs");
+  TEST_ASSERT(run_ffb_target_merger(0, 1, &normal_target, &normal_central) == 0,
+              "the merger on the ordinary target runs");
+  TEST_ASSERT(ffb_target.FFBRegime == 1, "the FFB target keeps FFBRegime 1");
+  TEST_ASSERT(normal_target.FFBRegime == 0, "the ordinary target keeps FFBRegime 0");
+  struct GalaxyData ffb_as_normal;
+  memcpy(&ffb_as_normal, &ffb_target, sizeof(ffb_target));
+  ffb_as_normal.FFBRegime = 0;
+  TEST_ASSERT(memcmp(&ffb_as_normal, &normal_target, sizeof(normal_target)) == 0,
+              "the FFB target's end state equals the ordinary target's in every other field");
+  TEST_ASSERT(memcmp(&ffb_central, &normal_central, sizeof(normal_central)) == 0,
+              "the central's end state is the same for both targets");
+
+  /* The merger acted: the burst formed stars, the black hole grew */
+  printf("\n  FFB target: StellarMass 5 -> %.9g, BulgeMass 1 -> %.9g, BlackHoleMass 0.05 -> %.9g",
+         (double)ffb_target.StellarMass, (double)ffb_target.BulgeMass,
+         (double)ffb_target.BlackHoleMass);
+  TEST_ASSERT(ffb_target.StellarMass > 5.0f, "the burst formed stars on the FFB target");
+  TEST_ASSERT(ffb_target.BlackHoleMass > 0.05f, "the black hole grew on the FFB target");
+
+  /* The recheck acted: without it the FFB target's end state differs */
+  struct GalaxyData no_recheck_target, no_recheck_central;
+  TEST_ASSERT(run_ffb_target_merger(1, 0, &no_recheck_target, &no_recheck_central) == 0,
+              "the merger without the recheck runs");
+  printf("\n  without the recheck: BulgeMass %.9g, BlackHoleMass %.9g",
+         (double)no_recheck_target.BulgeMass, (double)no_recheck_target.BlackHoleMass);
+  TEST_ASSERT(ffb_target.BulgeMass > no_recheck_target.BulgeMass,
+              "the recheck's stellar transfer ran on the FFB target");
+  TEST_ASSERT(ffb_target.BlackHoleMass > no_recheck_target.BlackHoleMass,
+              "the recheck's black-hole growth ran on the FFB target");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -3465,6 +3574,7 @@ int main(void) {
   TEST_RUN(test_cgm_burst_module_channels);
   TEST_RUN(test_cgm_burst_recheck_sites);
   TEST_RUN(test_cgm_recipe_on_refused);
+  TEST_RUN(test_ffb_target_merger_continuation);
 
   /* Print summary and return result */
   TEST_SUMMARY();

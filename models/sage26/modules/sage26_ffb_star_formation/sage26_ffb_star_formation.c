@@ -8,7 +8,9 @@
  * shared/sage_ffb_feedback_physics.h), which SAGE26's starformation_and_feedback calls in place
  * of its whole ordinary disk chain for a row whose FFBRegime is 1 when EnhancedStarFormationOn is
  * at least 1, and returns (S:1004-1008). The module runs by galaxy in a substep phase,
- * immediately before sage26_calculate_star_formation in the run files. With
+ * immediately before sage26_calculate_star_formation (with EnhancedStarFormationOn 1 any other
+ * placement, or a configuration without sage26_determine_ffb_regime, is refused at init), and the
+ * ordinary chain's five modules return at once on an FFBRegime 1 row. With
  * EnhancedStarFormationOn 0 it writes nothing; with 1 it writes nothing on a row whose FFBRegime
  * is not 1, and on an FFB row runs, in SAGE26's order:
  *
@@ -72,6 +74,8 @@
 // ============================================================================
 
 #define MODULE_NAME "sage26_ffb_star_formation"
+#define ORDINARY_SF_NAME "sage26_calculate_star_formation"
+#define CLASSIFIER_NAME "sage26_determine_ffb_regime"
 
 /* SAGE26's EnhancedStarFormationOn (0 off, 1 FFB star formation for FFBRegime 1 rows), required
  * and checked at init (campaign decision D33) */
@@ -150,6 +154,55 @@ static int check_placement(void) {
     ERROR_LOG("%s must be configured exactly once in a substep phase as process_by_galaxy "
               "(found %d substep entries, %d as process_by_galaxy)",
               MODULE_NAME, entries, by_galaxy_entries);
+    return -1;
+  }
+  return 0;
+}
+
+/**
+ * @brief At EnhancedStarFormationOn 1, refuse a configuration in which the FFB dispatch cannot
+ *        take SAGE26's place: the transaction not immediately before
+ *        sage26_calculate_star_formation (process_by_galaxy, same substep phase), or no
+ *        sage26_determine_ffb_regime in pre_timestep
+ *
+ * SAGE26 dispatches an FFB row at the start of starformation_and_feedback, before its ordinary
+ * chain (S:1004-1008), whose first step the package's sage26_calculate_star_formation is; and
+ * FFBRegime is 1 only where the classifier writes it, once per FoF before the substeps
+ * (R/src/core_build_model.c:425-427). Each refusal names the module that is missing or misplaced.
+ * The check names modules and their order, never a substep phase (phase names are run
+ * configuration); check_placement() has already found exactly one substep entry, by galaxy.
+ *
+ * @return 0 when the configuration is complete; -1 otherwise
+ */
+static int check_dispatch(void) {
+  int adjacent = 0;
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    for (int i = 0; i < phase->num_modules; i++) {
+      const struct PhaseModuleConfig *entry = &phase->modules[i];
+      if (entry->module_name == NULL || strcmp(entry->module_name, MODULE_NAME) != 0) {
+        continue;
+      }
+      const struct PhaseModuleConfig *next = (i + 1 < phase->num_modules) ? entry + 1 : NULL;
+      adjacent = next != NULL && next->module_name != NULL &&
+                 strcmp(next->module_name, ORDINARY_SF_NAME) == 0 &&
+                 next->processing_mode == PROCESSING_MODE_BY_GALAXY;
+    }
+  }
+  if (!adjacent) {
+    ERROR_LOG("%s must run immediately before %s (process_by_galaxy, in the same substep phase) "
+              "with EnhancedStarFormationOn 1: SAGE26 hands an FFB row to starformation_ffb at "
+              "the start of starformation_and_feedback, before its ordinary chain "
+              "(model_starformation_and_feedback.c:1004-1008)",
+              MODULE_NAME, ORDINARY_SF_NAME);
+    return -1;
+  }
+  if (!module_configured_in_phase(CLASSIFIER_NAME, MimicConfig.pre_timestep,
+                                  MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO)) {
+    ERROR_LOG("%s requires %s in modules.pre_timestep (process_full_halo) with "
+              "EnhancedStarFormationOn 1: without the classifier no row is ever FFBRegime 1 and "
+              "the FFB star formation never runs (core_build_model.c:425-427)",
+              MODULE_NAME, CLASSIFIER_NAME);
     return -1;
   }
   return 0;
@@ -328,6 +381,10 @@ int sage26_ffb_star_formation_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FracZleaveDisk", FRAC_Z_LEAVE_DISK, 0.0, 1.0,
                                     "metal outflow fraction");
   if (check_placement() != 0) {
+    return -1;
+  }
+  /* The cross-module guards apply only when the module acts; at 0 it writes nothing */
+  if (ENHANCED_STAR_FORMATION_ON != MIMIC_SAGE_FFB_OFF && check_dispatch() != 0) {
     return -1;
   }
 

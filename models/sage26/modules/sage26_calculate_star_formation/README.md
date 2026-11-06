@@ -18,6 +18,7 @@ The module ports the start of SAGE26's `starformation_and_feedback()` (`src/mode
 - Supported mode: `process_by_galaxy`
 - Expected phase: `galaxy_physics`, before `sage26_calculate_supernova_feedback` and `sage26_apply_star_formation_supernova`
 - Receives one galaxy at a time
+- A row whose `FFBRegime` is 1 (written by `sage26_determine_ffb_regime` only with `EnhancedStarFormationOn` 1) is not processed: SAGE26 hands it to `starformation_ffb` and returns before its ordinary chain (`R/src/model_starformation_and_feedback.c:1004-1008`), so the module returns at once and writes nothing, before its time guard. `sage26_ffb_star_formation` runs that row's transaction. The module reads no new parameter: `FFBRegime` is 1 only where the classifier wrote it.
 
 ## Ordering
 
@@ -27,7 +28,7 @@ The module ports the start of SAGE26's `starformation_and_feedback()` (`src/mode
 
 ## Properties
 
-- Reads: `Type`, `HaloNr`, `SnapNum`, `dT`, `Vvir`, `ColdGas`, `DiskScaleRadius`, `H2gas`, and with `SFprescription 1` `StellarMass` and `BulgeMass` (the disk stars of the radial integration)
+- Reads: `FFBRegime` (1 returns at once), `Type`, `HaloNr`, `SnapNum`, `dT`, `Vvir`, `ColdGas`, `DiskScaleRadius`, `H2gas`, and with `SFprescription 1` `StellarMass` and `BulgeMass` (the disk stars of the radial integration)
 - Writes: `NewStellarMass`, `H1gas`, and with `SFprescription 1` `H2gas`
 
 ## Parameters

@@ -17,13 +17,18 @@
  *   strdot = SfrEfficiency * H2gas / tdyn, with no critical-mass threshold. A galaxy
  *   whose own Vvir is not positive, or whose disk scale radius in pc is not positive,
  *   gets H2gas 0 and forms no stars (:208-218).
- * - the H I block (:1035-1046), on every call: the atomic remainder of the cold
+ * - the H I block (:1035-1046), on every ordinary (non-FFB) call: the atomic remainder of the cold
  *   hydrogen, ColdGas * 0.74 - H2gas floored at zero, times the neutral fraction
  *   1 - f_ion of an exponential gas disk truncated at 0.5 Msun/pc^2
  *   (ionized_gas_fraction, :130-152), stored in the float H1gas; the package's one H I
  *   block, shared/sage_hi_physics.h, which sage26_ffb_star_formation also calls.
  * - stars = strdot * dt, floored at zero (:1048-1051), stored in NewStellarMass
  *   for sage26_calculate_supernova_feedback.
+ *
+ * A row whose FFBRegime is 1 (written by sage26_determine_ffb_regime only with
+ * EnhancedStarFormationOn 1) is not processed: SAGE26 hands it to starformation_ffb before any of
+ * the above (:1004-1008), so this module returns at once and writes nothing, and
+ * sage26_ffb_star_formation, immediately before it in the run files, runs that row's transaction.
  *
  * Mvir, Vvir and the other halo values are SAGE26 floats; the core holds them as
  * doubles and they are read here as the floats SAGE26 holds.
@@ -73,7 +78,8 @@ static const double KAUFFMANN96_SF_THRESHOLD = 0.19;
 /**
  * @brief SAGE26's H I block of starformation_and_feedback (:1035-1046)
  *
- * SAGE parity: H I is computed on every call, from the cold gas before this substep's
+ * SAGE parity: H I is computed on every ordinary (non-FFB) call (an FFB row returned before it,
+ * :1004-1008, and its transaction runs the block itself), from the cold gas before this substep's
  * star formation and the H2gas at that point: under SFprescription 0 the inherited
  * H2gas, which that prescription never writes, under SFprescription 1 the BR06 H2gas
  * sfr_br06 has just written. Under SFprescription 0 H I is not resynchronised after the
@@ -202,6 +208,17 @@ int sage26_calculate_star_formation_process(struct ModuleContext *ctx, struct Ha
   }
 
   struct GalaxyData *gal = halo->galaxy;
+
+  /* SAGE parity: SAGE26's starformation_and_feedback hands an FFBRegime 1 row to
+   * starformation_ffb and returns before its ordinary chain
+   * (R/src/model_starformation_and_feedback.c:1004-1008), so this module returns at once and
+   * writes nothing, before its time guard: no star formation, no H I block, no NewStellarMass.
+   * sage26_ffb_star_formation runs that row's whole transaction. FFBRegime is 1 only where
+   * sage26_determine_ffb_regime wrote it, which it does only with EnhancedStarFormationOn 1, so
+   * this is SAGE26's test EnhancedStarFormationOn >= 1 && FFBRegime == 1 (:1004). */
+  if (gal->FFBRegime == 1) {
+    return 0;
+  }
 
   dt_status = mimic_object_substep_dt(halo, ctx, &dt);
   if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {

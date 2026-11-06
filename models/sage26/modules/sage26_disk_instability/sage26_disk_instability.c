@@ -25,6 +25,12 @@
  * collisional_starburst_recipe (:102-108). In the package those are
  * sage26_quasar_mode and sage26_starburst_feedback, which run after this module.
  *
+ * A row whose FFBRegime is 1 (written by sage26_determine_ffb_regime only with
+ * EnhancedStarFormationOn 1) is not checked: SAGE26's FFB call returns with no instability
+ * check (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), so this module writes
+ * nothing on it. The post-merger recheck inside the burst transaction does not test FFBRegime
+ * (R/src/model_mergers.c:806-811) and runs on an FFB target too.
+ *
  * References:
  *   - SAGE26 R/src/model_disk_instability.c:35, :47-108; R/src/model_misc.c:239-424
  *   - Mo, Mao & White (1998): disk stability criterion
@@ -78,6 +84,20 @@ int sage26_disk_instability_process(struct ModuleContext *ctx, struct Halo *halo
   struct GalaxyData *gal = halo->galaxy;
 
   if (gal == NULL) {
+    return 0;
+  }
+  /* SAGE parity: SAGE26's starformation_and_feedback hands an FFBRegime 1 row to
+   * starformation_ffb, which returns with no disk-instability check
+   * (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), so this module returns at
+   * once and writes nothing: no stellar transfer, no radius update and no UnstableDiskGasFraction,
+   * which keeps its per-snapshot reset value 0, so the by-galaxy entries of sage26_quasar_mode and
+   * sage26_starburst_feedback do not act on the row. Only this by-galaxy call is skipped: the
+   * post-merger recheck inside the burst transaction (R/src/model_mergers.c:806-811,
+   * shared/sage_starburst_physics.h) runs on an FFB target too, as SAGE26's merger routines do not
+   * read FFBRegime. FFBRegime is 1 only where sage26_determine_ffb_regime wrote it, which it does
+   * only with EnhancedStarFormationOn 1, so this is SAGE26's test EnhancedStarFormationOn >= 1 &&
+   * FFBRegime == 1 (:1004). */
+  if (gal->FFBRegime == 1) {
     return 0;
   }
   /* SAGE26's run_params->BulgeSizeOn and Hubble_h (R/src/model_misc.c:395, :398); the helper

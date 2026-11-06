@@ -3,7 +3,9 @@
  * @brief   SAGE26 disk-SF metal yield - instantaneous recycling enrichment after instability chain
  *
  * Applies the instantaneous-recycling metal yield for stars formed in the disk
- * this substep (NewStellarMass), then consumes (zeroes) NewStellarMass. Ports the
+ * this substep (NewStellarMass), then consumes (zeroes) NewStellarMass, on every galaxy that
+ * takes SAGE26's ordinary chain; a row whose FFBRegime is 1 returns at once, writing nothing
+ * (:1004-1008), and sage26_ffb_star_formation applies its yield. Ports the
  * end of SAGE26's starformation_and_feedback()
  * (R/src/model_starformation_and_feedback.c:1092-1109, R = the staged SAGE26
  * source):
@@ -117,6 +119,18 @@ int sage26_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo
     return 0;
   }
 
+  /* SAGE parity: SAGE26's starformation_and_feedback hands an FFBRegime 1 row to
+   * starformation_ffb and returns before its ordinary yield
+   * (R/src/model_starformation_and_feedback.c:1004-1008), so this module returns at once and
+   * writes nothing: no yield, and NewStellarMass, which no module writes on that row, is not
+   * consumed. sage26_ffb_star_formation applies that row's yield from its renormalised stars
+   * (:1353-1362). FFBRegime is 1 only where sage26_determine_ffb_regime wrote it, which it does
+   * only with EnhancedStarFormationOn 1, so this is SAGE26's test EnhancedStarFormationOn >= 1 &&
+   * FFBRegime == 1 (:1004). */
+  if (halo->galaxy->FFBRegime == 1) {
+    return 0;
+  }
+
   if (ctx->central_galaxy == NULL || ctx->central_galaxy->galaxy == NULL) {
     DEBUG_LOG("No FOF central available for metal ejection destination");
     return 0;
@@ -125,12 +139,15 @@ int sage26_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo
   struct GalaxyData *gal = halo->galaxy;
   struct GalaxyData *central_gal = ctx->central_galaxy->galaxy;
 
-  // Consume the disk star formation transport field for this substep
+  // Consume the disk star formation transport field for this substep (the ordinary chain's;
+  // an FFB row returned above and its yield is sage26_ffb_star_formation's)
   const double stars = gal->NewStellarMass;
   gal->NewStellarMass = 0.0;
 
-  /* SAGE parity: SAGE26 applies the yield on every call, also when no stars formed
-   * (:1092-1109); adding a +0.0 yield turns a -0.0 metal reservoir into +0.0. */
+  /* SAGE parity: SAGE26 applies the yield on every ordinary (non-FFB) call, also when no stars
+   * formed (:1092-1109); adding a +0.0 yield turns a -0.0 metal reservoir into +0.0. The FFB
+   * transaction applies the same yield (shared/sage_metal_yield_physics.h) from its renormalised
+   * stars, after its own feedback and with no instability chain before it (:1353-1362). */
 
   // Formation of new metals - instantaneous recycling approximation - only SNII (:1092-1109),
   // the package's one implementation of SAGE26's disk yield (shared/sage_metal_yield_physics.h):

@@ -22,6 +22,12 @@
  * - test_placement_refused: a substep phase, post_timestep, twice in pre_timestep,
  *   process_by_galaxy, before sage26_prepare_infall_budget and before sage26_determine_regime are
  *   each refused, naming the module or the predecessor; after both, and alone, are accepted
+ * - test_requires_transaction (c13 Slice 3): at EnhancedStarFormationOn 1 init refuses, naming
+ *   sage26_ffb_star_formation, a configuration without the transaction in a substep phase as
+ *   process_by_galaxy (absent, or there as process_full_halo); at 0 it accepts both
+ *
+ * Every test that initialises the module configures sage26_ffb_star_formation by galaxy in a
+ * substep phase, as the cross-module guard requires at EnhancedStarFormationOn 1.
  *
  * Behaviour:
  * - test_off_writes_nothing: EnhancedStarFormationOn 0 writes nothing and classifies no row
@@ -86,6 +92,7 @@ static char cgm_name[] = "sage26_determine_regime";
 static char phase_name[] = "galaxy_physics";
 static struct PhaseModuleConfig pre_timestep_entries[3];
 static struct PhaseModuleConfig post_timestep_entries[1];
+static char transaction_name[] = "sage26_ffb_star_formation";
 static struct PhaseModuleConfig substep_entries[1];
 static struct ModulePhaseConfig substep_phase;
 
@@ -133,6 +140,15 @@ static int init_captured(const char *value, void (*arrange)(void), const char **
   MimicConfig.Hubble_h = TEST_HUBBLE_H;
   char *alone[1] = {module_name};
   set_pre_timestep(alone, 1);
+  /* The FFB transaction by galaxy in a substep phase (the guard of EnhancedStarFormationOn 1) */
+  substep_entries[0].module_name = transaction_name;
+  substep_entries[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+  substep_entries[0].resolved = NULL;
+  substep_phase.name = phase_name;
+  substep_phase.modules = substep_entries;
+  substep_phase.num_modules = 1;
+  MimicConfig.substep_phases = &substep_phase;
+  MimicConfig.num_substep_phases = 1;
   if (value != NULL) {
     sage26_test_append_model_parameter("EnhancedStarFormationOn", value);
   }
@@ -406,6 +422,42 @@ int test_placement_refused(void) {
   TEST_ASSERT(init_captured("1", arrange_after_budget, &log) == 0,
               "init must accept the module after the budget");
   TEST_ASSERT(init_captured("1", NULL, &log) == 0, "init must accept the module alone");
+  return TEST_PASS;
+}
+
+static void arrange_no_transaction(void) { MimicConfig.num_substep_phases = 0; }
+static void arrange_transaction_full_halo(void) {
+  substep_entries[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+}
+
+/**
+ * @test    test_requires_transaction
+ * @brief   At EnhancedStarFormationOn 1 init refuses, naming sage26_ffb_star_formation, a
+ *          configuration without the transaction by galaxy in a substep phase: an FFBRegime 1 row
+ *          bypasses the ordinary star-formation chain (R/src/model_starformation_and_feedback.c
+ *          :1004-1008) and would form no stars; at 0 nothing is classified and both are accepted
+ *          (c13 Slice 3)
+ */
+int test_requires_transaction(void) {
+  const struct {
+    const char *label;
+    void (*arrange)(void);
+  } refused[] = {{"no transaction", arrange_no_transaction},
+                 {"the transaction as process_full_halo", arrange_transaction_full_halo}};
+  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
+    const char *log = "";
+    int status = init_captured("1", refused[k].arrange, &log);
+    printf("\n  %s (EnhancedStarFormationOn 1): init %d", refused[k].label, status);
+    TEST_ASSERT(status != 0, "init must refuse a configuration without the FFB transaction");
+    TEST_ASSERT(strstr(log, transaction_name) != NULL,
+                "the error must name sage26_ffb_star_formation");
+    status = init_captured("0", refused[k].arrange, &log);
+    printf("; at 0: init %d", status);
+    TEST_ASSERT(status == 0, "at EnhancedStarFormationOn 0 the guard does not apply");
+  }
+  const char *log = "";
+  TEST_ASSERT(init_captured("1", NULL, &log) == 0,
+              "init accepts the transaction by galaxy in a substep phase");
   return TEST_PASS;
 }
 
@@ -713,6 +765,7 @@ int main(void) {
   TEST_RUN(test_enhanced_sf_missing_refused);
   TEST_RUN(test_enhanced_sf_values);
   TEST_RUN(test_placement_refused);
+  TEST_RUN(test_requires_transaction);
 
   printf("\n%s--- Classifier Tests ---%s\n", BLUE, NC);
   TEST_RUN(test_off_writes_nothing);

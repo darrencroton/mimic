@@ -29,6 +29,11 @@
  *   (test_fire_helpers_independent_expectations and the expectations of the other FIRE tests). The
  *   oracle tests skip off macOS arm64, so these are the platform-independent guard of the FIRE
  *   arithmetic (run with MODEL=sage26).
+ * - The feedback-free-burst bypass (c13 Slice 3, test_ffb_row_bypassed): a row whose FFBRegime is
+ *   1 leaves itself and its FoF central bytewise unchanged, with FIREmodeOn 0 and with FIREmodeOn
+ *   1 on a stored SnapNum the redshift lookup refuses (the bypass precedes the lookup and the time
+ *   guard); the same row with FFBRegime 0 gets SAGE26's fixed-epsilon reheating
+ *   (R/src/model_starformation_and_feedback.c:767), and the refusal with FIREmodeOn 1.
  *
  * Reference: Croton et al. (2006, 2016) - SAGE model
  *
@@ -1377,6 +1382,76 @@ int test_fire_negative_snapnum_positive_dt_refused(void) {
 // MAIN TEST RUNNER
 // ============================================================================
 
+// ============================================================================
+// FEEDBACK-FREE-BURST BYPASS (c13 Slice 3)
+// ============================================================================
+
+/**
+ * @test    test_ffb_row_bypassed
+ * @brief   An FFBRegime 1 row is not processed; the same row with FFBRegime 0 is
+ *
+ * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb and returns
+ * before compute_sn_feedback (R/src/model_starformation_and_feedback.c:1004-1008). The row is a
+ * satellite with its own FoF central, both compared byte for byte with their inputs. With
+ * FIREmodeOn 0 the FFBRegime 0 row's reheated mass is FeedbackReheatingEpsilon * stars (:767),
+ * 3.0 * 1.0 exactly, with no renormalisation (ample cold gas, :775). With FIREmodeOn 1 a stored
+ * SnapNum outside the redshift table is refused on an ordinary row (D35) and passed over, writing
+ * nothing, on an FFB row.
+ */
+int test_ffb_row_bypassed(void) {
+  const char *log = "";
+  TEST_ASSERT(fire_init_captured("0", &log) == 0, "init with FIREmodeOn 0 must succeed");
+
+  struct Halo central, row;
+  struct GalaxyData central_gal, gal;
+  setup_test_halo(&central, &central_gal, 0, 100.0, 150.0, 20.0, 0.0);
+  setup_test_halo(&row, &gal, 1, 10.0, 80.0, 100.0, 1.0);
+  row.dT = 0.1;
+  gal.FFBRegime = 1;
+  gal.SupernovaReheatedMass = 0.625; /* seeds the module would overwrite */
+  gal.SupernovaEjectedMass = 0.875;
+  gal.MassLoading = 12.25f;
+  struct ModuleContext ctx;
+  setup_module_context(&ctx, &central, 0.01);
+
+  struct GalaxyData row_in, central_in;
+  memcpy(&row_in, &gal, sizeof(gal));
+  memcpy(&central_in, &central_gal, sizeof(central_gal));
+
+  TEST_ASSERT(sage26_calculate_supernova_feedback_process(&ctx, &row, 1) == 0,
+              "process succeeds on an FFB row");
+  TEST_ASSERT(memcmp(&gal, &row_in, sizeof(gal)) == 0,
+              "FFBRegime 1: every field of the row is unchanged");
+  TEST_ASSERT(memcmp(&central_gal, &central_in, sizeof(central_gal)) == 0,
+              "FFBRegime 1: every field of its central is unchanged");
+
+  /* The same row with FFBRegime 0: SAGE26's fixed-epsilon budget */
+  gal.FFBRegime = 0;
+  TEST_ASSERT(sage26_calculate_supernova_feedback_process(&ctx, &row, 1) == 0,
+              "process succeeds on an ordinary row");
+  printf("\n  FFBRegime 0: reheated %.17g, stars %.17g", gal.SupernovaReheatedMass,
+         gal.NewStellarMass);
+  TEST_ASSERT(gal.SupernovaReheatedMass == 3.0 && gal.NewStellarMass == 1.0,
+              "FFBRegime 0: reheated = FeedbackReheatingEpsilon * stars, stars kept");
+  TEST_ASSERT(gal.SupernovaEjectedMass != 0.875, "FFBRegime 0: the ejection is written");
+  TEST_ASSERT(memcmp(&central_gal, &central_in, sizeof(central_gal)) == 0,
+              "the budget step never writes the central");
+
+  /* FIREmodeOn 1: a stored SnapNum outside the table, with a positive interval */
+  TEST_ASSERT(fire_init_captured("1", &log) == 0, "init with FIREmodeOn 1 must succeed");
+  memcpy(&gal, &row_in, sizeof(gal));
+  row.SnapNum = 64;
+  TEST_ASSERT(
+      sage26_calculate_supernova_feedback_process(&ctx, &row, 1) == 0 &&
+          memcmp(&gal, &row_in, sizeof(gal)) == 0 &&
+          memcmp(&central_gal, &central_in, sizeof(central_gal)) == 0,
+      "FFBRegime 1: returns before the time guard and the redshift lookup, writing nothing");
+  gal.FFBRegime = 0;
+  TEST_ASSERT(sage26_calculate_supernova_feedback_process(&ctx, &row, 1) != 0,
+              "FFBRegime 0: the same stored SnapNum is refused (D35)");
+  return TEST_PASS;
+}
+
 /**
  * @brief   Main test runner
  *
@@ -1427,6 +1502,9 @@ int main(void) {
   TEST_RUN(test_fire_stored_snapshot_refused);
   TEST_RUN(test_fire_initial_boundary_skipped);
   TEST_RUN(test_fire_negative_snapnum_positive_dt_refused);
+
+  /* The feedback-free-burst bypass (c13 Slice 3) */
+  TEST_RUN(test_ffb_row_bypassed);
 
   /* Print summary and return result */
   TEST_SUMMARY();

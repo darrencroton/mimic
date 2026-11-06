@@ -5,8 +5,8 @@ Ports SAGE26's black-hole growth and quasar-mode wind, `grow_black_hole` and `qu
 ## Processing Contract
 
 - Supported modes: `process_by_galaxy`, `process_per_event`
-- `process_by_galaxy` consumes the disk instability's gas branch in `galaxy_physics`: after `sage26_disk_instability`, which hands on `UnstableDiskGasFraction`, and before `sage26_starburst_feedback`, as SAGE26's `check_disk_instability` calls `grow_black_hole` and then the burst (`R/src/model_disk_instability.c:101-108`)
-- `process_per_event` consumes merger events in `satellite_mergers`, growing the merger target's black hole before the burst (`R/src/model_mergers.c:262-264`)
+- `process_by_galaxy` consumes the disk instability's gas branch in `galaxy_physics`: after `sage26_disk_instability`, which hands on `UnstableDiskGasFraction`, and before `sage26_starburst_feedback`, as SAGE26's `check_disk_instability` calls `grow_black_hole` and then the burst (`R/src/model_disk_instability.c:101-108`). It never acts on a feedback-free-burst row (`FFBRegime` 1): SAGE26's FFB call runs no instability check (`R/src/model_starformation_and_feedback.c:1004-1008`, `:1365-1367`), and `sage26_disk_instability` writes nothing on that row, so its `UnstableDiskGasFraction` keeps its per-snapshot reset value 0
+- `process_per_event` consumes merger events in `satellite_mergers`, growing the merger target's black hole before the burst (`R/src/model_mergers.c:262-264`), on an FFB target as on any other (SAGE26's merger routines do not read `FFBRegime`)
 
 ## Physics
 

@@ -7,10 +7,11 @@ Ports SAGE26's `check_disk_instability` up to its black-hole and burst calls (`R
 - Supported mode: `process_by_galaxy`
 - Expected phase: `galaxy_physics`, after disk radii and the star-formation and feedback commit (`sage26_apply_star_formation_supernova`), and before `sage26_quasar_mode`, `sage26_starburst_feedback` and the disk yield (`sage26_apply_metal_enrichment`), the order of SAGE26's `starformation_and_feedback` (`R/src/model_starformation_and_feedback.c:1087-1108`)
 - Receives one galaxy at a time
+- A row whose `FFBRegime` is 1 (written by `sage26_determine_ffb_regime` only with `EnhancedStarFormationOn` 1) is not processed: SAGE26 hands it to `starformation_ffb` and returns before any disk-instability check (`R/src/model_starformation_and_feedback.c:1004-1008`, `:1365-1367`), so the module returns at once and writes nothing: no transfer, no radius update and no `UnstableDiskGasFraction`, which keeps its per-snapshot reset value 0, so the by-galaxy quasar and burst entries never act on the row. The post-merger recheck inside the burst transaction (`R/src/model_mergers.c:806-811`) has no FFB test and runs on an FFB target too. `sage26_ffb_star_formation` runs that row's transaction. The module reads no new parameter: `FFBRegime` is 1 only where the classifier wrote it.
 
 ## Properties
 
-- Reads: `Vmax` (the galaxy's own halo), `ColdGas`, `StellarMass`, `MetalsStellarMass`, `BulgeMass`, `MetalsBulgeMass`, `DiskScaleRadius`; with `BulgeSizeOn` 3 also `InstabilityBulgeMass`, `MergerBulgeMass` and the three bulge radii
+- Reads: `FFBRegime` (1 returns at once), `Vmax` (the galaxy's own halo), `ColdGas`, `StellarMass`, `MetalsStellarMass`, `BulgeMass`, `MetalsBulgeMass`, `DiskScaleRadius`; with `BulgeSizeOn` 3 also `InstabilityBulgeMass`, `MergerBulgeMass` and the three bulge radii
 - Writes: `BulgeMass`, `MetalsBulgeMass`, `InstabilityBulgeMass`, `UnstableDiskGasFraction`; with `BulgeSizeOn` 3 also `BulgeRadius`, `MergerBulgeRadius` and `InstabilityBulgeRadius`
 
 ## Parameters

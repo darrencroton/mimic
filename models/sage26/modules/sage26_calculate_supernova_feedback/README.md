@@ -24,6 +24,7 @@ The scaling and the ejection use the forming galaxy's own `Vvir` and stored `Sna
 - Supported mode: `process_by_galaxy`
 - Expected phase: `galaxy_physics`, after `sage26_calculate_star_formation` and before `sage26_apply_star_formation_supernova`
 - Receives one galaxy at a time
+- A row whose `FFBRegime` is 1 (written by `sage26_determine_ffb_regime` only with `EnhancedStarFormationOn` 1) is not processed: SAGE26 hands it to `starformation_ffb` and returns before its ordinary feedback budget (`R/src/model_starformation_and_feedback.c:1004-1008`), so the module returns at once and writes nothing, before its time guard (no `MassLoading`, no transport field). `sage26_ffb_star_formation` runs that row's transaction. The module reads no new parameter: `FFBRegime` is 1 only where the classifier wrote it.
 
 ## Ordering
 
@@ -34,7 +35,7 @@ The scaling and the ejection use the forming galaxy's own `Vvir` and stored `Sna
 
 ## Properties
 
-- Reads: `Vvir` (the forming galaxy's own), `ColdGas`, `NewStellarMass`, and with `FIREmodeOn 1` `SnapNum` (the stored snapshot)
+- Reads: `FFBRegime` (1 returns at once), `Vvir` (the forming galaxy's own), `ColdGas`, `NewStellarMass`, and with `FIREmodeOn 1` `SnapNum` (the stored snapshot)
 - Writes: `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass`, and with `FIREmodeOn 1` `MassLoading`
 
 ## Parameters

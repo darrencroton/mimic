@@ -37,6 +37,11 @@
  * galaxy's cold gas for its FoF central's hot gas, and the ejection is capped against that
  * central's hot gas (R/src/model_starformation_and_feedback.c:1146-1251).
  *
+ * A row whose FFBRegime is 1 (written by sage26_determine_ffb_regime only with
+ * EnhancedStarFormationOn 1) is not processed: SAGE26 hands it to starformation_ffb before
+ * compute_sn_feedback (:1004-1008), so this module returns at once and writes nothing, and
+ * sage26_ffb_star_formation runs that row's own FFB feedback (compute_sn_feedback_ffb, :901-972).
+ *
  * Reference: Croton et al. (2006, 2016); Muratov et al. (2015); Hirschmann et al. (2016)
  */
 
@@ -135,6 +140,17 @@ int sage26_calculate_supernova_feedback_process(struct ModuleContext *ctx, struc
   }
 
   struct GalaxyData *gal = halo->galaxy;
+
+  /* SAGE parity: SAGE26's starformation_and_feedback hands an FFBRegime 1 row to
+   * starformation_ffb and returns before compute_sn_feedback
+   * (R/src/model_starformation_and_feedback.c:1004-1008), so this module returns at once and
+   * writes nothing, before its time guard: no MassLoading and no transport field.
+   * sage26_ffb_star_formation runs that row's own FFB feedback. FFBRegime is 1 only where
+   * sage26_determine_ffb_regime wrote it, which it does only with EnhancedStarFormationOn 1, so
+   * this is SAGE26's test EnhancedStarFormationOn >= 1 && FFBRegime == 1 (:1004). */
+  if (gal->FFBRegime == 1) {
+    return 0;
+  }
 
   /* SAGE parity: the budgets read the forming galaxy's own Vvir, a float in SAGE26, also for
    * satellites and orphans (R/src/model_starformation_and_feedback.c:746, :783); the reheated gas

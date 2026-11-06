@@ -59,7 +59,13 @@ modules:
       # Star formation and supernova feedback: first SAGE26's feedback-free-burst transaction
       # (starformation_ffb, model_starformation_and_feedback.c:1262-1368), which with
       # EnhancedStarFormationOn 1 forms, commits and feeds back an FFBRegime 1 row's stars in one
-      # step and writes nothing with EnhancedStarFormationOn 0; then the ordinary chain
+      # step and writes nothing with EnhancedStarFormationOn 0; then the ordinary chain. As in
+      # SAGE26's dispatch (model_starformation_and_feedback.c:1004-1008), an FFBRegime 1 row
+      # bypasses the ordinary chain: the three modules below, sage26_disk_instability and
+      # sage26_apply_metal_enrichment return at once on it, writing nothing, so the by-galaxy
+      # quasar and burst entries never fire on it; the merger consumers are not bypassed. With
+      # EnhancedStarFormationOn 1 the transaction must sit immediately before
+      # sage26_calculate_star_formation, and it and sage26_determine_ffb_regime require each other
       - sage26_ffb_star_formation:              process_by_galaxy
       - sage26_calculate_star_formation:        process_by_galaxy
       - sage26_calculate_supernova_feedback:    process_by_galaxy

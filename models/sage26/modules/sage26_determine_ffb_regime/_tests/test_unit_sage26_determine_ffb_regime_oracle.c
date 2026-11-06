@@ -92,6 +92,12 @@ static struct c13_tally tally;
 
 static char pre_timestep_name[] = "sage26_determine_ffb_regime";
 static struct PhaseModuleConfig pre_timestep_entry[1];
+/* The FFB transaction by galaxy in a substep phase, which the classifier requires at
+ * EnhancedStarFormationOn 1 (c13 Slice 3) */
+static char transaction_name[] = "sage26_ffb_star_formation";
+static char substep_phase_name[] = "galaxy_physics";
+static struct PhaseModuleConfig substep_entry[1];
+static struct ModulePhaseConfig substep_phase;
 
 /**
  * @brief Check one recorded local: its markers, and its value bit for bit
@@ -298,13 +304,21 @@ static int check_classifier_fixture(const char *name) {
   int problems = require_enhanced_star_formation_on(&in, name);
 
   /* Configuration: EnhancedStarFormationOn 1 (R6), the fixture's Hubble_h, the module alone in
-   * pre_timestep */
+   * pre_timestep and the FFB transaction by galaxy in a substep phase (the classifier's guard) */
   reset_config();
   pre_timestep_entry[0].module_name = pre_timestep_name;
   pre_timestep_entry[0].processing_mode = PROCESSING_MODE_FULL_HALO;
   pre_timestep_entry[0].resolved = NULL;
   MimicConfig.pre_timestep = pre_timestep_entry;
   MimicConfig.num_pre_timestep = 1;
+  substep_entry[0].module_name = transaction_name;
+  substep_entry[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+  substep_entry[0].resolved = NULL;
+  substep_phase.name = substep_phase_name;
+  substep_phase.modules = substep_entry;
+  substep_phase.num_modules = 1;
+  MimicConfig.substep_phases = &substep_phase;
+  MimicConfig.num_substep_phases = 1;
   MimicConfig.Hubble_h = oracle_in_f64(&in, "params.Hubble_h");
   if (oracle_set_model_param("EnhancedStarFormationOn", 1.0) != 0 ||
       sage26_determine_ffb_regime_init() != 0) {
@@ -378,6 +392,8 @@ static int check_classifier_fixture(const char *name) {
   sage26_determine_ffb_regime_cleanup();
   MimicConfig.pre_timestep = NULL;
   MimicConfig.num_pre_timestep = 0;
+  MimicConfig.substep_phases = NULL;
+  MimicConfig.num_substep_phases = 0;
   if (status != 0) {
     fprintf(stderr, "oracle: %s: process() returned %d\n", name, status);
     problems++;

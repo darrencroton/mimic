@@ -519,7 +519,10 @@ static inline int mimic_apply_collisional_starburst(
    * hydrogen in turn. The recheck saves and passes its own disk radius to its stellar
    * transfer's radius update (:68-83), and its burst passes the host's current DiskScaleRadius
    * (:106-107). The recheck's burst takes the same bundle, so with FIREmodeOn 1 its FIRE budget
-   * reads the same host's float Vvir and stored SnapNum (R/src/model_disk_instability.c:106). */
+   * reads the same host's float Vvir and stored SnapNum (R/src/model_disk_instability.c:106).
+   * The recheck has no FFBRegime test: SAGE26 skips the instability only for an FFB row's disk
+   * call (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), and its merger routines
+   * do not read FFBRegime, so an FFB target is rechecked as any other. */
   const int instability_recheck_ran =
       p->disk_instability_on && mode == 0 && mass_ratio < p->threshold_major_merger;
   /* The recheck growth's hydrogen-cap locals, for tests only (no effect on the state): the cap

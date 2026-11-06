@@ -27,6 +27,9 @@
  *     critical mass
  *   - test_module_initialization: Module lifecycle
  *   - test_memory_safety: No memory leaks
+ *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
+ *     bytewise unchanged, also in a state the time guard refuses (the bypass precedes it); the
+ *     same row with FFBRegime 0 forms SAGE26's sfr_croton06 stars, written inline (c13 Slice 3)
  *
  * @author  Mimic Development Team
  * @date    2025-12-18
@@ -767,6 +770,89 @@ int test_memory_safety(void) {
 }
 
 // ============================================================================
+// FEEDBACK-FREE-BURST BYPASS (c13 Slice 3)
+// ============================================================================
+
+/**
+ * @test    test_ffb_row_bypassed
+ * @brief   An FFBRegime 1 row is not processed; the same row with FFBRegime 0 is
+ *
+ * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb and returns
+ * before its ordinary chain (R/src/model_starformation_and_feedback.c:1004-1008). The row is a
+ * satellite with its own FoF central; with FFBRegime 1 both galaxy structs are compared byte for
+ * byte with their inputs, in a valid interval and in one the time guard refuses (dT 0 with a
+ * stored snapshot, which errors on an ordinary row), so the bypass precedes the guard. With
+ * FFBRegime 0 the row forms SAGE26's sfr_croton06 stars (R/src/model_starformation_and_feedback.c
+ * :160-184, :1048-1051), written here with SAGE26's operand order, never by calling the module.
+ */
+int test_ffb_row_bypassed(void) {
+  init_memory_system(0);
+  reset_config();
+  const double efficiency = 0.02;
+  setup_test_parameters(efficiency, 3.0);
+  TEST_ASSERT(sage26_calculate_star_formation_init() == 0, "Module init should succeed");
+
+  struct Halo central, row;
+  struct GalaxyData central_gal, gal;
+  setup_test_galaxy(&central, &central_gal, 4.0, 0.02, 250.0);
+  setup_test_galaxy(&row, &gal, 10.0, 0.05, 200.0);
+  row.Type = 1;
+  gal.FFBRegime = 1;
+  gal.NewStellarMass = 7.0; /* a seed the module would overwrite */
+  gal.H1gas = 0.375f;       /* likewise (the H I block) */
+  gal.H2gas = 0.25f;
+  central_gal.NewStellarMass = 5.0;
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, 0.01);
+  ctx.central_galaxy = &central;
+
+  struct GalaxyData row_in, central_in;
+  memcpy(&row_in, &gal, sizeof(gal));
+  memcpy(&central_in, &central_gal, sizeof(central_gal));
+
+  TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &row, 1) == 0,
+              "process succeeds on an FFB row");
+  TEST_ASSERT(memcmp(&gal, &row_in, sizeof(gal)) == 0,
+              "FFBRegime 1: every field of the row is unchanged");
+  TEST_ASSERT(memcmp(&central_gal, &central_in, sizeof(central_gal)) == 0,
+              "FFBRegime 1: every field of its central is unchanged");
+
+  /* The time guard refuses dT 0 with a stored snapshot on an ordinary row; an FFB row returns
+   * before it */
+  row.dT = 0.0;
+  TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &row, 1) == 0 &&
+                  memcmp(&gal, &row_in, sizeof(gal)) == 0 &&
+                  memcmp(&central_gal, &central_in, sizeof(central_gal)) == 0,
+              "FFBRegime 1: returns before the time guard, writing nothing");
+  gal.FFBRegime = 0;
+  TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &row, 1) != 0,
+              "the time guard refuses that interval on an ordinary row");
+  row.dT = 0.01;
+
+  /* The same row with FFBRegime 0: SAGE26's sfr_croton06 (:168-178) and stars = strdot * dt */
+  memcpy(&gal, &row_in, sizeof(gal));
+  gal.FFBRegime = 0;
+  TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &row, 1) == 0,
+              "process succeeds on an ordinary row");
+  const float vvir = 200.0f;
+  const double reff = 3.0 * (double)row_in.DiskScaleRadius;               /* :168 */
+  const double tdyn = reff / vvir;                                        /* :173 */
+  const double cold_crit = 0.19 * vvir * reff;                            /* :176 */
+  const double strdot = efficiency * (row_in.ColdGas - cold_crit) / tdyn; /* :178 */
+  const double expected_stars = strdot * 0.01;                            /* :1048 */
+  printf("\n  FFBRegime 0: NewStellarMass %.17g, expected %.17g", gal.NewStellarMass,
+         expected_stars);
+  TEST_ASSERT(fabs(gal.NewStellarMass - expected_stars) <= 1e-12 * expected_stars,
+              "FFBRegime 0: the row forms SAGE26's stars");
+  TEST_ASSERT(gal.H1gas != row_in.H1gas, "FFBRegime 0: the H I block runs");
+  TEST_ASSERT(gal.FFBRegime == 0, "FFBRegime is not written");
+
+  sage26_calculate_star_formation_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+// ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
 
@@ -803,6 +889,9 @@ int main(void) {
   /* Run infrastructure tests */
   TEST_RUN(test_module_initialization);
   TEST_RUN(test_memory_safety);
+
+  /* The feedback-free-burst bypass (c13 Slice 3) */
+  TEST_RUN(test_ffb_row_bypassed);
 
   /* Print summary and return result */
   TEST_SUMMARY();

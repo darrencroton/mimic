@@ -33,7 +33,21 @@
  *   (shared/sage_ffb_feedback_physics.h) from the oracle's stars formed and cold gas after the
  *   star-formation commit, against the recorded renormalised stars, masses and MassLoading;
  * - for the wrapper fixtures, the oracle's check that the wrapper's end state is
- *   starformation_ffb's, and the instability observation recomputed from the package's end state.
+ *   starformation_ffb's, and the instability observation recomputed from the package's end state;
+ * - for the wrapper fixtures, the chain composition (c13 Slice 3): from the same input, with the
+ *   instability trigger at its per-snapshot reset value 0, the whole by-galaxy star-formation chain
+ *   runs in the run files' order (the transaction, sage26_calculate_star_formation,
+ *   sage26_calculate_supernova_feedback, sage26_apply_star_formation_supernova,
+ *   sage26_disk_instability, sage26_quasar_mode, sage26_starburst_feedback and
+ *   sage26_apply_metal_enrichment, each initialised with the run files' keys), and every recorded
+ *   field of every galaxy equals SAGE26's wrapper end state bit for bit, and every galaxy struct
+ *   equals the transaction-only end state byte for byte but for the trigger's seed, so the five
+ *   bypassed modules and the by-galaxy quasar and burst entries wrote nothing (the unstable-disk
+ *   fixture included).
+ *
+ * Every fixture is initialised in the run files' configuration, which the transaction's
+ * cross-module guards require at EnhancedStarFormationOn 1: sage26_determine_ffb_regime in
+ * pre_timestep and the chain above in one substep phase.
  *
  * The oracle's observations (recomputed_metallicity_changes_state,
  * yield_with_formed_stars_changes_state, metallicity_post_commit and its _differs flag) are not
@@ -66,6 +80,43 @@ extern int sage26_ffb_star_formation_init(void);
 extern int sage26_ffb_star_formation_process(struct ModuleContext *ctx, struct Halo *halos,
                                              int ngal);
 extern int sage26_ffb_star_formation_cleanup(void);
+
+/* The rest of the run files' by-galaxy star-formation chain (c13 Slice 3) */
+#define SAGE26_CHAIN_MODULE(m)                                                                     \
+  extern int m##_init(void);                                                                       \
+  extern int m##_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);                 \
+  extern int m##_cleanup(void);
+SAGE26_CHAIN_MODULE(sage26_calculate_star_formation)
+SAGE26_CHAIN_MODULE(sage26_calculate_supernova_feedback)
+SAGE26_CHAIN_MODULE(sage26_apply_star_formation_supernova)
+SAGE26_CHAIN_MODULE(sage26_disk_instability)
+SAGE26_CHAIN_MODULE(sage26_quasar_mode)
+SAGE26_CHAIN_MODULE(sage26_starburst_feedback)
+SAGE26_CHAIN_MODULE(sage26_apply_metal_enrichment)
+#undef SAGE26_CHAIN_MODULE
+
+/** The chain after the transaction, in the run files' order */
+static const struct {
+  char name[48];
+  int (*init)(void);
+  int (*process)(struct ModuleContext *, struct Halo *, int);
+  int (*cleanup)(void);
+} CHAIN_REST[] = {
+    {"sage26_calculate_star_formation", sage26_calculate_star_formation_init,
+     sage26_calculate_star_formation_process, sage26_calculate_star_formation_cleanup},
+    {"sage26_calculate_supernova_feedback", sage26_calculate_supernova_feedback_init,
+     sage26_calculate_supernova_feedback_process, sage26_calculate_supernova_feedback_cleanup},
+    {"sage26_apply_star_formation_supernova", sage26_apply_star_formation_supernova_init,
+     sage26_apply_star_formation_supernova_process, sage26_apply_star_formation_supernova_cleanup},
+    {"sage26_disk_instability", sage26_disk_instability_init, sage26_disk_instability_process,
+     sage26_disk_instability_cleanup},
+    {"sage26_quasar_mode", sage26_quasar_mode_init, sage26_quasar_mode_process,
+     sage26_quasar_mode_cleanup},
+    {"sage26_starburst_feedback", sage26_starburst_feedback_init, sage26_starburst_feedback_process,
+     sage26_starburst_feedback_cleanup},
+    {"sage26_apply_metal_enrichment", sage26_apply_metal_enrichment_init,
+     sage26_apply_metal_enrichment_process, sage26_apply_metal_enrichment_cleanup}};
+#define CHAIN_REST_LENGTH ((int)(sizeof(CHAIN_REST) / sizeof(CHAIN_REST[0])))
 
 static const char *MODULE = "sage26_ffb_star_formation";
 
@@ -100,13 +151,17 @@ struct ffb_tally {
   int binding; /* binding clamps and caps asserted equal to their bound */
   int fields;  /* end-state fields compared */
   int direct_helper_calls;
+  int chain;        /* wrapper fixtures run through the whole by-galaxy chain (c13 Slice 3) */
+  int chain_fields; /* end-state fields compared after the chain */
 };
 
 static struct ffb_tally tally;
 
 static char module_name[] = "sage26_ffb_star_formation";
 static char phase_name[] = "galaxy_physics";
-static struct PhaseModuleConfig phase_entry[1];
+static char classifier_name[] = "sage26_determine_ffb_regime";
+static struct PhaseModuleConfig phase_entry[1 + CHAIN_REST_LENGTH];
+static struct PhaseModuleConfig pre_timestep_entry[1];
 static struct ModulePhaseConfig phase;
 
 /** The package float member of a SAGE26 struct GALAXY name (README "Field Names") */
@@ -259,14 +314,26 @@ static int check_flag(struct oracle_fixture *out, const char *name, const int va
 static int setup_parameters(struct oracle_fixture *in, const int wrapper) {
   int problems = 0;
   reset_config();
+  /* The run files' configuration: the classifier in pre_timestep, and the transaction followed by
+   * the rest of the by-galaxy star-formation chain in one substep phase */
   phase_entry[0].module_name = module_name;
   phase_entry[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
   phase_entry[0].resolved = NULL;
+  for (int k = 0; k < CHAIN_REST_LENGTH; k++) {
+    phase_entry[1 + k].module_name = (char *)CHAIN_REST[k].name;
+    phase_entry[1 + k].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    phase_entry[1 + k].resolved = NULL;
+  }
   phase.name = phase_name;
   phase.modules = phase_entry;
-  phase.num_modules = 1;
+  phase.num_modules = 1 + CHAIN_REST_LENGTH;
   MimicConfig.substep_phases = &phase;
   MimicConfig.num_substep_phases = 1;
+  pre_timestep_entry[0].module_name = classifier_name;
+  pre_timestep_entry[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+  pre_timestep_entry[0].resolved = NULL;
+  MimicConfig.pre_timestep = pre_timestep_entry;
+  MimicConfig.num_pre_timestep = 1;
 
   /* SupernovaRecipeOn 1 is the package's only recipe; SaveFullSFH 0 (off on every rung) */
   problems += oracle_in_i32(in, "params.SupernovaRecipeOn") != 1;
@@ -316,6 +383,101 @@ static int setup_parameters(struct oracle_fixture *in, const int wrapper) {
     fprintf(stderr, "oracle: %s: sage26_ffb_star_formation_init() failed\n", in->path);
     problems++;
   }
+  return problems;
+}
+
+/**
+ * @brief Run a wrapper fixture's input through the whole by-galaxy star-formation chain and compare
+ *        with SAGE26's wrapper end state (c13 Slice 3)
+ *
+ * Initialises the rest of the chain with the run files' keys (the fixture's where it has them),
+ * restores every galaxy from `input` with UnstableDiskGasFraction at its per-snapshot reset value
+ * 0, runs the transaction and then each module of the chain on the forming row with the same
+ * context, and asserts every recorded field of every galaxy against `out` bit for bit and every
+ * galaxy struct against the transaction-only end state `tx_end` byte for byte (the trigger's
+ * seed aside).
+ *
+ * @return The number of problems found
+ */
+static int check_chain(struct oracle_fixture *in, struct oracle_fixture *out,
+                       struct GalaxyData *galaxies, struct Halo *halos, const int ngal, const int p,
+                       const struct GalaxyData *input, const struct GalaxyData *tx_end,
+                       struct ModuleContext *ctx) {
+  int problems = 0;
+  /* The keys the rest of the chain reads that the fixture does not hold: the run files' values */
+  const struct {
+    const char *key;
+    double value;
+  } run_keys[] = {{"SfrEfficiency", 0.05},
+                  {"H2RadialIntegrationOn", 1.0},
+                  {"H2RadialNBins", 25.0},
+                  {"H2RadialRMaxFactor", 5.0},
+                  {"BulgeSizeOn", 3.0},
+                  {"BlackHoleGrowthRate", 0.015},
+                  {"QuasarModeEfficiency", 0.005},
+                  {"ThresholdMajorMerger", 0.3},
+                  {"StarburstColdGasOn", 1.0}};
+  for (size_t k = 0; k < COUNT(run_keys); k++) {
+    problems += oracle_set_model_param(run_keys[k].key, run_keys[k].value) != 0;
+  }
+  for (int k = 0; k < CHAIN_REST_LENGTH; k++) {
+    if (CHAIN_REST[k].init() != 0) {
+      fprintf(stderr, "oracle: %s: %s_init() failed\n", in->path, CHAIN_REST[k].name);
+      problems++;
+    }
+  }
+
+  memcpy(galaxies, input, (size_t)ngal * sizeof(*galaxies));
+  for (int i = 0; i < ngal; i++) {
+    galaxies[i].UnstableDiskGasFraction = 0.0; /* the per-snapshot reset value (init_repeat) */
+  }
+  if (sage26_ffb_star_formation_process(ctx, &halos[p], 1) != 0) {
+    fprintf(stderr, "oracle: %s: the chain's transaction failed\n", in->path);
+    problems++;
+  }
+  for (int k = 0; k < CHAIN_REST_LENGTH; k++) {
+    if (CHAIN_REST[k].process(ctx, &halos[p], 1) != 0) {
+      fprintf(stderr, "oracle: %s: %s_process() failed in the chain\n", in->path,
+              CHAIN_REST[k].name);
+      problems++;
+    }
+  }
+
+  for (int i = 0; i < ngal; i++) {
+    for (size_t m = 0; m < COUNT(STATE); m++) {
+      problems += oracle_check_f32(out, gfield(i, STATE[m]), *member(&galaxies[i], STATE[m]));
+      tally.chain_fields++;
+    }
+    for (size_t m = 0; m < COUNT(HISTORIES); m++) {
+      for (int k = 0; k < MIMIC_SAGE_SFR_STEPS; k++) {
+        problems +=
+            oracle_check_f32(out, hfield(i, HISTORIES[m].name, k),
+                             *mimic_sage_sfr_history(&galaxies[i], HISTORIES[m].history, k));
+        tally.chain_fields++;
+      }
+    }
+    problems += oracle_check_i32(out, gfield(i, "Regime"), galaxies[i].Regime);
+    problems += oracle_check_i32(out, gfield(i, "FFBRegime"), galaxies[i].FFBRegime);
+    if (galaxies[i].UnstableDiskGasFraction != 0.0) {
+      fprintf(stderr, "oracle: %s: galaxy[%d]'s instability trigger was written in the chain\n",
+              in->path, i);
+      problems++;
+    }
+    struct GalaxyData expected;
+    memcpy(&expected, &tx_end[i], sizeof(expected));
+    expected.UnstableDiskGasFraction = 0.0;
+    if (memcmp(&galaxies[i], &expected, sizeof(expected)) != 0) {
+      fprintf(stderr,
+              "oracle: %s: galaxy[%d] differs from the transaction's end state after the "
+              "chain\n",
+              in->path, i);
+      problems++;
+    }
+  }
+  for (int k = 0; k < CHAIN_REST_LENGTH; k++) {
+    CHAIN_REST[k].cleanup();
+  }
+  tally.chain++;
   return problems;
 }
 
@@ -626,6 +788,10 @@ static int check_fixture(const char *name) {
     const double Mcrit = vmax[p] * vmax[p] * (3.0 * g->DiskScaleRadius) / MimicConfig.G;
     problems += oracle_check_i32(&out, "intermediate.disk_unstable_after_call",
                                  diskmass > 0.0 && Mcrit < diskmass);
+    /* The chain composition, from the same input */
+    struct GalaxyData tx_end[MAX_GALAXIES];
+    memcpy(tx_end, galaxies, sizeof(tx_end));
+    problems += check_chain(&in, &out, galaxies, halos, ngal, p, input, tx_end, &ctx);
   }
 
   problems += oracle_report_unconsumed(&in);
@@ -660,12 +826,16 @@ int test_oracle_bit_identity(void) {
   printf("\n  oracle: fixtures %d (wrapper dispatch %d); end-state fields compared %d; carried "
          "values compared bit for bit %d (continuation-checked %d, tail-checked %d; validated "
          "two-sided %d, narrowing-limited %d, not validated %d), absent %d; binding clamps and "
-         "caps asserted equal to their bound %d; shared helpers called directly %d ",
+         "caps asserted equal to their bound %d; shared helpers called directly %d; chain "
+         "compositions %d (end-state fields compared %d) ",
          tally.fixtures, tally.wrapper, tally.fields, tally.continuation + tally.tail,
          tally.continuation, tally.tail, tally.validated, tally.narrowing_limited,
-         tally.not_validated, tally.absent, tally.binding, tally.direct_helper_calls);
+         tally.not_validated, tally.absent, tally.binding, tally.direct_helper_calls, tally.chain,
+         tally.chain_fields);
   TEST_ASSERT(ok, "every fixture must reproduce the oracle bit for bit");
   TEST_ASSERT(tally.wrapper >= 1, "the wrapper's FFB dispatch must be asserted");
+  TEST_ASSERT(tally.chain == tally.wrapper,
+              "every wrapper fixture must run through the whole by-galaxy chain");
   return TEST_PASS;
 }
 

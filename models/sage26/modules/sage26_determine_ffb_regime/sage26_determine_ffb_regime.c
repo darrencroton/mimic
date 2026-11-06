@@ -54,6 +54,7 @@
 #define MODULE_NAME "sage26_determine_ffb_regime"
 #define BUDGET_NAME "sage26_prepare_infall_budget"
 #define CGM_CLASSIFIER_NAME "sage26_determine_regime"
+#define TRANSACTION_NAME "sage26_ffb_star_formation"
 
 /* SAGE26's EnhancedStarFormationOn (0 off, 1 the Li et al. 2024 classifier), required and checked
  * at init (campaign decision D33) */
@@ -189,6 +190,19 @@ int sage26_determine_ffb_regime_init(void) {
     return -1;
   }
   if (check_placement() != 0) {
+    return -1;
+  }
+  /* At EnhancedStarFormationOn 1 the classifier's FFBRegime 1 rows bypass the ordinary
+   * star-formation chain (R/src/model_starformation_and_feedback.c:1004-1008), so without the FFB
+   * transaction every FFB row would form no stars at all: refused, naming the missing module (the
+   * transaction checks its own placement). At 0 nothing is classified and no check applies. */
+  if (ENHANCED_STAR_FORMATION_ON != MIMIC_SAGE_FFB_OFF &&
+      !module_in_substep_phase(TRANSACTION_NAME, PROCESSING_MODE_BY_GALAXY)) {
+    ERROR_LOG("%s requires %s in a substep phase (process_by_galaxy) with "
+              "EnhancedStarFormationOn 1: an FFBRegime 1 row skips the ordinary star-formation "
+              "chain, so without the FFB transaction it would form no stars "
+              "(model_starformation_and_feedback.c:1004-1008)",
+              MODULE_NAME, TRANSACTION_NAME);
     return -1;
   }
 
