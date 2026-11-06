@@ -1,6 +1,6 @@
 # `sage26_regime_aware_cooling`
 
-SAGE26's regime-aware cooling as one by-galaxy transaction (campaign decision D38): with `CGMrecipeOn 1` it owns every galaxy's cooling, the hot regime's cold streams and bulk CGM cooling, both radio-mode AGN calls, the cooling diagnostics, the application of both cooled masses to the cold gas and the final `CoolingRate`. The run files hold `CGMrecipeOn 1` (R4). With `CGMrecipeOn 0` (R0-R3) it writes nothing and the classic modules cool.
+SAGE26's regime-aware cooling as one by-galaxy transaction (campaign decision D38): with `CGMrecipeOn 1` it owns every galaxy's cooling, the hot regime's cold streams and bulk CGM cooling, both radio-mode AGN calls, the cooling diagnostics, the application of both cooled masses to the cold gas and the final `CoolingRate`. The run files hold `CGMrecipeOn 1` (R4, kept at R5). With `CGMrecipeOn 0` (R0-R3) it writes nothing and the classic modules cool.
 
 ## SAGE26 Source
 

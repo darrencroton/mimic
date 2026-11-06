@@ -22,7 +22,7 @@ The module keeps two guards SAGE26 lacks: an early return when `EjectedGas <= 0`
 ## Parameters
 
 - `ReIncorporationFactor` (R0: `0.19`)
-- `CGMrecipeOn` (required, 0 or 1; any other value, or a missing key, fails initialisation naming it; the run files hold 1, SAGE26's R4)
+- `CGMrecipeOn` (required, 0 or 1; any other value, or a missing key, fails initialisation naming it; the run files hold 1, SAGE26's R4, kept at R5)
 
 ## Ordering
 
