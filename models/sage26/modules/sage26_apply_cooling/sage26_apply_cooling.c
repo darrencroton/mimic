@@ -15,6 +15,12 @@
  * holds the final (suppressed) mass. sage26_finalize_cooling_heating normalises
  * Cooling once per snapshot (R/src/core_build_model.c:590-603).
  *
+ * This is the CGMrecipeOn 0 (R0-R3) path. With CGMrecipeOn 1 SAGE26 never calls
+ * cool_gas_onto_galaxy: its regime-aware wrapper applies the CGM and hot masses and writes
+ * CoolingRate itself (R/src/model_cooling_heating.c:475-502), which sage26_regime_aware_cooling,
+ * the next module, ports (campaign decision D38); sage26_calculate_cooling_budget then carries
+ * path -1 and zero mass, so this module writes nothing.
+ *
  * Reference: Croton et al. (2006, 2016)
  */
 
@@ -117,16 +123,19 @@ int sage26_apply_cooling_process(struct ModuleContext *ctx, struct Halo *halos, 
   // SAGE parity: the lambda <= 0 and rho_rcool <= 0 early returns skip the tail,
   // leaving Cooling and CoolingRate as they were; an outer-guard failure reaches
   // it with zero mass and writes CoolingRate 0 (R/src/model_cooling_heating.c:141,
-  // :157-169, :301-313). This is the CGMrecipeOn 0 tail; with CGMrecipeOn 1 the
-  // regime-aware wrapper overwrites CoolingRate at its own tail (:498-502).
+  // :157-169, :301-313). This is the CGMrecipeOn 0 tail; with CGMrecipeOn 1 the budget
+  // carries path -1, so it does not run here, and sage26_regime_aware_cooling runs the
+  // nested recipes' tails and the regime-aware wrapper's own, which always overwrites
+  // CoolingRate (:498-502).
   if (path == SAGE_COOLING_PATH_TAIL || path == SAGE_COOLING_PATH_OUTER_GUARD) {
     cooling_recipe_tail(galaxy, (float)halo->Vvir, dt_obj, coolingGas, ctx->params);
   }
 
   // SAGE parity: cool_gas_onto_galaxy applies for any coolingGas > 0.0
   // (R/src/model_cooling_heating.c:693); it is the CGMrecipeOn 0 transfer: with
-  // CGMrecipeOn 1 SAGE26's regime-aware wrapper applies the CGM and hot masses itself,
-  // without the classic "move all metals on equality" branch (:472-496)
+  // CGMrecipeOn 1 SAGE26 does not call it, and its regime-aware wrapper applies the CGM and
+  // hot masses itself, without the classic "move all metals on equality" branch (:475-496),
+  // in sage26_regime_aware_cooling; the budget then carries zero mass, so nothing moves here
   mimic_sage_cool_gas_onto_galaxy(galaxy, coolingGas);
 
   return 0;

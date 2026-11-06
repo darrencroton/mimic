@@ -11,6 +11,8 @@ The last of the three modules SAGE26's `cooling_recipe_hot` is split across (see
 
 The tail reads only the mass, `Vvir` and `dt`, none of which the transfer changes, so running it here gives SAGE26's values; this module is the first that always holds the final mass. `Vvir` is read as the float SAGE26 holds.
 
+This is the `CGMrecipeOn 0` (R0-R3) path. With `CGMrecipeOn 1` SAGE26 never calls `cool_gas_onto_galaxy`: its regime-aware wrapper applies the CGM and hot masses, without the equality branch, and writes `CoolingRate` itself (`:475-502`). `sage26_regime_aware_cooling`, the next module in `galaxy_physics`, ports that (campaign decision D38), and `sage26_calculate_cooling_budget` then carries return path -1 and zero mass, so this module writes nothing.
+
 ## Processing Contract
 
 - Supported mode: `process_by_galaxy`

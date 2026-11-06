@@ -13,7 +13,10 @@
  * The arithmetic is shared/sage_cooling_physics.h's mimic_sage_do_agn_heating_hot and
  * mimic_sage_agn_accretion_compute, called with CGMrecipeOn 0 (the R0-R3 behaviour). With
  * CGMrecipeOn 1 SAGE26's do_AGN_heating adds the 0.99 * rcool saturation and the cap of Rheat
- * to Rvir (:590-595, :623-624), which those helpers implement for the CGMrecipeOn 1 caller.
+ * to Rvir (:590-595, :623-624), which apply there: sage26_regime_aware_cooling calls those
+ * helpers with CGMrecipeOn 1 inside SAGE26's regime-aware cooling (campaign decision D38), and
+ * this module then writes nothing, as sage26_calculate_cooling_budget carries CoolingGas 0 and
+ * the gate below returns.
  *
  * AGNrecipe 2 (Bondi-Hoyle) is SAGE26's R0 recipe and is ported exactly. The
  * empirical (1) and cold-cloud (3) rates are the earlier package's, not ported.
@@ -79,7 +82,9 @@ int sage26_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *ha
 
   // SAGE26 calls do_AGN_heating only with AGNrecipeOn > 0 and a positive
   // post-cap cooling mass (R/src/model_cooling_heating.c:297); otherwise every
-  // field, the carried mass included, is left as it is.
+  // field, the carried mass included, is left as it is. With CGMrecipeOn 1 the budget
+  // carries CoolingGas 0, so this module writes nothing (sage26_regime_aware_cooling runs
+  // the hot and CGM AGN calls itself).
   if (!(AGN_RECIPE_ON > 0 && galaxy->CoolingGas > 0.0)) {
     return 0;
   }
@@ -98,7 +103,8 @@ int sage26_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *ha
 
   // The suppressed mass replaces the post-cap mass for sage26_apply_cooling
   // (SAGE26's do_AGN_heating with CGMrecipeOn 0, the R0-R3 behaviour: no 0.99 * rcool
-  // saturation and no cap of Rheat to Rvir, R/src/model_cooling_heating.c:590-595, :623-624)
+  // saturation and no cap of Rheat to Rvir, R/src/model_cooling_heating.c:590-595, :623-624;
+  // with CGMrecipeOn 1 both apply, in sage26_regime_aware_cooling's call of the same helper)
   galaxy->CoolingGas = mimic_sage_do_agn_heating_hot(
       halo, ctx->params, AGN_RECIPE_ON, RADIO_MODE_EFFICIENCY, 0, dt_obj, galaxy->CoolingGas,
       galaxy->CoolingX, galaxy->Rcool, NULL);

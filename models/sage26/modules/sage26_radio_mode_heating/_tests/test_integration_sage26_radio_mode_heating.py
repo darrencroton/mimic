@@ -78,6 +78,7 @@ def test_module_pipeline_integration():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (D33), R3's value
         },
     )
 
@@ -150,6 +151,7 @@ def test_agn_physics_correctness():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (D33), R3's value
         },
     )
 
@@ -225,6 +227,7 @@ def test_parameter_sensitivity():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (D33), R3's value
         },
     )
 
@@ -255,6 +258,7 @@ def test_parameter_sensitivity():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (D33), R3's value
         },
     )
 
@@ -288,6 +292,7 @@ def test_parameter_sensitivity():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (D33), R3's value
         },
     )
 
@@ -321,6 +326,7 @@ def test_parameter_sensitivity():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (D33), R3's value
         },
     )
 
@@ -381,6 +387,7 @@ def test_memory_and_performance():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (D33), R3's value
         },
     )
 

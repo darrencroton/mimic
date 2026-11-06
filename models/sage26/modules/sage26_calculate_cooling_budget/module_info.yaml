@@ -3,6 +3,8 @@ module:
   description: >-
     SAGE26's hot-halo cooling up to the AGN step: diagnostics, cooling radius and the post-cap
     cooling mass, carried with x, rcool and the return path to the radio and apply modules
+    (CGMrecipeOn 0); with CGMrecipeOn 1 only the no-cooling transport, as
+    sage26_regime_aware_cooling owns SAGE26's regime-aware cooling
 
   additional_files:
     - cooling_tables.c
@@ -26,7 +28,8 @@ module:
       - RcoolToRvir
       - Vvir
       - Rvir
-    parameters: []
+    parameters:
+      - CGMrecipeOn     # required: 0 (classic hot cooling) or 1 (no-cooling transport only)
 
   tests:
     unit:

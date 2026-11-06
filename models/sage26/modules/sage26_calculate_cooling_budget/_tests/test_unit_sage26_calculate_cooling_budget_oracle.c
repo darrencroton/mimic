@@ -288,6 +288,7 @@ int test_oracle_bit_identity(void) {
   }
 
   /* The cooling tables are loaded once for every fixture */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "cooling tables must load");
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   sage26_calculate_cooling_budget_cleanup();

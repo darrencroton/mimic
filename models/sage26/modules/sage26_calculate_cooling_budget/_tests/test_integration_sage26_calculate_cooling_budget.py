@@ -10,7 +10,8 @@ Tests the sage26_calculate_cooling_budget module in a full pipeline context:
 - Type 2 orphans are skipped correctly
 - Memory safety (no leaks)
 
-NOTE: This module has NO runtime parameters (CoolFunctions path is hardcoded).
+NOTE: This module's one runtime parameter is the required CGMrecipeOn (campaign decision D33),
+      set to R3's value 0 in every run below; the CoolFunctions path is hardcoded.
       AGN functionality is in sage26_radio_mode_heating (different module).
 
 Phase: Phase 4.2 (SAGE Physics Module Implementation)
@@ -51,7 +52,7 @@ class TestSageCoolingIntegration:
     - Physics constraints (values in valid ranges)
     - Memory safety (no leaks)
 
-    NOTE: This module has NO runtime parameters.
+    NOTE: This module reads only the required CGMrecipeOn (0 here, R3's value).
           CoolFunctions path is hardcoded in sage26_calculate_cooling_budget.c
     """
 
@@ -65,7 +66,7 @@ class TestSageCoolingIntegration:
                 "satellite_mergers": [],
                 "post_timestep": [],
             },
-            # No model_params - this module has NO runtime parameters
+            model_params={"CGMrecipeOn": 0},  # required (D33), R3's value
         )
 
         returncode, stdout, stderr = harness.run_mimic(param_file)

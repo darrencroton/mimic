@@ -7,13 +7,13 @@
  * Ports what SAGE26's FIREmodeOn 1 switches on in its supernova feedback (R = the staged SAGE26
  * source, S = R/src/model_starformation_and_feedback.c, X = R/src/model_misc.h):
  *
- * - mimic_sage_fire_stored_redshift(): the redshift of the galaxy's stored snapshot (shared with
- * the cold streams of shared/sage_cooling_physics.h, so its log names no single caller; each caller
- *   logs its own context after a refusal),
+ * - mimic_sage_fire_stored_redshift(): the redshift of the galaxy's stored snapshot,
  *   ZZ[SnapNum] (S:745), never the current halo snapshot's or a substep's. SAGE26 indexes ZZ
  *   without a bounds check; a stored SnapNum outside the redshift table is an out-of-bounds read
  *   in SAGE26, not a physics rule, so the package refuses it, naming the SnapNum and the table
- *   size (campaign decision D35), and never invents a redshift.
+ *   size (campaign decision D35), and never invents a redshift. It is shared with the cold
+ *   streams of shared/sage_cooling_physics.h, so its log names no single caller; each caller logs
+ *   its own context after a refusal.
  * - mimic_sage_fire_scaling(): the scaling (S:743-753, constants S:75, S:79): zero unless the
  *   host's velocity is positive and the redshift is not negative; otherwise
  *   (1 + z)^1.25 * (max(V, 1) / 60)^beta with beta = -3.2 below 60 km/s and -1.0 at and above.

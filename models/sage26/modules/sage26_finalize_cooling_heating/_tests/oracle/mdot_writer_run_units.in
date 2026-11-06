@@ -1,0 +1,13 @@
+# writer_mdot_conversion: SAGE26's writer conversion of the mdot rates
+# (R/src/io/save_gals_hdf5.c:996-997), a transcription compiled in the oracle.
+# The mini-Millennium and R4 units (UnitMass_in_g 1.989e43, UnitTime_in_s
+# 3.08568e24 / 1e5) with raw rates of the size the R4 output's written mdot
+# values imply (a written 46.12 and 1652 Msun/yr divided by ~0.0102).
+# Reachability: constructed routine-domain probe.
+format sage26-oracle-fixture 1
+routine writer_mdot_conversion
+
+f64 params.UnitMass_in_g 0x48ec8a6e9c6c5bda  # 1.989e+43
+f64 params.UnitTime_in_s 0x43fac39601d1945f  # 3.0856799999999996e+19
+f32 galaxy[0].mdot_cool 0x458cf000  # 4510.0  raw float
+f32 galaxy[0].mdot_stream 0x481dd000  # 161600.0  raw float

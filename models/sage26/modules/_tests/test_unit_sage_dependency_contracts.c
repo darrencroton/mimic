@@ -132,6 +132,7 @@ int test_dep_apply_cooling_wrong_order_error(void) {
   test_phase_add("galaxy_physics", "sage26_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   int result = module_system_init();
   TEST_ASSERT(result != 0,

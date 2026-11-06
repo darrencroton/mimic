@@ -6,12 +6,12 @@
  * C = R/src/model_cooling_heating.c and H = R/src/model_halo_properties.c of the staged SAGE26
  * source (R). One implementation of each piece of SAGE26's cooling arithmetic, used by the
  * classic three-module hot path (sage26_calculate_cooling_budget -> sage26_radio_mode_heating ->
- * sage26_apply_cooling, CGMrecipeOn 0) and written so that the CGMrecipeOn 1 cooling transaction
- * can call the same code. The helpers that serve both paths (mimic_sage_hot_cooling_budget,
- * mimic_sage_do_agn_heating_hot, mimic_sage_do_agn_heating_cgm and the two composed recipes) take
- * CGMrecipeOn as an argument, and the classic callers pass CGMrecipeOn 0, the R0-R3 behaviour; the
- * others (the table, the streams, bulk CGM cooling, the accretion, the tail and the transfer) take
- * the run quantities they read and no CGMrecipeOn.
+ * sage26_apply_cooling, CGMrecipeOn 0) and by the CGMrecipeOn 1 cooling transaction
+ * (sage26_regime_aware_cooling, campaign decision D38). The helpers that serve both paths
+ * (mimic_sage_hot_cooling_budget, mimic_sage_do_agn_heating_hot, mimic_sage_do_agn_heating_cgm and
+ * the two composed recipes) take CGMrecipeOn as an argument, and the classic callers pass
+ * CGMrecipeOn 0, the R0-R3 behaviour; the others (the table, the streams, bulk CGM cooling, the
+ * accretion, the tail and the transfer) take the run quantities they read and no CGMrecipeOn.
  *
  * The cooling helpers (mimic_sage_hot_cooling_budget, mimic_sage_cgm_cooling_budget and the
  * composed recipes) call get_metaldependent_cooling_rate from sage26_calculate_cooling_budget's
@@ -21,8 +21,9 @@
  *
  * No helper writes the galaxy's mdot_cool or mdot_stream. SAGE26 stores its float rates at
  * C:282-283; here they are returned in the stream locals (struct MimicSageColdStreamLocals), and
- * the CGMrecipeOn 1 cooling transaction stores them in its own raw-rate state properties
- * (campaign decisions D38 and D39; the finalizer writes the output fields).
+ * the CGMrecipeOn 1 cooling transaction (sage26_regime_aware_cooling) stores them in the raw-rate
+ * state properties mdot_cool_raw and mdot_stream_raw, from which sage26_finalize_cooling_heating
+ * writes the output fields (campaign decisions D38 and D39).
  *
  * The classic pieces, moved here from the three modules with every expression unchanged:
  *
@@ -39,7 +40,7 @@
  * - mimic_sage_cooling_energy() and mimic_sage_cooling_rate(): the recipes' tail (C:301-313).
  * - mimic_sage_cool_gas_onto_galaxy(): cool_gas_onto_galaxy (C:689-707), the classic transfer.
  *
- * The CGMrecipeOn 1 pieces (specification c11 item 2), not yet called by production code:
+ * The CGMrecipeOn 1 pieces (specification c11 item 2), called by sage26_regime_aware_cooling:
  *
  * - mimic_sage_interpolate_clustering_mass(): interpolate_clustering_mass (H:98-132), the
  *   Press-Schechter clustering mass log10 M_*(z) in log10 Msun (not Msun/h) from SAGE26's literal
@@ -1032,8 +1033,12 @@ struct MimicSageAgnConfig {
  * its galaxy writes of mdot_cool and mdot_stream (C:282-283) are not made; their float values are
  * returned in l->stream for the caller (D38, D39).
  *
+ * On the -1 return *cooling_out is 0 and the galaxy holds the budget's partial writes made before
+ * the refusal (tcool, tff and RcoolToRvir; mimic_sage_hot_cooling_budget); the caller fails the
+ * run, so no later step reads them.
+ *
  * @param agn_locals  Optional AGN locals (may be NULL); suppressed is -1 when AGN did not run
- * @param cooling_out Output: the mass SAGE26 returns
+ * @param cooling_out Output: the mass SAGE26 returns (0 on the -1 return)
  * @return 0, or -1 when the streams refuse the stored SnapNum
  */
 static inline int mimic_sage_cooling_recipe_hot(struct Halo *halo, const struct MimicConfig *params,
@@ -1044,6 +1049,7 @@ static inline int mimic_sage_cooling_recipe_hot(struct Halo *halo, const struct 
                                                 struct MimicSageAgnLocals *agn_locals,
                                                 double *cooling_out) {
   double coolingGas = 0.0;
+  *cooling_out = 0.0;
   if (agn_locals != NULL)
     agn_locals->suppressed = -1;
   if (mimic_sage_hot_cooling_budget(halo, params, dt, cgm_recipe_on, mshock_msun, l, &coolingGas) !=

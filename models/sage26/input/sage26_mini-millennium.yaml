@@ -42,10 +42,13 @@ modules:
       # Satellite stripping
       - sage26_satellite_stripping:     process_by_galaxy
 
-      # Cooling and AGN suppression
+      # Cooling and AGN suppression: with CGMrecipeOn 0 the classic hot path (budget, radio,
+      # apply); with CGMrecipeOn 1 the budget writes no cooling and sage26_regime_aware_cooling
+      # runs SAGE26's whole regime-aware cooling (it writes nothing with CGMrecipeOn 0)
       - sage26_calculate_cooling_budget: process_by_galaxy
       - sage26_radio_mode_heating:      process_by_galaxy
       - sage26_apply_cooling:           process_by_galaxy
+      - sage26_regime_aware_cooling:    process_by_galaxy
 
       # Star formation and supernova feedback
       - sage26_calculate_star_formation:        process_by_galaxy

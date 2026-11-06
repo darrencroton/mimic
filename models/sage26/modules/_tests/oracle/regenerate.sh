@@ -19,8 +19,9 @@
 # one whose routine line names a c10 routine (C10_ROUTINES below) runs
 # through oracle_c10, and one whose routine line names a c11 routine
 # (C11_ROUTINES below) runs through oracle_c11, although the c11 fixtures are
-# owned by two c04 modules (sage26_calculate_cooling_budget and
-# sage26_radio_mode_heating).
+# owned by the c04 modules sage26_calculate_cooling_budget, sage26_radio_mode_heating
+# and sage26_finalize_cooling_heating (the writer conversion) as well as by
+# sage26_regime_aware_cooling (the regime-aware wrapper).
 #
 # Environment: as build.sh (SAGE26_SRC, ORACLE_OUT, ORACLE_ALLOW_ANY_TOOLCHAIN).
 # See README.md in this directory.
@@ -108,11 +109,12 @@ C08_ROUTINES="calculate_molecular_fraction_BR06 calculate_molecular_fraction_rad
 # queue) has its own oracle main and is selected by routine.
 ORACLE_C10=$ORACLE_OUT/oracle_c10
 C10_ROUTINES="determine_and_store_regime"
-# The c11 group (the clustering-mass table, the CGMrecipeOn 1 hot recipe, bulk CGM cooling and
-# the CGM-on radio AGN, each called directly) has its own oracle main and is selected by routine.
+# The c11 group (the clustering-mass table, the CGMrecipeOn 1 hot recipe, bulk CGM cooling, the
+# CGM-on radio AGN and the regime-aware wrapper, each called directly, and the writer's mdot
+# conversion, transcribed) has its own oracle main and is selected by routine.
 ORACLE_C11=$ORACLE_OUT/oracle_c11
 C11_ROUTINES="interpolate_clustering_mass cooling_recipe_hot_streams cooling_recipe_cgm
-do_AGN_heating_cgm_on"
+do_AGN_heating_cgm_on cooling_recipe_regime_aware writer_mdot_conversion"
 
 # Each oracle run writes to a fresh temporary file under ORACLE_OUT, which
 # replaces the committed output only if the oracle exited 0 AND the file is a

@@ -160,6 +160,7 @@ int test_module_initialization(void) {
   test_phase_add("galaxy_physics", "sage26_apply_cooling", PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -196,6 +197,7 @@ int test_memory_safety(void) {
   test_phase_add("galaxy_physics", "sage26_apply_cooling", PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();

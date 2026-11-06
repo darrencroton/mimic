@@ -24,8 +24,15 @@
  *                                it, AGNrecipeOn 0 does not
  *   do_AGN_heating_cgm_on        do_AGN_heating (C:587-627) called on its own with CGMrecipeOn 1
  *                                and AGNrecipeOn 2
+ *   cooling_recipe_regime_aware  C:420-506 (c11 Slice 2): the hot recipe and its AGN, the CGM
+ *                                recipe and its AGN, the static reset_cgm_diagnostics (C:413-418),
+ *                                the diagnostic restoration, both applications and the total
  * The static routines are never called directly: they run inside SAGE26's public routines, and
  * their locals come from the TRANSCRIPTIONS below (tr_*), each statement cited to its SAGE26 line.
+ * One routine is a TRANSCRIPTION only, as its SAGE26 code is not in the link:
+ *   writer_mdot_conversion       the writer's mdot conversion (R/src/io/save_gals_hdf5.c:996-997),
+ *                                compiled here with SAGE26's types and flags; its form is read
+ *                                from save_gals_hdf5.o (oracle README, "The c11 Group")
  *
  * Checks (the oracle refuses to write a fixture otherwise):
  * - SAGE26's call changed no byte of the galaxy outside the recorded fields;
@@ -36,7 +43,12 @@
  *   own do_AGN_heating fed the transcribed x, rcool and post-cap mass reproduces the call's AGN
  *   outputs, and the transcription calls SAGE26's own interpolate_clustering_mass; the post-cap
  *   mass also equals the return value of SAGE26's call with AGNrecipeOn 0 (C:297, C:314);
- *   cooling_recipe_cgm: the post-cap mass equals SAGE26's call with AGNrecipeOn 0 likewise.
+ *   cooling_recipe_cgm: the post-cap mass equals SAGE26's call with AGNrecipeOn 0 likewise;
+ * - cooling_recipe_regime_aware: SAGE26's own cooling_recipe_hot on the input (with the wrapper's
+ *   mdot reset) and its own cooling_recipe_cgm on the galaxy the transcription handed the CGM call
+ *   reproduce the transcription's nested calls (sub-call identity); every local is tail-checked;
+ * - writer_mdot_conversion is a transcription only (no SAGE26 call to check it against); its form
+ *   is the one save_gals_hdf5.o computes (oracle README, "The c11 Group").
  * Two-sided validation (campaign decision D25): each recorded double local is replaced in the
  * transcription by its upward and, separately, its downward neighbouring double (nextafter), and
  * the output records whether each replacement changes at least one recorded field or the return.
@@ -811,11 +823,8 @@ static double tr_do_agn_heating_cgm(struct GALAXY *g, double coolingGas, const d
  * expanded as ((x) * (h) / 1.0e10). The cooling function and the clustering mass are SAGE26's
  * own get_metaldependent_cooling_rate and interpolate_clustering_mass.
  */
-static void tr_cooling_recipe_hot(const struct GALAXY *input, const double dt,
-                                  const struct params *p, const struct tr_override *ov,
-                                  struct tr_result *r) {
-  tr_init(r, input);
-  struct GALAXY *g = &r->galaxy;
+static double tr_cooling_recipe_hot_on(struct GALAXY *g, const double dt, const struct params *p,
+                                       const struct tr_override *ov, struct tr_result *r) {
   double coolingGas;
 
   g->tcool = 0.0f; /* C:139 */
@@ -835,8 +844,7 @@ static void tr_cooling_recipe_hot(const struct GALAXY *input, const double dt,
 
     if (lambda <= 0.0) { /* C:159-161 */
       r->flag[F_RETURN_PATH] = 2;
-      r->ret = 0.0;
-      return;
+      return 0.0;
     }
 
     double x = PROTONMASS * BOLTZMANN * temp / lambda; /* C:163 */
@@ -846,8 +854,7 @@ static void tr_cooling_recipe_hot(const struct GALAXY *input, const double dt,
 
     if (rho_rcool <= 0.0) { /* C:167-169 */
       r->flag[F_RETURN_PATH] = 3;
-      r->ret = 0.0;
-      return;
+      return 0.0;
     }
 
     const double rho0 = g->HotGas / (4 * M_PI * g->Rvir);              /* C:172 */
@@ -940,8 +947,16 @@ static void tr_cooling_recipe_hot(const struct GALAXY *input, const double dt,
   g->CoolingRate =
       (dt > 0.0)
           ? (float)((coolingGas / dt) * 1.0e10 / p->Hubble_h * SEC_PER_GIGAYEAR / p->UnitTime_in_s)
-          : 0.0f;      /* C:310-313 */
-  r->ret = coolingGas; /* C:314 */
+          : 0.0f;    /* C:310-313 */
+  return coolingGas; /* C:314 */
+}
+
+/** @brief The hot transcription on a copy of the input, its return in r->ret */
+static void tr_cooling_recipe_hot(const struct GALAXY *input, const double dt,
+                                  const struct params *p, const struct tr_override *ov,
+                                  struct tr_result *r) {
+  tr_init(r, input);
+  r->ret = tr_cooling_recipe_hot_on(&r->galaxy, dt, p, ov, r);
 }
 
 /**
@@ -950,11 +965,8 @@ static void tr_cooling_recipe_hot(const struct GALAXY *input, const double dt,
  * The profile constants alpha 1.4, r0 = 0.1 Rvir and ratio 10 are SAGE26's locals (C:336-338),
  * kept as const locals so the compiler folds the integrals as it does in SAGE26's object.
  */
-static void tr_cooling_recipe_cgm(const struct GALAXY *input, const double dt,
-                                  const struct params *p, const struct tr_override *ov,
-                                  struct tr_result *r) {
-  tr_init(r, input);
-  struct GALAXY *g = &r->galaxy;
+static double tr_cooling_recipe_cgm_on(struct GALAXY *g, const double dt, const struct params *p,
+                                       const struct tr_override *ov, struct tr_result *r) {
   double coolingGas = 0.0; /* C:319 */
 
   r->flag[F_ENTERED] = (g->CGMgas > 0.0 && g->Vvir > 0.0) ? 1 : 0;
@@ -1019,8 +1031,16 @@ static void tr_cooling_recipe_cgm(const struct GALAXY *input, const double dt,
   g->CoolingRate =
       (dt > 0.0)
           ? (float)((coolingGas / dt) * 1.0e10 / p->Hubble_h * SEC_PER_GIGAYEAR / p->UnitTime_in_s)
-          : 0.0f;      /* C:382-385 */
-  r->ret = coolingGas; /* C:390 */
+          : 0.0f;    /* C:382-385 */
+  return coolingGas; /* C:390 */
+}
+
+/** @brief The CGM transcription on a copy of the input, its return in r->ret */
+static void tr_cooling_recipe_cgm(const struct GALAXY *input, const double dt,
+                                  const struct params *p, const struct tr_override *ov,
+                                  struct tr_result *r) {
+  tr_init(r, input);
+  r->ret = tr_cooling_recipe_cgm_on(&r->galaxy, dt, p, ov, r);
 }
 
 /** @brief TRANSCRIPTION of do_AGN_heating called on its own (C:587-627) */
@@ -1030,6 +1050,201 @@ static void tr_do_agn_heating_alone(const struct GALAXY *input, const double coo
                                     struct tr_result *r) {
   tr_init(r, input);
   r->ret = tr_do_agn_heating(&r->galaxy, coolingGas, dt, x, rcool, p, r, ov);
+}
+
+// ============================================================================
+// THE REGIME-AWARE WRAPPER (C:413-506)
+// ============================================================================
+
+/** @brief The wrapper's own double locals (C:422-498) */
+enum wrapper_local_id {
+  W_HOT_RETURNED,    /* hot_cooling as cooling_recipe_hot returns it (C:452) */
+  W_CGM_RETURNED,    /* cgm_cooling as cooling_recipe_cgm returns it (C:441, C:461) */
+  W_CGM_APPLIED,     /* cgm_cooling after the application cap (C:476-478) */
+  W_CGM_METALLICITY, /* get_metallicity of the CGM pair (C:479) */
+  W_HOT_APPLIED,     /* hot_cooling after the application cap (C:488-490) */
+  W_HOT_METALLICITY, /* get_metallicity of the hot pair (C:491) */
+  W_TOTAL,           /* total_cooling (C:498) */
+  W_COUNT
+};
+
+static const char *const WRAPPER_LOCAL_NAME[W_COUNT] = {
+    "hot_cooling_returned", "cgm_cooling_returned", "cgm_cooling_applied", "cgm_metallicity",
+    "hot_cooling_applied",  "hot_metallicity",      "total_cooling"};
+
+/** @brief The wrapper's branch flags (0/1; the application flags -1 when not reached) */
+enum wrapper_flag_id {
+  WF_CGM_REGIME, /* Regime == 0 (C:436) */
+  WF_HOT_CALLED, /* HotGas > 0 in the hot branch: cooling_recipe_hot ran (C:451-452) */
+  WF_HOT_VALID,  /* hot_diagnostics_valid (C:453-456) */
+  WF_CGM_CALLED, /* cooling_recipe_cgm ran (C:440-441, C:460-461) */
+  WF_RESET,      /* reset_cgm_diagnostics ran (C:442-443, C:462-463) */
+  WF_RESTORED,   /* the saved tcool was restored with tff -1 (C:466-469) */
+  WF_CGM_APPLY,  /* -1 not reached (cgm_cooling <= 0), 0 uncapped, 1 capped (C:475-478) */
+  WF_HOT_APPLY,  /* likewise (C:487-490) */
+  WF_COUNT
+};
+
+static const char *const WRAPPER_FLAG_NAME[WF_COUNT] = {
+    "cgm_regime", "hot_called", "hot_diagnostics_valid", "cgm_called", "reset_called", "restored",
+    "cgm_apply",  "hot_apply"};
+
+/** @brief One wrapper transcription run: the nested calls' runs, the wrapper's own, the states */
+struct wr_result {
+  struct tr_result hot; /* the hot call's locals and flags (when WF_HOT_CALLED) */
+  struct tr_result cgm; /* the CGM call's (when WF_CGM_CALLED) */
+  double local[W_COUNT];
+  int present[W_COUNT];
+  int flag[WF_COUNT];
+  float hot_tcool;          /* the float hot_tcool (C:424, :454) */
+  struct GALAXY after_hot;  /* the galaxy the hot call left */
+  struct GALAXY before_cgm; /* the galaxy the CGM call received */
+  struct GALAXY after_cgm;  /* the galaxy the CGM call left */
+  struct GALAXY galaxy;
+  double ret;
+};
+
+/** @brief Which part's local a two-sided replacement targets */
+enum wr_part { WP_NONE, WP_HOT, WP_CGM, WP_WRAPPER };
+
+struct wr_override {
+  enum wr_part part;
+  int id;
+  double value;
+};
+
+static const struct wr_override WR_NO_OVERRIDE = {WP_NONE, 0, 0.0};
+
+/** @brief Record a wrapper local (or the override's neighbour in its place) */
+static double wtake(struct wr_result *w, const struct wr_override *ov,
+                    const enum wrapper_local_id id, const double value) {
+  w->local[id] = (ov->part == WP_WRAPPER && ov->id == (int)id) ? ov->value : value;
+  w->present[id] = 1;
+  return w->local[id];
+}
+
+/** @brief TRANSCRIPTION of the static reset_cgm_diagnostics (C:413-418) */
+static void tr_reset_cgm_diagnostics(struct GALAXY *g) {
+  g->tcool = 0.0;        /* C:415 */
+  g->tff = -1.0;         /* C:416 */
+  g->RcoolToRvir = -1.0; /* C:417 */
+}
+
+/**
+ * @brief TRANSCRIPTION of cooling_recipe_regime_aware (C:420-506)
+ *
+ * The nested cooling_recipe_hot and cooling_recipe_cgm are the transcriptions above, run on the
+ * wrapper's galaxy in place; get_metallicity (R/src/model_misc.c:427-437) is SAGE26's own.
+ */
+static void tr_cooling_recipe_regime_aware(const struct GALAXY *input, const double dt,
+                                           const struct params *p, const struct wr_override *ov,
+                                           struct wr_result *w) {
+  tr_init(&w->hot, input);
+  tr_init(&w->cgm, input);
+  for (int i = 0; i < W_COUNT; i++) {
+    w->local[i] = 0.0;
+    w->present[i] = 0;
+  }
+  for (int i = 0; i < WF_COUNT; i++) {
+    w->flag[i] = 0;
+  }
+  w->flag[WF_CGM_APPLY] = -1;
+  w->flag[WF_HOT_APPLY] = -1;
+  w->galaxy = *input;
+  w->after_hot = *input;
+  w->before_cgm = *input;
+  w->after_cgm = *input;
+  struct GALAXY *g = &w->galaxy;
+  const struct tr_override ov_hot = {(ov->part == WP_HOT) ? (enum local_id)ov->id : L_COUNT,
+                                     ov->value};
+  const struct tr_override ov_cgm = {(ov->part == WP_CGM) ? (enum local_id)ov->id : L_COUNT,
+                                     ov->value};
+
+  double cgm_cooling = 0.0;      /* C:422 */
+  double hot_cooling = 0.0;      /* C:423 */
+  float hot_tcool = -1.0f;       /* C:424 */
+  int hot_diagnostics_valid = 0; /* C:425 */
+
+  g->mdot_cool = 0.0;   /* C:433 */
+  g->mdot_stream = 0.0; /* C:434 */
+
+  w->flag[WF_CGM_REGIME] = (g->Regime == 0) ? 1 : 0;
+  if (g->Regime == 0) {    /* C:436 */
+    if (g->CGMgas > 0.0) { /* C:440 */
+      w->before_cgm = *g;
+      cgm_cooling = wtake(w, ov, W_CGM_RETURNED,
+                          tr_cooling_recipe_cgm_on(g, dt, p, &ov_cgm, &w->cgm)); /* C:441 */
+      w->after_cgm = *g;
+      w->flag[WF_CGM_CALLED] = 1;
+    } else {
+      tr_reset_cgm_diagnostics(g); /* C:443 */
+      w->flag[WF_RESET] = 1;
+    }
+  } else {
+    if (g->HotGas > 0.0) { /* C:451 */
+      hot_cooling = wtake(w, ov, W_HOT_RETURNED,
+                          tr_cooling_recipe_hot_on(g, dt, p, &ov_hot, &w->hot)); /* C:452 */
+      w->after_hot = *g;
+      w->flag[WF_HOT_CALLED] = 1;
+      if (g->Vvir > 0.0 && g->tcool > 0.0) { /* C:453 */
+        hot_tcool = g->tcool;                /* C:454 */
+        hot_diagnostics_valid = 1;           /* C:455 */
+      }
+    }
+
+    if (g->CGMgas > 0.0) { /* C:460 */
+      w->before_cgm = *g;
+      cgm_cooling = wtake(w, ov, W_CGM_RETURNED,
+                          tr_cooling_recipe_cgm_on(g, dt, p, &ov_cgm, &w->cgm)); /* C:461 */
+      w->after_cgm = *g;
+      w->flag[WF_CGM_CALLED] = 1;
+    } else if (!hot_diagnostics_valid) { /* C:462 */
+      tr_reset_cgm_diagnostics(g);       /* C:463 */
+      w->flag[WF_RESET] = 1;
+    }
+
+    if (hot_diagnostics_valid) { /* C:466 */
+      g->tcool = hot_tcool;      /* C:467 */
+      g->tff = -1.0f;            /* C:468 */
+      w->flag[WF_RESTORED] = 1;
+    }
+  }
+  w->flag[WF_HOT_VALID] = hot_diagnostics_valid;
+  w->hot_tcool = hot_tcool;
+
+  if (cgm_cooling > 0.0) { /* C:475 */
+    w->flag[WF_CGM_APPLY] = (cgm_cooling > g->CGMgas) ? 1 : 0;
+    if (cgm_cooling > g->CGMgas) { /* C:476-478 */
+      cgm_cooling = g->CGMgas;
+    }
+    cgm_cooling = wtake(w, ov, W_CGM_APPLIED, cgm_cooling);
+    const double metallicity =
+        wtake(w, ov, W_CGM_METALLICITY, get_metallicity(g->CGMgas, g->MetalsCGMgas)); /* C:479 */
+    g->ColdGas += cgm_cooling;                                                        /* C:480 */
+    g->MetalsColdGas += metallicity * cgm_cooling;                                    /* C:481 */
+    g->CGMgas -= cgm_cooling;                                                         /* C:482 */
+    g->MetalsCGMgas -= metallicity * cgm_cooling;                                     /* C:483 */
+  }
+
+  if (hot_cooling > 0.0) { /* C:487 */
+    w->flag[WF_HOT_APPLY] = (hot_cooling > g->HotGas) ? 1 : 0;
+    if (hot_cooling > g->HotGas) { /* C:488-490 */
+      hot_cooling = g->HotGas;
+    }
+    hot_cooling = wtake(w, ov, W_HOT_APPLIED, hot_cooling);
+    const double metallicity =
+        wtake(w, ov, W_HOT_METALLICITY, get_metallicity(g->HotGas, g->MetalsHotGas)); /* C:491 */
+    g->ColdGas += hot_cooling;                                                        /* C:492 */
+    g->MetalsColdGas += metallicity * hot_cooling;                                    /* C:493 */
+    g->HotGas -= hot_cooling;                                                         /* C:494 */
+    g->MetalsHotGas -= metallicity * hot_cooling;                                     /* C:495 */
+  }
+
+  const double total_cooling = wtake(w, ov, W_TOTAL, cgm_cooling + hot_cooling); /* C:498 */
+  g->CoolingRate = (dt > 0.0) ? (float)((total_cooling / dt) * 1.0e10 / p->Hubble_h *
+                                        SEC_PER_GIGAYEAR / p->UnitTime_in_s)
+                              : 0.0f; /* C:499-502 */
+  w->ret = total_cooling;             /* C:505 */
 }
 
 /* SAGE26's literal tables of interpolate_clustering_mass (H:101, H:104-108, H:111-115) */
@@ -1339,6 +1554,185 @@ static void run_do_agn_heating_cgm_on(void) {
 }
 
 // ============================================================================
+// THE WRAPPER AND THE WRITER CONVERSION
+// ============================================================================
+
+/** @brief Whether two wrapper runs agree in every recorded field and the return value */
+static int same_wr_result(const struct wr_result *a, const struct wr_result *b) {
+  return same_f64(a->ret, b->ret) && same_recorded_state(&a->galaxy, &b->galaxy);
+}
+
+static void run_wrapper(const struct wr_override *ov, struct wr_result *w) {
+  tr_cooling_recipe_regime_aware(&routine_input, routine_time.dt, &run_params, ov, w);
+}
+
+/** @brief Write one wrapper-fixture local with its check and two-sided validation markers */
+static void write_wrapper_local(const struct wr_result *base, const char *name, const double v,
+                                const enum wr_part part, const int id) {
+  struct wr_override up = {part, id, nextafter(v, INFINITY)};
+  struct wr_override down = {part, id, nextafter(v, -INFINITY)};
+  static struct wr_result ru, rd;
+  run_wrapper(&up, &ru);
+  run_wrapper(&down, &rd);
+  const int vu = !same_wr_result(&ru, base);
+  const int vd = !same_wr_result(&rd, base);
+  out_i32(field_name("intermediate.%s_absent", name), 0);
+  out_f64(field_name("intermediate.%s", name), v);
+  out_i32(field_name("intermediate.%s_checked", name), 1);
+  out_i32(field_name("intermediate.%s_check_kind", name), 2);
+  out_i32(field_name("intermediate.%s_validated_up", name), vu);
+  out_i32(field_name("intermediate.%s_validated_down", name), vd);
+  out_i32(field_name("intermediate.%s_validated", name), vu && vd);
+}
+
+/** @brief The nested call's flags, prefixed */
+static void write_nested_flags(const char *prefix, const struct tr_result *r,
+                               const enum flag_id *flags, const int n) {
+  for (int k = 0; k < n; k++) {
+    char name[NAME_LEN];
+    snprintf(name, sizeof(name), "%s%s", prefix, FLAG_NAME[flags[k]]);
+    out_i32(field_name("intermediate.%s", name), r->flag[flags[k]]);
+  }
+}
+
+/** @brief The nested call's present locals, prefixed, each tail-checked and tested two-sided */
+static void write_nested_locals(const struct wr_result *base, const struct tr_result *r,
+                                const char *prefix, const enum wr_part part) {
+  for (int id = 0; id < L_COUNT; id++) {
+    if (!r->present[id]) {
+      continue;
+    }
+    char name[NAME_LEN];
+    snprintf(name, sizeof(name), "%s%s", prefix, LOCAL_NAME[id]);
+    write_wrapper_local(base, name, r->local[id], part, id);
+  }
+}
+
+/**
+ * @brief cooling_recipe_regime_aware (C:420-506), called directly
+ *
+ * Checks, beyond the full transcription's: SAGE26's own cooling_recipe_hot, called on the input
+ * with the mdot fields the wrapper reset (C:433-434), reproduces the transcription's post-hot
+ * galaxy and hot_cooling; SAGE26's own cooling_recipe_cgm, called on the galaxy the
+ * transcription handed it, reproduces its post-CGM galaxy and cgm_cooling. Every local is
+ * tail-checked.
+ */
+static void run_cooling_recipe_regime_aware(void) {
+  read_flags(1);
+  read_units();
+  routine_time = read_call_time();
+  read_galaxy_block();
+  galaxies[0].Regime = in_i32(galaxy_field(0, "Regime"));
+  read_stream_cosmology();
+  check_all_fields_used();
+
+  routine_input = galaxies[0];
+
+  /* B:503-509 with CGMrecipeOn 1 (C:128-129): the call itself, on the fixture input */
+  const double total = cooling_recipe_regime_aware(0, routine_time.dt, galaxies, &run_params);
+  const struct GALAXY after = galaxies[0];
+  check_only_recorded_changed(&routine_input, &after);
+
+  static struct wr_result base;
+  run_wrapper(&WR_NO_OVERRIDE, &base);
+  if (!same_f64(base.ret, total) || !same_recorded_state(&base.galaxy, &after)) {
+    fatal("transcription check failed: the cooling_recipe_regime_aware transcription does not "
+          "reproduce SAGE26's call bit for bit");
+  }
+
+  /* The nested calls against SAGE26's own public routines */
+  if (base.flag[WF_HOT_CALLED]) {
+    galaxies[0] = routine_input;
+    galaxies[0].mdot_cool = 0.0;   /* C:433 */
+    galaxies[0].mdot_stream = 0.0; /* C:434 */
+    const double hot = cooling_recipe_hot(0, routine_time.dt, galaxies, &run_params);
+    if (!same_f64(hot, base.local[W_HOT_RETURNED]) ||
+        !same_recorded_state(&galaxies[0], &base.after_hot)) {
+      fatal("sub-call check failed: SAGE26's cooling_recipe_hot on the input does not reproduce "
+            "the transcription's hot call");
+    }
+  }
+  if (base.flag[WF_CGM_CALLED]) {
+    galaxies[0] = base.before_cgm;
+    const double cgm = cooling_recipe_cgm(0, routine_time.dt, galaxies, &run_params);
+    if (!same_f64(cgm, base.local[W_CGM_RETURNED]) ||
+        !same_recorded_state(&galaxies[0], &base.after_cgm)) {
+      fatal("sub-call check failed: SAGE26's cooling_recipe_cgm on the transcription's galaxy "
+            "does not reproduce the transcription's CGM call");
+    }
+  }
+
+  write_call_time(&routine_time);
+  out_f64("return.total_cooling", total);
+  write_galaxy_state(&after);
+  for (int k = 0; k < WF_COUNT; k++) {
+    out_i32(field_name("intermediate.%s", WRAPPER_FLAG_NAME[k]), base.flag[k]);
+  }
+  out_f32("intermediate.hot_tcool", base.hot_tcool);
+  if (base.flag[WF_HOT_CALLED]) {
+    static const enum flag_id hot_flags[] = {
+        F_RETURN_PATH, F_RATIO_NONPOSITIVE,   F_EXPONENT_CAPPED_HIGH, F_EXPONENT_CAPPED_LOW,
+        F_CUTOFF,      F_FSTREAM_CAPPED_HIGH, F_FSTREAM_FLOORED,      F_CAP,
+        F_AGN_ENTERED};
+    write_nested_flags("hot.", &base.hot, hot_flags,
+                       (int)(sizeof(hot_flags) / sizeof(hot_flags[0])));
+    write_nested_flags("hot.", &base.hot, AGN_FLAGS, NUM_AGN_FLAGS);
+    write_nested_locals(&base, &base.hot, "hot.", WP_HOT);
+  }
+  if (base.flag[WF_CGM_CALLED]) {
+    static const enum flag_id cgm_flags[] = {F_ENTERED, F_LAMBDA_POSITIVE, F_CAP, F_AGN_ENTERED,
+                                             F_RECAPPED};
+    write_nested_flags("cgm.", &base.cgm, cgm_flags,
+                       (int)(sizeof(cgm_flags) / sizeof(cgm_flags[0])));
+    write_nested_flags("cgm.", &base.cgm, AGN_FLAGS, NUM_AGN_FLAGS);
+    write_nested_locals(&base, &base.cgm, "cgm.", WP_CGM);
+  }
+  for (int id = 0; id < W_COUNT; id++) {
+    if (base.present[id]) {
+      write_wrapper_local(&base, WRAPPER_LOCAL_NAME[id], base.local[id], WP_WRAPPER, id);
+    }
+  }
+}
+
+/**
+ * @brief TRANSCRIPTION of SAGE26's writer conversion of the mdot rates
+ *        (R/src/io/save_gals_hdf5.c:996-997)
+ *
+ * save_gals_hdf5.c is not in the oracle's link (it needs SAGE26's output buffers), so its two
+ * statements are compiled here with SAGE26's types and flags: the float member widened, then
+ * multiplied by UnitMass_in_g, divided by UnitTime_in_s, multiplied by SEC_PER_YEAR and divided by
+ * SOLAR_MASS (R/src/macros.h:24, :38) left to right, narrowed into the float buffer member.
+ * save_gals_hdf5.o computes exactly that (fcvt, fmul, fdiv, fmul, fdiv, fcvt; oracle README, "The
+ * c11 Group"). The same conversion regrouped as one constant factor is recorded beside it, for
+ * the evidence that the package's form matters.
+ */
+static void run_writer_mdot_conversion(void) {
+  run_params.UnitMass_in_g = in_f64("params.UnitMass_in_g");
+  run_params.UnitTime_in_s = in_f64("params.UnitTime_in_s");
+  struct GALAXY *g = &galaxies[0];
+  g->mdot_cool = in_f32(galaxy_field(0, "mdot_cool"));
+  g->mdot_stream = in_f32(galaxy_field(0, "mdot_stream"));
+  check_all_fields_used();
+
+  const float mdot_cool = g->mdot_cool * run_params.UnitMass_in_g / run_params.UnitTime_in_s *
+                          SEC_PER_YEAR / SOLAR_MASS; /* save_gals_hdf5.c:996 */
+  const float mdot_stream = g->mdot_stream * run_params.UnitMass_in_g / run_params.UnitTime_in_s *
+                            SEC_PER_YEAR / SOLAR_MASS; /* save_gals_hdf5.c:997 */
+
+  volatile double factor =
+      run_params.UnitMass_in_g / run_params.UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS;
+  const float grouped_cool = (float)(g->mdot_cool * factor);
+  const float grouped_stream = (float)(g->mdot_stream * factor);
+
+  out_f32("output.mdot_cool", mdot_cool);
+  out_f32("output.mdot_stream", mdot_stream);
+  out_f32("intermediate.grouped_mdot_cool", grouped_cool);
+  out_f32("intermediate.grouped_mdot_stream", grouped_stream);
+  out_i32("intermediate.grouped_differs_mdot_cool", !same_f32(grouped_cool, mdot_cool));
+  out_i32("intermediate.grouped_differs_mdot_stream", !same_f32(grouped_stream, mdot_stream));
+}
+
+// ============================================================================
 // MAIN
 // ============================================================================
 
@@ -1352,6 +1746,8 @@ static const struct routine_entry routines[] = {
     {"cooling_recipe_hot_streams", run_cooling_recipe_hot_streams},
     {"cooling_recipe_cgm", run_cooling_recipe_cgm},
     {"do_AGN_heating_cgm_on", run_do_agn_heating_cgm_on},
+    {"cooling_recipe_regime_aware", run_cooling_recipe_regime_aware},
+    {"writer_mdot_conversion", run_writer_mdot_conversion},
 };
 
 static const char *base_name(const char *path) {
