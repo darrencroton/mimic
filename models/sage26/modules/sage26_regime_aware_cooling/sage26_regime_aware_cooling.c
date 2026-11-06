@@ -315,8 +315,11 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
 
   // SAGE parity: SAGE26 ends the wrapper with XASSERT(total_cooling >= 0.0)
   // (R/src/model_cooling_heating.c:503-504), which is not ported: from a valid state it cannot
-  // fire, since each application runs only for a positive mass and caps it to its non-negative
-  // reservoir, so both terms of the total are non-negative
+  // fire. Each recipe returns a non-negative mass: the CGM recipe's floor (:366-369), its
+  // suppression factor with r_heat < rcool (:638-643) and its re-cap to the non-negative CGMgas
+  // (:675-677); the hot recipe's cap and floor (:288-292), checked by its own XASSERT (:307-308).
+  // A skipped application adds that unchanged non-negative term to the total (:498), and an
+  // applied one caps a positive mass to its non-negative reservoir, so the total is non-negative
   return 0;
 }
 

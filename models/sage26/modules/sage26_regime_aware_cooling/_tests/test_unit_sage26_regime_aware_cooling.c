@@ -318,8 +318,11 @@ int test_stream_rates_stored_raw(void) {
  * A hot-regime central with dense hot gas and a large black hole: the hot recipe's rcool exceeds
  * Rvir, the hot AGN's heating is capped to the cooling mass, so its ratchet sets Rheat = rcool, and
  * the CGMrecipeOn 1 cap sets Rheat = Rvir (C:612-616, :623-624). The CGM recipe then pins rcool to
- * Rvir (C:360), and Rheat >= rcool zeroes the CGM cooling mass (C:638-643), so the CGM pair is
- * not touched (the CGM accretion is capped to the zero mass's heating, C:568-571).
+ * Rvir (C:360). Its AGN gate sees the positive post-cap mass (C:372-374), so the CGM AGN is called;
+ * its suppression then zeroes the mass, as Rheat >= rcool (C:638-643); the accretion's heating cap
+ * then binds against the zero mass and sets the accretion to 0 / AGNcoeff = 0 (C:568-571), so the
+ * CGM pair is not drawn from, and nothing is applied (C:475). The pair is not touched (the oracle's
+ * rac_regime1_hot_rheat_saturates_cgm records cgm.agn_entered 1, heating_capped 1, AGNaccreted 0).
  *
  * Expected: RcoolToRvir > 1 (the precondition), Rheat equal to the float Rvir, CGMgas and
  * MetalsCGMgas exactly as they were, the black hole grown. Run in the other order the CGM AGN
