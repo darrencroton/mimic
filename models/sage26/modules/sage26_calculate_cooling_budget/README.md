@@ -45,7 +45,7 @@ With `CGMrecipeOn 1` SAGE26 calls `cooling_recipe_regime_aware` instead of `cool
 
 ## Parameters
 
-- `CGMrecipeOn` — required (campaign decision D33), 0 or 1; any other value, or a missing key, fails `init()` naming the parameter. The run files' value is 1 (R4), so on the shipped runs this module writes only its no-cooling transport.
+- `CGMrecipeOn` — required (campaign decision D33), 0 or 1; any other value, or a missing key, fails `init()` naming the parameter. The run files' value is 1 (R4, kept at R5), so on the shipped runs this module writes only its no-cooling transport.
 
 The unit factors and `Hubble_h` are core-owned.
 

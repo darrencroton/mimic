@@ -1,0 +1,26 @@
+# Large ratios: no upper rejection (the plan's quirk). ratio_sq beyond f(200),
+# 10.036952025966171, moves c_lo at every step and the return saturates at the upper
+# bound 200, which binds (c_hi never moves); just below f(200) it does not quite. Vvir 1
+# unless stated.
+# Reachability: constructed routine-domain probe.
+format sage26-oracle-fixture 1
+routine concentration_from_vmax_vvir
+i32 call.ncase 6
+# case[0]: ratio_sq just below f(200)
+f64 case[0].Vmax 0x4009584c19d6890a  # 3.168113901004408
+f64 case[0].Vvir 0x3ff0000000000000  # 1.0
+# case[1]: ratio_sq at sqrt(f(200)) squared
+f64 case[1].Vmax 0x4009584ca00e4610  # 3.168114901004408
+f64 case[1].Vvir 0x3ff0000000000000  # 1.0
+# case[2]: ratio_sq 2.25 f(200)
+f64 case[2].Vmax 0x40130239780ab48c  # 4.752172351506612
+f64 case[2].Vvir 0x3ff0000000000000  # 1.0
+# case[3]: Vmax / Vvir = 10: ratio_sq 100
+f64 case[3].Vmax 0x409f400000000000  # 2000.0
+f64 case[3].Vvir 0x4069000000000000  # 200.0
+# case[4]: ratio_sq 1e300
+f64 case[4].Vmax 0x5f138d352e5096af  # 1e+150
+f64 case[4].Vvir 0x3ff0000000000000  # 1.0
+# case[5]: Vmax / Vvir overflows to +inf
+f64 case[5].Vmax 0x6974e718d7d7625a  # 1e+200
+f64 case[5].Vvir 0x16687e92154ef7ac  # 1e-200

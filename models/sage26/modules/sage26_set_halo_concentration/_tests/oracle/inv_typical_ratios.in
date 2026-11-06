@@ -1,0 +1,30 @@
+# Typical Vmax / Vvir ratios of resolved haloes (1.05 to 2) with km/s velocities, and
+# ratios into the large regime (2.5, 3, 3.1).
+# Reachability: constructed routine-domain probe.
+format sage26-oracle-fixture 1
+routine concentration_from_vmax_vvir
+i32 call.ncase 8
+# case[0]: Vmax / Vvir 1.05
+f64 case[0].Vmax 0x4063b00000000000  # 157.5
+f64 case[0].Vvir 0x4062c00000000000  # 150.0
+# case[1]: 1.1
+f64 case[1].Vmax 0x4064a00000000000  # 165.0
+f64 case[1].Vvir 0x4062c00000000000  # 150.0
+# case[2]: 1.2
+f64 case[2].Vmax 0x4066800000000000  # 180.0
+f64 case[2].Vvir 0x4062c00000000000  # 150.0
+# case[3]: 1.5
+f64 case[3].Vmax 0x406c200000000000  # 225.0
+f64 case[3].Vvir 0x4062c00000000000  # 150.0
+# case[4]: 2
+f64 case[4].Vmax 0x4072c00000000000  # 300.0
+f64 case[4].Vvir 0x4062c00000000000  # 150.0
+# case[5]: 2.5
+f64 case[5].Vmax 0x4077700000000000  # 375.0
+f64 case[5].Vvir 0x4062c00000000000  # 150.0
+# case[6]: 3
+f64 case[6].Vmax 0x407c200000000000  # 450.0
+f64 case[6].Vvir 0x4062c00000000000  # 150.0
+# case[7]: 3.1
+f64 case[7].Vmax 0x407d100000000000  # 465.0
+f64 case[7].Vvir 0x4062c00000000000  # 150.0

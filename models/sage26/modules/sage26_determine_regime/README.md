@@ -36,8 +36,8 @@ A NaN `mass_ratio` is not `<= 0.0`, so it takes the draw branch, as SAGE26's tes
 
 Both are required, with no default (campaign decision D33); a missing key fails `init()`.
 
-- `CGMrecipeOn`: 0 (no classification; SAGE26 R0-R3) or 1 (the classifier; SAGE26 R4). Any other value is refused, naming it. The run files hold 1 (R4): with this classifier, the regime-aware routing and `sage26_regime_aware_cooling` the package runs SAGE26's R4.
-- `MShockMsun`: the shock mass in physical Msun (no `h`), SAGE26's default 6.0e11 (`src/core_read_parameter_file.c:114`), which R4 uses. A non-positive or non-finite value is refused, naming it.
+- `CGMrecipeOn`: 0 (no classification; SAGE26 R0-R3) or 1 (the classifier; SAGE26 R4). Any other value is refused, naming it. The run files hold 1 (R4, kept at R5): with this classifier, the regime-aware routing and `sage26_regime_aware_cooling` the package runs SAGE26's R4 CGM recipe, and with `ConcentrationOn 3` (`sage26_set_halo_concentration`) it runs SAGE26's R5.
+- `MShockMsun`: the shock mass in physical Msun (no `h`), SAGE26's default 6.0e11 (`src/core_read_parameter_file.c:114`), which R4 and R5 use. A non-positive or non-finite value is refused, naming it.
 
 ## Test Seam
 

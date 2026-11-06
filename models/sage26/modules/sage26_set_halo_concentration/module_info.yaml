@@ -1,0 +1,32 @@
+module:
+  name: sage26_set_halo_concentration
+  description: >-
+    SAGE26's halo-concentration assignment of progenitor joining: with ConcentrationOn 3, each new
+    FoF central that was a Type 0 or 1 before joining gets the NFW concentration inverted from
+    Vmax/Vvir by SAGE26's fixed 60-step bisection, from its current velocities if it was a
+    central and its infall-frozen velocities if it was a satellite; with ConcentrationOn 0 it
+    writes nothing
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type            # read: only the new FoF central (Type 0) is assigned
+      - PreviousType    # read: the Type before joining, which selects the velocity pair
+      - Vmax            # read (narrowed to SAGE26's float)
+      - Vvir            # read (narrowed to SAGE26's float)
+      - infallVmax      # read (narrowed to SAGE26's float)
+      - infallVvir      # read (narrowed to SAGE26's float)
+      - Concentration   # written (ConcentrationOn 3 only)
+    parameters:
+      - ConcentrationOn # required: 0 (off) or 3 (the Vmax/Vvir inversion)
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_set_halo_concentration.c
+      - _tests/test_unit_sage26_set_halo_concentration_oracle.c
+    integration: []
+    scientific: []
+
+  docs:
+    physics: README.md

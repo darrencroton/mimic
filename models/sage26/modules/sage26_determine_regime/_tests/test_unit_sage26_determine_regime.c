@@ -240,7 +240,7 @@ static SAGE26_REGIME_TEST_NOINLINE double sage26_hot_fraction(const float mvir_i
 /**
  * @test    test_module_lifecycle
  * @brief   The module registers, initialises through module_system_init in pre_timestep with
- *          the run files' R3 values (CGMrecipeOn 0, MShockMsun 6.0e11), cleans up, no leaks
+ *          CGMrecipeOn 0 (SAGE26's R0-R3 value), MShockMsun 6.0e11, cleans up, no leaks
  */
 int test_module_lifecycle(void) {
   reset_config();

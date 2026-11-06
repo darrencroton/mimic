@@ -21,7 +21,8 @@
 # (C11_ROUTINES below) runs through oracle_c11, although the c11 fixtures are
 # owned by the c04 modules sage26_calculate_cooling_budget, sage26_radio_mode_heating
 # and sage26_finalize_cooling_heating (the writer conversion) as well as by
-# sage26_regime_aware_cooling (the regime-aware wrapper).
+# sage26_regime_aware_cooling (the regime-aware wrapper). A fixture whose routine line
+# names a c12 routine (C12_ROUTINES below) runs through oracle_c12.
 #
 # Environment: as build.sh (SAGE26_SRC, ORACLE_OUT, ORACLE_ALLOW_ANY_TOOLCHAIN).
 # See README.md in this directory.
@@ -115,6 +116,11 @@ C10_ROUTINES="determine_and_store_regime"
 ORACLE_C11=$ORACLE_OUT/oracle_c11
 C11_ROUTINES="interpolate_clustering_mass cooling_recipe_hot_streams cooling_recipe_cgm
 do_AGN_heating_cgm_on cooling_recipe_regime_aware writer_mdot_conversion"
+# The c12 group (the halo concentration: the Vmax/Vvir inversion and get_halo_concentration's
+# ConcentrationOn 0 and 3 dispatch, each called directly) has its own oracle main and is
+# selected by routine.
+ORACLE_C12=$ORACLE_OUT/oracle_c12
+C12_ROUTINES="concentration_from_vmax_vvir get_halo_concentration"
 
 # Each oracle run writes to a fresh temporary file under ORACLE_OUT, which
 # replaces the committed output only if the oracle exited 0 AND the file is a
@@ -173,6 +179,11 @@ for input in $listed; do
   for name in $C11_ROUTINES; do
     if [ "$routine" = "$name" ]; then
       oracle=$ORACLE_C11
+    fi
+  done
+  for name in $C12_ROUTINES; do
+    if [ "$routine" = "$name" ]; then
+      oracle=$ORACLE_C12
     fi
   done
   tmp=$TMP_OUT/output

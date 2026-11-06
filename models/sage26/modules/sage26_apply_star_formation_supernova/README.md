@@ -40,7 +40,7 @@ SAGE26 samples and makes both calls on every substep, also when no stars formed,
 
 - `RecycleFraction`
 - `SFprescription` (required, 0 or 1): 1 (the run files' value, BR06, SAGE26's R2) commits with the hydrogen caps, 0 (R0, R1) without them (`:1131`, `:1169`); any other value, or a missing key, fails initialisation with an error naming the parameter.
-- `CGMrecipeOn` (required, 0 or 1, campaign decision D33): 1 (the run files' value, SAGE26's R4) routes the feedback by the FoF central's `Regime`, 0 (R0-R3) always to its hot pair; any other value, or a missing key, fails initialisation with an error naming the parameter.
+- `CGMrecipeOn` (required, 0 or 1, campaign decision D33): 1 (the run files' value, SAGE26's R4, kept at R5) routes the feedback by the FoF central's `Regime`, 0 (R0-R3) always to its hot pair; any other value, or a missing key, fails initialisation with an error naming the parameter.
 
 ## Notes
 

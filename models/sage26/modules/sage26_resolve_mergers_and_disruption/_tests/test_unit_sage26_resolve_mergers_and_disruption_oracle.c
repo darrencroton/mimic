@@ -148,6 +148,8 @@ extern void sage26_resolve_mergers_and_disruption_set_action_hook(
     void (*hook)(const char *action, int source_index, int target_index, double mass_ratio));
 extern int sage26_initialise_merger_clock_init(void);
 extern int sage26_initialise_merger_clock_cleanup(void);
+extern int sage26_set_halo_concentration_init(void);
+extern int sage26_set_halo_concentration_cleanup(void);
 extern int sage26_quasar_mode_init(void);
 extern int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 extern int sage26_quasar_mode_cleanup(void);
@@ -1785,6 +1787,14 @@ static int check_join_and_pass(const char *name) {
     fprintf(stderr, "oracle: %s: the clock module failed to initialise\n", name);
     problems++;
   }
+  /* The concentration module the joining harness runs after the clock, with the fixture's
+   * required ConcentrationOn (campaign decision D33; 0 for every join_and_pass fixture) */
+  if (oracle_set_model_param("ConcentrationOn",
+                             (double)oracle_in_i32(&in, "params.ConcentrationOn")) != 0 ||
+      sage26_set_halo_concentration_init() != 0) {
+    fprintf(stderr, "oracle: %s: the concentration module failed to initialise\n", name);
+    problems++;
+  }
 
   struct GalaxyPool *pool = galaxy_pool_create(16);
   static struct oracle_join_result result;
@@ -1851,6 +1861,7 @@ static int check_join_and_pass(const char *name) {
   }
   cleanup_modules();
   sage26_initialise_merger_clock_cleanup();
+  sage26_set_halo_concentration_cleanup();
 
   // SAGE26's joining locals (their effects are the asserted fields), and the inputs the
   // composition reads through the core and the modules
@@ -2051,6 +2062,7 @@ int main(void) {
 
   // The production run file's phases (models/sage26/input/sage26_mini-millennium.yaml)
   test_pre_timestep_add("sage26_initialise_merger_clock", PROCESSING_MODE_FULL_HALO);
+  test_pre_timestep_add("sage26_set_halo_concentration", PROCESSING_MODE_FULL_HALO);
   test_phase_add("galaxy_physics", "sage26_disk_instability", PROCESSING_MODE_BY_GALAXY);
   test_phase_add("satellite_mergers", MODULE, PROCESSING_MODE_FULL_HALO);
   test_phase_add("satellite_mergers", "sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);

@@ -1,0 +1,20 @@
+# Either side of the jump (the plan's non-monotonic quirk): A c / mu(c) is not monotonic
+# on [1, about 2.16], the seventh midpoint is 2.5546875, whose f is 1.0050276914764331,
+# and the eighth, 1.77734375, has a larger f. With Vvir = 1, case 0's Vmax is the last
+# double whose ratio_sq (f - 1 ulp) returns exactly 1.0; case 1's, the next double, is
+# the first that does not (ratio_sq f + 1 ulp moves c_lo to 2.5546875, which binds:
+# returns exactly 2.5546875); case 2 is the double after that. No double q gives
+# fl(q * q) equal to f itself, so the tie at the jump is not constructible.
+# Reachability: constructed routine-domain probe.
+format sage26-oracle-fixture 1
+routine concentration_from_vmax_vvir
+i32 call.ncase 3
+# case[0]: the last ratio returning 1.0
+f64 case[0].Vmax 0x3ff00a48a74639a0  # 1.0025106939461708
+f64 case[0].Vvir 0x3ff0000000000000  # 1.0
+# case[1]: the first ratio not returning 1.0
+f64 case[1].Vmax 0x3ff00a48a74639a1  # 1.002510693946171
+f64 case[1].Vvir 0x3ff0000000000000  # 1.0
+# case[2]: the next ratio
+f64 case[2].Vmax 0x3ff00a48a74639a2  # 1.0025106939461712
+f64 case[2].Vvir 0x3ff0000000000000  # 1.0

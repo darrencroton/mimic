@@ -18,13 +18,16 @@ modules:
 
   pre_timestep:
     # Setup and snapshot budgets, in SAGE26's source order: progenitor joining (the
-    # SFR-history reset, merger clock and infall, then the central's disk radius,
-    # SAGE26 core_build_model.c:240-338), then reionization, the CGM regime classifier
-    # (SAGE26 calls it between joining and infall_recipe, core_build_model.c:407-415; it
-    # writes nothing with CGMrecipeOn 0) and the FoF infall budget.
+    # SFR-history reset, merger clock and infall, then the central's halo concentration,
+    # core_build_model.c:290-294, and its disk radius, SAGE26 core_build_model.c:240-338),
+    # then reionization, the CGM regime classifier (SAGE26 calls it between joining and
+    # infall_recipe, core_build_model.c:407-415; it writes nothing with CGMrecipeOn 0) and
+    # the FoF infall budget.
     # The merger clock runs first: it zeroes the histories of the rows SAGE26 resets
-    # (core_build_model.c:278-282) before any history is read or written
+    # (core_build_model.c:278-282) before any history is read or written. The concentration
+    # writes nothing with ConcentrationOn 0
     - sage26_initialise_merger_clock: process_full_halo
+    - sage26_set_halo_concentration:  process_full_halo
     - sage26_set_disk_scale_radius:   process_full_halo
     - sage26_reionization:            process_full_halo
     - sage26_determine_regime:        process_full_halo
@@ -89,6 +92,9 @@ modules:
     # CGM regime
     CGMrecipeOn: 1                      # CGM regime recipe: 1 = SAGE26's R4 (R4.par:54), the classifier with the package's keyed draw, regime-aware routing and regime-aware cooling; 0 = off, Regime keeps its creation value -1 and cooling takes the classic hot path (SAGE26 R0-R3, R3.par:54); required
     MShockMsun: 6.0e11                  # Dekel & Birnboim (2006) shock mass in physical Msun (SAGE26 default, core_read_parameter_file.c:114; R4.par does not set it); used only with CGMrecipeOn 1, but always required and validated (positive, finite)
+
+    # Halo concentration
+    ConcentrationOn: 3                  # NFW halo concentration: 0 = off, Concentration keeps its creation value 0 (SAGE26 R0-R4, R4.par:57); 3 = the Vmax/Vvir inversion, infall-frozen for a former satellite (R5, R5.par:57); 1 and 2 not ported; required
 
     # Star Formation
     SfrEfficiency: 0.05                 # Star formation efficiency
