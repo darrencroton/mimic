@@ -25,7 +25,7 @@ A port of SAGE26's `add_infall_to_hot` (`src/model_infall.c:351-414`), called wi
 
 ## Parameters
 
-- `CGMrecipeOn` (required, 0 or 1; any other value, or a missing key, fails initialisation naming it; the run files hold 1, SAGE26's R4, kept at R5)
+- `CGMrecipeOn` (required, 0 or 1; any other value, or a missing key, fails initialisation naming it; the run files hold 1, SAGE26's R4, kept through R6)
 
 ## Tests
 

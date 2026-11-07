@@ -53,7 +53,7 @@ A satellite that is not eligible, or whose clock is not finite, stays and is rec
 - `ThresholdMajorMerger`
 - `ThresholdSatDisruption`
 - `BulgeSizeOn` (required, 0 or 3): SAGE26's bulge-size mode. 0, SAGE26's R0, computes no sizes (`R/src/model_misc.c:242-247`, `:395`); 3, the run files' value, is SAGE26's Tonini et al. (2016) merger and instability bulges (`:317-424`, `R1.par:109`), with the remnant radius and its major/minor assignment after the burst (`M:293-330`). Modes 1 and 2 are not ported: any value other than 0 or 3, or a missing key, fails initialisation with an error naming the parameter. Mode 3 also reads the core's `Hubble_h`.
-- `CGMrecipeOn` (required, 0 or 1, campaign decision D33): 1, the run files' value (SAGE26's R4, kept at R5), deposits a disruption's gas in the target's pair its `Regime` selects; 0 (R0-R3) in its hot pair. A merger's addition moves CGM to CGM and hot to hot either way (`M:464-465`, `:496-497`). Any other value, or a missing key, fails initialisation with an error naming the parameter.
+- `CGMrecipeOn` (required, 0 or 1, campaign decision D33): 1, the run files' value (SAGE26's R4, kept through R6), deposits a disruption's gas in the target's pair its `Regime` selects; 0 (R0-R3) in its hot pair. A merger's addition moves CGM to CGM and hot to hot either way (`M:464-465`, `:496-497`). Any other value, or a missing key, fails initialisation with an error naming the parameter.
 
 ## Tests
 

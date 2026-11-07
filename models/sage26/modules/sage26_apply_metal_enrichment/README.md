@@ -27,7 +27,7 @@ Applies the instantaneous-recycling metal yield for stars formed in the disk thi
 |-----------|-------------|
 | `Yield` | Metal yield per unit stellar mass formed |
 | `FracZleaveDisk` | Fraction of newly produced metals ejected directly to the hot halo |
-| `CGMrecipeOn` | Required, 0 or 1 (campaign decision D33): 1 sends the escaping metals to the FoF central's `MetalsCGMgas` when its `Regime` is 0 and to its `MetalsHotGas` otherwise (the run files' value, SAGE26's R4, kept at R5); 0 (R0-R3) always to `MetalsHotGas`. Any other value, or a missing key, fails initialisation naming the parameter |
+| `CGMrecipeOn` | Required, 0 or 1 (campaign decision D33): 1 sends the escaping metals to the FoF central's `MetalsCGMgas` when its `Regime` is 0 and to its `MetalsHotGas` otherwise (the run files' value, SAGE26's R4, kept through R6); 0 (R0-R3) always to `MetalsHotGas`. Any other value, or a missing key, fails initialisation naming the parameter |
 
 ## Notes
 

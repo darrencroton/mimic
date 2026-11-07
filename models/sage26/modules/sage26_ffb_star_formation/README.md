@@ -40,7 +40,7 @@ A port of SAGE26's `starformation_ffb` (`src/model_starformation_and_feedback.c:
 
 ## Parameters
 
-- `EnhancedStarFormationOn`: required, with no default (campaign decision D33); 0 (nothing written; SAGE26 R0-R5, `R5.par:58`) or 1 (FFB star formation for `FFBRegime` 1 rows; R6, `R6.par:58`, SAGE26's default). Any other value is refused, naming it. The run files hold 0.
+- `EnhancedStarFormationOn`: required, with no default (campaign decision D33); 0 (nothing written; SAGE26 R0-R5, `R5.par:58`) or 1 (FFB star formation for `FFBRegime` 1 rows; R6, `R6.par:58`, SAGE26's default). Any other value is refused, naming it. The run files hold 1 (R6).
 - `EnhancedSFEfficiency`: required, with no default; finite and within [0, 1] (`R6.par:67`, "1.0 is theoretical maximum"), else refused naming it (a NaN included). The run files hold 0.2 (`R6.par:67`; SAGE26's default, `src/core_read_parameter_file.c:104`).
 - `FIREmodeOn`: required; at `EnhancedStarFormationOn` 1 only 1 is accepted, since FFB's fixed-epsilon branch (`:935-937`, `:960-965`) is on no rung (campaign decision D6); 0 is refused there, naming it.
 - The existing keys the transaction reads, each with its existing validation: `StarFormingDiskFactor`, `SFprescription` (0 or 1), `RecycleFraction`, `CGMrecipeOn` (0 or 1), `FeedbackReheatingEpsilon`, `FeedbackEjectionEfficiency`, `Yield`, `FracZleaveDisk`. The run's `Hubble_h` and units come from the run configuration (SAGE26's `EtaSNcode` and `EnergySNcode`, `src/core_init.c:102-103`).

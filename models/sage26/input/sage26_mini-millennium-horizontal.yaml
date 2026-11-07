@@ -107,7 +107,7 @@ modules:
     MShockMsun: 6.0e11                  # Dekel & Birnboim (2006) shock mass in physical Msun (SAGE26 default, core_read_parameter_file.c:114; R4.par does not set it); used only with CGMrecipeOn 1, but always required and validated (positive, finite)
 
     # Feedback-free bursts
-    EnhancedStarFormationOn: 0          # FFB mode: 0 = off, FFBRegime keeps its creation value 0 (SAGE26 R0-R5, R5.par:58); 1 = SAGE26's Li+24 classifier and FFB star formation (R6, R6.par:58, SAGE26's default); 2 not ported; required
+    EnhancedStarFormationOn: 1          # FFB mode: 0 = off, FFBRegime keeps its creation value 0 (SAGE26 R0-R5, R5.par:58); 1 = SAGE26's Li+24 classifier and FFB star formation (R6, R6.par:58, SAGE26's default); 2 not ported; required
     EnhancedSFEfficiency: 0.2           # FFB star-formation efficiency epsilon_FFB of SAGE26's starformation_ffb (R6.par:67; SAGE26's default, core_read_parameter_file.c:104); read only with EnhancedStarFormationOn 1, but always required and validated (finite, within [0, 1])
 
     # Halo concentration

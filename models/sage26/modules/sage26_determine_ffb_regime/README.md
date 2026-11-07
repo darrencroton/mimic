@@ -37,7 +37,7 @@ The run's `Hubble_h` is read from the module context's parameters.
 
 ## Parameters
 
-- `EnhancedStarFormationOn`: required, with no default (campaign decision D33); a missing key fails `init()`. 0 (no classification; SAGE26 R0-R5, `R5.par:58`) or 1 (the Li et al. 2024 classifier; R6, `R6.par:58`, SAGE26's default, `src/core_read_parameter_file.c:106`). 2, the Boylan-Kolchin (2025) acceleration criterion (`src/model_regimes.c:241-288`), is not ported (campaign decision D6) and is refused with every other value, naming the parameter. The run files hold 0 (the package is on R5); value 1 also switches on SAGE26's FFB star formation, `sage26_ffb_star_formation`, which an `FFBRegime` 1 row takes in place of the ordinary chain.
+- `EnhancedStarFormationOn`: required, with no default (campaign decision D33); a missing key fails `init()`. 0 (no classification; SAGE26 R0-R5, `R5.par:58`) or 1 (the Li et al. 2024 classifier; R6, `R6.par:58`, SAGE26's default, `src/core_read_parameter_file.c:106`). 2, the Boylan-Kolchin (2025) acceleration criterion (`src/model_regimes.c:241-288`), is not ported (campaign decision D6) and is refused with every other value, naming the parameter. The run files hold 1 (the package is on R6, SAGE26's default configuration); value 1 also switches on SAGE26's FFB star formation, `sage26_ffb_star_formation`, which an `FFBRegime` 1 row takes in place of the ordinary chain.
 
 ## Test Seam
 
