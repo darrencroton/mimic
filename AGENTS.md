@@ -69,7 +69,7 @@ src/
 └── include/         Headers; generated/ holds auto-generated property + validation code
 
 models/<model>/      Self-contained package: input/ run YAMLs, model_properties.yaml, modules/,
-                     shared/ helpers, plots/  (sage16, sham, hod, halos-only)
+                     shared/ helpers, plots/  (sage16, sage26, sham, hod, halos-only)
 simulations/<sim>/   Catalog halo_properties.yaml, tree fixtures, snapshot lists
                      vertical: mini-millennium, millennium, micro-uchuu, micro-uchuu-ascii,
                      micro-uchuu-hdf5, mini-uchuu, uchuu, shin-uchuu-ascii, shin-uchuu-lhalo
