@@ -39,11 +39,11 @@
  * SAGE26's own do_AGN_heating bit for bit (check_against_do_AGN_heating); the oracle
  * refuses to write a fixture whose check fails. README.md documents every output.
  *
- * The file format is defined in README.md ("Fixture file format"). Every input field
- * must be consumed by the fixture reader for the selected routine, so a misspelt or
- * stray field is an error rather than a silently ignored value. All other struct
- * members are poisoned (all bits set: NaN for floating point, -1 for integers). The
- * parsing and output helpers are copies of oracle_c03.c's, which stays unchanged.
+ * The file format is defined in README.md ("Fixture file format"). Every input field must be
+ * consumed by the fixture reader for the selected routine, so a misspelt or stray field is
+ * an error rather than a silently ignored value. All other struct members are poisoned (all
+ * bits set: NaN for floating point, -1 for integers). The parsing and output helpers are
+ * copies of oracle_c03.c's.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh, never
  * by Mimic's Makefile, and never against Mimic code.
@@ -792,8 +792,8 @@ static void run_cool_gas_onto_galaxy(void) {
 /**
  * @brief TRANSCRIPTION of the end-of-halo normalisation, R/src/core_build_model.c:590-604
  *
- * evolve_galaxies is static in core_build_model.c, which is not in this link, so these lines are
- * restated here for Cooling and Heating only (OutflowRate's
+ * evolve_galaxies is static in core_build_model.c, which is not in this link, so these
+ * lines are restated here for Cooling and Heating only (OutflowRate's normalisation
  * is oracle_c05.c's normalise_outflow_rate):
  *
  *   const double deltaT = run_params->Age[galaxies[0].SnapNum] - halo_age;

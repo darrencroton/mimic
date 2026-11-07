@@ -39,8 +39,8 @@
  * pow(10.0, x) is a call to __exp10 in both (H:57). README.md ("The c08 Group") lists the
  * fused instructions, checked in the disassembly.
  *
- * The file format is defined in README.md ("Fixture File Format"). The parsing and output
- * helpers are copies of oracle_c05.c's, which stays unchanged.
+ * The file format is defined in README.md ("Fixture File Format"). The parsing and output helpers
+ * are copies of oracle_c05.c's.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh, never by
  * Mimic's Makefile, and never against Mimic code.

@@ -32,8 +32,8 @@
  *                                 history assignment of progenitor joining, B:234-345 and
  *                                 B:358-370, calling SAGE26's own halo helpers,
  *                                 estimate_merging_time, get_disk_radius and get_bulge_radius,
- *                                 and with ConcentrationOn 3 SAGE26's own
- *                                 get_halo_concentration (B:290-295)
+ *                                 and with ConcentrationOn 3 SAGE26's own get_halo_concentration
+ *                                 (B:290-295)
  *   join_and_pass                 join_progenitors followed by merger_pass for one substep: the
  *                                 orphan history retention (B:252-282, B:322-337) carried into a
  *                                 merger in the same snapshot
@@ -59,10 +59,10 @@
  * SAGE26's three hydrogen sites these routines reach: the black-hole accretion cap (M:366-372,
  * guard SFprescription != 0 && != 2), the post-reheating cap of the burst's update_from_feedback
  * (S:1169-1173) and the burst's hydrogen refresh (M:798-803, guard sf_prescription_tracks_h2);
- * their flags and values are recorded after every earlier field, and an SFprescription 0 output has
- * none of them (README "The c08 Group"). The black-hole cap of the post-minor-merger recheck runs
- * inside SAGE26's own check_disk_instability; the burst record holds an OBSERVATION of it (SAGE26's
- * own grow_black_hole on a copy of the recheck's state, checked against SAGE26's
+ * their flags and values are recorded after every earlier field, and an SFprescription 0 output
+ * has none of them (README "The c08 Group"). The black-hole cap of the post-minor-merger recheck
+ * runs inside SAGE26's own check_disk_instability; the burst record holds an OBSERVATION of
+ * it (SAGE26's own grow_black_hole on a copy of the recheck's state, checked against SAGE26's
  * recheck), struct recheck_bh_observation.
  *
  * FIREmodeOn 1 (R3). The routines named *_fire read FIREmodeOn 0 or 1 (every other routine still
@@ -167,8 +167,8 @@ static int cgm_routine = 0;
  * (BLOCK_CGM) and the routine records its CGMrecipeOn 1 selections */
 static int cgm_block = 0;
 
-/* Set by read_join_flags for a ConcentrationOn 3 joining fixture: every galaxy reads and records
- * its Concentration (BLOCK_CONCENTRATION) and each progenitor's
+/* Set by read_join_flags for a ConcentrationOn 3 joining fixture: every galaxy
+ * reads and records its Concentration (BLOCK_CONCENTRATION) and each progenitor's
  * record its concentration_assigned */
 static int concentration_block = 0;
 
@@ -3552,9 +3552,9 @@ static void write_h_record(const struct checked_record *rec, const int with_bh,
 }
 
 /**
- * @brief One FIREmodeOn 1 value: the markers of README "The c06 Group" with its check kind and the
- *        narrowing limitation of README "The c07 Group" (always 0 in a burst,
- *        which never writes MassLoading)
+ * @brief One FIREmodeOn 1 value: the markers of README "The c06 Group" with its check kind and
+ *        the narrowing limitation of README "The c07 Group" (always 0 in a burst, which never
+ *        writes MassLoading)
  */
 static void out_carried_fire(const struct checked_record *rec, const int id) {
   const char *name = IMF_INFO[id].name;

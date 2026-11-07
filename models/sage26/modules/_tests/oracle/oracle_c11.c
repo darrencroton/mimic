@@ -53,8 +53,8 @@
  * each replacement changes at least one recorded field or the return.
  *
  * The cooling tables are loaded once per process by SAGE26's own read_cooling_functions()
- * (R/src/core_cool_func.c:65-99), from ROOT_DIR as build.sh sets it. The parsing and output
- * helpers are copies of oracle_c04.c's, which stays unchanged.
+ * (R/src/core_cool_func.c:65-99), from ROOT_DIR as build.sh sets it. The parsing and output helpers
+ * are copies of oracle_c04.c's.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh, never by Mimic's
  * Makefile, and never against Mimic code.

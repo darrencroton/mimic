@@ -47,8 +47,8 @@
  * and types and is compiled with the same flags. None of them has a multiply feeding an add or
  * subtract, so contraction fuses none, here or in SAGE26's object (README.md, "The c10 Group").
  *
- * The file format is defined in README.md ("Fixture File Format"). The parsing and output
- * helpers are copies of oracle_c08.c's, which stays unchanged.
+ * The file format is defined in README.md ("Fixture File Format"). The parsing and output helpers
+ * are copies of oracle_c08.c's.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh, never by
  * Mimic's Makefile, and never against Mimic code.

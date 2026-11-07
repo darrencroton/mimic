@@ -30,8 +30,8 @@
  * rest of the routine from that value. Each value is then replaced by its upward and its
  * downward neighbouring double and the same composition rerun (two-sided validation).
  *
- * The central's synchronisation is static driver code, so no SAGE26 code anchors it: its fixtures
- * are named tr_* and a mutation sweep covers it (README.md,
+ * The central's synchronisation is static driver code, so no SAGE26 code anchors
+ * it: its fixtures are named tr_* and a mutation sweep covers it (README.md,
  * "The c07 Group", "Driver Transcription").
  *
  * Every transcription restates SAGE26's statements with the same expression shapes, operand types
@@ -40,8 +40,8 @@
  * under README.md's "The c07 Group" lists the sites, checked in this file's disassembly.
  * File-static SAGE26 constants are restated with their values and source lines.
  *
- * The file format is defined in README.md ("Fixture File Format"). The parsing and output
- * helpers are copies of oracle_c06.c's, which stays unchanged.
+ * The file format is defined in README.md ("Fixture File Format"). The parsing and output helpers
+ * are copies of oracle_c06.c's.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh, never by
  * Mimic's Makefile, and never against Mimic code.
@@ -398,10 +398,10 @@ static void poison_state(void) {
 /**
  * @brief BulgeSizeOn as the fixture sets it, and Hubble_h when the sizes are on
  *
- * As oracle_c06.c's reader: BulgeSizeOn is 0 (R0) or 3 (R1 onward, the Tonini sizes); modes 1 and 2
- * are not ported and any other value is refused, naming the parameter. Mode 3 reads Hubble_h
- * (X:249, :398), so a mode-3 fixture must carry params.Hubble_h; a mode-0 fixture does not, and one
- * that carries it is refused as an unread field (neither routine reads it in
+ * As oracle_c06.c's reader: BulgeSizeOn is 0 (R0) or 3 (R1 onward, the Tonini sizes);
+ * modes 1 and 2 are not ported and any other value is refused, naming the parameter. Mode 3
+ * reads Hubble_h (X:249, :398), so a mode-3 fixture must carry params.Hubble_h; a mode-0 fixture
+ * does not, and one that carries it is refused as an unread field (neither routine reads it in
  * mode 0, X:242-247, :395).
  */
 static void read_bulge_size_config(void) {

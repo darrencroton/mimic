@@ -377,18 +377,18 @@ static double reionization_modifier_for(const int gal, const double Zcurr) {
 // ============================================================================
 //
 // With params.CGMrecipeOn 1 a fixture's reader also takes each galaxy's Regime (and, for
-// add_infall_to_hot and reincorporate_gas, the CGM pair), the output also records the CGM pair
-// where a CGMrecipeOn 0 output does not, and the oracle composes the routine as oracle_c06.c does:
-// a source-reviewed transcription of SAGE26's CGMrecipeOn 1 path, each statement cited
-// (I = R/src/model_infall.c, G = R/src/model_reincorporation.c, X = R/src/model_misc.h,
-// B = R/src/core_build_model.c), must reproduce SAGE26's own call in every recorded field bit for
-// bit, and so must each composition that feeds a continuation-checked local into SAGE26's own
-// function; otherwise the fixture is refused. The transcription's branch flags and locals are
-// recorded, each local with its check kind and its two-sided validation: whether replacing it by
-// its upward, respectively downward, neighbour (nextafter for a double, nextafterf for a float
-// local) in its composition changes at least one recorded field. Every byte of every galaxy outside
-// the recorded fields must be unchanged by SAGE26's call. CGMrecipeOn 0 fixtures run SAGE26's call
-// alone: no transcription is composed or recorded.
+// add_infall_to_hot and reincorporate_gas, the CGM pair), the output of those two routines
+// also records the CGM pair, which their CGMrecipeOn 0 output does not, and the oracle composes
+// the routine as oracle_c06.c does: a source-reviewed transcription of SAGE26's CGMrecipeOn 1
+// path, each statement cited (I = R/src/model_infall.c, G = R/src/model_reincorporation.c,
+// X = R/src/model_misc.h, B = R/src/core_build_model.c), must reproduce SAGE26's own call in every
+// recorded field bit for bit, and so must each composition that feeds a continuation-checked local
+// into SAGE26's own function; otherwise the fixture is refused. The transcription's branch flags
+// and locals are recorded, each local with its check kind and its two-sided validation: whether
+// replacing it by its upward, respectively downward, neighbour (nextafter for a double, nextafterf
+// for a float local) in its composition changes at least one recorded field. Every byte of every
+// galaxy outside the recorded fields must be unchanged by SAGE26's call. CGMrecipeOn 0 fixtures run
+// SAGE26's call alone: no transcription is composed or recorded.
 
 #define C10_CHECK_CONTINUATION 1
 #define C10_CHECK_TAIL 2

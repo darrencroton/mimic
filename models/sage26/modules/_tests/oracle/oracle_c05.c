@@ -848,18 +848,18 @@ static void read_fire_snapshots(const int ngal) {
  * @brief The pinned flags (and DiskInstabilityOn) of every routine that can reach the
  *        instability: starformation_and_feedback and check_disk_instability
  *
- * The transcriptions below implement the R0 and R1 paths (SFprescription 0) and, where allow_br06
- * is set, R2's SFprescription 1: SN recipe 1, no CGM, no FIRE, no FFB, no Karpov, no full SFH, the
- * Bondi AGN recipe, and cold-gas starbursts (StarburstColdGasOn defaults to 1,
- * R/src/core_read_parameter_file.c:109). BulgeSizeOn is read, not pinned: 0 (R0) or 3 (R1 onward,
- * read_bulge_size_on); Hubble_h, which mode 3's size fallbacks read (R/src/model_misc.c:249,398),
- * is read for every configuration by read_r0_params. With BulgeSizeOn 3 every galaxy also reads and
- * records SIZE_MEMBERS (sizes_recorded). DiskInstabilityOn may be 0 (a labelled non-R0 value) where
- * allow_no_instability is set. SFprescription is 0 (R0, R1), or 1 (R2, through
- * read_sf_prescription) where allow_br06 is set: starformation_and_feedback only. FIREmodeOn is 0,
- * or 0 or 1 (R3, through read_fire_mode_on) where allow_fire is set:
- * starformation_and_feedback_fire only. CGMrecipeOn is 0, or 0 or 1 (R4, through
- * read_cgm_recipe_on, which sets cgm_block_recorded) where allow_cgm is
+ * The transcriptions below implement the R0 and R1 paths (SFprescription 0) and, where
+ * allow_br06 is set, R2's SFprescription 1: SN recipe 1, no CGM, no FIRE, no FFB, no
+ * Karpov, no full SFH, the Bondi AGN recipe, and cold-gas starbursts (StarburstColdGasOn
+ * defaults to 1, R/src/core_read_parameter_file.c:109). BulgeSizeOn is read, not pinned:
+ * 0 (R0) or 3 (R1 onward, read_bulge_size_on); Hubble_h, which mode 3's size fallbacks
+ * read (R/src/model_misc.c:249,398), is read for every configuration by read_r0_params.
+ * With BulgeSizeOn 3 every galaxy also reads and records SIZE_MEMBERS (sizes_recorded).
+ * DiskInstabilityOn may be 0 (a labelled non-R0 value) where allow_no_instability is set.
+ * SFprescription is 0 (R0, R1), or 1 (R2, through read_sf_prescription) where allow_br06 is set:
+ * starformation_and_feedback only. FIREmodeOn is 0, or 0 or 1 (R3, through read_fire_mode_on)
+ * where allow_fire is set: starformation_and_feedback_fire only. CGMrecipeOn is 0, or 0
+ * or 1 (R4, through read_cgm_recipe_on, which sets cgm_block_recorded) where allow_cgm is
  * set: starformation_and_feedback_fire only.
  */
 static void read_r0_flags(const int allow_no_instability, const int allow_br06,
@@ -2160,8 +2160,8 @@ struct composition {
  *   7. the metallicity and the reheating clamp (S:1076-1082), then update_from_feedback
  *      (S:1085);
  *   8. check_disk_instability when DiskInstabilityOn (S:1088-1090);
- *   9. the yield (S:1093-1108), with SAGE26's own add_metals_to_hot_reservoir, or (a
- *      CGMrecipeOn 1 fixture, per comp) its transcription.
+ *   9. the yield (S:1093-1108), with SAGE26's own add_metals_to_hot_reservoir, or (a CGMrecipeOn 1
+ *      fixture, per comp) its transcription.
  * SaveFullSFH is 0 on R0, so S:1068-1073 does not run; the FFB branch (S:1004-1010) is off
  * (EnhancedStarFormationOn 0). Returns the end state in result.
  */
@@ -2807,8 +2807,8 @@ static void out_h2_flags(const struct locals *l, const int first, const int last
  * @brief The record of a gas-unstable continuation at SFprescription 1: the forming galaxy's
  *        state after SAGE26's own grow_black_hole (D:102-104, its hydrogen cap M:366-372 and its
  *        wind) and before the burst, from the transcribed instability; written after every
- *        earlier field and only where the gas branch ran
- *        (instability_gas_branch 1, AGNrecipeOn 2)
+ *        earlier field and only where the gas branch ran (instability_gas_branch 1,
+ *        AGNrecipeOn 2)
  */
 static void write_after_bh_record(const char *prefix, const int present, const int p,
                                   const struct GALAXY *after_bh) {
