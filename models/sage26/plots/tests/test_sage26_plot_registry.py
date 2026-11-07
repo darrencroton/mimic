@@ -12,7 +12,7 @@ Validates: SNAPSHOT_PLOTS and EVOLUTION_PLOTS equal the registry table in order,
            builds for the vertical and the horizontal run file agrees on `plots` and `axes`
 Tolerance: none; every comparison is exact (lists, sets and dictionaries)
 
-The registry table below is written from the plan of the c16 plotting node, Slice 1 (rows S1-S18
+The registry table below is written from the plan of the c16 plotting node, Slice 2 (rows S1-S30
 and E1-E4), not computed from the package. It needs no Mimic run.
 
 Run: mimic_venv/bin/python models/sage26/plots/tests/test_sage26_plot_registry.py
@@ -50,7 +50,7 @@ RUN_FILES = {
     "horizontal": MODEL_DIR / "input" / "sage26_mini-millennium-horizontal.yaml",
 }
 
-# Registry table of the c16 plan, Slice 1: row order is registry order
+# Registry table of the c16 plan, Slice 2: row order is registry order
 SNAPSHOT_TABLE = [
     "halo_mass_function",  # S1
     "halo_occupation",  # S2
@@ -70,6 +70,18 @@ SNAPSHOT_TABLE = [
     "bulge_mass_fraction",  # S16
     "quiescent_fraction",  # S17
     "mass_reservoir_scatter",  # S18
+    "bulge_to_total",  # S19
+    "spatial_distribution_3d_box",  # S20
+    "star_formation_rate",  # S21
+    "mass_loading_vs_vvir",  # S22
+    "stellar_vs_halo_mass_by_regime",  # S23
+    "specific_star_formation_rate",  # S24
+    "concentration_vs_mvir",  # S25
+    "sfr_vs_halo_accretion_rate",  # S26
+    "tcool_vs_mvir",  # S27
+    "cgm_fraction_vs_mvir",  # S28
+    "ejection_efficiency_vs_vvir",  # S29
+    "disk_radius_vs_stellar_mass",  # S30
 ]
 EVOLUTION_TABLE = [
     "hmf_evolution",  # E1
@@ -129,7 +141,7 @@ def profile_stack(engine, run_file):
 
 
 def test_registry_lists_equal_the_plan_table_in_order():
-    """SNAPSHOT_PLOTS and EVOLUTION_PLOTS are exactly the plan's rows S1-S18 and E1-E4."""
+    """SNAPSHOT_PLOTS and EVOLUTION_PLOTS are exactly the plan's rows S1-S30 and E1-E4."""
     assert (
         FIGURES.SNAPSHOT_PLOTS == SNAPSHOT_TABLE
     ), f"SNAPSHOT_PLOTS differs from the table: {FIGURES.SNAPSHOT_PLOTS}"

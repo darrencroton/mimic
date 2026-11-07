@@ -12,13 +12,19 @@ Validates: each registered figure renders a non-empty PNG named by its registry 
            seven reservoirs with the total equal to their sum; baryon_fraction draws a "CGM"
            curve, mass_reservoir_scatter a "CGM gas" series and gas_mass_function the
            "Model - H2 Gas" and "Model - HI Gas" lines, each tagged gid="model"
-Tolerance: none for labels, stems, field sets and the reservoir helper (the helper's literals
-           are dyadic, so the sums are exact); the CGM curve is compared with the total curve
-           by a plain inequality
+           (Slice 2 adds the twelve SAGE26 z = 0 figures S19-S30: the same cases, a Cap case for
+           each sampled figure, a unit case for each helper, and both the colour-bar and the
+           no-colour-bar labels of tcool_vs_mvir)
+Tolerance: none for labels, stems, field sets, caps and the reservoir helper (the helper's
+           literals are dyadic, so the sums are exact); the CGM curve is compared with the total
+           curve by a plain inequality; helper unit cases compare with a relative tolerance of
+           1e-12 (decimal literals) or exactly (dyadic literals), and the smoothed-histogram
+           peak with an absolute tolerance of 2e-3
 
-Every expectation is written from the plan of the c16 plotting node (Slice 1), the figure's
-source text at the starting commit (66a3e949, transcribed: no label is computed from the code
-under test) or SAGE26's plotting script (plotting/allresults-local.py, lines cited at each use).
+Every expectation is written from the plan of the c16 plotting node (Slices 1 and 2), the
+figure's source text at the starting commit (66a3e949, transcribed: no label is computed from the
+code under test) or SAGE26's plotting script (plotting/allresults-local.py, lines cited at each
+use).
 Figures render with MPLBACKEND=Agg into a temporary directory under $TMPDIR, removed at the end.
 It needs no Mimic run.
 
@@ -26,6 +32,7 @@ Run: mimic_venv/bin/python models/sage26/plots/tests/test_sage26_figures.py
 """
 
 import importlib
+import math
 import os
 import shutil
 import sys
@@ -70,7 +77,7 @@ def load_figure_package(model):
 
 FIGURES = load_figure_package("sage26")
 
-# Registry table of the c16 plan, Slice 1: registry name -> File stem (rows S1-S18, E1-E4)
+# Registry table of the c16 plan, Slice 2: registry name -> File stem (rows S1-S30, E1-E4)
 SNAPSHOT_STEMS = {
     "halo_mass_function": "HaloMassFunction",
     "halo_occupation": "HaloOccupation",
@@ -90,6 +97,18 @@ SNAPSHOT_STEMS = {
     "bulge_mass_fraction": "BulgeMassFraction",
     "quiescent_fraction": "QuiescentFraction",
     "mass_reservoir_scatter": "MassReservoirScatter",
+    "bulge_to_total": "BulgeToTotal",
+    "spatial_distribution_3d_box": "SpatialDistribution3D_Box",
+    "star_formation_rate": "StarFormationRate",
+    "mass_loading_vs_vvir": "mass_loading_vs_vvir",
+    "stellar_vs_halo_mass_by_regime": "stellar_vs_halo_mass_by_regime",
+    "specific_star_formation_rate": "specific_star_formation_rate",
+    "concentration_vs_mvir": "concentration_vs_mvir",
+    "sfr_vs_halo_accretion_rate": "sfr_vs_halo_accretion_rate",
+    "tcool_vs_mvir": "tcool_vs_mvir",
+    "cgm_fraction_vs_mvir": "cgm_fraction_vs_mvir",
+    "ejection_efficiency_vs_vvir": "ejection_efficiency_vs_vvir",
+    "disk_radius_vs_stellar_mass": "disk_radius_vs_stellar_mass",
 }
 EVOLUTION_STEMS = {
     "hmf_evolution": "HaloMassFunction_Evolution",
@@ -109,19 +128,21 @@ VMAX = r"log$_{10}$ V$_{\rm max}$ [km/s]"
 REDSHIFT = r"redshift"
 
 
-def panel(x_label, y_label, title=""):
-    """Return the expected labels of one data axes (no z label, no side titles)."""
+def panel(x_label, y_label, title="", z_label=""):
+    """Return the expected labels of one data axes (no side titles; a z label for a 3-D axes)."""
     return {
         "x": x_label,
         "y": y_label,
-        "z": "",
+        "z": z_label,
         "title": title,
         "title_left": "",
         "title_right": "",
     }
 
 
-# name -> list of expected data axes in creation order. No figure has a title or a colour bar.
+# name -> list of expected data axes in creation order. The forked figures (S1-S18, E1-E4) have no
+# title and no colour bar; the labels of the new figures (S19-S30) are SAGE26's Python string
+# literals at the lines cited.
 DATA_AXES = {
     "halo_mass_function": [panel(HALO_MASS, MASS_FUNCTION)],
     "halo_occupation": [panel(HALO_MASS, r"Mean occupation number $\langle N \rangle$")],
@@ -156,6 +177,79 @@ DATA_AXES = {
     "mass_reservoir_scatter": [
         panel(r"log M$_{\rm vir}$ [h$^{-1}$ M$_{\odot}$]", r"Stellar, cold, hot, ejected, ICS mass")
     ],
+    # allresults-local.py:1233-1234; no title
+    "bulge_to_total": [
+        panel(
+            r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$",
+            r"$M_{\mathrm{bulge}} / M_{\mathrm{stars}}$",
+        )
+    ],
+    # allresults-local.py:1593-1595; no title
+    "spatial_distribution_3d_box": [panel("X (Mpc/h)", "Y (Mpc/h)", z_label="Z (Mpc/h)")],
+    # allresults-local.py:1639-1640; no title
+    "star_formation_rate": [
+        panel(
+            r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$",
+            r"$\log_{10} \mathrm{SFR}\ (M_{\odot}\ \mathrm{yr^{-1}})$",
+        )
+    ],
+    # allresults-local.py:1674-1675; no title
+    "mass_loading_vs_vvir": [
+        panel(
+            r"$\log_{10} V_{\mathrm{vir}}\ (\mathrm{km/s})$",
+            r"$\eta_{\mathrm{reheat}} = \dot{M}_{\mathrm{reheat}} / \dot{M}_{\star}$",
+        )
+    ],
+    # allresults-local.py:1713-1714; no title
+    "stellar_vs_halo_mass_by_regime": [
+        panel(
+            r"$\log_{10} M_{\mathrm{vir}}\ (M_{\odot})$",
+            r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$",
+        )
+    ],
+    # allresults-local.py:1829-1830; no title
+    "specific_star_formation_rate": [
+        panel(
+            r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$",
+            r"$\log_{10} \mathrm{sSFR}\ (\mathrm{yr^{-1}})$",
+        )
+    ],
+    # allresults-local.py:1850, :1860-1874: two panels sharing y; the right panel has no y label
+    "concentration_vs_mvir": [
+        panel(
+            r"$\log_{10} M_{\rm vir}\ [M_{\odot}]$",
+            r"Concentration $c$",
+            "Centrals \u2014 z = 0.00",
+        ),
+        panel(r"$\log_{10} M_{\rm vir}\ [M_{\odot}]$", "", "Satellites \u2014 z = 0.00"),
+    ],
+    # allresults-local.py:1920-1922
+    "sfr_vs_halo_accretion_rate": [
+        panel(
+            r"$\log_{10}\ \dot{M}_{\rm acc}\ (M_{\odot}\ \mathrm{yr}^{-1})$",
+            r"$\log_{10}\ \mathrm{SFR}\ (M_{\odot}\ \mathrm{yr}^{-1})$",
+            "Centrals \u2014 z = 0.00",
+        )
+    ],
+    # allresults-local.py:1999-2000; no title
+    "tcool_vs_mvir": [
+        panel(
+            r"$\log_{10} M_{\rm vir}\ (M_{\odot})$",
+            r"$\mathrm{Cooling\ rate}\ (M_{\odot}\ \mathrm{Gyr}^{-1})$",
+        )
+    ],
+    # allresults-local.py:2030-2031; no title
+    "cgm_fraction_vs_mvir": [
+        panel(r"$\log_{10} M_{\rm vir}\ (M_{\odot})$", r"$\mathrm{CGM\ Fraction}$")
+    ],
+    # allresults-local.py:2114-2115; no title
+    "ejection_efficiency_vs_vvir": [
+        panel(r"$\log_{10} V_{\rm vir}\ (\mathrm{km/s})$", r"$\mathrm{Ejection\ Efficiency}$")
+    ],
+    # allresults-local.py:2180-2181; no title
+    "disk_radius_vs_stellar_mass": [
+        panel(r"$R_{\rm vir}\ (\mathrm{kpc}/h)$", r"$R_{\rm e,disk}\ (\mathrm{kpc}/h)$")
+    ],
     "hmf_evolution": [panel(HALO_MASS, MASS_FUNCTION)],
     "smf_evolution": [panel(STELLAR_MASS, MASS_FUNCTION)],
     "sfr_density_evolution": [
@@ -165,8 +259,14 @@ DATA_AXES = {
         panel(REDSHIFT, r"log$_{10}$ $\rho_{*}$ [M$_{\odot}$ Mpc$^{-3}$]")
     ],
 }
-# name -> expected colour-bar labels in creation order; no registered figure draws a colour bar
+# name -> expected colour-bar labels in creation order. Only three figures draw one: the
+# concentration figure's (allresults-local.py:1876-1877) and the accretion-rate figure's (:1912-1913)
+# stellar mass, and the cooling-rate figure's virial temperature (:1995-1996), which the synthetic
+# catalogue's satellites (Regime -1, outside 0 and 1) bring.
 COLORBAR_LABELS = {name: [] for name in FILE_STEMS}
+COLORBAR_LABELS["concentration_vs_mvir"] = [r"$\log_{10} M_{\star}\ [M_{\odot}]$"]
+COLORBAR_LABELS["sfr_vs_halo_accretion_rate"] = [r"$\log_{10} M_{\star}\ [M_{\odot}]$"]
+COLORBAR_LABELS["tcool_vs_mvir"] = [r"$T_{\rm vir}$ (K)"]
 
 TMP_ROOT = None  # created by main(), removed at its end
 
@@ -201,6 +301,7 @@ def describe_figure(fig):
 def finite_points(artist):
     """Count the finite data points an artist holds (0 for an artist this does not know)."""
     from matplotlib.collections import PathCollection, PolyCollection, QuadMesh
+    from matplotlib.contour import ContourSet
     from matplotlib.lines import Line2D
     from matplotlib.patches import Rectangle
 
@@ -216,6 +317,19 @@ def finite_points(artist):
             if len(path.vertices):
                 count += int(np.count_nonzero(np.isfinite(path.vertices).all(axis=1)))
         return count
+    if isinstance(artist, ContourSet):
+        # A filled or line contour set holds one path per level; count its finite vertices
+        count = 0
+        for path in artist.get_paths():
+            if len(path.vertices):
+                count += int(np.count_nonzero(np.isfinite(path.vertices).all(axis=1)))
+        return count
+    if isinstance(artist, PathCollection) and hasattr(artist, "_offsets3d"):
+        # A 3-D scatter keeps its points in x, y, z arrays
+        xyz = np.array(
+            [np.ma.filled(np.ma.asarray(a, dtype=float), np.nan) for a in artist._offsets3d]
+        )
+        return int(np.count_nonzero(np.isfinite(xyz).all(axis=0))) if xyz.size else 0
     if isinstance(artist, PathCollection):
         offsets = np.ma.filled(np.ma.asarray(artist.get_offsets(), dtype=float), np.nan)
         return int(np.count_nonzero(np.isfinite(offsets).all(axis=1))) if len(offsets) else 0
@@ -616,8 +730,338 @@ def test_colourbar_axes_are_identified_and_not_counted_as_data_axes():
     assert bars == ["bar label"], f"colour-bar labels: {bars}"
 
 
+# --------------------------------------------------------------------------------------
+# tcool_vs_mvir colour bar: present only with a regime outside {0, 1}
+# --------------------------------------------------------------------------------------
+TCOOL_PANEL = panel(
+    r"$\log_{10} M_{\rm vir}\ (M_{\odot})$",
+    r"$\mathrm{Cooling\ rate}\ (M_{\odot}\ \mathrm{Gyr}^{-1})$",
+)
+
+
+def render_tcool_with_regimes(regimes_outside):
+    """Render tcool_vs_mvir and return (data-axes labels, colour-bar labels).
+
+    ``regimes_outside`` True keeps the synthetic catalogue's satellites at Regime -1 (outside 0
+    and 1); False sets every such Regime to 0, so every row is of regime 0 or 1.
+    """
+    catalogue = build_catalogue()
+    if regimes_outside:
+        selected = (catalogue.CoolingRate > 0.0) & (catalogue.Mvir > 0.0) & (catalogue.Rvir > 0.0)
+        assert np.any(selected & ~np.isin(catalogue.Regime, (0, 1))), "no unclassified row"
+    else:
+        catalogue.Regime = np.where(np.isin(catalogue.Regime, (0, 1)), catalogue.Regime, 0)
+        assert np.all(np.isin(catalogue.Regime, (0, 1))), "a Regime outside 0 and 1 remains"
+    run = call_figure("tcool_vs_mvir", catalogue, f"tcool-{regimes_outside}")
+    assert run.skip is None and run.fig is not None, f"tcool_vs_mvir skipped: {run.skip}"
+    return describe_figure(run.fig)
+
+
+def test_labels__tcool_vs_mvir_with_a_regime_outside_0_and_1_has_the_colour_bar():
+    """allresults-local.py:1989-1996: the unclassified rows bring the T_vir colour bar."""
+    data, bars = render_tcool_with_regimes(True)
+    assert data == [TCOOL_PANEL], f"data axes {data}"
+    assert bars == [r"$T_{\rm vir}$ (K)"], f"colour-bar labels {bars}"
+
+
+def test_labels__tcool_vs_mvir_with_only_regimes_0_and_1_has_no_colour_bar():
+    """allresults-local.py:1983-1988: with only regimes 0 and 1 there is no colour bar."""
+    data, bars = render_tcool_with_regimes(False)
+    assert data == [TCOOL_PANEL], f"data axes {data}"
+    assert bars == [], f"colour-bar labels {bars}"
+
+
+# --------------------------------------------------------------------------------------
+# Cap cases: the sample size of each sampled figure
+# --------------------------------------------------------------------------------------
+# name -> literal cap of its row of the plan: SAGE26's script-level `dilute` 7500
+# (allresults-local.py:73), `dilute_sfr` 10000 (:1631) and `dilute` reassigned to 100000 (:1735)
+CAPS = {
+    "spatial_distribution_3d_box": 7500,  # :1571
+    "star_formation_rate": 10000,  # :1632
+    "mass_loading_vs_vvir": 7500,  # :1667
+    "stellar_vs_halo_mass_by_regime": 7500,  # :1694
+    "specific_star_formation_rate": 100000,  # :1738
+    "concentration_vs_mvir": 100000,  # :1861 (per panel)
+    "sfr_vs_halo_accretion_rate": 100000,  # :1901
+    "ejection_efficiency_vs_vvir": 100000,  # :2055
+    "disk_radius_vs_stellar_mass": 100000,  # :2146
+}
+LOWERED_CAP = 40  # below every figure's candidate count in the synthetic catalogue
+
+
+def make_cap(name):
+    def case():
+        module = figure_module(name)
+        assert module.DILUTE == CAPS[name], f"{name}: DILUTE {module.DILUTE}, expected {CAPS[name]}"
+
+        original_cap, original_sample = module.DILUTE, module.draw_sample
+        drawn = []
+
+        def recording_sample(candidates, rng):
+            sample = original_sample(candidates, rng)
+            drawn.append((len(candidates), len(sample)))
+            return sample
+
+        module.DILUTE = LOWERED_CAP
+        module.draw_sample = recording_sample
+        try:
+            run = call_figure(name, build_catalogue(), f"{name}-lowered-cap")
+        finally:
+            module.DILUTE, module.draw_sample = original_cap, original_sample
+        assert run.skip is None, f"{name}: skipped with the lowered cap: {run.skip}"
+        # concentration_vs_mvir samples each of its two panels; every other figure samples once
+        expected_calls = 2 if name == "concentration_vs_mvir" else 1
+        assert len(drawn) == expected_calls, f"{name}: {len(drawn)} sampling calls: {drawn}"
+        for candidates, size in drawn:
+            assert candidates > LOWERED_CAP, f"{name}: only {candidates} candidates"
+            assert size == LOWERED_CAP, f"{name}: sample of {size}, expected {LOWERED_CAP}"
+        # A plain scatter whose every drawn point is plotted also holds the lowered number
+        if name in ("star_formation_rate", "mass_loading_vs_vvir", "spatial_distribution_3d_box"):
+            plotted = [points for _, points in model_artists(run.fig) if points]
+            assert plotted == [LOWERED_CAP], f"{name}: plotted points {plotted}"
+
+    case.__name__ = f"test_cap__{name}"
+    return case
+
+
+# --------------------------------------------------------------------------------------
+# Unit cases of the helpers the new figures add. Each expectation is a literal written from
+# SAGE26's expression at the lines cited, not computed by the helper.
+# --------------------------------------------------------------------------------------
+def close(got, expected, rel=1e-12):
+    """Assert two arrays agree to a relative tolerance."""
+    got = np.asarray(got, dtype=float)
+    expected = np.asarray(expected, dtype=float)
+    assert got.shape == expected.shape, f"shape {got.shape}, expected {expected.shape}"
+    assert np.allclose(got, expected, rtol=rel, atol=0.0), f"{got.tolist()} != {expected.tolist()}"
+
+
+def test_unit__bulge_to_total_ratios():
+    """allresults-local.py:1185-1187: BulgeMass / StellarMass, MergerBulgeMass / StellarMass,
+    InstabilityBulgeMass / StellarMass."""
+    helper = figure_module("bulge_to_total").bulge_to_total_ratios
+    stellar = np.array([4.0, 8.0])
+    btot, merger, instab = helper(
+        stellar, np.array([1.0, 4.0]), np.array([2.0, 1.0]), np.array([3.0, 2.0])
+    )
+    assert btot.tolist() == [0.25, 0.5], f"B/T {btot.tolist()}"
+    assert merger.tolist() == [0.5, 0.125], f"merger {merger.tolist()}"
+    assert instab.tolist() == [0.75, 0.25], f"instability {instab.tolist()}"
+
+
+def test_unit__bulge_to_total_bins():
+    """allresults-local.py:1189-1210: 0.25 dex bins from 8.5, a bin needs 5 galaxies.
+
+    Bin 0 (8.5 to 8.75) holds 4 galaxies, so it is not summarised; bin 1 (8.75 to 9.0) holds
+    exactly 5 B/T of 0.1 to 0.5, whose median is 0.3 and whose 16th and 84th percentiles (linear
+    interpolation at 0.64 and 3.36 of 4 intervals) are 0.164 and 0.436.
+    """
+    helper = figure_module("bulge_to_total").bulge_to_total_bins
+    mass = np.array([8.6, 8.6, 8.7, 8.7] + [8.8, 8.8, 8.9, 8.9, 8.95])
+    btot = np.array([0.9, 0.9, 0.9, 0.9] + [0.1, 0.2, 0.3, 0.4, 0.5])
+    merger = np.array([0.0] * 4 + [0.1, 0.1, 0.1, 0.1, 0.1])
+    instab = np.array([0.0] * 4 + [0.0, 0.25, 0.25, 0.25, 0.5])
+    centres, med, lo, hi, merger_mean, instab_mean = helper(mass, btot, merger, instab)
+    assert len(centres) == 16, f"{len(centres)} bin centres"
+    close(centres[:3], [8.625, 8.875, 9.125])
+    assert (
+        np.isnan(med[0]) and np.isnan(lo[0]) and np.isnan(hi[0])
+    ), "the 4-galaxy bin is summarised"
+    assert np.isnan(merger_mean[0]) and np.isnan(instab_mean[0])
+    close(med[1], 0.3)
+    close(lo[1], 0.164)
+    close(hi[1], 0.436)
+    close(merger_mean[1], 0.1)
+    close(instab_mean[1], 0.25)
+    assert np.all(np.isnan(med[2:])), "an empty bin is summarised"
+
+
+def test_unit__box_edges():
+    """allresults-local.py:1583-1588 for BoxSize 2: the bottom square, the top square, then the
+    four verticals, each edge [start corner, end corner]."""
+    edges = figure_module("spatial_distribution_3d_box").box_edges(2.0)
+    expected = [
+        [[0, 0, 0], [2, 0, 0]],
+        [[2, 0, 0], [2, 2, 0]],
+        [[2, 2, 0], [0, 2, 0]],
+        [[0, 2, 0], [0, 0, 0]],
+        [[0, 0, 2], [2, 0, 2]],
+        [[2, 0, 2], [2, 2, 2]],
+        [[2, 2, 2], [0, 2, 2]],
+        [[0, 2, 2], [0, 0, 2]],
+        [[0, 0, 0], [0, 0, 2]],
+        [[2, 0, 0], [2, 0, 2]],
+        [[2, 2, 0], [2, 2, 2]],
+        [[0, 2, 0], [0, 2, 2]],
+    ]
+    assert np.asarray(edges).tolist() == expected, f"edges {np.asarray(edges).tolist()}"
+
+
+def test_unit__total_sfr():
+    """allresults-local.py:1634: SfrDisk[w2] + SfrBulge[w2]."""
+    helper = figure_module("star_formation_rate").total_sfr
+    got = helper(np.array([1.5, 0.25]), np.array([0.5, 2.0]))
+    assert got.tolist() == [2.0, 2.25], f"total {got.tolist()}"
+
+
+def test_unit__log_specific_sfr():
+    """allresults-local.py:1740-1743: log10((SfrDisk + SfrBulge) / StellarMass), -99 where the
+    stellar mass is not above zero. Rates 2, 0, 2, 4 over masses 4, 0, 8, 0 give log10 0.5,
+    -99, log10 0.25, -99."""
+    helper = figure_module("specific_star_formation_rate").log_specific_sfr
+    got = helper(
+        np.array([1.0, 0.0, 1.0, 3.0]),
+        np.array([1.0, 0.0, 1.0, 1.0]),
+        np.array([4.0, 0.0, 8.0, 0.0]),
+    )
+    close(got, [math.log10(0.5), -99.0, math.log10(0.25), -99.0])
+
+
+def test_unit__smoothed_histogram():
+    """allresults-local.py:1767-1783: ten galaxies in one cell at (10.0, -10.0).
+
+    The cell is Gaussian-smoothed with sigma 1.5 cells, so the peak is 10 / (2 pi 1.5^2) =
+    0.7074 (the kernel is cut at 4 sigma) and the total stays 10. Rows above the clip line are
+    zeroed: clipping above -11 removes every cell of a population at -10, clipping below -11
+    keeps all of it. The grid is np.linspace(8.0, 12.2, 100) by np.linspace(-13, -8, 100), 99 cells each way.
+    """
+    helper = figure_module("specific_star_formation_rate").smoothed_histogram
+    x = np.full(10, 10.0)
+    y = np.full(10, -10.0)
+    h, x_centers, y_centers = helper(x, y)
+    assert h.shape == (99, 99), f"shape {h.shape}"
+    assert abs(h.max() - 10.0 / (2.0 * math.pi * 1.5**2)) < 2e-3, f"peak {h.max()}"
+    assert abs(h.sum() - 10.0) < 1e-6, f"total {h.sum()}"
+    close(x_centers[[0, -1]], [8.0 + 0.5 * 4.2 / 99, 12.2 - 0.5 * 4.2 / 99])
+    close(y_centers[[0, -1]], [-13.0 + 0.5 * 5.0 / 99, -8.0 - 0.5 * 5.0 / 99])
+    above, _, _ = helper(x, y, clip_above=-11.0)
+    assert above.sum() == 0.0, f"clip_above kept {above.sum()}"
+    below, _, _ = helper(x, y, clip_below=-11.0)
+    assert abs(below.sum() - 10.0) < 1e-6, f"clip_below kept {below.sum()}"
+    # A population at -12 is the other way about
+    low_y = np.full(10, -12.0)
+    kept, _, _ = helper(x, low_y, clip_above=-11.0)
+    assert abs(kept.sum() - 10.0) < 1e-6, f"clip_above kept {kept.sum()} of a population at -12"
+    dropped, _, _ = helper(x, low_y, clip_below=-11.0)
+    assert dropped.sum() == 0.0, f"clip_below kept {dropped.sum()} of a population at -12"
+
+
+def test_unit__sigma_levels():
+    """allresults-local.py:1786-1798: the cells 60, 20, 10, 5, 3, 1, 1 (and zeros) sum to 100,
+    so the cumulative fractions are .60 .80 .90 .95 .98 .99 1.0; the first at or above 0.997 is
+    the last cell (1), at or above 0.95 the fourth (5), at or above 0.68 the second (20)."""
+    helper = figure_module("specific_star_formation_rate").sigma_levels
+    cells = np.array([[1.0, 60.0, 0.0], [5.0, 0.0, 20.0], [10.0, 3.0, 1.0]])
+    assert helper(cells) == [1.0, 5.0, 20.0], f"levels {helper(cells)}"
+    assert helper(np.zeros((3, 3))) is None, "an empty histogram has levels"
+
+
+def test_unit__halo_accretion_rate():
+    """allresults-local.py:1894: MdotCool + MdotStream."""
+    helper = figure_module("sfr_vs_halo_accretion_rate").halo_accretion_rate
+    got = helper(np.array([1.5, 0.0]), np.array([0.5, 2.0]))
+    assert got.tolist() == [2.0, 2.0], f"rate {got.tolist()}"
+
+
+def test_unit__virial_temperature():
+    """allresults-local.py:411: 35.9 * Vvir**2; Vvir 10 and 100 km/s give 3590 and 359000 K."""
+    helper = figure_module("tcool_vs_mvir").virial_temperature
+    close(helper(np.array([10.0, 100.0])), [3590.0, 359000.0])
+
+
+def test_unit__cgm_fraction():
+    """allresults-local.py:2023: np.log10(CGMgas / Mvir) * 0.17; CGMgas 1 over Mvir 10 and 100
+    is log10 0.1 = -1 and log10 0.01 = -2, so -0.17 and -0.34."""
+    helper = figure_module("cgm_fraction_vs_mvir").cgm_fraction
+    close(helper(np.array([1.0, 1.0]), np.array([10.0, 100.0])), [-0.17, -0.34])
+
+
+def test_unit__ejection_efficiency():
+    """allresults-local.py:2075-2097 (epsilon_disk 2.9, epsilon_halo 0.3, V_sn 501).
+
+    (1) MassLoading 2.9 (f = 1), rate 1, Vvir 100: E_fb = 0.5 * 0.3 * 1 * 1 * 251001 = 37650.15,
+    E_lift = 0.5 * 2.9 * 1e4 = 14500, eject = 23150.15 / 5000 = 4.63003, efficiency 4.63003.
+    (2) the same at Vvir 1000: E_lift = 1.45e6 exceeds E_fb, so the ejection is clipped to 0.
+    (3) MassLoading 5.8 (f = 2), disk 1 + bulge 1 (rate 2), Vvir 100: E_fb = 0.5 * 0.3 * 2 * 2 *
+    251001 = 150600.6, E_lift = 0.5 * 11.6 * 1e4 = 58000, eject = 92600.6 / 5000 = 18.52012,
+    efficiency 9.26006.
+    """
+    helper = figure_module("ejection_efficiency_vs_vvir").ejection_efficiency
+    got = helper(
+        np.array([2.9, 2.9, 5.8]),
+        np.array([0.25, 0.25, 1.0]),
+        np.array([0.75, 0.75, 1.0]),
+        np.array([100.0, 1000.0, 100.0]),
+    )
+    close(got, [4.63003, 0.0, 9.26006], rel=1e-9)
+
+
+def binned_median_and_std_case(name):
+    """Values 1, 3 in bin 1 (1.0-1.1), 2, 4, 9 in bin 2 (1.1-1.2) and one beyond the last edge."""
+    helper = figure_module(name).binned_median_and_std
+    x = np.array([1.05, 1.05, 1.15, 1.15, 1.15, 1.35])
+    values = np.array([1.0, 3.0, 2.0, 4.0, 9.0, 7.0])
+    medians, stds = helper(x, values, np.array([1.0, 1.1, 1.2, 1.3]))
+    # bins 1 to 3: np.median 2, 4 and none; np.std (population) 1, sqrt(26 / 3) and none
+    assert len(medians) == 3 and len(stds) == 3, f"{len(medians)} medians, {len(stds)} stds"
+    assert medians[:2] == [2.0, 4.0], f"medians {medians}"
+    assert np.isnan(medians[2]) and np.isnan(stds[2]), "an empty bin has a median"
+    close(stds[:2], [1.0, math.sqrt(26.0 / 3.0)])
+
+
+def test_unit__ejection_binned_median_and_std():
+    """allresults-local.py:2105-2109 (np.digitize, np.median, np.std per bin)."""
+    binned_median_and_std_case("ejection_efficiency_vs_vvir")
+
+
+def test_unit__disk_radius_binned_median_and_std():
+    """allresults-local.py:2157-2159 (np.digitize, np.median, np.std per bin)."""
+    binned_median_and_std_case("disk_radius_vs_stellar_mass")
+
+
+def test_unit__effective_disk_radius():
+    """allresults-local.py:2130, :2136: DiskRadius * 1.0e3 * 1.68; 0.01 and 0.002 Mpc/h give
+    16.8 and 3.36 kpc/h."""
+    helper = figure_module("disk_radius_vs_stellar_mass").effective_disk_radius
+    close(helper(np.array([0.01, 0.002])), [16.8, 3.36])
+
+
+def test_unit__virial_radius_kpc():
+    """allresults-local.py:2139: Rvir * 1.0e3; 0.25 and 0.5 Mpc/h give 250 and 500 kpc/h."""
+    helper = figure_module("disk_radius_vs_stellar_mass").virial_radius_kpc
+    assert helper(np.array([0.25, 0.5])).tolist() == [250.0, 500.0]
+
+
+def test_unit__moffett_imf_shift_is_zero():
+    """allresults-local.py:46, :52-53, :60-72: imf_shift('chabrier') with whichimf 1 is
+    0.00 - 0.00."""
+    assert figure_module("bulge_to_total").MOFFETT_IMF_SHIFT_DEX == 0.0
+
+
+UNIT_CASES = [
+    test_unit__bulge_to_total_ratios,
+    test_unit__bulge_to_total_bins,
+    test_unit__box_edges,
+    test_unit__total_sfr,
+    test_unit__log_specific_sfr,
+    test_unit__smoothed_histogram,
+    test_unit__sigma_levels,
+    test_unit__halo_accretion_rate,
+    test_unit__virial_temperature,
+    test_unit__cgm_fraction,
+    test_unit__ejection_efficiency,
+    test_unit__ejection_binned_median_and_std,
+    test_unit__disk_radius_binned_median_and_std,
+    test_unit__effective_disk_radius,
+    test_unit__virial_radius_kpc,
+    test_unit__moffett_imf_shift_is_zero,
+]
+
+
 def build_cases():
-    """Return every case: five per registered figure, then the helper and added-series cases."""
+    """Return every case: five per registered figure, the helper and added-series cases, the
+    tcool colour-bar cases, a Cap case per sampled figure and a unit case per new helper."""
     cases = []
     for name in FILE_STEMS:
         cases += [
@@ -634,7 +1078,11 @@ def build_cases():
         test_added_series__gas_mass_function_draws_the_h2_line,
         test_added_series__gas_mass_function_draws_the_hi_line,
         test_colourbar_axes_are_identified_and_not_counted_as_data_axes,
+        test_labels__tcool_vs_mvir_with_a_regime_outside_0_and_1_has_the_colour_bar,
+        test_labels__tcool_vs_mvir_with_only_regimes_0_and_1_has_no_colour_bar,
     ]
+    cases += [make_cap(name) for name in CAPS]
+    cases += UNIT_CASES
     return cases
 
 

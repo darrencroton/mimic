@@ -7,8 +7,10 @@ evolution figure reads. The record has one field for every output property decla
 ``vec3_*`` type is a 3-element field), so a figure that reads any output property finds it.
 
 The values are chosen to populate every registered figure's selections, not to be physical
-truth: centrals, satellites and orphans; both ``Regime`` values; haloes above 6e11 Msun; positive
-star formation, cold gas, H2, H I and circumgalactic gas; positions inside the 62.5 Mpc/h box.
+truth: centrals, satellites and orphans; both ``Regime`` values (satellites keep -1, the
+"unclassified" regime); haloes above 6e11 Msun; positive star formation, cold gas, H2, H I and
+circumgalactic gas; bulges split into merger- and instability-driven parts; positive mass loading,
+cooling rate, gas accretion and concentration; positions inside the 62.5 Mpc/h box.
 Fields no figure selects on are left at zero.
 """
 
@@ -159,6 +161,19 @@ def build_catalogue(seed=20261107, n_halos=1500, epoch=0.0):
     regime = np.where(is_central, rng.integers(0, 2, n), -1).astype(np.int32)
     regime[:2] = [0, 1]  # both Regime values are always present among the centrals
 
+    # Fields of the SAGE26 z = 0 figures of c16 Slice 2
+    merger_fraction = rng.uniform(0.0, 1.0, n)  # share of the bulge built by mergers
+    merger_bulge = bulge * merger_fraction
+    instability_bulge = bulge - merger_bulge
+    mass_loading = rng.uniform(0.5, 10.0, n)  # dimensionless, positive for every galaxy
+    # Cooling rate, Msun/Gyr: positive for about 80% of the galaxies, zero for the rest
+    cooling_rate = np.where(rng.random(n) < 0.8, 10.0 ** rng.uniform(8.0, 10.5, n), 0.0)
+    # Gas accretion, Msun/yr: cooling in 1-300 and cold streams in 0-5, each for a share of
+    # the galaxies, so the logarithm of the sum falls inside the figure's 0 to 4 window
+    mdot_cool = np.where(rng.random(n) < 0.6, rng.uniform(1.0, 300.0, n), 0.0)
+    mdot_stream = np.where(rng.random(n) < 0.2, rng.uniform(0.0, 5.0, n), 0.0)
+    concentration = rng.uniform(3.0, 20.0, n)  # satellites keep their last central value
+
     values = {
         "SnapNum": np.full(n, 63),
         "Type": galaxy_type,
@@ -197,6 +212,13 @@ def build_catalogue(seed=20261107, n_halos=1500, epoch=0.0):
         "DiskScaleRadius": 0.003 * scale * rng.uniform(0.5, 1.5, n),
         "Regime": regime,
         "FFBRegime": np.where(is_central, rng.integers(0, 2, n), 0),
+        "MergerBulgeMass": merger_bulge,
+        "InstabilityBulgeMass": instability_bulge,
+        "MassLoading": mass_loading,
+        "CoolingRate": cooling_rate,
+        "mdot_cool": mdot_cool,
+        "mdot_stream": mdot_stream,
+        "Concentration": concentration,
     }
 
     catalogue = np.zeros(n, dtype=record_dtype()).view(np.recarray)
