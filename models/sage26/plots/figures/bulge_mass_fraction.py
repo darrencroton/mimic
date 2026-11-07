@@ -112,24 +112,38 @@ def plot(
 
     # Plot bulge fractions
     mask_bulge = f_bulge_ave > 0.0
-    ax.plot(mass_range[mask_bulge] + shift, f_bulge_ave[mask_bulge], "r-", label="bulge")
+    ax.plot(
+        mass_range[mask_bulge] + shift,
+        f_bulge_ave[mask_bulge],
+        "r-",
+        label="bulge",
+        gid="model",
+    )
     ax.fill_between(
         mass_range[mask_bulge] + shift,
         np.clip(f_bulge_ave[mask_bulge] + np.sqrt(f_bulge_var[mask_bulge]), 0, 1),
         np.clip(f_bulge_ave[mask_bulge] - np.sqrt(f_bulge_var[mask_bulge]), 0, 1),
         facecolor="red",
         alpha=0.25,
+        gid="model",
     )
 
     # Plot disk fractions
     mask_disk = f_disk_ave > 0.0
-    ax.plot(mass_range[mask_disk] + shift, f_disk_ave[mask_disk], "k-", label="disk stars")
+    ax.plot(
+        mass_range[mask_disk] + shift,
+        f_disk_ave[mask_disk],
+        "k-",
+        label="disk stars",
+        gid="model",
+    )
     ax.fill_between(
         mass_range[mask_disk] + shift,
         np.clip(f_disk_ave[mask_disk] + np.sqrt(f_disk_var[mask_disk]), 0, 1),
         np.clip(f_disk_ave[mask_disk] - np.sqrt(f_disk_var[mask_disk]), 0, 1),
         facecolor="black",
         alpha=0.25,
+        gid="model",
     )
 
     # Customize the plot

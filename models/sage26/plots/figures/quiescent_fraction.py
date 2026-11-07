@@ -212,17 +212,17 @@ def plot(
     # All galaxies
     mask = fraction > 0
     if np.any(mask):
-        ax.plot(mass[mask], fraction[mask], "k-", label="All")
+        ax.plot(mass[mask], fraction[mask], "k-", label="All", gid="model")
 
     # Central galaxies
     mask = central_fraction > 0
     if np.any(mask):
-        ax.plot(mass[mask], central_fraction[mask], "b-", label="Centrals")
+        ax.plot(mass[mask], central_fraction[mask], "b-", label="Centrals", gid="model")
 
     # Satellite galaxies
     mask = satellite_fraction > 0
     if np.any(mask):
-        ax.plot(mass[mask], satellite_fraction[mask], "r-", label="Satellites")
+        ax.plot(mass[mask], satellite_fraction[mask], "r-", label="Satellites", gid="model")
 
     # Satellites in low-mass halos
     mask = satellite_fraction_lo > 0
@@ -233,6 +233,7 @@ def plot(
             "r--",
             label="Satellites (groups/clusters)",
             linewidth=0.8,
+            gid="model",
         )
 
     # Satellites in high-mass halos
@@ -245,6 +246,7 @@ def plot(
             label="Satellites (field)",
             linewidth=0.8,
             dashes=[8, 3],
+            gid="model",
         )
 
     # Customize the plot

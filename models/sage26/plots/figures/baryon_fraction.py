@@ -7,7 +7,7 @@ This module generates a plot showing the baryon fraction vs. halo mass.
 Adaptively plots all available baryonic components.
 
 Requires: Mvir, Type
-Optional: StellarMass, ColdGas, HotGas, EjectedGas, ICS, BlackHoleMass
+Optional: StellarMass, ColdGas, HotGas, CGMgas, EjectedGas, ICS, BlackHoleMass
 """
 
 import numpy as np
@@ -21,6 +21,53 @@ from output_utils import (
     setup_figure,
     warn,
 )
+
+# The seven baryon reservoirs, in drawing order: (key, output field). Each field is optional:
+# a reservoir the run does not write is left out of the total and not drawn. SAGE26's
+# counterpart sums the same seven into its total (plotting/allresults-local.py:1255, :1261) and
+# draws the circumgalactic medium as its own mean curve (:1325).
+BARYON_RESERVOIRS = (
+    ("stars", "StellarMass"),
+    ("cold", "ColdGas"),
+    ("hot", "HotGas"),
+    ("cgm", "CGMgas"),
+    ("ejected", "EjectedGas"),
+    ("ics", "ICS"),
+    ("bh", "BlackHoleMass"),
+)
+
+
+def baryon_reservoirs(galaxies, optional, group_of_galaxy, n_groups, central_group, central_mvir):
+    """
+    Return each reservoir's baryon fraction for every central, and their total.
+
+    Each reservoir is summed over every galaxy sharing a central's group (one pass with
+    np.bincount), then divided by that central's Mvir. A reservoir whose field is not
+    available (``optional`` maps field name to bool) contributes zeros.
+
+    Args:
+        galaxies: Galaxy data as a numpy recarray (or any mapping of field name to array)
+        optional: Mapping of reservoir field name to whether the run provides it
+        group_of_galaxy: Group index of every galaxy (np.unique return_inverse)
+        n_groups: Number of groups
+        central_group: Group index of every central
+        central_mvir: Mvir of every central, as float64
+
+    Returns:
+        dict mapping each key of BARYON_RESERVOIRS, then "baryons" (their sum, in the order of
+        BARYON_RESERVOIRS), to a float64 array with one entry per central
+    """
+    fractions = {}
+    for key, field in BARYON_RESERVOIRS:
+        if optional.get(field, False):
+            group_sum = np.bincount(
+                group_of_galaxy, weights=galaxies[field].astype(np.float64), minlength=n_groups
+            )
+            fractions[key] = group_sum[central_group] / central_mvir
+        else:
+            fractions[key] = np.zeros(len(central_group))
+    fractions["baryons"] = sum(fractions[key] for key, _ in BARYON_RESERVOIRS)
+    return fractions
 
 
 def plot(
@@ -57,7 +104,7 @@ def plot(
     success, optional, msg = check_required_fields(
         galaxies,
         required_fields=["Mvir", "UniqueCentralGalaxyID"],
-        optional_fields=["StellarMass", "ColdGas", "HotGas", "EjectedGas", "ICS", "BlackHoleMass"],
+        optional_fields=[field for _, field in BARYON_RESERVOIRS],
         plot_name="Baryon Fraction",
     )
 
@@ -74,12 +121,13 @@ def plot(
     has_stellar = optional.get("StellarMass", False)
     has_cold = optional.get("ColdGas", False)
     has_hot = optional.get("HotGas", False)
+    has_cgm = optional.get("CGMgas", False)
     has_ejected = optional.get("EjectedGas", False)
     has_ics = optional.get("ICS", False)
     has_bh = optional.get("BlackHoleMass", False)
 
     # Check if we have any baryonic properties at all
-    has_any_baryons = any([has_stellar, has_cold, has_hot, has_ejected, has_ics, has_bh])
+    has_any_baryons = any([has_stellar, has_cold, has_hot, has_cgm, has_ejected, has_ics, has_bh])
 
     if not has_any_baryons:
         # No baryonic properties available - create plot with message
@@ -109,6 +157,7 @@ def plot(
     mean_stars = []  # Stellar component (including bulge if available)
     mean_cold = []  # Cold gas component
     mean_hot = []  # Hot gas component
+    mean_cgm = []  # Circumgalactic medium component
     mean_ejected = []  # Ejected gas component
     mean_ics = []  # Intracluster stars component
     mean_bh = []  # Black hole component
@@ -130,31 +179,15 @@ def plot(
     _, group_of_galaxy = np.unique(galaxies.UniqueCentralGalaxyID, return_inverse=True)
     n_groups = int(group_of_galaxy.max()) + 1
 
-    component_fields = {
-        "stars": (has_stellar, "StellarMass"),
-        "cold": (has_cold, "ColdGas"),
-        "hot": (has_hot, "HotGas"),
-        "ejected": (has_ejected, "EjectedGas"),
-        "ics": (has_ics, "ICS"),
-        "bh": (has_bh, "BlackHoleMass"),
-    }
-
     # Per-central baryon fractions: each central takes the full sum of its group, so two
     # centrals carrying the same UniqueCentralGalaxyID share one group sum.
     central_indices = np.flatnonzero(central_mask)
     central_group = group_of_galaxy[central_indices]
     central_mvir = galaxies.Mvir[central_indices].astype(np.float64)
     central_log_mass = halo_mass[central_indices]
-    fractions = {}
-    for name, (available, field) in component_fields.items():
-        if available:
-            group_sum = np.bincount(
-                group_of_galaxy, weights=galaxies[field].astype(np.float64), minlength=n_groups
-            )
-            fractions[name] = group_sum[central_group] / central_mvir
-        else:
-            fractions[name] = np.zeros(len(central_indices))
-    fractions["baryons"] = sum(fractions[name] for name in component_fields)
+    fractions = baryon_reservoirs(
+        galaxies, optional, group_of_galaxy, n_groups, central_group, central_mvir
+    )
 
     # Loop through halo mass bins
     for i in range(nbins):
@@ -171,6 +204,7 @@ def plot(
         mean_stars.append(np.mean(fractions["stars"][in_bin]))
         mean_cold.append(np.mean(fractions["cold"][in_bin]))
         mean_hot.append(np.mean(fractions["hot"][in_bin]))
+        mean_cgm.append(np.mean(fractions["cgm"][in_bin]))
         mean_ejected.append(np.mean(fractions["ejected"][in_bin]))
         mean_ics.append(np.mean(fractions["ics"][in_bin]))
         mean_bh.append(np.mean(fractions["bh"][in_bin]))
@@ -181,6 +215,7 @@ def plot(
     mean_stars = np.array(mean_stars)
     mean_cold = np.array(mean_cold)
     mean_hot = np.array(mean_hot)
+    mean_cgm = np.array(mean_cgm)
     mean_ejected = np.array(mean_ejected)
     mean_ics = np.array(mean_ics)
     mean_bh = np.array(mean_bh)
@@ -201,6 +236,7 @@ def plot(
         print(f"    Stars: {has_stellar}")
         print(f"    Cold gas: {has_cold}")
         print(f"    Hot gas: {has_hot}")
+        print(f"    CGM gas: {has_cgm}")
         print(f"    Ejected gas: {has_ejected}")
         print(f"    ICS: {has_ics}")
         print(f"    Black holes: {has_bh}")
@@ -217,33 +253,37 @@ def plot(
 
     # Plot the results
     # Total baryon fraction
-    ax.plot(central_halo_mass, mean_baryon_fraction, "k-", lw=2, label="TOTAL")
+    ax.plot(central_halo_mass, mean_baryon_fraction, "k-", lw=2, label="TOTAL", gid="model")
 
     # Individual components (only plot if available and non-zero)
     if has_stellar:
         if np.any(mean_stars > 0):
-            ax.plot(central_halo_mass, mean_stars, "k--", label="Stars")
+            ax.plot(central_halo_mass, mean_stars, "k--", label="Stars", gid="model")
 
     if has_cold:
         if np.any(mean_cold > 0):
-            ax.plot(central_halo_mass, mean_cold, "b-", label="Cold")
+            ax.plot(central_halo_mass, mean_cold, "b-", label="Cold", gid="model")
 
     if has_hot:
         if np.any(mean_hot > 0):
-            ax.plot(central_halo_mass, mean_hot, "r-", label="Hot")
+            ax.plot(central_halo_mass, mean_hot, "r-", label="Hot", gid="model")
+
+    if has_cgm:
+        if np.any(mean_cgm > 0):
+            ax.plot(central_halo_mass, mean_cgm, "c-", label="CGM", gid="model")
 
     if has_ejected:
         if np.any(mean_ejected > 0):
-            ax.plot(central_halo_mass, mean_ejected, "g-", label="Ejected")
+            ax.plot(central_halo_mass, mean_ejected, "g-", label="Ejected", gid="model")
 
     if has_ics:
         if np.any(mean_ics > 0):
-            ax.plot(central_halo_mass, mean_ics, "y-", label="ICS")
+            ax.plot(central_halo_mass, mean_ics, "y-", label="ICS", gid="model")
 
     # Black hole mass is typically too small to show up well, but plot if available
     if has_bh:
         if np.any(mean_bh > 1e-6):  # Only if non-negligible
-            ax.plot(central_halo_mass, mean_bh, "k:", label="BH")
+            ax.plot(central_halo_mass, mean_bh, "k:", label="BH", gid="model")
 
     # Add a horizontal line showing the cosmic baryon fraction
     ax.axhline(

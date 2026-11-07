@@ -136,7 +136,7 @@ def plot(
     fig, ax = setup_figure()
 
     # Plot the model galaxies
-    ax.scatter(mass, ssfr, marker="o", s=1, c="k", alpha=0.5, label="Model galaxies")
+    ax.scatter(mass, ssfr, marker="o", s=1, c="k", alpha=0.5, label="Model galaxies", gid="model")
 
     # Add a horizontal line at the division between star-forming and quiescent galaxies
     ssfr_cut = -11.0

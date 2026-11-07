@@ -272,7 +272,14 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         xaxis = binedges[:-1] + 0.5 * binwidth
 
         # Plot the histogram
-        ax.plot(xaxis, counts / volume * hubble_h**3 / binwidth, color=color, linestyle="-", lw=2)
+        ax.plot(
+            xaxis,
+            counts / volume * hubble_h**3 / binwidth,
+            color=color,
+            linestyle="-",
+            lw=2,
+            gid="model",
+        )
 
         # Store redshift values for labels in the top right corner
         if i == 0:

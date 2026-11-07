@@ -114,7 +114,7 @@ def plot(
     bin_centers = bin_edges[:-1] + bin_width / 2
 
     # Plot the histogram
-    ax.plot(bin_centers, counts, "k-", lw=2, label="Simulation")
+    ax.plot(bin_centers, counts, "k-", lw=2, label="Simulation", gid="model")
 
     # Add a theoretical log-normal distribution for comparison (optional)
     # Parameters for log-normal are typical for halos

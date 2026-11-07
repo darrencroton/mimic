@@ -173,29 +173,43 @@ EVOLUTION_PLOTS = [
 ]
 
 PLOT_REQUIREMENTS = {
-    # Halo plots (no extra properties needed beyond base halos)
-    "halo_mass_function": [],
-    "halo_occupation": [],
-    "hmf_evolution": [],
-    "spin_distribution": [],
-    "velocity_distribution": [],
-    "spatial_distribution": [],
-    # Galaxy physics plots (require specific properties)
-    "stellar_mass_function": ["StellarMass"],
+    # Every field a figure reads unconditionally: all it reads except the fields it names in
+    # the optional_fields of its check_required_fields call, whether a missing one would make
+    # it raise or return a skip. The engine skips a figure whose entry names an absent field.
+    # Halo plots
+    "halo_mass_function": ["Mvir", "Type"],
+    "halo_occupation": ["Mvir", "Type", "UniqueCentralGalaxyID"],
+    "hmf_evolution": ["Mvir", "Type"],
+    "spin_distribution": ["Spin", "Rvir", "Vvir"],
+    "velocity_distribution": ["Pos", "Vel"],
+    "spatial_distribution": ["Mvir", "Pos"],
+    # Galaxy physics plots
+    "stellar_mass_function": ["StellarMass"],  # StarFormationRate optional (red/blue split)
     "cold_gas_function": ["ColdGas"],
     "smf_evolution": ["StellarMass"],
-    "baryon_fraction": ["Mvir", "Type"],  # Baryonic properties checked internally
+    # Reservoir fields (StellarMass, ColdGas, HotGas, CGMgas, EjectedGas, ICS, BlackHoleMass)
+    # are optional: the figure draws those the run writes
+    "baryon_fraction": ["Mvir", "Type", "UniqueCentralGalaxyID"],
     "baryonic_mass_function": ["StellarMass", "ColdGas"],
-    "gas_mass_function": ["ColdGas"],  # SfrDisk, SfrBulge checked internally for coloring
-    "baryonic_tully_fisher": ["StellarMass", "ColdGas", "Vmax"],  # DiskScaleRadius optional
-    "specific_sfr": ["StellarMass"],  # SfrDisk, SfrBulge checked internally
+    "gas_mass_function": ["ColdGas"],  # H2gas, H1gas, SfrDisk, SfrBulge, StellarMass optional
+    "baryonic_tully_fisher": ["StellarMass", "ColdGas", "Vmax", "BulgeMass", "Type"],
+    "specific_sfr": ["StellarMass", "StarFormationRate"],
     "black_hole_bulge_relation": ["BlackHoleMass", "BulgeMass"],
-    "gas_fraction": ["StellarMass", "ColdGas"],
-    "metallicity": ["StellarMass", "ColdGas", "MetalsColdGas"],
+    "gas_fraction": ["StellarMass", "ColdGas", "BulgeMass", "Type"],
+    "metallicity": ["StellarMass", "ColdGas", "MetalsColdGas", "Type"],
     "bulge_mass_fraction": ["StellarMass", "BulgeMass"],
-    "quiescent_fraction": ["StellarMass"],  # SfrDisk, SfrBulge checked internally
-    "mass_reservoir_scatter": ["StellarMass", "ColdGas", "HotGas"],
-    "sfr_density_evolution": [],  # SfrDisk, SfrBulge checked internally
+    "quiescent_fraction": ["StellarMass", "StarFormationRate", "Type"],  # CentralMvir optional
+    "mass_reservoir_scatter": [
+        "Mvir",
+        "Type",
+        "StellarMass",
+        "ColdGas",
+        "HotGas",
+        "CGMgas",
+        "EjectedGas",
+        "ICS",
+    ],
+    "sfr_density_evolution": ["StarFormationRate", "StellarMass"],
     "stellar_mass_density_evolution": ["StellarMass"],
 }
 

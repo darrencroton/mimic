@@ -156,6 +156,7 @@ def plot(
         c="k",
         alpha=0.5,
         label="Model galaxies",
+        gid="model",
     )
 
     # Add Tremonti et al. 2003 observational relation

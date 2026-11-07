@@ -108,7 +108,16 @@ def plot(
         print(f"  Black hole mass range: {min(bh_mass):.2f} to {max(bh_mass):.2f}")
 
     # Plot the galaxy data
-    ax.scatter(bulge_mass, bh_mass, marker="o", s=1, c="k", alpha=0.5, label="Model galaxies")
+    ax.scatter(
+        bulge_mass,
+        bh_mass,
+        marker="o",
+        s=1,
+        c="k",
+        alpha=0.5,
+        label="Model galaxies",
+        gid="model",
+    )
 
     # Add Häring & Rix 2004 observational relation
     # M_BH = 10^(8.2) * (M_bulge/10^11)^1.12

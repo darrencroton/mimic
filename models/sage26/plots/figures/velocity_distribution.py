@@ -126,19 +126,41 @@ def plot(
         "k-",
         lw=2,
         label="line-of-sight",
+        gid="model",
     )
 
     # X velocity component
     counts_x, _ = np.histogram(vel_x / (hubble_h * 100.0), range=(bin_min, bin_max), bins=nbins)
-    ax.plot(bin_centers, counts_x / bin_width / tot_gals, "r-", lw=1.5, label="x-velocity")
+    ax.plot(
+        bin_centers,
+        counts_x / bin_width / tot_gals,
+        "r-",
+        lw=1.5,
+        label="x-velocity",
+        gid="model",
+    )
 
     # Y velocity component
     counts_y, _ = np.histogram(vel_y / (hubble_h * 100.0), range=(bin_min, bin_max), bins=nbins)
-    ax.plot(bin_centers, counts_y / bin_width / tot_gals, "g-", lw=1.5, label="y-velocity")
+    ax.plot(
+        bin_centers,
+        counts_y / bin_width / tot_gals,
+        "g-",
+        lw=1.5,
+        label="y-velocity",
+        gid="model",
+    )
 
     # Z velocity component
     counts_z, _ = np.histogram(vel_z / (hubble_h * 100.0), range=(bin_min, bin_max), bins=nbins)
-    ax.plot(bin_centers, counts_z / bin_width / tot_gals, "b-", lw=1.5, label="z-velocity")
+    ax.plot(
+        bin_centers,
+        counts_z / bin_width / tot_gals,
+        "b-",
+        lw=1.5,
+        label="z-velocity",
+        gid="model",
+    )
 
     # Use log scale for y-axis
     ax.set_yscale("log")

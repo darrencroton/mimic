@@ -51,7 +51,7 @@ def plot(
     success, optional, msg = check_required_fields(
         galaxies,
         required_fields=["ColdGas"],
-        optional_fields=["SfrDisk", "SfrBulge", "StellarMass"],
+        optional_fields=["SfrDisk", "SfrBulge", "StellarMass", "H2gas", "H1gas"],
         plot_name="Gas Mass Function",
     )
 
@@ -106,7 +106,33 @@ def plot(
     xaxis, gmf = calculate_mass_function(mass, volume, hubble_h, binwidth)
 
     # Plot the main histogram
-    ax.plot(xaxis, gmf, "k-", label="Model - Cold Gas")
+    ax.plot(xaxis, gmf, "k-", label="Model - Cold Gas", gid="model")
+
+    # Model H2 and H I mass functions over the same galaxies and the same bins as the cold-gas
+    # curve, as SAGE26's counterpart draws them (plotting/allresults-local.py:612-614, :700-701).
+    # A galaxy with no H2 (or H I) has no finite log mass and falls outside the histogram range.
+    mass_lo = np.floor(min(mass)) - 2
+    mass_hi = np.floor(max(mass)) + 2
+    if optional.get("H2gas", False):
+        h2_mass = galaxies.H2gas[w]
+        h2_mass = np.log10(h2_mass[h2_mass > 0.0] * 1.0e10 / hubble_h)
+        if len(h2_mass) > 0:
+            xaxis_h2, h2mf = calculate_mass_function(
+                h2_mass, volume, hubble_h, binwidth, mass_lo, mass_hi
+            )
+            ax.plot(
+                xaxis_h2, h2mf, color="magenta", linestyle="-", label="Model - H2 Gas", gid="model"
+            )
+    if optional.get("H1gas", False):
+        h1_mass = galaxies.H1gas[w]
+        h1_mass = np.log10(h1_mass[h1_mass > 0.0] * 1.0e10 / hubble_h)
+        if len(h1_mass) > 0:
+            xaxis_h1, h1mf = calculate_mass_function(
+                h1_mass, volume, hubble_h, binwidth, mass_lo, mass_hi
+            )
+            ax.plot(
+                xaxis_h1, h1mf, color="cyan", linestyle="-", label="Model - HI Gas", gid="model"
+            )
 
     # Add observational data from Zwaan et al. 2005 (HI)
     Zwaan = np.array(

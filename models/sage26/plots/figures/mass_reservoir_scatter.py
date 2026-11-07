@@ -53,7 +53,16 @@ def plot(
     # Check required fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=["Mvir", "Type", "StellarMass", "ColdGas", "HotGas", "EjectedGas", "ICS"],
+        required_fields=[
+            "Mvir",
+            "Type",
+            "StellarMass",
+            "ColdGas",
+            "HotGas",
+            "CGMgas",
+            "EjectedGas",
+            "ICS",
+        ],
         plot_name="Mass Reservoir Scatter",
     )
 
@@ -99,16 +108,17 @@ def plot(
     stellar_mass = np.log10(mass_msun("StellarMass", candidates))
     cold_gas = np.log10(np.maximum(mass_msun("ColdGas", candidates), 1.0))  # Avoid log(0)
     hot_gas = np.log10(np.maximum(mass_msun("HotGas", candidates), 1.0))
+    cgm_gas = np.log10(np.maximum(mass_msun("CGMgas", candidates), 1.0))
     ejected_gas = np.log10(np.maximum(mass_msun("EjectedGas", candidates), 1.0))
     ics = np.log10(np.maximum(mass_msun("ICS", candidates), 1.0))
 
     # Restrict to the display box before diluting, so the dilution budget is
     # spent on points that will actually be visible: a point counts as
-    # visible if its halo mass is in range and at least one of its five
+    # visible if its halo mass is in range and at least one of its six
     # components is too.
     keep = select_scatter_sample(
         mvir,
-        [stellar_mass, cold_gas, hot_gas, ejected_gas, ics],
+        [stellar_mass, cold_gas, hot_gas, cgm_gas, ejected_gas, ics],
         x_min,
         x_max,
         y_min,
@@ -119,6 +129,7 @@ def plot(
     stellar_mass = stellar_mass[keep]
     cold_gas = cold_gas[keep]
     hot_gas = hot_gas[keep]
+    cgm_gas = cgm_gas[keep]
     ejected_gas = ejected_gas[keep]
     ics = ics[keep]
 
@@ -137,11 +148,28 @@ def plot(
         print(f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}")
 
     # Plot each mass component
-    ax.scatter(mvir, stellar_mass, marker="o", s=0.8, c="k", alpha=0.5, label="Stars")
-    ax.scatter(mvir, cold_gas, marker="o", s=0.8, c="blue", alpha=0.5, label="Cold gas")
-    ax.scatter(mvir, hot_gas, marker="o", s=0.8, c="red", alpha=0.5, label="Hot gas")
-    ax.scatter(mvir, ejected_gas, marker="o", s=0.8, c="green", alpha=0.5, label="Ejected gas")
-    ax.scatter(mvir, ics, marker="x", s=5, c="yellow", alpha=0.7, label="Intracluster stars")
+    ax.scatter(mvir, stellar_mass, marker="o", s=0.8, c="k", alpha=0.5, label="Stars", gid="model")
+    ax.scatter(
+        mvir, cold_gas, marker="o", s=0.8, c="blue", alpha=0.5, label="Cold gas", gid="model"
+    )
+    ax.scatter(mvir, hot_gas, marker="o", s=0.8, c="red", alpha=0.5, label="Hot gas", gid="model")
+    ax.scatter(
+        mvir, ejected_gas, marker="o", s=0.8, c="green", alpha=0.5, label="Ejected gas", gid="model"
+    )
+    ax.scatter(
+        mvir,
+        ics,
+        marker="x",
+        s=5,
+        c="yellow",
+        alpha=0.7,
+        label="Intracluster stars",
+        gid="model",
+    )
+    # SAGE26's counterpart draws the same series (plotting/allresults-local.py:1489)
+    ax.scatter(
+        mvir, cgm_gas, marker="o", s=0.8, c="orange", alpha=0.5, label="CGM gas", gid="model"
+    )
 
     # Customize the plot
     ax.set_xlabel(r"log M$_{\rm vir}$ [h$^{-1}$ M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
