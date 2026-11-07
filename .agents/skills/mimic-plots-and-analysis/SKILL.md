@@ -40,7 +40,7 @@ python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_min
 
 `models/<model>/plots/figures/__init__.py` exports four structures the engine imports (plus shared styling helpers `setup_plot_fonts`, `setup_legend`, label getters, and `check_required_properties`):
 
-- `SNAPSHOT_PLOTS` / `EVOLUTION_PLOTS` — ordered name lists (sage16 ships 18 + 4; hod 5 + 0; sham 8 + 0; halos-only 4 + 1, halo-diagnostics only by design; the shipped hod and sham registries list no evolution figures: the SHAM real-box run writes a single epoch, so it has nothing to evolve, and the HOD registry is the figure inventory the package ships).
+- `SNAPSHOT_PLOTS` / `EVOLUTION_PLOTS` — ordered name lists (sage16 ships 18 + 4; sage26 30 + 18; hod 5 + 0; sham 8 + 0; halos-only 4 + 1, halo-diagnostics only by design; the shipped hod and sham registries list no evolution figures: the SHAM real-box run writes a single epoch, so it has nothing to evolve, and the HOD registry is the figure inventory the package ships).
 - `PLOT_REQUIREMENTS` — dict name → required galaxy fields (`[]` = always available). This is the gate that makes physics-free runs skip galaxy plots cleanly.
 - `PLOT_FUNCS` — dict name → the figure module's `plot` callable.
 
@@ -113,7 +113,7 @@ Verified against the live repo 2026-07-04; registry counts and the clustering he
 
 ```bash
 grep -n '"--' plot/mimic-plot/mimic-plot.py | head -20                    # CLI flags
-grep -n "SNAPSHOT_PLOTS\s*=\|EVOLUTION_PLOTS\s*=" models/sage16/plots/figures/__init__.py   # repeat for hod, sham, halos-only
+grep -n "SNAPSHOT_PLOTS\s*=\|EVOLUTION_PLOTS\s*=" models/sage16/plots/figures/__init__.py   # repeat for sage26, hod, sham, halos-only
 grep -n "^def periodic_pair_counts\|^def correlation_function" plot/mimic-plot/output_utils.py
 sed -n '305,352p' plot/mimic-plot/mimic-plot.py                            # profile stack order
 sed -n '308,341p' plot/mimic-plot/output_utils.py                          # axis keys (xmin/xmax/ymin/ymax)

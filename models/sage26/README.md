@@ -170,6 +170,65 @@ python plot/mimic-plot/mimic-plot.py --param-file=models/sage26/input/sage26_min
 python plot/mimic-plot/mimic-plot.py --param-file=models/sage26/input/sage26_mini-millennium-horizontal.yaml
 ```
 
+The registry holds 48 figures: 30 snapshot figures and 18 evolution figures. Twenty-two are the `sage16` diagnostics of the same names, which keep `sage16`'s selections and observational data; of these, `baryon_fraction` and `mass_reservoir_scatter` add the `CGMgas` reservoir and `gas_mass_function` adds model H2 and H I mass functions from `H2gas` and `H1gas`, as SAGE26's counterpart figures draw them. The other 26 are ports of figures from SAGE26's plotting scripts: twelve z = 0 figures of `plotting/allresults-local.py`, thirteen evolution figures of `plotting/allresults-history.py`, and `ffb_fraction_cut_down`, a cut-down port of plot 23c of `plotting/paper_plots.py`. That figure draws the FFB fraction of the primary model on the run's eight output snapshots without SAGE26's MBK25 comparison run, and its title says so: it is not SAGE26's exact figure.
+
+The profile is `plots/profiles/default.yaml`: its `plots.snapshot` and `plots.evolution` lists hold the 48 figures in registry order, and it gives the figures ported from SAGE26 no `axes` entry, so each sets SAGE26's own axis window, or none where SAGE26 sets none.
+
+The evolution figures read the run's eight output snapshots, the run files' `snapshot_list`, ordered by increasing redshift: 63, 37, 32, 27, 23, 20, 18 and 16 (z = 0, 1.39, 2.07, 3.06, 4.18, 5.29, 6.20 and 7.27). SAGE26 writes all 64 snapshots and its history script reads every one, so SAGE26's every-snapshot figures are drawn here from those eight. A figure that bins by redshift uses SAGE26's fifteen redshift bins, so a bin that holds no written snapshot draws nothing and snapshot 63 (z = 0) falls in none of them, as in SAGE26; a figure drawn at the snapshot nearest a target redshift takes the nearest written snapshot and labels its actual redshift.
+
+The figures in registry order, the 30 snapshot figures first. In the *Follows* column, `sage16` is the diagnostic of the same name inherited from `sage16`, and a SAGE26 entry names the script in SAGE26's `plotting/` and the figure's file stem there; an inherited diagnostic marked "covers" is the package's figure for that SAGE26 figure, drawn with `sage16`'s selections.
+
+| Figure | What it shows | Follows |
+|---|---|---|
+| `halo_mass_function` | Halo mass function: abundance against halo mass. | `sage16` |
+| `halo_occupation` | Number of galaxies per halo against halo mass. | `sage16` |
+| `spin_distribution` | Distribution of halo spin parameters. | `sage16` |
+| `velocity_distribution` | Distribution of velocities. | `sage16` |
+| `spatial_distribution` | Galaxy positions in the box, in projection. | `sage16`; covers `allresults-local.py` `SpatialDistribution` |
+| `stellar_mass_function` | Stellar mass function with `sage16`'s observations. | `sage16`; covers `allresults-local.py` `StellarMassFunction` |
+| `cold_gas_function` | Cold gas mass function. | `sage16` |
+| `baryon_fraction` | Mean baryon fraction of haloes by reservoir (stars, cold, hot, CGM, ejected, ICS, black hole) against halo mass. | `sage16`, with SAGE26's CGM curve; covers `allresults-local.py` `BaryonFraction` |
+| `baryonic_mass_function` | Mass function of stars plus cold gas. | `sage16`; covers `allresults-local.py` `BaryonicMassFunction` |
+| `gas_mass_function` | Cold gas mass function with the H2 and H I model curves and observations. | `sage16`, with SAGE26's H2 and H I curves; covers `allresults-local.py` `GasMassFunction` |
+| `baryonic_tully_fisher` | Baryonic mass against maximum circular velocity. | `sage16`; covers `allresults-local.py` `BaryonicTullyFisher` |
+| `specific_sfr` | Specific star formation rate against stellar mass. | `sage16`; covers `allresults-local.py` `SpecificStarFormationRate` |
+| `black_hole_bulge_relation` | Black hole mass against bulge mass. | `sage16`; covers `allresults-local.py` `BlackHoleBulgeRelationship` |
+| `gas_fraction` | Cold gas fraction against stellar mass. | `sage16`; covers `allresults-local.py` `GasFraction` |
+| `metallicity` | Cold gas metallicity against stellar mass. | `sage16`; covers `allresults-local.py` `Metallicity` |
+| `bulge_mass_fraction` | Bulge and disk mass fractions against stellar mass. | `sage16`; covers `allresults-local.py` `BulgeMassFraction` |
+| `quiescent_fraction` | Fraction of quiescent galaxies against stellar mass. | `sage16`; covers `allresults-local.py` `QuiescentFraction` |
+| `mass_reservoir_scatter` | Mass in each reservoir (stars, cold, hot, ejected, ICS, CGM) against halo mass, per central. | `sage16`, with SAGE26's CGM series; covers `allresults-local.py` `MassReservoirScatter` |
+| `bulge_to_total` | Bulge-to-total ratio against stellar mass, split into merger- and instability-driven bulges. | `allresults-local.py` `BulgeToTotal` |
+| `spatial_distribution_3d_box` | Galaxy positions in the 3-D box, coloured by local density. | `allresults-local.py` `SpatialDistribution3D_Box` |
+| `star_formation_rate` | Star formation rate against stellar mass. | `allresults-local.py` `StarFormationRate` |
+| `mass_loading_vs_vvir` | Supernova mass-loading factor against virial velocity. | `allresults-local.py` `mass_loading_vs_vvir` |
+| `stellar_vs_halo_mass_by_regime` | Stellar mass against halo mass, coloured by CGM or hot regime. | `allresults-local.py` `stellar_vs_halo_mass_by_regime` |
+| `specific_star_formation_rate` | Density of galaxies in specific SFR against stellar mass, with the quiescent cut. | `allresults-local.py` `specific_star_formation_rate` |
+| `concentration_vs_mvir` | Halo concentration against halo mass for centrals and satellites, coloured by stellar mass. | `allresults-local.py` `concentration_vs_mvir` |
+| `sfr_vs_halo_accretion_rate` | Star formation rate against gas accretion rate (cooling plus cold streams). | `allresults-local.py` `sfr_vs_halo_accretion_rate` |
+| `tcool_vs_mvir` | Cooling rate against halo mass by regime. | `allresults-local.py` `tcool_vs_mvir` |
+| `cgm_fraction_vs_mvir` | SAGE26's CGM-fraction quantity against halo mass. | `allresults-local.py` `cgm_fraction_vs_mvir` |
+| `ejection_efficiency_vs_vvir` | Ejection efficiency against virial velocity. | `allresults-local.py` `ejection_efficiency_vs_vvir` |
+| `disk_radius_vs_stellar_mass` | Effective disk radius against virial radius for galaxies of stellar mass 10^9.3 to 10^11.3 Msun, with Somerville et al. (2018). | `allresults-local.py` `disk_radius_vs_stellar_mass` |
+| `hmf_evolution` | Halo mass function at the written snapshots. | `sage16`; covers `allresults-history.py` `HaloMassFunctionEvolution` |
+| `smf_evolution` | Stellar mass function at several redshifts. | `sage16`; covers `allresults-history.py` `StellarMassFunction_z` |
+| `sfr_density_evolution` | Cosmic star formation rate density against redshift. | `sage16`; covers `allresults-history.py` `History-SFR-density` |
+| `stellar_mass_density_evolution` | Cosmic stellar mass density against redshift. | `sage16`; covers `allresults-history.py` `History-stellar-mass-density` |
+| `rcool_to_rvir_above_mshock` | Distribution of cooling radius over virial radius for haloes above 6×10^11 Msun, near z = 0, 2 and 6. | `allresults-history.py` `RcoolToRvir_above_Mshock` |
+| `sfr_evolution` | Mean star formation rate against stellar mass in redshift bins. | `allresults-history.py` `SFR_evolution` |
+| `stellar_mass_halo_mass_relation` | Mean stellar mass against halo mass in redshift bins. | `allresults-history.py` `StellarMassHaloMassRelation` |
+| `black_hole_mass_function` | Black hole mass function near z = 0.1, 1, 2, 4, 6 and 8, with observations. | `allresults-history.py` `BlackHoleMassFunction` |
+| `quenched_fraction_evolution` | Quenched fraction of centrals and satellites against stellar mass in redshift bins. | `allresults-history.py` `QuenchedFraction.StellarMassFunctionEvolution` |
+| `concentration_evolution` | Median halo concentration against redshift in four halo-mass bins. | `allresults-history.py` `ConcentrationEvolution` |
+| `metallicity_evolution` | Mean stellar metallicity against stellar mass in redshift bins. | `allresults-history.py` `MetallicityEvolution` |
+| `h2_fraction_evolution` | Mean H2 fraction of cold gas against stellar mass in redshift bins. | `allresults-history.py` `H2FractionEvolution` |
+| `star_formation_efficiency` | Median integrated star formation efficiency of centrals against cosmic time. | `allresults-history.py` `StarFormationEfficiency` |
+| `central_satellite_counts` | Average numbers of centrals and satellites per redshift bin. | `allresults-history.py` `CentralSatelliteCounts` |
+| `central_satellite_fraction` | Central and satellite fractions against redshift. | `allresults-history.py` `CentralSatelliteFraction` |
+| `central_satellite_fraction_massive_quiescent` | Central and satellite fractions among the most massive quiescent galaxies against redshift. | `allresults-history.py` `CentralSatelliteFraction_MassiveQuiescent` |
+| `quenched_central_satellite_counts` | Average numbers of quenched centrals and satellites per redshift bin. | `allresults-history.py` `QuenchedCentralSatelliteCounts` |
+| `ffb_fraction_cut_down` | Fraction of resolved galaxies in the feedback-free-burst regime against redshift at the run's eight snapshots: a cut-down port of SAGE26's paper figure 23c, without its MBK25 comparison run. | `paper_plots.py` plot 23c (`plot_23c_ffb_fraction_bk25`), cut down |
+
 ## Build, Run, and Test
 
 The default model is `sage16`, so a plain `make` does not build this package. Build and run each run file with its own simulation package, from the repository root:
