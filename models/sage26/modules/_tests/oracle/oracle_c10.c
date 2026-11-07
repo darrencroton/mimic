@@ -1,6 +1,6 @@
 /**
  * @file    oracle_c10.c
- * @brief   SAGE26 function-level oracle for the c10 CGM regime classifier
+ * @brief   SAGE26 function-level oracle for the CGM regime classifier
  *          (determine_and_store_regime, CGMrecipeOn 1)
  *
  * Reads one fixture input file, initialises the SAGE26 struct GALAXY array and the struct

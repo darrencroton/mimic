@@ -3,30 +3,29 @@
 #
 # Compiles SAGE26's twelve physics sources (the list SAGE26's own tests/Makefile
 # links its unit tests against) from the staged, read-only SAGE26 source, with
-# the compiler and flags that the T1 reference build recorded, and links them
-# with the oracle main oracle_c03.c into a standalone executable. Nothing is
-# written in the SAGE26 source tree: objects and the executable go under the
-# worktree's git-ignored output/oracle/. The oracle never links Mimic code.
-# The c04 oracle main, oracle_c04.c, is compiled and linked the same way, with
-# the same objects, compiler and flags, into output/oracle/oracle_c04, and so is
-# the c05 oracle main, oracle_c05.c, into output/oracle/oracle_c05, the c06
-# oracle main, oracle_c06.c, into output/oracle/oracle_c06, the c07 oracle
-# main, oracle_c07.c, into output/oracle/oracle_c07, and the c08 oracle main,
-# oracle_c08.c, into output/oracle/oracle_c08. The c10 oracle main, oracle_c10.c,
-# is compiled and linked the same way into output/oracle/oracle_c10; it defines the
-# test-only rand() provider (the fixture's integer queue), which is linked into that
-# executable only. The c11 oracle main, oracle_c11.c (the CGMrecipeOn 1 cooling routines,
-# the clustering-mass table, the CGM-on radio AGN, the regime-aware wrapper and the
-# transcribed writer conversion of the mdot rates), is compiled and linked the same way
-# into output/oracle/oracle_c11. The c12 oracle main, oracle_c12.c (the halo concentration:
-# concentration_from_vmax_vvir and get_halo_concentration, ConcentrationOn 0 and 3), is
-# compiled and linked the same way into output/oracle/oracle_c12. The c13 oracle main,
-# oracle_c13.c (the feedback-free-burst classifier: calculate_ffb_threshold_mass,
-# calculate_ffb_fraction and determine_and_store_ffb_regime, EnhancedStarFormationOn 1), is
-# compiled and linked the same way into output/oracle/oracle_c13; like oracle_c10.c it defines
-# a test-only rand() provider, linked into that executable only. Since c13 Slice 2 oracle_c13.c
-# also calls SAGE26's starformation_ffb and the wrapper starformation_and_feedback's FFB dispatch
-# (the same twelve objects; no new SAGE26 source).
+# the compiler and flags that the SAGE26 reference build recorded (README.md,
+# "Oracle Environment"), and links them with the oracle main oracle_c03.c into a
+# standalone executable. Nothing is written in the SAGE26 source tree: objects
+# and the executable go under the worktree's git-ignored output/oracle/. The
+# oracle never links Mimic code. The oracle main oracle_c04.c is compiled and
+# linked the same way, with the same objects, compiler and flags, into
+# output/oracle/oracle_c04, and so are oracle_c05.c into output/oracle/oracle_c05,
+# oracle_c06.c into output/oracle/oracle_c06, oracle_c07.c into
+# output/oracle/oracle_c07 and oracle_c08.c into output/oracle/oracle_c08.
+# oracle_c10.c is compiled and linked the same way into output/oracle/oracle_c10; it
+# defines the test-only rand() provider (the fixture's integer queue), which is linked
+# into that executable only. oracle_c11.c (the CGMrecipeOn 1 cooling routines, the
+# clustering-mass table, the CGM-on radio AGN, the regime-aware wrapper and the
+# transcribed writer conversion of the mdot rates) is compiled and linked the same way
+# into output/oracle/oracle_c11. oracle_c12.c (the halo concentration:
+# concentration_from_vmax_vvir and get_halo_concentration, ConcentrationOn 0 and 3) is
+# compiled and linked the same way into output/oracle/oracle_c12. oracle_c13.c (the
+# feedback-free-burst classifier: calculate_ffb_threshold_mass, calculate_ffb_fraction and
+# determine_and_store_ffb_regime, EnhancedStarFormationOn 1) is compiled and linked the
+# same way into output/oracle/oracle_c13; like oracle_c10.c it defines a test-only rand()
+# provider, linked into that executable only. oracle_c13.c also calls SAGE26's
+# starformation_ffb and the wrapper starformation_and_feedback's FFB dispatch (the same
+# twelve objects; no new SAGE26 source).
 #
 # Environment:
 #   SAGE26_SRC         staged SAGE26 source root
@@ -52,7 +51,7 @@ OBJ_DIR=$ORACLE_OUT/obj
 EXPECTED_CLANG='Apple clang version 21.0.0 (clang-2100.4.1.1)'
 EXPECTED_SAGE26_COMMIT=11b1ae851524baadb76cfd17e0b38f8a89c07224
 
-# GSL location the reference build used (reference-build.log).
+# GSL location the reference build used (README.md, "Oracle Environment").
 GSL_PREFIX=/opt/homebrew/Cellar/gsl/2.8
 
 # SAGE26 tests/Makefile PROJECT_SOURCES, in that order.
@@ -116,8 +115,8 @@ clang $objects "$OBJ_DIR/oracle_c03.o" -o "$ORACLE_OUT/oracle_c03" \
 
 echo "build.sh: built $ORACLE_OUT/oracle_c03"
 
-# The c04 oracle main (cooling and radio heating): built exactly as oracle_c03,
-# against the same twelve objects, with the same flags and link.
+# The oracle main oracle_c04.c (cooling and radio heating): built exactly as
+# oracle_c03, against the same twelve objects, with the same flags and link.
 compile "$ORACLE_DIR/oracle_c04.c" "$OBJ_DIR/oracle_c04.o" -I"$SAGE26_SRC/src"
 
 set -x
@@ -128,9 +127,9 @@ clang $objects "$OBJ_DIR/oracle_c04.o" -o "$ORACLE_OUT/oracle_c04" \
 
 echo "build.sh: built $ORACLE_OUT/oracle_c04"
 
-# The c05 oracle main (star formation, feedback, instability, histories and
-# outflow): built exactly as oracle_c03, against the same twelve objects, with
-# the same flags and link.
+# The oracle main oracle_c05.c (star formation, feedback, instability, histories
+# and outflow): built exactly as oracle_c03, against the same twelve objects,
+# with the same flags and link.
 compile "$ORACLE_DIR/oracle_c05.c" "$OBJ_DIR/oracle_c05.o" -I"$SAGE26_SRC/src"
 
 set -x
@@ -141,9 +140,9 @@ clang $objects "$OBJ_DIR/oracle_c05.o" -o "$ORACLE_OUT/oracle_c05" \
 
 echo "build.sh: built $ORACLE_OUT/oracle_c05"
 
-# The c06 oracle main (merger clocks, mergers, black holes, bursts, disruption and the
-# driver transcriptions): built exactly as oracle_c03, against the same twelve objects,
-# with the same flags and link.
+# The oracle main oracle_c06.c (merger clocks, mergers, black holes, bursts, disruption and the
+# driver transcriptions): built exactly as oracle_c03, against the same twelve objects, with the
+# same flags and link.
 compile "$ORACLE_DIR/oracle_c06.c" "$OBJ_DIR/oracle_c06.o" -I"$SAGE26_SRC/src"
 
 set -x
@@ -154,9 +153,9 @@ clang $objects "$OBJ_DIR/oracle_c06.o" -o "$ORACLE_OUT/oracle_c06" \
 
 echo "build.sh: built $ORACLE_OUT/oracle_c06"
 
-# The c07 oracle main (the bulge-size routines and the central's synchronisation
-# transcription): built exactly as oracle_c03, against the same twelve objects, with the
-# same flags and link.
+# The oracle main oracle_c07.c (the bulge-size routines and the central's synchronisation
+# transcription): built exactly as oracle_c03, against the same twelve objects, with the same
+# flags and link.
 compile "$ORACLE_DIR/oracle_c07.c" "$OBJ_DIR/oracle_c07.o" -I"$SAGE26_SRC/src"
 
 set -x
@@ -167,7 +166,7 @@ clang $objects "$OBJ_DIR/oracle_c07.o" -o "$ORACLE_OUT/oracle_c07" \
 
 echo "build.sh: built $ORACLE_OUT/oracle_c07"
 
-# The c08 oracle main (the BR06 molecular fraction and its radial integration): built
+# The oracle main oracle_c08.c (the BR06 molecular fraction and its radial integration): built
 # exactly as oracle_c03, against the same twelve objects, with the same flags and link.
 compile "$ORACLE_DIR/oracle_c08.c" "$OBJ_DIR/oracle_c08.o" -I"$SAGE26_SRC/src"
 
@@ -179,8 +178,8 @@ clang $objects "$OBJ_DIR/oracle_c08.o" -o "$ORACLE_OUT/oracle_c08" \
 
 echo "build.sh: built $ORACLE_OUT/oracle_c08"
 
-# The c10 oracle main (the CGM regime classifier, determine_and_store_regime): built exactly
-# as oracle_c03, against the same twelve objects, with the same flags and link. Its own
+# The oracle main oracle_c10.c (the CGM regime classifier, determine_and_store_regime): built
+# exactly as oracle_c03, against the same twelve objects, with the same flags and link. Its own
 # object defines rand(), the test-only queue provider, which the linker prefers to libc's for
 # the SAGE26 objects' calls in this executable only.
 compile "$ORACLE_DIR/oracle_c10.c" "$OBJ_DIR/oracle_c10.o" -I"$SAGE26_SRC/src"
@@ -193,10 +192,10 @@ clang $objects "$OBJ_DIR/oracle_c10.o" -o "$ORACLE_OUT/oracle_c10" \
 
 echo "build.sh: built $ORACLE_OUT/oracle_c10"
 
-# The c11 oracle main (the clustering-mass table, the CGMrecipeOn 1 hot recipe with its cold
-# streams, bulk CGM cooling, the CGM-on radio AGN, the regime-aware wrapper and the transcribed
-# writer conversion of the mdot rates): built exactly as oracle_c03, against the same twelve
-# objects, with the same flags and link.
+# The oracle main oracle_c11.c (the clustering-mass table, the CGMrecipeOn 1 hot recipe with its
+# cold streams, bulk CGM cooling, the CGM-on radio AGN, the regime-aware wrapper and the
+# transcribed writer conversion of the mdot rates): built exactly as oracle_c03, against the
+# same twelve objects, with the same flags and link.
 compile "$ORACLE_DIR/oracle_c11.c" "$OBJ_DIR/oracle_c11.o" -I"$SAGE26_SRC/src"
 
 set -x
@@ -207,9 +206,9 @@ clang $objects "$OBJ_DIR/oracle_c11.o" -o "$ORACLE_OUT/oracle_c11" \
 
 echo "build.sh: built $ORACLE_OUT/oracle_c11"
 
-# The c12 oracle main (the halo concentration: the Vmax/Vvir inversion and the ConcentrationOn 0
-# and 3 dispatch of get_halo_concentration, both called directly): built exactly as oracle_c03,
-# against the same twelve objects, with the same flags and link.
+# The oracle main oracle_c12.c (the halo concentration: the Vmax/Vvir inversion and the
+# ConcentrationOn 0 and 3 dispatch of get_halo_concentration, both called directly): built
+# exactly as oracle_c03, against the same twelve objects, with the same flags and link.
 compile "$ORACLE_DIR/oracle_c12.c" "$OBJ_DIR/oracle_c12.o" -I"$SAGE26_SRC/src"
 
 set -x
@@ -220,11 +219,11 @@ clang $objects "$OBJ_DIR/oracle_c12.o" -o "$ORACLE_OUT/oracle_c12" \
 
 echo "build.sh: built $ORACLE_OUT/oracle_c12"
 
-# The c13 oracle main (the feedback-free-burst classifier: the Li et al. 2024 threshold and
-# fraction and determine_and_store_ffb_regime, each called directly): built exactly as oracle_c03,
-# against the same twelve objects, with the same flags and link. Its own object defines rand(),
-# the test-only queue provider for SAGE26's discarded draw, which the linker prefers to libc's for
-# the SAGE26 objects' calls in this executable only.
+# The oracle main oracle_c13.c (the feedback-free-burst classifier: the Li et al. 2024 threshold
+# and fraction and determine_and_store_ffb_regime, each called directly): built exactly as
+# oracle_c03, against the same twelve objects, with the same flags and link. Its own object
+# defines rand(), the test-only queue provider for SAGE26's discarded draw, which the linker
+# prefers to libc's for the SAGE26 objects' calls in this executable only.
 compile "$ORACLE_DIR/oracle_c13.c" "$OBJ_DIR/oracle_c13.o" -I"$SAGE26_SRC/src"
 
 set -x

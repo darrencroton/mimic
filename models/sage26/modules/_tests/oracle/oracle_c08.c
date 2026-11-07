@@ -1,6 +1,6 @@
 /**
  * @file    oracle_c08.c
- * @brief   SAGE26 function-level oracle for the c08 molecular-gas routines (BR06 with radial
+ * @brief   SAGE26 function-level oracle for the molecular-gas routines (BR06 with radial
  *          integration, SFprescription 1)
  *
  * Reads one fixture input file, initialises the SAGE26 struct GALAXY and struct params
@@ -338,13 +338,12 @@ static void poison_state(void) {
 /**
  * @brief SFprescription 1 and the H2 configuration the radial integration is supported with
  *
- * The campaign supports the radial integration only as sfr_br06 calls it: SFprescription 1
- * (BR06), with H2RadialIntegrationOn 1, H2RadialNBins 25 and H2RadialRMaxFactor 5.0
- * (SAGE26's defaults, R/src/core_read_parameter_file.c:99-101) and StarburstColdGasOn 1
- * (:109). Each is required explicitly, and any other value is refused, naming the parameter.
- * H2DiskAreaOption, read only by the single-slab branch and the StarburstColdGasOn 0 burst
- * fuel, stays poisoned: no supported path reads it, and the poisoned state never supplies an
- * H2 parameter.
+ * This oracle supports the radial integration only as sfr_br06 calls it: SFprescription 1 (BR06),
+ * with H2RadialIntegrationOn 1, H2RadialNBins 25 and H2RadialRMaxFactor 5.0 (SAGE26's defaults,
+ * R/src/core_read_parameter_file.c:99-101) and StarburstColdGasOn 1 (:109). Each is required
+ * explicitly, and any other value is refused, naming the parameter. H2DiskAreaOption, read only by
+ * the single-slab branch and the StarburstColdGasOn 0 burst fuel, stays poisoned: no supported path
+ * reads it, and the poisoned state never supplies an H2 parameter.
  */
 static void read_h2_config(void) {
   run_params.SFprescription = in_i32("params.SFprescription");
@@ -755,7 +754,7 @@ struct sensitivity {
   int down;
 };
 
-/** @brief Write one local: c06's markers (tail-checked) and the narrowing limitation */
+/** @brief Write one local: oracle_c06.c's markers (tail-checked) and the narrowing limitation */
 static void out_local(const char *name, const struct local_info *info, const struct trace *t,
                       const int slot, const struct sensitivity *s) {
   out_i32(field_name("intermediate.%s_absent", name), t->present[slot] ? 0 : 1);

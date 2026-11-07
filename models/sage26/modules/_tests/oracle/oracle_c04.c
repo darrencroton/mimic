@@ -1,6 +1,6 @@
 /**
  * @file    oracle_c04.c
- * @brief   SAGE26 function-level oracle for the c04 cooling and radio-heating routines
+ * @brief   SAGE26 function-level oracle for the cooling and radio-heating routines
  *
  * Reads one fixture input file, initialises the SAGE26 struct GALAXY and struct params
  * fields its reader for the selected routine consumes (a superset of the fields the
@@ -792,8 +792,9 @@ static void run_cool_gas_onto_galaxy(void) {
 /**
  * @brief TRANSCRIPTION of the end-of-halo normalisation, R/src/core_build_model.c:590-604
  *
- * evolve_galaxies is static in core_build_model.c, which is not in this link, so these
- * lines are restated here for Cooling and Heating only (OutflowRate belongs to c05):
+ * evolve_galaxies is static in core_build_model.c, which is not in this link, so these lines are
+ * restated here for Cooling and Heating only (OutflowRate's
+ * is oracle_c05.c's normalise_outflow_rate):
  *
  *   const double deltaT = run_params->Age[galaxies[0].SnapNum] - halo_age;
  *   const double inv_deltaT = 1.0/deltaT;

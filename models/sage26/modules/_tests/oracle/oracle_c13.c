@@ -1,6 +1,6 @@
 /**
  * @file    oracle_c13.c
- * @brief   SAGE26 function-level oracle for the c13 feedback-free-burst classifier
+ * @brief   SAGE26 function-level oracle for the feedback-free-burst classifier
  *          (calculate_ffb_threshold_mass, calculate_ffb_fraction and
  *          determine_and_store_ffb_regime, EnhancedStarFormationOn 1)
  *
@@ -22,16 +22,16 @@
  *                                   call.Zcurr and call.snapnum, as SAGE26's driver calls it once
  *                                   per FoF with EnhancedStarFormationOn >= 1
  *                                   (R/src/core_build_model.c:425-427); mode 1 only
- *   starformation_ffb               S:1262-1368 (c13 Slice 2; S = R/src/
- *                                   model_starformation_and_feedback.c), called directly; the
- *                                   static compute_sn_feedback_ffb (S:901-972) and the inlined
- *                                   H I block are reached only through it
+ *   starformation_ffb               S:1262-1368 (S = R/src/model_starformation_and_feedback.c),
+ *                                   called directly; the static compute_sn_feedback_ffb
+ *                                   (S:901-972) and the inlined H I block are reached only
+ *                                   through it
  *   starformation_and_feedback_ffb  the wrapper starformation_and_feedback (S:995-1110) on an
  *                                   FFBRegime 1 row at EnhancedStarFormationOn 1, whose early
  *                                   return (S:1004-1008) calls starformation_ffb
  *
- * The c13 Slice 2 routines' carried values come from the checked transcription
- * tr_starformation_ffb (README.md, "The c13 Group, Part 2: FFB Star Formation").
+ * The carried values of starformation_ffb and starformation_and_feedback_ffb come from the checked
+ * transcription tr_starformation_ffb (README.md, "The c13 Group, Part 2: FFB Star Formation").
  *
  * THE TEST-ONLY rand() PROVIDER. SAGE26's classifier calls rand() once per unmerged row and
  * discards the value (:224), keeping its other draws in place; its useful draw is the static
@@ -56,13 +56,13 @@
  * must also equal SAGE26's public calculate_ffb_fraction and calculate_ffb_threshold_mass of the
  * row bit for bit.
  *
- * Two-sided validation (campaign decision D25) replaces each recorded local, in its composition,
- * by its upward and, separately, its downward neighbouring double and records whether each
- * replacement changes the recorded output (the return, or the row's FFBRegime); `_validated` only
- * if both do. In the classifier a one-ulp change of a local changes the integer FFBRegime only
- * where the draw and the fraction are within an ulp, which no MostBoundID can be chosen to give,
- * so the classifier's locals are recorded with their directions but are not expected to be
- * validated; the threshold and fraction fixtures validate them.
+ * Two-sided validation replaces each recorded local, in its composition, by its upward and,
+ * separately, its downward neighbouring double and records whether each replacement changes the
+ * recorded output (the return, or the row's FFBRegime); `_validated` only if both do. In the
+ * classifier a one-ulp change of a local changes the integer FFBRegime only where the draw and the
+ * fraction are within an ulp, which no MostBoundID can be chosen to give, so the classifier's
+ * locals are recorded with their directions but are not expected to be validated; the threshold and
+ * fraction fixtures validate them.
  *
  * Two observations per threshold evaluation, which are not SAGE26 state: pow_equals_exp10
  * (whether libm's pow(10.0, v), called through a volatile pointer so clang cannot simplify it,
@@ -76,9 +76,9 @@
  * does SAGE26's object: the log term to one fmadd and pow(10.0, x) to a call of __exp10
  * (README.md, "The c13 Group").
  *
- * The file format is defined in README.md ("Fixture File Format"); this main reads and writes
- * the i64 type (c13) for MostBoundID and the draw's 64 bits. The parsing and output helpers are
- * copies of oracle_c12.c's with that type added; oracle_c12.c stays unchanged.
+ * The file format is defined in README.md ("Fixture File Format"); this main reads and writes the
+ * i64 type for MostBoundID and the draw's 64 bits. The parsing and output helpers are copies of
+ * oracle_c12.c's with that type added; oracle_c12.c's have no i64.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh, never by
  * Mimic's Makefile, and never against Mimic code.
@@ -1023,19 +1023,19 @@ static void run_determine_and_store_ffb_regime(void) {
 }
 
 // ============================================================================
-// c13 PART 2: FEEDBACK-FREE-BURST STAR FORMATION (starformation_ffb AND THE WRAPPER'S DISPATCH)
+// FEEDBACK-FREE-BURST STAR FORMATION (starformation_ffb AND THE WRAPPER'S DISPATCH)
 // ============================================================================
 //
-// S = R/src/model_starformation_and_feedback.c, X = R/src/model_misc.h (README.md, "The c13
-// Group, Part 2: FFB Star Formation"). starformation_ffb (S:1262-1368) and the wrapper
+// S = R/src/model_starformation_and_feedback.c, X = R/src/model_misc.h (README.md, "The c13 Group,
+// Part 2: FFB Star Formation"). starformation_ffb (S:1262-1368) and the wrapper
 // starformation_and_feedback (S:995-1110), whose FFB early return (S:1004-1008) calls it, are
-// public and called directly for the end state. The static compute_sn_feedback_ffb (S:901-972)
-// and the inlined H I block (S:1280-1292, with atomic_disk_radius and ionized_gas_fraction,
-// S:130-152) are reached only through them, so the carried values come from the checked
-// transcription tr_starformation_ffb below, each statement cited to its line, composed with
-// SAGE26's own public get_metallicity, update_from_star_formation and update_from_feedback and its
-// own static inline capped_eta_reheat, sn_energy_coupling and add_metals_to_hot_reservoir
-// (X:67-74, X:118-149), compiled here from SAGE26's header.
+// public and called directly for the end state. The static compute_sn_feedback_ffb (S:901-972) and
+// the inlined H I block (S:1280-1292, with atomic_disk_radius and ionized_gas_fraction, S:130-152)
+// are reached only through them, so the carried values come from the checked transcription
+// tr_starformation_ffb below, each statement cited to its line, composed with SAGE26's own public
+// get_metallicity, update_from_star_formation and update_from_feedback and its own static inline
+// capped_eta_reheat, sn_energy_coupling and add_metals_to_hot_reservoir (X:67-74, X:118-149),
+// compiled here from SAGE26's header.
 
 /* SAGE26's file-scope constants of S, restated with their values and types (S:60, :75, :79, :84,
  * :97, :106) */
@@ -1459,7 +1459,7 @@ static void tr_compute_sn_feedback_ffb(const int p, double *stars_inout, double 
 
 /**
  * @brief SAGE26's update_from_feedback (S:1146-1251), transcribed with SupernovaRecipeOn 1, its
- *        locals recorded (as oracle_c05.c's transcription, with c10's CGM branch)
+ *        locals recorded (as oracle_c05.c's transcription, with its CGMrecipeOn 1 branch)
  */
 static void tr_update_from_feedback(const int p, const int centralgal, double reheated_mass,
                                     double ejected_mass, const double metallicity,

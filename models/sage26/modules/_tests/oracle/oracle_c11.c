@@ -1,7 +1,6 @@
 /**
  * @file    oracle_c11.c
- * @brief   SAGE26 function-level oracle for the c11 CGMrecipeOn 1 cooling and radio-heating
- * routines
+ * @brief   SAGE26 function-level oracle for the CGMrecipeOn 1 cooling and radio-heating routines
  *
  * Reads one fixture input file, initialises the SAGE26 struct GALAXY and struct params fields its
  * reader for the selected routine consumes, calls the routine from the SAGE26 objects this
@@ -24,9 +23,9 @@
  *                                it, AGNrecipeOn 0 does not
  *   do_AGN_heating_cgm_on        do_AGN_heating (C:587-627) called on its own with CGMrecipeOn 1
  *                                and AGNrecipeOn 2
- *   cooling_recipe_regime_aware  C:420-506 (c11 Slice 2): the hot recipe and its AGN, the CGM
- *                                recipe and its AGN, the static reset_cgm_diagnostics (C:413-418),
- *                                the diagnostic restoration, both applications and the total
+ *   cooling_recipe_regime_aware  C:420-506: the hot recipe and its AGN, the CGM recipe and its
+ *                                AGN, the static reset_cgm_diagnostics (C:413-418), the
+ *                                diagnostic restoration, both applications and the total
  * The static routines are never called directly: they run inside SAGE26's public routines, and
  * their locals come from the TRANSCRIPTIONS below (tr_*), each statement cited to its SAGE26 line.
  * One routine is a TRANSCRIPTION only, as its SAGE26 code is not in the link:
@@ -49,9 +48,9 @@
  *   reproduce the transcription's nested calls (sub-call identity); every local is tail-checked;
  * - writer_mdot_conversion is a transcription only (no SAGE26 call to check it against); its form
  *   is the one save_gals_hdf5.o computes (oracle README, "The c11 Group").
- * Two-sided validation (campaign decision D25): each recorded double local is replaced in the
- * transcription by its upward and, separately, its downward neighbouring double (nextafter), and
- * the output records whether each replacement changes at least one recorded field or the return.
+ * Two-sided validation: each recorded double local is replaced in the transcription by its upward
+ * and, separately, its downward neighbouring double (nextafter), and the output records whether
+ * each replacement changes at least one recorded field or the return.
  *
  * The cooling tables are loaded once per process by SAGE26's own read_cooling_functions()
  * (R/src/core_cool_func.c:65-99), from ROOT_DIR as build.sh sets it. The parsing and output
@@ -356,7 +355,7 @@ static void poison_state(void) {
   memset(&run_params, 0xff, sizeof(run_params));
 }
 
-/** @brief CGMrecipeOn 1 (R4.par:54) and AGNrecipeOn 2 (R4.par:49) or a 0 probe */
+/** @brief CGMrecipeOn 1 (R/input/millennium.par:54) and AGNrecipeOn 2 (:49) or a 0 probe */
 static void read_flags(const int allow_agn_off) {
   run_params.AGNrecipeOn = in_i32("params.AGNrecipeOn");
   run_params.CGMrecipeOn = in_i32("params.CGMrecipeOn");
@@ -406,7 +405,7 @@ static void read_stream_cosmology(void) {
   run_params.ZZ[current] = zz_current;
 }
 
-/** @brief The galaxy fields every c11 cooling or heating fixture sets (a superset of any reader) */
+/** @brief The galaxy fields every cooling or heating fixture sets (a superset of any reader) */
 static void read_galaxy_block(void) {
   struct GALAXY *g = &galaxies[0];
   g->Type = in_i32(galaxy_field(0, "Type"));
@@ -512,7 +511,7 @@ static void write_call_time(const struct call_time *t) {
 // RECORDED LOCALS
 // ============================================================================
 
-/** @brief Every SAGE26 local a c11 fixture can record, by its output name */
+/** @brief Every SAGE26 local a fixture of this oracle can record, by its output name */
 enum local_id {
   L_TCOOL_DYN, /* cooling_recipe_hot's tcool = Rvir / Vvir (C:142) */
   L_LAMBDA,    /* the cooling function (C:157, C:329) */
@@ -1702,8 +1701,8 @@ static void run_cooling_recipe_regime_aware(void) {
  * statements are compiled here with SAGE26's types and flags: the float member widened, then
  * multiplied by UnitMass_in_g, divided by UnitTime_in_s, multiplied by SEC_PER_YEAR and divided by
  * SOLAR_MASS (R/src/macros.h:24, :38) left to right, narrowed into the float buffer member.
- * save_gals_hdf5.o computes exactly that (fcvt, fmul, fdiv, fmul, fdiv, fcvt; oracle README, "The
- * c11 Group"). The same conversion regrouped as one constant factor is recorded beside it, for
+ * save_gals_hdf5.o computes exactly that (fcvt, fmul, fdiv, fmul, fdiv, fcvt; oracle README,
+ * "The c11 Group"). The same conversion regrouped as one constant factor is recorded beside it, for
  * the evidence that the package's form matters.
  */
 static void run_writer_mdot_conversion(void) {

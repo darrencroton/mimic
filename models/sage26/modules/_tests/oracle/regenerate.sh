@@ -7,23 +7,24 @@
 # the fixture inputs on disk agree exactly (every listed input exists, every
 # input on disk is listed, and each module's stated count matches its listed
 # fixtures); after running it checks that no output lacks an input. Any
-# disagreement or oracle failure stops the script with a non-zero exit.
-# Fixtures of the c04 modules (C04_MODULES below) run through oracle_c04;
-# every other fixture runs through oracle_c03, except that a fixture whose
-# routine line names a c05 routine (C05_ROUTINES below) runs through oracle_c05,
-# whichever module owns it (sage26_finalize_cooling_heating holds both c04 and
-# c05 fixtures; c09's starformation_and_feedback_fire is a c05 routine), a fixture whose routine line names a c06 routine
-# (C06_ROUTINES below) runs through oracle_c06, one whose routine line names
-# a c07 routine (C07_ROUTINES below) runs through oracle_c07, one whose
-# routine line names a c08 routine (C08_ROUTINES below) runs through oracle_c08,
-# one whose routine line names a c10 routine (C10_ROUTINES below) runs
-# through oracle_c10, and one whose routine line names a c11 routine
-# (C11_ROUTINES below) runs through oracle_c11, although the c11 fixtures are
-# owned by the c04 modules sage26_calculate_cooling_budget, sage26_radio_mode_heating
-# and sage26_finalize_cooling_heating (the writer conversion) as well as by
-# sage26_regime_aware_cooling (the regime-aware wrapper). A fixture whose routine line
-# names a c12 routine (C12_ROUTINES below) runs through oracle_c12, and one whose routine line
-# names a c13 routine (C13_ROUTINES below) through oracle_c13.
+# disagreement or oracle failure stops the script with a non-zero exit. Fixtures
+# of the c04 modules (C04_MODULES below) run through oracle_c04; every other
+# fixture runs through oracle_c03, except that a fixture whose routine line
+# names a c05 routine (C05_ROUTINES below) runs through oracle_c05, whichever
+# module owns it (sage26_finalize_cooling_heating holds both c04 and c05
+# fixtures; starformation_and_feedback_fire is a c05 routine), a fixture whose
+# routine line names a c06 routine (C06_ROUTINES below) runs through oracle_c06,
+# one whose routine line names a c07 routine (C07_ROUTINES below) runs through
+# oracle_c07, one whose routine line names a c08 routine (C08_ROUTINES below)
+# runs through oracle_c08, one whose routine line names a c10 routine
+# (C10_ROUTINES below) runs through oracle_c10, and one whose routine line names
+# a c11 routine (C11_ROUTINES below) runs through oracle_c11, although the c11
+# fixtures are owned by the c04 modules sage26_calculate_cooling_budget,
+# sage26_radio_mode_heating and sage26_finalize_cooling_heating (the writer
+# conversion) as well as by sage26_regime_aware_cooling (the regime-aware
+# wrapper). A fixture whose routine line names a c12 routine (C12_ROUTINES
+# below) runs through oracle_c12, and one whose routine line names a c13 routine
+# (C13_ROUTINES below) through oracle_c13.
 #
 # Environment: as build.sh (SAGE26_SRC, ORACLE_OUT, ORACLE_ALLOW_ANY_TOOLCHAIN).
 # See README.md in this directory.
@@ -123,8 +124,8 @@ do_AGN_heating_cgm_on cooling_recipe_regime_aware writer_mdot_conversion"
 ORACLE_C12=$ORACLE_OUT/oracle_c12
 C12_ROUTINES="concentration_from_vmax_vvir get_halo_concentration"
 # The c13 group (the feedback-free-burst classifier: the threshold, the fraction and
-# determine_and_store_ffb_regime with the fixture's rand() queue, each called directly; and, since
-# c13 Slice 2, FFB star formation: starformation_ffb and the wrapper's FFB dispatch,
+# determine_and_store_ffb_regime with the fixture's rand() queue, each called directly; and FFB
+# star formation: starformation_ffb and the wrapper's FFB dispatch,
 # starformation_and_feedback_ffb) has its own oracle main and is selected by routine.
 ORACLE_C13=$ORACLE_OUT/oracle_c13
 C13_ROUTINES="calculate_ffb_threshold_mass calculate_ffb_fraction determine_and_store_ffb_regime
@@ -139,9 +140,9 @@ starformation_ffb starformation_and_feedback_ffb"
 TMP_OUT=$(mktemp -d "$ORACLE_OUT/regenerate.XXXXXX")
 trap 'rm -rf "${TMP_OUT:?}"' EXIT
 
-# A complete output: the oracle's header, format and routine lines, at least
-# one field, every later line a typed field (f32, f64, i32 or, since c13, the
-# decimal signed 64-bit i64), and a final newline.
+# A complete output: the oracle's header, format and routine lines, at least one
+# field, every later line a typed field (f32, f64, i32 or the decimal signed
+# 64-bit i64), and a final newline.
 #
 # An i64 value must be an optionally signed decimal integer within
 # [INT64_MIN, INT64_MAX]. The bound is checked on the digit string (leading

@@ -165,10 +165,10 @@ fixture sage26_set_disk_scale_radius tiny_vvir_rvir
 fixture sage26_set_disk_scale_radius typical
 fixture sage26_set_disk_scale_radius vvir_zero
 fixture sage26_set_disk_scale_radius zero_spin
-# c07 (oracle_c07): get_bulge_radius called directly (gbr_*) and the transcription of the
-# FoF central's synchronisation, B:297-298 (tr_sync_*). Names containing _probe_ are
-# constructed routine-domain probes; tr_ names a source-reviewed transcription; r1_snap<N>
-# takes a real galaxy from the R1 reference; every other fixture is R1-reachable (or, in
+# oracle_c07: get_bulge_radius called directly (gbr_*) and the transcription of the FoF
+# central's synchronisation, B:297-298 (tr_sync_*). Names containing _probe_ are constructed
+# routine-domain probes; tr_ names a source-reviewed transcription; r1_snap<N> takes a real
+# galaxy from the R1 reference; every other fixture is R1-reachable (or, in
 # mode 0, R0-reachable).
 fixture sage26_set_disk_scale_radius gbr_both_fallbacks
 fixture sage26_set_disk_scale_radius gbr_combined
@@ -389,8 +389,8 @@ fixture sage26_finalize_cooling_heating outflow_r0_snap63_group
 fixture sage26_finalize_cooling_heating outflow_rounding
 fixture sage26_finalize_cooling_heating outflow_zero
 
-# The c11 regime-aware wrapper (oracle_c11, routine cooling_recipe_regime_aware), owned by the
-# cooling transaction. The c11 writer-conversion fixtures (routine writer_mdot_conversion) are
+# The regime-aware wrapper (oracle_c11, routine cooling_recipe_regime_aware), owned by the
+# cooling transaction. The writer-conversion fixtures (routine writer_mdot_conversion) are
 # listed under sage26_finalize_cooling_heating above.
 
 module sage26_regime_aware_cooling 20
@@ -467,13 +467,13 @@ fixture sage26_calculate_star_formation yield_frac_z_leave_satellite
 fixture sage26_calculate_star_formation sf_fire_r3_snap32_central_unstable
 fixture sage26_calculate_star_formation sf_fire_r3_snap63_central_unstable
 fixture sage26_calculate_star_formation sf_fire_satellite_unstable_central_differ
-# c08 (SFprescription 1, R2's flags): calculate_molecular_fraction_BR06 (br06_*) and
-# calculate_molecular_fraction_radial_integration (radial_*) called directly (oracle_c08),
-# and starformation_and_feedback with sfr_br06 (sf_br06_*, oracle_c05). Each fixture's
-# Reachability: line in its .in is authoritative (R2-reachable or a constructed
-# routine-domain probe). _probe_ is a naming aid only: every name containing it is a probe,
-# but probes without it exist (e.g. br06_gas_negative, sf_br06_rs_negative_di_off).
-# r2_snap<N> takes a real galaxy from the R2 reference.
+# SFprescription 1 (R2's flags): calculate_molecular_fraction_BR06 (br06_*) and
+# calculate_molecular_fraction_radial_integration (radial_*) called directly (oracle_c08), and
+# starformation_and_feedback with sfr_br06 (sf_br06_*, oracle_c05). Each fixture's Reachability:
+# line in its .in is authoritative (R2-reachable or a constructed routine-domain probe). _probe_
+# is a naming aid only: every name containing it is a probe, but probes without it exist (e.g.
+# br06_gas_negative, sf_br06_rs_negative_di_off). r2_snap<N> takes a real galaxy from
+# the R2 reference.
 fixture sage26_calculate_star_formation br06_gas_negative
 fixture sage26_calculate_star_formation br06_gas_zero
 fixture sage26_calculate_star_formation br06_high_pressure
@@ -598,8 +598,8 @@ fixture sage26_apply_star_formation_supernova ufsf_negative_metals
 fixture sage26_apply_star_formation_supernova ufsf_r0_snap32
 fixture sage26_apply_star_formation_supernova ufsf_r0_snap63
 fixture sage26_apply_star_formation_supernova ufsf_zero_stars
-# c08 (SFprescription 1, R2's flags): update_from_star_formation (ufsf_r2_*) and
-# update_from_feedback (uff_r2_*) with their hydrogen caps (oracle_c05). Marks as above.
+# SFprescription 1 (R2's flags): update_from_star_formation (ufsf_r2_*) and update_from_feedback
+# (uff_r2_*) with their hydrogen caps (oracle_c05). Marks as above.
 fixture sage26_apply_star_formation_supernova uff_r2_coldgas_zero
 fixture sage26_apply_star_formation_supernova uff_r2_h2_above_h1_below
 fixture sage26_apply_star_formation_supernova uff_r2_h2_at_bound_rounded_up
@@ -665,7 +665,7 @@ fixture sage26_disk_instability di_fire0_satellite_central_differ
 fixture sage26_disk_instability di_fire_r3_snap32_central_unstable
 fixture sage26_disk_instability di_fire_r3_snap63_central_unstable
 fixture sage26_disk_instability di_fire_satellite_central_differ
-# c07: update_instability_bulge_radius called directly (uibr_*, oracle_c07) and
+# update_instability_bulge_radius called directly (uibr_*, oracle_c07) and
 # check_disk_instability with BulgeSizeOn 3 (di_s3_*, oracle_c05). Marks as above.
 fixture sage26_disk_instability di_s3_first_transfer
 fixture sage26_disk_instability di_s3_gas_branch
@@ -816,15 +816,15 @@ fixture sage26_resolve_mergers_and_disruption merge_fire_r3_snap63
 fixture sage26_resolve_mergers_and_disruption merge_fire_recheck_unstable
 fixture sage26_resolve_mergers_and_disruption merge_fire_target_differs
 fixture sage26_resolve_mergers_and_disruption tr_pass_fire_two_mergers_one_bin
-# c07: add_galaxies_together with BulgeSizeOn 3 (oracle_c06). Marks as above.
+# add_galaxies_together with BulgeSizeOn 3 (oracle_c06). Marks as above.
 fixture sage26_resolve_mergers_and_disruption add_s3_disk_first
 fixture sage26_resolve_mergers_and_disruption add_s3_disk_repeated
 fixture sage26_resolve_mergers_and_disruption add_s3_r1_snap32
 fixture sage26_resolve_mergers_and_disruption add_s3_r1_snap63
 fixture sage26_resolve_mergers_and_disruption add_s3_satellite_no_disk
 fixture sage26_resolve_mergers_and_disruption add_s3_spheroid_stale_radii
-# c07 Slice 3: deal_with_galaxy_merger with BulgeSizeOn 3 (oracle_c06): the synchronisation,
-# the remnant radius's every branch and the three assignments. Marks as above.
+# deal_with_galaxy_merger with BulgeSizeOn 3 (oracle_c06): the synchronisation, the remnant
+# radius's every branch and the three assignments. Marks as above.
 fixture sage26_resolve_mergers_and_disruption merge_s3_fused_progenitor_satellite
 fixture sage26_resolve_mergers_and_disruption merge_s3_fused_progenitor_target
 fixture sage26_resolve_mergers_and_disruption merge_s3_major
@@ -859,7 +859,7 @@ fixture sage26_resolve_mergers_and_disruption merge_r2_snap32_minor
 fixture sage26_resolve_mergers_and_disruption merge_r2_snap63_major
 fixture sage26_resolve_mergers_and_disruption merge_r2_snap63_minor
 fixture sage26_resolve_mergers_and_disruption tr_pass_r2_two_mergers_one_bin
-# c10 (CGMrecipeOn 1, R4's flags; oracle_c06; README "The c10 Group, Part 3"): each .in's
+# CGMrecipeOn 1 (R4's flags; oracle_c06; README "The c10 Group, Part 3"): each .in's
 # Reachability: line is authoritative: r4_snap<N> takes real R4 rows (R4-reachable); the others
 # are constructed routine-domain probes; tr_ names a source-reviewed transcription fixture.
 fixture sage26_resolve_mergers_and_disruption merge_cgm_r4_snap32
@@ -922,7 +922,7 @@ fixture sage26_quasar_mode bh_r2_sum_above_both_below
 fixture sage26_quasar_mode qw_r2_cold_ejected_hydrogen_kept
 fixture sage26_quasar_mode qw_r2_snap32_central
 fixture sage26_quasar_mode qw_r2_snap63_central
-# c10 (CGMrecipeOn 1, R4's flags; oracle_c06; README "The c10 Group, Part 3"): each .in's
+# CGMrecipeOn 1 (R4's flags; oracle_c06; README "The c10 Group, Part 3"): each .in's
 # Reachability: line is authoritative: r4_snap<N> takes real R4 rows (R4-reachable); the others
 # are constructed routine-domain probes; tr_ names a source-reviewed transcription fixture.
 fixture sage26_quasar_mode qw_cgm_boundary_cold_below
@@ -1003,7 +1003,7 @@ fixture sage26_starburst_feedback burst_fire_vvir_below_60
 fixture sage26_starburst_feedback burst_fire_vvir_negative
 fixture sage26_starburst_feedback burst_fire_vvir_zero
 fixture sage26_starburst_feedback burst_fire_zero_stars
-# c07: collisional_starburst_recipe with BulgeSizeOn 3 (oracle_c06). Marks as above.
+# collisional_starburst_recipe with BulgeSizeOn 3 (oracle_c06). Marks as above.
 fixture sage26_starburst_feedback burst_s3_major_merger_channel
 fixture sage26_starburst_feedback burst_s3_minor_disk_recheck
 fixture sage26_starburst_feedback burst_s3_minor_zero_cold_gas
@@ -1028,7 +1028,7 @@ fixture sage26_starburst_feedback burst_r2_renorm_active
 fixture sage26_starburst_feedback burst_r2_metals_cap_binds
 fixture sage26_starburst_feedback burst_r2_probe_negative_fraction
 fixture sage26_starburst_feedback burst_r2_probe_host_vvir_zero
-# c10 (CGMrecipeOn 1, R4's flags; oracle_c06; README "The c10 Group, Part 3"): each .in's
+# CGMrecipeOn 1 (R4's flags; oracle_c06; README "The c10 Group, Part 3"): each .in's
 # Reachability: line is authoritative: r4_snap<N> takes real R4 rows (R4-reachable); the others
 # are constructed routine-domain probes; tr_ names a source-reviewed transcription fixture.
 fixture sage26_starburst_feedback burst_cgm_r4_snap32_satellite_merger
@@ -1090,7 +1090,7 @@ fixture sage26_set_halo_concentration tr_join_type1_to_0_infall_pair
 fixture sage26_set_halo_concentration tr_join_type1_to_1_kept
 fixture sage26_set_halo_concentration tr_join_type1_to_2_kept
 
-# c13 (EnhancedStarFormationOn 1, R6's flags; oracle_c13; README "The c13 Group"): each .in's
+# EnhancedStarFormationOn 1 (R6's flags; oracle_c13; README "The c13 Group"): each .in's
 # Reachability: line is authoritative: thr_snapshots_*, frac_sigmoid_r6_redshifts and
 # cls_r6_snap<N>_rows are R6-reachable; the others are constructed routine-domain probes.
 module sage26_determine_ffb_regime 14
@@ -1109,7 +1109,7 @@ fixture sage26_determine_ffb_regime cls_negative_snapshot_probe
 fixture sage26_determine_ffb_regime cls_r6_snap12_rows
 fixture sage26_determine_ffb_regime cls_r6_snap16_rows
 
-# c13 Slice 2 (starformation_ffb and the wrapper's FFB dispatch, R6's flags; oracle_c13; README
+# starformation_ffb and the wrapper's FFB dispatch (R6's flags; oracle_c13; README
 # "The c13 Group, Part 2"): each .in's Reachability: line is authoritative: ffb_r6_* and
 # ffbw_r6_* are R6-reachable; the others are constructed routine-domain probes.
 module sage26_ffb_star_formation 32
