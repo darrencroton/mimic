@@ -176,7 +176,7 @@ The profile is `plots/profiles/default.yaml`: its `plots.snapshot` and `plots.ev
 
 The evolution figures read the run's eight output snapshots, the run files' `snapshot_list`, ordered by increasing redshift: 63, 37, 32, 27, 23, 20, 18 and 16 (z = 0, 1.39, 2.07, 3.06, 4.18, 5.29, 6.20 and 7.27). SAGE26 writes all 64 snapshots and its history script reads every one, so SAGE26's every-snapshot figures are drawn here from those eight. A figure that bins by redshift uses SAGE26's fifteen redshift bins, so a bin that holds no written snapshot draws nothing and snapshot 63 (z = 0) falls in none of them, as in SAGE26; a figure drawn at the snapshot nearest a target redshift takes the nearest written snapshot and labels its actual redshift.
 
-The figures in registry order, the 30 snapshot figures first. In the *Follows* column, `sage16` is the diagnostic of the same name inherited from `sage16`, and a SAGE26 entry names the script in SAGE26's `plotting/` and the figure's file stem there; an inherited diagnostic marked "covers" is the package's figure for that SAGE26 figure, drawn with `sage16`'s selections.
+The figures in registry order, the 30 snapshot figures first. In the *Follows* column, `sage16` is the diagnostic of the same name inherited from `sage16`, and a SAGE26 entry names the script in SAGE26's `plotting/` and the figure's file stem there or, for the paper plot, its plot number and function; an inherited diagnostic marked "covers" is the package's figure for that SAGE26 figure, drawn with `sage16`'s selections.
 
 | Figure | What it shows | Follows |
 |---|---|---|
