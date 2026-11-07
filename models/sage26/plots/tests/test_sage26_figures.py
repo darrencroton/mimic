@@ -1105,26 +1105,92 @@ def test_bins__ejection_efficiency_edges():
 
 
 def test_bins__disk_radius_edges():
-    """allresults-local.py:2155: np.logspace(log10(Rvir.min()), log10(Rvir.max()), 50), so 49
-    centres whose ratio is (max / min)^(1/49), the first at min * (1 + ratio) / 2."""
+    """allresults-local.py:2138-2139 and :2155-2158: Rvir is multiplied by 1e3 (kpc/h) and the bin
+    edges are np.logspace(log10(Rvir[w].min()), log10(Rvir[w].max()), 50), so 49 centres.
+
+    Eleven galaxies of log M* 10 (inside the window) with Rvir 0.20, 0.21, ... 0.30 Mpc/h, so
+    Rvir[w] runs from 200 to 300 kpc/h. The 50 edges are 200 * r^k for k = 0 .. 49 with
+    r = (300 / 200)^(1/49) = exp(ln 1.5 / 49) = exp(0.0082748) = 1.0083091. The first centre is
+    (200 + 200 r) / 2 = 100 (1 + r) = 200.83091 and the last, between the edges 300 / r and 300, is
+    150 (1 + 1 / r) = 298.76390; successive centres are in the ratio r. The median line is drawn
+    at those centres (:2162).
+    """
     module = figure_module("disk_radius_vs_stellar_mass")
     assert module.N_BIN_EDGES == 50, f"N_BIN_EDGES {module.N_BIN_EDGES}"
-    fig = render("disk_radius_vs_stellar_mass").fig
-    drawn = model_artists(fig)
+    catalogue = catalogue_with_stellar_masses(np.full(11, 1.0e10))
+    assert np.allclose(catalogue.Rvir[:11], 0.2 + 0.01 * np.arange(11)), "fixture Rvir changed"
+    run = call_figure("disk_radius_vs_stellar_mass", catalogue, "disk-bins")
+    assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
     lines = [
-        a for a, _ in drawn if a.get_label() == "Median ± 1σ (matching Somerville+18 selection)"
+        a
+        for a, _ in model_artists(run.fig)
+        if a.get_label() == "Median ± 1σ (matching Somerville+18 selection)"
     ]
     assert len(lines) == 1, f"{len(lines)} median lines"
     centres = np.asarray(lines[0].get_xdata(), dtype=float)
     assert len(centres) == 49, f"{len(centres)} median-line points"
-    from matplotlib.collections import PathCollection
+    # Rvir is stored in single precision, so the minimum and maximum carry a relative 1e-7
+    close(centres[[0, -1]], [200.83091, 298.76390], rel=1e-6)
+    close(centres[1] / centres[0], 1.0083091, rel=1e-6)
+    close(centres[-1] / centres[-2], 1.0083091, rel=1e-6)
 
-    scatters = [a for a, _ in drawn if isinstance(a, PathCollection)]
-    assert len(scatters) == 1, f"{len(scatters)} scatters"
-    rvir = np.asarray(scatters[0].get_offsets(), dtype=float)[:, 0]
-    ratio = (rvir.max() / rvir.min()) ** (1.0 / 49.0)
-    close(centres[1] / centres[0], ratio, rel=1e-9)
-    close(centres[0], rvir.min() * (1.0 + ratio) / 2.0, rel=1e-9)
+
+def contour_sets_by_side(fig, cut):
+    """Return (sets above, sets below) the cut: the model contour sets holding vertices, by the
+    side of the line y = cut their vertices lie on (the star-forming set is clipped below the cut,
+    the quiescent set above it, so no set straddles it)."""
+    from matplotlib.contour import ContourSet
+
+    above = below = 0
+    for artist, points in model_artists(fig):
+        if not isinstance(artist, ContourSet) or points == 0:
+            continue
+        y = np.concatenate([np.asarray(path.vertices)[:, 1] for path in artist.get_paths()])
+        if np.all(y > cut):
+            above += 1
+        elif np.all(y < cut):
+            below += 1
+        else:
+            raise AssertionError("a contour set straddles the sSFR cut")
+    return above, below
+
+
+def population_catalogue(n_star_forming, n_quiescent):
+    """Return the synthetic catalogue whose first galaxies form two populations around the sSFR
+    cut of -11: n_star_forming at log sSFR -10 (+/- 0.2) and n_quiescent at -12 (+/- 0.2), all of
+    log M* about 10.5 (+/- 0.3). Every other galaxy has no stellar mass, so it has no sSFR."""
+    n = n_star_forming + n_quiescent
+    catalogue = build_catalogue()
+    rng = np.random.default_rng(7)
+    log_mass = rng.normal(10.5, 0.3, n)
+    log_ssfr = np.concatenate(
+        [rng.normal(-10.0, 0.2, n_star_forming), rng.normal(-12.0, 0.2, n_quiescent)]
+    )
+    catalogue.StellarMass[:] = 0.0
+    catalogue.StellarMass[:n] = 10.0**log_mass * HUBBLE_H / 1.0e10
+    catalogue.SfrDisk[:n] = 10.0 ** (log_mass + log_ssfr)
+    catalogue.SfrBulge[:n] = 0.0
+    return catalogue
+
+
+def test_threshold__specific_star_formation_rate_population_minimum_is_10():
+    """allresults-local.py:1763: `if len(x) < 10: return`, so a population of fewer than 10 galaxies
+    draws no contour and one of 10 or more does, each population on its own side of sSFRcut.
+
+    9 star-forming and 12 quiescent galaxies: only the quiescent contours (below -11) are drawn.
+    10 star-forming and 9 quiescent: only the star-forming contours (above -11) are drawn.
+    """
+    for n_star_forming, n_quiescent, want_above, want_below in [
+        (9, 12, False, True),
+        (10, 9, True, False),
+    ]:
+        catalogue = population_catalogue(n_star_forming, n_quiescent)
+        run = call_figure("specific_star_formation_rate", catalogue, f"ssfr-{n_star_forming}")
+        assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
+        above, below = contour_sets_by_side(run.fig, -11.0)
+        case = f"{n_star_forming} star-forming, {n_quiescent} quiescent"
+        assert (above > 0) == want_above, f"{case}: {above} contour sets above the cut"
+        assert (below > 0) == want_below, f"{case}: {below} contour sets below the cut"
 
 
 def scatter_points(fig):
@@ -1172,7 +1238,7 @@ def stellar_mass_cut_case(name, cut_msun):
 
 
 def test_threshold__spatial_distribution_3d_box_cut_is_1e9_msun():
-    """allresults-local.py:1566-1568: only galaxies of a stellar mass above 1e9 Msun are drawn."""
+    """allresults-local.py:1570: only galaxies of a stellar mass above 1e9 Msun are drawn."""
     points = stellar_mass_cut_case("spatial_distribution_3d_box", 1.0e9)
     assert points == 6, f"{points} points drawn, expected the 6 above 1e9 Msun"
 
@@ -1283,6 +1349,7 @@ BIN_CASES = [
     test_bins__specific_star_formation_rate_constants,
     test_bins__ejection_efficiency_edges,
     test_bins__disk_radius_edges,
+    test_threshold__specific_star_formation_rate_population_minimum_is_10,
     test_threshold__spatial_distribution_3d_box_cut_is_1e9_msun,
     test_threshold__star_formation_rate_cut_is_0_01_msun,
     test_threshold__concentration_vs_mvir_cut_is_1e8_msun,
