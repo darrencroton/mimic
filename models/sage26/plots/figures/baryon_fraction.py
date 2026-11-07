@@ -6,7 +6,7 @@ Mimic Baryon Fraction Plot
 This module generates a plot showing the baryon fraction vs. halo mass.
 Adaptively plots all available baryonic components.
 
-Requires: Mvir, Type
+Requires: Mvir, Type, UniqueCentralGalaxyID
 Optional: StellarMass, ColdGas, HotGas, CGMgas, EjectedGas, ICS, BlackHoleMass
 """
 
