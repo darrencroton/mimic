@@ -40,16 +40,16 @@
  *                                        budget (R/src/model_mergers.c:690-752), each galaxy's
  *                                        stored SnapNum and ZZ[SnapNum], MassLoading recorded on
  *                                        every galaxy, and two observations of the burst
- *                                        starformation_and_feedback_fire and update_from_feedback
- *                                        also take CGMrecipeOn 1 (R4, README "The c10 Group, Part
- *                                        3"): each galaxy's Regime and CGM pair are read and
- *                                        recorded, the CGM branch of update_from_feedback
- *                                        (S:1175-1223), the yield's add_metals_to_hot_reservoir
- *                                        (R/src/model_misc.h:67-74) and the gas-unstable
- *                                        continuation's grow_black_hole and quasar_mode_wind
- *                                        (R/src/model_mergers.c:346-441) are transcribed, and the
- *                                        routing selections are recorded; a CGMrecipeOn 0 fixture
- *                                        reads and records none of these
+ *   CGMrecipeOn 1                        starformation_and_feedback_fire and
+ *                                        update_from_feedback also take CGMrecipeOn 1 (R4,
+ *                                        README "The c10 Group, Part 3"): each galaxy's Regime
+ *                                        and CGM pair are read and recorded, the CGM branch
+ *                                        of update_from_feedback (S:1175-1223), the yield's
+ *                                        add_metals_to_hot_reservoir (R/src/model_misc.h:67-74)
+ *                                        and the gas-unstable continuation's grow_black_hole and
+ *                                        quasar_mode_wind (R/src/model_mergers.c:346-441) are
+ *                                        transcribed, and the routing selections are recorded; a
+ *                                        CGMrecipeOn 0 fixture reads and records none of these
  *   step_bin_map                         a TRANSCRIPTION of B:513-516 (bin and dt)
  *   sfr_history_average                  a TRANSCRIPTION of W:934-959, with SAGE26's own
  *                                        sfr_rate_divisor and sfr_metallicity_divisor
@@ -858,8 +858,8 @@ static void read_fire_snapshots(const int ngal) {
  * DiskInstabilityOn may be 0 (a labelled non-R0 value) where allow_no_instability is set.
  * SFprescription is 0 (R0, R1), or 1 (R2, through read_sf_prescription) where allow_br06 is set:
  * starformation_and_feedback only. FIREmodeOn is 0, or 0 or 1 (R3, through read_fire_mode_on)
- * where allow_fire is set: starformation_and_feedback_fire only. CGMrecipeOn is 0, or 0
- * or 1 (R4, through read_cgm_recipe_on, which sets cgm_block_recorded) where allow_cgm is
+ * where allow_fire is set: starformation_and_feedback_fire only. CGMrecipeOn is 0, or 0 or 1
+ * (R4, through read_cgm_recipe_on, which sets cgm_block_recorded) where allow_cgm is
  * set: starformation_and_feedback_fire only.
  */
 static void read_r0_flags(const int allow_no_instability, const int allow_br06,
