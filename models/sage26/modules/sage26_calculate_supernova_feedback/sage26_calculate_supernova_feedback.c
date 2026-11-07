@@ -24,8 +24,8 @@
  *   (campaign decision D37);
  * - the reheating loading FeedbackReheatingEpsilon * scaling capped at
  *   2 * EtaSNcode * EnergySNcode / Vvir^2 (capped_eta_reheat, R/src/model_misc.h:141-149),
- *   written to MassLoading as a float before the renormalisation, also when no stars form
- *   (:762-764), and the reheated mass eta * stars (:765);
+ *   written to MassLoading as a float before the renormalisation on every ordinary (non-FFB)
+ *   call, also when no stars form (:762-764), and the reheated mass eta * stars (:765);
  * - the same renormalisation (:775-779);
  * - the Hirschmann et al. (2016) energy-based ejection from the renormalised stars and reheated
  *   mass (:786-792, sn_energy_coupling, R/src/model_misc.h:118-124), zero for a non-positive own
