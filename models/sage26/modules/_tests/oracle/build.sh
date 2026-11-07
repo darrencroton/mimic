@@ -20,7 +20,13 @@
 # transcribed writer conversion of the mdot rates), is compiled and linked the same way
 # into output/oracle/oracle_c11. The c12 oracle main, oracle_c12.c (the halo concentration:
 # concentration_from_vmax_vvir and get_halo_concentration, ConcentrationOn 0 and 3), is
-# compiled and linked the same way into output/oracle/oracle_c12.
+# compiled and linked the same way into output/oracle/oracle_c12. The c13 oracle main,
+# oracle_c13.c (the feedback-free-burst classifier: calculate_ffb_threshold_mass,
+# calculate_ffb_fraction and determine_and_store_ffb_regime, EnhancedStarFormationOn 1), is
+# compiled and linked the same way into output/oracle/oracle_c13; like oracle_c10.c it defines
+# a test-only rand() provider, linked into that executable only. Since c13 Slice 2 oracle_c13.c
+# also calls SAGE26's starformation_ffb and the wrapper starformation_and_feedback's FFB dispatch
+# (the same twelve objects; no new SAGE26 source).
 #
 # Environment:
 #   SAGE26_SRC         staged SAGE26 source root
@@ -213,3 +219,18 @@ clang $objects "$OBJ_DIR/oracle_c12.o" -o "$ORACLE_OUT/oracle_c12" \
 { set +x; } 2>/dev/null
 
 echo "build.sh: built $ORACLE_OUT/oracle_c12"
+
+# The c13 oracle main (the feedback-free-burst classifier: the Li et al. 2024 threshold and
+# fraction and determine_and_store_ffb_regime, each called directly): built exactly as oracle_c03,
+# against the same twelve objects, with the same flags and link. Its own object defines rand(),
+# the test-only queue provider for SAGE26's discarded draw, which the linker prefers to libc's for
+# the SAGE26 objects' calls in this executable only.
+compile "$ORACLE_DIR/oracle_c13.c" "$OBJ_DIR/oracle_c13.o" -I"$SAGE26_SRC/src"
+
+set -x
+# shellcheck disable=SC2086 # $objects is a deliberately split list of paths
+clang $objects "$OBJ_DIR/oracle_c13.o" -o "$ORACLE_OUT/oracle_c13" \
+  -L"$GSL_PREFIX/lib" -lgsl -lgslcblas -Xlinker -rpath -Xlinker "$GSL_PREFIX/lib" -lm
+{ set +x; } 2>/dev/null
+
+echo "build.sh: built $ORACLE_OUT/oracle_c13"

@@ -33,8 +33,9 @@
  * (substep * STEPS) / num_substeps capped at STEPS - 1 (R/src/core_build_model.c:514-515),
  * and dt the substep interval dT / num_substeps.
  *
- * SAGE26 samples and makes both calls on every substep, also when no stars formed,
- * so this step always does, except on Mimic-only degenerate paths: with no FoF
+ * SAGE26 samples and makes both calls on every substep of a galaxy that takes its ordinary
+ * chain, also when no stars formed, so this step always does on such a galaxy, except on
+ * Mimic-only degenerate paths: with no FoF
  * central galaxy it samples but returns before committing anything (SAGE26 always
  * has a central), and on the initial-snapshot boundary (no positive interval, where
  * sage26_calculate_star_formation forms nothing) it does not sample, as there is
@@ -42,6 +43,13 @@
  * ejected transport fields;
  * NewStellarMass is left for sage26_apply_metal_enrichment, which applies the disk
  * yield after the disk-instability chain.
+ *
+ * None of this describes a feedback-free-burst row: SAGE26 hands a row whose FFBRegime is 1
+ * (with EnhancedStarFormationOn 1) to starformation_ffb and returns before the ordinary chain
+ * (:1004-1008), so this step returns at once on such a row and writes nothing, its history sample
+ * included. sage26_ffb_star_formation samples and commits that row in its own order (the commit
+ * before the feedback budget, the feedback with the pre-commit metallicity), and no transport
+ * field carries its stars.
  *
  * Reference: Croton et al. (2006, 2016)
  */
@@ -85,9 +93,9 @@ static int CGM_RECIPE_ON;
 /**
  * @brief Sample the disk star-formation history of this substep (S:1058-1060)
  *
- * SAGE parity: SAGE26 samples on every starformation_and_feedback call, zero stars
- * included, after compute_sn_feedback renormalised stars and before any reservoir
- * update (R/src/model_starformation_and_feedback.c:1053-1060).
+ * SAGE parity: SAGE26 samples on every ordinary (non-FFB) starformation_and_feedback call, zero
+ * stars included, after compute_sn_feedback renormalised stars and before any reservoir update
+ * (R/src/model_starformation_and_feedback.c:1053-1060).
  *
  * @return 0, or -1 on an invalid interval or substep
  */
@@ -195,6 +203,17 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
     return 0;
   }
 
+  /* SAGE parity: SAGE26's starformation_and_feedback hands an FFBRegime 1 row to
+   * starformation_ffb and returns before its ordinary history sample and commits
+   * (R/src/model_starformation_and_feedback.c:1004-1008), so this module returns at once and
+   * writes nothing, before its history sample and time guard. sage26_ffb_star_formation samples
+   * and commits that row itself. FFBRegime is 1 only where sage26_determine_ffb_regime wrote it,
+   * which it does only with EnhancedStarFormationOn 1, so this is SAGE26's test
+   * EnhancedStarFormationOn >= 1 && FFBRegime == 1 (:1004). */
+  if (halo->galaxy->FFBRegime == 1) {
+    return 0;
+  }
+
   // ========================================================================
   // DISK SF HISTORY: sampled before any reservoir update (:1058-1060)
   // ========================================================================
@@ -216,9 +235,9 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
   double reheated_mass = gal->SupernovaReheatedMass;
   const double ejected_mass = gal->SupernovaEjectedMass;
 
-  /* SAGE parity: SAGE26 commits star formation and feedback on every call, also when
-   * no stars formed (:1063-1085); a zero event still runs the clamps and caps, which
-   * can move a negative or -0.0 metal reservoir. */
+  /* SAGE parity: SAGE26 commits star formation and feedback on every ordinary (non-FFB) call,
+   * also when no stars formed (:1063-1085); a zero event still runs the clamps and caps, which
+   * can move a negative or -0.0 metal reservoir. An FFB row returned above (:1004-1008). */
 
   // ========================================================================
   // STAR FORMATION: Update gas and stars with recycling (:1063-1064)
@@ -257,7 +276,9 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
   // ========================================================================
   // NewStellarMass is intentionally NOT zeroed here: sage26_apply_metal_enrichment
   // consumes it after the disk-instability chain (SAGE26 adds the disk yield after
-  // check_disk_instability, :1092-1109).
+  // check_disk_instability, :1092-1109). This lifetime is the ordinary chain's only: on an
+  // FFB row no module writes or consumes NewStellarMass, which keeps its per-snapshot reset
+  // value, and sage26_ffb_star_formation carries its stars in locals of its one call.
 
   gal->SupernovaReheatedMass = 0.0;
   gal->SupernovaEjectedMass = 0.0;

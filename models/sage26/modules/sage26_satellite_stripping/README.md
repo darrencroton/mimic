@@ -27,7 +27,7 @@ Two SAGE26 behaviours are mirrored deliberately and marked `// SAGE parity:`:
 ## Parameters
 
 - `GlobalBaryonFraction` (used only when `sage26_reionization` is not configured)
-- `CGMrecipeOn` (required, 0 or 1; any other value, or a missing key, fails initialisation naming it; the run files hold 1, SAGE26's R4, kept at R5)
+- `CGMrecipeOn` (required, 0 or 1; any other value, or a missing key, fails initialisation naming it; the run files hold 1, SAGE26's R4, kept through R6)
 
 ## Ordering
 

@@ -18,9 +18,9 @@
  *   silently truncated; the *_in() variants take the manifest and modules directory
  *   as arguments (the reader's self-test, test_unit_sage26_oracle_reader.c);
  * - oracle_in_*() / oracle_check_*() / oracle_exclude(): read inputs and compare
- *   outputs, each marking the field consumed, so oracle_report_unconsumed() can
- *   prove that every input was applied and every output asserted or excluded
- *   with a stated reason;
+ *   outputs (f32, f64, i32 and, since c13, i64), each marking the field consumed,
+ *   so oracle_report_unconsumed() can prove that every input was applied and every
+ *   output asserted or excluded with a stated reason;
  * - oracle_fixture_count_ok() / oracle_all_bit_identical(): the bodies of each
  *   oracle test's two test cases;
  * - oracle_c04_*(): the c04 group's (cooling and radio heating) shared state:
@@ -71,13 +71,15 @@
 #define ORACLE_DIR MIMIC_COMPILED_MODEL_PATH "/modules"
 #define ORACLE_MANIFEST MIMIC_COMPILED_MODEL_PATH "/modules/_tests/oracle/fixtures.manifest"
 
-enum oracle_type { ORACLE_F32, ORACLE_F64, ORACLE_I32 };
+/* ORACLE_I64 (c13): a decimal signed 64-bit integer, such as a MostBoundID, which an i32 would
+ * narrow and a double would round above 2^53 (oracle README "Fixture File Format") */
+enum oracle_type { ORACLE_F32, ORACLE_F64, ORACLE_I32, ORACLE_I64 };
 
 struct oracle_field {
   char name[ORACLE_MAX_NAME];
   enum oracle_type type;
   uint64_t bits;    /* f32 / f64 bit pattern */
-  long long ivalue; /* i32 value */
+  long long ivalue; /* i32 or i64 value */
   int consumed;
 };
 
@@ -269,8 +271,8 @@ static inline int oracle_tokens(const char *line, const int max, char tokens[][O
  *
  * Every statement is read; a file beyond any of the reader's limits (more than
  * ORACLE_MAX_FIELDS fields, a line of ORACLE_MAX_LINE characters or more, a token of
- * ORACLE_MAX_NAME or more, an i32 outside the 32-bit range) is refused with a
- * message naming the limit.
+ * ORACLE_MAX_NAME or more, an i32 outside the 32-bit range, an i64 outside the signed
+ * 64-bit range) is refused with a message naming the limit.
  *
  * @return 0 on success; -1 with a message on stderr otherwise
  */
@@ -367,6 +369,16 @@ static inline int oracle_load(const char *path, struct oracle_fixture *fx) {
       field->ivalue = strtoll(value, &end, 10);
       if (end == value || *end != '\0' || errno != 0 || field->ivalue < INT32_MIN ||
           field->ivalue > INT32_MAX) {
+        status = -1;
+      }
+    } else if (strcmp(type, "i64") == 0) {
+      /* The full signed 64-bit range: strtoll sets ERANGE outside it (it never wraps), and the
+       * whole token must be decimal digits with an optional sign */
+      char *end = NULL;
+      field->type = ORACLE_I64;
+      errno = 0;
+      field->ivalue = strtoll(value, &end, 10);
+      if (end == value || *end != '\0' || errno != 0) {
         status = -1;
       }
     } else {
@@ -649,6 +661,12 @@ static inline int oracle_in_i32(struct oracle_fixture *fx, const char *name) {
   return field != NULL ? (int)field->ivalue : 0;
 }
 
+/** @brief Read an i64 field (a signed 64-bit integer, never narrowed or carried as a double) */
+static inline long long oracle_in_i64(struct oracle_fixture *fx, const char *name) {
+  const struct oracle_field *field = oracle_take(fx, name, ORACLE_I64);
+  return field != NULL ? field->ivalue : 0;
+}
+
 /** @brief "galaxy[<i>].<member>" */
 static inline const char *oracle_galaxy_field(const int index, const char *member) {
   static char buffer[ORACLE_MAX_NAME];
@@ -702,6 +720,21 @@ static inline int oracle_check_i32(struct oracle_fixture *out, const char *name,
   }
   if (field->ivalue != actual) {
     fprintf(stderr, "oracle: %s: %s expected %lld got %d\n", out->path, name, field->ivalue,
+            actual);
+    return 1;
+  }
+  return 0;
+}
+
+/** @brief Compare a 64-bit integer with an i64 oracle output; returns 1 on a mismatch */
+static inline int oracle_check_i64(struct oracle_fixture *out, const char *name,
+                                   const long long actual) {
+  const struct oracle_field *field = oracle_take(out, name, ORACLE_I64);
+  if (field == NULL) {
+    return 1;
+  }
+  if (field->ivalue != actual) {
+    fprintf(stderr, "oracle: %s: %s expected %lld got %lld\n", out->path, name, field->ivalue,
             actual);
     return 1;
   }

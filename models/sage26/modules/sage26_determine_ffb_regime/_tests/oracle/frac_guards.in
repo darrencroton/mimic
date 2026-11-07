@@ -1,0 +1,45 @@
+# calculate_ffb_fraction's guards (R/src/model_regimes.c:332), each on its own, and the edges of
+# the sigmoid, at ZZ[12] unless stated:
+# Mvir +0, -0, -1 and -inf (the Mvir guard: 0); NaN (passes the guards: a NaN fraction); +inf (x
+# +inf: exactly 1);
+# Mvir 1 at z 1e54 (the threshold 0: the threshold guard alone);
+# Mvir 0 at z -2 (a NaN threshold: the Mvir guard alone returns 0);
+# Mvir 1 at z -2 (a NaN threshold passes the guard: NaN); Mvir 1 at z -1 (an infinite threshold
+# passes the guard; x -inf gives exactly 0);
+# Mvir equal to the threshold double at ZZ[12] and ZZ[16] (x 0: exactly 0.5);
+# the smallest float subnormal, widened, and the smallest double subnormal (x very negative: about
+# 0)
+# Reachability: constructed routine-domain probe
+format sage26-oracle-fixture 1
+routine calculate_ffb_fraction
+i32 params.EnhancedStarFormationOn 1  # R6.par:58
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.73
+i32 call.ncase 14
+f64 case[0].Mvir 0x0000000000000000  # 0.0
+f64 case[0].z 0x4024259cb99f83b9  # 10.073461342546453
+f64 case[1].Mvir 0x8000000000000000  # -0.0
+f64 case[1].z 0x4024259cb99f83b9  # 10.073461342546453
+f64 case[2].Mvir 0xbff0000000000000  # -1.0
+f64 case[2].z 0x4024259cb99f83b9  # 10.073461342546453
+f64 case[3].Mvir 0xfff0000000000000  # -inf
+f64 case[3].z 0x4024259cb99f83b9  # 10.073461342546453
+f64 case[4].Mvir 0x7ff8000000000000  # nan
+f64 case[4].z 0x4024259cb99f83b9  # 10.073461342546453
+f64 case[5].Mvir 0x7ff0000000000000  # inf
+f64 case[5].z 0x4024259cb99f83b9  # 10.073461342546453
+f64 case[6].Mvir 0x3ff0000000000000  # 1.0
+f64 case[6].z 0x4b24e1878814c9ce  # 1e+54
+f64 case[7].Mvir 0x0000000000000000  # 0.0
+f64 case[7].z 0xc000000000000000  # -2.0
+f64 case[8].Mvir 0x3ff0000000000000  # 1.0
+f64 case[8].z 0xc000000000000000  # -2.0
+f64 case[9].Mvir 0x3ff0000000000000  # 1.0
+f64 case[9].z 0xbff0000000000000  # -1.0
+f64 case[10].Mvir 0x400394fa48d9fcc0  # the threshold at ZZ[12]
+f64 case[10].z 0x4024259cb99f83b9  # 10.073461342546453
+f64 case[11].Mvir 0x402ddc73a2dbbc2e  # the threshold at ZZ[16]
+f64 case[11].z 0x401d16b8789b2aaa  # 7.272188076468106
+f64 case[12].Mvir 0x36a0000000000000  # 2^-149, the smallest float subnormal
+f64 case[12].z 0x4024259cb99f83b9  # 10.073461342546453
+f64 case[13].Mvir 0x0000000000000001  # the smallest double subnormal
+f64 case[13].z 0x4024259cb99f83b9  # 10.073461342546453

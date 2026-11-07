@@ -1,0 +1,71 @@
+# SAGE26 oracle output for thr_overflow_large_hubble.in, written by oracle_c13 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine calculate_ffb_threshold_mass
+f64 return.case[0] 0x7ff0000000000000  # inf
+i32 intermediate.case[0].z_norm_absent 0
+f64 intermediate.case[0].z_norm 0x3fb999999999999a  # 0.10000000000000001
+i32 intermediate.case[0].z_norm_checked 1
+i32 intermediate.case[0].z_norm_check_kind 2
+i32 intermediate.case[0].z_norm_validated_up 0
+i32 intermediate.case[0].z_norm_validated_down 0
+i32 intermediate.case[0].z_norm_validated 0
+i32 intermediate.case[0].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[0].log_Mvir_ffb_code 0x4073500000000000  # 309
+i32 intermediate.case[0].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[0].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[0].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.case[0].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.case[0].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[0].pow_equals_exp10 1
+i32 intermediate.case[0].unfused_threshold_differs 0
+f64 return.case[1] 0x7ff0000000000000  # inf
+i32 intermediate.case[1].z_norm_absent 0
+f64 intermediate.case[1].z_norm 0x3fa999999999999a  # 0.050000000000000003
+i32 intermediate.case[1].z_norm_checked 1
+i32 intermediate.case[1].z_norm_check_kind 2
+i32 intermediate.case[1].z_norm_validated_up 0
+i32 intermediate.case[1].z_norm_validated_down 0
+i32 intermediate.case[1].z_norm_validated 0
+i32 intermediate.case[1].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[1].log_Mvir_ffb_code 0x40736ddcb789c3fd  # 310.86638597311668
+i32 intermediate.case[1].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[1].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[1].log_Mvir_ffb_code_validated_up 0
+i32 intermediate.case[1].log_Mvir_ffb_code_validated_down 0
+i32 intermediate.case[1].log_Mvir_ffb_code_validated 0
+i32 intermediate.case[1].pow_equals_exp10 1
+i32 intermediate.case[1].unfused_threshold_differs 0
+f64 return.case[2] 0x7ecd714627884079  # 6.3095734448020975e+302
+i32 intermediate.case[2].z_norm_absent 0
+f64 intermediate.case[2].z_norm 0x3ff0000000000000  # 1
+i32 intermediate.case[2].z_norm_checked 1
+i32 intermediate.case[2].z_norm_check_kind 2
+i32 intermediate.case[2].z_norm_validated_up 0
+i32 intermediate.case[2].z_norm_validated_down 0
+i32 intermediate.case[2].z_norm_validated 0
+i32 intermediate.case[2].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[2].log_Mvir_ffb_code 0x4072eccccccccccd  # 302.80000000000001
+i32 intermediate.case[2].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[2].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[2].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[2].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[2].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[2].pow_equals_exp10 1
+i32 intermediate.case[2].unfused_threshold_differs 0
+f64 return.case[3] 0x7fb35ed2138446e1  # 1.3602352551502107e+307
+i32 intermediate.case[3].z_norm_absent 0
+f64 intermediate.case[3].z_norm 0x3fc999999999999a  # 0.20000000000000001
+i32 intermediate.case[3].z_norm_checked 1
+i32 intermediate.case[3].z_norm_check_kind 2
+i32 intermediate.case[3].z_norm_validated_up 0
+i32 intermediate.case[3].z_norm_validated_down 0
+i32 intermediate.case[3].z_norm_validated 0
+i32 intermediate.case[3].log_Mvir_ffb_code_absent 0
+f64 intermediate.case[3].log_Mvir_ffb_code 0x4073322348763c03  # 307.13361402688332
+i32 intermediate.case[3].log_Mvir_ffb_code_checked 1
+i32 intermediate.case[3].log_Mvir_ffb_code_check_kind 2
+i32 intermediate.case[3].log_Mvir_ffb_code_validated_up 1
+i32 intermediate.case[3].log_Mvir_ffb_code_validated_down 1
+i32 intermediate.case[3].log_Mvir_ffb_code_validated 1
+i32 intermediate.case[3].pow_equals_exp10 1
+i32 intermediate.case[3].unfused_threshold_differs 0

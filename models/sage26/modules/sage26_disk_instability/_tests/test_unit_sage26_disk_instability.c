@@ -33,6 +33,10 @@
  *   - test_bulge_mass_not_clamped_to_stellar_mass: No bulge clamp (SAGE26's bits)
  *   - test_metals_bulge_not_clamped_to_stellar_metals: No bulge-metals clamp (SAGE26's bits)
  *   - test_disk_factor_sensitivity: Parameter affects results
+ *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
+ *     bytewise unchanged on an unstable disk (no transfer, UnstableDiskGasFraction keeps 0); the
+ *     same row with FFBRegime 0 gets SAGE26's check_disk_instability trigger, written inline
+ *     (c13 Slice 3)
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -916,6 +920,69 @@ int test_disk_factor_sensitivity(void) {
   return TEST_PASS;
 }
 
+// ============================================================================
+// FEEDBACK-FREE-BURST BYPASS (c13 Slice 3)
+// ============================================================================
+
+/**
+ * @test    test_ffb_row_bypassed
+ * @brief   An FFBRegime 1 row is not checked; the same row with FFBRegime 0 is
+ *
+ * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb, which
+ * returns with no disk-instability check (R/src/model_starformation_and_feedback.c:1004-1008,
+ * :1365-1367). The row is a satellite on an unstable disk (diskmass 13 far above Mcrit) with its
+ * own FoF central; with FFBRegime 1 both galaxy structs are compared byte for byte with their
+ * inputs, so no stars move and UnstableDiskGasFraction keeps its reset value 0. With FFBRegime 0
+ * the trigger is SAGE26's check_disk_instability (R/src/model_disk_instability.c:54-101), written
+ * here with its operand order and float sums.
+ */
+int test_ffb_row_bypassed(void) {
+  setup_module_for_physics_test(3.0);
+  struct Halo central = create_test_halo(150.0, 2.0, 4.0, 1.0, 0.02);
+  struct Halo row = create_test_halo(200.0, 5.0, 10.0, 2.0, 0.03);
+  row.Type = 1;
+  row.galaxy->FFBRegime = 1;
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.params = &MimicConfig;
+  ctx.central_galaxy = &central;
+
+  struct GalaxyData row_in, central_in;
+  memcpy(&row_in, row.galaxy, sizeof(row_in));
+  memcpy(&central_in, central.galaxy, sizeof(central_in));
+
+  TEST_ASSERT(sage26_disk_instability_process(&ctx, &row, 1) == 0,
+              "process succeeds on an FFB row");
+  TEST_ASSERT(memcmp(row.galaxy, &row_in, sizeof(row_in)) == 0,
+              "FFBRegime 1: every field of the row is unchanged (no transfer, no trigger)");
+  TEST_ASSERT(memcmp(central.galaxy, &central_in, sizeof(central_in)) == 0,
+              "FFBRegime 1: every field of its central is unchanged");
+
+  row.galaxy->FFBRegime = 0;
+  TEST_ASSERT(sage26_disk_instability_process(&ctx, &row, 1) == 0,
+              "process succeeds on an ordinary row");
+  const float vmax = 200.0f;
+  const double diskmass = row_in.ColdGas + (row_in.StellarMass - row_in.BulgeMass);  /* :54 */
+  const double Mcrit = vmax * vmax * (3.0 * row_in.DiskScaleRadius) / MimicConfig.G; /* :57 */
+  const double gas_fraction = row_in.ColdGas / diskmass;                             /* :63 */
+  const double unstable_gas = gas_fraction * (diskmass - Mcrit);                     /* :64 */
+  const double expected = unstable_gas / row_in.ColdGas;                             /* :101 */
+  printf("\n  FFBRegime 0: UnstableDiskGasFraction %.17g, expected %.17g (Mcrit %.6g)",
+         row.galaxy->UnstableDiskGasFraction, expected, Mcrit);
+  TEST_ASSERT(Mcrit < diskmass, "the disk is unstable");
+  TEST_ASSERT(fabs(row.galaxy->UnstableDiskGasFraction - expected) <= 1e-12 * expected,
+              "FFBRegime 0: the trigger is SAGE26's unstable gas fraction");
+  TEST_ASSERT(row.galaxy->BulgeMass > row_in.BulgeMass, "FFBRegime 0: stars move to the bulge");
+  TEST_ASSERT(memcmp(central.galaxy, &central_in, sizeof(central_in)) == 0,
+              "the check never writes the central");
+
+  free_test_halo(&row);
+  free_test_halo(&central);
+  module_system_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /**
  * @brief   Main test runner
  *
@@ -964,6 +1031,9 @@ int main(void) {
   /* Run parameter sensitivity tests */
   printf("\n%s=== Parameter Sensitivity Tests ===%s\n", BLUE, NC);
   TEST_RUN(test_disk_factor_sensitivity);
+
+  /* The feedback-free-burst bypass (c13 Slice 3) */
+  TEST_RUN(test_ffb_row_bypassed);
 
   /* Print summary and return result */
   TEST_SUMMARY();

@@ -1,12 +1,12 @@
 # `sage26_quasar_mode`
 
-Ports SAGE26's black-hole growth and quasar-mode wind, `grow_black_hole` and `quasar_mode_wind` (`R/src/model_mergers.c:346-441`, `R` = the staged SAGE26 source), with `CGMrecipeOn` 1 (the run files' value, SAGE26's R4, kept at R5) or 0 (R0-R3) and `SFprescription` 1 (the run files' value, SAGE26's R2) or 0 (R0, R1), for disk-instability triggers and merger events.
+Ports SAGE26's black-hole growth and quasar-mode wind, `grow_black_hole` and `quasar_mode_wind` (`R/src/model_mergers.c:346-441`, `R` = the staged SAGE26 source), with `CGMrecipeOn` 1 (the run files' value, SAGE26's R4, kept through R6) or 0 (R0-R3) and `SFprescription` 1 (the run files' value, SAGE26's R2) or 0 (R0, R1), for disk-instability triggers and merger events.
 
 ## Processing Contract
 
 - Supported modes: `process_by_galaxy`, `process_per_event`
-- `process_by_galaxy` consumes the disk instability's gas branch in `galaxy_physics`: after `sage26_disk_instability`, which hands on `UnstableDiskGasFraction`, and before `sage26_starburst_feedback`, as SAGE26's `check_disk_instability` calls `grow_black_hole` and then the burst (`R/src/model_disk_instability.c:101-108`)
-- `process_per_event` consumes merger events in `satellite_mergers`, growing the merger target's black hole before the burst (`R/src/model_mergers.c:262-264`)
+- `process_by_galaxy` consumes the disk instability's gas branch in `galaxy_physics`: after `sage26_disk_instability`, which hands on `UnstableDiskGasFraction`, and before `sage26_starburst_feedback`, as SAGE26's `check_disk_instability` calls `grow_black_hole` and then the burst (`R/src/model_disk_instability.c:101-108`). It never acts on a feedback-free-burst row (`FFBRegime` 1): SAGE26's FFB call runs no instability check (`R/src/model_starformation_and_feedback.c:1004-1008`, `:1365-1367`), and `sage26_disk_instability` writes nothing on that row, so its `UnstableDiskGasFraction` keeps its per-snapshot reset value 0
+- `process_per_event` consumes merger events in `satellite_mergers`, growing the merger target's black hole before the burst (`R/src/model_mergers.c:262-264`), on an FFB target as on any other (SAGE26's merger routines do not read `FFBRegime`)
 
 ## Physics
 
@@ -29,7 +29,7 @@ The arithmetic lives in `shared/sage_agn_physics.h` (`mimic_apply_black_hole_gro
 - `BlackHoleGrowthRate`
 - `QuasarModeEfficiency`
 - `SFprescription` (required, 0 or 1): 1, the run files' value (BR06, SAGE26's R2), applies the accretion's hydrogen cap (`:366-372`); 0 (R0, R1) does not. Any other value, or a missing key, fails initialisation with an error naming the parameter; there is no default.
-- `CGMrecipeOn` (required, 0 or 1, campaign decision D33): 1, the run files' value (SAGE26's R4, kept at R5), selects the wind's second pair by the wind host's `Regime`; 0 (R0-R3) always the hot pair. Any other value, or a missing key, fails initialisation with an error naming the parameter; there is no default.
+- `CGMrecipeOn` (required, 0 or 1, campaign decision D33): 1, the run files' value (SAGE26's R4, kept through R6), selects the wind's second pair by the wind host's `Regime`; 0 (R0-R3) always the hot pair. Any other value, or a missing key, fails initialisation with an error naming the parameter; there is no default.
 
 ## Ordering
 

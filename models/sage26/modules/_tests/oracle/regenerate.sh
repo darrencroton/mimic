@@ -22,7 +22,8 @@
 # owned by the c04 modules sage26_calculate_cooling_budget, sage26_radio_mode_heating
 # and sage26_finalize_cooling_heating (the writer conversion) as well as by
 # sage26_regime_aware_cooling (the regime-aware wrapper). A fixture whose routine line
-# names a c12 routine (C12_ROUTINES below) runs through oracle_c12.
+# names a c12 routine (C12_ROUTINES below) runs through oracle_c12, and one whose routine line
+# names a c13 routine (C13_ROUTINES below) through oracle_c13.
 #
 # Environment: as build.sh (SAGE26_SRC, ORACLE_OUT, ORACLE_ALLOW_ANY_TOOLCHAIN).
 # See README.md in this directory.
@@ -121,6 +122,13 @@ do_AGN_heating_cgm_on cooling_recipe_regime_aware writer_mdot_conversion"
 # selected by routine.
 ORACLE_C12=$ORACLE_OUT/oracle_c12
 C12_ROUTINES="concentration_from_vmax_vvir get_halo_concentration"
+# The c13 group (the feedback-free-burst classifier: the threshold, the fraction and
+# determine_and_store_ffb_regime with the fixture's rand() queue, each called directly; and, since
+# c13 Slice 2, FFB star formation: starformation_ffb and the wrapper's FFB dispatch,
+# starformation_and_feedback_ffb) has its own oracle main and is selected by routine.
+ORACLE_C13=$ORACLE_OUT/oracle_c13
+C13_ROUTINES="calculate_ffb_threshold_mass calculate_ffb_fraction determine_and_store_ffb_regime
+starformation_ffb starformation_and_feedback_ffb"
 
 # Each oracle run writes to a fresh temporary file under ORACLE_OUT, which
 # replaces the committed output only if the oracle exited 0 AND the file is a
@@ -132,14 +140,32 @@ TMP_OUT=$(mktemp -d "$ORACLE_OUT/regenerate.XXXXXX")
 trap 'rm -rf "${TMP_OUT:?}"' EXIT
 
 # A complete output: the oracle's header, format and routine lines, at least
-# one field, every later line a typed field, and a final newline.
+# one field, every later line a typed field (f32, f64, i32 or, since c13, the
+# decimal signed 64-bit i64), and a final newline.
+#
+# An i64 value must be an optionally signed decimal integer within
+# [INT64_MIN, INT64_MAX]. The bound is checked on the digit string (leading
+# zeros dropped, then length, then a lexical comparison of equal-length digit
+# strings, each prefixed so awk compares strings), never by awk's numeric
+# conversion, which is a double and cannot tell 2^63 - 1 from 2^63.
 complete_output() {
   [ -s "$1" ] && [ "$(tail -c 1 "$1" | od -An -c | tr -d ' ')" = '\n' ] &&
     awk '
+      function valid_i64(v,   digits, bound) {
+        digits = v
+        if (digits ~ /^[-+]/) { digits = substr(digits, 2) }
+        if (digits !~ /^[0-9]+$/) { return 0 }
+        sub(/^0+/, "", digits)
+        if (digits == "") { return 1 }
+        bound = (v ~ /^-/) ? "9223372036854775808" : "9223372036854775807"
+        if (length(digits) != length(bound)) { return length(digits) < length(bound) }
+        return ("d" digits) <= ("d" bound)
+      }
       NR == 1 { ok = ($0 ~ /^# SAGE26 oracle output for /); next }
       NR == 2 { ok = ok && ($0 == "format sage26-oracle-fixture 1"); next }
       NR == 3 { ok = ok && ($0 ~ /^routine [A-Za-z_0-9]+$/); next }
-      { ok = ok && ($0 ~ /^(f32|f64|i32) [^ ]+ [^ ]+/); fields++ }
+      { ok = ok && ($0 ~ /^(f32|f64|i32|i64) [^ ]+ [^ ]+/); fields++ }
+      $1 == "i64" { ok = ok && valid_i64($3) }
       END { exit !(ok && fields > 0) }
     ' "$1"
 }
@@ -184,6 +210,11 @@ for input in $listed; do
   for name in $C12_ROUTINES; do
     if [ "$routine" = "$name" ]; then
       oracle=$ORACLE_C12
+    fi
+  done
+  for name in $C13_ROUTINES; do
+    if [ "$routine" = "$name" ]; then
+      oracle=$ORACLE_C13
     fi
   done
   tmp=$TMP_OUT/output

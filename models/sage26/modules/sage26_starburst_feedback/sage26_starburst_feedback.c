@@ -18,9 +18,14 @@
  *   - process_by_galaxy: the disk instability (UnstableDiskGasFraction > 0, mode 1, the
  *     instability channel), after sage26_disk_instability and sage26_quasar_mode, as
  *     SAGE26's check_disk_instability calls grow_black_hole and then the burst
- *     (R/src/model_disk_instability.c:101-108);
+ *     (R/src/model_disk_instability.c:101-108). It never acts on a feedback-free-burst row
+ *     (FFBRegime 1): SAGE26's FFB call runs no disk-instability check
+ *     (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), and the package's
+ *     sage26_disk_instability writes nothing on such a row, so its UnstableDiskGasFraction keeps
+ *     its per-snapshot reset value 0;
  *   - process_per_event: the merger event (mode 0), after sage26_quasar_mode's merger
- *     black-hole growth (R/src/model_mergers.c:262-287).
+ *     black-hole growth (R/src/model_mergers.c:262-287), on an FFB target as on any other, its
+ *     post-merger recheck included (SAGE26's merger routines do not read FFBRegime).
  *
  * FIREmodeOn is a required parameter (campaign decision D33), 0 or 1, refused otherwise. This
  * module builds the burst parameter bundle, so it passes FIREmodeOn and the run's redshift table
@@ -384,6 +389,10 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
     return 0;
   }
 
+  /* The instability's trigger, never positive on an FFB row: SAGE26 runs no instability check
+   * after its FFB call (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), and
+   * sage26_disk_instability writes nothing on that row, which keeps the per-snapshot reset value 0
+   */
   if (gal->UnstableDiskGasFraction > 0.0) {
     double disk_dt = 0.0;
     enum MimicObjectTimeStatus dt_status = mimic_object_substep_dt(halo, ctx, &disk_dt);

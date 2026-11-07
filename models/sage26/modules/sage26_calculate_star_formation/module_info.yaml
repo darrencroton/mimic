@@ -10,6 +10,7 @@ module:
 
   dependencies:
     properties:
+      - FFBRegime       # read: 1 returns at once, writing nothing (SAGE26's FFB dispatch)
       - Type
       - HaloNr
       - SnapNum

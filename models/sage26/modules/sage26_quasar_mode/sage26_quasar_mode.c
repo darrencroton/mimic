@@ -16,7 +16,11 @@
  * Trigger channels:
  * - process_by_galaxy: the disk instability's gas branch (UnstableDiskGasFraction > 0,
  *   written by sage26_disk_instability), before sage26_starburst_feedback's burst
- *   (R/src/model_disk_instability.c:101-108)
+ *   (R/src/model_disk_instability.c:101-108). It never acts on a feedback-free-burst row
+ *   (FFBRegime 1): SAGE26's FFB call runs no disk-instability check
+ *   (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), and the package's
+ *   sage26_disk_instability writes nothing on such a row, so its UnstableDiskGasFraction keeps its
+ *   per-snapshot reset value 0
  * - process_per_event: the merger event, on the merger target (R/src/model_mergers.c:262-264)
  *
  * The post-minor-merger recheck's black-hole growth runs inside
@@ -149,8 +153,12 @@ int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, in
   /* SAGE parity: the instability's gas branch grows the black hole of the unstable galaxy
    * itself, its quasar wind included, before the burst (R/src/model_disk_instability.c:90-105);
    * sage26_disk_instability hands the fraction on through UnstableDiskGasFraction. The unstable
-   * galaxy is the wind host, whose own Regime selects the wind's pair (R/src/model_mergers.c:406)
-   */
+   * galaxy is the wind host, whose own Regime selects the wind's pair (R/src/model_mergers.c:406).
+   * The trigger is never positive on an FFB row: SAGE26 runs no instability check after its FFB
+   * call (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), and
+   * sage26_disk_instability writes nothing on that row, which keeps the per-snapshot reset value 0.
+   * The merger channel above runs on an FFB target as on any other (SAGE26's merger routines do
+   * not read FFBRegime). */
   if (gal->UnstableDiskGasFraction > 0.0) {
     (void)mimic_apply_black_hole_growth(halo, gal->UnstableDiskGasFraction, BLACK_HOLE_GROWTH_RATE,
                                         QUASAR_MODE_EFFICIENCY, ctx, SF_PRESCRIPTION, CGM_RECIPE_ON,

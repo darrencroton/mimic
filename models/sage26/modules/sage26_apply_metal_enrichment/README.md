@@ -7,6 +7,7 @@ Applies the instantaneous-recycling metal yield for stars formed in the disk thi
 - Supported mode: `process_by_galaxy`
 - Expected phase: `galaxy_physics`, after `sage26_apply_star_formation_supernova` and after the disk-instability chain (`sage26_disk_instability`, `sage26_quasar_mode`, `sage26_starburst_feedback`)
 - Receives one galaxy at a time and uses the FoF central for the metal ejection destination
+- A row whose `FFBRegime` is 1 (written by `sage26_determine_ffb_regime` only with `EnhancedStarFormationOn` 1) is not processed: SAGE26 hands it to `starformation_ffb` and returns before its ordinary yield (`R/src/model_starformation_and_feedback.c:1004-1008`), so the module returns at once and writes nothing and does not consume `NewStellarMass`, which no module writes on that row; the transaction applies its yield from its renormalised stars. `sage26_ffb_star_formation` runs that row's transaction. The module reads no new parameter: `FFBRegime` is 1 only where the classifier wrote it.
 
 ## Ordering
 
@@ -17,7 +18,7 @@ Applies the instantaneous-recycling metal yield for stars formed in the disk thi
 
 ## Properties
 
-- Reads: `Type`, `Mvir` and `Regime` (FoF central), `ColdGas`, `MetalsColdGas`, `NewStellarMass`
+- Reads: `FFBRegime` (1 returns at once), `Type`, `Mvir` and `Regime` (FoF central), `ColdGas`, `MetalsColdGas`, `NewStellarMass`
 - Writes: `MetalsColdGas`, `MetalsHotGas` or `MetalsCGMgas` (the FoF central's selected metals), `NewStellarMass` (zeroed after consuming)
 
 ## Parameters
@@ -26,7 +27,7 @@ Applies the instantaneous-recycling metal yield for stars formed in the disk thi
 |-----------|-------------|
 | `Yield` | Metal yield per unit stellar mass formed |
 | `FracZleaveDisk` | Fraction of newly produced metals ejected directly to the hot halo |
-| `CGMrecipeOn` | Required, 0 or 1 (campaign decision D33): 1 sends the escaping metals to the FoF central's `MetalsCGMgas` when its `Regime` is 0 and to its `MetalsHotGas` otherwise (the run files' value, SAGE26's R4, kept at R5); 0 (R0-R3) always to `MetalsHotGas`. Any other value, or a missing key, fails initialisation naming the parameter |
+| `CGMrecipeOn` | Required, 0 or 1 (campaign decision D33): 1 sends the escaping metals to the FoF central's `MetalsCGMgas` when its `Regime` is 0 and to its `MetalsHotGas` otherwise (the run files' value, SAGE26's R4, kept through R6); 0 (R0-R3) always to `MetalsHotGas`. Any other value, or a missing key, fails initialisation naming the parameter |
 
 ## Notes
 

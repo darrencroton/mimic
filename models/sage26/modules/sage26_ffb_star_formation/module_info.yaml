@@ -1,0 +1,88 @@
+module:
+  name: sage26_ffb_star_formation
+  description: >-
+    SAGE26's feedback-free-burst star formation (starformation_ffb with compute_sn_feedback_ffb) as
+    one by-galaxy transaction for a row whose FFBRegime is 1: star formation from the cold gas at
+    EnhancedSFEfficiency over the disk's dynamical time, the history sample and the star-formation
+    commit, then the FFB FIRE feedback renormalised against the gas left, its commit to the FoF
+    central's pair with the pre-commit metallicity, and the yield from the renormalised stars, with
+    no disk instability; writes nothing with EnhancedStarFormationOn 0 or on any other row
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - dT
+      - SnapNum         # read: the redshift of the row's stored snapshot (FIRE scaling)
+      - Mvir            # read: the FoF central's (narrowed to SAGE26's float), for the yield
+      - Vvir            # read: the row's own (narrowed to SAGE26's float)
+      - FFBRegime       # read: 1 selects the transaction
+      - DiskScaleRadius
+      - ColdGas
+      - MetalsColdGas
+      - StellarMass
+      - MetalsStellarMass
+      - HotGas
+      - MetalsHotGas
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the FoF central's selects the feedback's and yield's pair
+      - EjectedGas
+      - MetalsEjectedGas
+      - H1gas
+      - H2gas           # written 0, then capped by the commits
+      - MassLoading     # written only with a valid FIRE scaling
+      - StarFormationRate
+      - SupernovaOutflowRate
+      - SfrDiskBin0
+      - SfrDiskBin1
+      - SfrDiskBin2
+      - SfrDiskBin3
+      - SfrDiskBin4
+      - SfrDiskBin5
+      - SfrDiskBin6
+      - SfrDiskBin7
+      - SfrDiskBin8
+      - SfrDiskBin9
+      - SfrDiskColdGasBin0
+      - SfrDiskColdGasBin1
+      - SfrDiskColdGasBin2
+      - SfrDiskColdGasBin3
+      - SfrDiskColdGasBin4
+      - SfrDiskColdGasBin5
+      - SfrDiskColdGasBin6
+      - SfrDiskColdGasBin7
+      - SfrDiskColdGasBin8
+      - SfrDiskColdGasBin9
+      - SfrDiskColdGasMetalsBin0
+      - SfrDiskColdGasMetalsBin1
+      - SfrDiskColdGasMetalsBin2
+      - SfrDiskColdGasMetalsBin3
+      - SfrDiskColdGasMetalsBin4
+      - SfrDiskColdGasMetalsBin5
+      - SfrDiskColdGasMetalsBin6
+      - SfrDiskColdGasMetalsBin7
+      - SfrDiskColdGasMetalsBin8
+      - SfrDiskColdGasMetalsBin9
+    parameters:
+      - EnhancedStarFormationOn    # required: 0 (nothing written) or 1 (FFB star formation)
+      - EnhancedSFEfficiency       # required: finite, within [0, 1]
+      - StarFormingDiskFactor
+      - SFprescription
+      - RecycleFraction
+      - CGMrecipeOn                # required: 0 or 1
+      - FIREmodeOn                 # required: 1 at EnhancedStarFormationOn 1
+      - FeedbackReheatingEpsilon
+      - FeedbackEjectionEfficiency
+      - Yield
+      - FracZleaveDisk
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_ffb_star_formation.c
+      - _tests/test_unit_sage26_ffb_star_formation_oracle.c
+    integration: []
+    scientific: []
+
+  docs:
+    physics: README.md

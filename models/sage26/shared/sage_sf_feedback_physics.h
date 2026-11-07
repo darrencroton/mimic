@@ -9,10 +9,11 @@
  * starformation_and_feedback() (:1062-1085) and every collisional starburst from
  * collisional_starburst_recipe() (R/src/model_mergers.c:759-760, :788-791). This
  * header holds the package's one implementation of both, used by
- * sage26_apply_star_formation_supernova for disk star formation and by
- * mimic_apply_collisional_starburst (sage_starburst_physics.h) for both burst
+ * sage26_apply_star_formation_supernova for disk star formation, by
+ * sage26_ffb_star_formation for feedback-free-burst star formation (starformation_ffb, :1329-1330,
+ * :1348) and by mimic_apply_collisional_starburst (sage_starburst_physics.h) for both burst
  * channels, so that every caller commits an event exactly as SAGE26 does. It also
- * holds the supernova code constants both feedback callers derive at init.
+ * holds the supernova code constants the feedback callers derive at init.
  *
  * The ported paths are SupernovaRecipeOn 1 with CGMrecipeOn 0 or 1, and SFprescription 0 (R0, R1)
  * or 1 (R2 onward). With CGMrecipeOn 1 update_from_feedback routes the reheated gas and the

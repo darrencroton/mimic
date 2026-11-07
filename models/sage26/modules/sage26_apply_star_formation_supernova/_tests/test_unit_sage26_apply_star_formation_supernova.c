@@ -51,6 +51,10 @@
  *     pairs unchanged; the satellite's Regime is always the other value (the commit routes by the
  *     FoF central's regime, S:1175-1247)
  *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
+ *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
+ *     bytewise unchanged, its history included, also in an interval the time guard refuses (the
+ *     bypass precedes the history sample and the guard); the same row with FFBRegime 0 is sampled
+ *     and committed, its reheated gas to the central (c13 Slice 3)
  *
  * @author  Mimic Development Team
  * @date    2025-12-18 (Refactored for comprehensive physics validation)
@@ -1912,6 +1916,80 @@ int test_cgm_recipe_on_refused(void) {
   return TEST_PASS;
 }
 
+// ============================================================================
+// FEEDBACK-FREE-BURST BYPASS (c13 Slice 3)
+// ============================================================================
+
+/**
+ * @test    test_ffb_row_bypassed
+ * @brief   An FFBRegime 1 row is not processed; the same row with FFBRegime 0 is
+ *
+ * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb and returns
+ * before its ordinary history sample and commits (R/src/model_starformation_and_feedback.c
+ * :1004-1008). The row is a satellite with seeded transport fields and its own FoF central; with
+ * FFBRegime 1 both galaxy structs are compared byte for byte with their inputs, in a valid
+ * interval and in one the time guard refuses on an ordinary row (dT 0 with a stored snapshot).
+ * With FFBRegime 0 the expectations are literals: SfrDisk[0] += 1.0 / 0.1 (:1057), the locked
+ * (1 - 0.43) * 1.0 leaves the cold gas (:1121-1124), then the reheated 2.0 (:1166), which the
+ * central's hot gas gains before 0.5 is ejected from it (CGMrecipeOn 0, :1203-1222).
+ */
+int test_ffb_row_bypassed(void) {
+  reset_config();
+  setup_test_parameters(0.43, 0.0, 0.0);
+  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "Module init should succeed");
+
+  struct Halo central, row;
+  struct GalaxyData central_gal, gal;
+  setup_test_halo(&central, &central_gal, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0);
+  setup_test_halo(&row, &gal, 1, 10.0, 0.1, 10.0, 5.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.5);
+  gal.FFBRegime = 1;
+  struct ModuleContext ctx;
+  setup_module_context(&ctx, &central, 0.1);
+
+  struct GalaxyData row_in, central_in;
+  memcpy(&row_in, &gal, sizeof(gal));
+  memcpy(&central_in, &central_gal, sizeof(central_gal));
+
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &row, 1) == 0,
+              "process succeeds on an FFB row");
+  TEST_ASSERT(memcmp(&gal, &row_in, sizeof(gal)) == 0,
+              "FFBRegime 1: every field of the row is unchanged, its history included");
+  TEST_ASSERT(memcmp(&central_gal, &central_in, sizeof(central_gal)) == 0,
+              "FFBRegime 1: every field of its central is unchanged");
+
+  row.dT = 0.0;
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &row, 1) == 0 &&
+                  memcmp(&gal, &row_in, sizeof(gal)) == 0 &&
+                  memcmp(&central_gal, &central_in, sizeof(central_gal)) == 0,
+              "FFBRegime 1: returns before the history sample's time guard, writing nothing");
+  gal.FFBRegime = 0;
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &row, 1) != 0,
+              "the time guard refuses that interval on an ordinary row");
+  row.dT = 0.1;
+
+  memcpy(&gal, &row_in, sizeof(gal));
+  gal.FFBRegime = 0;
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &row, 1) == 0,
+              "process succeeds on an ordinary row");
+  printf("\n  FFBRegime 0: SfrDisk[0] %.9g, ColdGas %.9g, StellarMass %.9g, central HotGas %.9g, "
+         "central EjectedGas %.9g",
+         (double)gal.SfrDiskBin0, (double)gal.ColdGas, (double)gal.StellarMass,
+         (double)central_gal.HotGas, (double)central_gal.EjectedGas);
+  TEST_ASSERT_DOUBLE_EQUAL(gal.SfrDiskBin0, 10.0, 1e-5, "FFBRegime 0: the history is sampled");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, 2.57, 1e-5, "FFBRegime 0: the locked stars");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, 10.0 - 0.57 - 2.0, 1e-5,
+                           "FFBRegime 0: the locked stars and the reheated gas leave the cold gas");
+  TEST_ASSERT_DOUBLE_EQUAL(
+      central_gal.HotGas, 50.0 + 2.0 - 0.5, 1e-5,
+      "FFBRegime 0: the central's hot gas gains the reheated, loses the ejected");
+  TEST_ASSERT_DOUBLE_EQUAL(central_gal.EjectedGas, 0.5, 1e-7, "FFBRegime 0: the ejection");
+  TEST_ASSERT(gal.HotGas == 5.0f, "FFBRegime 0: the row's own hot gas is not the destination");
+  TEST_ASSERT(gal.SupernovaReheatedMass == 0.0 && gal.SupernovaEjectedMass == 0.0,
+              "FFBRegime 0: the consumed transport fields are zeroed");
+  return TEST_PASS;
+}
+
 /**
  * @brief   Main test runner
  *
@@ -1971,6 +2049,9 @@ int main(void) {
   TEST_RUN(test_disk_history_initial_boundary);
   TEST_RUN(test_cgm_feedback_destination);
   TEST_RUN(test_cgm_recipe_on_refused);
+
+  /* The feedback-free-burst bypass (c13 Slice 3) */
+  TEST_RUN(test_ffb_row_bypassed);
 
   /* Print summary and return result */
   TEST_SUMMARY();

@@ -26,6 +26,9 @@
  *     satellite holds the other Regime; the unselected pair and the gas fields unchanged
  *     (R/src/model_starformation_and_feedback.c:1093-1108, R/src/model_misc.h:67-74)
  *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
+ *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
+ *     bytewise unchanged (no yield, NewStellarMass not consumed); the same row with FFBRegime 0
+ *     gets the yield split and NewStellarMass consumed (c13 Slice 3)
  */
 
 #include <math.h>
@@ -549,6 +552,64 @@ int test_cgm_recipe_on_refused(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_ffb_row_bypassed
+ * @brief   An FFBRegime 1 row gets no yield; the same row with FFBRegime 0 does (c13 Slice 3)
+ *
+ * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb and returns
+ * before its ordinary yield (R/src/model_starformation_and_feedback.c:1004-1008). The row is a
+ * satellite with a seeded NewStellarMass and its own FoF central; with FFBRegime 1 both galaxy
+ * structs are compared byte for byte with their inputs. With FFBRegime 0 the yield is SAGE26's
+ * (:1093-1103): the retained Yield * (1 - FracZleaveDiskVal) * stars into the cold metals and the
+ * rest to the central's hot metals (CGMrecipeOn 0), and NewStellarMass is consumed.
+ */
+int test_ffb_row_bypassed(void) {
+  reset_config();
+  init_memory_system(0);
+  set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
+
+  struct ModuleContext ctx = create_test_context();
+  struct GalaxyData cen_gal, sat_gal;
+  memset(&cen_gal, 0, sizeof(cen_gal));
+  memset(&sat_gal, 0, sizeof(sat_gal));
+  cen_gal.MetalsHotGas = 0.0;
+  sat_gal.ColdGas = 5.0;
+  sat_gal.NewStellarMass = 2.0;
+  sat_gal.FFBRegime = 1;
+  struct Halo halos[2] = {create_test_halo(0, 30.0, &cen_gal), create_test_halo(1, 10.0, &sat_gal)};
+  ctx.central_galaxy = &halos[0];
+
+  struct GalaxyData row_in, central_in;
+  memcpy(&row_in, &sat_gal, sizeof(sat_gal));
+  memcpy(&central_in, &cen_gal, sizeof(cen_gal));
+
+  TEST_ASSERT(sage26_apply_metal_enrichment_process(&ctx, &halos[1], 1) == 0,
+              "process succeeds on an FFB row");
+  TEST_ASSERT(memcmp(&sat_gal, &row_in, sizeof(sat_gal)) == 0,
+              "FFBRegime 1: every field of the row is unchanged (NewStellarMass not consumed)");
+  TEST_ASSERT(memcmp(&cen_gal, &central_in, sizeof(cen_gal)) == 0,
+              "FFBRegime 1: every field of its central is unchanged");
+
+  sat_gal.FFBRegime = 0;
+  TEST_ASSERT(sage26_apply_metal_enrichment_process(&ctx, &halos[1], 1) == 0,
+              "process succeeds on an ordinary row");
+  const double stars = 2.0;
+  const double frac_z_leave = TEST_FRAC_Z_LEAVE_DISK * exp(-1.0 * 30.0 / 30.0); /* :1094 */
+  const double expected_cold = TEST_YIELD * (1.0 - frac_z_leave) * stars;       /* :1097 */
+  const double expected_hot = TEST_YIELD * frac_z_leave * stars;                /* :1100-1102 */
+  printf("\n  FFBRegime 0: MetalsColdGas %.9g (expected %.9g), central MetalsHotGas %.9g (%.9g)",
+         (double)sat_gal.MetalsColdGas, expected_cold, (double)cen_gal.MetalsHotGas, expected_hot);
+  TEST_ASSERT(FLOAT_EQ(sat_gal.MetalsColdGas, expected_cold, 1e-7),
+              "FFBRegime 0: the disk keeps the retained yield");
+  TEST_ASSERT(FLOAT_EQ(cen_gal.MetalsHotGas, expected_hot, 1e-7),
+              "FFBRegime 0: the central's hot metals receive the escaping yield");
+  TEST_ASSERT(sat_gal.NewStellarMass == 0.0, "FFBRegime 0: NewStellarMass is consumed");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -572,6 +633,7 @@ int main(void) {
   TEST_RUN(test_invalid_ngal);
   TEST_RUN(test_cgm_yield_destination);
   TEST_RUN(test_cgm_recipe_on_refused);
+  TEST_RUN(test_ffb_row_bypassed);
 
   TEST_SUMMARY();
   return TEST_RESULT();

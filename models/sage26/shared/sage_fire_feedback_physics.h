@@ -42,10 +42,13 @@
  * which macOS pow(x, -1.0) does not reproduce for every x; the package writes that division (see
  * mimic_sage_fire_scaling).
  *
- * @note Used by sage26_calculate_supernova_feedback (the disk path, S:732-889) and by the burst
- *       transaction mimic_apply_collisional_starburst (shared/sage_starburst_physics.h, M:690-752,
- *       the burst host's own float Vvir and stored SnapNum, no MassLoading write), and by the
- *       oracle and unit tests of those modules, which call the helpers with locals.
+ * @note Used by sage26_calculate_supernova_feedback (the disk path, S:732-889), by the
+ *       feedback-free-burst budget (shared/sage_ffb_feedback_physics.h, S:901-972, the forming
+ *       galaxy's own float Vvir and stored SnapNum, MassLoading written only with a valid scaling)
+ *       and by the burst transaction mimic_apply_collisional_starburst
+ *       (shared/sage_starburst_physics.h, M:690-752, the burst host's own float Vvir and stored
+ *       SnapNum, no MassLoading write), and by the oracle and unit tests of those modules, which
+ *       call the helpers with locals.
  */
 
 #ifndef MIMIC_SHARED_SAGE_FIRE_FEEDBACK_PHYSICS_H

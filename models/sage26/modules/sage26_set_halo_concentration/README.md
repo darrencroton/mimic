@@ -45,7 +45,7 @@ Every row whose new `Type` is not 0 keeps its value (`Concentration` is inherite
 
 ## Parameters
 
-- `ConcentrationOn`: required, with no default (campaign decision D33); a missing key fails `init()`. 0 (no concentration; SAGE26 R0-R4, `R4.par:57`) or 3 (the `Vmax/Vvir` inversion; SAGE26 R5, `R5.par:57`, and SAGE26's default, `src/core_read_parameter_file.c:105`). Modes 1 (the Ishiyama et al. 2021 table) and 2 (`Vmax/Vvir` for every Type) are not ported; they and any other value are refused, naming the parameter. The run files hold 3 (R5).
+- `ConcentrationOn`: required, with no default (campaign decision D33); a missing key fails `init()`. 0 (no concentration; SAGE26 R0-R4, `R4.par:57`) or 3 (the `Vmax/Vvir` inversion; SAGE26 R5, `R5.par:57`, and SAGE26's default, `src/core_read_parameter_file.c:105`). Modes 1 (the Ishiyama et al. 2021 table) and 2 (`Vmax/Vvir` for every Type) are not ported; they and any other value are refused, naming the parameter. The run files hold 3 (R5, kept at R6).
 
 ## Tests
 
