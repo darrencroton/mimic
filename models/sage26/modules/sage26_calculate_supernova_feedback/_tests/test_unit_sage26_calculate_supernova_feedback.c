@@ -17,22 +17,21 @@
  *   R/src/model_starformation_and_feedback.c:783, :795-798)
  * - Renormalization (scales stars and reheating when exceeding ColdGas)
  * - Edge cases (zero stars, zero Vvir, negative ejection clamping)
- * - FIREmodeOn (c09): the required parameter and its refusals, FIREmodeOn 1 against 0 on the same
- *   galaxy, the scaling's guards, floor and slopes, the high-velocity division SAGE26's object
- *   computes, the reheating cap and MassLoading (also with no stars, before the renormalisation),
- *   the energy-based ejection with the float Vvir, D37's skip of the initial-boundary state
- *   (SnapNum -1, dT 0) and D35's refusal of a stored SnapNum outside
- *   the redshift table otherwise (SAGE26 R/src/model_starformation_and_feedback.c:743-792,
- *   R/src/model_misc.h:118-149). Each FIRE helper and the module's FIREmodeOn 1 branch is asserted
- *   against an expectation derived without the helpers: literal inputs whose results are exact, or
- *   SAGE26's own expressions written in the test with its operand order and literal constants
- *   (test_fire_helpers_independent_expectations and the expectations of the other FIRE tests). The
- *   oracle tests skip off macOS arm64, so these are the platform-independent guard of the FIRE
- *   arithmetic (run with MODEL=sage26).
- * - The feedback-free-burst bypass (c13 Slice 3, test_ffb_row_bypassed): a row whose FFBRegime is
- *   1 leaves itself and its FoF central bytewise unchanged, with FIREmodeOn 0 and with FIREmodeOn
- *   1 on a stored SnapNum the redshift lookup refuses (the bypass precedes the lookup and the time
- *   guard); the same row with FFBRegime 0 gets SAGE26's fixed-epsilon reheating
+ * - FIREmodeOn: the required parameter and its refusals, FIREmodeOn 1 against 0 on the same galaxy,
+ *   the scaling's guards, floor and slopes, the high-velocity division SAGE26's object computes,
+ *   the reheating cap and MassLoading (also with no stars, before the renormalisation), the
+ *   energy-based ejection with the float Vvir, the skip of the initial-boundary state (SnapNum -1,
+ *   dT 0) and the refusal of a stored SnapNum outside the redshift table otherwise (SAGE26
+ *   R/src/model_starformation_and_feedback.c:743-792, R/src/model_misc.h:118-149). Each FIRE helper
+ *   and the module's FIREmodeOn 1 branch is asserted against an expectation derived without the
+ *   helpers: literal inputs whose results are exact, or SAGE26's own expressions written in the
+ *   test with its operand order and literal constants (test_fire_helpers_independent_expectations
+ *   and the expectations of the other FIRE tests). The oracle tests skip off macOS arm64, so these
+ *   are the platform-independent guard of the FIRE arithmetic (run with MODEL=sage26).
+ * - The feedback-free-burst bypass (test_ffb_row_bypassed): a row whose FFBRegime is 1 leaves
+ *   itself and its FoF central bytewise unchanged, with FIREmodeOn 0 and with FIREmodeOn 1 on a
+ *   stored SnapNum the redshift lookup refuses (the bypass precedes the lookup and the time guard);
+ *   the same row with FFBRegime 0 gets SAGE26's fixed-epsilon reheating
  *   (R/src/model_starformation_and_feedback.c:767), and the refusal with FIREmodeOn 1.
  *
  * Reference: Croton et al. (2006, 2016) - SAGE model
@@ -241,11 +240,11 @@ int test_module_initialization(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
   /* sage26_apply_star_formation_supernova's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -284,11 +283,11 @@ int test_parameter_reading(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
   /* sage26_apply_star_formation_supernova's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -327,11 +326,11 @@ int test_memory_safety(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
   /* sage26_apply_star_formation_supernova's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -364,7 +363,7 @@ int test_basic_reheating_calculation(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters(); /* Set model parameters for module init */
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   /* Initialize module to set up physics constants */
@@ -421,7 +420,7 @@ int test_renormalization_triggered(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -481,7 +480,7 @@ int test_renormalization_boundary(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -532,7 +531,7 @@ int test_ejection_calculation(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -589,7 +588,7 @@ int test_negative_ejection_clamped(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -640,7 +639,7 @@ int test_zero_stellar_mass(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -686,7 +685,7 @@ int test_zero_vvir(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -767,7 +766,7 @@ int test_very_low_cold_gas(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn (D33), at R2's value */
+  /* The module's required FIREmodeOn, at R2's value */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -803,7 +802,7 @@ int test_very_low_cold_gas(void) {
 }
 
 // ============================================================================
-// FIREmodeOn TESTS (c09: the FIRE scaling, capped loading and energy-based ejection)
+// FIREmodeOn TESTS (the FIRE scaling, capped loading and energy-based ejection)
 // ============================================================================
 
 /* SAGE26's float pow(x, -1.0) separator (R/src/model_starformation_and_feedback.c:751): this Vvir
@@ -884,7 +883,7 @@ static double fire_energy_sn(void) {
 
 /**
  * @test    test_fire_mode_missing_refused
- * @brief   Init fails without FIREmodeOn, naming it: a required parameter with no default (D33)
+ * @brief   Init fails without FIREmodeOn, naming it: a required parameter with no default
  */
 int test_fire_mode_missing_refused(void) {
   const char *log = "";
@@ -1291,9 +1290,9 @@ int test_fire_energy_ejection(void) {
 
 /**
  * @test    test_fire_stored_snapshot_refused
- * @brief   D35: a stored SnapNum of -1 or of the table size reaching the FIRE helper fails with
- *          an error naming the SnapNum and the table size; FIREmodeOn 0 never reads it. Each halo
- *          has dT > 0, so SnapNum -1 is not the initial-boundary state D37's guard skips.
+ * @brief   A stored SnapNum of -1 or of the table size reaching the FIRE helper fails with an error
+ *          naming the SnapNum and the table size; FIREmodeOn 0 never reads it. Each halo has
+ *          dT > 0, so SnapNum -1 is not the initial-boundary state the guard skips.
  */
 int test_fire_stored_snapshot_refused(void) {
   const int bad[] = {-1, 64};
@@ -1304,8 +1303,8 @@ int test_fire_stored_snapshot_refused(void) {
     struct GalaxyData gal;
     setup_test_halo(&halo, &gal, 0, 100.0, 80.0, 10.0, 0.01);
     halo.SnapNum = bad[k];
-    /* A positive interval, so SnapNum -1 is not the initial-boundary state the time guard
-     * skips (campaign decision D37) and reaches the refusal */
+    /* A positive interval, so SnapNum -1 is not the initial-boundary state the time guard skips and
+     * reaches the refusal */
     halo.dT = 0.1;
     const int status = fire_process_captured(&halo, &log);
     char expect[64];
@@ -1326,11 +1325,10 @@ int test_fire_stored_snapshot_refused(void) {
 
 /**
  * @test    test_fire_initial_boundary_skipped
- * @brief   Campaign decision D37: with FIREmodeOn 1, a galaxy in the initial-boundary state
- *          (stored SnapNum -1, dT 0: MIMIC_OBJECT_TIME_SKIP_INITIAL) is skipped before the
- *          ZZ[SnapNum] read: process() succeeds, logs no refusal, and writes nothing
- *          (NewStellarMass, SupernovaReheatedMass, SupernovaEjectedMass and MassLoading keep
- *          their inputs, every other member too)
+ * @brief   With FIREmodeOn 1, a galaxy in the initial-boundary state (stored SnapNum -1, dT 0:
+ *          MIMIC_OBJECT_TIME_SKIP_INITIAL) is skipped before the ZZ[SnapNum] read: process()
+ *          succeeds, logs no refusal, and writes nothing (NewStellarMass, SupernovaReheatedMass,
+ *          SupernovaEjectedMass and MassLoading keep their inputs, every other member too)
  */
 int test_fire_initial_boundary_skipped(void) {
   const char *log = "";
@@ -1357,8 +1355,8 @@ int test_fire_initial_boundary_skipped(void) {
 
 /**
  * @test    test_fire_negative_snapnum_positive_dt_refused
- * @brief   Campaign decision D37 keeps D35: a stored SnapNum of -1 with dT > 0 (not the
- *          initial-boundary state) is still refused, naming the SnapNum, and writes nothing
+ * @brief   A stored SnapNum of -1 with dT > 0 (not the initial-boundary state) is still refused,
+ *          naming the SnapNum, and writes nothing
  */
 int test_fire_negative_snapnum_positive_dt_refused(void) {
   const char *log = "";
@@ -1379,7 +1377,7 @@ int test_fire_negative_snapnum_positive_dt_refused(void) {
 }
 
 // ============================================================================
-// FEEDBACK-FREE-BURST BYPASS (c13 Slice 3)
+// FEEDBACK-FREE-BURST BYPASS
 // ============================================================================
 
 /**
@@ -1391,7 +1389,7 @@ int test_fire_negative_snapnum_positive_dt_refused(void) {
  * satellite with its own FoF central, both compared byte for byte with their inputs. With
  * FIREmodeOn 0 the FFBRegime 0 row's reheated mass is FeedbackReheatingEpsilon * stars (:767),
  * 3.0 * 1.0 exactly, with no renormalisation (ample cold gas, :775). With FIREmodeOn 1 a stored
- * SnapNum outside the redshift table is refused on an ordinary row (D35) and passed over, writing
+ * SnapNum outside the redshift table is refused on an ordinary row and passed over, writing
  * nothing, on an FFB row.
  */
 int test_ffb_row_bypassed(void) {
@@ -1489,7 +1487,7 @@ int main(void) {
   TEST_RUN(test_null_galaxy_pointer);
   TEST_RUN(test_very_low_cold_gas);
 
-  /* FIREmodeOn tests (c09) */
+  /* FIREmodeOn tests */
   printf("\n%s--- FIREmodeOn Tests ---%s\n", BLUE, NC);
   TEST_RUN(test_fire_mode_missing_refused);
   TEST_RUN(test_fire_mode_values);
@@ -1503,7 +1501,7 @@ int main(void) {
   TEST_RUN(test_fire_initial_boundary_skipped);
   TEST_RUN(test_fire_negative_snapnum_positive_dt_refused);
 
-  /* The feedback-free-burst bypass (c13 Slice 3) */
+  /* The feedback-free-burst bypass */
   TEST_RUN(test_ffb_row_bypassed);
 
   /* Print summary and return result */

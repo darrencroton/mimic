@@ -81,7 +81,7 @@ MODEL_PARAMS = {
     "StarFormingDiskFactor": 3.0,
     "FeedbackReheatingEpsilon": 2.9,
     "FeedbackEjectionEfficiency": 0.3,
-    "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
+    "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
     "RecycleFraction": 0.43,
     "Yield": 0.025,
     "FracZleaveDisk": 0.0,
@@ -91,7 +91,7 @@ MODEL_PARAMS = {
     "H2RadialIntegrationOn": 1,
     "H2RadialNBins": 25,
     "H2RadialRMaxFactor": 5.0,
-    "CGMrecipeOn": 0,  # required by the infall modules (D33), R3's value
+    "CGMrecipeOn": 0,  # required by the infall modules, R3's value
 }
 
 

@@ -66,7 +66,7 @@ int test_dep_apply_infall_missing_prepare_error(void) {
   test_phase_add("galaxy_physics", "sage26_apply_infall", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   int result = module_system_init();
   TEST_ASSERT(result != 0,
@@ -94,7 +94,7 @@ int test_dep_prepare_infall_reionization_wrong_order_error(void) {
   test_pre_timestep_add("sage26_reionization", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   FILE *capture = tmpfile();
   FILE *old_out = set_log_output(capture);
@@ -132,7 +132,7 @@ int test_dep_apply_cooling_wrong_order_error(void) {
   test_phase_add("galaxy_physics", "sage26_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   int result = module_system_init();
   TEST_ASSERT(result != 0,
@@ -168,8 +168,8 @@ int test_dep_supernova_wrong_order_error(void) {
   set_test_model_parameters();
   /* The SF module's and the apply step's required SFprescription parameters, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
-  /* The SN module's required FIREmodeOn (D33), at R2's value, so the init fails on the order */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+  /* The SN module's required FIREmodeOn, at R2's value, so the init fails on the order */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int result = module_system_init();
@@ -204,7 +204,7 @@ int test_dep_apply_sfn_wrong_order_error(void) {
   set_test_model_parameters();
   /* The SF module's and the apply step's required SFprescription parameters, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   int result = module_system_init();
   TEST_ASSERT(result != 0,
@@ -233,7 +233,7 @@ int test_dep_quasar_per_event_missing_producer_error(void) {
   set_test_model_parameters();
   /* The module's required SFprescription, at R1's value, so the init fails on the dependency */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   int result = module_system_init();
   TEST_ASSERT(result != 0, "sage26_quasar_mode per_event without merger producer must fail init");
@@ -261,7 +261,7 @@ int test_dep_starburst_per_event_missing_producer_error(void) {
   set_test_model_parameters();
   /* The burst module's required SFprescription and StarburstColdGasOn, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   int result = module_system_init();
   TEST_ASSERT(result != 0,
@@ -322,7 +322,7 @@ int test_dep_sn_missing_apply_error(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  /* The SN module's required FIREmodeOn (D33), at R2's value, so the init fails on the dependency
+  /* The SN module's required FIREmodeOn, at R2's value, so the init fails on the dependency
    */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
@@ -353,7 +353,7 @@ int test_dep_apply_sfn_warns_no_prescriptions(void) {
   set_test_model_parameters();
   /* The apply step's required SFprescription, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   FILE *capture = tmpfile();
   FILE *old_out = set_log_output(capture);
@@ -390,7 +390,7 @@ int test_dep_resolve_mergers_errors_no_clock(void) {
                  PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   FILE *capture = tmpfile();
   FILE *old_out = set_log_output(capture);
@@ -427,7 +427,7 @@ int test_dep_starburst_warns_no_disk_instability(void) {
   set_test_model_parameters();
   /* The burst module's required SFprescription and StarburstColdGasOn, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   FILE *capture = tmpfile();
   FILE *old_out = set_log_output(capture);
@@ -476,7 +476,7 @@ int test_dep_starburst_warns_no_quasar_mode(void) {
   set_test_model_parameters();
   /* The burst module's required SFprescription and StarburstColdGasOn, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   FILE *capture = tmpfile();
   FILE *old_out = set_log_output(capture);

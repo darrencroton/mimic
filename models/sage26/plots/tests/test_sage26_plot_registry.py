@@ -12,8 +12,8 @@ Validates: SNAPSHOT_PLOTS and EVOLUTION_PLOTS equal the registry table in order,
            builds for the vertical and the horizontal run file agrees on `plots` and `axes`
 Tolerance: none; every comparison is exact (lists, sets and dictionaries)
 
-The registry table below is written from the plan of the c16 plotting node, Slice 3 (the final
-registry, rows S1-S30 and E1-E18), not computed from the package. It needs no Mimic run.
+The registry tables below are written out in full (thirty snapshot figures and eighteen
+evolution figures), not computed from the package. It needs no Mimic run.
 
 Run: mimic_venv/bin/python models/sage26/plots/tests/test_sage26_plot_registry.py
 """
@@ -50,58 +50,58 @@ RUN_FILES = {
     "horizontal": MODEL_DIR / "input" / "sage26_mini-millennium-horizontal.yaml",
 }
 
-# Final registry table of the c16 plan, Slice 3: row order is registry order
+# The registry table: row order is registry order
 SNAPSHOT_TABLE = [
-    "halo_mass_function",  # S1
-    "halo_occupation",  # S2
-    "spin_distribution",  # S3
-    "velocity_distribution",  # S4
-    "spatial_distribution",  # S5
-    "stellar_mass_function",  # S6
-    "cold_gas_function",  # S7
-    "baryon_fraction",  # S8
-    "baryonic_mass_function",  # S9
-    "gas_mass_function",  # S10
-    "baryonic_tully_fisher",  # S11
-    "specific_sfr",  # S12
-    "black_hole_bulge_relation",  # S13
-    "gas_fraction",  # S14
-    "metallicity",  # S15
-    "bulge_mass_fraction",  # S16
-    "quiescent_fraction",  # S17
-    "mass_reservoir_scatter",  # S18
-    "bulge_to_total",  # S19
-    "spatial_distribution_3d_box",  # S20
-    "star_formation_rate",  # S21
-    "mass_loading_vs_vvir",  # S22
-    "stellar_vs_halo_mass_by_regime",  # S23
-    "specific_star_formation_rate",  # S24
-    "concentration_vs_mvir",  # S25
-    "sfr_vs_halo_accretion_rate",  # S26
-    "tcool_vs_mvir",  # S27
-    "cgm_fraction_vs_mvir",  # S28
-    "ejection_efficiency_vs_vvir",  # S29
-    "disk_radius_vs_stellar_mass",  # S30
+    "halo_mass_function",
+    "halo_occupation",
+    "spin_distribution",
+    "velocity_distribution",
+    "spatial_distribution",
+    "stellar_mass_function",
+    "cold_gas_function",
+    "baryon_fraction",
+    "baryonic_mass_function",
+    "gas_mass_function",
+    "baryonic_tully_fisher",
+    "specific_sfr",
+    "black_hole_bulge_relation",
+    "gas_fraction",
+    "metallicity",
+    "bulge_mass_fraction",
+    "quiescent_fraction",
+    "mass_reservoir_scatter",
+    "bulge_to_total",
+    "spatial_distribution_3d_box",
+    "star_formation_rate",
+    "mass_loading_vs_vvir",
+    "stellar_vs_halo_mass_by_regime",
+    "specific_star_formation_rate",
+    "concentration_vs_mvir",
+    "sfr_vs_halo_accretion_rate",
+    "tcool_vs_mvir",
+    "cgm_fraction_vs_mvir",
+    "ejection_efficiency_vs_vvir",
+    "disk_radius_vs_stellar_mass",
 ]
 EVOLUTION_TABLE = [
-    "hmf_evolution",  # E1
-    "smf_evolution",  # E2
-    "sfr_density_evolution",  # E3
-    "stellar_mass_density_evolution",  # E4
-    "rcool_to_rvir_above_mshock",  # E5
-    "sfr_evolution",  # E6
-    "stellar_mass_halo_mass_relation",  # E7
-    "black_hole_mass_function",  # E8
-    "quenched_fraction_evolution",  # E9
-    "concentration_evolution",  # E10
-    "metallicity_evolution",  # E11
-    "h2_fraction_evolution",  # E12
-    "star_formation_efficiency",  # E13
-    "central_satellite_counts",  # E14
-    "central_satellite_fraction",  # E15
-    "central_satellite_fraction_massive_quiescent",  # E16
-    "quenched_central_satellite_counts",  # E17
-    "ffb_fraction_cut_down",  # E18
+    "hmf_evolution",
+    "smf_evolution",
+    "sfr_density_evolution",
+    "stellar_mass_density_evolution",
+    "rcool_to_rvir_above_mshock",
+    "sfr_evolution",
+    "stellar_mass_halo_mass_relation",
+    "black_hole_mass_function",
+    "quenched_fraction_evolution",
+    "concentration_evolution",
+    "metallicity_evolution",
+    "h2_fraction_evolution",
+    "star_formation_efficiency",
+    "central_satellite_counts",
+    "central_satellite_fraction",
+    "central_satellite_fraction_massive_quiescent",
+    "quenched_central_satellite_counts",
+    "ffb_fraction_cut_down",
 ]
 
 
@@ -155,7 +155,7 @@ def profile_stack(engine, run_file):
 
 
 def test_registry_lists_equal_the_plan_table_in_order():
-    """SNAPSHOT_PLOTS and EVOLUTION_PLOTS are exactly the plan's rows S1-S30 and E1-E18."""
+    """SNAPSHOT_PLOTS and EVOLUTION_PLOTS are exactly the rows of the two tables, in order."""
     assert (
         FIGURES.SNAPSHOT_PLOTS == SNAPSHOT_TABLE
     ), f"SNAPSHOT_PLOTS differs from the table: {FIGURES.SNAPSHOT_PLOTS}"

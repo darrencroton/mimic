@@ -39,9 +39,9 @@
  *   - test_null_galaxy_safety: Handles NULL galaxy gracefully
  *   - test_negative_prevention: Catches negative reincorporation values
  *
- * c10 (platform independent, CGMrecipeOn 1 against 0):
+ * CGMrecipeOn 1 against 0 (platform independent):
  *   - test_cgm_reincorporation_destination: the destination by CGMrecipeOn and the central's Regime
- *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it (D33)
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it
  *
  * @author  Mimic Development Team
  * @date    2025-12-18
@@ -80,7 +80,7 @@ extern int sage26_reincorporation_cleanup(void);
 static void setup_module_for_physics_test(void) {
   reset_config();
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ReIncorporationFactor = 1.0 is default in test_stubs.c */
   /* This gives Vcrit = 354.53 km/s (SAGE26 model_reincorporation.c:34, :46) */
@@ -161,7 +161,7 @@ int test_module_initialization(void) {
   test_phase_add("galaxy_physics", "sage26_reincorporation", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   int result = module_system_init();
   TEST_ASSERT(result == 0, "Module system initialization should succeed");
@@ -189,7 +189,7 @@ int test_parameter_reading(void) {
   MimicConfig.SubSteps = 1;
 
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter();                  /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter();                  /* CGMrecipeOn: 0, required */
   strcpy(MimicConfig.ModelParams[14].value, "0.5"); /* ReIncorporationFactor custom value */
 
   int result = module_system_init();
@@ -217,7 +217,7 @@ int test_memory_safety(void) {
   test_phase_add("galaxy_physics", "sage26_reincorporation", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   int result = module_system_init();
   TEST_ASSERT(result == 0, "Module initialization should succeed");
@@ -766,7 +766,7 @@ int test_negative_prevention(void) {
 /* ========================================================================== */
 
 // ============================================================================
-// CGMrecipeOn 1 AGAINST 0 (c10 Slice 2, platform independent)
+// CGMrecipeOn 1 AGAINST 0 (platform independent)
 // ============================================================================
 //
 // SAGE26's reincorporate_gas (R = the staged SAGE26 source, R/src/model_reincorporation.c:44-66)
@@ -861,7 +861,7 @@ int test_cgm_reincorporation_destination(void) {
 /**
  * @test    test_cgm_recipe_on_refused
  * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter (campaign decision D33)
+ *          naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
@@ -915,7 +915,7 @@ int main(void) {
   TEST_RUN(test_null_galaxy_safety);
   TEST_RUN(test_negative_prevention);
 
-  /* c10: CGMrecipeOn 1 against 0 (platform independent) */
+  /* CGMrecipeOn 1 against 0 (platform independent) */
   printf("\n%sCGM REGIME ROUTING TESTS (c10):%s\n", BLUE, NC);
   TEST_RUN(test_cgm_reincorporation_destination);
   TEST_RUN(test_cgm_recipe_on_refused);

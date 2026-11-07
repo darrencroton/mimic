@@ -1,16 +1,16 @@
 /**
  * @file    sage26_oracle_sizes.h
- * @brief   Oracle-test helpers for the c07 bulge sizes (BulgeSizeOn 0 and 3)
+ * @brief   Oracle-test helpers for the bulge sizes (BulgeSizeOn 0 and 3)
  *
- * Adds, beside the shared fixture reader sage26_oracle_fixture.h (which stays as it is), what
- * the oracle tests of the c07 fixtures need (oracle README "The c07 Group"):
+ * Adds, beside the shared fixture reader sage26_oracle_fixture.h (which stays as it is), what the
+ * oracle tests of the bulge-size fixtures need (oracle README "The c07 Group"):
  *
  * - oracle_c07_read_sizes(): a fixture's params.BulgeSizeOn (0 or 3) and, in mode 3,
  *   params.Hubble_h, into the package's struct MimicSageBulgeSize;
- * - oracle_c07_require_merger_flags(): c06's merger-family flags with BulgeSizeOn read rather
- *   than pinned to 0 (oracle_c06_require_r0_flags pins it);
- * - the six-member size block of the c07 routines (the two channel masses, the disk radius and
- *   the three radii): oracle_c07_in_size_block() and oracle_c07_check_size_block();
+ * - oracle_c07_require_merger_flags(): the merger family's flags with BulgeSizeOn read rather than
+ *   pinned to 0 (oracle_c06_require_r0_flags pins it);
+ * - the six-member size block of the bulge-size routines (the two channel masses, the disk radius
+ *   and the three radii): oracle_c07_in_size_block() and oracle_c07_check_size_block();
  * - oracle_c07_check_local(): one local of get_bulge_radius or update_instability_bulge_radius,
  *   its markers checked and its value compared bit for bit (tallied by validation status).
  *
@@ -27,7 +27,7 @@
 #include "modules/_tests/sage26_oracle_fixture.h"
 #include "shared/sage_bulge_size_physics.h"
 
-/** @brief The size block's SAGE26 member names, as the c07 oracle records them */
+/** @brief The size block's SAGE26 member names, as the bulge-size oracle records them */
 static const char *const ORACLE_C07_SIZE_NAMES[] = {"MergerBulgeMass",   "InstabilityBulgeMass",
                                                     "DiskScaleRadius",   "BulgeRadius",
                                                     "MergerBulgeRadius", "InstabilityBulgeRadius"};
@@ -64,9 +64,9 @@ static inline int oracle_c07_read_sizes(struct oracle_fixture *in,
 }
 
 /**
- * @brief c06's merger-family flags with BulgeSizeOn read (0 or 3) rather than pinned to 0
+ * @brief The merger family's flags with BulgeSizeOn read (0 or 3) rather than pinned to 0
  *
- * The other flags are R0's (and R1's: R1.par differs from R0.par only in BulgeSizeOn, :109).
+ * The other flags are R0's (and R1's: R1 differs from R0 only in BulgeSizeOn).
  *
  * @return Number of problems
  */
@@ -108,7 +108,7 @@ static inline int oracle_c07_check_size_block(struct oracle_fixture *out, const 
   return mismatches;
 }
 
-/** @brief Counters of the c07 local assertions a test made, for its report */
+/** @brief Counters of the bulge-size local assertions a test made, for its report */
 struct oracle_c07_local_tally {
   int validated;         /**< validated two-sided */
   int narrowing_limited; /**< one float narrowing is the only path: not validated, by name */
@@ -117,15 +117,15 @@ struct oracle_c07_local_tally {
 };
 
 /**
- * @brief Check one c07 local and compare it bit for bit
+ * @brief Check one bulge-size local and compare it bit for bit
  *
  * Requires the port's value to be NaN exactly when the oracle marks it absent. When present,
- * requires _checked 1, _check_kind 2 (every c07 local is tail-checked), _validated equal to
+ * requires _checked 1, _check_kind 2 (every bulge-size local is tail-checked), _validated equal to
  * the conjunction of _validated_up and _validated_down, and _narrowing_limited equal to
- * `narrowing_limited` (1 for the locals of update_instability_bulge_radius, whose only path to
- * the state is one float store). The value is compared bit for bit whatever its validation
- * status: the port forms every local with SAGE26's expression, so a validated, a
- * narrowing-limited and an unvalidated local are all asserted; the tally records which.
+ * `narrowing_limited` (1 for the locals of update_instability_bulge_radius, whose only path to the
+ * state is one float store). The value is compared bit for bit whatever its validation status: the
+ * port forms every local with SAGE26's expression, so a validated, a narrowing-limited and an
+ * unvalidated local are all asserted; the tally records which.
  *
  * @return Number of mismatches and marker errors
  */

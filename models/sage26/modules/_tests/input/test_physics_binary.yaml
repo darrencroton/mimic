@@ -34,7 +34,7 @@ output:
   output_filename: model
   output_directory: ./output/sage26-physics-binary/
   output_format: binary
-  snapshot_list: [63, 16]             # z=0, and snapshot 16 (z=7.27), the T1 output snapshot holding the most FFBRegime 1 rows on these trees
+  snapshot_list: [63, 16]             # z=0, and snapshot 16 (z=7.27), the output snapshot holding the most FFBRegime 1 rows on these trees
 
 SubSteps: 10
 
@@ -127,20 +127,20 @@ modules:
     GlobalBaryonFraction: 0.17          # Cosmic baryon fraction (Planck 2018)
 
     # CGM regime
-    CGMrecipeOn: 1                      # CGM regime recipe: 1 = SAGE26's R4 (R4.par:54), the classifier with the package's keyed draw, regime-aware routing and regime-aware cooling; 0 = off, Regime keeps its creation value -1 and cooling takes the classic hot path (SAGE26 R0-R3, R3.par:54); required
-    MShockMsun: 6.0e11                  # Dekel & Birnboim (2006) shock mass in physical Msun (SAGE26 default, core_read_parameter_file.c:114; R4.par does not set it); used only with CGMrecipeOn 1, but always required and validated (positive, finite)
+    CGMrecipeOn: 1                      # CGM regime recipe: 1 = SAGE26's R4 (input/millennium.par:54 sets 1), the classifier with the package's keyed draw, regime-aware routing and regime-aware cooling; 0 = off, Regime keeps its creation value -1 and cooling takes the classic hot path (SAGE26 R0-R3; input/millennium.par:54, "0: switch off"); required
+    MShockMsun: 6.0e11                  # Dekel & Birnboim (2006) shock mass in physical Msun (SAGE26 default, core_read_parameter_file.c:114; input/millennium.par does not set it); used only with CGMrecipeOn 1, but always required and validated (positive, finite)
 
     # Feedback-free bursts
-    EnhancedStarFormationOn: 1          # FFB mode: 0 = off, FFBRegime keeps its creation value 0 (SAGE26 R0-R5, R5.par:58); 1 = SAGE26's Li+24 classifier and FFB star formation (R6, R6.par:58, SAGE26's default); 2 not ported; required
-    EnhancedSFEfficiency: 0.2           # FFB star-formation efficiency epsilon_FFB of SAGE26's starformation_ffb (R6.par:67; SAGE26's default, core_read_parameter_file.c:104); read only with EnhancedStarFormationOn 1, but always required and validated (finite, within [0, 1])
+    EnhancedStarFormationOn: 1          # FFB mode: 0 = off, FFBRegime keeps its creation value 0 (SAGE26 R0-R5; input/millennium.par:58, "0: off"); 1 = SAGE26's Li+24 classifier and FFB star formation (R6, SAGE26's default, input/millennium.par:58); 2 not ported; required
+    EnhancedSFEfficiency: 0.2           # FFB star-formation efficiency epsilon_FFB of SAGE26's starformation_ffb (input/millennium.par:67; SAGE26's default, core_read_parameter_file.c:104); read only with EnhancedStarFormationOn 1, but always required and validated (finite, within [0, 1])
 
     # Halo concentration
-    ConcentrationOn: 3                  # NFW halo concentration: 0 = off, Concentration keeps its creation value 0 (SAGE26 R0-R4, R4.par:57); 3 = the Vmax/Vvir inversion, infall-frozen for a former satellite (R5, R5.par:57); 1 and 2 not ported; required
+    ConcentrationOn: 3                  # NFW halo concentration: 0 = off, Concentration keeps its creation value 0 (SAGE26 R0-R4; input/millennium.par:57, "0: off"); 3 = the Vmax/Vvir inversion, infall-frozen for a former satellite (R5; input/millennium.par:57); 1 and 2 not ported; required
 
     # Star Formation
     SfrEfficiency: 0.05                 # Star formation efficiency
     StarFormingDiskFactor: 3.0          # Number of disc scale radii to form stars over
-    SFprescription: 1                   # SF law: 1 = Blitz & Rosolowsky 2006 H2 with radial integration (SAGE26 R2, R2.par:48); 0 = Croton et al. 2006 critical mass (R0, R1; R1.par:48); 2-7 not ported
+    SFprescription: 1                   # SF law: 1 = Blitz & Rosolowsky 2006 H2 with radial integration (SAGE26 R2; input/millennium.par:48); 0 = Croton et al. 2006 critical mass (R0, R1; input/millennium.par:48, "0: original Croton et al. 2006"); 2-7 not ported
     H2RadialIntegrationOn: 1            # BR06 H2 by radial integration of the exponential disk (SAGE26 default, core_read_parameter_file.c:99; R2); 0, the single-slab branch, not ported
     H2RadialNBins: 25                   # Radial bins of the H2 integration (SAGE26 default, core_read_parameter_file.c:100; R2); only 25 supported
     H2RadialRMaxFactor: 5.0             # H2 integration out to this many disc scale radii (SAGE26 default, core_read_parameter_file.c:101; R2); only 5.0 supported
@@ -149,7 +149,7 @@ modules:
     # Supernova Feedback
     FeedbackReheatingEpsilon: 2.9       # Reheating efficiency (SAGE26 R0, input/millennium.par:69)
     FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
-    FIREmodeOn: 1                       # SN feedback of the disk path and every burst: 1 = FIRE scaling, capped loading and energy-based ejection, the package default (SAGE26 R3, R3.par:55); 0 = fixed-epsilon Croton et al. 2016 (R0-R2, R2.par:55); required
+    FIREmodeOn: 1                       # SN feedback of the disk path and every burst: 1 = FIRE scaling, capped loading and energy-based ejection, the package default (SAGE26 R3; input/millennium.par:55); 0 = fixed-epsilon Croton et al. 2016 (R0-R2; input/millennium.par:55, "0: switch off"); required
 
     # Gas Reincorporation
     ReIncorporationFactor: 0.19         # Scales Vcrit = 354.53 km/s (SAGE26 R0, input/millennium.par:72)
@@ -170,7 +170,7 @@ modules:
     # Mergers & Disruption
     ThresholdMajorMerger: 0.3           # Mass ratio threshold for major mergers
     ThresholdSatDisruption: 1.0         # Mvir-to-baryonic mass ratio threshold for sat merger/disruption
-    MergerTimeFactor: 2.0               # Merger-clock scaling (SAGE26 R0: the default, core_read_parameter_file.c:128; R0.par does not set it)
+    MergerTimeFactor: 2.0               # Merger-clock scaling (SAGE26 R0: the default, core_read_parameter_file.c:128; input/millennium.par does not set it)
 
     # Bulge Sizes
-    BulgeSizeOn: 3                      # Bulge-size mode: 3 = Tonini merger and instability bulges (SAGE26 R1, R1.par:109); 0 = none, the radii zeroed (R0.par:109); 1 and 2 not ported
+    BulgeSizeOn: 3                      # Bulge-size mode: 3 = Tonini merger and instability bulges (SAGE26 R1; model_misc.c:316-317, the default at core_read_parameter_file.c:107, which input/millennium.par does not set); 0 = none, the radii zeroed (R0; model_misc.c:241-245); 1 and 2 not ported

@@ -7,7 +7,7 @@ mimic on the committed test trees: it loads and runs, writes nothing with Concen
 writes only its domain with ConcentrationOn 3, and refuses a missing required key and a
 misplacement at the executable's exit status.
 
-Every configuration sets every key its modules read, explicitly (campaign decision D33). The keys
+Every configuration sets every key its modules read, explicitly. The keys
 come from each configured module's module_info.yaml `parameters` list, which
 `make lint-parameters` holds to the code, with the vertical run file's values
 (models/sage26/input/sage26_mini-millennium.yaml). Runs use the run file's SubSteps (10) and write
@@ -27,7 +27,7 @@ Off is a no-op: with ConcentrationOn 0, the minimal pipeline with the module and
 without it (sage26_record_transition_state alone) give byte-identical output in every field of
 every row of both snapshots.
 
-On writes its domain (frozen observable list):
+On writes its domain (the observable list):
   - Concentration: finite and non-negative on every output row of both snapshots. Domain: the
     NFW concentration of SAGE26's Vmax/Vvir inversion, 0 if (Vmax/Vvir)^2 < 1, with creation value
     0, and every other row keeps its value (models/sage26/model_properties.yaml:1371-1378; README.md,
@@ -85,11 +85,11 @@ MODULES_DIR = Path(__file__).resolve().parents[2]
 FH = "process_full_halo"
 
 # The vertical run file's SubSteps and the snapshots written, with their binary output files on
-# mini-millennium's committed test trees (16 is Slice 1's FFB snapshot S, z = 7.272)
+# mini-millennium's committed test trees (16 is the FFB snapshot S, z = 7.272)
 SUBSTEPS = 10
 OUTPUT_FILES = {63: "model_z0.000_0", 16: "model_z7.272_0"}
 
-# The vertical run file's values for every key the configurations below read (D33)
+# The vertical run file's values for every key the configurations below read
 PARAMETER_VALUES = {
     "ConcentrationOn": 3,
 }
@@ -140,7 +140,7 @@ def configured_modules(phases):
 
 
 def parameters_for(phases, overrides=None, omit=()):
-    """Every key the configured modules read, with the run file's values (D33)."""
+    """Every key the configured modules read, with the run file's values."""
     keys = sorted({key for name in configured_modules(phases) for key in module_parameters(name)})
     missing = [key for key in keys if key not in PARAMETER_VALUES]
     assert not missing, f"no value for keys the configured modules read: {missing}"

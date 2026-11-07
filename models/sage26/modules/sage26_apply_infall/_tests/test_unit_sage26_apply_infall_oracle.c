@@ -3,13 +3,13 @@
  * @brief   Bit-exact comparison of sage26_apply_infall with SAGE26's add_infall_to_hot
  *
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_apply_infall (its
- * _tests/oracle/ directory) through the module's process() entry and asserts
- * bit-for-bit equality with the oracle output: the central's ejected and hot
- * reservoirs after add_infall_to_hot (R/src/model_infall.c:351-414), and for a CGMrecipeOn 1
- * fixture (c10) also its CGM pair. A CGMrecipeOn 1 fixture sets the central's Regime and CGM
- * pair and the module's CGMrecipeOn 1; the test asserts the oracle's reservoir selection
- * (intermediate.reservoir_cgm) against the input's CGMrecipeOn 1 && Regime 0, the unselected
- * pair unchanged, and each recorded local's markers (oracle README, "The c10 Group").
+ * _tests/oracle/ directory) through the module's process() entry and asserts bit-for-bit equality
+ * with the oracle output: the central's ejected and hot reservoirs after add_infall_to_hot
+ * (R/src/model_infall.c:351-414), and for a CGMrecipeOn 1 fixture also its CGM pair. A CGMrecipeOn
+ * 1 fixture sets the central's Regime and CGM pair and the module's CGMrecipeOn 1; the test asserts
+ * the oracle's reservoir selection (intermediate.reservoir_cgm) against the input's CGMrecipeOn
+ * 1 && Regime 0, the unselected pair unchanged, and each recorded local's markers
+ * (oracle README, "The c10 Group").
  *
  * The snapshot budget call.InfallingGas is supplied as the package's InfallingGas
  * and call.effective_steps as the substep count; the module forms the per-substep
@@ -46,7 +46,7 @@ static const char *MODULE = "sage26_apply_infall";
 static const char *const RESERVOIRS[] = {"EjectedMass", "MetalsEjectedMass", "HotGas",
                                          "MetalsHotGas"};
 
-/* The tallies of the c10 locals over one run of the bit-exact test */
+/* The tallies of the CGMrecipeOn 1 locals over one run of the bit-exact test */
 static struct oracle_c10_tally c10_tally;
 
 #define COUNT(array) (sizeof(array) / sizeof((array)[0]))

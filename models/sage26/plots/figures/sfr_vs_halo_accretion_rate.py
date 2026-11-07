@@ -16,9 +16,9 @@ mdot_stream (Msun/yr; SAGE26's MdotCool and MdotStream, :404-405) and StellarMas
 converted to Msun as SAGE26 converts it: x 1e10 / hubble_h, :365). The redshift in the title is
 metadata["redshift"].
 
-Permitted deviations (c16 Slice 2, row `sfr_vs_halo_accretion_rate`): the sample comes from one
-random.Random(2222) per figure, not from SAGE26's script-wide stream (seeded once,
-allresults-local.py:357), so the drawn subset differs when the candidates exceed DILUTE.
+Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
+candidates exceed DILUTE.
 """
 
 import random

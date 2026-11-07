@@ -21,9 +21,8 @@ Snapshots: those with a redshift in each bin of ``Z_BINS`` (:1542-1546), chosen 
 SAGE26 prints diagnostics of the first snapshots and of each bin (:1620-1632, :1672-1693); they
 change nothing drawn and are not reproduced.
 
-Permitted deviations (c16 Slice 3, row `h2_fraction_evolution`): none beyond the rules (the
-figure is drawn from the run's eight snapshots, where SAGE26 reads 64, so a bin holds at most one
-snapshot and its standard error is zero).
+Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
+reads 64, so a bin holds at most one snapshot and its standard error is zero.
 """
 
 import warnings

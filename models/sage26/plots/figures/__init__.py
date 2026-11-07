@@ -209,7 +209,7 @@ EVOLUTION_PLOTS = [
     "smf_evolution",
     "sfr_density_evolution",
     "stellar_mass_density_evolution",
-    # SAGE26 allresults-history.py figures no forked figure covers, in the plan's row order
+    # SAGE26 allresults-history.py figures no forked figure covers
     "rcool_to_rvir_above_mshock",
     "sfr_evolution",
     "stellar_mass_halo_mass_relation",

@@ -254,7 +254,7 @@ int test_mixed_dt_reincorporation(void) {
   init_memory_system(0);
   reset_config();
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   sage26_reincorporation_init();
 
   const float central_dT = 0.3;
@@ -326,7 +326,7 @@ int test_boundary_sentinel_reincorporation_noop(void) {
   init_memory_system(0);
   reset_config();
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   sage26_reincorporation_init();
 
   struct GalaxyData *gal = alloc_galaxy();
@@ -371,7 +371,7 @@ int test_invalid_nonboundary_reincorporation_error(void) {
   init_memory_system(0);
   reset_config();
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   sage26_reincorporation_init();
 
   struct GalaxyData *gal = alloc_galaxy();
@@ -550,7 +550,7 @@ int test_mixed_dt_cooling_ignores_global(void) {
   MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
   MimicConfig.UnitTime_in_s = 3.08568e16;
 
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   sage26_calculate_cooling_budget_init();
 
   const float halo_dT = 0.2;
@@ -614,7 +614,7 @@ int test_mixed_dt_cooling_scales_with_dt(void) {
   MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
   MimicConfig.UnitTime_in_s = 3.08568e16;
 
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   sage26_calculate_cooling_budget_init();
 
   /* Use very small dT values to stay well below HotGas cap.

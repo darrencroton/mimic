@@ -25,9 +25,8 @@ Snapshots: those with a redshift in each bin of ``Z_BINS`` (:1257), chosen throu
 SAGE26 also computes the quenched fraction of all galaxies in each bin (:1289-1294, :1322,
 :1328); only its commented-out line draws it (:1333), so it is not computed here.
 
-Permitted deviations (c16 Slice 3, row `quenched_fraction_evolution`): none beyond the rules (the
-figure is drawn from the run's eight snapshots, where SAGE26 reads 64, so a bin holds at most one
-snapshot and the one-sigma band has zero width).
+Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
+reads 64, so a bin holds at most one snapshot and the one-sigma band has zero width.
 """
 
 import warnings

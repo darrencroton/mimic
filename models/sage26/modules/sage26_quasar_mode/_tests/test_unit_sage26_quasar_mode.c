@@ -51,7 +51,7 @@
  *     only the cold gas (the original cold binding energy in the second test) or nothing; the FoF
  *     central always holds the other Regime and is untouched; the unselected pair unchanged
  *     (R/src/model_mergers.c:390-441)
- *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
  *
  * The five hydrogen-cap tests (R/src/model_mergers.c:366-372) are platform independent: they
  * assert the cap's invariants from the package's own float arithmetic, with no oracle bit
@@ -151,7 +151,7 @@ static void setup_test_parameters(double growth_rate, double quasar_efficiency) 
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription, at R1's value */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 }
 
 /**
@@ -1183,7 +1183,7 @@ int test_module_initialization(void) {
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription, at R1's value */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -1440,7 +1440,7 @@ int test_hydrogen_cap_module_wiring_per_event(void) {
 }
 
 // ============================================================================
-// CGM ROUTING TESTS (c10, CGMrecipeOn)
+// CGM ROUTING TESTS (CGMrecipeOn)
 // ============================================================================
 //
 // SAGE26's quasar_mode_wind (R = the staged SAGE26 source, R/src/model_mergers.c:390-441) ejects
@@ -1632,7 +1632,7 @@ int test_cgm_wind_energy_tests(void) {
 /**
  * @test    test_cgm_recipe_on_refused
  * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter (campaign decision D33)
+ *          naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";

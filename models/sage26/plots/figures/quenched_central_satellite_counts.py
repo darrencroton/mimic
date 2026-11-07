@@ -23,9 +23,8 @@ Snapshots: those with a redshift in each bin of ``Z_BINS`` (:1987-1991), chosen 
 
 SAGE26 draws no legend (it is commented out, :2025-2027), so the port draws none.
 
-Permitted deviations (c16 Slice 3, row `quenched_central_satellite_counts`): none beyond the
-rules (the figure is drawn from the run's eight snapshots, where SAGE26 reads 64, so a bin holds
-at most one snapshot).
+Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
+reads 64, so a bin holds at most one snapshot.
 """
 
 import matplotlib.pyplot as plt

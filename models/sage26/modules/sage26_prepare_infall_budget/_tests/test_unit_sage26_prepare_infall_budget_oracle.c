@@ -16,11 +16,11 @@
  * halo's Mvir, the redshift) come from the fixture. Outside the oracle environment
  * (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *
- * A CGMrecipeOn 1 fixture (c10) also sets every galaxy's Regime and the module's CGMrecipeOn 1;
- * the test asserts the oracle's migration direction (intermediate.central_regime_cgm) against
- * the central's input Regime 0, every satellite's hot and CGM pairs unchanged (satellites keep
- * their CGM and are not consolidated), and consumes the CGM safety-check flags, whose outcomes
- * the asserted reservoirs show (oracle README, "The c10 Group").
+ * A CGMrecipeOn 1 fixture also sets every galaxy's Regime and the module's CGMrecipeOn 1; the test
+ * asserts the oracle's migration direction (intermediate.central_regime_cgm) against the central's
+ * input Regime 0, every satellite's hot and CGM pairs unchanged (satellites keep their CGM and are
+ * not consolidated), and consumes the CGM safety-check flags, whose outcomes the asserted
+ * reservoirs show (oracle README, "The c10 Group").
  *
  * Test cases:
  *   - test_oracle_fixture_count: every fixture the manifest lists is present
@@ -74,7 +74,7 @@ static int check_fixture(const char *name) {
 
   int problems = 0;
 
-  /* R0 or c10: reionization on (its result arrives as HaloBaryonFraction), CGM recipe 0 or 1 */
+  /* R0 or R4: reionization on (its result arrives as HaloBaryonFraction), CGM recipe 0 or 1 */
   const int cgm_recipe_on = oracle_in_i32(&in, "params.CGMrecipeOn");
   if (oracle_in_i32(&in, "params.ReionizationOn") != 1 ||
       (cgm_recipe_on != 0 && cgm_recipe_on != 1)) {

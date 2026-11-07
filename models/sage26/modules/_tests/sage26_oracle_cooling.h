@@ -1,12 +1,12 @@
 /**
  * @file    sage26_oracle_cooling.h
- * @brief   Oracle-test helpers for the c11 CGMrecipeOn 1 cooling fixtures (oracle_c11)
+ * @brief   Oracle-test helpers for the CGMrecipeOn 1 cooling fixtures (oracle_c11)
  *
  * Adds, beside sage26_oracle_fixture.h (which stays as it is), what the oracle tests of
- * sage26_calculate_cooling_budget and sage26_radio_mode_heating need for the c11 fixtures (oracle
- * README, "The c11 Group"). Each c11 fixture is a direct call of a public SAGE26 routine, and the
- * test calls the package's shared helpers (shared/sage_cooling_physics.h) directly, since no
- * production module calls them yet:
+ * sage26_calculate_cooling_budget and sage26_radio_mode_heating need for the CGM cooling fixtures
+ * (oracle README, "The c11 Group"). Each CGM cooling fixture is a direct call of a public SAGE26
+ * routine, and the test calls the package's shared helpers (shared/sage_cooling_physics.h)
+ * directly, since no production module calls them yet:
  *
  * - interpolate_clustering_mass  -> mimic_sage_interpolate_clustering_mass
  * - cooling_recipe_hot_streams   -> mimic_sage_hot_cooling_budget (CGMrecipeOn 1), then
@@ -36,9 +36,9 @@
 #include "shared/sage_cooling_physics.h"
 #include "shared/time_parity.h"
 
-/** @brief Tallies of the c11 locals an oracle test compared, for its report */
+/** @brief Tallies of the CGM cooling locals an oracle test compared, for its report */
 struct oracle_c11_tally {
-  int fixtures;     /**< c11 fixtures checked */
+  int fixtures;     /**< CGM cooling fixtures checked */
   int locals;       /**< locals compared bit for bit */
   int continuation; /**< of which continuation-checked */
   int tail;         /**< of which tail-checked */
@@ -121,7 +121,7 @@ static inline int oracle_c11_check_binding(const char *fixture, const char *what
   return 0;
 }
 
-/** @brief The c11 fixture's units into MimicConfig, and its AGN configuration */
+/** @brief The CGM cooling fixture's units into MimicConfig, and its AGN configuration */
 static inline struct MimicSageAgnConfig oracle_c11_set_params(struct oracle_fixture *in) {
   struct MimicSageAgnConfig agn;
   agn.recipe = oracle_in_i32(in, "params.AGNrecipeOn");
@@ -135,7 +135,9 @@ static inline struct MimicSageAgnConfig oracle_c11_set_params(struct oracle_fixt
   return agn;
 }
 
-/** @brief Set halo and galaxy from a c11 fixture's galaxy[0] input (SAGE26's floats widened) */
+/**
+ * @brief Set halo and galaxy from a CGM cooling fixture's galaxy[0] input (SAGE26's floats widened)
+ */
 static inline void oracle_c11_in_galaxy(struct oracle_fixture *in, struct Halo *halo,
                                         struct GalaxyData *galaxy) {
   halo->galaxy = galaxy;
@@ -357,9 +359,9 @@ static inline int oracle_c11_check_hot(const char *fixture, struct oracle_fixtur
     return p + 1;
   }
   if (l.branch == MIMIC_SAGE_HOT_BRANCH_STREAMS) {
-    /* The helper writes no mdot field (campaign decision D39: the cooling transaction stores the
-     * raw rates). The harness places the helper's returned float stores where SAGE26 writes them
-     * (C:282-283), so the oracle compares those returned values with SAGE26's galaxy fields. */
+    /* The helper writes no mdot field (the cooling transaction stores the raw rates). The harness
+     * places the helper's returned float stores where SAGE26 writes them (C:282-283), so the oracle
+     * compares those returned values with SAGE26's galaxy fields. */
     galaxy.mdot_cool = l.stream.mdot_cool;
     galaxy.mdot_stream = l.stream.mdot_stream;
   }
@@ -410,8 +412,8 @@ static inline int oracle_c11_check_hot(const char *fixture, struct oracle_fixtur
     return p + 1;
   }
   if (cl.branch == MIMIC_SAGE_HOT_BRANCH_STREAMS) {
-    /* As above: the composed recipe writes no mdot field (D39); the harness places its returned
-     * float stores where SAGE26 writes them (C:282-283) for the comparison. */
+    /* As above: the composed recipe writes no mdot field; the harness places its returned float
+     * stores where SAGE26 writes them (C:282-283) for the comparison. */
     composed_galaxy.mdot_cool = cl.stream.mdot_cool;
     composed_galaxy.mdot_stream = cl.stream.mdot_stream;
   }
@@ -538,9 +540,9 @@ static inline int oracle_c11_check_agn_alone(const char *fixture, struct oracle_
 }
 
 /**
- * @brief Check one c11 fixture of a module, if its routine is a c11 routine
+ * @brief Check one CGM cooling fixture of a module, if its routine is a CGM cooling routine
  *
- * @param handled  Set to 1 when the fixture was a c11 fixture (and checked), 0 otherwise
+ * @param handled  Set to 1 when the fixture was a CGM cooling fixture (and checked), 0 otherwise
  * @return The number of mismatches and errors
  */
 static inline int oracle_c11_check_fixture(const char *module, const char *name, int *handled) {
@@ -583,7 +585,7 @@ static inline int oracle_c11_check_fixture(const char *module, const char *name,
   return p;
 }
 
-/** @brief Print the run's c11 tallies (MIMIC_RESULT-adjacent evidence for validation.md) */
+/** @brief Print the run's CGM cooling tallies (MIMIC_RESULT-adjacent evidence) */
 static inline void oracle_c11_report(const char *module) {
   printf("c11 oracle tally (%s): fixtures %d, locals %d (continuation-checked %d, tail-checked "
          "%d), validated two-sided %d, binding caps %d, flags %d\n",

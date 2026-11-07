@@ -18,7 +18,7 @@
  *   - Substep distribution
  *   - The num_substeps-dependent stripped-fraction formula (inherited SAGE behavior,
  *     see test_stripped_fraction_follows_geometric_formula)
- *   - c10 (platform independent): with CGMrecipeOn 1 the satellite's regime selects the source
+ *   - (platform independent): with CGMrecipeOn 1 the satellite's regime selects the source
  *     and the FoF central's the destination, all four combinations with the gas cap binding and
  *     not, against CGMrecipeOn 0 on the same input (test_cgm_stripping_source_and_destination);
  *     the same four combinations with source metals above source gas and both caps binding, so
@@ -566,7 +566,7 @@ static int test_multiple_satellites(void) {
 // ============================================================================
 
 // ============================================================================
-// CGMrecipeOn 1 AGAINST 0 (c10 Slice 2, platform independent)
+// CGMrecipeOn 1 AGAINST 0 (platform independent)
 // ============================================================================
 //
 // SAGE26's strip_from_satellite (R = the staged SAGE26 source, R/src/model_infall.c:225-273) with
@@ -822,7 +822,7 @@ int test_cgm_stripping_metals_above_gas(void) {
 /**
  * @test    test_cgm_recipe_on_refused
  * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter (campaign decision D33)
+ *          naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
@@ -857,7 +857,7 @@ int main(void) {
   TEST_RUN(test_null_galaxy_handling);
   TEST_RUN(test_multiple_satellites);
 
-  /* c10: CGMrecipeOn 1 against 0 (platform independent) */
+  /* CGMrecipeOn 1 against 0 (platform independent) */
   TEST_RUN(test_cgm_stripping_source_and_destination);
   TEST_RUN(test_cgm_stripping_metals_above_gas);
   TEST_RUN(test_cgm_recipe_on_refused);

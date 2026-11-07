@@ -18,9 +18,8 @@ with no Type cut, as in SAGE26.
 Snapshots: those with a redshift in each bin of ``Z_BINS`` (:852-856), chosen through
 ``snapshots_in_z_range``; snapshot 63 (z = 0) falls in none, as in SAGE26.
 
-Permitted deviations (c16 Slice 3, row `stellar_mass_halo_mass_relation`): none beyond the rules
-(the figure is drawn from the run's eight snapshots, where SAGE26 reads 64, so a bin holds at
-most one snapshot and its standard error is zero).
+Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
+reads 64, so a bin holds at most one snapshot and its standard error is zero.
 """
 
 import warnings

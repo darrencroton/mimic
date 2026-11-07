@@ -13,28 +13,28 @@
  * - routine quasar_mode_wind: SAGE26's quasar_mode_wind (:390-441) on its own, with
  *   call.BHaccrete, against mimic_apply_quasar_mode_wind.
  *
- * Asserted bit for bit: the thirty floats of galaxy 0's recorded block (oracle README "The
- * c06 Group"), every other member of the galaxy unchanged, every branch flag the fixture
- * records, the presence of every carried value, and each carried value where the oracle
- * validates it two-sided or a clamp or floor binds it (BHaccrete where the ColdGas cap
- * binds). Checked values that are not validated are recorded, not asserted (c05's rule:
- * the float stores absorb a one-ulp change of most doubles). Outside the oracle
+ * Asserted bit for bit: the thirty floats of galaxy 0's recorded block (oracle README
+ * "The c06 Group"), every other member of the galaxy unchanged, every branch flag the fixture
+ * records, the presence of every carried value, and each carried value where the oracle validates
+ * it two-sided or a clamp or floor binds it (BHaccrete where the ColdGas cap binds). Checked values
+ * that are not validated are recorded, not asserted (the rule of the oracle README's
+ * "The c05 Group": the float stores absorb a one-ulp change of most doubles). Outside the oracle
  * environment (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *
- * SFprescription 1 (the c08 fixtures, R2's flags with BulgeSizeOn 3): the growth applies the
- * accretion's hydrogen cap (:366-372), and the test also asserts its record (the guard, the two
- * cap flags and the float bound max_h_bh, bit for bit), sage26_oracle_hydrogen.h. BulgeSizeOn
- * and Hubble_h, which neither routine reads, are read and not applied.
+ * SFprescription 1 (the fixtures, R2's flags with BulgeSizeOn 3): the growth applies the
+ * accretion's hydrogen cap (:366-372), and the test also asserts its record (the guard, the two cap
+ * flags and the float bound max_h_bh, bit for bit), sage26_oracle_hydrogen.h. BulgeSizeOn and
+ * Hubble_h, which neither routine reads, are read and not applied.
  *
- * CGMrecipeOn 1 (the c10 qw_cgm_* and bh_cgm_* fixtures, R4's flags; oracle README "The c10 Group,
- * Part 3"): the fixture's CGMrecipeOn is passed to both helpers and the galaxy's Regime is set from
- * the fixture; the wind's second test then selects the WIND HOST's pair, its CGM pair for Regime 0
- * (M:406-428). The test also asserts the c10 record: the selection
+ * CGMrecipeOn 1 (the qw_cgm_* and bh_cgm_* fixtures, R4's flags; oracle README "The c10 Group, Part
+ * 3"): the fixture's CGMrecipeOn is passed to both helpers and the galaxy's Regime is set from the
+ * fixture; the wind's second test then selects the WIND HOST's pair, its CGM pair for Regime 0
+ * (M:406-428). The test also asserts the CGMrecipeOn 1 record: the selection
  * (intermediate.wind_reservoir_cgm) against the wind's reservoir_cgm AND against the host's input
- * Regime, the CGM test (wind_ejects_cgm; c06's wind_ejects_hot is -1 where the CGM pair is selected
- * and hot_gas_energy absent), cgm_gas_energy bit for bit, and the host's pair its Regime does not
- * select unchanged against the input. FIREmodeOn (R4's 1, which neither routine reads) is read and
- * not applied.
+ * Regime, the CGM test (wind_ejects_cgm; the merger-family record's wind_ejects_hot is -1 where the
+ * CGM pair is selected and hot_gas_energy absent), cgm_gas_energy bit for bit, and the host's pair
+ * its Regime does not select unchanged against the input. FIREmodeOn (R4's 1, which neither routine
+ * reads) is read and not applied.
  *
  * Inputs read but not applied, each named: the burst parameters (FeedbackReheatingEpsilon,
  * FeedbackEjectionEfficiency, EtaSNcode, EnergySNcode, RecycleFraction, Yield,
@@ -71,7 +71,7 @@ static const char *MODULE = "sage26_quasar_mode";
 
 static struct oracle_c06_carried_tally tally;
 static struct oracle_c08_local_tally h_tally;
-/* c10: the CGMrecipeOn 1 fixtures' assertions, and the fixtures whose wind selected each pair */
+/* The CGMrecipeOn 1 fixtures' assertions, and the fixtures whose wind selected each pair */
 static struct oracle_c10_site_tally cgm_tally;
 static int cgm_wind_cgm_pair = 0, cgm_wind_hot_pair = 0;
 
@@ -82,8 +82,8 @@ static int cgm_wind_cgm_pair = 0, cgm_wind_hot_pair = 0;
 static int setup_parameters(struct oracle_fixture *in, double *growth_rate, double *efficiency,
                             int *sf_prescription, int *cgm_recipe_on) {
   struct MimicSageBulgeSize sizes; /* read, not applied: neither routine reads the sizes */
-  /* CGMrecipeOn 0, or 1 (c10, R4); FIREmodeOn 0, or R4's 1 with CGMrecipeOn 1, read and not
-   * applied (neither routine reads it) */
+  /* CGMrecipeOn 0, or 1 (R4); FIREmodeOn 0, or R4's 1 with CGMrecipeOn 1, read and not applied
+   * (neither routine reads it) */
   int fire_mode_on = 0;
   int problems = oracle_c10_require_merger_flags(in, &sizes, sf_prescription, 0, 1, cgm_recipe_on,
                                                  &fire_mode_on);
@@ -113,8 +113,9 @@ static int setup_parameters(struct oracle_fixture *in, double *growth_rate, doub
 /**
  * @brief Assert the wind's flags and carried values; returns the number of problems
  *
- * c06's wind_ejects_hot is the second test on the hot pair; with CGMrecipeOn 1 and the CGM pair
- * selected it is not evaluated (-1) and the c10 record holds the CGM test (check_wind_cgm).
+ * The merger-family record's wind_ejects_hot is the second test on the hot pair; with CGMrecipeOn 1
+ * and the CGM pair selected it is not evaluated (-1) and the CGMrecipeOn 1 record holds the
+ * CGM test (check_wind_cgm).
  */
 static int check_wind(struct oracle_fixture *out, const struct MimicSageQuasarWindLocals *wind) {
   int problems = 0;
@@ -131,9 +132,9 @@ static int check_wind(struct oracle_fixture *out, const struct MimicSageQuasarWi
 }
 
 /**
- * @brief c10: the CGMrecipeOn 1 record of a wind (direct or the growth's): the selection against
- *        the package's and the wind host's input Regime, the CGM test, cgm_gas_energy, and the
- *        host's unselected pair unchanged against the input
+ * @brief The CGMrecipeOn 1 record of a wind (direct or the growth's): the selection against the
+ *        package's and the wind host's input Regime, the CGM test, cgm_gas_energy, and the host's
+ *        unselected pair unchanged against the input
  * @return Number of mismatches
  */
 static int check_wind_cgm(const char *name, struct oracle_fixture *out,
@@ -187,7 +188,7 @@ static int check_fixture(const char *name) {
   static struct GalaxyData galaxy, before;
   static struct Halo halo;
   problems += oracle_c06_in_galaxy(&in, 0, &halo, &galaxy);
-  /* c10: the wind host's Regime, which its CGMrecipeOn 1 wind reads (M:407) */
+  /* The wind host's Regime, which its CGMrecipeOn 1 wind reads (M:407) */
   if (cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
     problems += oracle_c10_read_regimes(&in, 1, &galaxy);
   }

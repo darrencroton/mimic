@@ -2,69 +2,63 @@
  * @file    test_unit_sage26_starburst_feedback_oracle.c
  * @brief   Bit-exact comparison of the collisional burst transaction with SAGE26's
  *
- * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_starburst_feedback
- * (its _tests/oracle/ directory): SAGE26's collisional_starburst_recipe
- * (R/src/model_mergers.c:584-831), in both modes, with R0's flags, BulgeSizeOn 0 (R0) or 3
- * (the c07 burst_s3_* fixtures, R1.par:109, with the fixture's Hubble_h). The test calls the
- * shared transaction the module calls, mimic_apply_collisional_starburst
- * (shared/sage_starburst_physics.h), directly, with the fixture's inputs standing in for
- * the module's trigger: call.mass_ratio (the merger event's ratio or the instability's
- * fraction), call.mode, call.burst_to_merger_bulge (the channel SAGE26's caller selects
- * from the pre-transfer morphology), call.merger_centralgal (the burst host),
- * call.centralgal (its FoF central), call.step (the history bin), call.dt (the substep
- * interval) and call.old_disk_radius (the disk radius SAGE26's caller saved, which the
- * instability channel's radius update reads in mode 3, :783-784). The post-minor-merger
- * instability recheck runs inside the transaction, as it
- * does in SAGE26 (:806-811), with SAGE26's TOOMRE_DISK_FACTOR 3.0
+ * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_starburst_feedback (its
+ * _tests/oracle/ directory): SAGE26's collisional_starburst_recipe (R/src/model_mergers.c:584-831),
+ * in both modes, with R0's flags, BulgeSizeOn 0 (R0) or 3 (the burst_s3_* fixtures, R1, with the
+ * fixture's Hubble_h). The test calls the shared transaction the module calls,
+ * mimic_apply_collisional_starburst (shared/sage_starburst_physics.h), directly, with the fixture's
+ * inputs standing in for the module's trigger: call.mass_ratio (the merger event's ratio or the
+ * instability's fraction), call.mode, call.burst_to_merger_bulge (the channel SAGE26's caller
+ * selects from the pre-transfer morphology), call.merger_centralgal (the burst host),
+ * call.centralgal (its FoF central), call.step (the history bin), call.dt (the substep interval)
+ * and call.old_disk_radius (the disk radius SAGE26's caller saved, which the instability channel's
+ * radius update reads in mode 3, :783-784). The post-minor-merger instability recheck runs inside
+ * the transaction, as it does in SAGE26 (:806-811), with SAGE26's TOOMRE_DISK_FACTOR 3.0
  * (R/src/model_disk_instability.c:35), DiskInstabilityOn and AGNrecipeOn from the fixture.
  *
- * Asserted bit for bit: the thirty floats of every galaxy's recorded block and the host's
- * sixty history elements; every other member of every galaxy unchanged (the FoF central's
- * histories included, and the package's StarFormationRate diagnostic, which this test
- * leaves off with rate_dt 0); every branch flag the fixture records; the presence of
- * every carried value; and each carried value where the oracle validates it two-sided or a
- * clamp or floor binds it. Checked values that are not validated are recorded, not
- * asserted (c05's rule: the float stores absorb a one-ulp change of most doubles).
+ * Asserted bit for bit: the thirty floats of every galaxy's recorded block and the host's sixty
+ * history elements; every other member of every galaxy unchanged (the FoF central's histories
+ * included, and the package's StarFormationRate diagnostic, which this test leaves off with rate_dt
+ * 0); every branch flag the fixture records; the presence of every carried value; and each carried
+ * value where the oracle validates it two-sided or a clamp or floor binds it. Checked values that
+ * are not validated are recorded, not asserted (the rule of the oracle README's "The c05 Group":
+ * the float stores absorb a one-ulp change of most doubles).
  *
- * Not applied, named: call.time (the event time, which reaches no statement on R0 or R1:
- * the recheck passes it on to a burst that does not read it). call.old_disk_radius is
- * applied; with BulgeSizeOn 0 it is read only by update_instability_bulge_radius, which
- * returns at once (R/src/model_misc.c:395), and the bulge radii must stay unchanged.
- * params.G is applied (the recheck's Mcrit). The observation
- * intermediate.burst_instability_recheck_changed_state is not a port value (it records
- * whether SAGE26's own recheck changed the state); the end state asserts its effect.
- * SFprescription 1 (the c08 burst_r2_* fixtures, R2's flags): the bundle carries the fixture's
+ * Not applied, named: call.time (the event time, which reaches no statement on R0 or R1: the
+ * recheck passes it on to a burst that does not read it). call.old_disk_radius is applied; with
+ * BulgeSizeOn 0 it is read only by update_instability_bulge_radius, which returns at once
+ * (R/src/model_misc.c:395), and the bulge radii must stay unchanged. params.G is applied (the
+ * recheck's Mcrit). The observation intermediate.burst_instability_recheck_changed_state is not a
+ * port value (it records whether SAGE26's own recheck changed the state); the end state asserts its
+ * effect. SFprescription 1 (the burst_r2_* fixtures, R2's flags): the bundle carries the fixture's
  * SFprescription, so the commits cap the hydrogen (S:1131-1135, S:1169-1173), the burst refreshes
  * it after the feedback (M:798-803) and the recheck's black-hole growth caps it (M:366-372); the
  * test also asserts the burst's hydrogen record bit for bit (sage26_oracle_hydrogen.h). The
- * recheck's black-hole cap is end-state invariant (its burst re-caps and refreshes the
- * hydrogen): the oracle's observation of SAGE26's own recheck growth (its capped flags and, where
- * a cap binds, the bound it stored) is asserted against the port's recheck cap locals. The
- * recheck's own burst records no locals; the end state asserts its effect.
- * FIREmodeOn (the c09 fixtures, routine collisional_starburst_recipe_fire, R3's flags): the bundle
- * carries the fixture's FIREmodeOn and the redshift table its params.ZZ entries fill
- * (sage26_oracle_fire.h), and the test also asserts bit for bit: every recorded galaxy's
- * MassLoading, equal to its input (a burst never writes it, R/src/model_mergers.c:707-710); the
- * burst's c09 flags and values (oracle_c09_check_fire_record, check kinds and markers included);
- * the burst's wiring (it took the FIREmodeOn branch with the host's own stored SnapNum, float Vvir
- * and that snapshot's redshift, the fixture's, never the FoF central's or a satellite's); and,
- * where the oracle observes that the post-minor-merger recheck's own burst took the FIRE branch
- * (intermediate.burst_recheck_fire_*_sensitive 1), the port's record of that nested burst: the
- * same wiring and the host's path-invariant scaling, loadings and coupling.
- * CGMrecipeOn 1 (the c10 burst_cgm_* fixtures, routine collisional_starburst_recipe_fire with R4's
- * flags; oracle README "The c10 Group, Part 3"): the bundle carries the fixture's CGMrecipeOn and
- * every galaxy's Regime is set from the fixture. The test also asserts each routing site against
- * the oracle's selection AND against the expected galaxy's input Regime: the burst's commit
+ * recheck's black-hole cap is end-state invariant (its burst re-caps and refreshes the hydrogen):
+ * the oracle's observation of SAGE26's own recheck growth (its capped flags and, where a cap binds,
+ * the bound it stored) is asserted against the port's recheck cap locals. The recheck's own burst
+ * records no locals; the end state asserts its effect. FIREmodeOn (the FIRE fixtures, routine
+ * collisional_starburst_recipe_fire, R3's flags): the bundle carries the fixture's FIREmodeOn and
+ * the redshift table its params.ZZ entries fill (sage26_oracle_fire.h), and the test also asserts
+ * bit for bit: every recorded galaxy's MassLoading, equal to its input (a burst never writes it,
+ * R/src/model_mergers.c:707-710); the burst's FIRE flags and values (oracle_c09_check_fire_record,
+ * check kinds and markers included); the burst's wiring (it took the FIREmodeOn branch with the
+ * host's own stored SnapNum, float Vvir and that snapshot's redshift, the fixture's, never the FoF
+ * central's or a satellite's); and, where the oracle observes that the post-minor-merger recheck's
+ * own burst took the FIRE branch (intermediate.burst_recheck_fire_*_sensitive 1), the port's record
+ * of that nested burst: the same wiring and the host's path-invariant scaling, loadings and
+ * coupling. CGMrecipeOn 1 (the burst_cgm_* fixtures, routine collisional_starburst_recipe_fire with
+ * R4's flags; oracle README "The c10 Group, Part 3"): the bundle carries the fixture's CGMrecipeOn
+ * and every galaxy's Regime is set from the fixture. The test also asserts each routing site
+ * against the oracle's selection AND against the expected galaxy's input Regime: the burst's commit
  * (feedback.reservoir_cgm) and yield (yield_reservoir_cgm) by the FoF central's; the
  * post-minor-merger recheck's wind (recheck_wind, its two tests and its four energies bit for bit)
- * by the burst HOST's; the recheck's own burst's commit and yield
- * (recheck_feedback_reservoir_cgm, recheck_yield_reservoir_cgm) by the FoF central's. It asserts
- * the pair the FoF central's Regime does not select, the pair the host's Regime does not select
- * (the host differs from the central) and both pairs of any other galaxy unchanged against the
- * input, and counts the oracle's observations of SAGE26's recheck
- * (intermediate.recheck_*_regime_sensitive).
- * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
- * SKIP.
+ * by the burst HOST's; the recheck's own burst's commit and yield (recheck_feedback_reservoir_cgm,
+ * recheck_yield_reservoir_cgm) by the FoF central's. It asserts the pair the FoF central's Regime
+ * does not select, the pair the host's Regime does not select (the host differs from the central)
+ * and both pairs of any other galaxy unchanged against the input, and counts the oracle's
+ * observations of SAGE26's recheck (intermediate.recheck_*_regime_sensitive). Outside the oracle
+ * environment (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *
  * Test cases:
  *   - test_oracle_fixture_count: every fixture the manifest lists is present
@@ -103,23 +97,23 @@ static const char *ROUTINE = "collisional_starburst_recipe";
 
 static struct oracle_c06_carried_tally tally;
 static int ratio_zero_fixtures = 0;
-/* Fixtures run with BulgeSizeOn 3 (c07) */
+/* Fixtures run with BulgeSizeOn 3 */
 static int sizes_fixtures = 0;
-/* c08: fixtures run with SFprescription 1, and their hydrogen values */
+/* Fixtures run with SFprescription 1, and their hydrogen values */
 static int br06_fixtures = 0;
 static struct oracle_c08_local_tally h_tally;
-/* c08: SFprescription 1 bursts whose recheck grew the black hole, and the binding recheck caps
- * whose bound was asserted (oracle_c08_check_recheck_bh) */
+/* SFprescription 1 bursts whose recheck grew the black hole, and the binding recheck caps whose
+ * bound was asserted (oracle_c08_check_recheck_bh) */
 static int recheck_growth_fixtures = 0;
 static int recheck_binding = 0;
-/* c09: the FIRE fixtures' values, and the per-path wiring asserted (the burst, and the recheck's
- * own burst where the oracle observes it took the FIRE branch) */
+/* The FIRE fixtures' values, and the per-path wiring asserted (the burst, and the recheck's own
+ * burst where the oracle observes it took the FIRE branch) */
 static struct oracle_c09_tally fire_tally;
 static int burst_wiring_asserted = 0;
 static int recheck_wiring_asserted = 0;
 static int mass_loading_asserted = 0;
-/* c10: the CGMrecipeOn 1 fixtures' assertions; the burst commits routed to each of the central's
- * pairs; the recheck winds and recheck bursts asserted */
+/* The CGMrecipeOn 1 fixtures' assertions; the burst commits routed to each of the central's pairs;
+ * the recheck winds and recheck bursts asserted */
 static struct oracle_c10_site_tally cgm_tally;
 static int cgm_commit_cgm_pair = 0, cgm_commit_hot_pair = 0;
 static int cgm_recheck_winds = 0, cgm_recheck_bursts = 0;
@@ -130,9 +124,9 @@ static int cgm_recheck_winds = 0, cgm_recheck_bursts = 0;
  */
 static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstParams *p,
                             const int fire) {
-  /* SFprescription 0 or 1 (with the H2 configuration for 1), BulgeSizeOn 0 or 3 with Hubble_h
-   * for 3 (the other flags R0's, R1's and R2's; FIREmodeOn 0 or 1 for a c09 fixture, read by
-   * oracle_c09_read_fire_config; CGMrecipeOn 0, or 0 or 1 for a c09 routine, c10) */
+  /* SFprescription 0 or 1 (with the H2 configuration for 1), BulgeSizeOn 0 or 3 with Hubble_h for 3
+   * (the other flags R0's, R1's and R2's; FIREmodeOn 0 or 1 for a FIRE fixture, read by
+   * oracle_c09_read_fire_config; CGMrecipeOn 0, or 0 or 1 for a FIRE routine) */
   struct MimicSageBulgeSize sizes;
   int sf_prescription = 0;
   int cgm_recipe_on = 0;
@@ -160,7 +154,7 @@ static int setup_parameters(struct oracle_fixture *in, struct MimicStarburstPara
   p->quasar_mode_efficiency = oracle_in_f64(in, "params.QuasarModeEfficiency");
   p->bulge_size = sizes;
   p->sf_prescription = sf_prescription;
-  /* c10: the module's bundle carries the run's CGMrecipeOn (sage26_starburst_feedback.c) */
+  /* The module's bundle carries the run's CGMrecipeOn (sage26_starburst_feedback.c) */
   p->cgm_recipe_on = cgm_recipe_on;
   return problems;
 }
@@ -255,7 +249,7 @@ static int check_carried(struct oracle_fixture *out, const struct MimicSageStarb
 }
 
 /**
- * @brief c09: the FIRE record, the burst's wiring and the recheck burst's, and MassLoading
+ * @brief The FIRE record, the burst's wiring and the recheck burst's, and MassLoading
  * @return Number of mismatches
  */
 static int check_fire(struct oracle_fixture *out, const int fire_mode_on, const int ngal,
@@ -277,7 +271,7 @@ static int check_fire(struct oracle_fixture *out, const int fire_mode_on, const 
                                                   &b->fire.l);
     recheck_wiring_asserted++;
   }
-  /* Every galaxy of a c09 burst fixture is recorded, an uninvolved satellite included */
+  /* Every galaxy of a FIRE burst fixture is recorded, an uninvolved satellite included */
   for (int i = 0; i < ngal; i++) {
     problems +=
         oracle_c09_check_mass_loading(out, "", i, before[i].MassLoading, galaxies[i].MassLoading);
@@ -287,9 +281,9 @@ static int check_fire(struct oracle_fixture *out, const int fire_mode_on, const 
 }
 
 /**
- * @brief c10: the CGMrecipeOn 1 record of one burst: each routing site against the oracle's
- *        selection and the expected galaxy's input Regime, the recheck wind's tests and values,
- *        the unselected pairs unchanged against the input, and the observations counted
+ * @brief The CGMrecipeOn 1 record of one burst: each routing site against the oracle's selection
+ *        and the expected galaxy's input Regime, the recheck wind's tests and values, the
+ *        unselected pairs unchanged against the input, and the observations counted
  * @return Number of mismatches
  */
 static int check_cgm(const char *name, struct oracle_fixture *out, const int ngal, const int host,
@@ -412,7 +406,7 @@ static int check_fixture(const char *name) {
   for (int i = 0; i < ngal; i++) {
     problems += oracle_c06_in_galaxy(&in, i, &halos[i], &galaxies[i]);
   }
-  /* c09: FIREmodeOn, the stored snapshots' redshifts (the bundle's table) and MassLoading */
+  /* FIREmodeOn, the stored snapshots' redshifts (the bundle's table) and MassLoading */
   int fire_mode_on = MIMIC_SAGE_FIRE_MODE_OFF;
   if (fire) {
     int snapnum[MAX_GALAXIES];
@@ -421,7 +415,7 @@ static int check_fixture(const char *name) {
     params.fire_mode_on = fire_mode_on;
     params.redshift_config = &MimicConfig;
   }
-  /* c10: every galaxy's Regime, which the CGMrecipeOn 1 routing reads */
+  /* Every galaxy's Regime, which the CGMrecipeOn 1 routing reads */
   if (params.cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON) {
     problems += oracle_c10_read_regimes(&in, ngal, galaxies);
   }

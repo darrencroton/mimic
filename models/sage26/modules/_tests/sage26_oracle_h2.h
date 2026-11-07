@@ -1,9 +1,9 @@
 /**
  * @file    sage26_oracle_h2.h
- * @brief   Oracle-test helpers for the c08 molecular gas and hydrogen caps (SFprescription 0 and 1)
+ * @brief   Oracle-test helpers for the molecular gas and hydrogen caps (SFprescription 0 and 1)
  *
  * Adds, beside the shared fixture reader sage26_oracle_fixture.h (which stays as it is), what the
- * oracle tests of the c08 fixtures need (oracle README "The c08 Group"):
+ * oracle tests of the SFprescription 1 fixtures need (oracle README "The c08 Group"):
  *
  * - oracle_c08_read_sf_config(): a fixture's params.SFprescription (0 or 1) and, for 1, the H2
  *   configuration the oracle requires with it (H2RadialIntegrationOn 1, H2RadialNBins 25,
@@ -11,9 +11,9 @@
  * - oracle_c08_set_sf_parameters(): those values as the package's required module parameters,
  *   the H2 parameters at their R2 values when the fixture is SFprescription 0 (which carries
  *   none of them, as the run files carry R2's values with SFprescription 0);
- * - oracle_c08_check_local(): one c08 local or carried value, its markers checked (c06's, with
- *   check kind 2 and the narrowing limitation) and its value compared bit for bit as the float or
- *   double the oracle records, tallied by validation status.
+ * - oracle_c08_check_local(): one SFprescription 1 local or carried value, its markers checked (the
+ *   merger-family group's, with check kind 2 and the narrowing limitation) and its value compared
+ *   bit for bit as the float or double the oracle records, tallied by validation status.
  *
  * Test-only: included by module oracle tests, never by package code.
  */
@@ -97,7 +97,7 @@ static inline int oracle_c08_set_sf_parameters(const struct oracle_c08_sf_config
   return problems;
 }
 
-/** @brief Counters of the c08 local assertions a test made, for its report */
+/** @brief Counters of the SFprescription 1 local assertions a test made, for its report */
 struct oracle_c08_local_tally {
   int validated;         /**< validated two-sided */
   int narrowing_limited; /**< one float narrowing is the only path: not validated, by name */
@@ -107,11 +107,11 @@ struct oracle_c08_local_tally {
 };
 
 /**
- * @brief Check one c08 local or carried value and compare it bit for bit
+ * @brief Check one SFprescription 1 local or carried value and compare it bit for bit
  *
  * Requires the port's value to be NaN exactly when the oracle marks it absent. When present,
- * requires _checked 1, _check_kind 2 (every c08 value is tail-checked), _validated equal to the
- * conjunction of _validated_up and _validated_down, and _narrowing_limited equal to
+ * requires _checked 1, _check_kind 2 (every SFprescription 1 value is tail-checked), _validated
+ * equal to the conjunction of _validated_up and _validated_down, and _narrowing_limited equal to
  * `narrowing_limited`. The value is compared bit for bit, as the f32 or f64 the oracle records
  * (`is_f32`), whatever its validation status: the port forms each with SAGE26's expression; the
  * tally records which status it has.

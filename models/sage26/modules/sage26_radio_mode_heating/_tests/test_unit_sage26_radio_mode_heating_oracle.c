@@ -2,20 +2,18 @@
  * @file    test_unit_sage26_radio_mode_heating_oracle.c
  * @brief   Bit-exact comparison of sage26_radio_mode_heating with SAGE26's do_AGN_heating
  *
- * Runs every SAGE26 oracle fixture fixtures.manifest lists for
- * sage26_radio_mode_heating (its _tests/oracle/ directory): SAGE26's do_AGN_heating
- * (model_cooling_heating.c:587-626, with the Bondi branch of agn_accretion_compute,
- * :526-575) called on its own with a positive cooling mass, x and rcool. The
- * fixture's call.coolingGas, call.x and call.rcool are the carried CoolingGas,
- * CoolingX and Rcool the cooling budget would hand the module; the module runs
- * through its process() entry and the test asserts, bit for bit, the returned
- * (suppressed) mass, which the module writes back into CoolingGas, and
- * BlackHoleMass, HotGas, MetalsHotGas, r_heat (the package's Rheat) and Heating.
- * The other six fields of the c04 state, which do_AGN_heating does not write, are
- * asserted unchanged as the oracle records them.
+ * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_radio_mode_heating (its
+ * _tests/oracle/ directory): SAGE26's do_AGN_heating (model_cooling_heating.c:587-626, with the
+ * Bondi branch of agn_accretion_compute, :526-575) called on its own with a positive cooling mass,
+ * x and rcool. The fixture's call.coolingGas, call.x and call.rcool are the carried CoolingGas,
+ * CoolingX and Rcool the cooling budget would hand the module; the module runs through its
+ * process() entry and the test asserts, bit for bit, the returned (suppressed) mass, which the
+ * module writes back into CoolingGas, and BlackHoleMass, HotGas, MetalsHotGas, r_heat (the
+ * package's Rheat) and Heating. The other six fields of the cooling state, which do_AGN_heating
+ * does not write, are asserted unchanged as the oracle records them.
  *
- * The c11 fixtures (agn_cgmon_*, cgm_agn_*; oracle README "The c11 Group") are the CGM-on radio
- * AGN: SAGE26's do_AGN_heating with CGMrecipeOn 1, and the static do_AGN_heating_cgm reached
+ * The CGM cooling fixtures (agn_cgmon_*, cgm_agn_*; oracle README "The c11 Group") are the CGM-on
+ * radio AGN: SAGE26's do_AGN_heating with CGMrecipeOn 1, and the static do_AGN_heating_cgm reached
  * through cooling_recipe_cgm. They run through the package's shared helpers
  * (shared/sage_cooling_physics.h) directly, since no production module calls them yet
  * (modules/_tests/sage26_oracle_cooling.h); the cooling tables are loaded for them.
@@ -61,9 +59,9 @@ static const char *MODULE = "sage26_radio_mode_heating";
 static int check_fixture(const char *name) {
   static struct oracle_fixture in, out;
 
-  /* c11 fixtures (the CGM-on radio AGN: do_AGN_heating with CGMrecipeOn 1, and the static
-   * do_AGN_heating_cgm through cooling_recipe_cgm) call the shared helpers directly
-   * (modules/_tests/sage26_oracle_cooling.h) */
+  /* CGM cooling fixtures (the CGM-on radio AGN: do_AGN_heating with CGMrecipeOn 1, and the static
+   * do_AGN_heating_cgm through cooling_recipe_cgm) call the shared
+   * helpers directly (modules/_tests/sage26_oracle_cooling.h) */
   int c11 = 0;
   const int c11_problems = oracle_c11_check_fixture(MODULE, name, &c11);
   if (c11) {
@@ -150,8 +148,8 @@ int test_oracle_bit_identity(void) {
     return TEST_SKIP_WITH(mismatch);
   }
 
-  /* The c11 cooling_recipe_cgm fixtures read the cooling tables: loaded once for every fixture */
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  /* The cooling_recipe_cgm fixtures read the cooling tables: loaded once for every fixture */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "cooling tables must load");
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   sage26_calculate_cooling_budget_cleanup();

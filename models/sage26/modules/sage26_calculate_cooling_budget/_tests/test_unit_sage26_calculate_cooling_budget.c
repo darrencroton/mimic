@@ -27,7 +27,7 @@
  *
  *   Suite 4: the CGMrecipeOn 1 shared helpers (clustering table, streams, CGM cooling)
  *
- *   Suite 5: CGMrecipeOn (campaign decisions D33, D38)
+ *   Suite 5: CGMrecipeOn
  *     - test_cgm_recipe_on_refusals: a missing or unsupported CGMrecipeOn fails init()
  *     - test_cgm_on_writes_only_transport: with CGMrecipeOn 1 the budget writes only its
  *       no-cooling transport, and the radio and apply modules write no galaxy property
@@ -111,7 +111,7 @@ int test_module_registration(void) {
   test_phase_add("galaxy_physics", "sage26_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* Should fail if module not registered */
   int result = module_system_init();
@@ -328,7 +328,7 @@ int test_memory_safety(void) {
   test_phase_add("galaxy_physics", "sage26_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   int result = module_system_init();
   TEST_ASSERT(result == 0, "Module init must succeed for memory test");
@@ -355,7 +355,7 @@ int test_outer_guard_writes_carried_state(void) {
   struct GalaxyData gal;
   struct ModuleContext ctx;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
   setup_cooling_galaxy(&halo, &gal, &ctx);
   gal.HotGas = 0.0f;
@@ -385,7 +385,7 @@ int test_tail_writes_carried_state(void) {
   struct GalaxyData gal;
   struct ModuleContext ctx;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
   setup_cooling_galaxy(&halo, &gal, &ctx);
 
@@ -416,7 +416,7 @@ int test_no_interval_marks_not_evaluated(void) {
   struct GalaxyData gal;
   struct ModuleContext ctx;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
   setup_cooling_galaxy(&halo, &gal, &ctx);
   halo.SnapNum = -1;
@@ -436,11 +436,11 @@ int test_no_interval_marks_not_evaluated(void) {
 // SUITE 4: THE CGMrecipeOn 1 SHARED HELPERS (shared/sage_cooling_physics.h)
 // ============================================================================
 //
-// Platform-independent behavioural tests of the c11 helpers. Every expectation is derived
+// Platform-independent behavioural tests of the CGM cooling helpers. Every expectation is derived
 // independently of the helper under test: a literal chosen so the result is exact, or SAGE26's
-// expression written inline with its operand order and its line cited (C =
-// R/src/model_cooling_heating.c, H = R/src/model_halo_properties.c). The oracle tests cover the
-// same helpers bit for bit on macOS arm64 only.
+// expression written inline with its operand order and its line cited
+// (C = R/src/model_cooling_heating.c, H = R/src/model_halo_properties.c). The oracle tests cover
+// the same helpers bit for bit on macOS arm64 only.
 
 /* SAGE26's literal clustering tables (H:104-108, H:111-115), copied independently of the package */
 static const double TEST_MSTAR_MILL[31] = {
@@ -586,7 +586,7 @@ int test_streams_sigmoid_from_stored_snapshot(void) {
   struct Halo halo;
   struct GalaxyData gal;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
   setup_stream_galaxy(&halo, &gal, 3.0);
   const double dt = 1.0e-4;
@@ -651,7 +651,7 @@ int test_streams_cutoff_equality(void) {
   struct Halo halo;
   struct GalaxyData gal;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
   setup_stream_galaxy(&halo, &gal, 1.0);
   const double dt = 1.0e-4;
@@ -729,7 +729,7 @@ int test_streams_exponent_clamps_and_nonpositive_ratio(void) {
   double cooling;
   const double dt = 1.0e-4;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
 
   setup_stream_galaxy(&halo, &gal, 0.5);
@@ -764,7 +764,7 @@ int test_streams_exponent_clamps_and_nonpositive_ratio(void) {
 
 /**
  * @test    test_streams_refuse_stored_snapnum_outside_table
- * @brief   D35: a stored SnapNum outside the redshift table is refused through the streams
+ * @brief   A stored SnapNum outside the redshift table is refused through the streams
  *
  * Expected: with a positive dt and the stored SnapNum 64 (Snaplistlen 64) or -1, the CGMrecipeOn
  * 1 budget returns -1 at C:205 (SAGE26 reads ZZ out of bounds there); CGMrecipeOn 0 does not read
@@ -776,7 +776,7 @@ int test_streams_refuse_stored_snapnum_outside_table(void) {
   struct MimicSageHotCoolingLocals l;
   double cooling;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
   setup_stream_galaxy(&halo, &gal, 1.0);
   halo.SnapNum = 64;
@@ -865,7 +865,7 @@ int test_cgm_cooling_profile_and_times(void) {
   struct Halo halo;
   struct GalaxyData gal;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
   setup_cgm_galaxy(&halo, &gal);
   const double dt = 1.0e-4;
@@ -918,7 +918,7 @@ int test_cgm_cooling_guard_cap_and_floor(void) {
   struct GalaxyData gal;
   struct MimicSageCgmCoolingLocals l;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
 
   setup_cgm_galaxy(&halo, &gal);
@@ -963,7 +963,7 @@ int test_cgm_recipe_composition_tail(void) {
   const struct MimicSageAgnConfig off = {0, 0.08};
   const double dt = 1.0e-4;
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "module init must succeed");
 
   setup_cgm_galaxy(&halo, &gal);
@@ -992,7 +992,7 @@ int test_cgm_recipe_composition_tail(void) {
 }
 
 // ============================================================================
-// SUITE 5: CGMrecipeOn (campaign decisions D33, D38)
+// SUITE 5: CGMrecipeOn
 // ============================================================================
 
 extern int sage26_radio_mode_heating_init(void);
@@ -1002,7 +1002,7 @@ extern int sage26_apply_cooling_process(struct ModuleContext *ctx, struct Halo *
 
 /**
  * @test    test_cgm_recipe_on_refusals
- * @brief   CGMrecipeOn is required and must be 0 or 1 (campaign decision D33)
+ * @brief   CGMrecipeOn is required and must be 0 or 1
  *
  * Expected: init() fails without the key and with CGMrecipeOn 2, naming nothing it can default
  * to, and succeeds with 0.
@@ -1022,7 +1022,7 @@ int test_cgm_recipe_on_refusals(void) {
 
 /**
  * @test    test_cgm_on_writes_only_transport
- * @brief   With CGMrecipeOn 1 the classic modules write no galaxy property (campaign decision D38)
+ * @brief   With CGMrecipeOn 1 the classic modules write no galaxy property
  *
  * A cooling central with a black hole, which the classic trio would cool, heat and transfer
  * (test_tail_writes_carried_state): with CGMrecipeOn 1 (and the configuration the guard requires)

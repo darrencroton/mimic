@@ -6,21 +6,21 @@
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_set_disk_scale_radius (its
  * _tests/oracle/ directory), dispatching on the fixture's routine:
  *
- * - get_disk_radius (c03): through the module's process() with BulgeSizeOn 0 (R0), asserting
+ * - get_disk_radius: through the module's process() with BulgeSizeOn 0 (R0), asserting
  *   galaxy[0].DiskScaleRadius, the float store of get_disk_radius's result (model_misc.c:203-228,
- *   core_build_model.c:297); return.r_disk is the double before that store, which the package
- *   never keeps, so it is checked only as consistent with the stored float. The input carries
- *   no bulge sizes: the synchronisation that follows zeroes the radii in mode 0, which this
- *   fixture's output does not record;
- * - get_bulge_radius (c07, gbr_*): the shared helper mimic_sage_get_bulge_radius
+ *   core_build_model.c:297); return.r_disk is the double before that store, which the package never
+ *   keeps, so it is checked only as consistent with the stored float. The input carries no bulge
+ *   sizes: the synchronisation that follows zeroes the radii in mode 0, which this fixture's output
+ *   does not record;
+ * - get_bulge_radius (gbr_*): the shared helper mimic_sage_get_bulge_radius
  *   (shared/sage_bulge_size_physics.h, model_misc.c:239-377) called directly with the fixture's
- *   BulgeSizeOn and Hubble_h, asserting the double return, the six-member size block, every
- *   other galaxy member unchanged, the five branch flags and every local the oracle records;
- * - central_disk_and_bulge_radius (c07, tr_sync_*): the oracle's transcription of
+ *   BulgeSizeOn and Hubble_h, asserting the double return, the six-member size block, every other
+ *   galaxy member unchanged, the five branch flags and every local the oracle records;
+ * - central_disk_and_bulge_radius (tr_sync_*): the oracle's transcription of
  *   core_build_model.c:297-298, the disk radius and then get_bulge_radius on the FoF central,
- *   through the module's process() with the fixture's BulgeSizeOn and Hubble_h, asserting the
- *   size block (the new DiskScaleRadius and the synchronised radii) and every other member
- *   unchanged; return.r_disk is checked as in the c03 case.
+ *   through the module's process() with the fixture's BulgeSizeOn and Hubble_h, asserting the size
+ *   block (the new DiskScaleRadius and the synchronised radii) and every other member unchanged;
+ *   return.r_disk is checked as in the get_disk_radius case.
  *
  * Core-owned inputs (Vvir, Rvir, Hubble_h) and the simulation's halo Spin come from the
  * fixture. Outside the oracle environment (macOS arm64, Apple clang 21) the
@@ -71,7 +71,7 @@ static int init_module(const char *name, const struct MimicSageBulgeSize *sizes)
   return 0;
 }
 
-/** @brief get_disk_radius through process() (c03); returns the number of mismatches and errors */
+/** @brief get_disk_radius through process(); returns the number of mismatches and errors */
 static int check_disk_radius(const char *name) {
   static struct oracle_fixture in, out;
   if (oracle_load_pair(MODULE, name, "get_disk_radius", &in, &out) != 0) {
@@ -128,7 +128,7 @@ static int check_disk_radius(const char *name) {
   return problems;
 }
 
-/** @brief get_bulge_radius through the shared helper (c07); returns mismatches and errors */
+/** @brief get_bulge_radius through the shared helper; returns mismatches and errors */
 static int check_bulge_radius(const char *name) {
   static struct oracle_fixture in, out;
   if (oracle_load_pair(MODULE, name, "get_bulge_radius", &in, &out) != 0) {
@@ -188,7 +188,7 @@ static int check_bulge_radius(const char *name) {
 }
 
 /**
- * @brief The central's synchronisation (core_build_model.c:297-298) through process() (c07)
+ * @brief The central's synchronisation (core_build_model.c:297-298) through process()
  * @return Number of mismatches and errors
  */
 static int check_sync(const char *name) {

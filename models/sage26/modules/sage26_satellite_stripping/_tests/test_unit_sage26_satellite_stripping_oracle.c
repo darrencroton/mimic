@@ -9,12 +9,12 @@
  * of every galaxy after the call-site gate and strip_from_satellite
  * (R/src/core_build_model.c:493-498, R/src/model_infall.c:225-273).
  *
- * A CGMrecipeOn 1 fixture (c10) also sets every galaxy's Regime and the module's CGMrecipeOn 1;
- * the test asserts the oracle's source and destination selections (intermediate.take_from_cgm,
+ * A CGMrecipeOn 1 fixture also sets every galaxy's Regime and the module's CGMrecipeOn 1; the test
+ * asserts the oracle's source and destination selections (intermediate.take_from_cgm,
  * intermediate.give_to_cgm) against the satellite's and the central's input Regime 0, the
- * unselected pair of each galaxy unchanged, and each recorded local's markers, with strippedGas
- * and strippedGasMetals equal to the source reservoir where their cap binds (oracle README,
- * "The c10 Group").
+ * unselected pair of each galaxy unchanged, and each recorded local's markers, with strippedGas and
+ * strippedGasMetals equal to the source reservoir where their cap binds
+ * (oracle README, "The c10 Group").
  *
  * The satellite's HaloBaryonFraction is supplied as the package stores it: the
  * oracle's intermediate.HaloBaryonFraction, SAGE26's once-rounded
@@ -65,13 +65,13 @@ static const char *const INPUT_RESERVOIRS[] = {
 /* Reservoirs the oracle records after the call */
 static const char *const OUTPUT_RESERVOIRS[] = {"HotGas", "MetalsHotGas", "CGMgas", "MetalsCGMgas"};
 
-/* The tallies of the c10 locals over one run of the bit-exact test */
+/* The tallies of the CGMrecipeOn 1 locals over one run of the bit-exact test */
 static struct oracle_c10_tally c10_tally;
 
 #define COUNT(array) (sizeof(array) / sizeof((array)[0]))
 
 /**
- * @brief The c10 assertions of a CGMrecipeOn 1 fixture: selections, unselected pairs, locals
+ * @brief The assertions of a CGMrecipeOn 1 fixture: selections, unselected pairs, locals
  * @return Number of mismatches and marker errors
  */
 static int check_c10(struct oracle_fixture *out, const int ngal, const int centralgal,

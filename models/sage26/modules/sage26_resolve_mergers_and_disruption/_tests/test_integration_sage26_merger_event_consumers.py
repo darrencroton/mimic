@@ -45,7 +45,7 @@ MERGER_MODEL_PARAMS = {
     "StarFormingDiskFactor": 3.0,
     "FeedbackReheatingEpsilon": 3.0,
     "FeedbackEjectionEfficiency": 0.3,
-    "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
+    "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
     "ReIncorporationFactor": 0.15,
     "AGNrecipe": 2,
     "RadioModeEfficiency": 0.08,
@@ -62,7 +62,7 @@ MERGER_MODEL_PARAMS = {
     "H2RadialNBins": 25,
     "H2RadialRMaxFactor": 5.0,
     "StarburstColdGasOn": 1,
-    "CGMrecipeOn": 0,  # required by the infall modules (D33), R3's value
+    "CGMrecipeOn": 0,  # required by the infall modules, R3's value
 }
 
 PRE_TIMESTEP_PHASE = [

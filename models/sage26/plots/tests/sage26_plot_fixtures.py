@@ -164,7 +164,7 @@ def build_catalogue(seed=20261107, n_halos=1500, epoch=0.0):
     regime = np.where(is_central, rng.integers(0, 2, n), -1).astype(np.int32)
     regime[:2] = [0, 1]  # both Regime values are always present among the centrals
 
-    # Fields of the SAGE26 z = 0 figures of c16 Slice 2
+    # Fields of the SAGE26 z = 0 figures
     merger_fraction = rng.uniform(0.0, 1.0, n)  # share of the bulge built by mergers
     merger_bulge = bulge * merger_fraction
     instability_bulge = bulge - merger_bulge
@@ -177,9 +177,9 @@ def build_catalogue(seed=20261107, n_halos=1500, epoch=0.0):
     mdot_stream = np.where(rng.random(n) < 0.2, rng.uniform(0.0, 5.0, n), 0.0)
     concentration = rng.uniform(3.0, 20.0, n)  # every row, central or satellite, draws its own
 
-    # Field of the SAGE26 history figures of c16 Slice 3, drawn after every earlier field so the
-    # values above stay what they were: rcool / Rvir from -0.5 to 2.5, the negative values being
-    # SAGE26's "undefined" sentinel, so some haloes are excluded and some exceed 1
+    # Field of the SAGE26 history figures, drawn after every earlier field so the values above stay
+    # what they were: rcool / Rvir from -0.5 to 2.5, the negative values being SAGE26's "undefined"
+    # sentinel, so some haloes are excluded and some exceed 1
     rcool_to_rvir = rng.uniform(-0.5, 2.5, n)
 
     values = {

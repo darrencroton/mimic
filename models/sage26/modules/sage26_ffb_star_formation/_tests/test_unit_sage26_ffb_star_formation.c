@@ -28,23 +28,22 @@
  *   EnhancedStarFormationOn 1 are refused naming what they refuse; FIREmodeOn 0 is accepted at 0
  * - test_placement_refused: pre_timestep, post_timestep, twice, and process_full_halo are refused
  *   naming the module; once by galaxy in a substep phase is accepted
- * - test_dispatch_guards (c13 Slice 3): at EnhancedStarFormationOn 1, init refuses, naming the
- *   missing or misplaced module, without sage26_determine_ffb_regime in pre_timestep, and with the
- *   transaction not immediately before sage26_calculate_star_formation (absent, after it,
- *   separated from it, it as process_full_halo, or in another substep phase); the complete
- *   configuration initialises; at EnhancedStarFormationOn 0 every one of those configurations
- *   initialises
- * - test_chain_initialises (c13 Slice 3): module_system_init over the run files' pre_timestep
- *   classifier and by-galaxy star-formation chain at EnhancedStarFormationOn 1 succeeds; without
- *   the transaction, without the classifier and with the transaction after
- *   sage26_calculate_star_formation it fails naming the module; at 0 each of those succeeds
+ * - test_dispatch_guards: at EnhancedStarFormationOn 1, init refuses, naming the missing or
+ *   misplaced module, without sage26_determine_ffb_regime in pre_timestep, and with the transaction
+ *   not immediately before sage26_calculate_star_formation (absent, after it, separated from it, it
+ *   as process_full_halo, or in another substep phase); the complete configuration initialises; at
+ *   EnhancedStarFormationOn 0 every one of those configurations initialises
+ * - test_chain_initialises: module_system_init over the run files' pre_timestep classifier and
+ *   by-galaxy star-formation chain at EnhancedStarFormationOn 1 succeeds; without the transaction,
+ *   without the classifier and with the transaction after sage26_calculate_star_formation it fails
+ *   naming the module; at 0 each of those succeeds
  *
  * Behaviour (EnhancedStarFormationOn 1 unless stated):
  * - test_off_writes_nothing: EnhancedStarFormationOn 0 writes nothing on an FFBRegime 1 row
  * - test_non_ffb_row_not_written: an FFBRegime 0 row is not written
  * - test_initial_boundary_and_refusal: the initial-boundary state writes nothing and observes a
  * trace whose every value is its not-formed sentinel; an out-of-range stored SnapNum with dT > 0 is
- *   refused (D35), naming it, with nothing written
+ *   refused, naming it, with nothing written
  * - test_stars_formed_and_renormalised: the committed stellar mass and the history sample use the
  *   stars formed, the yield the renormalised stars (they differ: the cap at ColdGas binds and the
  *   renormalisation binds)
@@ -71,13 +70,13 @@
  * - test_sf_prescription_zero_probe: SFprescription 0 (the commits' caps off) matches SAGE26
  * - test_no_central: with no FoF central H2gas, H1gas and the history are written, nothing else;
  *   the observed budget and commit locals hold their not-formed sentinels
- * - test_chain_leaves_trigger (c13 Slice 3): after the transaction, the rest of the by-galaxy chain
- *   in the run files' order (the five bypassed modules, sage26_quasar_mode and
- *   sage26_starburst_feedback by galaxy) leaves an FFB satellite whose disk is unstable by its
- *   masses and radii (SAGE26's criterion written out, R/src/model_disk_instability.c:54-57), and
- *   its central, bytewise as the transaction left them: UnstableDiskGasFraction keeps its reset
- *   value 0 and the quasar and burst entries write nothing. The same state with FFBRegime 0 sets
- *   a positive trigger, so the input discriminates.
+ * - test_chain_leaves_trigger: after the transaction, the rest of the by-galaxy chain in the run
+ *   files' order (the five bypassed modules, sage26_quasar_mode and sage26_starburst_feedback by
+ *   galaxy) leaves an FFB satellite whose disk is unstable by its masses and radii (SAGE26's
+ *   criterion written out, R/src/model_disk_instability.c:54-57), and its central, bytewise as the
+ *   transaction left them: UnstableDiskGasFraction keeps its reset value 0 and the quasar and burst
+ *   entries write nothing. The same state with FFBRegime 0 sets a positive trigger, so
+ *   the input discriminates.
  *
  * Every test that initialises the module at EnhancedStarFormationOn 1 configures the complete
  * dispatch the cross-module guards require (sage26_determine_ffb_regime in pre_timestep, the
@@ -109,7 +108,7 @@ extern int sage26_ffb_star_formation_process(struct ModuleContext *ctx, struct H
                                              int ngal);
 extern int sage26_ffb_star_formation_cleanup(void);
 
-/* R6's values (R6.par) */
+/* R6's values (SAGE26's input/millennium.par) */
 #define TEST_HUBBLE_H 0.73
 #define TEST_RECYCLE 0.43
 #define TEST_EPSILON 2.9
@@ -808,8 +807,8 @@ static void arrange_other_phase(void) {
  * @test    test_dispatch_guards
  * @brief   At EnhancedStarFormationOn 1 the transaction refuses, naming the module, a configuration
  *          without the classifier in pre_timestep or not immediately before
- *          sage26_calculate_star_formation (process_by_galaxy, same substep phase); at 0 it
- *          accepts each (c13 Slice 3)
+ *          sage26_calculate_star_formation (process_by_galaxy, same substep phase); at 0
+ *          it accepts each
  */
 int test_dispatch_guards(void) {
   const struct {
@@ -914,10 +913,10 @@ static void chain_cleanup(const int init_status) {
 
 /**
  * @test    test_chain_initialises
- * @brief   module_system_init over the run files' classifier and chain: the complete
- *          configuration initialises at EnhancedStarFormationOn 1; without the transaction,
- *          without the classifier, or with the transaction after sage26_calculate_star_formation
- *          it fails naming the missing or misplaced module; at 0 each initialises (c13 Slice 3)
+ * @brief   module_system_init over the run files' classifier and chain: the complete configuration
+ *          initialises at EnhancedStarFormationOn 1; without the transaction, without the
+ *          classifier, or with the transaction after sage26_calculate_star_formation it fails
+ *          naming the missing or misplaced module; at 0 each initialises
  */
 int test_chain_initialises(void) {
   const char *log = "";
@@ -1373,7 +1372,7 @@ static int disk_unstable(const struct GalaxyData *g, const float vmax) {
  * @test    test_chain_leaves_trigger
  * @brief   After the transaction, the rest of the by-galaxy chain writes nothing on an FFB row with
  *          an unstable disk: UnstableDiskGasFraction keeps its reset value 0, and the quasar and
- *          burst entries write nothing (c13 Slice 3)
+ *          burst entries write nothing
  *
  * SAGE26's FFB dispatch returns from starformation_and_feedback after starformation_ffb, which
  * runs no instability check (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), so

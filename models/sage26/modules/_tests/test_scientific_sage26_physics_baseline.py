@@ -15,7 +15,8 @@ Tolerance: integers exact; floats at baseline_rtol() (1e-6 relative unless MIMIC
            compiler or libm may need the override, as CI uses for sage16's baseline
 
 This is a regression guard on the package's own output on the test trees, not a parity
-measurement against SAGE26: T1's parity with SAGE26 is measured by its own instrument. A pass
+measurement against SAGE26: the package's parity with SAGE26 is measured by the instrument under
+models/sage26/instrument. A pass
 says the output has not moved since the baseline was captured; it says nothing about whether
 that output matches SAGE26.
 
@@ -93,8 +94,8 @@ BASELINE_DIR = TESTS_DIR / "baseline" / "physics-binary"
 CURRENT_DIR = REPO_ROOT / "output" / "sage26-physics-binary"
 
 # The input's output snapshots and the binary file Mimic writes for each (model_z<z>_0, z from
-# tests/data/input/mini-millennium.a_list). FFB_SNAPSHOT is the snapshot among T1's outputs 16,
-# 18, 20, 23 and 27 whose output on the test trees holds the most FFBRegime 1 rows
+# tests/data/input/mini-millennium.a_list). FFB_SNAPSHOT is the snapshot among the output snapshots
+# 16, 18, 20, 23 and 27 whose output on the test trees holds the most FFBRegime 1 rows
 FFB_SNAPSHOT = 16
 OUTPUT_FILES = {63: "model_z0.000_0", FFB_SNAPSHOT: "model_z7.272_0"}
 SCHEMA = Path("metadata") / "output_schema.json"

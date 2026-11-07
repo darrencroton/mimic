@@ -1,15 +1,15 @@
 /**
  * @file    sage26_oracle_hydrogen.h
- * @brief   Oracle-test helpers for the c08 hydrogen sites of the merger-family routines
- *          (SFprescription 0 and 1)
+ * @brief   Oracle-test helpers for the SFprescription 1 hydrogen sites of the merger-family
+ *          routines (SFprescription 0 and 1)
  *
- * Adds, beside sage26_oracle_fixture.h, sage26_oracle_sizes.h and sage26_oracle_h2.h (which stay
- * as they are), what the oracle tests of the c08 black-hole, burst and merger fixtures need
- * (oracle README "The c08 Group", "The Hydrogen Sites of the Merger Family"):
+ * Adds, beside sage26_oracle_fixture.h, sage26_oracle_sizes.h and sage26_oracle_h2.h (which stay as
+ * they are), what the oracle tests of the SFprescription 1 black-hole, burst and merger fixtures
+ * need (oracle README "The c08 Group", "The Hydrogen Sites of the Merger Family"):
  *
- * - oracle_c08_require_merger_flags(): c06's merger-family flags with SFprescription read (0 or
- *   1, with the H2 configuration oracle_c06 requires for 1) and BulgeSizeOn read (0 or 3), every
- *   other flag pinned at its R0-R2 value;
+ * - oracle_c08_require_merger_flags(): the merger family's flags with SFprescription read (0 or 1,
+ *   with the H2 configuration oracle_c06 requires for 1) and BulgeSizeOn read (0 or 3), every other
+ *   flag pinned at its R0-R2 value;
  * - oracle_c08_check_bh_hydrogen(): grow_black_hole's accretion cap record (M:366-372), present
  *   only on SFprescription 1 fixtures;
  * - oracle_c08_check_burst_hydrogen(): the burst's record (the observed star-formation commit
@@ -34,11 +34,11 @@
 #include "shared/sage_starburst_physics.h"
 
 /**
- * @brief c06's merger-family flags with SFprescription and BulgeSizeOn read rather than pinned
+ * @brief The merger family's flags with SFprescription and BulgeSizeOn read rather than pinned
  *
  * SFprescription 0 (R0, R1) or 1 (R2, with H2RadialIntegrationOn 1, H2RadialNBins 25 and
- * H2RadialRMaxFactor 5.0); BulgeSizeOn 0 or 3 (with Hubble_h for 3); the other flags are those
- * R0.par, R1.par and R2.par share.
+ * H2RadialRMaxFactor 5.0); BulgeSizeOn 0 or 3 (with Hubble_h for 3); the other flags are those R0,
+ * R1 and R2 share.
  *
  * @param sf_prescription  Receives the fixture's SFprescription
  * @return Number of problems

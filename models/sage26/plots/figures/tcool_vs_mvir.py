@@ -16,8 +16,8 @@ Fields read (units): CoolingRate (Msun/Gyr per SAGE26's label; held in SAGE26's 
 x 1e10 / hubble_h, :1949), Rvir (Mpc/h, only to select), Regime (0 circumgalactic medium,
 1 hot) and Vvir (km/s; the virial temperature is 35.9 Vvir^2 K, :411).
 
-Permitted deviations (c16 Slice 2, row `tcool_vs_mvir`): none beyond the display freedoms
-(figure size, font sizes, colours, marker sizes, dpi, bbox) taken through the house helpers.
+Permitted deviations: none beyond the display freedoms (figure size, font sizes, colours, marker
+sizes, dpi, bbox) taken through the house helpers.
 """
 
 import numpy as np

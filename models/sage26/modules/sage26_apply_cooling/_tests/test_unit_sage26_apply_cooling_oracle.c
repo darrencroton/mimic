@@ -44,7 +44,7 @@ extern int sage26_apply_cooling_process(struct ModuleContext *ctx, struct Halo *
 
 static const char *MODULE = "sage26_apply_cooling";
 
-/* The c04 state fields cool_gas_onto_galaxy may change or must leave as they are */
+/* The cooling state fields cool_gas_onto_galaxy may change or must leave as they are */
 static const char *const ASSERTED[] = {"HotGas",        "MetalsHotGas", "ColdGas", "MetalsColdGas",
                                        "BlackHoleMass", "r_heat",       "Heating", "tcool",
                                        "tff",           "RcoolToRvir"};

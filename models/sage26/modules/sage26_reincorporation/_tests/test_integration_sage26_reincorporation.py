@@ -365,7 +365,7 @@ def test_physics_velocity_threshold():
         model_params={
             "GlobalBaryonFraction": 0.17,
             "ReIncorporationFactor": 1.0,  # Vcrit = 354.53 km/s (SAGE26),
-            "CGMrecipeOn": 0,  # required by the infall modules (D33), R3's value
+            "CGMrecipeOn": 0,  # required by the infall modules, R3's value
         },
     )
 

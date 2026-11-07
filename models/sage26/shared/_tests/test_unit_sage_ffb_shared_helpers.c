@@ -1,6 +1,6 @@
 /**
  * @file    test_unit_sage_ffb_shared_helpers.c
- * @brief   Unit tests of the shared helpers c13 Slice 2 adds or relocates: the FFB feedback budget
+ * @brief   Unit tests of the shared helpers: the FFB feedback budget
  *          (shared/sage_ffb_feedback_physics.h), the H I block (shared/sage_hi_physics.h) and the
  *          disk yield (shared/sage_metal_yield_physics.h)
  *
@@ -89,7 +89,7 @@ static struct ffb_expected expected_ffb(const float vvir, const double z, const 
   if (vc > 0.0 && z >= 0.0) {                        /* S:917 */
     const double vc_floored = (vc < 1.0) ? 1.0 : vc; /* S:918 */
     const double z_term = pow(1.0 + z, 1.25);        /* S:919 */
-    /* S:920-921; pow(x, -1.0) in the form SAGE26's object computes, 1.0 / x (c09) */
+    /* S:920-921; pow(x, -1.0) in the form SAGE26's object computes, 1.0 / x */
     const double v_term =
         (vc_floored < 60.0) ? pow(vc_floored / 60.0, -3.2) : 1.0 / (vc_floored / 60.0);
     fire_scaling = z_term * v_term; /* S:922 */

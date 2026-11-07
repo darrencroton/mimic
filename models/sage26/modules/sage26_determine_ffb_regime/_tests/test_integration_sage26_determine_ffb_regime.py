@@ -8,12 +8,12 @@ domain with EnhancedStarFormationOn 1, and refuses a missing required key, a mis
 at EnhancedStarFormationOn 1, a configuration without the FFB transaction, at the executable's
 exit status.
 
-Every configuration sets every key its modules read, explicitly (campaign decision D33). The keys
+Every configuration sets every key its modules read, explicitly. The keys
 come from each configured module's module_info.yaml `parameters` list, which
 `make lint-parameters` holds to the code, with the vertical run file's values
 (models/sage26/input/sage26_mini-millennium.yaml), except CGMrecipeOn, set to 0 because no CGM
 module is configured, so the star-formation modules take the classic hot-gas routing.
-Runs use the run file's SubSteps (10) and write snapshots 63 and 16 (Slice 1's FFB snapshot S).
+Runs use the run file's SubSteps (10) and write snapshots 63 and 16 (the FFB snapshot S).
 
 Minimal pipeline (Loads and runs, Off, On; EnhancedStarFormationOn 1 for Loads and runs and On),
 in the run file's order:
@@ -31,7 +31,7 @@ in the run file's order:
 Off is a no-op: with EnhancedStarFormationOn 0, the minimal pipeline with the module and the same
 pipeline without it give byte-identical output in every field of every row of both snapshots.
 
-On writes its domain (frozen observable list):
+On writes its domain (the observable list):
   - FFBRegime: in {0, 1} on every output row of both snapshots (range [0, 1], creation value 0,
     models/sage26/model_properties.yaml:496-504; README.md, "Properties": "Writes: FFBRegime").
   - Witness: at least one row with FFBRegime 1 at snapshot S = 16.
@@ -50,7 +50,7 @@ Placement refusal: with EnhancedStarFormationOn 0 (so no cross-module guard appl
 classifier in a substep phase (galaxy_physics, process_full_halo), every key present, is refused
 naming the module (check_placement).
 
-Cross-module guard (campaign decision D47), at EnhancedStarFormationOn 1: the classifier
+Cross-module guard, at EnhancedStarFormationOn 1: the classifier
 configured and sage26_ffb_star_formation absent is refused by the classifier, naming
 sage26_ffb_star_formation. This configuration breaks only that guard. The transaction's two guards
 (adjacency to sage26_calculate_star_formation, and the classifier's presence) are each exercised by
@@ -96,13 +96,13 @@ FH = "process_full_halo"
 BG = "process_by_galaxy"
 
 # The vertical run file's SubSteps and the snapshots written, with their binary output files on
-# mini-millennium's committed test trees (16 is Slice 1's FFB snapshot S, z = 7.272)
+# mini-millennium's committed test trees (16 is the FFB snapshot S, z = 7.272)
 SUBSTEPS = 10
 FFB_SNAPSHOT = 16
 OUTPUT_FILES = {63: "model_z0.000_0", FFB_SNAPSHOT: "model_z7.272_0"}
 
-# The vertical run file's values for every key the configurations below read (D33), except
-# CGMrecipeOn: 0, as no CGM module is configured
+# The vertical run file's values for every key the configurations below read, except CGMrecipeOn: 0,
+# as no CGM module is configured
 PARAMETER_VALUES = {
     "EnhancedStarFormationOn": 1,
     "EnhancedSFEfficiency": 0.2,
@@ -170,7 +170,7 @@ def configured_modules(phases):
 
 
 def parameters_for(phases, overrides=None, omit=()):
-    """Every key the configured modules read, with the run file's values (D33)."""
+    """Every key the configured modules read, with the run file's values."""
     keys = sorted({key for name in configured_modules(phases) for key in module_parameters(name)})
     missing = [key for key in keys if key not in PARAMETER_VALUES]
     assert not missing, f"no value for keys the configured modules read: {missing}"

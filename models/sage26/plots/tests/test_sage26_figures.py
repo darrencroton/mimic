@@ -12,11 +12,12 @@ Validates: each registered figure renders a non-empty PNG named by its registry 
            seven reservoirs with the total equal to their sum; baryon_fraction draws a "CGM"
            curve, mass_reservoir_scatter a "CGM gas" series and gas_mass_function the
            "Model - H2 Gas" and "Model - HI Gas" lines, each tagged gid="model"
-           (Slice 2 adds the twelve SAGE26 z = 0 figures S19-S30: the same cases, a Cap case for
-           each sampled figure, a unit case for each helper, and both the colour-bar and the
-           no-colour-bar labels of tcool_vs_mvir; Slice 3 adds the fourteen evolution figures
-           E5-E18 (thirteen ports of SAGE26's allresults-history.py and the cut-down port of
-           paper_plots.py plot 23c): the same cases, a window case and a legend case where the
+           (the twelve SAGE26 z = 0 figures, bulge_to_total to disk_radius_vs_stellar_mass, get the
+           same cases, a Cap case for each sampled figure, a unit case for each helper, and both
+           the colour-bar and the no-colour-bar labels of tcool_vs_mvir; the fourteen evolution
+           figures, rcool_to_rvir_above_mshock to ffb_fraction_cut_down (thirteen ports of
+           SAGE26's allresults-history.py and the cut-down port of paper_plots.py plot 23c), get
+           the same cases, a window case and a legend case where the
            figure has one, the snapshot-selection helper's cases (inclusive z-range ends, empty
            bins, nearest snapshot and its tie, order independence), a unit case for every helper,
            and cases pinning each bin constant, threshold, legend text and conversion)
@@ -26,8 +27,8 @@ Tolerance: none for labels, stems, field sets, caps and the reservoir helper (th
            1e-12 (decimal literals) or exactly (dyadic literals), and the smoothed-histogram
            peak with an absolute tolerance of 2e-3
 
-Every expectation is written from the plan of the c16 plotting node (Slices 1 to 3), the
-figure's source text at the starting commit (66a3e949, transcribed: no label is computed from the
+Every expectation is written from the forked figure's source text at commit 66a3e949
+(transcribed: no label is computed from the
 code under test) or SAGE26's plotting scripts (plotting/allresults-local.py,
 plotting/allresults-history.py and plotting/paper_plots.py, lines cited at each use).
 Figures render with MPLBACKEND=Agg into a temporary directory under $TMPDIR, removed at the end.
@@ -84,7 +85,7 @@ def load_figure_package(model):
 
 FIGURES = load_figure_package("sage26")
 
-# Final registry table of the c16 plan, Slice 3: registry name -> File stem (rows S1-S30, E1-E18)
+# Registry name -> File stem, for every registered figure
 SNAPSHOT_STEMS = {
     "halo_mass_function": "HaloMassFunction",
     "halo_occupation": "HaloOccupation",
@@ -161,9 +162,10 @@ def panel(x_label, y_label, title="", z_label=""):
     }
 
 
-# name -> list of expected data axes in creation order. The forked figures (S1-S18, E1-E4) have no
-# title and no colour bar; the labels of the new figures (S19-S30) are SAGE26's Python string
-# literals at the lines cited.
+# name -> list of expected data axes in creation order. The forked figures (the first eighteen
+# snapshot figures and the first four evolution figures, in registry order) have no title and no
+# colour bar; the labels of the other figures are SAGE26's Python string literals at
+# the lines cited.
 DATA_AXES = {
     "halo_mass_function": [panel(HALO_MASS, MASS_FUNCTION)],
     "halo_occupation": [panel(HALO_MASS, r"Mean occupation number $\langle N \rangle$")],
@@ -279,8 +281,8 @@ DATA_AXES = {
     "stellar_mass_density_evolution": [
         panel(REDSHIFT, r"log$_{10}$ $\rho_{*}$ [M$_{\odot}$ Mpc$^{-3}$]")
     ],
-    # The history figures of Slice 3: SAGE26's Python string literals at the lines cited (none
-    # draws a label SAGE26 does not; an empty string where SAGE26 sets none)
+    # The history figures: SAGE26's Python string literals at the lines cited (none draws a label
+    # SAGE26 does not; an empty string where SAGE26 sets none)
     "rcool_to_rvir_above_mshock": [  # allresults-history.py:448-451
         panel(
             r"$r_{\rm cool}\,/\,R_{\rm vir}$",
@@ -317,7 +319,7 @@ DATA_AXES = {
         panel(r"Redshift $z$", "Fraction (top 10% $M_*$, sSFR $< 0.2/t_{\\rm H}$)")
     ],
     "quenched_central_satellite_counts": [panel("", "Average Count")],  # :2024 (no x label)
-    # paper_plots.py:10357-10371 and :10440; the title is the cut-down port's own (plan row E18)
+    # paper_plots.py:10357-10371 and :10440; the title is the cut-down port's own
     "ffb_fraction_cut_down": [
         panel(
             r"$z$",
@@ -855,8 +857,8 @@ def test_labels__tcool_vs_mvir_with_only_regimes_0_and_1_has_no_colour_bar():
 # --------------------------------------------------------------------------------------
 # Cap cases: the sample size of each sampled figure
 # --------------------------------------------------------------------------------------
-# name -> literal cap of its row of the plan: SAGE26's script-level `dilute` 7500
-# (allresults-local.py:73), `dilute_sfr` 10000 (:1631) and `dilute` reassigned to 100000 (:1735)
+# name -> literal cap: SAGE26's script-level `dilute` 7500 (allresults-local.py:73), `dilute_sfr`
+# 10000 (:1631) and `dilute` reassigned to 100000 (:1735)
 CAPS = {
     "spatial_distribution_3d_box": 7500,  # :1571
     "star_formation_rate": 10000,  # :1632
@@ -1425,10 +1427,10 @@ def test_legend__disk_radius_vs_stellar_mass():
 
 
 # --------------------------------------------------------------------------------------
-# Slice 3: the snapshot-selection helpers (figures/_snapshot_selection.py)
+# The snapshot-selection helpers (figures/_snapshot_selection.py)
 # --------------------------------------------------------------------------------------
-# The eight snapshots the run files write and their redshifts, z = 1 / a - 1 with `a` the
-# scale factors of simulations/mini-millennium/mini-millennium.a_list (line n + 1 of the file
+# The eight snapshots the run files write and their redshifts, z = 1 / a - 1 with `a` the scale
+# factors of simulations/mini-millennium/mini-millennium.a_list (line n + 1 of the file
 # holds snapshot n).
 RUN_REDSHIFTS = {
     63: 1 / 1.000000 - 1,
@@ -1572,7 +1574,7 @@ def test_selection__results_do_not_depend_on_the_order_snapshots_are_supplied_in
 
 
 # --------------------------------------------------------------------------------------
-# Slice 3: figure-level cases on small hand-built catalogues
+# Figure-level cases on small hand-built catalogues
 # --------------------------------------------------------------------------------------
 def hand_built(spec):
     """Return the ``snapshots`` argument of an evolution figure from a literal specification.
@@ -2199,8 +2201,8 @@ def test_figure__ffb_fraction_step_values_and_axes():
 
 
 # ---- axis windows, scales and legends of the new evolution figures ----
-# name -> (x window, y window, y scale); None where SAGE26 sets no window. Written from the row
-# of the plan and the SAGE26 lines cited.
+# name -> (x window, y window, y scale); None where SAGE26 sets no window. Written from the
+# SAGE26 lines cited.
 WINDOWS = {
     "sfr_evolution": ((8.0, 12.2), (-4.0, 3.0), "linear"),  # :829-830
     "stellar_mass_halo_mass_relation": ((10.0, 15.0), (7.0, 12.0), "linear"),  # :936-937
@@ -2535,7 +2537,6 @@ BIN_CASES = [
     test_legend__tcool_vs_mvir,
     test_legend__ejection_efficiency_vs_vvir_has_none,
     test_legend__disk_radius_vs_stellar_mass,
-    # Slice 3
     test_selection__z_bins_are_the_fifteen_of_sage26,
     test_selection__z_range_includes_both_ends,
     test_selection__empty_bin_returns_no_snapshot,
@@ -2590,7 +2591,6 @@ UNIT_CASES = [
     test_unit__effective_disk_radius,
     test_unit__virial_radius_kpc,
     test_unit__moffett_imf_shift_is_zero,
-    # Slice 3
     test_unit__rcool_helpers,
     test_unit__metallicity_evolution_helpers,
     test_unit__h2_fraction_evolution_helpers,

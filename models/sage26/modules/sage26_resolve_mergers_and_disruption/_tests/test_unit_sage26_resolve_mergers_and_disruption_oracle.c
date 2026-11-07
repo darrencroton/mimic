@@ -6,22 +6,22 @@
  * sage26_resolve_mergers_and_disruption (its _tests/oracle/ directory), with R0's flags
  * (M = R/src/model_mergers.c, B = R/src/core_build_model.c):
  *
- * - add_galaxies_together (M:456-543, add_*) and make_bulge_from_burst (M:553-570, mbb_*):
- *   the shared helpers mimic_sage_add_galaxies_together and mimic_sage_make_bulge_from_burst
- *   (shared/sage_merger_physics.h), called directly at SAGE26's routine boundary. The c07
- *   add_s3_* fixtures run add_galaxies_together with BulgeSizeOn 3 (R1.par:109) and the
- *   fixture's Hubble_h, so the satellite disk stars credited to the instability channel
- *   update the target's instability radius (M:516-522); every other fixture has R0's 0;
+ * - add_galaxies_together (M:456-543, add_*) and make_bulge_from_burst (M:553-570, mbb_*): the
+ *   shared helpers mimic_sage_add_galaxies_together and mimic_sage_make_bulge_from_burst
+ *   (shared/sage_merger_physics.h), called directly at SAGE26's routine boundary. The add_s3_*
+ *   fixtures run add_galaxies_together with BulgeSizeOn 3 (R1) and the fixture's Hubble_h, so the
+ *   satellite disk stars credited to the instability channel update the target's instability radius
+ *   (M:516-522); every other fixture has R0's 0;
  * - deal_with_galaxy_merger (M:228-333, merge_*): the resolver's whole transaction,
- *   sage26_resolve_mergers_and_disruption_merge, with the fixture's call.time and call.dt,
- *   whose merger event runs the module's real consumers in the order of the production
- *   phase: sage26_quasar_mode's and then sage26_starburst_feedback's process_per_event
- *   entry, with the event the registry would hand them (target halo, ratio, satellite dt),
- *   then the resolver's completion. Zero-ratio fixtures are included. The c07 merge_s3_*
- *   fixtures run it with BulgeSizeOn 3 (R1.par:109): the target's bulge-radius
- *   synchronisation after the burst, the remnant radius (M:135-212, the oracle's checked
- *   transcription of the static routine) with its locals and every branch, and the major,
- *   disk-dominated minor and spheroid-dominated minor assignments (M:293-330);
+ *   sage26_resolve_mergers_and_disruption_merge, with the fixture's call.time and call.dt, whose
+ *   merger event runs the module's real consumers in the order of the production phase:
+ *   sage26_quasar_mode's and then sage26_starburst_feedback's process_per_event entry, with the
+ *   event the registry would hand them (target halo, ratio, satellite dt), then the resolver's
+ *   completion. Zero-ratio fixtures are included. The bulge-size merge_s3_* fixtures run it with
+ *   BulgeSizeOn 3 (R1): the target's bulge-radius synchronisation after the burst, the remnant
+ *   radius (M:135-212, the oracle's checked transcription of the static routine) with its locals
+ *   and every branch, and the major, disk-dominated minor and spheroid-dominated
+ *   minor assignments (M:293-330);
  * - disrupt_satellite_to_ICS (M:845-902, dis_*): the resolver's disruption entry,
  *   sage26_resolve_mergers_and_disruption_disrupt, with the fixture's call.time, at
  *   SAGE26's routine boundary: SAGE26's mergeType 4 is the package's Type 3 with the
@@ -43,12 +43,12 @@
  *   (tr_jp_type1_orphan_history_disrupt).
  *
  * The test configures the phases of the production run file (sage26_disk_instability in a
- * galaxy-physics phase, so the burst runs SAGE26's post-minor-merger recheck, and the
- * resolver, the quasar consumer and the burst consumer in that order in a merger phase)
- * and initialises the three modules from the fixture's parameters, so the consumers run
- * exactly as configured in production. The burst module derives its supernova constants
- * from the unit factors and Hubble_h 0.73 (R0.par); the test requires them to equal the
- * fixture's EnergySNcode and EtaSNcode bit for bit.
+ * galaxy-physics phase, so the burst runs SAGE26's post-minor-merger recheck, and the resolver, the
+ * quasar consumer and the burst consumer in that order in a merger phase) and initialises the three
+ * modules from the fixture's parameters, so the consumers run exactly as configured in production.
+ * The burst module derives its supernova constants from the unit factors and Hubble_h 0.73
+ * (input/millennium.par:40, :106-108); the test requires them to equal the fixture's EnergySNcode
+ * and EtaSNcode bit for bit.
  *
  * Asserted bit for bit: the thirty floats of every recorded galaxy block, the sixty history
  * elements wherever the output records them, and the clock wherever it records it; every
@@ -78,37 +78,37 @@
  * (src/core/inheritance.c make_orphan) and init_repeat resets the other four on every inherited
  * row, so they are excluded on that row only, by name, and counted.
  *
- * SFprescription 1 (the c08 merge_r2_* and tr_pass_r2_* fixtures, R2's flags): the three modules
- * read the fixture's SFprescription, so the merger's black-hole growth caps the hydrogen
- * (M:366-372), the burst's commits cap it and the burst refreshes it (M:798-803), the
- * post-minor-merger recheck included; the end state, H2gas and H1gas among the thirty floats, is
- * asserted bit for bit. The merger's black-hole cap is end-state invariant (the burst's commit
- * re-caps at a bound never looser and its refresh overwrites H1gas), so its record is asserted:
- * beside the quasar consumer's process() the test runs the shared growth on a copy of the target
- * with the fixture's SFprescription, requires the copy to equal the consumer's result bit for
- * bit (so the consumer's growth received the same SFprescription and arguments), and asserts that
- * shadow's cap locals against the oracle's bh_* record and max_h_bh, as the quasar oracle test
- * does at its routine boundary. The rest of the c08 record (the burst's caps and refresh, and the
+ * SFprescription 1 (the merge_r2_* and tr_pass_r2_* fixtures, R2's flags): the three modules read
+ * the fixture's SFprescription, so the merger's black-hole growth caps the hydrogen (M:366-372),
+ * the burst's commits cap it and the burst refreshes it (M:798-803), the post-minor-merger recheck
+ * included; the end state, H2gas and H1gas among the thirty floats, is asserted bit for bit. The
+ * merger's black-hole cap is end-state invariant (the burst's commit re-caps at a bound never
+ * looser and its refresh overwrites H1gas), so its record is asserted: beside the quasar consumer's
+ * process() the test runs the shared growth on a copy of the target with the fixture's
+ * SFprescription, requires the copy to equal the consumer's result bit for bit (so the consumer's
+ * growth received the same SFprescription and arguments), and asserts that shadow's cap locals
+ * against the oracle's bh_* record and max_h_bh, as the quasar oracle test does at its routine
+ * boundary. The rest of the SFprescription 1 record (the burst's caps and refresh, and the
  * observation of the recheck's growth) is consumed, not asserted, as the consumers' other locals:
  * the burst oracle test asserts it against the shared burst's locals.
  *
- * CGMrecipeOn 1 (the c10 merge_cgm_*, dis_cgm_* and tr_pass_cgm_* fixtures, R4's flags; oracle
- * README "The c10 Group, Part 3"): the three modules are initialised with the fixture's CGMrecipeOn
- * (the resolver's disruption, the quasar consumer's growth, the burst consumer's bundle), every
- * galaxy's Regime is set from the fixture, and the consumer shadow and the burst replay take the
- * fixture's CGMrecipeOn. The test also asserts each routing site against the oracle's selection
- * AND against the expected galaxy's input Regime: the merger's wind (the shadow growth's wind
- * locals, its CGM test and cgm_gas_energy bit for bit) by the TARGET's; the merger burst's commit
- * and yield (the replay) by the FoF central's; the merger's post-minor-merger recheck's wind (its
- * tests and energies bit for bit) by the target's and its own burst's commit and yield by the FoF
- * central's; the direct disruption's deposit (the entry's locals) by the PASSED recipient's, which
- * may be a Type 1 that is not the FoF central. In a pass the oracle's disruption selection is
- * asserted against the recipient's input Regime, each merger event's shadow wind and replay
- * burst against the target's and the central's, and the oracle's observations of SAGE26's own
- * calls are counted. The pairs no site of the path writes are asserted unchanged against the
- * input: the FoF central's unselected pair (and both pairs of a non-recipient FoF central in a
- * disruption), and the merger target's unselected pair, which the addition alone changes
- * (CGM to CGM, hot to hot: the target's input plus the satellite's, as floats).
+ * CGMrecipeOn 1 (the merge_cgm_*, dis_cgm_* and tr_pass_cgm_* fixtures, R4's flags; oracle README
+ * "The c10 Group, Part 3"): the three modules are initialised with the fixture's CGMrecipeOn (the
+ * resolver's disruption, the quasar consumer's growth, the burst consumer's bundle), every galaxy's
+ * Regime is set from the fixture, and the consumer shadow and the burst replay take the fixture's
+ * CGMrecipeOn. The test also asserts each routing site against the oracle's selection AND against
+ * the expected galaxy's input Regime: the merger's wind (the shadow growth's wind locals, its CGM
+ * test and cgm_gas_energy bit for bit) by the TARGET's; the merger burst's commit and yield (the
+ * replay) by the FoF central's; the merger's post-minor-merger recheck's wind (its tests and
+ * energies bit for bit) by the target's and its own burst's commit and yield by the FoF central's;
+ * the direct disruption's deposit (the entry's locals) by the PASSED recipient's, which may be a
+ * Type 1 that is not the FoF central. In a pass the oracle's disruption selection is asserted
+ * against the recipient's input Regime, each merger event's shadow wind and replay burst against
+ * the target's and the central's, and the oracle's observations of SAGE26's own calls are counted.
+ * The pairs no site of the path writes are asserted unchanged against the input: the FoF central's
+ * unselected pair (and both pairs of a non-recipient FoF central in a disruption), and the merger
+ * target's unselected pair, which the addition alone changes (CGM to CGM, hot to hot: the target's
+ * input plus the satellite's, as floats).
  *
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
  * SKIP.
@@ -171,14 +171,14 @@ static const char *MODULE = "sage26_resolve_mergers_and_disruption";
 /* SAGE26's TOOMRE_DISK_FACTOR (R/src/model_disk_instability.c:35), the recheck's factor */
 #define SAGE26_TOOMRE_DISK_FACTOR 3.0
 
-/* SAGE26's R0 unit factors and Hubble_h (R0.par:40, :106-107), from which the burst module
- * derives EnergySNcode and EtaSNcode (R/src/core_init.c:102-103) */
+/* SAGE26's unit factors and Hubble_h (input/millennium.par:40, :106-107), from which the burst
+ * module derives EnergySNcode and EtaSNcode (R/src/core_init.c:102-103) */
 #define SAGE26_UNIT_LENGTH_IN_CM 3.08568e+24
 #define SAGE26_UNIT_MASS_IN_G 1.989e+43
 #define SAGE26_HUBBLE_H 0.73
 
-/* The resolver's ThresholdSatDisruption, read by its init only (the pass's gate, R0.par:79);
- * no transaction fixture carries it */
+/* The resolver's ThresholdSatDisruption, read by its init only (the pass's gate,
+ * input/millennium.par:79); no transaction fixture carries it */
 #define SAGE26_THRESHOLD_SAT_DISRUPTION 1.0
 
 /* Carried-value check kinds (oracle README "Carried Values, Check Kinds") */
@@ -187,12 +187,12 @@ static const char *MODULE = "sage26_resolve_mergers_and_disruption";
 
 static struct oracle_c06_carried_tally tally;
 static int counts_add = 0, counts_mbb = 0, counts_merge = 0, counts_multi = 0;
-/* add_galaxies_together fixtures run with BulgeSizeOn 3 (c07) */
+/* add_galaxies_together fixtures run with BulgeSizeOn 3 */
 static int counts_add_sizes = 0;
 static int counts_ratio_zero = 0, counts_inert_radius = 0;
-/* deal_with_galaxy_merger fixtures run with BulgeSizeOn 3 (c07 Slice 3), per assignment branch
- * (0 major, 1 minor onto a disk-dominated target, 2 minor onto a spheroid-dominated one), and
- * per remnant-radius branch taken (the order of REMNANT_FLAGS) */
+/* deal_with_galaxy_merger fixtures run with BulgeSizeOn 3, per assignment branch (0 major, 1 minor
+ * onto a disk-dominated target, 2 minor onto a spheroid-dominated one), and per remnant-radius
+ * branch taken (the order of REMNANT_FLAGS) */
 static int counts_merge_sizes = 0;
 static int counts_merge_sizes_branch[3] = {0, 0, 0};
 #define REMNANT_BRANCHES 7
@@ -202,10 +202,10 @@ static int counts_consumer_locals_validated = 0;
 static int counts_disrupt = 0, counts_pass = 0, counts_join_and_pass = 0;
 static int counts_pass_mergers = 0, counts_pass_disruptions = 0, counts_pass_redirects = 0;
 static int counts_orphan_exclusions = 0;
-/* c08: merge and pass fixtures run with SFprescription 1 */
+/* Merge and pass fixtures run with SFprescription 1 */
 static int counts_br06 = 0;
-/* c08: the fixture's SFprescription and growth parameters, for the shadow of the quasar
- * consumer's merger growth (dispatch_merger_event), and that shadow's locals */
+/* The fixture's SFprescription and growth parameters, for the shadow of the quasar consumer's
+ * merger growth (dispatch_merger_event), and that shadow's locals */
 static int fixture_sf_prescription = 0;
 static double fixture_black_hole_growth_rate = 0.0;
 static double fixture_quasar_mode_efficiency = 0.0;
@@ -213,9 +213,9 @@ static struct MimicSageBlackHoleLocals shadow_bh;
 static struct oracle_c08_local_tally bh_h_tally;
 static int counts_merge_bh_caps = 0;
 
-/* c09: a deal_with_galaxy_merger_fire or merger_pass_fire fixture, its FIREmodeOn, stored
- * snapshots and input, for the replay of the burst consumer's call (dispatch_merger_event); the
- * last replay, its problems, and the counts of the c09 assertions */
+/* A deal_with_galaxy_merger_fire or merger_pass_fire fixture, its FIREmodeOn, stored snapshots and
+ * input, for the replay of the burst consumer's call (dispatch_merger_event); the last replay, its
+ * problems, and the counts of the FIRE assertions */
 static int fixture_fire = 0;
 static int fixture_fire_mode_on = 0;
 static int fixture_ngal = 0;
@@ -230,7 +230,7 @@ static int counts_fire_merge = 0, counts_fire_pass = 0;
 static int counts_merger_wiring = 0, counts_recheck_wiring = 0, counts_pass_observed = 0;
 static int counts_mass_loading = 0;
 
-/* c10: whether the fixture's routine admits CGMrecipeOn 1 (set by check_merge, check_disrupt and
+/* Whether the fixture's routine admits CGMrecipeOn 1 (set by check_merge, check_disrupt and
  * check_pass), its CGMrecipeOn, the per-event selections of the consumer shadow's wind and the
  * burst replay (-1 where the site did not run), and the assertions' counters */
 static int fixture_cgm_allowed = 0;
@@ -312,14 +312,14 @@ static void observe_action(const char *action, int source_index, int target_inde
  * @return Number of problems
  */
 static int setup_modules(struct oracle_fixture *in) {
-  /* c06's flags with BulgeSizeOn read (0, or 3 for the c07 merge_s3_* fixtures, with the
-   * fixture's Hubble_h) and SFprescription read (0, or 1 for the c08 fixtures, with the H2
-   * configuration) */
+  /* The merger family's flags with BulgeSizeOn read (0, or 3 for the bulge-size merge_s3_*
+   * fixtures, with the fixture's Hubble_h) and SFprescription read (0, or 1 for the SFprescription
+   * 1 fixtures, with the H2 configuration) */
   struct MimicSageBulgeSize sizes;
   int sf_prescription = 0;
-  /* FIREmodeOn: 0, or 0 or 1 for a c09 fixture (validated by oracle_c09_read_fire_config), or R4's
-   * 1 for a CGMrecipeOn 1 disruption (unread there); CGMrecipeOn: 0, or 0 or 1 where the routine
-   * admits it (c10) */
+  /* FIREmodeOn: 0, or 0 or 1 for a FIRE fixture (validated by oracle_c09_read_fire_config), or R4's
+   * 1 for a CGMrecipeOn 1 disruption (unread there); CGMrecipeOn: 0, or 0 or 1 where the
+   * routine admits it */
   int fire_mode_read = 0;
   int problems =
       oracle_c10_require_merger_flags(in, &sizes, &sf_prescription, fixture_fire,
@@ -387,7 +387,7 @@ static int setup_modules(struct oracle_fixture *in) {
                                               ? oracle_in_f64(in, "params.ThresholdSatDisruption")
                                               : SAGE26_THRESHOLD_SAT_DISRUPTION;
   /* BulgeSizeOn: the fixture's, which the three modules read (their Hubble_h is the core's,
-   * MimicConfig.Hubble_h, R1.par's 0.73 as above) */
+   * MimicConfig.Hubble_h, 0.73 as above) */
   if (oracle_set_model_param("StarFormingDiskFactor", SAGE26_TOOMRE_DISK_FACTOR) != 0 ||
       oracle_set_model_param("ThresholdSatDisruption", threshold_sat_disruption) != 0 ||
       oracle_set_model_param("BulgeSizeOn", (double)sizes.bulge_size_on) != 0) {
@@ -398,13 +398,13 @@ static int setup_modules(struct oracle_fixture *in) {
    * (cold-gas bursts) */
   if (oracle_set_model_param("SFprescription", (double)sf_prescription) != 0 ||
       oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
-      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's modules (D33),
-       * the fixture's (c10) */
+      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's
+       * modules, the fixture's */
       oracle_set_model_param("CGMrecipeOn", (double)fixture_cgm_recipe_on) != 0) {
     problems++;
   }
-  /* The burst consumer's required FIREmodeOn (campaign decision D33): the fixture's, 0 for every
-   * fixture before c09 */
+  /* The burst consumer's required FIREmodeOn: the fixture's, 0 for every fixture that is not
+   * a FIRE one */
   if (oracle_set_model_param("FIREmodeOn", (double)fixture_fire_mode_on) != 0) {
     problems++;
   }
@@ -477,7 +477,8 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
       status = -1;
     }
   }
-  /* c09: the burst consumer's call replayed on copies, for its FIRE record (the c08 pattern) */
+  /* The burst consumer's call replayed on copies, for its FIRE record (the
+   * SFprescription 1 pattern) */
   const int replay = fixture_fire && status == 0 && fixture_ngal <= ORACLE_C09_REPLAY_GALAXIES &&
                      ctx->central_galaxy != NULL;
   if (replay) {
@@ -492,7 +493,7 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
     struct MimicStarburstParams bundle;
     oracle_c09_burst_bundle(fixture_input, &fixture_sizes, fixture_sf_prescription,
                             fixture_fire_mode_on, 1, &bundle);
-    /* c10: the module's bundle carries the run's CGMrecipeOn */
+    /* The module's bundle carries the run's CGMrecipeOn */
     bundle.cgm_recipe_on = fixture_cgm_recipe_on;
     oracle_c09_replay_merger_burst(&last_burst_replay, copies, halos, fixture_ngal, target_idx,
                                    (int)(ctx->central_galaxy - halos), ctx, &bundle);
@@ -527,8 +528,8 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
 }
 
 /**
- * @brief c09: read a *_fire fixture's FIREmodeOn, stored snapshots (the redshift table) and
- *        MassLoading, after its galaxies
+ * @brief Read a *_fire fixture's FIREmodeOn, stored snapshots (the redshift table) and MassLoading,
+ *        after its galaxies
  * @return Number of problems
  */
 static int load_fire(struct oracle_fixture *in, const char *name, const int ngal,
@@ -546,7 +547,7 @@ static int load_fire(struct oracle_fixture *in, const char *name, const int ngal
   return problems;
 }
 
-/** @brief c09: every recorded galaxy's MassLoading, equal to its input */
+/** @brief Every recorded galaxy's MassLoading, equal to its input */
 static int check_fire_mass_loading(struct oracle_fixture *out, const int ngal,
                                    const struct GalaxyData *before,
                                    const struct GalaxyData *galaxies) {
@@ -873,8 +874,8 @@ static void consume_consumer_records(struct oracle_fixture *out) {
     snprintf(field, sizeof(field), "intermediate.%s", flags[k]);
     oracle_exclude(out, field);
   }
-  /* c08: the burst's part of the SFprescription 1 record (present only on those fixtures),
-   * likewise consumed; the black-hole part is asserted in check_merge() */
+  /* The burst's part of the SFprescription 1 record (present only on those fixtures), likewise
+   * consumed; the black-hole part is asserted in check_merge() */
   if (!oracle_has(out, "intermediate.bh_hydrogen_caps_tracked")) {
     return;
   }
@@ -931,7 +932,7 @@ static int load_galaxies(struct oracle_fixture *in, const int ngal, struct Halo 
     problems += oracle_c06_in_galaxy(in, i, &halos[i], &galaxies[i]);
     halos[i].CentralHalo = oracle_in_i32(in, oracle_galaxy_field(i, "CentralGal"));
   }
-  /* c10: every galaxy's Regime, which the CGMrecipeOn 1 routing reads */
+  /* Every galaxy's Regime, which the CGMrecipeOn 1 routing reads */
   if (oracle_has(in, "galaxy[0].Regime")) {
     problems += oracle_c10_read_regimes(in, ngal, galaxies);
   }
@@ -943,8 +944,8 @@ static int load_galaxies(struct oracle_fixture *in, const int ngal, struct Halo 
 // ============================================================================
 
 /**
- * @brief c10: a galaxy's pair after a merger's addition alone: its input plus the satellite's
- *        input, each a float sum (M:464-465, :496-497), for the target's unselected pair
+ * @brief A galaxy's pair after a merger's addition alone: its input plus the satellite's input,
+ *        each a float sum (M:464-465, :496-497), for the target's unselected pair
  * @return Number of mismatches
  */
 static int check_pair_added_only(const char *name, const int index, const struct GalaxyData *before,
@@ -963,9 +964,9 @@ static int check_pair_added_only(const char *name, const int index, const struct
 }
 
 /**
- * @brief c10: the recheck's record of a merger burst (the replay's locals): its wind by the
- *        target's Regime, its own burst by the FoF central's, the wind's tests and energies, and
- *        the observations of SAGE26's recheck counted
+ * @brief The recheck's record of a merger burst (the replay's locals): its wind by the target's
+ *        Regime, its own burst by the FoF central's, the wind's tests and energies, and the
+ *        observations of SAGE26's recheck counted
  * @return Number of mismatches
  */
 static int check_cgm_recheck(struct oracle_fixture *out, const struct MimicSageStarburstLocals *b,
@@ -1008,8 +1009,8 @@ static int check_cgm_recheck(struct oracle_fixture *out, const struct MimicSageS
 }
 
 /**
- * @brief c10: the CGMrecipeOn 1 record of one merger: the merger's wind (the consumer shadow) by
- *        the target's Regime, the burst's commit and yield (the replay) by the FoF central's, the
+ * @brief The CGMrecipeOn 1 record of one merger: the merger's wind (the consumer shadow) by the
+ *        target's Regime, the burst's commit and yield (the replay) by the FoF central's, the
  *        recheck, and the pairs no site writes
  * @return Number of mismatches
  */
@@ -1055,7 +1056,7 @@ static int check_add(const char *name) {
   if (oracle_load_pair(MODULE, name, "add_galaxies_together", &in, &out) != 0) {
     return 1;
   }
-  /* BulgeSizeOn 0 (R0) or 3 (the c07 add_s3_* fixtures), with Hubble_h for 3 */
+  /* BulgeSizeOn 0 (R0) or 3 (the bulge-size add_s3_* fixtures), with Hubble_h for 3 */
   struct MimicSageBulgeSize sizes;
   int problems = oracle_c07_require_merger_flags(&in, &sizes);
   // The routine reads no parameter on R0 beyond the flags; the rest are the group's
@@ -1139,7 +1140,7 @@ static int check_merge(const char *name) {
     return 1;
   }
   fixture_fire = strcmp(in.routine, ORACLE_C09_MERGER_ROUTINE) == 0;
-  fixture_cgm_allowed = fixture_fire; /* c10: the *_fire routine admits CGMrecipeOn 1 */
+  fixture_cgm_allowed = fixture_fire; /* the *_fire routine admits CGMrecipeOn 1 */
   if (oracle_load_pair(MODULE, name,
                        fixture_fire ? ORACLE_C09_MERGER_ROUTINE : "deal_with_galaxy_merger", &in,
                        &out) != 0) {
@@ -1205,14 +1206,14 @@ static int check_merge(const char *name) {
   } else {
     problems += check_remnant_radius_inert(&out, target);
   }
-  /* c08: the merger's black-hole cap, through the shadow of the consumer's growth */
+  /* The merger's black-hole cap, through the shadow of the consumer's growth */
   if (fixture_sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
     problems += oracle_c08_check_bh_hydrogen(&out, fixture_sf_prescription,
                                              &shadow_bh.hydrogen_caps, &bh_h_tally);
     counts_merge_bh_caps++;
   }
-  /* c09: MassLoading, the burst's FIRE record and its wiring, and the recheck burst's where the
-   * oracle observes it took the FIRE branch (the replay of the consumer's call holds the locals) */
+  /* MassLoading, the burst's FIRE record and its wiring, and the recheck burst's where the oracle
+   * observes it took the FIRE branch (the replay of the consumer's call holds the locals) */
   if (fixture_fire) {
     problems += check_fire_mass_loading(&out, ngal, before, galaxies);
     problems += burst_replay_problems;
@@ -1253,8 +1254,8 @@ static int check_disrupt(const char *name) {
   if (oracle_load_pair(MODULE, name, "disrupt_satellite_to_ICS", &in, &out) != 0) {
     return 1;
   }
-  /* c10: a CGMrecipeOn 1 fixture (R4's flags) initialises the resolver with it, whose disruption
-   * reads the module's CGMrecipeOn; every earlier fixture is read with R0's flags as before */
+  /* A CGMrecipeOn 1 fixture (R4's flags) initialises the resolver with it, whose disruption reads
+   * the module's CGMrecipeOn; every earlier fixture is read with R0's flags as before */
   const int cgm = oracle_has(&in, "params.CGMrecipeOn") &&
                   oracle_in_i32(&in, "params.CGMrecipeOn") == MIMIC_SAGE_CGM_RECIPE_ON;
   int problems = 0;
@@ -1317,8 +1318,8 @@ static int check_disrupt(const char *name) {
   problems += oracle_c06_check_carried(&out, "total_metals_gas", KIND_CONTINUATION,
                                        locals.total_metals_gas, 0, &tally);
   if (cgm) {
-    /* c10: the deposit by the PASSED recipient's Regime (M:851, X:78), the recipient's other pair
-     * and every other galaxy's pairs (the FoF central's when it is not the recipient) unchanged */
+    /* The deposit by the PASSED recipient's Regime (M:851, X:78), the recipient's other pair and
+     * every other galaxy's pairs (the FoF central's when it is not the recipient) unchanged */
     problems += oracle_check_i32(&out, "intermediate.cgm_recipe_on", MIMIC_SAGE_CGM_RECIPE_ON);
     problems += oracle_c10_check_site(&out, "disrupt_reservoir_cgm", locals.reservoir_cgm,
                                       before[target].Regime, &cgm_tally);
@@ -1518,10 +1519,10 @@ static int check_halo_floats(struct oracle_fixture *out, const char *prefix, con
 }
 
 /**
- * @brief c10: the CGMrecipeOn 1 record of a pass: per row, the oracle's disruption selection
- *        against the passed recipient's input Regime and its observations counted; per merger
- *        event, the consumer shadow's wind against the target's input Regime and the burst
- *        replay's commit and yield against the FoF central's
+ * @brief The CGMrecipeOn 1 record of a pass: per row, the oracle's disruption selection against the
+ *        passed recipient's input Regime and its observations counted; per merger event, the
+ *        consumer shadow's wind against the target's input Regime and the burst replay's commit and
+ *        yield against the FoF central's
  * @return Number of mismatches
  */
 static int check_cgm_pass(struct oracle_fixture *out, const int ngal, const int central,
@@ -1594,7 +1595,7 @@ static int check_pass(const char *name) {
     return 1;
   }
   fixture_fire = strcmp(in.routine, ORACLE_C09_PASS_ROUTINE) == 0;
-  fixture_cgm_allowed = fixture_fire; /* c10: the *_fire routine admits CGMrecipeOn 1 */
+  fixture_cgm_allowed = fixture_fire; /* the *_fire routine admits CGMrecipeOn 1 */
   if (oracle_load_pair(MODULE, name, fixture_fire ? ORACLE_C09_PASS_ROUTINE : "merger_pass", &in,
                        &out) != 0) {
     return 1;
@@ -1653,8 +1654,8 @@ static int check_pass(const char *name) {
   problems += check_galaxies(name, &out, ngal, galaxies, before);
   problems += check_identities(&out, ngal, halos, halos_before, expected_merge_type);
   problems += check_pass_order(name, ngal, records);
-  /* c09: MassLoading, each merger burst's wiring (dispatch_merger_event), and the oracle's
-   * observations of SAGE26's pass under FIREmodeOn 0 and a replaced target redshift */
+  /* MassLoading, each merger burst's wiring (dispatch_merger_event), and the oracle's observations
+   * of SAGE26's pass under FIREmodeOn 0 and a replaced target redshift */
   if (fixture_fire) {
     problems += check_fire_mass_loading(&out, ngal, before, galaxies);
     problems += burst_replay_problems;
@@ -1682,12 +1683,12 @@ static int check_pass(const char *name) {
 /**
  * @brief Assert one joined or passed row against "<prefix>galaxy[<j>].*"
  *
- * The c06 block, the histories, the clock, the identity integers, the halo values, the
- * infall record and Cooling and Heating. On a row joining made an orphan, SAGE26 keeps
- * Len, QuasarModeBHaccretionMass, OutflowRate, Cooling and Heating (B:261, :273-276 run
- * on the main branch only), which the core zeros (Len, make_orphan) or init_repeat resets:
- * excluded there, by name, and counted. dT is SAGE26's -1 of B:237 until its physics loop
- * (B:483), which the pass never reads; mergeIntoID has no package member (B:545).
+ * The merger-family block, the histories, the clock, the identity integers, the halo values, the
+ * infall record and Cooling and Heating. On a row joining made an orphan, SAGE26 keeps Len,
+ * QuasarModeBHaccretionMass, OutflowRate, Cooling and Heating (B:261, :273-276 run on the main
+ * branch only), which the core zeros (Len, make_orphan) or init_repeat resets: excluded there, by
+ * name, and counted. dT is SAGE26's -1 of B:237 until its physics loop (B:483), which the pass
+ * never reads; mergeIntoID has no package member (B:545).
  *
  * @param expected_merge_type  The mergeType the port gives the row
  * @param newly_orphaned       The row became a Type 2 at this joining
@@ -1787,8 +1788,8 @@ static int check_join_and_pass(const char *name) {
     fprintf(stderr, "oracle: %s: the clock module failed to initialise\n", name);
     problems++;
   }
-  /* The concentration module the joining harness runs after the clock, with the fixture's
-   * required ConcentrationOn (campaign decision D33; 0 for every join_and_pass fixture) */
+  /* The concentration module the joining harness runs after the clock, with the fixture's required
+   * ConcentrationOn (0 for every join_and_pass fixture) */
   if (oracle_set_model_param("ConcentrationOn",
                              (double)oracle_in_i32(&in, "params.ConcentrationOn")) != 0 ||
       sage26_set_halo_concentration_init() != 0) {
@@ -1879,10 +1880,10 @@ static int check_join_and_pass(const char *name) {
 
 /** @brief Dispatch one fixture by its name */
 static int check_fixture(const char *name) {
-  /* c09: set by check_merge and check_pass for a *_fire routine */
+  /* Set by check_merge and check_pass for a *_fire routine */
   fixture_fire = 0;
-  /* c10: set by check_merge, check_disrupt and check_pass where the routine admits CGMrecipeOn 1,
-   * and by setup_modules from the fixture */
+  /* Set by check_merge, check_disrupt and check_pass where the routine admits CGMrecipeOn 1, and by
+   * setup_modules from the fixture */
   fixture_cgm_allowed = 0;
   fixture_cgm_recipe_on = 0;
   if (strncmp(name, "add_", 4) == 0) {

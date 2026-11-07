@@ -21,10 +21,9 @@ Snapshots: the written snapshot nearest each target redshift (:1155-1164), chose
 Observations: the TRINITY black hole mass functions of SAGE26's data files R/data/bh/
 fig4_bhmf_z*.txt (:1192-1220), held as the named constants OBS_TRINITY_Z*.
 
-Permitted deviations (c16 Slice 3, row `black_hole_mass_function`): the nearest snapshot is
-searched among the written snapshots only (SAGE26 searches all 64 and the run writes eight); the
-observations are inline arrays (columns: log10 Mbh [Msun], best, 16th and 84th percentile
-BHMF [Mpc^-3 dex^-1]) instead of files read at plot time.
+Permitted deviations: the nearest snapshot is searched among the written snapshots only (SAGE26
+searches all 64 and the run writes eight); the observations are inline arrays (columns: log10 Mbh
+[Msun], best, 16th and 84th percentile BHMF [Mpc^-3 dex^-1]) instead of files read at plot time.
 """
 
 import matplotlib.pyplot as plt

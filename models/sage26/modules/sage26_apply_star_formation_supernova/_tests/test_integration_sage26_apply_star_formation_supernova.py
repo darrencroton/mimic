@@ -78,7 +78,7 @@ def test_full_pipeline_conservation():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -86,7 +86,7 @@ def test_full_pipeline_conservation():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -171,7 +171,7 @@ def test_gas_transfer_physics():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -179,7 +179,7 @@ def test_gas_transfer_physics():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -271,7 +271,7 @@ def test_metal_enrichment():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -279,7 +279,7 @@ def test_metal_enrichment():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.03,  # Higher yield for testing
             "FracZleaveDisk": 0.5,
@@ -353,7 +353,7 @@ def test_parameter_sensitivity():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -361,7 +361,7 @@ def test_parameter_sensitivity():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
             "RecycleFraction": 0.3,  # Lower recycling
             "Yield": 0.015,  # Lower yield
             "FracZleaveDisk": 0.0,
@@ -390,7 +390,7 @@ def test_parameter_sensitivity():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -398,7 +398,7 @@ def test_parameter_sensitivity():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
             "RecycleFraction": 0.5,  # Higher recycling
             "Yield": 0.035,  # Higher yield
             "FracZleaveDisk": 0.0,
@@ -483,7 +483,7 @@ def test_edge_cases():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -491,7 +491,7 @@ def test_edge_cases():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -582,7 +582,7 @@ def test_memory_and_performance():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -590,7 +590,7 @@ def test_memory_and_performance():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (D33), R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,

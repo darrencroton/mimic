@@ -50,11 +50,11 @@
  *     ejection cap and the metal cap binding and not, the unselected pair and the satellite's own
  *     pairs unchanged; the satellite's Regime is always the other value (the commit routes by the
  *     FoF central's regime, S:1175-1247)
- *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
  *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
  *     bytewise unchanged, its history included, also in an interval the time guard refuses (the
  *     bypass precedes the history sample and the guard); the same row with FFBRegime 0 is sampled
- *     and committed, its reheated gas to the central (c13 Slice 3)
+ *     and committed, its reheated gas to the central
  *
  * @author  Mimic Development Team
  * @date    2025-12-18 (Refactored for comprehensive physics validation)
@@ -128,7 +128,7 @@ static void setup_test_parameters(double recycle, double yield, double frac_z) {
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription, at R1's value */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* Update test variables */
   test_recycle_fraction = recycle;
@@ -234,7 +234,7 @@ int test_module_initialization(void) {
   set_test_model_parameters();
   /* the module's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -272,7 +272,7 @@ int test_memory_safety(void) {
   set_test_model_parameters();
   /* the module's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -1757,7 +1757,7 @@ int test_disk_history_initial_boundary(void) {
 // ============================================================================
 
 // ============================================================================
-// CGM ROUTING TESTS (c10, CGMrecipeOn)
+// CGM ROUTING TESTS (CGMrecipeOn)
 // ============================================================================
 //
 // SAGE26's update_from_feedback (R = the staged SAGE26 source,
@@ -1901,7 +1901,7 @@ int test_cgm_feedback_destination(void) {
 /**
  * @test    test_cgm_recipe_on_refused
  * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter (campaign decision D33)
+ *          naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
@@ -1917,7 +1917,7 @@ int test_cgm_recipe_on_refused(void) {
 }
 
 // ============================================================================
-// FEEDBACK-FREE-BURST BYPASS (c13 Slice 3)
+// FEEDBACK-FREE-BURST BYPASS
 // ============================================================================
 
 /**
@@ -2050,7 +2050,7 @@ int main(void) {
   TEST_RUN(test_cgm_feedback_destination);
   TEST_RUN(test_cgm_recipe_on_refused);
 
-  /* The feedback-free-burst bypass (c13 Slice 3) */
+  /* The feedback-free-burst bypass */
   TEST_RUN(test_ffb_row_bypassed);
 
   /* Print summary and return result */

@@ -98,13 +98,13 @@ static inline double oracle_join_halo_redshift(struct oracle_fixture *in, const 
  * @brief Build the progenitor rows, join them with the core's inheritance service, and run
  *        the package's joining modules
  *
- * A progenitor whose mergeType is not 0 is a galaxy that has merged: the package holds it
- * as Type 3, and the core drops it (SAGE26 marks it Type 3 and skips it, B:242-245). Each
- * progenitor's PreviousType is its Type, as sage26_record_transition_state wrote it at the
- * end of its snapshot. Each progenitor galaxy starts from the package's creation defaults
- * and takes the fixture's clock, infall record, histories, its Concentration where the
- * fixture's ConcentrationOn is 3 and, with full_state, every float of the c06 galaxy block;
- * its halo takes the fixture's halo values.
+ * A progenitor whose mergeType is not 0 is a galaxy that has merged: the package holds it as Type
+ * 3, and the core drops it (SAGE26 marks it Type 3 and skips it, B:242-245). Each progenitor's
+ * PreviousType is its Type, as sage26_record_transition_state wrote it at the end of its snapshot.
+ * Each progenitor galaxy starts from the package's creation defaults and takes the fixture's clock,
+ * infall record, histories, its Concentration where the fixture's ConcentrationOn is 3 and, with
+ * full_state, every float of the merger-family galaxy block; its halo takes the
+ * fixture's halo values.
  *
  * With full_state the rows also take the pass's timing: each progenitor's source time is
  * call.Age[<its SnapNum>] and the descendant's call.halo_age, so the core's dT is SAGE26's
@@ -125,7 +125,7 @@ static inline int oracle_join(struct oracle_fixture *in, struct GalaxyPool *pool
     return 1;
   }
   const double halo_age = full_state ? oracle_in_f64(in, "call.halo_age") : 0.0;
-  /* c12: a ConcentrationOn 3 fixture carries each galaxy's Concentration (B:290-295) */
+  /* A ConcentrationOn 3 fixture carries each galaxy's Concentration (B:290-295) */
   const int concentration_recorded = oracle_in_i32(in, "params.ConcentrationOn") == 3;
 
   static struct Halo sources[ORACLE_JOIN_MAX_GALAXIES];

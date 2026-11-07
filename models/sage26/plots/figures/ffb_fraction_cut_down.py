@@ -27,7 +27,7 @@ log10(1 + 15), bottom ticks at z = 0, 1, 2, 3, 5, 7, 10, 15 labelled with those 
 twin top axes with ticks at log10(1 + z) = 0.0 to 1.2 in steps of 0.2 labelled `f'{t:g}'`
 (:10357-10371).
 
-Cut down from SAGE26, each a permitted deviation (c16 Slice 3, row `ffb_fraction_cut_down`):
+Cut down from SAGE26, each a permitted deviation:
   - Snapshots: the written snapshots (eight for the mini-Millennium run files), through
     ``all_snapshots``, instead of SAGE26's 64 (`range(64)`, :10401). The edges are SAGE26's
     midpoint rule applied to those snapshots, so each step spans the redshifts between written
