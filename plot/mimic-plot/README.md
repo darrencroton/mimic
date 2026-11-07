@@ -81,7 +81,7 @@ python -c "import numpy, matplotlib, tqdm, h5py, yaml; print('All plotting packa
 
 ### Basic Usage
 
-Build Mimic with the same model set as the parameter file before plotting. The available plot registry is model-specific, so a SHAM run should be built with `make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal` (or `micro-uchuu-horizontal`), the shipped SAGE run with `make MODEL=sage16`, and halo-catalogue-only runs with `make MODEL=halos-only`. Binary outputs must be kept with their run `metadata/` directory because `mimic-plot` reads `metadata/output_schema.json`.
+Build Mimic with the same model set as the parameter file before plotting. The available plot registry is model-specific, so a SHAM run should be built with `make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal` (or `micro-uchuu-horizontal`), the shipped SAGE run with `make MODEL=sage16`, a `sage26` run with `make MODEL=sage26 SIMULATION=mini-millennium` (or `mini-millennium-horizontal`, matching its run file), and halo-catalogue-only runs with `make MODEL=halos-only`. Binary outputs must be kept with their run `metadata/` directory because `mimic-plot` reads `metadata/output_schema.json`.
 
 ```bash
 # Activate virtual environment (if using one)
@@ -165,7 +165,7 @@ The tool supports three verbosity levels:
 
 ## Available Plots
 
-The plot registry is model-specific: it lives in the active model package at `models/<MODEL>/plots/figures/__init__.py`, which is the source of truth for registered plot names. The lists below summarise the shipped sage16 registry (18 snapshot plots and 4 evolution plots); the sham package registers 8 snapshot plots and no evolution plots (`halo_mass_function`, `spin_distribution`, `velocity_distribution`, `spatial_distribution`, and the SHAM figures `stellar_mass_function`, `sham_stellar_halo_relation`, `sham_satellite_fraction` and `sham_correlation_function`), and the hod package registers 5 snapshot plots and no evolution plots (`halo_mass_function`, `spatial_distribution`, and the HOD figures `hod_occupation`, `hod_satellite_profile` and `hod_correlation_function`).
+The plot registry is model-specific: it lives in the active model package at `models/<MODEL>/plots/figures/__init__.py`, which is the source of truth for registered plot names. The lists below summarise the shipped sage16 registry (18 snapshot plots and 4 evolution plots); the sage26 package registers 30 snapshot plots and 18 evolution plots (the sage16 figures and ports of figures from SAGE26's plotting scripts, listed in its README's *Plots* section); the sham package registers 8 snapshot plots and no evolution plots (`halo_mass_function`, `spin_distribution`, `velocity_distribution`, `spatial_distribution`, and the SHAM figures `stellar_mass_function`, `sham_stellar_halo_relation`, `sham_satellite_fraction` and `sham_correlation_function`), and the hod package registers 5 snapshot plots and no evolution plots (`halo_mass_function`, `spatial_distribution`, and the HOD figures `hod_occupation`, `hod_satellite_profile` and `hod_correlation_function`).
 
 ### Snapshot Plots (Single Redshift)
 

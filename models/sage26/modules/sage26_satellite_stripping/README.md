@@ -6,7 +6,7 @@ Strips excess gas from Type 1 satellites and transfers stripped material to the 
 
 A port of SAGE26's `strip_from_satellite` (`src/model_infall.c:225-273`), called for every live Type 1 satellite whatever its gas (`src/core_build_model.c:493-498`). Each substep the satellite gives `-(HaloBaryonFraction * Mvir - baryons) / N` of gas to the central, where `HaloBaryonFraction` is the satellite's own once-rounded `reionization_modifier * BaryonFrac` (used even when zero) and `baryons` is SAGE26's float sum of stars, cold, hot, CGM, ejected, black-hole and ICS mass.
 
-The required parameter `CGMrecipeOn` (campaign decision D33) selects the reservoirs (`src/model_infall.c:247-254`, `:265-271`). With `CGMrecipeOn 1` the source is the satellite's CGM pair if the **satellite** is in Regime 0 and its hot pair otherwise, and the destination is the central's CGM pair if the **FoF central** is in Regime 0 and its hot pair otherwise, chosen independently. Classification moves no gas, so a satellite whose regime changed can be stripped from an empty reservoir while its gas sits in the other; that gas is not stripped. With `CGMrecipeOn 0` both are the hot pair. The double metallicity is formed from the source pair, and the metals of the uncapped gas before the gas cap; the gas and the source metal debit are capped independently.
+The parameter `CGMrecipeOn`, required with no default (a missing key fails `init()`), selects the reservoirs (`src/model_infall.c:247-254`, `:265-271`). With `CGMrecipeOn 1` the source is the satellite's CGM pair if the **satellite** is in Regime 0 and its hot pair otherwise, and the destination is the central's CGM pair if the **FoF central** is in Regime 0 and its hot pair otherwise, chosen independently. Classification moves no gas, so a satellite whose regime changed can be stripped from an empty reservoir while its gas sits in the other; that gas is not stripped. With `CGMrecipeOn 0` both are the hot pair. The double metallicity is formed from the source pair, and the metals of the uncapped gas before the gas cap; the gas and the source metal debit are capped independently.
 
 Two SAGE26 behaviours are mirrored deliberately and marked `// SAGE parity:`:
 
@@ -26,7 +26,7 @@ Two SAGE26 behaviours are mirrored deliberately and marked `// SAGE parity:`:
 
 ## Parameters
 
-- `GlobalBaryonFraction` (used only when `sage26_reionization` is not configured)
+- `GlobalBaryonFraction` (required, accepted (0, 1]; a value outside that, or a missing key, fails initialisation naming it; the run files hold 0.17): used where the satellite's `HaloBaryonFraction` still holds its unset value -1.0, as when `sage26_reionization` is not configured
 - `CGMrecipeOn` (required, 0 or 1; any other value, or a missing key, fails initialisation naming it; the run files hold 1, SAGE26's R4, kept through R6)
 
 ## Ordering
@@ -35,9 +35,15 @@ Two SAGE26 behaviours are mirrored deliberately and marked `// SAGE parity:`:
 
 1. Run before cooling modules in the galaxy-physics by-galaxy order. Stripped gas then waits in the central's selected reservoir until the next substep, matching SAGE26's interleaved strip-before-cool sequence.
 
+`init()` checks only its two parameters (see Parameters); it refuses no placement or partner. Not refused:
+
+- any phase, position or entry count of this module. The core does refuse a mode `module_info.yaml` does not list (it lists only `process_by_galaxy`).
+- `sage26_reionization` absent, or placed anywhere: a satellite whose `HaloBaryonFraction` still holds -1.0 takes `GlobalBaryonFraction`.
+- `CGMrecipeOn 1` without `sage26_determine_regime`: every `Regime` then keeps its creation value -1 (only the classifier writes it), so the gas goes from the satellite's hot pair to the central's hot pair.
+
 ## Tests
 
-`_tests/test_unit_sage26_satellite_stripping_oracle.c` runs every fixture under `_tests/oracle/` (listed in `../_tests/oracle/fixtures.manifest`) through `process()` and asserts bit-for-bit equality with the SAGE26 function-level oracle (`../_tests/oracle/README.md`; the `cgm_*` fixtures are `CGMrecipeOn 1`, all four source/destination combinations with the gas cap binding and not, "The c10 Group"); outside the oracle environment (macOS arm64, Apple clang 21) it reports SKIP. `_tests/test_unit_sage26_satellite_stripping.c` holds platform-independent tests of the four combinations, capped and not, against `CGMrecipeOn 0` on the same exact inputs (`test_cgm_stripping_source_and_destination`), and the parameter's refusal.
+`_tests/test_unit_sage26_satellite_stripping_oracle.c` runs every fixture under `_tests/oracle/` (listed in `../_tests/oracle/fixtures.manifest`) through `process()` and asserts bit-for-bit equality with the SAGE26 function-level oracle (`../_tests/oracle/README.md`; the `cgm_*` fixtures are `CGMrecipeOn 1`, all four source/destination combinations with the gas cap binding and not, "The c10 Group, Part 2"); outside the oracle environment (macOS arm64, Apple clang 21) it reports SKIP. `_tests/test_unit_sage26_satellite_stripping.c` holds platform-independent tests of the four combinations, capped and not, against `CGMrecipeOn 0` on the same exact inputs (`test_cgm_stripping_source_and_destination`), and the parameter's refusal. It also covers no stripping below the baryon threshold and stripping above it, mass conservation (also at the maximum dynamic substep count), the `1 - (1 - 1/N)^N` stripped fraction, the asymmetric metal transfer in every clamp case (`test_metal_transfer_all_regimes`) and, with metals above gas and the gas cap binding, on the four combinations and at `CGMrecipeOn 0` (`test_cgm_stripping_metals_above_gas`), metal conservation and the transferred metallicity, a satellite with no hot gas, the cap to the available gas, orphans and Type 3 rows left alone, a NULL galaxy, and several satellites. `_tests/test_integration_sage26_satellite_stripping.py` runs Mimic at `CGMrecipeOn 0` with this module alone in `galaxy_physics` (no `sage26_reionization`). It checks that each run succeeds, that the module logs its initialisation and, in the standalone case, its cleanup, that a `GlobalBaryonFraction` of 0.20 appears in the log, that no memory leak is reported, that `HotGas`, `MetalsHotGas`, `Type` and `Mvir` are in the output with `HotGas` and `MetalsHotGas` as float32, that the output has no NaN or infinity and its hot pair lies in [0, 1e10], and that Type 0 and Type 1 rows are present.
 
 ## Notes
 
