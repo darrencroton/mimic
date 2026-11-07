@@ -2411,12 +2411,13 @@ def test_figure__h2_fraction_evolution_converts_the_three_masses():
 
 def test_figure__concentration_evolution_converts_the_halo_mass_and_is_drawn_at_the_redshift():
     """allresults-history.py:342 (x 1e10 / h), :1498 (the redshift of the snapshot), :1501-1503.
-    Five haloes of Mvir 10.0 (1.37e11 Msun, the bin 1e11 to 1e12) with concentrations 1 to 5 at
-    z = 0: one line, labelled for that bin, at the median 3."""
+    Five haloes of Mvir 8.0 at z = 0, with concentrations 1 to 5: 8.0 x 1e10 / 0.73 = 1.096e11 Msun
+    is in the bin 1e11 to 1e12 (without the division by h it would be 8e10 Msun, in the bin 1e10 to
+    1e11). One line, labelled for the 1e11 bin, at the median 3."""
     spec = {
         63: (
             0.0,
-            {"Mvir": f32([10.0] * 5), "Concentration": f32([1, 2, 3, 4, 5])},
+            {"Mvir": f32([8.0] * 5), "Concentration": f32([1, 2, 3, 4, 5])},
         )
     }
     run = run_hand_built("concentration_evolution", spec, "wiring-concentration")
@@ -2487,15 +2488,17 @@ def test_figure__quenched_counts_convert_the_mass_and_add_the_two_rates():
 
 
 def test_figure__massive_quiescent_converts_the_mass_and_uses_the_run_cosmology():
-    """allresults-history.py:337, :1923, :1938-1942, :1947-1952. Ten galaxies of 1.37e10 Msun
-    (StellarMass 1.0, every one among the most massive) forming 0.05 + 0.05 Msun/yr (7.3e-12 per
-    year), seven central and three satellite, at z = 0 and z = 1.39 with Omega_m = 0.25,
-    Omega_lambda = 0.75, h = 0.73: the quiescence limit 0.2 E(z) h / 9.778e9 is 1.5e-11 at z = 0
-    and larger at z = 1.39, so all ten are quiescent: fractions 0.7 and 0.3 at both redshifts."""
+    """allresults-history.py:337, :1922, :1938-1942, :1947-1952. Ten galaxies of 1.37e10 Msun
+    (StellarMass 1.0, every one among the most massive) forming 0.09 + 0.09 = 0.18 Msun/yr
+    (1.31e-11 per year; 1.8e-11 if the mass were not divided by h), seven central and three
+    satellite, at z = 0 and z = 1.39 with Omega_m = 0.25, Omega_lambda = 0.75, h = 0.73: the
+    quiescence limit 0.2 E(z) h / 9.778e9 is 1.49e-11 at z = 0 and 3.0e-11 at z = 1.39, so all ten
+    are quiescent at both: fractions 0.7 and 0.3 at both redshifts (the unconverted mass would
+    leave no quiescent galaxy at z = 0 and so no point there)."""
     galaxies = {
         "StellarMass": f32([1.0] * 10),
-        "SfrDisk": f32([0.05] * 10),
-        "SfrBulge": f32([0.05] * 10),
+        "SfrDisk": f32([0.09] * 10),
+        "SfrBulge": f32([0.09] * 10),
         "Type": np.array([0] * 7 + [1] * 3, dtype=np.int32),
     }
     spec = {63: (0.0, galaxies), 37: (RUN_REDSHIFTS[37], galaxies)}
