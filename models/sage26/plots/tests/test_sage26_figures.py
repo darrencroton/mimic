@@ -569,7 +569,7 @@ def series(name, label):
 
 
 def test_added_series__baryon_fraction_draws_a_cgm_curve():
-    """The CGM mean curve (SAGE26 plotting/allresults-local.py:1325, label 'Circumgalactic Medium')."""
+    """The CGM mean curve (SAGE26 plotting/allresults-local.py:1447, label 'Circumgalactic Medium')."""
     cgm = series("baryon_fraction", "CGM")
     total = series("baryon_fraction", "TOTAL")
     assert len(cgm) == 1, f"{len(cgm)} model artists labelled 'CGM'"

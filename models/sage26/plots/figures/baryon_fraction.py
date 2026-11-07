@@ -25,7 +25,8 @@ from output_utils import (
 # The seven baryon reservoirs, in drawing order: (key, output field). Each field is optional:
 # a reservoir the run does not write is left out of the total and not drawn. SAGE26's
 # counterpart sums the same seven into its total (plotting/allresults-local.py:1255, :1261) and
-# draws the circumgalactic medium as its own mean curve (:1325).
+# forms the circumgalactic medium's per-halo fraction (:1325), its bin mean (:1360) and draws it
+# as its own curve (:1447).
 BARYON_RESERVOIRS = (
     ("stars", "StellarMass"),
     ("cold", "ColdGas"),
