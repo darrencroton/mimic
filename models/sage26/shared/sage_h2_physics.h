@@ -38,13 +38,12 @@
  * from the double HYDROGEN_MASS_FRAC of the callers' caps.
  *
  * Rounding points. SAGE26's object fuses exactly one multiply-add on these paths (oracle README,
- * "The c08 Group", Fused Multiply-Adds), the height's -0.23 + 0.8 * log10(R*) (:56), in the
- * public routine (model_h2_chemistry.o offset 0x50) and in its inlined copy in the radial
- * integration (0x35c); it is written as an explicit fma(). SAGE26's object evaluates the height's
- * pow(10.0, log_h_star) (:57) by a call to __exp10 (clang's library-call simplification of pow
- * with base 10); the
- * package writes pow(10.0, ...), whose float result equals __exp10's for every float argument the
- * height can receive (mimic_sage_br06_stellar_scale_height). Every other expression is one C
+ * "The c08 Group", Fused Multiply-Adds), the height's -0.23 + 0.8 * log10(R*) (:56), in the public
+ * routine (model_h2_chemistry.o offset 0x50) and in its inlined copy in the radial integration
+ * (0x35c); it is written as an explicit fma(). SAGE26's object evaluates the height's pow(10.0,
+ * log_h_star) (:57) by a call to __exp10 (clang's library-call simplification of pow with base 10);
+ * the package writes pow(10.0, ...), whose float result equals __exp10's for every float argument
+ * the height can receive (mimic_sage_br06_stellar_scale_height). Every other expression is one C
  * expression with SAGE26's operand order and types, none of which clang contracts.
  *
  * @note Used by sage26_calculate_star_formation for its BR06 branch (SFprescription 1), and by

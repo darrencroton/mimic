@@ -18,11 +18,10 @@
  *                hot_fraction = 1.0 / (1.0 + exp(-x))                  (double, :89)
  *                Regime = (u < hot_fraction) ? 1 : 0                   (:94-95)
  *
- * with the deviate u from the package's keyed draw (below). A NaN
- * mass_ratio is not <= 0.0, so it takes the draw branch, as SAGE26's test implies, and is
- * classified 0 (every ordered comparison with the NaN hot_fraction is false). There is no Type
- * restriction, hysteresis, redshift term or reuse of a previous regime, and classification moves
- * no gas.
+ * with the deviate u from the package's keyed draw (below). A NaN mass_ratio is not <= 0.0, so it
+ * takes the draw branch, as SAGE26's test implies, and is classified 0 (every ordered comparison
+ * with the NaN hot_fraction is false). There is no Type restriction, hysteresis, redshift term or
+ * reuse of a previous regime, and classification moves no gas.
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand order and types.
  * None of them has a multiply feeding an add or subtract, so none can contract to a fused

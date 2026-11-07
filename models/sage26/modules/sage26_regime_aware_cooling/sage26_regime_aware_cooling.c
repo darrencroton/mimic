@@ -3,12 +3,11 @@
  * @brief   SAGE26 regime-aware cooling: cooling_recipe_regime_aware as one by-galaxy transaction
  *
  * Ports SAGE26's cooling_recipe_regime_aware (R = the staged SAGE26 source, C =
- * R/src/model_cooling_heating.c:420-506), which SAGE26 calls instead of cooling_recipe_hot when
- * CGMrecipeOn is 1 (C:125-132, R/src/core_build_model.c:503-509), whole.
- * The module runs by galaxy in galaxy_physics immediately after sage26_apply_cooling. With
- * CGMrecipeOn 0 it writes nothing; with CGMrecipeOn 1 sage26_calculate_cooling_budget writes only
- * its no-cooling transport, so the radio and apply modules write nothing, and this module owns
- * every galaxy's cooling:
+ * R/src/model_cooling_heating.c:420-506) whole, which SAGE26 calls instead of cooling_recipe_hot
+ * when CGMrecipeOn is 1 (C:125-132, R/src/core_build_model.c:503-509). The module runs by galaxy in
+ * galaxy_physics immediately after sage26_apply_cooling. With CGMrecipeOn 0 it writes nothing; with
+ * CGMrecipeOn 1 sage26_calculate_cooling_budget writes only its no-cooling transport, so the radio
+ * and apply modules write nothing, and this module owns every galaxy's cooling:
  *
  *   mdot_cool = mdot_stream = 0                                        (C:433-434)
  *   Regime 0:    CGMgas > 0 ? cooling_recipe_cgm : reset_cgm_diagnostics  (C:436-444)

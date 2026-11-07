@@ -5,13 +5,12 @@
  *
  * Ports SAGE26's add_infall_to_hot (R = the staged SAGE26 source, R/src/model_infall.c:351-414),
  * with its call-site share infallingGas / effective_steps (R/src/core_build_model.c:488):
- * distributes the infalling gas budget from sage26_prepare_infall_budget to the
- * central's selected reservoir over substeps with metallicity tracking. For negative
- * infall (mass loss), removes from the ejected reservoir first, then from the selected
- * reservoir. The required parameter CGMrecipeOn selects it: the
- * central's CGM pair (CGMgas, MetalsCGMgas) with CGMrecipeOn 1 and Regime 0
- * (R/src/model_infall.c:371-385), and its hot pair otherwise (:386-399 with CGMrecipeOn 1,
- * :400-413 with CGMrecipeOn 0, the same arithmetic). Positive infall adds gas and no metals.
+ * distributes the infalling gas budget from sage26_prepare_infall_budget to the central's selected
+ * reservoir over substeps with metallicity tracking. For negative infall (mass loss), removes from
+ * the ejected reservoir first, then from the selected reservoir. The required parameter CGMrecipeOn
+ * selects it: the central's CGM pair (CGMgas, MetalsCGMgas) with CGMrecipeOn 1 and Regime 0
+ * (R/src/model_infall.c:371-385), and its hot pair otherwise (:386-399 with CGMrecipeOn 1, :400-413
+ * with CGMrecipeOn 0, the same arithmetic). Positive infall adds gas and no metals.
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand
  * order and types, so that compiler contraction treats both alike.

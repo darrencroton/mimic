@@ -28,8 +28,8 @@
  * module's own SFprescription.
  *
  * Parameters: BlackHoleGrowthRate, QuasarModeEfficiency, and the required SFprescription and
- * CGMrecipeOn (each 0 or 1; a missing key fails at initialisation, any other value is
- * refused), which select the accretion's hydrogen cap and the wind's pair.
+ * CGMrecipeOn (each 0 or 1; a missing key fails at initialisation, any other value is refused),
+ * which select the accretion's hydrogen cap and the wind's pair.
  *
  * References:
  *   - SAGE26 R/src/model_mergers.c:346-441 (grow_black_hole, quasar_mode_wind)

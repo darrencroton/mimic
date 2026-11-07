@@ -54,12 +54,12 @@
  * its consumers run as in SAGE26.
  *
  * The disruption reproduces SAGE26's disrupt_satellite_to_ICS (M:845-902) through
- * shared/sage_merger_physics.h; the satellite leaves as Type 3 (SAGE26's mergeType 4). Its gas
- * goes to the PASSED target's selected pair: its CGM pair with the required CGMrecipeOn 1 and
- * the target's own Regime 0, its hot pair otherwise (M:851,
- * R/src/model_misc.h:76-85). For an orphan the target is its subhalo's central (step 4), which need
- * not be the FoF central (B:539-543, :575). The merger's addition moves CGM to CGM and hot to hot
- * whatever either regime (M:464-465, :496-497).
+ * shared/sage_merger_physics.h; the satellite leaves as Type 3 (SAGE26's mergeType 4). Its gas goes
+ * to the PASSED target's selected pair: its CGM pair with the required CGMrecipeOn 1 and the
+ * target's own Regime 0, its hot pair otherwise (M:851, R/src/model_misc.h:76-85). For an orphan
+ * the target is its subhalo's central (step 4), which need not be the FoF central (B:539-543,
+ * :575). The merger's addition moves CGM to CGM and hot to hot whatever either regime (M:464-465,
+ * :496-497).
  */
 
 #include <math.h>
@@ -91,8 +91,7 @@ static double THRESHOLD_SAT_DISRUPTION;
 static int BULGE_SIZE_ON;
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init, which with the disruption target's Regime selects its pair
- * (R/src/model_misc.h:78) */
+ * init, which with the disruption target's Regime selects its pair (R/src/model_misc.h:78) */
 static int CGM_RECIPE_ON;
 
 // ============================================================================

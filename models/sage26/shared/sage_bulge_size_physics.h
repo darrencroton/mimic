@@ -22,16 +22,15 @@
  *   for the first transfer), stored in InstabilityBulgeRadius, and get_bulge_radius follows.
  *
  * Arithmetic follows SAGE26's expression shapes and types: every local is a double (the float
- * channel masses, radii and DiskScaleRadius widened exactly), the fallback radii stay double
- * locals for the weighted average even though they are also stored in the narrower float
- * fields (never reloaded from them), M_old is recovered from the POST-store float channel mass,
- * and the kpc conversions that cancel algebraically are kept. SAGE26's compiled object fuses
- * four multiply-adds on these paths (oracle README, "The c07 Group", Fused Multiply-Adds), each
- * written
- * below as an explicit fma(): the two Shen fallbacks 0.56 * log10(M) - 5.54 (:345, :359), the
- * weighted-average numerator M_merger * R_merger + (M_instability * R_instability rounded)
- * (:366), and the incremental numerator R_old_kpc * M_old + (R_new_contribution_kpc *
- * delta_mass rounded) (:415). Every other expression rounds as written.
+ * channel masses, radii and DiskScaleRadius widened exactly), the fallback radii stay double locals
+ * for the weighted average even though they are also stored in the narrower float fields (never
+ * reloaded from them), M_old is recovered from the POST-store float channel mass, and the kpc
+ * conversions that cancel algebraically are kept. SAGE26's compiled object fuses four multiply-adds
+ * on these paths (oracle README, "The c07 Group", Fused Multiply-Adds), each written below as an
+ * explicit fma(): the two Shen fallbacks 0.56 * log10(M) - 5.54 (:345, :359), the weighted-average
+ * numerator M_merger * R_merger + (M_instability * R_instability rounded) (:366), and the
+ * incremental numerator R_old_kpc * M_old + (R_new_contribution_kpc * delta_mass rounded) (:415).
+ * Every other expression rounds as written.
  *
  * @note Used by sage26_set_disk_scale_radius (the FoF central's synchronisation after its disk
  *       radius, R/src/core_build_model.c:297-298), by the disk-instability transfer

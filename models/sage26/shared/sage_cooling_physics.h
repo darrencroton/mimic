@@ -4,14 +4,14 @@
  * modules
  *
  * C = R/src/model_cooling_heating.c and H = R/src/model_halo_properties.c of the staged SAGE26
- * source (R). One implementation of each piece of SAGE26's cooling arithmetic, used by the
- * classic three-module hot path (sage26_calculate_cooling_budget -> sage26_radio_mode_heating ->
+ * source (R). One implementation of each piece of SAGE26's cooling arithmetic, used by the classic
+ * three-module hot path (sage26_calculate_cooling_budget -> sage26_radio_mode_heating ->
  * sage26_apply_cooling, CGMrecipeOn 0) and by the CGMrecipeOn 1 cooling transaction
- * (sage26_regime_aware_cooling). The helpers that serve both paths
- * (mimic_sage_hot_cooling_budget, mimic_sage_do_agn_heating_hot, mimic_sage_do_agn_heating_cgm and
- * the two composed recipes) take CGMrecipeOn as an argument, and the classic callers pass
- * CGMrecipeOn 0, the R0-R3 behaviour; the others (the table, the streams, bulk CGM cooling, the
- * accretion, the tail and the transfer) take the run quantities they read and no CGMrecipeOn.
+ * (sage26_regime_aware_cooling). The helpers that serve both paths (mimic_sage_hot_cooling_budget,
+ * mimic_sage_do_agn_heating_hot, mimic_sage_do_agn_heating_cgm and the two composed recipes) take
+ * CGMrecipeOn as an argument, and the classic callers pass CGMrecipeOn 0, the R0-R3 behaviour; the
+ * others (the table, the streams, bulk CGM cooling, the accretion, the tail and the transfer) take
+ * the run quantities they read and no CGMrecipeOn.
  *
  * The cooling helpers (mimic_sage_hot_cooling_budget, mimic_sage_cgm_cooling_budget and the
  * composed recipes) call get_metaldependent_cooling_rate from sage26_calculate_cooling_budget's
@@ -232,11 +232,11 @@ struct MimicSageColdStreamLocals {
 /**
  * @brief SAGE26's hot-regime cold streams (C:205-285): the cooling mass before the cap
  *
- * Reads the redshift of the galaxy's stored snapshot, ZZ[stored_snapnum] (C:205), never the
- * current snapshot's; a stored SnapNum outside the run's redshift table is refused with an error
- * naming it, where SAGE26 reads out of bounds. Every local is a double;
- * HotGas, Rvir and Mvir are SAGE26's floats. SAGE26's float mdot stores (C:282-283) are returned in
- * s->mdot_cool and s->mdot_stream; no galaxy field is written.
+ * Reads the redshift of the galaxy's stored snapshot, ZZ[stored_snapnum] (C:205), never the current
+ * snapshot's; a stored SnapNum outside the run's redshift table is refused with an error naming it,
+ * where SAGE26 reads out of bounds. Every local is a double; HotGas, Rvir and Mvir are SAGE26's
+ * floats. SAGE26's float mdot stores (C:282-283) are returned in s->mdot_cool and s->mdot_stream;
+ * no galaxy field is written.
  *
  * @param params          Run configuration (ZZ, Snaplistlen, Omega, Hubble_h)
  * @param stored_snapnum  The galaxy's stored SnapNum

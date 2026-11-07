@@ -5,12 +5,11 @@
  * Ports SAGE26's reincorporate_gas (R = the staged SAGE26 source,
  * R/src/model_reincorporation.c:44-66): a central whose Vvir exceeds
  * Vcrit = 354.53 * ReIncorporationFactor recaptures previously ejected gas at the rate
- * (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir), with the ejected metallicity. The required
- * parameter CGMrecipeOn selects only the destination, through SAGE26's
- * regime-aware add_gas_to_hot_reservoir (R/src/model_misc.h:76-85,
- * shared/sage_cgm_routing.h): the central's CGM pair with CGMrecipeOn 1 and Regime 0, its hot
- * pair otherwise. The amount, guards, cap, metallicity and ejected debits are the same either
- * way (R/src/model_reincorporation.c:46-61).
+ * (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir), with the ejected metallicity. The required parameter
+ * CGMrecipeOn selects only the destination, through SAGE26's regime-aware add_gas_to_hot_reservoir
+ * (R/src/model_misc.h:76-85, shared/sage_cgm_routing.h): the central's CGM pair with CGMrecipeOn 1
+ * and Regime 0, its hot pair otherwise. The amount, guards, cap, metallicity and ejected debits are
+ * the same either way (R/src/model_reincorporation.c:46-61).
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand
  * order and types, so that compiler contraction treats both alike.

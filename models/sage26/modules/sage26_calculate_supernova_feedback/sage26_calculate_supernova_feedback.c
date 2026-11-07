@@ -16,12 +16,11 @@
  *   zero (:880-882). MassLoading is not written.
  *
  * FIREmodeOn 1 (R3), the FIRE budgets (shared/sage_fire_feedback_physics.h):
- * - the Muratov et al. (2015) scaling from the forming galaxy's own float Vvir and the redshift
- *   of its stored snapshot, ZZ[SnapNum] (:743-753); an out-of-range SnapNum is refused,
- *   except in the initial-boundary state the package's time guard skips (a galaxy with
- *   SnapNum < 0 and dT <= 0, MIMIC_OBJECT_TIME_SKIP_INITIAL, shared/time_parity.h), where SAGE26
- *   is undefined and the module returns at once, writing nothing, as the SF and burst modules
- *   do;
+ * - the Muratov et al. (2015) scaling from the forming galaxy's own float Vvir and the redshift of
+ *   its stored snapshot, ZZ[SnapNum] (:743-753); an out-of-range SnapNum is refused, except in the
+ *   initial-boundary state the package's time guard skips (a galaxy with SnapNum < 0 and dT <= 0,
+ *   MIMIC_OBJECT_TIME_SKIP_INITIAL, shared/time_parity.h), where SAGE26 is undefined and the module
+ *   returns at once, writing nothing, as the SF and burst modules do;
  * - the reheating loading FeedbackReheatingEpsilon * scaling capped at
  *   2 * EtaSNcode * EnergySNcode / Vvir^2 (capped_eta_reheat, R/src/model_misc.h:141-149),
  *   written to MassLoading as a float before the renormalisation on every ordinary (non-FFB)

@@ -27,16 +27,15 @@
  *     black-hole growth (R/src/model_mergers.c:262-287), on an FFB target as on any other, its
  *     post-merger recheck included (SAGE26's merger routines do not read FFBRegime).
  *
- * FIREmodeOn is a required parameter, 0 or 1, refused otherwise. This
- * module builds the burst parameter bundle, so it passes FIREmodeOn and the run's redshift table
- * to every burst it runs: the instability's, the merger's and the recheck's. A FIREmodeOn 1 burst
- * whose host's stored SnapNum lies outside the redshift table is refused
- * and process() returns -1.
+ * FIREmodeOn is a required parameter, 0 or 1, refused otherwise. This module builds the burst
+ * parameter bundle, so it passes FIREmodeOn and the run's redshift table to every burst it runs:
+ * the instability's, the merger's and the recheck's. A FIREmodeOn 1 burst whose host's stored
+ * SnapNum lies outside the redshift table is refused and process() returns -1.
  *
- * CGMrecipeOn is a required parameter too, 0 or 1, refused otherwise; the
- * bundle carries it to every burst's feedback commit and yield, which route to the FoF central's
- * CGM pair with CGMrecipeOn 1 and the CENTRAL's Regime 0 and to its hot pair otherwise, and to the
- * recheck's black-hole growth, whose wind selects the burst HOST's pair by the host's own Regime
+ * CGMrecipeOn is a required parameter too, 0 or 1, refused otherwise; the bundle carries it to
+ * every burst's feedback commit and yield, which route to the FoF central's CGM pair with
+ * CGMrecipeOn 1 and the CENTRAL's Regime 0 and to its hot pair otherwise, and to the recheck's
+ * black-hole growth, whose wind selects the burst HOST's pair by the host's own Regime
  * (R/src/model_starformation_and_feedback.c:1175, R/src/model_misc.h:69,
  * R/src/model_mergers.c:406).
  *
@@ -127,8 +126,7 @@ static int STARBURST_COLD_GAS_ON;
 static int FIRE_MODE_ON;
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init; the bundle carries it to every burst
- * (shared/sage_starburst_physics.h) */
+ * init; the bundle carries it to every burst (shared/sage_starburst_physics.h) */
 static int CGM_RECIPE_ON;
 
 // ============================================================================

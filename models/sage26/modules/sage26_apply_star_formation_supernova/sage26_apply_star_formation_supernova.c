@@ -22,10 +22,10 @@
  * With SFprescription 1 (BR06) each commit then caps H2gas and H1gas at the hydrogen of the
  * remaining cold gas (:1128-1135, :1169-1173); with 0 (R0, R1) neither does.
  *
- * The required parameter CGMrecipeOn (0 or 1) selects the feedback's
- * destination pair: the FoF central's CGM pair with CGMrecipeOn 1 and the CENTRAL's Regime 0, its
- * hot pair otherwise, whatever the forming galaxy's own Regime (:1175-1247). The reheated gas is
- * credited to that pair and the ejection capped against it after the reheating.
+ * The required parameter CGMrecipeOn (0 or 1) selects the feedback's destination pair: the FoF
+ * central's CGM pair with CGMrecipeOn 1 and the CENTRAL's Regime 0, its hot pair otherwise,
+ * whatever the forming galaxy's own Regime (:1175-1247). The reheated gas is credited to that pair
+ * and the ejection capped against it after the reheating.
  *
  * The sample is taken at SAGE26's point: stars is the renormalised mass
  * sage26_calculate_supernova_feedback leaves in NewStellarMass, and the cold gas is

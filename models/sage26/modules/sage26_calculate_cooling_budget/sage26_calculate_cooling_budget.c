@@ -16,15 +16,15 @@
  * The arithmetic is shared/sage_cooling_physics.h's mimic_sage_hot_cooling_budget, called
  * with CGMrecipeOn 0 (the R0-R3 behaviour).
  *
- * CGMrecipeOn (required, 0 or 1) selects the path. With CGMrecipeOn 1
- * SAGE26 calls cooling_recipe_regime_aware instead (R/src/core_build_model.c:503-509,
- * R/src/model_cooling_heating.c:125-132), which sage26_regime_aware_cooling owns whole: this
- * module then writes only its no-cooling transport (CoolingGas = CoolingX =
- * Rcool = 0, CoolingReturnPath = -1) and no galaxy property, so sage26_radio_mode_heating and
- * sage26_apply_cooling skip by their own gates. Because a CGMrecipeOn 1 run without the
- * transaction would cool nothing, and one without the classifier would route every galaxy
- * through the hot branch, init() then refuses unless sage26_regime_aware_cooling is configured
- * in the substep phase that holds this module and sage26_determine_regime in pre_timestep.
+ * CGMrecipeOn (required, 0 or 1) selects the path. With CGMrecipeOn 1 SAGE26 calls
+ * cooling_recipe_regime_aware instead (R/src/core_build_model.c:503-509,
+ * R/src/model_cooling_heating.c:125-132), which sage26_regime_aware_cooling owns whole: this module
+ * then writes only its no-cooling transport (CoolingGas = CoolingX = Rcool = 0,
+ * CoolingReturnPath = -1) and no galaxy property, so sage26_radio_mode_heating and
+ * sage26_apply_cooling skip by their own gates. Because a CGMrecipeOn 1 run without the transaction
+ * would cool nothing, and one without the classifier would route every galaxy through the hot
+ * branch, init() then refuses unless sage26_regime_aware_cooling is configured in the substep phase
+ * that holds this module and sage26_determine_regime in pre_timestep.
  *
  * It carries SAGE26's locals between them in package-private transport
  * properties, written on every call because init_repeat resets them only once per
@@ -161,10 +161,10 @@ int sage26_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Ha
   struct GalaxyData *galaxy = halo->galaxy;
 
   // With CGMrecipeOn 1 SAGE26 calls cooling_recipe_regime_aware instead of cooling_recipe_hot
-  // (R/src/model_cooling_heating.c:128-129), which sage26_regime_aware_cooling owns whole.
-  // The carried state says no cooling, so sage26_radio_mode_heating
-  // (CoolingGas > 0 gate) and sage26_apply_cooling (path -1, zero mass) write nothing, and no
-  // galaxy property is written here.
+  // (R/src/model_cooling_heating.c:128-129), which sage26_regime_aware_cooling owns whole. The
+  // carried state says no cooling, so sage26_radio_mode_heating (CoolingGas > 0 gate) and
+  // sage26_apply_cooling (path -1, zero mass) write nothing, and no galaxy property is written
+  // here.
   if (CGM_RECIPE_ON == 1) {
     galaxy->CoolingGas = 0.0;
     galaxy->CoolingX = 0.0;

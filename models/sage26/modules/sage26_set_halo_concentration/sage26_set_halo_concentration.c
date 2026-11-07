@@ -33,10 +33,10 @@
  * does not read the redshift SAGE26 passes. With ConcentrationOn 0 the module writes nothing, as
  * SAGE26 makes no call, and every row keeps its creation value 0.
  *
- * init() refuses: a missing ConcentrationOn (required, no default), a value
- * other than 0 or 3, any placement but exactly one pre_timestep entry as process_full_halo with
- * no other entry, and, with ConcentrationOn 3, a run without sage26_record_transition_state in
- * post_timestep, which writes PreviousType (without it every central would silently keep 0).
+ * init() refuses: a missing ConcentrationOn (required, no default), a value other than 0 or 3, any
+ * placement but exactly one pre_timestep entry as process_full_halo with no other entry, and, with
+ * ConcentrationOn 3, a run without sage26_record_transition_state in post_timestep, which writes
+ * PreviousType (without it every central would silently keep 0).
  */
 
 #include <math.h>

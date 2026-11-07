@@ -2,15 +2,14 @@
  * @file    sage26_satellite_stripping.c
  * @brief   SAGE26 satellite stripping module - environmental gas stripping from satellites
  *
- * Ports SAGE26's strip_from_satellite (R = the staged SAGE26 source,
- * R/src/model_infall.c:225-273): each substep a live Type 1 satellite gives the FoF central
- * 1/N of its baryon excess over HaloBaryonFraction * Mvir. HaloBaryonFraction is the
- * satellite's own once-rounded reionization_modifier * BaryonFrac, carried from
- * sage26_reionization. The required parameter CGMrecipeOn selects the
- * reservoirs (R/src/model_infall.c:247-254): with CGMrecipeOn 1 the gas is taken from the
- * satellite's CGM pair if the satellite is in the CGM regime (its own Regime 0) and given to
- * the central's CGM pair if the central is (the central's Regime 0), each independently, and
- * from or to the hot pair otherwise; with CGMrecipeOn 0 both are the hot pair.
+ * Ports SAGE26's strip_from_satellite (R = the staged SAGE26 source, R/src/model_infall.c:225-273):
+ * each substep a live Type 1 satellite gives the FoF central 1/N of its baryon excess over
+ * HaloBaryonFraction * Mvir. HaloBaryonFraction is the satellite's own once-rounded
+ * reionization_modifier * BaryonFrac, carried from sage26_reionization. The required parameter
+ * CGMrecipeOn selects the reservoirs (R/src/model_infall.c:247-254): with CGMrecipeOn 1 the gas is
+ * taken from the satellite's CGM pair if the satellite is in the CGM regime (its own Regime 0) and
+ * given to the central's CGM pair if the central is (the central's Regime 0), each independently,
+ * and from or to the hot pair otherwise; with CGMrecipeOn 0 both are the hot pair.
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand
  * order and types, so that compiler contraction treats both alike.

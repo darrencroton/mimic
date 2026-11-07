@@ -20,17 +20,16 @@
  *   R/src/model_misc.c:239-247), which zeroes the three bulge radii;
  * - mimic_sage_disrupt_satellite_to_ics(): disrupt_satellite_to_ICS (M:845-902).
  *
- * sage26_resolve_mergers_and_disruption composes the first seven into
- * deal_with_galaxy_merger and calls the last from its pass. Each expression keeps
- * SAGE26's operand order and types: the struct GALAXY members are float, so a sum of two
- * members rounds in float before any widening, and a compound assignment of a double into
- * a float member rounds once into the float. The multiply-adds on these paths that
- * SAGE26's objects fuse are written as explicit fma(): the disruption's ICS_sum_mt +=
- * StellarMass * time (M:871, the oracle README's "The c06 Group", Fused Multiply-Adds) and the
- * remnant radius's three (M:158, :171, :204, its "The c07 Group", Fused Multiply-Adds); no
- * other helper here contains a multiply-add (the table lists none for
- * add_galaxies_together and make_bulge_from_burst; the radius update's
- * own fused site is in sage_bulge_size_physics.h).
+ * sage26_resolve_mergers_and_disruption composes the first seven into deal_with_galaxy_merger and
+ * calls the last from its pass. Each expression keeps SAGE26's operand order and types: the struct
+ * GALAXY members are float, so a sum of two members rounds in float before any widening, and a
+ * compound assignment of a double into a float member rounds once into the float. The multiply-adds
+ * on these paths that SAGE26's objects fuse are written as explicit fma(): the disruption's
+ * ICS_sum_mt += StellarMass * time (M:871, the oracle README's "The c06 Group", Fused
+ * Multiply-Adds) and the remnant radius's three (M:158, :171, :204, the oracle README's
+ * "The c07 Group", Fused Multiply-Adds); no other helper here contains a multiply-add
+ * (the c06 Group's Fused Multiply-Adds table lists none for add_galaxies_together and
+ * make_bulge_from_burst; the radius update's own fused site is in sage_bulge_size_physics.h).
  */
 
 #ifndef MIMIC_SHARED_SAGE_MERGER_PHYSICS_H

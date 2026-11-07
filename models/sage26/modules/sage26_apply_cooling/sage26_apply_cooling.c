@@ -18,8 +18,8 @@
  * This is the CGMrecipeOn 0 (R0-R3) path. With CGMrecipeOn 1 SAGE26 never calls
  * cool_gas_onto_galaxy: its regime-aware wrapper applies the CGM and hot masses and writes
  * CoolingRate itself (R/src/model_cooling_heating.c:475-502), which sage26_regime_aware_cooling,
- * the next module, ports; sage26_calculate_cooling_budget then carries
- * path -1 and zero mass, so this module writes nothing.
+ * the next module, ports; sage26_calculate_cooling_budget then carries path -1 and zero mass, so
+ * this module writes nothing.
  *
  * Reference: Croton et al. (2006, 2016)
  */

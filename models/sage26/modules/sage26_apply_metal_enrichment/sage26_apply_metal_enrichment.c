@@ -56,8 +56,8 @@ static double YIELD;
 static double FRAC_Z_LEAVE_DISK;
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init, which with the FoF central's Regime selects where the escaping
- * metals go (R/src/model_misc.h:69) */
+ * init, which with the FoF central's Regime selects where the escaping metals go
+ * (R/src/model_misc.h:69) */
 static int CGM_RECIPE_ON;
 
 // ============================================================================

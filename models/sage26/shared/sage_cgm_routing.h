@@ -50,8 +50,8 @@
 /**
  * @brief Refuse a CGMrecipeOn the package does not support
  *
- * CGMrecipeOn is a required package parameter, 0 or 1; each module that
- * selects a reservoir by regime loads it with the required-parameter path and passes it here.
+ * CGMrecipeOn is a required package parameter, 0 or 1; each module that selects a reservoir by
+ * regime loads it with the required-parameter path and passes it here.
  *
  * @param module_name  The calling module, for the error message
  * @param value        The loaded CGMrecipeOn
