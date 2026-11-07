@@ -21,7 +21,7 @@ module:
     unit:
       - _tests/test_unit_sage26_determine_ffb_regime.c
       - _tests/test_unit_sage26_determine_ffb_regime_oracle.c
-    integration: []
+    integration: _tests/test_integration_sage26_determine_ffb_regime.py
     scientific: []
 
   docs:

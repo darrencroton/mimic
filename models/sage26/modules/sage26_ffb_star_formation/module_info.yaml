@@ -81,7 +81,7 @@ module:
     unit:
       - _tests/test_unit_sage26_ffb_star_formation.c
       - _tests/test_unit_sage26_ffb_star_formation_oracle.c
-    integration: []
+    integration: _tests/test_integration_sage26_ffb_star_formation.py
     scientific: []
 
   docs:
