@@ -2,7 +2,7 @@
 
 The i02-alignment-set node's measurement of the frozen core-alignment set (`series`, `series.sha256`) against SAGE26's R6 reference and the T1 reference, under the vertical driver, at the launch base `66a3e9498561e7f2f2207267a94986e9b097b03c`. Slice 1 recorded sections 1 to 7; Slice 2 recorded section 8, each item's contribution at R6 left out of the full set, with the deltas committed under `measurement/deltas/`.
 
-Every figure below is copied from the runner's files under the node worktree's git-ignored `output/i02/<label>/` (summaries `summary-*.txt`, comparator JSON `compare-*.json`, `context.txt`, `apply.log`, `apply-paths.txt`, the `.status` files); analysis outside the runner's directories is under `output/i02-analysis/`. "Bit for bit" means bit-identical in the instrument's mapped properties at SAGE26's storage precision with signed zero normalised, as `models/sage26/instrument/compare_sage26.py` compares them.
+Every figure this node measured is copied from the runner's files under the node worktree's git-ignored `output/i02/<label>/` (summaries `summary-*.txt`, comparator JSON `compare-*.json`, `context.txt`, `apply.log`, `apply-paths.txt`, the `.status` files); sections 8.5 and 8.6 also quote figures from x01's and x02's reports and from the node plan, as those sections state. Analysis outside the runner's directories is under `output/i02-analysis/`. "Bit for bit" means bit-identical in the instrument's mapped properties at SAGE26's storage precision with signed zero normalised, as `models/sage26/instrument/compare_sage26.py` compares them.
 
 ## 1. Provenance
 
@@ -359,7 +359,9 @@ verdict=identical
 
 The build and run are deterministic: every galaxy dataset of `all-repeat` equals `all-list`'s.
 
-### 6.4 R6 Against T1, Every Run
+### 6.4 R6 Against T1, Every Slice 1 Run
+
+Slice 2's runs are in section 8.1.
 
 | Run | `summary-r6` / `summary-t1` `tables_sha256` (T1's eight snapshots) | `summary-r6-all` / `summary-t1-all` (8 to 63) |
 |---|---|---|
@@ -496,7 +498,7 @@ SAGE26's own sensitivity is campaign evidence E24, measured by e06 on SAGE26 its
 | `QuasarModeBHaccretionMass` `M_sig` gate | no FMA contraction: failed at 63; 280/324 | failed at 63 to 23; 146/348 (42.0%) at 63 | failed at 63 to 23; 148/343 (43.1%) | failed at 63 to 23; 145/343 (42.3%) |
 | z = 0 total stellar mass | creation draws removed: +0.99% | not measured here | not measured here | not measured here |
 
-"Failed at 63 to 16" means at each of T1's eight snapshots 63, 37, 32, 27, 23, 20, 18, 16; "63 to 23" means at 63, 37, 32, 27 and 23; and "63 to 27" means at 63, 37, 32 and 27. In the E24 column, read over T1's eight snapshots as the plan quotes the ranges, "63 to 18" covers 63, 37, 32, 27, 23, 20 and 18, and "63 to 32" covers 63, 37 and 32. In the R6 columns the fraction is `within_tolerance_sig` over `M_sig` at snapshot 63 from the left-out run's `compare-r6.json`. In `all`, these properties' `M_sig` at snapshot 63 are 2082 (`HotGas`, `MetalsHotGas`), 282 (`mdot_stream`), 1797 (`mdot_cool`), 202 (`SfrBulge`) and 324 (`QuasarModeBHaccretionMass`), each with `within_tolerance_sig` equal to `M_sig` (`output/i02-analysis/slice2/all-msig-63.txt`).
+"Failed at 63 to 16" means at each of T1's eight snapshots 63, 37, 32, 27, 23, 20, 18, 16; "63 to 23" means at 63, 37, 32, 27 and 23; and "63 to 27" means at 63, 37, 32 and 27. In the E24 column, read over T1's eight snapshots as the plan quotes the ranges, "63 to 18" covers 63, 37, 32, 27, 23, 20 and 18, and "63 to 32" covers 63, 37 and 32. In the R6 columns the fraction is `within_tolerance_sig` over `M_sig` at snapshot 63 from the left-out run's `compare-r6.json`. In `all`, these properties' `M_sig` at snapshot 63 are 2082 (`HotGas`, `MetalsHotGas`), 282 (`mdot_stream`), 1797 (`mdot_cool`), 202 (`SfrBulge`) and 324 (`QuasarModeBHaccretionMass`), each with `within_tolerance_sig` equal to `M_sig` (`output/i02-analysis/slice2/all-msig-63.txt`). E24's fractions (1824/2137, 85.4%; 243/315, 77.1%; 175/202; 280/324) are quoted as the plan gives them; this node does not define their numerator.
 
 E24's threshold scope is as the plan quotes it: the snapshots and the unperturbed SAGE26 output behind its 114 failed thresholds are not given. Equal totals (114 for E24's creation draws removed, 114 at R6 without 09) are not equal sets of failed thresholds.
 
