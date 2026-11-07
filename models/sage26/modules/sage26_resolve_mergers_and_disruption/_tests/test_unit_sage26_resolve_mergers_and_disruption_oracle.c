@@ -312,14 +312,13 @@ static void observe_action(const char *action, int source_index, int target_inde
  * @return Number of problems
  */
 static int setup_modules(struct oracle_fixture *in) {
-  /* The merger family's flags with BulgeSizeOn read (0, or 3 for the bulge-size merge_s3_*
-   * fixtures, with the fixture's Hubble_h) and SFprescription read (0, or 1 for the merge_r2_* and
-   * tr_pass_r2_* fixtures, with the H2 configuration) */
+  /* The merger family's flags with BulgeSizeOn read (0, or 3 with the fixture's Hubble_h) and
+   * SFprescription read (0, or 1 with the H2 configuration) */
   struct MimicSageBulgeSize sizes;
   int sf_prescription = 0;
   /* FIREmodeOn: 0, or 0 or 1 for a FIRE fixture (validated by oracle_c09_read_fire_config), or R4's
-   * 1 for a CGMrecipeOn 1 disruption (unread there); CGMrecipeOn: 0, or 0 or 1
-   * where the routine admits it */
+   * 1 for a CGMrecipeOn 1 disruption (unread there); CGMrecipeOn: 0, or 0 or 1 where the routine
+   * admits it */
   int fire_mode_read = 0;
   int problems =
       oracle_c10_require_merger_flags(in, &sizes, &sf_prescription, fixture_fire,
@@ -1253,7 +1252,8 @@ static int check_disrupt(const char *name) {
     return 1;
   }
   /* A CGMrecipeOn 1 fixture (R4's flags) initialises the resolver with it, whose disruption reads
-   * the module's CGMrecipeOn; every earlier fixture is read with R0's flags as before */
+   * the module's CGMrecipeOn; every other disruption fixture is held to R0's flags
+   * (oracle_c06_require_r0_flags) */
   const int cgm = oracle_has(&in, "params.CGMrecipeOn") &&
                   oracle_in_i32(&in, "params.CGMrecipeOn") == MIMIC_SAGE_CGM_RECIPE_ON;
   int problems = 0;

@@ -1,11 +1,11 @@
 /**
  * @file    sage26_oracle_hydrogen.h
- * @brief   Oracle-test helpers for the hydrogen sites of the merger-family
- *          routines (SFprescription 0 and 1)
+ * @brief   Oracle-test helpers for the hydrogen sites of the merger-family routines (SFprescription
+ *          0 and 1)
  *
  * Adds, beside sage26_oracle_fixture.h, sage26_oracle_sizes.h and sage26_oracle_h2.h (which stay as
  * they are), what the oracle tests of the black-hole, burst and merger fixtures need (oracle README
- * "The c08 Group", "The Hydrogen Sites of the Merger Family"):
+ * "The c08 Group", "The Merger Family's Hydrogen Sites"):
  *
  * - oracle_c08_require_merger_flags(): the merger family's flags with SFprescription read (0 or 1,
  *   with the H2 configuration oracle_c06 requires for 1) and BulgeSizeOn read (0 or 3), every other

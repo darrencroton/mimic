@@ -99,8 +99,8 @@ static inline int oracle_c08_set_sf_parameters(const struct oracle_c08_sf_config
 }
 
 /**
- * @brief Counters of the molecular-gas and hydrogen-cap local
- *        assertions a test made, for its report
+ * @brief Counters of the molecular-gas and hydrogen-cap local assertions a test made,
+ *        for its report
  */
 struct oracle_c08_local_tally {
   int validated;         /**< validated two-sided */

@@ -1028,8 +1028,8 @@ static inline void oracle_c04_in_galaxy(struct oracle_fixture *in, const int ind
 }
 
 /**
- * @brief Compare the named cooling and radio-heating state fields of a
- *        galaxy with "<prefix>galaxy[index].*"
+ * @brief Compare the named cooling and radio-heating state fields of a galaxy with
+ *        "<prefix>galaxy[index].*"
  *
  * @param names  SAGE26 names, each a float (oracle_galaxy_float) or double
  *               (oracle_galaxy_double) member
@@ -1219,8 +1219,8 @@ static inline void oracle_c05_exclude_histories(struct oracle_fixture *fx, const
 }
 
 /**
- * @brief Require one of the fixed star-formation-group R0 flags (oracle
- *        README "Flags and Parameters")
+ * @brief Require one of the fixed star-formation-group R0 flags (oracle README "Flags and
+ *        Parameters")
  * @return 1 if the fixture's flag differs from the R0 value, else 0
  */
 static inline int oracle_c05_require_flag(struct oracle_fixture *in, const char *flag,
@@ -1462,8 +1462,8 @@ static inline float *oracle_c06_galaxy_float(struct GalaxyData *galaxy, const ch
 }
 
 /**
- * @brief The thirty float reservoirs, channels, radii and timestamps of
- *        the merger-family galaxy block
+ * @brief The thirty float reservoirs, channels, radii and timestamps of the merger-family
+ *        galaxy block
  *
  * Every merger-family fixture sets them for every galaxy, and every recorded galaxy
  * block holds them (oracle README "Format Additions", SAGE26 names).

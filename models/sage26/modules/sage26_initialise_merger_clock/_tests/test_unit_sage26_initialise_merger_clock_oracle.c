@@ -138,8 +138,8 @@ static int set_params(struct oracle_fixture *in) {
 
 /**
  * @brief Initialise sage26_set_halo_concentration, which the joining harness runs after the clock,
- *        with the fixture's ConcentrationOn (its required parameter; 0
- *        for every fixture of this module)
+ *        with the fixture's ConcentrationOn (its required parameter; 0 for every fixture
+ *        of this module)
  */
 static int init_concentration(struct oracle_fixture *in) {
   if (oracle_set_model_param("ConcentrationOn",

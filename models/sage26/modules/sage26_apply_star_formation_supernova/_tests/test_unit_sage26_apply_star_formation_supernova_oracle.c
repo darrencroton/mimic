@@ -24,10 +24,10 @@
  *   where a clamp or cap binds, that its recorded value equals the reservoir it
  *   binds to (the cold gas at the call; the central's hot gas and hot metals after
  *   the reheating, before the ejection debit);
- * - with SFprescription 1 (the uff_r2_* and ufsf_r2_* fixtures, R2's flags), each commit's hydrogen
- *   cap (S:1131-1135, S:1169-1173), which the kernel applies for that prescription: its guard
- *   and two binding flags, and its bound max_h, compared bit for bit, and, where a cap binds, the
- *   capped field equal to that bound;
+ * - with SFprescription 1 (the uff_r2_*, ufsf_r2_* and uff_cgm_* fixtures, R2's and R4's flags),
+ *   each commit's hydrogen cap (S:1131-1135, S:1169-1173), which the kernel applies for that
+ *   prescription: its guard and two binding flags, and its bound max_h, compared bit for bit, and,
+ *   where a cap binds, the capped field equal to that bound;
  * - with CGMrecipeOn 1 (the uff_cgm_* fixtures, R4's flags; oracle README "The c10 Group, Part 3"),
  *   the fixture's CGMrecipeOn passed to the commit, every galaxy's Regime and CGM pair read and
  *   asserted with the other fields; the commit's selection (feedback_reservoir_cgm) asserted

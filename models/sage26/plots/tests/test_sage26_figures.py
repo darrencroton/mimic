@@ -162,9 +162,9 @@ def panel(x_label, y_label, title="", z_label=""):
 
 
 # name -> list of expected data axes in creation order. The forked figures (the first eighteen
-# snapshot figures and the first four evolution figures, in registry order) have no title
-# and no colour bar; the labels of the other figures are SAGE26's Python
-# string literals at the lines cited.
+# snapshot figures and the first four evolution figures, in registry order) have no title and no
+# colour bar; the labels of the other figures are SAGE26's Python string literals at
+# the lines cited.
 DATA_AXES = {
     "halo_mass_function": [panel(HALO_MASS, MASS_FUNCTION)],
     "halo_occupation": [panel(HALO_MASS, r"Mean occupation number $\langle N \rangle$")],

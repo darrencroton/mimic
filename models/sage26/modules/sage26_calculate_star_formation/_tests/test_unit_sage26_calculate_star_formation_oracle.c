@@ -126,9 +126,9 @@
  * FIRE budget is replayed through the shared helpers (shared/sage_fire_feedback_physics.h) on the
  * state it received, which must end in the budgets and MassLoading process() produced; the FIRE
  * branch flags and values the oracle records are asserted against that replay bit for bit
- * (sage26_oracle_fire.h). Every earlier fixture is read as before, with the feedback module's
- * required FIREmodeOn set to the fixture's 0. The oracle also admits a FIREmodeOn 1 fixture whose
- * disk is gas-unstable after the feedback (sf_fire_*_unstable*): the continuation runs as at
+ * (sage26_oracle_fire.h). A fixture of any other routine requires FIREmodeOn 0, which also sets the
+ * feedback module's required FIREmodeOn. The oracle also admits a FIREmodeOn 1 fixture whose disk
+ * is gas-unstable after the feedback (sf_fire_*_unstable*): the continuation runs as at
  * SFprescription 1, with the burst module reading the fixture's FIREmodeOn and the redshift table;
  * the test also asserts the disk MassLoading the feedback module wrote, unchanged through the
  * black-hole growth (intermediate.after_bh.*) and the burst (R/src/model_mergers.c:707-710), and
@@ -295,9 +295,9 @@ struct chain {
   int bulge_size_on;                     /* 0 or 3 */
   struct oracle_c08_sf_config sf;        /* SFprescription 0 or 1 and the H2 configuration */
   int fire;                              /* a starformation_and_feedback_fire fixture */
-  int fire_mode_on;                      /* its FIREmodeOn (0 for every earlier fixture) */
+  int fire_mode_on;                      /* its FIREmodeOn (0 for another routine's) */
   int snapnum[MAX_GALAXIES];             /* each galaxy's stored SnapNum */
-  int cgm_recipe_on;                     /* CGMrecipeOn, 0 for every earlier fixture */
+  int cgm_recipe_on;                     /* CGMrecipeOn, 0 for another routine's */
   struct GalaxyData input[MAX_GALAXIES]; /* the galaxies as the fixture set them */
   struct GalaxyData galaxies[MAX_GALAXIES];
   struct Halo halos[MAX_GALAXIES];
@@ -357,8 +357,8 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
    * configuration; BulgeSizeOn 0 or 3 (R1 onward) */
   problems += oracle_c08_read_sf_config(in, 0, &c->sf);
   problems += oracle_c05_require_flag(in, "params.SupernovaRecipeOn", 1);
-  /* CGMrecipeOn: 0 for every earlier fixture; 0 or 1 for a starformation_and_feedback_fire fixture
-   * (1 for the cgm_sf_* fixtures, R4's flags), the run's for every module */
+  /* CGMrecipeOn: 0 for a fixture of any other routine; 0 or 1 for a starformation_and_feedback_fire
+   * fixture (1 for the cgm_sf_* fixtures, R4's flags), the run's for every module */
   c->cgm_recipe_on = oracle_in_i32(in, "params.CGMrecipeOn");
   if (c->cgm_recipe_on != MIMIC_SAGE_CGM_RECIPE_OFF &&
       !(c->fire && c->cgm_recipe_on == MIMIC_SAGE_CGM_RECIPE_ON)) {
@@ -366,8 +366,8 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
             ORACLE_C09_ROUTINE);
     problems++;
   }
-  /* FIREmodeOn: 0 for every earlier fixture; 0 or 1 with each galaxy's stored snapshot and its
-   * redshift for a FIRE fixture (applied to the run's redshift table) */
+  /* FIREmodeOn: 0 for a fixture of any other routine; 0 or 1 with each galaxy's stored snapshot and
+   * its redshift for a FIRE fixture (applied to the run's redshift table) */
   if (c->fire) {
     const int ngal = oracle_in_i32(in, "call.ngal");
     if (ngal < 1 || ngal > MAX_GALAXIES) {

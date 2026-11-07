@@ -77,16 +77,16 @@
  * written fields, the size members and the two black-hole fields) against the oracle's state after
  * SAGE26's own grow_black_hole: the accretion cap's effect on H2gas and H1gas, isolated.
  *
- * FIREmodeOn (the FIRE fixtures, routine check_disk_instability_fire, R3's flags): the burst
- * module reads the fixture's FIREmodeOn (every earlier fixture runs it with 0, its required
+ * FIREmodeOn (the FIRE fixtures, routine check_disk_instability_fire, R3's flags): the burst module
+ * reads the fixture's FIREmodeOn (every fixture that is not a FIRE one runs it with 0, its required
  * parameter), each galaxy's stored SnapNum and the redshift table its params.ZZ entries fill
  * (sage26_oracle_fire.h). Besides the end state, the test asserts every recorded galaxy's
- * MassLoading (the state, the state after the black-hole growth and SAGE26's end state) equal
- * to its input, which no burst writes (R/src/model_mergers.c:707-710), and the instability
- * burst's FIRE wiring: a replay of sage26_starburst_feedback's call of the shared transaction
- * on copies, required to end in process()'s state, whose FIRE record must show the branch of the
- * fixture's FIREmodeOn taken with the bursting galaxy's own stored SnapNum, float Vvir and that
- * snapshot's redshift (never its FoF central's). The oracle's observations of SAGE26's burst
+ * MassLoading (the state, the state after the black-hole growth and SAGE26's end state) equal to
+ * its input, which no burst writes (R/src/model_mergers.c:707-710), and the instability burst's
+ * FIRE wiring: a replay of sage26_starburst_feedback's call of the shared transaction on copies,
+ * required to end in process()'s state, whose FIRE record must show the branch of the fixture's
+ * FIREmodeOn taken with the bursting galaxy's own stored SnapNum, float Vvir and that snapshot's
+ * redshift (never its FoF central's). The oracle's observations of SAGE26's burst
  * (intermediate.nested_burst_fire_*_sensitive: SAGE26's end state changes when that burst runs with
  * FIREmodeOn 0, or with the galaxy's redshift replaced) are read and counted.
  *
@@ -168,8 +168,8 @@ static int fire_nested_observed = 0;
 static int mass_loading_asserted = 0;
 
 /**
- * @brief The members BulgeSizeOn 3 adds to every star-formation galaxy
- *        (oracle README "The c07 Group")
+ * @brief The members BulgeSizeOn 3 adds to every star-formation galaxy (oracle README
+ *        "The c07 Group")
  */
 static const char *const SIZES[] = {"MergerBulgeMass", "BulgeRadius", "MergerBulgeRadius",
                                     "InstabilityBulgeRadius"};

@@ -93,9 +93,9 @@ BASELINE_DIR = TESTS_DIR / "baseline" / "physics-binary"
 CURRENT_DIR = REPO_ROOT / "output" / "sage26-physics-binary"
 
 # The input's output snapshots and the binary file Mimic writes for each (model_z<z>_0, z from
-# tests/data/input/mini-millennium.a_list). FFB_SNAPSHOT is the snapshot among the package run
-# file's output snapshots 16, 18, 20, 23 and 27 whose output on the test trees
-# holds the most FFBRegime 1 rows
+# tests/data/input/mini-millennium.a_list). FFB_SNAPSHOT is the snapshot, among five of the package
+# run file's eight output snapshots (16, 18, 20, 23 and 27), whose output on the test trees holds
+# the most FFBRegime 1 rows
 FFB_SNAPSHOT = 16
 OUTPUT_FILES = {63: "model_z0.000_0", FFB_SNAPSHOT: "model_z7.272_0"}
 SCHEMA = Path("metadata") / "output_schema.json"

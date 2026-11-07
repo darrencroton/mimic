@@ -2301,15 +2301,15 @@ int test_post_merger_recheck_samples_with_event_dt(void) {
  * @brief   Consecutive bursts can leave BulgeMass more than one float above StellarMass
  *
  * A burst adds the rounded double recycled_stars to BulgeMass (R/src/model_mergers.c:770-772) while
- * update_from_star_formation adds the same product to StellarMass as one fused
- * multiply-add (R/src/model_starformation_and_feedback.c:1125), so each burst can move
- * BulgeMass - StellarMass by one float, and the excess can accumulate over consecutive
- * bursts. SAGE26's own collisional_starburst_recipe gives it under R0's parameters: ColdGas 1,
- * StellarMass = BulgeMass = 0x3f800001, three mode-1 bursts, each fed the previous output. The
- * shared burst transaction must give the same bits: StellarMass/BulgeMass 0x3f800001/0x3f800002,
- * then 0x3f800002/0x3f800003, then 0x3f800002/0x3f800004, a two-float excess. Those bits depend
- * only on ColdGas, the ratios, FeedbackReheatingEpsilon and RecycleFraction (the ejection, the hot
- * gas and the metals do not feed the host's ColdGas, StellarMass or BulgeMass).
+ * update_from_star_formation adds the same product to StellarMass as one fused multiply-add
+ * (R/src/model_starformation_and_feedback.c:1125), so each burst can move BulgeMass - StellarMass
+ * by one float, and the excess can accumulate over consecutive bursts. SAGE26's own
+ * collisional_starburst_recipe gives it under R0's parameters: ColdGas 1, StellarMass = BulgeMass =
+ * 0x3f800001, three mode-1 bursts, each fed the previous output. The shared burst transaction must
+ * give the same bits: StellarMass/BulgeMass 0x3f800001/0x3f800002, then 0x3f800002/0x3f800003, then
+ * 0x3f800002/0x3f800004, a two-float excess. Those bits depend only on ColdGas, the ratios,
+ * FeedbackReheatingEpsilon and RecycleFraction (the ejection, the hot gas and the metals do not
+ * feed the host's ColdGas, StellarMass or BulgeMass).
  *
  * The integration tests' bulge bound (test_integration_sage26_starburst_feedback.py,
  * bulge_upper_bound) therefore grows with the number of bursts; this case pins why a

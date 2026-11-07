@@ -1,7 +1,7 @@
 /**
  * @file    sage26_oracle_fire.h
- * @brief   Oracle-test helpers for the FIRE supernova feedback
- *          (routine starformation_and_feedback_fire)
+ * @brief   Oracle-test helpers for the FIRE supernova feedback (routine
+ *          starformation_and_feedback_fire)
  *
  * Adds, beside the shared fixture reader sage26_oracle_fixture.h (which stays as it is), what the
  * oracle tests of the FIRE fixtures need (oracle README "The c09 Group"):

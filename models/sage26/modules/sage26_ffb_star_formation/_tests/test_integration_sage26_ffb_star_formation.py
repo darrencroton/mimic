@@ -48,8 +48,8 @@ On writes its domain (the observable list), with EnhancedStarFormationOn 1:
   - Witnesses: at least one FFBRegime 1 row with StarFormationRate > 0, and at least one with
     SupernovaOutflowRate > 0 (the feedback commit's outflow accumulation ran).
   - H2gas: exactly 0 on every FFBRegime 1 row at S. The transaction writes 0.0f, its creation value
-    (model_properties.yaml:609-617), and sage26_calculate_star_formation
-    returns at once on an FFBRegime 1 row.
+    (model_properties.yaml:609-617), and sage26_calculate_star_formation returns at once on an
+    FFBRegime 1 row.
   - MassLoading: finite and non-negative on the FFBRegime 1 rows at S, with no witness. It is
     written only with a valid FIRE scaling and otherwise left stale (model_properties.yaml:
     1246-1253).
@@ -72,8 +72,8 @@ Placement refusal: at EnhancedStarFormationOn 0 (so no cross-module guard applie
 configured twice, by galaxy in galaxy_physics and in satellite_mergers, every key present, is
 refused naming the module (check_placement: exactly one substep entry, by galaxy).
 
-Cross-module guards, at EnhancedStarFormationOn 1. Each configuration
-breaks exactly one guard, and the case requires that guard's diagnostic:
+Cross-module guards, at EnhancedStarFormationOn 1. Each configuration breaks exactly one guard, and
+the case requires that guard's diagnostic:
   - Adjacency: pre_timestep sage26_determine_ffb_regime; galaxy_physics
     sage26_calculate_star_formation, sage26_ffb_star_formation,
     sage26_apply_star_formation_supernova (the transaction after, not immediately before,
