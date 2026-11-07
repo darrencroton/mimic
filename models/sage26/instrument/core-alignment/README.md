@@ -35,7 +35,7 @@ Patches 01 to 09 are byte-identical copies of the patches x01 and x02 measured, 
 
 ## Applying the set
 
-`apply.sh` is POSIX `sh`. Run it from the root of a git worktree that is on a throwaway branch or a detached HEAD and has no uncommitted changes:
+`apply.sh` is POSIX `sh`. Run it from the root of a git clone or worktree that excludes `docs/dev/` (as the sparse clone in "Applying the set for T1" does), is on a throwaway branch or a detached HEAD, and has no uncommitted changes:
 
 ```sh
 sh models/sage26/instrument/core-alignment/apply.sh
@@ -44,7 +44,7 @@ sh models/sage26/instrument/core-alignment/apply.sh
 - It refuses with exit status 2 when the worktree is not clean (`git status --porcelain --untracked-files=all --ignore-submodules=none -- . ':(exclude)docs/dev'` prints anything), or when its branch is `integration/sage26` or `main`. A detached HEAD is allowed; any other failure to read the branch is refused.
 - Before applying anything it reads `series` and `series.sha256` by redirection from the files (never through a here-document) and refuses with exit status 2, naming the line or entry and applying nothing, unless every non-blank line of either file is well formed, the two files name the same patches in the same order, and each patch file's SHA-256 equals its `series.sha256` line.
 - It applies each patch named in `series`, in order, with `git apply --index`, so the changes are staged. It commits nothing.
-- If any patch fails, it restores the worktree to its starting commit and clean state with `git reset --hard HEAD` (safe, because the worktree was clean at the start) and exits 2 naming the patch.
+- If any patch fails, it restores the worktree to its starting commit and clean state with `git reset --hard HEAD` and exits 2 naming the patch. The reset is safe only in a checkout that excludes `docs/dev/`: the clean check does not inspect `docs/dev/`, so in a full checkout the reset would also discard any uncommitted changes to tracked files there (the script's header comment calls the reset safe without this qualification).
 - Otherwise, provided the number applied equals the number of series entries, it prints a heading and one line `<SHA-256>  <name>` per applied patch and exits 0. With an empty `series` and an empty `series.sha256` it applies nothing, says so, and exits 0.
 
 ## Applying the set for T1
