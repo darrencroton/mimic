@@ -111,7 +111,9 @@ def plot(
     fig, ax = setup_figure()
 
     # Plot the model galaxies
-    ax.scatter(vel, mass, marker="o", s=1, c="k", alpha=0.5, label="Model Sb/c galaxies")
+    ax.scatter(
+        vel, mass, marker="o", s=1, c="k", alpha=0.5, label="Model Sb/c galaxies", gid="model"
+    )
 
     # Plot Stark, McGaugh & Swatters 2009 relation
     w_obs = np.arange(0.5, 10.0, 0.5)

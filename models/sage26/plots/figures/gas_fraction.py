@@ -122,6 +122,7 @@ def plot(
         c="k",
         alpha=0.5,
         label="Model Sb/c galaxies",
+        gid="model",
     )
 
     # Customize the plot

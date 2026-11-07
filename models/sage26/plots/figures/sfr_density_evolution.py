@@ -193,6 +193,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         "b-",
         lw=3.0,
         label="Model",
+        gid="model",
     )
 
     # Customize the plot

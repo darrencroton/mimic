@@ -149,7 +149,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         )
 
         # Plot the histogram
-        ax.plot(xaxis, hmf, color=color, linestyle="-", lw=2)
+        ax.plot(xaxis, hmf, color=color, linestyle="-", lw=2, gid="model")
 
         # Store redshift values for labels in the top right corner
         if i == 0:

@@ -120,7 +120,7 @@ def plot(
         print(f"  has_sfr={has_sfr}")
 
     # Plot stellar mass function
-    ax.plot(xaxis, smf, "k-", label="Model - All")
+    ax.plot(xaxis, smf, "k-", label="Model - All", gid="model")
 
     # Add red/blue separation if SFR properties are available
     if has_sfr:
@@ -139,8 +139,8 @@ def plot(
         )
 
         # Plot red and blue galaxy populations
-        ax.plot(xaxis, smf_red, "r:", lw=2, label="Model - Red")
-        ax.plot(xaxis, smf_blue, "b:", lw=2, label="Model - Blue")
+        ax.plot(xaxis, smf_red, "r:", lw=2, label="Model - Red", gid="model")
+        ax.plot(xaxis, smf_blue, "b:", lw=2, label="Model - Blue", gid="model")
 
     # Baldry, Glazebrook & Driver (2008), MNRAS 388, 945: z~0.1 field stellar
     # mass function. Columns: log10(M*) (Salpeter IMF; shifted -0.26 dex to

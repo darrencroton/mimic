@@ -261,7 +261,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.plot([], [], color="k", alpha=0.3, marker="o", ls="none", label="Observational data")
 
     # Plot the model results (nonzero was already validated above)
-    ax.plot(redshifts[nonzero], smd[nonzero], "k-", lw=3.0, label="Model")
+    ax.plot(redshifts[nonzero], smd[nonzero], "k-", lw=3.0, label="Model", gid="model")
 
     # Customize the plot
     ax.set_ylabel(r"log$_{10}$ $\rho_{*}$ [M$_{\odot}$ Mpc$^{-3}$]", fontsize=AXIS_LABEL_SIZE)

@@ -88,7 +88,7 @@ def plot(
         print(f"  Number of galaxies: {len(w)}")
 
     # Plot the cold gas mass function
-    ax.plot(xaxis, cgmf, "b-", lw=2, label="Central Galaxies")
+    ax.plot(xaxis, cgmf, "b-", lw=2, label="Central Galaxies", gid="model")
 
     # Customize the plot
     ax.set_yscale("log")

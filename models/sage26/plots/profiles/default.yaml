@@ -18,10 +18,36 @@ plots:
     - bulge_mass_fraction
     - quiescent_fraction
     - mass_reservoir_scatter
+    - bulge_to_total
+    - spatial_distribution_3d_box
+    - star_formation_rate
+    - mass_loading_vs_vvir
+    - stellar_vs_halo_mass_by_regime
+    - specific_star_formation_rate
+    - concentration_vs_mvir
+    - sfr_vs_halo_accretion_rate
+    - tcool_vs_mvir
+    - cgm_fraction_vs_mvir
+    - ejection_efficiency_vs_vvir
+    - disk_radius_vs_stellar_mass
   evolution:
     - hmf_evolution
     - smf_evolution
     - sfr_density_evolution
     - stellar_mass_density_evolution
+    - rcool_to_rvir_above_mshock
+    - sfr_evolution
+    - stellar_mass_halo_mass_relation
+    - black_hole_mass_function
+    - quenched_fraction_evolution
+    - concentration_evolution
+    - metallicity_evolution
+    - h2_fraction_evolution
+    - star_formation_efficiency
+    - central_satellite_counts
+    - central_satellite_fraction
+    - central_satellite_fraction_massive_quiescent
+    - quenched_central_satellite_counts
+    - ffb_fraction_cut_down
 
 mode: exploration

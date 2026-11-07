@@ -92,7 +92,7 @@ def plot(
         print(f"  Number of halos: {len(w)}")
 
     # Plot the halo mass function
-    ax.plot(xaxis, hmf, "k-", lw=2, label="All Halos")
+    ax.plot(xaxis, hmf, "k-", lw=2, label="All Halos", gid="model")
 
     # Customize the plot
     ax.set_yscale("log")

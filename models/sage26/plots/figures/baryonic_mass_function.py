@@ -85,7 +85,7 @@ def plot(
     xaxis, bmf = calculate_mass_function(mass, volume, hubble_h, binwidth)
 
     # Plot the main histogram
-    ax.plot(xaxis, bmf, "k-", label="Model")
+    ax.plot(xaxis, bmf, "k-", label="Model", gid="model")
 
     # Bell et al. 2003 BMF (h=1.0 converted to h=0.73)
     M = np.arange(7.0, 13.0, 0.01)

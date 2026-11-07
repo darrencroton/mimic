@@ -167,6 +167,7 @@ def plot(
         mean_occupation_all[valid_bins],
         "k-",
         label="All galaxies",
+        gid="model",
     )
 
     # Plot mean occupation for central galaxies (should be close to 1)
@@ -175,6 +176,7 @@ def plot(
         mean_occupation_central[valid_bins],
         "b--",
         label="Central galaxies",
+        gid="model",
     )
 
     # Plot mean occupation for satellite galaxies
@@ -183,6 +185,7 @@ def plot(
         mean_occupation_satellite[valid_bins],
         "r-.",
         label="Satellite galaxies",
+        gid="model",
     )
 
     # Set log scale for y-axis
