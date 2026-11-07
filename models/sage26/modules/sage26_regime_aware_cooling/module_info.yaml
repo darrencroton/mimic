@@ -43,7 +43,7 @@ module:
     unit:
       - _tests/test_unit_sage26_regime_aware_cooling.c
       - _tests/test_unit_sage26_regime_aware_cooling_oracle.c
-    integration: []
+    integration: _tests/test_integration_sage26_regime_aware_cooling.py
     scientific: []
 
   docs:
