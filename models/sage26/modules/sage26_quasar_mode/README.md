@@ -26,23 +26,31 @@ The arithmetic lives in `shared/sage_agn_physics.h` (`mimic_apply_black_hole_gro
 
 ## Parameters
 
-- `BlackHoleGrowthRate`
-- `QuasarModeEfficiency`
+- `BlackHoleGrowthRate` (required, any value in (0, 1]; a missing key or a value outside fails initialisation)
+- `QuasarModeEfficiency` (required, any value in [0, 1]; a missing key or a value outside fails initialisation)
 - `SFprescription` (required, 0 or 1): 1, the run files' value (BR06, SAGE26's R2), applies the accretion's hydrogen cap (`:366-372`); 0 (R0, R1) does not. Any other value, or a missing key, fails initialisation with an error naming the parameter; there is no default.
-- `CGMrecipeOn` (required, 0 or 1, campaign decision D33): 1, the run files' value (SAGE26's R4, kept through R6), selects the wind's second pair by the wind host's `Regime`; 0 (R0-R3) always the hot pair. Any other value, or a missing key, fails initialisation with an error naming the parameter; there is no default.
+- `CGMrecipeOn` (required, 0 or 1): 1, the run files' value (SAGE26's R4, kept through R6), selects the wind's second pair by the wind host's `Regime`; 0 (R0-R3) always the hot pair. Any other value, or a missing key, fails initialisation with an error naming the parameter; there is no default.
 
 ## Ordering
 
-**Enforced at init by event subscription validation (fails with ERROR if violated):**
+**Enforced at init (fails with ERROR if violated):**
 
-1. When used as `process_per_event`, `sage26_resolve_mergers_and_disruption` must be configured as `process_full_halo` in the same substep phase — it is the only producer of `merger` events that this module consumes.
+1. When used as `process_per_event`, `sage26_resolve_mergers_and_disruption` must be configured as `process_full_halo` in the same substep phase — it is the only producer of `merger` events that this module consumes. `sage26_quasar_mode_init()` refuses this itself too: when the module is `process_per_event` in a substep phase and no substep phase holds both it (`process_per_event`) and the resolver (`process_full_halo`).
+2. When this module and `sage26_starburst_feedback` are both `process_per_event` in one substep phase, this module must come first; `sage26_resolve_mergers_and_disruption_init()` refuses the other order (SAGE26 grows the black hole before the merger burst, `src/model_mergers.c:262-287`).
+
+**Not refused:**
+
+- The `process_by_galaxy` entry's position: no module checks it against `sage26_disk_instability` or `sage26_starburst_feedback`, and nothing requires `sage26_disk_instability` to be configured. Without it `UnstableDiskGasFraction` keeps its reset value 0 and this entry writes nothing (the integration test runs the module so).
+- Either mode alone. Without the `process_per_event` entry no merger grows a black hole (SAGE26's `AGNrecipeOn` 0 at `src/model_mergers.c:262`); if `sage26_disk_instability` (`process_by_galaxy`) and `sage26_starburst_feedback` are configured, the latter's `init()` then logs a WARNING, and the run continues, because the post-minor-merger recheck also skips its black-hole growth.
 
 ## Events
 
-Consumes `merger` events from `sage26_resolve_mergers_and_disruption` and grows the target's black hole for every merger, a ratio of 0 included, as SAGE26 does (`src/model_mergers.c:262-264`). In the merger phase it must precede `sage26_starburst_feedback`'s merger consumer, which the resolver enforces at init.
+Consumes `merger` events from `sage26_resolve_mergers_and_disruption` and grows the target's black hole for every merger, a ratio of 0 included, as SAGE26 does (`src/model_mergers.c:262-264`). In the merger phase it must precede `sage26_starburst_feedback`'s merger consumer when both consume in one substep phase, which the resolver enforces at init.
 
 ## Tests
 
 `_tests/test_unit_sage26_quasar_mode_oracle.c` runs every SAGE26 oracle fixture under `_tests/oracle/` (`grow_black_hole` on its own and with its wind, `quasar_mode_wind` on its own) through the shared functions and compares the result bit for bit with SAGE26's own routines, with `SFprescription 1` also the cap's flags and bound (`bh_r2_*`, `qw_r2_*`); outside the oracle environment it reports SKIP. `_tests/test_unit_sage26_quasar_mode.c` asserts the cap's platform-independent invariants (each above, at and below the bound independently, the guard at `SFprescription 0`, no refresh after the wind) and the module's required `SFprescription`, passed on by both channels (`test_hydrogen_cap_module_wiring` for the disk instability, `test_hydrogen_cap_module_wiring_per_event` for a merger event).
 
 `_tests/test_unit_sage26_quasar_mode.c`'s `test_cgm_wind_energy_tests` runs `CGMrecipeOn` 1 against 0 on the same input through both channels (the instability and the merger event), the wind host in each `Regime` and the FoF central in the other: the wind's two energy tests on each pair (ejecting both, only the cold gas because the second test keeps the original cold binding energy, or nothing), every reservoir an exact literal and each case's side of both tests checked with SAGE26's expressions at run time, the unselected pair and the central unchanged; `test_cgm_recipe_on_refused` checks the parameter's refusals.
+
+`_tests/test_integration_sage26_quasar_mode.py` runs the module as `process_by_galaxy` in `galaxy_physics`, after `sage26_disk_instability` or alone, with `SFprescription` 0 and `CGMrecipeOn` 0. It checks that the run succeeds; that `BlackHoleMass`, `QuasarModeBHaccretionMass`, `ColdGas` and `EjectedGas` are finite and non-negative; that the black hole stays below 10% of `Mvir` in halos with `Mvir` above 10 (1e10 Msun/h) and `QuasarModeBHaccretionMass` does not exceed `BlackHoleMass` (to within 1e-6); that the module alone accretes nothing; that a higher `BlackHoleGrowthRate` gives at least as much accretion and a higher `QuasarModeEfficiency` at least as much ejected gas; and that the run reports no memory leak and finishes within 30 s.

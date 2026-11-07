@@ -46,12 +46,12 @@ A galaxy the core created this snapshot has no previous Type (`PreviousType` -1)
 ## Processing Contract
 
 - Supported mode: `process_full_halo`
-- Required phase: `pre_timestep` only, exactly once. `init()` rejects an entry in a substep phase or `post_timestep`: the joining writes happen once per snapshot, and a later entry would re-estimate a new satellite's clock after the merger pass had started decrementing it
+- Required phase: `pre_timestep` only, exactly once. `init()` rejects an entry in a substep phase or `post_timestep`: the joining writes happen once per snapshot, and a later entry would re-estimate a new satellite's clock after the merger pass had started decrementing it. It also rejects anything but exactly one `pre_timestep` entry as `process_full_halo` (no entry, two entries, or one in another mode); each refusal names the module
 - Receives the full FoF workspace: a satellite's clock reads the FoF's Type 0 row
 
 ## Properties
 
-- Reads: `HaloNr`, `Type`, `Len`, `Mvir`, `StellarMass`, `ColdGas`, `PreviousType`
+- Reads: `HaloNr`, `Type`, `Len`, `Mvir`, `StellarMass`, `ColdGas`, `PreviousType`, `MergTime` (the unset-clock tests)
 - Writes: `MergTime`, `infallStellarMassState`, `TimeOfInfallState`, the sixty history elements `<history>Bin<k>`
 
 ## Parameters
@@ -65,6 +65,8 @@ A galaxy the core created this snapshot has no previous Type (`PreviousType` -1)
 3. Runs before any module reads or writes a history: the reset must precede the snapshot's disk sampling, bursts and merger transfers. No `pre_timestep` module touches a history, so any `pre_timestep` position satisfies it; first is the shipped position.
 4. Reads the `PreviousType` that `sage26_record_transition_state` wrote as the last `post_timestep` module of the previous snapshot; no module between them writes it.
 
+Besides its placement (Processing Contract), this module's `init()` checks none of these. A run without `sage26_record_transition_state` in `post_timestep` as `process_full_halo` is not refused: `init()` warns and the run proceeds with the clocks assigned and the infall state unrecorded. Its position among the `pre_timestep` modules (items 2 and 3) is not checked by any module. The partner checks are other modules': `sage26_resolve_mergers_and_disruption`'s for item 1, and `sage26_finalize_sfr_histories`'s `init()`, which refuses a run without this module in `pre_timestep` as `process_full_halo` (its history reset).
+
 ## Differences From SAGE26
 
 The first four are core-boundary items: the core owns the behaviour, and the package does not change it. The last is a package residual outside this module's writes, recorded with its reason.
@@ -73,7 +75,7 @@ The first four are core-boundary items: the core owns the behaviour, and the pac
 - **Previous Type.** Recorded by the package (`PreviousType`), not published by the core.
 - **A Type 1 with a clock above 999 that loses its subhalo.** SAGE26 also records its `infallMvir`, `infallVvir` and `infallVmax` (`src/core_build_model.c:331-333`); the core records them only for a previous Type 0. The package records `infallStellarMass` and the zero clock. Every Type 1 holds an estimated clock (998 at most, or -1), so R0 never reaches this.
 - **Orphan `Len`.** The core zeros a new orphan's `Len`; SAGE26 keeps it. The clock never reads an orphan's `Len`.
-- **A new orphan's `Cooling`, `Heating`, `QuasarModeBHaccretionMass` and outflow rate.** SAGE26 resets them only on the main branch (`src/core_build_model.c:273-276`), so a new orphan keeps them; the package's `init_repeat` resets them on every inherited row. `Cooling`, `Heating` and `SupernovaOutflowRate` keep that reset by campaign decision; `QuasarModeBHaccretionMass` is a package property whose reset this module does not own. None of them is read by the pass or moved by a merger or disruption, and an orphan is removed within its snapshot, so no written row carries the difference on R0.
+- **A new orphan's `Cooling`, `Heating`, `QuasarModeBHaccretionMass` and outflow rate.** SAGE26 resets them only on the main branch (`src/core_build_model.c:273-276`), so a new orphan keeps them; the package's `init_repeat` resets them on every inherited row. All four are package properties with `init_repeat: true` (`models/sage26/model_properties.yaml`, `SupernovaOutflowRate` being SAGE26's `OutflowRate`), a reset this module does not own. None of them is read by the pass or moved by a merger or disruption, and an orphan is removed within its snapshot, so no written row carries the difference on R0.
 
 `estimate_merging_time`'s same-halo branch cannot be reached from joining (the satellite's halo is never the FoF's first), and the package keeps it as SAGE26 has it. The package's earlier zero-`Len` guard before the Coulomb logarithm is gone: SAGE26 forms the logarithm first (a zero satellite `Len` gives +inf, or NaN with a zero mother `Len`, without a trap), and its `Len >= 10` guard then returns -1, so the result is the same.
 
