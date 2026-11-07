@@ -148,7 +148,7 @@ The generalised converter (`convert/mimic-convert/convert_trees.py`, format vers
 
 | Package | Legs | Result |
 |---|---|---|
-| `mini-millennium-horizontal` | `halos-only`, `sage16` and `sage26`, fixed and dynamic (six legs) | the four `halos-only` and `sage16` legs PASS on complete real gapped data (2026-09-29) — the runtime plan's acceptance gate; no result is recorded here for the two `sage26` legs |
+| `mini-millennium-horizontal` | `halos-only`, `sage16` and `sage26`, fixed and dynamic (six legs) | the four `halos-only` and `sage16` legs PASS on complete real gapped data (2026-09-29) — the runtime plan's acceptance gate; at commit `d0f51d62d4ac998a34a1f1d4ab54b142c29a74ee` all 11 stages and all six legs PASS, the two `sage26` legs comparing 187,839 (fixed) and 187,837 (dynamic) galaxies in 72 fields over eight output snapshots, bitwise per `UniqueGalaxyID` |
 | `micro-uchuu-horizontal`, `micro-uchuu-hdf5-horizontal` | `halos-only`, fixed and dynamic | PASS on complete real data (2026-09-29) |
 | `millennium-horizontal`, `mini-uchuu-horizontal` | `halos-only`, fixed and dynamic | PASS on complete real data, all 512 and all 128 files (2026-10-02; 15 and 27 minutes) |
 | `micro-uchuu-ascii-horizontal` | `halos-only` and `sage16`, fixed and dynamic | all four PASS on complete real data, with Stage 8 (2026-10-08) |
