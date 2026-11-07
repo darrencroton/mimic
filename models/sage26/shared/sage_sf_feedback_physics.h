@@ -39,9 +39,9 @@
  * selected pair's reheated-metal credit of update_from_feedback:
  * MetalsCGMgas += metallicity * reheated_mass (:1181) and
  * MetalsHotGas += metallicity * reheated_mass (:1205 and :1229, which clang merges into one fmadd
- * that its line table attributes to :1176; the oracle README's "The c06 Group", Fused
- * Multiply-Adds). The credit is one fused site on either pair. They are written as explicit fma()
- * calls, which round identically on every platform whose fma is correctly rounded. Everything
+ * that its line table attributes to :1176; the oracle README's "The c06 Group",
+ * Fused Multiply-Adds). The credit is one fused site on either pair. They are written as explicit
+ * fma() calls, which round identically on every platform whose fma is correctly rounded. Everything
  * SAGE26 does not fuse (the metal transfer of the ejection, the gas moves) is formed in separate
  * statements, which clang's default -ffp-contract=on never contracts (it fuses only within one
  * expression). GCC's default -ffp-contract=fast may fuse across statements on a target with FMA, so

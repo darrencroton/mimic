@@ -82,8 +82,8 @@ static double RECYCLE_FRACTION;
 static int SF_PRESCRIPTION;
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init, which with the FoF central's Regime selects the feedback's pair
- * (R/src/model_starformation_and_feedback.c:1175) */
+ * init, which with the FoF central's Regime selects the
+ * feedback's pair (R/src/model_starformation_and_feedback.c:1175) */
 static int CGM_RECIPE_ON;
 
 // ============================================================================

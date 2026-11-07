@@ -14,8 +14,8 @@
  *   (R/src/model_misc.h:69, :78).
  * - mimic_sage_add_metals_to_hot_reservoir(): add_metals_to_hot_reservoir (:67-74).
  * - mimic_sage_add_gas_to_hot_reservoir(): add_gas_to_hot_reservoir (:76-85).
- * - mimic_sage_validate_cgm_recipe_on(): the required CGMrecipeOn, 0 or 1, refused otherwise
- *   with an error naming the parameter.
+ * - mimic_sage_validate_cgm_recipe_on(): the required CGMrecipeOn, 0 or 1, refused otherwise with
+ *   an error naming the parameter.
  *
  * Rounding points. Each helper takes an already completed double and adds it to the selected
  * float field, a double sum narrowed once on the store, exactly as SAGE26's helpers do: a caller's

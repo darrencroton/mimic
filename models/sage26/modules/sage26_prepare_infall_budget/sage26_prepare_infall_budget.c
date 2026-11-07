@@ -3,13 +3,12 @@
  * @brief   SAGE26 infall budget preparation - consolidates satellite reservoirs and computes
  * cosmological gas infall
  *
- * Ports SAGE26's infall_recipe (R = the staged SAGE26 source, R/src/model_infall.c:67-213):
- * sums every galaxy's baryons in the FoF group (CGM included), surrenders the
- * satellites' ejected gas and ICS (with its assembly history) to the central,
- * computes the infall budget HaloBaryonFraction * Mvir minus those baryons, and
- * applies SAGE26's consolidation clamps in its order. Stores the budget in
- * InfallingGas for sage26_apply_infall. The required parameter CGMrecipeOn selects the CGM
- * handling (R/src/model_infall.c:111-117, :159-181):
+ * Ports SAGE26's infall_recipe (R = the staged SAGE26 source, R/src/model_infall.c:67-213): sums
+ * every galaxy's baryons in the FoF group (CGM included), surrenders the satellites' ejected gas
+ * and ICS (with its assembly history) to the central, computes the infall budget
+ * HaloBaryonFraction * Mvir minus those baryons, and applies SAGE26's consolidation clamps in its
+ * order. Stores the budget in InfallingGas for sage26_apply_infall. The required parameter
+ * CGMrecipeOn selects the CGM handling (R/src/model_infall.c:111-117, :159-181):
  *
  *   CGMrecipeOn 0 (R0-R3): the satellites' CGM is zeroed and the FoF group's CGM totals
  *     are added to the central's hot gas.
@@ -47,8 +46,8 @@
 
 static double GLOBAL_BARYON_FRAC;
 
-/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init */
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and
+ * checked at init */
 static int CGM_RECIPE_ON;
 
 // ============================================================================

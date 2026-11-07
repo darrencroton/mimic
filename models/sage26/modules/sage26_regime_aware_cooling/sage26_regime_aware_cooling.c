@@ -2,12 +2,13 @@
  * @file    sage26_regime_aware_cooling.c
  * @brief   SAGE26 regime-aware cooling: cooling_recipe_regime_aware as one by-galaxy transaction
  *
- * Ports SAGE26's cooling_recipe_regime_aware (R = the staged SAGE26 source, C =
- * R/src/model_cooling_heating.c:420-506) whole, which SAGE26 calls instead of cooling_recipe_hot
- * when CGMrecipeOn is 1 (C:125-132, R/src/core_build_model.c:503-509). The module runs by galaxy in
- * galaxy_physics immediately after sage26_apply_cooling. With CGMrecipeOn 0 it writes nothing; with
- * CGMrecipeOn 1 sage26_calculate_cooling_budget writes only its no-cooling transport, so the radio
- * and apply modules write nothing, and this module owns every galaxy's cooling:
+ * Ports SAGE26's cooling_recipe_regime_aware (R = the staged SAGE26 source,
+ * C = R/src/model_cooling_heating.c:420-506) whole, which SAGE26 calls instead of
+ * cooling_recipe_hot when CGMrecipeOn is 1 (C:125-132, R/src/core_build_model.c:503-509). The
+ * module runs by galaxy in galaxy_physics immediately after sage26_apply_cooling. With CGMrecipeOn
+ * 0 it writes nothing; with CGMrecipeOn 1 sage26_calculate_cooling_budget writes only its
+ * no-cooling transport, so the radio and apply modules write nothing, and this module owns
+ * every galaxy's cooling:
  *
  *   mdot_cool = mdot_stream = 0                                        (C:433-434)
  *   Regime 0:    CGMgas > 0 ? cooling_recipe_cgm : reset_cgm_diagnostics  (C:436-444)
@@ -22,9 +23,9 @@
  * Each recipe runs with its AGN call, through the shared composed recipes
  * (shared/sage_cooling_physics.h: mimic_sage_cooling_recipe_hot and mimic_sage_cooling_recipe_cgm),
  * so the CGM AGN reads the black-hole mass and heating radius the hot AGN changed, and Cooling and
- * Heating accumulate inside the recipes, before the application caps. Every wrapper local is
- * local to the call; nothing is carried between modules. The hot recipe's float mdot stores
- * (C:282-283) go to the raw state properties mdot_cool_raw and mdot_stream_raw, which
+ * Heating accumulate inside the recipes, before the application caps. Every wrapper local is local
+ * to the call; nothing is carried between modules. The hot recipe's float mdot stores (C:282-283)
+ * go to the raw state properties mdot_cool_raw and mdot_stream_raw, which
  * sage26_finalize_cooling_heating converts to the output mdot fields.
  *
  * Rounding points. Each expression is one C expression with SAGE26's operand order and types.

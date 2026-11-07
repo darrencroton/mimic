@@ -77,8 +77,8 @@
 #define ORDINARY_SF_NAME "sage26_calculate_star_formation"
 #define CLASSIFIER_NAME "sage26_determine_ffb_regime"
 
-/* SAGE26's EnhancedStarFormationOn (0 off, 1 FFB star formation for FFBRegime 1 rows), required
- * and checked at init */
+/* SAGE26's EnhancedStarFormationOn (0 off, 1 FFB star formation for FFBRegime 1 rows), required and
+ * checked at init */
 static int ENHANCED_STAR_FORMATION_ON = MIMIC_SAGE_FFB_OFF;
 
 /* SAGE26's EnhancedSFEfficiency, epsilon_FFB (S:1308), required, finite and within [0, 1] */
@@ -339,8 +339,8 @@ int sage26_ffb_star_formation_init(void) {
     return -1;
   }
   LOAD_PARAM_DOUBLE("EnhancedSFEfficiency", ENHANCED_SF_EFFICIENCY);
-  /* Finite and within [0, 1] (input/millennium.par:67, "1.0 is theoretical maximum"); a NaN,
-   * which the range comparisons alone would let through, is refused too */
+  /* Finite and within [0, 1] (input/millennium.par:67, "1.0 is theoretical maximum"); a NaN, which
+   * the range comparisons alone would let through, is refused too */
   if (!isfinite(ENHANCED_SF_EFFICIENCY) || ENHANCED_SF_EFFICIENCY < 0.0 ||
       ENHANCED_SF_EFFICIENCY > 1.0) {
     ERROR_LOG("%s: EnhancedSFEfficiency = %g is not supported: it must be finite and within "
@@ -364,8 +364,7 @@ int sage26_ffb_star_formation_init(void) {
   if (mimic_sage_validate_fire_mode(MODULE_NAME, FIRE_MODE_ON) != 0) {
     return -1;
   }
-  /* FFB's fixed-epsilon branch (FIREmodeOn 0, S:935-937, S:960-965) is on no rung and not
-   * ported */
+  /* FFB's fixed-epsilon branch (FIREmodeOn 0, S:935-937, S:960-965) is on no rung and not ported */
   if (ENHANCED_STAR_FORMATION_ON != MIMIC_SAGE_FFB_OFF && FIRE_MODE_ON != MIMIC_SAGE_FIRE_MODE_ON) {
     ERROR_LOG("%s: FIREmodeOn = %d is not supported with EnhancedStarFormationOn = %d: the FFB "
               "feedback ports only FIREmodeOn 1 (model_starformation_and_feedback.c:914-934); "
@@ -442,9 +441,9 @@ int sage26_ffb_star_formation_process(struct ModuleContext *ctx, struct Halo *ha
   }
   t.dt = dt;
 
-  /* Checked before anything is written: the substep's history bin, and the redshift of the
-   * row's stored snapshot that the FFB feedback reads (S:915), refused outside the run's redshift
-   * table */
+  /* Checked before anything is written: the substep's history bin, and the redshift of the row's
+   * stored snapshot that the FFB feedback reads (S:915), refused outside the
+   * run's redshift table */
   t.bin = mimic_sage_sfr_step_bin(ctx->substep_number, ctx->num_substeps);
   if (t.bin < 0) {
     ERROR_LOG("Invalid FFB disk SF history bin for halo %lld (substep %d of %d)", halo->HaloNr,

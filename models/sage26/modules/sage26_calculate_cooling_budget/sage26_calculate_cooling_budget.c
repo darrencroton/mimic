@@ -79,11 +79,10 @@ static int validate_cgm_recipe_on(const int value) {
 /**
  * @brief With CGMrecipeOn 1, require the cooling transaction and the regime classifier
  *
- * With CGMrecipeOn 1 this module writes no cooling: without sage26_regime_aware_cooling in
- * the substep phase that holds this module no galaxy would cool, and without
- * sage26_determine_regime in pre_timestep every Regime would stay -1 and route every galaxy
- * through the hot branch (R/src/model_cooling_heating.c:446). With CGMrecipeOn 0 nothing is
- * required.
+ * With CGMrecipeOn 1 this module writes no cooling: without sage26_regime_aware_cooling in the
+ * substep phase that holds this module no galaxy would cool, and without sage26_determine_regime in
+ * pre_timestep every Regime would stay -1 and route every galaxy through the hot branch
+ * (R/src/model_cooling_heating.c:446). With CGMrecipeOn 0 nothing is required.
  *
  * @return 0 when the configuration is complete (or CGMrecipeOn is 0); -1 otherwise
  */
@@ -163,8 +162,8 @@ int sage26_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Ha
   // With CGMrecipeOn 1 SAGE26 calls cooling_recipe_regime_aware instead of cooling_recipe_hot
   // (R/src/model_cooling_heating.c:128-129), which sage26_regime_aware_cooling owns whole. The
   // carried state says no cooling, so sage26_radio_mode_heating (CoolingGas > 0 gate) and
-  // sage26_apply_cooling (path -1, zero mass) write nothing, and no galaxy property is written
-  // here.
+  // sage26_apply_cooling (path -1, zero mass) write nothing, and no galaxy property
+  // is written here.
   if (CGM_RECIPE_ON == 1) {
     galaxy->CoolingGas = 0.0;
     galaxy->CoolingX = 0.0;

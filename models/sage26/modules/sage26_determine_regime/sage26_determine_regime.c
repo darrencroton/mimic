@@ -23,10 +23,10 @@
  * with the NaN hot_fraction is false). There is no Type restriction, hysteresis, redshift term or
  * reuse of a previous regime, and classification moves no gas.
  *
- * Every floating-point expression is transcribed from SAGE26 with its operand order and types.
- * None of them has a multiply feeding an add or subtract, so none can contract to a fused
- * multiply-add, and SAGE26's object has none in this routine (the oracle README's
- * "The c10 Group" shows the disassembly).
+ * Every floating-point expression is transcribed from SAGE26 with its operand order and types. None
+ * of them has a multiply feeding an add or subtract, so none can contract to a fused multiply-add,
+ * and SAGE26's object has none in this routine (the oracle README's "The c10 Group"
+ * shows the disassembly).
  *
  * Reference: Dekel & Birnboim (2006); Voit (2015)
  */
@@ -54,8 +54,8 @@
 /* SAGE26's CGMrecipeOn (0 off, 1 on), required and checked at init */
 static int CGM_RECIPE_ON;
 
-/* SAGE26's MShockMsun, the Dekel & Birnboim shock mass in physical Msun (no h), required,
- * positive and finite; SAGE26's default is 6.0e11 (R/src/core_read_parameter_file.c:114) */
+/* SAGE26's MShockMsun, the Dekel & Birnboim shock mass in physical Msun (no h), required, positive
+ * and finite; SAGE26's default is 6.0e11 (R/src/core_read_parameter_file.c:114) */
 static double MSHOCK_MSUN;
 
 /* The test seam (sage26_determine_regime.h); inactive in a run */

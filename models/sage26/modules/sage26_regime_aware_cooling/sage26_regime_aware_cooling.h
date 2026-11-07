@@ -68,8 +68,8 @@ struct Sage26RegimeAwareCoolingTrace {
  * AGN, the saved hot diagnostics, the CGM recipe and its AGN (reading the BH mass and heating
  * radius the hot AGN changed), the diagnostic reset or restoration, the CGM then the hot
  * application, each capped to its post-AGN reservoir with its own metallicity, and the final
- * CoolingRate. The raw float mdot rates go to mdot_cool_raw and mdot_stream_raw. The cooling
- * tables must be loaded (sage26_calculate_cooling_budget_init).
+ * CoolingRate. The raw float mdot rates go to mdot_cool_raw and mdot_stream_raw. The cooling tables
+ * must be loaded (sage26_calculate_cooling_budget_init).
  *
  * @param halo    Halo whose galaxy cools (galaxy not NULL)
  * @param params  Run configuration (units, Hubble_h, G, Omega, ZZ, Snaplistlen)

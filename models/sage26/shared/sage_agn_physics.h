@@ -40,16 +40,13 @@
  * refreshes the hydrogen after it (:374, :397-403): the caps are not a joint H1 + H2 budget and
  * the wind adds no synchronisation.
  *
- * Rounding points. Every reservoir is a float and every SAGE26 local a double, so each
- * `+=`/`-=` widens the reservoir, operates in double and narrows the result. SAGE26's
- * object fuses two multiply-adds here (the oracle README's "The c06 Group", Fused
- * Multiply-Adds):
- * the denominator 1.0 + SQR(280 / Vvir) (:352, fmadd) and the cold-metal debit (:362,
- * fmsub). Both are written as explicit fma() calls; every other expression rounds as
- * written, one C expression per SAGE26 expression, and quasar_mode_wind fuses nothing on any of
- * its three branches.
- * Vvir is read as the float SAGE26 holds (R/src/core_allvars.h:131), as the package's
- * other ports read it.
+ * Rounding points. Every reservoir is a float and every SAGE26 local a double, so each `+=`/`-=`
+ * widens the reservoir, operates in double and narrows the result. SAGE26's object fuses two
+ * multiply-adds here (the oracle README's "The c06 Group", Fused Multiply-Adds): the denominator
+ * 1.0 + SQR(280 / Vvir) (:352, fmadd) and the cold-metal debit (:362, fmsub). Both are written as
+ * explicit fma() calls; every other expression rounds as written, one C expression per SAGE26
+ * expression, and quasar_mode_wind fuses nothing on any of its three branches. Vvir is read as the
+ * float SAGE26 holds (R/src/core_allvars.h:131), as the package's other ports read it.
  */
 
 #ifndef MIMIC_SHARED_SAGE_AGN_PHYSICS_H

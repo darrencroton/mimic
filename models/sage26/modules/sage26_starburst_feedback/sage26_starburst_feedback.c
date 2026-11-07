@@ -36,8 +36,8 @@
  * every burst's feedback commit and yield, which route to the FoF central's CGM pair with
  * CGMrecipeOn 1 and the CENTRAL's Regime 0 and to its hot pair otherwise, and to the recheck's
  * black-hole growth, whose wind selects the burst HOST's pair by the host's own Regime
- * (R/src/model_starformation_and_feedback.c:1175, R/src/model_misc.h:69,
- * R/src/model_mergers.c:406).
+ * (R/src/model_starformation_and_feedback.c:1175,
+ * R/src/model_misc.h:69, R/src/model_mergers.c:406).
  *
  * The post-minor-merger recheck (R/src/model_mergers.c:806-811) runs inside the shared
  * transaction when sage26_disk_instability is configured (SAGE26's DiskInstabilityOn);

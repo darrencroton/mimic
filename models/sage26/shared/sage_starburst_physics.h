@@ -75,8 +75,8 @@
  * BulgeMass += recycled_stars (:772) adds the rounded double, unfused. The host's Vvir and the
  * central's Mvir are read as the floats SAGE26 holds (R/src/core_allvars.h:129-131). The FIRE
  * budget (:690-752) fuses no multiply-add in SAGE26's object (the oracle README's "The c09 Group"):
- * each of its expressions is one C expression with SAGE26's operand order and types, in
- * sage_fire_feedback_physics.h.
+ * each of its expressions is one C expression with SAGE26's operand order and
+ * types, in sage_fire_feedback_physics.h.
  *
  * The package's StarFormationRate diagnostic (stars / rate_dt) has no SAGE26 counterpart;
  * it is written beside the commit and changes no SAGE26 field.

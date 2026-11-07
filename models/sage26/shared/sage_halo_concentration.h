@@ -116,9 +116,9 @@ struct MimicSageHaloConcentrationLocals {
 /**
  * @brief Refuse a ConcentrationOn the package does not support, naming the parameter
  *
- * The package ports SAGE26's modes 0 (off, R0-R4) and 3 (the Vmax/Vvir inversion, R5). Mode 1
- * (the Ishiyama et al. 2021 table, R/src/model_halo_properties.c:352-362) and mode 2 (Vmax/Vvir
- * for every Type, :334-337) are not ported; there is no fallback default.
+ * The package ports SAGE26's modes 0 (off, R0-R4) and 3 (the Vmax/Vvir inversion, R5). Mode 1 (the
+ * Ishiyama et al. 2021 table, R/src/model_halo_properties.c:352-362) and mode 2 (Vmax/Vvir for
+ * every Type, :334-337) are not ported; there is no fallback default.
  *
  * @param module_name  The calling module, for the error message
  * @param value        The loaded ConcentrationOn

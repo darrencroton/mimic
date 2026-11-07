@@ -58,8 +58,8 @@
  * to the PASSED target's selected pair: its CGM pair with the required CGMrecipeOn 1 and the
  * target's own Regime 0, its hot pair otherwise (M:851, R/src/model_misc.h:76-85). For an orphan
  * the target is its subhalo's central (step 4), which need not be the FoF central (B:539-543,
- * :575). The merger's addition moves CGM to CGM and hot to hot whatever either regime (M:464-465,
- * :496-497).
+ * :575). The merger's addition moves CGM to CGM and hot to hot whatever either
+ * regime (M:464-465, :496-497).
  */
 
 #include <math.h>

@@ -60,8 +60,8 @@ static double QUASAR_MODE_EFFICIENCY;
  * (R/src/model_mergers.c:366-372); a required parameter with no default */
 static int SF_PRESCRIPTION;
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init, which with the wind host's Regime selects the wind's second pair
- * (R/src/model_mergers.c:406-407) */
+ * init, which with the wind host's Regime selects the wind's
+ * second pair (R/src/model_mergers.c:406-407) */
 static int CGM_RECIPE_ON;
 
 // ============================================================================

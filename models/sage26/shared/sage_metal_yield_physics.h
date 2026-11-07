@@ -19,8 +19,8 @@
  * shared/sage_cgm_routing.h) to the FoF central's selected metals: MetalsCGMgas with CGMrecipeOn 1
  * and the CENTRAL's Regime 0, MetalsHotGas otherwise. This header holds the package's one
  * implementation, moved unchanged from sage26_apply_metal_enrichment so that
- * sage26_ffb_star_formation calls the same code. The burst's yield, which also tests the
- * merger ratio (R/src/model_mergers.c:814-831), stays in shared/sage_starburst_physics.h.
+ * sage26_ffb_star_formation calls the same code. The burst's yield, which also tests the merger
+ * ratio (R/src/model_mergers.c:814-831), stays in shared/sage_starburst_physics.h.
  *
  * Rounding points. SAGE26's reference object fuses the retained metals into one multiply-add on
  * both paths: Yield * (1.0 - FracZleaveDiskVal) left to right, then fused with stars and the

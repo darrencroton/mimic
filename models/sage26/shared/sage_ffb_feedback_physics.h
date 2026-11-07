@@ -51,8 +51,8 @@
  * @brief The locals of one FFB feedback budget, for tests that compare them with the oracle
  *
  * A double is NAN, and a flag -1, where the path does not form it. `fire` holds the FIRE locals
- * (the scaling, the loading and the ejection); its `redshift` and `scaling_valid` are set on
- * every call.
+ * (the scaling, the loading and the ejection); its `redshift` and `scaling_valid` are set
+ * on every call.
  */
 struct MimicSageFfbFeedbackLocals {
   struct MimicSageFireLocals fire; /**< the FIRE locals: z, validity, scaling, eta, E_FB, E_lift */

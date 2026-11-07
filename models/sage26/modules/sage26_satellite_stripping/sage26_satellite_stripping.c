@@ -33,8 +33,8 @@
 
 static double GLOBAL_BARYON_FRAC;
 
-/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init */
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and
+ * checked at init */
 static int CGM_RECIPE_ON;
 
 // ============================================================================

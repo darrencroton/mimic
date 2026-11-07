@@ -15,8 +15,8 @@
  * with atomic_disk_radius (S:130-133, chi * r_s, GAS_DISK_RADIUS_FACTOR 1.0 at S:106) and
  * ionized_gas_fraction (S:135-152: the ionised mass fraction of an exponential gas disk truncated
  * at SIGMA_HI_CRIT, 0.5 Msun/pc^2 at S:97). This header holds the package's one implementation,
- * moved unchanged from sage26_calculate_star_formation so that sage26_ffb_star_formation calls the
- * same code.
+ * moved unchanged from sage26_calculate_star_formation so that sage26_ffb_star_formation calls
+ * the same code.
  *
  * Rounding points. SAGE26's reference object fuses the ordinary path's atomic hydrogen
  * ColdGas * 0.74 - H2gas into one multiply-subtract (S:1036, model_starformation_and_feedback.o
@@ -25,8 +25,8 @@
  * multiply (S:1285, offset 0x19e8): fma(ColdGas, 0.74, -(+0.0)) equals the rounded product
  * ColdGas * 0.74 for every float ColdGas, signed zeros and NaNs included (an exhaustive check over
  * all 2^32 patterns, the oracle README's "The c13 Group, Part 2"), so both paths call this one
- * helper. No other expression here contains a multiply and an add in one expression, so none
- * contracts.
+ * helper. No other expression here contains a multiply and an add in one expression,
+ * so none contracts.
  */
 
 #ifndef MIMIC_SHARED_SAGE_HI_PHYSICS_H

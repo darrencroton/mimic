@@ -38,8 +38,8 @@
  * objects evaluate two of the scaling's three pow calls with pow (S:750, S:752; M:699, M:701; never
  * powf) but compile the high-velocity pow(x, -1.0) (S:751, M:700) to the division 1.0 / x (fdiv at
  * model_starformation_and_feedback.o offset 0x8fc and model_mergers.o offset 0xdc8), which macOS
- * pow(x, -1.0) does not reproduce for every x; the package writes that division (see
- * mimic_sage_fire_scaling).
+ * pow(x, -1.0) does not reproduce for every x; the package writes that
+ * division (see mimic_sage_fire_scaling).
  *
  * @note Used by sage26_calculate_supernova_feedback (the disk path, S:732-889), by the
  *       feedback-free-burst budget (shared/sage_ffb_feedback_physics.h, S:901-972, the forming
@@ -100,8 +100,8 @@ static inline int mimic_sage_validate_fire_mode(const char *module_name, const i
  *
  * SAGE26 reads ZZ[galaxies[p].SnapNum] before testing the velocity or the redshift (S:745-747),
  * with no bounds check. A stored SnapNum outside the run's redshift table (0 to Snaplistlen - 1,
- * the entries the core filled from the snapshot list) is refused with an error naming the
- * SnapNum and the table size; no redshift is invented for it.
+ * the entries the core filled from the snapshot list) is refused with an error naming the SnapNum
+ * and the table size; no redshift is invented for it.
  *
  * @param params   The run configuration (its ZZ table and Snaplistlen)
  * @param snapnum  The galaxy's stored SnapNum
