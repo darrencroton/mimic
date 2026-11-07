@@ -44,3 +44,4 @@ module:
 
     scientific:
       - test_scientific_sage26_physics_baseline.py
+      - test_scientific_compare_sage26.py
