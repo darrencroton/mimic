@@ -108,7 +108,7 @@ extern int sage26_ffb_star_formation_process(struct ModuleContext *ctx, struct H
                                              int ngal);
 extern int sage26_ffb_star_formation_cleanup(void);
 
-/* R6's values (SAGE26's input/millennium.par) */
+/* R6's values */
 #define TEST_HUBBLE_H 0.73
 #define TEST_RECYCLE 0.43
 #define TEST_EPSILON 2.9
