@@ -11,7 +11,7 @@
  *   ZZ[SnapNum] (S:745), never the current halo snapshot's or a substep's. SAGE26 indexes ZZ
  *   without a bounds check; a stored SnapNum outside the redshift table is an out-of-bounds read
  *   in SAGE26, not a physics rule, so the package refuses it, naming the SnapNum and the table
- *   size (campaign decision D35), and never invents a redshift. It is shared with the cold
+ *   size, and never invents a redshift. It is shared with the cold
  *   streams of shared/sage_cooling_physics.h, so its log names no single caller; each caller logs
  *   its own context after a refusal.
  * - mimic_sage_fire_scaling(): the scaling (S:743-753, constants S:75, S:79): zero unless the
@@ -32,7 +32,8 @@
  * double. The non-FIRE ejection's float-squared Vvir does not apply here.
  *
  * Rounding points. SAGE26's objects (Apple clang -O2 -march=native, arm64; objdump -d -l of
- * model_starformation_and_feedback.o and model_mergers.o, the oracle README's c09 table) fuse no
+ * model_starformation_and_feedback.o and model_mergers.o, the oracle README's "The c09 Group")
+ * fuse no
  * multiply-add on these lines, on the disk path or the burst's copy (M = R/src/model_mergers.c,
  * M:690-752): E_FB, E_lift and their difference keep separate roundings. Each expression here is
  * one C expression with SAGE26's operand order and types, none of which clang contracts. The
@@ -79,7 +80,7 @@
 /**
  * @brief Refuse a FIREmodeOn the package does not support
  *
- * FIREmodeOn is a required package parameter, 0 or 1 (campaign decision D33); each module that
+ * FIREmodeOn is a required package parameter, 0 or 1; each module that
  * reads it loads it with the required-parameter path and passes it here.
  *
  * @param module_name  The calling module, for the error message
@@ -102,7 +103,7 @@ static inline int mimic_sage_validate_fire_mode(const char *module_name, const i
  * SAGE26 reads ZZ[galaxies[p].SnapNum] before testing the velocity or the redshift (S:745-747),
  * with no bounds check. A stored SnapNum outside the run's redshift table (0 to Snaplistlen - 1,
  * the entries the core filled from the snapshot list) is refused with an error naming the
- * SnapNum and the table size (campaign decision D35); no redshift is invented for it.
+ * SnapNum and the table size; no redshift is invented for it.
  *
  * @param params   The run configuration (its ZZ table and Snaplistlen)
  * @param snapnum  The galaxy's stored SnapNum

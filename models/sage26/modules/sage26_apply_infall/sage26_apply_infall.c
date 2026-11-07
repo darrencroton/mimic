@@ -8,7 +8,7 @@
  * distributes the infalling gas budget from sage26_prepare_infall_budget to the
  * central's selected reservoir over substeps with metallicity tracking. For negative
  * infall (mass loss), removes from the ejected reservoir first, then from the selected
- * reservoir. The required parameter CGMrecipeOn (campaign decision D33) selects it: the
+ * reservoir. The required parameter CGMrecipeOn selects it: the
  * central's CGM pair (CGMgas, MetalsCGMgas) with CGMrecipeOn 1 and Regime 0
  * (R/src/model_infall.c:371-385), and its hot pair otherwise (:386-399 with CGMrecipeOn 1,
  * :400-413 with CGMrecipeOn 0, the same arithmetic). Positive infall adds gas and no metals.
@@ -38,7 +38,7 @@
 #define MODULE_NAME "sage26_apply_infall"
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init (campaign decision D33) */
+ * init */
 static int CGM_RECIPE_ON;
 
 // ============================================================================
@@ -46,7 +46,7 @@ static int CGM_RECIPE_ON;
 // ============================================================================
 
 int sage26_apply_infall_init(void) {
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
     return -1;

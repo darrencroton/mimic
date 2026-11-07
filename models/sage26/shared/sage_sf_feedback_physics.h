@@ -39,7 +39,8 @@
  * Z * (1 - R) rounded first), and the cold-metal debit (:1168) and the selected pair's
  * reheated-metal credit of update_from_feedback: MetalsCGMgas += metallicity * reheated_mass
  * (:1181) and MetalsHotGas += metallicity * reheated_mass (:1205 and :1229, which clang merges
- * into one fmadd that its line table attributes to :1176; the oracle README's c06 table). The
+ * into one fmadd that its line table attributes to :1176; the oracle README's "The c06 Group",
+ * Fused Multiply-Adds). The
  * credit is one fused site on either pair. They are written as explicit fma() calls,
  * which round identically on every platform whose fma is correctly rounded.
  * Everything SAGE26 does not fuse (the metal transfer of the ejection, the gas

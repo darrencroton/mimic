@@ -11,23 +11,23 @@
  *
  * - reheated and ejected mass 0, the scaling 0 and its validity 0 (S:905-913);
  * - the redshift of the galaxy's stored snapshot ZZ[SnapNum] (S:915, which the caller looks up
- *   through mimic_sage_fire_stored_redshift, campaign decision D35) and the galaxy's own float
- *   Vvir (S:916); the scaling is valid only when Vvir > 0 and z >= 0 (S:917), and then is c09's
+ *   through mimic_sage_fire_stored_redshift) and the galaxy's own float
+ *   Vvir (S:916); the scaling is valid only when Vvir > 0 and z >= 0 (S:917), and then is
  *   Muratov et al. (2015) scaling: the velocity floored at 1 km/s, (1 + z)^1.25 and the velocity
  *   term pow(x, -3.2) below 60 km/s and the division 1.0 / x the object computes for
  *   pow(x, -1.0) at and above it (S:918-923; shared/sage_fire_feedback_physics.h);
- * - only with a valid scaling, the loading capped by c09's capped_eta_reheat (X:141-149), written
+ * - only with a valid scaling, the loading capped by capped_eta_reheat (X:141-149), written
  *   to MassLoading as a float, and reheated = eta * stars (S:929-933). SAGE parity: unlike the
  *   ordinary path (S:762-764), an invalid scaling leaves MassLoading unwritten (stale) and the
  *   reheated mass 0 (S:929-934): the quirk SAGE26's comment states (S:895-899);
  * - the renormalisation of stars and reheated mass against the cold gas the caller passes (the
  *   cold gas left after the star-formation commit), under both strict guards (S:943-947);
  * - only for a positive own Vvir and a valid scaling, the Hirschmann et al. (2016) energy ejection
- *   with c09's coupling cap (X:118-124) and the separately rounded E_FB and E_lift (S:950-958);
+ *   with coupling cap (X:118-124) and the separately rounded E_FB and E_lift (S:950-958);
  * - the floor of the ejected mass at 0 (S:967).
  *
  * There is no Karpov branch, and the fixed-epsilon branch (FIREmodeOn 0, S:935-937, S:960-965) is
- * on no rung and not ported (campaign decision D6): sage26_ffb_star_formation refuses FIREmodeOn 0
+ * on no rung and not ported: sage26_ffb_star_formation refuses FIREmodeOn 0
  * at EnhancedStarFormationOn 1. SAGE26's assertion that the reheated mass is not negative
  * (S:940-941) aborts its run and guards a state it does not produce; it is not mirrored.
  *
@@ -50,7 +50,7 @@
 /**
  * @brief The locals of one FFB feedback budget, for tests that compare them with the oracle
  *
- * A double is NAN, and a flag -1, where the path does not form it. `fire` holds c09's FIRE locals
+ * A double is NAN, and a flag -1, where the path does not form it. `fire` holds the FIRE locals
  * (the scaling, the loading and the ejection); its `redshift` and `scaling_valid` are set on
  * every call.
  */
@@ -144,8 +144,8 @@ static inline void mimic_sage_ffb_sn_feedback(const float vvir, const double red
     l.renorm_fac = fac;
   }
 
-  /* The energy ejection, only for a positive own Vvir and a valid scaling (S:949-958): c09's
-   * coupling cap and the separately rounded E_FB and E_lift */
+  /* The energy ejection, only for a positive own Vvir and a valid scaling (S:949-958): the FIRE
+   * helpers' coupling cap and the separately rounded E_FB and E_lift */
   if (vvir > 0.0) {
     if (fire_scaling_valid) {
       const double coupling =

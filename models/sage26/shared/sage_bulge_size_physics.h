@@ -26,7 +26,8 @@
  * locals for the weighted average even though they are also stored in the narrower float
  * fields (never reloaded from them), M_old is recovered from the POST-store float channel mass,
  * and the kpc conversions that cancel algebraically are kept. SAGE26's compiled object fuses
- * four multiply-adds on these paths (oracle README, c07 fused-instruction table), each written
+ * four multiply-adds on these paths (oracle README, "The c07 Group", Fused Multiply-Adds), each
+ * written
  * below as an explicit fma(): the two Shen fallbacks 0.56 * log10(M) - 5.54 (:345, :359), the
  * weighted-average numerator M_merger * R_merger + (M_instability * R_instability rounded)
  * (:366), and the incremental numerator R_old_kpc * M_old + (R_new_contribution_kpc *

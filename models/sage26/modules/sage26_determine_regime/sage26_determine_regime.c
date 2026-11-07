@@ -18,7 +18,7 @@
  *                hot_fraction = 1.0 / (1.0 + exp(-x))                  (double, :89)
  *                Regime = (u < hot_fraction) ? 1 : 0                   (:94-95)
  *
- * with the deviate u from the package's keyed draw (campaign decision D1; below). A NaN
+ * with the deviate u from the package's keyed draw (below). A NaN
  * mass_ratio is not <= 0.0, so it takes the draw branch, as SAGE26's test implies, and is
  * classified 0 (every ordered comparison with the NaN hot_fraction is false). There is no Type
  * restriction, hysteresis, redshift term or reuse of a previous regime, and classification moves
@@ -26,8 +26,8 @@
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand order and types.
  * None of them has a multiply feeding an add or subtract, so none can contract to a fused
- * multiply-add, and SAGE26's object has none in this routine (the oracle README's "The c10
- * Group" shows the disassembly).
+ * multiply-add, and SAGE26's object has none in this routine (the oracle README's
+ * "The c10 Group" shows the disassembly).
  *
  * Reference: Dekel & Birnboim (2006); Voit (2015)
  */
@@ -52,11 +52,11 @@
 
 #define MODULE_NAME "sage26_determine_regime"
 
-/* SAGE26's CGMrecipeOn (0 off, 1 on), required and checked at init (campaign decision D33) */
+/* SAGE26's CGMrecipeOn (0 off, 1 on), required and checked at init */
 static int CGM_RECIPE_ON;
 
 /* SAGE26's MShockMsun, the Dekel & Birnboim shock mass in physical Msun (no h), required,
- * positive and finite (D33); SAGE26's default is 6.0e11 (R/src/core_read_parameter_file.c:114) */
+ * positive and finite; SAGE26's default is 6.0e11 (R/src/core_read_parameter_file.c:114) */
 static double MSHOCK_MSUN;
 
 /* The test seam (sage26_determine_regime.h); inactive in a run */
@@ -177,7 +177,7 @@ static int classify_row(const double mvir, const double mshock, struct Sage26Reg
     t->x = x;
     t->hot_fraction = hot_fraction;
 
-    // SAGE parity, the one deliberate departure (campaign decision D1): SAGE26 draws
+    // SAGE parity, the one deliberate departure: SAGE26 draws
     // (double)rand() / (double)RAND_MAX from the process-global libc stream
     // (R/src/model_regimes.c:94); the package draws the keyed deviate of the row's
     // UniqueGalaxyID and the current snapshot (shared/sage_keyed_draw.h), compared exactly as
@@ -199,7 +199,7 @@ static int classify_row(const double mvir, const double mshock, struct Sage26Reg
 // ============================================================================
 
 int sage26_determine_regime_init(void) {
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (validate_cgm_recipe_on(CGM_RECIPE_ON) != 0) {
     return -1;

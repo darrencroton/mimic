@@ -15,7 +15,7 @@ module:
       - Cooling
       - Heating
       - SupernovaOutflowRate
-      - mdot_cool_raw     # read: the raw float rate sage26_regime_aware_cooling stores (D39)
+      - mdot_cool_raw     # read: the raw float rate sage26_regime_aware_cooling stores
       - mdot_stream_raw   # read
       - mdot_cool         # written: SAGE26's writer conversion of the raw rate
       - mdot_stream       # written

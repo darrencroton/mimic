@@ -22,7 +22,7 @@
  * With SFprescription 1 (BR06) each commit then caps H2gas and H1gas at the hydrogen of the
  * remaining cold gas (:1128-1135, :1169-1173); with 0 (R0, R1) neither does.
  *
- * The required parameter CGMrecipeOn (campaign decision D33, 0 or 1) selects the feedback's
+ * The required parameter CGMrecipeOn (0 or 1) selects the feedback's
  * destination pair: the FoF central's CGM pair with CGMrecipeOn 1 and the CENTRAL's Regime 0, its
  * hot pair otherwise, whatever the forming galaxy's own Regime (:1175-1247). The reheated gas is
  * credited to that pair and the ejection capped against it after the reheating.
@@ -82,7 +82,7 @@ static double RECYCLE_FRACTION;
 static int SF_PRESCRIPTION;
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init (campaign decision D33), which with the FoF central's Regime selects the feedback's pair
+ * init, which with the FoF central's Regime selects the feedback's pair
  * (R/src/model_starformation_and_feedback.c:1175) */
 static int CGM_RECIPE_ON;
 
@@ -134,7 +134,7 @@ int sage26_apply_star_formation_supernova_init(void) {
                                           SF_PRESCRIPTION) != 0) {
     return -1;
   }
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (mimic_sage_validate_cgm_recipe_on("sage26_apply_star_formation_supernova", CGM_RECIPE_ON) !=
       0) {

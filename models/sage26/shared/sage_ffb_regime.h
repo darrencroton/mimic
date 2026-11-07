@@ -30,11 +30,11 @@
  *   MostBoundID and the snapshot, and its deviate; mimic_sage_ffb_halo_uniform() composes the
  *   two. This is SAGE26's own draw, transcribed with its unsigned wrap-around, its conversion of
  *   the signed ID, its (uint32_t) snapshot, its constants, shifts and conversion order. It is not
- *   the package's CGM keyed draw (shared/sage_keyed_draw.h, campaign decision D1), and no rand()
+ *   the package's CGM keyed draw (shared/sage_keyed_draw.h), and no rand()
  *   is called.
  * - mimic_sage_validate_enhanced_star_formation_on(): the required EnhancedStarFormationOn, 0
  *   (off, SAGE26 R0-R5) or 1 (the Li et al. 2024 classifier, R6). Mode 2, the Boylan-Kolchin
- *   (2025) acceleration criterion (:241-288), is not ported (campaign decision D6) and is
+ *   (2025) acceleration criterion (:241-288), is not ported and is
  *   refused with every other value.
  *
  * Each helper takes its inputs as arguments and reads no module state. The caller passes the
@@ -59,8 +59,9 @@
  * object computes pow(10.0, log_Mvir_ffb_code) as a call of __exp10 at the same three sites; the
  * package writes pow(10.0, ...), which Mimic's -O2 build on Apple clang also compiles to __exp10
  * and its -O0 unit-test build to pow. The equality was established only for the redshifts of
- * mini-Millennium's snapshots at Hubble_h 0.73 and of the c13 fixtures, where the two give the same
- * double (the executed check in the oracle README). It does not hold for every simulation
+ * mini-Millennium's snapshots at Hubble_h 0.73 and of the classifier's oracle fixtures, where
+ * the two give the same double (the executed check in the oracle README). It does not hold for
+ * every simulation
  * package: at micro-Uchuu's snapshot 3 (z 10.458691417440129, Hubble_h 0.6774) the argument
  * 0x1.0e8c8da54b3b8p-2 gives pow 0x1.d6610c1d85ba4p+0 and __exp10 0x1.d6610c1d85ba3p+0. The
  * fraction's exp(-x) is compiled as exp(log10(Mvir / Mvir_ffb) / -0.15), the division by the
@@ -148,9 +149,9 @@ static inline double mimic_sage_ffb_threshold_mass(const double z, const double 
     locals->log_Mvir_ffb_code = log_Mvir_ffb_code;
   }
   /* :312; SAGE26's object calls __exp10 here. pow equals it at every mini-Millennium snapshot
-   * redshift (Hubble_h 0.73) and every c13 fixture redshift, but not at every argument of every
-   * simulation package (one ulp apart at micro-Uchuu's snapshot 3; oracle README, "The c13
-   * Group") */
+   * redshift (Hubble_h 0.73) and every redshift of the classifier's oracle fixtures, but not at
+   * every argument of every simulation package (one ulp apart at micro-Uchuu's snapshot 3;
+   * oracle README, "The c13 Group") */
   return pow(10.0, log_Mvir_ffb_code);
 }
 

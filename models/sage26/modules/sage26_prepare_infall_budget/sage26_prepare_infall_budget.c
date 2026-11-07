@@ -8,8 +8,8 @@
  * satellites' ejected gas and ICS (with its assembly history) to the central,
  * computes the infall budget HaloBaryonFraction * Mvir minus those baryons, and
  * applies SAGE26's consolidation clamps in its order. Stores the budget in
- * InfallingGas for sage26_apply_infall. The required parameter CGMrecipeOn (campaign
- * decision D33) selects the CGM handling (R/src/model_infall.c:111-117, :159-181):
+ * InfallingGas for sage26_apply_infall. The required parameter CGMrecipeOn selects the CGM
+ * handling (R/src/model_infall.c:111-117, :159-181):
  *
  *   CGMrecipeOn 0 (R0-R3): the satellites' CGM is zeroed and the FoF group's CGM totals
  *     are added to the central's hot gas.
@@ -48,7 +48,7 @@
 static double GLOBAL_BARYON_FRAC;
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init (campaign decision D33) */
+ * init */
 static int CGM_RECIPE_ON;
 
 // ============================================================================
@@ -222,7 +222,7 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
 // ============================================================================
 
 int sage26_prepare_infall_budget_init(void) {
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
     return -1;

@@ -7,7 +7,7 @@
  * source (R). One implementation of each piece of SAGE26's cooling arithmetic, used by the
  * classic three-module hot path (sage26_calculate_cooling_budget -> sage26_radio_mode_heating ->
  * sage26_apply_cooling, CGMrecipeOn 0) and by the CGMrecipeOn 1 cooling transaction
- * (sage26_regime_aware_cooling, campaign decision D38). The helpers that serve both paths
+ * (sage26_regime_aware_cooling). The helpers that serve both paths
  * (mimic_sage_hot_cooling_budget, mimic_sage_do_agn_heating_hot, mimic_sage_do_agn_heating_cgm and
  * the two composed recipes) take CGMrecipeOn as an argument, and the classic callers pass
  * CGMrecipeOn 0, the R0-R3 behaviour; the others (the table, the streams, bulk CGM cooling, the
@@ -23,7 +23,7 @@
  * C:282-283; here they are returned in the stream locals (struct MimicSageColdStreamLocals), and
  * the CGMrecipeOn 1 cooling transaction (sage26_regime_aware_cooling) stores them in the raw-rate
  * state properties mdot_cool_raw and mdot_stream_raw, from which sage26_finalize_cooling_heating
- * writes the output fields (campaign decisions D38 and D39).
+ * writes the output fields.
  *
  * The classic pieces, moved here from the three modules with every expression unchanged:
  *
@@ -40,14 +40,14 @@
  * - mimic_sage_cooling_energy() and mimic_sage_cooling_rate(): the recipes' tail (C:301-313).
  * - mimic_sage_cool_gas_onto_galaxy(): cool_gas_onto_galaxy (C:689-707), the classic transfer.
  *
- * The CGMrecipeOn 1 pieces (specification c11 item 2), called by sage26_regime_aware_cooling:
+ * The CGMrecipeOn 1 pieces, called by sage26_regime_aware_cooling:
  *
  * - mimic_sage_interpolate_clustering_mass(): interpolate_clustering_mass (H:98-132), the
  *   Press-Schechter clustering mass log10 M_*(z) in log10 Msun (not Msun/h) from SAGE26's literal
  *   31-entry tables, Uchuu for fabs(Omega - 0.3089) < 0.01 and Millennium otherwise.
  * - mimic_sage_cold_stream_cooling(): the hot regime's cold streams (C:205-285), reading the
  *   redshift of the galaxy's STORED snapshot, ZZ[SnapNum] (C:205), through the package's
- *   bounds-checked mimic_sage_fire_stored_redshift (campaign decisions D35 and D37).
+ *   bounds-checked mimic_sage_fire_stored_redshift.
  * - mimic_sage_cgm_cooling_budget(): bulk CGM cooling up to the AGN step (C:319-370).
  * - mimic_sage_do_agn_heating_hot() with CGMrecipeOn 1: the 0.99 * rcool saturation (C:590-591)
  *   and the cap of Rheat to Rvir outside the positive-reservoir block (C:623-624).
@@ -234,9 +234,9 @@ struct MimicSageColdStreamLocals {
  *
  * Reads the redshift of the galaxy's stored snapshot, ZZ[stored_snapnum] (C:205), never the
  * current snapshot's; a stored SnapNum outside the run's redshift table is refused with an error
- * naming it (campaign decision D35), where SAGE26 reads out of bounds. Every local is a double;
+ * naming it, where SAGE26 reads out of bounds. Every local is a double;
  * HotGas, Rvir and Mvir are SAGE26's floats. SAGE26's float mdot stores (C:282-283) are returned in
- * s->mdot_cool and s->mdot_stream; no galaxy field is written (D38, D39).
+ * s->mdot_cool and s->mdot_stream; no galaxy field is written.
  *
  * @param params          Run configuration (ZZ, Snaplistlen, Omega, Hubble_h)
  * @param stored_snapnum  The galaxy's stored SnapNum
@@ -249,7 +249,7 @@ struct MimicSageColdStreamLocals {
  * @param dt              Substep interval
  * @param s               Output: the stream locals
  * @param cooling_out     Output: cold_stream_cooling + hot_halo_cooling (C:285)
- * @return 0, or -1 when the stored SnapNum has no redshift (D35)
+ * @return 0, or -1 when the stored SnapNum has no redshift
  */
 static inline int mimic_sage_cold_stream_cooling(
     const struct MimicConfig *params, const int stored_snapnum, const double mshock_msun,
@@ -358,8 +358,8 @@ struct MimicSageHotCoolingLocals {
  * RcoolToRvir untouched. Mvir, Rvir and Vvir are SAGE26 floats (R/src/core_allvars.h:106-221);
  * the core's doubles are read as those floats. With CGMrecipeOn 0 the cooling mass is the rapid
  * or static branch (C:190-201); with 1 it is the cold streams (C:202-286), which read the
- * galaxy's stored SnapNum (halo->SnapNum) and can refuse it (D35). The streams' float mdot stores
- * (C:282-283) are returned in l->stream, never written to the galaxy (D38, D39). On the -1 return
+ * galaxy's stored SnapNum (halo->SnapNum) and can refuse it. The streams' float mdot stores
+ * (C:282-283) are returned in l->stream, never written to the galaxy. On the -1 return
  * l->path is SAGE_COOLING_PATH_NOT_EVALUATED and the stream locals are zero except those formed
  * before the refusal (none: the refusal is the streams' first step).
  *
@@ -468,7 +468,7 @@ static inline int mimic_sage_hot_cooling_budget(struct Halo *halo, const struct 
       l->branch = MIMIC_SAGE_HOT_BRANCH_STATIC;
     }
   } else {
-    l->path = SAGE_COOLING_PATH_NOT_EVALUATED; /* the value a D35 refusal leaves */
+    l->path = SAGE_COOLING_PATH_NOT_EVALUATED; /* the value a stored-SnapNum refusal leaves */
     if (mimic_sage_cold_stream_cooling(params, halo->SnapNum, mshock_msun, (float)halo->Mvir,
                                        galaxy->HotGas, rvir, tcool, rcool, dt, &l->stream,
                                        &coolingGas) != 0) {
@@ -1031,7 +1031,7 @@ struct MimicSageAgnConfig {
  * the Cooling energy, and CoolingRate on the paths that reach the tail (the normal tail and the
  * outer guard; the two early returns leave it, C:159-169). The one exception to SAGE26's routine:
  * its galaxy writes of mdot_cool and mdot_stream (C:282-283) are not made; their float values are
- * returned in l->stream for the caller (D38, D39).
+ * returned in l->stream for the caller.
  *
  * On the -1 return *cooling_out is 0 and the galaxy holds the budget's partial writes made before
  * the refusal (tcool, tff and RcoolToRvir; mimic_sage_hot_cooling_budget); the caller fails the

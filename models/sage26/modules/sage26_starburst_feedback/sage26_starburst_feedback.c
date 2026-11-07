@@ -27,13 +27,13 @@
  *     black-hole growth (R/src/model_mergers.c:262-287), on an FFB target as on any other, its
  *     post-merger recheck included (SAGE26's merger routines do not read FFBRegime).
  *
- * FIREmodeOn is a required parameter (campaign decision D33), 0 or 1, refused otherwise. This
+ * FIREmodeOn is a required parameter, 0 or 1, refused otherwise. This
  * module builds the burst parameter bundle, so it passes FIREmodeOn and the run's redshift table
  * to every burst it runs: the instability's, the merger's and the recheck's. A FIREmodeOn 1 burst
- * whose host's stored SnapNum lies outside the redshift table is refused (campaign decision D35)
+ * whose host's stored SnapNum lies outside the redshift table is refused
  * and process() returns -1.
  *
- * CGMrecipeOn is a required parameter too (campaign decision D33), 0 or 1, refused otherwise; the
+ * CGMrecipeOn is a required parameter too, 0 or 1, refused otherwise; the
  * bundle carries it to every burst's feedback commit and yield, which route to the FoF central's
  * CGM pair with CGMrecipeOn 1 and the CENTRAL's Regime 0 and to its hot pair otherwise, and to the
  * recheck's black-hole growth, whose wind selects the burst HOST's pair by the host's own Regime
@@ -127,7 +127,7 @@ static int STARBURST_COLD_GAS_ON;
 static int FIRE_MODE_ON;
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init (campaign decision D33); the bundle carries it to every burst
+ * init; the bundle carries it to every burst
  * (shared/sage_starburst_physics.h) */
 static int CGM_RECIPE_ON;
 
@@ -169,12 +169,12 @@ int sage26_starburst_feedback_init(void) {
                                                 STARBURST_COLD_GAS_ON) != 0) {
     return -1;
   }
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("FIREmodeOn", FIRE_MODE_ON);
   if (mimic_sage_validate_fire_mode("sage26_starburst_feedback", FIRE_MODE_ON) != 0) {
     return -1;
   }
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (mimic_sage_validate_cgm_recipe_on("sage26_starburst_feedback", CGM_RECIPE_ON) != 0) {
     return -1;

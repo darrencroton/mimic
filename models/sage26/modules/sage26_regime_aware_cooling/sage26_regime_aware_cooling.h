@@ -3,9 +3,8 @@
  * @brief   SAGE26's regime-aware cooling transaction, exported for the module's tests
  *
  * sage26_regime_aware_cooling ports SAGE26's cooling_recipe_regime_aware (R = the staged SAGE26
- * source, C = R/src/model_cooling_heating.c:420-506) whole, as one by-galaxy transaction
- * (campaign decision D38). This header declares what its tests need beyond the module's
- * lifecycle entries:
+ * source, C = R/src/model_cooling_heating.c:420-506) whole, as one by-galaxy transaction. This
+ * header declares what its tests need beyond the module's lifecycle entries:
  *
  * - struct Sage26RegimeAwareCoolingConfig, the run quantities the transaction reads
  *   (CGMrecipeOn, MShockMsun and the AGN configuration);
@@ -69,17 +68,16 @@ struct Sage26RegimeAwareCoolingTrace {
  * AGN, the saved hot diagnostics, the CGM recipe and its AGN (reading the BH mass and heating
  * radius the hot AGN changed), the diagnostic reset or restoration, the CGM then the hot
  * application, each capped to its post-AGN reservoir with its own metallicity, and the final
- * CoolingRate. The raw float mdot rates go to mdot_cool_raw and mdot_stream_raw (campaign
- * decision D39). The cooling tables must be loaded (sage26_calculate_cooling_budget_init).
+ * CoolingRate. The raw float mdot rates go to mdot_cool_raw and mdot_stream_raw. The cooling
+ * tables must be loaded (sage26_calculate_cooling_budget_init).
  *
  * @param halo    Halo whose galaxy cools (galaxy not NULL)
  * @param params  Run configuration (units, Hubble_h, G, Omega, ZZ, Snaplistlen)
  * @param cfg     The transaction's run quantities
  * @param dt      Substep interval, SAGE26's deltaT / effective_steps (positive)
  * @param trace   Optional trace (may be NULL)
- * @return 0, or -1 when the hot regime's streams refuse the stored SnapNum (campaign decision
- *         D35); the galaxy then holds the hot budget's partial diagnostic writes and the caller
- *         fails the run
+ * @return 0, or -1 when the hot regime's streams refuse the stored SnapNum; the galaxy then
+ *         holds the hot budget's partial diagnostic writes and the caller fails the run
  */
 int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig *params,
                                     const struct Sage26RegimeAwareCoolingConfig *cfg,

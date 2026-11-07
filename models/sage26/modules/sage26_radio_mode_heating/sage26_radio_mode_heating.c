@@ -14,7 +14,7 @@
  * mimic_sage_agn_accretion_compute, called with CGMrecipeOn 0 (the R0-R3 behaviour). With
  * CGMrecipeOn 1 SAGE26's do_AGN_heating adds the 0.99 * rcool saturation and the cap of Rheat
  * to Rvir (:590-595, :623-624), which apply there: sage26_regime_aware_cooling calls those
- * helpers with CGMrecipeOn 1 inside SAGE26's regime-aware cooling (campaign decision D38), and
+ * helpers with CGMrecipeOn 1 inside SAGE26's regime-aware cooling, and
  * this module then writes nothing, as sage26_calculate_cooling_budget carries CoolingGas 0 and
  * the gate below returns.
  *

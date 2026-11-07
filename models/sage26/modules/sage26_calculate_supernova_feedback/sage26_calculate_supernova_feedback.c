@@ -4,7 +4,7 @@
  *
  * Ports compute_sn_feedback() with SupernovaRecipeOn 1 and KarpovModeOn 0
  * (R/src/model_starformation_and_feedback.c:732-889, R = the staged SAGE26 source), for the
- * required parameter FIREmodeOn (campaign decision D33):
+ * required parameter FIREmodeOn:
  *
  * FIREmodeOn 0 (R0-R2), the fixed-epsilon Croton et al. (2016) budgets:
  * - reheated mass = FeedbackReheatingEpsilon * stars (:767);
@@ -17,11 +17,11 @@
  *
  * FIREmodeOn 1 (R3), the FIRE budgets (shared/sage_fire_feedback_physics.h):
  * - the Muratov et al. (2015) scaling from the forming galaxy's own float Vvir and the redshift
- *   of its stored snapshot, ZZ[SnapNum] (:743-753); an out-of-range SnapNum is refused (D35),
+ *   of its stored snapshot, ZZ[SnapNum] (:743-753); an out-of-range SnapNum is refused,
  *   except in the initial-boundary state the package's time guard skips (a galaxy with
  *   SnapNum < 0 and dT <= 0, MIMIC_OBJECT_TIME_SKIP_INITIAL, shared/time_parity.h), where SAGE26
- *   is undefined and the module returns at once, writing nothing, as the SF and burst modules do
- *   (campaign decision D37);
+ *   is undefined and the module returns at once, writing nothing, as the SF and burst modules
+ *   do;
  * - the reheating loading FeedbackReheatingEpsilon * scaling capped at
  *   2 * EtaSNcode * EnergySNcode / Vvir^2 (capped_eta_reheat, R/src/model_misc.h:141-149),
  *   written to MassLoading as a float before the renormalisation on every ordinary (non-FFB)
@@ -84,7 +84,7 @@ int sage26_calculate_supernova_feedback_init(void) {
                                     100.0, "reheating efficiency");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackEjectionEfficiency", FEEDBACK_EJECTION_EFFICIENCY, 0.0,
                                     100.0, "ejection efficiency");
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("FIREmodeOn", FIRE_MODE_ON);
   if (mimic_sage_validate_fire_mode("sage26_calculate_supernova_feedback", FIRE_MODE_ON) != 0) {
     return -1;
@@ -162,7 +162,7 @@ int sage26_calculate_supernova_feedback_process(struct ModuleContext *ctx, struc
    * before the velocity test as SAGE26 orders it; FIREmodeOn 0 leaves it 0 and unused */
   double fire_scaling = 0.0;
   if (FIRE_MODE_ON == MIMIC_SAGE_FIRE_MODE_ON) {
-    /* Campaign decision D37: the initial-boundary state writes nothing, MassLoading included */
+    /* The initial-boundary state writes nothing, MassLoading included */
     double substep_dt = 0.0;
     if (ctx != NULL &&
         mimic_object_substep_dt(halo, ctx, &substep_dt) == MIMIC_OBJECT_TIME_SKIP_INITIAL) {

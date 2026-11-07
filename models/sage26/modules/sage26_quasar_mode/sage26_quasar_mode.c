@@ -28,8 +28,8 @@
  * module's own SFprescription.
  *
  * Parameters: BlackHoleGrowthRate, QuasarModeEfficiency, and the required SFprescription and
- * CGMrecipeOn (each 0 or 1; a missing key fails at initialisation, any other value is refused,
- * campaign decision D33), which select the accretion's hydrogen cap and the wind's pair.
+ * CGMrecipeOn (each 0 or 1; a missing key fails at initialisation, any other value is
+ * refused), which select the accretion's hydrogen cap and the wind's pair.
  *
  * References:
  *   - SAGE26 R/src/model_mergers.c:346-441 (grow_black_hole, quasar_mode_wind)
@@ -60,7 +60,7 @@ static double QUASAR_MODE_EFFICIENCY;
  * (R/src/model_mergers.c:366-372); a required parameter with no default */
 static int SF_PRESCRIPTION;
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init (campaign decision D33), which with the wind host's Regime selects the wind's second pair
+ * init, which with the wind host's Regime selects the wind's second pair
  * (R/src/model_mergers.c:406-407) */
 static int CGM_RECIPE_ON;
 
@@ -77,7 +77,7 @@ int sage26_quasar_mode_init(void) {
   if (mimic_sage_validate_sf_prescription("sage26_quasar_mode", SF_PRESCRIPTION) != 0) {
     return -1;
   }
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (mimic_sage_validate_cgm_recipe_on("sage26_quasar_mode", CGM_RECIPE_ON) != 0) {
     return -1;

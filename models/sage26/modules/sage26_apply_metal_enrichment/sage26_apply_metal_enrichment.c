@@ -21,7 +21,7 @@
  * sage26_ffb_star_formation also calls. The escaping metals go through SAGE26's
  * add_metals_to_hot_reservoir
  * (R/src/model_misc.h:67-74, shared/sage_cgm_routing.h) to the FoF central's selected metals:
- * MetalsCGMgas with the required CGMrecipeOn (campaign decision D33) 1 and the CENTRAL's Regime 0,
+ * MetalsCGMgas with the required CGMrecipeOn 1 and the CENTRAL's Regime 0,
  * MetalsHotGas otherwise (:1102, :1108).
  *
  * SAGE parity: SAGE26 adds the yield AFTER check_disk_instability() (:1088-1090),
@@ -56,7 +56,7 @@ static double YIELD;
 static double FRAC_Z_LEAVE_DISK;
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init (campaign decision D33), which with the FoF central's Regime selects where the escaping
+ * init, which with the FoF central's Regime selects where the escaping
  * metals go (R/src/model_misc.h:69) */
 static int CGM_RECIPE_ON;
 
@@ -68,7 +68,7 @@ int sage26_apply_metal_enrichment_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("Yield", YIELD, 0.0, 1.0, "metal yield");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FracZleaveDisk", FRAC_Z_LEAVE_DISK, 0.0, 1.0,
                                     "metal outflow fraction");
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (mimic_sage_validate_cgm_recipe_on("sage26_apply_metal_enrichment", CGM_RECIPE_ON) != 0) {
     return -1;

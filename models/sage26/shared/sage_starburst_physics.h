@@ -57,7 +57,7 @@
  * zero cold gas or zero stars, so a zero-star burst still samples the bulge history and
  * runs its feedback and yield with zero mass, as SAGE26 does. Only calling-contract NULL
  * checks return early (no R0 call reaches them), and, with FIREmodeOn 1, the refusal of a
- * stored SnapNum outside the run's redshift table (campaign decision D35), which SAGE26 would
+ * stored SnapNum outside the run's redshift table, which SAGE26 would
  * read out of bounds (:694): that burst writes nothing and returns -1.
  *
  * The star-formation and feedback commits are the package's one implementation of
@@ -65,19 +65,20 @@
  * (sage_sf_feedback_physics.h), the functions SAGE26's own burst calls.
  *
  * Rounding points. SAGE26's object fuses two multiply-adds in this routine on R0 and R1 (the
- * oracle README's c06 fused-instruction table; the radius update's own are in
+ * oracle README's "The c06 Group", Fused Multiply-Adds; the radius update's own are in
  * sage_bulge_size_physics.h): MetalsBulgeMass += metallicity *
  * recycled_stars (:773) and MetalsColdGas += Yield * (1.0 - FracZleaveDiskVal) * stars
  * (:819). Both are written as explicit fma() calls; every other expression is one C
  * expression with SAGE26's operand order and types. With SFprescription 1 the refresh's
  * H1gas = ColdGas * 0.74 - H2gas (:802) is a third, one fused multiply-subtract (fnmsub) in
- * SAGE26's object (the oracle README's c08 fused-instruction table), written as
- * fma(ColdGas, 0.74, -H2gas); the refresh's cap compares the widened float H2gas with the
- * unfused double product and stores that product narrowed (:799-800). BulgeMass += recycled_stars
- * (:772) adds the rounded double, unfused. The host's Vvir and the central's Mvir are read as the
- * floats SAGE26 holds (R/src/core_allvars.h:129-131). The FIRE budget (:690-752) fuses no
- * multiply-add in SAGE26's object (the oracle README's c09 table): each of its expressions is one
- * C expression with SAGE26's operand order and types, in sage_fire_feedback_physics.h.
+ * SAGE26's object (the oracle README's "The c08 Group", The Merger Family's Hydrogen Sites),
+ * written as fma(ColdGas, 0.74, -H2gas); the refresh's cap compares the widened float H2gas with
+ * the unfused double product and stores that product narrowed (:799-800). BulgeMass +=
+ * recycled_stars (:772) adds the rounded double, unfused. The host's Vvir and the central's Mvir
+ * are read as the floats SAGE26 holds (R/src/core_allvars.h:129-131). The FIRE budget (:690-752)
+ * fuses no multiply-add in SAGE26's object (the oracle README's "The c09 Group"): each of its
+ * expressions is one C expression with SAGE26's operand order and types, in
+ * sage_fire_feedback_physics.h.
  *
  * The package's StarFormationRate diagnostic (stars / rate_dt) has no SAGE26 counterpart;
  * it is written beside the commit and changes no SAGE26 field.
@@ -318,7 +319,7 @@ static inline void mimic_sage_starburst_locals_reset(struct MimicSageStarburstLo
  *                              with the hydrogen cap of the recheck's black-hole growth and the
  *                              FIRE record of the recheck's own burst
  * @return 0; -1 when a FIREmodeOn 1 burst (this one or the recheck's) refuses its host's stored
- *         SnapNum (D35), with an error logged; this burst then writes nothing (the recheck's
+ *         SnapNum, with an error logged; this burst then writes nothing (the recheck's
  *         refusal comes after this burst's commits)
  */
 static inline int mimic_apply_collisional_starburst(
