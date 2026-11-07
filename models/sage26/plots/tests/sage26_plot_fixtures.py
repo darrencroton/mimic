@@ -10,7 +10,8 @@ The values are chosen to populate every registered figure's selections, not to b
 truth: centrals, satellites and orphans; both ``Regime`` values (satellites keep -1, the
 "unclassified" regime); haloes above 6e11 Msun; positive star formation, cold gas, H2, H I and
 circumgalactic gas; bulges split into merger- and instability-driven parts; positive mass loading,
-cooling rate, gas accretion and concentration; positions inside the 62.5 Mpc/h box.
+cooling rate, gas accretion and concentration; both defined (non-negative) and undefined (negative)
+rcool / Rvir; positions inside the 62.5 Mpc/h box.
 Fields no figure selects on are left at zero.
 """
 
@@ -42,6 +43,8 @@ PROPERTY_FILES = (
 RUN_SNAPSHOTS = (63, 37, 32, 27, 23, 20, 18, 16)
 
 HUBBLE_H = 0.73  # simulations/mini-millennium/simulation_info.yaml
+OMEGA_MATTER = 0.25  # simulations/mini-millennium/simulation_info.yaml
+OMEGA_LAMBDA = 0.75  # simulations/mini-millennium/simulation_info.yaml
 BOX_SIZE = 62.5  # Mpc/h
 VOLUME = BOX_SIZE**3  # (Mpc/h)^3
 
@@ -174,6 +177,11 @@ def build_catalogue(seed=20261107, n_halos=1500, epoch=0.0):
     mdot_stream = np.where(rng.random(n) < 0.2, rng.uniform(0.0, 5.0, n), 0.0)
     concentration = rng.uniform(3.0, 20.0, n)  # every row, central or satellite, draws its own
 
+    # Field of the SAGE26 history figures of c16 Slice 3, drawn after every earlier field so the
+    # values above stay what they were: rcool / Rvir from -0.5 to 2.5, the negative values being
+    # SAGE26's "undefined" sentinel, so some haloes are excluded and some exceed 1
+    rcool_to_rvir = rng.uniform(-0.5, 2.5, n)
+
     values = {
         "SnapNum": np.full(n, 63),
         "Type": galaxy_type,
@@ -219,12 +227,18 @@ def build_catalogue(seed=20261107, n_halos=1500, epoch=0.0):
         "mdot_cool": mdot_cool,
         "mdot_stream": mdot_stream,
         "Concentration": concentration,
+        "RcoolToRvir": rcool_to_rvir,
     }
 
     catalogue = np.zeros(n, dtype=record_dtype()).view(np.recarray)
     for name, array in values.items():
         catalogue[name] = array
     return catalogue
+
+
+def run_parameters():
+    """Return the cosmology entries of the engine's run parameters (mimic-plot.py:588-593)."""
+    return {"Hubble_h": HUBBLE_H, "Omega": OMEGA_MATTER, "OmegaLambda": OMEGA_LAMBDA}
 
 
 def snapshot_metadata(redshift=0.0, ngals=0):

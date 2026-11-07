@@ -12,8 +12,8 @@ Validates: SNAPSHOT_PLOTS and EVOLUTION_PLOTS equal the registry table in order,
            builds for the vertical and the horizontal run file agrees on `plots` and `axes`
 Tolerance: none; every comparison is exact (lists, sets and dictionaries)
 
-The registry table below is written from the plan of the c16 plotting node, Slice 2 (rows S1-S30
-and E1-E4), not computed from the package. It needs no Mimic run.
+The registry table below is written from the plan of the c16 plotting node, Slice 3 (the final
+registry, rows S1-S30 and E1-E18), not computed from the package. It needs no Mimic run.
 
 Run: mimic_venv/bin/python models/sage26/plots/tests/test_sage26_plot_registry.py
 """
@@ -50,7 +50,7 @@ RUN_FILES = {
     "horizontal": MODEL_DIR / "input" / "sage26_mini-millennium-horizontal.yaml",
 }
 
-# Registry table of the c16 plan, Slice 2: row order is registry order
+# Final registry table of the c16 plan, Slice 3: row order is registry order
 SNAPSHOT_TABLE = [
     "halo_mass_function",  # S1
     "halo_occupation",  # S2
@@ -88,6 +88,20 @@ EVOLUTION_TABLE = [
     "smf_evolution",  # E2
     "sfr_density_evolution",  # E3
     "stellar_mass_density_evolution",  # E4
+    "rcool_to_rvir_above_mshock",  # E5
+    "sfr_evolution",  # E6
+    "stellar_mass_halo_mass_relation",  # E7
+    "black_hole_mass_function",  # E8
+    "quenched_fraction_evolution",  # E9
+    "concentration_evolution",  # E10
+    "metallicity_evolution",  # E11
+    "h2_fraction_evolution",  # E12
+    "star_formation_efficiency",  # E13
+    "central_satellite_counts",  # E14
+    "central_satellite_fraction",  # E15
+    "central_satellite_fraction_massive_quiescent",  # E16
+    "quenched_central_satellite_counts",  # E17
+    "ffb_fraction_cut_down",  # E18
 ]
 
 
@@ -141,7 +155,7 @@ def profile_stack(engine, run_file):
 
 
 def test_registry_lists_equal_the_plan_table_in_order():
-    """SNAPSHOT_PLOTS and EVOLUTION_PLOTS are exactly the plan's rows S1-S30 and E1-E4."""
+    """SNAPSHOT_PLOTS and EVOLUTION_PLOTS are exactly the plan's rows S1-S30 and E1-E18."""
     assert (
         FIGURES.SNAPSHOT_PLOTS == SNAPSHOT_TABLE
     ), f"SNAPSHOT_PLOTS differs from the table: {FIGURES.SNAPSHOT_PLOTS}"
