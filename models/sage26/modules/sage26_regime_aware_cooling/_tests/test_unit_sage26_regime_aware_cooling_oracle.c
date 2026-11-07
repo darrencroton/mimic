@@ -9,11 +9,10 @@
  * the module's transaction, sage26_regime_aware_cooling_run(), on the fixture's galaxy and
  * asserts bit for bit:
  *
- * - the return value (total_cooling) and every recorded galaxy field (the sixteen of the c11
- *   group). SAGE26 holds its mdot rates in the galaxy's mdot_cool and mdot_stream; the
- *   transaction keeps them in mdot_cool_raw and mdot_stream_raw (campaign decision D39), so the
- *   harness seeds the raw fields with the fixture's input mdot values and compares them where
- *   SAGE26's fields are recorded;
+ * - the return value (total_cooling) and every recorded galaxy field (the sixteen of that group).
+ *   SAGE26 holds its mdot rates in the galaxy's mdot_cool and mdot_stream; the transaction keeps
+ *   them in mdot_cool_raw and mdot_stream_raw, so the harness seeds the raw fields with the
+ *   fixture's input mdot values and compares them where SAGE26's fields are recorded;
  * - the wrapper's flags (the branch taken, the reset, the restoration, the application caps), the
  *   saved float hot_tcool and its locals (each returned and applied mass, both metallicities, the
  *   total), and every flag and local of the nested hot and CGM calls (intermediate.hot.* and
@@ -269,7 +268,7 @@ static int check_wrapper(const char *fixture, struct oracle_fixture *in,
   oracle_poison(&halo, sizeof(halo));
   oracle_c11_in_galaxy(in, &halo, &galaxy);
   galaxy.Regime = oracle_in_i32(in, "galaxy[0].Regime");
-  /* SAGE26's mdot members are the package's raw rates (D39) */
+  /* SAGE26's mdot members are the package's raw rates */
   galaxy.mdot_cool_raw = galaxy.mdot_cool;
   galaxy.mdot_stream_raw = galaxy.mdot_stream;
   MimicConfig.ZZ[halo.SnapNum] = zz_stored;
@@ -365,7 +364,7 @@ int test_oracle_bit_identity(void) {
   }
   /* The cooling tables are loaded once for every fixture (the budget's init, CGMrecipeOn 0) */
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "cooling tables must load");
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   sage26_calculate_cooling_budget_cleanup();

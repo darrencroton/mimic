@@ -24,7 +24,7 @@
  *   - test_diagnostics_reset_survival_restoration: every diagnostic path (C:436-469)
  *   - test_initial_boundary_matches_classic: no positive interval: what the classic trio writes
  *   - test_d35_refusal_with_positive_interval: a stored SnapNum outside ZZ is refused
- *   - test_parameter_refusals: CGMrecipeOn and MShockMsun (D33)
+ *   - test_parameter_refusals: CGMrecipeOn and MShockMsun
  *   - test_guard_*: the CGMrecipeOn 1 configuration guard of this module and the budget
  */
 
@@ -92,7 +92,7 @@ static void set_run_units(void) {
 /** @brief Load the cooling tables once (the budget's init with CGMrecipeOn 0), then the units */
 static int load_tables(void) {
   reset_config();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   const int status = sage26_calculate_cooling_budget_init();
   set_run_units();
   return status;
@@ -279,7 +279,7 @@ int test_mdot_reset_and_rate_overwrite(void) {
 
 /**
  * @test    test_stream_rates_stored_raw
- * @brief   The hot recipe's float stores reach the raw state (C:282-283; campaign decision D39)
+ * @brief   The hot recipe's float stores reach the raw state (C:282-283)
  *
  * Expected: with the cutoff (Mvir 100 above M_shock = 6e11 * 0.73 / 1e10 = 43.8, z = 0, so
  * 3 M_*(0) >> M_shock) f_stream is exactly 0, so mdot_stream_raw is 0 and mdot_cool_raw is
@@ -730,7 +730,7 @@ static void free_phases(void) {
  * SAGE26 is undefined there (Age[-1], R/src/core_build_model.c:479). The classic trio with
  * CGMrecipeOn 0 writes only its no-cooling transport there; with CGMrecipeOn 1 the budget, radio,
  * apply and transaction together must write exactly the same, and read no table: Snaplistlen 0
- * makes any ZZ read a D35 refusal.
+ * makes any ZZ read a refusal of an out-of-range stored SnapNum.
  *
  * Expected: every galaxy byte equal between the two paths, and every process() returns 0.
  */
@@ -781,8 +781,7 @@ int test_initial_boundary_matches_classic(void) {
 
 /**
  * @test    test_d35_refusal_with_positive_interval
- * @brief   A hot-regime galaxy whose stored SnapNum is outside ZZ is refused (campaign decision
- *          D35), with dT > 0
+ * @brief   A hot-regime galaxy whose stored SnapNum is outside ZZ is refused, with dT > 0
  *
  * Expected: process() returns -1 for the stored SnapNum 64 (Snaplistlen 64), where SAGE26 reads
  * ZZ out of bounds (C:205); the same galaxy at SnapNum 40 succeeds.
@@ -809,7 +808,7 @@ int test_d35_refusal_with_positive_interval(void) {
 
 /**
  * @test    test_parameter_refusals
- * @brief   CGMrecipeOn and MShockMsun are required and validated (campaign decision D33)
+ * @brief   CGMrecipeOn and MShockMsun are required and validated
  *
  * Expected: init() fails without CGMrecipeOn, with CGMrecipeOn 2, without MShockMsun, and with
  * MShockMsun 0, -1, nan or inf; it succeeds with CGMrecipeOn 0 and MShockMsun 6.0e11.

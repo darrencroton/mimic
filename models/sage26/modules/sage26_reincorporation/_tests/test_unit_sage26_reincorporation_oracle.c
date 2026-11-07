@@ -3,14 +3,13 @@
  * @brief   Bit-exact comparison of sage26_reincorporation with SAGE26's reincorporate_gas
  *
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_reincorporation (its
- * _tests/oracle/ directory) through the module's process() entry and asserts
- * bit-for-bit equality with the oracle output: the central's ejected and hot
- * reservoirs after reincorporate_gas (R/src/model_reincorporation.c:44-66), and for a
- * CGMrecipeOn 1 fixture (c10) also its CGM pair. A CGMrecipeOn 1 fixture sets the central's Regime
- * and CGM pair and the module's CGMrecipeOn 1; the test asserts the oracle's destination
- * (intermediate.reservoir_cgm) against the input's CGMrecipeOn 1 && Regime 0, the unselected
- * pair unchanged, and each recorded local's markers, with reincorporated equal to the ejected
- * gas where the cap binds (oracle README, "The c10 Group").
+ * _tests/oracle/ directory) through the module's process() entry and asserts bit-for-bit equality
+ * with the oracle output: the central's ejected and hot reservoirs after reincorporate_gas
+ * (R/src/model_reincorporation.c:44-66), and for a CGMrecipeOn 1 fixture also its CGM pair. A
+ * CGMrecipeOn 1 fixture sets the central's Regime and CGM pair and the module's CGMrecipeOn 1; the
+ * test asserts the oracle's destination (intermediate.reservoir_cgm) against the input's
+ * CGMrecipeOn 1 && Regime 0, the unselected pair unchanged, and each recorded local's markers, with
+ * reincorporated equal to the ejected gas where the cap binds (oracle README, "The c10 Group").
  *
  * The snapshot interval is core-owned: the oracle's intermediate.deltaT
  * (Age[SnapNum] - halo_age, core_build_model.c:479) is supplied as the halo's dT
@@ -51,7 +50,7 @@ static const char *MODULE = "sage26_reincorporation";
 static const char *const RESERVOIRS[] = {"EjectedMass", "MetalsEjectedMass", "HotGas",
                                          "MetalsHotGas"};
 
-/* The tallies of the c10 locals over one run of the bit-exact test */
+/* The tallies of the CGMrecipeOn 1 locals over one run of the bit-exact test */
 static struct oracle_c10_tally c10_tally;
 
 #define COUNT(array) (sizeof(array) / sizeof((array)[0]))

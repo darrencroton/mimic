@@ -1,10 +1,10 @@
 /**
  * @file    sage26_oracle_fire.h
- * @brief   Oracle-test helpers for the c09 FIRE supernova feedback (routine
+ * @brief   Oracle-test helpers for the FIRE supernova feedback (routine
  *          starformation_and_feedback_fire)
  *
  * Adds, beside the shared fixture reader sage26_oracle_fixture.h (which stays as it is), what the
- * oracle tests of the c09 fixtures need (oracle README "The c09 Group"):
+ * oracle tests of the FIRE fixtures need (oracle README "The c09 Group"):
  *
  * - oracle_c09_read_fire_config(): a fixture's params.FIREmodeOn (0 or 1), each galaxy's stored
  *   SnapNum and the redshift params.ZZ[<s>] of each distinct one, applied to MimicConfig's ZZ
@@ -13,13 +13,14 @@
  * - oracle_c09_replay_sn(): the SN module's FIRE budget (sage26_calculate_supernova_feedback) on
  *   the state it receives, through the shared helpers with their locals, so a test can compare
  *   the locals with the oracle's and the budgets with process();
- * - oracle_c09_check_fire_record(): the c09 branch flags and values, each value's markers checked
- *   (c06's, with its check kind, and c07's narrowing limitation) and compared bit for bit
- *   whatever its validation status; a binding cap's value is asserted equal to its bound.
- * - c09's second slice (the burst, routines collisional_starburst_recipe_fire,
- *   deal_with_galaxy_merger_fire, merger_pass_fire, check_disk_instability_fire and the
- *   gas-unstable starformation_and_feedback_fire): oracle_c09_check_burst_wiring(), the per-path
- *   wiring assertion that a burst took the FIRE branch with its host's own stored SnapNum, float
+ * - oracle_c09_check_fire_record(): the FIRE branch flags and values, each value's markers checked
+ *   (oracle README "The c06 Group", with its check kind, and "The c07 Group", with its narrowing
+ *   limitation) and compared bit for bit whatever its validation status; a binding cap's value is
+ *   asserted equal to its bound.
+ * - the burst (routines collisional_starburst_recipe_fire, deal_with_galaxy_merger_fire,
+ *   merger_pass_fire, check_disk_instability_fire and the gas-unstable
+ *   starformation_and_feedback_fire): oracle_c09_check_burst_wiring(), the per-path wiring
+ *   assertion that a burst took the FIRE branch with its host's own stored SnapNum, float
  *   Vvir and the fixture's redshift of that snapshot; oracle_c09_read_mass_loading() and
  *   oracle_c09_check_mass_loading(), the invariant MassLoading of a burst's galaxies; and
  *   oracle_c09_observed(), an observation of the oracle's (intermediate.*_sensitive).
@@ -43,14 +44,14 @@
 #include "shared/sage_sfr_history.h"
 #include "shared/time_parity.h"
 
-/** @brief The routine of the c09 fixtures */
+/** @brief The routine of the FIRE fixtures */
 #define ORACLE_C09_ROUTINE "starformation_and_feedback_fire"
 
-/** @brief The redshift table the c09 tests give the run: mini-Millennium's 64 snapshots */
+/** @brief The redshift table the FIRE tests give the run: mini-Millennium's 64 snapshots */
 #define ORACLE_C09_SNAPLISTLEN 64
 
 /**
- * @brief Read a c09 fixture's FIREmodeOn, stored snapshots and their redshifts
+ * @brief Read a FIRE fixture's FIREmodeOn, stored snapshots and their redshifts
  *
  * FIREmodeOn must be 0 or 1 (the package's required parameter is set to it). Each galaxy's
  * galaxy[i].SnapNum is stored in snapnum[i]; it must lie in the table; params.ZZ[<s>] is read
@@ -148,7 +149,7 @@ static inline void oracle_c09_replay_sn(const double stars_in, const float cold_
   r->ejected = ejected;
 }
 
-/** @brief Counters of the c09 assertions a test made, for its report */
+/** @brief Counters of the FIRE assertions a test made, for its report */
 struct oracle_c09_tally {
   int validated;         /**< validated two-sided */
   int narrowing_limited; /**< its only path is the MassLoading narrowing: not validated, by name */
@@ -162,7 +163,7 @@ struct oracle_c09_tally {
 };
 
 /**
- * @brief Check one c09 value: markers, check kind, narrowing limitation, value bit for bit
+ * @brief Check one FIRE value: markers, check kind, narrowing limitation, value bit for bit
  * @return Number of mismatches and marker errors
  */
 static inline int oracle_c09_check_value(struct oracle_fixture *out, const char *name,
@@ -222,7 +223,7 @@ static inline int oracle_c09_check_value(struct oracle_fixture *out, const char 
 }
 
 /**
- * @brief Check the c09 record of one starformation_and_feedback_fire call against the port
+ * @brief Check the FIRE record of one starformation_and_feedback_fire call against the port
  *
  * @param fire_mode_on  The fixture's FIREmodeOn (intermediate.fire_mode)
  * @param l             The port's FIRE locals (oracle_c09_replay_sn, or initialised for 0)
@@ -290,10 +291,10 @@ static inline int oracle_c09_check_fire_record(struct oracle_fixture *out, const
 }
 
 // ============================================================================
-// c09's second slice: the burst's FIRE budget (R/src/model_mergers.c:690-752)
+// The burst's FIRE budget (R/src/model_mergers.c:690-752)
 // ============================================================================
 
-/** @brief The routines of c09's second slice */
+/** @brief The routines that carry the burst's FIRE budget */
 #define ORACLE_C09_BURST_ROUTINE "collisional_starburst_recipe_fire"
 #define ORACLE_C09_MERGER_ROUTINE "deal_with_galaxy_merger_fire"
 #define ORACLE_C09_PASS_ROUTINE "merger_pass_fire"
@@ -304,10 +305,10 @@ static inline int oracle_c09_check_fire_record(struct oracle_fixture *out, const
  *        FIREmodeOn and, with FIREmodeOn 1, read its host's own stored SnapNum, its float Vvir and
  *        the redshift of that snapshot
  *
- * Each expectation is the fixture's input, independent of the port: host_snapnum and host_vvir
- * are the host's galaxy[<i>].SnapNum and Vvir, and the redshift is MimicConfig.ZZ[host_snapnum],
- * the fixture's params.ZZ entry (oracle_c09_read_fire_config). A full end-state comparison may not
- * show which galaxy's values a burst received; this record does (plan lesson 31).
+ * Each expectation is the fixture's input, independent of the port: host_snapnum and host_vvir are
+ * the host's galaxy[<i>].SnapNum and Vvir, and the redshift is MimicConfig.ZZ[host_snapnum], the
+ * fixture's params.ZZ entry (oracle_c09_read_fire_config). A full end-state comparison may not show
+ * which galaxy's values a burst received; this record does.
  *
  * @param site  The path, for the message ("merger burst", "recheck burst", ...)
  * @return Number of mismatches
@@ -345,8 +346,9 @@ static inline int oracle_c09_check_burst_wiring(const char *path, const char *si
 }
 
 /**
- * @brief The merger family's flags of a c09 burst fixture: oracle_c08_require_merger_flags with
- *        FIREmodeOn left to oracle_c09_read_fire_config (0 or 1, R3.par:55)
+ * @brief The merger family's flags of a FIRE burst fixture: oracle_c08_require_merger_flags
+ *        with FIREmodeOn left to oracle_c09_read_fire_config (0 or 1; SAGE26's
+ *        input/millennium.par:55 sets 1)
  * @return Number of problems
  */
 static inline int oracle_c09_require_merger_flags(struct oracle_fixture *in,
@@ -427,8 +429,8 @@ static inline int oracle_c09_check_same_host_budget(const char *path, const char
 
 /**
  * @brief A replay of sage26_starburst_feedback's call of the shared transaction, on copies of the
- *        galaxies and halos, with the transaction's locals (the c08 pattern: the replay must end
- *        in the state process() produced, so its locals are process()'s)
+ *        galaxies and halos, with the transaction's locals (the replay must end in the state
+ *        process() produced, so its locals are process()'s)
  */
 struct oracle_c09_burst_replay {
   struct GalaxyData galaxies[ORACLE_C09_REPLAY_GALAXIES];

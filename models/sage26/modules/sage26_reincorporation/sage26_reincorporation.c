@@ -5,12 +5,11 @@
  * Ports SAGE26's reincorporate_gas (R = the staged SAGE26 source,
  * R/src/model_reincorporation.c:44-66): a central whose Vvir exceeds
  * Vcrit = 354.53 * ReIncorporationFactor recaptures previously ejected gas at the rate
- * (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir), with the ejected metallicity. The required
- * parameter CGMrecipeOn (campaign decision D33) selects only the destination, through SAGE26's
- * regime-aware add_gas_to_hot_reservoir (R/src/model_misc.h:76-85,
- * shared/sage_cgm_routing.h): the central's CGM pair with CGMrecipeOn 1 and Regime 0, its hot
- * pair otherwise. The amount, guards, cap, metallicity and ejected debits are the same either
- * way (R/src/model_reincorporation.c:46-61).
+ * (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir), with the ejected metallicity. The required parameter
+ * CGMrecipeOn selects only the destination, through SAGE26's regime-aware add_gas_to_hot_reservoir
+ * (R/src/model_misc.h:76-85, shared/sage_cgm_routing.h): the central's CGM pair with CGMrecipeOn 1
+ * and Regime 0, its hot pair otherwise. The amount, guards, cap, metallicity and ejected debits are
+ * the same either way (R/src/model_reincorporation.c:46-61).
  *
  * Every floating-point expression is transcribed from SAGE26 with its operand
  * order and types, so that compiler contraction treats both alike.
@@ -36,8 +35,8 @@
 
 static double REINCORPORATION_FACTOR;
 
-/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init (campaign decision D33) */
+/* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and
+ * checked at init */
 static int CGM_RECIPE_ON;
 
 /* SAGE26 model_reincorporation.c:28-34: SN ejecta leave the disk at ~501 km/s; a
@@ -50,7 +49,7 @@ static const double REINC_VCRIT_KMS = 354.53;
 // ============================================================================
 
 int sage26_reincorporation_init(void) {
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
     return -1;
@@ -98,15 +97,15 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
 
   // Skip if no ejected gas to reincorporate. SAGE26 has no such guard
   // (R/src/model_reincorporation.c:48-64), and it now gates the CGM destination too. For
-  // EjectedGas +0.0 SAGE26 reincorporates +0.0 and its ejected debits leave both ejected fields
-  // as they are, but its destination additions (R/src/model_misc.h:79-80, :82-83) add +0.0,
-  // which turns a -0.0 destination field (hot or CGM, gas or metals) into +0.0, while this guard
+  // EjectedGas +0.0 SAGE26 reincorporates +0.0 and its ejected debits leave both ejected fields as
+  // they are, but its destination additions (R/src/model_misc.h:79-80, :82-83) add +0.0, which
+  // turns a -0.0 destination field (hot or CGM, gas or metals) into +0.0, while this guard
   // leaves -0.0: the two are equal in every value comparison and differ only in an exact-zero
-  // field's sign bit. A negative or -0.0 EjectedGas would differ more, but none occurs on the
-  // R4 domain: the R4 reference output (workspace/e01-reference/out/R4/model_0.hdf5) has no
-  // negative and no -0.0 EjectedMass or MetalsEjectedMass in any of its 64 snapshots (1519062
-  // rows), and the package floors the ejected gas at infall preparation and clears it to +0.0
-  // when infall exhausts it, as SAGE26 does (R/src/model_infall.c:140-141, :365).
+  // field's sign bit. A negative or -0.0 EjectedGas would differ more, but none occurs on the R4
+  // domain: SAGE26's R4 output has no negative and no -0.0 EjectedMass or MetalsEjectedMass in any
+  // of its 64 snapshots (1519062 rows), and the package floors the ejected gas at infall
+  // preparation and clears it to +0.0 when infall exhausts it, as SAGE26
+  // does (R/src/model_infall.c:140-141, :365).
   if (gal->EjectedGas <= 0.0f) {
     return 0;
   }

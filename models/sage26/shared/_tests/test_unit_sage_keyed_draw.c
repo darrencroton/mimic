@@ -1,12 +1,11 @@
 /**
  * @file    test_unit_sage_keyed_draw.c
- * @brief   Unit tests of the package's keyed uniform draw (shared/sage_keyed_draw.h, D1)
+ * @brief   Unit tests of the package's keyed uniform draw (shared/sage_keyed_draw.h)
  *
  * The keyed draw replaces SAGE26's libc draw in the CGM regime classifier
- * (R/src/model_regimes.c:94; campaign decision D1). Its key contract is frozen by the c10 node
- * plan, which also gives eight reference vectors computed by the Campaign Manager with an
- * independent Python implementation of the frozen text. These tests are platform independent
- * (integer arithmetic and exact double conversions only):
+ * (R/src/model_regimes.c:94). Its key contract is stated in shared/sage_keyed_draw.h; the eight
+ * reference vectors were computed with an independent Python implementation of that contract. These
+ * tests are platform independent (integer arithmetic and exact double conversions only):
  *
  * - test_reference_vectors: all eight vectors, `bits` and the deviate, bit for bit;
  * - test_deviate_strictly_inside_unit_interval: the deviate of the extreme bit patterns
@@ -30,13 +29,13 @@
 static int passed = 0;
 static int failed = 0;
 
-/** One frozen reference vector of the campaign rules (c10 node plan, keyed draw) */
+/** One reference vector of the keyed draw */
 struct draw_vector {
   int64_t galaxy_id;
   int snapshot;
   uint64_t ordinal;
   uint64_t bits;  /* the expected keyed bits */
-  double deviate; /* the expected deviate, as the plan's hexadecimal double */
+  double deviate; /* the expected deviate, as a hexadecimal double */
 };
 
 static const struct draw_vector VECTORS[] = {
@@ -61,7 +60,7 @@ static uint64_t double_bits(const double v) {
 
 /**
  * @test    test_reference_vectors
- * @brief   The eight frozen reference vectors, `bits` and deviate, bit for bit
+ * @brief   The eight reference vectors, `bits` and deviate, bit for bit
  */
 int test_reference_vectors(void) {
   int mismatches = 0;

@@ -17,11 +17,10 @@ Msun/h, converted to Msun as SAGE26 converts it: x 1e10 / hubble_h, :2137) and R
 :2138). Both radii are drawn in kpc/h. SAGE26's `RSRHSomerville.dat` overlay is held inline as
 OBS_SOMERVILLE18.
 
-Permitted deviations (c16 Slice 2, row `disk_radius_vs_stellar_mass`): the sample comes from one
-random.Random(2222) per figure, not from SAGE26's script-wide stream (seeded once,
-allresults-local.py:357), so the drawn subset differs when the candidates exceed DILUTE.
-SAGE26 prints a skip notice when no galaxy is selected (:2142-2144) and then fails; this figure
-draws its empty axes instead, as it skips only for a missing field.
+Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
+candidates exceed DILUTE. SAGE26 prints a skip notice when no galaxy is selected (:2142-2144) and
+then fails; this figure draws its empty axes instead, as it skips only for a missing field.
 """
 
 import random

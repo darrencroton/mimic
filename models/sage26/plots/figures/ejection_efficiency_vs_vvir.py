@@ -15,11 +15,10 @@ Fields read (units): SfrDisk and SfrBulge (Msun/yr; the rate is their sum, :2075
 (dimensionless), Vvir (km/s) and Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts it:
 x 1e10 / hubble_h, :364, only to select).
 
-Permitted deviations (c16 Slice 2, row `ejection_efficiency_vs_vvir`): the sample comes from one
-random.Random(2222) per figure, not from SAGE26's script-wide stream (seeded once,
-allresults-local.py:357), so the drawn subset differs when the candidates exceed DILUTE.
-SAGE26 prints a skip notice when no galaxy is selected (:2051-2053) and then fails; this figure
-draws its empty axes instead, as it skips only for a missing field.
+Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
+candidates exceed DILUTE. SAGE26 prints a skip notice when no galaxy is selected (:2051-2053) and
+then fails; this figure draws its empty axes instead, as it skips only for a missing field.
 """
 
 import random

@@ -28,8 +28,8 @@
  *   - test_no_satellites: Single central works
  *   - test_multiple_satellites: Multiple satellites consolidated
  *   - test_cgm_central_migration_by_regime: CGMrecipeOn 1 migrates only the central's own gas by
- *     its regime, no satellite CGM pooled; CGMrecipeOn 0 on the same input pools it (c10)
- *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it (c10, D33)
+ *     its regime, no satellite CGM pooled; CGMrecipeOn 0 on the same input pools it
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it
  *
  */
 
@@ -70,7 +70,7 @@ static void setup_module_for_physics_test(double global_baryon_frac) {
 
   /* Set test parameters */
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   /* Override GlobalBaryonFraction */
   snprintf(MimicConfig.ModelParams[0].value, sizeof(MimicConfig.ModelParams[0].value), "%.6f",
            global_baryon_frac);
@@ -145,7 +145,7 @@ int test_module_initialization(void) {
   MimicConfig.num_pre_timestep = 1;
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -186,7 +186,7 @@ int test_parameter_reading(void) {
   MimicConfig.SubSteps = 1;
 
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   strcpy(MimicConfig.ModelParams[0].value, "0.20");
 
   /* ===== EXECUTE ===== */
@@ -231,7 +231,7 @@ int test_invalid_parameter_fails(void) {
     MimicConfig.SubSteps = 1;
 
     set_test_model_parameters();
-    add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+    add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
     snprintf(MimicConfig.ModelParams[0].value, sizeof(MimicConfig.ModelParams[0].value), "%.6f",
              invalid_values[i]);
 
@@ -719,7 +719,7 @@ int test_multiple_satellites(void) {
 }
 
 // ============================================================================
-// CGMrecipeOn 1 AGAINST 0 (c10 Slice 2, platform independent)
+// CGMrecipeOn 1 AGAINST 0 (platform independent)
 // ============================================================================
 //
 // SAGE26's infall_recipe (R = the staged SAGE26 source, R/src/model_infall.c:67-213) with
@@ -877,8 +877,8 @@ int test_cgm_central_migration_by_regime(void) {
 
 /**
  * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter (campaign decision D33)
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
+ *          a refusal naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
@@ -927,7 +927,7 @@ int main(void) {
   TEST_RUN(test_no_satellites);
   TEST_RUN(test_multiple_satellites);
 
-  /* c10: CGMrecipeOn 1 against 0 (platform independent) */
+  /* CGMrecipeOn 1 against 0 (platform independent) */
   printf("\n%s=== CGM Regime Routing Tests (c10) ===%s\n", BLUE, NC);
   TEST_RUN(test_cgm_central_migration_by_regime);
   TEST_RUN(test_cgm_recipe_on_refused);

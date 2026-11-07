@@ -33,10 +33,10 @@
  * does not read the redshift SAGE26 passes. With ConcentrationOn 0 the module writes nothing, as
  * SAGE26 makes no call, and every row keeps its creation value 0.
  *
- * init() refuses: a missing ConcentrationOn (required, no default; campaign decision D33), a value
- * other than 0 or 3, any placement but exactly one pre_timestep entry as process_full_halo with
- * no other entry, and, with ConcentrationOn 3, a run without sage26_record_transition_state in
- * post_timestep, which writes PreviousType (without it every central would silently keep 0).
+ * init() refuses: a missing ConcentrationOn (required, no default), a value other than 0 or 3, any
+ * placement but exactly one pre_timestep entry as process_full_halo with no other entry, and, with
+ * ConcentrationOn 3, a run without sage26_record_transition_state in post_timestep, which writes
+ * PreviousType (without it every central would silently keep 0).
  */
 
 #include <math.h>
@@ -58,8 +58,7 @@
 static const char *MODULE_NAME = "sage26_set_halo_concentration";
 static const char *RECORDER_NAME = "sage26_record_transition_state";
 
-/* SAGE26's ConcentrationOn (0 off, 3 the Vmax/Vvir inversion), required and checked at init
- * (campaign decision D33) */
+/* SAGE26's ConcentrationOn (0 off, 3 the Vmax/Vvir inversion), required and checked at init */
 static int CONCENTRATION_ON = MIMIC_SAGE_CONCENTRATION_OFF;
 
 // ============================================================================
@@ -138,7 +137,7 @@ static int check_recorder(void) {
 // ============================================================================
 
 int sage26_set_halo_concentration_init(void) {
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("ConcentrationOn", CONCENTRATION_ON);
   if (mimic_sage_validate_concentration_on(MODULE_NAME, CONCENTRATION_ON) != 0) {
     return -1;

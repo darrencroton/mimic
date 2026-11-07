@@ -15,10 +15,9 @@ Fields read (units): Concentration (dimensionless), Mvir and StellarMass (1e10 M
 to Msun as SAGE26 converts them: x 1e10 / hubble_h, allresults-local.py:364-365) and Type (0
 central, above 0 satellite). The redshift in the titles is metadata["redshift"].
 
-Permitted deviations (c16 Slice 2, row `concentration_vs_mvir`): the sample comes from one
-random.Random(2222) per figure, drawn centrals first and then satellites from that one stream,
-not from SAGE26's script-wide stream (seeded once, allresults-local.py:357), so the drawn subset
-differs when a panel's candidates exceed DILUTE.
+Permitted deviations: the sample comes from one random.Random(2222) per figure, drawn centrals first
+and then satellites from that one stream, not from SAGE26's script-wide stream (seeded once,
+allresults-local.py:357), so the drawn subset differs when a panel's candidates exceed DILUTE.
 """
 
 import random

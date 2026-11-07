@@ -3,13 +3,13 @@
  * @brief   Platform-independent tests of shared/sage_ffb_regime.h, SAGE26's FFB threshold,
  *          fraction and SplitMix64 draw, and the EnhancedStarFormationOn validator
  *
- * Every expectation is derived independently of the helpers: the draw's frozen vectors of the c13
- * plan (computed by an independent transcription; SAGE26's own values, from the oracle, confirm
- * them), literal inputs whose result is exact, or SAGE26's expressions written in this file with
- * their operand order (R/src/model_regimes.c:309-312 and :330-339; R/ is the staged SAGE26
- * source root), never by calling the helper under test.
+ * Every expectation is derived independently of the helpers: the draw's reference vectors (computed
+ * by an independent transcription; SAGE26's own values, from the oracle, confirm them), literal
+ * inputs whose result is exact, or SAGE26's expressions written in this file with their operand
+ * order (R/src/model_regimes.c:309-312 and :330-339; R/ is the staged SAGE26 source root), never by
+ * calling the helper under test.
  *
- * - test_draw_vectors: the 64 hashed bits and the deviate, bit for bit, of the eight frozen
+ * - test_draw_vectors: the 64 hashed bits and the deviate, bit for bit, of the eight reference
  *   vectors (the first is SplitMix64's published first output for seed 0) and of two negative
  *   snapshots, whose (uint32_t) conversion the result depends on
  * - test_deviate_endpoints: the deviate of the hashed bits 0 is 2^-54 and of all ones exactly 1.0
@@ -39,7 +39,7 @@
 static int passed = 0;
 static int failed = 0;
 
-/* R6's Hubble_h (R6.par:40) */
+/* R6's Hubble_h (input/millennium.par:40) */
 #define TEST_HUBBLE_H 0.73
 
 static uint64_t bits_of(const double v) {
@@ -101,7 +101,7 @@ int test_draw_vectors(void) {
     uint64_t bits;
     uint64_t deviate;
   } vectors[] = {
-      /* The c13 plan's frozen vectors */
+      /* The draw's reference vectors */
       {0LL, 0, 0xe220a8397b1dcdafULL, 0x3fec4415072f63baULL},
       {1LL, 0, 0x910a2dec89025cc1ULL, 0x3fe22145bd91204cULL},
       {0LL, 63, 0xe255b237b8bb18fbULL, 0x3fec4ab646f71764ULL},

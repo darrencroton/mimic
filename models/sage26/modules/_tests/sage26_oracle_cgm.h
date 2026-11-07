@@ -1,10 +1,10 @@
 /**
  * @file    sage26_oracle_cgm.h
- * @brief   Oracle-test helpers for the c10 CGMrecipeOn 1 merger-family fixtures (oracle_c06)
+ * @brief   Oracle-test helpers for the CGMrecipeOn 1 merger-family fixtures (oracle_c06)
  *
  * Adds, beside sage26_oracle_fixture.h, sage26_oracle_hydrogen.h and sage26_oracle_fire.h (which
- * stay as they are), what the oracle tests of the c06 routines with R4's flags need (oracle README
- * "The c10 Group, Part 3", c06 part):
+ * stay as they are), what the oracle tests of the merger-family routines with R4's flags need
+ * (oracle README "The c10 Group, Part 3", merger-family part):
  *
  * - oracle_c10_require_merger_flags(): the merger family's flags with CGMrecipeOn read (0, or 1
  *   where the routine admits it) and FIREmodeOn read where R4's 1 is admitted;
@@ -12,8 +12,8 @@
  *   CGMrecipeOn 1 fixture and asserted unchanged against its record;
  * - oracle_c10_check_site(): one routing site's selection, the oracle's flag against the
  *   package's AND the package's against the routing galaxy's input Regime;
- * - oracle_c10_check_value(): one c10 value (tail-checked), its markers and its value bit for
- *   bit against the package's local;
+ * - oracle_c10_check_value(): one CGMrecipeOn 1 value (tail-checked), its markers and its value bit
+ *   for bit against the package's local;
  * - oracle_c10_observed(): one observation of SAGE26's nested routines, counted.
  *
  * Test-only: included by module oracle tests, never by package code.
@@ -31,27 +31,28 @@
 #include "shared/sage_cgm_routing.h"
 #include "shared/sage_fire_feedback_physics.h"
 
-/** @brief Counters of the c10 assertions an oracle test made, for its report */
+/** @brief Counters of the CGMrecipeOn 1 assertions an oracle test made, for its report */
 struct oracle_c10_site_tally {
   int fixtures;          /**< CGMrecipeOn 1 fixtures */
   int sites;             /**< routing sites asserted (oracle flag, package local, input Regime) */
   int sites_cgm;         /**< of which selected the CGM pair */
   int unselected;        /**< pairs asserted unchanged (or changed only by a named addition) */
-  int values;            /**< c10 values compared bit for bit */
+  int values;            /**< CGMrecipeOn 1 values compared bit for bit */
   int values_validated;  /**< of which validated two-sided by the oracle */
   int observed_expected; /**< observations of the expected galaxy's Regime that are 1 */
   int observed_other;    /**< observations of the other galaxy's Regime that are 0 */
 };
 
 /**
- * @brief The merger family's flags of a c10 fixture (oracle_c08_require_merger_flags with the CGM
- *        and FIRE flags read)
+ * @brief The merger family's flags of a CGMrecipeOn 1 fixture (oracle_c08_require_merger_flags with
+ *        the CGM and FIRE flags read)
  *
- * SFprescription 0 or 1 (with the H2 configuration for 1) and BulgeSizeOn 0 or 3 as c08 reads
- * them; CGMrecipeOn 0, or 0 or 1 where cgm_allowed (refused otherwise); FIREmodeOn left to
- * oracle_c09_read_fire_config for a *_fire routine (fire_routine), otherwise 0, or 0 or 1 for a
- * CGMrecipeOn 1 fixture (R4's 1, which grow_black_hole, quasar_mode_wind and
- * disrupt_satellite_to_ICS do not read; returned in *fire_mode_on); every other flag R0-R4's.
+ * SFprescription 0 or 1 (with the H2 configuration for 1) and BulgeSizeOn 0 or 3 as
+ * oracle_c08_read_sf_config and oracle_c07_read_sizes read them; CGMrecipeOn 0, or 0 or 1
+ * where cgm_allowed (refused otherwise); FIREmodeOn left to oracle_c09_read_fire_config for a
+ * *_fire routine (fire_routine), otherwise 0, or 0 or 1 for a CGMrecipeOn 1 fixture (R4's 1,
+ * which grow_black_hole, quasar_mode_wind and disrupt_satellite_to_ICS do not read; returned in
+ * *fire_mode_on); every other flag R0-R4's.
  *
  * @return Number of problems
  */
@@ -154,8 +155,8 @@ static inline int oracle_c10_check_site(struct oracle_fixture *out, const char *
 }
 
 /**
- * @brief One c10 value: absent exactly where the package's local is NaN; otherwise its markers
- *        (checked, tail-checked, the two-sided conjunction) and the value bit for bit
+ * @brief One CGMrecipeOn 1 value: absent exactly where the package's local is NaN; otherwise its
+ *        markers (checked, tail-checked, the two-sided conjunction) and the value bit for bit
  * @return Number of mismatches and marker errors
  */
 static inline int oracle_c10_check_value(struct oracle_fixture *out, const char *name,
@@ -213,7 +214,7 @@ static inline int oracle_c10_observed(struct oracle_fixture *out, const char *na
   return observed;
 }
 
-/** @brief Print one test run's c10 tallies (quoted in the validation record) */
+/** @brief Print one test run's CGMrecipeOn 1 tallies */
 static inline void oracle_c10_print_site_tally(const struct oracle_c10_site_tally *t) {
   printf("\n  oracle: c10 CGMrecipeOn 1 fixtures %d: routing sites asserted against the oracle and "
          "the expected galaxy's Regime %d (CGM pair %d, hot pair %d); unselected pairs asserted "

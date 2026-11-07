@@ -72,7 +72,7 @@ def test_module_pipeline_integration():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -135,7 +135,7 @@ def test_star_formation_physics():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -212,7 +212,7 @@ def test_parameter_sensitivity():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -247,7 +247,7 @@ def test_parameter_sensitivity():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -324,7 +324,7 @@ def test_memory_and_performance():
         model_params={
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (D33), R3's value
+            "CGMrecipeOn": 0,  # required, R3's value
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,

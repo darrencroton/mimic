@@ -7,11 +7,10 @@ test trees: it loads and runs, writes nothing with CGMrecipeOn 0, writes only it
 CGMrecipeOn 1, and refuses a missing required key and a misplacement at the executable's exit
 status.
 
-Every configuration sets every key its modules read, explicitly (campaign decision D33). The keys
-come from each configured module's module_info.yaml `parameters` list, which
-`make lint-parameters` holds to the code, with the vertical run file's values
-(models/sage26/input/sage26_mini-millennium.yaml). Runs use the run file's SubSteps (10) and write
-snapshots 63 and 16.
+Every configuration sets every key its modules read, explicitly. The keys come from each configured
+module's module_info.yaml `parameters` list, which `make lint-parameters` holds to the code, with
+the vertical run file's values (models/sage26/input/sage26_mini-millennium.yaml). Runs use the run
+file's SubSteps (10) and write snapshots 63 and 16.
 
 Minimal pipeline (Loads and runs, Off; CGMrecipeOn 1 for Loads and runs), in the run file's order:
   pre_timestep:   sage26_determine_regime, sage26_prepare_infall_budget
@@ -34,14 +33,13 @@ Off is a no-op: with CGMrecipeOn 0, the minimal pipeline with the module and the
 without it give byte-identical output in every field of every row of both snapshots.
 
 On writes its domain: with CGMrecipeOn 1, on the vertical run file's full pipeline, built from the
-run file's modules and order with every key they read set explicitly (PM delegated decision
-D-PM-2). The minimal pipeline has no stripping or merger pass, so Type 2 orphans with Mvir 0 keep
-CGM gas, and SAGE26's CGM recipe gives them tff = +inf by design: g_accel = G * Mvir / Rvir^2 is 0,
-so tff = sqrt(2 Rvir / g_accel) is infinite (models/sage26/shared/sage_cooling_physics.h:588-594).
-On the test trees that is 3863 rows at z = 0 (2725 with sage26_satellite_stripping added). That
-reachable configuration is outside the frozen domain. The domain case does not cover it, and the
-case is stated here as the PM directed. The full pipeline gives no such row. Frozen observable
-list, on every output row of both snapshots:
+run file's modules and order with every key they read set explicitly. The minimal pipeline has no
+stripping or merger pass, so Type 2 orphans with Mvir 0 keep CGM gas, and SAGE26's CGM recipe gives
+them tff = +inf by design: g_accel = G * Mvir / Rvir^2 is 0, so tff = sqrt(2 Rvir / g_accel) is
+infinite (models/sage26/shared/sage_cooling_physics.h:588-594). On the test trees that is 3863 rows
+at z = 0 (2725 with sage26_satellite_stripping added). That reachable configuration is outside the
+domain below. The domain case does not cover it, and the case is stated here. The full pipeline
+gives no such row. The observable list, on every output row of both snapshots:
   - HotGas, MetalsHotGas, CGMgas, MetalsCGMgas, ColdGas, MetalsColdGas, BlackHoleMass: finite and
     non-negative (masses; range [0.0, ...] with creation value 0, models/sage26/model_properties.
     yaml:69-78, :191-200, :506-514, :516-524, :58-67, :180-189, :228-237).
@@ -117,12 +115,12 @@ FH = "process_full_halo"
 BG = "process_by_galaxy"
 
 # The vertical run file's SubSteps and the snapshots written, with their binary output files on
-# mini-millennium's committed test trees (16 is Slice 1's FFB snapshot S, z = 7.272)
+# mini-millennium's committed test trees (16 is the FFB snapshot S, z = 7.272)
 SUBSTEPS = 10
 OUTPUT_FILES = {63: "model_z0.000_0", 16: "model_z7.272_0"}
 
-# The vertical run file's values for every key the configurations below read (D33); the full
-# pipeline reads every key the run file sets
+# The vertical run file's values for every key the configurations below read; the full pipeline
+# reads every key the run file sets
 PARAMETER_VALUES = {
     "GlobalBaryonFraction": 0.17,
     "CGMrecipeOn": 1,
@@ -250,7 +248,7 @@ def configured_modules(phases):
 
 
 def parameters_for(phases, overrides=None, omit=()):
-    """Every key the configured modules read, with the run file's values (D33)."""
+    """Every key the configured modules read, with the run file's values."""
     keys = sorted({key for name in configured_modules(phases) for key in module_parameters(name)})
     missing = [key for key in keys if key not in PARAMETER_VALUES]
     assert not missing, f"no value for keys the configured modules read: {missing}"
@@ -352,7 +350,7 @@ def test_off_is_noop():
 
 
 def test_on_writes_domain():
-    """On the run file's full pipeline (D-PM-2) every observable lies in its cited domain."""
+    """On the run file's full pipeline every observable lies in its cited domain."""
     require_pair()
     require_mimic()
     full = run_file_pipeline()

@@ -9,12 +9,12 @@ missing required key, a misplacement and, at EnhancedStarFormationOn 1, a placem
 immediately before sage26_calculate_star_formation and a configuration without the classifier, at
 the executable's exit status.
 
-Every configuration sets every key its modules read, explicitly (campaign decision D33). The keys
-come from each configured module's module_info.yaml `parameters` list, which
-`make lint-parameters` holds to the code, with the vertical run file's values
-(models/sage26/input/sage26_mini-millennium.yaml), except CGMrecipeOn, set to 0 because no CGM
-module is configured, so infall, cooling and feedback take the classic hot-gas routing.
-Runs use the run file's SubSteps (10) and write snapshots 63 and 16 (Slice 1's FFB snapshot S).
+Every configuration sets every key its modules read, explicitly. The keys come from each configured
+module's module_info.yaml `parameters` list, which `make lint-parameters` holds to the code,
+with the vertical run file's values (models/sage26/input/sage26_mini-millennium.yaml), except
+CGMrecipeOn, set to 0 because no CGM module is configured, so infall, cooling and feedback take the
+classic hot-gas routing. Runs use the run file's SubSteps (10) and write snapshots
+63 and 16 (the FFB snapshot S).
 
 Minimal pipeline (Loads and runs, Off, On; EnhancedStarFormationOn 1 for Loads and runs and On),
 in the run file's order:
@@ -39,7 +39,7 @@ in the run file's order:
 Off is a no-op: with EnhancedStarFormationOn 0, the minimal pipeline with the module and the same
 pipeline without it give byte-identical output in every field of every row of both snapshots.
 
-On writes its domain (frozen observable list), with EnhancedStarFormationOn 1:
+On writes its domain (the observable list), with EnhancedStarFormationOn 1:
   - On the FFBRegime 1 rows at snapshot S = 16, each finite and non-negative: ColdGas,
     MetalsColdGas, StellarMass, MetalsStellarMass, H1gas, StarFormationRate and
     SupernovaOutflowRate (the last written by the shared feedback commit the transaction calls).
@@ -48,11 +48,11 @@ On writes its domain (frozen observable list), with EnhancedStarFormationOn 1:
   - Witnesses: at least one FFBRegime 1 row with StarFormationRate > 0, and at least one with
     SupernovaOutflowRate > 0 (the feedback commit's outflow accumulation ran).
   - H2gas: exactly 0 on every FFBRegime 1 row at S. The transaction writes 0.0f, its creation value
-    (model_properties.yaml:609-617; c13 plan, Slice 2 step 3), and sage26_calculate_star_formation
-    returns at once on an FFBRegime 1 row.
+    (model_properties.yaml:609-617), and sage26_calculate_star_formation returns at once on an
+    FFBRegime 1 row.
   - MassLoading: finite and non-negative on the FFBRegime 1 rows at S, with no witness. It is
     written only with a valid FIRE scaling and otherwise left stale (model_properties.yaml:
-    1246-1253; c13 plan, Slice 2).
+    1246-1253).
   - The FoF central's reservoirs that feedback credits, HotGas, MetalsHotGas, CGMgas, MetalsCGMgas,
     EjectedGas and MetalsEjectedGas: finite and non-negative on every row at S, since other modules
     write them too (model_properties.yaml:69-78, :191-200, :506-514, :516-524, :80-89, :213-222).
@@ -72,8 +72,8 @@ Placement refusal: at EnhancedStarFormationOn 0 (so no cross-module guard applie
 configured twice, by galaxy in galaxy_physics and in satellite_mergers, every key present, is
 refused naming the module (check_placement: exactly one substep entry, by galaxy).
 
-Cross-module guards (campaign decision D47), at EnhancedStarFormationOn 1. Each configuration
-breaks exactly one guard, and the case requires that guard's diagnostic:
+Cross-module guards, at EnhancedStarFormationOn 1. Each configuration breaks exactly one guard, and
+the case requires that guard's diagnostic:
   - Adjacency: pre_timestep sage26_determine_ffb_regime; galaxy_physics
     sage26_calculate_star_formation, sage26_ffb_star_formation,
     sage26_apply_star_formation_supernova (the transaction after, not immediately before,
@@ -126,13 +126,13 @@ FH = "process_full_halo"
 BG = "process_by_galaxy"
 
 # The vertical run file's SubSteps and the snapshots written, with their binary output files on
-# mini-millennium's committed test trees (16 is Slice 1's FFB snapshot S, z = 7.272)
+# mini-millennium's committed test trees (16 is the FFB snapshot S, z = 7.272)
 SUBSTEPS = 10
 FFB_SNAPSHOT = 16
 OUTPUT_FILES = {63: "model_z0.000_0", FFB_SNAPSHOT: "model_z7.272_0"}
 
-# The vertical run file's values for every key the configurations below read (D33), except
-# CGMrecipeOn: 0, as no CGM module is configured
+# The vertical run file's values for every key the configurations below read, except CGMrecipeOn: 0,
+# as no CGM module is configured
 PARAMETER_VALUES = {
     "EnhancedStarFormationOn": 1,
     "EnhancedSFEfficiency": 0.2,
@@ -237,7 +237,7 @@ def configured_modules(phases):
 
 
 def parameters_for(phases, overrides=None, omit=()):
-    """Every key the configured modules read, with the run file's values (D33)."""
+    """Every key the configured modules read, with the run file's values."""
     keys = sorted({key for name in configured_modules(phases) for key in module_parameters(name)})
     missing = [key for key in keys if key not in PARAMETER_VALUES]
     assert not missing, f"no value for keys the configured modules read: {missing}"

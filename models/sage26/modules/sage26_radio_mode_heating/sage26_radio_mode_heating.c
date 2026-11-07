@@ -12,11 +12,10 @@
  *
  * The arithmetic is shared/sage_cooling_physics.h's mimic_sage_do_agn_heating_hot and
  * mimic_sage_agn_accretion_compute, called with CGMrecipeOn 0 (the R0-R3 behaviour). With
- * CGMrecipeOn 1 SAGE26's do_AGN_heating adds the 0.99 * rcool saturation and the cap of Rheat
- * to Rvir (:590-595, :623-624), which apply there: sage26_regime_aware_cooling calls those
- * helpers with CGMrecipeOn 1 inside SAGE26's regime-aware cooling (campaign decision D38), and
- * this module then writes nothing, as sage26_calculate_cooling_budget carries CoolingGas 0 and
- * the gate below returns.
+ * CGMrecipeOn 1 SAGE26's do_AGN_heating adds the 0.99 * rcool saturation and the cap of Rheat to
+ * Rvir (:590-595, :623-624), which apply there: sage26_regime_aware_cooling calls those helpers
+ * with CGMrecipeOn 1 inside SAGE26's regime-aware cooling, and this module then writes nothing, as
+ * sage26_calculate_cooling_budget carries CoolingGas 0 and the gate below returns.
  *
  * AGNrecipe 2 (Bondi-Hoyle) is SAGE26's R0 recipe and is ported exactly. The
  * empirical (1) and cold-cloud (3) rates are the earlier package's, not ported.

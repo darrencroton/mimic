@@ -28,14 +28,14 @@
  *   - test_physics_negative_infall_cascade: Negative infall depletes ejected then hot
  *   - test_zero_infall: Edge case with zero infall
  *   - test_no_central_galaxy: Edge case with no Type 0 central
- *   - test_cgm_positive_infall_selected_pair: positive infall into the selected pair only (c10)
- *   - test_cgm_negative_infall_metal_debit: residual debits the selected metals and gas (c10)
- *   - test_cgm_negative_infall_floor_and_clear: selected metals floored, both fields cleared (c10)
- *   - test_cgm_negative_infall_floor_without_clear: metals floored, gas exactly consumed (c10)
- *   - test_cgm_negative_infall_non_positive_metals: no debit of non-positive metals (c10)
- *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it (c10, D33)
+ *   - test_cgm_positive_infall_selected_pair: positive infall into the selected pair only
+ *   - test_cgm_negative_infall_metal_debit: residual debits the selected metals and gas
+ *   - test_cgm_negative_infall_floor_and_clear: selected metals floored, both fields cleared
+ *   - test_cgm_negative_infall_floor_without_clear: metals floored, gas exactly consumed
+ *   - test_cgm_negative_infall_non_positive_metals: no debit of non-positive metals
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it
  *
- * The c10 tests run each case at CGMrecipeOn 1 with Regime 0 (CGM pair selected), at
+ * The CGMrecipeOn 1 tests run each case at CGMrecipeOn 1 with Regime 0 (CGM pair selected), at
  * CGMrecipeOn 1 with Regime 1 and at CGMrecipeOn 0 (hot pair), with exact literal expectations.
  *
  */
@@ -70,10 +70,10 @@ extern int sage26_apply_infall_cleanup(void);
 /**
  * @brief Initialize sage26_apply_infall module for physics testing
  *
- * Sets up minimal module state without the full module system: the required CGMrecipeOn at 0
- * (campaign decision D33; the hot reservoir, as these tests expect) and the budget module in
- * pre_timestep, which init() requires. Every physics test asserts that init() succeeds, so none
- * depends on run order or on the module's state left by an earlier test.
+ * Sets up minimal module state without the full module system: the required CGMrecipeOn at 0 (the
+ * hot reservoir, as these tests expect) and the budget module in pre_timestep, which init()
+ * requires. Every physics test asserts that init() succeeds, so none depends on run order or on the
+ * module's state left by an earlier test.
  *
  * @return init()'s status, 0 on success
  */
@@ -86,7 +86,7 @@ static int setup_module_for_physics_test(void) {
   pre_timestep[0].resolved = NULL;
   MimicConfig.pre_timestep = pre_timestep;
   MimicConfig.num_pre_timestep = 1;
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   const int status = sage26_apply_infall_init();
   MimicConfig.pre_timestep = NULL;
   MimicConfig.num_pre_timestep = 0;
@@ -163,7 +163,7 @@ int test_module_initialization(void) {
   test_phase_add("galaxy_physics", "sage26_apply_infall", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -205,7 +205,7 @@ int test_memory_safety(void) {
   test_phase_add("galaxy_physics", "sage26_apply_infall", PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -710,7 +710,7 @@ int test_no_central_galaxy(void) {
 }
 
 // ============================================================================
-// CGMrecipeOn 1 AGAINST 0 (c10 Slice 2, platform independent)
+// CGMrecipeOn 1 AGAINST 0 (platform independent)
 // ============================================================================
 //
 // SAGE26's add_infall_to_hot (R = the staged SAGE26 source, R/src/model_infall.c:351-414) selects
@@ -923,8 +923,8 @@ int test_cgm_negative_infall_non_positive_metals(void) {
 
 /**
  * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter (campaign decision D33)
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
+ *          a refusal naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
@@ -969,7 +969,7 @@ int main(void) {
   TEST_RUN(test_zero_infall);
   TEST_RUN(test_no_central_galaxy);
 
-  /* c10: CGMrecipeOn 1 against 0 (platform independent) */
+  /* CGMrecipeOn 1 against 0 (platform independent) */
   TEST_RUN(test_cgm_positive_infall_selected_pair);
   TEST_RUN(test_cgm_negative_infall_metal_debit);
   TEST_RUN(test_cgm_negative_infall_floor_and_clear);

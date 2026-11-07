@@ -2,27 +2,26 @@
  * @file    test_unit_sage26_determine_ffb_regime.c
  * @brief   Platform-independent behavioural tests of sage26_determine_ffb_regime
  *
- * The oracle test (test_unit_sage26_determine_ffb_regime_oracle.c) skips off macOS arm64, so
- * these tests are the classifier's guard on every other platform. Each runs the module's
- * process(), through its test seam (sage26_determine_ffb_regime.h) where a test must place the
- * compared deviate exactly or see which rows were classified. Every expectation is derived
- * independently of the module: literal inputs and the halo_uniform deviates of the c13 plan's
- * frozen vectors (an independent transcription's, which SAGE26's own values from the oracle
- * confirm), or SAGE26's own expressions written here with their operand order
- * (R/src/model_regimes.c:309-312 for the threshold, :332-339 for the fraction, :236 for the
- * comparison), never by calling the module or its shared helpers. R/ is the staged SAGE26
- * source root.
+ * The oracle test (test_unit_sage26_determine_ffb_regime_oracle.c) skips off macOS arm64, so these
+ * tests are the classifier's guard on every other platform. Each runs the module's process(),
+ * through its test seam (sage26_determine_ffb_regime.h) where a test must place the compared
+ * deviate exactly or see which rows were classified. Every expectation is derived independently of
+ * the module: literal inputs and the halo_uniform deviates of an independent transcription of
+ * SAGE26's routine (which SAGE26's own values from the oracle confirm), or SAGE26's own expressions
+ * written here with their operand order (R/src/model_regimes.c:309-312 for the threshold, :332-339
+ * for the fraction, :236 for the comparison), never by calling the module or its shared helpers. R/
+ * is the staged SAGE26 source root.
  *
  * Software quality:
  * - test_module_lifecycle: registration, module_system_init with the module in pre_timestep,
  *   cleanup, no leaks
  * - test_enhanced_sf_missing_refused, test_enhanced_sf_values: the required
- *   EnhancedStarFormationOn (campaign decision D33): missing fails init naming it; 2, 3 and -1
- *   are refused naming it; 0 and 1 are accepted
+ *   EnhancedStarFormationOn: missing fails init naming it; 2, 3 and -1 are refused
+ *   naming it; 0 and 1 are accepted
  * - test_placement_refused: a substep phase, post_timestep, twice in pre_timestep,
  *   process_by_galaxy, before sage26_prepare_infall_budget and before sage26_determine_regime are
  *   each refused, naming the module or the predecessor; after both, and alone, are accepted
- * - test_requires_transaction (c13 Slice 3): at EnhancedStarFormationOn 1 init refuses, naming
+ * - test_requires_transaction: at EnhancedStarFormationOn 1 init refuses, naming
  *   sage26_ffb_star_formation, a configuration without the transaction in a substep phase as
  *   process_by_galaxy (absent, or there as process_full_halo); at 0 it accepts both
  *
@@ -42,8 +41,8 @@
  *   UniqueGalaxyID or the row's stored SnapNum
  * - test_seam_tie: a deviate equal to the fraction gives 0, one ulp below gives 1 (the strict
  *   comparison, R/src/model_regimes.c:236)
- * - test_initial_boundary_row: a row in the initial-boundary state (stored SnapNum -1, dT 0, D37)
- *   is classified without error
+ * - test_initial_boundary_row: a row in the initial-boundary state (stored SnapNum -1, dT 0) is
+ *   classified without error
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -72,11 +71,11 @@ extern int sage26_determine_ffb_regime_cleanup(void);
 
 #define MAX_ROWS 8
 
-/* R6's Hubble_h (R6.par:40) */
+/* R6's Hubble_h (input/millennium.par:40) */
 #define TEST_HUBBLE_H 0.73
 
-/* halo_uniform deviates (R/src/model_regimes.c:151-159) as f64 bit patterns: the c13 plan's
- * frozen vectors, and (4896973, 11) from the same independent transcription */
+/* halo_uniform deviates (R/src/model_regimes.c:151-159) as f64 bit patterns, from an independent
+ * transcription of SAGE26's routine */
 #define DEVIATE_ID0_SNAP0 0x3fec4415072f63baULL      /* (0, 0): ~0.8833 */
 #define DEVIATE_ID1_SNAP0 0x3fe22145bd91204cULL      /* (1, 0): ~0.5666 */
 #define DEVIATE_4896973_SNAP12 0x3fdc862dc2b4faddULL /* ~0.4457 */
@@ -312,7 +311,7 @@ int test_module_lifecycle(void) {
 
 /**
  * @test    test_enhanced_sf_missing_refused
- * @brief   Init fails without EnhancedStarFormationOn, naming it: required, no default (D33)
+ * @brief   Init fails without EnhancedStarFormationOn, naming it: required, no default
  */
 int test_enhanced_sf_missing_refused(void) {
   const char *log = "";
@@ -436,7 +435,6 @@ static void arrange_transaction_full_halo(void) {
  *          configuration without the transaction by galaxy in a substep phase: an FFBRegime 1 row
  *          bypasses the ordinary star-formation chain (R/src/model_starformation_and_feedback.c
  *          :1004-1008) and would form no stars; at 0 nothing is classified and both are accepted
- *          (c13 Slice 3)
  */
 int test_requires_transaction(void) {
   const struct {
@@ -725,8 +723,8 @@ int test_seam_tie(void) {
 
 /**
  * @test    test_initial_boundary_row
- * @brief   A row in the initial-boundary state (stored SnapNum -1, dT 0; campaign decision D37) is
- *          classified like any other: the classifier reads no snapshot-indexed table
+ * @brief   A row in the initial-boundary state (stored SnapNum -1, dT 0) is classified like any
+ *          other: the classifier reads no snapshot-indexed table
  */
 int test_initial_boundary_row(void) {
   TEST_ASSERT(init_ok("1") == 0, "init must succeed");

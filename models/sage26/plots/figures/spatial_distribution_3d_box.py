@@ -15,9 +15,9 @@ Fields read (units): Mvir and StellarMass (1e10 Msun/h, converted to Msun as SAG
 them: x 1e10 / hubble_h, allresults-local.py:364-365), Pos (Mpc/h; SAGE26's Posx, Posy and Posz
 are Pos[:, 0], Pos[:, 1] and Pos[:, 2]). The box size is metadata["box_size"] (Mpc/h).
 
-Permitted deviations (c16 Slice 2, row `spatial_distribution_3d_box`): the sample comes from one
-random.Random(2222) per figure, not from SAGE26's script-wide stream (seeded once,
-allresults-local.py:357), so the drawn subset differs when the candidates exceed DILUTE.
+Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
+candidates exceed DILUTE.
 """
 
 import random

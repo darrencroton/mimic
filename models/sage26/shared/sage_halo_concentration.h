@@ -23,9 +23,9 @@
  *   Type the float infallVmax and infallVvir, each widened to double on its own.
  * - mimic_sage_get_halo_concentration(): get_halo_concentration (:327-362) for the two modes the
  *   package supports: 0 returns 0 (:330-332) and 3 inverts the selected pair (:339-350).
- * - mimic_sage_validate_concentration_on(): the required ConcentrationOn, 0 or 3 (campaign
- *   decision D33). Mode 1 (the Ishiyama et al. 2021 table, :352-362) and mode 2 (Vmax/Vvir for
- *   every Type, :334-337) are not ported and are refused.
+ * - mimic_sage_validate_concentration_on(): the required ConcentrationOn, 0 or 3. Mode 1 (the
+ *   Ishiyama et al. 2021 table, :352-362) and mode 2 (Vmax/Vvir for every Type, :334-337) are not
+ *   ported and are refused.
  *
  * Each helper takes its inputs as arguments and reads no module state. The caller narrows each
  * core-owned double velocity to the float SAGE26 holds (R/src/core_allvars.h:132-133, :199-200)
@@ -57,7 +57,7 @@
 
 #include "error.h"
 
-/** ConcentrationOn 0: no concentration (SAGE26 R0-R4, R4.par:57) */
+/** ConcentrationOn 0: no concentration (SAGE26 R0-R4; input/millennium.par:57, "0: off") */
 #define MIMIC_SAGE_CONCENTRATION_OFF 0
 /** ConcentrationOn 3: the Vmax/Vvir inversion, infall-frozen for a former satellite (R5) */
 #define MIMIC_SAGE_CONCENTRATION_VMAX_VVIR 3
@@ -116,9 +116,9 @@ struct MimicSageHaloConcentrationLocals {
 /**
  * @brief Refuse a ConcentrationOn the package does not support, naming the parameter
  *
- * The package ports SAGE26's modes 0 (off, R0-R4) and 3 (the Vmax/Vvir inversion, R5). Mode 1
- * (the Ishiyama et al. 2021 table, R/src/model_halo_properties.c:352-362) and mode 2 (Vmax/Vvir
- * for every Type, :334-337) are not ported; there is no fallback default (campaign decision D33).
+ * The package ports SAGE26's modes 0 (off, R0-R4) and 3 (the Vmax/Vvir inversion, R5). Mode 1 (the
+ * Ishiyama et al. 2021 table, R/src/model_halo_properties.c:352-362) and mode 2 (Vmax/Vvir for
+ * every Type, :334-337) are not ported; there is no fallback default.
  *
  * @param module_name  The calling module, for the error message
  * @param value        The loaded ConcentrationOn

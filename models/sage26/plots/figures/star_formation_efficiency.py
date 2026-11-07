@@ -20,10 +20,9 @@ a snapshot's redshift is its metadata["redshift"].
 Snapshots: every written snapshot (:1752), chosen through ``all_snapshots``; a snapshot needs at
 least 5 central galaxies with positive stellar and halo mass (:1762-1764).
 
-Permitted deviations (c16 Slice 3, row `star_formation_efficiency`): SAGE26's `np.trapz` (:1745)
-is computed with `np.trapezoid`, the same trapezoidal rule under NumPy 2's name; the baryon
-fraction f_b = 0.17 is SAGE26's own (:1736). The figure is drawn from the run's eight snapshots,
-where SAGE26 reads 64.
+Permitted deviations: SAGE26's `np.trapz` (:1745) is computed with `np.trapezoid`, the same
+trapezoidal rule under NumPy 2's name; the baryon fraction f_b = 0.17 is SAGE26's own (:1736). The
+figure is drawn from the run's eight snapshots, where SAGE26 reads 64.
 """
 
 import numpy as np

@@ -17,8 +17,8 @@ a satellite); a snapshot's redshift is its metadata["redshift"].
 Snapshots: every written snapshot (:1865), chosen through ``all_snapshots``; a snapshot without
 galaxies is skipped (:1866-1873).
 
-Permitted deviations (c16 Slice 3, row `central_satellite_fraction`): none beyond the rules (the
-figure is drawn from the run's eight snapshots, where SAGE26 reads 64).
+Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where
+SAGE26 reads 64.
 """
 
 import numpy as np

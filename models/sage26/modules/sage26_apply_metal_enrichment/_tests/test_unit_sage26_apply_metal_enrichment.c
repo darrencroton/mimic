@@ -25,10 +25,10 @@
  *     central's CGM metals (its Regime 0) or hot metals (Regime 1, or CGMrecipeOn 0); the forming
  *     satellite holds the other Regime; the unselected pair and the gas fields unchanged
  *     (R/src/model_starformation_and_feedback.c:1093-1108, R/src/model_misc.h:67-74)
- *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
  *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
  *     bytewise unchanged (no yield, NewStellarMass not consumed); the same row with FFBRegime 0
- *     gets the yield split and NewStellarMass consumed (c13 Slice 3)
+ *     gets the yield split and NewStellarMass consumed
  */
 
 #include <math.h>
@@ -97,7 +97,7 @@ int test_init_valid(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* No SF/SN or starburst modules configured, so the ordering checks are skipped. */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0,
@@ -116,7 +116,7 @@ int test_init_rejects_sf_after(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* Wrong order: the SF/SN apply step must precede the yield. */
   test_phase_add("galaxy_physics", "sage26_apply_metal_enrichment", PROCESSING_MODE_BY_GALAXY);
@@ -139,7 +139,7 @@ int test_init_rejects_starburst_after(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* Wrong order: SAGE adds the disk yield after the disk-instability starburst. */
   test_phase_add("galaxy_physics", "sage26_apply_metal_enrichment", PROCESSING_MODE_BY_GALAXY);
@@ -162,7 +162,7 @@ int test_physics_cold_gas_above_threshold(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -205,7 +205,7 @@ int test_physics_cold_gas_below_threshold(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -243,7 +243,7 @@ int test_consumes_new_stellar_mass(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -276,7 +276,7 @@ int test_zero_new_stellar_mass(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -316,7 +316,7 @@ int test_zero_event_still_adds_yield(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
@@ -353,7 +353,7 @@ int test_null_galaxy(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   sage26_apply_metal_enrichment_init();
 
   struct ModuleContext ctx = create_test_context();
@@ -378,7 +378,7 @@ int test_null_central(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   sage26_apply_metal_enrichment_init();
 
   struct ModuleContext ctx = create_test_context();
@@ -406,7 +406,7 @@ int test_invalid_ngal(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   sage26_apply_metal_enrichment_init();
 
   struct ModuleContext ctx = create_test_context();
@@ -422,7 +422,7 @@ int test_invalid_ngal(void) {
 }
 
 // ============================================================================
-// CGM ROUTING TESTS (c10, CGMrecipeOn)
+// CGM ROUTING TESTS (CGMrecipeOn)
 // ============================================================================
 //
 // SAGE26's disk yield (R = the staged SAGE26 source, R/src/model_starformation_and_feedback.c
@@ -536,8 +536,8 @@ int test_cgm_yield_destination(void) {
 
 /**
  * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter (campaign decision D33)
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
+ *          a refusal naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
@@ -554,7 +554,7 @@ int test_cgm_recipe_on_refused(void) {
 
 /**
  * @test    test_ffb_row_bypassed
- * @brief   An FFBRegime 1 row gets no yield; the same row with FFBRegime 0 does (c13 Slice 3)
+ * @brief   An FFBRegime 1 row gets no yield; the same row with FFBRegime 0 does
  *
  * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb and returns
  * before its ordinary yield (R/src/model_starformation_and_feedback.c:1004-1008). The row is a
@@ -567,7 +567,7 @@ int test_ffb_row_bypassed(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();

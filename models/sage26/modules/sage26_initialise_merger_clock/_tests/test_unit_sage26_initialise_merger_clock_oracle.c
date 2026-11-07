@@ -24,12 +24,11 @@
  *   Mvir, deltaMvir, Rvir, Vvir, Vmax, infallMvir, infallVvir, infallVmax, each
  *   SAGE26 float compared with the core's double narrowed to float) and on
  *   StellarMass and ColdGas, which the clock reads.
- * - join_and_pass (tr_jp_probe_already_merged_trailing, owned here by PM decision
- *   PM-D3): the joining as above with every galaxy's full state and the pass's
- *   timing, then sage26_set_disk_scale_radius and the package's merger pass
- *   (sage26_resolve_mergers_and_disruption) at the fixture's substep, asserting
- *   the joined state (intermediate.join.galaxy[*]) and the end state (galaxy[*]).
- *   The resolver's oracle test asserts the other join_and_pass fixtures in full.
+ * - join_and_pass (tr_jp_probe_already_merged_trailing, owned here): the joining as above with
+ *   every galaxy's full state and the pass's timing, then sage26_set_disk_scale_radius and the
+ *   package's merger pass (sage26_resolve_mergers_and_disruption) at the fixture's substep,
+ *   asserting the joined state (intermediate.join.galaxy[*]) and the end state (galaxy[*]). The
+ *   resolver's oracle test asserts the other join_and_pass fixtures in full.
  *
  * Fields excluded from the joining assertions, by reason (each consumed by name):
  * - core-boundary: an orphan's Len (the core zeros it, SAGE26 keeps it,
@@ -138,9 +137,9 @@ static int set_params(struct oracle_fixture *in) {
 }
 
 /**
- * @brief Initialise sage26_set_halo_concentration, which the joining harness runs after the
- *        clock, with the fixture's ConcentrationOn (its required parameter, campaign decision
- *        D33; 0 for every fixture of this module)
+ * @brief Initialise sage26_set_halo_concentration, which the joining harness runs after the clock,
+ *        with the fixture's ConcentrationOn (its required parameter; 0 for every fixture
+ *        of this module)
  */
 static int init_concentration(struct oracle_fixture *in) {
   if (oracle_set_model_param("ConcentrationOn",
@@ -171,8 +170,8 @@ static int check_intermediate(struct oracle_fixture *out, const char *name, cons
   if (validated == 1) {
     problems += oracle_check_f64(out, key, value);
   } else {
-    // Checked by the oracle through SAGE26's continuation, not two-sided validated:
-    // asserted through the end state only (the node's rule for carried values)
+    // Checked by the oracle through SAGE26's continuation, not two-sided validated: asserted
+    // through the end state only
     oracle_exclude(out, key);
   }
   return problems;
@@ -362,7 +361,7 @@ static int check_join_and_pass(const char *name) {
       oracle_set_model_param("ThresholdSatDisruption",
                              oracle_in_f64(&in, "params.ThresholdSatDisruption")) != 0 ||
       oracle_set_model_param("BulgeSizeOn", 0.0) != 0 ||
-      /* CGMrecipeOn: the resolver's required parameter (D33), at R3's value 0 */
+      /* CGMrecipeOn: the resolver's required parameter, at R3's value 0 */
       oracle_set_model_param("CGMrecipeOn", 0.0) != 0) {
     problems++;
   }

@@ -1,7 +1,7 @@
 /**
  * @file    test_unit_sage26_calculate_supernova_feedback_oracle.c
  * @brief   Bit-exact comparison of the package's disk supernova feedback with SAGE26's
- *          compute_sn_feedback on the FIRE path (the c09 fixtures of this group, all FIREmodeOn 1;
+ *          compute_sn_feedback on the FIRE path (the FIRE fixtures of this group, all FIREmodeOn 1;
  *          the FIREmodeOn 0 twins are in sage26_calculate_star_formation's group)
  *
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for
@@ -24,19 +24,19 @@
  * - at the feedback module's boundary: the stars it receives (intermediate.stars_pre_renorm), the
  *   budgets it hands on (stars, reheated_mass after the renormalisation and, before it,
  *   reheated_mass_pre_renorm; ejected_mass before and after the floor) and its branch flags
- *   (renorm_active, ejection_vvir_nonpositive, ejected_floored), whatever their validation
- *   status, since the module forms each with SAGE26's expression; MassLoading (SAGE26's own end
- *   state); and the c09 flags and values, from a replay of the module's FIRE budget through the
- *   shared helpers (shared/sage_fire_feedback_physics.h, sage26_oracle_fire.h) on the state the
- *   module received, which must end in exactly the budgets and MassLoading process() produced;
+ *   (renorm_active, ejection_vvir_nonpositive, ejected_floored), whatever their validation status,
+ *   since the module forms each with SAGE26's expression; MassLoading (SAGE26's own end state); and
+ *   the FIRE flags and values, from a replay of the module's FIRE budget through the shared helpers
+ *   (shared/sage_fire_feedback_physics.h, sage26_oracle_fire.h) on the state the module received,
+ *   which must end in exactly the budgets and MassLoading process() produced;
  * - the end state of every galaxy: the fourteen fields SAGE26 records (OutflowRate being the
  *   package's SupernovaOutflowRate), BlackHoleMass and QuasarModeBHaccretionMass, the four bulge
  *   size members (BulgeSizeOn 3), H2DepletionTime_Gyr, MassLoading and the sixty history elements.
  *
- * The oracle's other carried values (the apply step's, the instability's and the yield's locals
- * and c08's H2 values) are consumed without assertion: the chained oracle test of
- * sage26_calculate_star_formation asserts them on its fixtures, and here the end state, which
- * they determine, is asserted in full. call.time is read by no module of this chain.
+ * The oracle's other carried values (the apply step's, the instability's and the yield's locals and
+ * the H2 values of the oracle README's "The c08 Group") are consumed without assertion: the chained
+ * oracle test of sage26_calculate_star_formation asserts them on its fixtures, and here the end
+ * state, which they determine, is asserted in full. call.time is read by no module of this chain.
  *
  * The core-owned inputs are supplied as SAGE26 forms them: Vvir and Mvir widened from SAGE26's
  * floats, each galaxy's stored SnapNum and the run's redshift table (ZZ of each stored snapshot,
@@ -93,9 +93,9 @@ static const char *MODULE = "sage26_calculate_supernova_feedback";
 #define MAX_GALAXIES 4
 #define MAX_SUBSTEPS 64
 
-/* SAGE26's SF_DISK_RADIUS_FRAC (R/src/model_starformation_and_feedback.c:60), also the
- * instability's TOOMRE_DISK_FACTOR (R/src/model_disk_instability.c:35), and its unit factors
- * (R3.par:112-113) */
+/* SAGE26's SF_DISK_RADIUS_FRAC (R/src/model_starformation_and_feedback.c:60), also
+ * the instability's TOOMRE_DISK_FACTOR (R/src/model_disk_instability.c:35), and its
+ * unit factors (input/millennium.par:106-107) */
 #define SAGE26_SF_DISK_RADIUS_FRAC 3.0
 #define SAGE26_UNIT_LENGTH_IN_CM 3.08568e+24
 #define SAGE26_UNIT_MASS_IN_G 1.989e+43
@@ -228,7 +228,7 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
       oracle_set_model_param("QuasarModeEfficiency",
                              oracle_in_f64(in, "params.QuasarModeEfficiency")) != 0 ||
       oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
-      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's modules (D33) */
+      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's modules */
       oracle_set_model_param("CGMrecipeOn", 0.0) != 0) {
     problems++;
   }

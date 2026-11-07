@@ -10,22 +10,21 @@
  * so the oracle records a transcription of those lines (oracle README). The
  * fixtures name one of two routines, and the test dispatches on that line:
  *
- * - normalise_cooling_heating (the c04 fixtures): Cooling and Heating, and the four
- *   cooling diagnostics left as they were;
- * - writer_mdot_conversion (the c11 fixtures, campaign decision D39): SAGE26's writer
+ * - normalise_cooling_heating (the cooling and radio-heating fixtures): Cooling and Heating, and
+ *   the four cooling diagnostics left as they were;
+ * - writer_mdot_conversion (the fixtures of the oracle README's "The c11 Group"): SAGE26's writer
  *   conversion of its raw float mdot rates (R/src/io/save_gals_hdf5.c:996-997), transcribed in
- *   the oracle; the test runs process() on one live galaxy holding the raw rates in
- *   mdot_cool_raw and mdot_stream_raw, with a positive interval and again without one, and
- *   asserts the written mdot_cool and mdot_stream bit for bit on both paths. Where the oracle
- *   records that the conversion regrouped as one constant factor rounds differently, the test
- *   also asserts that the package does not compute the regrouped value;
- * - normalise_outflow_rate (the c05 fixtures): Cooling, Heating and the float
- *   OutflowRate (the package's SupernovaOutflowRate), in SAGE26's statement order.
+ *   the oracle; the test runs process() on one live galaxy holding the raw rates in mdot_cool_raw
+ *   and mdot_stream_raw, with a positive interval and again without one, and asserts the written
+ *   mdot_cool and mdot_stream bit for bit on both paths. Where the oracle records that the
+ *   conversion regrouped as one constant factor rounds differently, the test also asserts that the
+ *   package does not compute the regrouped value;
+ * - normalise_outflow_rate (the star-formation fixtures): Cooling, Heating and the
+ *   float OutflowRate (the package's SupernovaOutflowRate), in SAGE26's statement order.
  *   Their intermediate.writer.galaxy[i].OutflowRate is SAGE26's float output value
  *   (R/src/io/save_gals_hdf5.c:995, a left-to-right unit conversion). Mimic converts
- *   SupernovaOutflowRate in its generated output code with one combined factor, a
- *   core-owned difference; the test reports on how many galaxies the two agree and
- *   does not assert it.
+ *   SupernovaOutflowRate in its generated output code with one combined factor, a core-owned
+ *   difference; the test reports on how many galaxies the two agree and does not assert it.
  *
  * Each fixture galaxy becomes one workspace row in the fixture's order. Its dT is
  * core-owned: the test forms SAGE26's deltaT expression Age[SnapNum] - halo_age

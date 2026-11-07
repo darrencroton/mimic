@@ -16,9 +16,8 @@
  *             = -1                        otherwise                         (:105-110)
  *   t >= 999  -> 998                                                        (:112-117)
  *
- * The core does not keep SAGE26's raw halo catalogue, so the package computes the
- * halo helpers' values from what the core exposes about the current snapshot's
- * halos (a core-boundary item recorded by the node's validation):
+ * The core does not keep SAGE26's raw halo catalogue, so the package computes the halo helpers'
+ * values from what the core exposes about the current snapshot's halos:
  *
  * - get_virial_mass(sat_halo) is the satellite's struct Halo Mvir. At progenitor
  *   joining the core sets it to get_virial_mass of the descendant halo

@@ -13,7 +13,7 @@
  * Software quality:
  * - test_module_lifecycle: registration, module_system_init in pre_timestep with ConcentrationOn
  *   0 (SAGE26's R0-R4 value, which needs no recorder), cleanup, no leaks
- * - test_concentration_on_missing_refused: a missing ConcentrationOn fails init, naming it (D33)
+ * - test_concentration_on_missing_refused: a missing ConcentrationOn fails init, naming it
  * - test_concentration_on_values: 1, 2 and 7 are refused naming ConcentrationOn; 0 and 3 accepted
  * - test_placement_refused: a substep-phase entry, a post_timestep entry, two pre_timestep
  *   entries, a process_by_galaxy entry and no entry are each refused, naming the module
@@ -241,7 +241,7 @@ int test_module_lifecycle(void) {
 
 /**
  * @test    test_concentration_on_missing_refused
- * @brief   Init fails without ConcentrationOn, naming it: required, with no default (D33)
+ * @brief   Init fails without ConcentrationOn, naming it: required, with no default
  */
 int test_concentration_on_missing_refused(void) {
   const char *log = "";

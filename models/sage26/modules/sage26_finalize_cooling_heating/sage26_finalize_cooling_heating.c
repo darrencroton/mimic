@@ -24,17 +24,16 @@
  * not normalised. OutflowRate is a float: its product with the double inverse is
  * rounded to float, as SAGE26's `*=` on its float member does.
  *
- * It also writes the output mdot_cool and mdot_stream of every galaxy it finalises, on every
- * path, from the raw float rates sage26_regime_aware_cooling stores (mdot_cool_raw and
- * mdot_stream_raw; campaign decision D39) with SAGE26's writer expression
- * (R/src/io/save_gals_hdf5.c:996-997):
+ * It also writes the output mdot_cool and mdot_stream of every galaxy it finalises, on every path,
+ * from the raw float rates sage26_regime_aware_cooling stores (mdot_cool_raw and mdot_stream_raw)
+ * with SAGE26's writer expression (R/src/io/save_gals_hdf5.c:996-997):
  *
  *   output = (float)(raw * UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS)
  *
- * evaluated left to right in double from the widened float, as SAGE26's save_gals_hdf5.o
- * computes it (fcvt, fmul, fdiv, fmul, fdiv, fcvt; no fused instruction; the oracle README, "The
- * c11 Group"). The output fields declare no output_convert, whose generated grouping would round
- * differently. With CGMrecipeOn 0 the raw rates stay 0 and so do the outputs.
+ * evaluated left to right in double from the widened float, as SAGE26's save_gals_hdf5.o computes
+ * it (fcvt, fmul, fdiv, fmul, fdiv, fcvt; no fused instruction; the oracle README,
+ * "The c11 Group"). The output fields declare no output_convert, whose generated grouping would
+ * round differently. With CGMrecipeOn 0 the raw rates stay 0 and so do the outputs.
  *
  * It must run once per FoF step, after the substeps: in a substep phase it would
  * multiply by 1/dT every substep. init() therefore requires exactly one

@@ -17,10 +17,9 @@
  * - the reader's limits (ORACLE_MAX_*), each refused with a message naming it, never
  *   silently truncated; the *_in() variants take the manifest and modules directory
  *   as arguments (the reader's self-test, test_unit_sage26_oracle_reader.c);
- * - oracle_in_*() / oracle_check_*() / oracle_exclude(): read inputs and compare
- *   outputs (f32, f64, i32 and, since c13, i64), each marking the field consumed,
- *   so oracle_report_unconsumed() can prove that every input was applied and every
- *   output asserted or excluded with a stated reason;
+ * - oracle_in_*() / oracle_check_*() / oracle_exclude(): read inputs and compare outputs (f32, f64,
+ *   i32 and i64), each marking the field consumed, so oracle_report_unconsumed() can prove that
+ *   every input was applied and every output asserted or excluded with a stated reason;
  * - oracle_fixture_count_ok() / oracle_all_bit_identical(): the bodies of each
  *   oracle test's two test cases;
  * - oracle_c04_*(): the c04 group's (cooling and radio heating) shared state:
@@ -71,8 +70,8 @@
 #define ORACLE_DIR MIMIC_COMPILED_MODEL_PATH "/modules"
 #define ORACLE_MANIFEST MIMIC_COMPILED_MODEL_PATH "/modules/_tests/oracle/fixtures.manifest"
 
-/* ORACLE_I64 (c13): a decimal signed 64-bit integer, such as a MostBoundID, which an i32 would
- * narrow and a double would round above 2^53 (oracle README "Fixture File Format") */
+/* ORACLE_I64: a decimal signed 64-bit integer, such as a MostBoundID, which an i32 would narrow and
+ * a double would round above 2^53 (oracle README "Fixture File Format") */
 enum oracle_type { ORACLE_F32, ORACLE_F64, ORACLE_I32, ORACLE_I64 };
 
 struct oracle_field {
@@ -837,7 +836,7 @@ static inline float *oracle_galaxy_float(struct GalaxyData *galaxy, const char *
       {"ICS_accrete", &galaxy->ICS_accrete},
       {"ICS_sum_mt", &galaxy->ICS_sum_mt},
       {"DiskScaleRadius", &galaxy->DiskScaleRadius},
-      /* c04 group */
+      /* fields the cooling and radio-heating fixtures add */
       {"MetalsColdGas", &galaxy->MetalsColdGas},
       {"r_heat", &galaxy->Rheat},
       {"tcool", &galaxy->tcool},
@@ -986,7 +985,7 @@ static inline double *oracle_galaxy_double(struct GalaxyData *galaxy, const char
   return NULL;
 }
 
-/** @brief The ten float fields of the c04 galaxy state (SAGE26 names) */
+/** @brief The ten float fields of the cooling and radio-heating galaxy state (SAGE26 names) */
 static inline const char *const *oracle_c04_float_names(size_t *count) {
   static const char *const names[] = {"HotGas",        "MetalsHotGas", "ColdGas", "MetalsColdGas",
                                       "BlackHoleMass", "r_heat",       "tcool",   "tff",
@@ -995,7 +994,7 @@ static inline const char *const *oracle_c04_float_names(size_t *count) {
   return names;
 }
 
-/** @brief The two double fields of the c04 galaxy state (SAGE26 names) */
+/** @brief The two double fields of the cooling and radio-heating galaxy state (SAGE26 names) */
 static inline const char *const *oracle_c04_double_names(size_t *count) {
   static const char *const names[] = {"Cooling", "Heating"};
   *count = sizeof(names) / sizeof(names[0]);
@@ -1003,7 +1002,7 @@ static inline const char *const *oracle_c04_double_names(size_t *count) {
 }
 
 /**
- * @brief Set halo and galaxy from a c04 fixture's galaxy[index] input
+ * @brief Set halo and galaxy from a cooling and radio-heating fixture's galaxy[index] input
  *
  * Applies the sixteen fields every cooling_recipe_hot, do_AGN_heating and
  * cool_gas_onto_galaxy input sets: Type, and SAGE26's float Mvir, Rvir and Vvir
@@ -1029,7 +1028,8 @@ static inline void oracle_c04_in_galaxy(struct oracle_fixture *in, const int ind
 }
 
 /**
- * @brief Compare the named c04 state fields of a galaxy with "<prefix>galaxy[index].*"
+ * @brief Compare the named cooling and radio-heating state fields of a galaxy with
+ *        "<prefix>galaxy[index].*"
  *
  * @param names  SAGE26 names, each a float (oracle_galaxy_float) or double
  *               (oracle_galaxy_double) member
@@ -1055,7 +1055,9 @@ static inline int oracle_c04_check_fields(struct oracle_fixture *out, const char
   return mismatches;
 }
 
-/** @brief Compare all twelve c04 state fields with "<prefix>galaxy[index].*" */
+/**
+ * @brief Compare all twelve cooling and radio-heating state fields with "<prefix>galaxy[index].*"
+ */
 static inline int oracle_c04_check_galaxy(struct oracle_fixture *out, const char *prefix,
                                           const int index, struct GalaxyData *galaxy) {
   size_t count;
@@ -1067,7 +1069,8 @@ static inline int oracle_c04_check_galaxy(struct oracle_fixture *out, const char
 }
 
 /**
- * @brief Apply a c04 fixture's R0 parameters (cooling_recipe_hot and do_AGN_heating inputs)
+ * @brief Apply a cooling and radio-heating fixture's R0 parameters (cooling_recipe_hot and
+ *        do_AGN_heating inputs)
  *
  * Checks the fixed flags (AGNrecipeOn 2, CGMrecipeOn 0), sets the core-owned G,
  * Hubble_h and unit factors in MimicConfig at the fixture's bit patterns, and the
@@ -1103,11 +1106,10 @@ static inline int oracle_c04_set_params(struct oracle_fixture *in, const char *n
 // ============================================================================
 
 /**
- * @brief The package's float galaxy member for a c05 SAGE26 name, or NULL
+ * @brief The package's float galaxy member for a star-formation-group SAGE26 name, or NULL
  *
- * Extends oracle_galaxy_float() with the c05 fields: SAGE26's OutflowRate is the
- * package's SupernovaOutflowRate (oracle README "Input Fields"); the other names are
- * the package's.
+ * Extends oracle_galaxy_float() with the star-formation fields: SAGE26's OutflowRate is the
+ * package's SupernovaOutflowRate (oracle README "Input Fields"); the other names are the package's.
  */
 static inline float *oracle_c05_galaxy_float(struct GalaxyData *galaxy, const char *sage26_name) {
   struct member {
@@ -1132,7 +1134,9 @@ static inline float *oracle_c05_galaxy_float(struct GalaxyData *galaxy, const ch
   return oracle_galaxy_float(galaxy, sage26_name);
 }
 
-/** @brief The fourteen fields every c05 output records for every galaxy (SAGE26 names) */
+/**
+ * @brief The fourteen fields every star-formation output records for every galaxy (SAGE26 names)
+ */
 static inline const char *const *oracle_c05_written_names(size_t *count) {
   static const char *const names[] = {
       "ColdGas",      "MetalsColdGas",   "StellarMass",          "MetalsStellarMass",
@@ -1155,7 +1159,7 @@ static inline const char *const *oracle_c05_history_names(size_t *count) {
 #define ORACLE_C05_STEPS 10
 
 /**
- * @brief Set a galaxy's named c05 float fields from "galaxy[index].<name>"
+ * @brief Set a galaxy's named star-formation float fields from "galaxy[index].<name>"
  * @return Number of names with no package member
  */
 static inline int oracle_c05_in_floats(struct oracle_fixture *in, const int index,
@@ -1175,7 +1179,7 @@ static inline int oracle_c05_in_floats(struct oracle_fixture *in, const int inde
 }
 
 /**
- * @brief Compare a galaxy's named c05 float fields with "<prefix>galaxy[index].<name>"
+ * @brief Compare a galaxy's named star-formation float fields with "<prefix>galaxy[index].<name>"
  * @return Number of mismatches
  */
 static inline int oracle_c05_check_floats(struct oracle_fixture *out, const char *prefix,
@@ -1215,7 +1219,8 @@ static inline void oracle_c05_exclude_histories(struct oracle_fixture *fx, const
 }
 
 /**
- * @brief Require one of the fixed c05 R0 flags (oracle README "Flags and Parameters")
+ * @brief Require one of the fixed star-formation-group R0 flags (oracle README "Flags and
+ *        Parameters")
  * @return 1 if the fixture's flag differs from the R0 value, else 0
  */
 static inline int oracle_c05_require_flag(struct oracle_fixture *in, const char *flag,
@@ -1228,7 +1233,7 @@ static inline int oracle_c05_require_flag(struct oracle_fixture *in, const char 
   return 0;
 }
 
-/** @brief Counters of the carried-value assertions a c05 test made, for its report */
+/** @brief Counters of the carried-value assertions a star-formation test made, for its report */
 struct oracle_c05_carried_tally {
   int asserted;      /**< validated two-sided and compared bit for bit */
   int not_validated; /**< present but not validated two-sided: recorded, not asserted */
@@ -1314,7 +1319,7 @@ static inline int oracle_c05_check_binding(struct oracle_fixture *out, const cha
 }
 
 // ============================================================================
-// THE C05 HISTORY SUBSTRATE
+// THE HISTORY SUBSTRATE OF THE C05 GROUP
 // ============================================================================
 
 /**
@@ -1428,12 +1433,11 @@ static inline int oracle_c05_check_writer(struct oracle_fixture *out, const char
 // ============================================================================
 
 /**
- * @brief The package's float galaxy member for a c06 SAGE26 name, or NULL
+ * @brief The package's float galaxy member for a merger-family-group SAGE26 name, or NULL
  *
- * Extends oracle_c05_galaxy_float() with the members the c06 merger-family block adds
- * (oracle README "The c06 Group", "Format Additions"): the merger channel, the three
- * bulge radii, the two merger timestamps and the merger clock. The names are the
- * package's.
+ * Extends oracle_c05_galaxy_float() with the members the merger-family block adds (oracle README
+ * "The c06 Group", "Format Additions"): the merger channel, the three bulge radii, the two merger
+ * timestamps and the merger clock. The names are the package's.
  */
 static inline float *oracle_c06_galaxy_float(struct GalaxyData *galaxy, const char *sage26_name) {
   struct member {
@@ -1458,7 +1462,8 @@ static inline float *oracle_c06_galaxy_float(struct GalaxyData *galaxy, const ch
 }
 
 /**
- * @brief The thirty float reservoirs, channels, radii and timestamps of the c06 galaxy block
+ * @brief The thirty float reservoirs, channels, radii and timestamps of the merger-family
+ *        galaxy block
  *
  * Every merger-family fixture sets them for every galaxy, and every recorded galaxy
  * block holds them (oracle README "Format Additions", SAGE26 names).
@@ -1576,7 +1581,7 @@ static inline int oracle_c06_check_galaxy(struct oracle_fixture *out, const char
 }
 
 /**
- * @brief Require every galaxy member outside the c06 block and histories to be unchanged
+ * @brief Require every galaxy member outside the merger-family block and histories to be unchanged
  *
  * Copies the block floats and the histories from `after` into a copy of `before` and
  * compares the whole struct, so a write to any other member (a diagnostic, a transport
@@ -1605,7 +1610,7 @@ static inline int oracle_c06_check_rest_unchanged(const char *path, const int in
   return 0;
 }
 
-/** @brief Counters of the c06 carried-value assertions a test made, for its report */
+/** @brief Counters of the merger-family carried-value assertions a test made, for its report */
 struct oracle_c06_carried_tally {
   int asserted;      /**< validated two-sided and compared bit for bit */
   int binding;       /**< a binding clamp or floor: compared with the value it was set to */
@@ -1614,7 +1619,7 @@ struct oracle_c06_carried_tally {
 };
 
 /**
- * @brief Read one c06 carried value's record and assert it where the oracle allows
+ * @brief Read one merger-family carried value's record and assert it where the oracle allows
  *
  * Reads "intermediate.<name>_absent" and requires the port's value to be NaN exactly when
  * the oracle marks it absent. When present, reads _checked (must be 1), _check_kind (must
@@ -1677,7 +1682,7 @@ static inline int oracle_c06_check_carried(struct oracle_fixture *out, const cha
 }
 
 /**
- * @brief Compare one c06 branch flag (i32, -1 where the path does not evaluate it)
+ * @brief Compare one merger-family branch flag (i32, -1 where the path does not evaluate it)
  * @return 1 on a mismatch
  */
 static inline int oracle_c06_check_flag(struct oracle_fixture *out, const char *flag,
@@ -1688,8 +1693,8 @@ static inline int oracle_c06_check_flag(struct oracle_fixture *out, const char *
 }
 
 /**
- * @brief Require the R0 flags every c06 merger-family fixture carries (oracle README
- *        "The c06 Group", "Flags and Parameters")
+ * @brief Require the R0 flags every merger-family fixture carries (oracle README "The c06 Group",
+ *        "Flags and Parameters")
  * @return Number of flags that differ from R0's values
  */
 static inline int oracle_c06_require_r0_flags(struct oracle_fixture *in) {
@@ -1707,14 +1712,14 @@ static inline int oracle_c06_require_r0_flags(struct oracle_fixture *in) {
 }
 
 // ============================================================================
-// THE C10 GROUP: CGMrecipeOn 1 ROUTING OF THE C03 ROUTINES
+// THE C10 GROUP: CGMrecipeOn 1 ROUTING OF THE BARYON-SUPPLY ROUTINES
 // ============================================================================
 
 /** @brief The check kinds the oracle records (oracle README, "The c06 Group") */
 #define ORACLE_C10_CONTINUATION 1
 #define ORACLE_C10_TAIL 2
 
-/** @brief Tallies of the c10 locals one fixture or test run recorded */
+/** @brief Tallies of the CGMrecipeOn 1 locals one fixture or test run recorded */
 struct oracle_c10_tally {
   int continuation; /* present and continuation-checked */
   int tail;         /* present and tail-checked */
@@ -1724,7 +1729,7 @@ struct oracle_c10_tally {
 };
 
 /**
- * @brief Check one c10 local of a CGMrecipeOn 1 c03 fixture (oracle README, "The c10 Group")
+ * @brief Check one local of a CGMrecipeOn 1 baryon-supply fixture (oracle README, "The c10 Group")
  *
  * Reads `intermediate.<name>_absent`; for a present local requires `_checked` 1 and `_check_kind`
  * `kind`, and `_validated` equal to `_validated_up && _validated_down`. The locals are SAGE26's,
@@ -1821,7 +1826,7 @@ static inline const char *const *oracle_c10_pair(const int cgm) {
   return cgm ? cgm_pair : hot;
 }
 
-/** @brief Print the c10 local tallies of one test run (quoted in the validation record) */
+/** @brief Print the CGMrecipeOn 1 local tallies of one test run */
 static inline void oracle_c10_print_tally(const char *module, const struct oracle_c10_tally *t) {
   printf(
       "\n  oracle c10 locals (%s): continuation-checked %d, tail-checked %d, validated two-sided "

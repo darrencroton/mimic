@@ -58,7 +58,7 @@ MODEL_PARAMS = {
     "GlobalBaryonFraction": 0.17,
     "AGNrecipe": 2,
     "RadioModeEfficiency": 0.08,
-    "CGMrecipeOn": 0,  # required by the infall modules (D33), R3's value
+    "CGMrecipeOn": 0,  # required by the infall modules, R3's value
 }
 
 

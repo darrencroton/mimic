@@ -17,8 +17,8 @@ Fields read (units): StellarMass, BulgeMass, MergerBulgeMass and InstabilityBulg
 allresults-local.py:365, :367, :383, :384). SAGE26's `Moffet16.dat` overlay is held inline as
 OBS_MOFFETT16.
 
-Permitted deviations (c16 Slice 2, row `bulge_to_total`): none beyond the display freedoms
-(figure size, font sizes, colours, marker sizes, dpi, bbox) taken through the house helpers.
+Permitted deviations: none beyond the display freedoms (figure size, font sizes, colours, marker
+sizes, dpi, bbox) taken through the house helpers.
 """
 
 import numpy as np

@@ -20,9 +20,8 @@ Snapshots: those with a redshift in each bin of ``Z_BINS`` (:1542-1546), chosen 
 
 SAGE26 sets no axis window (its limits are commented out, :1594-1595), so the port sets none.
 
-Permitted deviations (c16 Slice 3, row `metallicity_evolution`): none beyond the rules (the
-figure is drawn from the run's eight snapshots, where SAGE26 reads 64, so a bin holds at most one
-snapshot and its standard error is zero).
+Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
+reads 64, so a bin holds at most one snapshot and its standard error is zero.
 """
 
 import warnings

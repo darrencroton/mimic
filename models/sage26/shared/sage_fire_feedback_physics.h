@@ -7,13 +7,12 @@
  * Ports what SAGE26's FIREmodeOn 1 switches on in its supernova feedback (R = the staged SAGE26
  * source, S = R/src/model_starformation_and_feedback.c, X = R/src/model_misc.h):
  *
- * - mimic_sage_fire_stored_redshift(): the redshift of the galaxy's stored snapshot,
- *   ZZ[SnapNum] (S:745), never the current halo snapshot's or a substep's. SAGE26 indexes ZZ
- *   without a bounds check; a stored SnapNum outside the redshift table is an out-of-bounds read
- *   in SAGE26, not a physics rule, so the package refuses it, naming the SnapNum and the table
- *   size (campaign decision D35), and never invents a redshift. It is shared with the cold
- *   streams of shared/sage_cooling_physics.h, so its log names no single caller; each caller logs
- *   its own context after a refusal.
+ * - mimic_sage_fire_stored_redshift(): the redshift of the galaxy's stored snapshot, ZZ[SnapNum]
+ *   (S:745), never the current halo snapshot's or a substep's. SAGE26 indexes ZZ without a bounds
+ *   check; a stored SnapNum outside the redshift table is an out-of-bounds read in SAGE26, not a
+ *   physics rule, so the package refuses it, naming the SnapNum and the table size, and never
+ *   invents a redshift. It is shared with the cold streams of shared/sage_cooling_physics.h, so its
+ *   log names no single caller; each caller logs its own context after a refusal.
  * - mimic_sage_fire_scaling(): the scaling (S:743-753, constants S:75, S:79): zero unless the
  *   host's velocity is positive and the redshift is not negative; otherwise
  *   (1 + z)^1.25 * (max(V, 1) / 60)^beta with beta = -3.2 below 60 km/s and -1.0 at and above.
@@ -32,15 +31,15 @@
  * double. The non-FIRE ejection's float-squared Vvir does not apply here.
  *
  * Rounding points. SAGE26's objects (Apple clang -O2 -march=native, arm64; objdump -d -l of
- * model_starformation_and_feedback.o and model_mergers.o, the oracle README's c09 table) fuse no
- * multiply-add on these lines, on the disk path or the burst's copy (M = R/src/model_mergers.c,
+ * model_starformation_and_feedback.o and model_mergers.o, the oracle README's "The c09 Group") fuse
+ * no multiply-add on these lines, on the disk path or the burst's copy (M = R/src/model_mergers.c,
  * M:690-752): E_FB, E_lift and their difference keep separate roundings. Each expression here is
  * one C expression with SAGE26's operand order and types, none of which clang contracts. The
- * objects evaluate two of the scaling's three pow calls with pow (S:750, S:752; M:699, M:701;
- * never powf) but compile the high-velocity pow(x, -1.0) (S:751, M:700) to the division 1.0 / x
- * (fdiv at model_starformation_and_feedback.o offset 0x8fc and model_mergers.o offset 0xdc8),
- * which macOS pow(x, -1.0) does not reproduce for every x; the package writes that division (see
- * mimic_sage_fire_scaling).
+ * objects evaluate two of the scaling's three pow calls with pow (S:750, S:752; M:699, M:701; never
+ * powf) but compile the high-velocity pow(x, -1.0) (S:751, M:700) to the division 1.0 / x (fdiv at
+ * model_starformation_and_feedback.o offset 0x8fc and model_mergers.o offset 0xdc8), which macOS
+ * pow(x, -1.0) does not reproduce for every x; the package writes that
+ * division (see mimic_sage_fire_scaling).
  *
  * @note Used by sage26_calculate_supernova_feedback (the disk path, S:732-889), by the
  *       feedback-free-burst budget (shared/sage_ffb_feedback_physics.h, S:901-972, the forming
@@ -79,8 +78,8 @@
 /**
  * @brief Refuse a FIREmodeOn the package does not support
  *
- * FIREmodeOn is a required package parameter, 0 or 1 (campaign decision D33); each module that
- * reads it loads it with the required-parameter path and passes it here.
+ * FIREmodeOn is a required package parameter, 0 or 1; each module that reads it loads it with the
+ * required-parameter path and passes it here.
  *
  * @param module_name  The calling module, for the error message
  * @param value        The loaded FIREmodeOn
@@ -101,8 +100,8 @@ static inline int mimic_sage_validate_fire_mode(const char *module_name, const i
  *
  * SAGE26 reads ZZ[galaxies[p].SnapNum] before testing the velocity or the redshift (S:745-747),
  * with no bounds check. A stored SnapNum outside the run's redshift table (0 to Snaplistlen - 1,
- * the entries the core filled from the snapshot list) is refused with an error naming the
- * SnapNum and the table size (campaign decision D35); no redshift is invented for it.
+ * the entries the core filled from the snapshot list) is refused with an error naming the SnapNum
+ * and the table size; no redshift is invented for it.
  *
  * @param params   The run configuration (its ZZ table and Snaplistlen)
  * @param snapnum  The galaxy's stored SnapNum

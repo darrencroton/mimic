@@ -65,7 +65,7 @@
  *   - test_hydrogen_cap_recheck_growth: the post-minor-merger recheck's black-hole growth
  *     receives the burst's SFprescription (its hydrogen-cap locals, R/src/model_mergers.c:366-372)
  *
- *   - test_fire_burst_budget_independent: FIREmodeOn 1 (c09): the burst's FIRE budget against
+ *   - test_fire_burst_budget_independent: FIREmodeOn 1: the burst's FIRE budget against
  *     SAGE26's expressions written in the test (R/src/model_mergers.c:692-752), across the
  *     scaling's guards, floor and slopes and both caps, MassLoading left unwritten
  *   - test_fire_burst_on_versus_off: the same burst with FIREmodeOn 1 and 0 (the fixed-epsilon
@@ -78,9 +78,9 @@
  *     with its own values (process_by_galaxy)
  *   - test_fire_burst_wiring_recheck: the post-minor-merger recheck's own burst takes the FIRE
  *     branch with the host's values
- *   - test_fire_mode_refused: FIREmodeOn is required (D33): missing or 2 or -1 refused, naming it
- *   - test_fire_burst_snapnum_refused: D35 through a burst: a stored SnapNum of -1 or the table
- *     size is refused, naming it and the table size, and the burst writes nothing
+ *   - test_fire_mode_refused: FIREmodeOn is required: missing or 2 or -1 refused, naming it
+ *   - test_fire_burst_snapnum_refused: a stored SnapNum of -1 or the table size is
+ *     refused through a burst, naming it and the table size, and the burst writes nothing
  *   - test_cgm_burst_module_channels: CGMrecipeOn 1 against 0 on the same input, through the
  *     module's two channels (the instability burst, process_by_galaxy; the merger burst,
  *     process_per_event): the feedback and the escaping yield reach the FoF central's CGM pair
@@ -90,8 +90,8 @@
  *     selects by the burst HOST's Regime, its nested burst's feedback and yield by the FoF
  *     central's, as do the outer burst's (R/src/model_mergers.c:806-831,
  *     R/src/model_disk_instability.c:102-108)
- *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted (D33)
- *   - test_ffb_target_merger_continuation (c13 Slice 3): a minor merger on a feedback-free-burst
+ *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
+ *   - test_ffb_target_merger_continuation: a minor merger on a feedback-free-burst
  *     target (FFBRegime 1) grows its black hole (the quasar consumer), bursts and runs the
  *     post-merger instability recheck exactly as on the same target with FFBRegime 0: the two end
  *     states are bytewise equal but for FFBRegime, which each target keeps; the recheck is shown
@@ -266,7 +266,7 @@ static void setup_test_parameters(double reheating_eps, double ejection_eff, dou
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription and StarburstColdGasOn, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 }
 
 static void append_model_param(const char *param_name, double value) {
@@ -2001,7 +2001,7 @@ int test_module_initialization(void) {
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription and StarburstColdGasOn, at R1's values */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -2300,17 +2300,16 @@ int test_post_merger_recheck_samples_with_event_dt(void) {
  * @test    test_consecutive_bursts_bulge_excess_grows
  * @brief   Consecutive bursts can leave BulgeMass more than one float above StellarMass
  *
- * A burst adds the rounded double recycled_stars to BulgeMass
- * (R/src/model_mergers.c:770-772) while update_from_star_formation adds the same product
- * to StellarMass as one fused multiply-add (R/src/model_starformation_and_feedback.c:1125),
- * so each burst can move BulgeMass - StellarMass by one float, and the excess can
- * accumulate over consecutive bursts. A reviewer reproduced it with SAGE26's own
- * collisional_starburst_recipe under R0's parameters: ColdGas 1, StellarMass = BulgeMass =
- * 0x3f800001, three mode-1 bursts, each fed the previous output. The shared burst
- * transaction must give the same bits: StellarMass/BulgeMass 0x3f800001/0x3f800002, then
- * 0x3f800002/0x3f800003, then 0x3f800002/0x3f800004, a two-float excess. Those bits depend
- * only on ColdGas, the ratios, FeedbackReheatingEpsilon and RecycleFraction (the ejection,
- * the hot gas and the metals do not feed the host's ColdGas, StellarMass or BulgeMass).
+ * A burst adds the rounded double recycled_stars to BulgeMass (R/src/model_mergers.c:770-772) while
+ * update_from_star_formation adds the same product to StellarMass as one fused multiply-add
+ * (R/src/model_starformation_and_feedback.c:1125), so each burst can move BulgeMass - StellarMass
+ * by one float, and the excess can accumulate over consecutive bursts. SAGE26's own
+ * collisional_starburst_recipe gives it under R0's parameters: ColdGas 1, StellarMass = BulgeMass =
+ * 0x3f800001, three mode-1 bursts, each fed the previous output. The shared burst transaction must
+ * give the same bits: StellarMass/BulgeMass 0x3f800001/0x3f800002, then 0x3f800002/0x3f800003, then
+ * 0x3f800002/0x3f800004, a two-float excess. Those bits depend only on ColdGas, the ratios,
+ * FeedbackReheatingEpsilon and RecycleFraction (the ejection, the hot gas and the metals do not
+ * feed the host's ColdGas, StellarMass or BulgeMass).
  *
  * The integration tests' bulge bound (test_integration_sage26_starburst_feedback.py,
  * bulge_upper_bound) therefore grows with the number of bursts; this case pins why a
@@ -2340,7 +2339,7 @@ int test_consecutive_bursts_bulge_excess_grows(void) {
   MimicConfig.G = 43.00707785642063;
   MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
 
-  /* R0's parameters at the oracle fixtures' bit patterns (R0.par:69-83) */
+  /* R0's parameters at the oracle fixtures' bit patterns (input/millennium.par:69-83) */
   const struct MimicStarburstParams params = {
       .feedback_reheating_epsilon = 0x1.7333333333333p+1,   /* 2.9 */
       .feedback_ejection_efficiency = 0x1.3333333333333p-2, /* 0.3 */
@@ -2589,11 +2588,11 @@ int test_hydrogen_cap_recheck_growth(void) {
 }
 
 // ============================================================================
-// FIREmodeOn (c09): THE BURST'S FIRE BUDGET (R/src/model_mergers.c:690-752)
+// FIREmodeOn: THE BURST'S FIRE BUDGET (R/src/model_mergers.c:690-752)
 // ============================================================================
 
-/* The burst parameters the FIRE tests use: SAGE26's R3 values (R3.par:69-70, :75-82) and its
- * EtaSNcode and EnergySNcode bit patterns (R/src/core_init.c:102-103) */
+/* The burst parameters the FIRE tests use: SAGE26's R3 values (input/millennium.par:69-70, :75-82)
+ * and its EtaSNcode and EnergySNcode bit patterns (R/src/core_init.c:102-103) */
 #define FIRE_TEST_EPS 2.9
 #define FIRE_TEST_EJ 0.3
 #define FIRE_TEST_ETA_SN 68493150.684931502
@@ -3077,8 +3076,8 @@ int test_fire_burst_wiring_recheck(void) {
 
 /**
  * @test    test_fire_mode_refused
- * @brief   sage26_starburst_feedback's FIREmodeOn (campaign decision D33): a missing key fails
- *          initialisation and 2 and -1 are refused, each naming the parameter; 0 and 1 initialise
+ * @brief   sage26_starburst_feedback's FIREmodeOn: a missing key fails initialisation and 2 and -1
+ *          are refused, each naming the parameter; 0 and 1 initialise
  */
 int test_fire_mode_refused(void) {
   const char *log = "";
@@ -3104,9 +3103,9 @@ int test_fire_mode_refused(void) {
 
 /**
  * @test    test_fire_burst_snapnum_refused
- * @brief   D35 through a burst: a host whose stored SnapNum is -1 or the table size (64) is
- *          refused with an error naming the SnapNum and the table, and writes nothing; FIREmodeOn
- *          0 reads no redshift and bursts; the merger channel's process() fails on the refusal
+ * @brief   Through a burst, a host whose stored SnapNum is -1 or the table size (64) is refused
+ *          with an error naming the SnapNum and the table, and writes nothing; FIREmodeOn 0 reads
+ *          no redshift and bursts; the merger channel's process() fails on the refusal
  */
 int test_fire_burst_snapnum_refused(void) {
   reset_config();
@@ -3173,7 +3172,7 @@ int test_fire_burst_snapnum_refused(void) {
 }
 
 // ============================================================================
-// CGM ROUTING TESTS (c10, CGMrecipeOn)
+// CGM ROUTING TESTS (CGMrecipeOn)
 // ============================================================================
 //
 // SAGE26's burst (R = the staged SAGE26 source, R/src/model_mergers.c:584-831) commits its feedback
@@ -3390,8 +3389,8 @@ int test_cgm_burst_recheck_sites(void) {
 
 /**
  * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter (campaign decision D33)
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
+ *          a refusal naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
@@ -3408,7 +3407,7 @@ int test_cgm_recipe_on_refused(void) {
 }
 
 // ============================================================================
-// FEEDBACK-FREE-BURST TARGETS (c13 Slice 3)
+// FEEDBACK-FREE-BURST TARGETS
 // ============================================================================
 
 /**

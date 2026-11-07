@@ -24,21 +24,21 @@
  *   where a clamp or cap binds, that its recorded value equals the reservoir it
  *   binds to (the cold gas at the call; the central's hot gas and hot metals after
  *   the reheating, before the ejection debit);
- * - with SFprescription 1 (the c08 fixtures, R2's flags), each commit's hydrogen cap
- *   (S:1131-1135, S:1169-1173), which the kernel applies for that prescription: its
- *   guard and two binding flags, and its bound max_h, compared bit for bit, and, where a
- *   cap binds, the capped field equal to that bound;
- * - with CGMrecipeOn 1 (the c10 uff_cgm_* fixtures, R4's flags; oracle README "The c10 Group,
- *   Part 3"), the fixture's CGMrecipeOn passed to the commit, every galaxy's Regime and CGM pair
- *   read and asserted with the other fields; the commit's selection (feedback_reservoir_cgm)
- *   asserted against the kernel's (locals.reservoir_cgm) AND against the FoF central's input
- *   Regime (1 exactly when it is 0: S:1175-1176 route by the central, never the forming galaxy);
- *   the central's unselected pair, and both pairs of every other galaxy, asserted unchanged
- *   against the input; the update_from_feedback locals mapped from SAGE26's names
- *   (metallicity_hot, metals_hot_to_eject and metals_hot_to_eject_capped hold the selected
- *   pair's metallicityCGM or metallicityHot and transfers) to the kernel's metallicity_selected,
- *   metals_to_eject and metals_to_eject_capped, and the binding caps compared with the selected
- *   pair at the cap (selected_gas_at_cap, selected_metals_at_cap).
+ * - with SFprescription 1 (the uff_r2_*, ufsf_r2_* and uff_cgm_* fixtures, R2's and R4's flags),
+ *   each commit's hydrogen cap (S:1131-1135, S:1169-1173), which the kernel applies for that
+ *   prescription: its guard and two binding flags, and its bound max_h, compared bit for bit, and,
+ *   where a cap binds, the capped field equal to that bound;
+ * - with CGMrecipeOn 1 (the uff_cgm_* fixtures, R4's flags; oracle README "The c10 Group, Part 3"),
+ *   the fixture's CGMrecipeOn passed to the commit, every galaxy's Regime and CGM pair read and
+ *   asserted with the other fields; the commit's selection (feedback_reservoir_cgm) asserted
+ *   against the kernel's (locals.reservoir_cgm) AND against the FoF central's input Regime (1
+ *   exactly when it is 0: S:1175-1176 route by the central, never the forming galaxy); the
+ *   central's unselected pair, and both pairs of every other galaxy, asserted unchanged against the
+ *   input; the update_from_feedback locals mapped from SAGE26's names (metallicity_hot,
+ *   metals_hot_to_eject and metals_hot_to_eject_capped hold the selected pair's metallicityCGM or
+ *   metallicityHot and transfers) to the kernel's metallicity_selected, metals_to_eject and
+ *   metals_to_eject_capped, and the binding caps compared with the selected pair at the
+ *   cap (selected_gas_at_cap, selected_metals_at_cap).
  *
  * The branch flags are read to drive those equalities and are not asserted. Outside
  * the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports
@@ -72,7 +72,7 @@ static const char *MODULE = "sage26_apply_star_formation_supernova";
 
 static struct oracle_c05_carried_tally tally;
 static struct oracle_c08_local_tally h2_tally;
-/* c10: CGMrecipeOn 1 fixtures, their selections asserted (each against the oracle and the central's
+/* CGMrecipeOn 1 fixtures, their selections asserted (each against the oracle and the central's
  * Regime), how many selected the CGM pair, and the unselected pairs asserted unchanged */
 static int cgm_fixtures = 0;
 static int cgm_selections_cgm = 0;
@@ -118,7 +118,7 @@ static const char *const CGM_PAIR[] = {"CGMgas", "MetalsCGMgas"};
 
 /**
  * @brief Set galaxies[0 .. ngal-1] from the fixture: Type and the fourteen written fields, and with
- *        CGMrecipeOn 1 (c10) Regime and the CGM pair
+ *        CGMrecipeOn 1 Regime and the CGM pair
  * @return Number of problems
  */
 static int read_galaxies(struct oracle_fixture *in, const int ngal, const int cgm_recipe_on,
@@ -139,7 +139,7 @@ static int read_galaxies(struct oracle_fixture *in, const int ngal, const int cg
   return problems;
 }
 
-/** @brief Compare the fourteen written fields of every galaxy, and with CGMrecipeOn 1 (c10) its
+/** @brief Compare the fourteen written fields of every galaxy, and with CGMrecipeOn 1 its
  *         Regime and CGM pair */
 static int check_galaxies(struct oracle_fixture *out, const int ngal, const int cgm_recipe_on,
                           struct GalaxyData galaxies[MAX_GALAXIES]) {
@@ -157,7 +157,7 @@ static int check_galaxies(struct oracle_fixture *out, const int ngal, const int 
 }
 
 /**
- * @brief The c10 assertions of one CGMrecipeOn 1 update_from_feedback fixture
+ * @brief The assertions of one CGMrecipeOn 1 update_from_feedback fixture
  *
  * The selection against the oracle's and the kernel's, each against the FoF central's input
  * Regime (the site's wiring: S:1175-1176 route by the central); the central's unselected pair and
@@ -227,7 +227,7 @@ static int check_update_from_feedback(const char *name, struct oracle_fixture *i
   struct oracle_c08_sf_config cfg;
   int problems = oracle_c08_read_sf_config(in, 1, &cfg);
   problems += oracle_c05_require_flag(in, "params.SupernovaRecipeOn", 1);
-  /* CGMrecipeOn: 0 for every fixture before c10, 1 for the c10 uff_cgm_* fixtures (R4) */
+  /* CGMrecipeOn: 0 for every fixture but the uff_cgm_* ones, 1 for those (R4) */
   const int cgm_recipe_on = oracle_in_i32(in, "params.CGMrecipeOn");
   if (cgm_recipe_on != MIMIC_SAGE_CGM_RECIPE_OFF && cgm_recipe_on != MIMIC_SAGE_CGM_RECIPE_ON) {
     fprintf(stderr, "oracle: %s: params.CGMrecipeOn must be 0 or 1\n", name);
@@ -262,7 +262,7 @@ static int check_update_from_feedback(const char *name, struct oracle_fixture *i
   problems += check_galaxies(out, ngal, cgm_recipe_on, galaxies);
 
   /* Binding clamps and caps: the recorded value equals the reservoir at that point (with
-   * CGMrecipeOn 1 the selected pair's, c10) */
+   * CGMrecipeOn 1 the selected pair's) */
   problems += oracle_c05_check_binding(out, "intermediate.", "reheat_clamp_fb_binds",
                                        "reheated_mass_fb_clamped", cold_gas_at_call, &tally);
   problems += oracle_c05_check_binding(out, "intermediate.", "ejected_cap_binds",
@@ -272,7 +272,7 @@ static int check_update_from_feedback(const char *name, struct oracle_fixture *i
                                "metals_hot_to_eject_capped", locals.selected_metals_at_cap, &tally);
 
   /* The routine's locals, which the kernel reports: asserted where validated (SAGE26's names, the
-   * selected pair's values with CGMrecipeOn 1, c10) */
+   * selected pair's values with CGMrecipeOn 1) */
   problems += oracle_c05_check_carried(out, "intermediate.", "reheated_mass_fb_clamped",
                                        &locals.reheated_mass_clamped, &tally);
   problems += oracle_c05_check_carried(out, "intermediate.", "ejected_mass_capped",

@@ -13,11 +13,11 @@ Requires: StellarMass, MassLoading, Vvir
 Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it:
 x 1e10 / hubble_h, allresults-local.py:365), MassLoading (dimensionless) and Vvir (km/s).
 
-Permitted deviations (c16 Slice 2, row `mass_loading_vs_vvir`): the sample comes from one
-random.Random(2222) per figure, not from SAGE26's script-wide stream (seeded once,
-allresults-local.py:357), so the drawn subset differs when the candidates exceed DILUTE.
-SAGE26 prints a skip notice and draws nothing when no galaxy has MassLoading > 0 (:1662-1665);
-this figure draws its empty axes instead, as it skips only for a missing field.
+Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
+candidates exceed DILUTE. SAGE26 prints a skip notice and draws nothing when no galaxy has
+MassLoading > 0 (:1662-1665); this figure draws its empty axes instead, as it skips only for
+a missing field.
 """
 
 import random

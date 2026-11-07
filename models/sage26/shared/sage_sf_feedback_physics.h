@@ -29,27 +29,26 @@
  * ColdGas * 0.74 : 0.0f (the double product narrowed), compared strictly, H2 and H1 each on its own
  * and never their sum.
  *
- * Rounding points. Every reservoir is a float, every mass and metallicity a double,
- * so each `+=`/`-=` widens the reservoir, operates in double and narrows the result.
- * SAGE26's reference objects (Apple clang, -ffp-contract=on, arm64; enumerated with
- * objdump -d -l) fuse six multiply-adds here, each a single correctly rounded
- * operation: all four updates of update_from_star_formation (:1123-1126, two
- * fmla.2d over the float pairs ColdGas/StellarMass and MetalsColdGas/MetalsStellarMass
- * with coefficients [-(1 - R), (1 - R)] and [-(Z * (1 - R)), Z * (1 - R)] times stars,
- * Z * (1 - R) rounded first), and the cold-metal debit (:1168) and the selected pair's
- * reheated-metal credit of update_from_feedback: MetalsCGMgas += metallicity * reheated_mass
- * (:1181) and MetalsHotGas += metallicity * reheated_mass (:1205 and :1229, which clang merges
- * into one fmadd that its line table attributes to :1176; the oracle README's c06 table). The
- * credit is one fused site on either pair. They are written as explicit fma() calls,
- * which round identically on every platform whose fma is correctly rounded.
- * Everything SAGE26 does not fuse (the metal transfer of the ejection, the gas
- * moves) is formed in separate statements, which clang's default -ffp-contract=on
- * never contracts (it fuses only within one expression). GCC's default
- * -ffp-contract=fast may fuse across statements on a target with FMA, so the
- * bit-for-bit parity claim is for the oracle environment, Apple clang on arm64. The
- * oracle's uff_rounding_* fixtures pin the two feedback sites; no oracle fixture
- * pins update_from_star_formation's, which the apply step's unit tests pin with bit
- * patterns produced by SAGE26's own compiled routine.
+ * Rounding points. Every reservoir is a float, every mass and metallicity a double, so each
+ * `+=`/`-=` widens the reservoir, operates in double and narrows the result. SAGE26's reference
+ * objects (Apple clang, -ffp-contract=on, arm64; enumerated with objdump -d -l) fuse six
+ * multiply-adds here, each a single correctly rounded operation: all four updates of
+ * update_from_star_formation (:1123-1126, two fmla.2d over the float pairs ColdGas/StellarMass and
+ * MetalsColdGas/MetalsStellarMass with coefficients [-(1 - R), (1 - R)] and [-(Z * (1 - R)),
+ * Z * (1 - R)] times stars, Z * (1 - R) rounded first), and the cold-metal debit (:1168) and the
+ * selected pair's reheated-metal credit of update_from_feedback:
+ * MetalsCGMgas += metallicity * reheated_mass (:1181) and
+ * MetalsHotGas += metallicity * reheated_mass (:1205 and :1229, which clang merges into one fmadd
+ * that its line table attributes to :1176; the oracle README's "The c06 Group",
+ * Fused Multiply-Adds). The credit is one fused site on either pair. They are written as explicit
+ * fma() calls, which round identically on every platform whose fma is correctly rounded. Everything
+ * SAGE26 does not fuse (the metal transfer of the ejection, the gas moves) is formed in separate
+ * statements, which clang's default -ffp-contract=on never contracts (it fuses only within one
+ * expression). GCC's default -ffp-contract=fast may fuse across statements on a target with FMA, so
+ * the bit-for-bit parity claim is for the oracle environment, Apple clang on arm64. The oracle's
+ * uff_rounding_* fixtures pin the two feedback sites; no oracle fixture pins
+ * update_from_star_formation's, which the apply step's unit tests pin with bit patterns produced by
+ * SAGE26's own compiled routine.
  *
  * @note SAGE26's prescription-0 path does not resynchronise H2gas and H1gas after the
  *       depletion (:1131 and :1169 test sf_prescription_tracks_h2), so under SFprescription 0

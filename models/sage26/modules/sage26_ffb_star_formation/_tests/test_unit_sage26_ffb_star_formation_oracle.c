@@ -34,16 +34,16 @@
  *   star-formation commit, against the recorded renormalised stars, masses and MassLoading;
  * - for the wrapper fixtures, the oracle's check that the wrapper's end state is
  *   starformation_ffb's, and the instability observation recomputed from the package's end state;
- * - for the wrapper fixtures, the chain composition (c13 Slice 3): from the same input, with the
- *   instability trigger at its per-snapshot reset value 0, the whole by-galaxy star-formation chain
+ * - for the wrapper fixtures, the chain composition: from the same input, with the instability
+ *   trigger at its per-snapshot reset value 0, the whole by-galaxy star-formation chain
  *   runs in the run files' order (the transaction, sage26_calculate_star_formation,
  *   sage26_calculate_supernova_feedback, sage26_apply_star_formation_supernova,
  *   sage26_disk_instability, sage26_quasar_mode, sage26_starburst_feedback and
  *   sage26_apply_metal_enrichment, each initialised with the run files' keys), and every recorded
- *   field of every galaxy equals SAGE26's wrapper end state bit for bit, and every galaxy struct
- *   equals the transaction-only end state byte for byte but for the trigger's seed, so the five
- *   bypassed modules and the by-galaxy quasar and burst entries wrote nothing (the unstable-disk
- *   fixture included).
+ *   field of every galaxy equals SAGE26's wrapper end state bit for bit, and every galaxy
+ *   struct equals the transaction-only end state byte for byte but for the trigger's seed, so
+ *   the five bypassed modules and the by-galaxy quasar and burst entries wrote nothing (the
+ *   unstable-disk fixture included).
  *
  * Every fixture is initialised in the run files' configuration, which the transaction's
  * cross-module guards require at EnhancedStarFormationOn 1: sage26_determine_ffb_regime in
@@ -81,7 +81,7 @@ extern int sage26_ffb_star_formation_process(struct ModuleContext *ctx, struct H
                                              int ngal);
 extern int sage26_ffb_star_formation_cleanup(void);
 
-/* The rest of the run files' by-galaxy star-formation chain (c13 Slice 3) */
+/* The rest of the run files' by-galaxy star-formation chain */
 #define SAGE26_CHAIN_MODULE(m)                                                                     \
   extern int m##_init(void);                                                                       \
   extern int m##_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);                 \
@@ -138,7 +138,7 @@ static const char *MODULE = "sage26_ffb_star_formation";
 #define SEED_EJECTED 0.875
 #define SEED_UNSTABLE_FRACTION 0.3125
 
-/** Tallies over one run (quoted in the validation record) */
+/** Tallies over one run */
 struct ffb_tally {
   int fixtures;
   int wrapper;
@@ -151,7 +151,7 @@ struct ffb_tally {
   int binding; /* binding clamps and caps asserted equal to their bound */
   int fields;  /* end-state fields compared */
   int direct_helper_calls;
-  int chain;        /* wrapper fixtures run through the whole by-galaxy chain (c13 Slice 3) */
+  int chain;        /* wrapper fixtures run through the whole by-galaxy chain */
   int chain_fields; /* end-state fields compared after the chain */
 };
 
@@ -362,7 +362,7 @@ static int setup_parameters(struct oracle_fixture *in, const int wrapper) {
     problems++;
   }
 
-  /* Every key the module reads, set explicitly (campaign decision D33) */
+  /* Every key the module reads, set explicitly */
   problems += oracle_set_model_param("EnhancedStarFormationOn", 1.0) != 0;
   problems += oracle_set_model_param("StarFormingDiskFactor", SAGE26_SF_DISK_RADIUS_FRAC) != 0;
   const char *const ints[] = {"SFprescription", "CGMrecipeOn", "FIREmodeOn"};
@@ -388,7 +388,7 @@ static int setup_parameters(struct oracle_fixture *in, const int wrapper) {
 
 /**
  * @brief Run a wrapper fixture's input through the whole by-galaxy star-formation chain and compare
- *        with SAGE26's wrapper end state (c13 Slice 3)
+ *        with SAGE26's wrapper end state
  *
  * Initialises the rest of the chain with the run files' keys (the fixture's where it has them),
  * restores every galaxy from `input` with UnstableDiskGasFraction at its per-snapshot reset value

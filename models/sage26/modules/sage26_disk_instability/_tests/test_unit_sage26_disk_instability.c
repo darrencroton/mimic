@@ -36,7 +36,6 @@
  *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
  *     bytewise unchanged on an unstable disk (no transfer, UnstableDiskGasFraction keeps 0); the
  *     same row with FFBRegime 0 gets SAGE26's check_disk_instability trigger, written inline
- *     (c13 Slice 3)
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -921,7 +920,7 @@ int test_disk_factor_sensitivity(void) {
 }
 
 // ============================================================================
-// FEEDBACK-FREE-BURST BYPASS (c13 Slice 3)
+// FEEDBACK-FREE-BURST BYPASS
 // ============================================================================
 
 /**
@@ -1032,7 +1031,7 @@ int main(void) {
   printf("\n%s=== Parameter Sensitivity Tests ===%s\n", BLUE, NC);
   TEST_RUN(test_disk_factor_sensitivity);
 
-  /* The feedback-free-burst bypass (c13 Slice 3) */
+  /* The feedback-free-burst bypass */
   TEST_RUN(test_ffb_row_bypassed);
 
   /* Print summary and return result */

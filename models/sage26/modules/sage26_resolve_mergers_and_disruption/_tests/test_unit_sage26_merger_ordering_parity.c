@@ -2,14 +2,13 @@
  * @file    test_unit_sage26_merger_ordering_parity.c
  * @brief   Immediate-order parity fixtures for SAGE merger/disruption ordering
  *
- * These tests exercise the dedicated immediate-order parity handler against the
- * live SAGE ordering contract documented in the module README, and the merger
- * transaction's refusal of BulgeSizeOn 3 without the core parameters. The c10 tests check, with
- * exact literal expectations, that a disruption deposits the satellite's gas in the PASSED
- * recipient's selected pair, chosen by that recipient's Regime with CGMrecipeOn 1 and its hot pair
- * otherwise, for an orphan whose recipient is not the FoF central
- * (test_cgm_disruption_to_passed_recipient), and the CGMrecipeOn refusal
- * (test_cgm_recipe_on_refused, campaign decision D33).
+ * These tests exercise the dedicated immediate-order parity handler against the live SAGE ordering
+ * contract documented in the module README, and the merger transaction's refusal of BulgeSizeOn 3
+ * without the core parameters. The CGMrecipeOn 1 tests check, with exact literal expectations, that
+ * a disruption deposits the satellite's gas in the PASSED recipient's selected pair, chosen by that
+ * recipient's Regime with CGMrecipeOn 1 and its hot pair otherwise, for an orphan whose
+ * recipient is not the FoF central (test_cgm_disruption_to_passed_recipient), and the
+ * CGMrecipeOn refusal (test_cgm_recipe_on_refused).
  */
 
 #include "../../../../tests/framework/parity_trace.h"
@@ -73,7 +72,7 @@ static void setup_model_parameters_with_sizes(double threshold_sat_disruption,
   /* The required bulge-size mode */
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", bulge_size_on);
-  /* The required CGMrecipeOn (campaign decision D33), at R3's value 0 */
+  /* The required CGMrecipeOn, at R3's value 0 */
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "CGMrecipeOn");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", 0);
 
@@ -424,7 +423,7 @@ int test_mode3_merge_refuses_missing_core_parameters(void) {
 }
 
 // ============================================================================
-// CGM ROUTING TESTS (c10, CGMrecipeOn)
+// CGM ROUTING TESTS (CGMrecipeOn)
 // ============================================================================
 //
 // SAGE26's disrupt_satellite_to_ICS (R = the staged SAGE26 source, R/src/model_mergers.c:845-902)
@@ -554,8 +553,8 @@ int test_cgm_disruption_to_passed_recipient(void) {
 
 /**
  * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter (campaign decision D33)
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
+ *          a refusal naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";

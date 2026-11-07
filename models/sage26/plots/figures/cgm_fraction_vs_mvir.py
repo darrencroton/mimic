@@ -13,9 +13,8 @@ Requires: CGMgas, Mvir
 Fields read (units): CGMgas and Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts them:
 x 1e10 / hubble_h, allresults-local.py:364, :375).
 
-Permitted deviations (c16 Slice 2, row `cgm_fraction_vs_mvir`): none beyond the display
-freedoms (figure size, font sizes, colours, marker sizes, dpi, bbox) taken through the house
-helpers.
+Permitted deviations: none beyond the display freedoms (figure size, font sizes, colours, marker
+sizes, dpi, bbox) taken through the house helpers.
 """
 
 import numpy as np

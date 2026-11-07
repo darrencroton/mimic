@@ -1,6 +1,6 @@
 /**
  * @file    oracle_c07.c
- * @brief   SAGE26 function-level oracle for the c07 bulge-size routines and the central's
+ * @brief   SAGE26 function-level oracle for the bulge-size routines and the central's
  *          bulge-radius synchronisation
  *
  * Reads one fixture input file, initialises the SAGE26 struct GALAXY, struct halo_data and
@@ -30,17 +30,18 @@
  * rest of the routine from that value. Each value is then replaced by its upward and its
  * downward neighbouring double and the same composition rerun (two-sided validation).
  *
- * The central's synchronisation is static driver code, so no SAGE26 code anchors it: its
- * fixtures are named tr_* and a mutation sweep covers it (this slice's validation record).
+ * The central's synchronisation is static driver code, so no SAGE26 code anchors
+ * it: its fixtures are named tr_* and a mutation sweep covers it (README.md,
+ * "The c07 Group", "Driver Transcription").
  *
- * Every transcription restates SAGE26's statements with the same expression shapes, operand
- * types and operand order and is compiled with the same flags, so floating-point contraction
- * (clang's default -ffp-contract=on) treats them as it treats SAGE26's; README.md's c07
- * fused-instruction table lists the sites, checked in this file's disassembly. File-static
- * SAGE26 constants are restated with their values and source lines.
+ * Every transcription restates SAGE26's statements with the same expression shapes, operand types
+ * and operand order and is compiled with the same flags, so floating-point contraction (clang's
+ * default -ffp-contract=on) treats them as it treats SAGE26's; the "Fused Multiply-Adds" table
+ * under README.md's "The c07 Group" lists the sites, checked in this file's disassembly.
+ * File-static SAGE26 constants are restated with their values and source lines.
  *
- * The file format is defined in README.md ("Fixture File Format"). The parsing and output
- * helpers are copies of oracle_c06.c's, which stays unchanged.
+ * The file format is defined in README.md ("Fixture File Format"). The parsing and output helpers
+ * are copies of oracle_c06.c's.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh, never by
  * Mimic's Makefile, and never against Mimic code.
@@ -397,11 +398,11 @@ static void poison_state(void) {
 /**
  * @brief BulgeSizeOn as the fixture sets it, and Hubble_h when the sizes are on
  *
- * As c06's reader: BulgeSizeOn is 0 (R0) or 3 (R1 onward, the Tonini sizes); modes 1 and 2 are
- * not ported and any other value is refused, naming the parameter. Mode 3 reads Hubble_h
- * (X:249, :398), so a mode-3 fixture must carry params.Hubble_h; a mode-0 fixture does not, and
- * one that carries it is refused as an unread field (neither routine reads it in mode 0,
- * X:242-247, :395).
+ * As oracle_c06.c's reader: BulgeSizeOn is 0 (R0) or 3 (R1 onward, the Tonini sizes);
+ * modes 1 and 2 are not ported and any other value is refused, naming the parameter. Mode 3
+ * reads Hubble_h (X:249, :398), so a mode-3 fixture must carry params.Hubble_h; a mode-0 fixture
+ * does not, and one that carries it is refused as an unread field (neither routine reads it in
+ * mode 0, X:242-247, :395).
  */
 static void read_bulge_size_config(void) {
   run_params.BulgeSizeOn = in_i32("params.BulgeSizeOn");
@@ -778,12 +779,12 @@ static int composition_matches(const struct GALAXY *result, const double value,
 /**
  * @brief Call SAGE26's routine, check every composition used, validate every local
  *
- * The oracle refuses the fixture unless the fully transcribed composition and the
- * composition with SAGE26's own nested get_bulge_radius each reproduce SAGE26's end state in
- * every recorded field and its return value bit for bit. The recorded locals come from the
- * fully transcribed composition. A local of the selected routine is validated in the
- * composition that transcribes that routine and keeps SAGE26's own nested get_bulge_radius
- * (c06's rule: the value's routine transcribed, every other one SAGE26's own).
+ * The oracle refuses the fixture unless the fully transcribed composition and the composition with
+ * SAGE26's own nested get_bulge_radius each reproduce SAGE26's end state in every recorded field
+ * and its return value bit for bit. The recorded locals come from the fully transcribed
+ * composition. A local of the selected routine is validated in the composition that transcribes
+ * that routine and keeps SAGE26's own nested get_bulge_radius (the rule of README.md's
+ * "The c06 Group": the value's routine transcribed, every other one SAGE26's own).
  */
 static void run_checked(const struct GALAXY *input, const struct call_args *a,
                         struct checked_record *rec) {
@@ -932,8 +933,8 @@ static void run_update_instability_bulge_radius(void) {
  *
  * The double result of get_disk_radius is stored into the float DiskScaleRadius, which
  * get_bulge_radius then reads (its instability fallback, X:353); get_bulge_radius's return is
- * discarded. The rest of the central branch (B:285-295, B:300: mergeType, mergeIntoID, the
- * clock, the concentration with ConcentrationOn 0, Type) is not transcribed here; c06's
+ * discarded. The rest of the central branch (B:285-295, B:300: mergeType, mergeIntoID, the clock,
+ * the concentration with ConcentrationOn 0, Type) is not transcribed here; oracle_c06.c's
  * join_progenitors transcribes it. get_disk_radius and get_bulge_radius are SAGE26's own, or
  * get_bulge_radius the checked transcription above.
  *

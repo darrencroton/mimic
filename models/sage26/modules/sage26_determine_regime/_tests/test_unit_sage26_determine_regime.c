@@ -13,8 +13,8 @@
  * Software quality:
  * - test_module_lifecycle: registration, module_system_init with the module in pre_timestep,
  *   cleanup, no leaks
- * - test_cgm_recipe_on_missing_refused, test_cgm_recipe_on_values: the required CGMrecipeOn
- *   (campaign decision D33): missing fails init; 2, -1 and 3 are refused naming it; 0, 1 accepted
+ * - test_cgm_recipe_on_missing_refused, test_cgm_recipe_on_values: the required CGMrecipeOn:
+ *   missing fails init; 2, -1 and 3 are refused naming it; 0, 1 accepted
  * - test_mshock_missing_refused, test_mshock_values: the required MShockMsun: missing fails init;
  *   0, negative, inf and nan are refused naming it; 6.0e11 accepted
  * - test_placement_refused: outside pre_timestep, twice, or after the infall budget is refused
@@ -27,13 +27,13 @@
  *   equal to and one step above SAGE26's sigmoid value (expected Regime 1, 0, 0)
  * - test_ratio_one_tie: the exact mass ratio 1 (hot_fraction 0.5) with the deviates below, equal
  *   to (the tie: Regime 0) and above 0.5
- * - test_initial_boundary_row: a row in the initial-boundary state (stored SnapNum -1, dT 0, D37)
- *   is classified without error
+ * - test_initial_boundary_row: a row in the initial-boundary state (stored SnapNum -1, dT 0) is
+ *   classified without error
  * - test_every_type_and_skipped_rows: Types 0, 1 and 2 are classified in row order; Type 3 and
  *   galaxy-less rows are skipped, keeping their Regime; no previous regime is reused
  * - test_production_keyed_draw: without a seam, the production keyed draw of the row's
- *   UniqueGalaxyID and ctx->snapshot_number decides, checked against the campaign's frozen
- *   reference deviates written here as literals
+ *   UniqueGalaxyID and ctx->snapshot_number decides, checked against reference deviates written
+ *   here as literals
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -61,7 +61,8 @@ extern int sage26_determine_regime_cleanup(void);
 
 #define MAX_ROWS 8
 
-/* R4's Hubble_h (R4.par:40) and SAGE26's default MShockMsun (core_read_parameter_file.c:114) */
+/* R4's Hubble_h (input/millennium.par:40) and SAGE26's
+ * default MShockMsun (core_read_parameter_file.c:114) */
 #define TEST_HUBBLE_H 0.73
 #define TEST_MSHOCK_MSUN 6.0e11
 
@@ -262,7 +263,7 @@ int test_module_lifecycle(void) {
 
 /**
  * @test    test_cgm_recipe_on_missing_refused
- * @brief   Init fails without CGMrecipeOn, naming it: a required parameter with no default (D33)
+ * @brief   Init fails without CGMrecipeOn, naming it: a required parameter with no default
  */
 int test_cgm_recipe_on_missing_refused(void) {
   const char *log = "";
@@ -298,7 +299,7 @@ int test_cgm_recipe_on_values(void) {
 
 /**
  * @test    test_mshock_missing_refused
- * @brief   Init fails without MShockMsun, naming it: a required parameter with no default (D33)
+ * @brief   Init fails without MShockMsun, naming it: a required parameter with no default
  */
 int test_mshock_missing_refused(void) {
   const char *log = "";
@@ -531,9 +532,9 @@ int test_ratio_one_tie(void) {
 
 /**
  * @test    test_initial_boundary_row
- * @brief   A row in the package's initial-boundary state (stored SnapNum -1, dT 0; campaign
- *          decision D37) is classified like any other: the classifier reads no snapshot-indexed
- *          table (R/src/model_regimes.c:63-100)
+ * @brief   A row in the package's initial-boundary state (stored SnapNum -1, dT 0) is
+ *          classified like any other: the classifier reads no snapshot-indexed table
+ *          (R/src/model_regimes.c:63-100)
  */
 int test_initial_boundary_row(void) {
   TEST_ASSERT(init_ok("1", TEST_HUBBLE_H) == 0, "init must succeed");
@@ -597,12 +598,12 @@ int test_every_type_and_skipped_rows(void) {
 
 /**
  * @test    test_production_keyed_draw
- * @brief   Without a seam, the row's UniqueGalaxyID and ctx->snapshot_number key the deviate
- *          (D1): with the campaign's frozen reference deviates, one row flips between snapshots
- *          37 and 38 and two IDs at snapshot 37 fall either side of the same hot_fraction
+ * @brief   Without a seam, the row's UniqueGalaxyID and ctx->snapshot_number key the deviate: with
+ *          the reference deviates, one row flips between snapshots 37 and 38 and two IDs at
+ *          snapshot 37 fall either side of the same hot_fraction
  */
 int test_production_keyed_draw(void) {
-  /* The frozen reference vectors (c10 node plan): (ID, snapshot, ordinal 0) -> deviate */
+  /* The reference vectors of the keyed draw: (ID, snapshot, ordinal 0) -> deviate */
   const double u_123_37 = 0x1.83e63f3b1c8a0p-6; /* (1000000000123, 37) ~0.0237 */
   const double u_123_38 = 0x1.90c26ed59643ap-2; /* (1000000000123, 38) ~0.391 */
   const double u_124_37 = 0x1.7c036bcbd4edap-2; /* (1000000000124, 37) ~0.371 */

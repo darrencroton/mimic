@@ -11,11 +11,10 @@
  *   not a galaxy, so the package's get_metaldependent_cooling_rate
  *   (cooling_tables.c) is called directly and its lambda asserted.
  *
- * - the c11 fixtures (cm_*, hs_*, cgm_*; oracle README "The c11 Group"):
- *   interpolate_clustering_mass, cooling_recipe_hot_streams (cooling_recipe_hot with
- *   CGMrecipeOn 1) and cooling_recipe_cgm, each run through the package's shared helpers
- *   (shared/sage_cooling_physics.h) directly, since no production module calls them yet
- *   (modules/_tests/sage26_oracle_cooling.h).
+ * - the cm_*, hs_* and cgm_* fixtures (oracle README "The c11 Group"): interpolate_clustering_mass,
+ *   cooling_recipe_hot_streams (cooling_recipe_hot with CGMrecipeOn 1) and cooling_recipe_cgm, each
+ *   run through the package's shared helpers (shared/sage_cooling_physics.h) directly, since no
+ *   production module calls them yet (modules/_tests/sage26_oracle_cooling.h).
  *
  * - cooling_recipe_hot (hot_*), a chained test: the package splits SAGE26's
  *   cooling_recipe_hot (model_cooling_heating.c:135-314) and the
@@ -70,7 +69,8 @@ extern int sage26_apply_cooling_process(struct ModuleContext *ctx, struct Halo *
 
 static const char *MODULE = "sage26_calculate_cooling_budget";
 
-/* The reservoirs cool_gas_onto_galaxy changes, and the rest of the c04 state */
+/* The reservoirs cool_gas_onto_galaxy changes, and the rest of the
+ * cooling and radio-heating state */
 static const char *const TRANSFERRED[] = {"HotGas", "MetalsHotGas", "ColdGas", "MetalsColdGas"};
 static const char *const NOT_TRANSFERRED[] = {
     "BlackHoleMass", "r_heat", "Cooling", "Heating", "tcool", "tff", "RcoolToRvir", "CoolingRate"};
@@ -230,8 +230,8 @@ static int check_sequence(const char *name, struct oracle_fixture *in, struct or
 static int check_fixture(const char *name) {
   static struct oracle_fixture in, out;
 
-  /* c11 fixtures (the clustering table, the CGMrecipeOn 1 hot recipe and CGM cooling) call the
-   * shared helpers directly (modules/_tests/sage26_oracle_cooling.h) */
+  /* The cm_*, hs_* and cgm_* fixtures (the clustering table, the CGMrecipeOn 1 hot recipe and CGM
+   * cooling) call the shared helpers directly (modules/_tests/sage26_oracle_cooling.h) */
   int c11 = 0;
   const int c11_problems = oracle_c11_check_fixture(MODULE, name, &c11);
   if (c11) {
@@ -288,7 +288,7 @@ int test_oracle_bit_identity(void) {
   }
 
   /* The cooling tables are loaded once for every fixture */
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   TEST_ASSERT(sage26_calculate_cooling_budget_init() == 0, "cooling tables must load");
   const int identical = oracle_all_bit_identical(MODULE, check_fixture);
   sage26_calculate_cooling_budget_cleanup();

@@ -2,12 +2,12 @@
  * @file    sage26_regime_aware_cooling.c
  * @brief   SAGE26 regime-aware cooling: cooling_recipe_regime_aware as one by-galaxy transaction
  *
- * Ports SAGE26's cooling_recipe_regime_aware (R = the staged SAGE26 source, C =
- * R/src/model_cooling_heating.c:420-506), which SAGE26 calls instead of cooling_recipe_hot when
- * CGMrecipeOn is 1 (C:125-132, R/src/core_build_model.c:503-509), whole (campaign decision D38).
- * The module runs by galaxy in galaxy_physics immediately after sage26_apply_cooling. With
- * CGMrecipeOn 0 it writes nothing; with CGMrecipeOn 1 sage26_calculate_cooling_budget writes only
- * its no-cooling transport, so the radio and apply modules write nothing, and this module owns
+ * Ports SAGE26's cooling_recipe_regime_aware (R = the staged SAGE26 source,
+ * C = R/src/model_cooling_heating.c:420-506) whole, which SAGE26 calls instead of
+ * cooling_recipe_hot when CGMrecipeOn is 1 (C:125-132, R/src/core_build_model.c:503-509). The
+ * module runs by galaxy in galaxy_physics immediately after sage26_apply_cooling. With CGMrecipeOn
+ * 0 it writes nothing; with CGMrecipeOn 1 sage26_calculate_cooling_budget writes only its
+ * no-cooling transport, so the radio and apply modules write nothing, and this module owns
  * every galaxy's cooling:
  *
  *   mdot_cool = mdot_stream = 0                                        (C:433-434)
@@ -23,10 +23,10 @@
  * Each recipe runs with its AGN call, through the shared composed recipes
  * (shared/sage_cooling_physics.h: mimic_sage_cooling_recipe_hot and mimic_sage_cooling_recipe_cgm),
  * so the CGM AGN reads the black-hole mass and heating radius the hot AGN changed, and Cooling and
- * Heating accumulate inside the recipes, before the application caps. Every wrapper local is
- * local to the call; nothing is carried between modules. The hot recipe's float mdot stores
- * (C:282-283) go to the raw state properties mdot_cool_raw and mdot_stream_raw (campaign decision
- * D39), which sage26_finalize_cooling_heating converts to the output mdot fields.
+ * Heating accumulate inside the recipes, before the application caps. Every wrapper local is local
+ * to the call; nothing is carried between modules. The hot recipe's float mdot stores (C:282-283)
+ * go to the raw state properties mdot_cool_raw and mdot_stream_raw, which
+ * sage26_finalize_cooling_heating converts to the output mdot fields.
  *
  * Rounding points. Each expression is one C expression with SAGE26's operand order and types.
  * SAGE26's object fuses the applications' metal credits and debits (C:481, :483, :493, :495;
@@ -61,11 +61,11 @@
 
 #define MODULE_NAME "sage26_regime_aware_cooling"
 
-/* SAGE26's CGMrecipeOn (0 off, 1 on), required and checked at init (campaign decision D33) */
+/* SAGE26's CGMrecipeOn (0 off, 1 on), required and checked at init */
 static int CGM_RECIPE_ON;
 
 /* SAGE26's MShockMsun, the streams' shock mass in physical Msun (no h), required, positive and
- * finite (D33); SAGE26's default is 6.0e11 (R/src/core_read_parameter_file.c:114) */
+ * finite; SAGE26's default is 6.0e11 (R/src/core_read_parameter_file.c:114) */
 static double MSHOCK_MSUN;
 
 /* SAGE26's AGNrecipeOn (the package's AGNrecipe) and RadioModeEfficiency, as
@@ -208,7 +208,7 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
 
   // SAGE parity: the float mdot rates are reset on every regime-aware call and are assigned only
   // on the hot recipe's cold-stream path below (R/src/model_cooling_heating.c:433-434, :282-283);
-  // here they are the raw state properties (campaign decision D39)
+  // here they are the raw state properties
   galaxy->mdot_cool_raw = 0.0f;
   galaxy->mdot_stream_raw = 0.0f;
 
@@ -229,7 +229,7 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
       if (mimic_sage_cooling_recipe_hot(halo, params, &cfg->agn, cfg->cgm_recipe_on,
                                         cfg->mshock_msun, dt, &t->hot, &t->hot_agn,
                                         &hot_cooling) != 0) {
-        return -1; /* D35: the stored SnapNum has no redshift */
+        return -1; /* the stored SnapNum has no redshift */
       }
       t->hot_called = 1;
       if (t->hot.branch == MIMIC_SAGE_HOT_BRANCH_STREAMS) {
@@ -328,7 +328,7 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
 // ============================================================================
 
 int sage26_regime_aware_cooling_init(void) {
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (validate_cgm_recipe_on(CGM_RECIPE_ON) != 0) {
     return -1;

@@ -29,7 +29,7 @@
  *   - test_memory_safety: No memory leaks
  *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
  *     bytewise unchanged, also in a state the time guard refuses (the bypass precedes it); the
- *     same row with FFBRegime 0 forms SAGE26's sfr_croton06 stars, written inline (c13 Slice 3)
+ *     same row with FFBRegime 0 forms SAGE26's sfr_croton06 stars, written inline
  *
  * @author  Mimic Development Team
  * @date    2025-12-18
@@ -718,7 +718,7 @@ int test_module_initialization(void) {
   set_test_model_parameters();
   /* The module's required SFprescription and H2 parameters (and the apply step's SFprescription) */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required (D33) */
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -770,7 +770,7 @@ int test_memory_safety(void) {
 }
 
 // ============================================================================
-// FEEDBACK-FREE-BURST BYPASS (c13 Slice 3)
+// FEEDBACK-FREE-BURST BYPASS
 // ============================================================================
 
 /**
@@ -890,7 +890,7 @@ int main(void) {
   TEST_RUN(test_module_initialization);
   TEST_RUN(test_memory_safety);
 
-  /* The feedback-free-burst bypass (c13 Slice 3) */
+  /* The feedback-free-burst bypass */
   TEST_RUN(test_ffb_row_bypassed);
 
   /* Print summary and return result */

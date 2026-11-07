@@ -22,16 +22,15 @@
  * Per case or row it asserts the return or the written FFBRegime, every recorded local (z_norm,
  * log_Mvir_ffb_code, the threshold Mvir_ffb, x, the fraction f_ffb, the draw and its 64 bits, and
  * the widened Mvir) bit for bit, the guard flag and the comparison's outcome and tie flags, and
- * checks each local's markers (present or absent as in the port, checked, of the recorded check
- * kind, `_validated` the conjunction of its two directions). It asserts the oracle's
+ * checks each local's markers (present or absent as in the port, checked, of the recorded
+ * check kind, `_validated` the conjunction of its two directions). It asserts the oracle's
  * pow_equals_exp10 is 1 at every threshold evaluation: the package writes pow(10.0, ...), which
  * this -O0 build calls, while SAGE26's object calls __exp10. In a classifier fixture it asserts
- * SAGE26's discarded-draw count equals the number of rows the package classified (one per row
- * not skipped; campaign decision D46) and that the oracle found the result independent of the
- * rand() queue; the queue itself is consumed unused (the product calls no rand()). Where the
- * fixture carries the R6 reference's written FFBRegime it asserts the package's equals it.
- * unfused_threshold_differs is consumed unasserted: an observation of the oracle, not SAGE26 or
- * package state. It prints the tallies quoted in the validation record.
+ * SAGE26's discarded-draw count equals the number of rows the package classified (one per row not
+ * skipped) and that the oracle found the result independent of the rand() queue; the queue itself
+ * is consumed unused (the product calls no rand()). Where the fixture carries the R6 reference's
+ * written FFBRegime it asserts the package's equals it. unfused_threshold_differs is consumed
+ * unasserted: an observation of the oracle, not SAGE26 or package state. It prints its tallies.
  *
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *
@@ -73,7 +72,7 @@ static const char *MODULE = "sage26_determine_ffb_regime";
 #define CHECK_CONTINUATION 1
 #define CHECK_TAIL 2
 
-/** Tallies over one test run (quoted in the validation record) */
+/** Tallies over one test run */
 struct c13_tally {
   int cases;          /* threshold and fraction cases */
   int rows;           /* classifier rows */
@@ -92,8 +91,8 @@ static struct c13_tally tally;
 
 static char pre_timestep_name[] = "sage26_determine_ffb_regime";
 static struct PhaseModuleConfig pre_timestep_entry[1];
-/* The FFB transaction by galaxy in a substep phase, which the classifier requires at
- * EnhancedStarFormationOn 1 (c13 Slice 3) */
+/* The FFB transaction by galaxy in a substep phase, which the classifier requires
+ * at EnhancedStarFormationOn 1 */
 static char transaction_name[] = "sage26_ffb_star_formation";
 static char substep_phase_name[] = "galaxy_physics";
 static struct PhaseModuleConfig substep_entry[1];
@@ -225,7 +224,7 @@ static int check_threshold_fixture(const char *name) {
   return problems;
 }
 
-/** @brief Read params.EnhancedStarFormationOn, which every c13 fixture holds at 1 */
+/** @brief Read params.EnhancedStarFormationOn, which every FFB fixture holds at 1 */
 static int require_enhanced_star_formation_on(struct oracle_fixture *in, const char *name) {
   const int value = oracle_in_i32(in, "params.EnhancedStarFormationOn");
   if (value != MIMIC_SAGE_FFB_LI24) {
@@ -400,7 +399,7 @@ static int check_classifier_fixture(const char *name) {
   }
   problems += seen.problems;
 
-  /* One discarded rand() per row SAGE26 does not skip (D46), the result independent of them */
+  /* One discarded rand() per row SAGE26 does not skip, the result independent of them */
   problems += oracle_check_i32(&out, "intermediate.draws_discarded", seen.count);
   problems += oracle_check_i32(&out, "intermediate.rand_queue_independent", 1);
   oracle_exclude(&out, "intermediate.RAND_MAX"); /* the oracle platform's, unused by the product */

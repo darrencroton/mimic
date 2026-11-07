@@ -1,6 +1,6 @@
 /**
  * @file    oracle_c03.c
- * @brief   SAGE26 function-level oracle for the c03 baryon-supply routines
+ * @brief   SAGE26 function-level oracle for the baryon-supply routines
  *
  * Reads one fixture input file, initialises the SAGE26 struct GALAXY, struct
  * halo_data and struct params fields its reader for the selected routine consumes (a
@@ -23,12 +23,12 @@
  *   strip_from_satellite  R/src/model_infall.c:225-273, called at B:493-498
  *   get_disk_radius       R/src/model_misc.c:203-229, called at B:297
  *
- * With params.CGMrecipeOn 1 (campaign node c10, "The c10 Group" in README.md) the
- * infall_recipe, add_infall_to_hot, reincorporate_gas and strip_from_satellite readers also
- * take each galaxy's Regime and the CGM pair, and the call is composed from a
- * source-reviewed transcription of SAGE26's CGMrecipeOn 1 path that must reproduce it; its
- * branch flags and locals, with their check kinds and two-sided validation, are recorded.
- * CGMrecipeOn 0 fixtures are read and written exactly as before.
+ * With params.CGMrecipeOn 1 ("The c10 Group" in README.md) the infall_recipe, add_infall_to_hot,
+ * reincorporate_gas and strip_from_satellite readers also take each galaxy's Regime and the CGM
+ * pair, and the call is composed from a source-reviewed transcription of SAGE26's CGMrecipeOn 1
+ * path that must reproduce it; its branch flags and locals, with their check kinds and two-sided
+ * validation, are recorded. CGMrecipeOn 0 fixtures run SAGE26's call alone: no transcription is
+ * composed or recorded.
  *
  * The file format is defined in README.md ("Fixture file format"). Every input
  * field must be consumed by the fixture reader for the selected routine, so a
@@ -377,18 +377,18 @@ static double reionization_modifier_for(const int gal, const double Zcurr) {
 // ============================================================================
 //
 // With params.CGMrecipeOn 1 a fixture's reader also takes each galaxy's Regime (and, for
-// add_infall_to_hot and reincorporate_gas, the CGM pair), the output also records the CGM pair
-// where the c03 output did not, and the oracle composes the routine as c06 does: a
-// source-reviewed transcription of SAGE26's CGMrecipeOn 1 path, each statement cited (I =
-// R/src/model_infall.c, G = R/src/model_reincorporation.c, X = R/src/model_misc.h, B =
-// R/src/core_build_model.c), must reproduce SAGE26's own call in every recorded field bit for
-// bit, and so must each composition that feeds a continuation-checked local into SAGE26's own
-// function; otherwise the fixture is refused. The transcription's branch flags and locals are
-// recorded, each local with its check kind and its two-sided validation (D25): whether
-// replacing it by its upward, respectively downward, neighbour (nextafter for a double,
-// nextafterf for a float local) in its composition changes at least one recorded field.
-// Every byte of every galaxy outside the recorded fields must be unchanged by SAGE26's call.
-// CGMrecipeOn 0 fixtures (every c03 fixture) are read, run and written exactly as before.
+// add_infall_to_hot and reincorporate_gas, the CGM pair), the output of those two routines
+// also records the CGM pair, which their CGMrecipeOn 0 output does not, and the oracle composes
+// the routine as oracle_c06.c does: a source-reviewed transcription of SAGE26's CGMrecipeOn 1
+// path, each statement cited (I = R/src/model_infall.c, G = R/src/model_reincorporation.c,
+// X = R/src/model_misc.h, B = R/src/core_build_model.c), must reproduce SAGE26's own call in every
+// recorded field bit for bit, and so must each composition that feeds a continuation-checked local
+// into SAGE26's own function; otherwise the fixture is refused. The transcription's branch flags
+// and locals are recorded, each local with its check kind and its two-sided validation: whether
+// replacing it by its upward, respectively downward, neighbour (nextafter for a double, nextafterf
+// for a float local) in its composition changes at least one recorded field. Every byte of every
+// galaxy outside the recorded fields must be unchanged by SAGE26's call. CGMrecipeOn 0 fixtures run
+// SAGE26's call alone: no transcription is composed or recorded.
 
 #define C10_CHECK_CONTINUATION 1
 #define C10_CHECK_TAIL 2
@@ -423,7 +423,7 @@ static void c10_record(struct c10_locals *l, const int index, const double value
   l->present[index] = 1;
 }
 
-/** @brief A float member of struct GALAXY by offset (every recorded c10 field is a float) */
+/** @brief A float member of struct GALAXY by offset; every recorded CGMrecipeOn 1 field is one */
 struct c10_member {
   const char *name;
   size_t offset;
@@ -850,7 +850,7 @@ static void c10_add_infall_to_hot(const struct GALAXY *input, const double budge
   out_i32("intermediate.selected_metals_floor_binds", f.selected_metals_floor_binds);
   out_i32("intermediate.selected_gas_cleared", f.selected_gas_cleared);
   for (int k = 0; k < AIH_COUNT; k++) {
-    /* infallingGas_per_step's value is the c03 line written above */
+    /* infallingGas_per_step's value is already written by run_add_infall_to_hot */
     c10_out_local(AIH_NAMES[k], &l, k, up[k], down[k], k == AIH_PER_STEP);
   }
 }

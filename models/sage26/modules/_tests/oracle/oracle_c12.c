@@ -1,6 +1,6 @@
 /**
  * @file    oracle_c12.c
- * @brief   SAGE26 function-level oracle for the c12 halo concentration
+ * @brief   SAGE26 function-level oracle for the halo concentration
  *          (concentration_from_vmax_vvir and get_halo_concentration, ConcentrationOn 0 and 3)
  *
  * Reads one fixture input file, calls SAGE26's public concentration_from_vmax_vvir or
@@ -32,19 +32,19 @@
  *   (CONTINUATION-checked, marker 1);
  * - SAGE26's call changed no byte of the galaxy array (get_halo_concentration reads it as const).
  *
- * Two-sided validation (campaign decision D25) replaces each recorded local, in its composition,
- * by its upward and, separately, its downward neighbouring double, and records whether each
- * replacement changes the double return or the float store; `_validated` only if both do. It
- * also records whether each replacement changes the float store alone: a value validated
- * two-sided whose neighbours both leave the float store unchanged is narrowing-limited (only the
- * double return, which SAGE26's joining narrows at once, shows it).
+ * Two-sided validation replaces each recorded local, in its composition, by its upward and,
+ * separately, its downward neighbouring double, and records whether each replacement changes the
+ * double return or the float store; `_validated` only if both do. It also records whether each
+ * replacement changes the float store alone: a value validated two-sided whose neighbours both
+ * leave the float store unchanged is narrowing-limited (only the double return, which SAGE26's
+ * joining narrows at once, shows it).
  *
  * The transcriptions restate SAGE26's statements with the same expression shapes, operand order
  * and types and are compiled with the same flags. None has a multiply feeding an add or subtract,
  * so contraction fuses none, here or in SAGE26's object (README.md, "The c12 Group").
  *
- * The file format is defined in README.md ("Fixture File Format"). The parsing and output
- * helpers are copies of oracle_c10.c's, which stays unchanged.
+ * The file format is defined in README.md ("Fixture File Format"). The parsing and output helpers
+ * are copies of oracle_c10.c's.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh, never by
  * Mimic's Makefile, and never against Mimic code.

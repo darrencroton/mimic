@@ -18,8 +18,8 @@ allresults-history.py:342). Every galaxy row is read, with no Type cut, as in SA
 Snapshots: every written snapshot (:1488), chosen through ``all_snapshots``, taken in increasing
 snapshot number; a snapshot without galaxies is skipped (:1492-1495).
 
-Permitted deviations (c16 Slice 3, row `concentration_evolution`): none beyond the rules (the
-figure is drawn from the run's eight snapshots, where SAGE26 reads 64).
+Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where
+SAGE26 reads 64.
 """
 
 import numpy as np

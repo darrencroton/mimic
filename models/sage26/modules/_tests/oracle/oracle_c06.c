@@ -1,7 +1,7 @@
 /**
  * @file    oracle_c06.c
- * @brief   SAGE26 function-level oracle for the c06 merger, black-hole, burst and disruption
- *          routines, and the driver arithmetic around them
+ * @brief   SAGE26 function-level oracle for the merger, black-hole, burst and disruption
+ *          routines of the oracle README's "The c06 Group", and the driver arithmetic around them
  *
  * Reads one fixture input file, initialises the SAGE26 struct GALAXY, struct halo_data and
  * struct params fields its reader for the selected routine consumes (a superset of the fields
@@ -32,17 +32,16 @@
  *                                 history assignment of progenitor joining, B:234-345 and
  *                                 B:358-370, calling SAGE26's own halo helpers,
  *                                 estimate_merging_time, get_disk_radius and get_bulge_radius,
- *                                 and (c12) with ConcentrationOn 3 SAGE26's own
- *                                 get_halo_concentration (B:290-295)
+ *                                 and with ConcentrationOn 3 SAGE26's own get_halo_concentration
+ *                                 (B:290-295)
  *   join_and_pass                 join_progenitors followed by merger_pass for one substep: the
  *                                 orphan history retention (B:252-282, B:322-337) carried into a
  *                                 merger in the same snapshot
  *   collisional_starburst_recipe_fire, deal_with_galaxy_merger_fire, merger_pass_fire
- *                                 (c09, R3) the same three calls with FIREmodeOn 0 or 1: each
- *                                 galaxy's stored-snapshot redshift read explicitly, MassLoading
- *                                 read and recorded as an invariant field, and the burst's FIRE
- *                                 budget (M:690-752) transcribed and recorded (README "The c09
- *                                 Group")
+ *                                 (R3) the same three calls with FIREmodeOn 0 or 1: each galaxy's
+ *                                 stored-snapshot redshift read explicitly, MassLoading read and
+ *                                 recorded as an invariant field, and the burst's FIRE budget
+ *                                 (M:690-752) transcribed and recorded (README "The c09 Group")
  *
  * Routine-internal intermediates. Every value of a SAGE26 routine that the package carries and
  * SAGE26 does not return is obtained from a TRANSCRIPTION of that routine below (each statement
@@ -54,53 +53,50 @@
  * Each value is then replaced by its upward and its downward neighbouring double and the same
  * composition rerun (two-sided validation).
  *
- * SFprescription 1 (c08, R2). The merger-family routines read SFprescription 0 (R0, R1) or 1
- * (R2: BR06 with radial integration, with H2RadialIntegrationOn 1, H2RadialNBins 25 and
- * H2RadialRMaxFactor 5.0 required explicitly, as oracle_c05.c's reader requires them). For 1 the
- * transcriptions run SAGE26's three hydrogen sites these routines reach: the black-hole accretion
- * cap (M:366-372, guard SFprescription != 0 && != 2), the post-reheating cap of the burst's
- * update_from_feedback (S:1169-1173) and the burst's hydrogen refresh (M:798-803, guard
- * sf_prescription_tracks_h2); their flags and values are recorded after every earlier field,
- * so an SFprescription 0 output is unchanged (README "The c08 Group"). The black-hole cap of the
- * post-minor-merger recheck runs inside SAGE26's own check_disk_instability; the burst record
- * holds an OBSERVATION of it (SAGE26's own grow_black_hole on a copy of the recheck's state,
- * checked against SAGE26's recheck), struct recheck_bh_observation.
+ * SFprescription 1 (R2). The merger-family routines read SFprescription 0 (R0, R1) or 1 (R2: BR06
+ * with radial integration, with H2RadialIntegrationOn 1, H2RadialNBins 25 and H2RadialRMaxFactor
+ * 5.0 required explicitly, as oracle_c05.c's reader requires them). For 1 the transcriptions run
+ * SAGE26's three hydrogen sites these routines reach: the black-hole accretion cap (M:366-372,
+ * guard SFprescription != 0 && != 2), the post-reheating cap of the burst's update_from_feedback
+ * (S:1169-1173) and the burst's hydrogen refresh (M:798-803, guard sf_prescription_tracks_h2);
+ * their flags and values are recorded after every earlier field, and an SFprescription 0 output
+ * has none of them (README "The c08 Group"). The black-hole cap of the post-minor-merger recheck
+ * runs inside SAGE26's own check_disk_instability; the burst record holds an OBSERVATION of
+ * it (SAGE26's own grow_black_hole on a copy of the recheck's state, checked against SAGE26's
+ * recheck), struct recheck_bh_observation.
  *
- * FIREmodeOn 1 (c09, R3). The routines named *_fire read FIREmodeOn 0 or 1 (every other routine
- * still requires 0), each galaxy's stored SnapNum and, for each distinct one, params.ZZ[<s>],
- * and the float MassLoading of every galaxy, which no c06 routine writes. The burst's
- * transcription runs SAGE26's FIRE budget (M:690-752): the scaling from the TARGET's
- * (merger_centralgal's) float Vvir and ZZ[SnapNum], capped_eta_reheat's loading times the stars
- * with no MassLoading write, the burst's renormalisation, sn_energy_coupling and the energy-based
- * ejection; its values and flags are recorded after every earlier field. The post-minor-merger
- * recheck's own burst runs inside SAGE26's check_disk_instability; the record holds two
- * OBSERVATIONS of it (struct recheck_fire_observation): whether SAGE26's recheck changes the state
- * when its burst runs with FIREmodeOn 0, and when the target's stored-snapshot redshift is
- * replaced.
+ * FIREmodeOn 1 (R3). The routines named *_fire read FIREmodeOn 0 or 1 (every other routine still
+ * requires 0), each galaxy's stored SnapNum and, for each distinct one, params.ZZ[<s>], and the
+ * float MassLoading of every galaxy, which no c06 routine writes. The burst's transcription runs
+ * SAGE26's FIRE budget (M:690-752): the scaling from the TARGET's (merger_centralgal's) float Vvir
+ * and ZZ[SnapNum], capped_eta_reheat's loading times the stars with no MassLoading write, the
+ * burst's renormalisation, sn_energy_coupling and the energy-based ejection; its values and flags
+ * are recorded after every earlier field. The post-minor-merger recheck's own burst runs inside
+ * SAGE26's check_disk_instability; the record holds two OBSERVATIONS of it (struct
+ * recheck_fire_observation): whether SAGE26's recheck changes the state when its burst runs with
+ * FIREmodeOn 0, and when the target's stored-snapshot redshift is replaced.
  *
- * CGMrecipeOn 1 (c10, R4; README "The c10 Group, Part 3", c06 part). grow_black_hole,
- * quasar_mode_wind, disrupt_satellite_to_ICS and the three *_fire routines read CGMrecipeOn 0 or 1
- * (every other routine still requires 0); with 1 every galaxy also reads and records its Regime
- * (0 or 1), the CGM pair being among the reservoirs already, and grow_black_hole, quasar_mode_wind
- * and disrupt_satellite_to_ICS read FIREmodeOn 0 or 1, which none of them reads (R4's is 1). The
+ * CGMrecipeOn 1 (R4; README "The c10 Group, Part 3"). grow_black_hole, quasar_mode_wind,
+ * disrupt_satellite_to_ICS and the three *_fire routines read CGMrecipeOn 0 or 1 (every other
+ * routine still requires 0); with 1 every galaxy also reads and records its Regime (0 or 1), the
+ * CGM pair being among the reservoirs already, and grow_black_hole, quasar_mode_wind and
+ * disrupt_satellite_to_ICS read FIREmodeOn 0 or 1, which none of them reads (R4's is 1). The
  * transcriptions gain the CGM branches: the wind's second test on the WIND HOST's selected pair
  * (M:406-429), the burst's update_from_feedback on the FoF central's selected pair (S:1175-1223),
  * the burst's yield and the disruption through add_metals_to_hot_reservoir and
  * add_gas_to_hot_reservoir (R/src/model_misc.h:67-85; the passed central's or recipient's Regime),
- * and the post-minor-merger recheck (M:807-811 into R/src/model_disk_instability.c:54-108) with
- * its growth and wind transcribed and its own burst SAGE26's; the site selections, the CGM energy
- * and the recheck wind's values are recorded after every earlier field, with observations of
- * SAGE26's nested routines (Regime flips). A CGMrecipeOn 0 fixture is read, run and written
- * exactly as before.
+ * and the post-minor-merger recheck (M:807-811 into R/src/model_disk_instability.c:54-108) with its
+ * growth and wind transcribed and its own burst SAGE26's; the site selections, the CGM energy and
+ * the recheck wind's values are recorded after every earlier field, with observations of SAGE26's
+ * nested routines (Regime flips). A CGMrecipeOn 0 fixture takes none of these additions.
  *
- * ConcentrationOn 3 (c12, R5; README "The c12 Group", "Joining"). join_progenitors and
- * join_and_pass read ConcentrationOn 0 or 3 (any other value is refused, naming
- * params.ConcentrationOn). With 3 the joining transcription makes SAGE26's concentration store at
- * its source position in the FoF central's branch (B:290-295: after MergTime, before the radii
- * and Type = 0, so SAGE26's get_halo_concentration sees the Type before joining), every galaxy
- * also reads and records its float Concentration (BLOCK_CONCENTRATION, after every other block),
- * and each progenitor's record gains concentration_assigned. A ConcentrationOn 0 fixture is read,
- * run and written exactly as before.
+ * ConcentrationOn 3 (R5; README "The c12 Group", "Joining"). join_progenitors and join_and_pass
+ * read ConcentrationOn 0 or 3 (any other value is refused, naming params.ConcentrationOn). With 3
+ * the joining transcription makes SAGE26's concentration store at its source position in the FoF
+ * central's branch (B:290-295: after MergTime, before the radii and Type = 0, so SAGE26's
+ * get_halo_concentration sees the Type before joining), every galaxy also reads and records its
+ * float Concentration (BLOCK_CONCENTRATION, after every other block), and each progenitor's record
+ * gains concentration_assigned. A ConcentrationOn 0 fixture takes none of these additions.
  *
  * Driver transcriptions. evolve_galaxies and join_galaxies_of_progenitors are static in
  * core_build_model.c, which this link excludes, so no SAGE26 code can anchor merger_pass,
@@ -108,15 +104,14 @@
  * is cited to its line, and a mutation sweep covers them. Where they call a SAGE26 routine the
  * continuation is SAGE26's own, which shows nothing about the transcription itself.
  *
- * Every transcription restates SAGE26's statements with the same expression shapes, operand
- * types and operand order and is compiled with the same flags, so floating-point contraction
- * (clang's default -ffp-contract=on) treats them as it treats SAGE26's; README.md's c06
- * fused-instruction table lists the sites, checked in this file's disassembly. File-static
- * SAGE26 constants are restated with their values and source lines.
+ * Every transcription restates SAGE26's statements with the same expression shapes, operand types
+ * and operand order and is compiled with the same flags, so floating-point contraction (clang's
+ * default -ffp-contract=on) treats them as it treats SAGE26's; README.md's fused-instruction table
+ * under "The c06 Group" lists the sites, checked in this file's disassembly. File-static SAGE26
+ * constants are restated with their values and source lines.
  *
- * The file format is defined in README.md ("Fixture File Format"; the c06 section adds indexed
- * halo-catalogue fields). The parsing and output helpers are copies of oracle_c05.c's, which
- * stays unchanged.
+ * The file format is defined in README.md ("Fixture File Format"; "The c06 Group" adds indexed
+ * halo-catalogue fields). The parsing and output helpers are copies of oracle_c05.c's.
  *
  * This is SAGE26 reference tooling: it is compiled and linked only by build.sh, never by
  * Mimic's Makefile, and never against Mimic code.
@@ -157,24 +152,24 @@ static const double BH_GROWTH_V_KMS = 280.0;       /* M:45 */
 static const double STARBURST_FRAC_COEFF = 0.56;   /* M:50 */
 static const double STARBURST_MASS_POWER = 0.7;    /* M:51 */
 static const double KD11_METAL_HALO_MASS = 30.0;   /* M:65 */
-static const double FIRE_V_CRIT_KMS = 60.0;        /* M:56 (c09) */
-static const double FIRE_REDSHIFT_EXPONENT = 1.25; /* M:60 (c09) */
+static const double FIRE_V_CRIT_KMS = 60.0;        /* M:56 */
+static const double FIRE_REDSHIFT_EXPONENT = 1.25; /* M:60 */
 
-/* c09: set by the *_fire routines: FIREmodeOn may be 1, each galaxy's stored-snapshot redshift is
- * read, and MassLoading (BLOCK_FIRE) is read and recorded */
+/* Set by the *_fire routines: FIREmodeOn may be 1, each galaxy's stored-snapshot redshift is read,
+ * and MassLoading (BLOCK_FIRE) is read and recorded */
 static int fire_routine = 0;
 
-/* c10: set by the routines that may read CGMrecipeOn 1 (grow_black_hole, quasar_mode_wind,
+/* Set by the routines that may read CGMrecipeOn 1 (grow_black_hole, quasar_mode_wind,
  * disrupt_satellite_to_ICS and the *_fire routines) */
 static int cgm_routine = 0;
 
-/* c10: set by read_merger_config for a CGMrecipeOn 1 fixture: every galaxy reads and records its
- * Regime (BLOCK_CGM) and the routine records its c10 selections */
+/* Set by read_merger_config for a CGMrecipeOn 1 fixture: every galaxy reads and records its Regime
+ * (BLOCK_CGM) and the routine records its CGMrecipeOn 1 selections */
 static int cgm_block = 0;
 
-/* c12: set by read_join_flags for a ConcentrationOn 3 joining fixture: every galaxy reads and
- * records its Concentration (BLOCK_CONCENTRATION) and each progenitor's record its
- * concentration_assigned */
+/* Set by read_join_flags for a ConcentrationOn 3 joining fixture: every galaxy
+ * reads and records its Concentration (BLOCK_CONCENTRATION) and each progenitor's
+ * record its concentration_assigned */
 static int concentration_block = 0;
 
 enum field_type { FIELD_F32, FIELD_F64, FIELD_I32 };
@@ -508,17 +503,17 @@ static const struct member HISTORY_MEMBERS[] = {
     HISTORY_MEMBER(SfrDiskColdGas),  HISTORY_MEMBER(SfrDiskColdGasMetals),
     HISTORY_MEMBER(SfrBulgeColdGas), HISTORY_MEMBER(SfrBulgeColdGasMetals)};
 
-/** c09: the float MassLoading (core_allvars.h), which the disk FIRE path writes
+/** The float MassLoading (core_allvars.h), which the disk FIRE path writes
  * (R/src/model_starformation_and_feedback.c:762-764) and no c06 routine writes: the burst's FIRE
  * budget leaves it as it was (M:707-710). Read and recorded by the *_fire routines only. */
 static const struct member FIRE_MEMBERS[] = {F32_MEMBER(MassLoading)};
 
-/** c10: the integer Regime (core_allvars.h:110), which the CGMrecipeOn 1 routing reads
- * (M:407, R/src/model_misc.h:69, :78, S:1176) and no c06 routine writes. Read and recorded by a
+/** The integer Regime (core_allvars.h:110), which the CGMrecipeOn 1 routing reads (M:407,
+ * R/src/model_misc.h:69, :78, S:1176) and no c06 routine writes. Read and recorded by a
  * CGMrecipeOn 1 fixture only (cgm_block); the CGM pair it selects is in RESERVOIR_MEMBERS. */
 static const struct member CGM_MEMBERS[] = {I32_MEMBER(Regime)};
 
-/** c12: the float Concentration (core_allvars.h:134), which progenitor joining writes with
+/** The float Concentration (core_allvars.h:134), which progenitor joining writes with
  * ConcentrationOn > 0 (B:290-295) and no other c06 routine reads or writes. Read and recorded by a
  * ConcentrationOn 3 joining fixture only (concentration_block). */
 static const struct member CONCENTRATION_MEMBERS[] = {F32_MEMBER(Concentration)};
@@ -531,9 +526,9 @@ enum block {
   BLOCK_INFALL = 8,
   BLOCK_JOIN_WRITTEN = 16,
   BLOCK_HISTORIES = 32,
-  BLOCK_FIRE = 64,           /* c09: MassLoading, after every other block of the galaxy */
-  BLOCK_CGM = 128,           /* c10: Regime, after BLOCK_FIRE */
-  BLOCK_CONCENTRATION = 256, /* c12: Concentration, after BLOCK_CGM */
+  BLOCK_FIRE = 64,           /* MassLoading, after every other block of the galaxy */
+  BLOCK_CGM = 128,           /* Regime, after BLOCK_FIRE */
+  BLOCK_CONCENTRATION = 256, /* Concentration, after BLOCK_CGM */
   BLOCK_MERGER_INPUT = BLOCK_IDENT | BLOCK_HALO | BLOCK_RESERVOIRS | BLOCK_HISTORIES,
   BLOCK_JOIN_INPUT = BLOCK_MERGER_INPUT | BLOCK_INFALL,
   BLOCK_ALL = BLOCK_JOIN_INPUT | BLOCK_JOIN_WRITTEN
@@ -726,10 +721,10 @@ static int32_t require_flag(const char *name, const int value) {
  * @brief BulgeSizeOn as the fixture sets it, and Hubble_h when the sizes are on
  *
  * BulgeSizeOn is 0 (R0) or 3 (R1 onward, the Tonini sizes); modes 1 and 2 are not ported (the
- * campaign supports exactly 0 and 3) and any other value is refused, naming the parameter. Mode
- * 3's size fallbacks read Hubble_h (R/src/model_misc.c:249,398), so a mode-3 fixture must carry
+ * oracle supports only 0 and 3) and any other value is refused, naming the parameter. Mode 3's size
+ * fallbacks read Hubble_h (R/src/model_misc.c:249,398), so a mode-3 fixture must carry
  * params.Hubble_h (a missing field is refused, naming it); a mode-0 fixture does not, and one that
- * carries it is refused as an unread field, so every R0 input is read as before.
+ * carries it is refused as an unread field.
  */
 static void read_bulge_size_config(void) {
   run_params.BulgeSizeOn = in_i32("params.BulgeSizeOn");
@@ -743,22 +738,23 @@ static void read_bulge_size_config(void) {
 }
 
 /* The H2 configuration the oracle supports with SFprescription 1: SAGE26's defaults
- * (R/src/core_read_parameter_file.c:99-101; R2.par sets none of them), as oracle_c05.c */
+ * (R/src/core_read_parameter_file.c:99-101; R/input/millennium.par sets none of
+ * them), as oracle_c05.c */
 #define SUPPORTED_H2_NBINS 25
 #define SUPPORTED_H2_RMAX_FACTOR 5.0
 
 /**
  * @brief SFprescription as the fixture sets it: 0 (R0, R1) or 1 (R2: BR06 with radial
- *        integration), and, for 1, the H2 configuration it is supported with (c08)
+ *        integration), and, for 1, the H2 configuration it is supported with
  *
  * oracle_c05.c's read_sf_prescription restated: SFprescription 1 requires, explicitly and at
  * exactly these values, H2RadialIntegrationOn 1, H2RadialNBins 25 and H2RadialRMaxFactor 5.0
  * (SAGE26's defaults, R/src/core_read_parameter_file.c:99-101). Any other value is refused, naming
- * the parameter. No c06 routine reads them on a supported path (only the StarburstColdGasOn 0
- * fuel, M:606-679, which read_merger_config refuses, calls the radial integration), so requiring
- * them only keeps the configuration R2's whole and the poisoned state from supplying one.
+ * the parameter. No c06 routine reads them on a supported path (only the StarburstColdGasOn 0 fuel,
+ * M:606-679, which read_merger_config refuses, calls the radial integration), so requiring them
+ * only keeps the configuration R2's whole and the poisoned state from supplying one.
  * H2DiskAreaOption stays poisoned (read only by M:625-629 and S:225-236, neither supported).
- * SFprescription 0 reads nothing more, so every earlier fixture is read unchanged.
+ * SFprescription 0 reads nothing more.
  */
 static void read_sf_prescription(void) {
   run_params.SFprescription = in_i32("params.SFprescription");
@@ -789,7 +785,7 @@ static void read_sf_prescription(void) {
 }
 
 /**
- * @brief FIREmodeOn as a c09 fixture sets it: 0 (R0-R2, fixed-epsilon feedback) or 1 (R3, the
+ * @brief FIREmodeOn as the fixture sets it: 0 (R0-R2, fixed-epsilon feedback) or 1 (R3, the
  *        FIRE budget of every burst, M:690-752); any other value is refused, naming the parameter
  *        (oracle_c05.c's read_fire_mode_on restated)
  */
@@ -802,14 +798,14 @@ static int32_t read_fire_mode_on(void) {
 }
 
 /**
- * @brief c09: each galaxy's stored-snapshot redshift, read explicitly
+ * @brief Each galaxy's stored-snapshot redshift, read explicitly
  *
  * The burst's FIRE scaling reads ZZ[galaxies[merger_centralgal].SnapNum] (M:694), the snapshot the
  * target carries, not the current halo's. params.ZZ[<s>] is read once for each distinct stored
  * SnapNum of the fixture's galaxies; every other entry stays poisoned, so the poisoned state never
  * supplies a redshift. A SnapNum outside [0, ABSOLUTEMAXSNAPS), an index SAGE26 would read out of
- * bounds, is refused (the package refuses an index outside its redshift table instead, campaign
- * decision D35). A FIREmodeOn 0 fixture reads the same fields as its FIREmodeOn 1 twin.
+ * bounds, is refused (the package refuses an index outside its redshift table instead). A
+ * FIREmodeOn 0 fixture reads the same fields as its FIREmodeOn 1 twin.
  */
 static void read_fire_snapshots(const int ngal) {
   for (int i = 0; i < ngal; i++) {
@@ -832,15 +828,15 @@ static void read_fire_snapshots(const int ngal) {
  * @brief R0's flags and parameters for every routine that can reach a merger, a burst or the
  *        instability
  *
- * The pins are R0's run config, the campaign's par/R0.par (an edit of the upstream template
- * R/input/millennium.par, whose flag lines 48-57 differ): AGNrecipeOn 2 (R0.par:49),
- * SupernovaRecipeOn 1 (:50), DiskInstabilityOn 1 (:52), CGMrecipeOn 0 (:54), FIREmodeOn 0 (:55)
- * and SaveFullSFH 0 (:60); StarburstColdGasOn 1 is SAGE26's default
- * (R/src/core_read_parameter_file.c:109), which R0.par leaves alone. BulgeSizeOn is read, not
- * pinned: 0 (R0.par:109) or 3 (R1.par:109), with Hubble_h for 3 (read_bulge_size_config).
- * SFprescription is read, not pinned: 0 (R0.par:48, R1.par:48) or 1 (R2.par:48), with the H2
- * configuration for 1 (read_sf_prescription, c08). FIREmodeOn is 0, or 0 or 1 (R3.par:55, c09,
- * through read_fire_mode_on) for the *_fire routines.
+ * The pins are R0's flags (the package README's "SAGE26 Configurations R0–R6": SAGE26's
+ * R/input/millennium.par with six switches off): AGNrecipeOn 2 (R/input/millennium.par:49),
+ * SupernovaRecipeOn 1 (:50), DiskInstabilityOn 1 (:52), CGMrecipeOn 0 and FIREmodeOn 0 (R0's
+ * switches) and SaveFullSFH 0 (:60); StarburstColdGasOn 1 is SAGE26's default
+ * (R/src/core_read_parameter_file.c:109), which R/input/millennium.par leaves alone. BulgeSizeOn is
+ * read, not pinned: 0 (R0) or 3 (R1), with Hubble_h for 3 (read_bulge_size_config). SFprescription
+ * is read, not pinned: 0 (R0, R1) or 1 (R2), with the H2 configuration for 1
+ * (read_sf_prescription). FIREmodeOn is 0, or 0 or 1 (R3, through read_fire_mode_on) for
+ * the *_fire routines.
  *
  * The transcriptions below implement R0's and R1's paths and, with SFprescription 1, R2's: the
  * SN recipe without FIRE, no CGM, the Bondi AGN recipe (AGNrecipeOn 2), cold-gas starbursts,
@@ -849,12 +845,12 @@ static void read_fire_snapshots(const int ngal) {
  * R/src/core_init.c:102-103; G, :96).
  */
 /**
- * @brief c10: CGMrecipeOn as a fixture of a CGM-capable routine (cgm_routine) sets it: 0 (R0-R3,
- *        hot-gas routing) or 1 (R4, R4.par:54); any other value is refused, naming the parameter
- *        (SAGE26 accepts only those, R/src/core_read_parameter_file.c:526)
+ * @brief CGMrecipeOn as a fixture of a CGM-capable routine (cgm_routine) sets it: 0 (R0-R3, hot-gas
+ *        routing) or 1 (R4, R/input/millennium.par:54); any other value is refused, naming the
+ *        parameter (SAGE26 accepts only those, R/src/core_read_parameter_file.c:526)
  *
  * With 1 it sets cgm_block, so every galaxy also reads and records its Regime and the routine
- * records its c10 selections; with 0 nothing more is read.
+ * records its CGMrecipeOn 1 selections; with 0 nothing more is read.
  */
 static int32_t read_cgm_recipe_on(void) {
   const int read = in_i32("params.CGMrecipeOn");
@@ -871,8 +867,8 @@ static void read_merger_config(void) {
   read_sf_prescription();
   run_params.SupernovaRecipeOn = require_flag("SupernovaRecipeOn", 1);
   run_params.CGMrecipeOn = cgm_routine ? read_cgm_recipe_on() : require_flag("CGMrecipeOn", 0);
-  /* c10: a CGMrecipeOn 1 fixture of grow_black_hole, quasar_mode_wind or disrupt_satellite_to_ICS
-   * carries R4's FIREmodeOn (R4.par:55), which none of them reads */
+  /* A CGMrecipeOn 1 fixture of grow_black_hole, quasar_mode_wind or disrupt_satellite_to_ICS
+   * carries R4's FIREmodeOn 1 (R/input/millennium.par:55), which none of them reads */
   run_params.FIREmodeOn =
       (fire_routine || cgm_block) ? read_fire_mode_on() : require_flag("FIREmodeOn", 0);
   read_bulge_size_config();
@@ -940,8 +936,8 @@ enum stage {
   STAGE_BURST,       /* collisional_starburst_recipe */
   STAGE_FEEDBACK,    /* update_from_feedback, as the burst calls it */
   STAGE_DISRUPT,     /* disrupt_satellite_to_ICS */
-  STAGE_FIRE_HELPER, /* c09: a local of capped_eta_reheat or sn_energy_coupling, in the burst */
-  STAGE_RECHECK      /* c10: a local of the recheck's growth and wind, in the burst */
+  STAGE_FIRE_HELPER, /* a local of capped_eta_reheat or sn_energy_coupling, in the burst */
+  STAGE_RECHECK      /* a local of the recheck's growth and wind, in the burst */
 };
 
 /** How a carried value's transcription is checked (README "Carried Values") */
@@ -993,8 +989,8 @@ enum im_id {
   IM_YIELD_TO_HOT,
   IM_TOTAL_GAS,
   IM_TOTAL_METALS_GAS,
-  /* c07: the locals of calculate_merger_remnant_radius (M:138-199), recorded with
-   * BulgeSizeOn 3 only; new_merger_radius, its return value, is IM_NEW_MERGER_RADIUS */
+  /* The locals of calculate_merger_remnant_radius (M:138-199), recorded with BulgeSizeOn 3 only;
+   * new_merger_radius, its return value, is IM_NEW_MERGER_RADIUS */
   IM_REM_M1,
   IM_REM_M2,
   IM_REM_M_TOT,
@@ -1126,7 +1122,7 @@ enum flag_id {
   FL_BURST_YIELD_STAYS_IN_DISK,
   FL_DISRUPT_STARS_POSITIVE,
   FL_DISRUPT_ICS_POSITIVE,
-  /* c07: the branches of calculate_merger_remnant_radius (M:142-202), BulgeSizeOn 3 only */
+  /* The branches of calculate_merger_remnant_radius (M:142-202), BulgeSizeOn 3 only */
   FL_REM_TOTAL_NONPOSITIVE,
   FL_REM_G1_MASS_POSITIVE,
   FL_REM_G2_MASS_POSITIVE,
@@ -1177,11 +1173,11 @@ static const char *const FLAG_NAMES[FL_COUNT] = {
 enum mass_ratio_path { RATIO_DIVIDED = 0, RATIO_ONE = 1, RATIO_ZERO = 2 };
 
 /**
- * The values SFprescription 1 adds (c08), recorded only for SFprescription 1 fixtures: the
- * black-hole accretion cap's bound (M:367-368), the burst feedback's post-reheating bound
- * (S:1170) and the burst's hydrogen refresh (M:799-802). Each is tail-checked (its routine
- * passes it to no SAGE26 function) and recorded with c06's markers and c07's narrowing
- * limitation, as the float or double it is.
+ * The values SFprescription 1 adds, recorded only for SFprescription 1 fixtures: the black-hole
+ * accretion cap's bound (M:367-368), the burst feedback's post-reheating bound (S:1170) and the
+ * burst's hydrogen refresh (M:799-802). Each is tail-checked (its routine passes it to no SAGE26
+ * function) and recorded with the markers of README "The c06 Group" and the narrowing limitation of
+ * README "The c07 Group", as the float or double it is.
  */
 enum h_id {
   IMH_MAX_H_BH,         /* grow_black_hole's float max_h_bh (M:367-368) */
@@ -1206,12 +1202,13 @@ static const struct {
 };
 
 /**
- * The values FIREmodeOn 1 adds (c09), recorded only by the *_fire routines that run the burst's
+ * The values FIREmodeOn 1 adds, recorded only by the *_fire routines that run the burst's
  * transcription: the locals of the burst's FIRE budget (M:690-752) and of the two header-inline
  * helpers it calls, capped_eta_reheat (R/src/model_misc.h:141-149) and sn_energy_coupling
- * (R/src/model_misc.h:118-124). Each is a double, recorded with c06's markers and c07's narrowing
- * limitation (0: a burst never writes MassLoading, so every value reaches the state only through
- * the reheated and ejected masses, or not at all on a zero-star burst).
+ * (R/src/model_misc.h:118-124). Each is a double, recorded with the markers of README
+ * "The c06 Group" and the narrowing limitation of README "The c07 Group" (0: a burst never writes
+ * MassLoading, so every value reaches the state only through the reheated and ejected masses, or
+ * not at all on a zero-star burst).
  */
 enum fire_id {
   IMF_REDSHIFT, /* z_fire = ZZ[galaxies[merger_centralgal].SnapNum] (M:694) */
@@ -1244,7 +1241,7 @@ static const struct {
     [IMF_E_LIFT] = {"E_lift", STAGE_BURST, CHECK_TAIL},
 };
 
-/** The branch flags FIREmodeOn 1 adds (c09): -1 not evaluated on this path, else 0 or 1 */
+/** The branch flags FIREmodeOn 1 adds: -1 not evaluated on this path, else 0 or 1 */
 enum fire_flag_id {
   FLF_SCALING_VALID,            /* vc_fire > 0.0 && z_fire >= 0.0 (M:696) */
   FLF_VC_FLOORED,               /* vc_fire < 1.0 (M:697) */
@@ -1267,10 +1264,10 @@ static const char *const FIRE_FLAG_NAMES[FLF_COUNT] = {
 };
 
 /**
- * c09: OBSERVATIONS of the post-minor-merger recheck's own burst (M:807-811 into D:106-108), which
- * runs inside SAGE26's own check_disk_instability. On copies of the state the recheck receives,
- * SAGE26's own check_disk_instability is run again with one change to a copy of the run
- * parameters: FIREmodeOn 0 (mode_sensitive), or the redshift of the target's stored snapshot,
+ * OBSERVATIONS of the post-minor-merger recheck's own burst (M:807-811 into D:106-108), which runs
+ * inside SAGE26's own check_disk_instability. On copies of the state the recheck receives, SAGE26's
+ * own check_disk_instability is run again with one change to a copy of the run parameters:
+ * FIREmodeOn 0 (mode_sensitive), or the redshift of the target's stored snapshot,
  * ZZ[galaxies[merger_centralgal].SnapNum], replaced by itself plus 1.0 (redshift_sensitive). Each
  * is 1 if the recheck's end state (the target's reservoirs and histories, the FoF central's
  * reservoirs) then differs from SAGE26's: within the merger family only the burst reads FIREmodeOn
@@ -1283,7 +1280,7 @@ struct recheck_fire_observation {
   int redshift_sensitive;
 };
 
-/** The branch flags SFprescription 1 adds (c08): -1 not evaluated on this path, else 0 or 1 */
+/** The branch flags SFprescription 1 adds: -1 not evaluated on this path, else 0 or 1 */
 enum h_flag_id {
   FLH_BH_CAPS_TRACKED,      /* SFprescription != 0 && != 2 at M:366-367 */
   FLH_BH_H2_CAP_BINDS,      /* H2gas > max_h_bh (M:370) */
@@ -1315,15 +1312,14 @@ static const char *const H_FLAG_NAMES[FLH_COUNT] = {
 };
 
 /**
- * c08: an OBSERVATION of the post-minor-merger recheck's black-hole growth (M:807-811 into
- * D:102-104), which runs inside SAGE26's own check_disk_instability. The oracle restates the
- * recheck's unstable gas fraction (D:54-66, D:90, D:101, as oracle_c05.c's transcription does)
- * on a copy of the state the recheck receives and runs SAGE26's own grow_black_hole on that
- * copy; the copy's BlackHoleMass and QuasarModeBHaccretionMass must equal SAGE26's after its own
- * recheck (the recheck's burst writes neither), or the fixture is refused. The cap is
- * end-state invariant (the recheck's burst re-caps and refreshes the hydrogen), so this record
- * is its only evidence. grown is -1 where the recheck did not run, 0 where it ran without
- * growing the black hole.
+ * An OBSERVATION of the post-minor-merger recheck's black-hole growth (M:807-811 into D:102-104),
+ * which runs inside SAGE26's own check_disk_instability. The oracle restates the recheck's unstable
+ * gas fraction (D:54-66, D:90, D:101, as oracle_c05.c's transcription does) on a copy of the state
+ * the recheck receives and runs SAGE26's own grow_black_hole on that copy; the copy's BlackHoleMass
+ * and QuasarModeBHaccretionMass must equal SAGE26's after its own recheck (the recheck's burst
+ * writes neither), or the fixture is refused. The cap is end-state invariant (the recheck's burst
+ * re-caps and refreshes the hydrogen), so this record is its only evidence. grown is -1 where the
+ * recheck did not run, 0 where it ran without growing the black hole.
  */
 struct recheck_bh_observation {
   int grown;      /* the recheck reached its gas branch with AGNrecipeOn > 0 (D:90, D:102) */
@@ -1334,11 +1330,11 @@ struct recheck_bh_observation {
 };
 
 /**
- * The routing selections and tests CGMrecipeOn 1 adds (c10, README "The c10 Group, Part 3"),
- * recorded only by CGMrecipeOn 1 fixtures: -1 not evaluated on this path, else 0 (the hot pair, or
- * a test that fails) or 1 (the CGM pair, or a test that passes). Each selection is computed by the
- * transcription of its selection test at its call site. M = R/src/model_mergers.c, S =
- * model_starformation_and_feedback.c, X = R/src/model_misc.h, D = model_disk_instability.c.
+ * The routing selections and tests CGMrecipeOn 1 adds (README "The c10 Group, Part 3"), recorded
+ * only by CGMrecipeOn 1 fixtures: -1 not evaluated on this path, else 0 (the hot pair, or a test
+ * that fails) or 1 (the CGM pair, or a test that passes). Each selection is computed by the
+ * transcription of its selection test at its call site. M = R/src/model_mergers.c,
+ * S = model_starformation_and_feedback.c, X = R/src/model_misc.h, D = model_disk_instability.c.
  */
 enum cgm_flag_id {
   FLC_WIND_RESERVOIR_CGM,           /* M:406-407: the transcribed wind's host's Regime */
@@ -1368,11 +1364,11 @@ static const char *const CGM_FLAG_NAMES[FLC_COUNT] = {
 };
 
 /**
- * The values CGMrecipeOn 1 adds (c10): the CGM binding energy of the transcribed wind (M:409; its
- * hot counterpart is c06's hot_gas_energy, absent when the CGM pair is selected) and the locals of
- * the recheck's wind (M:393-394, :409, :420), transcribed with the recheck's growth. Each is
- * tail-checked (the transcription passes none to a SAGE26 function); the unselected pair's energy
- * is absent.
+ * The values CGMrecipeOn 1 adds: the CGM binding energy of the transcribed wind (M:409; its hot
+ * counterpart is hot_gas_energy, absent when the CGM pair is selected) and the locals of the
+ * recheck's wind (M:393-394, :409, :420), transcribed with the recheck's growth. Each is
+ * tail-checked (the transcription passes none to a SAGE26 function); the unselected pair's
+ * energy is absent.
  */
 enum cgm_id {
   IMC_CGM_GAS_ENERGY,               /* cgm_gas_energy (M:409), the transcribed wind */
@@ -1395,12 +1391,12 @@ static const struct {
 };
 
 /**
- * c10: OBSERVATIONS of the post-minor-merger recheck's SAGE26 routines at CGMrecipeOn 1, each a
+ * OBSERVATIONS of the post-minor-merger recheck's SAGE26 routines at CGMrecipeOn 1, each a
  * counterfactual of one Regime during one call only, restored after it: the burst host's
  * (RECHECK_CF_WIND_HOST) or the FoF central's (RECHECK_CF_WIND_CENTRAL) Regime flipped during
  * SAGE26's own grow_black_hole (D:102-104), and the FoF central's (RECHECK_CF_BURST_CENTRAL) or the
- * host's (RECHECK_CF_BURST_HOST) during SAGE26's own collisional_starburst_recipe (D:106-108).
- * No routine writes Regime, so the flip changes only what that call reads.
+ * host's (RECHECK_CF_BURST_HOST) during SAGE26's own collisional_starburst_recipe (D:106-108). No
+ * routine writes Regime, so the flip changes only what that call reads.
  */
 enum recheck_cf {
   RECHECK_CF_NONE,
@@ -1411,7 +1407,7 @@ enum recheck_cf {
 };
 static enum recheck_cf recheck_cf = RECHECK_CF_NONE;
 
-/** The c10 recheck observations, in record order (enum recheck_cf) */
+/** The CGMrecipeOn 1 recheck observations, in record order (enum recheck_cf) */
 #define RECHECK_OBSERVATIONS 4
 static const struct {
   enum recheck_cf cf;
@@ -1431,18 +1427,18 @@ struct locals {
   int cflag[CF_COUNT];
   int cflag_present[CF_COUNT];
   int flag[FL_COUNT];
-  double h_value[IMH_COUNT]; /* c08: a float local widened exactly */
+  double h_value[IMH_COUNT]; /* a float local widened exactly */
   int h_present[IMH_COUNT];
   int h_flag[FLH_COUNT];
-  struct recheck_bh_observation recheck_bh; /* c08, SFprescription 1 only */
-  double fire_value[IMF_COUNT];             /* c09 */
+  struct recheck_bh_observation recheck_bh; /* SFprescription 1 only */
+  double fire_value[IMF_COUNT];             /* FIREmodeOn 1 values (enum fire_id) */
   int fire_present[IMF_COUNT];
   int fire_flag[FLF_COUNT];
-  struct recheck_fire_observation recheck_fire; /* c09, FIREmodeOn 1 only */
-  double cgm_value[IMC_COUNT];                  /* c10 */
+  struct recheck_fire_observation recheck_fire; /* FIREmodeOn 1 only */
+  double cgm_value[IMC_COUNT];                  /* CGMrecipeOn 1 values (enum cgm_id) */
   int cgm_present[IMC_COUNT];
   int cgm_flag[FLC_COUNT];
-  int recheck_gas_branch; /* c10: the transcribed recheck reached D:90's gas branch (-1 not run) */
+  int recheck_gas_branch; /* the transcribed recheck reached D:90's gas branch (-1 not run) */
   int out_of_domain;      /* a SAGE26 assertion would abort on this path (perturbed runs only) */
 };
 
@@ -1473,9 +1469,9 @@ struct perturbation {
   int im;   /* enum im_id to perturb, or -1 */
   int cf;   /* enum carried_flag_id to flip, or -1 */
   int up;   /* 1: toward +inf; 0: toward -inf */
-  int h;    /* enum h_id to perturb (c08), or -1 */
-  int fire; /* enum fire_id to perturb (c09), or -1 */
-  int cgm;  /* enum cgm_id to perturb (c10), or -1 */
+  int h;    /* enum h_id to perturb, or -1 */
+  int fire; /* enum fire_id to perturb, or -1 */
+  int cgm;  /* enum cgm_id to perturb, or -1 */
 };
 
 static const struct perturbation NO_PERTURBATION = {-1, -1, 0, -1, -1, -1};
@@ -1487,10 +1483,10 @@ struct composition {
   int wind;         /* quasar_mode_wind (inside grow_black_hole) */
   int burst;        /* collisional_starburst_recipe */
   int feedback;     /* update_from_feedback (inside the burst) */
-  int fire_helpers; /* c09: capped_eta_reheat and sn_energy_coupling (inside the burst) */
-  int routing;      /* c10: add_metals_to_hot_reservoir and add_gas_to_hot_reservoir (CGMrecipeOn 1
+  int fire_helpers; /* capped_eta_reheat and sn_energy_coupling (inside the burst) */
+  int routing;      /* add_metals_to_hot_reservoir and add_gas_to_hot_reservoir (CGMrecipeOn 1
                        only; SAGE26's own header-inline helpers otherwise) */
-  int recheck;      /* c10: the burst's check_disk_instability (CGMrecipeOn 1 only) */
+  int recheck;      /* the burst's check_disk_instability (CGMrecipeOn 1 only) */
 };
 
 static const struct composition OWN_ROUTINES = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -1499,8 +1495,8 @@ static const struct composition ALL_TRANSCRIBED = {1, 1, 1, 1, 1, 1, 1, 1};
 /**
  * @brief The routines that must be transcribed for a value of the given stage to be reached
  *
- * The routing helpers stay SAGE26's own in every such composition (c10), so a value the routine
- * passes to one (yield_metals_to_hot, total_gas, total_metals_gas) is fed to SAGE26's helper.
+ * The routing helpers stay SAGE26's own in every such composition, so a value the routine passes to
+ * one (yield_metals_to_hot, total_gas, total_metals_gas) is fed to SAGE26's helper.
  */
 static struct composition composition_for(const enum stage stage) {
   struct composition c = OWN_ROUTINES;
@@ -1531,7 +1527,8 @@ static double tap(struct context *ctx, const enum im_id id, const double v) {
   return v;
 }
 
-/** @brief Record a float c08 value, then return it, or its float neighbour when perturbed */
+/** @brief Record a float SFprescription 1 value, then return it, or its float
+ *         neighbour when perturbed */
 static float tap_h_f32(struct context *ctx, const enum h_id id, const float v) {
   ctx->l->h_value[id] = v;
   ctx->l->h_present[id] = 1;
@@ -1551,7 +1548,7 @@ static double tap_h_f64(struct context *ctx, const enum h_id id, const double v)
   return v;
 }
 
-/** @brief Record a c09 value, then return it, or its neighbour when it is perturbed */
+/** @brief Record a FIREmodeOn 1 value, then return it, or its neighbour when it is perturbed */
 static double tap_fire(struct context *ctx, const enum fire_id id, const double v) {
   ctx->l->fire_value[id] = v;
   ctx->l->fire_present[id] = 1;
@@ -1561,7 +1558,7 @@ static double tap_fire(struct context *ctx, const enum fire_id id, const double 
   return v;
 }
 
-/** @brief Record a c10 value, then return it, or its neighbour when it is perturbed */
+/** @brief Record a CGMrecipeOn 1 value, then return it, or its neighbour when it is perturbed */
 static double tap_cgm(struct context *ctx, const enum cgm_id id, const double v) {
   ctx->l->cgm_value[id] = v;
   ctx->l->cgm_present[id] = 1;
@@ -1648,14 +1645,14 @@ static double transcribe_estimate_merging_time(struct context *ctx, const int sa
 
 /**
  * @brief TRANSCRIPTION of quasar_mode_wind, M:390-442, on R0's path (CGMrecipeOn 0,
- *        M:430-441) and (c10) R4's (CGMrecipeOn 1, M:406-429)
+ *        M:430-441) and R4's (CGMrecipeOn 1, M:406-429)
  *
  * With CGMrecipeOn 1 the WIND HOST gal's own Regime selects its CGM pair (Regime 0, M:407-417) or
  * its hot pair (M:418-428) for the second test, which adds the ORIGINAL cold binding energy to the
  * selected pair's (M:411, M:422) and compares the unreduced wind energy. The selection is recorded
- * in wind_reservoir_cgm; the CGM test in wind_ejects_cgm and its energy in cgm_gas_energy (c10),
- * the hot test in c06's wind_ejects_hot and its energy in hot_gas_energy, each -1 or absent where
- * the other pair is selected.
+ * in wind_reservoir_cgm; the CGM test in wind_ejects_cgm and its energy in cgm_gas_energy, the hot
+ * test in wind_ejects_hot and its energy in hot_gas_energy, each -1 or absent where the other
+ * pair is selected.
  */
 static void transcribe_quasar_mode_wind(struct context *ctx, const int gal,
                                         const double BHaccrete) {
@@ -1680,7 +1677,7 @@ static void transcribe_quasar_mode_wind(struct context *ctx, const int gal,
     galaxies[gal].MetalsColdGas = 0.0;
   }
 
-  /* M:406 (c10): CGMrecipeOn 1, the WIND HOST's own Regime selects the pair (M:407) */
+  /* M:406: CGMrecipeOn 1, the WIND HOST's own Regime selects the pair (M:407) */
   if (run_params.CGMrecipeOn == 1) {
     l->cgm_flag[FLC_WIND_RESERVOIR_CGM] = galaxies[gal].Regime == 0;
     if (galaxies[gal].Regime == 0) { /* M:407 */
@@ -1733,9 +1730,9 @@ static void transcribe_quasar_mode_wind(struct context *ctx, const int gal,
 }
 
 /**
- * @brief TRANSCRIPTION of grow_black_hole, M:346-378, on R0's and R1's path (SFprescription 0,
- *        so the hydrogen cap of M:366-372 does not run) and R2's (SFprescription 1, c08: the cap
- *        runs after the accretion and the negative-metal floor, before the wind)
+ * @brief TRANSCRIPTION of grow_black_hole, M:346-378, on R0's and R1's path (SFprescription 0, so
+ *        the hydrogen cap of M:366-372 does not run) and R2's (SFprescription 1: the cap runs after
+ *        the accretion and the negative-metal floor, before the wind)
  */
 static void transcribe_grow_black_hole(struct context *ctx, const int merger_centralgal,
                                        const double mass_ratio) {
@@ -1803,15 +1800,14 @@ static void transcribe_grow_black_hole(struct context *ctx, const int merger_cen
  *
  * oracle_c05.c's transcription, restated: SupernovaRecipeOn 1, CGMrecipeOn 0 ("Original SAGE
  * behavior", S:1224-1246) and SFprescription 0 or 1: for 1 (sf_prescription_tracks_h2), the
- * hydrogen cap of S:1169-1173 after the cold-gas and metal debits and before the hot-gas credit
- * (c08). With CGMrecipeOn 1 (c10, *_fire routines) the FoF central's Regime selects the branch
- * (S:1175-1176): its CGM pair for Regime 0 (S:1177-1198), its hot pair otherwise (S:1200-1222),
- * each statement for statement, the selection recorded in burst_feedback_reservoir_cgm. The
- * carried values keep their c06 names on both branches (as oracle_c05.c's do): metallicity_hot,
- * metals_hot_to_eject and metals_hot_to_eject_capped hold the SELECTED pair's values, and
- * ejected_mass_capped the ejection capped to the selected gas after the reheating. Its XASSERTs
- * (S:1158-1163) are checked: a violation marks the composition out of domain, as SAGE26 would
- * abort there.
+ * hydrogen cap of S:1169-1173 after the cold-gas and metal debits and before the hot-gas credit.
+ * With CGMrecipeOn 1 (*_fire routines) the FoF central's Regime selects the branch (S:1175-1176):
+ * its CGM pair for Regime 0 (S:1177-1198), its hot pair otherwise (S:1200-1222), each statement for
+ * statement, the selection recorded in burst_feedback_reservoir_cgm. The carried values keep the
+ * same names on both branches (as oracle_c05.c's do): metallicity_hot, metals_hot_to_eject and
+ * metals_hot_to_eject_capped hold the SELECTED pair's values, and ejected_mass_capped the ejection
+ * capped to the selected gas after the reheating. Its XASSERTs (S:1158-1163) are checked: a
+ * violation marks the composition out of domain, as SAGE26 would abort there.
  */
 static void transcribe_update_from_feedback(struct context *ctx, const int p, const int centralgal,
                                             double reheated_mass, double ejected_mass,
@@ -1847,7 +1843,7 @@ static void transcribe_update_from_feedback(struct context *ctx, const int p, co
       galaxies[p].H1gas = max_h_fb;
   }
 
-  if (run_params.CGMrecipeOn == 1) { /* S:1175 (c10) */
+  if (run_params.CGMrecipeOn == 1) { /* S:1175 */
     l->cgm_flag[FLC_BURST_FEEDBACK_RESERVOIR_CGM] = galaxies[centralgal].Regime == 0;
     if (galaxies[centralgal].Regime == 0) { /* S:1176 */
       /* S:1180-1181 */
@@ -1960,7 +1956,7 @@ static void transcribe_update_from_feedback(struct context *ctx, const int p, co
 #define C08_TOOMRE_DISK_FACTOR 3.0
 
 /**
- * @brief c08: observe the recheck's black-hole growth on a copy of the state it receives
+ * @brief Observe the recheck's black-hole growth on a copy of the state it receives
  *
  * The statements of D:54-66, D:90 and D:101 restated from SAGE26 (the stellar transfer of
  * D:73-84 writes no field grow_black_hole reads, so it is not repeated), then SAGE26's own
@@ -2000,8 +1996,8 @@ static void observe_recheck_growth(struct locals *l, const int p, const struct G
 }
 
 /**
- * @brief c08: refuse the fixture unless the observation's black hole is SAGE26's after its
- *        own recheck (BlackHoleMass and QuasarModeBHaccretionMass, bit for bit)
+ * @brief Refuse the fixture unless the observation's black hole is SAGE26's after its own recheck
+ *        (BlackHoleMass and QuasarModeBHaccretionMass, bit for bit)
  */
 static void check_recheck_bh_observation(const int p, const struct GALAXY *observed) {
   if (memcmp(&observed[p].BlackHoleMass, &galaxies[p].BlackHoleMass, sizeof(float)) != 0 ||
@@ -2013,7 +2009,7 @@ static void check_recheck_bh_observation(const int p, const struct GALAXY *obser
 }
 
 /**
- * @brief c09: TRANSCRIPTION of capped_eta_reheat, R/src/model_misc.h:141-149 (header-inline in
+ * @brief TRANSCRIPTION of capped_eta_reheat, R/src/model_misc.h:141-149 (header-inline in
  *        SAGE26; its own copy is what the burst calls unless the composition transcribes it)
  *
  *   if(vvir <= 0.0) return eta_reheat;
@@ -2037,7 +2033,7 @@ static double transcribe_capped_eta_reheat(struct context *ctx, const double eta
 }
 
 /**
- * @brief c09: TRANSCRIPTION of sn_energy_coupling, R/src/model_misc.h:118-124
+ * @brief TRANSCRIPTION of sn_energy_coupling, R/src/model_misc.h:118-124
  *
  *   const double eps_eff = run_params->FeedbackEjectionEfficiency * fire_scaling;
  *   if(eps_eff > MAX_SN_ENERGY_COUPLING) return MAX_SN_ENERGY_COUPLING;
@@ -2056,7 +2052,7 @@ static double transcribe_sn_energy_coupling(struct context *ctx, const double fi
 }
 
 /**
- * @brief c09: observe the recheck's own burst (struct recheck_fire_observation)
+ * @brief Observe the recheck's own burst (struct recheck_fire_observation)
  *
  * before is the state the recheck received and after SAGE26's state after its own recheck; each
  * counterfactual runs SAGE26's own check_disk_instability on a copy of before, with a copy of the
@@ -2087,11 +2083,11 @@ static void observe_recheck_fire(struct locals *l, const int m, const int centra
 }
 
 // ============================================================================
-// c10: TRANSCRIPTIONS OF THE ROUTING HELPERS AND OF THE RECHECK (CGMrecipeOn 1)
+// TRANSCRIPTIONS OF THE ROUTING HELPERS AND OF THE RECHECK (CGMrecipeOn 1)
 // ============================================================================
 
 /**
- * @brief c10: TRANSCRIPTION of add_metals_to_hot_reservoir, R/src/model_misc.h:67-74
+ * @brief TRANSCRIPTION of add_metals_to_hot_reservoir, R/src/model_misc.h:67-74
  *        (header-inline in SAGE26; its own copy is what a composition calls unless it transcribes
  *        the routing)
  *
@@ -2112,7 +2108,7 @@ static void transcribe_add_metals_to_hot_reservoir(struct context *ctx, struct G
 }
 
 /**
- * @brief c10: TRANSCRIPTION of add_gas_to_hot_reservoir, R/src/model_misc.h:76-85
+ * @brief TRANSCRIPTION of add_gas_to_hot_reservoir, R/src/model_misc.h:76-85
  *
  *   if(run_params->CGMrecipeOn == 1 && central->Regime == 0) {
  *       central->CGMgas += gas; central->MetalsCGMgas += metals;
@@ -2135,14 +2131,14 @@ static void transcribe_add_gas_to_hot_reservoir(struct context *ctx, struct GALA
 }
 
 /**
- * @brief c10: TRANSCRIPTION of quasar_mode_wind, M:390-429, as the recheck's growth calls it
- *        (M:374 through D:103), with CGMrecipeOn 1
+ * @brief TRANSCRIPTION of quasar_mode_wind, M:390-429, as the recheck's growth calls it (M:374
+ *        through D:103), with CGMrecipeOn 1
  *
  * The wind energy and the host's cold binding energy (M:393-394), the cold ejection (M:397-403),
- * then the HOST's own Regime selecting its CGM pair (M:407-417) or its hot pair (M:418-428) for
- * the second test, with the ORIGINAL cold binding energy (M:411, M:422). Its values and tests are
+ * then the HOST's own Regime selecting its CGM pair (M:407-417) or its hot pair (M:418-428) for the
+ * second test, with the ORIGINAL cold binding energy (M:411, M:422). Its values and tests are
  * recorded in the recheck_wind_* slots, so the merger's own wind (transcribe_quasar_mode_wind)
- * keeps c06's.
+ * keeps its own slots.
  */
 static void transcribe_recheck_quasar_mode_wind(struct context *ctx, const int gal,
                                                 const double BHaccrete) {
@@ -2205,13 +2201,13 @@ static void transcribe_recheck_quasar_mode_wind(struct context *ctx, const int g
 }
 
 /**
- * @brief c10: TRANSCRIPTION of grow_black_hole, M:346-378, as the recheck's gas branch calls it
- *        (D:103, merger_centralgal = the burst host p), with CGMrecipeOn 1's wind
+ * @brief TRANSCRIPTION of grow_black_hole, M:346-378, as the recheck's gas branch calls it (D:103,
+ *        merger_centralgal = the burst host p), with CGMrecipeOn 1's wind
  *
  * The accretion (M:351-352) and its cap at the cold gas (M:355-357), SAGE26's own get_metallicity
- * and the debits (M:359-365), the hydrogen cap with SAGE26's guard at this site (M:366-372, c08),
- * the wind (M:374, transcribe_recheck_quasar_mode_wind) and the accretion record (M:376). Its own
- * values are not recorded (c06's grow_black_hole fixtures record them); the wind's are.
+ * and the debits (M:359-365), the hydrogen cap with SAGE26's guard at this site (M:366-372), the
+ * wind (M:374, transcribe_recheck_quasar_mode_wind) and the accretion record (M:376). Its own
+ * values are not recorded (the grow_black_hole fixtures record them); the wind's are.
  */
 static void transcribe_recheck_grow_black_hole(struct context *ctx, const int merger_centralgal,
                                                const double mass_ratio) {
@@ -2257,9 +2253,8 @@ static void transcribe_recheck_grow_black_hole(struct context *ctx, const int me
 }
 
 /**
- * @brief c10: TRANSCRIPTION of check_disk_instability, D:47-111 (D =
- * R/src/model_disk_instability.c), as the burst's post-minor-merger recheck calls it (M:809), with
- * CGMrecipeOn 1
+ * @brief TRANSCRIPTION of check_disk_instability, D:47-111 (D = R/src/model_disk_instability.c), as
+ * the burst's post-minor-merger recheck calls it (M:809), with CGMrecipeOn 1
  *
  * The disk mass (D:54), Mcrit and its cap (D:57-60), the unstable fractions (D:63-66), the stellar
  * transfer with SAGE26's own get_metallicity and update_instability_bulge_radius (D:70-84), then
@@ -2357,24 +2352,21 @@ static void transcribe_recheck_cgm(struct context *ctx, const int p, const int c
 /**
  * @brief TRANSCRIPTION of collisional_starburst_recipe, M:584-832, on R0's to R3's paths
  *
- * StarburstColdGasOn 1 (M:680-682), SFprescription 0 or 1 (for 1, the hydrogen refresh of
- * M:798-803 after the feedback and before the instability recheck, c08; the star-formation
- * commit, M:760, is SAGE26's own update_from_star_formation, whose S:1131-1135 cap the oracle
- * observes), FIREmodeOn 0 (fire_scaling stays 0 and is never read, M:692-703) or, for the *_fire
- * routines, 1 (R3, c09: the FIRE budget M:690-752 with SAGE26's own or the transcribed
- * capped_eta_reheat and sn_energy_coupling, per the composition), SupernovaRecipeOn 1,
- * SaveFullSFH 0 (M:763-768 does not run),
- * BulgeSizeOn 0 or 3 (the instability channel's update_instability_bulge_radius, M:783-784, is
- * SAGE26's own: it returns at once in mode 0, R/src/model_misc.c:395) and
- * CGMrecipeOn 0 (add_metals_to_hot_reservoir adds to MetalsHotGas, model_misc.h:67-74) or, for
- * the *_fire routines, 1 (c10, R4): the feedback routes by the FoF central's Regime (the
- * transcribed update_from_feedback), the yield through SAGE26's own or the transcribed
- * add_metals_to_hot_reservoir on the FoF central (per the composition's routing), and the
- * recheck is SAGE26's own check_disk_instability or its transcription (per the composition's
- * recheck; CGMrecipeOn 1 only).
- * SAGE26's assertions (M:589-592, M:718) are checked and mark the composition out of domain.
- * The instability recheck (M:807-811) is SAGE26's own check_disk_instability, or (c10) its
- * transcription.
+ * StarburstColdGasOn 1 (M:680-682), SFprescription 0 or 1 (for 1, the hydrogen refresh of M:798-803
+ * after the feedback and before the instability recheck; the star-formation commit, M:760, is
+ * SAGE26's own update_from_star_formation, whose S:1131-1135 cap the oracle observes), FIREmodeOn 0
+ * (fire_scaling stays 0 and is never read, M:692-703) or, for the *_fire routines, 1 (R3: the FIRE
+ * budget M:690-752 with SAGE26's own or the transcribed capped_eta_reheat and sn_energy_coupling,
+ * per the composition), SupernovaRecipeOn 1, SaveFullSFH 0 (M:763-768 does not run), BulgeSizeOn 0
+ * or 3 (the instability channel's update_instability_bulge_radius, M:783-784, is SAGE26's own: it
+ * returns at once in mode 0, R/src/model_misc.c:395) and CGMrecipeOn 0 (add_metals_to_hot_reservoir
+ * adds to MetalsHotGas, model_misc.h:67-74) or, for the *_fire routines, 1 (R4): the feedback
+ * routes by the FoF central's Regime (the transcribed update_from_feedback), the yield through
+ * SAGE26's own or the transcribed add_metals_to_hot_reservoir on the FoF central (per the
+ * composition's routing), and the recheck is SAGE26's own check_disk_instability or its
+ * transcription (per the composition's recheck; CGMrecipeOn 1 only). SAGE26's assertions
+ * (M:589-592, M:718) are checked and mark the composition out of domain. The instability recheck
+ * (M:807-811) is SAGE26's own check_disk_instability, or its transcription.
  */
 static void transcribe_collisional_starburst_recipe(struct context *ctx, const double mass_ratio,
                                                     const int merger_centralgal,
@@ -2421,8 +2413,8 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
   }
   stars = tap(ctx, IM_STARS_PRE_RENORM, stars);
 
-  /* M:690-703 (c09): the FIRE scaling from the TARGET's float Vvir widened to double and the
-   * redshift of its stored snapshot, ZZ[SnapNum], read before the velocity test */
+  /* M:690-703: the FIRE scaling from the TARGET's float Vvir widened to double and the redshift of
+   * its stored snapshot, ZZ[SnapNum], read before the velocity test */
   double fire_scaling = 0.0;
   if (run_params.FIREmodeOn == 1 && run_params.SupernovaRecipeOn == 1) {
     double z_fire = run_params.ZZ[galaxies[m].SnapNum]; /* M:694 */
@@ -2443,8 +2435,8 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
     fire_scaling = tap_fire(ctx, IMF_SCALING, fire_scaling);
   }
 
-  /* M:706-716: SupernovaRecipeOn 1; FIREmodeOn 1 (c09) the capped loading times the stars, with
-   * no MassLoading write (M:707-710), FIREmodeOn 0 the fixed epsilon (M:711-712) */
+  /* M:706-716: SupernovaRecipeOn 1; FIREmodeOn 1 the capped loading times the stars, with no
+   * MassLoading write (M:707-710), FIREmodeOn 0 the fixed epsilon (M:711-712) */
   double reheated_mass;
   if (run_params.FIREmodeOn == 1) {
     double eta_raw = run_params.FeedbackReheatingEpsilon * fire_scaling; /* M:709 */
@@ -2477,7 +2469,7 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
   stars = tap(ctx, IM_STARS, stars);
   reheated_mass = tap(ctx, IM_REHEATED, reheated_mass);
 
-  /* M:728-752: SupernovaRecipeOn 1; FIREmodeOn 1 (c09) the energy-based ejection (M:730-736),
+  /* M:728-752: SupernovaRecipeOn 1; FIREmodeOn 1 the energy-based ejection (M:730-736),
    * FIREmodeOn 0 the fixed-epsilon formula (M:738-742) */
   double ejected_mass;
   l->flag[FL_BURST_EJECTION_VVIR_NONPOSITIVE] = 0;
@@ -2523,7 +2515,7 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
   double metallicity = get_metallicity(galaxies[m].ColdGas, galaxies[m].MetalsColdGas);
   metallicity = tap(ctx, IM_METALLICITY_SF, metallicity);
   {
-    /* c08: an OBSERVATION, not a transcription: whether SAGE26's own routine's hydrogen cap
+    /* An OBSERVATION, not a transcription: whether SAGE26's own routine's hydrogen cap
      * (S:1131-1135) changed H2gas or H1gas. A binding strict cap always changes the field. */
     const float h2_before = galaxies[m].H2gas;
     const float h1_before = galaxies[m].H1gas;
@@ -2564,10 +2556,10 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
     return;
   }
 
-  /* M:798-804 (c08): H2gas capped at the double hydrogen budget, then H1gas overwritten with
-   * the fused remainder ColdGas * HYDROGEN_MASS_FRAC - H2gas (M:801-802, one fnmsub in SAGE26's
-   * object; one C expression here), then a negative H1gas floored. The budget of M:799-800 is
-   * formed once: the two identical expressions evaluate to the same double. */
+  /* M:798-804: H2gas capped at the double hydrogen budget, then H1gas overwritten with the fused
+   * remainder ColdGas * HYDROGEN_MASS_FRAC - H2gas (M:801-802, one fnmsub in SAGE26's object; one C
+   * expression here), then a negative H1gas floored. The budget of M:799-800 is formed once: the
+   * two identical expressions evaluate to the same double. */
   l->h_flag[FLH_REFRESH_TRACKED] = sf_prescription_tracks_h2(run_params.SFprescription);
   if (sf_prescription_tracks_h2(run_params.SFprescription)) {
     double h2_budget = galaxies[m].ColdGas * HYDROGEN_MASS_FRAC;
@@ -2592,13 +2584,13 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
       l->flag[FL_BURST_RECHECK_RAN] = 1;
       struct GALAXY before[MAX_GALAXIES];
       memcpy(before, galaxies, sizeof(before));
-      /* c08: the recheck's black-hole growth observed on a copy (SFprescription 1 only) */
+      /* The recheck's black-hole growth observed on a copy (SFprescription 1 only) */
       struct GALAXY observed[MAX_GALAXIES];
       if (run_params.SFprescription == 1) {
         observe_recheck_growth(l, m, before, observed);
       }
       if (ctx->comp.recheck && run_params.CGMrecipeOn == 1) {
-        transcribe_recheck_cgm(ctx, m, centralgal, time, dt, step); /* c10 */
+        transcribe_recheck_cgm(ctx, m, centralgal, time, dt, step);
       } else {
         check_disk_instability(m, centralgal, ORACLE_HALONR, time, dt, step, galaxies, &run_params);
       }
@@ -2609,7 +2601,7 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
       watched.blocks[m] = BLOCK_RESERVOIRS | BLOCK_HISTORIES;
       watched.blocks[centralgal] |= BLOCK_RESERVOIRS;
       l->flag[FL_BURST_RECHECK_CHANGED] = !same_recorded(before, galaxies, &watched);
-      /* c09: the recheck's own burst observed under FIREmodeOn 0 and a replaced redshift */
+      /* The recheck's own burst observed under FIREmodeOn 0 and a replaced redshift */
       if (run_params.FIREmodeOn == 1) {
         observe_recheck_fire(l, m, centralgal, time, dt, step, before, galaxies, &watched);
       }
@@ -2629,7 +2621,7 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
     double metals_leaving_disk = run_params.Yield * FracZleaveDiskVal * stars;
     metals_leaving_disk = tap(ctx, IM_YIELD_TO_HOT, metals_leaving_disk);
 
-    /* M:824 (c10: SAGE26's own helper, or its transcription per the composition) */
+    /* M:824 (SAGE26's own helper, or its transcription per the composition) */
     if (ctx->comp.routing && run_params.CGMrecipeOn == 1) {
       transcribe_add_metals_to_hot_reservoir(ctx, &galaxies[centralgal], metals_leaving_disk,
                                              FLC_BURST_YIELD_RESERVOIR_CGM);
@@ -2640,7 +2632,7 @@ static void transcribe_collisional_starburst_recipe(struct context *ctx, const d
     double all_metals = run_params.Yield * stars;
     all_metals = tap(ctx, IM_YIELD_TO_HOT, all_metals);
 
-    /* M:830 (c10: likewise) */
+    /* M:830 (likewise) */
     if (ctx->comp.routing && run_params.CGMrecipeOn == 1) {
       transcribe_add_metals_to_hot_reservoir(ctx, &galaxies[centralgal], all_metals,
                                              FLC_BURST_YIELD_RESERVOIR_CGM);
@@ -2750,15 +2742,15 @@ static void transcribe_add_galaxies_together(struct context *ctx, const int t, c
  * (remnant_R1, remnant_R2). C_rad (M:193) is the constant COVINGTON11_C_RAD and is not a
  * carried value.
  *
- * The routine is static, so no SAGE26 call reaches it alone: the transcription is checked
- * through SAGE26's own deal_with_galaxy_merger, whose end state it must reproduce (tail check).
- * With BulgeSizeOn 0 every path of deal_with_galaxy_merger that stores the result in
- * MergerBulgeRadius then calls get_bulge_radius, which zeroes the radii
- * (R/src/model_misc.c:242-247), so the check covers nothing there. With BulgeSizeOn 3 the
- * result reaches the state on the major and the spheroid-dominated minor branch (M:307, :328),
- * by one narrowing into the float MergerBulgeRadius; the disk-dominated minor branch discards
- * it (M:318-325). The three fused multiply-adds of SAGE26's object (M:158, :171, :204,
- * README's c07 table) are the same single C expressions here, so clang contracts them alike.
+ * The routine is static, so no SAGE26 call reaches it alone: the transcription is checked through
+ * SAGE26's own deal_with_galaxy_merger, whose end state it must reproduce (tail check). With
+ * BulgeSizeOn 0 every path of deal_with_galaxy_merger that stores the result in MergerBulgeRadius
+ * then calls get_bulge_radius, which zeroes the radii (R/src/model_misc.c:242-247), so the check
+ * covers nothing there. With BulgeSizeOn 3 the result reaches the state on the major and the
+ * spheroid-dominated minor branch (M:307, :328), by one narrowing into the float MergerBulgeRadius;
+ * the disk-dominated minor branch discards it (M:318-325). The three fused multiply-adds of
+ * SAGE26's object (M:158, :171, :204, README "The c07 Group", "Fused Multiply-Adds") are the same
+ * single C expressions here, so clang contracts them alike.
  */
 static double transcribe_merger_remnant_radius(struct context *ctx, const struct GALAXY *g1,
                                                const struct GALAXY *g2) {
@@ -3064,7 +3056,7 @@ static void transcribe_deal_with_galaxy_merger(struct context *ctx, const int p,
 
 /**
  * @brief TRANSCRIPTION of disrupt_satellite_to_ICS, M:845-903, on R0's path (CGMrecipeOn 0:
- *        add_gas_to_hot_reservoir adds to HotGas, R/src/model_misc.h:76-85) and (c10) R4's
+ *        add_gas_to_hot_reservoir adds to HotGas, R/src/model_misc.h:76-85) and R4's
  *
  * The satellite's cold, hot and CGM gas, and their metals, are summed in float and widened
  * (M:848-849); with CGMrecipeOn 1 add_gas_to_hot_reservoir deposits them by the PASSED recipient
@@ -3083,7 +3075,7 @@ static void transcribe_disrupt_satellite_to_ICS(struct context *ctx, const int c
       galaxies[gal].MetalsColdGas + galaxies[gal].MetalsHotGas + galaxies[gal].MetalsCGMgas;
   total_metals_gas = tap(ctx, IM_TOTAL_METALS_GAS, total_metals_gas);
 
-  /* M:851 (c10: SAGE26's own helper, or its transcription per the composition; the PASSED
+  /* M:851 (SAGE26's own helper, or its transcription per the composition; the PASSED
    * recipient's Regime routes) */
   if (ctx->comp.routing && run_params.CGMrecipeOn == 1) {
     transcribe_add_gas_to_hot_reservoir(ctx, &galaxies[centralgal], total_gas, total_metals_gas,
@@ -3265,14 +3257,14 @@ struct checked_record {
   struct locals locals;
   struct sensitivity sens[IM_COUNT];
   int cflag_changes[CF_COUNT];
-  struct sensitivity h_sens[IMH_COUNT];               /* c08 */
-  struct sensitivity fire_sens[IMF_COUNT];            /* c09 */
-  struct sensitivity cgm_sens[IMC_COUNT];             /* c10 */
-  int recheck_regime_sensitive[RECHECK_OBSERVATIONS]; /* c10: observe_recheck_regime() */
+  struct sensitivity h_sens[IMH_COUNT];               /* SFprescription 1 values */
+  struct sensitivity fire_sens[IMF_COUNT];            /* FIREmodeOn 1 values */
+  struct sensitivity cgm_sens[IMC_COUNT];             /* CGMrecipeOn 1 values */
+  int recheck_regime_sensitive[RECHECK_OBSERVATIONS]; /* observe_recheck_regime() */
 };
 
 /**
- * @brief c10: OBSERVATIONS of the post-minor-merger recheck's SAGE26 routines at CGMrecipeOn 1
+ * @brief OBSERVATIONS of the post-minor-merger recheck's SAGE26 routines at CGMrecipeOn 1
  *        (enum recheck_cf, RECHECK_OBSERVATION_INFO)
  *
  * The fully transcribed composition runs again from the input with one Regime flipped during one
@@ -3356,7 +3348,7 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
       }
     }
   }
-  /* c08: the SFprescription 1 values, each in the composition of the routine it is a local of */
+  /* The SFprescription 1 values, each in the composition of the routine it is a local of */
   for (int id = 0; id < IMH_COUNT; id++) {
     rec->h_sens[id].up = 0;
     rec->h_sens[id].down = 0;
@@ -3383,7 +3375,7 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
       }
     }
   }
-  /* c09: the FIREmodeOn 1 values, each in the composition of the routine it is a local of */
+  /* The FIREmodeOn 1 values, each in the composition of the routine it is a local of */
   for (int id = 0; id < IMF_COUNT; id++) {
     rec->fire_sens[id].up = 0;
     rec->fire_sens[id].down = 0;
@@ -3421,7 +3413,7 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
     rec->cflag_changes[id] = !lp.out_of_domain && !(same_recorded(result, rec->end, spec) &&
                                                     same_f64(value, rec->end_value));
   }
-  /* c10: the CGMrecipeOn 1 values, each in the composition of the routine it is a local of */
+  /* The CGMrecipeOn 1 values, each in the composition of the routine it is a local of */
   for (int id = 0; id < IMC_COUNT; id++) {
     rec->cgm_sens[id].up = 0;
     rec->cgm_sens[id].down = 0;
@@ -3449,7 +3441,7 @@ static void run_checked(const struct GALAXY *input, const struct call_args *a,
       }
     }
   }
-  /* c10: the recheck's SAGE26 routines observed (CGMrecipeOn 1, where its gas branch ran) */
+  /* The recheck's SAGE26 routines observed (CGMrecipeOn 1, where its gas branch ran) */
   observe_recheck_regime(input, a, spec, rec);
 }
 
@@ -3496,8 +3488,8 @@ static void out_values(const struct checked_record *rec, const int first, const 
 }
 
 /**
- * @brief Write one c08 value: c06's markers (tail-checked, check kind 2) and the narrowing
- *        limitation, the value as the float or double it is
+ * @brief Write one SFprescription 1 value: the markers of README "The c06 Group" (tail-checked,
+ *        check kind 2) and the narrowing limitation, the value as the float or double it is
  */
 static void out_carried_h(const struct checked_record *rec, const int id) {
   const char *name = IMH_INFO[id].name;
@@ -3527,8 +3519,8 @@ static void out_h_flags(const struct locals *l, const int first, const int last)
 }
 
 /**
- * @brief The c08 record of an SFprescription 1 fixture (README "The c08 Group"), written after
- *        every earlier field, so an SFprescription 0 output is unchanged
+ * @brief The record of an SFprescription 1 fixture (README "The c08 Group"), written after every
+ *        earlier field; an SFprescription 0 output has none of it
  *
  * The black-hole cap (grow_black_hole and everything that calls it), and, where the burst runs,
  * the observed star-formation commit caps, the post-reheating cap and the burst refresh.
@@ -3560,8 +3552,9 @@ static void write_h_record(const struct checked_record *rec, const int with_bh,
 }
 
 /**
- * @brief c09: one FIREmodeOn 1 value: c06's markers with its check kind and c07's narrowing
- *        limitation (always 0 in a burst, which never writes MassLoading)
+ * @brief One FIREmodeOn 1 value: the markers of README "The c06 Group" with its check kind and
+ *        the narrowing limitation of README "The c07 Group" (always 0 in a burst, which never
+ *        writes MassLoading)
  */
 static void out_carried_fire(const struct checked_record *rec, const int id) {
   const char *name = IMF_INFO[id].name;
@@ -3581,8 +3574,8 @@ static void out_carried_fire(const struct checked_record *rec, const int id) {
 }
 
 /**
- * @brief c09: the record of a *_fire routine that runs the burst's transcription, written after
- *        every earlier field: FIREmodeOn, the FIRE flags and values, and the observations of the
+ * @brief The record of a *_fire routine that runs the burst's transcription, written after every
+ *        earlier field: FIREmodeOn, the FIRE flags and values, and the observations of the
  *        recheck's own burst
  */
 static void write_fire_record(const struct checked_record *rec) {
@@ -3600,9 +3593,9 @@ static void write_fire_record(const struct checked_record *rec) {
 }
 
 /**
- * @brief c10: one CGMrecipeOn 1 value: c06's markers (tail-checked, check kind 2), the value as the
- *        double it is; none is narrowing-limited (each reaches the state through a strict
- *        comparison)
+ * @brief One CGMrecipeOn 1 value: the markers of README "The c06 Group" (tail-checked, check
+ *        kind 2), the value as the double it is; none is narrowing-limited (each reaches the
+ *        state through a strict comparison)
  */
 static void out_carried_cgm(const struct checked_record *rec, const int id) {
   const char *name = IMC_INFO[id].name;
@@ -3620,7 +3613,7 @@ static void out_carried_cgm(const struct checked_record *rec, const int id) {
           rec->cgm_sens[id].up && rec->cgm_sens[id].down);
 }
 
-/** The parts of the c10 record a routine writes */
+/** The parts of the CGMrecipeOn 1 record a routine writes */
 enum cgm_record_part {
   CGM_RECORD_WIND = 1,   /* the transcribed wind: grow_black_hole, quasar_mode_wind, the merger */
   CGM_RECORD_BURST = 2,  /* the burst's commit and yield and its recheck */
@@ -3634,10 +3627,9 @@ static void out_cgm_flags(const struct locals *l, const int first, const int las
 }
 
 /**
- * @brief c10: the record of a CGMrecipeOn 1 fixture, after every earlier field (nothing for
- *        CGMrecipeOn 0, so an earlier output is unchanged): the configuration, the selections and
- *        tests of the routine's sites, their values and, where the recheck's gas branch ran, the
- *        observations of its SAGE26 routines
+ * @brief The record of a CGMrecipeOn 1 fixture, after every earlier field (nothing for
+ *        CGMrecipeOn 0): the configuration, the selections and tests of the routine's sites, their
+ *        values and, where the recheck's gas branch ran, the observations of its SAGE26 routines
  */
 static void write_cgm_record(const struct checked_record *rec, const int parts) {
   if (!cgm_block) {
@@ -3670,22 +3662,22 @@ static void write_cgm_record(const struct checked_record *rec, const int parts) 
 // ROUTINES: SAGE26'S OWN, CHECKED
 // ============================================================================
 
-/** @brief The c10 block added to every galaxy of a CGMrecipeOn 1 fixture (Regime) */
+/** @brief The block added to every galaxy of a CGMrecipeOn 1 fixture (BLOCK_CGM: Regime) */
 static int cgm_block_bit(void) { return cgm_block ? BLOCK_CGM : 0; }
 
-/** @brief The blocks a merger-family galaxy reads: c06's, MassLoading for a *_fire routine and
- *         (c10) Regime for a CGMrecipeOn 1 fixture */
+/** @brief The blocks a merger-family galaxy reads: BLOCK_MERGER_INPUT, MassLoading for a *_fire
+ *         routine and Regime for a CGMrecipeOn 1 fixture */
 static int merger_input_blocks(void) {
   return BLOCK_MERGER_INPUT | (fire_routine ? BLOCK_FIRE : 0) | cgm_block_bit();
 }
 
-/** @brief The c09 block added to a recorded galaxy of a *_fire routine, and the c10 one */
+/** @brief BLOCK_FIRE added to a recorded galaxy of a *_fire routine, and BLOCK_CGM */
 static int fire_block(void) { return (fire_routine ? BLOCK_FIRE : 0) | cgm_block_bit(); }
 
 static void read_merger_galaxies(const int ngal) {
   for (int i = 0; i < ngal; i++) {
     read_galaxy(i, merger_input_blocks());
-    /* c10: SAGE26's classifier assigns every evolved row 0 or 1 (R/src/model_regimes.c:77-95) */
+    /* SAGE26's classifier assigns every evolved row 0 or 1 (R/src/model_regimes.c:77-95) */
     if (cgm_block && galaxies[i].Regime != 0 && galaxies[i].Regime != 1) {
       fatal("galaxy[%d].Regime = %d: the classifier assigns only 0 and 1", i, galaxies[i].Regime);
     }
@@ -3726,7 +3718,7 @@ static void run_estimate_merging_time(void) {
 
 /** @brief grow_black_hole (M:346-378) on one galaxy, with the wind it calls */
 static void run_grow_black_hole(void) {
-  cgm_routine = 1; /* c10: CGMrecipeOn 0 or 1 */
+  cgm_routine = 1; /* CGMrecipeOn 0 or 1 */
   read_merger_config();
   struct call_args a;
   memset(&a, 0, sizeof(a));
@@ -3752,7 +3744,7 @@ static void run_grow_black_hole(void) {
 
 /** @brief quasar_mode_wind (M:390-442) on its own, with the accreted mass as input */
 static void run_quasar_mode_wind(void) {
-  cgm_routine = 1; /* c10: CGMrecipeOn 0 or 1 */
+  cgm_routine = 1; /* CGMrecipeOn 0 or 1 */
   read_merger_config();
   struct call_args a;
   memset(&a, 0, sizeof(a));
@@ -3810,8 +3802,8 @@ static void run_collisional_starburst_recipe(void) {
   struct GALAXY input[MAX_GALAXIES];
   memcpy(input, galaxies, (size_t)a.ngal * sizeof(input[0]));
   struct record_spec spec = {a.ngal, {0}};
-  /* c09: a *_fire fixture also records any other galaxy (a merging satellite the burst is not
-   * given), which must stay as it was */
+  /* A *_fire fixture also records any other galaxy (a merging satellite the burst is not given),
+   * which must stay as it was */
   for (int i = 0; i < a.ngal; i++) {
     spec.blocks[i] = fire_routine ? BLOCK_RESERVOIRS | fire_block() : 0;
   }
@@ -3830,8 +3822,8 @@ static void run_collisional_starburst_recipe(void) {
   write_cgm_record(&rec, CGM_RECORD_BURST);
 }
 
-/** @brief c09: collisional_starburst_recipe with FIREmodeOn 0 or 1 (README "The c09 Group"), and
- *         (c10) CGMrecipeOn 0 or 1 */
+/** @brief collisional_starburst_recipe with FIREmodeOn 0 or 1 (README "The c09 Group"), and
+ *         CGMrecipeOn 0 or 1 */
 static void run_collisional_starburst_recipe_fire(void) {
   fire_routine = 1;
   cgm_routine = 1;
@@ -3875,17 +3867,17 @@ static void run_make_bulge_from_burst(void) {
 }
 
 /**
- * @brief The c07 record of a BulgeSizeOn 3 merger: the remnant radius's branch flags and
+ * @brief The record of a BulgeSizeOn 3 merger: the remnant radius's branch flags and
  *        locals, and each radius value's narrowing limitation (README "The c07 Group")
  *
- * Written only with BulgeSizeOn 3, after the c06 record, so a mode-0 output is unchanged. Each
- * remnant local is written with c06's markers and `_narrowing_limited` 1: its only path to the
- * state is new_merger_radius's float store into MergerBulgeRadius (M:307, :328), one
- * narrowing. new_merger_radius and old_disk_radius, already in the c06 record, get the same
- * marker: new_merger_radius reaches the state only through that store, old_disk_radius only
- * through the burst's update_instability_bulge_radius, whose result is one float store into
- * InstabilityBulgeRadius (R/src/model_misc.c:422; the closing get_bulge_radius reads that
- * float).
+ * Written only with BulgeSizeOn 3, after the merger's flags and carried values; a mode-0 output has
+ * none of it. Each remnant local is written with the markers of README "The c06 Group" and
+ * `_narrowing_limited` 1: its only path to the state is new_merger_radius's float store into
+ * MergerBulgeRadius (M:307, :328), one narrowing. new_merger_radius and old_disk_radius, already
+ * among those carried values, get the same marker: new_merger_radius reaches the state only through
+ * that store, old_disk_radius only through the burst's update_instability_bulge_radius, whose
+ * result is one float store into InstabilityBulgeRadius (R/src/model_misc.c:422; the closing
+ * get_bulge_radius reads that float).
  */
 static void write_remnant_record(const struct checked_record *rec) {
   out_flags(&rec->locals, FL_REM_TOTAL_NONPOSITIVE, FL_REM_ENERGY_NONPOSITIVE);
@@ -3941,7 +3933,7 @@ static void run_deal_with_galaxy_merger(void) {
   write_cgm_record(&rec, CGM_RECORD_WIND | CGM_RECORD_BURST);
 }
 
-/** @brief c09: deal_with_galaxy_merger with FIREmodeOn 0 or 1 (README "The c09 Group"), and (c10)
+/** @brief deal_with_galaxy_merger with FIREmodeOn 0 or 1 (README "The c09 Group"), and
  *         CGMrecipeOn 0 or 1 */
 static void run_deal_with_galaxy_merger_fire(void) {
   fire_routine = 1;
@@ -3951,7 +3943,7 @@ static void run_deal_with_galaxy_merger_fire(void) {
 
 /** @brief disrupt_satellite_to_ICS (M:845-903) */
 static void run_disrupt_satellite_to_ICS(void) {
-  cgm_routine = 1; /* c10: CGMrecipeOn 0 or 1 */
+  cgm_routine = 1; /* CGMrecipeOn 0 or 1 */
   read_merger_config();
   struct call_args a;
   memset(&a, 0, sizeof(a));
@@ -3969,7 +3961,7 @@ static void run_disrupt_satellite_to_ICS(void) {
   struct GALAXY input[MAX_GALAXIES];
   memcpy(input, galaxies, (size_t)a.ngal * sizeof(input[0]));
   struct record_spec spec = {a.ngal, {0}};
-  /* c10: a CGMrecipeOn 1 fixture records every galaxy (the FoF central that is not the recipient
+  /* A CGMrecipeOn 1 fixture records every galaxy (the FoF central that is not the recipient
    * included), whose pairs must stay as they were unless the recipient's Regime selects them */
   for (int i = 0; i < a.ngal; i++) {
     spec.blocks[i] = cgm_block ? BLOCK_RESERVOIRS | BLOCK_CGM : 0;
@@ -4004,7 +3996,7 @@ struct pass_galaxy {
   int action;            /* 0 none, 1 deal_with_galaxy_merger, 4 disrupt_satellite_to_ICS */
   int step_bin;          /* B:579-580 */
   double dt;             /* B:581 */
-  /* c10 (CGMrecipeOn 1): the disruption's selection, X:78 at M:851 on the passed recipient
+  /* CGMrecipeOn 1: the disruption's selection, X:78 at M:851 on the passed recipient
    * merger_centralgal (B:575), -1 where the row is not disrupted; and the OBSERVATIONS of this
    * row's SAGE26 call (write_pass_cgm_record), -1 where the row neither merges nor disrupts */
   int disrupt_reservoir_cgm;
@@ -4012,7 +4004,7 @@ struct pass_galaxy {
   int central_regime_sensitive;   /* the FoF central's, -1 where it is the recipient */
 };
 
-/* c10: an observation of the pass (write_pass_cgm_record): during row pass_flip_row's SAGE26 call
+/* An observation of the pass (write_pass_cgm_record): during row pass_flip_row's SAGE26 call
  * (disrupt_satellite_to_ICS or deal_with_galaxy_merger) galaxy pass_flip_galaxy's Regime is flipped
  * and restored after it; -1 for no observation */
 static int pass_flip_row = -1;
@@ -4102,7 +4094,7 @@ static void transcribe_merger_pass(const struct pass_args *a, struct pass_galaxy
           const double event_time = a->age[p] - (step + 0.5) * (deltaT / effective_steps);
           r->event_time = event_time;
 
-          /* c10: an observation flips one Regime during this row's call only */
+          /* An observation flips one Regime during this row's call only */
           const int flip = pass_flip_row == p ? pass_flip_galaxy : -1;
           if (flip >= 0) {
             galaxies[flip].Regime = 1 - galaxies[flip].Regime;
@@ -4111,7 +4103,7 @@ static void transcribe_merger_pass(const struct pass_args *a, struct pass_galaxy
           /* B:574-582 */
           if (galaxies[p].MergTime > 0.0) {
             r->action = 4;
-            /* c10: the selection the deposit makes, X:78 on the passed recipient (M:851) */
+            /* The selection the deposit makes, X:78 on the passed recipient (M:851) */
             r->disrupt_reservoir_cgm =
                 run_params.CGMrecipeOn == 1 && galaxies[merger_centralgal].Regime == 0;
             disrupt_satellite_to_ICS(merger_centralgal, p, event_time, galaxies, &run_params);
@@ -4182,7 +4174,7 @@ static void write_pass_record(const char *prefix, const int ngal, const struct p
 }
 
 /**
- * @brief c09: the record of a merger_pass_fire fixture, after every earlier field
+ * @brief The record of a merger_pass_fire fixture, after every earlier field
  *
  * intermediate.fire_mode, and for FIREmodeOn 1 two OBSERVATIONS of the pass's bursts, which run
  * inside SAGE26's own deal_with_galaxy_merger: whether the pass's end state (every galaxy's
@@ -4237,7 +4229,7 @@ static void write_pass_fire_record(const struct pass_args *a, const struct GALAX
 }
 
 /**
- * @brief c10: the record of a CGMrecipeOn 1 merger_pass_fire fixture, after every earlier field
+ * @brief The record of a CGMrecipeOn 1 merger_pass_fire fixture, after every earlier field
  *
  * intermediate.cgm_recipe_on, and per galaxy (intermediate.pass.galaxy[i].*) the disruption's
  * selection disrupt_reservoir_cgm (X:78 on the passed recipient at M:851, -1 where the row is not
@@ -4356,7 +4348,7 @@ static void run_merger_pass(void) {
   check_all_fields_used();
   check_pass_layout(&a);
 
-  /* c09: the input, for the FIREmodeOn 1 pass's observations */
+  /* The input, for the FIREmodeOn 1 pass's observations */
   struct GALAXY input[MAX_GALAXIES];
   memcpy(input, galaxies, (size_t)ngal * sizeof(input[0]));
 
@@ -4373,7 +4365,7 @@ static void run_merger_pass(void) {
   write_pass_cgm_record(&a, input, rec);
 }
 
-/** @brief c09: the merger pass with FIREmodeOn 0 or 1 (README "The c09 Group"), and (c10)
+/** @brief The merger pass with FIREmodeOn 0 or 1 (README "The c09 Group"), and
  *         CGMrecipeOn 0 or 1 */
 static void run_merger_pass_fire(void) {
   fire_routine = 1;
@@ -4391,7 +4383,7 @@ struct join_progenitor {
   int halo_grew;                                   /* main branch only: B:267 */
   int infall_recorded;                             /* B:306 (satellite) or B:327 (orphan) */
   int clock_estimated;                             /* B:315, satellite only */
-  int concentration_assigned; /* c12: B:291's gate taken, central only (ConcentrationOn 3) */
+  int concentration_assigned; /* B:291's gate taken, central only (ConcentrationOn 3) */
 };
 
 enum join_branch {
@@ -4418,19 +4410,19 @@ static struct GALAXY progenitor_galaxies[MAX_GALAXIES];
  *        B:210-345, and the central assignment, B:358-370, for one descendant halo
  *
  * The progenitor galaxies arrive as halogal holds them, in the order B:213-214 visits them, each
- * with the progenitor halo it came from (call.galaxy[k].prog) and the progenitor B:181-208
- * selects as first_occupied (call.first_occupied: tree bookkeeping, not c06 physics, taken as an
- * input). ngalstart is 0. As in SAGE26, the progenitor index and the galaxies[] slot are
- * separate: B:234 copies each progenitor into slot ngal, and the B:244 continue skips B:341's
- * ngal++, so an already-merged galaxy's slot is overwritten by the next progenitor (or left past
- * the returned count) and never enters B:358-370. Returns ngal (B:372). The concentration store
- * (B:290-295, c12) sits at its source position, before the radii and Type = 0, so SAGE26's
- * get_halo_concentration reads the galaxy's Type before joining. Not transcribed: MostBoundID, Pos
- * and Vel (B:254-259, identity data no c06 routine reads), the array growth (B:215-227) and the
- * creation of a new galaxy when no progenitor leaves one (B:347-351, c03's init_galaxy), which the
- * oracle refuses. The halo helpers, estimate_merging_time, get_disk_radius, get_bulge_radius and
- * get_halo_concentration are SAGE26's own. B:361-362 returns -1 when two galaxies are Type 0 or 1;
- * the oracle refuses the fixture there instead.
+ * with the progenitor halo it came from (call.galaxy[k].prog) and the progenitor B:181-208 selects
+ * as first_occupied (call.first_occupied: tree bookkeeping, not physics, taken as an input).
+ * ngalstart is 0. As in SAGE26, the progenitor index and the galaxies[] slot are separate: B:234
+ * copies each progenitor into slot ngal, and the B:244 continue skips B:341's ngal++, so an
+ * already-merged galaxy's slot is overwritten by the next progenitor (or left past the returned
+ * count) and never enters B:358-370. Returns ngal (B:372). The concentration store (B:290-295) sits
+ * at its source position, before the radii and Type = 0, so SAGE26's get_halo_concentration reads
+ * the galaxy's Type before joining. Not transcribed: MostBoundID, Pos and Vel (B:254-259, identity
+ * data no c06 routine reads), the array growth (B:215-227) and the creation of a new galaxy when no
+ * progenitor leaves one (B:347-351, SAGE26's init_galaxy), which the oracle refuses. The halo
+ * helpers, estimate_merging_time, get_disk_radius, get_bulge_radius and get_halo_concentration are
+ * SAGE26's own. B:361-362 returns -1 when two galaxies are Type 0 or 1; the oracle refuses the
+ * fixture there instead.
  */
 static int transcribe_join_progenitors(const struct join_args *a, struct join_progenitor *rec) {
   const int halonr = a->halonr;
@@ -4510,7 +4502,7 @@ static int transcribe_join_progenitors(const struct join_args *a, struct join_pr
           galaxies[ngal].mergeIntoID = -1;
           galaxies[ngal].MergTime = 999.9f;
 
-          /* B:290-295 (c12): before B:300's Type = 0, so the dispatch sees the old Type */
+          /* B:290-295: before B:300's Type = 0, so the dispatch sees the old Type */
           if (run_params.ConcentrationOn > 0) {
             r->concentration_assigned = 1;
             galaxies[ngal].Concentration = (float)get_halo_concentration(
@@ -4622,7 +4614,7 @@ static void write_join_record(const char *prefix, const int nprog,
                      r->branch == JOIN_SATELLITE || r->branch == JOIN_ORPHAN, r->infall_recorded);
     out_optional_i32(base, "clock_estimated", r->branch == JOIN_SATELLITE, r->clock_estimated);
     if (concentration_block) {
-      /* c12: B:291's gate is evaluated on the central branch only */
+      /* B:291's gate is evaluated on the central branch only */
       out_optional_i32(base, "concentration_assigned", r->branch == JOIN_CENTRAL,
                        r->concentration_assigned);
     }
@@ -4639,7 +4631,7 @@ static void read_join_args(struct join_args *a, const int nprog, const int nhalo
   }
 }
 
-/** @brief c12: the given joining blocks, with Concentration for a ConcentrationOn 3 fixture */
+/** @brief The given joining blocks, with Concentration for a ConcentrationOn 3 fixture */
 static int join_blocks(const int blocks) {
   return blocks | (concentration_block ? BLOCK_CONCENTRATION : 0);
 }
@@ -4657,10 +4649,11 @@ static void read_progenitor_galaxies(const int nprog) {
 }
 
 /**
- * @brief The flag joining reads: ConcentrationOn 0 (R0-R4, R4.par:57) or 3 (R5, R5.par:57), B:291
+ * @brief The flag joining reads, B:291: ConcentrationOn 0 (R0-R4) or 3 (R5,
+ *        R/input/millennium.par:57 sets 3)
  *
- * Modes 1 and 2 are not ported (the campaign supports exactly 0 and 3), and any other value is
- * refused, naming the parameter. With 3 it sets concentration_block. Its other flag, BulgeSizeOn
+ * Modes 1 and 2 are not ported (the oracle supports only 0 and 3), and any other value is refused,
+ * naming the parameter. With 3 it sets concentration_block. Its other flag, BulgeSizeOn
  * (get_bulge_radius), is read by read_bulge_size_config: in run_join_progenitors directly, in
  * run_join_and_pass through read_merger_config.
  */
