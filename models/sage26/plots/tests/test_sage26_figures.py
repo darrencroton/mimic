@@ -907,13 +907,13 @@ def test_unit__total_sfr():
 
 def test_unit__log_specific_sfr():
     """allresults-local.py:1740-1743: log10((SfrDisk + SfrBulge) / StellarMass), -99 where the
-    stellar mass is not above zero. Rates 2, 0, 2, 4 over masses 4, 0, 8, 0 give log10 0.5,
+    stellar mass is not above zero. Rates 2, 0, 4, 4 over masses 4, 0, 16, 0 give log10 0.5,
     -99, log10 0.25, -99."""
     helper = figure_module("specific_star_formation_rate").log_specific_sfr
     got = helper(
-        np.array([1.0, 0.0, 1.0, 3.0]),
+        np.array([1.0, 0.0, 3.0, 3.0]),
         np.array([1.0, 0.0, 1.0, 1.0]),
-        np.array([4.0, 0.0, 8.0, 0.0]),
+        np.array([4.0, 0.0, 16.0, 0.0]),
     )
     close(got, [math.log10(0.5), -99.0, math.log10(0.25), -99.0])
 
