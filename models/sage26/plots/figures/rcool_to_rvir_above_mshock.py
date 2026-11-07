@@ -20,8 +20,8 @@ Snapshots: the written snapshot nearest z = 0, 2 and 6 (:390, :399-400), chosen 
 
 Permitted deviations (c16 Slice 3, row `rcool_to_rvir_above_mshock`): the nearest snapshot is
 searched among the written snapshots only (SAGE26 searches all 64 and the run writes eight); the
-measurement SAGE26 prints (:387-429) goes to the log, and only the strict fraction in each
-legend entry stays on the figure, as in SAGE26 (:443-446).
+measurement SAGE26 prints (:387-429) goes to the log (printed with --verbose), and only the
+strict fraction in each legend entry stays on the figure, as in SAGE26 (:443-446).
 """
 
 import matplotlib.pyplot as plt

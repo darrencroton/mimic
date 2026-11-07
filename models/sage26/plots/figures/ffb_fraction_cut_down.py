@@ -47,7 +47,7 @@ Cut down from SAGE26, each a permitted deviation (c16 Slice 3, row `ffb_fraction
 """
 
 import numpy as np
-from figures import AXIS_LABEL_SIZE
+from figures import AXIS_LABEL_SIZE, setup_plot_fonts
 from figures._snapshot_selection import all_snapshots
 from output_utils import check_required_fields, save_and_close_figure, setup_figure
 
@@ -174,6 +174,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.set_xticklabels([str(zt) for zt in Z_TICKS])
 
     ax_top = ax.twiny()
+    setup_plot_fonts(ax_top)  # house tick-label size, as on the bottom axis
     ax_top.set_xlim(ax.get_xlim())
     ax_top.set_xticks(LOG1PZ_TICKS)
     ax_top.set_xticklabels([f"{t:g}" for t in LOG1PZ_TICKS])

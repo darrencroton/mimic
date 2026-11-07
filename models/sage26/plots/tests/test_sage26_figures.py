@@ -14,17 +14,22 @@ Validates: each registered figure renders a non-empty PNG named by its registry 
            "Model - H2 Gas" and "Model - HI Gas" lines, each tagged gid="model"
            (Slice 2 adds the twelve SAGE26 z = 0 figures S19-S30: the same cases, a Cap case for
            each sampled figure, a unit case for each helper, and both the colour-bar and the
-           no-colour-bar labels of tcool_vs_mvir)
+           no-colour-bar labels of tcool_vs_mvir; Slice 3 adds the fourteen evolution figures
+           E5-E18 (thirteen ports of SAGE26's allresults-history.py and the cut-down port of
+           paper_plots.py plot 23c): the same cases, a window case and a legend case where the
+           figure has one, the snapshot-selection helper's cases (inclusive z-range ends, empty
+           bins, nearest snapshot and its tie, order independence), a unit case for every helper,
+           and cases pinning each bin constant, threshold, legend text and conversion)
 Tolerance: none for labels, stems, field sets, caps and the reservoir helper (the helper's
            literals are dyadic, so the sums are exact); the CGM curve is compared with the total
            curve by a plain inequality; helper unit cases compare with a relative tolerance of
            1e-12 (decimal literals) or exactly (dyadic literals), and the smoothed-histogram
            peak with an absolute tolerance of 2e-3
 
-Every expectation is written from the plan of the c16 plotting node (Slices 1 and 2), the
+Every expectation is written from the plan of the c16 plotting node (Slices 1 to 3), the
 figure's source text at the starting commit (66a3e949, transcribed: no label is computed from the
-code under test) or SAGE26's plotting script (plotting/allresults-local.py, lines cited at each
-use).
+code under test) or SAGE26's plotting scripts (plotting/allresults-local.py,
+plotting/allresults-history.py and plotting/paper_plots.py, lines cited at each use).
 Figures render with MPLBACKEND=Agg into a temporary directory under $TMPDIR, removed at the end.
 It needs no Mimic run.
 
@@ -1843,7 +1848,7 @@ def test_unit__concentration_statistics():
     the median and the 16th and 84th percentiles, else NaN). Concentrations 1 to 5 give the median
     3 and, by linear interpolation at 0.64 and 3.36 of 4 intervals, 1.64 and 4.36; four give NaN;
     a concentration of 0 and a halo exactly at the upper edge are not counted, one exactly at the
-    lower edge is."""
+    lower edge is (the last case below: five counted with it, four without)."""
     module = figure_module("concentration_evolution")
     assert module.MASS_BINS == [
         (1e10, 1e11, r"$10^{10} - 10^{11}$"),
@@ -1861,15 +1866,19 @@ def test_unit__concentration_statistics():
         np.array([1.0, 2.0, 3.0, 4.0]), np.full(4, 5.0e10), 1e10, 1e11
     )
     assert np.isnan(four).all(), f"four galaxies {four}"
-    # Six rows: a zero concentration, a halo at the upper edge 1e11, one at the lower edge 1e10,
-    # and three ordinary ones: four count (1e10 and the three), so the minimum is not met
-    counted = module.concentration_statistics(
-        np.array([0.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
-        np.array([5.0e10, 1.0e11, 1.0e10, 2.0e10, 3.0e10, 4.0e10]),
+    # Seven rows of which five count: the halo exactly at the lower edge 1e10 (concentration 1) and
+    # four ordinary ones (2 to 5) make five, so with the lower edge counted the median is 3 and the
+    # percentiles 1.64 and 4.36 (as for 1 to 5 above), and without it (`>` instead of `>=`) there
+    # are four and the result is NaN; a halo exactly at the upper edge 1e11 (concentration 100)
+    # and a zero concentration (in an ordinary halo) are not counted: counting either would give
+    # the median 3.5 (1, 2, 3, 4, 5, 100) or 2.5 (0, 1, 2, 3, 4, 5).
+    edge = module.concentration_statistics(
+        np.array([1.0, 2.0, 3.0, 4.0, 5.0, 100.0, 0.0]),
+        np.array([1.0e10, 2.0e10, 3.0e10, 4.0e10, 5.0e10, 1.0e11, 6.0e10]),
         1e10,
         1e11,
     )
-    assert np.isnan(counted).all(), f"edge handling {counted}"
+    close(edge, [3.0, 1.64, 4.36])
 
 
 # ---- star_formation_efficiency ----
