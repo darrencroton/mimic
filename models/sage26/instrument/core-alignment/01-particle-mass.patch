@@ -1,0 +1,35 @@
+x01-core-alignment patch 01-particle-mass (git apply ignores this header)
+
+E7 item: (h) Particle mass.
+
+SAGE26 behaviour: R0 runs with PartMass 0.086 (R/input/millennium.par:41 "PartMass        0.086";
+the R0 run file /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/par/R0.par:41 is the
+same, and the R0 output header attribute Header/Simulation/particle_mass is 0.086). SAGE26 reads it as a
+double (R/src/core_read_parameter_file.c:161) and forms the virial mass of a subhalo, or of a FoF central
+whose catalogue Mvir is negative, as Len * PartMass (R/src/model_halo_properties.c:31-36).
+
+Mimic behaviour replaced: the mini-Millennium package declares particle_mass 0.0860657
+(simulations/mini-millennium/simulation_info.yaml:20-23), read into MimicConfig.PartMass
+(src/core/read_parameter_file.c:1043-1047) and used by the same rule, Len * MimicConfig.PartMass
+(src/core/virial.c:47-53).
+
+What the patch changes: particle_mass value 0.0860657 -> 0.086 in
+simulations/mini-millennium/simulation_info.yaml. Nothing else.
+
+Reading for i02: yes, it would change sage16's and halos-only's output on mini-Millennium. The value
+belongs to the simulation package, which every model built with SIMULATION=mini-millennium reads, and
+the core virial rule (src/core/virial.c:47-53) feeds Mvir, Rvir and Vvir of every subhalo (and of any
+central with a negative catalogue mass) in every package, and all physics downstream of them.
+
+diff --git a/simulations/mini-millennium/simulation_info.yaml b/simulations/mini-millennium/simulation_info.yaml
+index 8276c17c..52031031 100644
+--- a/simulations/mini-millennium/simulation_info.yaml
++++ b/simulations/mini-millennium/simulation_info.yaml
+@@ -18,6 +18,6 @@ simulation:
+     units: Mpc/h
+     h_convention: carried
+   particle_mass:
+-    value: 0.0860657
++    value: 0.086
+     units: 1e10 Msun/h
+     h_convention: carried
