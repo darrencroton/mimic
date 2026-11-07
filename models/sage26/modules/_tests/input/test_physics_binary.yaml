@@ -34,7 +34,7 @@ output:
   output_filename: model
   output_directory: ./output/sage26-physics-binary/
   output_format: binary
-  snapshot_list: [63, 16]             # z=0, and snapshot 16 (z=7.27), the output snapshot holding the most FFBRegime 1 rows on these trees
+  snapshot_list: [63, 16]             # z=0, and snapshot 16 (z=7.27), the snapshot among the package run file's output snapshots holding the most FFBRegime 1 rows on these trees
 
 SubSteps: 10
 

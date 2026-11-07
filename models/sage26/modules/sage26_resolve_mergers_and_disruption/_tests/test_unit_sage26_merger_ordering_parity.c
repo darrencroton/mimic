@@ -6,8 +6,8 @@
  * contract documented in the module README, and the merger transaction's refusal of BulgeSizeOn 3
  * without the core parameters. The CGMrecipeOn 1 tests check, with exact literal expectations, that
  * a disruption deposits the satellite's gas in the PASSED recipient's selected pair, chosen by that
- * recipient's Regime with CGMrecipeOn 1 and its hot pair otherwise, for an orphan whose recipient
- * is not the FoF central (test_cgm_disruption_to_passed_recipient), and the
+ * recipient's Regime with CGMrecipeOn 1 and its hot pair otherwise, for an orphan whose
+ * recipient is not the FoF central (test_cgm_disruption_to_passed_recipient), and the
  * CGMrecipeOn refusal (test_cgm_recipe_on_refused).
  */
 
@@ -553,8 +553,8 @@ int test_cgm_disruption_to_passed_recipient(void) {
 
 /**
  * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
+ *          a refusal naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";

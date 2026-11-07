@@ -307,10 +307,10 @@ static double opaque_double(const double value) {
 }
 
 /*
- * A unit mass and two raw rates for which SAGE26's left-to-right conversion and the same conversion
- * regrouped as one constant factor round to different floats (found by an exhaustive scratch
- * search): UnitMass_in_g = 1.989e43 * (1 + 25e-6), UnitTime_in_s the mini-Millennium
- * 3.08568e24 / 1e5.
+ * A unit mass and two raw rates for which SAGE26's left-to-right conversion and the same
+ * conversion regrouped as one constant factor round to different floats (found by an
+ * exhaustive scratch search): UnitMass_in_g = 1.989e43 * (1 + 25e-6), UnitTime_in_s the
+ * mini-Millennium 3.08568e24 / 1e5.
  */
 #define T_UNIT_MASS 0x1.c8a9d5f481618p+143
 #define T_UNIT_TIME 0x1.ac39601d1945fp+64

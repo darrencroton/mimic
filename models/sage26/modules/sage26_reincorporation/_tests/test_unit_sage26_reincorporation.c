@@ -860,8 +860,8 @@ int test_cgm_reincorporation_destination(void) {
 
 /**
  * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted, a refusal
- *          naming the parameter
+ * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
+ *          a refusal naming the parameter
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";

@@ -4,16 +4,16 @@
  *
  * Runs every SAGE26 oracle fixture fixtures.manifest lists for sage26_starburst_feedback (its
  * _tests/oracle/ directory): SAGE26's collisional_starburst_recipe (R/src/model_mergers.c:584-831),
- * in both modes, with R0's flags, BulgeSizeOn 0 (R0) or 3 (the burst_s3_* fixtures, R1, with the
- * fixture's Hubble_h). The test calls the shared transaction the module calls,
- * mimic_apply_collisional_starburst (shared/sage_starburst_physics.h), directly, with the fixture's
- * inputs standing in for the module's trigger: call.mass_ratio (the merger event's ratio or the
- * instability's fraction), call.mode, call.burst_to_merger_bulge (the channel SAGE26's caller
- * selects from the pre-transfer morphology), call.merger_centralgal (the burst host),
+ * in both modes, with R0's flags, BulgeSizeOn 0 (R0) or 3 (the burst_s3_* fixtures, R1,
+ * with the fixture's Hubble_h). The test calls the shared transaction the module calls,
+ * mimic_apply_collisional_starburst (shared/sage_starburst_physics.h), directly, with the
+ * fixture's inputs standing in for the module's trigger: call.mass_ratio (the merger event's ratio
+ * or the instability's fraction), call.mode, call.burst_to_merger_bulge (the channel SAGE26's
+ * caller selects from the pre-transfer morphology), call.merger_centralgal (the burst host),
  * call.centralgal (its FoF central), call.step (the history bin), call.dt (the substep interval)
  * and call.old_disk_radius (the disk radius SAGE26's caller saved, which the instability channel's
- * radius update reads in mode 3, :783-784). The post-minor-merger instability recheck runs inside
- * the transaction, as it does in SAGE26 (:806-811), with SAGE26's TOOMRE_DISK_FACTOR 3.0
+ * radius update reads in mode 3, :783-784). The post-minor-merger instability recheck runs
+ * inside the transaction, as it does in SAGE26 (:806-811), with SAGE26's TOOMRE_DISK_FACTOR 3.0
  * (R/src/model_disk_instability.c:35), DiskInstabilityOn and AGNrecipeOn from the fixture.
  *
  * Asserted bit for bit: the thirty floats of every galaxy's recorded block and the host's sixty
@@ -50,13 +50,13 @@
  * coupling. CGMrecipeOn 1 (the burst_cgm_* fixtures, routine collisional_starburst_recipe_fire with
  * R4's flags; oracle README "The c10 Group, Part 3"): the bundle carries the fixture's CGMrecipeOn
  * and every galaxy's Regime is set from the fixture. The test also asserts each routing site
- * against the oracle's selection AND against the expected galaxy's input Regime: the burst's commit
- * (feedback.reservoir_cgm) and yield (yield_reservoir_cgm) by the FoF central's; the
+ * against the oracle's selection AND against the expected galaxy's input Regime: the burst's
+ * commit (feedback.reservoir_cgm) and yield (yield_reservoir_cgm) by the FoF central's; the
  * post-minor-merger recheck's wind (recheck_wind, its two tests and its four energies bit for bit)
  * by the burst HOST's; the recheck's own burst's commit and yield (recheck_feedback_reservoir_cgm,
- * recheck_yield_reservoir_cgm) by the FoF central's. It asserts the pair the FoF central's Regime
- * does not select, the pair the host's Regime does not select (the host differs from the central)
- * and both pairs of any other galaxy unchanged against the input, and counts the oracle's
+ * recheck_yield_reservoir_cgm) by the FoF central's. It asserts the pair the FoF central's
+ * Regime does not select, the pair the host's Regime does not select (the host differs from the
+ * central) and both pairs of any other galaxy unchanged against the input, and counts the oracle's
  * observations of SAGE26's recheck (intermediate.recheck_*_regime_sensitive). Outside the oracle
  * environment (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *

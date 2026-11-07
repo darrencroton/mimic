@@ -11,9 +11,9 @@
  *
  * A CGMrecipeOn 1 fixture also sets every galaxy's Regime and the module's CGMrecipeOn 1; the test
  * asserts the oracle's source and destination selections (intermediate.take_from_cgm,
- * intermediate.give_to_cgm) against the satellite's and the central's input Regime 0, the
- * unselected pair of each galaxy unchanged, and each recorded local's markers, with strippedGas and
- * strippedGasMetals equal to the source reservoir where their cap binds
+ * intermediate.give_to_cgm) against the satellite's and the central's input Regime 0,
+ * the unselected pair of each galaxy unchanged, and each recorded local's markers, with
+ * strippedGas and strippedGasMetals equal to the source reservoir where their cap binds
  * (oracle README, "The c10 Group").
  *
  * The satellite's HaloBaryonFraction is supplied as the package stores it: the

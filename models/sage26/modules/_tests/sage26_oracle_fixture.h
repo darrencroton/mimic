@@ -985,7 +985,7 @@ static inline double *oracle_galaxy_double(struct GalaxyData *galaxy, const char
   return NULL;
 }
 
-/** @brief The ten float fields of the cooling galaxy state (SAGE26 names) */
+/** @brief The ten float fields of the cooling and radio-heating galaxy state (SAGE26 names) */
 static inline const char *const *oracle_c04_float_names(size_t *count) {
   static const char *const names[] = {"HotGas",        "MetalsHotGas", "ColdGas", "MetalsColdGas",
                                       "BlackHoleMass", "r_heat",       "tcool",   "tff",
@@ -994,7 +994,7 @@ static inline const char *const *oracle_c04_float_names(size_t *count) {
   return names;
 }
 
-/** @brief The two double fields of the cooling galaxy state (SAGE26 names) */
+/** @brief The two double fields of the cooling and radio-heating galaxy state (SAGE26 names) */
 static inline const char *const *oracle_c04_double_names(size_t *count) {
   static const char *const names[] = {"Cooling", "Heating"};
   *count = sizeof(names) / sizeof(names[0]);
@@ -1002,7 +1002,7 @@ static inline const char *const *oracle_c04_double_names(size_t *count) {
 }
 
 /**
- * @brief Set halo and galaxy from a cooling fixture's galaxy[index] input
+ * @brief Set halo and galaxy from a cooling and radio-heating fixture's galaxy[index] input
  *
  * Applies the sixteen fields every cooling_recipe_hot, do_AGN_heating and
  * cool_gas_onto_galaxy input sets: Type, and SAGE26's float Mvir, Rvir and Vvir
@@ -1028,7 +1028,8 @@ static inline void oracle_c04_in_galaxy(struct oracle_fixture *in, const int ind
 }
 
 /**
- * @brief Compare the named cooling state fields of a galaxy with "<prefix>galaxy[index].*"
+ * @brief Compare the named cooling and radio-heating state fields of a
+ *        galaxy with "<prefix>galaxy[index].*"
  *
  * @param names  SAGE26 names, each a float (oracle_galaxy_float) or double
  *               (oracle_galaxy_double) member
@@ -1054,7 +1055,9 @@ static inline int oracle_c04_check_fields(struct oracle_fixture *out, const char
   return mismatches;
 }
 
-/** @brief Compare all twelve cooling state fields with "<prefix>galaxy[index].*" */
+/**
+ * @brief Compare all twelve cooling and radio-heating state fields with "<prefix>galaxy[index].*"
+ */
 static inline int oracle_c04_check_galaxy(struct oracle_fixture *out, const char *prefix,
                                           const int index, struct GalaxyData *galaxy) {
   size_t count;
@@ -1066,7 +1069,8 @@ static inline int oracle_c04_check_galaxy(struct oracle_fixture *out, const char
 }
 
 /**
- * @brief Apply a cooling fixture's R0 parameters (cooling_recipe_hot and do_AGN_heating inputs)
+ * @brief Apply a cooling and radio-heating fixture's R0 parameters (cooling_recipe_hot and
+ *        do_AGN_heating inputs)
  *
  * Checks the fixed flags (AGNrecipeOn 2, CGMrecipeOn 0), sets the core-owned G,
  * Hubble_h and unit factors in MimicConfig at the fixture's bit patterns, and the
@@ -1215,8 +1219,8 @@ static inline void oracle_c05_exclude_histories(struct oracle_fixture *fx, const
 }
 
 /**
- * @brief Require one of the fixed star-formation-group R0 flags (oracle README
- *        "Flags and Parameters")
+ * @brief Require one of the fixed star-formation-group R0 flags (oracle
+ *        README "Flags and Parameters")
  * @return 1 if the fixture's flag differs from the R0 value, else 0
  */
 static inline int oracle_c05_require_flag(struct oracle_fixture *in, const char *flag,
@@ -1458,8 +1462,8 @@ static inline float *oracle_c06_galaxy_float(struct GalaxyData *galaxy, const ch
 }
 
 /**
- * @brief The thirty float reservoirs, channels, radii and timestamps of the
- *        merger-family galaxy block
+ * @brief The thirty float reservoirs, channels, radii and timestamps of
+ *        the merger-family galaxy block
  *
  * Every merger-family fixture sets them for every galaxy, and every recorded galaxy
  * block holds them (oracle README "Format Additions", SAGE26 names).

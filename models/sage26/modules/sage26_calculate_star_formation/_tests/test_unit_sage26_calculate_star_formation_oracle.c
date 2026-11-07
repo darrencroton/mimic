@@ -90,27 +90,27 @@
  * The gas-unstable continuation at SFprescription 1. The oracle admits a prescription-1 wrapper
  * fixture whose disk is gas-unstable after feedback (R/src/model_starformation_and_feedback.c:1088
  * into R/src/model_disk_instability.c:90): the instability hands on its unstable gas fraction, and
- * the chain runs sage26_quasar_mode and then sage26_starburst_feedback (process_by_galaxy) on the
- * galaxy, as the production phase does, so the black-hole growth caps the hydrogen
+ * the chain runs sage26_quasar_mode and then sage26_starburst_feedback (process_by_galaxy)
+ * on the galaxy, as the production phase does, so the black-hole growth caps the hydrogen
  * (R/src/model_mergers.c:366-372) and the burst caps and refreshes it (S:1131-1135, S:1169-1173,
  * R/src/model_mergers.c:798-803). The test asserts the galaxy's state after sage26_quasar_mode
- * against the oracle's state after SAGE26's own grow_black_hole (intermediate.after_bh.*, the
- * hydrogen fields after the cap) and the end state after the burst and the yield, H2gas and H1gas
- * after the refresh among the fourteen fields. With SFprescription 0 the chain still requires no
- * unstable gas to be handed on. The two modules are initialised for every fixture, with the
- * fixture's ThreshMajorMerger, BlackHoleGrowthRate and QuasarModeEfficiency
+ * against the oracle's state after SAGE26's own grow_black_hole (intermediate.after_bh.*,
+ * the hydrogen fields after the cap) and the end state after the burst and the yield, H2gas
+ * and H1gas after the refresh among the fourteen fields. With SFprescription 0 the chain
+ * still requires no unstable gas to be handed on. The two modules are initialised for every
+ * fixture, with the fixture's ThreshMajorMerger, BlackHoleGrowthRate and QuasarModeEfficiency
  * and StarburstColdGasOn 1.
  *
- * SFprescription 1 (the fixtures, R2's flags: BR06 with radial integration and BulgeSizeOn 3): the
- * chain runs the module's BR06 branch, and the test also asserts, on every galaxy, the four
- * bulge-size members BulgeSizeOn 3 records and H2DepletionTime_Gyr, which must come out as it went
- * in. It asserts the SFprescription 1 values the oracle records, bit for bit whatever their
- * validation status: H2gas and H1gas as the SF step hands them on (package state between modules),
- * the commits' cap bounds max_h_sf and max_h_fb (from the apply-step replay's kernel locals), and
- * sfr_br06's rs_pc, the radial H2 before its cap and the cap's double budget, from a replay of the
- * BR06 branch through the shared H2 helper (shared/sage_h2_physics.h) on a copy, which must end in
- * the H2gas process() produced. The SFprescription 1 branch flags are asserted against
- * the same replays.
+ * SFprescription 1 (the sf_br06_* fixtures, R2's flags: BR06 with radial integration and
+ * BulgeSizeOn 3): the chain runs the module's BR06 branch, and the test also asserts, on every
+ * galaxy, the four bulge-size members BulgeSizeOn 3 records and H2DepletionTime_Gyr, which must
+ * come out as it went in. It asserts the values of the oracle README's "The c08 Group" the oracle
+ * records, bit for bit whatever their validation status: H2gas and H1gas as the SF step hands
+ * them on (package state between modules), the commits' cap bounds max_h_sf and max_h_fb (from
+ * the apply-step replay's kernel locals), and sfr_br06's rs_pc, the radial H2 before its cap
+ * and the cap's double budget, from a replay of the BR06 branch through the shared H2 helper
+ * (shared/sage_h2_physics.h) on a copy, which must end in the H2gas process() produced. The branch
+ * flags of that group are asserted against the same replays.
  *
  * The module also owns the fixtures of the two public H2 routines SAGE26's BR06 branch calls
  * (oracle_c08): calculate_molecular_fraction_BR06 and
@@ -337,8 +337,8 @@ struct substep_record {
    * initialised locals for FIREmodeOn 0) */
   struct oracle_c09_sn_replay fire;
   /* The disk yield's selection (the enrichment replay), the instability's wind (the quasar module's
-   * replay, reservoir_cgm -1 where it does not run) and its burst's two selections (-1 where the
-   * burst does not run) */
+   * replay, reservoir_cgm -1 where it does not run) and its burst's two selections (-1
+   * where the burst does not run) */
   int yield_reservoir_cgm;
   struct MimicSageQuasarWindLocals wind;
   int burst_feedback_reservoir_cgm;
@@ -458,8 +458,8 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
       oracle_set_model_param("QuasarModeEfficiency",
                              oracle_in_f64(in, "params.QuasarModeEfficiency")) != 0 ||
       oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
-      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's
-       * modules, the fixture's */
+      /* CGMrecipeOn: required by the commits', yields', wind's and
+       * disruption's modules, the fixture's */
       oracle_set_model_param("CGMrecipeOn", (double)c->cgm_recipe_on) != 0) {
     problems++;
   }
@@ -512,8 +512,8 @@ static int setup_galaxies(struct oracle_fixture *in, struct chain *c) {
     oracle_poison(h, sizeof(*h));
     h->galaxy = g;
     h->HaloNr = i;
-    /* The stored snapshot: the FIRE scaling's redshift index; read by no other module of the chain
-     * once dT is positive */
+    /* The stored snapshot: the FIRE scaling's redshift index; read by no other module of
+     * the chain once dT is positive */
     h->SnapNum = c->fire ? c->snapnum[i] : 0;
     h->dT = deltaT; /* core-owned: SAGE26's deltaT of the forming galaxy's group */
     h->Type = oracle_in_i32(in, oracle_galaxy_field(i, "Type"));

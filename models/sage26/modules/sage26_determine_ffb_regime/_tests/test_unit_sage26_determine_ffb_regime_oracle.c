@@ -22,8 +22,8 @@
  * Per case or row it asserts the return or the written FFBRegime, every recorded local (z_norm,
  * log_Mvir_ffb_code, the threshold Mvir_ffb, x, the fraction f_ffb, the draw and its 64 bits, and
  * the widened Mvir) bit for bit, the guard flag and the comparison's outcome and tie flags, and
- * checks each local's markers (present or absent as in the port, checked, of the recorded check
- * kind, `_validated` the conjunction of its two directions). It asserts the oracle's
+ * checks each local's markers (present or absent as in the port, checked, of the recorded
+ * check kind, `_validated` the conjunction of its two directions). It asserts the oracle's
  * pow_equals_exp10 is 1 at every threshold evaluation: the package writes pow(10.0, ...), which
  * this -O0 build calls, while SAGE26's object calls __exp10. In a classifier fixture it asserts
  * SAGE26's discarded-draw count equals the number of rows the package classified (one per row not

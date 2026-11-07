@@ -9,12 +9,12 @@
  * CoolingX and Rcool the cooling budget would hand the module; the module runs through its
  * process() entry and the test asserts, bit for bit, the returned (suppressed) mass, which the
  * module writes back into CoolingGas, and BlackHoleMass, HotGas, MetalsHotGas, r_heat (the
- * package's Rheat) and Heating. The other six fields of the cooling state, which do_AGN_heating
- * does not write, are asserted unchanged as the oracle records them.
+ * package's Rheat) and Heating. The other six fields of the cooling and radio-heating state, which
+ * do_AGN_heating does not write, are asserted unchanged as the oracle records them.
  *
- * The CGM cooling fixtures (agn_cgmon_*, cgm_agn_*; oracle README "The c11 Group") are the CGM-on
- * radio AGN: SAGE26's do_AGN_heating with CGMrecipeOn 1, and the static do_AGN_heating_cgm reached
- * through cooling_recipe_cgm. They run through the package's shared helpers
+ * The agn_cgmon_* and cgm_agn_* fixtures (oracle README "The c11 Group") are the CGM-on
+ * radio AGN: SAGE26's do_AGN_heating with CGMrecipeOn 1, and the static do_AGN_heating_cgm
+ * reached through cooling_recipe_cgm. They run through the package's shared helpers
  * (shared/sage_cooling_physics.h) directly, since no production module calls them yet
  * (modules/_tests/sage26_oracle_cooling.h); the cooling tables are loaded for them.
  *
@@ -59,8 +59,8 @@ static const char *MODULE = "sage26_radio_mode_heating";
 static int check_fixture(const char *name) {
   static struct oracle_fixture in, out;
 
-  /* CGM cooling fixtures (the CGM-on radio AGN: do_AGN_heating with CGMrecipeOn 1, and the static
-   * do_AGN_heating_cgm through cooling_recipe_cgm) call the shared
+  /* The agn_cgmon_* and cgm_agn_* fixtures (the CGM-on radio AGN: do_AGN_heating with
+   * CGMrecipeOn 1, and the static do_AGN_heating_cgm through cooling_recipe_cgm) call the shared
    * helpers directly (modules/_tests/sage26_oracle_cooling.h) */
   int c11 = 0;
   const int c11_problems = oracle_c11_check_fixture(MODULE, name, &c11);

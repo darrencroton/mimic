@@ -16,20 +16,20 @@
  * Asserted bit for bit: the thirty floats of galaxy 0's recorded block (oracle README
  * "The c06 Group"), every other member of the galaxy unchanged, every branch flag the fixture
  * records, the presence of every carried value, and each carried value where the oracle validates
- * it two-sided or a clamp or floor binds it (BHaccrete where the ColdGas cap binds). Checked values
- * that are not validated are recorded, not asserted (the rule of the oracle README's
+ * it two-sided or a clamp or floor binds it (BHaccrete where the ColdGas cap binds). Checked
+ * values that are not validated are recorded, not asserted (the rule of the oracle README's
  * "The c05 Group": the float stores absorb a one-ulp change of most doubles). Outside the oracle
  * environment (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *
- * SFprescription 1 (the fixtures, R2's flags with BulgeSizeOn 3): the growth applies the
- * accretion's hydrogen cap (:366-372), and the test also asserts its record (the guard, the two cap
- * flags and the float bound max_h_bh, bit for bit), sage26_oracle_hydrogen.h. BulgeSizeOn and
- * Hubble_h, which neither routine reads, are read and not applied.
+ * SFprescription 1 (the bh_r2_* and qw_r2_* fixtures, R2's flags with BulgeSizeOn 3): the growth
+ * applies the accretion's hydrogen cap (:366-372), and the test also asserts its record (the
+ * guard, the two cap flags and the float bound max_h_bh, bit for bit), sage26_oracle_hydrogen.h.
+ * BulgeSizeOn and Hubble_h, which neither routine reads, are read and not applied.
  *
  * CGMrecipeOn 1 (the qw_cgm_* and bh_cgm_* fixtures, R4's flags; oracle README "The c10 Group, Part
  * 3"): the fixture's CGMrecipeOn is passed to both helpers and the galaxy's Regime is set from the
- * fixture; the wind's second test then selects the WIND HOST's pair, its CGM pair for Regime 0
- * (M:406-428). The test also asserts the CGMrecipeOn 1 record: the selection
+ * fixture; the wind's second test then selects the WIND HOST's pair, its CGM pair for
+ * Regime 0 (M:406-428). The test also asserts the CGMrecipeOn 1 record: the selection
  * (intermediate.wind_reservoir_cgm) against the wind's reservoir_cgm AND against the host's input
  * Regime, the CGM test (wind_ejects_cgm; the merger-family record's wind_ejects_hot is -1 where the
  * CGM pair is selected and hot_gas_energy absent), cgm_gas_energy bit for bit, and the host's pair

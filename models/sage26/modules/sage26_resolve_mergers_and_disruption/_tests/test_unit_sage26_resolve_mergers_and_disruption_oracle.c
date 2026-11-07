@@ -13,14 +13,14 @@
  *   satellite disk stars credited to the instability channel update the target's instability radius
  *   (M:516-522); every other fixture has R0's 0;
  * - deal_with_galaxy_merger (M:228-333, merge_*): the resolver's whole transaction,
- *   sage26_resolve_mergers_and_disruption_merge, with the fixture's call.time and call.dt, whose
- *   merger event runs the module's real consumers in the order of the production phase:
+ *   sage26_resolve_mergers_and_disruption_merge, with the fixture's call.time and call.dt,
+ *   whose merger event runs the module's real consumers in the order of the production phase:
  *   sage26_quasar_mode's and then sage26_starburst_feedback's process_per_event entry, with the
  *   event the registry would hand them (target halo, ratio, satellite dt), then the resolver's
- *   completion. Zero-ratio fixtures are included. The bulge-size merge_s3_* fixtures run it with
- *   BulgeSizeOn 3 (R1): the target's bulge-radius synchronisation after the burst, the remnant
- *   radius (M:135-212, the oracle's checked transcription of the static routine) with its locals
- *   and every branch, and the major, disk-dominated minor and spheroid-dominated
+ *   completion. Zero-ratio fixtures are included. The bulge-size merge_s3_* fixtures run it
+ *   with BulgeSizeOn 3 (R1): the target's bulge-radius synchronisation after the burst, the
+ *   remnant radius (M:135-212, the oracle's checked transcription of the static routine) with
+ *   its locals and every branch, and the major, disk-dominated minor and spheroid-dominated
  *   minor assignments (M:293-330);
  * - disrupt_satellite_to_ICS (M:845-902, dis_*): the resolver's disruption entry,
  *   sage26_resolve_mergers_and_disruption_disrupt, with the fixture's call.time, at
@@ -88,9 +88,9 @@
  * SFprescription, requires the copy to equal the consumer's result bit for bit (so the consumer's
  * growth received the same SFprescription and arguments), and asserts that shadow's cap locals
  * against the oracle's bh_* record and max_h_bh, as the quasar oracle test does at its routine
- * boundary. The rest of the SFprescription 1 record (the burst's caps and refresh, and the
- * observation of the recheck's growth) is consumed, not asserted, as the consumers' other locals:
- * the burst oracle test asserts it against the shared burst's locals.
+ * boundary. The rest of the record of the oracle README's "The c08 Group" (the burst's caps
+ * and refresh, and the observation of the recheck's growth) is consumed, not asserted, as the
+ * consumers' other locals: the burst oracle test asserts it against the shared burst's locals.
  *
  * CGMrecipeOn 1 (the merge_cgm_*, dis_cgm_* and tr_pass_cgm_* fixtures, R4's flags; oracle README
  * "The c10 Group, Part 3"): the three modules are initialised with the fixture's CGMrecipeOn (the
@@ -313,13 +313,13 @@ static void observe_action(const char *action, int source_index, int target_inde
  */
 static int setup_modules(struct oracle_fixture *in) {
   /* The merger family's flags with BulgeSizeOn read (0, or 3 for the bulge-size merge_s3_*
-   * fixtures, with the fixture's Hubble_h) and SFprescription read (0, or 1 for the SFprescription
-   * 1 fixtures, with the H2 configuration) */
+   * fixtures, with the fixture's Hubble_h) and SFprescription read (0, or 1 for the merge_r2_* and
+   * tr_pass_r2_* fixtures, with the H2 configuration) */
   struct MimicSageBulgeSize sizes;
   int sf_prescription = 0;
   /* FIREmodeOn: 0, or 0 or 1 for a FIRE fixture (validated by oracle_c09_read_fire_config), or R4's
-   * 1 for a CGMrecipeOn 1 disruption (unread there); CGMrecipeOn: 0, or 0 or 1 where the
-   * routine admits it */
+   * 1 for a CGMrecipeOn 1 disruption (unread there); CGMrecipeOn: 0, or 0 or 1
+   * where the routine admits it */
   int fire_mode_read = 0;
   int problems =
       oracle_c10_require_merger_flags(in, &sizes, &sf_prescription, fixture_fire,
@@ -398,13 +398,12 @@ static int setup_modules(struct oracle_fixture *in) {
    * (cold-gas bursts) */
   if (oracle_set_model_param("SFprescription", (double)sf_prescription) != 0 ||
       oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
-      /* CGMrecipeOn: required by the commits', yields', wind's and disruption's
-       * modules, the fixture's */
+      /* CGMrecipeOn: required by the commits', yields', wind's and
+       * disruption's modules, the fixture's */
       oracle_set_model_param("CGMrecipeOn", (double)fixture_cgm_recipe_on) != 0) {
     problems++;
   }
-  /* The burst consumer's required FIREmodeOn: the fixture's, 0 for every fixture that is not
-   * a FIRE one */
+  /* The burst consumer's required FIREmodeOn: the fixture's */
   if (oracle_set_model_param("FIREmodeOn", (double)fixture_fire_mode_on) != 0) {
     problems++;
   }
@@ -477,8 +476,7 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
       status = -1;
     }
   }
-  /* The burst consumer's call replayed on copies, for its FIRE record (the
-   * SFprescription 1 pattern) */
+  /* The burst consumer's call replayed on copies, for its FIRE record */
   const int replay = fixture_fire && status == 0 && fixture_ngal <= ORACLE_C09_REPLAY_GALAXIES &&
                      ctx->central_galaxy != NULL;
   if (replay) {
@@ -528,8 +526,8 @@ static int dispatch_merger_event(struct ModuleContext *ctx, struct Halo *halos, 
 }
 
 /**
- * @brief Read a *_fire fixture's FIREmodeOn, stored snapshots (the redshift table) and MassLoading,
- *        after its galaxies
+ * @brief Read a *_fire fixture's FIREmodeOn, stored snapshots (the redshift table) and
+ *        MassLoading, after its galaxies
  * @return Number of problems
  */
 static int load_fire(struct oracle_fixture *in, const char *name, const int ngal,

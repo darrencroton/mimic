@@ -805,10 +805,10 @@ static void arrange_other_phase(void) {
 
 /**
  * @test    test_dispatch_guards
- * @brief   At EnhancedStarFormationOn 1 the transaction refuses, naming the module, a configuration
- *          without the classifier in pre_timestep or not immediately before
- *          sage26_calculate_star_formation (process_by_galaxy, same substep phase); at 0
- *          it accepts each
+ * @brief   At EnhancedStarFormationOn 1 the transaction refuses, naming the module, a
+ *          configuration without the classifier in pre_timestep or not immediately before
+ *          sage26_calculate_star_formation (process_by_galaxy, same
+ *          substep phase); at 0 it accepts each
  */
 int test_dispatch_guards(void) {
   const struct {

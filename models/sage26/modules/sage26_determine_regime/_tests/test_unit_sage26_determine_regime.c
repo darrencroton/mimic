@@ -32,8 +32,8 @@
  * - test_every_type_and_skipped_rows: Types 0, 1 and 2 are classified in row order; Type 3 and
  *   galaxy-less rows are skipped, keeping their Regime; no previous regime is reused
  * - test_production_keyed_draw: without a seam, the production keyed draw of the row's
- *   UniqueGalaxyID and ctx->snapshot_number decides, checked against reference deviates written
- *   here as literals
+ *   UniqueGalaxyID and ctx->snapshot_number decides, checked against reference
+ *   deviates written here as literals
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -532,9 +532,9 @@ int test_ratio_one_tie(void) {
 
 /**
  * @test    test_initial_boundary_row
- * @brief   A row in the package's initial-boundary state (stored SnapNum -1, dT 0) is classified
- *          like any other: the classifier reads no
- *          snapshot-indexed table (R/src/model_regimes.c:63-100)
+ * @brief   A row in the package's initial-boundary state (stored SnapNum -1, dT 0) is
+ *          classified like any other: the classifier reads no snapshot-indexed table
+ *          (R/src/model_regimes.c:63-100)
  */
 int test_initial_boundary_row(void) {
   TEST_ASSERT(init_ok("1", TEST_HUBBLE_H) == 0, "init must succeed");

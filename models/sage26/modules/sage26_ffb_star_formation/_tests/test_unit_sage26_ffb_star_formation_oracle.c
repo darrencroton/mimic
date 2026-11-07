@@ -35,14 +35,14 @@
  * - for the wrapper fixtures, the oracle's check that the wrapper's end state is
  *   starformation_ffb's, and the instability observation recomputed from the package's end state;
  * - for the wrapper fixtures, the chain composition: from the same input, with the instability
- *   trigger at its per-snapshot reset value 0, the whole by-galaxy star-formation chain runs in the
- *   run files' order (the transaction, sage26_calculate_star_formation,
+ *   trigger at its per-snapshot reset value 0, the whole by-galaxy star-formation chain
+ *   runs in the run files' order (the transaction, sage26_calculate_star_formation,
  *   sage26_calculate_supernova_feedback, sage26_apply_star_formation_supernova,
  *   sage26_disk_instability, sage26_quasar_mode, sage26_starburst_feedback and
  *   sage26_apply_metal_enrichment, each initialised with the run files' keys), and every recorded
- *   field of every galaxy equals SAGE26's wrapper end state bit for bit, and every galaxy struct
- *   equals the transaction-only end state byte for byte but for the trigger's seed, so the five
- *   bypassed modules and the by-galaxy quasar and burst entries wrote nothing (the
+ *   field of every galaxy equals SAGE26's wrapper end state bit for bit, and every galaxy
+ *   struct equals the transaction-only end state byte for byte but for the trigger's seed, so
+ *   the five bypassed modules and the by-galaxy quasar and burst entries wrote nothing (the
  *   unstable-disk fixture included).
  *
  * Every fixture is initialised in the run files' configuration, which the transaction's

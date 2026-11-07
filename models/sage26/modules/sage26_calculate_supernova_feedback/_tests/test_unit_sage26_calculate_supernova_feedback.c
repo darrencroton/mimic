@@ -30,8 +30,8 @@
  *   are the platform-independent guard of the FIRE arithmetic (run with MODEL=sage26).
  * - The feedback-free-burst bypass (test_ffb_row_bypassed): a row whose FFBRegime is 1 leaves
  *   itself and its FoF central bytewise unchanged, with FIREmodeOn 0 and with FIREmodeOn 1 on a
- *   stored SnapNum the redshift lookup refuses (the bypass precedes the lookup and the time guard);
- *   the same row with FFBRegime 0 gets SAGE26's fixed-epsilon reheating
+ *   stored SnapNum the redshift lookup refuses (the bypass precedes the lookup and the
+ *   time guard); the same row with FFBRegime 0 gets SAGE26's fixed-epsilon reheating
  *   (R/src/model_starformation_and_feedback.c:767), and the refusal with FIREmodeOn 1.
  *
  * Reference: Croton et al. (2006, 2016) - SAGE model
@@ -1303,8 +1303,8 @@ int test_fire_stored_snapshot_refused(void) {
     struct GalaxyData gal;
     setup_test_halo(&halo, &gal, 0, 100.0, 80.0, 10.0, 0.01);
     halo.SnapNum = bad[k];
-    /* A positive interval, so SnapNum -1 is not the initial-boundary state the time guard skips and
-     * reaches the refusal */
+    /* A positive interval, so SnapNum -1 is not the initial-boundary state the time guard
+     * skips and reaches the refusal */
     halo.dT = 0.1;
     const int status = fire_process_captured(&halo, &log);
     char expect[64];
@@ -1389,8 +1389,8 @@ int test_fire_negative_snapnum_positive_dt_refused(void) {
  * satellite with its own FoF central, both compared byte for byte with their inputs. With
  * FIREmodeOn 0 the FFBRegime 0 row's reheated mass is FeedbackReheatingEpsilon * stars (:767),
  * 3.0 * 1.0 exactly, with no renormalisation (ample cold gas, :775). With FIREmodeOn 1 a stored
- * SnapNum outside the redshift table is refused on an ordinary row and passed over, writing
- * nothing, on an FFB row.
+ * SnapNum outside the redshift table is refused on an ordinary row and passed over,
+ * writing nothing, on an FFB row.
  */
 int test_ffb_row_bypassed(void) {
   const char *log = "";

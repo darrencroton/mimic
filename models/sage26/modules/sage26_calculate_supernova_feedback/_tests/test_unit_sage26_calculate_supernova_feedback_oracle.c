@@ -93,8 +93,8 @@ static const char *MODULE = "sage26_calculate_supernova_feedback";
 #define MAX_GALAXIES 4
 #define MAX_SUBSTEPS 64
 
-/* SAGE26's SF_DISK_RADIUS_FRAC (R/src/model_starformation_and_feedback.c:60), also the
- * instability's TOOMRE_DISK_FACTOR (R/src/model_disk_instability.c:35), and its
+/* SAGE26's SF_DISK_RADIUS_FRAC (R/src/model_starformation_and_feedback.c:60), also
+ * the instability's TOOMRE_DISK_FACTOR (R/src/model_disk_instability.c:35), and its
  * unit factors (input/millennium.par:106-107) */
 #define SAGE26_SF_DISK_RADIUS_FRAC 3.0
 #define SAGE26_UNIT_LENGTH_IN_CM 3.08568e+24

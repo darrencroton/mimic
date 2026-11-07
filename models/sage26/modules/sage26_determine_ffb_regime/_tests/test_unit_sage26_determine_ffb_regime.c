@@ -16,8 +16,8 @@
  * - test_module_lifecycle: registration, module_system_init with the module in pre_timestep,
  *   cleanup, no leaks
  * - test_enhanced_sf_missing_refused, test_enhanced_sf_values: the required
- *   EnhancedStarFormationOn: missing fails init naming it; 2, 3 and -1 are refused naming it; 0 and
- *   1 are accepted
+ *   EnhancedStarFormationOn: missing fails init naming it; 2, 3 and -1 are refused
+ *   naming it; 0 and 1 are accepted
  * - test_placement_refused: a substep phase, post_timestep, twice in pre_timestep,
  *   process_by_galaxy, before sage26_prepare_infall_budget and before sage26_determine_regime are
  *   each refused, naming the module or the predecessor; after both, and alone, are accepted

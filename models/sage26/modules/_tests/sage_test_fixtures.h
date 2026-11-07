@@ -91,11 +91,11 @@ static inline void set_test_model_parameters(void) {
 
 /*
  * Test fixture: the required parameters SAGE26's SF prescription selects, at R1's values, for a
- * test that initialises a module reading them with its own parameters rather than the run files'.
- * Each test adds exactly the keys its modules read (a union of the flags below):
- * sage26_calculate_star_formation reads SFprescription and the three H2 integration parameters,
- * sage26_apply_star_formation_supernova and sage26_quasar_mode SFprescription, and
- * sage26_starburst_feedback SFprescription, StarburstColdGasOn and FIREmodeOn (0, R2's
+ * test that initialises a module reading them with its own parameters rather than the run
+ * files'. Each test adds exactly the keys its modules read (a union of the flags below):
+ * sage26_calculate_star_formation reads SFprescription and the three H2 integration
+ * parameters, sage26_apply_star_formation_supernova and sage26_quasar_mode SFprescription,
+ * and sage26_starburst_feedback SFprescription, StarburstColdGasOn and FIREmodeOn (0, R2's
  * fixed-epsilon feedback: a required parameter). A key already present is not added twice.
  */
 #define SAGE26_TEST_KEY_SF_PRESCRIPTION 1 /* SFprescription: 0 (R1, the Croton law) */
@@ -144,8 +144,8 @@ static inline void add_test_sf_prescription_parameters(const int keys) {
  * sage26_prepare_infall_budget, sage26_apply_infall, sage26_satellite_stripping,
  * sage26_reincorporation, sage26_apply_star_formation_supernova, sage26_apply_metal_enrichment,
  * sage26_starburst_feedback, sage26_quasar_mode, sage26_resolve_mergers_and_disruption or
- * sage26_calculate_cooling_budget with its own parameters rather than the run files'. A key already
- * present is not added twice.
+ * sage26_calculate_cooling_budget with its own parameters rather than the run files'. A key
+ * already present is not added twice.
  */
 static inline void add_test_cgm_recipe_parameter(void) {
   sage26_test_append_model_parameter("CGMrecipeOn", "0");

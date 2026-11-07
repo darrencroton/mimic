@@ -103,8 +103,8 @@ static inline double oracle_join_halo_redshift(struct oracle_fixture *in, const 
  * PreviousType is its Type, as sage26_record_transition_state wrote it at the end of its snapshot.
  * Each progenitor galaxy starts from the package's creation defaults and takes the fixture's clock,
  * infall record, histories, its Concentration where the fixture's ConcentrationOn is 3 and, with
- * full_state, every float of the merger-family galaxy block; its halo takes the
- * fixture's halo values.
+ * full_state, every float of the merger-family galaxy block;
+ * its halo takes the fixture's halo values.
  *
  * With full_state the rows also take the pass's timing: each progenitor's source time is
  * call.Age[<its SnapNum>] and the descendant's call.halo_age, so the core's dT is SAGE26's

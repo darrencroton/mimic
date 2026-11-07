@@ -9,8 +9,8 @@ helpers first order the written snapshots by increasing snapshot number, so a fi
 through them sees the snapshots in SAGE26's order whatever order the engine supplies, and return
 snapshot numbers in that order.
 
-Permitted deviation: SAGE26 searches all 64 snapshots because it writes all 64; the
-candidates here are the snapshots the run wrote (eight for the mini-Millennium run files).
+Permitted deviation: SAGE26 searches all 64 snapshots because it writes all 64; the candidates here
+are the snapshots the run wrote (eight for the mini-Millennium run files).
 """
 
 import numpy as np

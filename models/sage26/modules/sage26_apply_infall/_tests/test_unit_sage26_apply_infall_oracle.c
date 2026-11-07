@@ -6,9 +6,9 @@
  * _tests/oracle/ directory) through the module's process() entry and asserts bit-for-bit equality
  * with the oracle output: the central's ejected and hot reservoirs after add_infall_to_hot
  * (R/src/model_infall.c:351-414), and for a CGMrecipeOn 1 fixture also its CGM pair. A CGMrecipeOn
- * 1 fixture sets the central's Regime and CGM pair and the module's CGMrecipeOn 1; the test asserts
- * the oracle's reservoir selection (intermediate.reservoir_cgm) against the input's CGMrecipeOn
- * 1 && Regime 0, the unselected pair unchanged, and each recorded local's markers
+ * 1 fixture sets the central's Regime and CGM pair and the module's CGMrecipeOn 1; the test
+ * asserts the oracle's reservoir selection (intermediate.reservoir_cgm) against the input's
+ * CGMrecipeOn 1 && Regime 0, the unselected pair unchanged, and each recorded local's markers
  * (oracle README, "The c10 Group").
  *
  * The snapshot budget call.InfallingGas is supplied as the package's InfallingGas

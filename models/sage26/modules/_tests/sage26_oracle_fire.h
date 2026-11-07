@@ -1,7 +1,7 @@
 /**
  * @file    sage26_oracle_fire.h
- * @brief   Oracle-test helpers for the FIRE supernova
- *          feedback (routine starformation_and_feedback_fire)
+ * @brief   Oracle-test helpers for the FIRE supernova feedback
+ *          (routine starformation_and_feedback_fire)
  *
  * Adds, beside the shared fixture reader sage26_oracle_fixture.h (which stays as it is), what the
  * oracle tests of the FIRE fixtures need (oracle README "The c09 Group"):
@@ -20,8 +20,8 @@
  * - the burst (routines collisional_starburst_recipe_fire, deal_with_galaxy_merger_fire,
  *   merger_pass_fire, check_disk_instability_fire and the gas-unstable
  *   starformation_and_feedback_fire): oracle_c09_check_burst_wiring(), the per-path wiring
- *   assertion that a burst took the FIRE branch with its host's own stored SnapNum, float Vvir and
- *   the fixture's redshift of that snapshot; oracle_c09_read_mass_loading() and
+ *   assertion that a burst took the FIRE branch with its host's own stored SnapNum, float
+ *   Vvir and the fixture's redshift of that snapshot; oracle_c09_read_mass_loading() and
  *   oracle_c09_check_mass_loading(), the invariant MassLoading of a burst's galaxies; and
  *   oracle_c09_observed(), an observation of the oracle's (intermediate.*_sensitive).
  *
@@ -346,8 +346,8 @@ static inline int oracle_c09_check_burst_wiring(const char *path, const char *si
 }
 
 /**
- * @brief The merger family's flags of a FIRE burst fixture: oracle_c08_require_merger_flags with
- *        FIREmodeOn left to oracle_c09_read_fire_config (0 or 1; SAGE26's
+ * @brief The merger family's flags of a FIRE burst fixture: oracle_c08_require_merger_flags
+ *        with FIREmodeOn left to oracle_c09_read_fire_config (0 or 1; SAGE26's
  *        input/millennium.par:55 sets 1)
  * @return Number of problems
  */
@@ -429,8 +429,8 @@ static inline int oracle_c09_check_same_host_budget(const char *path, const char
 
 /**
  * @brief A replay of sage26_starburst_feedback's call of the shared transaction, on copies of the
- *        galaxies and halos, with the transaction's locals (the pattern of the SFprescription 1
- *        tests: the replay must end in the state process() produced, so its locals are process()'s)
+ *        galaxies and halos, with the transaction's locals (the replay must end in the state
+ *        process() produced, so its locals are process()'s)
  */
 struct oracle_c09_burst_replay {
   struct GalaxyData galaxies[ORACLE_C09_REPLAY_GALAXIES];

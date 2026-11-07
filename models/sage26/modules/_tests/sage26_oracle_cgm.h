@@ -47,11 +47,12 @@ struct oracle_c10_site_tally {
  * @brief The merger family's flags of a CGMrecipeOn 1 fixture (oracle_c08_require_merger_flags with
  *        the CGM and FIRE flags read)
  *
- * SFprescription 0 or 1 (with the H2 configuration for 1) and BulgeSizeOn 0 or 3 as SFprescription
- * 1 reads them; CGMrecipeOn 0, or 0 or 1 where cgm_allowed (refused otherwise); FIREmodeOn left to
- * oracle_c09_read_fire_config for a *_fire routine (fire_routine), otherwise 0, or 0 or 1 for a
- * CGMrecipeOn 1 fixture (R4's 1, which grow_black_hole, quasar_mode_wind and
- * disrupt_satellite_to_ICS do not read; returned in *fire_mode_on); every other flag R0-R4's.
+ * SFprescription 0 or 1 (with the H2 configuration for 1) and BulgeSizeOn 0 or 3 as
+ * oracle_c08_read_sf_config and oracle_c07_read_sizes read them; CGMrecipeOn 0, or 0 or 1
+ * where cgm_allowed (refused otherwise); FIREmodeOn left to oracle_c09_read_fire_config for a
+ * *_fire routine (fire_routine), otherwise 0, or 0 or 1 for a CGMrecipeOn 1 fixture (R4's 1,
+ * which grow_black_hole, quasar_mode_wind and disrupt_satellite_to_ICS do not read; returned in
+ * *fire_mode_on); every other flag R0-R4's.
  *
  * @return Number of problems
  */

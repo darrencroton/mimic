@@ -23,8 +23,8 @@ Snapshots: every written snapshot (:1919), chosen through ``all_snapshots``; a s
 least 10 galaxies with positive stellar mass (:1926-1928) and at least one quiescent galaxy among
 the most massive (:1943-1945).
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
-reads 64.
+Permitted deviations: none beyond drawing the figure from the run's eight
+snapshots, where SAGE26 reads 64.
 """
 
 import numpy as np

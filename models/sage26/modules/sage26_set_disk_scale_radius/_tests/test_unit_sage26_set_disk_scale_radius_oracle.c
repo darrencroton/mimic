@@ -10,8 +10,8 @@
  *   galaxy[0].DiskScaleRadius, the float store of get_disk_radius's result (model_misc.c:203-228,
  *   core_build_model.c:297); return.r_disk is the double before that store, which the package never
  *   keeps, so it is checked only as consistent with the stored float. The input carries no bulge
- *   sizes: the synchronisation that follows zeroes the radii in mode 0, which this fixture's output
- *   does not record;
+ *   sizes: the synchronisation that follows zeroes the radii in mode 0, which this
+ *   fixture's output does not record;
  * - get_bulge_radius (gbr_*): the shared helper mimic_sage_get_bulge_radius
  *   (shared/sage_bulge_size_physics.h, model_misc.c:239-377) called directly with the fixture's
  *   BulgeSizeOn and Hubble_h, asserting the double return, the six-member size block, every other

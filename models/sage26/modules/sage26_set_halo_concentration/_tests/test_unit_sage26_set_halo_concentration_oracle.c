@@ -27,29 +27,29 @@
  *
  * - tr_join_* fixtures (routine join_progenitors, written by oracle_c06 with ConcentrationOn 3:
  *   SAGE26's joining with its own get_halo_concentration at R/src/core_build_model.c:290-295): the
- *   joining harness (modules/_tests/sage26_oracle_join.h) joins the fixture's progenitor galaxies
- *   with the core's inheritance service (inherit_descendant_halos) and runs the shipped
- *   pre_timestep order, sage26_initialise_merger_clock, this module and
+ *   joining harness (modules/_tests/sage26_oracle_join.h) joins the fixture's progenitor
+ *   galaxies with the core's inheritance service (inherit_descendant_halos) and runs
+ *   the shipped pre_timestep order, sage26_initialise_merger_clock, this module and
  *   sage26_set_disk_scale_radius, each initialised from the fixture (ConcentrationOn 3, BulgeSizeOn
  *   3 and R5's cosmology). Every retained galaxy's recorded members are asserted bit for bit:
  *   Concentration; the merger-family block's reservoirs, radii and channels; the histories;
  *   MergTime; Type, SnapNum, HaloNr, CentralGal and Len; the core's halo values and infall record
  *   (SAGE26's floats against the core's doubles narrowed); infallStellarMass and TimeOfInfall (the
  *   private state properties that hold SAGE26's members); Cooling and Heating. Excluded by name,
- *   with the merger-family group's reasons (the resolver's and the clock's oracle tests): on a row
- *   off SAGE26's main-branch reset (a new orphan, or a former Type 2 that B:240 passes over),
+ *   with the merger-family group's reasons (the resolver's and the clock's oracle tests): on a
+ *   row off SAGE26's main-branch reset (a new orphan, or a former Type 2 that B:240 passes over),
  *   QuasarModeBHaccretionMass, OutflowRate, Cooling and Heating (SAGE26 keeps them, B:273-276 run
  *   on the main branch only; the core's init_repeat resets them on every inherited row); on a new
- *   orphan, Len (SAGE26 keeps it, B:261; the core zeros it); and the infall halo values of a Type 1
- *   with a clock above 999 that loses its subhalo (none here). mergeType is checked to be 0 (no
+ *   orphan, Len (SAGE26 keeps it, B:261; the core zeros it); and the infall halo values of a Type
+ *   1 with a clock above 999 that loses its subhalo (none here). mergeType is checked to be 0 (no
  *   package member); mergeIntoID and dT are SAGE26 bookkeeping with no package member at joining
- *   (B:237, :287, :304). A join_progenitors fixture carries no pass timing, so the test gives the
- *   harness's full-state path a zero halo age and progenitor ages (add_zero_timing): SAGE26's
+ *   (B:237, :287, :304). A join_progenitors fixture carries no pass timing, so the test gives
+ *   the harness's full-state path a zero halo age and progenitor ages (add_zero_timing): SAGE26's
  *   joining and the package's joining modules read no time (B:237 sets dT to -1, and the core's dT
  *   is the excluded bookkeeping). Each path has a wiring assertion of its own: a new Type 0 with
  *   PreviousType 0 holds the inversion of its current float pair, one with PreviousType 1 that of
- *   its infall pair (and differs from the current pair's), and every other row its input value; the
- *   oracle's concentration_assigned marks exactly the assigned rows. On a subhalo join the
+ *   its infall pair (and differs from the current pair's), and every other row its input value;
+ *   the oracle's concentration_assigned marks exactly the assigned rows. On a subhalo join the
  *   harness's stand-in FoF central (row 0, not a fixture galaxy) is neither recorded nor compared.
  *
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.

@@ -5,22 +5,22 @@ sage26 registered figures, rendered from a synthetic catalogue (models/sage26/pl
 Validates: each registered figure renders a non-empty PNG named by its registry file stem and
            returns no skip message; at least one artist tagged gid="model" holds a finite data
            point; the figure's data axes and colour-bar axes carry exactly the labels and titles
-           of its source at the starting commit; every field the figure reads unconditionally
+           of its source at commit 66a3e949; every field the figure reads unconditionally
            is in its PLOT_REQUIREMENTS entry (and, for an evolution figure, every field it reads
            is in its EVOLUTION_PLOT_FIELDS entry) and a figure called without one of its
            optional fields does not raise; the baryon-fraction reservoir helper returns the
            seven reservoirs with the total equal to their sum; baryon_fraction draws a "CGM"
-           curve, mass_reservoir_scatter a "CGM gas" series and gas_mass_function the
-           "Model - H2 Gas" and "Model - HI Gas" lines, each tagged gid="model"
-           (the twelve SAGE26 z = 0 figures, bulge_to_total to disk_radius_vs_stellar_mass, get the
-           same cases, a Cap case for each sampled figure, a unit case for each helper, and both
-           the colour-bar and the no-colour-bar labels of tcool_vs_mvir; the fourteen evolution
-           figures, rcool_to_rvir_above_mshock to ffb_fraction_cut_down (thirteen ports of
-           SAGE26's allresults-history.py and the cut-down port of paper_plots.py plot 23c), get
-           the same cases, a window case and a legend case where the
-           figure has one, the snapshot-selection helper's cases (inclusive z-range ends, empty
-           bins, nearest snapshot and its tie, order independence), a unit case for every helper,
-           and cases pinning each bin constant, threshold, legend text and conversion)
+           curve, mass_reservoir_scatter a "CGM gas" series and gas_mass_function the "Model - H2
+           Gas" and "Model - HI Gas" lines, each tagged gid="model" (the twelve SAGE26 z = 0
+           figures, bulge_to_total to disk_radius_vs_stellar_mass, get the same cases, a Cap
+           case for each sampled figure, a unit case for each helper, and both the colour-bar
+           and the no-colour-bar labels of tcool_vs_mvir; the fourteen evolution figures,
+           rcool_to_rvir_above_mshock to ffb_fraction_cut_down (thirteen ports of SAGE26's
+           allresults-history.py and the cut-down port of paper_plots.py plot 23c), get the same
+           cases, a window case and a legend case where the figure has one, the snapshot-selection
+           helper's cases (inclusive z-range ends, empty bins, nearest snapshot and its tie,
+           order independence), a unit case for every helper, and cases pinning each bin constant,
+           threshold, legend text and conversion)
 Tolerance: none for labels, stems, field sets, caps and the reservoir helper (the helper's
            literals are dyadic, so the sums are exact); the CGM curve is compared with the total
            curve by a plain inequality; helper unit cases compare with a relative tolerance of
@@ -28,11 +28,10 @@ Tolerance: none for labels, stems, field sets, caps and the reservoir helper (th
            peak with an absolute tolerance of 2e-3
 
 Every expectation is written from the forked figure's source text at commit 66a3e949
-(transcribed: no label is computed from the
-code under test) or SAGE26's plotting scripts (plotting/allresults-local.py,
-plotting/allresults-history.py and plotting/paper_plots.py, lines cited at each use).
-Figures render with MPLBACKEND=Agg into a temporary directory under $TMPDIR, removed at the end.
-It needs no Mimic run.
+(transcribed: no label is computed from the code under test) or SAGE26's plotting scripts
+(plotting/allresults-local.py, plotting/allresults-history.py and plotting/paper_plots.py, lines
+cited at each use). Figures render with MPLBACKEND=Agg into a temporary directory under $TMPDIR,
+removed at the end. It needs no Mimic run.
 
 Run: mimic_venv/bin/python models/sage26/plots/tests/test_sage26_figures.py
 """
@@ -140,7 +139,7 @@ EVOLUTION_STEMS = {
 }
 FILE_STEMS = {**SNAPSHOT_STEMS, **EVOLUTION_STEMS}
 
-# Axis strings of the forked figures, transcribed from their source at the starting commit.
+# Axis strings of the forked figures, transcribed from their source at commit 66a3e949.
 # The shared ones are the returns of the get_*_label() helpers of figures/__init__.py.
 MASS_FUNCTION = r"$\phi$ [Mpc$^{-3}$ dex$^{-1}$]"
 HALO_MASS = r"log$_{10}$ M$_{\rm halo}$ [M$_{\odot}$]"
@@ -163,9 +162,9 @@ def panel(x_label, y_label, title="", z_label=""):
 
 
 # name -> list of expected data axes in creation order. The forked figures (the first eighteen
-# snapshot figures and the first four evolution figures, in registry order) have no title and no
-# colour bar; the labels of the other figures are SAGE26's Python string literals at
-# the lines cited.
+# snapshot figures and the first four evolution figures, in registry order) have no title
+# and no colour bar; the labels of the other figures are SAGE26's Python
+# string literals at the lines cited.
 DATA_AXES = {
     "halo_mass_function": [panel(HALO_MASS, MASS_FUNCTION)],
     "halo_occupation": [panel(HALO_MASS, r"Mean occupation number $\langle N \rangle$")],

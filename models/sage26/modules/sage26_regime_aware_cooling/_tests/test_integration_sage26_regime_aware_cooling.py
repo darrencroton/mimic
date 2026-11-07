@@ -7,11 +7,10 @@ test trees: it loads and runs, writes nothing with CGMrecipeOn 0, writes only it
 CGMrecipeOn 1, and refuses a missing required key and a misplacement at the executable's exit
 status.
 
-Every configuration sets every key its modules read, explicitly. The keys
-come from each configured module's module_info.yaml `parameters` list, which
-`make lint-parameters` holds to the code, with the vertical run file's values
-(models/sage26/input/sage26_mini-millennium.yaml). Runs use the run file's SubSteps (10) and write
-snapshots 63 and 16.
+Every configuration sets every key its modules read, explicitly. The keys come from each configured
+module's module_info.yaml `parameters` list, which `make lint-parameters` holds to the code, with
+the vertical run file's values (models/sage26/input/sage26_mini-millennium.yaml). Runs use the run
+file's SubSteps (10) and write snapshots 63 and 16.
 
 Minimal pipeline (Loads and runs, Off; CGMrecipeOn 1 for Loads and runs), in the run file's order:
   pre_timestep:   sage26_determine_regime, sage26_prepare_infall_budget

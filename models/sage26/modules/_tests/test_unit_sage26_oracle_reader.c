@@ -17,9 +17,9 @@
  *   fails with "read error", not as an early end of file;
  * - a truncated manifest (fewer fixtures than declared, or a listed fixture missing a
  *   file) still fails its count check, and a truncated fixture file fails to load;
- * - the i64 field type reads INT64_MIN and INT64_MAX exactly, through oracle_in_i64 and
- *   oracle_check_i64, beside the existing types, and refuses one past each end and
- *   a malformed value.
+ * - the i64 field type reads INT64_MIN and INT64_MAX exactly, through oracle_in_i64
+ *   and oracle_check_i64, beside the existing types, and refuses one past
+ *   each end and a malformed value.
  *
  * Error paths run in a forked child (tests/framework/child_capture.h) so their stderr
  * can be checked for the limit's name. Platform independent: no bit-exact comparison.

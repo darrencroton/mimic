@@ -436,11 +436,12 @@ int test_no_interval_marks_not_evaluated(void) {
 // SUITE 4: THE CGMrecipeOn 1 SHARED HELPERS (shared/sage_cooling_physics.h)
 // ============================================================================
 //
-// Platform-independent behavioural tests of the CGM cooling helpers. Every expectation is derived
-// independently of the helper under test: a literal chosen so the result is exact, or SAGE26's
-// expression written inline with its operand order and its line cited
-// (C = R/src/model_cooling_heating.c, H = R/src/model_halo_properties.c). The oracle tests cover
-// the same helpers bit for bit on macOS arm64 only.
+// Platform-independent behavioural tests of the shared cooling helpers
+// (shared/sage_cooling_physics.h). Every expectation is derived independently of the helper
+// under test: a literal chosen so the result is exact, or SAGE26's expression written
+// inline with its operand order and its line cited (C = R/src/model_cooling_heating.c,
+// H = R/src/model_halo_properties.c). The oracle tests cover the same helpers
+// bit for bit on macOS arm64 only.
 
 /* SAGE26's literal clustering tables (H:104-108, H:111-115), copied independently of the package */
 static const double TEST_MSTAR_MILL[31] = {

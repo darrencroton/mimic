@@ -10,8 +10,8 @@
  * and BulgeSizeOn 0 (R0) or 3 (the di_s3_* fixtures, R1). The test runs the module's process() on
  * that galaxy and asserts bit for bit, on every galaxy of the fixture, the fourteen fields the
  * star-formation oracle records (OutflowRate being the package's SupernovaOutflowRate) and
- * BlackHoleMass and QuasarModeBHaccretionMass, and, with BulgeSizeOn 3, MergerBulgeMass and the
- * three bulge radii, which the oracle then records too (the instability's radius
+ * BlackHoleMass and QuasarModeBHaccretionMass, and, with BulgeSizeOn 3, MergerBulgeMass
+ * and the three bulge radii, which the oracle then records too (the instability's radius
  * update, D:83, R/src/model_misc.c:385-424):
  *
  * - intermediate.state_is_post_transfer 0 (a stable disk, a non-positive disk mass, or
@@ -77,16 +77,16 @@
  * written fields, the size members and the two black-hole fields) against the oracle's state after
  * SAGE26's own grow_black_hole: the accretion cap's effect on H2gas and H1gas, isolated.
  *
- * FIREmodeOn (the FIRE fixtures, routine check_disk_instability_fire, R3's flags): the burst module
- * reads the fixture's FIREmodeOn (every earlier fixture runs it with 0, its required parameter),
- * each galaxy's stored SnapNum and the redshift table its params.ZZ entries fill
+ * FIREmodeOn (the FIRE fixtures, routine check_disk_instability_fire, R3's flags): the burst
+ * module reads the fixture's FIREmodeOn (every earlier fixture runs it with 0, its required
+ * parameter), each galaxy's stored SnapNum and the redshift table its params.ZZ entries fill
  * (sage26_oracle_fire.h). Besides the end state, the test asserts every recorded galaxy's
- * MassLoading (the state, the state after the black-hole growth and SAGE26's end state) equal to
- * its input, which no burst writes (R/src/model_mergers.c:707-710), and the instability burst's
- * FIRE wiring: a replay of sage26_starburst_feedback's call of the shared transaction on copies,
- * required to end in process()'s state, whose FIRE record must show the branch of the fixture's
- * FIREmodeOn taken with the bursting galaxy's own stored SnapNum, float Vvir and that snapshot's
- * redshift (never its FoF central's). The oracle's observations of SAGE26's burst
+ * MassLoading (the state, the state after the black-hole growth and SAGE26's end state) equal
+ * to its input, which no burst writes (R/src/model_mergers.c:707-710), and the instability
+ * burst's FIRE wiring: a replay of sage26_starburst_feedback's call of the shared transaction
+ * on copies, required to end in process()'s state, whose FIRE record must show the branch of the
+ * fixture's FIREmodeOn taken with the bursting galaxy's own stored SnapNum, float Vvir and that
+ * snapshot's redshift (never its FoF central's). The oracle's observations of SAGE26's burst
  * (intermediate.nested_burst_fire_*_sensitive: SAGE26's end state changes when that burst runs with
  * FIREmodeOn 0, or with the galaxy's redshift replaced) are read and counted.
  *
@@ -175,8 +175,7 @@ static const char *const SIZES[] = {"MergerBulgeMass", "BulgeRadius", "MergerBul
                                     "InstabilityBulgeRadius"};
 
 /**
- * @brief The galaxy fields the routine records beyond the fourteen, unchanged before
- *        the merger-family fields
+ * @brief The galaxy fields the routine records beyond the fourteen
  */
 static const char *const UNTOUCHED[] = {"BlackHoleMass", "QuasarModeBHaccretionMass"};
 
@@ -293,8 +292,8 @@ static int setup_parameters(struct oracle_fixture *in, int *bulge_size_on) {
       oracle_set_model_param("CGMrecipeOn", 0.0) != 0) {
     problems++;
   }
-  /* sage26_starburst_feedback's required FIREmodeOn: the fixture's, 0 for every fixture that is not
-   * a FIRE one */
+  /* sage26_starburst_feedback's required FIREmodeOn: the fixture's, 0 for every
+   * fixture that is not a FIRE one */
   if (oracle_set_model_param("FIREmodeOn", (double)fixture_fire_mode_on) != 0) {
     problems++;
   }
