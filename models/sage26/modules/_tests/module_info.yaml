@@ -41,3 +41,6 @@ module:
 
     integration:
       - test_integration_processing_mode_contracts.py
+
+    scientific:
+      - test_scientific_sage26_physics_baseline.py
