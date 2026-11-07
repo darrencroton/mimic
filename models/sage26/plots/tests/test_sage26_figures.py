@@ -55,6 +55,7 @@ sys.path.insert(0, str(HERE))
 
 from framework import run_test_suite
 from sage26_plot_fixtures import (
+    HUBBLE_H,
     VOLUME,
     build_catalogue,
     build_evolution_input,
@@ -1039,6 +1040,263 @@ def test_unit__moffett_imf_shift_is_zero():
     assert figure_module("bulge_to_total").MOFFETT_IMF_SHIFT_DEX == 0.0
 
 
+# --------------------------------------------------------------------------------------
+# Bin and threshold cases: the constants a new figure builds its bins and its selections from.
+# Each expectation is a literal written from SAGE26 at the lines cited, not read back from the
+# figure; a figure-level case shows a constant that the figure holds only inline.
+# --------------------------------------------------------------------------------------
+def test_bins__bulge_to_total_constants():
+    """allresults-local.py:1189-1190: np.arange(8.5, 12.5 + 0.25, 0.25), so 17 edges from 8.5 to
+    12.5 and 16 centres from 8.625 to 12.375; :1205: a bin of fewer than 5 galaxies is skipped."""
+    module = figure_module("bulge_to_total")
+    assert module.BIN_START == 8.5, f"BIN_START {module.BIN_START}"
+    assert module.BIN_STOP == 12.5, f"BIN_STOP {module.BIN_STOP}"
+    assert module.BIN_WIDTH == 0.25, f"BIN_WIDTH {module.BIN_WIDTH}"
+    assert module.MIN_GALAXIES_PER_BIN == 5, f"MIN_GALAXIES_PER_BIN {module.MIN_GALAXIES_PER_BIN}"
+    # One galaxy in the first bin and five in the last: the last (12.25 to 12.5, centre 12.375)
+    # is the only one summarised, and it is the sixteenth centre
+    mass = np.array([8.6] + [12.3, 12.35, 12.4, 12.4, 12.45])
+    ratio = np.full(6, 0.5)
+    centres, med, _, _, _, _ = module.bulge_to_total_bins(mass, ratio, ratio, ratio)
+    assert len(centres) == 16, f"{len(centres)} bin centres"
+    close(centres[[0, -1]], [8.625, 12.375])
+    assert np.isfinite(med).tolist() == [False] * 15 + [True], f"summarised bins {med.tolist()}"
+
+
+def test_bins__specific_star_formation_rate_constants():
+    """allresults-local.py:1758-1759: np.linspace(8.0, 12.2, 100) and np.linspace(-13, -8, 100);
+    :1745: sSFRcut = -11.0 (drawn as the dashed line at :1826-1827); :1741-1743: -99 for a
+    galaxy with no stellar mass."""
+    module = figure_module("specific_star_formation_rate")
+    assert len(module.X_BINS) == 100, f"{len(module.X_BINS)} x edges"
+    close([module.X_BINS[0], module.X_BINS[-1]], [8.0, 12.2])
+    close(module.X_BINS[1] - module.X_BINS[0], 4.2 / 99)
+    assert len(module.Y_BINS) == 100, f"{len(module.Y_BINS)} y edges"
+    close([module.Y_BINS[0], module.Y_BINS[-1]], [-13.0, -8.0])
+    close(module.Y_BINS[1] - module.Y_BINS[0], 5.0 / 99)
+    assert module.SSFR_CUT == -11.0, f"SSFR_CUT {module.SSFR_CUT}"
+    assert module.NO_SSFR == -99.0, f"NO_SSFR {module.NO_SSFR}"
+    cut_lines = [
+        line
+        for ax in render("specific_star_formation_rate").fig.axes
+        for line in ax.lines
+        if line.get_label() == "sSFR cut = -11.0"
+    ]
+    assert len(cut_lines) == 1, f"{len(cut_lines)} cut lines"
+    assert list(cut_lines[0].get_ydata()) == [-11.0, -11.0], "the cut line is not at -11"
+
+
+def test_bins__ejection_efficiency_edges():
+    """allresults-local.py:2105: np.arange(1.0, 3.0, 0.1), 20 edges from 1.0 to 2.9 and 19
+    centres 1.05, 1.15, ... 2.85, which the median line is drawn at (:2112)."""
+    module = figure_module("ejection_efficiency_vs_vvir")
+    assert len(module.BIN_EDGES) == 20, f"{len(module.BIN_EDGES)} edges"
+    close([module.BIN_EDGES[0], module.BIN_EDGES[-1]], [1.0, 2.9])
+    close(module.BIN_EDGES[1] - module.BIN_EDGES[0], 0.1)
+    lines = [
+        artist
+        for artist, _ in model_artists(render("ejection_efficiency_vs_vvir").fig)
+        if artist.get_label() == "Median ± 1σ"
+    ]
+    assert len(lines) == 1, f"{len(lines)} median lines"
+    centres = lines[0].get_xdata()
+    assert len(centres) == 19, f"{len(centres)} median-line points"
+    close(centres[[0, 1, -1]], [1.05, 1.15, 2.85])
+
+
+def test_bins__disk_radius_edges():
+    """allresults-local.py:2155: np.logspace(log10(Rvir.min()), log10(Rvir.max()), 50), so 49
+    centres whose ratio is (max / min)^(1/49), the first at min * (1 + ratio) / 2."""
+    module = figure_module("disk_radius_vs_stellar_mass")
+    assert module.N_BIN_EDGES == 50, f"N_BIN_EDGES {module.N_BIN_EDGES}"
+    fig = render("disk_radius_vs_stellar_mass").fig
+    drawn = model_artists(fig)
+    lines = [
+        a for a, _ in drawn if a.get_label() == "Median ± 1σ (matching Somerville+18 selection)"
+    ]
+    assert len(lines) == 1, f"{len(lines)} median lines"
+    centres = np.asarray(lines[0].get_xdata(), dtype=float)
+    assert len(centres) == 49, f"{len(centres)} median-line points"
+    from matplotlib.collections import PathCollection
+
+    scatters = [a for a, _ in drawn if isinstance(a, PathCollection)]
+    assert len(scatters) == 1, f"{len(scatters)} scatters"
+    rvir = np.asarray(scatters[0].get_offsets(), dtype=float)[:, 0]
+    ratio = (rvir.max() / rvir.min()) ** (1.0 / 49.0)
+    close(centres[1] / centres[0], ratio, rel=1e-9)
+    close(centres[0], rvir.min() * (1.0 + ratio) / 2.0, rel=1e-9)
+
+
+def scatter_points(fig):
+    """Return the finite points of the model scatters of a figure, summed."""
+    from matplotlib.collections import PathCollection
+
+    return sum(
+        points for artist, points in model_artists(fig) if isinstance(artist, PathCollection)
+    )
+
+
+def catalogue_with_stellar_masses(masses_msun):
+    """Return the synthetic catalogue whose first galaxies hold the given stellar masses (Msun).
+
+    Every galaxy after them has no stellar mass, so no mass cut passes it. The first galaxies
+    also satisfy every other cut of the figures that test a mass threshold (a halo, a virial
+    radius, a disk radius, a star formation rate, a concentration), and alternate between
+    Type 0 and Type 1.
+    """
+    catalogue = build_catalogue()
+    k = len(masses_msun)
+    catalogue.StellarMass[:] = 0.0
+    catalogue.StellarMass[:k] = np.asarray(masses_msun, dtype=float) * HUBBLE_H / 1.0e10
+    catalogue.Mvir[:k] = 1.0
+    catalogue.Rvir[:k] = 0.2 + 0.01 * np.arange(k)
+    catalogue.DiskScaleRadius[:k] = 0.01
+    catalogue.SfrDisk[:k] = 1.0
+    catalogue.SfrBulge[:k] = 0.0
+    catalogue.Concentration[:k] = 10.0
+    catalogue.Type[:k] = np.arange(k) % 2
+    return catalogue
+
+
+def stellar_mass_cut_case(name, cut_msun):
+    """Render a figure with six galaxies below and six above a cut and return its scatter points.
+
+    The six below hold 0.99, 0.5, 0.2, 0.1, 0.01 and 0.001 of the cut; the six above hold 1.01,
+    2, 5, 10, 100 and 1000 times it.
+    """
+    below = cut_msun * np.array([0.99, 0.5, 0.2, 0.1, 0.01, 0.001])
+    above = cut_msun * np.array([1.01, 2.0, 5.0, 10.0, 100.0, 1000.0])
+    run = call_figure(name, catalogue_with_stellar_masses(np.concatenate([below, above])), name)
+    assert run.skip is None and run.fig is not None, f"{name}: skipped: {run.skip}"
+    return scatter_points(run.fig)
+
+
+def test_threshold__spatial_distribution_3d_box_cut_is_1e9_msun():
+    """allresults-local.py:1566-1568: only galaxies of a stellar mass above 1e9 Msun are drawn."""
+    points = stellar_mass_cut_case("spatial_distribution_3d_box", 1.0e9)
+    assert points == 6, f"{points} points drawn, expected the 6 above 1e9 Msun"
+
+
+def test_threshold__star_formation_rate_cut_is_0_01_msun():
+    """allresults-local.py:1630: only galaxies of a stellar mass above 0.01 Msun are drawn."""
+    points = stellar_mass_cut_case("star_formation_rate", 0.01)
+    assert points == 6, f"{points} points drawn, expected the 6 above 0.01 Msun"
+
+
+def test_threshold__concentration_vs_mvir_cut_is_1e8_msun():
+    """allresults-local.py:1852-1854: only galaxies of a stellar mass above 1e8 Msun are drawn,
+    over the two panels together."""
+    points = stellar_mass_cut_case("concentration_vs_mvir", 1.0e8)
+    assert points == 6, f"{points} points drawn, expected the 6 above 1e8 Msun"
+
+
+def test_threshold__disk_radius_window_is_9_3_to_11_3():
+    """allresults-local.py:2141-2146: only galaxies with 9.3 < log10(M*/Msun) < 11.3 are drawn.
+
+    Three galaxies at each of log M* 9.29, 9.31, 11.29 and 11.31: the 9.31 and 11.29 are inside
+    the window, the 9.29 and 11.31 outside.
+    """
+    log_masses = [9.29, 9.31, 11.29, 11.31] * 3
+    catalogue = catalogue_with_stellar_masses(10.0 ** np.array(log_masses))
+    run = call_figure("disk_radius_vs_stellar_mass", catalogue, "disk-window")
+    assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
+    points = scatter_points(run.fig)
+    assert points == 6, f"{points} points drawn, expected the 6 inside the window"
+
+
+# --------------------------------------------------------------------------------------
+# Legend cases: the text of every legend entry of a new figure
+# --------------------------------------------------------------------------------------
+def legend_texts(name):
+    """Return the sorted legend texts of a rendered figure (every axes together)."""
+    fig = render(name).fig
+    assert fig is not None, f"{name}: no figure was captured"
+    return sorted(
+        t.get_text() for ax in fig.axes if ax.get_legend() for t in ax.get_legend().get_texts()
+    )
+
+
+def legend_case(name, source_lines, expected):
+    """Assert a figure's legend holds exactly the SAGE26 texts ``expected`` (order aside)."""
+    got = legend_texts(name)
+    assert got == sorted(
+        expected
+    ), f"{name} legend {got}, SAGE26 {source_lines}: {sorted(expected)}"
+
+
+def test_legend__bulge_to_total():
+    """allresults-local.py:1213-1230, legend at :1236."""
+    legend_case(
+        "bulge_to_total",
+        ":1213-1230",
+        [
+            "Model 16-84th percentile",
+            "Model median",
+            "Mean merger-driven",
+            "Mean instability-driven",
+            "Moffett et al. (2016)",
+        ],
+    )
+
+
+def test_legend__stellar_vs_halo_mass_by_regime():
+    """allresults-local.py:1707, :1711, legend at :1719."""
+    legend_case("stellar_vs_halo_mass_by_regime", ":1707, :1711", ["CGM Regime", "Hot Regime"])
+
+
+def test_legend__specific_star_formation_rate():
+    """allresults-local.py:1827 (sSFRcut -11.0), legend at :1838; the contour labels at :1808
+    reach no legend entry."""
+    legend_case("specific_star_formation_rate", ":1827", ["sSFR cut = -11.0"])
+
+
+def test_legend__sfr_vs_halo_accretion_rate():
+    """allresults-local.py:1918, legend at :1930."""
+    legend_case("sfr_vs_halo_accretion_rate", ":1918", ["SFR = accretion rate"])
+
+
+def test_legend__tcool_vs_mvir():
+    """allresults-local.py:1985, :1988, :1993, legend at :2001."""
+    legend_case("tcool_vs_mvir", ":1985-1993", ["CGM regime", "Hot regime", "Unclassified"])
+
+
+def test_legend__ejection_efficiency_vs_vvir_has_none():
+    """allresults-local.py:2112 labels the median line but SAGE26 calls no legend in the section
+    (:2050-2121), so the figure draws none."""
+    assert legend_texts("ejection_efficiency_vs_vvir") == [], "the figure draws a legend"
+
+
+def test_legend__disk_radius_vs_stellar_mass():
+    """allresults-local.py:2162, :2174, legend at :2186."""
+    legend_case(
+        "disk_radius_vs_stellar_mass",
+        ":2162, :2174",
+        [
+            "Median ± 1σ (matching Somerville+18 selection)",
+            r"Somerville+18 SRHR (9.3 < $\log M_\star$ < 11.3)",
+        ],
+    )
+
+
+BIN_CASES = [
+    test_bins__bulge_to_total_constants,
+    test_bins__specific_star_formation_rate_constants,
+    test_bins__ejection_efficiency_edges,
+    test_bins__disk_radius_edges,
+    test_threshold__spatial_distribution_3d_box_cut_is_1e9_msun,
+    test_threshold__star_formation_rate_cut_is_0_01_msun,
+    test_threshold__concentration_vs_mvir_cut_is_1e8_msun,
+    test_threshold__disk_radius_window_is_9_3_to_11_3,
+    test_legend__bulge_to_total,
+    test_legend__stellar_vs_halo_mass_by_regime,
+    test_legend__specific_star_formation_rate,
+    test_legend__sfr_vs_halo_accretion_rate,
+    test_legend__tcool_vs_mvir,
+    test_legend__ejection_efficiency_vs_vvir_has_none,
+    test_legend__disk_radius_vs_stellar_mass,
+]
+
+
 UNIT_CASES = [
     test_unit__bulge_to_total_ratios,
     test_unit__bulge_to_total_bins,
@@ -1061,7 +1319,8 @@ UNIT_CASES = [
 
 def build_cases():
     """Return every case: five per registered figure, the helper and added-series cases, the
-    tcool colour-bar cases, a Cap case per sampled figure and a unit case per new helper."""
+    tcool colour-bar cases, a Cap case per sampled figure, a unit case per new helper, and the bin,
+    threshold and legend cases of the new figures."""
     cases = []
     for name in FILE_STEMS:
         cases += [
@@ -1083,6 +1342,7 @@ def build_cases():
     ]
     cases += [make_cap(name) for name in CAPS]
     cases += UNIT_CASES
+    cases += BIN_CASES
     return cases
 
 

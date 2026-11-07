@@ -236,7 +236,9 @@ def plot(
     # draws arbitrary galaxies, zero-mass ones included (mapped to -99 and left out). The
     # mini-Millennium run is below DILUTE, where w2 is not sampled.
     w2 = draw_sample(w2, rng)
-    mass = np.log10(stellar_mass[w2])
+    # A zero-mass galaxy the sampled branch can reach has log10 = -inf, which is not drawn
+    with np.errstate(divide="ignore"):
+        mass = np.log10(stellar_mass[w2])
     sSFR = log_specific_sfr(sfr_disk[w2], sfr_bulge[w2], stellar_mass[w2])
 
     # Separate populations, allresults-local.py:1749-1755

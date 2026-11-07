@@ -172,7 +172,7 @@ def build_catalogue(seed=20261107, n_halos=1500, epoch=0.0):
     # the galaxies, so the logarithm of the sum falls inside the figure's 0 to 4 window
     mdot_cool = np.where(rng.random(n) < 0.6, rng.uniform(1.0, 300.0, n), 0.0)
     mdot_stream = np.where(rng.random(n) < 0.2, rng.uniform(0.0, 5.0, n), 0.0)
-    concentration = rng.uniform(3.0, 20.0, n)  # satellites keep their last central value
+    concentration = rng.uniform(3.0, 20.0, n)  # every row, central or satellite, draws its own
 
     values = {
         "SnapNum": np.full(n, 63),
