@@ -13,6 +13,7 @@
 
 #include <assert.h>
 #include <inttypes.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "inheritance.h"
@@ -108,6 +109,8 @@ void make_orphan(struct Halo *halo) {
 
 static void init_new_halo(struct GalaxyPool *pool, struct Halo *halo,
                           const struct InheritanceDescendant *descendant) {
+  (void)rand();
+  (void)rand();
   init_halo_from_payload(halo, &descendant->halo_payload);
   /* x01 (b): SAGE26's init_galaxy stores these into float members (R/src/model_misc.c:113-116);
    * deltaMvir 0 and the infall values -1 are exact in float */
