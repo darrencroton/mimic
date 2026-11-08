@@ -33,6 +33,13 @@ static void copy_progenitor_galaxy(struct GalaxyPool *pool, struct Halo *target,
     target->galaxy = galaxy_pool_alloc(pool);
     memcpy(target->galaxy, source->galaxy, sizeof(struct GalaxyData));
     reset_galaxy_snapshot_accumulators(target->galaxy);
+    /* x01 (e): SAGE26 copies a progenitor galaxy whole (R/src/core_build_model.c:234) and zeroes
+     * these four only on the first-occupied Type 0/1 update (:273-276); every inherited copy
+     * keeps them here and inherit_descendant_halos() zeroes them on that update */
+    target->galaxy->Cooling = source->galaxy->Cooling;
+    target->galaxy->Heating = source->galaxy->Heating;
+    target->galaxy->QuasarModeBHaccretionMass = source->galaxy->QuasarModeBHaccretionMass;
+    target->galaxy->SupernovaOutflowRate = source->galaxy->SupernovaOutflowRate;
   } else {
     target->galaxy = NULL;
   }
@@ -186,8 +193,18 @@ int64_t inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace
     if (workspace[end].Type == 0 || workspace[end].Type == 1) {
       if (progenitors[i].is_main_branch) {
         apply_descendant_properties(&workspace[end], descendant);
+        /* x01 (e): SAGE26's first-occupied reset (R/src/core_build_model.c:273-276) */
+        if (workspace[end].galaxy != NULL) {
+          workspace[end].galaxy->Cooling = 0.0;
+          workspace[end].galaxy->Heating = 0.0;
+          workspace[end].galaxy->QuasarModeBHaccretionMass = 0.0;
+          workspace[end].galaxy->SupernovaOutflowRate = 0.0;
+        }
       } else {
+        /* x01 (e): SAGE26's orphan branch leaves Len unchanged (R/src/core_build_model.c:322-337) */
+        const int len = workspace[end].Len;
         make_orphan(&workspace[end]);
+        workspace[end].Len = len;
       }
     }
 
