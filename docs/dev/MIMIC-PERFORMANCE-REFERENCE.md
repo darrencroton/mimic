@@ -3,6 +3,7 @@
 **Purpose:** The measured cost model of Mimic at research scale: where a full-box `sage16` run spends its time and memory under each driver, how that compares with the mini-Millennium profile the optimisation work was planned on, how the run scales under MPI, and the per-halo and per-callback rates that let a new run be estimated before it starts. It is the research-scale companion of [`BENCHMARK-SAGE16-MINI-MILLENNIUM.md`](BENCHMARK-SAGE16-MINI-MILLENNIUM.md) and the evidence the Tier A performance plan drew on (`MIMIC-PERFORMANCE-IMPLEMENTATION-PLAN.md`, archived under `archive/dev-plans/`).
 
 **Status:** Measurement record, 2026-10-21, with an after-the-plan section added 2026-10-22 ([After the Tier A plan](#after-the-tier-a-plan-2026-10-22)); every section above it describes `8613bded`, before the plan's changes. It reports where time and memory go and proposes no change. Every number is perishable (one machine, one commit, one dataset) and nothing outside `docs/dev/` may cite it; re-measure before acting on any of it.
+**Note (2026-11-08):** the `sage26` package exists since the SAGE26 import and is unprofiled; every figure here is `sage16`. A `sage26` profile is a later measurement, not a correction to this document.
 
 ---
 
