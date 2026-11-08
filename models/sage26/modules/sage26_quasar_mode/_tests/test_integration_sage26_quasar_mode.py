@@ -137,70 +137,15 @@ def test_module_pipeline_integration():
 def test_quasar_physics_correctness():
     """Test that quasar-mode physics is physically reasonable
 
-    Validates:
-    - Black hole masses are reasonable fraction of halo mass
-    - Quasar accretion is tracked correctly
-    - Cold gas decreases when BH accretes
-    - Ejected gas increases from winds
-    - Mass conservation
-
-    The disk instability that triggers quasar-mode growth needs a stellar disk and cold gas, so the
-    pipeline supplies them first (infall, cooling with radio-mode heating, and the star-formation
-    chain); massive halos must then host black holes.
+    Validates, on GAS_PHASES (the gas supply and star-formation chain that build the stellar disk
+    and cold gas a disk instability needs, then the instability and this module):
+    - Massive halos host black holes, and no black hole exceeds 10% of its halo's mass
+    - Quasar accretion does not exceed the black-hole mass
+    - Cold gas and ejected gas are non-negative
     """
     print(f"\n{BLUE}TEST: Quasar-mode physics correctness{NC}")
 
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="quasar_physics",
-        phase_config={
-            "pre_timestep": [
-                ("sage26_set_disk_scale_radius", "process_full_halo"),
-                ("sage26_reionization", "process_full_halo"),
-                ("sage26_prepare_infall_budget", "process_full_halo"),
-            ],
-            "galaxy_physics": [
-                ("sage26_apply_infall", "process_full_halo"),
-                ("sage26_calculate_cooling_budget", "process_by_galaxy"),
-                ("sage26_radio_mode_heating", "process_by_galaxy"),
-                ("sage26_apply_cooling", "process_by_galaxy"),
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-                ("sage26_disk_instability", "process_by_galaxy"),
-                ("sage26_quasar_mode", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": 0.01,
-            "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription, at R1's value
-            "CGMrecipeOn": 0,  # required, R3's value
-            "fStabInstability": 0.5,
-            "StarFormingDiskFactor": 3.0,
-            # The gas supply and the star-formation chain, at R1's values
-            "GlobalBaryonFraction": 0.17,
-            "AGNrecipe": 2,
-            "RadioModeEfficiency": 0.08,
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,
-            "RecycleFraction": 0.43,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    # Load output
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
+    halos = run_gas_pipeline("quasar_physics", 0.01, 0.001)
 
     bh_mass = halos["BlackHoleMass"]
     quasar_accretion = halos["QuasarModeBHaccretionMass"]
@@ -240,7 +185,6 @@ def test_quasar_physics_correctness():
     print(f"  Total ejected gas: {total_ejected:.2e} [1e10 Msun/h]")
     assert total_ejected >= 0.0, "Total ejected gas should be non-negative"
 
-    shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Quasar-mode physics is physically reasonable{NC}")
 
 
@@ -380,8 +324,7 @@ def test_parameter_sensitivity():
     Validates, on GAS_PHASES, where the instability grows black holes and drives winds:
     - A higher BlackHoleGrowthRate grows more total black-hole mass. The z = 0
       QuasarModeBHaccretionMass is the last snapshot's accretion only and is not monotonic in the
-      rate (measured 1.6e-3 at 0.005 against 2.2e-3 at 0.02, but 1.5e-3 at 0.01), so it is not
-      the measure
+      rate, so it is not the measure
     - A higher QuasarModeEfficiency ejects more gas
     - Both measures are positive, so neither comparison holds on zeros
     """

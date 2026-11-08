@@ -39,7 +39,9 @@
  * models/sage26/LICENSE-SAGE26.
  */
 
+#include <stdbool.h>
 #include "error.h"
+#include "globals.h"
 #include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "module_system/parameter_helpers.h"
@@ -72,16 +74,27 @@ int sage26_disk_instability_init(void) {
     return -1;
   }
 
-  /* Placement, checked when the partner is configured: before sage26_quasar_mode's by-galaxy
-   * entry, which reads this substep's UnstableDiskGasFraction, in the same substep phase
+  /* Placement, checked in every substep phase that holds this module when sage26_quasar_mode's
+   * by-galaxy entry is configured: this module before that entry, which reads this substep's
+   * UnstableDiskGasFraction, in that same phase
    * (SAGE26 grows the black hole after the check, R/src/model_disk_instability.c:101-103) */
-  if (module_in_substep_phase("sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY) &&
-      !module_precedes_in_substep_phase("sage26_disk_instability", PROCESSING_MODE_BY_GALAXY,
-                                        "sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY)) {
-    ERROR_LOG("sage26_disk_instability must precede sage26_quasar_mode (process_by_galaxy) in the "
-              "same substep phase — otherwise the quasar entry reads the previous substep's "
-              "UnstableDiskGasFraction");
-    return -1;
+  if (module_in_substep_phase("sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY)) {
+    for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+      const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+      if (!module_configured_in_phase("sage26_disk_instability", phase->modules, phase->num_modules,
+                                      PROCESSING_MODE_BY_GALAXY)) {
+        continue;
+      }
+      if (!module_precedes_in_phase("sage26_disk_instability", "sage26_quasar_mode", phase->modules,
+                                    phase->num_modules)) {
+        ERROR_LOG("sage26_disk_instability must precede sage26_quasar_mode (process_by_galaxy) in "
+                  "substep phase '%s' "
+                  "— otherwise the quasar entry reads the previous substep's "
+                  "UnstableDiskGasFraction",
+                  phase->name);
+        return -1;
+      }
+    }
   }
 
   VERBOSE_LOG("SAGE disk instability module initialized");

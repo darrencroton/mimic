@@ -45,7 +45,7 @@ python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millenni
 
 Requirements:
 
-- Python 3.9+
+- Python 3.12+
 - NumPy
 - Matplotlib (>=3.0.0)
 - tqdm (for progress bars)

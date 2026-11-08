@@ -10,8 +10,10 @@
 
 #include <math.h>
 
+#include <stdbool.h>
 #include "constants.h"
 #include "error.h"
+#include "globals.h"
 #include "shared/metallicity.h"
 #include "shared/sage_constants.h"
 #include "shared/time_parity.h"
@@ -207,22 +209,36 @@ int sage_radio_mode_heating_init(void) {
   LOAD_AND_VALIDATE_OPTION("AGNrecipe", AGN_RECIPE_ON, 3,
                            "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
 
-  /* Placement, checked when the partner is configured: after the budget, whose CoolingGas and
-   * Rcool this module reads, and before the apply step, which commits the suppressed mass, in the
-   * same substep phase */
-  if (module_configured_anywhere("sage_calculate_cooling_budget") &&
-      !module_precedes_in_substep_phase("sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY,
-                                        "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY)) {
-    ERROR_LOG("sage_radio_mode_heating requires sage_calculate_cooling_budget to precede it in "
-              "the same substep phase — otherwise it reads the previous substep's cooling");
-    return -1;
-  }
-  if (module_configured_anywhere("sage_apply_cooling") &&
-      !module_precedes_in_substep_phase("sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY,
-                                        "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY)) {
-    ERROR_LOG("sage_radio_mode_heating must precede sage_apply_cooling in the same substep "
-              "phase — otherwise the apply step commits the unsuppressed cooling");
-    return -1;
+  /* Placement, checked in every substep phase that holds this module when the partner is
+   * configured: the budget, whose cooling values this module reads, before it, and the apply
+   * step, which commits the suppressed mass, after it, in that same phase (a second entry of
+   * this module in another phase is held to the same order there) */
+  const bool budget_configured = module_configured_anywhere("sage_calculate_cooling_budget");
+  const bool apply_configured = module_configured_anywhere("sage_apply_cooling");
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    if (!module_configured_in_phase("sage_radio_mode_heating", phase->modules, phase->num_modules,
+                                    PROCESSING_MODE_BY_GALAXY)) {
+      continue;
+    }
+    if (budget_configured &&
+        !module_precedes_in_phase("sage_calculate_cooling_budget", "sage_radio_mode_heating",
+                                  phase->modules, phase->num_modules)) {
+      ERROR_LOG("sage_radio_mode_heating requires sage_calculate_cooling_budget to precede it in "
+                "substep phase '%s' — "
+                "otherwise it reads the previous substep's cooling",
+                phase->name);
+      return -1;
+    }
+    if (apply_configured &&
+        !module_precedes_in_phase("sage_radio_mode_heating", "sage_apply_cooling", phase->modules,
+                                  phase->num_modules)) {
+      ERROR_LOG("sage_radio_mode_heating must precede sage_apply_cooling in substep phase '%s' — "
+                "otherwise the apply "
+                "step commits the unsuppressed cooling",
+                phase->name);
+      return -1;
+    }
   }
 
   VERBOSE_LOG("SAGE radio-mode AGN heating module initialized");

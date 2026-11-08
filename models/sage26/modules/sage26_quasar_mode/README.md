@@ -44,7 +44,7 @@ The arithmetic lives in `shared/sage_agn_physics.h` (`mimic_apply_black_hole_gro
 - The `process_by_galaxy` entry's position against `sage26_starburst_feedback`, which no module checks, and running without `sage26_disk_instability`, which nothing requires. Without it `UnstableDiskGasFraction` keeps its reset value 0 and this entry writes nothing (the integration test runs the module so).
 - Either mode alone. Without the `process_per_event` entry no merger grows a black hole (SAGE26's `AGNrecipeOn` 0 at `src/model_mergers.c:262`); if `sage26_disk_instability` (`process_by_galaxy`) and `sage26_starburst_feedback` are configured, the latter's `init()` then logs a WARNING, and the run continues, because the post-minor-merger recheck also skips its black-hole growth.
 
-`AGNrecipe` is not read here: it gates `sage26_radio_mode_heating` only. Quasar-mode growth is removed by omitting this module from the run file, which removes the disk-instability, merger and post-minor-merger-recheck growth together. This differs from SAGE26, whose `AGNrecipeOn 0` stops that growth while the rest of the configuration is unchanged (`src/model_mergers.c:262-264`, `src/model_disk_instability.c:101-103`).
+`AGNrecipe` is not read here: it controls radio-mode heating in both cooling paths (`sage26_radio_mode_heating` and `sage26_regime_aware_cooling`) and nothing else. Quasar-mode growth is removed by omitting this module from the run file, which removes the disk-instability, merger and post-minor-merger-recheck growth together. This differs from SAGE26, whose `AGNrecipeOn 0` stops that growth while the rest of the configuration is unchanged (`src/model_mergers.c:262-264`, `src/model_disk_instability.c:101-103`).
 
 ## Events
 

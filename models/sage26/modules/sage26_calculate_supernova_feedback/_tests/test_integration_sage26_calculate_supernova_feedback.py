@@ -584,17 +584,12 @@ def test_edge_case_zero_efficiency():
 
     assert np.any(halos["StarFormationRate"] > 0.0), "some galaxies should form stars"
 
-    # With zero efficiency, feedback should be zero (or very small due to ejection formula)
+    # With FIREmodeOn 0 the reheated mass is FeedbackReheatingEpsilon times the stars formed, so
+    # at epsilon 0 it is exactly zero and the outflow rate it feeds is exactly zero
     snfb = halos["SupernovaOutflowRate"]
-    # Ejection formula has epsilon in subtraction, so could produce small positive values
-    # but should be much smaller than with normal efficiency
-    assert np.all(snfb >= 0.0), "Feedback should still be non-negative"
-
-    # Check that feedback is minimal - use a reasonable threshold
-    max_feedback = np.max(snfb)
-    assert (
-        max_feedback < 10.0
-    ), f"With zero efficiency, feedback should be minimal, got max={max_feedback:.3e}"
+    assert np.all(
+        snfb == 0.0
+    ), f"zero efficiency must give zero outflow, got max={np.max(snfb):.3e}"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Edge case - zero feedback efficiency handled correctly{NC}")

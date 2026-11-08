@@ -26,7 +26,7 @@ This is the `CGMrecipeOn 0` (R0-R3) path. With `CGMrecipeOn 1` SAGE26 never call
 
 1. `sage26_calculate_cooling_budget` must precede this module in the same substep phase; `CoolingGas` and `CoolingReturnPath` come from it. `init()` refuses unless some substep phase holds both as `process_by_galaxy` with the budget's first entry before this module's first entry (`module_precedes_in_substep_phase`), so it also refuses the budget's absence.
 
-**Not refused:** `sage26_radio_mode_heating` absent or after this module (this module then commits the budget's unsuppressed mass); a further entry of this module in another phase; and `CGMrecipeOn 1`, which this module does not read (the budget then carries return path -1 and zero mass, so this module writes nothing). Its `init()` does not check `sage26_regime_aware_cooling`, whose own `init()`, with `CGMrecipeOn 1`, requires it to sit immediately after this one.
+**Not refused:** `sage26_radio_mode_heating` absent (this module then commits the budget's unsuppressed mass; `sage26_radio_mode_heating`'s own `init()` refuses that module placed after this one); a further entry of this module in another phase; and `CGMrecipeOn 1`, which this module does not read (the budget then carries return path -1 and zero mass, so this module writes nothing). Its `init()` does not check `sage26_regime_aware_cooling`, whose own `init()`, with `CGMrecipeOn 1`, requires it to sit immediately after this one.
 
 ## Properties
 

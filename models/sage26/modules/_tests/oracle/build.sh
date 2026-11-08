@@ -56,6 +56,8 @@ OBJ_DIR=$ORACLE_OUT/obj
 # Pinned oracle environment (README.md, "Oracle environment").
 EXPECTED_CLANG='Apple clang version 21.0.0 (clang-2100.4.1.1)'
 EXPECTED_SAGE26_COMMIT=11b1ae851524baadb76cfd17e0b38f8a89c07224
+# The macOS build the fixtures were generated on (kern.osversion; the reader's ORACLE_MACOS_BUILD).
+EXPECTED_MACOS_BUILD=26A434
 
 # GSL location the reference build used (README.md, "Oracle Environment").
 GSL_PREFIX=/opt/homebrew/Cellar/gsl/2.8
@@ -73,6 +75,7 @@ fail() {
 [ -f "$SAGE26_SRC/src/model_infall.c" ] || fail "SAGE26 source not found at $SAGE26_SRC"
 
 clang_version=$(clang --version | head -n 1)
+os_build=$(sysctl -n kern.osversion 2>/dev/null || echo unknown)
 sage26_commit=$(git -C "$SAGE26_SRC" rev-parse HEAD 2>/dev/null || echo unknown)
 # The staged tree must be the commit's tree exactly: no modified, deleted, untracked or ignored
 # file. The eight cooling tables read_cooling_functions() opens (src/auxdata/CoolFunctions/*.cie)
@@ -85,11 +88,13 @@ cooling_tables=$(find "$SAGE26_SRC/src/auxdata/CoolFunctions" -name '*.cie' 2>/d
   wc -l | tr -d ' ')
 tree_state=clean
 [ -z "$sage26_status" ] || tree_state="not clean (git status --porcelain --ignored is not empty)"
-if [ "$clang_version" != "$EXPECTED_CLANG" ] || [ "$sage26_commit" != "$EXPECTED_SAGE26_COMMIT" ] ||
-  [ -n "$sage26_status" ] || [ "$cooling_tables" != 8 ]; then
+if [ "$clang_version" != "$EXPECTED_CLANG" ] || [ "$os_build" != "$EXPECTED_MACOS_BUILD" ] ||
+  [ "$sage26_commit" != "$EXPECTED_SAGE26_COMMIT" ] || [ -n "$sage26_status" ] ||
+  [ "$cooling_tables" != 8 ]; then
   if [ "${ORACLE_ALLOW_ANY_TOOLCHAIN:-0}" != "1" ]; then
     fail "environment differs from the pinned oracle environment
   compiler: '$clang_version' (expected '$EXPECTED_CLANG')
+  macOS build: '$os_build' (expected '$EXPECTED_MACOS_BUILD')
   SAGE26:   '$sage26_commit' (expected '$EXPECTED_SAGE26_COMMIT')
   tree:     $tree_state
   cooling tables: $cooling_tables of 8 (src/auxdata/CoolFunctions/*.cie)

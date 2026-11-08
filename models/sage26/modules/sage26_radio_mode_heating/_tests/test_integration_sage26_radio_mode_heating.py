@@ -301,7 +301,6 @@ def test_parameter_sensitivity():
     - RadioModeEfficiency is read and acts: both efficiencies heat some rows and give different
       heating and black-hole masses. No direction is asserted: the radio mode's feedback on the
       cooling that feeds it and the quasar-mode growth makes the z = 0 totals non-monotonic
-      (measured at 0.02 and 0.20: BlackHoleMass 9.09e-2 and 8.97e-2, Heating 5.3e3 and 3.5e3)
     - The cold-cloud recipe (AGNrecipe 3) heats, with finite, non-negative black-hole masses
     """
     print(f"\n{BLUE}TEST: Parameter sensitivity{NC}")

@@ -36,7 +36,9 @@ removed at the end. It needs no Mimic run.
 Run: mimic_venv/bin/python models/sage26/plots/tests/test_sage26_figures.py
 """
 
+import contextlib
 import importlib
+import io
 import math
 import os
 import shutil
@@ -452,8 +454,10 @@ def evolution_fields(name):
     return list(FIGURES.EVOLUTION_PLOT_FIELDS[name])
 
 
-def call_figure(name, galaxies, label, capture=True):
+def call_figure(name, galaxies, label, capture=True, params=None):
     """Call a registered figure on the given input; return a Run.
+
+    ``params`` replaces the fixture's run parameters when given.
 
     ``galaxies`` is the snapshot record for a snapshot figure, or the ``snapshots`` mapping for
     an evolution figure. save_and_close_figure is wrapped inside the module the figure calls it
@@ -469,7 +473,7 @@ def call_figure(name, galaxies, label, capture=True):
 
     out_dir = os.path.join(TMP_ROOT, label)
     kwargs = {
-        "params": run_parameters(),
+        "params": params if params is not None else run_parameters(),
         "output_dir": out_dir,
         "output_format": ".png",
         "verbose": False,
@@ -849,6 +853,53 @@ def test_labels__tcool_vs_mvir_with_a_regime_outside_0_and_1_has_the_colour_bar(
     data, bars = render_tcool_with_regimes(True)
     assert data == [TCOOL_PANEL], f"data axes {data}"
     assert bars == [r"$T_{\rm vir}$ (K)"], f"colour-bar labels {bars}"
+
+
+def test_run_parameters__rcool_title_uses_the_runs_mshock_msun():
+    """rcool_to_rvir_above_mshock reads MShockMsun from the run: a non-default value appears in
+    the title, so a misspelled key could not silently fall back to SAGE26's literal."""
+    params = run_parameters()
+    params["EnabledModules"]["parameters"]["MShockMsun"] = 1.0e12
+    run = call_figure(
+        "rcool_to_rvir_above_mshock",
+        build_evolution_input(evolution_fields("rcool_to_rvir_above_mshock")),
+        "rcool-mshock-1e12",
+        params=params,
+    )
+    assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
+    titles = [
+        t
+        for d in describe_figure(run.fig)[0]
+        for t in (d["title"], d["title_left"], d["title_right"])
+    ]
+    assert any(
+        "10^{12}" in t for t in titles
+    ), f"the title should carry the run's 1e12 shock mass: {titles}"
+
+
+def test_run_parameters__missing_key_warns_and_uses_the_fallback():
+    """Without MShockMsun in the run the figure warns and uses SAGE26's 6e11."""
+    params = run_parameters()
+    del params["EnabledModules"]["parameters"]["MShockMsun"]
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        run = call_figure(
+            "rcool_to_rvir_above_mshock",
+            build_evolution_input(evolution_fields("rcool_to_rvir_above_mshock")),
+            "rcool-mshock-missing",
+            params=params,
+        )
+    assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
+    out = buffer.getvalue()
+    assert "WARNING" in out and "MShockMsun" in out, f"no fallback warning: {out!r}"
+    titles = [
+        t
+        for d in describe_figure(run.fig)[0]
+        for t in (d["title"], d["title_left"], d["title_right"])
+    ]
+    assert any(
+        "10^{11}" in t for t in titles
+    ), f"the title should carry the 6e11 fallback: {titles}"
 
 
 def test_labels__tcool_vs_mvir_with_only_regimes_0_and_1_has_no_colour_bar():
@@ -2644,6 +2695,8 @@ def build_cases():
         test_colourbar_axes_are_identified_and_not_counted_as_data_axes,
         test_labels__tcool_vs_mvir_with_a_regime_outside_0_and_1_has_the_colour_bar,
         test_labels__tcool_vs_mvir_with_only_regimes_0_and_1_has_no_colour_bar,
+        test_run_parameters__rcool_title_uses_the_runs_mshock_msun,
+        test_run_parameters__missing_key_warns_and_uses_the_fallback,
     ]
     cases += [make_cap(name) for name in CAPS]
     cases += [make_window(name) for name in WINDOWS]

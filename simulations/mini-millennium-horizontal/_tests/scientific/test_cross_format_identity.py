@@ -48,8 +48,8 @@ PACKAGE = GatePackage(
     forests=29_585,
     gapped_descendants=29_291,
     max_descendant_span=2,
-    # Sized with headroom for six legs: each leg's worktree and mini-Millennium HDF5 output
-    # are tens of megabytes, so the gate's peak scratch is well under 1 GiB.
+    # Headroom, not a measurement: a six-leg run's worktrees, builds and HDF5 outputs stay
+    # under 1 GiB; 10 GiB keeps the gate from starting on a nearly full disk.
     required_free_bytes=10 * 1024**3,
     models=("halos-only", "sage16", "sage26"),
 )

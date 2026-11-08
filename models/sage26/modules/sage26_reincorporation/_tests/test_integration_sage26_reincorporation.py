@@ -24,7 +24,7 @@ Test cases:
 
   PHYSICS VALIDATION TESTS:
   - test_physics_mass_conservation: EjectedGas decreases, HotGas increases by same amount
-  - test_physics_metallicity_conservation: Metals transferred correctly
+  - test_physics_metallicity_bounds: Metals transferred correctly
   - test_physics_central_only: Only Type 0 halos reincorporate
   - test_physics_velocity_threshold: Only high-Vvir halos reincorporate
   - test_physics_output_properties: Properties written to output correctly
@@ -245,7 +245,7 @@ def test_physics_mass_conservation():
     print(f"{GREEN}✓ Mass conservation validated{NC}")
 
 
-def test_physics_metallicity_conservation():
+def test_physics_metallicity_bounds():
     """Test that metallicity is preserved during gas transfer
 
     Ejected gas comes only from supernova ejection and metals only from the star-formation yield,
@@ -498,7 +498,7 @@ def main():
         test_execution_completes,
         test_multi_module_pipeline,
         test_physics_mass_conservation,
-        test_physics_metallicity_conservation,
+        test_physics_metallicity_bounds,
         test_physics_central_only,
         test_physics_velocity_threshold,
         test_physics_output_properties,

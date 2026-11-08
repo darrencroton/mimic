@@ -109,9 +109,17 @@ struct oracle_fixture {
  * The fixtures are bit-exact only for the oracle's compiler, contraction behaviour
  * and libm: macOS arm64, the exact Apple clang build ORACLE_CLANG_VERSION and the macOS
  * build ORACLE_MACOS_BUILD (the oracle README's "Oracle Environment"). Elsewhere, including
- * after any compiler or macOS update, a test must report SKIP with this reason, never FAIL.
+ * after any compiler or macOS update, a test must report SKIP with this reason, never FAIL,
+ * unless the environment variable MIMIC_SAGE26_ORACLE_STRICT is "1": then this returns NULL
+ * whatever the environment, so the comparisons run and a changed bit fails loudly. That is the
+ * switch for the capture machine after a toolchain update, when the fixtures must be re-pinned
+ * or regenerated rather than quietly skipped.
  */
 static inline const char *oracle_environment_mismatch(void) {
+  const char *strict = getenv("MIMIC_SAGE26_ORACLE_STRICT");
+  if (strict != NULL && strcmp(strict, "1") == 0) {
+    return NULL;
+  }
 #if defined(__APPLE__) && defined(__aarch64__) && defined(__apple_build_version__)
   if (strcmp(__clang_version__, ORACLE_CLANG_VERSION) != 0) {
     return "bit-exact SAGE26 oracle comparison needs Apple clang " ORACLE_CLANG_VERSION

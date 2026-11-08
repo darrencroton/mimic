@@ -459,6 +459,139 @@ int test_dep_starburst_warns_no_quasar_mode(void) {
 /**
  * Main test runner
  */
+/**
+ * @test    test_dep_radio_before_budget_error
+ * @brief   sage_radio_mode_heating placed before sage_calculate_cooling_budget is refused (ERROR)
+ */
+int test_dep_radio_before_budget_error(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+
+  int result = module_system_init();
+  TEST_ASSERT(result != 0,
+              "sage_radio_mode_heating before sage_calculate_cooling_budget must fail init");
+
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_substep_phases();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_radio_after_apply_error
+ * @brief   sage_radio_mode_heating placed after sage_apply_cooling is refused (ERROR)
+ */
+int test_dep_radio_after_apply_error(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+
+  int result = module_system_init();
+  TEST_ASSERT(result != 0, "sage_radio_mode_heating after sage_apply_cooling must fail init");
+
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_substep_phases();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_radio_second_phase_entry_error
+ * @brief   a valid budget-radio-apply chain plus a second sage_radio_mode_heating entry alone in
+ * another phase is refused (ERROR): every phase holding the module is checked
+ */
+int test_dep_radio_second_phase_entry_error(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("satellite_mergers", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+
+  int result = module_system_init();
+  TEST_ASSERT(result != 0, "a second sage_radio_mode_heating entry without its partners in its own "
+                           "phase must fail init");
+
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_substep_phases();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_radio_alone_accepted
+ * @brief   sage_radio_mode_heating with neither partner configured initialises (the guards apply
+ * only when a partner is configured)
+ */
+int test_dep_radio_alone_accepted(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+
+  int result = module_system_init();
+  TEST_ASSERT(result == 0, "sage_radio_mode_heating alone must initialise");
+
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_substep_phases();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_disk_instability_after_quasar_error
+ * @brief   sage_disk_instability placed after the by-galaxy sage_quasar_mode entry is refused
+ * (ERROR)
+ */
+int test_dep_disk_instability_after_quasar_error(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  test_phase_add("galaxy_physics", "sage_quasar_mode", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+
+  int result = module_system_init();
+  TEST_ASSERT(result != 0, "sage_disk_instability after sage_quasar_mode must fail init");
+
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_substep_phases();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -481,6 +614,11 @@ int main(void) {
   TEST_RUN(test_dep_resolve_mergers_errors_no_clock);
   TEST_RUN(test_dep_starburst_warns_no_disk_instability);
   TEST_RUN(test_dep_starburst_warns_no_quasar_mode);
+  TEST_RUN(test_dep_radio_before_budget_error);
+  TEST_RUN(test_dep_radio_after_apply_error);
+  TEST_RUN(test_dep_radio_second_phase_entry_error);
+  TEST_RUN(test_dep_radio_alone_accepted);
+  TEST_RUN(test_dep_disk_instability_after_quasar_error);
 
   TEST_SUMMARY();
   return TEST_RESULT();

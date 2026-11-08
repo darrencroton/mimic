@@ -16,7 +16,7 @@ Nothing else is claimed. **Full Uchuu is not claimed**: it exceeds whole-slab me
 
 ## Requirements
 
-Python 3.9+, `numpy`, `pandas`, `h5py`, `PyYAML` — all installed into `mimic_venv` by `pip install -r requirements.txt` from the repository root. Run every command below from the repository root.
+Python 3.12+, `numpy`, `pandas`, `h5py`, `PyYAML` — all installed into `mimic_venv` by `pip install -r requirements.txt` from the repository root. Run every command below from the repository root.
 
 ## Converting trees with `convert_trees.py` (format version 3)
 
