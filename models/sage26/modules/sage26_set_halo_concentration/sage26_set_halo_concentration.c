@@ -37,6 +37,9 @@
  * placement but exactly one pre_timestep entry as process_full_halo with no other entry, and, with
  * ConcentrationOn 3, a run without sage26_record_transition_state in post_timestep, which writes
  * PreviousType (without it every central would silently keep 0).
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>

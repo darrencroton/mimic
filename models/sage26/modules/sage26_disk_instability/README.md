@@ -11,9 +11,9 @@ Ports SAGE26's `check_disk_instability` up to its black-hole and burst calls (`R
 
 ## Ordering
 
-`sage26_disk_instability_init()` checks no placement and no partner module: it refuses only a missing or out-of-range parameter (see Parameters). Not refused by it:
+`sage26_disk_instability_init()` refuses a missing or out-of-range parameter (see Parameters) and, when `sage26_quasar_mode` is configured as `process_by_galaxy` in a substep phase, any configuration in which this module (`process_by_galaxy`) does not precede that entry in the same substep phase: placed after it, the quasar entry would read the fraction this module wrote at the previous substep, or the per-snapshot reset value 0 at the first. Not refused by it:
 
-- Any position in any phase. `sage26_starburst_feedback`'s `init()` logs a WARNING, and the run continues, when that module is configured as `process_by_galaxy` and this module, as `process_by_galaxy`, does not precede it in the same substep phase. No module checks this module's position against `sage26_quasar_mode`'s `process_by_galaxy` entry; placed after it, that entry reads the fraction this module wrote at the previous substep, or the per-snapshot reset value 0 at the first.
+- Any other position. `sage26_starburst_feedback`'s `init()` logs a WARNING, and the run continues, when that module is configured as `process_by_galaxy` and this module, as `process_by_galaxy`, does not precede it in the same substep phase.
 - Running with neither consumer: without `sage26_quasar_mode` and `sage26_starburst_feedback` as `process_by_galaxy`, the stellar transfer and the radius update still run and `UnstableDiskGasFraction` is written and read by nothing (the integration test runs the module alone).
 
 Its presence is also SAGE26's `DiskInstabilityOn` for the merger burst: `sage26_starburst_feedback` runs the post-minor-merger recheck (`R/src/model_mergers.c:807-809`) only when this module is configured as `process_by_galaxy` in a substep phase, and then loads its own `StarFormingDiskFactor` for it.

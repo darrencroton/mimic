@@ -4,9 +4,10 @@
 # These properties are created and modified by physics modules.
 #
 # Reservoir fields (HotGas, ColdGas, EjectedGas, StellarMass, Metals*,
-# BlackHoleMass, BulgeMass, ICS) are `float` only for byte-for-byte parity with
-# sage-model's struct GALAXY (see docs/DEVELOPER-GUIDE.md#property-precision).
-# New models without that constraint should prefer `double`.
+# BlackHoleMass, BulgeMass, ICS) are `float` only for bit-for-bit parity with
+# SAGE26's struct GALAXY (src/core_allvars.h:106-221; see
+# docs/DEVELOPER-GUIDE.md#property-precision). New models without that constraint
+# should prefer `double`.
 #
 # See: docs/DEVELOPER-GUIDE.md for complete schema documentation
 
@@ -455,7 +456,7 @@ galaxy_properties:
     type: double  # SAGE parity: unstable_gas_fraction is a double local in SAGE
     units: dimensionless
     description: Fraction of cold gas that is unstable (0.0-1.0)
-    notes: Transport scratch buffer written by sage26_disk_instability; read by sage26_quasar_mode and sage26_starburst_feedback; reset to 0.0 each substep (init_repeat)
+    notes: Transport scratch buffer written by sage26_disk_instability; read by sage26_quasar_mode and sage26_starburst_feedback; reset to 0.0 once each snapshot, after inheritance (init_repeat), not between substeps
     output: false
     init_source: default
     init_value: 0.0
@@ -508,7 +509,7 @@ galaxy_properties:
     type: float
     units: 1e10 Msun/h
     description: Gas mass in the circumgalactic medium (CGM), the hot-phase reservoir of CGM-regime halos
-    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:130; written verbatim at src/io/save_gals_hdf5.c:913. With CGMrecipeOn 1, the run files' value (SAGE26's R4, kept through R6), the package's regime-aware routing and cooling fill it. The central's migration in sage26_prepare_infall_budget, infall, stripping, reincorporation, the supernova commits (ordinary, burst and feedback-free-burst), the quasar wind and disruption deposit into or take from it by Regime; a merger moves the satellite's CGMgas and MetalsCGMgas into the target's CGM pair whatever either galaxy's Regime or CGMrecipeOn (add_galaxies_together, src/model_mergers.c:496-497, in sage26_resolve_mergers_and_disruption through shared/sage_merger_physics.h); and sage26_regime_aware_cooling cools it and, in its CGM radio-mode AGN heating (AGNrecipeOn > 0 and a positive cooling mass, src/model_cooling_heating.c:372-374), accretes from it onto the black hole (:653-655). With CGMrecipeOn 0 (R0-R3) nothing adds to it and it stays 0
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:130; written verbatim at src/io/save_gals_hdf5.c:913. With CGMrecipeOn 1, the run files' value (SAGE26's R4, kept through R6), the package's regime-aware routing and cooling fill it. The central's migration in sage26_prepare_infall_budget, infall, stripping, reincorporation, the supernova commits (ordinary, burst and feedback-free-burst), the quasar wind and disruption deposit into or take from it by Regime; a merger moves the satellite's CGMgas and MetalsCGMgas into the target's CGM pair whatever either galaxy's Regime or CGMrecipeOn (add_galaxies_together, src/model_mergers.c:496-497, in sage26_resolve_mergers_and_disruption through shared/sage_merger_physics.h), a zero move with CGMrecipeOn 0; and sage26_regime_aware_cooling cools it and, in its CGM radio-mode AGN heating (AGNrecipeOn > 0 and a positive cooling mass, src/model_cooling_heating.c:372-374), accretes from it onto the black hole (:653-655). With CGMrecipeOn 0 (R0-R3) nothing adds to it and it stays 0
     output: true
     init_source: default
     init_value: 0.0
@@ -641,7 +642,7 @@ galaxy_properties:
     type: float
     units: Msun/yr
     description: Disk star formation rate averaged over the snapshot substeps, in Msun/yr
-    notes: SAGE26 holds a per-substep float array SfrDisk[STEPS] in struct GALAXY (src/core_allvars.h:158), in 1e10 Msun/h per code time, zeroed at creation (src/model_misc.c:145) and at the first-occupied update (src/core_build_model.c:278); disk star formation adds stars / dt to the substep's bin on every call (src/model_starformation_and_feedback.c:1058). The writer sums the ten bins in increasing order into a float accumulator, each term the bin times UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS divided by sfr_rate_divisor(SubstepsUsed), left to right in double (src/io/save_gals_hdf5.c:934-957, src/model_misc.h:49-52), so the output is the mean rate in Msun/yr. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrDiskBin0-9 (shared/sage_sfr_history.h), so this field holds the final Msun/yr value and is written as it is, with no output_convert.
+    notes: SAGE26 holds a per-substep float array SfrDisk[STEPS] in struct GALAXY (src/core_allvars.h:158), in 1e10 Msun/h per code time, zeroed at creation (src/model_misc.c:145) and at the first-occupied update (src/core_build_model.c:278); disk star formation adds stars / dt to the substep's bin on every call (src/model_starformation_and_feedback.c:1058), as feedback-free-burst star formation does (:1325; in the package sage26_apply_star_formation_supernova and, with EnhancedStarFormationOn 1, sage26_ffb_star_formation). The writer sums the ten bins in increasing order into a float accumulator, each term the bin times UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS divided by sfr_rate_divisor(SubstepsUsed), left to right in double (src/io/save_gals_hdf5.c:934-957, src/model_misc.h:49-52), so the output is the mean rate in Msun/yr. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrDiskBin0-9 (shared/sage_sfr_history.h), so this field holds the final Msun/yr value and is written as it is, with no output_convert.
     output: true
     init_source: default
     init_value: 0.0
@@ -661,7 +662,7 @@ galaxy_properties:
     type: float
     units: dimensionless
     description: Mean metallicity (metal mass / cold gas mass) of the cold gas forming disk stars, averaged over the snapshot substeps
-    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrDiskColdGas[STEPS] and SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:160-161, zeroed at src/model_misc.c:147-148), which disk star formation assigns from the cold gas before it forms stars (src/model_starformation_and_feedback.c:1059-1060). The writer sums, over the ten bins in increasing order whose sampled cold gas is positive, metals / gas / sfr_metallicity_divisor(SubstepsUsed) in float (src/io/save_gals_hdf5.c:934-959, src/model_misc.h:54-58); a bin whose gas is zero, -0 or negative adds nothing. SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrDiskColdGasBin0-9 and SfrDiskColdGasMetalsBin0-9 (shared/sage_sfr_history.h), so this field holds the final value and is written as it is.
+    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrDiskColdGas[STEPS] and SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:160-161, zeroed at src/model_misc.c:147-148), which disk star formation assigns from the cold gas before it forms stars (src/model_starformation_and_feedback.c:1059-1060), as feedback-free-burst star formation does (:1326-1327; in the package sage26_apply_star_formation_supernova and, with EnhancedStarFormationOn 1, sage26_ffb_star_formation). The writer sums, over the ten bins in increasing order whose sampled cold gas is positive, metals / gas / sfr_metallicity_divisor(SubstepsUsed) in float (src/io/save_gals_hdf5.c:934-959, src/model_misc.h:54-58); a bin whose gas is zero, -0 or negative adds nothing. SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrDiskColdGasBin0-9 and SfrDiskColdGasMetalsBin0-9 (shared/sage_sfr_history.h), so this field holds the final value and is written as it is.
     output: true
     init_source: default
     init_value: 0.0
@@ -708,7 +709,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 0 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[0], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -717,7 +718,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 1 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[1], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -726,7 +727,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 2 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[2], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -735,7 +736,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 3 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[3], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -744,7 +745,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 4 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[4], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -753,7 +754,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 5 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[5], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -762,7 +763,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 6 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[6], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -771,7 +772,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 7 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[7], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -780,7 +781,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 8 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[8], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -789,7 +790,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 9 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
     units: Internal
     description: SAGE26 SfrDisk[9], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
-    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1325). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -888,7 +889,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 0 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[0], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -897,7 +898,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 1 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[1], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -906,7 +907,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 2 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[2], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -915,7 +916,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 3 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[3], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -924,7 +925,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 4 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[4], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -933,7 +934,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 5 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[5], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -942,7 +943,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 6 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[6], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -951,7 +952,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 7 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[7], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -960,7 +961,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 8 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[8], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -969,7 +970,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 9 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGas[9], the cold gas before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1326). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -978,7 +979,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 0 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[0], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -987,7 +988,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 1 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[1], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -996,7 +997,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 2 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[2], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -1005,7 +1006,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 3 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[3], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -1014,7 +1015,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 4 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[4], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -1023,7 +1024,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 5 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[5], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -1032,7 +1033,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 6 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[6], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -1041,7 +1042,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 7 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[7], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -1050,7 +1051,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 8 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[8], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0
@@ -1059,7 +1060,7 @@ galaxy_properties:
     type: float  # SAGE parity: element 9 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
     units: 1e10 Msun/h
     description: SAGE26 SfrDiskColdGasMetals[9], the cold-gas metals before the disk star formation of the last substep mapped to this bin
-    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060), and sage26_ffb_star_formation on every feedback-free-burst call (EnhancedStarFormationOn 1, :1327). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
     output: false
     init_source: default
     init_value: 0.0

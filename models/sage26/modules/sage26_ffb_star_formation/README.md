@@ -35,7 +35,7 @@ A port of SAGE26's `starformation_ffb` (`src/model_starformation_and_feedback.c:
 
 ## Properties
 
-- Reads: `dT`, `SnapNum`, the row's own `Vvir` (narrowed to SAGE26's float), the FoF central's `Mvir` (narrowed, for the yield), `FFBRegime`, `DiskScaleRadius`, the central's `Regime`
+- Reads: `dT`, `SnapNum`, the row's own `Vvir` (narrowed to SAGE26's float), the FoF central's `Mvir` (narrowed, for the yield), `FFBRegime`, `DiskScaleRadius`, the central's `Regime`; `HaloNr` and `Type` in log messages only
 - Writes (FFB rows at `EnhancedStarFormationOn` 1 only): `H2gas`, `H1gas`, `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, the disk histories (`SfrDiskBin<k>`, `SfrDiskColdGasBin<k>`, `SfrDiskColdGasMetalsBin<k>`), `StarFormationRate`, `SupernovaOutflowRate`, `MassLoading` (valid FIRE scaling only), and the FoF central's selected pair (`HotGas`, `MetalsHotGas` or `CGMgas`, `MetalsCGMgas`) and `EjectedGas`, `MetalsEjectedGas`
 
 ## Parameters
@@ -43,7 +43,7 @@ A port of SAGE26's `starformation_ffb` (`src/model_starformation_and_feedback.c:
 - `EnhancedStarFormationOn`: required, with no default; a missing key fails `init()`. 0 (nothing written; SAGE26's configurations R0-R5) or 1 (FFB star formation for `FFBRegime` 1 rows; configuration R6 and SAGE26's default, `input/millennium.par:58`). Any other value is refused, naming it. The run files hold 1 (R6).
 - `EnhancedSFEfficiency`: required, with no default; finite and within [0, 1] (SAGE26's `input/millennium.par:67`, "1.0 is theoretical maximum"), else refused naming it (a NaN included). The run files hold 0.2 (SAGE26's `input/millennium.par:67` and its default, `src/core_read_parameter_file.c:104`).
 - `FIREmodeOn`: required; at `EnhancedStarFormationOn` 1 only 1 is accepted, since FFB's fixed-epsilon branch (`:935-937`, `:960-965`) is in no configuration R0–R6 (R6, the only one with `EnhancedStarFormationOn` 1, sets `FIREmodeOn` 1) and is not ported; 0 is refused there at `init()`, naming it.
-- The existing keys the transaction reads, each with its existing validation: `StarFormingDiskFactor` (within [0, 10]), `SFprescription` (0 or 1), `RecycleFraction` (within [0, 1]), `CGMrecipeOn` (0 or 1), `FeedbackReheatingEpsilon` and `FeedbackEjectionEfficiency` (each within [0, 100]), `Yield` and `FracZleaveDisk` (each within [0, 1]). The run's `Hubble_h` and units come from the run configuration (SAGE26's `EtaSNcode` and `EnergySNcode`, `src/core_init.c:102-103`).
+- The existing keys the transaction reads, each with its existing validation: `StarFormingDiskFactor` (within [0, 10]), `SFprescription` (0 or 1), `RecycleFraction` (within [0, 1]), `CGMrecipeOn` (0 or 1), `FeedbackReheatingEpsilon` (finite and >= 0, the range every reader shares), `FeedbackEjectionEfficiency` (within [0, 100]), `Yield` and `FracZleaveDisk` (each within [0, 1]). The run's `Hubble_h` and units come from the run configuration (SAGE26's `EtaSNcode` and `EnergySNcode`, `src/core_init.c:102-103`).
 
 ## Test Observer
 

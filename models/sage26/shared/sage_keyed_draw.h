@@ -1,12 +1,13 @@
 /**
  * @file    sage_keyed_draw.h
- * @brief   The sage26 package's keyed uniform draw (campaign decision D1)
+ * @brief   The sage26 package's keyed uniform draw, in place of SAGE26's libc rand()
  *
  * SAGE26 draws its CGM regime from the process-global libc stream,
  * `(double)rand() / (double)RAND_MAX` (R = the staged SAGE26 source,
  * R/src/model_regimes.c:94), so a galaxy's draw depends on how many draws every earlier galaxy
- * of the run consumed. The package replaces that one draw (campaign decision D1, the one
- * deliberate departure from SAGE26's arithmetic in the classifier) with a stateless keyed draw:
+ * of the run consumed, which docs/VISION.md Principle 4 forbids. The package replaces that one draw
+ * (the one deliberate departure from SAGE26's arithmetic in the classifier) with a stateless keyed
+ * draw:
  * the uniform deviate is a pure function of four inputs,
  *
  *   - the galaxy row's UniqueGalaxyID (64-bit, converted by its two's-complement bits),
@@ -21,8 +22,8 @@
  * make_unique_galaxy_id, src/core/horizontal_driver.c horizontal_make_unique_galaxy_id), so the
  * draw is driver-invariant by construction.
  *
- * The mapping is frozen by the campaign (key contract of the c10 node plan, D1 and D32), in
- * unsigned 64-bit wrapping arithmetic:
+ * The mapping is frozen (a change moves every CGM regime draw), in unsigned 64-bit wrapping
+ * arithmetic:
  *
  *   mix(x):  the splitmix64 finaliser
  *            x += 0x9e3779b97f4a7c15; x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9;
@@ -35,8 +36,8 @@
  *
  * with the salts GALAXY, SNAPSHOT, PURPOSE_CGM and INDEX below. The deviate takes the top 52
  * bits, centred in their cells: (bits >> 12) is below 2^52, so it and the + 0.5 are exact in
- * double, and the extremes are 2^-53 and 1 - 2^-53. The campaign's eight reference vectors are
- * asserted bit for bit by shared/_tests/test_unit_sage_keyed_draw.c; the code and a vector are
+ * double, and the extremes are 2^-53 and 1 - 2^-53. Eight reference vectors are asserted bit for
+ * bit by shared/_tests/test_unit_sage_keyed_draw.c; the code and a vector are
  * never changed to fit each other.
  *
  * The mixer is the same finaliser as the HOD package's hod_random_mix, written here again: the
@@ -45,22 +46,22 @@
  * Header-only and private to models/sage26; it is not framework API.
  */
 
-#ifndef SAGE_KEYED_DRAW_H
-#define SAGE_KEYED_DRAW_H
+#ifndef MIMIC_SHARED_SAGE_KEYED_DRAW_H
+#define MIMIC_SHARED_SAGE_KEYED_DRAW_H
 
 #include <stdint.h>
 
 /** Weyl increment of splitmix64 (2^64 / golden ratio) */
 #define MIMIC_SAGE_DRAW_GOLDEN UINT64_C(0x9e3779b97f4a7c15)
 
-/** Domain-separation salts of the galaxy and snapshot key components (frozen, D1) */
+/** Domain-separation salts of the galaxy and snapshot key components (frozen) */
 #define MIMIC_SAGE_DRAW_SALT_GALAXY UINT64_C(0x8c5e2b7d4a1f3069)
 #define MIMIC_SAGE_DRAW_SALT_SNAPSHOT UINT64_C(0x3b9f6d2e8a7c1405)
 
-/** Salt of the ordinal before it is mixed into the key (frozen, D1) */
+/** Salt of the ordinal before it is mixed into the key (frozen) */
 #define MIMIC_SAGE_DRAW_SALT_INDEX UINT64_C(0x6f1c3a9e5d27b483)
 
-/** Purpose salt of the CGM regime classifier's draw (frozen, D1) */
+/** Purpose salt of the CGM regime classifier's draw (frozen) */
 #define MIMIC_SAGE_DRAW_PURPOSE_CGM UINT64_C(0xd2a4f17e6c3b8095)
 
 /** The classifier's ordinal: one draw per galaxy row and snapshot */
@@ -130,7 +131,7 @@ static inline double mimic_sage_keyed_uniform(const int64_t galaxy_id, const int
 }
 
 /**
- * @brief   The CGM regime classifier's deviate: the CGM purpose and ordinal 0 (D1)
+ * @brief   The CGM regime classifier's deviate: the CGM purpose and ordinal 0
  *
  * The package's replacement for SAGE26's `(double)rand() / (double)RAND_MAX`
  * (R/src/model_regimes.c:94), the one deliberate departure in the classifier.
@@ -144,4 +145,4 @@ static inline double mimic_sage_cgm_regime_deviate(const int64_t galaxy_id, cons
                                   MIMIC_SAGE_DRAW_ORDINAL_CGM);
 }
 
-#endif /* SAGE_KEYED_DRAW_H */
+#endif /* MIMIC_SHARED_SAGE_KEYED_DRAW_H */

@@ -21,6 +21,9 @@
  * empirical (1) and cold-cloud (3) rates are the earlier package's, not ported.
  *
  * Reference: Croton et al. (2006, 2016)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>
@@ -51,6 +54,25 @@ int sage26_radio_mode_heating_init(void) {
                                     "AGN radio mode heating efficiency");
   LOAD_AND_VALIDATE_OPTION("AGNrecipe", AGN_RECIPE_ON, 3,
                            "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
+
+  /* Placement, checked when the partner is configured: after the budget, whose CoolingGas,
+   * CoolingX and Rcool this module reads, and before the apply step, which commits the
+   * suppressed mass, in the same substep phase */
+  if (module_configured_anywhere("sage26_calculate_cooling_budget") &&
+      !module_precedes_in_substep_phase("sage26_calculate_cooling_budget",
+                                        PROCESSING_MODE_BY_GALAXY, "sage26_radio_mode_heating",
+                                        PROCESSING_MODE_BY_GALAXY)) {
+    ERROR_LOG("sage26_radio_mode_heating requires sage26_calculate_cooling_budget to precede it "
+              "in the same substep phase — otherwise it reads the previous substep's cooling");
+    return -1;
+  }
+  if (module_configured_anywhere("sage26_apply_cooling") &&
+      !module_precedes_in_substep_phase("sage26_radio_mode_heating", PROCESSING_MODE_BY_GALAXY,
+                                        "sage26_apply_cooling", PROCESSING_MODE_BY_GALAXY)) {
+    ERROR_LOG("sage26_radio_mode_heating must precede sage26_apply_cooling in the same substep "
+              "phase — otherwise the apply step commits the unsuppressed cooling");
+    return -1;
+  }
 
   VERBOSE_LOG("SAGE radio-mode AGN heating module initialized");
   VERBOSE_LOG("  RadioModeEfficiency = %.4f", RADIO_MODE_EFFICIENCY);

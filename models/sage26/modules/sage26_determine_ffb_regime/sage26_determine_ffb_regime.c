@@ -30,6 +30,9 @@
  * f_ffb 1, below which every draw but exactly 1.0 falls.
  *
  * Reference: Li et al. (2024), as SAGE26 cites it (R/src/model_regimes.c:46-50, :167)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>
@@ -57,7 +60,7 @@
 #define TRANSACTION_NAME "sage26_ffb_star_formation"
 
 /* SAGE26's EnhancedStarFormationOn (0 off, 1 the Li et al. 2024 classifier), required and checked
- * at init (campaign decision D33) */
+ * at init: a missing key fails there */
 static int ENHANCED_STAR_FORMATION_ON = MIMIC_SAGE_FFB_OFF;
 
 /* The test seam (sage26_determine_ffb_regime.h); inactive in a run */
@@ -151,8 +154,8 @@ static int check_placement(void) {
 static int classify_row(const double mvir, const double hubble_h, struct Sage26FfbRowTrace *t) {
   // SAGE parity (R/src/model_regimes.c:222-224): SAGE26 calls rand() here and discards the
   // value, so that its other draws keep their places in the libc stream. The package's product
-  // has no rand() stream to keep in step and makes no call; the discarded draw is an
-  // alignment-set item (campaign decisions D1, D32, D46), not product behaviour.
+  // has no rand() stream to keep in step and makes no call; only item 10 of the core-alignment
+  // set (tools/core-alignment/items.md) reproduces the draw, for measurement.
 
   // SAGE26's own draw, keyed on the halo's MostBoundID and the current snapshot (:225)
   t->draw_bits = mimic_sage_ffb_halo_uniform_bits(t->most_bound_id, t->snapshot);
@@ -183,7 +186,7 @@ static int classify_row(const double mvir, const double hubble_h, struct Sage26F
 // ============================================================================
 
 int sage26_determine_ffb_regime_init(void) {
-  /* Required, no default (campaign decision D33): a missing key fails here */
+  /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("EnhancedStarFormationOn", ENHANCED_STAR_FORMATION_ON);
   if (mimic_sage_validate_enhanced_star_formation_on(MODULE_NAME, ENHANCED_STAR_FORMATION_ON) !=
       0) {

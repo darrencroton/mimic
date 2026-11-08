@@ -3,8 +3,9 @@ module:
   description: >-
     Classifies every live row of the FoF group as CGM regime (0) or hot-halo regime (1) from its
     Mvir against the Dekel & Birnboim (2006) shock mass MShockMsun, with SAGE26's sigmoid of
-    width 0.1 dex and the package's keyed draw (campaign decision D1); runs only with
-    CGMrecipeOn 1 and writes nothing with CGMrecipeOn 0
+    width 0.1 dex and the package's keyed draw of UniqueGalaxyID and the snapshot in place of
+    SAGE26's libc rand() (shared/sage_keyed_draw.h); runs only with CGMrecipeOn 1 and writes
+    nothing with CGMrecipeOn 0
 
   supported_processing_modes: [process_full_halo]
 

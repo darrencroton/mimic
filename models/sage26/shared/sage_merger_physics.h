@@ -30,6 +30,9 @@
  * "The c07 Group", Fused Multiply-Adds); no other helper here contains a multiply-add
  * (the c06 Group's Fused Multiply-Adds table lists none for add_galaxies_together and
  * make_bulge_from_burst; the radius update's own fused site is in sage_bulge_size_physics.h).
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_MERGER_PHYSICS_H

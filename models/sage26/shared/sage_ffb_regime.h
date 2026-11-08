@@ -76,6 +76,9 @@
  * @note Used by sage26_determine_ffb_regime and by its unit and oracle tests;
  *       _tests/test_unit_sage_ffb_regime.c tests each helper against literals and SAGE26's
  *       expressions written in the test.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_FFB_REGIME_H

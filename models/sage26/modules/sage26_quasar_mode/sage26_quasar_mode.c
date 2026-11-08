@@ -36,6 +36,9 @@
  *   - SAGE26 R/src/model_disk_instability.c:101-104 (the instability's call)
  *   - Kauffmann & Haehnelt (2000) - BH growth model
  *   - Croton et al. (2006, 2016) - SAGE model papers
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include "constants.h"

@@ -39,6 +39,9 @@
  * multiply by 1/dT every substep. init() therefore requires exactly one
  * post_timestep entry as process_full_halo and no entry in pre_timestep or any
  * substep phase.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include "constants.h"

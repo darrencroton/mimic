@@ -30,16 +30,16 @@ The empirical (`AGNrecipe 1`) and cold-cloud (`3`) accretion rates are the earli
 Both are required, with no default: a missing key, or a value outside the accepted range, fails `init()` naming the parameter (`LOAD_AND_VALIDATE_RANGE_INCLUSIVE` and `LOAD_AND_VALIDATE_OPTION`, `src/module_system/parameter_helpers.h`).
 
 - `RadioModeEfficiency`: accepted values [0, 1]. The run files hold 0.08, SAGE26's value (`input/millennium.par:74`), which no configuration R0–R6 changes.
-- `AGNrecipe` (SAGE26's `AGNrecipeOn`): accepted values 0, 1, 2 and 3. 0 switches the module off (it then writes nothing); 2 is SAGE26's Bondi-Hoyle rate, ported exactly; 1 and 3 are the earlier package's rates (above). The run files hold 2, SAGE26's value (`input/millennium.par:49`), which no configuration R0–R6 changes.
+- `AGNrecipe` (SAGE26's `AGNrecipeOn`): accepted values 0, 1, 2 and 3. 0 switches the module off (it then writes nothing); 2 is SAGE26's Bondi-Hoyle rate, ported exactly; 1 and 3 are the earlier package's rates (above). The run files hold 2, SAGE26's value (`input/millennium.par:49`), which no configuration R0–R6 changes. `AGNrecipe` gates this module only: quasar-mode black-hole growth, at disk instabilities and mergers (`sage26_quasar_mode`) and in the post-minor-merger recheck (`sage26_starburst_feedback`), does not read it, and is removed by omitting `sage26_quasar_mode` from the run file. This differs from SAGE26, whose `AGNrecipeOn 0` also stops that growth (`src/model_mergers.c:262-264`, `src/model_disk_instability.c:101-103`).
 
 ## Ordering
 
-`init()` checks only the two parameters: it refuses no placement and requires no partner. It does not refuse this module without `sage26_calculate_cooling_budget` (`CoolingGas` then keeps its per-snapshot reset value 0 and the module writes nothing) or ahead of it (it then reads the transport the budget left in the previous substep, or 0 after the reset), without `sage26_apply_cooling` (the suppressed mass is then never applied), in another phase, more than once, or with `CGMrecipeOn 1`, which it does not read (the budget then carries `CoolingGas` 0, so the module writes nothing). `sage26_apply_cooling`'s `init()` requires the budget before it, but neither checks this module.
+**Enforced at init (fails with ERROR if violated):**
 
-**Advisory (no `init()` enforcement):**
+1. When `sage26_calculate_cooling_budget` is configured, it must precede this module (both `process_by_galaxy`) in the same substep phase, so `CoolingGas`, `CoolingX` and `Rcool` hold this call's values rather than the previous substep's.
+2. When `sage26_apply_cooling` is configured, this module must precede it (both `process_by_galaxy`) in the same substep phase, so the apply step commits the suppressed mass.
 
-1. Run after `sage26_calculate_cooling_budget`, so `CoolingGas`, `CoolingX` and `Rcool` hold this call's values.
-2. Run before `sage26_apply_cooling`, so the apply step commits the suppressed mass.
+**Not refused:** running without either partner (without the budget `CoolingGas` keeps its per-snapshot reset value 0 and the module writes nothing; without the apply step the suppressed mass is never applied), more than once, or with `CGMrecipeOn 1`, which it does not read (the budget then carries `CoolingGas` 0, so the module writes nothing). `sage26_apply_cooling`'s `init()` also requires the budget before it.
 
 ## Tests
 

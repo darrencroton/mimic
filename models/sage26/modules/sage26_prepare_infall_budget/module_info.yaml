@@ -20,6 +20,9 @@ module:
       - HotGas
       - ICS
       - MetalsICS
+      - ICS_accrete     # written: a satellite's ICS joins the central's accreted channel
+      - ICS_sum_mt      # written: moved with it
+      - ICS_disrupt     # written: zeroed on the satellite
       - EjectedGas
       - MetalsEjectedGas
       - MetalsHotGas

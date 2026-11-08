@@ -37,6 +37,9 @@
  * SAGE26's operand order and types, through c09's helpers; SAGE26's object fuses no
  * multiply-add on these lines (the oracle README's c13 table), and none of these expressions can
  * contract.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_FFB_FEEDBACK_PHYSICS_H

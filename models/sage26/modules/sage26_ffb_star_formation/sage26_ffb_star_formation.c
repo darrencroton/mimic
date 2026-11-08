@@ -41,6 +41,9 @@
  * ported.
  *
  * Reference: Li et al. (2024), as SAGE26 cites it (S:1266); Croton et al. (2016)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>
@@ -344,7 +347,8 @@ int sage26_ffb_star_formation_init(void) {
   if (!isfinite(ENHANCED_SF_EFFICIENCY) || ENHANCED_SF_EFFICIENCY < 0.0 ||
       ENHANCED_SF_EFFICIENCY > 1.0) {
     ERROR_LOG("%s: EnhancedSFEfficiency = %g is not supported: it must be finite and within "
-              "[0, 1] (the FFB star-formation efficiency, R6.par:67)",
+              "[0, 1] (the FFB star-formation efficiency, SAGE26's input/millennium.par:67, read "
+              "with EnhancedStarFormationOn 1)",
               MODULE_NAME, ENHANCED_SF_EFFICIENCY);
     return -1;
   }
@@ -372,8 +376,11 @@ int sage26_ffb_star_formation_init(void) {
               MODULE_NAME, FIRE_MODE_ON, ENHANCED_STAR_FORMATION_ON);
     return -1;
   }
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON, 0.0,
-                                    100.0, "reheating efficiency");
+  LOAD_PARAM_DOUBLE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON);
+  if (mimic_sage_validate_feedback_reheating_epsilon(MODULE_NAME, FEEDBACK_REHEATING_EPSILON) !=
+      0) {
+    return -1;
+  }
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackEjectionEfficiency", FEEDBACK_EJECTION_EFFICIENCY, 0.0,
                                     100.0, "ejection efficiency");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("Yield", YIELD, 0.0, 1.0, "metal yield");

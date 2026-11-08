@@ -36,7 +36,7 @@ SAGE26 samples and makes both calls on every substep of a galaxy that takes its 
 
 ## Properties
 
-- Reads: `FFBRegime` (1 returns at once), `dT` and `SnapNum` (the time guard's initial-boundary test), `ColdGas`, `MetalsColdGas`, `HotGas`, `MetalsHotGas`, `CGMgas`, `MetalsCGMgas`, `Regime`, `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass` (the FoF central's `Regime` selects its pair with `CGMrecipeOn 1`, and that pair is read for the reheat/eject transfers), and with `SFprescription 1` `H2gas` and `H1gas`
+- Reads: `FFBRegime` (1 returns at once), `dT` and `SnapNum` (the time guard's initial-boundary test), `ColdGas`, `MetalsColdGas`, `HotGas`, `MetalsHotGas`, `CGMgas`, `MetalsCGMgas`, `Regime`, `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass` (the FoF central's `Regime` selects its pair with `CGMrecipeOn 1`, and that pair is read for the reheat/eject transfers), and with `SFprescription 1` `H2gas` and `H1gas`; `HaloNr` and `Type` in log messages only
 - Writes: `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, `HotGas`, `MetalsHotGas` or `CGMgas`, `MetalsCGMgas` (the central's selected pair), `EjectedGas`, `MetalsEjectedGas`, `StarFormationRate`, `SupernovaOutflowRate` (the undivided reheated mass), `SupernovaReheatedMass` and `SupernovaEjectedMass` (zeroed after the commit; `NewStellarMass` is left for `sage26_apply_metal_enrichment`), `H2gas` and `H1gas` (the caps, `SFprescription 1` only), and the disk history elements `SfrDiskBin<k>`, `SfrDiskColdGasBin<k>`, `SfrDiskColdGasMetalsBin<k>` of the substep's bin
 
 ## Parameters

@@ -47,6 +47,9 @@
  * log. None has a multiply feeding an add or subtract, so none can contract to a fused
  * multiply-add, and SAGE26's object has no fused instruction in either routine on the mode-0
  * and mode-3 paths (the oracle README's "The c12 Group").
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_HALO_CONCENTRATION_H

@@ -34,6 +34,9 @@
  * References:
  *   - SAGE26 R/src/model_disk_instability.c:35, :47-108; R/src/model_misc.c:239-424
  *   - Mo, Mao & White (1998): disk stability criterion
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include "error.h"
@@ -41,6 +44,7 @@
 #include "shared/sage_disk_instability_physics.h"
 #include "module_system/parameter_helpers.h"
 #include "module_interface.h"
+#include "module_registry.h"
 #include "types.h"
 
 // ============================================================================
@@ -65,6 +69,18 @@ int sage26_disk_instability_init(void) {
                                     "star forming disk factor");
   LOAD_PARAM_INT("BulgeSizeOn", BULGE_SIZE_ON);
   if (mimic_sage_validate_bulge_size_on("sage26_disk_instability", BULGE_SIZE_ON) != 0) {
+    return -1;
+  }
+
+  /* Placement, checked when the partner is configured: before sage26_quasar_mode's by-galaxy
+   * entry, which reads this substep's UnstableDiskGasFraction, in the same substep phase
+   * (SAGE26 grows the black hole after the check, R/src/model_disk_instability.c:101-103) */
+  if (module_in_substep_phase("sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY) &&
+      !module_precedes_in_substep_phase("sage26_disk_instability", PROCESSING_MODE_BY_GALAXY,
+                                        "sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY)) {
+    ERROR_LOG("sage26_disk_instability must precede sage26_quasar_mode (process_by_galaxy) in the "
+              "same substep phase — otherwise the quasar entry reads the previous substep's "
+              "UnstableDiskGasFraction");
     return -1;
   }
 
@@ -100,10 +116,13 @@ int sage26_disk_instability_process(struct ModuleContext *ctx, struct Halo *halo
   if (gal->FFBRegime == 1) {
     return 0;
   }
-  /* SAGE26's run_params->BulgeSizeOn and Hubble_h (R/src/model_misc.c:395, :398); the helper
-   * returns 0 without a transfer when the context or its configuration is missing */
-  const double hubble_h = (ctx != NULL && ctx->params != NULL) ? ctx->params->Hubble_h : 0.0;
-  const struct MimicSageBulgeSize sizes = {BULGE_SIZE_ON, hubble_h};
+  /* SAGE26's run_params (G, and BulgeSizeOn's Hubble_h, R/src/model_misc.c:395, :398): a run
+   * always passes them, so a missing configuration is refused rather than read as Hubble_h 0 */
+  if (ctx == NULL || ctx->params == NULL) {
+    ERROR_LOG("sage26_disk_instability: the run configuration (G, Hubble_h) is missing");
+    return -1;
+  }
+  const struct MimicSageBulgeSize sizes = {BULGE_SIZE_ON, ctx->params->Hubble_h};
   gal->UnstableDiskGasFraction =
       mimic_sage_apply_disk_instability(halo, ctx, STAR_FORMING_DISK_FACTOR, &sizes);
 

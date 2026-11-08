@@ -12,6 +12,8 @@ module:
 
   dependencies:
     properties:
+      - HaloNr          # read: error logs only
+      - Type            # read: debug log only
       - dT
       - SnapNum         # read: the redshift of the row's stored snapshot (FIRE scaling)
       - Mvir            # read: the FoF central's (narrowed to SAGE26's float), for the yield

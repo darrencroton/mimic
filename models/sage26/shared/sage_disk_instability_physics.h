@@ -23,6 +23,9 @@
  *       transaction in sage_starburst_physics.h (the minor-merger instability recheck,
  *       SAGE26's R/src/model_mergers.c:807-809, which calls the same
  *       check_disk_instability and continues its gas branch itself).
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_DISK_INSTABILITY_PHYSICS_H

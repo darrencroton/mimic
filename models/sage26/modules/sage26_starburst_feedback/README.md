@@ -35,7 +35,7 @@ Each channel passes SAGE26's `old_disk_radius`: the galaxy's current `DiskScaleR
 
 Each parameter below is required with no default: a missing key, or a value outside the accepted values, fails initialisation. The three marked as conditional are read only under their condition and are not needed otherwise.
 
-- `FeedbackReheatingEpsilon`: (0, 10]
+- `FeedbackReheatingEpsilon`: finite and >= 0, the range every reader shares (`mimic_sage_validate_feedback_reheating_epsilon`, `shared/sage_sf_feedback_physics.h`); SAGE26 does not range-check it
 - `FeedbackEjectionEfficiency`: [0, 10]
 - `RecycleFraction`: [0, 1]
 - `Yield`: [0, 1]

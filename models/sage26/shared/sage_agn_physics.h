@@ -47,6 +47,9 @@
  * explicit fma() calls; every other expression rounds as written, one C expression per SAGE26
  * expression, and quasar_mode_wind fuses nothing on any of its three branches. Vvir is read as the
  * float SAGE26 holds (R/src/core_allvars.h:131), as the package's other ports read it.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_AGN_PHYSICS_H

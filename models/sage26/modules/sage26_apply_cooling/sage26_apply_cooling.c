@@ -22,6 +22,9 @@
  * this module writes nothing.
  *
  * Reference: Croton et al. (2006, 2016)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include "constants.h"

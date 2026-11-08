@@ -29,6 +29,9 @@
  * shows the disassembly).
  *
  * Reference: Dekel & Birnboim (2006); Voit (2015)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>
@@ -40,6 +43,7 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "module_system/parameter_helpers.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_keyed_draw.h"
 #include "types.h"
 
@@ -73,34 +77,6 @@ void sage26_determine_regime_set_test_seam(const struct Sage26RegimeSeam *seam) 
   }
   test_seam = *seam;
   test_seam_active = 1;
-}
-
-/**
- * @brief Refuse a CGMrecipeOn other than 0 or 1, naming the parameter
- * @return 0 when supported; -1 otherwise
- */
-static int validate_cgm_recipe_on(const int value) {
-  if (value != 0 && value != 1) {
-    ERROR_LOG("%s: CGMrecipeOn = %d is not supported: the package ports only 0 (no CGM regime "
-              "classification) and 1 (SAGE26's CGM regime classifier)",
-              MODULE_NAME, value);
-    return -1;
-  }
-  return 0;
-}
-
-/**
- * @brief Refuse a non-positive or non-finite MShockMsun, naming the parameter
- * @return 0 when valid; -1 otherwise
- */
-static int validate_mshock_msun(const double value) {
-  if (!isfinite(value) || !(value > 0.0)) {
-    ERROR_LOG("%s: MShockMsun = %g is not valid: the shock mass must be a positive, finite mass "
-              "in Msun",
-              MODULE_NAME, value);
-    return -1;
-  }
-  return 0;
 }
 
 /**
@@ -200,11 +176,11 @@ static int classify_row(const double mvir, const double mshock, struct Sage26Reg
 int sage26_determine_regime_init(void) {
   /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
-  if (validate_cgm_recipe_on(CGM_RECIPE_ON) != 0) {
+  if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
     return -1;
   }
   LOAD_PARAM_DOUBLE("MShockMsun", MSHOCK_MSUN);
-  if (validate_mshock_msun(MSHOCK_MSUN) != 0) {
+  if (mimic_sage_validate_mshock_msun(MODULE_NAME, MSHOCK_MSUN) != 0) {
     return -1;
   }
   if (validate_placement() != 0) {

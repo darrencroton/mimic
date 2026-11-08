@@ -73,6 +73,9 @@
  * contractible expression here, as they were in the classic modules; the stream and CGM-time
  * arithmetic fuses nothing. SAGE26's object computes both pow(10.0, x) of the streams (C:222,
  * C:242) as __exp10(x); mimic_sage_exp10 writes that form.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_COOLING_PHYSICS_H

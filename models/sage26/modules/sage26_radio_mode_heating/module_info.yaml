@@ -8,7 +8,6 @@ module:
 
   dependencies:
     properties:
-      - Type
       - HaloNr
       - SnapNum
       - dT

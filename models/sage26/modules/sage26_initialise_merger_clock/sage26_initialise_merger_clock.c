@@ -48,6 +48,9 @@
  * The clock estimate is shared/sage_merger_clock.h, with the run parameter
  * MergerTimeFactor (SAGE26 default 2.0, R/src/core_read_parameter_file.c:128,
  * which R0 does not override).
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>
@@ -72,7 +75,7 @@ static const char *RECORDER_NAME = "sage26_record_transition_state";
 // ============================================================================
 
 /* SAGE parity: SAGE26's default MergerTimeFactor (R/src/core_read_parameter_file.c:128),
- * the value R0 runs with (R0.par does not set it) */
+ * the value SAGE26 runs with, since its input/millennium.par does not set it */
 static const double MERGER_TIME_FACTOR_DEFAULT = 2.0;
 
 /* SAGE parity: joining's "unset clock" tests compare the float clock with 999

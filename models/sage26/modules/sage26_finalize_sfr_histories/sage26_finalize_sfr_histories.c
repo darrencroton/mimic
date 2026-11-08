@@ -36,6 +36,9 @@
  * (R/src/core_build_model.c:278-282). Without it they would accumulate across snapshots
  * and every average written here would be wrong, so init() also requires that module in
  * pre_timestep as process_full_halo.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include "constants.h"

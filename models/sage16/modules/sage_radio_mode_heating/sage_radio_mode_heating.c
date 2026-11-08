@@ -207,6 +207,24 @@ int sage_radio_mode_heating_init(void) {
   LOAD_AND_VALIDATE_OPTION("AGNrecipe", AGN_RECIPE_ON, 3,
                            "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
 
+  /* Placement, checked when the partner is configured: after the budget, whose CoolingGas and
+   * Rcool this module reads, and before the apply step, which commits the suppressed mass, in the
+   * same substep phase */
+  if (module_configured_anywhere("sage_calculate_cooling_budget") &&
+      !module_precedes_in_substep_phase("sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY,
+                                        "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY)) {
+    ERROR_LOG("sage_radio_mode_heating requires sage_calculate_cooling_budget to precede it in "
+              "the same substep phase — otherwise it reads the previous substep's cooling");
+    return -1;
+  }
+  if (module_configured_anywhere("sage_apply_cooling") &&
+      !module_precedes_in_substep_phase("sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY,
+                                        "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY)) {
+    ERROR_LOG("sage_radio_mode_heating must precede sage_apply_cooling in the same substep "
+              "phase — otherwise the apply step commits the unsuppressed cooling");
+    return -1;
+  }
+
   VERBOSE_LOG("SAGE radio-mode AGN heating module initialized");
   VERBOSE_LOG("  RadioModeEfficiency = %.4f", RADIO_MODE_EFFICIENCY);
   VERBOSE_LOG("  AGNrecipe = %d (0=off, 1=empirical, 2=Bondi, 3=cold cloud)", AGN_RECIPE_ON);

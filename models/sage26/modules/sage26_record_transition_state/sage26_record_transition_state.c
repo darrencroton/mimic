@@ -30,6 +30,9 @@
  * in the phase, and none in pre_timestep or any substep phase: any later module
  * could still change a Type, and an earlier entry would record a Type the merger
  * pass has not finished changing.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <string.h>

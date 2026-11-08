@@ -60,6 +60,9 @@
  * the target is its subhalo's central (step 4), which need not be the FoF central (B:539-543,
  * :575). The merger's addition moves CGM to CGM and hot to hot whatever either
  * regime (M:464-465, :496-497).
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>

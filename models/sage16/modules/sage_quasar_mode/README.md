@@ -23,6 +23,7 @@ Models black-hole growth and quasar-mode feedback from disk-instability triggers
 **Enforced at init by event subscription validation (fails with ERROR if violated):**
 
 1. When used as `process_per_event`, `sage_resolve_mergers_and_disruption` must be configured as `process_full_halo` in the same substep phase — it is the only producer of `merger` events that this module consumes.
+2. When used as `process_by_galaxy` with `sage_disk_instability` configured, that module must precede this one in the same substep phase (checked by `sage_disk_instability`'s `init()`), so the instability trigger read here is this substep's.
 
 ## Events
 

@@ -27,6 +27,9 @@
  * all 2^32 patterns, the oracle README's "The c13 Group, Part 2"), so both paths call this one
  * helper. No other expression here contains a multiply and an add in one expression,
  * so none contracts.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_HI_PHYSICS_H

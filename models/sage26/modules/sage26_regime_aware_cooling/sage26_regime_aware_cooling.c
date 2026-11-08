@@ -35,6 +35,9 @@
  * assignment here, which clang contracts alike (the oracle README, "The c11 Group").
  *
  * Reference: Croton et al. (2006, 2016); Dekel & Birnboim (2006); Carr et al. (2023)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>
@@ -48,6 +51,7 @@
 #include "module_registry.h"
 #include "module_system/parameter_helpers.h"
 #include "shared/metallicity.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_cooling_physics.h"
 #include "shared/time_parity.h"
@@ -76,34 +80,6 @@ static double RADIO_MODE_EFFICIENCY;
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-/**
- * @brief Refuse a CGMrecipeOn other than 0 or 1, naming the parameter
- * @return 0 when supported; -1 otherwise
- */
-static int validate_cgm_recipe_on(const int value) {
-  if (value != 0 && value != 1) {
-    ERROR_LOG("%s: CGMrecipeOn = %d is not supported: the package ports only 0 (classic hot "
-              "cooling, this module writes nothing) and 1 (SAGE26's regime-aware cooling)",
-              MODULE_NAME, value);
-    return -1;
-  }
-  return 0;
-}
-
-/**
- * @brief Refuse a non-positive or non-finite MShockMsun, naming the parameter
- * @return 0 when valid; -1 otherwise
- */
-static int validate_mshock_msun(const double value) {
-  if (!isfinite(value) || !(value > 0.0)) {
-    ERROR_LOG("%s: MShockMsun = %g is not valid: the shock mass must be a positive, finite mass "
-              "in Msun",
-              MODULE_NAME, value);
-    return -1;
-  }
-  return 0;
-}
 
 /**
  * @brief With CGMrecipeOn 1, require exactly one entry, immediately after sage26_apply_cooling
@@ -330,11 +306,11 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
 int sage26_regime_aware_cooling_init(void) {
   /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
-  if (validate_cgm_recipe_on(CGM_RECIPE_ON) != 0) {
+  if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
     return -1;
   }
   LOAD_PARAM_DOUBLE("MShockMsun", MSHOCK_MSUN);
-  if (validate_mshock_msun(MSHOCK_MSUN) != 0) {
+  if (mimic_sage_validate_mshock_msun(MODULE_NAME, MSHOCK_MSUN) != 0) {
     return -1;
   }
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RadioModeEfficiency", RADIO_MODE_EFFICIENCY, 0.0, 1.0,
@@ -396,8 +372,8 @@ int sage26_regime_aware_cooling_process(struct ModuleContext *ctx, struct Halo *
   cfg.agn.recipe = AGN_RECIPE_ON;
   cfg.agn.efficiency = RADIO_MODE_EFFICIENCY;
   if (sage26_regime_aware_cooling_run(halo, ctx->params, &cfg, dt_obj, NULL) != 0) {
-    ERROR_LOG("%s: halo %lld (SnapNum=%d) refused by the hot regime's cold streams (campaign "
-              "decision D35)",
+    ERROR_LOG("%s: halo %lld (SnapNum=%d) refused by the hot regime's cold streams: its "
+              "stored SnapNum is outside the run's redshift table",
               MODULE_NAME, halo->HaloNr, halo->SnapNum);
     return -1;
   }

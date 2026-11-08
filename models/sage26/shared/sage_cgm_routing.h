@@ -16,6 +16,8 @@
  * - mimic_sage_add_gas_to_hot_reservoir(): add_gas_to_hot_reservoir (:76-85).
  * - mimic_sage_validate_cgm_recipe_on(): the required CGMrecipeOn, 0 or 1, refused otherwise with
  *   an error naming the parameter.
+ * - mimic_sage_validate_mshock_msun(): the required MShockMsun, positive and finite, refused
+ *   otherwise with an error naming the parameter.
  *
  * Rounding points. Each helper takes an already completed double and adds it to the selected
  * float field, a double sum narrowed once on the store, exactly as SAGE26's helpers do: a caller's
@@ -31,10 +33,15 @@
  *
  * @note This file is part of the model-local shared utilities system.
  *       Modules include it as #include "shared/sage_cgm_routing.h"
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_CGM_ROUTING_H
 #define MIMIC_SHARED_SAGE_CGM_ROUTING_H
+
+#include <math.h>
 
 #include "error.h"
 #include "types.h"
@@ -61,6 +68,27 @@ static inline int mimic_sage_validate_cgm_recipe_on(const char *module_name, con
   if (value != MIMIC_SAGE_CGM_RECIPE_OFF && value != MIMIC_SAGE_CGM_RECIPE_ON) {
     ERROR_LOG("%s: CGMrecipeOn = %d is not supported: the package ports only 0 (hot-gas "
               "routing) and 1 (SAGE26's regime-aware CGM routing)",
+              module_name, value);
+    return -1;
+  }
+  return 0;
+}
+
+/**
+ * @brief Refuse a non-positive or non-finite MShockMsun
+ *
+ * MShockMsun, the Dekel & Birnboim (2006) shock mass in physical Msun, is a required package
+ * parameter of the CGM regime classifier and the regime-aware cooling; each loads it with the
+ * required-parameter path and passes it here.
+ *
+ * @param module_name  The calling module, for the error message
+ * @param value        The loaded MShockMsun
+ * @return 0 for a positive, finite mass; -1 (with an error naming the parameter) otherwise
+ */
+static inline int mimic_sage_validate_mshock_msun(const char *module_name, const double value) {
+  if (!isfinite(value) || !(value > 0.0)) {
+    ERROR_LOG("%s: MShockMsun = %g is not valid: the shock mass must be a positive, finite mass "
+              "in Msun",
               module_name, value);
     return -1;
   }

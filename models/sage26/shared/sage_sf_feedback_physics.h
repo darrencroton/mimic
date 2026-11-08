@@ -53,6 +53,9 @@
  * @note SAGE26's prescription-0 path does not resynchronise H2gas and H1gas after the
  *       depletion (:1131 and :1169 test sf_prescription_tracks_h2), so under SFprescription 0
  *       (R0, R1) neither routine writes H1gas or H2gas.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_SF_FEEDBACK_PHYSICS_H
@@ -61,6 +64,7 @@
 #include <math.h>
 #include <stddef.h>
 
+#include "error.h"
 #include "types.h"
 #include "shared/metallicity.h"
 #include "shared/sage_cgm_routing.h"
@@ -90,6 +94,32 @@ static inline double mimic_sage_energy_sn_code(const double unit_energy_in_cgs,
  */
 static inline double mimic_sage_eta_sn_code(const double unit_mass_in_g, const double hubble_h) {
   return ETA_SN * (unit_mass_in_g / SOLAR_MASS) / hubble_h;
+}
+
+/**
+ * @brief Refuse a FeedbackReheatingEpsilon outside the package's one accepted range
+ *
+ * FeedbackReheatingEpsilon is SAGE26's reheated mass per unit of stars formed, and the
+ * coefficient of the FIRE loading (R/src/model_starformation_and_feedback.c:763, :767;
+ * R/src/model_mergers.c:709, :712). SAGE26 registers it with no range check
+ * (R/src/core_read_parameter_file.c:198). Every reader in the package (the supernova, burst and
+ * feedback-free-burst modules) accepts the same range: any finite value >= 0, so that no
+ * physically meaningful value SAGE26 runs with is refused; a negative, NaN or infinite loading
+ * is refused, naming the parameter.
+ *
+ * @param module_name  The calling module, for the error message
+ * @param value        The loaded FeedbackReheatingEpsilon
+ * @return 0 for a finite value >= 0; -1 (with an error naming the parameter) otherwise
+ */
+static inline int mimic_sage_validate_feedback_reheating_epsilon(const char *module_name,
+                                                                 const double value) {
+  if (!isfinite(value) || !(value >= 0.0)) {
+    ERROR_LOG("%s: FeedbackReheatingEpsilon = %g is not valid: the reheating loading must be "
+              "finite and >= 0",
+              module_name, value);
+    return -1;
+  }
+  return 0;
 }
 
 /**

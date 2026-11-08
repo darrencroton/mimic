@@ -37,6 +37,9 @@
  * The final expression is one C expression with SAGE26's operand order and types:
  * no multiply-add is contractible in it (estimate_merging_time has no fused
  * instruction in the reference objects).
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_MERGER_CLOCK_H

@@ -17,6 +17,9 @@
  * order and types, so that compiler contraction treats both alike.
  *
  * Reference: Mo, Mao & White (1998), Bullock et al. (2001)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>

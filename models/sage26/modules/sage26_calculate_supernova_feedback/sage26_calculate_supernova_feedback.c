@@ -42,6 +42,9 @@
  * sage26_ffb_star_formation runs that row's own FFB feedback (compute_sn_feedback_ffb, :901-972).
  *
  * Reference: Croton et al. (2006, 2016); Muratov et al. (2015); Hirschmann et al. (2016)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include "constants.h"
@@ -79,8 +82,11 @@ static double eta_sn_code;
 // ============================================================================
 
 int sage26_calculate_supernova_feedback_init(void) {
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON, 0.0,
-                                    100.0, "reheating efficiency");
+  LOAD_PARAM_DOUBLE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON);
+  if (mimic_sage_validate_feedback_reheating_epsilon("sage26_calculate_supernova_feedback",
+                                                     FEEDBACK_REHEATING_EPSILON) != 0) {
+    return -1;
+  }
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackEjectionEfficiency", FEEDBACK_EJECTION_EFFICIENCY, 0.0,
                                     100.0, "ejection efficiency");
   /* Required, no default: a missing key fails here */
@@ -172,7 +178,7 @@ int sage26_calculate_supernova_feedback_process(struct ModuleContext *ctx, struc
     }
     double z_fire = 0.0;
     if (ctx == NULL || mimic_sage_fire_stored_redshift(ctx->params, halo->SnapNum, &z_fire) != 0) {
-      ERROR_LOG("sage26_calculate_supernova_feedback: no FIRE scaling for galaxy HaloNr %d",
+      ERROR_LOG("sage26_calculate_supernova_feedback: no FIRE scaling for galaxy HaloNr %lld",
                 halo->HaloNr);
       return -1;
     }

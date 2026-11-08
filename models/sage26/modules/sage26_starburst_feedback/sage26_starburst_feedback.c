@@ -68,6 +68,9 @@
  *   - Somerville et al. (2001): starburst efficiency scaling
  *   - Cox PhD thesis: starburst efficiency coefficients
  *   - Croton et al. (2006, 2016)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <stdbool.h>
@@ -83,6 +86,7 @@
 #include "shared/sage_cgm_routing.h"
 #include "shared/sage_fire_feedback_physics.h"
 #include "shared/sage_h2_physics.h"
+#include "shared/sage_sf_feedback_physics.h"
 #include "shared/sage_starburst_physics.h"
 #include "shared/sage_disk_instability_physics.h"
 #include "shared/sage_sfr_history.h"
@@ -143,8 +147,11 @@ static bool POST_MERGER_QUASAR_FOLLOWUP_ENABLED;
 // ============================================================================
 
 int sage26_starburst_feedback_init(void) {
-  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON, 0.0,
-                                    10.0, "feedback reheating epsilon");
+  LOAD_PARAM_DOUBLE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON);
+  if (mimic_sage_validate_feedback_reheating_epsilon("sage26_starburst_feedback",
+                                                     FEEDBACK_REHEATING_EPSILON) != 0) {
+    return -1;
+  }
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackEjectionEfficiency", FEEDBACK_EJECTION_EFFICIENCY, 0.0,
                                     10.0, "feedback ejection efficiency");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RecycleFraction", RECYCLE_FRACTION, 0.0, 1.0,

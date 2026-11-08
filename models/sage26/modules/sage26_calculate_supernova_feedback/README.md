@@ -42,12 +42,12 @@ The scaling and the ejection use the forming galaxy's own `Vvir` and stored `Sna
 
 ## Properties
 
-- Reads: `FFBRegime` (1 returns at once), `Vvir` (the forming galaxy's own), `ColdGas`, `NewStellarMass`, and with `FIREmodeOn 1` `SnapNum` (the stored snapshot) and `dT` (the initial-boundary test)
+- Reads: `FFBRegime` (1 returns at once), `Vvir` (the forming galaxy's own), `ColdGas`, `NewStellarMass`, and with `FIREmodeOn 1` `SnapNum` (the stored snapshot) and `dT` (the initial-boundary test); `HaloNr` and `Type` in log messages only
 - Writes: `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass`, and with `FIREmodeOn 1` `MassLoading`
 
 ## Parameters
 
-- `FeedbackReheatingEpsilon` (required, within [0, 100]; the run files hold 2.9)
+- `FeedbackReheatingEpsilon` (required, finite and >= 0, the range every reader shares (`mimic_sage_validate_feedback_reheating_epsilon`, `shared/sage_sf_feedback_physics.h`); SAGE26 does not range-check it; the run files hold 2.9)
 - `FeedbackEjectionEfficiency` (required, within [0, 100]; the run files hold 0.3)
 - `FIREmodeOn` (required, 0 or 1, no default): 1, the run files' value and SAGE26's default (`input/millennium.par:55`; configurations R3–R6 set it), selects the FIRE budgets, 0 (R0-R2) the fixed-epsilon ones. A missing key fails initialisation and any other value is refused, naming the parameter. `sage26_starburst_feedback` reads the same parameter for every burst's budget (`src/model_mergers.c:690-752`).
 

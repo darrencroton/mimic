@@ -11,6 +11,9 @@ module:
   dependencies:
     properties:
       - FFBRegime       # read: 1 returns at once, writing nothing (SAGE26's FFB dispatch)
+      - HaloNr          # read: error logs only
+      - SnapNum         # read: the time guard's initial-boundary test, and logs
+      - Type            # read: debug log only
       - dT
       - Mvir
       - ColdGas

@@ -15,6 +15,9 @@
  * each, the CUBE grouping, dmax), so that compiler contraction treats both alike.
  *
  * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2016)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>

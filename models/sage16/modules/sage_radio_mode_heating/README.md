@@ -20,10 +20,10 @@ Suppresses cooling through AGN radio-mode heating. The selected accretion/heatin
 
 ## Ordering
 
-**Advisory (no `init()` enforcement):**
+**Enforced at init (fails with ERROR if violated), each only when the partner is configured:**
 
-1. Run after `sage_calculate_cooling_budget` so `CoolingGas`, `CoolingLambda`, `Rcool`, and the previous `Rheat` are available.
-2. Run before `sage_apply_cooling` so the apply step commits the suppressed cooling budget rather than the raw cooling budget.
+1. `sage_calculate_cooling_budget` must precede this module (both `process_by_galaxy`) in the same substep phase, so `CoolingGas`, `CoolingLambda`, `Rcool`, and the previous `Rheat` hold this substep's values.
+2. This module must precede `sage_apply_cooling` in the same substep phase, so the apply step commits the suppressed cooling budget rather than the raw cooling budget.
 
 ## Notes
 

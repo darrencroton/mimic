@@ -48,6 +48,9 @@
  *
  * @note Used by sage26_calculate_star_formation for its BR06 branch (SFprescription 1), and by
  *       the oracle tests of that module, which call the public routines directly.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_H2_PHYSICS_H

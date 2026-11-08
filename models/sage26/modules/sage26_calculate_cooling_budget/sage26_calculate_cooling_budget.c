@@ -33,6 +33,9 @@
  * reached the tail.
  *
  * Reference: White & Frenk (1991), Croton et al. (2006, 2016)
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #include <math.h>
@@ -40,6 +43,7 @@
 #include "constants.h"
 #include "error.h"
 #include "globals.h"
+#include "shared/sage_cgm_routing.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_cooling_physics.h"
 #include "shared/time_parity.h"
@@ -61,20 +65,6 @@ static int CGM_RECIPE_ON;
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-/**
- * @brief Refuse a CGMrecipeOn other than 0 or 1, naming the parameter
- * @return 0 when supported; -1 otherwise
- */
-static int validate_cgm_recipe_on(const int value) {
-  if (value != 0 && value != 1) {
-    ERROR_LOG("%s: CGMrecipeOn = %d is not supported: the package ports only 0 (classic hot "
-              "cooling) and 1 (SAGE26's regime-aware cooling, sage26_regime_aware_cooling)",
-              MODULE_NAME, value);
-    return -1;
-  }
-  return 0;
-}
 
 /**
  * @brief With CGMrecipeOn 1, require the cooling transaction and the regime classifier
@@ -116,7 +106,7 @@ static int validate_cgm_configuration(void) {
 int sage26_calculate_cooling_budget_init(void) {
   /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
-  if (validate_cgm_recipe_on(CGM_RECIPE_ON) != 0) {
+  if (mimic_sage_validate_cgm_recipe_on(MODULE_NAME, CGM_RECIPE_ON) != 0) {
     return -1;
   }
   if (validate_cgm_configuration() != 0) {

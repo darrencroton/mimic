@@ -80,6 +80,9 @@
  *
  * The package's StarFormationRate diagnostic (stars / rate_dt) has no SAGE26 counterpart;
  * it is written beside the commit and changes no SAGE26 field.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_STARBURST_PHYSICS_H
@@ -364,7 +367,7 @@ static inline int mimic_apply_collisional_starburst(
    * HOST's (the target's, merger_centralgal's) own float Vvir and the redshift of ITS stored
    * snapshot, ZZ[SnapNum], never the satellite's or the FoF central's, nor the current halo
    * snapshot's (R/src/model_mergers.c:690-703); ZZ is read before the velocity test, as SAGE26
-   * orders it, and an out-of-range SnapNum is refused (D35). FIREmodeOn 0 leaves it 0, unread. */
+   * orders it, and an out-of-range SnapNum is refused. FIREmodeOn 0 leaves it 0, unread. */
   const float host_vvir = (float)host_halo->Vvir;
   struct MimicSageBurstFireRecord fire_record;
   mimic_sage_burst_fire_record_reset(&fire_record);

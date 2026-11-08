@@ -28,6 +28,9 @@
  * package writes it as an explicit fma(). The escaping metals Yield * FracZleaveDiskVal * stars and
  * Yield * stars are products only, formed left to right in their own statements and added to the
  * selected float field as completed doubles (no fusion into the addition), as the object has them.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_METAL_YIELD_PHYSICS_H

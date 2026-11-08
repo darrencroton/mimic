@@ -40,6 +40,9 @@
  *       (sage_starburst_physics.h, R/src/model_mergers.c:778-784) and, with BulgeSizeOn 3, by
  *       the merger transaction's synchronisation and remnant assignment
  *       (sage26_resolve_mergers_and_disruption, R/src/model_mergers.c:293-330).
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_BULGE_SIZE_PHYSICS_H

@@ -17,6 +17,10 @@ Applies a disk stability criterion, transfers unstable stellar mass to the bulge
 
 - `StarFormingDiskFactor`
 
+## Ordering
+
+**Enforced at init (fails with ERROR if violated):** when `sage_quasar_mode` is configured `process_by_galaxy`, this module must precede it in the same substep phase, so the quasar entry reads this substep's `UnstableDiskGasFraction` rather than the previous one's.
+
 ## Notes
 
 The trigger field is a transport property. Place disk-instability consumers after this module in the same phase and clear the trigger after consumers have run.

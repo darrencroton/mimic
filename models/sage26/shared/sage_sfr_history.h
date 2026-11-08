@@ -30,6 +30,9 @@
  * None of these expressions contains a multiply-add: each sample adds a quotient
  * or a float, and each averaging term ends in a division, so floating-point
  * contraction cannot fuse them and they are written left to right as SAGE26 does.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_SFR_HISTORY_H
@@ -38,14 +41,16 @@
 #include <stddef.h>
 
 #include "types.h"
+#include "module_system/physical_constants.h"
 
 /* SAGE26's STEPS, the number of history bins (R/src/macros.h:17) */
 #define MIMIC_SAGE_SFR_STEPS 10
 
 /* SAGE26's SEC_PER_YEAR and SOLAR_MASS (R/src/macros.h:38, :24), as the writer's
- * rate conversion uses them (R/src/io/save_gals_hdf5.c:944-945) */
-#define MIMIC_SAGE_SEC_PER_YEAR 3.155e7
-#define MIMIC_SAGE_SOLAR_MASS 1.989e33
+ * rate conversion uses them (R/src/io/save_gals_hdf5.c:944-945): the same literals, 3.155e7 and
+ * 1.989e33, as physical_constants.h's, which these names alias */
+#define MIMIC_SAGE_SEC_PER_YEAR SEC_PER_YEAR
+#define MIMIC_SAGE_SOLAR_MASS SOLAR_MASS
 
 /** @brief SAGE26's six per-substep histories (R/src/core_allvars.h:158-163) */
 enum MimicSageSfrHistory {

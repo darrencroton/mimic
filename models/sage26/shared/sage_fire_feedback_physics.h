@@ -48,6 +48,9 @@
  *       (shared/sage_starburst_physics.h, M:690-752, the burst host's own float Vvir and stored
  *       SnapNum, no MassLoading write), and by the oracle and unit tests of those modules, which
  *       call the helpers with locals.
+ *
+ * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
+ * models/sage26/LICENSE-SAGE26.
  */
 
 #ifndef MIMIC_SHARED_SAGE_FIRE_FEEDBACK_PHYSICS_H
