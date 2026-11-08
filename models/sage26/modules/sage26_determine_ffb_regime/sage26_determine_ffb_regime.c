@@ -35,6 +35,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "constants.h"
 #include "error.h"
@@ -153,6 +154,7 @@ static int classify_row(const double mvir, const double hubble_h, struct Sage26F
   // value, so that its other draws keep their places in the libc stream. The package's product
   // has no rand() stream to keep in step and makes no call; the discarded draw is an
   // alignment-set item (campaign decisions D1, D32, D46), not product behaviour.
+  (void)rand();
 
   // SAGE26's own draw, keyed on the halo's MostBoundID and the current snapshot (:225)
   t->draw_bits = mimic_sage_ffb_halo_uniform_bits(t->most_bound_id, t->snapshot);
