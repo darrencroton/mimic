@@ -13,7 +13,10 @@
 #   sage26_type  the SAGE26 dataset's storage type
 #   mimic_type   the Mimic property's storage type (per element for a vector)
 #   factor       multiplies the Mimic value before comparison (rule 6); exactly 1
-#                for every model property (campaign decision D5)
+#                for every model property, because each sage26 output property
+#                computes what SAGE26 computes, in SAGE26's units
+#   transform    optional, int mappings only: `abs` compares the absolute value of
+#                the Mimic value (SimulationHaloIndex only: SAGE26 writes llabs)
 #   unit_check   core and simulation mappings: SAGE26's written unit checked
 #                against Mimic's output unit from source, with lines. SAGE26
 #                paths are relative to the staged reference source; Mimic paths
@@ -60,7 +63,8 @@ fields:
     sage26_type: int64
     mimic_type: int64
     factor: 1
-    unit_check: "Unitless on both sides. SAGE26 writes llabs(halos[g->HaloNr].MostBoundID) (src/io/save_gals_hdf5.c:878; src/io/save_gals_hdf5_fields.h:39-41, 'Most bound particle ID from the tree files'; halo member long long MostBoundID at src/core_simulation.h:39). Mimic MostBoundID is the catalogue long long, copy_from_tree and copy_direct with no transformation (simulations/mini-millennium/halo_properties.yaml:137-143). Factor 1. Mimic does not take the absolute value; the two agree for non-negative catalogue IDs, and the T1 reference holds no negative SimulationHaloIndex at T1's eight snapshots (checked at Snap_63, Snap_37, Snap_16)."
+    transform: abs
+    unit_check: "Unitless on both sides. SAGE26 writes llabs(halos[g->HaloNr].MostBoundID) (src/io/save_gals_hdf5.c:878; src/io/save_gals_hdf5_fields.h:39-41, 'Most bound particle ID from the tree files'; halo member long long MostBoundID at src/core_simulation.h:39). Mimic MostBoundID is the catalogue long long, copy_from_tree and copy_direct with no transformation (simulations/mini-millennium/halo_properties.yaml:137-143). Factor 1. Mimic writes the raw value, so the comparator takes its absolute value (transform: abs) as SAGE26 does; the two agree without it for non-negative catalogue IDs, and the T1 reference holds no negative SimulationHaloIndex at T1's eight snapshots (checked at Snap_63, Snap_37, Snap_16)."
   mergeType:
     uncompared: "SAGE26 writes them by backpatching a galaxy's earlier output record after it merges in the following step; Mimic writes each record once and a merged galaxy leaves the output, so no counterpart exists"
   mergeIntoID:

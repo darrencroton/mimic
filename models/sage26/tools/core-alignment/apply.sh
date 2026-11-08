@@ -1,11 +1,13 @@
 #!/bin/sh
-# apply.sh - apply the core-alignment patch series to a scratch worktree.
+# apply.sh - apply the core-alignment patch series to a disposable clone.
 #
-# Run from the root of a clean git worktree on a throwaway branch or a detached HEAD:
+# Run from the root of a disposable, fully clean git clone on a throwaway branch or a
+# detached HEAD, never in a checkout you work in:
 #
 #     sh path/to/core-alignment/apply.sh
 #
-# The script refuses (exit 2) when the worktree is not clean, or when its
+# The script refuses (exit 2) when the worktree is not clean (any change to a
+# tracked file anywhere, or any untracked file that is not ignored), or when its
 # branch is `integration/sage26` or `main` (a detached HEAD is allowed). Before
 # applying anything it reads `series` and `series.sha256` (next to this script)
 # and refuses, naming the line or entry, unless every non-blank line of `series`
@@ -14,7 +16,8 @@
 # the same order, and each patch file's SHA-256 equals its `series.sha256` line.
 # It then applies each patch, in order, with `git apply --index`. If any patch
 # fails, the worktree is restored to its starting commit and clean state with
-# `git reset --hard HEAD` (safe because it was clean at the start) and the
+# `git reset --hard HEAD` (safe because the whole worktree was clean at the start,
+# so the reset discards only what this script staged) and the
 # script exits 2 naming the patch. Otherwise, provided the number applied equals
 # the number of series entries, it prints each applied patch's SHA-256 and exits
 # 0. An empty `series` with an empty `series.sha256` applies nothing, says so,
@@ -130,9 +133,9 @@ case "$ref_status" in
   *) die "cannot determine the branch: git symbolic-ref -q HEAD exited $ref_status" ;;
 esac
 
-# Independent of the user's status.showUntrackedFiles and submodule settings; docs/dev
-# is excluded (the campaign's access rule).
-STATUS=$(git status --porcelain --untracked-files=all --ignore-submodules=none -- . ':(exclude)docs/dev') ||
+# Independent of the user's status.showUntrackedFiles and submodule settings. Nothing is
+# excluded: the reset on failure is safe only because the whole worktree is clean here.
+STATUS=$(git status --porcelain --untracked-files=all --ignore-submodules=none) ||
   die "git status failed"
 [ -z "$STATUS" ] || die "worktree is not clean; commit or discard changes first"
 

@@ -6,9 +6,10 @@ SAGE26 behaviour (R/src/core_build_model.c:414-470): halo_age = Age[halo_snapnum
 deltaT_total = Age[galaxies[0].SnapNum] - halo_age (:420), from the workspace's first galaxy;
 t_dyn = (galaxies[centralgal].Rvir / (galaxies[centralgal].Vvir + 1e-10)) * KM_PER_MPC /
 UnitTime_in_s (:430-431), the central's stored post-join Rvir and Vvir, KM_PER_MPC = 3.086e19
-(:81); with SubstepResolution 1.0 (the default, R/src/core_read_parameter_file.c:110; R0.par does
-not set it) floor_steps = (int)ceil(STEPS * 1 - 1e-9) = 10 and cap_steps = (int)ceil(MAX_STEPS * 1
-- 1e-9) = 30 (:443-447; STEPS 10 and MAX_STEPS 30 at R/src/macros.h:17-18); N = floor_steps, then
+(:81); with SubstepResolution 1.0 (the default, R/src/core_read_parameter_file.c:110;
+R/input/millennium.par, which R0 runs with its six physics switches off, does not set it)
+floor_steps = (int)ceil(STEPS * 1 - 1e-9) = 10 and cap_steps = (int)ceil(MAX_STEPS * 1 - 1e-9)
+= 30 (:443-447; STEPS 10 and MAX_STEPS 30 at R/src/macros.h:17-18); N = floor_steps, then
 if t_dyn > 0, needed = (int)ceil(floor_steps * (deltaT_total / t_dyn)) replaces N when larger
 (:449-455); then N = min(N, cap_steps) (:457-459); the substep loop runs N times (:470).
 

@@ -3,8 +3,8 @@ x01-core-alignment patch 01-particle-mass (git apply ignores this header)
 E7 item: (h) Particle mass.
 
 SAGE26 behaviour: R0 runs with PartMass 0.086 (R/input/millennium.par:41 "PartMass        0.086";
-the R0 run file /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/par/R0.par:41 is the
-same, and the R0 output header attribute Header/Simulation/particle_mass is 0.086). SAGE26 reads it as a
+R0, SAGE26's input/millennium.par with its six physics switches off, keeps that line, and the R0
+output header attribute Header/Simulation/particle_mass is 0.086). SAGE26 reads it as a
 double (R/src/core_read_parameter_file.c:161) and forms the virial mass of a subhalo, or of a FoF central
 whose catalogue Mvir is negative, as Len * PartMass (R/src/model_halo_properties.c:31-36).
 

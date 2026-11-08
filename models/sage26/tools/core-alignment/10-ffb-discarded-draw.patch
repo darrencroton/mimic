@@ -2,7 +2,7 @@ i02-alignment-set patch 10-ffb-discarded-draw (git apply ignores this header)
 
 E7 item: (i) the random-number stream, the FFB classifier's discarded draw (E7i): the one rand()
 value SAGE26 consumes and discards for each row its feedback-free-burst classifier classifies.
-Campaign decisions D1, D32, D46, D47. A measurement instrument, not a proposal for Mimic.
+A measurement instrument, not a proposal for Mimic.
 
 SAGE26 behaviour: determine_and_store_ffb_regime (R/src/model_regimes.c:188-240) calls (void)rand();
 (R/src/model_regimes.c:224) and discards the value, once for each row of the FoF workspace it does
@@ -28,8 +28,8 @@ else: the comment stays, and the classifier's skips, keyed draw, comparison and 
 unchanged.
 
 Why Mimic differs: the package calls no rand(). Its classifiers draw from keys of the halo's own
-data (here SAGE26's own SplitMix64 halo_uniform, D32), not from a process-global stream consumed in
-traversal order (D1, D47), as Mimic's VISION Principle 4 requires of stochastic modules, so a
+data (here SAGE26's own SplitMix64 halo_uniform), not from a process-global stream consumed in
+traversal order, as Mimic's VISION Principle 4 requires of stochastic modules, so a
 galaxy's draw does not depend on the driver or the traversal. SAGE26 keeps a discarded rand() here
 only so that its other draws keep their places in the libc stream; the package has no such stream
 to keep in step.
@@ -43,10 +43,10 @@ Null control: the call only advances libc's stream. With no stream consumer (the
 CGM draw in place, no 08), it must change no galaxy.
 
 diff --git a/models/sage26/modules/sage26_determine_ffb_regime/sage26_determine_ffb_regime.c b/models/sage26/modules/sage26_determine_ffb_regime/sage26_determine_ffb_regime.c
-index 39d0da04..14fadcb9 100644
+index cbc7ba57..c726fa45 100644
 --- a/models/sage26/modules/sage26_determine_ffb_regime/sage26_determine_ffb_regime.c
 +++ b/models/sage26/modules/sage26_determine_ffb_regime/sage26_determine_ffb_regime.c
-@@ -35,6 +35,7 @@
+@@ -38,6 +38,7 @@
  #include <math.h>
  #include <stddef.h>
  #include <stdint.h>
@@ -54,10 +54,10 @@ index 39d0da04..14fadcb9 100644
  
  #include "constants.h"
  #include "error.h"
-@@ -153,6 +154,7 @@ static int classify_row(const double mvir, const double hubble_h, struct Sage26F
+@@ -156,6 +157,7 @@ static int classify_row(const double mvir, const double hubble_h, struct Sage26F
    // value, so that its other draws keep their places in the libc stream. The package's product
-   // has no rand() stream to keep in step and makes no call; the discarded draw is an
-   // alignment-set item (campaign decisions D1, D32, D46), not product behaviour.
+   // has no rand() stream to keep in step and makes no call; only item 10 of the core-alignment
+   // set (tools/core-alignment/items.md) reproduces the draw, for measurement.
 +  (void)rand();
  
    // SAGE26's own draw, keyed on the halo's MostBoundID and the current snapshot (:225)

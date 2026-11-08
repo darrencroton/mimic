@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Self-test for the sage26 T1 parity comparator (models/sage26/instrument/compare_sage26.py).
+Self-test for the sage26 T1 parity comparator (models/sage26/tools/compare_sage26.py).
 
 Validates: the T1 comparator meets every synthetic control's expectation (the instrument
            README's Controls table, S0-S7c): each control's verdict, exit status, printed
@@ -22,9 +22,10 @@ The instrument is protected: it is only run, never changed. This test writes not
 It sets sys.dont_write_bytecode and gives every child process PYTHONDONTWRITEBYTECODE=1, builds
 the controls in a new temporary directory under $TMPDIR (removed when the suite ends), and its
 last case checks that the tracked instrument's files are byte-identical to those listed at
-import, with no __pycache__ or *.pyc beside them.
+import and that the suite added or changed no __pycache__ or *.pyc beside them (bytecode already
+there at import, left by importing a script directly, is not the suite's and is ignored).
 
-Instrument directory: the tracked models/sage26/instrument/ unless SAGE26_INSTRUMENT_DIR names
+Instrument directory: the tracked models/sage26/tools/ unless SAGE26_INSTRUMENT_DIR names
 another directory. The variable exists only for the self-test's mutation table, which points it
 at a disposable copy of the instrument; the test tier never sets it. Every instrument script
 (make_fixture.py, alter_map.py, run_control.py, run_controls.sh, compare_sage26.py) is taken
@@ -39,7 +40,7 @@ Test cases:
   - test_control_<name>, one per synthetic control (for example test_control_S3b):
     run_control.py on that control exits 0 and prints "result: MET"
   - test_instrument_unchanged: the SHA-256 of every file under the tracked instrument equals
-    its value at import, and no __pycache__ or *.pyc exists there
+    its value at import, and its bytecode (__pycache__ and *.pyc) is as it was at import
 
 Run: python3 models/sage26/modules/_tests/test_scientific_compare_sage26.py
      (or make MODEL=sage26 SIMULATION=mini-millennium tests-scientific)
@@ -65,7 +66,7 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import run_test_suite  # noqa: E402  (path set up above)
 
 #: The tracked instrument, checked by test_instrument_unchanged whatever the variable says.
-TRACKED_INSTRUMENT = REPO_ROOT / "models" / "sage26" / "instrument"
+TRACKED_INSTRUMENT = REPO_ROOT / "models" / "sage26" / "tools"
 
 #: The environment variable naming a disposable instrument copy (mutation table only).
 INSTRUMENT_ENV = "SAGE26_INSTRUMENT_DIR"
@@ -97,24 +98,25 @@ RUN_CONTROLS_SH = CONTROLS_DIR / "run_controls.sh"
 
 
 def instrument_listing(root):
-    """``{relative path: SHA-256}`` for every file under ``root``, and any bytecode found.
+    """``{relative path: SHA-256}`` for every file under ``root``, split by kind.
 
-    Returns ``(digests, bytecode)``; ``bytecode`` lists every ``__pycache__`` directory and
-    ``*.pyc`` file under ``root``, relative to it.
+    Returns ``(digests, bytecode)``: ``bytecode`` holds every ``*.pyc`` file (inside a
+    ``__pycache__`` directory or not), ``digests`` every other file, both keyed by the path
+    relative to ``root``.
     """
-    digests, bytecode = {}, []
+    digests, bytecode = {}, {}
     for directory, subdirs, files in os.walk(root):
         subdirs.sort()
-        for name in subdirs:
-            if name == "__pycache__":
-                bytecode.append(os.path.relpath(os.path.join(directory, name), root))
+        in_cache = os.path.basename(directory) == "__pycache__"
         for name in sorted(files):
             path = os.path.join(directory, name)
             rel = os.path.relpath(path, root)
-            if name.endswith(".pyc"):
-                bytecode.append(rel)
             with open(path, "rb") as handle:
-                digests[rel] = hashlib.sha256(handle.read()).hexdigest()
+                digest = hashlib.sha256(handle.read()).hexdigest()
+            if in_cache or name.endswith(".pyc"):
+                bytecode[rel] = digest
+            else:
+                digests[rel] = digest
     return digests, bytecode
 
 
@@ -227,8 +229,10 @@ def make_control_case(control):
 def test_instrument_unchanged():
     digests_before, bytecode_before = LISTING_AT_IMPORT
     digests_after, bytecode_after = instrument_listing(TRACKED_INSTRUMENT)
-    assert not bytecode_before, f"bytecode under the instrument at import: {bytecode_before}"
-    assert not bytecode_after, f"bytecode under the instrument after the suite: {bytecode_after}"
+    assert bytecode_after == bytecode_before, (
+        f"the suite wrote bytecode under the instrument: before {sorted(bytecode_before)}, "
+        f"after {sorted(bytecode_after)}"
+    )
     added = sorted(set(digests_after) - set(digests_before))
     removed = sorted(set(digests_before) - set(digests_after))
     changed = sorted(

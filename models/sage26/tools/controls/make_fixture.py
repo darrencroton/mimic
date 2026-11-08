@@ -554,6 +554,17 @@ def s6(fx):
     )
 
 
+#: The outliers CSV rows of a few controls, known from their construction: none for the
+#: fixture as written, and one per perturbed pair at snapshot 63 for S1b (101 StellarMass
+#: pairs scaled by 1 + 1e-3), S1d (6 Len values incremented) and S6 (6 MostBoundID values
+#: with the lowest bit flipped).
+OUTLIER_ROWS = {
+    "S0": {},
+    "S1b": {"Snap 63: StellarMass": 101},
+    "S1d": {"Snap 63: Len": 6},
+    "S6": {"Snap 63: SimulationHaloIndex": 6},
+}
+
 CONTROLS = (
     ("S0", s0),
     ("S1a", s1a),
@@ -608,6 +619,8 @@ def build(out, comparator):
             "facts": facts,
             "groups": groups,
         }
+        if name in OUTLIER_ROWS:
+            expect["outlier_rows"] = OUTLIER_ROWS[name]
         doc = cl.expectation(
             name,
             description,

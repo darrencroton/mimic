@@ -18,12 +18,15 @@ Expectation keys (all under ``expect``):
   every one must equal the comparator's, and the compared datasets must be the same.
 - ``facts``: ``{label, path, equals | at_least, of?}``, printed one per line.
 - ``groups``: ``{label, items: [{path, equals}]}``, printed as one line each.
+- ``outlier_rows``: ``{"Snap <N>: <dataset>": rows}``, the exact number of rows the
+  outliers CSV holds for each snapshot and dataset; the CSV must hold no other row.
 - ``notes``: lines printed as they are.
 
 A ``path`` is a list of JSON keys; ``snap=<N>`` selects the snapshot table of snapshot N
 and ``threshold=<name>`` the threshold of that name.
 """
 
+import csv
 import json
 import os
 import subprocess
@@ -103,6 +106,20 @@ class Checker:
         self.line(not bad and n > 0, "%s: %d of %d hold" % (g["label"], n - len(bad), n))
         for b in bad[:10]:
             print("          " + b)
+
+    def outlier_rows(self, path, expected):
+        """The outliers CSV's rows, counted per snapshot and dataset, against ``expected``."""
+        try:
+            with open(path, newline="", encoding="utf-8") as fh:
+                rows = list(csv.DictReader(fh))
+        except OSError as exc:
+            self.line(False, "outliers CSV rows: cannot read %s (%s)" % (path, exc))
+            return
+        got = Counter("Snap %s: %s" % (row["snapshot"], row["property"]) for row in rows)
+        self.line(
+            got == Counter(expected),
+            "outliers CSV rows: expected %s, actual %s" % (dict(expected), dict(got)),
+        )
 
     def tables(self, doc, expected):
         tables = doc.get("snapshot_tables", [])
@@ -238,6 +255,8 @@ def run_control(control_dir):
         ok = got is not None and Counter(got) == Counter(expect["failures"])
         c.line(ok, "failed thresholds: expected %s, actual %s" % (expect["failures"], got))
         c.line(os.path.isfile(paths["outliers.csv"]), "outliers CSV written")
+    if "outlier_rows" in expect:
+        c.outlier_rows(paths["outliers.csv"], expect["outlier_rows"])
     for f in expect.get("facts", []):
         c.fact(doc, f)
     for g in expect.get("groups", []):

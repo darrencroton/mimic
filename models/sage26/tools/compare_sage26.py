@@ -17,8 +17,8 @@ instrument depends only on the Python standard library, NumPy and h5py, so the f
 map is written in, and parsed as, a strict YAML subset (see ``parse_field_map_text``).
 
 The README is the specification: its numbered comparison rules are cited below as
-"rule N", and its "Readings settled by the PM" section fixes the points the rules
-leave open.
+"rule N", and its "Readings of the rules" section fixes the points the rules leave
+open, cited below as "reading N".
 """
 
 import argparse
@@ -112,6 +112,7 @@ _MAPPING_KEYS = {
     "factor",
     "unit_check",
     "factor_citation",
+    "transform",
 }
 _REQUIRED_MAPPING_KEYS = {"kind", "mimic", "source", "sage26_type", "mimic_type", "factor"}
 
@@ -248,6 +249,11 @@ def validate_field_map(raw):
             raise InstrumentError("field map %s: a factor other than 1 needs factor_citation" % ds)
         if e["source"] in ("core", "simulation") and not e.get("unit_check"):
             raise InstrumentError("field map %s: a %s mapping needs unit_check" % (ds, e["source"]))
+        transform = e.get("transform")
+        if transform is not None and (transform != "abs" or kind != "int"):
+            raise InstrumentError(
+                "field map %s: the only transform is abs, on an int property" % ds
+            )
         entries[ds] = {
             "kind": kind,
             "mimic": e["mimic"],
@@ -256,6 +262,7 @@ def validate_field_map(raw):
             "sage26_type": e["sage26_type"],
             "mimic_type": e["mimic_type"],
             "factor": factor,
+            "transform": transform,
         }
 
     uncompared = {ds for ds, e in entries.items() if "uncompared" in e}
@@ -270,7 +277,7 @@ def validate_field_map(raw):
     for ds in KEY_POSITION_DATASETS:
         e = entries.get(ds)
         if e is None or e.get("kind") != "float" or e.get("sage26_type") != "float32":
-            # PM ruling Q6: the key never narrows a stored value.
+            # Reading 6: the key never narrows a stored value.
             raise InstrumentError(
                 "field map: %s must be mapped as a float property with sage26_type float32" % ds
             )
@@ -333,7 +340,7 @@ def candidate_partition_files(directory, basename, partitions):
 
 
 def _type_matches(dtype, declared):
-    """PM ruling Q5: a storage type is its numeric kind and width; byte order is free."""
+    """Reading 5: a storage type is its numeric kind and width; byte order is free."""
     kind, width = STORAGE_TYPES[declared]
     return dtype.kind == kind and dtype.itemsize == width
 
@@ -472,13 +479,15 @@ def candidate_values(cand, entry):
 
     For a float: returns ``(m, m_unrounded)`` where ``m_unrounded`` is stored x factor
     in float64 and ``m`` is that rounded (nearest-even) to the SAGE26 dataset's precision
-    and widened back. For an int: returns ``(m, None)``, the int64 widening.
+    and widened back. For an int: returns ``(m, None)``, the int64 widening, or its
+    absolute value when the map declares ``transform: abs``.
     """
     values = cand[entry["mimic"]]
     if entry["component"] is not None:
         values = values[:, entry["component"]]
     if entry["kind"] == "int":
-        return _signed_int64(values), None
+        widened = _signed_int64(values)
+        return (np.abs(widened) if entry.get("transform") == "abs" else widened), None
     with np.errstate(all="ignore"):
         unrounded = values.astype(np.float64) * np.float64(entry["factor"])
         if STORAGE_TYPES[entry["sage26_type"]][1] == 4:
@@ -521,7 +530,7 @@ def bit_identical(r_stored, m, sage26_type):
 
 
 def _stat(values):
-    """Median and 99th percentile (NumPy's default linear interpolation; PM ruling Q3)."""
+    """Median and 99th percentile (NumPy's default linear interpolation; reading 3)."""
     if values.size == 0:
         return None, None
     return float(np.median(values)), float(np.percentile(values, 99))
@@ -822,44 +831,46 @@ def _csv_number(value):
     return repr(value)
 
 
-def write_outliers(path, blocks):
-    """Rule 11 and PM ruling Q2: one row per matched pair and property outside tolerance."""
-    with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(
-            [
-                "snapshot",
-                "Type",
-                "Posx",
-                "Posy",
-                "Posz",
-                "SimulationHaloIndex",
-                "property",
-                "kind",
-                "r",
-                "m",
-            ]
-        )
-        for snap, ref, block in blocks:
-            for ds, kind, rows, r, m in block:
-                typ = ref["Type"][rows]
-                px, py, pz = (ref[d][rows] for d in KEY_POSITION_DATASETS)
-                shi = ref["SimulationHaloIndex"][rows]
-                for i in range(rows.size):
-                    writer.writerow(
-                        [
-                            snap,
-                            int(typ[i]),
-                            _csv_number(px[i]),
-                            _csv_number(py[i]),
-                            _csv_number(pz[i]),
-                            int(shi[i]),
-                            ds,
-                            kind,
-                            _csv_number(r[i]),
-                            _csv_number(m[i]),
-                        ]
-                    )
+#: The outliers CSV's columns (rule 11 and reading 2).
+OUTLIER_COLUMNS = (
+    "snapshot",
+    "Type",
+    "Posx",
+    "Posy",
+    "Posz",
+    "SimulationHaloIndex",
+    "property",
+    "kind",
+    "r",
+    "m",
+)
+
+
+def write_outlier_rows(writer, snap, ref, block):
+    """Rule 11 and reading 2: one row per matched pair and property outside tolerance.
+
+    Writes one snapshot's rows as soon as it is compared, so the run holds one snapshot's
+    reference and candidate arrays at a time, never the whole run's.
+    """
+    for ds, kind, rows, r, m in block:
+        typ = ref["Type"][rows]
+        px, py, pz = (ref[d][rows] for d in KEY_POSITION_DATASETS)
+        shi = ref["SimulationHaloIndex"][rows]
+        for i in range(rows.size):
+            writer.writerow(
+                [
+                    snap,
+                    int(typ[i]),
+                    _csv_number(px[i]),
+                    _csv_number(py[i]),
+                    _csv_number(pz[i]),
+                    int(shi[i]),
+                    ds,
+                    kind,
+                    _csv_number(r[i]),
+                    _csv_number(m[i]),
+                ]
+            )
 
 
 def _print_table(tables):
@@ -915,7 +926,7 @@ def build_parser():
         description=(
             "Compare a Mimic sage26 HDF5 run (candidate) against one SAGE26 worker file "
             "(reference) galaxy by galaxy under the T1 comparison rules of "
-            "models/sage26/instrument/README.md, using field_map.yaml beside this script."
+            "models/sage26/tools/README.md, using field_map.yaml beside this script."
         ),
         epilog=(
             "Exit status: 0 = pass (every threshold holds at every compared snapshot); "
@@ -990,12 +1001,12 @@ def new_document(args):
     }
 
 
-def run(args, document):
+def run(args, document, outliers_file):
     """Run the comparison, recording input identities in ``document`` as they are gathered.
 
-    Returns ``(exit_status, printed_verdict, results)``; ``results`` is ``(tables,
-    outlier_blocks)`` for a pass or fail. Raises ``InstrumentError`` when the instrument
-    cannot measure.
+    Writes the outliers CSV to the open text file ``outliers_file`` snapshot by snapshot.
+    Returns ``(exit_status, printed_verdict, tables)`` for a pass or fail. Raises
+    ``InstrumentError`` when the instrument cannot measure.
     """
     # Rule 1: reference identity, before any snapshot is read.
     digest = sha256_file(args.reference)
@@ -1017,7 +1028,9 @@ def run(args, document):
         {"name": os.path.basename(p), "sha256": sha256_file(p)} for p in paths
     ]
 
-    tables, blocks = [], []
+    tables = []
+    writer = csv.writer(outliers_file)
+    writer.writerow(OUTLIER_COLUMNS)
     try:
         ref_file = h5py.File(args.reference, "r")
     except OSError as exc:
@@ -1034,7 +1047,8 @@ def run(args, document):
             cand = read_candidate_snapshot(handles, snap, fmap)
             table, outliers = compare_snapshot(snap, ref, cand, fmap)
             tables.append(table)
-            blocks.append((snap, ref, outliers))
+            write_outlier_rows(writer, snap, ref, outliers)
+            del ref, cand, outliers  # hold one snapshot's arrays at a time
     finally:
         for _, h in handles:
             h.close()
@@ -1050,16 +1064,16 @@ def run(args, document):
         printed = "pass" if document["t1_eligible"] else "pass (not T1-eligible)"
     else:
         printed = "fail"
-    return (EXIT_PASS if passed else EXIT_FAIL), printed, (tables, blocks)
+    return (EXIT_PASS if passed else EXIT_FAIL), printed, tables
 
 
 def finish_error(args, document, message):
-    """Rule 9 and PM ruling 7: write the error JSON and print the verdict line; return 2.
+    """Rule 9 and reading 7: write the error JSON and print the verdict line; return 2.
 
     The JSON keeps the input identities gathered so far and drops any verdict tables.
     No outliers CSV is written, and any file already at that path is left untouched
     (``main`` only ever writes the CSV to a temporary file, which it discards on error).
-    If the JSON path itself cannot be written, the verdict line says so (PM ruling 10).
+    If the JSON path itself cannot be written, the verdict line says so (reading 10).
     """
     for key in ("failures", "snapshot_tables"):
         document.pop(key, None)
@@ -1117,24 +1131,64 @@ def _temporary_beside(path):
     return tmp
 
 
+def _same_file(a, b):
+    """True when real paths ``a`` and ``b`` name, or on creation would name, one file.
+
+    Equal paths, one existing file (``os.path.samefile``, which sees hard links), or the same
+    directory and basenames equal ignoring case: a case-insensitive file system (macOS's
+    default) opens ``Model_000.HDF5`` as ``model_000.hdf5``, so case variants are refused on
+    every file system.
+    """
+    if a == b:
+        return True
+    try:
+        if os.path.samefile(a, b):
+            return True
+    except OSError:
+        pass
+    if os.path.basename(a).casefold() != os.path.basename(b).casefold():
+        return False
+    da, db = os.path.dirname(a), os.path.dirname(b)
+    try:
+        return da == db or os.path.samefile(da, db)
+    except OSError:
+        return False
+
+
 def check_output_paths(parser, args):
     """Reject output paths that collide with each other or with an input (usage error).
 
-    ``--json`` and ``--outliers`` must resolve to different files, and neither may resolve
-    to ``--reference`` or to any expected ``<candidate>/<basename>_<NNN>.hdf5``; otherwise
-    writing a report could overwrite the other report or truncate an input. Calls
-    ``parser.error`` (exit 2, message on stderr, nothing written).
+    ``--json`` and ``--outliers`` must name different files, and neither may name
+    ``--reference``, the field map, this script, an expected
+    ``<candidate>/<basename>_<NNN>.hdf5``, an existing candidate file ``<basename>.hdf5`` or
+    ``<basename>_*.hdf5``, or a new file of either name (any case) in the candidate
+    directory; otherwise writing a report could overwrite the other report, truncate an
+    input or add a partition to the candidate (rule 2). Calls ``parser.error`` (exit 2,
+    message on stderr, nothing written).
     """
     outputs = {"--json": os.path.realpath(args.json), "--outliers": os.path.realpath(args.outliers)}
-    if outputs["--json"] == outputs["--outliers"]:
+    if _same_file(outputs["--json"], outputs["--outliers"]):
         parser.error("--json and --outliers resolve to the same file %s" % outputs["--json"])
-    inputs = {os.path.realpath(args.reference): "--reference"}
-    for i in range(args.partitions):
-        name = "%s_%03d.hdf5" % (args.basename, i)
-        inputs.setdefault(os.path.realpath(os.path.join(args.candidate, name)), "candidate " + name)
+    inputs = [
+        (os.path.realpath(args.reference), "--reference"),
+        (os.path.realpath(FIELD_MAP_PATH), "the field map"),
+        (os.path.realpath(__file__), "the comparator"),
+    ]
+    names = ["%s_%03d.hdf5" % (args.basename, i) for i in range(args.partitions)]
+    pattern = re.compile(re.escape(args.basename) + r"(_.*)?\.hdf5", re.IGNORECASE)
+    try:
+        names += [n for n in os.listdir(args.candidate) if pattern.fullmatch(n)]
+    except OSError:
+        pass  # an unreadable candidate directory is rule 2's error, reported by the run
+    for name in names:
+        inputs.append((os.path.realpath(os.path.join(args.candidate, name)), "candidate " + name))
     for option, path in outputs.items():
-        if path in inputs:
-            parser.error("%s resolves to an input file (%s): %s" % (option, inputs[path], path))
+        for input_path, label in inputs:
+            if _same_file(path, input_path):
+                parser.error("%s resolves to an input file (%s): %s" % (option, label, path))
+        in_candidate = _same_file(os.path.dirname(path), os.path.realpath(args.candidate))
+        if in_candidate and pattern.fullmatch(os.path.basename(path)):
+            parser.error("%s would add a candidate partition file: %s" % (option, path))
 
 
 def main(argv=None):
@@ -1143,25 +1197,34 @@ def main(argv=None):
     The last line printed to standard output is ``verdict: <verdict>`` on every path
     except ``--help`` (exit 0, the help text) and a usage error (argparse's message on
     standard error, exit 2; this includes output paths that collide, see
-    ``check_output_paths``). The outputs are transactional: the outliers CSV is written
-    to a temporary file beside ``--outliers``, the JSON is written (itself atomically,
-    see ``write_json``), and only then is the temporary file renamed onto ``--outliers``;
-    on any error the temporary file is removed before the error JSON is written, so an
+    ``check_output_paths``). The outputs are transactional: the outliers CSV is written,
+    snapshot by snapshot, to a temporary file beside ``--outliers``, the JSON is written
+    (itself atomically, see ``write_json``), and only then is the temporary file renamed
+    onto ``--outliers``; on any error the temporary file is removed before the error JSON is written, so an
     error run never creates or replaces a file at ``--outliers``. The
     per-snapshot table is printed only after both outputs are in place, and a failure to
     print cannot change them: the exit status is still the verdict's.
     """
     parser = build_parser()
-    args = parser.parse_args(argv)
-    check_output_paths(parser, args)
+    try:
+        args = parser.parse_args(argv)
+        check_output_paths(parser, args)
+    except SystemExit:
+        # --help and usage errors leave here: flush now, so that a closed standard output
+        # cannot fail the interpreter's final flush and turn the exit status into 120.
+        try:
+            sys.stdout.flush()
+        except OSError:
+            _silence_stdout()
+        raise
     document = new_document(args)
     if _IMPORT_ERROR is not None:
         return finish_error(args, document, "cannot import NumPy and h5py (%s)" % _IMPORT_ERROR)
     tmp_csv = None
     try:
-        status, printed, (tables, blocks) = run(args, document)
         tmp_csv = _temporary_beside(args.outliers)
-        write_outliers(tmp_csv, blocks)
+        with open(tmp_csv, "w", newline="", encoding="utf-8") as outliers_file:
+            status, printed, tables = run(args, document, outliers_file)
         write_json(args.json, document)
         os.replace(tmp_csv, args.outliers)
         tmp_csv = None

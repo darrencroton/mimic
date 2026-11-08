@@ -16,7 +16,7 @@ Tolerance: integers exact; floats at baseline_rtol() (1e-6 relative unless MIMIC
 
 This is a regression guard on the package's own output on the test trees, not a parity
 measurement against SAGE26: the package's parity with SAGE26 is measured by the instrument under
-models/sage26/instrument. A pass says the output has not moved since the baseline was captured; it
+models/sage26/tools. A pass says the output has not moved since the baseline was captured; it
 says nothing about whether that output matches SAGE26.
 
 The repository-level baseline (tests/data/output/baseline/) is physics-free and belongs to the

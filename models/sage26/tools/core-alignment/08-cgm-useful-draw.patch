@@ -13,9 +13,9 @@ never seeded (no srand in R/src), and compares it with hot_fraction (:95).
 Mimic behaviour replaced: the package's classifier sage26_determine_regime
 (models/sage26/modules/sage26_determine_regime/sage26_determine_regime.c:236-248, skipping rows with
 no galaxy or Type 3 at :239 and ratios <= 0.0 at :170) draws mimic_sage_cgm_regime_deviate(
-UniqueGalaxyID, snapshot) (:187), which returns the stateless keyed deviate of campaign decision D1
-(models/sage26/shared/sage_keyed_draw.h:142-145: mimic_sage_keyed_uniform with the CGM purpose salt and
-ordinal 0).
+UniqueGalaxyID, snapshot) (:187), which returns the package's stateless keyed deviate, keyed on stable
+per-galaxy identifiers rather than SAGE26's libc stream (models/sage26/shared/sage_keyed_draw.h:142-145:
+mimic_sage_keyed_uniform with the CGM purpose salt and ordinal 0).
 
 What the patch changes: only the body of mimic_sage_cgm_regime_deviate in
 models/sage26/shared/sage_keyed_draw.h, which now casts its two arguments to void and returns
@@ -23,7 +23,8 @@ models/sage26/shared/sage_keyed_draw.h, which now casts its two arguments to voi
 #include <stdlib.h> to that header, which the build needs (without it the package's
 sage26_determine_regime.c fails with "call to undeclared function 'rand'" and "use of undeclared
 identifier 'RAND_MAX'"). The classifier module, its loop, its skips and its comparison are unchanged
-(D36); the keyed-draw functions it no longer calls stay in the header.
+(the keyed-draw contract stays frozen for the classifier); the keyed-draw functions it no longer
+calls stay in the header.
 
 Predecessor: the launch base 5e91c80866cedb56a23fb8e53d23bb775f40269d with x01's seven series patches
 applied in order from a3063d5836ebe86bfe5c96e4cc7fcd27fe177aa1 (01-particle-mass, 02-cosmic-time,
@@ -36,22 +37,22 @@ models/sage26 and is included only by models/sage26/modules/sage26_determine_reg
 sage26_determine_regime.c (git grep at the launch base). Under the horizontal driver the classifier
 would read the same process-global stream, but in that driver's order (snapshot by snapshot across
 forests, and per MPI rank), so a galaxy's deviate would depend on the driver, the traversal and the
-rank: the patch gives up D1's driver invariance (Mimic's VISION Principle 4) and reproduces SAGE26's
-stream only under the vertical driver in one process.
+rank: the patch gives up the keyed draw's driver invariance (Mimic's VISION Principle 4) and
+reproduces SAGE26's stream only under the vertical driver in one process.
 
 diff --git a/models/sage26/shared/sage_keyed_draw.h b/models/sage26/shared/sage_keyed_draw.h
-index 806430b3..6e75f1b4 100644
+index 3b15c70d..bac50726 100644
 --- a/models/sage26/shared/sage_keyed_draw.h
 +++ b/models/sage26/shared/sage_keyed_draw.h
-@@ -49,6 +49,7 @@
- #define SAGE_KEYED_DRAW_H
+@@ -50,6 +50,7 @@
+ #define MIMIC_SHARED_SAGE_KEYED_DRAW_H
  
  #include <stdint.h>
 +#include <stdlib.h>
  
  /** Weyl increment of splitmix64 (2^64 / golden ratio) */
  #define MIMIC_SAGE_DRAW_GOLDEN UINT64_C(0x9e3779b97f4a7c15)
-@@ -140,8 +141,9 @@ static inline double mimic_sage_keyed_uniform(const int64_t galaxy_id, const int
+@@ -141,8 +142,9 @@ static inline double mimic_sage_keyed_uniform(const int64_t galaxy_id, const int
   * @return  The deviate, strictly inside (0, 1)
   */
  static inline double mimic_sage_cgm_regime_deviate(const int64_t galaxy_id, const int snapshot) {
@@ -62,4 +63,4 @@ index 806430b3..6e75f1b4 100644
 +  return (double)rand() / (double)RAND_MAX;
  }
  
- #endif /* SAGE_KEYED_DRAW_H */
+ #endif /* MIMIC_SHARED_SAGE_KEYED_DRAW_H */
