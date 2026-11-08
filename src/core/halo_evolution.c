@@ -19,6 +19,7 @@
  */
 
 #include <inttypes.h>
+#include <math.h>
 
 #include "config.h"
 #include "fof_workspace.h"
@@ -172,14 +173,29 @@ static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView
     ctx->time_interval = 0.0; /* First snapshot has no previous */
   }
 
-  if (MimicConfig.TimestepScheme == TIMESTEP_SCHEME_DYNAMIC) {
-    double rvir = get_virial_radius(view, halonr);
-    double vvir = get_virial_velocity(view, halonr);
-    double t_dyn = (vvir > 0.0) ? (rvir / vvir) : 0.0;
-    ctx->num_substeps = compute_dynamic_substeps(ctx->time_interval, t_dyn, MimicConfig.SubSteps,
-                                                 MimicConfig.MaxDynamicSubsteps);
-  } else {
-    ctx->num_substeps = (MimicConfig.SubSteps > 0) ? MimicConfig.SubSteps : 1;
+  /* x01 (a): SAGE26's substep count (R/src/core_build_model.c:414-459, SubstepResolution 1):
+   * the interval from the workspace's first galaxy, t_dyn from the central's stored Rvir and
+   * Vvir, floor STEPS = 10 and cap MAX_STEPS = 30 (R/src/macros.h:17-18) */
+  {
+    const double km_per_mpc = 3.086e19; /* R/src/core_build_model.c:81 */
+    const double deltaT_total = Age[workspace[0].SnapNum] - Age[snap];
+    double t_dyn_seconds =
+        (workspace[centralgal].Rvir / (workspace[centralgal].Vvir + 1e-10)) * km_per_mpc;
+    double t_dyn = t_dyn_seconds / MimicConfig.UnitTime_in_s;
+    int floor_steps = (int)ceil(10 * 1.0 - 1e-9);
+    int cap_steps = (int)ceil(30 * 1.0 - 1e-9);
+    int effective_steps = floor_steps;
+    if (t_dyn > 0.0) {
+      double ratio = deltaT_total / t_dyn;
+      int needed = (int)ceil(floor_steps * ratio);
+      if (needed > floor_steps) {
+        effective_steps = needed;
+      }
+    }
+    if (effective_steps > cap_steps) {
+      effective_steps = cap_steps;
+    }
+    ctx->num_substeps = effective_steps;
   }
 
   /* Initialize substep information (updated in substep loop) */
