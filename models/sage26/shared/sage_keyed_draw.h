@@ -49,6 +49,7 @@
 #define SAGE_KEYED_DRAW_H
 
 #include <stdint.h>
+#include <stdlib.h>
 
 /** Weyl increment of splitmix64 (2^64 / golden ratio) */
 #define MIMIC_SAGE_DRAW_GOLDEN UINT64_C(0x9e3779b97f4a7c15)
@@ -140,8 +141,9 @@ static inline double mimic_sage_keyed_uniform(const int64_t galaxy_id, const int
  * @return  The deviate, strictly inside (0, 1)
  */
 static inline double mimic_sage_cgm_regime_deviate(const int64_t galaxy_id, const int snapshot) {
-  return mimic_sage_keyed_uniform(galaxy_id, snapshot, MIMIC_SAGE_DRAW_PURPOSE_CGM,
-                                  MIMIC_SAGE_DRAW_ORDINAL_CGM);
+  (void)galaxy_id;
+  (void)snapshot;
+  return (double)rand() / (double)RAND_MAX;
 }
 
 #endif /* SAGE_KEYED_DRAW_H */
