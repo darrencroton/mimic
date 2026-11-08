@@ -177,7 +177,9 @@ def _check_transitions(snapshots, first, last):
 
     def note_history(gals):
         sats = gals[gals["Type"] != 0]
-        for gid, infall_time in zip(sats["UniqueGalaxyID"].tolist(), sats["TimeOfInfall"].tolist()):
+        for gid, infall_time in zip(
+            sats["UniqueGalaxyID"].tolist(), sats["TimeOfInfall"].tolist(), strict=True
+        ):
             last_infall[gid] = infall_time
 
     for snap in range(first, last + 1):
