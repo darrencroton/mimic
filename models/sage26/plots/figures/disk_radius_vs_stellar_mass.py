@@ -24,10 +24,11 @@ then fails; this figure draws its empty axes instead, as it skips only for a mis
 """
 
 import random
-import warnings
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_legend
+from figures._binning import binned_median_and_std
+from figures._sampling import draw_sample
 from output_utils import (
     check_required_fields,
     get_profile_axes,
@@ -60,18 +61,6 @@ OBS_SOMERVILLE18 = np.array(
 N_BIN_EDGES = 50
 
 
-def draw_sample(candidates, rng):
-    """
-    Return the galaxies to draw: all candidates, or a random sample of DILUTE of them.
-
-    SAGE26 allresults-local.py:2146: `if(len(w) > dilute): w = sample(list(w), dilute)`, with
-    ``rng`` standing in for SAGE26's script-wide stream.
-    """
-    if len(candidates) > DILUTE:
-        return rng.sample(list(candidates), DILUTE)
-    return candidates
-
-
 def effective_disk_radius(disk_scale_radius):
     """
     Return the effective disk radius in kpc/h from the disk scale length in Mpc/h.
@@ -91,22 +80,6 @@ def virial_radius_kpc(rvir):
     SAGE26 allresults-local.py:2138-2139: `Rvir * 1.0e3`.
     """
     return rvir * 1.0e3
-
-
-def binned_median_and_std(x, values, bin_edges):
-    """
-    Return the median and standard deviation of ``values`` in each bin of ``x``.
-
-    SAGE26 allresults-local.py:2157-2159: np.digitize of x on the edges, then the median and
-    np.std of the values in bin i for i = 1 .. len(edges) - 1. An empty bin has no median
-    (NaN).
-    """
-    digitized = np.digitize(x, bin_edges)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        medians = [np.median(values[digitized == i]) for i in range(1, len(bin_edges))]
-        stds = [np.std(values[digitized == i]) for i in range(1, len(bin_edges))]
-    return medians, stds
 
 
 def plot(
@@ -162,7 +135,7 @@ def plot(
     w = np.where(
         (Rvir > 0.0) & (DiskRadius > 0.0) & (log_stellar_mass > 9.3) & (log_stellar_mass < 11.3)
     )[0]
-    w = draw_sample(w, rng)
+    w = draw_sample(w, rng, DILUTE)  # allresults-local.py:2146
 
     if verbose:
         print("Disk Radius Vs Stellar Mass plot debug:")
@@ -222,6 +195,8 @@ def plot(
     ax.set_ylim(y_min, y_max)
     ax.set_xscale("log")
     ax.set_yscale("log")
+    # SAGE26 figure parity: allresults-local.py:2174 writes $\log M_\star$, whose star renders as a
+    # low subscript, and :2186 places the legend at upper left over the scatter. Mirrored as written.
     setup_legend(ax, loc="upper left", frameon=False)
 
     plot_path = save_and_close_figure(

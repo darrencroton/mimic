@@ -12,6 +12,7 @@ Optional: StellarMass, ColdGas, HotGas, CGMgas, EjectedGas, ICS, BlackHoleMass
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_legend
+from figures._run_parameters import module_parameter
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 from output_utils import (
     check_required_fields,
@@ -115,8 +116,9 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
-    # Get the baryon fraction parameter (or use default cosmic value if not available)
-    baryon_frac = params.get("BaryonFrac", 0.17) if params else 0.17
+    # The cosmic baryon fraction is the run's GlobalBaryonFraction (modules.parameters); 0.17,
+    # SAGE26's own (plotting/allresults-local.py:1255), only when the run does not give it
+    baryon_frac = module_parameter(params, "GlobalBaryonFraction", 0.17)
 
     # Check which optional baryonic properties are available
     has_stellar = optional.get("StellarMass", False)
@@ -312,7 +314,8 @@ def plot(
     ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
-    leg = setup_legend(ax, loc="upper right")
+    # Three columns above the cosmic line, clear of the curves
+    setup_legend(ax, loc="upper left", ncol=3)
 
     # Save and close the figure
     plot_path = save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)

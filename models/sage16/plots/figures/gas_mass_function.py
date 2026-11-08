@@ -100,8 +100,6 @@ def plot(
     if np.any(nonzero_mass):
         ssfr[nonzero_mass] = sfr[nonzero_mass] / stellar_mass[nonzero_mass]
 
-    ssfr_cut = -11.0  # log10(sSFR) cut between red and blue galaxies
-
     # Calculate gas mass function
     xaxis, gmf = calculate_mass_function(mass, volume, hubble_h, binwidth)
 

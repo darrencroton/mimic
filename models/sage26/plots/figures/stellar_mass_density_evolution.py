@@ -178,7 +178,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     smd = []
     redshifts = []
 
-    for snap, (galaxies, volume, metadata) in snapshots.items():
+    for galaxies, volume, metadata in snapshots.values():
         # Get the redshift for this snapshot
         redshift = metadata.get("redshift", 0.0)
         redshifts.append(redshift)

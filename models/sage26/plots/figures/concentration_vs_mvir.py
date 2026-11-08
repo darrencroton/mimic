@@ -25,6 +25,7 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_plot_fonts
+from figures._sampling import draw_sorted_sample
 from output_utils import (
     check_required_fields,
     get_profile_axes,
@@ -34,18 +35,6 @@ from output_utils import (
 # Number of galaxies drawn at most per panel: SAGE26's `dilute`, reassigned to 100000 at
 # allresults-local.py:1735 and in force here (:1861)
 DILUTE = 100000
-
-
-def draw_sample(candidates, rng):
-    """
-    Return the galaxies one panel draws: all candidates, or DILUTE of them in sorted order.
-
-    SAGE26 allresults-local.py:1861-1864: `if len(w) > dilute: sel = sorted(sample(list(w),
-    dilute)) else: sel = w`, with ``rng`` standing in for SAGE26's script-wide stream.
-    """
-    if len(candidates) > DILUTE:
-        return sorted(rng.sample(list(candidates), DILUTE))
-    return candidates
 
 
 def plot(
@@ -117,7 +106,7 @@ def plot(
     # allresults-local.py:1860-1872: centrals then satellites, from one stream
     sc = None
     for ax, w, title in [(ax_cen, w_cen, "Centrals"), (ax_sat, w_sat, "Satellites")]:
-        sel = draw_sample(w, rng)
+        sel = draw_sorted_sample(w, rng, DILUTE)
         sc = ax.scatter(
             np.log10(mvir[sel]),
             concentration[sel],

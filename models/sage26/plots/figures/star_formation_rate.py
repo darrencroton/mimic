@@ -23,6 +23,7 @@ import random
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE
+from figures._sampling import draw_sample
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_required_fields,
@@ -33,18 +34,6 @@ from output_utils import (
 
 # Number of galaxies drawn at most: SAGE26's own `dilute_sfr` (allresults-local.py:1631)
 DILUTE = 10000
-
-
-def draw_sample(candidates, rng):
-    """
-    Return the galaxies to draw: all candidates, or a random sample of DILUTE of them.
-
-    SAGE26 allresults-local.py:1632: `if(len(w2) > dilute_sfr): w2 = sample(list(w2),
-    dilute_sfr)`, with ``rng`` standing in for SAGE26's script-wide stream.
-    """
-    if len(candidates) > DILUTE:
-        return rng.sample(list(candidates), DILUTE)
-    return candidates
 
 
 def total_sfr(sfr_disk, sfr_bulge):
@@ -100,7 +89,7 @@ def plot(
 
     # allresults-local.py:1630-1634
     w2 = np.where(stellar_mass > 0.01)[0]
-    w2 = draw_sample(w2, rng)
+    w2 = draw_sample(w2, rng, DILUTE)
     mass = np.log10(stellar_mass[w2])
     starformationrate = total_sfr(galaxies.SfrDisk[w2], galaxies.SfrBulge[w2])
 

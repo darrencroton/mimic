@@ -246,7 +246,6 @@ def test_disk_instability_trigger():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    bh_mass = halos["BlackHoleMass"]
     quasar_accretion = halos["QuasarModeBHaccretionMass"]
 
     # Some galaxies should have accreted via quasar mode

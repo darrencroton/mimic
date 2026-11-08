@@ -23,6 +23,7 @@ import random
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_legend
+from figures._sampling import draw_sample
 from output_utils import (
     check_required_fields,
     get_profile_axes,
@@ -33,18 +34,6 @@ from output_utils import (
 # Number of galaxies drawn at most: SAGE26's script-level `dilute` (allresults-local.py:73),
 # in force here (it is reassigned only at :1735)
 DILUTE = 7500
-
-
-def draw_sample(candidates, rng):
-    """
-    Return the galaxies to draw: all candidates, or a random sample of DILUTE of them.
-
-    SAGE26 allresults-local.py:1694: `if(len(w) > dilute): w = sample(list(w), dilute)`, with
-    ``rng`` standing in for SAGE26's script-wide stream.
-    """
-    if len(candidates) > DILUTE:
-        return rng.sample(list(candidates), DILUTE)
-    return candidates
 
 
 def plot(
@@ -92,7 +81,7 @@ def plot(
 
     # allresults-local.py:1693-1698
     w = np.where((mvir > 0.0) & (stellar_mass > 0.0))[0]
-    w = draw_sample(w, rng)
+    w = draw_sample(w, rng, DILUTE)
     log10_halo_mass = np.log10(mvir[w])
     log10_stellar_mass = np.log10(stellar_mass[w])
     regime_values = galaxies.Regime[w]

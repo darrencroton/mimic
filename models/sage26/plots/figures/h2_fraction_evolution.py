@@ -25,11 +25,10 @@ Permitted deviations: none beyond drawing the figure from the run's eight snapsh
 reads 64, so a bin holds at most one snapshot and its standard error is zero.
 """
 
-import warnings
-
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import AXIS_LABEL_SIZE
+from figures._binning import binned_mean_and_std, mean_and_error
 from figures._snapshot_selection import Z_BINS, snapshots_in_z_range
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
@@ -69,40 +68,6 @@ def molecular_fraction(h2_gas, cold_gas):
     1.0)`.
     """
     return np.clip(h2_gas / (cold_gas * HYDROGEN_MASS_FRAC), 0.0, 1.0)
-
-
-def binned_mean_and_std(masses, values, bins):
-    """
-    Return the mean and standard deviation of ``values`` in each stellar-mass bin.
-
-    SAGE26 allresults-history.py:1662-1668: bins hold NaN until a bin has a galaxy, and a galaxy
-    is in bin j when `masses >= mass_bins[j]` and `masses < mass_bins[j+1]`.
-    """
-    n_bins = len(bins) - 1
-    means = np.full(n_bins, np.nan)
-    stds = np.full(n_bins, np.nan)
-    for j in range(n_bins):
-        mask = (masses >= bins[j]) & (masses < bins[j + 1])
-        if np.sum(mask) > 0:
-            means[j] = np.mean(values[mask])
-            stds[j] = np.std(values[mask])
-    return means, stds
-
-
-def mean_and_error(means_stack):
-    """
-    Return the mean over snapshots, its standard error, and the bins where both are defined.
-
-    SAGE26 allresults-history.py:1700-1702: `np.nanmean(stack, axis=0)`,
-    `np.nanstd(stack, axis=0) / np.sqrt(len(stack))` and `~np.isnan(mean) & ~np.isnan(err)`.
-    """
-    with warnings.catch_warnings():
-        # SAGE26 silences these (allresults-history.py:13-14): an empty bin has no mean
-        warnings.simplefilter("ignore", RuntimeWarning)
-        mean = np.nanmean(means_stack, axis=0)
-        err = np.nanstd(means_stack, axis=0) / np.sqrt(len(means_stack))
-    valid = ~np.isnan(mean) & ~np.isnan(err)
-    return mean, err, valid
 
 
 def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=False):
@@ -203,6 +168,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     )
     ax.xaxis.set_minor_locator(MultipleLocator(0.1))
     if ax.get_legend_handles_labels()[0]:
+        # SAGE26 figure parity: allresults-history.py:1719 places the legend at upper left over
+        # the curves. Mirrored as written.
         ax.legend(loc="upper left", frameon=False)
 
     fig.tight_layout()

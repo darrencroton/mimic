@@ -33,7 +33,7 @@ Do NOT use it for:
 |---|---|---|
 | C compiler (gcc or clang) | Required | `cc --version` |
 | GNU Make | Required | `make --version` |
-| Python 3.9+ | Required | `python3 --version` |
+| Python 3.12+ | Required (the pinned `scipy` needs it) | `python3 --version` |
 | libyaml (dev headers) | **Required** — build fails without it | macOS: `brew install libyaml`; Ubuntu/Debian: `sudo apt-get install libyaml-dev`; Fedora/RHEL: `sudo dnf install libyaml-devel` |
 | HDF5 dev libraries | Optional (default-on; `USE-HDF5=no` opts out) | macOS: `brew install hdf5`; Ubuntu/Debian: `sudo apt-get install libhdf5-dev` |
 | MPI (mpicc) | Optional (only with `USE-MPI=yes`) | macOS: `brew install open-mpi`; Ubuntu/Debian: `sudo apt-get install libopenmpi-dev` |

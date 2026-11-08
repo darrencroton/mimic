@@ -33,7 +33,7 @@ Required:
 
 - C compiler (`gcc` or `clang`)
 - GNU Make
-- Python 3.9+
+- Python 3.12+ (the pinned `scipy` in `requirements.txt` has no wheel for older interpreters)
 
 Optional:
 
@@ -482,7 +482,7 @@ Mimic can read any conforming version 3 dataset paired with a simulation package
 
 | Package | Source data | Validated for |
 | --- | --- | --- |
-| `mini-millennium-horizontal` | complete real data, with 29,291 gapped `Descendant` links | `halos-only` and `sage16`, fixed and dynamic timesteps |
+| `mini-millennium-horizontal` | complete real data, with 29,291 gapped `Descendant` links | `halos-only`, `sage16` and `sage26`, fixed and dynamic timesteps |
 | `micro-uchuu-horizontal` | complete real data (L-Halo binary) | `halos-only`, fixed and dynamic timesteps |
 | `micro-uchuu-hdf5-horizontal` | complete real data (forests-HDF5) | `halos-only`, fixed and dynamic timesteps |
 | `millennium-horizontal` | complete real data (all 512 files), with 15,026,757 gapped `Descendant` links | `halos-only`, fixed and dynamic timesteps |

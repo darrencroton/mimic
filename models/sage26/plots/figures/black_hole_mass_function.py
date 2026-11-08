@@ -22,7 +22,9 @@ Observations: the TRINITY black hole mass functions of SAGE26's data files R/dat
 fig4_bhmf_z*.txt (:1192-1220), held as the named constants OBS_TRINITY_Z*.
 
 Permitted deviations: the nearest snapshot is searched among the written snapshots only (SAGE26
-searches all 64 and the run writes eight); the observations are inline arrays (columns: log10 Mbh
+searches all 64 and the run writes eight), and a target whose nearest written snapshot an earlier
+target already drew is not drawn again (a sparse snapshot_list maps several targets to one
+snapshot, which SAGE26's 64 snapshots never do); the observations are inline arrays (columns: log10 Mbh
 [Msun], best, 16th and 84th percentile BHMF [Mpc^-3 dex^-1]) instead of files read at plot time.
 """
 
@@ -550,8 +552,12 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     fig, ax = setup_figure(figsize=(10, 8))
 
     # allresults-history.py:1175-1190
+    drawn = set()
     for i, target_z in enumerate(TARGET_REDSHIFTS):
         snap = nearest_snapshot(snapshots, target_z)
+        if snap in drawn:
+            continue
+        drawn.add(snap)
         galaxies, volume, metadata = snapshots[snap]
         hubble_h = metadata["hubble_h"]
         actual_z = metadata["redshift"]
@@ -568,6 +574,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
                 color=colors[i],
                 linewidth=2,
                 linestyle="-",
+                # SAGE26 figure parity: allresults-history.py:1187 labels the model curves
+                # "(SAGE)". Mirrored as written.
                 label=f"z = {actual_z:.1f} (SAGE)",
                 gid="model",
             )

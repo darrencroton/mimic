@@ -203,7 +203,7 @@ pip install --upgrade pip &> /dev/null
 
 # Check if packages are already installed in the virtual environment
 echo "Checking required Python packages in virtual environment..."
-REQUIRED_PACKAGES=("numpy" "matplotlib" "tqdm")
+REQUIRED_PACKAGES=("numpy" "matplotlib" "tqdm" "h5py" "yaml" "pandas" "scipy")
 MISSING_PACKAGES=()
 
 for package in "${REQUIRED_PACKAGES[@]}"; do

@@ -237,6 +237,8 @@ def plot(
     ax.set_ylabel(r"$M_{\mathrm{bulge}} / M_{\mathrm{stars}}$", fontsize=AXIS_LABEL_SIZE)
     ax.set_xlabel(r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$", fontsize=AXIS_LABEL_SIZE)
 
+    # SAGE26 figure parity: allresults-local.py:1236 places the legend at upper left over the
+    # scatter. Mirrored as written.
     setup_legend(ax, loc="upper left")
 
     plot_path = save_and_close_figure(fig, output_dir, "BulgeToTotal", output_format, verbose)

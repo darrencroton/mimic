@@ -262,7 +262,7 @@ def plot(
     ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
-    setup_legend(ax, loc="lower right")
+    setup_legend(ax, loc="upper left")
 
     # Save and close the figure
     plot_path = save_and_close_figure(fig, output_dir, "QuiescentFraction", output_format, verbose)

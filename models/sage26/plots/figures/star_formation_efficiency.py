@@ -21,12 +21,15 @@ Snapshots: every written snapshot (:1752), chosen through ``all_snapshots``; a s
 least 5 central galaxies with positive stellar and halo mass (:1762-1764).
 
 Permitted deviations: SAGE26's `np.trapz` (:1745) is computed with `np.trapezoid`, the same
-trapezoidal rule under NumPy 2's name; the baryon fraction f_b = 0.17 is SAGE26's own (:1736). The
-figure is drawn from the run's eight snapshots, where SAGE26 reads 64.
+trapezoidal rule under NumPy 2's name; the baryon fraction f_b is the run's GlobalBaryonFraction
+(modules.parameters), where SAGE26 writes the literal 0.17 (:1736), which is the fallback, with a
+warning, for a run that does not give it. The figure is drawn from the run's eight snapshots, where
+SAGE26 reads 64.
 """
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE
+from figures._run_parameters import cosmology, module_parameter
 from figures._snapshot_selection import all_snapshots
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
@@ -36,22 +39,12 @@ from output_utils import (
     setup_figure,
 )
 
-# Cosmological baryon fraction Omega_b / Omega_m (allresults-history.py:1736)
+# Cosmological baryon fraction Omega_b / Omega_m (allresults-history.py:1736): the fallback when
+# the run does not give GlobalBaryonFraction
 F_BARYON = 0.17
 
 # A snapshot needs at least this many central galaxies (allresults-history.py:1763)
 MIN_CENTRALS = 5
-
-
-def cosmology(params):
-    """
-    Return (Omega, OmegaLambda, Hubble_h) from the run's parameters, or None if one is missing
-    or zero.
-    """
-    values = tuple(params.get(key) for key in ("Omega", "OmegaLambda", "Hubble_h"))
-    if any(not value for value in values):
-        return None
-    return values
 
 
 def z_to_age_gyr(z, omega_m, omega_l, hubble_h):
@@ -77,7 +70,7 @@ def select_centrals(galaxy_type, stellar_mass, halo_mass):
     return np.where((galaxy_type == 0) & (stellar_mass > 0) & (halo_mass > 0))[0]
 
 
-def efficiency_statistics(stellar_mass, halo_mass):
+def efficiency_statistics(stellar_mass, halo_mass, f_baryon=F_BARYON):
     """
     Return the median and the 16th and 84th percentiles of M_* / (f_b M_vir), or None when fewer
     than 5 galaxies are given.
@@ -88,7 +81,7 @@ def efficiency_statistics(stellar_mass, halo_mass):
     """
     if len(stellar_mass) < MIN_CENTRALS:
         return None
-    sfe = stellar_mass / (halo_mass * F_BARYON)
+    sfe = stellar_mass / (halo_mass * f_baryon)
     return np.median(sfe), np.percentile(sfe, 16), np.percentile(sfe, 84)
 
 
@@ -98,7 +91,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     Args:
         snapshots: Dictionary mapping snapshot numbers to tuples of (galaxies, volume, metadata)
-        params: Dictionary with Mimic parameters (Omega, OmegaLambda and Hubble_h are read)
+        params: Dictionary with Mimic parameters (Omega, OmegaLambda, Hubble_h and the module
+            parameter GlobalBaryonFraction are read)
         output_dir: Output directory for the plot
         output_format: File format for the output
         verbose: Whether to print verbose output
@@ -125,6 +119,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if cosmo is None:
         return None, "Run parameters Omega, OmegaLambda and Hubble_h are missing or zero"
     omega_m, omega_l, run_hubble_h = cosmo
+    f_baryon = module_parameter(params, "GlobalBaryonFraction", F_BARYON)
 
     # allresults-history.py:1747-1769
     t_arr_sfe = []
@@ -141,7 +136,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         mvir = galaxies.Mvir * 1.0e10 / hubble_h
 
         w = select_centrals(galaxies.Type, mstar, mvir)
-        statistics = efficiency_statistics(mstar[w], mvir[w])
+        statistics = efficiency_statistics(mstar[w], mvir[w], f_baryon)
         if statistics is None:
             continue
         t_arr_sfe.append(z_to_age_gyr(metadata["redshift"], omega_m, omega_l, run_hubble_h))

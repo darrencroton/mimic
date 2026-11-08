@@ -29,6 +29,7 @@ SAGE26 reads 64.
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE
+from figures._run_parameters import cosmology
 from figures._snapshot_selection import all_snapshots
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
@@ -45,17 +46,6 @@ MIN_GALAXIES = 10
 # Percentile of the stellar mass above which a galaxy is among the most massive
 # (allresults-history.py:1931)
 MASS_PERCENTILE = 90
-
-
-def cosmology(params):
-    """
-    Return (Omega, OmegaLambda, Hubble_h) from the run's parameters, or None if one is missing
-    or zero.
-    """
-    values = tuple(params.get(key) for key in ("Omega", "OmegaLambda", "Hubble_h"))
-    if any(not value for value in values):
-        return None
-    return values
 
 
 def ssfr_threshold(z, omega_m, omega_l, hubble_h):

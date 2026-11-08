@@ -25,6 +25,7 @@ import warnings
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_legend
+from figures._sampling import draw_sample_positions
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_required_fields,
@@ -46,19 +47,6 @@ Y_BINS = np.linspace(-13, -8, 100)
 
 # Value of the specific star formation rate of a galaxy with no stellar mass (:1741)
 NO_SSFR = -99.0
-
-
-def draw_sample(candidates, rng):
-    """
-    Return the positions SAGE26 draws: all candidates, or DILUTE random positions.
-
-    SAGE26 allresults-local.py:1738: `if(len(w2) > dilute): w2 = sample(list(range(len(w2))),
-    dilute)`, with ``rng`` standing in for SAGE26's script-wide stream. The positions are drawn
-    from range(len(w2)), not from w2 itself.
-    """
-    if len(candidates) > DILUTE:
-        return rng.sample(list(range(len(candidates))), DILUTE)
-    return candidates
 
 
 def log_specific_sfr(sfr_disk, sfr_bulge, stellar_mass):
@@ -154,7 +142,7 @@ def plot_density_contours(ax, x, y, color, label, clip_above=None, clip_below=No
     # entry results, in SAGE26's figure as in this one.
     # SAGE26 figure parity: allresults-local.py:1808 passes label= to contourf, which gives
     # no legend entry under Matplotlib 3.10, so "Quiescent" and "Star-forming" never appear.
-    for i, (level, alpha) in enumerate(zip(levels, alphas)):
+    for i, (level, alpha) in enumerate(zip(levels, alphas, strict=False)):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             if i == len(levels) - 1:
@@ -235,7 +223,7 @@ def plot(
     # then indexes the full arrays with them (StellarMass[w2]), so above DILUTE candidates it
     # draws arbitrary galaxies, zero-mass ones included (mapped to -99 and left out). The
     # mini-Millennium run is below DILUTE, where w2 is not sampled.
-    w2 = draw_sample(w2, rng)
+    w2 = draw_sample_positions(w2, rng, DILUTE)
     # A zero-mass galaxy the sampled branch can reach has log10 = -inf, which is not drawn
     with np.errstate(divide="ignore"):
         mass = np.log10(stellar_mass[w2])

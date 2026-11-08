@@ -25,6 +25,7 @@ import random
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_legend
+from figures._sampling import draw_sample
 from figures.star_formation_rate import total_sfr
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
@@ -37,18 +38,6 @@ from output_utils import (
 # Number of galaxies drawn at most: SAGE26's `dilute`, reassigned to 100000 at
 # allresults-local.py:1735 and in force here (:1901-1902)
 DILUTE = 100000
-
-
-def draw_sample(candidates, rng):
-    """
-    Return the galaxies to draw: all candidates, or a random sample of DILUTE of them.
-
-    SAGE26 allresults-local.py:1901-1902: `if len(w) > dilute: w = sample(list(w), dilute)`,
-    with ``rng`` standing in for SAGE26's script-wide stream.
-    """
-    if len(candidates) > DILUTE:
-        return rng.sample(list(candidates), DILUTE)
-    return candidates
 
 
 def halo_accretion_rate(mdot_cool, mdot_stream):
@@ -109,7 +98,7 @@ def plot(
     # SAGE26 figure parity: allresults-local.py:1896-1897 comments out `(Type == 0) &` in the
     # selection, so satellites are drawn, while the title (:1922) says "Centrals".
     w = np.where((SFR > 0.0) & (HaloAccretionRate > 0.0))[0]
-    w = draw_sample(w, rng)
+    w = draw_sample(w, rng, DILUTE)  # allresults-local.py:1901-1902
 
     log_acc = np.log10(HaloAccretionRate[w])
     log_sfr = np.log10(SFR[w])

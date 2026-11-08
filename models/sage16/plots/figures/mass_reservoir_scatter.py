@@ -144,8 +144,8 @@ def plot(
     ax.scatter(mvir, ics, marker="x", s=5, c="yellow", alpha=0.7, label="Intracluster stars")
 
     # Customize the plot
-    ax.set_xlabel(r"log M$_{\rm vir}$ [h$^{-1}$ M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
-    ax.set_ylabel(r"Stellar, cold, hot, ejected, ICS mass", fontsize=AXIS_LABEL_SIZE)
+    ax.set_xlabel(r"log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
+    ax.set_ylabel(r"log$_{10}$ M$_{\rm reservoir}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
 
     # Set the x and y axis minor ticks
     ax.xaxis.set_minor_locator(MultipleLocator(0.5))

@@ -101,9 +101,6 @@ def plot(
     # Line-of-sight velocity
     vel_los = (pos_x * vel_x + pos_y * vel_y + pos_z * vel_z) / dist_los
 
-    # Distance including redshift: r + v/(H*100) (not used)
-    dist_redshift = dist_los + vel_los / (hubble_h * 100.0)
-
     # Total number of galaxies for normalizing
     tot_gals = len(pos_x)
 

@@ -39,8 +39,9 @@ Cut down from SAGE26, each a permitted deviation:
     does not make, is not drawn.
   - Y label: 'FFB fraction' instead of SAGE26's 'FFB/MBK25 fraction' (:10440), because no MBK25
     curve is drawn.
-  - Title: 'Cut-down port of SAGE26 paper plot 23c: eight output snapshots, no MBK25 run', which
-    SAGE26's figure does not have, saying it is not SAGE26's exact figure.
+  - Title: 'Cut-down port of SAGE26 paper plot 23c: N output snapshots, no MBK25 run', N the
+    number of snapshots drawn (8 for the mini-Millennium run files), which SAGE26's figure does
+    not have, saying it is not SAGE26's exact figure.
   - File stem: FFB_Fraction_Li24_cut_down, not SAGE26's FFB_Fraction_Li24_vs_MBK25 (:10447), for
     the same reason.
   - Style: SAGE26's paper style file (`setup_style`, :429-431) is not applied.
@@ -163,7 +164,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.set_yscale("log")
     ax.set_ylabel("FFB fraction", fontsize=AXIS_LABEL_SIZE)
     ax.set_title(
-        "Cut-down port of SAGE26 paper plot 23c: eight output snapshots, no MBK25 run", fontsize=10
+        f"Cut-down port of SAGE26 paper plot 23c: {len(drawn)} output snapshots, no MBK25 run",
+        fontsize=10,
     )
     ax.legend(loc="upper left", frameon=False)
 

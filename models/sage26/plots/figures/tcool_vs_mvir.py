@@ -11,8 +11,8 @@ one. The section is the specification; where this port differs it is a permitted
 
 Requires: CoolingRate, Mvir, Rvir, Regime, Vvir
 
-Fields read (units): CoolingRate (Msun/Gyr per SAGE26's label; held in SAGE26's variable
-`tcool`, allresults-local.py:1948), Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts it:
+Fields read (units): CoolingRate (Msun/Gyr over h, models/sage26/model_properties.yaml, where
+SAGE26's label says Msun/Gyr; held in SAGE26's variable `tcool`, allresults-local.py:1948), Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts it:
 x 1e10 / hubble_h, :1949), Rvir (Mpc/h, only to select), Regime (0 circumgalactic medium,
 1 hot) and Vvir (km/s; the virial temperature is 35.9 Vvir^2 K, :411).
 
@@ -148,6 +148,8 @@ def plot(
 
     # SAGE26 sets no axis window here (allresults-local.py:2002-2003 are commented out)
     ax.set_xlabel(r"$\log_{10} M_{\rm vir}\ (M_{\odot})$", fontsize=AXIS_LABEL_SIZE)
+    # SAGE26 figure parity: allresults-local.py:2000 labels the axis Msun/Gyr, but the plotted
+    # CoolingRate is Msun/Gyr over h (its declared unit, model_properties.yaml). Mirrored as written.
     ax.set_ylabel(
         r"$\mathrm{Cooling\ rate}\ (M_{\odot}\ \mathrm{Gyr}^{-1})$", fontsize=AXIS_LABEL_SIZE
     )

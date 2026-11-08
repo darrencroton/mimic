@@ -18,7 +18,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.x'
+        python-version: '3.12'
 
     - name: Install system dependencies
       run: |
@@ -100,7 +100,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.x'
+        python-version: '3.12'
 
     - name: Install system dependencies
       run: |
@@ -169,3 +169,52 @@ jobs:
           echo "build/distributed_tests.log was not written"
         fi
         echo "::endgroup::"
+
+  sage26:
+    name: sage26 model package
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libhdf5-dev libyaml-dev pkg-config
+
+    - name: Install Python dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Build sage26 on mini-millennium
+      run: |
+        make MODEL=sage26 SIMULATION=mini-millennium
+
+    - name: Check generated code and module metadata
+      run: |
+        make MODEL=sage26 SIMULATION=mini-millennium check-generated
+        make MODEL=sage26 SIMULATION=mini-millennium validate-modules
+
+    - name: Run unit tests
+      run: |
+        make MODEL=sage26 SIMULATION=mini-millennium tests-unit
+
+    - name: Run integration tests
+      run: |
+        make MODEL=sage26 SIMULATION=mini-millennium tests-integration
+
+    - name: Run scientific tests
+      # The sage26 baseline is generated on macOS; Linux gcc reproduces it to 5.5e-4
+      # relative at worst (measured 2026-11-08, Ubuntu 24.04, gcc 13). Same relaxed
+      # cross-platform gate as the default job; the strict 1e-6 default applies locally.
+      env:
+        MIMIC_BASELINE_RTOL: "1e-3"
+      run: |
+        make MODEL=sage26 SIMULATION=mini-millennium tests-scientific

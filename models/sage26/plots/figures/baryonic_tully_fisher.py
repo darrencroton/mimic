@@ -118,7 +118,7 @@ def plot(
     # Plot Stark, McGaugh & Swatters 2009 relation
     w_obs = np.arange(0.5, 10.0, 0.5)
     TF = 3.94 * w_obs + 1.79
-    ax.plot(w_obs, TF, "b-", lw=2.0, label="Stark, McGaugh \\& Swatters 2009")
+    ax.plot(w_obs, TF, "b-", lw=2.0, label="Stark, McGaugh & Swatters 2009")
 
     # Customize the plot
     ax.set_ylabel(get_baryonic_mass_label(), fontsize=AXIS_LABEL_SIZE)
@@ -131,7 +131,7 @@ def plot(
     ax.yaxis.set_minor_locator(MultipleLocator(0.25))
 
     # Add consistently styled legend
-    setup_legend(ax, loc="lower right")
+    setup_legend(ax, loc="upper left")
 
     # Save and close the figure
     plot_path = save_and_close_figure(

@@ -193,7 +193,6 @@ def test_starburst_physics_correctness():
     hot_gas = halos["HotGas"]
     ejected_gas = halos["EjectedGas"]
     sfr = halos["StarFormationRate"]
-    mvir = halos["Mvir"]
 
     # Physics validation 1: Stellar masses should be reasonable
     total_stellar = np.sum(stellar_mass)

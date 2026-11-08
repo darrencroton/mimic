@@ -17,6 +17,7 @@ from output_utils import (
     check_required_fields,
     get_profile_axes,
     make_bin_edges,
+    read_module_parameters,
     save_and_close_figure,
     setup_figure,
     warn,
@@ -67,8 +68,12 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
-    # Get the baryon fraction parameter (or use default cosmic value if not available)
-    baryon_frac = params.get("BaryonFrac", 0.17) if params else 0.17
+    # The cosmic baryon fraction is the run's GlobalBaryonFraction (modules.parameters); 0.17 is
+    # the fallback for a run that does not give it, with a warning.
+    values, missing = read_module_parameters(params or {}, ["GlobalBaryonFraction"])
+    if missing:
+        warn("GlobalBaryonFraction not in the run's parameters; using 0.17")
+    baryon_frac = values.get("GlobalBaryonFraction", 0.17)
 
     # Check which optional baryonic properties are available
     has_stellar = optional.get("StellarMass", False)
@@ -271,7 +276,7 @@ def plot(
     ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
-    leg = setup_legend(ax, loc="upper right")
+    setup_legend(ax, loc="upper right")
 
     # Save and close the figure
     plot_path = save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)

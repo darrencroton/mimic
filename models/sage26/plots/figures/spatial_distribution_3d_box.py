@@ -25,6 +25,7 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_plot_fonts
+from figures._sampling import draw_sample
 from output_utils import (
     check_required_fields,
     get_profile_axes,
@@ -34,18 +35,6 @@ from output_utils import (
 # Number of galaxies drawn at most: SAGE26's script-level `dilute` (allresults-local.py:73),
 # in force here (it is reassigned only at :1735)
 DILUTE = 7500
-
-
-def draw_sample(candidates, rng):
-    """
-    Return the galaxies to draw: all candidates, or a random sample of DILUTE of them.
-
-    SAGE26 allresults-local.py:1571: `if(len(w) > dilute): w = sample(list(w), dilute)`, with
-    ``rng`` standing in for SAGE26's script-wide stream.
-    """
-    if len(candidates) > DILUTE:
-        return rng.sample(list(candidates), DILUTE)
-    return candidates
 
 
 def box_edges(box_size):
@@ -134,7 +123,7 @@ def plot(
 
     # allresults-local.py:1570-1575: the sample is drawn before the density is computed on it
     w = np.where((mvir > 0.0) & (stellar_mass > 1.0e9))[0]
-    w = draw_sample(w, rng)
+    w = draw_sample(w, rng, DILUTE)
     xx = pos[w, 0]
     yy = pos[w, 1]
     zz = pos[w, 2]
@@ -152,6 +141,8 @@ def plot(
     if len(w) > 3:
         xyz = np.vstack([xx, yy, zz])
         density = gaussian_kde(xyz)(xyz)
+        # SAGE26 figure parity: allresults-local.py:1580 colours by density with no colour bar.
+        # Mirrored as written.
         ax.scatter(xx, yy, zz, s=0.3, c=density, cmap="plasma", alpha=0.8, gid="model")
 
     # Box edges, allresults-local.py:1582-1591

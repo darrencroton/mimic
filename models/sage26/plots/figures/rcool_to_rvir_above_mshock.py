@@ -18,8 +18,14 @@ snapshot is read, with no Type cut, as in SAGE26.
 Snapshots: the written snapshot nearest z = 0, 2 and 6 (:390, :399-400), chosen through
 ``nearest_snapshot``.
 
+Run parameter: the shock mass is the run's MShockMsun (modules.parameters), where SAGE26 writes
+the literal 6e11 Msun (:389, "must match the C source"); the literal is the fallback, with a
+warning, for a run that does not give it.
+
 Permitted deviations: the nearest snapshot is searched among the written snapshots only (SAGE26
-searches all 64 and the run writes eight); the measurement SAGE26 prints (:387-429) goes to the log
+searches all 64 and the run writes eight), and a target whose nearest written snapshot an
+earlier target already drew is not drawn again (a sparse snapshot_list maps several targets to one
+snapshot, which SAGE26's 64 snapshots never do); the measurement SAGE26 prints (:387-429) goes to the log
 (printed with --verbose), and only the strict fraction in each legend entry stays on the
 figure, as in SAGE26 (:443-446).
 """
@@ -27,6 +33,7 @@ figure, as in SAGE26 (:443-446).
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import AXIS_LABEL_SIZE
+from figures._run_parameters import module_parameter
 from figures._snapshot_selection import nearest_snapshot
 from output_utils import (
     check_required_fields,
@@ -34,7 +41,8 @@ from output_utils import (
     setup_figure,
 )
 
-# Mshock = 6e11 Msun, physical (allresults-history.py:389, `Mshock_Msun = 6.0e11`)
+# Mshock = 6e11 Msun, physical (allresults-history.py:389, `Mshock_Msun = 6.0e11`): the fallback
+# when the run does not give MShockMsun
 MSHOCK_MSUN = 6.0e11
 
 # Target redshifts (:390, `measure_targets = [0.0, 2.0, 6.0]`)
@@ -44,14 +52,24 @@ TARGET_REDSHIFTS = [0.0, 2.0, 6.0]
 RATIO_BINS = np.arange(0.0, 2.2, 0.05)
 
 
-def select_above_mshock(mvir_msun, rcool_ratio):
+def select_above_mshock(mvir_msun, rcool_ratio, mshock_msun=MSHOCK_MSUN):
     """
     Return the mask of haloes above the shock mass with a defined cooling radius.
 
     SAGE26 allresults-history.py:413 and :440: `sel = (Mvir > Mshock_Msun) & (rcool_ratio >= 0.0)`, with
-    Mvir in Msun.
+    Mvir and the shock mass in Msun.
     """
-    return (mvir_msun > MSHOCK_MSUN) & (rcool_ratio >= 0.0)
+    return (mvir_msun > mshock_msun) & (rcool_ratio >= 0.0)
+
+
+def shock_mass_text(mshock_msun):
+    """
+    Return the shock mass as SAGE26's title writes it, mantissa times a power of ten.
+
+    SAGE26 allresults-history.py:451 writes `6\times10^{11}` for its literal 6e11.
+    """
+    exponent = int(np.floor(np.log10(mshock_msun)))
+    return rf"{mshock_msun / 10.0**exponent:g}\times10^{{{exponent}}}"
 
 
 def strict_fraction(rcool_ratio):
@@ -109,21 +127,27 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if not success:
         return None, f"Required fields missing: {msg}"
 
+    mshock_msun = module_parameter(params, "MShockMsun", MSHOCK_MSUN)
+
     # SAGE26 sets no axis window (allresults-history.py:446-453)
     colors = plt.cm.viridis(np.linspace(0.15, 0.85, len(TARGET_REDSHIFTS)))
 
     fig, ax = setup_figure()
 
     if verbose:
-        print(f"  Mshock = {MSHOCK_MSUN:.2e} Msun (De Lucia & Blaizot 2006 eq. 38)")
+        print(f"  Mshock = {mshock_msun:.2e} Msun (De Lucia & Blaizot 2006 eq. 38)")
         print(
             f"  {'z':>6} {'snap':>5} {'N(Mvir>Mshock)':>15} "
             f"{'f(rcool>Rvir)':>14} {'f(rcool>=Rvir)':>15}"
         )
 
     # allresults-history.py:434-446
+    drawn = set()
     for k, target_z in enumerate(TARGET_REDSHIFTS):
         snap = nearest_snapshot(snapshots, target_z)
+        if snap in drawn:
+            continue
+        drawn.add(snap)
         galaxies, _volume, metadata = snapshots[snap]
         if len(galaxies) == 0:
             continue
@@ -132,7 +156,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
         mvir = galaxies.Mvir * 1.0e10 / hubble_h
         rcool_ratio = galaxies.RcoolToRvir
-        sel = select_above_mshock(mvir, rcool_ratio)
+        sel = select_above_mshock(mvir, rcool_ratio, mshock_msun)
         n_selected = int(np.sum(sel))
         if n_selected == 0:
             if verbose:
@@ -160,7 +184,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.axvline(1.0, color="k", ls="--", lw=1, alpha=0.7)
     ax.set_xlabel(r"$r_{\rm cool}\,/\,R_{\rm vir}$", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel("PDF", fontsize=AXIS_LABEL_SIZE)
-    ax.set_title(r"$M_{\rm vir} > M_{\rm shock}\ (6\times10^{11}\,M_\odot)$ haloes")
+    ax.set_title(
+        rf"$M_{{\rm vir}} > M_{{\rm shock}}\ ({shock_mass_text(mshock_msun)}\,M_\odot)$ haloes"
+    )
     if ax.get_legend_handles_labels()[0]:
         ax.legend(loc="upper left", frameon=False)
 

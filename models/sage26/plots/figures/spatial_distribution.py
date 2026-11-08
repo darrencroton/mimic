@@ -62,7 +62,6 @@ def plot(
     random.seed(2222)
 
     # Extract necessary metadata
-    hubble_h = metadata["hubble_h"]
     box_size = metadata.get("box_size", 62.5)  # Default to mini-Millennium
 
     # Filter for galaxies with non-zero halo mass

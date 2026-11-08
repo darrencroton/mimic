@@ -85,7 +85,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Debug information
     if verbose:
         print(f"  Number of snapshots: {len(snapshots)}")
-        for snap, (galaxies, volume, metadata) in snapshots.items():
+        for snap, (galaxies, _volume, metadata) in snapshots.items():
             print(
                 f"  Snapshot {snap}: {len(galaxies)} galaxies, z={metadata.get('redshift', 'unknown')}"
             )

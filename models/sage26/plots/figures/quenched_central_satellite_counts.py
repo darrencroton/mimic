@@ -141,6 +141,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.set_xticklabels(
         [f"{z_min:.1f}-{z_max:.1f}" for z_min, z_max in Z_BINS], rotation=45, ha="right"
     )
+    # SAGE26 figure parity: allresults-history.py:2024-2027 sets no x label and comments out the
+    # legend, and no bin holds z = 0. Mirrored as written.
     ax.set_ylabel("Average Count", fontsize=AXIS_LABEL_SIZE)
 
     fig.tight_layout()

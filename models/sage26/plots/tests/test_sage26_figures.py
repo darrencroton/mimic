@@ -196,8 +196,13 @@ DATA_AXES = {
     "metallicity": [panel(STELLAR_MASS, r"12 + log$_{10}$[O/H]")],
     "bulge_mass_fraction": [panel(STELLAR_MASS, r"Stellar Mass Fraction")],
     "quiescent_fraction": [panel(STELLAR_MASS, r"Quiescent Fraction")],
+    # Changed from the source: the masses are plotted as log10 Msun (mass_to_msun), so the x label
+    # drops the h^-1 and the y label states the log and the unit
     "mass_reservoir_scatter": [
-        panel(r"log M$_{\rm vir}$ [h$^{-1}$ M$_{\odot}$]", r"Stellar, cold, hot, ejected, ICS mass")
+        panel(
+            r"log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$]",
+            r"log$_{10}$ M$_{\rm reservoir}$ [M$_{\odot}$]",
+        )
     ],
     # allresults-local.py:1233-1234; no title
     "bulge_to_total": [
@@ -323,7 +328,7 @@ DATA_AXES = {
         panel(
             r"$z$",
             "FFB fraction",
-            "Cut-down port of SAGE26 paper plot 23c: eight output snapshots, no MBK25 run",
+            "Cut-down port of SAGE26 paper plot 23c: 8 output snapshots, no MBK25 run",
         ),
         panel(r"$\log_{10}(1+z)$", ""),
     ],
@@ -870,6 +875,11 @@ CAPS = {
     "disk_radius_vs_stellar_mass": 100000,  # :2146
 }
 LOWERED_CAP = 40  # below every figure's candidate count in the synthetic catalogue
+# The figures/_sampling.py helper each figure calls (draw_sample unless named here)
+SAMPLERS = {
+    "concentration_vs_mvir": "draw_sorted_sample",
+    "specific_star_formation_rate": "draw_sample_positions",
+}
 
 
 def make_cap(name):
@@ -877,20 +887,22 @@ def make_cap(name):
         module = figure_module(name)
         assert module.DILUTE == CAPS[name], f"{name}: DILUTE {module.DILUTE}, expected {CAPS[name]}"
 
-        original_cap, original_sample = module.DILUTE, module.draw_sample
+        sampler = SAMPLERS.get(name, "draw_sample")
+        original_cap, original_sample = module.DILUTE, getattr(module, sampler)
         drawn = []
 
-        def recording_sample(candidates, rng):
-            sample = original_sample(candidates, rng)
+        def recording_sample(candidates, rng, dilute):
+            sample = original_sample(candidates, rng, dilute)
             drawn.append((len(candidates), len(sample)))
             return sample
 
         module.DILUTE = LOWERED_CAP
-        module.draw_sample = recording_sample
+        setattr(module, sampler, recording_sample)
         try:
             run = call_figure(name, build_catalogue(), f"{name}-lowered-cap")
         finally:
-            module.DILUTE, module.draw_sample = original_cap, original_sample
+            module.DILUTE = original_cap
+            setattr(module, sampler, original_sample)
         assert run.skip is None, f"{name}: skipped with the lowered cap: {run.skip}"
         # concentration_vs_mvir samples each of its two panels; every other figure samples once
         expected_calls = 2 if name == "concentration_vs_mvir" else 1
@@ -2440,17 +2452,16 @@ def test_figure__concentration_evolution_converts_the_halo_mass_and_is_drawn_at_
 def test_figure__black_hole_mass_function_converts_mass_and_volume():
     """allresults-history.py:340 (x 1e10 / h), :305 (volume = (BoxSize / h)^3, so the engine's
     volume in (Mpc/h)^3 over h^3), :1181-1182 (counts over volume x bin width). Two black holes
-    of 10^6.55 Msun (BlackHoleMass 10^6.55 x 0.73 / 1e10 = 2.6e-4) in the only snapshot, which
-    every one of the six targets selects, fall in the bin 6.5 to 6.6 (centre 6.55); the volume is
-    62.5^3 / 0.73^3 = 627,566 Mpc^3, so phi = 2 / (627,566 x 0.1) = 3.187e-5 on each of the six
-    lines."""
+    of 10^6.55 Msun (BlackHoleMass 10^6.55 x 0.73 / 1e10 = 2.6e-4) in the only snapshot fall in
+    the bin 6.5 to 6.6 (centre 6.55); the volume is 62.5^3 / 0.73^3 = 627,566 Mpc^3, so phi =
+    2 / (627,566 x 0.1) = 3.187e-5. Every one of the six targets selects that snapshot, which is
+    drawn once, so the figure holds one model line."""
     code_mass = 10**6.55 * 0.73 / 1.0e10
     spec = {63: (0.0, {"BlackHoleMass": f32([code_mass, code_mass])})}
     lines = model_lines(run_hand_built("black_hole_mass_function", spec, "wiring-bhmf").fig)
-    assert len(lines) == 6, f"{len(lines)} model lines"
-    for line in lines:
-        close(line.get_xdata(), [6.55])
-        close(line.get_ydata(), [3.187e-5], rel=1e-3)
+    assert len(lines) == 1, f"{len(lines)} model lines"
+    close(lines[0].get_xdata(), [6.55])
+    close(lines[0].get_ydata(), [3.187e-5], rel=1e-3)
 
 
 def test_figure__star_formation_efficiency_converts_masses_and_ages_the_snapshot():

@@ -24,6 +24,7 @@ import random
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE
+from figures._sampling import draw_sample
 from output_utils import (
     check_required_fields,
     save_and_close_figure,
@@ -33,18 +34,6 @@ from output_utils import (
 # Number of galaxies drawn at most: SAGE26's script-level `dilute` (allresults-local.py:73),
 # in force here (it is reassigned only at :1735)
 DILUTE = 7500
-
-
-def draw_sample(candidates, rng):
-    """
-    Return the galaxies to draw: all candidates, or a random sample of DILUTE of them.
-
-    SAGE26 allresults-local.py:1667: `if(len(w) > dilute): w = sample(list(w), dilute)`, with
-    ``rng`` standing in for SAGE26's script-wide stream.
-    """
-    if len(candidates) > DILUTE:
-        return rng.sample(list(candidates), DILUTE)
-    return candidates
 
 
 def plot(
@@ -88,7 +77,7 @@ def plot(
 
     # allresults-local.py:1661-1670
     w = np.where((stellar_mass > 0.0) & (galaxies.MassLoading > 0.0))[0]
-    w = draw_sample(w, rng)
+    w = draw_sample(w, rng, DILUTE)
     mass_loading = galaxies.MassLoading[w]
     # A galaxy without a halo has Vvir 0 and log10 = -inf, which is not drawn, as in SAGE26
     with np.errstate(divide="ignore"):

@@ -107,7 +107,7 @@ def plot(
     central_mask = (galaxies.Type == 0) & np.isin(galaxies.UniqueCentralGalaxyID, valid_indices)
     central_galaxies = galaxies[central_mask]
 
-    for i, gal in enumerate(central_galaxies):
+    for gal in central_galaxies:
         if gal.UniqueCentralGalaxyID in central_index_to_pos:
             pos = central_index_to_pos[gal.UniqueCentralGalaxyID]
             occupation_central[pos] = 1  # Should be only one central per halo

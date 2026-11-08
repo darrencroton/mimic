@@ -25,7 +25,8 @@ from output_utils import (
     warn,
 )
 
-# Target redshifts for evolution plots
+# Target redshifts for evolution plots: the figure draws the snapshot nearest each of these four,
+# not every written snapshot, by design
 TARGET_REDSHIFTS = [0.0, 1.0, 2.0, 3.0]
 TARGET_TOLERANCE = [0.2, 0.5, 0.5, 0.5]  # Tolerance for each target redshift
 
@@ -78,7 +79,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Debug information
     if verbose:
         print(f"  Number of snapshots: {len(snapshots)}")
-        for snap, (galaxies, volume, metadata) in snapshots.items():
+        for snap, (galaxies, _volume, metadata) in snapshots.items():
             print(
                 f"  Snapshot {snap}: {len(galaxies)} halos, z={metadata.get('redshift', 'unknown')}"
             )

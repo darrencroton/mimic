@@ -26,9 +26,9 @@ def setup_plot_fonts(ax):
     return ax
 
 
-def setup_legend(ax, loc="best", frameon=False):
+def setup_legend(ax, loc="best", frameon=False, ncol=1):
     """Create a consistently styled legend."""
-    leg = ax.legend(loc=loc, numpoints=1, labelspacing=0.1, frameon=frameon)
+    leg = ax.legend(loc=loc, numpoints=1, labelspacing=0.1, frameon=frameon, ncol=ncol)
     for text in leg.get_texts():
         text.set_fontsize(LEGEND_FONT_SIZE)
     return leg

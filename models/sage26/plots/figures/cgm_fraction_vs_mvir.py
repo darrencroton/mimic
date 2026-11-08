@@ -100,6 +100,8 @@ def plot(
     ax.scatter(log_Mvir, CGM_fraction, s=2, alpha=0.5, rasterized=True, gid="model")
 
     ax.set_xlabel(r"$\log_{10} M_{\rm vir}\ (M_{\odot})$", fontsize=AXIS_LABEL_SIZE)
+    # SAGE26 figure parity: allresults-local.py:2031 labels the axis "CGM Fraction", with no log
+    # marker, for the scaled logarithm cgm_fraction returns. Mirrored as written.
     ax.set_ylabel(r"$\mathrm{CGM\ Fraction}$", fontsize=AXIS_LABEL_SIZE)
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)

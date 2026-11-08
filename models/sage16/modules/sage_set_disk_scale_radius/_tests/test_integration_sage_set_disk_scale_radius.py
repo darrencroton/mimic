@@ -126,7 +126,6 @@ def test_disk_radius_physics():
 
     disk_radius = halos["DiskScaleRadius"]
     rvir = halos["Rvir"]
-    halo_type = halos["Type"]
 
     # Physics validation 1: Disk radius should be a reasonable fraction of Rvir
     # for halos with positive virial radius.

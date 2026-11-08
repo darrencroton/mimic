@@ -203,9 +203,10 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             linewidth=2,
             alpha=0.25,
             gid="model",
-        )
+        )  # SAGE26 figure parity: allresults-history.py:1344 gives the satellite curve no label
 
-    # allresults-history.py:1346-1354
+    # allresults-history.py:1346-1354. SAGE26 figure parity: the y window stops at 0.8 (:1347),
+    # clipping fractions above it. Mirrored as written.
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
     ax.set_xlabel(r"$\log_{10} M_* [M_\odot]$", fontsize=AXIS_LABEL_SIZE)

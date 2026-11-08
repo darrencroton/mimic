@@ -68,13 +68,13 @@ Direct package installation also works for standalone plotting environments:
 ```bash
 python3 -m venv plotting-env
 source plotting-env/bin/activate
-pip install "numpy>=1.20.0" "matplotlib>=3.0.0" "tqdm>=4.0.0" "h5py>=3.0.0" "PyYAML>=5.0.0"
+pip install "numpy>=1.20.0" "matplotlib>=3.0.0" "tqdm>=4.0.0" "h5py>=3.0.0" "PyYAML>=5.0.0" "scipy>=1.10.0"
 ```
 
 Verify the environment:
 
 ```bash
-python -c "import numpy, matplotlib, tqdm, h5py, yaml; print('All plotting packages available')"
+python -c "import numpy, matplotlib, tqdm, h5py, yaml, scipy; print('All plotting packages available')"
 ```
 
 ## Usage

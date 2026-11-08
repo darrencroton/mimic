@@ -237,8 +237,23 @@ def build_catalogue(seed=20261107, n_halos=1500, epoch=0.0):
 
 
 def run_parameters():
-    """Return the cosmology entries of the engine's run parameters (mimic-plot.py:588-593)."""
-    return {"Hubble_h": HUBBLE_H, "Omega": OMEGA_MATTER, "OmegaLambda": OMEGA_LAMBDA}
+    """Return the cosmology entries of the engine's run parameters (mimic-plot.py:588-593) and
+    the module parameters the figures read from the run file's modules.parameters (mimic-plot.py
+    stores the modules section as EnabledModules), at the shipped run files' values
+    (models/sage26/input/sage26_mini-millennium.yaml)."""
+    return {
+        "Hubble_h": HUBBLE_H,
+        "Omega": OMEGA_MATTER,
+        "OmegaLambda": OMEGA_LAMBDA,
+        "EnabledModules": {
+            "parameters": {
+                "GlobalBaryonFraction": 0.17,
+                "MShockMsun": 6.0e11,
+                "FeedbackReheatingEpsilon": 2.9,
+                "FeedbackEjectionEfficiency": 0.3,
+            }
+        },
+    }
 
 
 def snapshot_metadata(redshift=0.0, ngals=0):

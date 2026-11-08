@@ -11,7 +11,7 @@ extend_skip = ["mimic_venv", "sage-code", "output", "benchmarks", "archive", "bu
 # lint skill falling back to its own defaults.
 [tool.ruff]
 line-length = 100
-target-version = "py39" # Python 3.9+ (docs/USER-GUIDE.md); also silences B905
+target-version = "py312" # Python 3.12+ (docs/USER-GUIDE.md: the pinned scipy needs it); also silences B905
 extend-exclude = [
   "mimic_venv",
   "sage-code",
@@ -34,7 +34,7 @@ select = [
 ]
 
 # Not selected, so they are not restored later: I (isort owns ordering),
-# E5 (black owns width), UP (modernisation, and the 3.9 floor blocks much of it),
+# E5 (black owns width), UP (modernisation; judgement),
 # C4/SIM/E7/RUF (judgement; RUF001-003 flag legitimate scientific unicode).
 
 # An f-string without a placeholder is semantically identical to a plain string.
