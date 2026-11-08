@@ -11,7 +11,7 @@ This test validates the sage26_reincorporation module:
 - Module works in multi-module pipelines
 - Physics constraints are respected (centrals only, Vvir > Vcrit)
 - Mass conservation (EjectedGas → HotGas transfer)
-- Metallicity conservation during transfer
+- Metallicity bounds after transfer
 - Calculation accuracy on real merger tree data
 
 Test cases:
@@ -24,7 +24,7 @@ Test cases:
 
   PHYSICS VALIDATION TESTS:
   - test_physics_mass_conservation: EjectedGas decreases, HotGas increases by same amount
-  - test_physics_metallicity_bounds: Metals transferred correctly
+  - test_physics_metallicity_bounds: metallicities stay within [0, 1] after transfer
   - test_physics_central_only: Only Type 0 halos reincorporate
   - test_physics_velocity_threshold: Only high-Vvir halos reincorporate
   - test_physics_output_properties: Properties written to output correctly
@@ -246,14 +246,14 @@ def test_physics_mass_conservation():
 
 
 def test_physics_metallicity_bounds():
-    """Test that metallicity is preserved during gas transfer
+    """Test that metallicities stay physical after gas transfer
 
     Ejected gas comes only from supernova ejection and metals only from the star-formation yield,
     so the pipeline adds them after the infall: cooling (with radio-mode heating) feeds the disk,
     the star-formation chain ejects gas and sage26_apply_metal_enrichment enriches it. Centrals
     with enriched ejected gas, and among them some with hot gas, must exist.
     """
-    print(f"\n{BLUE}TEST: Metallicity conservation during transfer{NC}")
+    print(f"\n{BLUE}TEST: Metallicity bounds after transfer{NC}")
 
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_metallicity",
@@ -327,7 +327,7 @@ def test_physics_metallicity_bounds():
     print(f"  {len(with_metals)} centrals with enriched ejected gas, {len(with_hot)} with hot gas")
 
     shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Metallicity conservation validated{NC}")
+    print(f"{GREEN}✓ Metallicity bounds validated{NC}")
 
 
 def test_physics_central_only():

@@ -592,6 +592,59 @@ int test_dep_disk_instability_after_quasar_error(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_dep_radio_chain_accepted
+ * @brief   budget, radio heating, apply cooling in order initialise (the positive control for the
+ * radio refusals)
+ */
+int test_dep_radio_chain_accepted(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+
+  int result = module_system_init();
+  TEST_ASSERT(result == 0, "budget, radio, apply in order must initialise");
+
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_substep_phases();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_disk_instability_before_quasar_accepted
+ * @brief   disk instability before the by-galaxy quasar entry initialises (the positive control for
+ * the refusal)
+ */
+int test_dep_disk_instability_before_quasar_accepted(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage_quasar_mode", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+
+  int result = module_system_init();
+  TEST_ASSERT(result == 0, "disk instability before quasar must initialise");
+
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_substep_phases();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -619,6 +672,8 @@ int main(void) {
   TEST_RUN(test_dep_radio_second_phase_entry_error);
   TEST_RUN(test_dep_radio_alone_accepted);
   TEST_RUN(test_dep_disk_instability_after_quasar_error);
+  TEST_RUN(test_dep_radio_chain_accepted);
+  TEST_RUN(test_dep_disk_instability_before_quasar_accepted);
 
   TEST_SUMMARY();
   return TEST_RESULT();

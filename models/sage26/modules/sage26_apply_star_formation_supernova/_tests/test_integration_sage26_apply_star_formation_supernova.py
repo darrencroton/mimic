@@ -345,7 +345,7 @@ def test_metal_enrichment():
     print(f"  Total metals range: {np.min(metal_range):.2e} to {np.max(metal_range):.2e}")
 
     # No per-galaxy metallicity bound: a reservoir's metallicity has no upper bound (the docstring
-    # above); the derived check is the box-level yield budget below
+    # above); the derived check is the box-level yield budget in test_full_pipeline_conservation
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Metal enrichment validated{NC}")

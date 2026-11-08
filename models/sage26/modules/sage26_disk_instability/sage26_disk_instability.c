@@ -40,6 +40,7 @@
  */
 
 #include <stdbool.h>
+#include <string.h>
 #include "error.h"
 #include "globals.h"
 #include "shared/sage_bulge_size_physics.h"
@@ -66,6 +67,20 @@ static int BULGE_SIZE_ON;
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
+/**
+ * @brief Index of a module's first entry in a given mode within one substep phase, or -1
+ */
+static int first_entry_in_mode(const char *name, const enum ProcessingMode mode,
+                               const struct ModulePhaseConfig *phase) {
+  for (int i = 0; i < phase->num_modules; i++) {
+    if (phase->modules[i].processing_mode == mode &&
+        strcmp(phase->modules[i].module_name, name) == 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 int sage26_disk_instability_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("StarFormingDiskFactor", STAR_FORMING_DISK_FACTOR, 0.0, 10.0,
                                     "star forming disk factor");
@@ -75,18 +90,20 @@ int sage26_disk_instability_init(void) {
   }
 
   /* Placement, checked in every substep phase that holds this module when sage26_quasar_mode's
-   * by-galaxy entry is configured: this module before that entry, which reads this substep's
-   * UnstableDiskGasFraction, in that same phase
-   * (SAGE26 grows the black hole after the check, R/src/model_disk_instability.c:101-103) */
+   * by-galaxy entry is configured: this module's first by-galaxy entry before that entry, which
+   * reads this substep's UnstableDiskGasFraction, in that same phase (the quasar module's
+   * per-event entry is a different consumer and does not count) */
   if (module_in_substep_phase("sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY)) {
     for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
       const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
-      if (!module_configured_in_phase("sage26_disk_instability", phase->modules, phase->num_modules,
-                                      PROCESSING_MODE_BY_GALAXY)) {
+      const int disk_at =
+          first_entry_in_mode("sage26_disk_instability", PROCESSING_MODE_BY_GALAXY, phase);
+      if (disk_at < 0) {
         continue;
       }
-      if (!module_precedes_in_phase("sage26_disk_instability", "sage26_quasar_mode", phase->modules,
-                                    phase->num_modules)) {
+      const int quasar_at =
+          first_entry_in_mode("sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY, phase);
+      if (quasar_at < 0 || quasar_at < disk_at) {
         ERROR_LOG("sage26_disk_instability must precede sage26_quasar_mode (process_by_galaxy) in "
                   "substep phase '%s' "
                   "— otherwise the quasar entry reads the previous substep's "
