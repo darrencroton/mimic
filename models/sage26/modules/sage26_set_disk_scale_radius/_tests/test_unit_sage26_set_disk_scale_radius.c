@@ -47,7 +47,7 @@
 #include <string.h>
 #include <math.h>
 
-/* Shared SAGE16 test fixture boilerplate (counters, module registration); this file keeps its
+/* Shared sage26 test fixture boilerplate (counters, module registration); this file keeps its
  * own reset_config(), which adds the module's required BulgeSizeOn at SAGE26's R0 value 0 */
 #define SAGE_TEST_LOCAL_RESET_CONFIG
 #include "modules/_tests/sage_test_fixtures.h"

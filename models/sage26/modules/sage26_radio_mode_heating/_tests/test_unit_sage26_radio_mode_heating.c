@@ -50,7 +50,7 @@
 #include <string.h>
 #include <math.h>
 
-/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+/* Shared sage26 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
 #include "shared/sage_cooling_physics.h"
 

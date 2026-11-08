@@ -143,14 +143,29 @@ def test_quasar_physics_correctness():
     - Cold gas decreases when BH accretes
     - Ejected gas increases from winds
     - Mass conservation
+
+    The disk instability that triggers quasar-mode growth needs a stellar disk and cold gas, so the
+    pipeline supplies them first (infall, cooling with radio-mode heating, and the star-formation
+    chain); massive halos must then host black holes.
     """
     print(f"\n{BLUE}TEST: Quasar-mode physics correctness{NC}")
 
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="quasar_physics",
         phase_config={
-            "pre_timestep": [],
+            "pre_timestep": [
+                ("sage26_set_disk_scale_radius", "process_full_halo"),
+                ("sage26_reionization", "process_full_halo"),
+                ("sage26_prepare_infall_budget", "process_full_halo"),
+            ],
             "galaxy_physics": [
+                ("sage26_apply_infall", "process_full_halo"),
+                ("sage26_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage26_radio_mode_heating", "process_by_galaxy"),
+                ("sage26_apply_cooling", "process_by_galaxy"),
+                ("sage26_calculate_star_formation", "process_by_galaxy"),
+                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
                 ("sage26_disk_instability", "process_by_galaxy"),
                 ("sage26_quasar_mode", "process_by_galaxy"),
             ],
@@ -165,6 +180,18 @@ def test_quasar_physics_correctness():
             "CGMrecipeOn": 0,  # required, R3's value
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
+            # The gas supply and the star-formation chain, at R1's values
+            "GlobalBaryonFraction": 0.17,
+            "AGNrecipe": 2,
+            "RadioModeEfficiency": 0.08,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
+            "SfrEfficiency": 0.02,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,
+            "RecycleFraction": 0.43,
         },
     )
 
@@ -189,13 +216,13 @@ def test_quasar_physics_correctness():
     # Physics validation 2: BH mass should be much smaller than halo mass
     # Typical M_BH/M_halo ~ 10^-3 to 10^-5
     massive_halos = mvir > 10.0
-    if np.sum(massive_halos) > 0:
-        bh_fraction = bh_mass[massive_halos] / mvir[massive_halos]
-        max_bh_fraction = np.max(bh_fraction)
-        assert (
-            max_bh_fraction < 0.1
-        ), f"BH mass should be < 10% of halo mass (unreasonably high: {max_bh_fraction:.4f})"
-        print(f"  Mean BH mass fraction in massive halos: {np.mean(bh_fraction):.4e}")
+    assert np.any(bh_mass[massive_halos] > 0.0), "massive halos should host black holes"
+    bh_fraction = bh_mass[massive_halos] / mvir[massive_halos]
+    max_bh_fraction = np.max(bh_fraction)
+    assert (
+        max_bh_fraction < 0.1
+    ), f"BH mass should be < 10% of halo mass (unreasonably high: {max_bh_fraction:.4f})"
+    print(f"  Mean BH mass fraction in massive halos: {np.mean(bh_fraction):.4e}")
 
     # Physics validation 3: Quasar accretion should be <= BH mass
     # (BH mass can come from other sources like mergers)
@@ -217,54 +244,84 @@ def test_quasar_physics_correctness():
     print(f"{GREEN}✓ Quasar-mode physics is physically reasonable{NC}")
 
 
+# The gas supply and star-formation chain that build the stellar disk and cold gas a disk
+# instability needs, before the instability and the module (as test_quasar_physics_correctness)
+GAS_PHASES = {
+    "pre_timestep": [
+        ("sage26_set_disk_scale_radius", "process_full_halo"),
+        ("sage26_reionization", "process_full_halo"),
+        ("sage26_prepare_infall_budget", "process_full_halo"),
+    ],
+    "galaxy_physics": [
+        ("sage26_apply_infall", "process_full_halo"),
+        ("sage26_calculate_cooling_budget", "process_by_galaxy"),
+        ("sage26_radio_mode_heating", "process_by_galaxy"),
+        ("sage26_apply_cooling", "process_by_galaxy"),
+        ("sage26_calculate_star_formation", "process_by_galaxy"),
+        ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
+        ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
+        ("sage26_disk_instability", "process_by_galaxy"),
+        ("sage26_quasar_mode", "process_by_galaxy"),
+    ],
+    "satellite_mergers": [],
+    "post_timestep": [],
+}
+
+
+def run_gas_pipeline(output_name, black_hole_growth_rate, quasar_mode_efficiency):
+    """Run GAS_PHASES at R1's values with the two quasar parameters; return the z = 0 halos."""
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name=output_name,
+        phase_config=GAS_PHASES,
+        model_params={
+            "BulgeSizeOn": 0,
+            "BlackHoleGrowthRate": black_hole_growth_rate,
+            "QuasarModeEfficiency": quasar_mode_efficiency,
+            "SFprescription": 0,
+            "CGMrecipeOn": 0,
+            "fStabInstability": 0.5,
+            "StarFormingDiskFactor": 3.0,
+            "GlobalBaryonFraction": 0.17,
+            "AGNrecipe": 2,
+            "RadioModeEfficiency": 0.08,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
+            "SfrEfficiency": 0.02,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,
+            "RecycleFraction": 0.43,
+        },
+    )
+    try:
+        returncode, stdout, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
+        halos, _metadata = load_binary_halos(output_dir / "model_z0.000_0")
+    finally:
+        shutil.rmtree(temp_dir)
+    return halos
+
+
 def test_disk_instability_trigger():
     """Test module responds to disk instability trigger
 
-    Validates:
-    - Disk instability sets UnstableDiskGasFraction
-    - Quasar mode processes the trigger
-    - Black holes grow in galaxies with unstable disks
+    Validates, on a pipeline that supplies the disk an instability needs (GAS_PHASES):
+    - Quasar mode processes the trigger: some rows accrete in quasar mode at z = 0
+    - Black holes grow in those galaxies: each accreting row holds a black hole
     """
     print(f"\n{BLUE}TEST: Disk instability trigger{NC}")
 
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="quasar_disk_trigger",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_disk_instability", "process_by_galaxy"),
-                ("sage26_quasar_mode", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": 0.01,
-            "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription, at R1's value
-            "CGMrecipeOn": 0,  # required, R3's value
-            "fStabInstability": 0.5,  # Triggers disk instability
-            "StarFormingDiskFactor": 3.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    bh_mass = halos["BlackHoleMass"]
+    halos = run_gas_pipeline("quasar_disk_trigger", 0.01, 0.001)
     quasar_accretion = halos["QuasarModeBHaccretionMass"]
+    accreting = quasar_accretion > 0
+    print(f"  Quasar accretion on {int(np.sum(accreting))} rows: {np.sum(quasar_accretion):.2e}")
+    assert np.all(quasar_accretion >= 0.0), "Quasar accretion should be non-negative"
+    assert np.sum(accreting) > 0, "some unstable disks should accrete in quasar mode"
+    assert np.all(
+        halos["BlackHoleMass"][accreting] > 0
+    ), "a row that accreted in quasar mode should hold a black hole"
 
-    # Some galaxies should have accreted via quasar mode
-    total_quasar_accretion = np.sum(quasar_accretion)
-    print(f"  Total quasar accretion: {total_quasar_accretion:.2e} [1e10 Msun/h]")
-    # Note: May be zero if no galaxies are unstable in test data
-    assert total_quasar_accretion >= 0.0, "Quasar accretion should be non-negative"
-
-    shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Disk instability trigger validated{NC}")
 
 
@@ -320,157 +377,27 @@ def test_merger_trigger():
 def test_parameter_sensitivity():
     """Test that changing parameters changes results
 
-    Validates:
-    - Higher BlackHoleGrowthRate increases BH accretion
-    - Higher QuasarModeEfficiency increases wind ejection
-    - Parameters are loaded and respected
+    Validates, on GAS_PHASES, where the instability grows black holes and drives winds:
+    - A higher BlackHoleGrowthRate grows more total black-hole mass. The z = 0
+      QuasarModeBHaccretionMass is the last snapshot's accretion only and is not monotonic in the
+      rate (measured 1.6e-3 at 0.005 against 2.2e-3 at 0.02, but 1.5e-3 at 0.01), so it is not
+      the measure
+    - A higher QuasarModeEfficiency ejects more gas
+    - Both measures are positive, so neither comparison holds on zeros
     """
     print(f"\n{BLUE}TEST: Parameter sensitivity{NC}")
 
-    # Run 1: Low growth rate
-    param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
-        output_name="quasar_low_growth",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_disk_instability", "process_by_galaxy"),
-                ("sage26_quasar_mode", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": 0.005,  # Low
-            "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription, at R1's value
-            "CGMrecipeOn": 0,  # required, R3's value
-            "fStabInstability": 0.5,
-            "StarFormingDiskFactor": 3.0,
-        },
-    )
+    low_growth = np.sum(run_gas_pipeline("quasar_low_growth", 0.005, 0.001)["BlackHoleMass"])
+    high_growth = np.sum(run_gas_pipeline("quasar_high_growth", 0.02, 0.001)["BlackHoleMass"])
+    print(f"  Total BlackHoleMass: {low_growth:.3e} (rate 0.005), {high_growth:.3e} (rate 0.02)")
+    assert low_growth > 0, "black holes should grow at the lower rate"
+    assert high_growth > low_growth, "a higher growth rate should grow more black-hole mass"
 
-    returncode, stdout, stderr = run_mimic(param_file_low)
-    assert returncode == 0, f"Low growth rate run should succeed\nSTDERR: {stderr}"
-
-    output_file_low = output_dir_low / "model_z0.000_0"
-    halos_low, _ = load_binary_halos(output_file_low)
-    quasar_accretion_low = halos_low["QuasarModeBHaccretionMass"]
-    total_accretion_low = np.sum(quasar_accretion_low)
-    print(f"  Total quasar accretion (low growth): {total_accretion_low:.2e}")
-
-    # Run 2: High growth rate
-    param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
-        output_name="quasar_high_growth",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_disk_instability", "process_by_galaxy"),
-                ("sage26_quasar_mode", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": 0.02,  # High (4x)
-            "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription, at R1's value
-            "CGMrecipeOn": 0,  # required, R3's value
-            "fStabInstability": 0.5,
-            "StarFormingDiskFactor": 3.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file_high)
-    assert returncode == 0, f"High growth rate run should succeed\nSTDERR: {stderr}"
-
-    output_file_high = output_dir_high / "model_z0.000_0"
-    halos_high, _ = load_binary_halos(output_file_high)
-    quasar_accretion_high = halos_high["QuasarModeBHaccretionMass"]
-    total_accretion_high = np.sum(quasar_accretion_high)
-    print(f"  Total quasar accretion (high growth): {total_accretion_high:.2e}")
-
-    # Run 3: Low efficiency
-    param_file_low_eff, output_dir_low_eff, temp_dir_low_eff = create_test_param_file(
-        output_name="quasar_low_eff",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_disk_instability", "process_by_galaxy"),
-                ("sage26_quasar_mode", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": 0.01,
-            "QuasarModeEfficiency": 0.0001,  # Low
-            "SFprescription": 0,  # the module's required SFprescription, at R1's value
-            "CGMrecipeOn": 0,  # required, R3's value
-            "fStabInstability": 0.5,
-            "StarFormingDiskFactor": 3.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file_low_eff)
-    assert returncode == 0, f"Low efficiency run should succeed\nSTDERR: {stderr}"
-
-    output_file_low_eff = output_dir_low_eff / "model_z0.000_0"
-    halos_low_eff, _ = load_binary_halos(output_file_low_eff)
-    ejected_low_eff = halos_low_eff["EjectedGas"]
-    total_ejected_low_eff = np.sum(ejected_low_eff)
-    print(f"  Total ejected gas (low efficiency): {total_ejected_low_eff:.2e}")
-
-    # Run 4: High efficiency
-    param_file_high_eff, output_dir_high_eff, temp_dir_high_eff = create_test_param_file(
-        output_name="quasar_high_eff",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_disk_instability", "process_by_galaxy"),
-                ("sage26_quasar_mode", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": 0.01,
-            "QuasarModeEfficiency": 0.01,  # High (100x)
-            "SFprescription": 0,  # the module's required SFprescription, at R1's value
-            "CGMrecipeOn": 0,  # required, R3's value
-            "fStabInstability": 0.5,
-            "StarFormingDiskFactor": 3.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file_high_eff)
-    assert returncode == 0, f"High efficiency run should succeed\nSTDERR: {stderr}"
-
-    output_file_high_eff = output_dir_high_eff / "model_z0.000_0"
-    halos_high_eff, _ = load_binary_halos(output_file_high_eff)
-    ejected_high_eff = halos_high_eff["EjectedGas"]
-    total_ejected_high_eff = np.sum(ejected_high_eff)
-    print(f"  Total ejected gas (high efficiency): {total_ejected_high_eff:.2e}")
-
-    # Validate parameter sensitivity
-    # Test 1: Higher growth rate should produce more accretion (or equal)
-    assert (
-        total_accretion_high >= total_accretion_low
-    ), "Higher growth rate should produce at least as much accretion"
-
-    # Test 2: Higher efficiency should produce more ejection (or equal)
-    assert (
-        total_ejected_high_eff >= total_ejected_low_eff
-    ), "Higher efficiency should produce at least as much ejection"
-
-    # Cleanup
-    shutil.rmtree(temp_dir_low)
-    shutil.rmtree(temp_dir_high)
-    shutil.rmtree(temp_dir_low_eff)
-    shutil.rmtree(temp_dir_high_eff)
+    low_eff = np.sum(run_gas_pipeline("quasar_low_eff", 0.01, 0.0001)["EjectedGas"])
+    high_eff = np.sum(run_gas_pipeline("quasar_high_eff", 0.01, 0.01)["EjectedGas"])
+    print(f"  Total EjectedGas: {low_eff:.3e} (efficiency 1e-4), {high_eff:.3e} (efficiency 1e-2)")
+    assert low_eff > 0, "gas should be ejected at the lower efficiency"
+    assert high_eff > low_eff, "a higher quasar-mode efficiency should eject more gas"
 
     print(f"{GREEN}✓ Parameter sensitivity validated{NC}")
 

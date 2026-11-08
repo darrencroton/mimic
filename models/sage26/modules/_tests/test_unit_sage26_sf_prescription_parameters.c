@@ -15,6 +15,9 @@
  *   sage26_starburst_feedback              SFprescription (the burst's commits' caps, its
  *                                          hydrogen refresh and its recheck's black-hole cap)
  *                                          and StarburstColdGasOn (the burst fuel)
+ *   sage26_ffb_star_formation              SFprescription (the FFB transaction's hydrogen caps),
+ *                                          initialised at EnhancedStarFormationOn 0 (R0-R5),
+ *                                          where it still loads and validates the key
  *
  * Supported: SFprescription 0 (Croton) and 1 (BR06 with radial integration);
  * H2RadialIntegrationOn 1, H2RadialNBins 25 and H2RadialRMaxFactor 5.0 (SAGE26's defaults,
@@ -51,6 +54,8 @@ extern int sage26_quasar_mode_init(void);
 extern int sage26_quasar_mode_cleanup(void);
 extern int sage26_starburst_feedback_init(void);
 extern int sage26_starburst_feedback_cleanup(void);
+extern int sage26_ffb_star_formation_init(void);
+extern int sage26_ffb_star_formation_cleanup(void);
 
 #define COUNT(array) (sizeof(array) / sizeof((array)[0]))
 
@@ -59,18 +64,32 @@ struct sf_module {
   const char *name;
   int (*init)(void);
   int (*cleanup)(void);
-  int keys; /* the SAGE26_TEST_KEY* flags of sage_test_fixtures.h */
+  int keys;                   /* the SAGE26_TEST_KEY* flags of sage_test_fixtures.h */
+  void (*requirements)(void); /* the module's other required keys and placement, or NULL */
 };
+
+/**
+ * @brief sage26_ffb_star_formation's other required keys, with FFB off (EnhancedStarFormationOn 0,
+ *        R0-R5, so the dispatch guards do not apply), and its one substep-phase entry, which the
+ *        run files place before the star-formation chain
+ */
+static void ffb_requirements(void) {
+  sage26_test_append_model_parameter("EnhancedStarFormationOn", "0");
+  sage26_test_append_model_parameter("EnhancedSFEfficiency", "0.2");
+  test_phase_add("galaxy_physics", "sage26_ffb_star_formation", PROCESSING_MODE_BY_GALAXY);
+}
 
 static const struct sf_module MODULES[] = {
     {"sage26_calculate_star_formation", sage26_calculate_star_formation_init,
-     sage26_calculate_star_formation_cleanup, SAGE26_TEST_KEYS_SF_MODULE},
+     sage26_calculate_star_formation_cleanup, SAGE26_TEST_KEYS_SF_MODULE, NULL},
     {"sage26_apply_star_formation_supernova", sage26_apply_star_formation_supernova_init,
-     sage26_apply_star_formation_supernova_cleanup, SAGE26_TEST_KEYS_APPLY_MODULE},
+     sage26_apply_star_formation_supernova_cleanup, SAGE26_TEST_KEYS_APPLY_MODULE, NULL},
     {"sage26_quasar_mode", sage26_quasar_mode_init, sage26_quasar_mode_cleanup,
-     SAGE26_TEST_KEYS_QUASAR_MODULE},
+     SAGE26_TEST_KEYS_QUASAR_MODULE, NULL},
     {"sage26_starburst_feedback", sage26_starburst_feedback_init, sage26_starburst_feedback_cleanup,
-     SAGE26_TEST_KEYS_STARBURST_MODULE},
+     SAGE26_TEST_KEYS_STARBURST_MODULE, NULL},
+    {"sage26_ffb_star_formation", sage26_ffb_star_formation_init, sage26_ffb_star_formation_cleanup,
+     SAGE26_TEST_KEY_SF_PRESCRIPTION | SAGE26_TEST_KEY_FIRE_MODE, ffb_requirements},
 };
 
 /** @brief Each key, the flag that adds it and the unsupported values the modules must refuse */
@@ -100,13 +119,16 @@ static const char *read_captured_log(FILE *fp) {
  *        (value NULL) or set to `value`
  *
  * Also configures the dependencies each module's init checks (the SF chain in one substep phase,
- * as the run files have it) and SAGE26's unit system.
+ * as the run files have it, and the module's own requirements) and SAGE26's unit system.
  */
-static void setup(const int keys, const char *key, const char *value) {
+static void setup(const struct sf_module *m, const char *key, const char *value) {
   reset_config();
   set_test_model_parameters();
-  add_test_sf_prescription_parameters(keys);
+  add_test_sf_prescription_parameters(m->keys);
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+  if (m->requirements != NULL) {
+    m->requirements();
+  }
   if (key != NULL) {
     int n = 0;
     for (int i = 0; i < MimicConfig.NumModelParams; i++) {
@@ -164,7 +186,7 @@ int test_missing_parameter_refused(void) {
       if (!(MODULES[m].keys & KEYS[k].flag)) {
         continue;
       }
-      setup(MODULES[m].keys, KEYS[k].key, NULL);
+      setup(&MODULES[m], KEYS[k].key, NULL);
       const char *log = "";
       const int status = init_captured(&MODULES[m], &log);
       printf("\n  %s without %s: init %d", MODULES[m].name, KEYS[k].key, status);
@@ -188,7 +210,7 @@ int test_unsupported_values_refused(void) {
         continue;
       }
       for (size_t v = 0; KEYS[k].unsupported[v] != NULL; v++) {
-        setup(MODULES[m].keys, KEYS[k].key, KEYS[k].unsupported[v]);
+        setup(&MODULES[m], KEYS[k].key, KEYS[k].unsupported[v]);
         const char *log = "";
         const int status = init_captured(&MODULES[m], &log);
         printf("\n  %s with %s %s: init %d", MODULES[m].name, KEYS[k].key, KEYS[k].unsupported[v],
@@ -212,7 +234,7 @@ int test_supported_values_accepted(void) {
   const char *const prescriptions[] = {"0", "1"};
   for (size_t m = 0; m < COUNT(MODULES); m++) {
     for (size_t v = 0; v < COUNT(prescriptions); v++) {
-      setup(MODULES[m].keys, "SFprescription", prescriptions[v]);
+      setup(&MODULES[m], "SFprescription", prescriptions[v]);
       const char *log = "";
       const int status = init_captured(&MODULES[m], &log);
       printf("\n  %s with SFprescription %s: init %d", MODULES[m].name, prescriptions[v], status);

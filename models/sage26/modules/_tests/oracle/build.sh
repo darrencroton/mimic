@@ -32,9 +32,15 @@
 #                      (default /Volumes/Internal/results/sage26-campaign/reference-src)
 #   ORACLE_OUT         build directory (default <repository>/output/oracle)
 #   ORACLE_ALLOW_ANY_TOOLCHAIN=1
-#                      build even when the compiler or SAGE26 commit differ from
-#                      the pinned oracle environment (outputs are then NOT valid
-#                      reference fixtures; for experiments only)
+#                      build even when the compiler, the SAGE26 commit, the
+#                      staged tree's cleanliness or its cooling tables differ
+#                      from the pinned oracle environment (outputs are then NOT
+#                      valid reference fixtures; for experiments only)
+#
+# Prerequisites: the staged SAGE26 source at commit 11b1ae8, clean (git status
+# --porcelain --ignored empty), with its eight cooling tables, and the pinned Apple clang;
+# build.sh refuses anything else. Fixtures regenerated in any other environment
+# are not reference fixtures and must not be committed.
 #
 # See README.md in this directory for the environment and the bit-for-bit scope.
 
@@ -68,11 +74,25 @@ fail() {
 
 clang_version=$(clang --version | head -n 1)
 sage26_commit=$(git -C "$SAGE26_SRC" rev-parse HEAD 2>/dev/null || echo unknown)
-if [ "$clang_version" != "$EXPECTED_CLANG" ] || [ "$sage26_commit" != "$EXPECTED_SAGE26_COMMIT" ]; then
+# The staged tree must be the commit's tree exactly: no modified, deleted, untracked or ignored
+# file. The eight cooling tables read_cooling_functions() opens (src/auxdata/CoolFunctions/*.cie)
+# are tracked files of that commit, so a clean tree also has them, unmodified; they are counted
+# as well because SAGE26 exits 0 and writes nothing when one is missing (README.md,
+# "Regenerating").
+sage26_status=$(git -C "$SAGE26_SRC" status --porcelain --ignored 2>/dev/null ||
+  echo "not a git work tree")
+cooling_tables=$(find "$SAGE26_SRC/src/auxdata/CoolFunctions" -name '*.cie' 2>/dev/null |
+  wc -l | tr -d ' ')
+tree_state=clean
+[ -z "$sage26_status" ] || tree_state="not clean (git status --porcelain --ignored is not empty)"
+if [ "$clang_version" != "$EXPECTED_CLANG" ] || [ "$sage26_commit" != "$EXPECTED_SAGE26_COMMIT" ] ||
+  [ -n "$sage26_status" ] || [ "$cooling_tables" != 8 ]; then
   if [ "${ORACLE_ALLOW_ANY_TOOLCHAIN:-0}" != "1" ]; then
     fail "environment differs from the pinned oracle environment
   compiler: '$clang_version' (expected '$EXPECTED_CLANG')
   SAGE26:   '$sage26_commit' (expected '$EXPECTED_SAGE26_COMMIT')
+  tree:     $tree_state
+  cooling tables: $cooling_tables of 8 (src/auxdata/CoolFunctions/*.cie)
   set ORACLE_ALLOW_ANY_TOOLCHAIN=1 to build anyway (outputs are not reference fixtures)"
   fi
   echo "build.sh: warning: building outside the pinned oracle environment" >&2

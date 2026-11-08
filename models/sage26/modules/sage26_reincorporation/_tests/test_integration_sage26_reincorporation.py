@@ -246,24 +246,58 @@ def test_physics_mass_conservation():
 
 
 def test_physics_metallicity_conservation():
-    """Test that metallicity is preserved during gas transfer"""
+    """Test that metallicity is preserved during gas transfer
+
+    Ejected gas comes only from supernova ejection and metals only from the star-formation yield,
+    so the pipeline adds them after the infall: cooling (with radio-mode heating) feeds the disk,
+    the star-formation chain ejects gas and sage26_apply_metal_enrichment enriches it. Centrals
+    with enriched ejected gas, and among them some with hot gas, must exist.
+    """
     print(f"\n{BLUE}TEST: Metallicity conservation during transfer{NC}")
 
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_metallicity",
         phase_config={
             "pre_timestep": [
+                ("sage26_set_disk_scale_radius", "process_full_halo"),
                 ("sage26_reionization", "process_full_halo"),
                 ("sage26_prepare_infall_budget", "process_full_halo"),
             ],
             "galaxy_physics": [
                 ("sage26_apply_infall", "process_full_halo"),
                 ("sage26_reincorporation", "process_full_halo"),
+                ("sage26_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage26_radio_mode_heating", "process_by_galaxy"),
+                ("sage26_apply_cooling", "process_by_galaxy"),
+                ("sage26_calculate_star_formation", "process_by_galaxy"),
+                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
+                ("sage26_apply_metal_enrichment", "process_by_galaxy"),
             ],
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
+        model_params={
+            "GlobalBaryonFraction": 0.17,
+            "ReIncorporationFactor": 1.0,
+            "CGMrecipeOn": 0,
+            # Cooling, the star-formation chain and the metal yield, at R1's values
+            "AGNrecipe": 2,
+            "RadioModeEfficiency": 0.08,
+            "BulgeSizeOn": 0,
+            "SFprescription": 0,
+            "H2RadialIntegrationOn": 1,
+            "H2RadialNBins": 25,
+            "H2RadialRMaxFactor": 5.0,
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "FIREmodeOn": 0,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -276,20 +310,21 @@ def test_physics_metallicity_conservation():
     centrals = halos[halos["Type"] == 0]
     with_metals = centrals[(centrals["EjectedGas"] > 0) & (centrals["MetalsEjectedGas"] > 0)]
 
-    if len(with_metals) > 0:
-        # Check that metallicity (Z = Metals/Gas) is physical
-        Z_ejected = with_metals["MetalsEjectedGas"] / with_metals["EjectedGas"]
-        assert np.all(
-            (Z_ejected >= 0) & (Z_ejected <= 1.0)
-        ), "Ejected metallicity should be in physical range [0,1]"
+    assert len(with_metals) > 0, "some centrals should hold enriched ejected gas"
+    # Check that metallicity (Z = Metals/Gas) is physical
+    Z_ejected = with_metals["MetalsEjectedGas"] / with_metals["EjectedGas"]
+    assert np.all(
+        (Z_ejected >= 0) & (Z_ejected <= 1.0)
+    ), "Ejected metallicity should be in physical range [0,1]"
 
-        # Check hot gas metallicity is also physical
-        with_hot = with_metals[with_metals["HotGas"] > 0]
-        if len(with_hot) > 0:
-            Z_hot = with_hot["MetalsHotGas"] / with_hot["HotGas"]
-            assert np.all(
-                (Z_hot >= 0) & (Z_hot <= 1.0)
-            ), "Hot gas metallicity should be in physical range [0,1]"
+    # Check hot gas metallicity is also physical
+    with_hot = with_metals[with_metals["HotGas"] > 0]
+    assert len(with_hot) > 0, "some of them should hold hot gas"
+    Z_hot = with_hot["MetalsHotGas"] / with_hot["HotGas"]
+    assert np.all(
+        (Z_hot >= 0) & (Z_hot <= 1.0)
+    ), "Hot gas metallicity should be in physical range [0,1]"
+    print(f"  {len(with_metals)} centrals with enriched ejected gas, {len(with_hot)} with hot gas")
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Metallicity conservation validated{NC}")

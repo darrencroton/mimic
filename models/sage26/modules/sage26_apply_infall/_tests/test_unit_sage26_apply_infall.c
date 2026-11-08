@@ -57,7 +57,7 @@
 #include <string.h>
 #include <math.h>
 
-/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+/* Shared sage26 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
 
 /* External module interface for direct testing */
@@ -116,22 +116,46 @@ static struct Halo create_test_halo(int type, float mvir) {
 }
 
 /**
- * @test    test_module_registration
- * @brief   Test that sage26_apply_infall module registers correctly
- *
- * Expected: Module registration succeeds without errors
- * Validates: sage26_apply_infall_register() works, module appears in registry
+ * @brief The module in galaxy_physics after its required predecessor, sage26_prepare_infall_budget,
+ *        in pre_timestep, with the package's test parameters and a minimal cosmology
  */
-int test_module_registration(void) {
-  /* ===== SETUP ===== */
+static void configure_pipeline(void) {
   reset_config();
-
-  /* ===== EXECUTE ===== */
+  init_memory_system(0);
   ensure_modules_registered();
 
-  /* ===== VALIDATE ===== */
-  /* If we got here without crashing, registration succeeded */
+  MimicConfig.Omega = 0.25;
+  MimicConfig.OmegaLambda = 0.75;
+  MimicConfig.Hubble_h = 0.73;
 
+  MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+  MimicConfig.pre_timestep[0].module_name = strdup("sage26_prepare_infall_budget");
+  MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+  MimicConfig.num_pre_timestep = 1;
+
+  test_phase_add("galaxy_physics", "sage26_apply_infall", PROCESSING_MODE_FULL_HALO);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+}
+
+/**
+ * @test    test_module_registration
+ * @brief   The registry holds sage26_apply_infall under its name
+ *
+ * module_system_init() resolves every configured name through the registry (an unregistered
+ * name is a fatal error), so a pipeline of the two configured modules shows both are registered.
+ */
+int test_module_registration(void) {
+  configure_pipeline();
+  const int result = module_system_init();
+  const int count = module_system_pipeline_count();
+  module_system_cleanup();
+  check_memory_leaks();
+
+  TEST_ASSERT(result == 0, "Module system initialization should succeed");
+  TEST_ASSERT(count == 2, "the pipeline must hold sage26_prepare_infall_budget and "
+                          "sage26_apply_infall, each resolved by name through the registry");
   return TEST_PASS;
 }
 
@@ -144,26 +168,7 @@ int test_module_registration(void) {
  */
 int test_module_initialization(void) {
   /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* Set up minimal cosmology configuration */
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-
-  /* Configure required predecessor: sage26_prepare_infall_budget in pre_timestep */
-  MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-  MimicConfig.pre_timestep[0].module_name = strdup("sage26_prepare_infall_budget");
-  MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-  MimicConfig.num_pre_timestep = 1;
-
-  /* Configure sage26_apply_infall module in galaxy_physics */
-  test_phase_add("galaxy_physics", "sage26_apply_infall", PROCESSING_MODE_FULL_HALO);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+  configure_pipeline();
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();

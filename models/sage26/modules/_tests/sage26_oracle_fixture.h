@@ -9,8 +9,8 @@
  * the module's process() entry, and compares the result with the output field by
  * field, bit for bit. This header holds the machinery those tests share:
  *
- * - oracle_environment_mismatch(): NULL in the oracle environment (macOS arm64,
- *   Apple clang 21), otherwise the reason a bit-exact comparison must SKIP;
+ * - oracle_environment_mismatch(): NULL in the oracle environment (macOS 27.0.1 arm64,
+ *   Apple clang 21.0.0 clang-2100.4.1.1), otherwise the reason a bit-exact comparison must SKIP;
  * - oracle_manifest_fixtures(): the fixture names fixtures.manifest lists for a
  *   module, and the count it declares;
  * - oracle_load(): parses one fixture file;
@@ -48,6 +48,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 
 #include "include/constants.h"
 #include "include/globals.h"
@@ -94,24 +97,38 @@ struct oracle_fixture {
 // ENVIRONMENT
 // ============================================================================
 
+/* The pinned oracle environment (oracle README "Oracle Environment"; build.sh pins the same
+ * compiler): the exact Apple clang version string and the macOS build whose libm the fixtures
+ * were recorded with (macOS 27.0.1 is build 26A434). */
+#define ORACLE_CLANG_VERSION "21.0.0 (clang-2100.4.1.1)"
+#define ORACLE_MACOS_BUILD "26A434"
+
 /**
  * @brief Why a bit-exact comparison is not meaningful here, or NULL in the oracle environment
  *
  * The fixtures are bit-exact only for the oracle's compiler, contraction behaviour
- * and libm: macOS arm64 with Apple clang 21 (the oracle README's "Oracle
- * Environment"). Elsewhere a test must report SKIP with this reason.
+ * and libm: macOS arm64, the exact Apple clang build ORACLE_CLANG_VERSION and the macOS
+ * build ORACLE_MACOS_BUILD (the oracle README's "Oracle Environment"). Elsewhere, including
+ * after any compiler or macOS update, a test must report SKIP with this reason, never FAIL.
  */
 static inline const char *oracle_environment_mismatch(void) {
 #if defined(__APPLE__) && defined(__aarch64__) && defined(__apple_build_version__)
-#if __clang_major__ == 21
+  if (strcmp(__clang_version__, ORACLE_CLANG_VERSION) != 0) {
+    return "bit-exact SAGE26 oracle comparison needs Apple clang " ORACLE_CLANG_VERSION
+           " (oracle environment); this compiler is " __clang_version__;
+  }
+  char build[32];
+  size_t size = sizeof(build);
+  if (sysctlbyname("kern.osversion", build, &size, NULL, 0) != 0 ||
+      strcmp(build, ORACLE_MACOS_BUILD) != 0) {
+    return "bit-exact SAGE26 oracle comparison needs macOS build " ORACLE_MACOS_BUILD
+           " (macOS 27.0.1, the oracle environment's libm); this system is another build";
+  }
   return NULL;
 #else
-  return "bit-exact SAGE26 oracle comparison needs Apple clang 21 (oracle environment: "
-         "macOS arm64, Apple clang 21); this compiler is another version";
-#endif
-#else
   return "bit-exact SAGE26 oracle comparison needs the oracle environment (macOS arm64, Apple "
-         "clang 21, macOS libm); this platform or compiler differs";
+         "clang " ORACLE_CLANG_VERSION ", macOS build " ORACLE_MACOS_BUILD
+         "); this platform or compiler differs";
 #endif
 }
 
@@ -405,7 +422,7 @@ static inline int oracle_load(const char *path, struct oracle_fixture *fx) {
  * naming the limit and -1: more than ORACLE_MAX_FIXTURES fixture lines for the module,
  * a declared count above ORACLE_MAX_FIXTURES, a line of ORACLE_MAX_LINE characters or
  * more, or a token of ORACLE_MAX_NAME characters or more. A declared count that is not
- * a whole number is refused too.
+ * a whole number, and a fixture name the module lists twice, are refused too.
  *
  * @param manifest  Path of the manifest file
  * @param module    Owning module name
@@ -476,8 +493,19 @@ static inline int oracle_manifest_fixtures_in(const char *manifest, const char *
                 manifest, line_number, module, ORACLE_MAX_FIXTURES, ORACLE_MAX_FIXTURES);
         status = -1;
       } else {
-        snprintf(names[count], ORACLE_MAX_NAME, "%s", value);
-        count++;
+        /* A name listed twice would be checked twice and another never (regenerate.sh refuses
+         * the same manifest) */
+        for (int i = 0; i < count && status == 0; i++) {
+          if (strcmp(names[i], value) == 0) {
+            fprintf(stderr, "oracle: %s:%d: module %s lists fixture %s twice\n", manifest,
+                    line_number, module, value);
+            status = -1;
+          }
+        }
+        if (status == 0) {
+          snprintf(names[count], ORACLE_MAX_NAME, "%s", value);
+          count++;
+        }
       }
     }
   }
@@ -529,8 +557,15 @@ static inline void oracle_fixture_path(char *buffer, const size_t size, const ch
  */
 static inline int oracle_count_present_in(const char *manifest, const char *dir, const char *module,
                                           int *listed, int *declared) {
-  /* static: ORACLE_MAX_FIXTURES names are 32 KB, kept off the stack (as in oracle_run_all) */
-  static char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
+  /* On the heap: ORACLE_MAX_FIXTURES names are 32 KB, too many for the stack, and a static array
+   * would make the helper non-reentrant */
+  char (*names)[ORACLE_MAX_NAME] = malloc(ORACLE_MAX_FIXTURES * sizeof(*names));
+  if (names == NULL) {
+    fprintf(stderr, "oracle: cannot allocate the fixture names of %s\n", module);
+    *listed = -1;
+    *declared = -1;
+    return 0;
+  }
   *listed = oracle_manifest_fixtures_in(manifest, module, names, declared);
   int found = 0;
   for (int i = 0; i < *listed; i++) {
@@ -552,6 +587,7 @@ static inline int oracle_count_present_in(const char *manifest, const char *dir,
     }
     found += present;
   }
+  free(names);
   return found;
 }
 
@@ -570,9 +606,14 @@ static inline int oracle_count_present(const char *module, int *listed, int *dec
  */
 static inline int oracle_run_all(const char *module, int (*check)(const char *name), int *listed,
                                  int *declared) {
-  /* static: ORACLE_MAX_FIXTURES names are 32 KB, kept off the stack (as in oracle_count_present_in)
-   */
-  static char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
+  /* On the heap, as in oracle_count_present_in */
+  char (*names)[ORACLE_MAX_NAME] = malloc(ORACLE_MAX_FIXTURES * sizeof(*names));
+  if (names == NULL) {
+    fprintf(stderr, "oracle: cannot allocate the fixture names of %s\n", module);
+    *listed = -1;
+    *declared = -1;
+    return 0;
+  }
   *listed = oracle_manifest_fixtures(module, names, declared);
   int identical = 0;
   for (int i = 0; i < *listed; i++) {
@@ -585,6 +626,7 @@ static inline int oracle_run_all(const char *module, int (*check)(const char *na
              problems);
     }
   }
+  free(names);
   printf("\n  oracle: %s bit-identical %d of %d listed fixtures (manifest declares %d) ", module,
          identical, *listed, *declared);
   return identical;

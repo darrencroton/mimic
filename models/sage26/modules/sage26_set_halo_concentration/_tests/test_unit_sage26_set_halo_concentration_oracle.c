@@ -308,7 +308,8 @@ static int check_dispatch_fixture(const char *name) {
       snprintf(field, sizeof(field), "output.case[%d].Concentration", k);
       problems += oracle_check_f32(&out, field, (float)concentration);
     }
-    char prefix[ORACLE_MAX_NAME];
+    /* 64, not ORACLE_MAX_NAME, so gcc can see prefix + suffix fits `field` (-Wformat-truncation) */
+    char prefix[64];
     snprintf(prefix, sizeof(prefix), "intermediate.case[%d]", k);
     snprintf(field, sizeof(field), "%s.selected_infall", prefix);
     problems += oracle_check_i32(&out, field, l.selected_infall);

@@ -4,16 +4,18 @@ SAGE Calculate Star Formation Module - Integration Test
 
 Validates: Module pipeline integration, physics correctness, parameter sensitivity
 
-This test validates the sage26_calculate_star_formation module integration:
-- Module loads and executes correctly in full pipeline
-- StarFormationRate output is physically reasonable
-- Parameter sensitivity (changing efficiency changes results)
-- Memory safety and performance
+This test validates the sage26_calculate_star_formation module integration on a pipeline that
+supplies cold gas: the disk scale radius (which sets the star-forming disk, reff = 3 r_s),
+reionization, infall and cooling (with radio-mode heating) feed the disk, then the star-formation
+chain. Every case requires star formation to have happened (a positive witness), so none can pass
+on an empty disk. SFprescription 0 (the Croton law) and no supernova calculator, so no feedback.
 
 Test cases:
-  - test_module_pipeline_integration: Full pipeline execution and output validation
-  - test_star_formation_physics: Physics correctness and reasonableness checks
-  - test_parameter_sensitivity: Efficiency parameter affects results
+  - test_module_pipeline_integration: Full pipeline execution; finite, non-negative output with
+    star-forming rows
+  - test_star_formation_physics: the stars formed over the snapshot, net of recycling, are in the
+    galaxy; rows without cold gas form no stars
+  - test_parameter_sensitivity: a higher efficiency turns more of the same cooled gas into stars
   - test_memory_and_performance: Memory leaks and performance baseline
 
 Author: Mimic Development Team
@@ -46,6 +48,63 @@ from framework import (
     run_mimic,
 )
 
+# The gas supply before the module: without the disk scale radius no disk forms stars, and
+# without infall and cooling the disk holds no cold gas
+PHASES = {
+    "pre_timestep": [
+        ("sage26_set_disk_scale_radius", "process_full_halo"),
+        ("sage26_reionization", "process_full_halo"),
+        ("sage26_prepare_infall_budget", "process_full_halo"),
+    ],
+    "galaxy_physics": [
+        ("sage26_apply_infall", "process_full_halo"),
+        ("sage26_calculate_cooling_budget", "process_by_galaxy"),
+        ("sage26_radio_mode_heating", "process_by_galaxy"),
+        ("sage26_apply_cooling", "process_by_galaxy"),
+        ("sage26_calculate_star_formation", "process_by_galaxy"),
+        ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
+    ],
+    "satellite_mergers": [],
+    "post_timestep": [],
+}
+
+RECYCLE_FRACTION = 0.43
+
+
+def model_params(sfr_efficiency):
+    """Every key the pipeline reads, the SF chain's at R1's values, and SfrEfficiency."""
+    return {
+        "GlobalBaryonFraction": 0.17,
+        "AGNrecipe": 2,
+        "RadioModeEfficiency": 0.08,
+        "BulgeSizeOn": 0,
+        "SFprescription": 0,
+        "CGMrecipeOn": 0,  # required, R3's value
+        "H2RadialIntegrationOn": 1,
+        "H2RadialNBins": 25,
+        "H2RadialRMaxFactor": 5.0,
+        "SfrEfficiency": sfr_efficiency,
+        "StarFormingDiskFactor": 3.0,
+        "RecycleFraction": RECYCLE_FRACTION,
+        "Yield": 0.025,
+        "FracZleaveDisk": 0.0,
+    }
+
+
+def run_z0(output_name, sfr_efficiency):
+    """Run the pipeline; return (halos at z = 0, stdout, stderr, temp_dir)."""
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name=output_name, phase_config=PHASES, model_params=model_params(sfr_efficiency)
+    )
+    returncode, stdout, stderr = run_mimic(param_file)
+    if returncode != 0:
+        shutil.rmtree(temp_dir)
+    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
+    output_file = output_dir / "model_z0.000_0"
+    assert output_file.exists(), "Output file should exist"
+    halos, _metadata = load_binary_halos(output_file)
+    return halos, stdout, stderr, temp_dir
+
 
 def test_module_pipeline_integration():
     """Test that module integrates correctly into full pipeline
@@ -53,60 +112,22 @@ def test_module_pipeline_integration():
     Validates:
     - Module loads and initializes
     - Pipeline executes without errors
-    - Output file is created with expected properties
-    - StarFormationRate field exists and has valid data
+    - StarFormationRate exists, is finite and non-negative, and is positive on some rows
     """
     print(f"\n{BLUE}TEST: Module pipeline integration{NC}")
 
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sf_integration",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    # Execute Mimic
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    # Validate output file exists
-    output_file = output_dir / "model_z0.000_0"
-    assert output_file.exists(), "Output file should exist"
-    assert output_file.stat().st_size > 0, "Output file should have content"
-
-    # Load and validate output data
-    halos, metadata = load_binary_halos(output_file)
-    assert len(halos) > 0, "Should have output halos"
-
-    # Check StarFormationRate field exists
-    assert "StarFormationRate" in halos.dtype.names, "Output should have StarFormationRate field"
-
-    # Basic validation: no NaNs or Infs
-    sfr = halos["StarFormationRate"]
-    assert not np.any(np.isnan(sfr)), "StarFormationRate should not have NaN values"
-    assert not np.any(np.isinf(sfr)), "StarFormationRate should not have Inf values"
-    assert np.all(sfr >= 0.0), "StarFormationRate should be non-negative"
-
-    shutil.rmtree(temp_dir)
+    halos, _stdout, _stderr, temp_dir = run_z0("sf_integration", 0.02)
+    try:
+        assert len(halos) > 0, "Should have output halos"
+        assert "StarFormationRate" in halos.dtype.names, "Output should have StarFormationRate"
+        sfr = halos["StarFormationRate"]
+        assert np.all(np.isfinite(sfr)), "StarFormationRate should be finite"
+        assert np.all(sfr >= 0.0), "StarFormationRate should be non-negative"
+        forming = int(np.sum(sfr > 0))
+        assert forming > 0, "some rows should form stars (the pipeline supplies cold gas)"
+        print(f"  {forming} of {len(halos)} rows form stars")
+    finally:
+        shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Module pipeline integration successful{NC}")
 
 
@@ -114,76 +135,40 @@ def test_star_formation_physics():
     """Test that star formation physics is physically reasonable
 
     Validates:
-    - SFR values are within expected range (0-10% of cold gas per timestep)
-    - Low-mass galaxies have lower SFR than high-mass galaxies
-    - Galaxies with little/no cold gas have low/zero SFR
-    - SFR scales appropriately with cold gas mass
+    - The stars formed over the snapshot, net of recycling, are held by the galaxy: with no
+      merger, disruption or feedback module nothing removes stars, so (1 - RecycleFraction) times
+      the stars formed is at most StellarMass. StarFormationRate (Msun/yr) times dT (Myr) is the
+      stars formed in 10^6 Msun, so a factor 10^-4 gives the code's 10^10 Msun (the writer
+      conversions of both fields, model_properties.yaml and src/core/core_properties.yaml, at
+      UnitMass_in_g = 10^10 solar masses)
+    - Rows with no cold gas form no stars, and such rows exist
     """
     print(f"\n{BLUE}TEST: Star formation physics correctness{NC}")
 
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sf_physics",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
+    halos, _stdout, _stderr, temp_dir = run_z0("sf_physics", 0.02)
+    try:
+        sfr = halos["StarFormationRate"].astype(np.float64)
+        cold_gas = halos["ColdGas"]
+        forming = sfr > 0
+        assert np.sum(forming) > 0, "some rows should form stars (the pipeline supplies cold gas)"
 
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
+        formed = sfr * halos["dT"].astype(np.float64) * 1e-4
+        retained = (1.0 - RECYCLE_FRACTION) * formed[forming]
+        stellar_mass = halos["StellarMass"].astype(np.float64)[forming]
+        # 1e-5 relative: float stores; a galaxy whose stars all formed this snapshot is at equality
+        excess = retained > stellar_mass * (1.0 + 1e-5)
+        assert not np.any(excess), (
+            f"{int(np.sum(excess))} rows formed more stars this snapshot than they hold "
+            f"(largest ratio {np.max(retained / stellar_mass):.6f})"
+        )
+        print(f"  retained/StellarMass at most {np.max(retained / stellar_mass):.7f}")
 
-    # Load output
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    sfr = halos["StarFormationRate"]
-    cold_gas = halos["ColdGas"]
-
-    # Physics validation 1: SFR should be reasonable fraction of cold gas
-    # For efficiency=0.02 and typical timescales, expect SFR ~0.001-0.1 * ColdGas
-    star_forming_galaxies = (sfr > 0) & (cold_gas > 0)
-    if np.sum(star_forming_galaxies) > 0:
-        sfr_fraction = sfr[star_forming_galaxies] / cold_gas[star_forming_galaxies]
-        assert np.all(sfr_fraction < 0.5), "SFR should be < 50% of cold gas (unreasonably high)"
-        assert np.all(
-            sfr_fraction > 0.0
-        ), "SFR fraction should be positive for star-forming galaxies"
-
-        print(f"  SFR/ColdGas range: {np.min(sfr_fraction):.4e} to {np.max(sfr_fraction):.4e}")
-
-    # Physics validation 2: Galaxies with no cold gas should have no star formation
-    no_gas_galaxies = cold_gas < 1e-6
-    if np.sum(no_gas_galaxies) > 0:
-        assert np.all(sfr[no_gas_galaxies] == 0.0), "Galaxies with no cold gas should have zero SFR"
-        print(f"  Verified {np.sum(no_gas_galaxies)} galaxies with no gas have zero SFR")
-
-    # Physics validation 3: Total SFR should be reasonable
-    total_sfr = np.sum(sfr)
-    total_cold_gas = np.sum(cold_gas)
-    if total_cold_gas > 0:
-        global_sfr_fraction = total_sfr / total_cold_gas
-        print(f"  Global SFR/ColdGas ratio: {global_sfr_fraction:.4e}")
-        assert global_sfr_fraction < 0.1, "Global SFR should be < 10% of cold gas"
-
-    shutil.rmtree(temp_dir)
+        no_gas = cold_gas < 1e-6
+        assert np.sum(no_gas) > 0, "some rows should hold no cold gas"
+        assert np.all(sfr[no_gas] == 0.0), "Galaxies with no cold gas should have zero SFR"
+        print(f"  Verified {np.sum(no_gas)} galaxies with no gas have zero SFR")
+    finally:
+        shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Star formation physics is physically reasonable{NC}")
 
 
@@ -191,112 +176,30 @@ def test_parameter_sensitivity():
     """Test that changing SfrEfficiency parameter changes results
 
     Validates:
-    - Higher efficiency produces higher SFR
-    - SFR scales approximately linearly with efficiency
-    - Different StarFormingDiskFactor values change results
+    - Both efficiencies form stars
+    - With no feedback, the cold gas and stars together come from the same cooling in both runs,
+      so the higher efficiency leaves less cold gas and more stellar mass. The total
+      StarFormationRate at z = 0 is not monotonic in the efficiency (a faster law depletes the
+      disk it draws on) and is not asserted.
     """
     print(f"\n{BLUE}TEST: Parameter sensitivity{NC}")
 
-    # Run with low efficiency
-    param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
-        output_name="sf_low_eff",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.01,  # Low efficiency
-            "StarFormingDiskFactor": 3.0,
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
+    low, _stdout, _stderr, temp_dir_low = run_z0("sf_low_eff", 0.01)
+    try:
+        high, _stdout, _stderr, temp_dir_high = run_z0("sf_high_eff", 0.05)
+        shutil.rmtree(temp_dir_high)
+    finally:
+        shutil.rmtree(temp_dir_low)
 
-    returncode, stdout, stderr = run_mimic(param_file_low)
-    assert returncode == 0, f"Low efficiency run should succeed\nSTDERR: {stderr}"
-
-    output_file_low = output_dir_low / "model_z0.000_0"
-    halos_low, _ = load_binary_halos(output_file_low)
-    sfr_low = halos_low["StarFormationRate"]
-    total_sfr_low = np.sum(sfr_low)
-
-    # Run with high efficiency
-    param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
-        output_name="sf_high_eff",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.05,  # 5x higher efficiency
-            "StarFormingDiskFactor": 3.0,
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file_high)
-    assert returncode == 0, f"High efficiency run should succeed\nSTDERR: {stderr}"
-
-    output_file_high = output_dir_high / "model_z0.000_0"
-    halos_high, _ = load_binary_halos(output_file_high)
-    sfr_high = halos_high["StarFormationRate"]
-    total_sfr_high = np.sum(sfr_high)
-
-    # Validate parameter sensitivity
-    # Note: It's possible that low efficiency produces zero SFR if all galaxies
-    # are below the critical threshold. The key test is that higher efficiency
-    # produces more (or equal) SFR.
-    assert (
-        total_sfr_high >= total_sfr_low
-    ), "Higher efficiency should produce at least as much star formation"
-
-    # If both produce star formation, check approximate linear scaling
-    if total_sfr_low > 0 and total_sfr_high > 0:
-        sfr_ratio = total_sfr_high / total_sfr_low
-        print(f"  SFR ratio (high/low efficiency): {sfr_ratio:.2f} (expected ~5.0)")
-        assert sfr_ratio > 1.0, "Higher efficiency should produce more SFR"
-        # Allow for some variation in the ratio (physics complexity)
-        if sfr_ratio < 4.0:
-            print(f"  Warning: SFR ratio lower than expected (got {sfr_ratio:.2f}, expected ~5.0)")
-        elif sfr_ratio > 6.0:
-            print(f"  Warning: SFR ratio higher than expected (got {sfr_ratio:.2f}, expected ~5.0)")
-    elif total_sfr_high > 0:
-        print(f"  Low efficiency produced zero SFR (all galaxies below threshold)")
-        print(f"  High efficiency produced SFR = {total_sfr_high:.2e}")
-        assert total_sfr_high > 0, "High efficiency should produce some SFR"
-    else:
-        print(
-            f"  Warning: Both efficiencies produced zero SFR (test data may have no star-forming galaxies)"
-        )
-
-    # Cleanup
-    shutil.rmtree(temp_dir_low)
-    shutil.rmtree(temp_dir_high)
+    for name, halos in (("low", low), ("high", high)):
+        assert np.sum(halos["StarFormationRate"] > 0) > 0, f"{name} efficiency should form stars"
+    totals = {
+        name: (float(np.sum(h["StellarMass"])), float(np.sum(h["ColdGas"])))
+        for name, h in (("low", low), ("high", high))
+    }
+    print(f"  (StellarMass, ColdGas) totals: low {totals['low']}, high {totals['high']}")
+    assert totals["high"][0] > totals["low"][0], "higher efficiency should form more stars"
+    assert totals["high"][1] < totals["low"][1], "higher efficiency should leave less cold gas"
 
     print(f"{GREEN}✓ Parameter sensitivity validated{NC}")
 
@@ -310,40 +213,12 @@ def test_memory_and_performance():
     """
     print(f"\n{BLUE}TEST: Memory safety and performance{NC}")
 
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sf_memory",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    # Execute and time
     import time
 
     start_time = time.time()
-    returncode, stdout, stderr = run_mimic(param_file)
+    halos, stdout, stderr, temp_dir = run_z0("sf_memory", 0.02)
     elapsed_time = time.time() - start_time
-
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
+    shutil.rmtree(temp_dir)
 
     # Check for memory leaks
     assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
@@ -352,7 +227,6 @@ def test_memory_and_performance():
     print(f"  Execution time: {elapsed_time:.2f}s")
     assert elapsed_time < 30.0, f"Execution too slow: {elapsed_time:.2f}s (expected < 30s)"
 
-    shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Memory safety and performance validated{NC}")
 
 

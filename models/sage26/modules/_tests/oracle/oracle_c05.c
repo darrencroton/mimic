@@ -857,10 +857,11 @@ static void read_fire_snapshots(const int ngal) {
  * With BulgeSizeOn 3 every galaxy also reads and records SIZE_MEMBERS (sizes_recorded).
  * DiskInstabilityOn may be 0 (a labelled non-R0 value) where allow_no_instability is set.
  * SFprescription is 0 (R0, R1), or 1 (R2, through read_sf_prescription) where allow_br06 is set:
- * starformation_and_feedback only. FIREmodeOn is 0, or 0 or 1 (R3, through read_fire_mode_on)
- * where allow_fire is set: starformation_and_feedback_fire only. CGMrecipeOn is 0, or 0 or 1
- * (R4, through read_cgm_recipe_on, which sets cgm_block_recorded) where allow_cgm is
- * set: starformation_and_feedback_fire only.
+ * the wrapper (run_wrapper_fixture) and check_disk_instability (run_instability_fixture), each
+ * with and without FIRE. FIREmodeOn is 0, or 0 or 1 (R3, through read_fire_mode_on) where
+ * allow_fire is set: starformation_and_feedback_fire and check_disk_instability_fire.
+ * CGMrecipeOn is 0, or 0 or 1 (R4, through read_cgm_recipe_on, which sets cgm_block_recorded)
+ * where allow_cgm is set: starformation_and_feedback_fire only.
  */
 static void read_r0_flags(const int allow_no_instability, const int allow_br06,
                           const int allow_fire, const int allow_cgm) {

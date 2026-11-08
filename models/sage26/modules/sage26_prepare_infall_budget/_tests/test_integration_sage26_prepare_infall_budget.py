@@ -27,7 +27,6 @@ Date: 2025-12-11
 """
 
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -41,7 +40,6 @@ from framework import (
     MIMIC_EXE,
     NC,
     RED,
-    YELLOW,
     TestSkipped,
     create_test_param_file,
     load_binary_halos,
@@ -51,64 +49,6 @@ from framework import (
     result_skip,
     run_mimic,
 )
-
-
-def get_available_modules():
-    """
-    Query Mimic to get list of available (registered) modules.
-
-    Returns:
-        set: Set of available module names, or empty set if query fails
-    """
-    import tempfile
-
-    import yaml
-
-    try:
-        with tempfile.TemporaryDirectory(prefix="mimic_query_") as temp_dir:
-            test_param = Path(temp_dir) / "_query_modules.yaml"
-
-            # Use test data as reference
-            ref_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
-            with open(ref_file, "r") as f:
-                config = yaml.safe_load(f)
-
-            # Trigger error by requesting nonexistent module
-            config["modules"]["phases"] = {
-                "galaxy_physics": [{"__nonexistent_module__": "process_by_galaxy"}]
-            }
-            config["output"]["output_format"] = "binary"
-            config["output"]["output_directory"] = temp_dir
-
-            with open(test_param, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-            result = subprocess.run(
-                [str(MIMIC_EXE), str(test_param)], capture_output=True, text=True, timeout=10
-            )
-
-            # Parse available modules from error output
-            available = set()
-            in_module_list = False
-            for line in result.stderr.split("\n"):
-                if "Available modules:" in line:
-                    in_module_list = True
-                    continue
-                if in_module_list:
-                    if "  - " in line:
-                        module_name = line.split("  - ")[-1].strip()
-                        if module_name:
-                            available.add(module_name)
-                    elif (
-                        "Module system initialization failed" in line
-                        or "Module" in line
-                        and "listed in EnabledModules" not in line
-                    ):
-                        break
-
-            return available
-    except Exception:
-        return set()
 
 
 def test_module_loads():
@@ -258,18 +198,10 @@ def test_with_satellite_stripping():
 
     Expected: Both modules execute successfully together
     Validates: Modules work together using HaloBaryonFraction property from sage26_reionization
-    Note: If sage26_satellite_stripping not available, test skips gracefully
+    Note: sage26_satellite_stripping is part of the sage26 package, so it is always registered;
+    were it missing, the run would fail
     """
     print("Testing with sage26_satellite_stripping...")
-
-    # ===== CHECK MODULE AVAILABILITY =====
-    available_modules = get_available_modules()
-
-    if "sage26_satellite_stripping" not in available_modules:
-        print(f"{YELLOW}⚠ SKIP: sage26_satellite_stripping not available{NC}")
-        print(f"  Available modules: {', '.join(sorted(available_modules))}")
-        print(f"  This is expected if module is not yet registered")
-        return
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
@@ -395,6 +327,15 @@ def test_infalling_gas_calculation():
 
     Expected: InfallingGas values are physically reasonable
     Validates: Core physics calculation (InfallingGas = HaloBaryonFraction × Mvir - existing_baryons)
+
+    InfallingGas is a transport field that is not written (model_properties.yaml, output: false),
+    so the budget is observed through its consumer, sage26_apply_infall, which adds it to (or, when
+    negative, removes it from the ejected and then the hot gas of) the FoF central. With no other
+    module changing the baryons, every FoF group then holds exactly HaloBaryonFraction * Mvir (Mvir
+    read as a float), the budget's target, and such groups must exist. The only exception is a
+    negative budget larger than the central's ejected and hot gas, which sage26_apply_infall clears
+    to zero: the satellites' hot gas, which the budget does not consolidate, then leaves the group
+    above its target, never below.
     """
     print("Testing InfallingGas calculation physics...")
 
@@ -406,7 +347,7 @@ def test_infalling_gas_calculation():
                 ("sage26_reionization", "process_full_halo"),
                 ("sage26_prepare_infall_budget", "process_full_halo"),
             ],
-            "galaxy_physics": [],
+            "galaxy_physics": [("sage26_apply_infall", "process_full_halo")],
             "satellite_mergers": [],
             "post_timestep": [],
         },
@@ -442,54 +383,48 @@ def test_infalling_gas_calculation():
         "HaloBaryonFraction" in type0_halos.dtype.names
     ), "HaloBaryonFraction should be set by sage26_reionization"
 
-    # NOTE: InfallingGas may be calc_only and not written to output
-    # If it exists, validate the physics; if not, validate other gas reservoirs
-    if "InfallingGas" in type0_halos.dtype.names:
-        # InfallingGas is in output - validate physics
-        infalling_gas = type0_halos["InfallingGas"]
-        assert np.all(np.isfinite(infalling_gas)), "InfallingGas should have finite values"
-        # Find halos with minimal baryonic content
-        total_baryons = (
-            type0_halos["StellarMass"]
-            + type0_halos["ColdGas"]
-            + type0_halos["HotGas"]
-            + type0_halos["EjectedGas"]
-            + type0_halos["ICS"]
-            + type0_halos["BlackHoleMass"]
-        )
+    assert np.all(np.isfinite(type0_halos["HotGas"])), "HotGas should be finite"
+    assert np.all(np.isfinite(type0_halos["EjectedGas"])), "EjectedGas should be finite"
+    assert np.all(np.isfinite(type0_halos["ICS"])), "ICS should be finite"
 
-        # Find halos where total baryons < 1% of virial mass
-        minimal_baryon_mask = total_baryons < 0.01 * type0_halos["Mvir"]
-        minimal_baryon_halos = type0_halos[minimal_baryon_mask]
+    # Each FoF group's baryons (every row carries its FoF central's UniqueGalaxyID) against the
+    # budget's target HaloBaryonFraction * Mvir
+    reservoirs = [
+        "StellarMass",
+        "ColdGas",
+        "HotGas",
+        "EjectedGas",
+        "ICS",
+        "BlackHoleMass",
+        "CGMgas",
+    ]
+    row_baryons = sum(halos[name].astype(np.float64) for name in reservoirs)
+    group_ids, group_index = np.unique(halos["UniqueCentralGalaxyID"], return_inverse=True)
+    group_sums = np.bincount(group_index, weights=row_baryons)
+    position = np.searchsorted(group_ids, type0_halos["UniqueGalaxyID"])
+    assert np.all(
+        group_ids[position] == type0_halos["UniqueGalaxyID"]
+    ), "every central should head its own FoF group"
+    group_baryons = group_sums[position]
+    target = type0_halos["HaloBaryonFraction"].astype(np.float64) * type0_halos["Mvir"].astype(
+        np.float32
+    ).astype(np.float64)
 
-        if len(minimal_baryon_halos) > 10:
-            # For these halos, InfallingGas ≈ HaloBaryonFraction × Mvir
-            expected_infall = (
-                minimal_baryon_halos["HaloBaryonFraction"] * minimal_baryon_halos["Mvir"]
-            )
-            actual_infall = minimal_baryon_halos["InfallingGas"]
-
-            # Check correlation (should be high)
-            correlation = np.corrcoef(expected_infall, actual_infall)[0, 1]
-            assert (
-                correlation > 0.95
-            ), f"InfallingGas should correlate strongly with HaloBaryonFraction × Mvir (got r={correlation:.3f})"
-
-            print(
-                f"  ✓ InfallingGas calculation verified (r={correlation:.3f} for {len(minimal_baryon_halos)} clean halos)"
-            )
-        else:
-            print(f"  ✓ InfallingGas values are finite (found {len(type0_halos)} Type 0 centrals)")
-    else:
-        # InfallingGas is calc_only, validate that gas reservoirs are reasonable instead
-        # The module should still affect EjectedGas and ICS through satellite consolidation
-        assert np.all(np.isfinite(type0_halos["HotGas"])), "HotGas should be finite"
-        assert np.all(np.isfinite(type0_halos["EjectedGas"])), "EjectedGas should be finite"
-        assert np.all(np.isfinite(type0_halos["ICS"])), "ICS should be finite"
-
-        print(
-            f"  ✓ InfallingGas is calc_only (not in output), gas reservoirs are physically reasonable"
-        )
+    # 1e-5 relative: float reservoirs
+    at_target = np.abs(group_baryons - target) <= 1e-5 * target
+    above = group_baryons > target * (1.0 + 1e-5)
+    assert np.sum(at_target) > 0, "the budget should bring FoF groups to their target"
+    assert np.all(at_target | above), (
+        f"{int(np.sum(~(at_target | above)))} FoF groups end below their target "
+        "HaloBaryonFraction * Mvir"
+    )
+    assert np.all(
+        type0_halos["HotGas"][above] == 0.0
+    ), "a group above its target should be one whose negative budget cleared the central's hot gas"
+    print(
+        f"  ✓ InfallingGas brought {int(np.sum(at_target))} of {len(type0_halos)} FoF groups to "
+        f"HaloBaryonFraction × Mvir ({int(np.sum(above))} exhausted by a negative budget)"
+    )
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -502,30 +437,14 @@ def test_multiple_module_pipeline():
     Expected: Multi-module pipeline executes successfully (if companion module available)
     Validates: Inter-module compatibility
 
-    Note: Uses sage26_apply_infall as companion module. If not available, test is skipped
-          with a warning (not a failure). This handles cases where modules have
-          been archived or are not compiled.
+    Note: Uses sage26_apply_infall, the budget's downstream consumer, as companion module. It is
+          part of the sage26 package, so it is always registered; were it missing, the run would
+          fail
     """
     print("Testing multi-module pipeline...")
 
-    # ===== CHECK MODULE AVAILABILITY =====
-    available_modules = get_available_modules()
-
-    # Prefer sage26_apply_infall as companion module (downstream consumer)
-    companion_module = None
-    companion_init_msg = None
-
-    if "sage26_apply_infall" in available_modules:
-        companion_module = "sage26_apply_infall"
-        companion_init_msg = "SAGE apply infall module initialized"
-
-    # If no companion module available, skip test with warning
-    if not companion_module:
-        print(f"{YELLOW}⚠ SKIP: No companion module available for multi-module test{NC}")
-        print(f"  Available modules: {', '.join(sorted(available_modules))}")
-        print(f"  Test requires: sage26_apply_infall")
-        print(f"  This is not a failure - modules may be archived or not compiled")
-        return
+    companion_module = "sage26_apply_infall"
+    companion_init_msg = "SAGE apply infall module initialized"
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(

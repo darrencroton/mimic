@@ -1292,7 +1292,12 @@ static int check_disrupt(const char *name) {
 
   action_count = 0;
   sage26_resolve_mergers_and_disruption_set_action_hook(observe_action);
-  struct MimicSageDisruptLocals locals;
+  /* Poisoned, so a failed disruption that leaves them unwritten cannot match a recorded value */
+  struct MimicSageDisruptLocals locals = {.total_gas = NAN,
+                                          .total_metals_gas = NAN,
+                                          .reservoir_cgm = -1,
+                                          .disrupt_stars_positive = -1,
+                                          .disrupt_ics_positive = -1};
   if (sage26_resolve_mergers_and_disruption_disrupt(halos, ngal, gal, target, time, &locals) != 0) {
     fprintf(stderr, "oracle: %s: the disruption failed\n", name);
     problems++;

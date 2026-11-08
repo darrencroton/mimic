@@ -420,7 +420,8 @@ static int check_classifier_fixture(const char *name) {
       }
       tally.reference_rows++;
     }
-    char prefix[ORACLE_MAX_NAME];
+    /* 64, not ORACLE_MAX_NAME, so gcc can see prefix + suffix fits `field` (-Wformat-truncation) */
+    char prefix[64];
     snprintf(prefix, sizeof(prefix), "intermediate.galaxy[%d]", i);
 #define ROW_FIELD(member) (snprintf(field, sizeof(field), "%s." member, prefix), field)
     problems += oracle_check_i32(&out, ROW_FIELD("skipped"), !classified);

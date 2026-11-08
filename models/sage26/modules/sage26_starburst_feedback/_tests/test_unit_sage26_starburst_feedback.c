@@ -126,7 +126,7 @@
 #include <string.h>
 #include <math.h>
 
-/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+/* Shared sage26 test fixture boilerplate (counters, config reset, module registration) */
 #define SAGE_TEST_LOCAL_RESET_CONFIG /* this file keeps a custom reset_config() */
 #include "modules/_tests/sage_test_fixtures.h"
 

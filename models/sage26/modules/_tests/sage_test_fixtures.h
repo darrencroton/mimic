@@ -1,10 +1,10 @@
 /**
  * @file    sage_test_fixtures.h
- * @brief   Shared fixture boilerplate for SAGE16 C unit tests
+ * @brief   Shared fixture boilerplate for the sage26 package's C unit tests
  *
  * Provides the test-statistics counters required by the TEST_RUN macro plus the
- * configuration/registration fixtures that were previously copy-pasted into every
- * SAGE16 module test file. Include it after the standard test includes:
+ * configuration/registration fixtures every sage26 module test file would otherwise
+ * repeat. Include it after the standard test includes:
  *
  *   #include "modules/_tests/sage_test_fixtures.h"
  *
@@ -47,9 +47,10 @@ static inline void ensure_modules_registered(void) {
   }
 }
 
-/* Test fixture: set all required SAGE16 model parameters to standard test
- * values (SAGE defaults). Model-owned: every model package provides its own
- * parameter fixture; the core test stubs carry no model knowledge. */
+/* Test fixture: set the package's common required model parameters to standard
+ * test values (the SAGE defaults the package inherited from sage16). Model-owned:
+ * every model package provides its own parameter fixture; the core test stubs
+ * carry no model knowledge. */
 static inline void set_test_model_parameters(void) {
   static const struct {
     const char *name;

@@ -13,6 +13,8 @@
  *   ORACLE_MAX_FIELDS;
  * - a manifest or file beyond a limit (fixtures, declared count, fields, line length,
  *   token length, path length) fails with a message naming the limit;
+ * - a manifest listing one fixture name twice for a module is refused, as regenerate.sh
+ *   refuses it, while the same name under two modules is read;
  * - a manifest or fixture that cannot be read (a directory: fopen succeeds, fgets fails)
  *   fails with "read error", not as an early end of file;
  * - a truncated manifest (fewer fixtures than declared, or a listed fixture missing a
@@ -46,9 +48,9 @@ static int failed = 0;
 #define OTHER_MODULE "sage26_reader_selftest_other"
 
 /** Scratch files at the top of the scratch directory (each removed at exit if present) */
-static const char *const scratch_leaves[] = {"manifest_full", "manifest_count", "manifest_over",
-                                             "manifest_long", "fixture_full",   "fixture_over",
-                                             "fixture_bad",   "fixture_i64"};
+static const char *const scratch_leaves[] = {"manifest_full", "manifest_count",     "manifest_over",
+                                             "manifest_long", "manifest_duplicate", "fixture_full",
+                                             "fixture_over",  "fixture_bad",        "fixture_i64"};
 
 /** The fixture whose .out the missing-file case hides, and the extension it is hidden under */
 #define HIDDEN_FIXTURE 100
@@ -397,6 +399,32 @@ int test_manifest_overlong_line_and_name_refused(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_manifest_duplicate_fixture_refused
+ * @brief   A module listing one fixture name twice is refused (a duplicate would be checked twice
+ *          and could stand in for a fixture never checked); the same name under another module is
+ *          not a duplicate
+ */
+int test_manifest_duplicate_fixture_refused(void) {
+  static char names[ORACLE_MAX_FIXTURES][ORACLE_MAX_NAME];
+  int declared = -1;
+  scratch_path(child_manifest, sizeof(child_manifest), "manifest_duplicate");
+
+  char text[512];
+  snprintf(text, sizeof(text), "module %s 1\nfixture %s fx_0000\nmodule %s 1\nfixture %s fx_0000\n",
+           OTHER_MODULE, OTHER_MODULE, MODULE, MODULE);
+  TEST_ASSERT(write_text(child_manifest, text) == 0, "scratch manifest must be written");
+  TEST_ASSERT(oracle_manifest_fixtures_in(child_manifest, MODULE, names, &declared) == 1,
+              "one name listed once under each of two modules must be read");
+
+  snprintf(text, sizeof(text), "module %s 2\nfixture %s fx_0000\nfixture %s fx_0000\n", MODULE,
+           MODULE, MODULE);
+  TEST_ASSERT(write_text(child_manifest, text) == 0, "scratch manifest must be written");
+  TEST_ASSERT(expect_refused(body_read_manifest, "lists fixture fx_0000 twice") == 1,
+              "a fixture name a module lists twice must be refused");
+  return TEST_PASS;
+}
+
 // ============================================================================
 // TESTS: FIXTURE FILES
 // ============================================================================
@@ -613,6 +641,7 @@ int main(void) {
   TEST_RUN(test_fixture_count_beyond_64);
   TEST_RUN(test_manifest_over_limit_refused);
   TEST_RUN(test_manifest_overlong_line_and_name_refused);
+  TEST_RUN(test_manifest_duplicate_fixture_refused);
   TEST_RUN(test_file_beyond_512_read_in_full);
   TEST_RUN(test_file_over_limit_refused);
   TEST_RUN(test_file_truncated_or_overlong_refused);

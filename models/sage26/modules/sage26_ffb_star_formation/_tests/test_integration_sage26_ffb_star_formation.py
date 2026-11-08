@@ -92,36 +92,32 @@ Run (from the repository root, after `make MODEL=sage26 SIMULATION=mini-millenni
 sage26_ffb_star_formation/_tests/test_integration_sage26_ffb_star_formation.py
 """
 
-import re
-import shutil
 import sys
-from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
-import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (  # noqa: E402
-    MIMIC_EXE,
-    TestNotApplicable,
-    TestSkipped,
-    check_no_memory_leaks,
-    compiled_model,
-    compiled_simulation,
-    create_test_param_file,
-    load_binary_halos,
-    run_mimic,
     run_test_suite,
+)
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_tests"))
+from sage26_run_helpers import (  # noqa: E402
+    PackageRuns,
+    assert_runs,
+    configured_modules,
+    module_parameters,
+    require_mimic,
+    require_pair,
 )
 
 MODULE = "sage26_ffb_star_formation"
 CLASSIFIER = "sage26_determine_ffb_regime"
 ORDINARY_SF = "sage26_calculate_star_formation"
 APPLY_SF = "sage26_apply_star_formation_supernova"
-MODULES_DIR = Path(__file__).resolve().parents[2]
 FH = "process_full_halo"
 BG = "process_by_galaxy"
 
@@ -201,107 +197,17 @@ CENTRAL_RESERVOIRS = (
     "MetalsEjectedGas",
 )
 
-INIT_FAILED = re.compile(r"Module '([^']+)' initialization failed")
-
-
 # ============================================================================
 # HELPERS
 # ============================================================================
 
 
-def require_pair():
-    """SKIP outside sage26 (the registry never runs it there); NA off mini-millennium."""
-    if compiled_model() != "sage26":
-        raise TestSkipped(f"model-local sage26 test run under MODEL={compiled_model()}")
-    if compiled_simulation() != "mini-millennium":
-        raise TestNotApplicable(
-            f"selected pair (sage26, {compiled_simulation()}): the output snapshots and witnesses "
-            "are those of mini-millennium's committed test trees (pair sage26, mini-millennium)"
-        )
-
-
-def require_mimic():
-    if not MIMIC_EXE.exists():
-        raise TestSkipped("Mimic not built")
-
-
-def module_parameters(name):
-    """The `parameters` list of a module's module_info.yaml."""
-    with open(MODULES_DIR / name / "module_info.yaml", encoding="utf-8") as handle:
-        info = yaml.safe_load(handle)
-    return list(info["module"]["dependencies"]["parameters"])
-
-
-def configured_modules(phases):
-    return sorted({name for entries in phases.values() for name, _mode in entries})
-
-
-def parameters_for(phases, overrides=None, omit=()):
-    """Every key the configured modules read, with the run file's values."""
-    keys = sorted({key for name in configured_modules(phases) for key in module_parameters(name)})
-    missing = [key for key in keys if key not in PARAMETER_VALUES]
-    assert not missing, f"no value for keys the configured modules read: {missing}"
-    params = {key: PARAMETER_VALUES[key] for key in keys if key not in omit}
-    params.update(overrides or {})
-    return params
-
-
-@contextmanager
-def mimic_run(name, phases, params):
-    """Run mimic on a generated run file; yield (returncode, stdout, stderr, output_dir)."""
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name=name, phase_config=phases, model_params=params, substeps=SUBSTEPS
-    )
-    try:
-        with open(param_file, encoding="utf-8") as handle:
-            config = yaml.safe_load(handle)
-        config["output"]["snapshot_list"] = list(OUTPUT_FILES)
-        with open(param_file, "w", encoding="utf-8") as handle:
-            yaml.safe_dump(config, handle, sort_keys=False)
-        returncode, stdout, stderr = run_mimic(param_file)
-        yield returncode, stdout, stderr, output_dir
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def load_snapshot(output_dir, snapshot):
-    halos, _metadata = load_binary_halos(output_dir / OUTPUT_FILES[snapshot])
-    assert len(halos) > 0, f"snapshot {snapshot} has no output rows"
-    return halos
-
-
-def assert_runs(returncode, stdout, stderr):
-    assert returncode == 0, f"mimic exited {returncode}\nSTDERR:\n{stderr[-2000:]}"
-    assert check_no_memory_leaks(stdout, stderr), "mimic reported a memory leak"
-
-
-def assert_outputs_identical(dir_a, dir_b):
-    """Every field of every row of every written snapshot is byte-identical."""
-    for snapshot in OUTPUT_FILES:
-        a = load_snapshot(dir_a, snapshot)
-        b = load_snapshot(dir_b, snapshot)
-        assert a.dtype.names == b.dtype.names, f"snapshot {snapshot}: property lists differ"
-        assert len(a) == len(b), f"snapshot {snapshot}: {len(a)} rows against {len(b)}"
-        for field in a.dtype.names:
-            bytes_a = np.ascontiguousarray(a[field]).view(np.uint8).reshape(len(a), -1)
-            bytes_b = np.ascontiguousarray(b[field]).view(np.uint8).reshape(len(b), -1)
-            differing = int(np.any(bytes_a != bytes_b, axis=1).sum())
-            assert differing == 0, f"snapshot {snapshot}: {field} differs on {differing} rows"
-        print(f"  snapshot {snapshot}: {len(a)} rows, {len(a.dtype.names)} fields identical")
-
-
-def assert_refused(returncode, stdout, stderr, needles, module=MODULE):
-    """Exit non-zero, every needle present, and only `module`'s initialization failure."""
-    text = stdout + "\n" + stderr
-    assert returncode != 0, f"mimic exited 0; expected a refusal naming {module}"
-    failures = INIT_FAILED.findall(text)
-    assert failures == [module], f"initialization failures logged: {failures}"
-    for needle in needles:
-        assert needle in text, f"missing diagnostic: {needle!r}"
-    for line in text.splitlines():
-        if "ERROR" in line:
-            print(f"  refusal: {line.strip()}")
-    print(f"  refusal: exit status {returncode}")
+RUNS = PackageRuns(MODULE, PARAMETER_VALUES, OUTPUT_FILES, SUBSTEPS)
+parameters_for = RUNS.parameters_for
+mimic_run = RUNS.mimic_run
+load_snapshot = RUNS.load_snapshot
+assert_outputs_identical = RUNS.assert_outputs_identical
+assert_refused = RUNS.assert_refused
 
 
 def assert_finite_non_negative(rows, props, where):

@@ -983,8 +983,10 @@ static int check_after_bh(struct oracle_fixture *out, const struct chain *c,
                           const struct substep_record *r) {
   const char *probe = oracle_prefixed_galaxy_field("intermediate.after_bh.", c->p, "ColdGas");
   if (oracle_has(out, probe) != r->after_bh_present) {
-    fprintf(stderr, "oracle: %s: the oracle %s a state after the black-hole growth, the chain %s\n",
-            out->path, r->after_bh_present ? "records no" : "records", "disagrees");
+    fprintf(stderr, "oracle: %s: the state after the black-hole growth is %s, %s\n", out->path,
+            r->after_bh_present ? "missing from the oracle output" : "in the oracle output",
+            r->after_bh_present ? "but the chain grew the black hole"
+                                : "but the chain did not grow the black hole");
     return 1;
   }
   if (!r->after_bh_present) {
@@ -1222,7 +1224,8 @@ static int check_sequence(struct oracle_fixture *in, struct oracle_fixture *out,
     struct substep_record r;
     problems += run_substep(in, c, step, &r);
 
-    char prefix[ORACLE_MAX_NAME];
+    /* 64, not ORACLE_MAX_NAME, so gcc can see prefix + suffix fits `field` (-Wformat-truncation) */
+    char prefix[64];
     snprintf(prefix, sizeof(prefix), "intermediate.substep[%d].", step);
     problems += check_carried(out, prefix, &r, 0);
     snprintf(field, sizeof(field), "%sstep_bin", prefix);

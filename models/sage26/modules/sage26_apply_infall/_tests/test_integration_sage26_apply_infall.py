@@ -331,6 +331,15 @@ def test_negative_infall_physics():
 
     Expected: When InfallingGas is negative, HotGas and EjectedGas are reduced appropriately
     Validates: Negative infall handling doesn't produce NaN or negative masses
+
+    InfallingGas is a transport field that is not written (model_properties.yaml, output: false),
+    so the negative budget is witnessed by its signature in the written reservoirs. In this
+    infall-only pipeline the budget sets each FoF group's baryons to HaloBaryonFraction * Mvir
+    (sage26_prepare_infall_budget, with Mvir read as a float), so no group ends below that
+    allowance. A group can end above it only where a negative budget exceeded the central's ejected
+    and hot gas: sage26_apply_infall then clears both with their metals, and the satellites' hot
+    gas, which the budget does not consolidate, keeps the group above its allowance. Such groups
+    must exist on the test trees (the positive witness of negative infall).
     """
     print("Testing negative infall physics...")
 
@@ -383,30 +392,44 @@ def test_negative_infall_physics():
     ), "MetalsHotGas should have finite values"
     assert np.all(type0_halos["MetalsHotGas"] >= 0), "MetalsHotGas should be non-negative"
 
-    # Check if there are any halos with InfallingGas in the data
-    # (InfallingGas is calculated in sage26_prepare_infall_budget, may be positive or negative)
-    if "InfallingGas" in type0_halos.dtype.names:
-        infalling = type0_halos["InfallingGas"]
-        negative_infall_mask = infalling < 0
+    # Each FoF group's baryons (every row carries its FoF central's UniqueGalaxyID) against its
+    # allowance HaloBaryonFraction * Mvir
+    reservoirs = [
+        "StellarMass",
+        "ColdGas",
+        "HotGas",
+        "EjectedGas",
+        "ICS",
+        "BlackHoleMass",
+        "CGMgas",
+    ]
+    row_baryons = sum(halos[name].astype(np.float64) for name in reservoirs)
+    group_ids, group_index = np.unique(halos["UniqueCentralGalaxyID"], return_inverse=True)
+    group_sums = np.bincount(group_index, weights=row_baryons)
+    position = np.searchsorted(group_ids, type0_halos["UniqueGalaxyID"])
+    assert np.all(
+        group_ids[position] == type0_halos["UniqueGalaxyID"]
+    ), "every central should head its own FoF group"
+    group_baryons = group_sums[position]
+    allowance = type0_halos["HaloBaryonFraction"].astype(np.float64) * type0_halos["Mvir"].astype(
+        np.float32
+    ).astype(np.float64)
 
-        if np.any(negative_infall_mask):
-            num_negative = np.sum(negative_infall_mask)
-            print(f"  Found {num_negative} halos with negative infall (mass loss)")
+    # 1e-5 relative: float reservoirs
+    below = group_baryons < allowance * (1.0 - 1e-5)
+    assert not np.any(below), f"{int(np.sum(below))} FoF groups end below their baryon allowance"
 
-            # Verify these halos have reasonable gas reservoirs
-            negative_infall_halos = type0_halos[negative_infall_mask]
-            assert np.all(
-                negative_infall_halos["HotGas"] >= 0
-            ), "Halos with negative infall should still have non-negative HotGas"
-            assert np.all(
-                negative_infall_halos["EjectedGas"] >= 0
-            ), "Halos with negative infall should still have non-negative EjectedGas"
-
-            print(f"  ✓ Negative infall handled correctly for {num_negative} halos")
-        else:
-            print("  ✓ No negative infall cases in test data (edge case not tested)")
-    else:
-        print("  ✓ Gas reservoirs are physically reasonable")
+    exhausted = group_baryons > allowance * (1.0 + 1e-5)
+    num_negative = int(np.sum(exhausted))
+    assert num_negative > 0, "some negative budgets should exceed the central's reservoirs"
+    negative_infall_halos = type0_halos[exhausted]
+    for field in ["HotGas", "MetalsHotGas", "EjectedGas", "MetalsEjectedGas"]:
+        assert np.all(
+            negative_infall_halos[field] == 0.0
+        ), f"a central whose negative infall exceeded its reservoirs should hold no {field}"
+    print(
+        f"  ✓ Negative infall exhausted the central's hot and ejected gas in {num_negative} groups"
+    )
 
     # Cleanup
     shutil.rmtree(temp_dir)

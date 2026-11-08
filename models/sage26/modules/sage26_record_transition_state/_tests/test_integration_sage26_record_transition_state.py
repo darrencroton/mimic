@@ -256,15 +256,17 @@ def _run_and_load(output_name, phase_config, params, first):
         model_params=params,
         output_format="hdf5",
     )
-    _write_snapshots(param_file, range(first, LAST_SNAPSHOT + 1))
-    returncode, stdout, stderr = run_mimic(param_file)
-    if returncode != 0:
-        shutil.rmtree(temp_dir)
-    assert returncode == 0, f"Mimic should run the pipeline\nStderr: {stderr}"
-    snapshots = _load_snapshots(output_dir)
-    assert sorted(snapshots) == list(
-        range(first, LAST_SNAPSHOT + 1)
-    ), f"every snapshot should be written, got {sorted(snapshots)}"
+    try:
+        _write_snapshots(param_file, range(first, LAST_SNAPSHOT + 1))
+        returncode, stdout, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Mimic should run the pipeline\nStderr: {stderr}"
+        snapshots = _load_snapshots(output_dir)
+        assert sorted(snapshots) == list(
+            range(first, LAST_SNAPSHOT + 1)
+        ), f"every snapshot should be written, got {sorted(snapshots)}"
+    except BaseException:
+        shutil.rmtree(temp_dir)  # the caller removes it only on success
+        raise
     return snapshots, temp_dir
 
 

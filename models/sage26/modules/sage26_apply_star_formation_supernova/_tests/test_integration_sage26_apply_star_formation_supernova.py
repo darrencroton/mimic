@@ -4,8 +4,13 @@ SAGE Apply Star Formation Supernova Module - Integration Test
 
 Validates: End-to-end physics correctness, conservation laws, parameter sensitivity
 
-This test validates the sage26_apply_star_formation_supernova module integration:
-- Full 3-module pipeline (calculate SF → calculate SN → update SF/SN)
+This test validates the sage26_apply_star_formation_supernova module integration on a pipeline
+that supplies cold gas (as sage26_calculate_star_formation's integration test does): the disk scale
+radius, reionization, infall and cooling (with radio-mode heating) feed the disk, then the
+star-formation chain and the metal yield (sage26_apply_metal_enrichment, which reads Yield and
+FracZleaveDisk). Every physics case requires its subject (star formation, ejection, metals) to be
+present, so none can pass on an empty disk.
+- Full pipeline (calculate SF → calculate SN → update SF/SN → metal yield)
 - Mass and metal conservation across pipeline
 - Gas transfer physics (cold→hot→ejected)
 - Metal enrichment (yield production, FracZleaveDisk)
@@ -51,13 +56,53 @@ from framework import (
     run_mimic,
 )
 
+# The gas supply before the SF chain: without the disk scale radius no disk forms stars, and
+# without infall and cooling the disk holds no cold gas. The metal yield follows the apply step.
+PHASES = {
+    "pre_timestep": [
+        ("sage26_set_disk_scale_radius", "process_full_halo"),
+        ("sage26_reionization", "process_full_halo"),
+        ("sage26_prepare_infall_budget", "process_full_halo"),
+    ],
+    "galaxy_physics": [
+        ("sage26_apply_infall", "process_full_halo"),
+        ("sage26_calculate_cooling_budget", "process_by_galaxy"),
+        ("sage26_radio_mode_heating", "process_by_galaxy"),
+        ("sage26_apply_cooling", "process_by_galaxy"),
+        ("sage26_calculate_star_formation", "process_by_galaxy"),
+        ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
+        ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
+        ("sage26_apply_metal_enrichment", "process_by_galaxy"),
+    ],
+    "satellite_mergers": [],
+    "post_timestep": [],
+}
+
+# The gas supply's keys, at R1's values
+SUPPLY_PARAMS = {
+    "GlobalBaryonFraction": 0.17,
+    "AGNrecipe": 2,
+    "RadioModeEfficiency": 0.08,
+    "BulgeSizeOn": 0,
+}
+
 
 def test_full_pipeline_conservation():
-    """Test mass and metal conservation in full 3-module pipeline
+    """Test mass and metal conservation in the full pipeline
 
     Validates:
     - Total baryonic mass conserved (gas + stars)
-    - Total metals conserved with yield production
+    - Total metals conserved with yield production: the yield is the pipeline's only metal source
+      (infall adds no metals), Yield times the stars formed, while StellarMass grows by
+      (1 - RecycleFraction) times the stars formed and nothing removes stars (no merger or
+      disruption module, so no galaxy is discarded, src/core/inheritance.c). Metals only move
+      between reservoirs or leave with negative infall, so the box's metals are at most
+      Yield / (1 - RecycleFraction) times its StellarMass
+    - Every reservoir holds gas or stars on some rows, with non-negative metallicity. No upper
+      bound on a reservoir's metallicity is asserted: a disk whose star formation and reheating
+      use up its cold gas keeps R * stars of gas but gains Yield * stars of metals, so its
+      metallicity rises by Yield / R per such event (0.058 here) and can exceed 0.1
+      (ColdGas reaches 0.13 on the test trees)
     - Temporary properties zeroed after processing
     - Full pipeline execution successful
     """
@@ -65,17 +110,9 @@ def test_full_pipeline_conservation():
 
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_conservation",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
+        phase_config=PHASES,
         model_params={
+            **SUPPLY_PARAMS,
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
             "CGMrecipeOn": 0,  # required, R3's value
@@ -116,19 +153,24 @@ def test_full_pipeline_conservation():
     assert np.all(total_metals >= 0), "Total metals should be non-negative"
     assert np.all(np.isfinite(total_metals)), "Total metals should be finite"
 
-    # Check metallicities are reasonable (0 to ~0.05 = 2.5*solar)
+    # The yield budget: the box's metals are at most Yield / (1 - RecycleFraction) * StellarMass
+    total_stellar = float(np.sum(halos["StellarMass"], dtype=np.float64))
+    total_metal_mass = float(np.sum(total_metals, dtype=np.float64))
+    yield_budget = 0.025 / (1.0 - 0.43) * total_stellar  # this case's Yield and RecycleFraction
+    print(f"  Total metals {total_metal_mass:.4e} of the yield budget {yield_budget:.4e}")
+    assert total_metal_mass > 0.0, "the yield should produce metals"
+    assert total_metal_mass <= yield_budget, "the metals should not exceed the yield budget"
+
+    # Every reservoir is populated, with non-negative metallicity
     for component in ["ColdGas", "HotGas", "EjectedGas", "StellarMass"]:
         mass = halos[component]
         metals = halos[f"Metals{component}"]
         non_zero = mass > 1e-6
-        if np.sum(non_zero) > 0:
-            metallicity = np.where(non_zero, metals / mass, 0.0)
-            assert np.all(
-                metallicity[non_zero] >= 0.0
-            ), f"{component} metallicity should be non-negative"
-            assert np.all(
-                metallicity[non_zero] <= 0.1
-            ), f"{component} metallicity should be < 0.1 (5*solar)"
+        assert np.sum(non_zero) > 0, f"some rows should hold {component}"
+        metallicity = np.where(non_zero, metals / np.where(non_zero, mass, 1.0), 0.0)
+        assert np.all(
+            metallicity[non_zero] >= 0.0
+        ), f"{component} metallicity should be non-negative"
 
     # Print ranges if we have data
     if np.sum(total_baryons > 0) > 0:
@@ -151,24 +193,23 @@ def test_gas_transfer_physics():
     - Star formation depletes cold gas
     - Stellar mass increases
     - Hot gas increases (from reheating)
-    - Ejected gas increases (from ejection)
-    - StarFormationRate > 0 for star-forming galaxies
+    - Ejected gas increases (from ejection, the pipeline's only source of ejected gas)
+    - StarFormationRate > 0 for star-forming galaxies, which exist
+    - The stars formed over the snapshot, net of recycling, are held by the galaxy: feedback moves
+      gas only and no merger or disruption module removes stars, so (1 - RecycleFraction) times
+      the stars formed is at most StellarMass. StarFormationRate (Msun/yr) times dT (Myr) is the
+      stars formed in 10^6 Msun, so a factor 10^-4 gives the code's 10^10 Msun (the writer
+      conversions of both fields, model_properties.yaml and src/core/core_properties.yaml). This
+      replaces a bound on StarFormationRate / ColdGas, a ratio of Msun/yr to 10^10 Msun/h that
+      was never a contract
     """
     print(f"\n{BLUE}TEST: Gas transfer physics{NC}")
 
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_gas_transfers",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
+        phase_config=PHASES,
         model_params={
+            **SUPPLY_PARAMS,
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
             "CGMrecipeOn": 0,  # required, R3's value
@@ -196,35 +237,34 @@ def test_gas_transfer_physics():
     star_forming = halos["StarFormationRate"] > 0
     num_sf = np.sum(star_forming)
 
-    if num_sf > 0:
-        print(f"  Found {num_sf} star-forming galaxies")
+    assert num_sf > 0, "some galaxies should form stars (the pipeline supplies cold gas)"
+    print(f"  Found {num_sf} star-forming galaxies")
 
-        # Star-forming galaxies should have stellar mass
-        assert np.all(
-            halos["StellarMass"][star_forming] > 0
-        ), "Star-forming galaxies should have stellar mass"
+    # Star-forming galaxies should have stellar mass
+    assert np.all(
+        halos["StellarMass"][star_forming] > 0
+    ), "Star-forming galaxies should have stellar mass"
 
-        # Star-forming galaxies should have some cold gas (may be depleted but not zero)
-        # Note: Some may have zero cold gas after full depletion
-        print(
-            f"  Cold gas range: {np.min(halos['ColdGas'][star_forming]):.2e} to "
-            + f"{np.max(halos['ColdGas'][star_forming]):.2e}"
-        )
-        print(
-            f"  Stellar mass range: {np.min(halos['StellarMass'][star_forming]):.2e} to "
-            + f"{np.max(halos['StellarMass'][star_forming]):.2e}"
-        )
+    print(
+        f"  Cold gas range: {np.min(halos['ColdGas'][star_forming]):.2e} to "
+        + f"{np.max(halos['ColdGas'][star_forming]):.2e}"
+    )
+    print(
+        f"  Stellar mass range: {np.min(halos['StellarMass'][star_forming]):.2e} to "
+        + f"{np.max(halos['StellarMass'][star_forming]):.2e}"
+    )
 
-        # Check that SFR is reasonable (< 50% of cold gas per Gyr, accounting for recycle)
-        # SFR in units of (1e10 Msun/h) / (Gyr/h), assume dt ~ 0.1 Gyr
-        # Max reasonable SFR ~ ColdGas / 0.1 = 10 * ColdGas
-        cold_gas_sf = halos["ColdGas"][star_forming]
-        sfr_sf = halos["StarFormationRate"][star_forming]
-        if np.sum(cold_gas_sf > 0) > 0:
-            sfr_ratio = sfr_sf[cold_gas_sf > 0] / cold_gas_sf[cold_gas_sf > 0]
-            assert np.all(sfr_ratio < 50.0), "SFR should be reasonable compared to cold gas"
-    else:
-        print(f"  No star-forming galaxies found (expected for small test dataset)")
+    # The stars formed this snapshot, net of recycling, are at most the galaxy's StellarMass
+    sfr_sf = halos["StarFormationRate"][star_forming].astype(np.float64)
+    formed = sfr_sf * halos["dT"][star_forming].astype(np.float64) * 1e-4
+    retained = (1.0 - 0.43) * formed  # this case's RecycleFraction
+    stellar_mass = halos["StellarMass"][star_forming].astype(np.float64)
+    # 1e-5 relative: float stores; a galaxy whose stars all formed this snapshot is at equality
+    excess = retained > stellar_mass * (1.0 + 1e-5)
+    assert not np.any(excess), (
+        f"{int(np.sum(excess))} rows formed more stars this snapshot than they hold "
+        f"(largest ratio {np.max(retained / stellar_mass):.6f})"
+    )
 
     # Check that gas exists in different phases
     has_cold = np.sum(halos["ColdGas"] > 1e-6)
@@ -237,9 +277,10 @@ def test_gas_transfer_physics():
     print(f"  Galaxies with EjectedGas: {has_ejected}")
     print(f"  Galaxies with StellarMass: {has_stars}")
 
-    # For minimal test datasets, galaxies may have zero mass (module runs but does nothing)
-    if has_cold == 0 and has_hot == 0 and has_stars == 0:
-        print(f"  Note: Test dataset has no baryons (minimal test data - module ran successfully)")
+    assert has_cold > 0, "some galaxies should hold cold gas"
+    assert has_hot > 0, "some galaxies should hold hot gas"
+    assert has_ejected > 0, "supernova ejection should leave ejected gas"
+    assert has_stars > 0, "some galaxies should hold stars"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Gas transfer physics validated{NC}")
@@ -258,17 +299,9 @@ def test_metal_enrichment():
 
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_metals",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
+        phase_config=PHASES,
         model_params={
+            **SUPPLY_PARAMS,
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
             "CGMrecipeOn": 0,  # required, R3's value
@@ -305,21 +338,18 @@ def test_metal_enrichment():
 
     print(f"  Galaxies with metals: {num_with_metals} / {len(halos)}")
 
-    if num_with_metals > 0:
-        metal_range = total_metals[has_metals]
-        print(f"  Total metals range: {np.min(metal_range):.2e} to {np.max(metal_range):.2e}")
+    assert num_with_metals > 0, "the yield should enrich some galaxies"
+    metal_range = total_metals[has_metals]
+    print(f"  Total metals range: {np.min(metal_range):.2e} to {np.max(metal_range):.2e}")
 
-        # Check metallicity is reasonable (should be < 0.1 = 5*solar)
-        total_baryons = (
-            halos["ColdGas"] + halos["HotGas"] + halos["EjectedGas"] + halos["StellarMass"]
-        )
-        has_mass = total_baryons > 1e-6
-
-        if np.sum(has_mass) > 0:
-            overall_metallicity = np.where(has_mass, total_metals / total_baryons, 0.0)
-            max_met = np.max(overall_metallicity[has_mass])
-            print(f"  Maximum overall metallicity: {max_met:.4f} (solar = 0.02)")
-            assert max_met < 0.15, "Overall metallicity should be < 0.15"
+    # Check metallicity is reasonable (should be < 0.1 = 5*solar)
+    total_baryons = halos["ColdGas"] + halos["HotGas"] + halos["EjectedGas"] + halos["StellarMass"]
+    has_mass = total_baryons > 1e-6
+    assert np.sum(has_mass) > 0, "some galaxies should hold baryons"
+    overall_metallicity = total_metals[has_mass] / total_baryons[has_mass]
+    max_met = np.max(overall_metallicity)
+    print(f"  Maximum overall metallicity: {max_met:.4f} (solar = 0.02)")
+    assert max_met < 0.15, "Overall metallicity should be < 0.15"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Metal enrichment validated{NC}")
@@ -340,17 +370,9 @@ def test_parameter_sensitivity():
     # Run 1: Low recycling, low yield
     param_file1, output_dir1, temp_dir1 = create_test_param_file(
         output_name="update_sf_params_low",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
+        phase_config=PHASES,
         model_params={
+            **SUPPLY_PARAMS,
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
             "CGMrecipeOn": 0,  # required, R3's value
@@ -377,17 +399,9 @@ def test_parameter_sensitivity():
     # Run 2: High recycling, high yield
     param_file2, output_dir2, temp_dir2 = create_test_param_file(
         output_name="update_sf_params_high",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
+        phase_config=PHASES,
         model_params={
+            **SUPPLY_PARAMS,
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
             "CGMrecipeOn": 0,  # required, R3's value
@@ -422,12 +436,12 @@ def test_parameter_sensitivity():
 
     # Note: This comparison is tricky because RecycleFraction affects multiple things
     # We just check that values are different and reasonable
-    if total_stellar1 > 0 and total_stellar2 > 0:
-        ratio = total_stellar2 / total_stellar1
-        print(f"  Stellar mass ratio (high/low recycle): {ratio:.3f}")
-        # Higher recycling typically means less stars locked up
-        # But this depends on SF efficiency too, so we just check values are different
-        assert ratio != 1.0, "Different RecycleFraction should affect results"
+    assert total_stellar1 > 0 and total_stellar2 > 0, "both runs should form stars"
+    ratio = total_stellar2 / total_stellar1
+    print(f"  Stellar mass ratio (high/low recycle): {ratio:.3f}")
+    # Higher recycling typically means less stars locked up
+    # But this depends on SF efficiency too, so we just check values are different
+    assert ratio != 1.0, "Different RecycleFraction should affect results"
 
     # Higher Yield should mean more metals
     total_metals1 = np.sum(
@@ -446,11 +460,11 @@ def test_parameter_sensitivity():
     print(f"  Total metals (low yield): {total_metals1:.2e}")
     print(f"  Total metals (high yield): {total_metals2:.2e}")
 
-    if total_metals1 > 1e-10 and total_metals2 > 1e-10:
-        metal_ratio = total_metals2 / total_metals1
-        print(f"  Metal ratio (high/low yield): {metal_ratio:.3f}")
-        # Higher yield should produce more metals
-        assert metal_ratio > 1.0, "Higher Yield should produce more metals"
+    assert total_metals1 > 1e-10 and total_metals2 > 1e-10, "both runs should produce metals"
+    metal_ratio = total_metals2 / total_metals1
+    print(f"  Metal ratio (high/low yield): {metal_ratio:.3f}")
+    # Higher yield should produce more metals
+    assert metal_ratio > 1.0, "Higher Yield should produce more metals"
 
     shutil.rmtree(temp_dir1)
     shutil.rmtree(temp_dir2)
@@ -470,17 +484,9 @@ def test_edge_cases():
 
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_edge_cases",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
+        phase_config=PHASES,
         model_params={
+            **SUPPLY_PARAMS,
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
             "CGMrecipeOn": 0,  # required, R3's value
@@ -523,12 +529,13 @@ def test_edge_cases():
     zero_cold = halos["ColdGas"] < 1e-10
     num_zero_cold = np.sum(zero_cold)
 
-    if num_zero_cold > 0:
-        print(f"  Galaxies with zero cold gas: {num_zero_cold}")
-        # These should have zero SFR
-        assert np.all(
-            halos["StarFormationRate"][zero_cold] == 0.0
-        ), "Galaxies with no cold gas should have zero SFR"
+    assert num_zero_cold > 0, "some galaxies should hold no cold gas"
+    assert np.sum(halos["StarFormationRate"] > 0) > 0, "some galaxies should form stars"
+    print(f"  Galaxies with zero cold gas: {num_zero_cold}")
+    # These should have zero SFR
+    assert np.all(
+        halos["StarFormationRate"][zero_cold] == 0.0
+    ), "Galaxies with no cold gas should have zero SFR"
 
     # Check Type distribution (0=central, 1=satellite, 2=orphan)
     type_counts = {}
@@ -569,17 +576,9 @@ def test_memory_and_performance():
 
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_memory",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
+        phase_config=PHASES,
         model_params={
+            **SUPPLY_PARAMS,
             # Required by the SF module (and SFprescription by the apply step), at R1's values
             "SFprescription": 0,
             "CGMrecipeOn": 0,  # required, R3's value

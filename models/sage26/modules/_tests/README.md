@@ -13,7 +13,7 @@ This directory holds the package's shared tests, the C headers that module tests
 Every file and directory directly under this directory:
 
 - `README.md`: this file.
-- `module_info.yaml`: the registry of the shared tests below; module-specific tests are not registered here.
+- `module_info.yaml`: the registry of the shared tests below and, in the scientific tier, of the package's two plotting tests under `models/sage26/plots/tests/` (the figure registry, and every registered figure on a seeded synthetic catalogue; no Mimic run), which have no `module_info.yaml` of their own; module-specific tests are not registered here.
 - `test_unit_mixed_dt_parity.c`: per-object timesteps in a FoF whose galaxies hold different `dT`: the merger timestamp, reincorporation, star formation, cooling and radio-mode heating each use the object's own interval, a boundary row (`SnapNum < 0`, `dT <= 0`) is a no-op for reincorporation, and a non-boundary `dT <= 0` fails.
 - `test_unit_sage_dependency_contracts.c`: the placement and partner checks of the modules' `init()`: each case configures one pipeline and asserts that initialisation fails (an error) or succeeds with the expected warning.
 - `test_unit_sage26_bulge_size_parameter.c`: `BulgeSizeOn` in every module that calls a bulge-size helper: a missing key fails initialisation, values other than 0 and 3 are refused naming the parameter, and the mode-0 size helpers keep SAGE26's `BulgeSizeOn 0` behaviour.
@@ -22,13 +22,24 @@ Every file and directory directly under this directory:
 - `test_integration_processing_mode_contracts.py`: startup rejects a module configured in a processing mode it does not support.
 - `test_scientific_sage26_physics_baseline.py`: the package's full-physics regression baseline in the scientific tier, run under `MODEL=sage26 SIMULATION=mini-millennium` only.
 - `test_scientific_compare_sage26.py`: a scientific-tier self-test that runs the galaxy-by-galaxy comparator's 23 synthetic controls, S0 to S7c (the instrument README, *Controls*), through the instrument's own scripts.
+- `sage26_run_helpers.py`: not a test: the helpers the integration tests of `sage26_determine_ffb_regime`, `sage26_determine_regime`, `sage26_ffb_star_formation`, `sage26_regime_aware_cooling` and `sage26_set_halo_concentration` share for their real runs (the pair and build guards, each configured module's keys from its `module_info.yaml`, the run, snapshot loading and the byte-identity and refusal assertions).
 - `input/`: `test_physics_binary.yaml`, the run file of the full-physics regression baseline.
-- `baseline/`: `physics-binary/`, the baseline's committed reference output.
+- `baseline/`: `physics-binary/`, the baseline's committed reference output. It reproduces bit for bit on macOS arm64; its cross-platform tolerance (`MIMIC_BASELINE_RTOL=1e-3`, with the Linux measurement that sets it) is in the docstring of `test_scientific_sage26_physics_baseline.py`.
 - `sage_test_fixtures.h`: the standard fixture of the package's C unit tests: the `TEST_RUN` counters, `reset_config()`, module registration and `set_test_model_parameters()`, which sets the parameters a module test initialises from (of the six flags that define the configurations R0 to R6, only `BulgeSizeOn`, at 0).
 - `sage26_oracle_fixture.h`: the oracle fixture reader and bit-exact comparator every oracle unit test uses, including `oracle_environment_mismatch()`, which makes those tests report SKIP outside the oracle environment.
 - `sage26_oracle_join.h`: progenitor joining for the oracle tests: the core's inheritance, then the package's joining modules in the run files' order.
 - `sage26_oracle_sizes.h`, `sage26_oracle_h2.h`, `sage26_oracle_hydrogen.h`, `sage26_oracle_fire.h`, `sage26_oracle_cgm.h` and `sage26_oracle_cooling.h`: the helpers of the oracle tests of the bulge-size, molecular-gas, merger-family hydrogen, FIRE feedback, `CGMrecipeOn 1` merger-family and `CGMrecipeOn 1` cooling fixtures (the oracle README's "The c07 Group", "The c08 Group", "The c09 Group", "The c10 Group, Part 3" and "The c11 Group").
 - `oracle/`: the SAGE26 function-level oracle: the mains that call SAGE26's own routines, `build.sh`, `regenerate.sh`, `fixtures.manifest` and its [README](oracle/README.md), which defines the fixture format.
+
+Fixture comments and test messages label values with a SAGE26 configuration, `R0` to `R6`, and cite their source as `R<n>.par:<line>`: the parameter file of configuration `R<n>`, which is SAGE26's `input/millennium.par` (commit `11b1ae8`) with only its three paths and that configuration's flags changed and `BulgeSizeOn` appended as line 109, so lines 1 to 108 are `input/millennium.par`'s own. The configurations (the [package README](../../README.md#sage26-configurations-r0r6), *SAGE26 Configurations R0–R6*):
+
+- `R0`: SAGE26 with `SFprescription`, `CGMrecipeOn`, `FIREmodeOn`, `EnhancedStarFormationOn`, `ConcentrationOn` and `BulgeSizeOn` all 0.
+- `R1`: `R0` with `BulgeSizeOn 3` (Tonini et al. 2016 bulge sizes).
+- `R2`: `R1` with `SFprescription 1` (Blitz & Rosolowsky 2006 molecular star formation).
+- `R3`: `R2` with `FIREmodeOn 1` (FIRE supernova feedback).
+- `R4`: `R3` with `CGMrecipeOn 1` (the two-regime CGM).
+- `R5`: `R4` with `ConcentrationOn 3` (halo concentration).
+- `R6`: `R5` with `EnhancedStarFormationOn 1` (feedback-free bursts), SAGE26's default physics and the run files' configuration.
 
 The package's tests register only for the simulations in `FULL_MODEL_TEST_SIMULATIONS` (`scripts/discovery.py`), which include `mini-millennium` and not `mini-millennium-horizontal`, so every command below names `SIMULATION=mini-millennium`.
 

@@ -62,7 +62,7 @@
 #include <string.h>
 #include <math.h>
 
-/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+/* Shared sage26 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
 
 /* External module interface for direct testing */
@@ -775,7 +775,8 @@ int test_negative_prevention(void) {
 // pair otherwise. The central (Vvir 800, Rvir 0.3, dT 1.0 over one substep,
 // ReIncorporationFactor 1.0) would reincorporate far more than its ejected 0.5, so the cap binds
 // (:54-55): all 0.5 returns, with its metals 0.0625 (metallicity 1/8), leaving 0 / 0 ejected. Every
-// value is a short binary fraction, so each expectation is an exact literal.
+// reservoir value, before and after, is a short binary fraction, so each expectation is an exact
+// literal; Vvir, Rvir and dT (0.3 is not one) only make the cap bind and never reach a reservoir.
 
 /** @brief Read a captured log stream into a static buffer (valid until the next call) */
 static const char *c10_read_log(FILE *fp) {

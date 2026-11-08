@@ -11,8 +11,17 @@ Validates: the package's complete default pipeline (R6), run on the committed si
 Tolerance: integers exact; floats at baseline_rtol() (1e-6 relative unless MIMIC_BASELINE_RTOL
            overrides it) with the absolute floor BASELINE_ATOL_DEFAULT (1e-10). Under a relaxed
            override, float differences beyond 1e-6 are reported as warnings. The baseline was
-           captured on macOS arm64 (Apple clang) and reproduces there bit for bit; another
-           compiler or libm may need the override, as CI uses for sage16's baseline
+           captured on macOS arm64 (Apple clang) and reproduces there bit for bit
+Cross-platform floor: MIMIC_BASELINE_RTOL=1e-3 is the documented cross-platform tolerance for
+           this baseline, as it is for sage16's (.github/workflows/ci.yml, scientific step).
+           Measured on Ubuntu 24.04, arm64, gcc 13.3.0, glibc 2.39, on 2026-11-08 at commit
+           470068a3: the strict comparison fails with 38 properties at snapshot 63 and 5 at
+           snapshot 16 beyond 1e-6 relative, the largest CGMgas 5.5e-4, MetalsCGMgas 5.3e-4,
+           CoolingRate 1.6e-4 and tcool 1.1e-4, all below 1e-3, and the run passes at 1e-3 (the
+           post-campaign review's record of that run is
+           /Volumes/Internal/results/sage26-campaign/post-campaign-review/fresh-install/
+           RESULTS-linux.md). Locally on the capture platform the strict 1e-6 applies, and a
+           difference beyond it there is a finding, not noise
 
 This is a regression guard on the package's own output on the test trees, not a parity
 measurement against SAGE26: the package's parity with SAGE26 is measured by the instrument under

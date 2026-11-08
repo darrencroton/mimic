@@ -47,7 +47,7 @@
 #include "util/error.h"
 #include "util/memory.h"
 
-/* Shared SAGE16 test fixture boilerplate (counters, config reset, parameters) */
+/* Shared sage26 test fixture boilerplate (counters, config reset, parameters) */
 #include "modules/_tests/sage_test_fixtures.h"
 
 extern int sage26_apply_metal_enrichment_init(void);
