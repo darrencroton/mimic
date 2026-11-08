@@ -109,7 +109,7 @@ For ad-hoc analysis, reuse the engine's readers rather than hand-rolling: `plot/
 
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04; registry counts and the clustering helper re-verified 2026-10-04. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; registry counts and the clustering helper re-verified 2026-10-04; the registry counts, `sage26`'s included, re-verified 2026-11-08. Re-verify drift-prone specifics:
 
 ```bash
 grep -n '"--' plot/mimic-plot/mimic-plot.py | head -20                    # CLI flags
