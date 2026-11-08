@@ -26,6 +26,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <gsl/gsl_integration.h>
+
 #include "config.h"
 #include "globals.h"
 #include "error.h"
@@ -200,12 +202,21 @@ void read_snap_list(void) {
  * integrated from a = 1/(1+z) to a = 1, in internal time units.
  */
 double time_to_present(double z) {
-  /* Absolute tolerance 1e-9/H gives SAGE-parity precision for lookback times
-   * of order 1/H (sage-code core_init.c used 1e-9 relative tolerance). */
-  double result = integrate_adaptive_simpson(integrand_time_to_present, NULL,
-                                             safe_div(1.0, z + 1, 1.0), 1.0, 1.0e-10, NULL);
+  /* x01 (d): SAGE26's integrator (core_init.c:159-198): GSL qag, GAUSS21, workspace 1000,
+   * epsabs 1/Hubble, epsrel 1e-9, then time = 1/Hubble * result */
+  const double end_limit = 1.0;
+  const double start_limit = 1.0 / (1 + z);
+  double result, abserr;
+  gsl_function F;
+  gsl_integration_workspace *workspace = gsl_integration_workspace_alloc(1000);
 
-  return safe_div(1.0, MimicConfig.Hubble, 0.0) * result;
+  F.function = &integrand_time_to_present;
+  F.params = NULL;
+  gsl_integration_qag(&F, start_limit, end_limit, 1.0 / MimicConfig.Hubble, 1.0e-9, 1000,
+                      GSL_INTEG_GAUSS21, workspace, &result, &abserr);
+  gsl_integration_workspace_free(workspace);
+
+  return 1.0 / MimicConfig.Hubble * result;
 }
 
 /**

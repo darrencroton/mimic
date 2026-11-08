@@ -171,6 +171,9 @@ ifdef EXTRA_LDFLAGS
     LDFLAGS += $(EXTRA_LDFLAGS)
 endif
 LIBS = -lm
+# x01 (d): SAGE26's lookback-time integrator needs GSL (gsl_integration_qag)
+CFLAGS += $(shell gsl-config --cflags)
+LIBS += $(shell gsl-config --libs)
 
 # -----------------------------------------------------------------------------
 # Required Library Detection - YAML
