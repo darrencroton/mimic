@@ -115,4 +115,9 @@ void prepare_halo_for_output(struct HaloInputView view, const struct Halo *g,
 /* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
 /* Includes automatic unit conversion for dT (seconds → Myr) with sentinel preservation */
 #include "../../include/generated/copy_to_output.inc"
+  /* x01 (c): SAGE26 writes dT from its float member, g->dT * UnitTime_in_s / SEC_PER_MEGAYEAR,
+   * into a float buffer (R/src/core_allvars.h:123, R/src/io/save_gals_hdf5.c:884) */
+  if (g->dT != -1.0) {
+    o->dT = (double)(float)((double)(float)g->dT * MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR);
+  }
 }
