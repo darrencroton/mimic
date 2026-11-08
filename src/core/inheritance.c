@@ -20,6 +20,11 @@
 #include "error.h"
 #include "numeric.h"
 
+/* x01 (b): SAGE26 holds Mvir, deltaMvir, Rvir, Vvir, Vmax and the three infall values in float
+ * members of struct GALAXY (R/src/core_allvars.h:129-133, :198-200); each store below is rounded
+ * through float, the field staying double */
+static inline double x01_float_store(double x) { return (double)(float)x; }
+
 static void copy_progenitor_galaxy(struct GalaxyPool *pool, struct Halo *target,
                                    const struct Halo *source) {
   *target = *source;
@@ -53,23 +58,23 @@ static void apply_descendant_properties(struct Halo *halo,
   }
 
   halo->Len = descendant->halo_payload.Len;
-  halo->Vmax = descendant->halo_payload.Vmax;
+  halo->Vmax = x01_float_store(descendant->halo_payload.Vmax);
   halo->VelDisp = descendant->halo_payload.VelDisp;
-  halo->deltaMvir = descendant->virial_mass - halo->Mvir;
+  halo->deltaMvir = x01_float_store(descendant->virial_mass - halo->Mvir);
 
   if (descendant->virial_mass > halo->Mvir) {
-    halo->Rvir = descendant->virial_radius;
-    halo->Vvir = descendant->virial_velocity;
+    halo->Rvir = x01_float_store(descendant->virial_radius);
+    halo->Vvir = x01_float_store(descendant->virial_velocity);
   }
-  halo->Mvir = descendant->virial_mass;
+  halo->Mvir = x01_float_store(descendant->virial_mass);
 
   if (descendant->is_fof_central) {
     halo->Type = 0;
   } else {
     if (halo->Type == 0) {
-      halo->infallMvir = previous_mvir;
-      halo->infallVvir = previous_vvir;
-      halo->infallVmax = previous_vmax;
+      halo->infallMvir = x01_float_store(previous_mvir);
+      halo->infallVvir = x01_float_store(previous_vvir);
+      halo->infallVmax = x01_float_store(previous_vmax);
     }
 
     halo->Type = 1;
@@ -81,14 +86,14 @@ void make_orphan(struct Halo *halo) {
   double previous_vvir = halo->Vvir;
   double previous_vmax = halo->Vmax;
 
-  halo->deltaMvir = -1.0 * halo->Mvir;
+  halo->deltaMvir = x01_float_store(-1.0 * halo->Mvir);
   halo->Mvir = 0.0;
   halo->Len = 0;
 
   if (halo->Type == 0) {
-    halo->infallMvir = previous_mvir;
-    halo->infallVvir = previous_vvir;
-    halo->infallVmax = previous_vmax;
+    halo->infallMvir = x01_float_store(previous_mvir);
+    halo->infallVvir = x01_float_store(previous_vvir);
+    halo->infallVmax = x01_float_store(previous_vmax);
   }
 
   halo->Type = 2;
@@ -97,6 +102,12 @@ void make_orphan(struct Halo *halo) {
 static void init_new_halo(struct GalaxyPool *pool, struct Halo *halo,
                           const struct InheritanceDescendant *descendant) {
   init_halo_from_payload(halo, &descendant->halo_payload);
+  /* x01 (b): SAGE26's init_galaxy stores these into float members (R/src/model_misc.c:113-116);
+   * deltaMvir 0 and the infall values -1 are exact in float */
+  halo->Vmax = x01_float_store(halo->Vmax);
+  halo->Vvir = x01_float_store(halo->Vvir);
+  halo->Mvir = x01_float_store(halo->Mvir);
+  halo->Rvir = x01_float_store(halo->Rvir);
 
   halo->HaloNr = descendant->halo_nr;
   halo->SnapNum = descendant->current_snap - 1;
