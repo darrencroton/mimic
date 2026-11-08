@@ -1,0 +1,108 @@
+module:
+  name: sage26_starburst_feedback
+  description: >-
+    SAGE26's collisional_starburst_recipe (Somerville et al. 2001) for the disk instability
+    (process_by_galaxy) and merger events (process_per_event), with the instability channel's
+    bulge-radius update (BulgeSizeOn 3) and the post-minor-merger disk-instability recheck (and its
+    black-hole growth) before the burst's metal yield; its supernova budget fixed-epsilon
+    (FIREmodeOn 0) or the FIRE scaling from the host's own Vvir and stored snapshot's redshift,
+    capped loading (MassLoading not written) and energy-based ejection (FIREmodeOn 1)
+
+  supported_processing_modes: [process_by_galaxy, process_per_event]
+
+  dependencies:
+    properties:
+      - Type
+      - HaloNr
+      - SnapNum
+      - dT
+      - Mvir
+      - Vvir
+      - Vmax
+      - ColdGas
+      - MetalsColdGas
+      - StellarMass
+      - MetalsStellarMass
+      - BulgeMass
+      - MetalsBulgeMass
+      - MergerBulgeMass
+      - InstabilityBulgeMass
+      - BulgeRadius
+      - MergerBulgeRadius
+      - InstabilityBulgeRadius
+      - H1gas
+      - H2gas
+      - HotGas
+      - MetalsHotGas
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the central's (feedback, yield), the host's (wind)
+      - EjectedGas
+      - MetalsEjectedGas
+      - BlackHoleMass
+      - QuasarModeBHaccretionMass
+      - DiskScaleRadius
+      - UnstableDiskGasFraction
+      - MergerDiskDominated
+      - StarFormationRate
+      - SupernovaOutflowRate
+      - SfrBulgeBin0
+      - SfrBulgeBin1
+      - SfrBulgeBin2
+      - SfrBulgeBin3
+      - SfrBulgeBin4
+      - SfrBulgeBin5
+      - SfrBulgeBin6
+      - SfrBulgeBin7
+      - SfrBulgeBin8
+      - SfrBulgeBin9
+      - SfrBulgeColdGasBin0
+      - SfrBulgeColdGasBin1
+      - SfrBulgeColdGasBin2
+      - SfrBulgeColdGasBin3
+      - SfrBulgeColdGasBin4
+      - SfrBulgeColdGasBin5
+      - SfrBulgeColdGasBin6
+      - SfrBulgeColdGasBin7
+      - SfrBulgeColdGasBin8
+      - SfrBulgeColdGasBin9
+      - SfrBulgeColdGasMetalsBin0
+      - SfrBulgeColdGasMetalsBin1
+      - SfrBulgeColdGasMetalsBin2
+      - SfrBulgeColdGasMetalsBin3
+      - SfrBulgeColdGasMetalsBin4
+      - SfrBulgeColdGasMetalsBin5
+      - SfrBulgeColdGasMetalsBin6
+      - SfrBulgeColdGasMetalsBin7
+      - SfrBulgeColdGasMetalsBin8
+      - SfrBulgeColdGasMetalsBin9
+    parameters:
+      - FeedbackReheatingEpsilon
+      - FeedbackEjectionEfficiency
+      - RecycleFraction
+      - Yield
+      - FracZleaveDisk
+      - StarFormingDiskFactor
+      - BlackHoleGrowthRate
+      - QuasarModeEfficiency
+      - ThresholdMajorMerger
+      - BulgeSizeOn
+      - SFprescription
+      - StarburstColdGasOn
+      - FIREmodeOn
+      - CGMrecipeOn     # required: 0 or 1
+
+  events:
+    consumes:
+      - producer: sage26_resolve_mergers_and_disruption
+        event: merger
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_starburst_feedback.c
+      - _tests/test_unit_sage26_starburst_feedback_oracle.c
+    integration: _tests/test_integration_sage26_starburst_feedback.py
+    scientific: []
+
+  docs:
+    physics: README.md

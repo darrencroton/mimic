@@ -1,0 +1,38 @@
+# Mvir +0, -0, negative and NaN, then a row above Mshock: mass_ratio <= 0.0 takes the no-draw branch (Regime 0, no rand() call) for +0, -0 and the negative Mvir;
+# a NaN mass_ratio is not <= 0.0, so the NaN row consumes a draw (queue entry 0) and is classified 0 (u < NaN is false), even with the deviate 0;
+# the last row consumes queue entry 1, so the queue order records which rows drew.
+# Reachability: constructed routine-domain probe (R4 holds Mvir 0 rows; negative and NaN Mvir are routine-domain states).
+# R4's flags: CGMrecipeOn 1 (R4.par:54, a caller gate, not read here), Hubble_h 0.73 (R4.par:40), MShockMsun SAGE26's default 6.0e11 (core_read_parameter_file.c:114).
+format sage26-oracle-fixture 1
+routine determine_and_store_regime
+f64 params.MShockMsun 0x426176592e000000  # 600000000000.0
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.73
+i32 call.ngal 5
+# galaxy[0]: Mvir +0.0: no draw, Regime 0
+i32 galaxy[0].Type 0
+i32 galaxy[0].mergeType 0
+f32 galaxy[0].Mvir 0x00000000  # 0.0
+i32 galaxy[0].Regime -1
+# galaxy[1]: Mvir -0.0: no draw, Regime 0 (input Regime 1 overwritten)
+i32 galaxy[1].Type 0
+i32 galaxy[1].mergeType 0
+f32 galaxy[1].Mvir 0x80000000  # -0.0
+i32 galaxy[1].Regime 1
+# galaxy[2]: Mvir -1.0: no draw, Regime 0
+i32 galaxy[2].Type 0
+i32 galaxy[2].mergeType 0
+f32 galaxy[2].Mvir 0xbf800000  # -1.0
+i32 galaxy[2].Regime -1
+# galaxy[3]: Mvir NaN: one draw, Regime 0
+i32 galaxy[3].Type 0
+i32 galaxy[3].mergeType 0
+f32 galaxy[3].Mvir 0x7fc00000  # nan
+i32 galaxy[3].Regime 1
+# galaxy[4]: above Mshock, deviate just below hot_fraction: Regime 1
+i32 galaxy[4].Type 0
+i32 galaxy[4].mergeType 0
+f32 galaxy[4].Mvir 0x42af3333  # 87.5999984741211
+i32 galaxy[4].Regime -1
+i32 rand.queue_length 2
+i32 rand.queue[0] 0  # the NaN row's draw (deviate 0)
+i32 rand.queue[1] 2046631969  # the last row's draw, just below its hot_fraction 0.95303727798624649

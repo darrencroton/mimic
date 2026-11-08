@@ -1,0 +1,36 @@
+module:
+  name: sage26_reincorporation
+  description: >-
+    Returns ejected gas to the hot halo, or with CGMrecipeOn 1 and the central's Regime 0 to its
+    CGM, in massive systems (Vvir > Vcrit); acts on FOF central only
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - HaloNr
+      - SnapNum
+      - Type
+      - Vvir
+      - Rvir
+      - dT
+      - EjectedGas
+      - MetalsEjectedGas
+      - HotGas
+      - MetalsHotGas
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): selects the destination
+    parameters:
+      - ReIncorporationFactor
+      - CGMrecipeOn     # required: 0 or 1
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_reincorporation.c
+      - _tests/test_unit_sage26_reincorporation_oracle.c
+    integration: _tests/test_integration_sage26_reincorporation.py
+    scientific: []
+
+  docs:
+    physics: README.md

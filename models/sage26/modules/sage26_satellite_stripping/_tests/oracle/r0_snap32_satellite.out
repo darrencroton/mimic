@@ -1,0 +1,14 @@
+# SAGE26 oracle output for r0_snap32_satellite.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine strip_from_satellite
+f64 intermediate.reionization_modifier 0x3fee39f0703cc97b  # 0.94457265778900934
+f64 intermediate.HaloBaryonFraction 0x3fc48dcc75480e21  # 0.1605773518241316
+i32 intermediate.strip_from_satellite_called 1
+f32 galaxy[0].HotGas 0x425c64a6  # 55.0982895
+f32 galaxy[0].MetalsHotGas 0x3dcd419b  # 0.100222789
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[1].HotGas 0x3f50bc39  # 0.81537205
+f32 galaxy[1].MetalsHotGas 0x3c06da87  # 0.00823081192
+f32 galaxy[1].CGMgas 0x00000000  # 0
+f32 galaxy[1].MetalsCGMgas 0x00000000  # 0

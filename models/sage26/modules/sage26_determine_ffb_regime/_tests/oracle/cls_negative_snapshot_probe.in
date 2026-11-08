@@ -1,0 +1,30 @@
+# determine_and_store_ffb_regime with call.snapnum -1: halo_uniform converts the snapshot through
+# (uint32_t) (R/src/model_regimes.c:153), so -1 hashes as 4294967295, not as the sign-extended
+# 64-bit -1. SAGE26 never passes a negative snapshot; this probe records SAGE26's own bits for the
+# conversion (Zcurr ZZ[12])
+# Reachability: constructed routine-domain probe
+format sage26-oracle-fixture 1
+routine determine_and_store_ffb_regime
+i32 params.EnhancedStarFormationOn 1  # R6.par:58
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.73
+f64 call.Zcurr 0x4024259cb99f83b9  # 10.073461342546453
+i32 call.snapnum -1
+i32 call.ngal 2
+# galaxy[0]: MostBoundID 4896973 (an R6 FFB row's at snapshot 12)
+i32 galaxy[0].Type 0
+i32 galaxy[0].mergeType 0
+f32 galaxy[0].Mvir 0x401ca7d2  # 2.4477429389953613
+i64 galaxy[0].MostBoundID 4896973
+i32 galaxy[0].FFBRegime 0
+i32 galaxy[0].Regime 0
+# galaxy[1]: MostBoundID 5
+i32 galaxy[1].Type 0
+i32 galaxy[1].mergeType 0
+f32 galaxy[1].Mvir 0x401ca7d2  # 2.4477429389953613
+i64 galaxy[1].MostBoundID 5
+i32 galaxy[1].FFBRegime 0
+i32 galaxy[1].Regime 0
+i32 rand.queue_length 2  # one discarded draw per row not skipped
+i32 rand.queue[0] 21
+i32 rand.queue[1] 22
+i32 call.has_reference 0

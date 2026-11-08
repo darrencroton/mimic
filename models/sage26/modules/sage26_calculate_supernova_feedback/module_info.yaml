@@ -1,0 +1,35 @@
+module:
+  name: sage26_calculate_supernova_feedback
+  description: >-
+    Calculates SAGE26's supernova reheated and ejected gas masses from NewStellarMass with
+    renormalization and ejection against the forming galaxy's own Vvir, fixed-epsilon
+    (FIREmodeOn 0) or with the FIRE scaling from its stored snapshot's redshift, the capped
+    loading recorded in MassLoading and the energy-based ejection (FIREmodeOn 1); stores results
+    in SupernovaReheatedMass and SupernovaEjectedMass
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - FFBRegime       # read: 1 returns at once, writing nothing (SAGE26's FFB dispatch)
+      - SnapNum
+      - Vvir
+      - ColdGas
+      - NewStellarMass
+      - SupernovaReheatedMass
+      - SupernovaEjectedMass
+      - MassLoading
+    parameters:
+      - FeedbackReheatingEpsilon
+      - FeedbackEjectionEfficiency
+      - FIREmodeOn
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_calculate_supernova_feedback.c
+      - _tests/test_unit_sage26_calculate_supernova_feedback_oracle.c
+    integration: _tests/test_integration_sage26_calculate_supernova_feedback.py
+    scientific: []
+
+  docs:
+    physics: README.md

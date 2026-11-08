@@ -1,0 +1,18 @@
+# SAGE26 oracle output for ufsf_r0_snap32.in, written by oracle_c05 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine update_from_star_formation
+f64 intermediate.metallicity 0x3f7e8c2dac4e7207  # 0.0074579032997488309
+f32 galaxy[0].ColdGas 0x3e8a7e7f  # 0.270496339
+f32 galaxy[0].MetalsColdGas 0x3b043547  # 0.00201733573
+f32 galaxy[0].StellarMass 0x4004c18f  # 2.07431388
+f32 galaxy[0].MetalsStellarMass 0x3cc1fca0  # 0.0236800313
+f32 galaxy[0].BulgeMass 0x3f079f99  # 0.529779017
+f32 galaxy[0].MetalsBulgeMass 0x3b966bfb  # 0.00459050899
+f32 galaxy[0].InstabilityBulgeMass 0x3e74df8e  # 0.239134043
+f32 galaxy[0].HotGas 0x42086397  # 34.0972557
+f32 galaxy[0].MetalsHotGas 0x3dec1665  # 0.115277089
+f32 galaxy[0].EjectedMass 0x3e10e26c  # 0.141488731
+f32 galaxy[0].MetalsEjectedMass 0x39f4c2ee  # 0.000466845406
+f32 galaxy[0].H1gas 0x3e434fd0  # 0.190734148
+f32 galaxy[0].H2gas 0x00000000  # 0
+f32 galaxy[0].OutflowRate 0x00000000  # 0

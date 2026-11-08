@@ -1,0 +1,6 @@
+# log10(T) in the last interval [8.45, 8.5).
+format sage26-oracle-fixture 1
+routine get_metaldependent_cooling_rate
+
+f64 call.logTemp 0x4020f0a3d70a3d71  # 8.4700000000000006
+f64 call.logZ 0xbff8000000000000  # -1.5

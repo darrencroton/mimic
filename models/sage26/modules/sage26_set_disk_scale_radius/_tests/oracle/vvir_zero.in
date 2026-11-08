@@ -1,0 +1,10 @@
+# Vvir = 0: the guard fails; fallback 0.1 * Rvir in double.
+format sage26-oracle-fixture 1
+routine get_disk_radius
+
+i32 galaxy[0].Type 0
+f32 galaxy[0].Vvir 0x00000000  # 0
+f32 galaxy[0].Rvir 0x3e19999a  # 0.150000006
+f32 halo.Spin[0] 0x3f9df3b6  # 1.23399997
+f32 halo.Spin[1] 0xbf1126e9  # -0.566999972
+f32 halo.Spin[2] 0x4016147b  # 2.34500003

@@ -1,0 +1,5 @@
+# SAGE26 oracle output for r0_snap32_central.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine get_disk_radius
+f64 return.r_disk 0x3f74798b7e354ac3  # 0.0049987267442072629
+f32 galaxy[0].DiskScaleRadius 0x3ba3cc5c  # 0.00499872677

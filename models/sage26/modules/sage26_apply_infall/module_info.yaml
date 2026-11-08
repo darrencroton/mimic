@@ -1,0 +1,33 @@
+module:
+  name: sage26_apply_infall
+  description: >-
+    Distributes infalling gas to the central's hot reservoir, or with CGMrecipeOn 1 and the
+    central's Regime 0 its CGM reservoir, over substeps with metallicity tracking; acts on FOF
+    central only
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type
+      - Mvir
+      - InfallingGas
+      - HotGas
+      - MetalsHotGas
+      - EjectedGas
+      - MetalsEjectedGas
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): selects the CGM or the hot pair
+    parameters:
+      - CGMrecipeOn     # required: 0 or 1
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_apply_infall.c
+      - _tests/test_unit_sage26_apply_infall_oracle.c
+    integration: _tests/test_integration_sage26_apply_infall.py
+    scientific: []
+
+  docs:
+    physics: README.md

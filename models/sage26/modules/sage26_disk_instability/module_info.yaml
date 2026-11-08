@@ -1,0 +1,40 @@
+module:
+  name: sage26_disk_instability
+  description: >-
+    SAGE26's check_disk_instability up to its black-hole and burst calls (Mo, Mao & White 1998
+    criterion): transfers unstable disk stars and metals to the bulge and its instability channel,
+    updates the instability-bulge radius (BulgeSizeOn 3), and sets the UnstableDiskGasFraction
+    trigger for downstream modules
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - FFBRegime       # read: 1 returns at once, writing nothing (SAGE26's FFB dispatch)
+      - Type
+      - Vmax
+      - ColdGas
+      - StellarMass
+      - BulgeMass
+      - MetalsStellarMass
+      - MetalsBulgeMass
+      - InstabilityBulgeMass
+      - MergerBulgeMass
+      - BulgeRadius
+      - MergerBulgeRadius
+      - InstabilityBulgeRadius
+      - DiskScaleRadius
+      - UnstableDiskGasFraction
+    parameters:
+      - StarFormingDiskFactor
+      - BulgeSizeOn
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_disk_instability.c
+      - _tests/test_unit_sage26_disk_instability_oracle.c
+    integration: _tests/test_integration_sage26_disk_instability.py
+    scientific: []
+
+  docs:
+    physics: README.md

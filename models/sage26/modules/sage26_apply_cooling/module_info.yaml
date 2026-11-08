@@ -1,0 +1,34 @@
+module:
+  name: sage26_apply_cooling
+  description: >-
+    Runs the tail of SAGE26's hot cooling (Cooling energy and CoolingRate), then transfers the
+    AGN-suppressed CoolingGas from the hot halo to the cold reservoir
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - Type
+      - HaloNr
+      - SnapNum
+      - dT
+      - Vvir
+      - HotGas
+      - MetalsHotGas
+      - ColdGas
+      - MetalsColdGas
+      - CoolingGas
+      - CoolingReturnPath
+      - Cooling
+      - CoolingRate
+    parameters: []
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_apply_cooling.c
+      - _tests/test_unit_sage26_apply_cooling_oracle.c
+    integration: _tests/test_integration_sage26_apply_cooling.py
+    scientific: []
+
+  docs:
+    physics: README.md

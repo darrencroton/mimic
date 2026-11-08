@@ -1,0 +1,42 @@
+x01-core-alignment patch 03-written-dt (git apply ignores this header)
+
+E7 item: (c) Evolution interval and time. Only the written dT differs; the evolution interval and
+substep time are already as SAGE26 (evidence in the report), so this patch changes output only.
+
+SAGE26 behaviour: per galaxy and substep, in double, deltaT = Age[galaxies[p].SnapNum] - halo_age
+(R/src/core_build_model.c:414, :479), and on the first substep dT = deltaT if dT < 0
+(R/src/core_build_model.c:482-484), dT being a float member (R/src/core_allvars.h:123, reset to -1.0
+at joining, R/src/core_build_model.c:237, and for a new galaxy, R/src/model_misc.c:105). The writer
+stores g->dT * run_params->UnitTime_in_s / SEC_PER_MEGAYEAR, the float promoted to double and
+evaluated left to right, into a float output buffer (R/src/io/save_gals_hdf5.c:884).
+
+Mimic behaviour replaced: dT is the double Age[source SnapNum] - Age[current] set at inheritance
+(src/core/inheritance.c:168; src/core/build_model.c:334, :391-392; src/core/core_properties.yaml:99-108)
+and written as the double dT * (UnitTime_in_s / SEC_PER_MEGAYEAR) (generated copy_to_output.inc from
+the output_convert at src/core/core_properties.yaml:108, included at src/io/output/util.c:117).
+Value check on the base run: at snapshots 63, 32, 23 and 20 some or all written Mimic dT values are
+not bit-identical to R0's, and float(float(dT_code) * UnitTime_in_s / SEC_PER_MEGAYEAR) reproduces
+every distinct R0 dT value at snapshots 63, 37, 32 and 23.
+
+What the patch changes: after the generated copy in prepare_halo_for_output (src/io/output/util.c),
+a non-sentinel dT is written as (double)(float)((double)(float)g->dT * UnitTime_in_s /
+SEC_PER_MEGAYEAR). The persisted dT and every evolution quantity are unchanged; the output dataset
+stays float64.
+
+Reading for i02: yes, it would change sage16's and halos-only's written dT (both write the core dT
+through the same function), at the float-rounding level, and nothing else in their output.
+
+diff --git a/src/io/output/util.c b/src/io/output/util.c
+index 45937fbc..6faa1324 100644
+--- a/src/io/output/util.c
++++ b/src/io/output/util.c
+@@ -115,4 +115,9 @@ void prepare_halo_for_output(struct HaloInputView view, const struct Halo *g,
+ /* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
+ /* Includes automatic unit conversion for dT (seconds → Myr) with sentinel preservation */
+ #include "../../include/generated/copy_to_output.inc"
++  /* x01 (c): SAGE26 writes dT from its float member, g->dT * UnitTime_in_s / SEC_PER_MEGAYEAR,
++   * into a float buffer (R/src/core_allvars.h:123, R/src/io/save_gals_hdf5.c:884) */
++  if (g->dT != -1.0) {
++    o->dT = (double)(float)((double)(float)g->dT * MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR);
++  }
+ }

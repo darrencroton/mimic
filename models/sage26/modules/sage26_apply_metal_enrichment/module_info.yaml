@@ -1,0 +1,31 @@
+module:
+  name: sage26_apply_metal_enrichment
+  description: >-
+    Applies the instantaneous-recycling disk-SF metal yield after the disk-instability chain (SAGE
+    ordering parity)
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - FFBRegime       # read: 1 returns at once, writing nothing (SAGE26's FFB dispatch)
+      - Type
+      - Mvir
+      - ColdGas
+      - MetalsColdGas
+      - MetalsHotGas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the FoF central's selects the escaping metals' pair
+      - NewStellarMass
+    parameters:
+      - Yield
+      - FracZleaveDisk
+      - CGMrecipeOn     # required: 0 or 1
+
+  tests:
+    unit: _tests/test_unit_sage26_apply_metal_enrichment.c
+    integration: _tests/test_integration_sage26_apply_metal_enrichment.py
+    scientific: []
+
+  docs:
+    physics: README.md

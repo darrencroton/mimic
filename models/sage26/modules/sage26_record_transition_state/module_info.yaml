@@ -1,0 +1,25 @@
+module:
+  name: sage26_record_transition_state
+  description: >-
+    Records each galaxy's final Type for SAGE26's progenitor-joining transitions at the next snapshot,
+    and writes infallStellarMass and TimeOfInfall by SAGE26's output rule (0 for Type 0 rows)
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type
+      - PreviousType
+      - infallStellarMassState
+      - TimeOfInfallState
+      - infallStellarMass
+      - TimeOfInfall
+    parameters: []
+
+  tests:
+    unit: _tests/test_unit_sage26_record_transition_state.c
+    integration: _tests/test_integration_sage26_record_transition_state.py
+    scientific: []
+
+  docs:
+    physics: README.md

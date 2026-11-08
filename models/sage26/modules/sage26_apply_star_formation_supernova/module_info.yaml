@@ -1,0 +1,77 @@
+module:
+  name: sage26_apply_star_formation_supernova
+  description: >-
+    Infrastructure apply step: commits NewStellarMass and SN transport fields to galaxy reservoirs
+    with recycling, metallicity refresh, and gas-phase transfers. Not a swappable prescription; must
+    follow sage26_calculate_star_formation and/or sage26_calculate_supernova_feedback in the same phase.
+    The disk-SF metal yield is applied later by sage26_apply_metal_enrichment (SAGE ordering parity).
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - FFBRegime       # read: 1 returns at once, writing nothing (SAGE26's FFB dispatch)
+      - dT
+      - Mvir
+      - ColdGas
+      - MetalsColdGas
+      - StellarMass
+      - MetalsStellarMass
+      - HotGas
+      - MetalsHotGas
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the FoF central's selects the feedback's pair
+      - EjectedGas
+      - MetalsEjectedGas
+      - H1gas
+      - H2gas
+      - NewStellarMass
+      - SupernovaReheatedMass
+      - SupernovaEjectedMass
+      - StarFormationRate
+      - SupernovaOutflowRate
+      - SfrDiskBin0
+      - SfrDiskBin1
+      - SfrDiskBin2
+      - SfrDiskBin3
+      - SfrDiskBin4
+      - SfrDiskBin5
+      - SfrDiskBin6
+      - SfrDiskBin7
+      - SfrDiskBin8
+      - SfrDiskBin9
+      - SfrDiskColdGasBin0
+      - SfrDiskColdGasBin1
+      - SfrDiskColdGasBin2
+      - SfrDiskColdGasBin3
+      - SfrDiskColdGasBin4
+      - SfrDiskColdGasBin5
+      - SfrDiskColdGasBin6
+      - SfrDiskColdGasBin7
+      - SfrDiskColdGasBin8
+      - SfrDiskColdGasBin9
+      - SfrDiskColdGasMetalsBin0
+      - SfrDiskColdGasMetalsBin1
+      - SfrDiskColdGasMetalsBin2
+      - SfrDiskColdGasMetalsBin3
+      - SfrDiskColdGasMetalsBin4
+      - SfrDiskColdGasMetalsBin5
+      - SfrDiskColdGasMetalsBin6
+      - SfrDiskColdGasMetalsBin7
+      - SfrDiskColdGasMetalsBin8
+      - SfrDiskColdGasMetalsBin9
+    parameters:
+      - RecycleFraction
+      - SFprescription
+      - CGMrecipeOn     # required: 0 or 1
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_apply_star_formation_supernova.c
+      - _tests/test_unit_sage26_apply_star_formation_supernova_oracle.c
+    integration: _tests/test_integration_sage26_apply_star_formation_supernova.py
+    scientific: []
+
+  docs:
+    physics: README.md

@@ -1,0 +1,18 @@
+# Mode 3, a positive merger mass with a negative MergerBulgeRadius: the fallback test is
+# R_merger <= 0.0 (R/src/model_misc.c:343), so the Shen radius replaces it.
+# Reachability: constructed routine-domain probe (negative radius).
+format sage26-oracle-fixture 1
+routine get_bulge_radius
+
+i32 params.BulgeSizeOn 3  # R1 (R1.par:109)
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.72999999999999998  (R1.par:40; read in mode 3, R/src/model_misc.c:249,398)
+
+i32 call.ngal 1
+i32 call.p 0
+
+f32 galaxy[0].MergerBulgeMass 0x3f000000  # 0.5
+f32 galaxy[0].InstabilityBulgeMass 0x3e800000  # 0.25
+f32 galaxy[0].DiskScaleRadius 0x3b83126f  # 0.00400000019
+f32 galaxy[0].BulgeRadius 0x3951b717  # 0.000199999995
+f32 galaxy[0].MergerBulgeRadius 0xb8d1b717  # -9.99999975e-05
+f32 galaxy[0].InstabilityBulgeRadius 0x399d4952  # 0.000300000014

@@ -1,0 +1,10 @@
+# SAGE26 oracle output for tr_sync_r1_snap32.in, written by oracle_c07 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine central_disk_and_bulge_radius
+f64 return.r_disk 0x3f503aef8894a84a  # 0.00099061386056088991
+f32 galaxy[0].MergerBulgeMass 0x3dd73b68  # 0.105093777
+f32 galaxy[0].InstabilityBulgeMass 0x3ee9e80b  # 0.456848472
+f32 galaxy[0].DiskScaleRadius 0x3a81d77c  # 0.000990613829
+f32 galaxy[0].BulgeRadius 0x394b9ccc  # 0.00019418
+f32 galaxy[0].MergerBulgeRadius 0x3a026188  # 0.000497363973
+f32 galaxy[0].InstabilityBulgeRadius 0x39027ada  # 0.000124435319

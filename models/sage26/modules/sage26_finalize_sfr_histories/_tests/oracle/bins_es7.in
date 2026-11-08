@@ -1,0 +1,8 @@
+# effective_steps 7 (NOT R0: SAGE26's floor is 10 at SubstepResolution 1): bins skip.
+# Constructed input (not R0 output); every value is set explicitly. All flags and parameters are
+# R0's unless a line says NOT R0.
+format sage26-oracle-fixture 1
+routine step_bin_map
+
+i32 call.effective_steps 7
+f64 call.deltaT 0x3f2807e823466620  # 0.0001833411094025886  (Age[32] - halo_age (c03's r0_snap32 Age values))

@@ -1,0 +1,1379 @@
+# Mimic Galaxy Properties Metadata
+#
+# This file defines galaxy baryonic physics properties used in Mimic.
+# These properties are created and modified by physics modules.
+#
+# Reservoir fields (HotGas, ColdGas, EjectedGas, StellarMass, Metals*,
+# BlackHoleMass, BulgeMass, ICS) are `float` only for byte-for-byte parity with
+# sage-model's struct GALAXY (see docs/DEVELOPER-GUIDE.md#property-precision).
+# New models without that constraint should prefer `double`.
+#
+# See: docs/DEVELOPER-GUIDE.md for complete schema documentation
+
+galaxy_properties:
+
+  # =============================================================================
+  # FUNDAMENTAL PROPERTIES
+  # =============================================================================
+
+  - name: HaloBaryonFraction
+    type: double  # SAGE parity: reionization modifier is a double local in SAGE
+    units: dimensionless
+    description: Local baryon fraction for this halo
+    output: true
+    init_source: default
+    init_value: -1.0  # Initialise with GlobalBaryonFraction when first used
+    output_source: galaxy_property
+    range: [0.0, 1.0]  # Must be physical fraction
+    sentinels: [-1.0]  # -1.0 = not yet set; replaced with GlobalBaryonFraction (or the reionization-modified value) on first use
+
+  # =============================================================================
+  # GAS COMPONENTS
+  # =============================================================================
+
+  - name: InfallingGas
+    type: double  # SAGE parity: infallingGas is a double local in SAGE's evolve loop
+    units: 1e10 Msun/h
+    description: Cosmological gas infalling onto galaxy this snapshot
+    notes: Transport scratch buffer written by sage26_prepare_infall_budget (pre_timestep); read by sage26_apply_infall (galaxy_physics)
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true
+    range: [-100000.0, 100000.0]  # Can be negative for mass loss
+    sentinels: [0.0]  # Can be zero if no infall (e.g., satellites)
+
+  - name: CoolingGas
+    type: double  # SAGE parity: coolingGas is a double local through SAGE's cooling chain
+    units: 1e10 Msun/h
+    description: Gas mass cooling from hot to cold this substep
+    notes: Package-private transport state carrying SAGE26's coolingGas local of cooling_recipe_hot (src/model_cooling_heating.c:135-314). sage26_calculate_cooling_budget writes the post-cap, pre-suppression mass on every call (:288-292); sage26_radio_mode_heating overwrites it with the AGN-suppressed mass do_AGN_heating returns (:297-299); sage26_apply_cooling consumes it (:301-313 and src/core_build_model.c:508-509)
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (cannot be negative)
+    sentinels: [0.0]  # Can legitimately be zero (no cooling)
+
+  - name: ColdGas
+    type: float
+    units: 1e10 Msun/h
+    description: Cold gas mass available for star formation
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (generous upper bound)
+    sentinels: [0.0]  # Legitimate to have no cold gas
+
+  - name: HotGas
+    type: float
+    units: 1e10 Msun/h
+    description: Hot gas mass in halo atmosphere
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Can legitimately be zero (all gas cooled or ejected)
+
+  - name: EjectedGas
+    type: float
+    units: 1e10 Msun/h
+    description: Mass of gas ejected from galaxy by feedback
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Can be zero if no feedback has occurred
+
+  # =============================================================================
+  # STELLAR COMPONENTS
+  # =============================================================================
+
+  - name: StellarMass
+    type: float
+    units: 1e10 Msun/h
+    description: Total stellar mass
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (generous upper bound)
+    sentinels: [0.0]  # Legitimate to have no stars yet
+
+  - name: BulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Stellar mass in bulge component
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= StellarMass
+    sentinels: [0.0]  # Can be zero for pure disk galaxies
+
+  - name: ICS
+    type: float
+    units: 1e10 Msun/h
+    description: Intracluster stellar mass
+    notes: SAGE26 scalar float member ICS (src/core_allvars.h:143). Created as 0.0 at src/model_misc.c:129; written verbatim at src/io/save_gals_hdf5.c:912. sage26_prepare_infall_budget writes it once per FoF group in pre_timestep, as SAGE26's infall_recipe does; every live satellite's ICS and MetalsICS are zeroed and the FoF central's ICS and MetalsICS are set to the group's totals, summed in double and stored as float, then MetalsICS is capped at ICS and a negative ICS or MetalsICS is zeroed (src/model_infall.c:85-86, :109, :196-210). In the run files' satellite_mergers phase of a substep sage26_resolve_mergers_and_disruption adds to a target's ICS through shared/sage_merger_physics.h; a merger adds the satellite's ICS (add_galaxies_together, src/model_mergers.c:487), and a disruption adds the satellite's ICS and then its stellar mass and zeroes the satellite's ICS (disrupt_satellite_to_ICS, src/model_mergers.c:858-863, :895). ICS_disrupt and ICS_accrete book each transfer by channel
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Zero if no satellites have been disrupted
+
+  - name: NewStellarMass
+    type: double  # SAGE parity: stars is a double local in SAGE
+    units: 1e10 Msun/h
+    description: New stars formed this timestep
+    notes: Transport scratch buffer written by sage26_calculate_star_formation; read by sage26_calculate_supernova_feedback and sage26_apply_star_formation_supernova
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Zero when no star formation occurring
+
+  - name: StarFormationRate
+    type: float
+    units: Msun/yr
+    description: Average star formation rate over snapshot (total stars formed / dT)
+    notes: The package's snapshot-averaged diagnostic, not a SAGE26 output (SAGE26's star-formation rates are its per-substep histories, SfrDisk and SfrBulge). Reset at each snapshot and accumulated as the stars formed over the snapshot interval dT, by sage26_apply_star_formation_supernova for the ordinary disk star formation (the stars it commits), by the collisional-burst transaction (shared/sage_starburst_physics.h) and, with EnhancedStarFormationOn 1, by the feedback-free-burst transaction sage26_ffb_star_formation for an FFBRegime 1 row (the stars formed, which SAGE26's starformation_ffb commits before its feedback renormalises them, src/model_starformation_and_feedback.c:1325-1330).
+    output: true
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    output_convert: MimicConfig.UnitMass_in_g / MimicConfig.UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
+    sentinels: [0.0]  # Zero when no star formation
+
+  # =============================================================================
+  # CHEMICAL COMPOSITION
+  # =============================================================================
+
+  - name: MetalsStellarMass
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in stellar component
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= StellarMass
+    sentinels: [0.0]  # Primordial stars (Pop III) would have zero metals
+
+  - name: MetalsBulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in bulge component
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= BulgeMass
+    sentinels: [0.0]  # Can be zero
+
+  - name: MetalsColdGas
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in cold gas reservoir
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= ColdGas
+    sentinels: [0.0]  # Primordial gas has zero metals
+
+  - name: MetalsHotGas
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in hot gas reservoir
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= HotGas
+    sentinels: [0.0]  # Primordial gas has zero metals
+
+  - name: MetalsICS
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in intracluster stars
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= ICS
+    sentinels: [0.0]  # Can be zero
+
+  - name: MetalsEjectedGas
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in ejected gas reservoir
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= EjectedGas
+    sentinels: [0.0]  # Can be zero
+
+  # =============================================================================
+  # BLACK HOLES
+  # =============================================================================
+
+  - name: BlackHoleMass
+    type: float
+    units: 1e10 Msun/h
+    description: Central supermassive black hole mass
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1.0]  # 0 to 10^10 Msun/h (BH masses are typically much smaller than galaxy masses)
+    sentinels: [0.0]  # Can legitimately be zero (no BH seeding yet)
+
+  - name: QuasarModeBHaccretionMass
+    type: float
+    units: 1e10 Msun/h
+    description: Current timestep black hole accretion mass in quasar mode
+    output: true
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    range: [0.0, 1.0]  # Typically << galaxy mass
+    sentinels: [0.0]  # Zero if no quasar-mode accretion
+
+  # =============================================================================
+  # ENERGY & FEEDBACK
+  # =============================================================================
+
+  - name: SupernovaReheatedMass
+    type: double  # SAGE parity: reheated_mass is a double local in SAGE
+    units: 1e10 Msun/h
+    description: Gas mass to be reheated by supernova feedback this timestep
+    notes: Transport scratch buffer written by sage26_calculate_supernova_feedback; consumed by sage26_apply_star_formation_supernova
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Zero when no feedback occurring
+
+  - name: SupernovaEjectedMass
+    type: double  # SAGE parity: ejected_mass is a double local in SAGE
+    units: 1e10 Msun/h
+    description: Gas mass to be ejected by supernova feedback this timestep
+    notes: Transport scratch buffer written by sage26_calculate_supernova_feedback; consumed by sage26_apply_star_formation_supernova
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Zero when no feedback occurring
+
+  - name: Cooling
+    type: double  # Note: double precision for energy accumulation over time
+    units: log10(erg/s)
+    description: Cumulative cooling energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed
+    output: true
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    output_convert: MimicConfig.UnitEnergy_in_cgs / MimicConfig.UnitTime_in_s  # Convert from code units to erg/s
+    output_transform: log10  # Apply log10 transform (sentinel 0.0 is skipped)
+    range: [0.0, 1000000.0]  # Energy can accumulate to very large values
+    sentinels: [0.0]  # Can be zero if no cooling has occurred
+
+  - name: Heating
+    type: double  # Note: double precision for energy accumulation over time
+    units: log10(erg/s)
+    description: Cumulative AGN heating energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed
+    output: true
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    output_convert: MimicConfig.UnitEnergy_in_cgs / MimicConfig.UnitTime_in_s  # Convert from code units to erg/s
+    output_transform: log10  # Apply log10 transform (sentinel 0.0 is skipped)
+    range: [0.0, 1000000.0]  # Energy can accumulate to very large values
+    sentinels: [0.0]  # Can be zero if no AGN heating has occurred
+
+  - name: Rcool
+    type: double  # SAGE parity: rcool is a double local passed into do_AGN_heating
+    units: Mpc/h
+    description: Cooling radius calculated this substep
+    notes: Package-private transport state carrying SAGE26's rcool local of cooling_recipe_hot (src/model_cooling_heating.c:173). Written by sage26_calculate_cooling_budget on every call (0 where the routine returns before forming it); read by sage26_radio_mode_heating, which passes it to do_AGN_heating (:297-299)
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true
+    range: [0.0, 10.0]  # 0 to 10 Mpc/h (cannot be negative)
+    sentinels: [0.0]  # Can be zero if no cooling
+
+  - name: CoolingX
+    type: double  # SAGE parity: x is a double local passed into do_AGN_heating
+    units: Internal
+    description: SAGE26's cooling quantity x = m_p k_B T_vir / Lambda(T, Z) in code units (s g/cm^3 over UnitDensity_in_cgs * UnitTime_in_s) from the last cooling call
+    notes: Package-private transport state carrying SAGE26's x local of cooling_recipe_hot (src/model_cooling_heating.c:163-164), carried exactly rather than recomputed from Lambda. Written by sage26_calculate_cooling_budget on every call (0 where the routine returns before forming it); read by sage26_radio_mode_heating for the Bondi accretion rate (:540). Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true
+    sentinels: [0.0]  # 0 = not formed this call
+
+  - name: CoolingReturnPath
+    type: int
+    units: dimensionless
+    description: Return path of SAGE26's hot cooling on the last call - -1 not evaluated (no positive interval), 0 the normal tail, 1 the HotGas/Vvir outer guard, 2 the lambda <= 0 early return, 3 the rho_rcool <= 0 early return
+    notes: Package-private transport state, the early-return marker of cooling_recipe_hot (src/model_cooling_heating.c:141, :159-161, :167-169, :301-314); codes 0-3 are the SAGE26 oracle's intermediate.return_path. Written by sage26_calculate_cooling_budget on every call; read by sage26_apply_cooling, which runs SAGE26's tail (Cooling and CoolingRate) only on paths 0 and 1, as the early returns skip it. This is the CGMrecipeOn 0 (R0-R3) contract only - with CGMrecipeOn 1 the budget writes -1 (with CoolingGas, CoolingX and Rcool 0), so the radio and apply modules write nothing, and sage26_regime_aware_cooling runs the whole regime-aware wrapper, whose own tail always overwrites CoolingRate (src/model_cooling_heating.c:498-502) and which neither reads nor writes this marker. Never written to output
+    output: false
+    init_source: default
+    init_value: 0
+    init_repeat: true
+    range: [-1, 3]
+
+  - name: Rheat
+    type: float
+    units: Mpc/h
+    description: Heating radius from past AGN feedback events
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10.0]  # Comparable to virial radius
+    sentinels: [0.0]  # Can be zero if no AGN heating has occurred
+
+  - name: SupernovaOutflowRate
+    type: float
+    units: Msun/yr
+    description: Supernova-reheated gas outflow rate, SAGE26's OutflowRate
+    notes: SAGE26 scalar float member OutflowRate (src/core_allvars.h:194). On R0 the shared feedback commit (shared/sage_sf_feedback_physics.h, SAGE26's update_from_feedback) adds the undivided reheated mass to the forming or bursting galaxy in float on every disk star-formation and burst event (src/model_starformation_and_feedback.c:1249); sage26_finalize_cooling_heating multiplies the sum once per halo by 1/deltaT of the FoF's first galaxy, skipping merged galaxies (src/core_build_model.c:590-604), so between the two it holds code mass, after them code mass per code time, converted to Msun/yr on output. SAGE26 zeroes it at creation (src/model_misc.c:181) and at the first-occupied update (src/core_build_model.c:276); the package resets every inherited galaxy (init_repeat). model_mergers.c never reads or moves OutflowRate, so the reset of a galaxy SAGE26 does not reset (an orphan) shows only in that galaxy's own row.
+    output: true
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    output_convert: MimicConfig.UnitMass_in_g / MimicConfig.UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
+    sentinels: [0.0]  # Zero when no star formation/feedback occurring
+
+  # =============================================================================
+  # STRUCTURE
+  # =============================================================================
+
+  - name: DiskScaleRadius
+    type: float
+    units: Mpc/h
+    description: Disk scale radius (exponential disk scale length)
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 10.0]  # Comparable to virial radius
+    sentinels: [0.0]  # Can be zero for galaxies without formed disks
+
+  # =============================================================================
+  # MERGER HISTORY
+  # =============================================================================
+
+  - name: MergTime
+    type: float  # SAGE parity: SAGE26's float MergTime (src/core_allvars.h:187)
+    units: Internal
+    description: Dynamical-friction merger timescale for satellite galaxies (code time units)
+    notes: SAGE26 float member MergTime. Created as 999.9f (src/model_misc.c:174), set to 999.9f for every FoF central at progenitor joining (src/core_build_model.c:288), estimated by estimate_merging_time (src/model_mergers.c:89-121) for a Type 0 that becomes a Type 1 or a Type 1 whose clock is above 999 (src/core_build_model.c:315-318), and set to 0 for a galaxy that loses its subhalo as a Type 0 or with a clock above 999 (src/core_build_model.c:327-329). sage26_initialise_merger_clock makes these joining writes in pre_timestep; the merger pass decrements it. Sentinel protocol in shared/sage_constants.h (values above 999.0 mean unset; computed times are capped at 998.0)
+    output: false
+    init_source: default
+    init_value: 999.9
+    sentinels: [999.9, -1.0]  # 999.9 = unset (no merger clock assigned); -1.0 = immediate merger
+    range: [0.0, 1000.0]
+
+  - name: PreviousType
+    type: int
+    units: dimensionless
+    description: The galaxy's Type at the end of the previous snapshot (-1 = no previous snapshot)
+    notes: Package-private transition state. SAGE26's progenitor joining reads a galaxy's Type before it assigns the new one (src/core_build_model.c:240, 306, 315, 327); Mimic's core assigns the new Type during inheritance (src/core/inheritance.c:66-75, 79-95) and does not publish the old one. sage26_record_transition_state writes the galaxy's final Type here as the last post_timestep module, the galaxy carries it into the next snapshot (inherited, no init_repeat), and sage26_initialise_merger_clock reads it in pre_timestep. A galaxy created this snapshot has none (-1), as a SAGE26 galaxy made by init_galaxy (src/model_misc.c:65-201) is never joined. Never written to output
+    output: false
+    init_source: default
+    init_value: -1
+    range: [-1, 3]
+
+  - name: infallStellarMassState
+    type: float  # SAGE parity: SAGE26's float infallStellarMass (src/core_allvars.h:201)
+    units: 1e10 Msun/h
+    description: Stellar mass when the galaxy last became a satellite, as SAGE26 holds it in memory (-1 = never)
+    notes: Package-private state behind the output infallStellarMass. Created as -1.0 (src/model_misc.c:192). sage26_initialise_merger_clock sets it from StellarMass at progenitor joining when a Type 0 becomes a Type 1 (src/core_build_model.c:310) and when a galaxy loses its subhalo as a Type 0 or with a clock above 999 (src/core_build_model.c:334). Kept for centrals, as SAGE26 keeps the member; only the writer zeroes Type 0 rows (src/io/save_gals_hdf5.c:1004-1017). Never written to output
+    output: false
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = never a satellite
+
+  - name: TimeOfInfallState
+    type: float  # SAGE parity: SAGE26's float TimeOfInfall (src/core_allvars.h:202)
+    units: index
+    description: Snapshot number at which the galaxy last became a satellite with a subhalo, as SAGE26 holds it in memory (-1 = never)
+    notes: Package-private state behind the output TimeOfInfall. Created as -1.0 (src/model_misc.c:193). sage26_initialise_merger_clock sets it to the descendant halo's snapshot number, stored as a float, when a Type 0 becomes a Type 1 at progenitor joining (src/core_build_model.c:311). The non-main-branch transition to Type 2 does not write it (src/core_build_model.c:327-335), so an orphan keeps any earlier value; that is why the state is kept for centrals and only the writer zeroes Type 0 rows (src/io/save_gals_hdf5.c:1004-1017). Never written to output
+    output: false
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = never a satellite
+
+  - name: TimeOfLastMajorMerger
+    type: float
+    units: Myr
+    description: Lookback time of the galaxy's last major merger (mass ratio strictly above ThresholdMajorMerger), as SAGE26 writes it; -1 times the unit factor if it never had one
+    notes: SAGE26's float member TimeOfLastMajorMerger (src/core_allvars.h:192), a lookback time in code units. Created as -1 (src/model_misc.c:179). sage26_resolve_mergers_and_disruption sets it to the merger's event time on a major merger only, a ratio strictly above ThresholdMajorMerger (src/model_mergers.c:299, :310). SAGE26's writer multiplies the member by UnitTime_in_Megayears, the creation value -1 included (src/io/save_gals_hdf5.c:992), so a galaxy that never had a major merger is written as -1 times that factor, float(-978028.53) = -978028.5 for Millennium units, which is why -1 is the init_value and not a sentinel (a sentinel would skip the conversion). The unit is SAGE26's HDF5 label (src/io/save_gals_hdf5_fields.h:180-182); the code time unit, (Mpc/h) / (km/s), carries the 1/h of core dT's Myr/h.
+    output: true
+    init_source: default
+    init_value: -1.0
+    output_source: galaxy_property
+    output_convert: MimicConfig.UnitTime_in_Megayears
+    range: [-978029.0, 14000.0]  # never merged (-1 x 978028.53 Myr) to a lookback beyond the age of the universe
+
+  - name: TimeOfLastMinorMerger
+    type: float
+    units: Myr
+    description: Lookback time of the galaxy's last minor merger (every merger not above ThresholdMajorMerger), as SAGE26 writes it; -1 times the unit factor if it never had one
+    notes: SAGE26's float member TimeOfLastMinorMerger (src/core_allvars.h:193), a lookback time in code units. Created as -1 (src/model_misc.c:180). sage26_resolve_mergers_and_disruption sets it to the merger's event time on every merger that is not major, a ratio of 0, a ratio at or below 0.1 and a ratio equal to ThresholdMajorMerger included (src/model_mergers.c:299, :312-316). SAGE26's writer multiplies the member by UnitTime_in_Megayears, the creation value -1 included (src/io/save_gals_hdf5.c:993), so a galaxy that never had a minor merger is written as -1 times that factor, float(-978028.53) = -978028.5 for Millennium units, which is why -1 is the init_value and not a sentinel (a sentinel would skip the conversion). The unit is SAGE26's HDF5 label (src/io/save_gals_hdf5_fields.h:183-185); the code time unit, (Mpc/h) / (km/s), carries the 1/h of core dT's Myr/h.
+    output: true
+    init_source: default
+    init_value: -1.0
+    output_source: galaxy_property
+    output_convert: MimicConfig.UnitTime_in_Megayears
+    range: [-978029.0, 14000.0]  # never merged (-1 x 978028.53 Myr) to a lookback beyond the age of the universe
+
+  # =============================================================================
+  # DISK INSTABILITY & MERGER TRIGGERS
+  # =============================================================================
+
+  - name: UnstableDiskGasFraction
+    type: double  # SAGE parity: unstable_gas_fraction is a double local in SAGE
+    units: dimensionless
+    description: Fraction of cold gas that is unstable (0.0-1.0)
+    notes: Transport scratch buffer written by sage26_disk_instability; read by sage26_quasar_mode and sage26_starburst_feedback; reset to 0.0 each substep (init_repeat)
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    range: [0.0, 1.0]
+    sentinels: [0.0]
+
+  - name: MergerDiskDominated
+    type: int
+    units: dimensionless
+    description: The merger target's morphology before the satellite was added, 1 if disk-dominated (its float disk mass above half its StellarMass), else 0
+    notes: Transport field of the merger event. SAGE26 reads the flag is_disk_dominated before add_galaxies_together (src/model_mergers.c:253-254) and passes the burst the channel it selects (:266-282). The merger event's payload holds only the ratio and the satellite's dt, so sage26_resolve_mergers_and_disruption writes the flag on the target immediately before each merger event, and sage26_starburst_feedback's merger consumer, which receives the target, reads it to select the burst's bulge channel. Each merger rewrites it before its event, so a stale value is never read; reset at each snapshot's inheritance (init_repeat)
+    output: false
+    init_source: default
+    init_value: 0
+    init_repeat: true  # Reset each snapshot; rewritten before every merger event
+    range: [0, 1]
+
+  # =============================================================================
+  # SAGE26 OUTPUT CONTRACT
+  # The properties in the sections below mirror SAGE26 at 11b1ae851524baadb76cfd17e0b38f8a89c07224. Each has a writer in the package, named in its notes, except H2DepletionTime_Gyr, which no module writes and which keeps its SAGE26 creation value -1; a property whose writer acts only under a configuration flag keeps its creation value where its notes say that writer writes nothing.
+  # =============================================================================
+
+  # -----------------------------------------------------------------------------
+  # Gas accretion regime and circumgalactic medium (CGM)
+  # -----------------------------------------------------------------------------
+
+  - name: Regime
+    type: int
+    units: dimensionless
+    description: Gas accretion regime of the halo - 0 = CGM regime, 1 = hot-halo regime, -1 = not yet assigned
+    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_regime() (src/core_build_model.c:411), which runs only when CGMrecipeOn == 1 (default 1, src/core_read_parameter_file.c:102; gate at src/core_build_model.c:410), so with the CGM recipe off it stays -1. Created as -1 at src/model_misc.c:74; written verbatim at src/io/save_gals_hdf5.c:869. SAGE26 HDF5 label is Unitless with text 0 = CGM-regime, 1 = ICM-regime (the struct comment says hot-halo). In the package sage26_determine_regime ports the classifier in pre_timestep. With CGMrecipeOn 1, the run files' value (SAGE26's R4, kept through R6), it classifies every live row of the FoF group, satellites and orphans included, as 0 or 1 once per snapshot, its deviate being the package's keyed draw of the row's UniqueGalaxyID and the current snapshot (shared/sage_keyed_draw.h) in place of SAGE26's (double)rand() / (double)RAND_MAX (src/model_regimes.c:94); with CGMrecipeOn 0 (R0-R3) it writes nothing and the value stays -1
+    output: true
+    init_source: default
+    init_value: -1
+    range: [-1, 1]
+    sentinels: [-1]  # -1 = regime not yet assigned
+
+  - name: FFBRegime
+    type: int
+    units: dimensionless
+    description: Feedback-free-burst regime of the halo - 0 = normal halo, 1 = FFB halo
+    notes: SAGE26 int32 member of struct GALAXY (src/core_allvars.h:106-221), set by determine_and_store_ffb_regime() (src/core_build_model.c:426), which runs only when EnhancedStarFormationOn >= 1 (default 1, src/core_read_parameter_file.c:106; gate at src/core_build_model.c:425), so with it off the value stays 0. Created as 0 at src/model_misc.c:75; written verbatim at src/io/save_gals_hdf5.c:870. In the package sage26_determine_ffb_regime writes it once per FoF in pre_timestep. With EnhancedStarFormationOn 0 (SAGE26 R0-R5) it writes nothing and every row keeps its creation value 0. With EnhancedStarFormationOn 1, the run files' value (R6, SAGE26's default), every row SAGE26 does not skip (the package's Type 3 rows are skipped; no Type or CGM-regime restriction) gets 1 when SAGE26's draw is below its FFB fraction and 0 otherwise (the classifier, src/model_regimes.c:188-240). The fraction is calculate_ffb_fraction (src/model_regimes.c:321-341), the Li et al. (2024) sigmoid 0.15 dex wide about the threshold mass of calculate_ffb_threshold_mass (:298-313), of the row's Mvir narrowed to SAGE26's float, at the current redshift. The draw is SAGE26's own SplitMix64 hash halo_uniform (src/model_regimes.c:151-159) of the row's MostBoundID and the current snapshot, not a rand() value and not the package's CGM keyed draw. The value persists between snapshots (no init_repeat), as SAGE26's member does.
+    output: true
+    init_source: default
+    init_value: 0
+    range: [0, 1]
+
+  - name: CGMgas
+    type: float
+    units: 1e10 Msun/h
+    description: Gas mass in the circumgalactic medium (CGM), the hot-phase reservoir of CGM-regime halos
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:130; written verbatim at src/io/save_gals_hdf5.c:913. With CGMrecipeOn 1, the run files' value (SAGE26's R4, kept through R6), the package's regime-aware routing and cooling fill it. The central's migration in sage26_prepare_infall_budget, infall, stripping, reincorporation, the supernova commits (ordinary, burst and feedback-free-burst), the quasar wind and disruption deposit into or take from it by Regime; a merger moves the satellite's CGMgas and MetalsCGMgas into the target's CGM pair whatever either galaxy's Regime or CGMrecipeOn (add_galaxies_together, src/model_mergers.c:496-497, in sage26_resolve_mergers_and_disruption through shared/sage_merger_physics.h); and sage26_regime_aware_cooling cools it and, in its CGM radio-mode AGN heating (AGNrecipeOn > 0 and a positive cooling mass, src/model_cooling_heating.c:372-374), accretes from it onto the black hole (:653-655). With CGMrecipeOn 0 (R0-R3) nothing adds to it and it stays 0
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+
+  - name: MetalsCGMgas
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in the circumgalactic medium (CGM) gas
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:140; written verbatim at src/io/save_gals_hdf5.c:924. With CGMrecipeOn 1, the run files' value (SAGE26's R4, kept through R6), it moves with CGMgas in each transfer listed under CGMgas, and the disk yield's escaping metals reach it through sage26_apply_metal_enrichment and, on an FFBRegime 1 row, sage26_ffb_star_formation (both shared/sage_metal_yield_physics.h), and the burst yield, when the FoF central's Regime is 0; with CGMrecipeOn 0 (R0-R3) it stays 0
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= CGMgas
+
+  # -----------------------------------------------------------------------------
+  # Cooling diagnostics
+  # -----------------------------------------------------------------------------
+
+  - name: tcool
+    type: float
+    units: Internal
+    description: Cooling-time diagnostic - the hot recipe's float(Rvir/Vvir) * 1e10/Hubble_h * SEC_PER_GIGAYEAR/UnitTime_in_s (not Gyr), or with CGMrecipeOn 1 the CGM recipe's time in h^2 Gyr or 0 after the CGM reset; -1 until first set
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment (cooled gas rate, Msun/Gyr) and the HDF5 label (Gyr, text cooling time of the CGM gas) both mislabel it. Created as -1.0 at src/model_misc.c:184; written verbatim at src/io/save_gals_hdf5.c:926. Set by cooling. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds, code mass is 1e10 Msun/h, and code density (src/core_init.c:97) carries h^2. CGM path (src/model_cooling_heating.c:333,345-349,356) divides x by UnitDensity_in_cgs * UnitTime_in_s and divides by rho_eff, a code density, so the code-unit tcool is h^2 times the physical time over UnitTime_in_s, and the written value tcool * UnitTime_in_s / SEC_PER_GIGAYEAR is h^2 times the cooling time in Gyr, not Gyr. The same function then adds tcool + tff at src/model_cooling_heating.c:364, two quantities with different h scalings (h^2 and h). Hot-halo path (src/model_cooling_heating.c:142-145) stores (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, a mass-rate-style factor applied to a time, so the stored hot-path number is not a Gyr time either and the two paths disagree. In the hot regime the regime-aware wrapper keeps the hot-path value and sets tff to -1 (src/model_cooling_heating.c:453-468); reset_cgm_diagnostics sets tcool 0 (src/model_cooling_heating.c:415). Unit is Internal, as the hot-path value has no physical unit. With CGMrecipeOn 0 (R0-R3) sage26_calculate_cooling_budget fills it, resetting it to 0 on every call (src/model_cooling_heating.c:139) and then writing it on the hot path (src/model_cooling_heating.c:142-148), before the lambda and rho_rcool early returns. With CGMrecipeOn 1 the budget writes no diagnostic and sage26_regime_aware_cooling runs SAGE26's regime-aware wrapper (src/model_cooling_heating.c:420-506) - a Regime 0 galaxy takes the CGM recipe's value (:356) when it has CGM gas and passes the Vvir and lambda guards, keeps its earlier value when it has CGM gas but fails either guard, and is reset to 0 when it has none (:439-444); any other Regime takes the hot recipe's value when it has hot gas, then the CGM recipe's or the reset (only when the hot diagnostics are invalid) as above, and finally the saved hot value whenever the hot call left Vvir > 0 and tcool > 0 (:450-469)
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = not yet set
+
+  - name: tff
+    type: float
+    units: Internal
+    description: Free-fall diagnostic - the hot recipe's sqrt(2) float(Rvir/Vvir) * 1e10/Hubble_h * SEC_PER_GIGAYEAR/UnitTime_in_s (not Gyr), or with CGMrecipeOn 1 the CGM recipe's in Gyr/h, or -1 (reset, restored hot); -1 until first set
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its struct comment says free-fall time at the precipitation radius [Gyr] and the HDF5 label says Gyr. Created as -1.0 at src/model_misc.c:185; written verbatim at src/io/save_gals_hdf5.c:927. SAGE26 code units carry little h, because UnitLength_in_cm is Mpc/h and UnitTime_in_s = UnitLength_in_cm / UnitVelocity (src/core_init.c:94; Hubble = HUBBLE * UnitTime_in_s at :106, HUBBLE being H0/h), so one code time is UnitTime_in_s / h physical seconds. CGM path (src/model_cooling_heating.c:353,357) stores the code-time tff * UnitTime_in_s / SEC_PER_GIGAYEAR, which is Gyr/h (h times the time in Gyr), not Gyr. Hot-halo path (src/model_cooling_heating.c:143,147) stores sqrt(2) * (Rvir/Vvir) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s, the same disagreeing mass-rate-style conversion as tcool; the regime-aware hot regime resets it to -1 (src/model_cooling_heating.c:416,468). Unit is Internal, as the hot-path value has no physical unit. With CGMrecipeOn 0 (R0-R3) sage26_calculate_cooling_budget fills it; unlike tcool it is not reset at the start of a call, so an outer-guard failure leaves it stale. With CGMrecipeOn 1 sage26_regime_aware_cooling runs SAGE26's regime-aware wrapper (src/model_cooling_heating.c:420-506) - the hot recipe writes it as above, the CGM recipe writes its own value (:357) when it passes the Vvir and lambda guards, reset_cgm_diagnostics sets -1 (:416) where the wrapper calls it, and a hot-regime galaxy whose hot call left Vvir > 0 and tcool > 0 ends with -1 (:466-468), even after CGM cooling; a positive CGMgas that fails either CGM guard leaves it stale
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = not yet set or reset
+
+  - name: RcoolToRvir
+    type: float
+    units: dimensionless
+    description: Cooling radius over the float virial radius at the last hot cooling call that formed one (uncapped, can exceed 1); early returns and CGM cooling leave it; -1 if never evaluated or after the CGMrecipeOn 1 reset
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as -1.0 at src/model_misc.c:182; written verbatim at src/io/save_gals_hdf5.c:929. Set by the hot-halo cooling recipe (src/model_cooling_heating.c:175, rcool is left uncapped so the ratio can exceed 1) and reset to -1 by reset_cgm_diagnostics (src/model_cooling_heating.c:417), which only the CGMrecipeOn 1 wrapper calls. CGM cooling never writes it (its RcoolToRvir = 1 assignment is commented out, :361). With CGMrecipeOn 0 (R0-R3) sage26_calculate_cooling_budget fills it; with CGMrecipeOn 1 sage26_regime_aware_cooling does, through the hot recipe and the reset, which runs for a Regime 0 galaxy without CGM gas and for a hot-regime galaxy without CGM gas whose hot diagnostics are invalid (:439-464); a positive CGMgas that fails the CGM Vvir or lambda guard does not reset it
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = not evaluated
+
+  - name: CoolingRate
+    type: float
+    units: Internal
+    description: Cooled mass over the substep times 1e10/Hubble_h * SEC_PER_GIGAYEAR/UnitTime_in_s (Msun/Gyr over h) - CGMrecipeOn 0 the suppressed hot mass at SAGE26's tail, CGMrecipeOn 1 the applied CGM plus hot mass
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221); its HDF5 label says Msun/Gyr (text cooling rate of the CGM gas) but the written value is the true Msun/Gyr rate divided by little h, and it covers CGM and hot cooling together in the regime-aware recipe. Not set by init_galaxy (src/model_misc.c:65-198) and written by cooling on every call as (cooled mass / dt) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s (src/model_cooling_heating.c:310,382,499), so the last call wins; written verbatim at src/io/save_gals_hdf5.c:932. SAGE26 code mass is 1e10 Msun/h and one code time is UnitTime_in_s / h physical seconds (UnitLength_in_cm is Mpc/h, src/core_init.c:94, Hubble = HUBBLE * UnitTime_in_s at :106), so (m/dt) * 1.0e10 * SEC_PER_GIGAYEAR / UnitTime_in_s would be the true Msun/Gyr rate and the extra 1/Hubble_h in the formula divides it by h. SAGE26 gives it no creation value; the package's creation value 0 is unchanged, and on R0 the first cooling call with a positive interval overwrites it unless it takes an early return. With CGMrecipeOn 0 (R0-R3) sage26_apply_cooling fills it, running the tail of cooling_recipe_hot (src/model_cooling_heating.c:308-313). With CGMrecipeOn 1 sage26_regime_aware_cooling runs the regime-aware wrapper, whose nested recipes write it and whose tail always overwrites it with the total applied after both reservoir caps (src/model_cooling_heating.c:498-502), including after a nested early return. Unit is Internal because the registry has no label for this quantity
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  - name: mdot_cool
+    type: float
+    units: Msun/yr
+    description: Hot-halo cooling rate of the hot regime's cold-stream recipe before the reservoir cap and AGN suppression, in Msun/yr (0 with CGMrecipeOn 0)
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221), stored in 1e10 Msun/h per code time and set to hot_halo_cooling / dt (src/model_cooling_heating.c:282), only on the CGMrecipeOn 1 hot recipe's cold-stream path, before the reservoir cap and the AGN suppression, so it is neither the applied rate nor a snapshot average; reset to 0 at each regime-aware call (src/model_cooling_heating.c:433). Created as 0.0 at src/model_misc.c:195. The writer converts it as g->mdot_cool * UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS, left to right in double from the widened float, narrowed to float (src/io/save_gals_hdf5.c:996), so the written unit is Msun/yr although SAGE26's HDF5 label says 1.0e10 Msun/yr. In the package the raw float is the state property mdot_cool_raw, written only by sage26_regime_aware_cooling; sage26_finalize_cooling_heating writes this field from it with SAGE26's writer expression for every galaxy it finalises, so no output_convert is declared (the generator's grouped conversion would round differently). With CGMrecipeOn 0 nothing writes the raw rate and the field holds 0
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  - name: mdot_stream
+    type: float
+    units: Msun/yr
+    description: Cold-stream cooling rate of the hot regime's cold-stream recipe before the reservoir cap and AGN suppression, in Msun/yr (0 with CGMrecipeOn 0)
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221), stored in 1e10 Msun/h per code time and set to cold_stream_cooling / dt (src/model_cooling_heating.c:283), only on the CGMrecipeOn 1 hot recipe's cold-stream path, before the reservoir cap and the AGN suppression, so it is neither the applied rate nor a snapshot average; reset to 0 at each regime-aware call (src/model_cooling_heating.c:434). Created as 0.0 at src/model_misc.c:196. The writer converts it as g->mdot_stream * UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS, left to right in double from the widened float, narrowed to float (src/io/save_gals_hdf5.c:997), so the written unit is Msun/yr although SAGE26's HDF5 label says 1.0e10 Msun/yr. In the package the raw float is the state property mdot_stream_raw, written only by sage26_regime_aware_cooling; sage26_finalize_cooling_heating writes this field from it with SAGE26's writer expression for every galaxy it finalises, so no output_convert is declared (the generator's grouped conversion would round differently). With CGMrecipeOn 0 nothing writes the raw rate and the field holds 0
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  - name: mdot_cool_raw
+    type: float  # SAGE parity: SAGE26's float member mdot_cool (src/core_allvars.h:218)
+    units: Internal
+    description: SAGE26's raw float mdot_cool, hot_halo_cooling / dt of the cold-stream recipe before the reservoir cap and AGN, as SAGE26 holds it
+    notes: Package-private state behind the output mdot_cool, in SAGE26's code units, 1e10 Msun/h per code time (Internal, as the registry has no label for this rate). Written only by sage26_regime_aware_cooling with CGMrecipeOn 1 - 0 at the start of every regime-aware call (src/model_cooling_heating.c:433), then the float hot_halo_cooling / dt where the hot recipe reaches its cold streams (:282). Created as 0 (src/model_misc.c:195) and not reset by the package between calls or snapshots (no init_repeat), so it persists as SAGE26's member does. sage26_finalize_cooling_heating converts it to the output mdot_cool with SAGE26's writer expression (src/io/save_gals_hdf5.c:996). Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: mdot_stream_raw
+    type: float  # SAGE parity: SAGE26's float member mdot_stream (src/core_allvars.h:219)
+    units: Internal
+    description: SAGE26's raw float mdot_stream, cold_stream_cooling / dt of the cold-stream recipe before the reservoir cap and AGN, as SAGE26 holds it
+    notes: Package-private state behind the output mdot_stream, in SAGE26's code units, 1e10 Msun/h per code time (Internal, as the registry has no label for this rate). Written only by sage26_regime_aware_cooling with CGMrecipeOn 1 - 0 at the start of every regime-aware call (src/model_cooling_heating.c:434), then the float cold_stream_cooling / dt where the hot recipe reaches its cold streams (:283). Created as 0 (src/model_misc.c:196) and not reset by the package between calls or snapshots (no init_repeat), so it persists as SAGE26's member does. sage26_finalize_cooling_heating converts it to the output mdot_stream with SAGE26's writer expression (src/io/save_gals_hdf5.c:997). Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  # -----------------------------------------------------------------------------
+  # Cold gas phases and star formation
+  # -----------------------------------------------------------------------------
+
+  - name: H2gas
+    type: float
+    units: 1e10 Msun/h
+    description: Mass of molecular hydrogen (H2) in the cold gas reservoir
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:131; written verbatim at src/io/save_gals_hdf5.c:915. With SFprescription 1 (BR06 with radial integration, the run files' value, SAGE26's R2) sage26_calculate_star_formation writes it on every disk star-formation call from the radial integration of the Blitz & Rosolowsky (2006) molecular fraction (src/model_h2_chemistry.c:134-289, through sfr_br06, src/model_starformation_and_feedback.c:193-252), 0 where the galaxy's own Vvir or scale radius is not positive, capped at the double ColdGas * 0.74 (:239-242). Each later step that removes cold gas caps it, on its own and strictly, at the hydrogen of the cold gas it leaves; the star-formation commit and the reheating (float bound, :1131-1134, :1169-1172), black-hole accretion before its quasar wind (float bound, src/model_mergers.c:366-372) and every burst's hydrogen refresh (double bound, src/model_mergers.c:798-800). Cooling and a galaxy addition only add cold gas (the addition sums ColdGas, not H2gas, src/model_mergers.c:456-543), so they leave it within that bound. The quasar wind refreshes nothing (src/model_mergers.c:374, :397-403), and a wind that ejects the cold gas after the black-hole cap leaves H2gas above 0.74 of the cold gas only inside that black-hole growth, since a burst follows every growth (src/model_mergers.c:263, :285; src/model_disk_instability.c:103, :106) and its refresh caps H2gas again. On the feedback-free-burst path (EnhancedStarFormationOn 1 and FFBRegime 1, sage26_ffb_star_formation, SAGE26's starformation_ffb) the BR06 law is bypassed and H2gas is set to 0 before the H I block (src/model_starformation_and_feedback.c:1280), and the commits' prescription-1 caps then leave it 0; that path does not write H2DepletionTime_Gyr. With SFprescription 0 (R0, R1) no routine writes it, except the FFB path's zeroing. Not reset at the first-occupied update (src/core_build_model.c:273-281), so inherited as SAGE26 does.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= ColdGas
+
+  - name: H1gas
+    type: float
+    units: 1e10 Msun/h
+    description: Mass of atomic hydrogen (HI) in the cold gas reservoir
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:132; written verbatim at src/io/save_gals_hdf5.c:916. sage26_calculate_star_formation writes it on every disk star-formation call (src/model_starformation_and_feedback.c:1035-1046) from the cold gas before that substep's star formation, as (ColdGas * 0.74 - H2gas, floored at 0) * (1 - f_ion), f_ion the ionised fraction of an exponential disk below 0.5 Msun/pc^2 (:135-152), with the BR06 H2gas of that call under SFprescription 1 (the run files' value, SAGE26's R2). Under SFprescription 1 the star-formation commit, the reheating and black-hole accretion then cap it, on its own and strictly, at the float hydrogen of the cold gas each leaves (:1131-1134, :1169-1172, src/model_mergers.c:366-372), and every burst overwrites it with the full atomic remainder ColdGas * 0.74 - H2gas of its remaining cold gas, floored at 0, with no ionisation correction (src/model_mergers.c:798-803), until the next disk star formation recomputes it. The quasar wind refreshes nothing, but a burst follows every black-hole growth (src/model_mergers.c:263, :285; src/model_disk_instability.c:103, :106), so a wind that ejects the cold gas leaves H1gas above the hydrogen of the cold gas only until that burst's refresh; cooling and a galaxy addition (which sums ColdGas, not H1gas, src/model_mergers.c:456-543) only add cold gas. On the feedback-free-burst path (EnhancedStarFormationOn 1 and FFBRegime 1) sage26_ffb_star_formation writes it with the same H I block (shared/sage_hi_physics.h) from the cold gas before that substep's FFB star formation, after setting H2gas to 0 (src/model_starformation_and_feedback.c:1280-1292), so it is (ColdGas * 0.74, floored at 0) * (1 - f_ion); its star-formation and feedback commits then cap it as above under SFprescription 1 (:1131-1134, :1169-1172). Under SFprescription 0 (R0, R1) it is not resynchronised after the star formation and feedback that follow (SAGE26's prescription-0 quirk, :1128-1135), so it can exceed the hydrogen left in ColdGas. Not reset at the first-occupied update (src/core_build_model.c:273-281), so inherited as SAGE26 does.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Normally below ColdGas; on R0 it can exceed the hydrogen left after SF (see notes)
+
+  - name: H2DepletionTime_Gyr
+    type: float
+    units: Gyr
+    description: Molecular-gas depletion time from the K13 prescription, -1 if not applicable
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as -1.0f at src/model_misc.c:186; written verbatim at src/io/save_gals_hdf5.c:928. Assigned in two places, in the K13 H2 routine as M_gas_total / SFR_K13_total, or -1 when that SFR is not positive (src/model_h2_chemistry.c:283), and in the star formation routine, set to -1 when the depletion time is not positive (src/model_starformation_and_feedback.c:638). Neither runs on the package's supported paths; SFprescription 1's sfr_br06 passes the radial integration no SFR-output pointer (src/model_starformation_and_feedback.c:222; src/model_h2_chemistry.c:278-288), so SAGE26 leaves the creation value -1 on every R2 galaxy, and so does the package (no module writes it).
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = not applicable
+
+  - name: SfrDisk
+    type: float
+    units: Msun/yr
+    description: Disk star formation rate averaged over the snapshot substeps, in Msun/yr
+    notes: SAGE26 holds a per-substep float array SfrDisk[STEPS] in struct GALAXY (src/core_allvars.h:158), in 1e10 Msun/h per code time, zeroed at creation (src/model_misc.c:145) and at the first-occupied update (src/core_build_model.c:278); disk star formation adds stars / dt to the substep's bin on every call (src/model_starformation_and_feedback.c:1058). The writer sums the ten bins in increasing order into a float accumulator, each term the bin times UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS divided by sfr_rate_divisor(SubstepsUsed), left to right in double (src/io/save_gals_hdf5.c:934-957, src/model_misc.h:49-52), so the output is the mean rate in Msun/yr. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrDiskBin0-9 (shared/sage_sfr_history.h), so this field holds the final Msun/yr value and is written as it is, with no output_convert.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
+
+  - name: SfrBulge
+    type: float
+    units: Msun/yr
+    description: Bulge (starburst) star formation rate averaged over the snapshot substeps, in Msun/yr
+    notes: SAGE26 holds a per-substep float array SfrBulge[STEPS] in struct GALAXY (src/core_allvars.h:159), in 1e10 Msun/h per code time, zeroed at creation (src/model_misc.c:146) and at the first-occupied update (src/core_build_model.c:278); every burst adds stars / dt to the substep's bin of the bursting galaxy (src/model_mergers.c:755). The writer sums the ten bins in increasing order into a float accumulator, each term the bin times UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS divided by sfr_rate_divisor(SubstepsUsed), left to right in double (src/io/save_gals_hdf5.c:934-957, src/model_misc.h:49-52), so the output is the mean rate in Msun/yr. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrBulgeBin0-9 (shared/sage_sfr_history.h), so this field holds the final Msun/yr value and is written as it is, with no output_convert.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
+
+  - name: SfrDiskZ
+    type: float
+    units: dimensionless
+    description: Mean metallicity (metal mass / cold gas mass) of the cold gas forming disk stars, averaged over the snapshot substeps
+    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrDiskColdGas[STEPS] and SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:160-161, zeroed at src/model_misc.c:147-148), which disk star formation assigns from the cold gas before it forms stars (src/model_starformation_and_feedback.c:1059-1060). The writer sums, over the ten bins in increasing order whose sampled cold gas is positive, metals / gas / sfr_metallicity_divisor(SubstepsUsed) in float (src/io/save_gals_hdf5.c:934-959, src/model_misc.h:54-58); a bin whose gas is zero, -0 or negative adds nothing. SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrDiskColdGasBin0-9 and SfrDiskColdGasMetalsBin0-9 (shared/sage_sfr_history.h), so this field holds the final value and is written as it is.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 1.0]  # Metal mass fraction of cold gas
+
+  - name: SfrBulgeZ
+    type: float
+    units: dimensionless
+    description: Mean metallicity (metal mass / cold gas mass) of the cold gas forming bulge stars, averaged over the snapshot substeps
+    notes: SAGE26 has no struct member for this. The writer computes it from the per-substep trackers SfrBulgeColdGas[STEPS] and SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:162-163, zeroed at src/model_misc.c:149-150), to which every burst adds the bursting galaxy's cold gas (src/model_mergers.c:756-757). The writer sums, over the ten bins in increasing order whose sampled cold gas is positive, metals / gas / sfr_metallicity_divisor(SubstepsUsed) in float (src/io/save_gals_hdf5.c:934-959, src/model_misc.h:54-58); a bin whose gas is zero, -0 or negative adds nothing. SAGE26's HDF5 label says Msun/yr, which is wrong, the value is a dimensionless metallicity. sage26_finalize_sfr_histories reproduces that averaging once per FoF in post_timestep from the package's history elements SfrBulgeColdGasBin0-9 and SfrBulgeColdGasMetalsBin0-9 (shared/sage_sfr_history.h), so this field holds the final value and is written as it is.
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 1.0]  # Metal mass fraction of cold gas
+
+  # -----------------------------------------------------------------------------
+  # SAGE26 per-substep star-formation histories (package-private)
+  # -----------------------------------------------------------------------------
+  # SAGE26's six float arrays of STEPS = 10 bins (src/core_allvars.h:158-163), one
+  # float scalar per element because the generator emits scalars only. Modules reach
+  # them only through shared/sage_sfr_history.h, which maps (history, bin) to the
+  # element. SAGE26 zeroes them at creation (src/model_misc.c:145-150) and at the
+  # first-occupied update (src/core_build_model.c:278-282), which runs only for a
+  # galaxy that was a Type 0 or 1 and stays one; a galaxy that becomes or stays an
+  # orphan keeps its histories and moves them in a merger in the same snapshot
+  # (src/core_build_model.c:322-337, src/model_mergers.c:529-532). So they are
+  # inherited (no init_repeat): sage26_initialise_merger_clock, the first
+  # pre_timestep module, zeroes them at joining for exactly SAGE26's rows
+  # (shared/sage_sfr_history.h mimic_sage_reset_sfr_histories).
+  # sage26_finalize_sfr_histories averages them into SfrDisk, SfrBulge, SfrDiskZ
+  # and SfrBulgeZ (src/io/save_gals_hdf5.c:934-959).
+
+  - name: SubstepsUsed
+    type: int
+    units: count
+    description: Substeps integrated this snapshot, the divisor of the SFR history averages
+    notes: SAGE26 int32 member SubstepsUsed (src/core_allvars.h:164). Created as STEPS (src/model_misc.c:142) and set to effective_steps for every galaxy of the halo, merged galaxies included, before the substeps (src/core_build_model.c:466-468). sage26_finalize_sfr_histories sets it to the package's substep count for the halo once per FoF in post_timestep and divides the histories by sfr_rate_divisor and sfr_metallicity_divisor of it (src/model_misc.h:49-58). No module reads it before then. Never written to output
+    output: false
+    init_source: default
+    init_value: 10
+    range: [0, 100000]
+
+  - name: SfrDiskBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[0], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[1], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[2], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[3], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[4], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[5], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[6], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[7], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[8], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrDisk[STEPS] (src/core_allvars.h:158)
+    units: Internal
+    description: SAGE26 SfrDisk[9], the disk star formation rate stars / dt summed over the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; sage26_apply_star_formation_supernova adds stars / dt on every disk star-formation call (src/model_starformation_and_feedback.c:1058). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[0], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[1], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[2], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[3], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[4], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[5], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[6], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[7], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[8], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrBulge[STEPS] (src/core_allvars.h:159)
+    units: Internal
+    description: SAGE26 SfrBulge[9], the burst star formation rate stars / dt summed over the bursts in the substeps mapped to this bin, in 1e10 Msun/h per code time
+    notes: Package-private history element; the shared burst kernel (shared/sage_starburst_physics.h) adds stars / dt for the bursting galaxy (src/model_mergers.c:755). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[0], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[1], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[2], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[3], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[4], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[5], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[6], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[7], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[8], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrDiskColdGas[STEPS] (src/core_allvars.h:160)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGas[9], the cold gas before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns ColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1059). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[0], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[1], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[2], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[3], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[4], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[5], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[6], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[7], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[8], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrDiskColdGasMetalsBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrDiskColdGasMetals[STEPS] (src/core_allvars.h:161)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrDiskColdGasMetals[9], the cold-gas metals before the disk star formation of the last substep mapped to this bin
+    notes: Package-private history element; sage26_apply_star_formation_supernova assigns MetalsColdGas on every disk star-formation call (src/model_starformation_and_feedback.c:1060). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[0], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[1], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[2], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[3], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[4], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[5], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[6], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[7], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[8], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrBulgeColdGas[STEPS] (src/core_allvars.h:162)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGas[9], the cold gas of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds ColdGas for the bursting galaxy (src/model_mergers.c:756). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin0
+    type: float  # SAGE parity: element 0 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[0], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin1
+    type: float  # SAGE parity: element 1 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[1], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin2
+    type: float  # SAGE parity: element 2 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[2], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin3
+    type: float  # SAGE parity: element 3 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[3], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin4
+    type: float  # SAGE parity: element 4 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[4], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin5
+    type: float  # SAGE parity: element 5 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[5], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin6
+    type: float  # SAGE parity: element 6 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[6], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin7
+    type: float  # SAGE parity: element 7 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[7], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin8
+    type: float  # SAGE parity: element 8 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[8], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: SfrBulgeColdGasMetalsBin9
+    type: float  # SAGE parity: element 9 of SAGE26's float SfrBulgeColdGasMetals[STEPS] (src/core_allvars.h:163)
+    units: 1e10 Msun/h
+    description: SAGE26 SfrBulgeColdGasMetals[9], the cold-gas metals of the bursting galaxy summed over the bursts in the substeps mapped to this bin
+    notes: Package-private history element; the shared burst kernel adds MetalsColdGas for the bursting galaxy (src/model_mergers.c:757). Read by sage26_finalize_sfr_histories through shared/sage_sfr_history.h. Never written to output
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: MassLoading
+    type: float
+    units: dimensionless
+    description: Supernova mass-loading factor eta, the ratio of reheated gas mass to stars formed in the current star formation episode
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:183; written verbatim at src/io/save_gals_hdf5.c:914. Assigned from eta_reheat only when SupernovaRecipeOn == 1 (default 1, src/core_read_parameter_file.c:94) and FIREmodeOn == 1 (default 1, src/core_read_parameter_file.c:103), at src/model_starformation_and_feedback.c:759-764 and, at the second site, only when fire_scaling_valid is set (src/model_starformation_and_feedback.c:928-932); otherwise it keeps its previous value (0 at creation, or stale). The HDF5 text calls it the ratio of outflow rate to star formation rate. In the package, with FIREmodeOn 1, the run files' value (SAGE26's R3, kept through R6), sage26_calculate_supernova_feedback writes it on the disk path of every row that is not FFBRegime 1, as the capped reheating loading narrowed to float before the cold-gas renormalisation, also when no stars form (src/model_starformation_and_feedback.c:762-764). It writes nothing on a row in the first-snapshot boundary state (SnapNum < 0 and dT <= 0, MIMIC_OBJECT_TIME_SKIP_INITIAL in shared/time_parity.h), where SAGE26 would read ZZ[-1] (src/model_starformation_and_feedback.c:745) and the module returns before the loading, so such a row keeps the value it had. No burst writes it (src/model_mergers.c:707-710), and with FIREmodeOn 0 (R0-R2) it keeps its creation value 0. The second (FFB) site is sage26_ffb_star_formation's, reached only with EnhancedStarFormationOn 1 (SAGE26's default, src/core_read_parameter_file.c:106, and SAGE26's R6, the run files' value) on an FFBRegime 1 row that is outside the same boundary state and has a FoF central. It writes the capped loading narrowed to float, before the renormalisation, only when the FIRE scaling is valid (the row's own Vvir > 0 and the redshift of its stored snapshot >= 0, src/model_starformation_and_feedback.c:917, :929-933); with an invalid scaling it leaves MassLoading as it was (stale), and forms no reheated mass. Inherited, not a snapshot accumulator
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  # -----------------------------------------------------------------------------
+  # Bulge structure
+  # -----------------------------------------------------------------------------
+
+  - name: BulgeRadius
+    type: float
+    units: Mpc/h
+    description: Effective (half-mass) radius of the bulge, 0 for a galaxy with no bulge mass
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-326). SAGE26's default BulgeSizeOn=3 (src/core_read_parameter_file.c:107) takes the zero path when MergerBulgeMass + InstabilityBulgeMass <= 0 (src/model_misc.c:316-326), not the BulgeMass test of modes 1 and 2 (src/model_misc.c:253,279), and mode 0 zeroes it outright (src/model_misc.c:242-247). At creation those masses are zeroed at src/model_misc.c:123-124 before the :173 call, so the creation value 0 holds in every mode; written verbatim at src/io/save_gals_hdf5.c:972. With BulgeSizeOn 3, the package's run files' value (SAGE26's R1, kept through R6), each get_bulge_radius (shared/sage_bulge_size_physics.h) stores the MergerBulgeMass- and InstabilityBulgeMass-weighted average of the two component radii (src/model_misc.c:317-369), 0 when their sum is not positive. It is called in the FoF central's synchronisation after its disk radius (sage26_set_disk_scale_radius, src/core_build_model.c:297-298), after every instability-radius update (src/model_misc.c:423) and in the merger transaction after the burst and after the remnant assignment (sage26_resolve_mergers_and_disruption, src/model_mergers.c:293-330). With BulgeSizeOn 0 each of those calls zeroes it
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10.0]  # Comparable to virial radius
+
+  - name: MergerBulgeRadius
+    type: float
+    units: Mpc/h
+    description: Half-mass radius of the merger-built (classical) bulge, 0 for a galaxy with no bulge mass
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-326). SAGE26's default BulgeSizeOn=3 (src/core_read_parameter_file.c:107) takes the zero path when MergerBulgeMass + InstabilityBulgeMass <= 0 (src/model_misc.c:316-326), not the BulgeMass test of modes 1 and 2 (src/model_misc.c:253,279), and mode 0 zeroes it outright (src/model_misc.c:242-247). At creation those masses are zeroed at src/model_misc.c:123-124 before the :173 call, so the creation value 0 holds in every mode; written verbatim at src/io/save_gals_hdf5.c:973. With BulgeSizeOn 3, the package's run files' value (SAGE26's R1, kept through R6), get_bulge_radius (shared/sage_bulge_size_physics.h) zeroes it when MergerBulgeMass is exactly 0 and gives a positive MergerBulgeMass with a non-positive radius the Shen et al. (2003) fallback (src/model_misc.c:332-348); a major merger, and a minor merger onto a target that was spheroid-dominated before the addition, store into it the energy-conservation remnant radius of the post-burst target and the satellite (src/model_mergers.c:135-212, :297-330; sage26_resolve_mergers_and_disruption through shared/sage_merger_physics.h), a minor merger onto a disk-dominated target discarding it. With BulgeSizeOn 0 every get_bulge_radius zeroes it
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10.0]  # Comparable to virial radius
+
+  - name: InstabilityBulgeRadius
+    type: float
+    units: Mpc/h
+    description: Half-mass radius of the disk-instability-built (pseudo) bulge, 0 for a galaxy with no bulge mass
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created through get_bulge_radius (src/model_misc.c:173, 239-326). SAGE26's default BulgeSizeOn=3 (src/core_read_parameter_file.c:107) takes the zero path when MergerBulgeMass + InstabilityBulgeMass <= 0 (src/model_misc.c:316-326), not the BulgeMass test of modes 1 and 2 (src/model_misc.c:253,279), and mode 0 zeroes it outright (src/model_misc.c:242-247). At creation those masses are zeroed at src/model_misc.c:123-124 before the :173 call, so the creation value 0 holds in every mode; written verbatim at src/io/save_gals_hdf5.c:974. With BulgeSizeOn 3, the package's run files' value (SAGE26's R1, kept through R6), update_instability_bulge_radius (shared/sage_bulge_size_physics.h) sets it after each transfer into the instability channel to the mass-weighted average of its old value and 0.2 times the disk radius saved before the transfer, or that contribution alone for the first (src/model_misc.c:385-424), in each of the three channels, the disk instability (src/model_disk_instability.c:83), the satellite disk stars of a merger onto a disk-dominated target (src/model_mergers.c:516-522) and the instability-channel burst (src/model_mergers.c:779-784); get_bulge_radius zeroes it when InstabilityBulgeMass is exactly 0 and gives a positive InstabilityBulgeMass with a non-positive radius 0.2 times DiskScaleRadius, or the Shen et al. (2003) fallback when that is not positive (src/model_misc.c:351-363). With BulgeSizeOn 0 every get_bulge_radius zeroes it and the update leaves it as it is (src/model_misc.c:395)
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 10.0]  # Comparable to virial radius
+
+  - name: MergerBulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Stellar mass of the bulge built through mergers
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:123; written verbatim at src/io/save_gals_hdf5.c:975. Written only in a merger, in the run files' satellite_mergers phase of a substep, in the order of SAGE26's deal_with_galaxy_merger. First sage26_resolve_mergers_and_disruption's add_galaxies_together (shared/sage_merger_physics.h) adds the satellite's MergerBulgeMass and, when the target's disk fraction after the addition is at most 0.5, the satellite's disk stars (src/model_mergers.c:505, :523-525). Then, inside the merger event that module emits, sage26_starburst_feedback's merger consumer runs the shared burst transaction mimic_apply_collisional_starburst (shared/sage_starburst_physics.h), which adds the burst's double recycled_stars to it when the merger selects the merger channel, a major merger or a minor one onto a target that was spheroid-dominated before the addition (src/model_mergers.c:266-282, :775-777), read from the event's target (MergerDiskDominated). Last, a major merger's make_bulge_from_burst sets it to StellarMass (src/model_mergers.c:557), again in sage26_resolve_mergers_and_disruption through shared/sage_merger_physics.h. A disk-instability burst, the post-merger recheck's included, credits the instability channel and never this one, and a disruption leaves it as it is. With BulgeSizeOn 3 it weights MergerBulgeRadius in BulgeRadius (src/model_misc.c:366)
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= BulgeMass
+
+  - name: InstabilityBulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Stellar mass of the bulge built through disk instabilities (the instability channel of BulgeMass)
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:124; written verbatim at src/io/save_gals_hdf5.c:976. Each disk instability adds its double unstable_stars to it, as to BulgeMass, with no cap (src/model_disk_instability.c:77-78), in every BulgeSizeOn mode, BulgeSizeOn 0 included, which leaves the bulge radii untouched (src/model_misc.c:395). Two package writers do this through the shared instability transaction (shared/sage_disk_instability_physics.h), namely sage26_disk_instability, in the run files' galaxy_physics phase of every substep for each galaxy that is not FFBRegime 1, and the post-minor-merger instability recheck inside the shared burst transaction (SAGE26's check_disk_instability call at src/model_mergers.c:807-809), which also runs on an FFBRegime 1 target. Every instability-channel burst then adds its double recycled_stars to it (src/model_mergers.c:779-781) through the shared burst transaction mimic_apply_collisional_starburst (shared/sage_starburst_physics.h), run by sage26_starburst_feedback; its by-galaxy entry bursts an unstable disk (mode 1, after sage26_quasar_mode's black-hole growth), the recheck's burst follows the recheck, and its merger consumer bursts into this channel for a minor merger onto a target that was disk-dominated before the addition (src/model_mergers.c:266-282). Not reset at the first-occupied update (src/core_build_model.c:273-281), so inherited as SAGE26 does. In a merger, in the run files' satellite_mergers phase of a substep, sage26_resolve_mergers_and_disruption's add_galaxies_together adds the satellite's InstabilityBulgeMass and, when the target's disk fraction after the addition exceeds 0.5, the satellite's disk stars (src/model_mergers.c:504, :516-518), before the burst, and after the burst a major merger's make_bulge_from_burst zeroes it (src/model_mergers.c:558), both through shared/sage_merger_physics.h; a disruption leaves it as it is. With BulgeSizeOn 3 update_instability_bulge_radius (src/model_misc.c:385-424) follows the disk instability's transfer (src/model_disk_instability.c:83), the satellite's disk stars on a disk-dominated target (src/model_mergers.c:516-522) and the instability-channel burst (src/model_mergers.c:779-784), but not the addition of the satellite's own InstabilityBulgeMass (src/model_mergers.c:504), which raises the mass without updating InstabilityBulgeRadius (a later get_bulge_radius changes that radius only by its zero-mass and fallback rules, src/model_misc.c:335-363); it weights InstabilityBulgeRadius in BulgeRadius (src/model_misc.c:366)
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= BulgeMass
+
+  # -----------------------------------------------------------------------------
+  # Intracluster stars (ICS) assembly
+  # -----------------------------------------------------------------------------
+
+  - name: ICS_disrupt
+    type: float
+    units: 1e10 Msun/h
+    description: In-situ ICS, the cumulative satellite stellar mass stripped directly into this halo's ICS reservoir
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). It is the channel of last transfer, not of origin. Created as 0.0 at src/model_misc.c:162; written verbatim at src/io/save_gals_hdf5.c:1000. SAGE26 states ICS_disrupt + ICS_accrete == ICS as an invariant of the struct (src/core_allvars.h:175-176) and, in its HDF5 text, as holding by construction (src/io/save_gals_hdf5_fields.h:250). sage26_resolve_mergers_and_disruption writes it in the run files' satellite_mergers phase of a substep through shared/sage_merger_physics.h; a disruption adds the satellite's stellar mass to the target's when that mass is positive (disrupt_satellite_to_ICS, src/model_mergers.c:869-870) and zeroes the satellite's (:896), and a merger zeroes the satellite's (add_galaxies_together, :492). sage26_prepare_infall_budget, once per FoF group in pre_timestep, zeroes the ICS_disrupt of a satellite that carries ICS, whose ICS it books to the central's ICS_accrete (src/model_infall.c:96-107)
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= ICS
+
+  - name: ICS_accrete
+    type: float
+    units: 1e10 Msun/h
+    description: Ex-situ ICS, the cumulative already-formed ICS brought into this halo by infalling or merging satellites
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). It is the channel of last transfer, not of origin. Created as 0.0 at src/model_misc.c:163; written verbatim at src/io/save_gals_hdf5.c:1001. SAGE26 states ICS_disrupt + ICS_accrete == ICS as an invariant of the struct (src/core_allvars.h:175-176) and, in its HDF5 text, as holding by construction (src/io/save_gals_hdf5_fields.h:250). sage26_prepare_infall_budget writes it once per FoF group in pre_timestep, as SAGE26's infall_recipe does every snapshot; a satellite that carries ICS adds that ICS to the FoF central's ICS_accrete and has its own ICS_disrupt, ICS_accrete and ICS_sum_mt zeroed (src/model_infall.c:96-107), so ICS a progenitor group built in situ is re-booked as accreted once it falls in. sage26_resolve_mergers_and_disruption writes it in the run files' satellite_mergers phase of a substep through shared/sage_merger_physics.h; a merger adds a positive satellite ICS to the target's (add_galaxies_together, src/model_mergers.c:479-480), a disruption does the same (disrupt_satellite_to_ICS, :881-882), and each zeroes the satellite's (:492, :896)
+    output: true
+    init_source: default
+    init_value: 0.0
+    range: [0.0, 100000.0]  # Must be <= ICS
+
+  - name: ICS_sum_mt
+    type: float
+    units: Internal
+    description: Mass-weighted sum of m*t at ICS deposition, in 1e10 Msun/h times code time; divide by ICS_disrupt + ICS_accrete for the mean assembly lookback
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:106-221). Created as 0.0 at src/model_misc.c:164; written verbatim at src/io/save_gals_hdf5.c:1002; HDF5 label is 1.0e10 Msun/h * code_time. Unit is Internal because the registry has no mass-times-time label. Written with the two channels. sage26_prepare_infall_budget, once per FoF group in pre_timestep, adds a satellite's ICS_sum_mt to the FoF central's when the satellite carries ICS and zeroes the satellite's (src/model_infall.c:103, :107). In the run files' satellite_mergers phase of a substep sage26_resolve_mergers_and_disruption, through shared/sage_merger_physics.h, adds the satellite's ICS_sum_mt to the target's when the satellite's ICS is positive, in a merger (src/model_mergers.c:479, :484) and in a disruption (:881, :886); a disruption also adds the satellite's positive stellar mass times the event time, a lookback time in code units (src/core_build_model.c:549), as one fused multiply-add written as fma() (src/model_mergers.c:871); each zeroes the satellite's (src/model_mergers.c:492, :897)
+    output: true
+    init_source: default
+    init_value: 0.0
+
+  # -----------------------------------------------------------------------------
+  # Satellite infall history
+  # -----------------------------------------------------------------------------
+
+  - name: infallStellarMass
+    type: float
+    units: 1e10 Msun/h
+    description: Stellar mass of the galaxy when it became a satellite; SAGE26 writes 0 for centrals (Type 0)
+    notes: The written value of SAGE26's float member infallStellarMass (src/core_allvars.h:201). SAGE26's writer stores the member for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1004-1017) while the member itself keeps its value. The package keeps the member in infallStellarMassState and sage26_record_transition_state, the last post_timestep module, sets this output from it for every galaxy row - 0.0 for Type 0, the state otherwise. The creation value -1 (src/model_misc.c:192) remains only on a row that module has not processed.
+    output: true
+    init_source: default
+    init_value: -1.0
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [-1.0]  # -1.0 = never a satellite
+
+  - name: TimeOfInfall
+    type: float
+    units: index
+    description: Snapshot number at which the galaxy last became a satellite (not a time); -1 = never; SAGE26 writes 0 for centrals (Type 0)
+    notes: The written value of SAGE26's float member TimeOfInfall (src/core_allvars.h:202), a snapshot number stored as float (src/core_build_model.c:311). SAGE26's HDF5 label says Myr and the text says a time, but the writer stores the member unconverted (src/io/save_gals_hdf5.c:1010), so it holds a snapshot number. The writer stores the member for Type != 0 and 0.0 for Type 0 (src/io/save_gals_hdf5.c:1004-1017) while the member itself keeps its value. The package keeps the member in TimeOfInfallState and sage26_record_transition_state, the last post_timestep module, sets this output from it for every galaxy row - 0.0 for Type 0, the state otherwise. The creation value -1 (src/model_misc.c:193) remains only on a row that module has not processed.
+    output: true
+    init_source: default
+    init_value: -1.0
+    sentinels: [-1.0]  # -1.0 = never a satellite
+
+  # -----------------------------------------------------------------------------
+  # Halo structure
+  # -----------------------------------------------------------------------------
+
+  - name: Concentration
+    type: float
+    units: dimensionless
+    description: NFW halo concentration, set at joining for a new FoF central that was a Type 0 or 1, by SAGE26's Vmax/Vvir inversion (ConcentrationOn 3, R5; a former satellite's infall pair), 0 if (Vmax/Vvir)^2 < 1; 0 throughout with ConcentrationOn 0 (R0-R4)
+    notes: SAGE26 scalar float member of struct GALAXY (src/core_allvars.h:134). Created as 0.0 at src/model_misc.c:93 and assigned (float)get_halo_concentration(...) only when ConcentrationOn > 0, and only at src/core_build_model.c:290-294, inside the FoF-central branch (halonr == FirstHaloInFOFgroup, :284) of a galaxy that was a Type 0 or 1 (:240), before Type is set to 0 at :300; a galaxy created by init_galaxy (:347-351) keeps 0 at its birth snapshot. In the package sage26_set_halo_concentration makes that write in pre_timestep for each row whose new Type is 0 and whose PreviousType is 0 or 1, with the core's Vmax, Vvir, infallVmax and infallVvir narrowed to SAGE26's floats (shared/sage_halo_concentration.h). Satellites (Type 1 or 2) therefore never recompute it and keep the value from their last central snapshot, and the Type != 0 branch of get_halo_concentration (src/model_halo_properties.c:339-350, using infallVmax/infallVvir) fires only for a former satellite at the snapshot it becomes a FoF central again, using its stale infall values. Written verbatim at src/io/save_gals_hdf5.c:871. The package supports ConcentrationOn 0 (no call; SAGE26's R0-R4) and 3 (SAGE26's R5 and R6, the run files' value; SAGE26's default, src/core_read_parameter_file.c:105, as input/millennium.par:57 sets it); modes 1 (the Ishiyama+21 lookup table in Mvir and redshift) and 2 (Vmax/Vvir for all galaxy types) are not ported and are refused. Mode 3 inverts the Vmax/Vvir pair through the NFW relation (Vmax/Vvir)^2 = 0.21621 c / mu(c), mu(c) = ln(1+c) - c/(1+c), by exactly 60 bisection steps on c in [1, 200] with the strict test f_mid < ratio_sq, giving 0 when a velocity is not positive or (Vmax/Vvir)^2 < 1, and saturating at 200 for a ratio beyond f(200) (concentration_from_vmax_vvir, src/model_halo_properties.c:288-318). 0.21621 c / mu(c) is not monotonic on [1, about 2.16] (about 1.119 at c = 1, a minimum of about 0.99997 near 2.1626), although the source comment says it is monotonic. The bisection therefore returns exactly 1.0 for (Vmax/Vvir)^2 from 1 up to f(2.5546875), about 1.00503, and 2.5546875 or more above it, and no concentration strictly between 1 and 2.5546875 is produced. SAGE26's HDF5 text says NFW halo concentration parameter from Ishiyama+21 c-M relation (src/io/save_gals_hdf5_fields.h:237-238), which describes mode 1 only
+    output: true
+    init_source: default
+    init_value: 0.0

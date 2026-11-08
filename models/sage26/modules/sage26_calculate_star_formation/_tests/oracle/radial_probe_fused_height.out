@@ -1,0 +1,1076 @@
+# SAGE26 oracle output for radial_probe_fused_height.in, written by oracle_c08 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine calculate_molecular_fraction_radial_integration
+f32 return.H2_code_units 0x0f09cda6  # 6.79422795e-30
+f32 galaxy[0].H2gas 0x0f09cda6  # 6.79422795e-30
+f32 galaxy[0].H2DepletionTime_Gyr 0xbf800000  # -1
+i32 intermediate.returned_early 0
+i32 intermediate.disk_stars_positive 1
+i32 intermediate.h_absent 0
+f32 intermediate.h 0x3f3ae148  # 0.730000019
+i32 intermediate.h_checked 1
+i32 intermediate.h_check_kind 2
+i32 intermediate.h_validated_up 1
+i32 intermediate.h_validated_down 0
+i32 intermediate.h_validated 0
+i32 intermediate.h_narrowing_limited 0
+i32 intermediate.rs_pc_absent 0
+f32 intermediate.rs_pc 0x338656be  # 6.25563956e-08
+i32 intermediate.rs_pc_checked 1
+i32 intermediate.rs_pc_check_kind 2
+i32 intermediate.rs_pc_validated_up 1
+i32 intermediate.rs_pc_validated_down 1
+i32 intermediate.rs_pc_validated 1
+i32 intermediate.rs_pc_narrowing_limited 0
+i32 intermediate.M_gas_total_absent 0
+f32 intermediate.M_gas_total 0x243d8577  # 4.10958912e-17
+i32 intermediate.M_gas_total_checked 1
+i32 intermediate.M_gas_total_check_kind 2
+i32 intermediate.M_gas_total_validated_up 1
+i32 intermediate.M_gas_total_validated_down 1
+i32 intermediate.M_gas_total_validated 1
+i32 intermediate.M_gas_total_narrowing_limited 0
+i32 intermediate.M_disk_star_absent 0
+f32 intermediate.M_disk_star 0x248e2419  # 6.16438352e-17
+i32 intermediate.M_disk_star_checked 1
+i32 intermediate.M_disk_star_check_kind 2
+i32 intermediate.M_disk_star_validated_up 0
+i32 intermediate.M_disk_star_validated_down 0
+i32 intermediate.M_disk_star_validated 0
+i32 intermediate.M_disk_star_narrowing_limited 0
+i32 intermediate.sigma_gas_0_absent 0
+f32 intermediate.sigma_gas_0 0x3adb1232  # 0.00167137966
+i32 intermediate.sigma_gas_0_checked 1
+i32 intermediate.sigma_gas_0_check_kind 2
+i32 intermediate.sigma_gas_0_validated_up 1
+i32 intermediate.sigma_gas_0_validated_down 1
+i32 intermediate.sigma_gas_0_validated 1
+i32 intermediate.sigma_gas_0_narrowing_limited 0
+i32 intermediate.sigma_star_0_absent 0
+f32 intermediate.sigma_star_0 0x3b244da5  # 0.00250706938
+i32 intermediate.sigma_star_0_checked 1
+i32 intermediate.sigma_star_0_check_kind 2
+i32 intermediate.sigma_star_0_validated_up 0
+i32 intermediate.sigma_star_0_validated_down 0
+i32 intermediate.sigma_star_0_validated 0
+i32 intermediate.sigma_star_0_narrowing_limited 0
+i32 intermediate.R_MAX_absent 0
+f32 intermediate.R_MAX 0x34a7ec6e  # 3.12781992e-07
+i32 intermediate.R_MAX_checked 1
+i32 intermediate.R_MAX_check_kind 2
+i32 intermediate.R_MAX_validated_up 0
+i32 intermediate.R_MAX_validated_down 1
+i32 intermediate.R_MAX_validated 0
+i32 intermediate.R_MAX_narrowing_limited 0
+i32 intermediate.dr_absent 0
+f32 intermediate.dr 0x3256f131  # 1.251128e-08
+i32 intermediate.dr_checked 1
+i32 intermediate.dr_check_kind 2
+i32 intermediate.dr_validated_up 0
+i32 intermediate.dr_validated_down 1
+i32 intermediate.dr_validated 0
+i32 intermediate.dr_narrowing_limited 0
+i32 intermediate.log_h_star_absent 0
+f32 intermediate.log_h_star 0xc0bfc683  # -5.99298239
+i32 intermediate.log_h_star_checked 1
+i32 intermediate.log_h_star_check_kind 2
+i32 intermediate.log_h_star_validated_up 1
+i32 intermediate.log_h_star_validated_down 1
+i32 intermediate.log_h_star_validated 1
+i32 intermediate.log_h_star_narrowing_limited 0
+i32 intermediate.h_star_br06_absent 0
+f32 intermediate.h_star_br06 0x35886775  # 1.01628996e-06
+i32 intermediate.h_star_br06_checked 1
+i32 intermediate.h_star_br06_check_kind 2
+i32 intermediate.h_star_br06_validated_up 0
+i32 intermediate.h_star_br06_validated_down 0
+i32 intermediate.h_star_br06_validated 0
+i32 intermediate.h_star_br06_narrowing_limited 0
+i32 intermediate.bin[0].skipped 0
+i32 intermediate.bin[0].stellar_floor_binds 1
+i32 intermediate.bin[0].r_absent 0
+f32 intermediate.bin[0].r 0x31d6f131  # 6.25564001e-09
+i32 intermediate.bin[0].r_checked 1
+i32 intermediate.bin[0].r_check_kind 2
+i32 intermediate.bin[0].r_validated_up 0
+i32 intermediate.bin[0].r_validated_down 0
+i32 intermediate.bin[0].r_validated 0
+i32 intermediate.bin[0].r_narrowing_limited 0
+i32 intermediate.bin[0].exp_factor_absent 0
+f32 intermediate.bin[0].exp_factor 0x3f67a36d  # 0.90483743
+i32 intermediate.bin[0].exp_factor_checked 1
+i32 intermediate.bin[0].exp_factor_check_kind 2
+i32 intermediate.bin[0].exp_factor_validated_up 0
+i32 intermediate.bin[0].exp_factor_validated_down 0
+i32 intermediate.bin[0].exp_factor_validated 0
+i32 intermediate.bin[0].exp_factor_narrowing_limited 0
+i32 intermediate.bin[0].sigma_gas_r_absent 0
+f32 intermediate.bin[0].sigma_gas_r 0x3ac63945  # 0.00151232688
+i32 intermediate.bin[0].sigma_gas_r_checked 1
+i32 intermediate.bin[0].sigma_gas_r_check_kind 2
+i32 intermediate.bin[0].sigma_gas_r_validated_up 0
+i32 intermediate.bin[0].sigma_gas_r_validated_down 0
+i32 intermediate.bin[0].sigma_gas_r_validated 0
+i32 intermediate.bin[0].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[0].sigma_star_r_absent 0
+f32 intermediate.bin[0].sigma_star_r 0x3b14aaf3  # 0.00226849015
+i32 intermediate.bin[0].sigma_star_r_checked 1
+i32 intermediate.bin[0].sigma_star_r_check_kind 2
+i32 intermediate.bin[0].sigma_star_r_validated_up 0
+i32 intermediate.bin[0].sigma_star_r_validated_down 0
+i32 intermediate.bin[0].sigma_star_r_validated 0
+i32 intermediate.bin[0].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[0].f_mol_r_absent 0
+f32 intermediate.bin[0].f_mol_r 0x3d005c6d  # 0.0313381441
+i32 intermediate.bin[0].f_mol_r_checked 1
+i32 intermediate.bin[0].f_mol_r_check_kind 2
+i32 intermediate.bin[0].f_mol_r_validated_up 0
+i32 intermediate.bin[0].f_mol_r_validated_down 0
+i32 intermediate.bin[0].f_mol_r_validated 0
+i32 intermediate.bin[0].f_mol_r_narrowing_limited 0
+i32 intermediate.bin[0].dM_H2_absent 0
+f32 intermediate.bin[0].dM_H2 0x1ea2e3c5  # 1.72466205e-20
+i32 intermediate.bin[0].dM_H2_checked 1
+i32 intermediate.bin[0].dM_H2_check_kind 2
+i32 intermediate.bin[0].dM_H2_validated_up 0
+i32 intermediate.bin[0].dM_H2_validated_down 0
+i32 intermediate.bin[0].dM_H2_validated 0
+i32 intermediate.bin[0].dM_H2_narrowing_limited 0
+i32 intermediate.bin[0].M_H2_total_absent 0
+f32 intermediate.bin[0].M_H2_total 0x1ea2e3c5  # 1.72466205e-20
+i32 intermediate.bin[0].M_H2_total_checked 1
+i32 intermediate.bin[0].M_H2_total_check_kind 2
+i32 intermediate.bin[0].M_H2_total_validated_up 0
+i32 intermediate.bin[0].M_H2_total_validated_down 0
+i32 intermediate.bin[0].M_H2_total_validated 0
+i32 intermediate.bin[0].M_H2_total_narrowing_limited 0
+i32 intermediate.bin[1].skipped 0
+i32 intermediate.bin[1].stellar_floor_binds 1
+i32 intermediate.bin[1].r_absent 0
+f32 intermediate.bin[1].r 0x32a134e5  # 1.87669205e-08
+i32 intermediate.bin[1].r_checked 1
+i32 intermediate.bin[1].r_check_kind 2
+i32 intermediate.bin[1].r_validated_up 1
+i32 intermediate.bin[1].r_validated_down 1
+i32 intermediate.bin[1].r_validated 1
+i32 intermediate.bin[1].r_narrowing_limited 0
+i32 intermediate.bin[1].exp_factor_absent 0
+f32 intermediate.bin[1].exp_factor 0x3f3da643  # 0.740818202
+i32 intermediate.bin[1].exp_factor_checked 1
+i32 intermediate.bin[1].exp_factor_check_kind 2
+i32 intermediate.bin[1].exp_factor_validated_up 0
+i32 intermediate.bin[1].exp_factor_validated_down 1
+i32 intermediate.bin[1].exp_factor_validated 0
+i32 intermediate.bin[1].exp_factor_narrowing_limited 0
+i32 intermediate.bin[1].sigma_gas_r_absent 0
+f32 intermediate.bin[1].sigma_gas_r 0x3aa24ab6  # 0.00123818847
+i32 intermediate.bin[1].sigma_gas_r_checked 1
+i32 intermediate.bin[1].sigma_gas_r_check_kind 2
+i32 intermediate.bin[1].sigma_gas_r_validated_up 0
+i32 intermediate.bin[1].sigma_gas_r_validated_down 1
+i32 intermediate.bin[1].sigma_gas_r_validated 0
+i32 intermediate.bin[1].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[1].sigma_star_r_absent 0
+f32 intermediate.bin[1].sigma_star_r 0x3af37010  # 0.00185728259
+i32 intermediate.bin[1].sigma_star_r_checked 1
+i32 intermediate.bin[1].sigma_star_r_check_kind 2
+i32 intermediate.bin[1].sigma_star_r_validated_up 0
+i32 intermediate.bin[1].sigma_star_r_validated_down 0
+i32 intermediate.bin[1].sigma_star_r_validated 0
+i32 intermediate.bin[1].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[1].f_mol_r_absent 0
+f32 intermediate.bin[1].f_mol_r 0x3cd6b505  # 0.0262093637
+i32 intermediate.bin[1].f_mol_r_checked 1
+i32 intermediate.bin[1].f_mol_r_check_kind 2
+i32 intermediate.bin[1].f_mol_r_validated_up 0
+i32 intermediate.bin[1].f_mol_r_validated_down 0
+i32 intermediate.bin[1].f_mol_r_validated 0
+i32 intermediate.bin[1].f_mol_r_narrowing_limited 0
+i32 intermediate.bin[1].dM_H2_absent 0
+f32 intermediate.bin[1].dM_H2 0x1f274e1f  # 3.54282458e-20
+i32 intermediate.bin[1].dM_H2_checked 1
+i32 intermediate.bin[1].dM_H2_check_kind 2
+i32 intermediate.bin[1].dM_H2_validated_up 0
+i32 intermediate.bin[1].dM_H2_validated_down 0
+i32 intermediate.bin[1].dM_H2_validated 0
+i32 intermediate.bin[1].dM_H2_narrowing_limited 0
+i32 intermediate.bin[1].M_H2_total_absent 0
+f32 intermediate.bin[1].M_H2_total 0x1f78c002  # 5.26748679e-20
+i32 intermediate.bin[1].M_H2_total_checked 1
+i32 intermediate.bin[1].M_H2_total_check_kind 2
+i32 intermediate.bin[1].M_H2_total_validated_up 1
+i32 intermediate.bin[1].M_H2_total_validated_down 0
+i32 intermediate.bin[1].M_H2_total_validated 0
+i32 intermediate.bin[1].M_H2_total_narrowing_limited 0
+i32 intermediate.bin[2].skipped 0
+i32 intermediate.bin[2].stellar_floor_binds 1
+i32 intermediate.bin[2].r_absent 0
+f32 intermediate.bin[2].r 0x330656bf  # 3.12782014e-08
+i32 intermediate.bin[2].r_checked 1
+i32 intermediate.bin[2].r_check_kind 2
+i32 intermediate.bin[2].r_validated_up 1
+i32 intermediate.bin[2].r_validated_down 1
+i32 intermediate.bin[2].r_validated 1
+i32 intermediate.bin[2].r_narrowing_limited 0
+i32 intermediate.bin[2].exp_factor_absent 0
+f32 intermediate.bin[2].exp_factor 0x3f1b4597  # 0.606530607
+i32 intermediate.bin[2].exp_factor_checked 1
+i32 intermediate.bin[2].exp_factor_check_kind 2
+i32 intermediate.bin[2].exp_factor_validated_up 1
+i32 intermediate.bin[2].exp_factor_validated_down 0
+i32 intermediate.bin[2].exp_factor_validated 0
+i32 intermediate.bin[2].exp_factor_narrowing_limited 0
+i32 intermediate.bin[2].sigma_gas_r_absent 0
+f32 intermediate.bin[2].sigma_gas_r 0x3a84df91  # 0.00101374288
+i32 intermediate.bin[2].sigma_gas_r_checked 1
+i32 intermediate.bin[2].sigma_gas_r_check_kind 2
+i32 intermediate.bin[2].sigma_gas_r_validated_up 1
+i32 intermediate.bin[2].sigma_gas_r_validated_down 0
+i32 intermediate.bin[2].sigma_gas_r_validated 0
+i32 intermediate.bin[2].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[2].sigma_star_r_absent 0
+f32 intermediate.bin[2].sigma_star_r 0x3ac74f59  # 0.00152061426
+i32 intermediate.bin[2].sigma_star_r_checked 1
+i32 intermediate.bin[2].sigma_star_r_check_kind 2
+i32 intermediate.bin[2].sigma_star_r_validated_up 0
+i32 intermediate.bin[2].sigma_star_r_validated_down 0
+i32 intermediate.bin[2].sigma_star_r_validated 0
+i32 intermediate.bin[2].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[2].f_mol_r_absent 0
+f32 intermediate.bin[2].f_mol_r 0x3cb369ad  # 0.0219009761
+i32 intermediate.bin[2].f_mol_r_checked 1
+i32 intermediate.bin[2].f_mol_r_check_kind 2
+i32 intermediate.bin[2].f_mol_r_validated_up 1
+i32 intermediate.bin[2].f_mol_r_validated_down 0
+i32 intermediate.bin[2].f_mol_r_validated 0
+i32 intermediate.bin[2].f_mol_r_narrowing_limited 0
+i32 intermediate.bin[2].dM_H2_absent 0
+f32 intermediate.bin[2].dM_H2 0x1f3ec4ac  # 4.03967482e-20
+i32 intermediate.bin[2].dM_H2_checked 1
+i32 intermediate.bin[2].dM_H2_check_kind 2
+i32 intermediate.bin[2].dM_H2_validated_up 1
+i32 intermediate.bin[2].dM_H2_validated_down 0
+i32 intermediate.bin[2].dM_H2_validated 0
+i32 intermediate.bin[2].dM_H2_narrowing_limited 0
+i32 intermediate.bin[2].M_H2_total_absent 0
+f32 intermediate.bin[2].M_H2_total 0x1fdbc257  # 9.3071616e-20
+i32 intermediate.bin[2].M_H2_total_checked 1
+i32 intermediate.bin[2].M_H2_total_check_kind 2
+i32 intermediate.bin[2].M_H2_total_validated_up 1
+i32 intermediate.bin[2].M_H2_total_validated_down 0
+i32 intermediate.bin[2].M_H2_total_validated 0
+i32 intermediate.bin[2].M_H2_total_narrowing_limited 0
+i32 intermediate.bin[3].skipped 1
+i32 intermediate.bin[3].stellar_floor_binds -1
+i32 intermediate.bin[3].r_absent 0
+f32 intermediate.bin[3].r 0x333c130b  # 4.37894805e-08
+i32 intermediate.bin[3].r_checked 1
+i32 intermediate.bin[3].r_check_kind 2
+i32 intermediate.bin[3].r_validated_up 0
+i32 intermediate.bin[3].r_validated_down 0
+i32 intermediate.bin[3].r_validated 0
+i32 intermediate.bin[3].r_narrowing_limited 0
+i32 intermediate.bin[3].exp_factor_absent 0
+f32 intermediate.bin[3].exp_factor 0x3efe406d  # 0.49658528
+i32 intermediate.bin[3].exp_factor_checked 1
+i32 intermediate.bin[3].exp_factor_check_kind 2
+i32 intermediate.bin[3].exp_factor_validated_up 0
+i32 intermediate.bin[3].exp_factor_validated_down 0
+i32 intermediate.bin[3].exp_factor_validated 0
+i32 intermediate.bin[3].exp_factor_narrowing_limited 0
+i32 intermediate.bin[3].sigma_gas_r_absent 0
+f32 intermediate.bin[3].sigma_gas_r 0x3a59932f  # 0.000829982513
+i32 intermediate.bin[3].sigma_gas_r_checked 1
+i32 intermediate.bin[3].sigma_gas_r_check_kind 2
+i32 intermediate.bin[3].sigma_gas_r_validated_up 0
+i32 intermediate.bin[3].sigma_gas_r_validated_down 0
+i32 intermediate.bin[3].sigma_gas_r_validated 0
+i32 intermediate.bin[3].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[3].sigma_star_r_absent 0
+f32 intermediate.bin[3].sigma_star_r 0x3aa32e63  # 0.00124497374
+i32 intermediate.bin[3].sigma_star_r_checked 1
+i32 intermediate.bin[3].sigma_star_r_check_kind 2
+i32 intermediate.bin[3].sigma_star_r_validated_up 0
+i32 intermediate.bin[3].sigma_star_r_validated_down 0
+i32 intermediate.bin[3].sigma_star_r_validated 0
+i32 intermediate.bin[3].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[3].f_mol_r_absent 1
+i32 intermediate.bin[3].dM_H2_absent 1
+i32 intermediate.bin[3].M_H2_total_absent 1
+i32 intermediate.bin[4].skipped 1
+i32 intermediate.bin[4].stellar_floor_binds -1
+i32 intermediate.bin[4].r_absent 0
+f32 intermediate.bin[4].r 0x3371cf57  # 5.63007596e-08
+i32 intermediate.bin[4].r_checked 1
+i32 intermediate.bin[4].r_check_kind 2
+i32 intermediate.bin[4].r_validated_up 0
+i32 intermediate.bin[4].r_validated_down 0
+i32 intermediate.bin[4].r_validated 0
+i32 intermediate.bin[4].r_narrowing_limited 0
+i32 intermediate.bin[4].exp_factor_absent 0
+f32 intermediate.bin[4].exp_factor 0x3ed029e6  # 0.40656966
+i32 intermediate.bin[4].exp_factor_checked 1
+i32 intermediate.bin[4].exp_factor_check_kind 2
+i32 intermediate.bin[4].exp_factor_validated_up 0
+i32 intermediate.bin[4].exp_factor_validated_down 0
+i32 intermediate.bin[4].exp_factor_validated 0
+i32 intermediate.bin[4].exp_factor_narrowing_limited 0
+i32 intermediate.bin[4].sigma_gas_r_absent 0
+f32 intermediate.bin[4].sigma_gas_r 0x3a3222a3  # 0.000679532241
+i32 intermediate.bin[4].sigma_gas_r_checked 1
+i32 intermediate.bin[4].sigma_gas_r_check_kind 2
+i32 intermediate.bin[4].sigma_gas_r_validated_up 0
+i32 intermediate.bin[4].sigma_gas_r_validated_down 0
+i32 intermediate.bin[4].sigma_gas_r_validated 0
+i32 intermediate.bin[4].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[4].sigma_star_r_absent 0
+f32 intermediate.bin[4].sigma_star_r 0x3a8599fa  # 0.00101929833
+i32 intermediate.bin[4].sigma_star_r_checked 1
+i32 intermediate.bin[4].sigma_star_r_check_kind 2
+i32 intermediate.bin[4].sigma_star_r_validated_up 0
+i32 intermediate.bin[4].sigma_star_r_validated_down 0
+i32 intermediate.bin[4].sigma_star_r_validated 0
+i32 intermediate.bin[4].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[4].f_mol_r_absent 1
+i32 intermediate.bin[4].dM_H2_absent 1
+i32 intermediate.bin[4].M_H2_total_absent 1
+i32 intermediate.bin[5].skipped 1
+i32 intermediate.bin[5].stellar_floor_binds -1
+i32 intermediate.bin[5].r_absent 0
+f32 intermediate.bin[5].r 0x3393c5d2  # 6.88120423e-08
+i32 intermediate.bin[5].r_checked 1
+i32 intermediate.bin[5].r_check_kind 2
+i32 intermediate.bin[5].r_validated_up 0
+i32 intermediate.bin[5].r_validated_down 0
+i32 intermediate.bin[5].r_validated 0
+i32 intermediate.bin[5].r_narrowing_limited 0
+i32 intermediate.bin[5].exp_factor_absent 0
+f32 intermediate.bin[5].exp_factor 0x3eaa6e13  # 0.33287105
+i32 intermediate.bin[5].exp_factor_checked 1
+i32 intermediate.bin[5].exp_factor_check_kind 2
+i32 intermediate.bin[5].exp_factor_validated_up 0
+i32 intermediate.bin[5].exp_factor_validated_down 0
+i32 intermediate.bin[5].exp_factor_validated 0
+i32 intermediate.bin[5].exp_factor_narrowing_limited 0
+i32 intermediate.bin[5].sigma_gas_r_absent 0
+f32 intermediate.bin[5].sigma_gas_r 0x3a11d847  # 0.000556353887
+i32 intermediate.bin[5].sigma_gas_r_checked 1
+i32 intermediate.bin[5].sigma_gas_r_check_kind 2
+i32 intermediate.bin[5].sigma_gas_r_validated_up 0
+i32 intermediate.bin[5].sigma_gas_r_validated_down 0
+i32 intermediate.bin[5].sigma_gas_r_validated 0
+i32 intermediate.bin[5].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[5].sigma_star_r_absent 0
+f32 intermediate.bin[5].sigma_star_r 0x3a5ac46a  # 0.000834530802
+i32 intermediate.bin[5].sigma_star_r_checked 1
+i32 intermediate.bin[5].sigma_star_r_check_kind 2
+i32 intermediate.bin[5].sigma_star_r_validated_up 0
+i32 intermediate.bin[5].sigma_star_r_validated_down 0
+i32 intermediate.bin[5].sigma_star_r_validated 0
+i32 intermediate.bin[5].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[5].f_mol_r_absent 1
+i32 intermediate.bin[5].dM_H2_absent 1
+i32 intermediate.bin[5].M_H2_total_absent 1
+i32 intermediate.bin[6].skipped 1
+i32 intermediate.bin[6].stellar_floor_binds -1
+i32 intermediate.bin[6].r_absent 0
+f32 intermediate.bin[6].r 0x33aea3f8  # 8.13233214e-08
+i32 intermediate.bin[6].r_checked 1
+i32 intermediate.bin[6].r_check_kind 2
+i32 intermediate.bin[6].r_validated_up 0
+i32 intermediate.bin[6].r_validated_down 0
+i32 intermediate.bin[6].r_validated 0
+i32 intermediate.bin[6].r_narrowing_limited 0
+i32 intermediate.bin[6].exp_factor_absent 0
+f32 intermediate.bin[6].exp_factor 0x3e8b8949  # 0.272531778
+i32 intermediate.bin[6].exp_factor_checked 1
+i32 intermediate.bin[6].exp_factor_check_kind 2
+i32 intermediate.bin[6].exp_factor_validated_up 0
+i32 intermediate.bin[6].exp_factor_validated_down 0
+i32 intermediate.bin[6].exp_factor_validated 0
+i32 intermediate.bin[6].exp_factor_narrowing_limited 0
+i32 intermediate.bin[6].sigma_gas_r_absent 0
+f32 intermediate.bin[6].sigma_gas_r 0x39eed0b9  # 0.00045550408
+i32 intermediate.bin[6].sigma_gas_r_checked 1
+i32 intermediate.bin[6].sigma_gas_r_check_kind 2
+i32 intermediate.bin[6].sigma_gas_r_validated_up 0
+i32 intermediate.bin[6].sigma_gas_r_validated_down 0
+i32 intermediate.bin[6].sigma_gas_r_validated 0
+i32 intermediate.bin[6].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[6].sigma_star_r_absent 0
+f32 intermediate.bin[6].sigma_star_r 0x3a331c8a  # 0.000683256076
+i32 intermediate.bin[6].sigma_star_r_checked 1
+i32 intermediate.bin[6].sigma_star_r_check_kind 2
+i32 intermediate.bin[6].sigma_star_r_validated_up 0
+i32 intermediate.bin[6].sigma_star_r_validated_down 0
+i32 intermediate.bin[6].sigma_star_r_validated 0
+i32 intermediate.bin[6].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[6].f_mol_r_absent 1
+i32 intermediate.bin[6].dM_H2_absent 1
+i32 intermediate.bin[6].M_H2_total_absent 1
+i32 intermediate.bin[7].skipped 1
+i32 intermediate.bin[7].stellar_floor_binds -1
+i32 intermediate.bin[7].r_absent 0
+f32 intermediate.bin[7].r 0x33c9821e  # 9.38346005e-08
+i32 intermediate.bin[7].r_checked 1
+i32 intermediate.bin[7].r_check_kind 2
+i32 intermediate.bin[7].r_validated_up 0
+i32 intermediate.bin[7].r_validated_down 0
+i32 intermediate.bin[7].r_validated 0
+i32 intermediate.bin[7].r_narrowing_limited 0
+i32 intermediate.bin[7].exp_factor_absent 0
+f32 intermediate.bin[7].exp_factor 0x3e647c3a  # 0.223130137
+i32 intermediate.bin[7].exp_factor_checked 1
+i32 intermediate.bin[7].exp_factor_check_kind 2
+i32 intermediate.bin[7].exp_factor_validated_up 0
+i32 intermediate.bin[7].exp_factor_validated_down 0
+i32 intermediate.bin[7].exp_factor_validated 0
+i32 intermediate.bin[7].exp_factor_narrowing_limited 0
+i32 intermediate.bin[7].sigma_gas_r_absent 0
+f32 intermediate.bin[7].sigma_gas_r 0x39c38683  # 0.000372935174
+i32 intermediate.bin[7].sigma_gas_r_checked 1
+i32 intermediate.bin[7].sigma_gas_r_check_kind 2
+i32 intermediate.bin[7].sigma_gas_r_validated_up 0
+i32 intermediate.bin[7].sigma_gas_r_validated_down 0
+i32 intermediate.bin[7].sigma_gas_r_validated 0
+i32 intermediate.bin[7].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[7].sigma_star_r_absent 0
+f32 intermediate.bin[7].sigma_star_r 0x3a12a4e2  # 0.000559402746
+i32 intermediate.bin[7].sigma_star_r_checked 1
+i32 intermediate.bin[7].sigma_star_r_check_kind 2
+i32 intermediate.bin[7].sigma_star_r_validated_up 0
+i32 intermediate.bin[7].sigma_star_r_validated_down 0
+i32 intermediate.bin[7].sigma_star_r_validated 0
+i32 intermediate.bin[7].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[7].f_mol_r_absent 1
+i32 intermediate.bin[7].dM_H2_absent 1
+i32 intermediate.bin[7].M_H2_total_absent 1
+i32 intermediate.bin[8].skipped 1
+i32 intermediate.bin[8].stellar_floor_binds -1
+i32 intermediate.bin[8].r_absent 0
+f32 intermediate.bin[8].r 0x33e46044  # 1.0634588e-07
+i32 intermediate.bin[8].r_checked 1
+i32 intermediate.bin[8].r_check_kind 2
+i32 intermediate.bin[8].r_validated_up 0
+i32 intermediate.bin[8].r_validated_down 0
+i32 intermediate.bin[8].r_validated 0
+i32 intermediate.bin[8].r_narrowing_limited 0
+i32 intermediate.bin[8].exp_factor_absent 0
+f32 intermediate.bin[8].exp_factor 0x3e3b1162  # 0.182683498
+i32 intermediate.bin[8].exp_factor_checked 1
+i32 intermediate.bin[8].exp_factor_check_kind 2
+i32 intermediate.bin[8].exp_factor_validated_up 0
+i32 intermediate.bin[8].exp_factor_validated_down 0
+i32 intermediate.bin[8].exp_factor_validated 0
+i32 intermediate.bin[8].exp_factor_narrowing_limited 0
+i32 intermediate.bin[8].sigma_gas_r_absent 0
+f32 intermediate.bin[8].sigma_gas_r 0x39a0152b  # 0.000305333495
+i32 intermediate.bin[8].sigma_gas_r_checked 1
+i32 intermediate.bin[8].sigma_gas_r_check_kind 2
+i32 intermediate.bin[8].sigma_gas_r_validated_up 0
+i32 intermediate.bin[8].sigma_gas_r_validated_down 0
+i32 intermediate.bin[8].sigma_gas_r_validated 0
+i32 intermediate.bin[8].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[8].sigma_star_r_absent 0
+f32 intermediate.bin[8].sigma_star_r 0x39f01fbf  # 0.000458000199
+i32 intermediate.bin[8].sigma_star_r_checked 1
+i32 intermediate.bin[8].sigma_star_r_check_kind 2
+i32 intermediate.bin[8].sigma_star_r_validated_up 0
+i32 intermediate.bin[8].sigma_star_r_validated_down 0
+i32 intermediate.bin[8].sigma_star_r_validated 0
+i32 intermediate.bin[8].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[8].f_mol_r_absent 1
+i32 intermediate.bin[8].dM_H2_absent 1
+i32 intermediate.bin[8].M_H2_total_absent 1
+i32 intermediate.bin[9].skipped 1
+i32 intermediate.bin[9].stellar_floor_binds -1
+i32 intermediate.bin[9].r_absent 0
+f32 intermediate.bin[9].r 0x33ff3e6a  # 1.18857159e-07
+i32 intermediate.bin[9].r_checked 1
+i32 intermediate.bin[9].r_check_kind 2
+i32 intermediate.bin[9].r_validated_up 0
+i32 intermediate.bin[9].r_validated_down 0
+i32 intermediate.bin[9].r_validated 0
+i32 intermediate.bin[9].r_narrowing_limited 0
+i32 intermediate.bin[9].exp_factor_absent 0
+f32 intermediate.bin[9].exp_factor 0x3e192883  # 0.149568602
+i32 intermediate.bin[9].exp_factor_checked 1
+i32 intermediate.bin[9].exp_factor_check_kind 2
+i32 intermediate.bin[9].exp_factor_validated_up 0
+i32 intermediate.bin[9].exp_factor_validated_down 0
+i32 intermediate.bin[9].exp_factor_validated 0
+i32 intermediate.bin[9].exp_factor_narrowing_limited 0
+i32 intermediate.bin[9].sigma_gas_r_absent 0
+f32 intermediate.bin[9].sigma_gas_r 0x3983108b  # 0.000249985926
+i32 intermediate.bin[9].sigma_gas_r_checked 1
+i32 intermediate.bin[9].sigma_gas_r_check_kind 2
+i32 intermediate.bin[9].sigma_gas_r_validated_up 0
+i32 intermediate.bin[9].sigma_gas_r_validated_down 0
+i32 intermediate.bin[9].sigma_gas_r_validated 0
+i32 intermediate.bin[9].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[9].sigma_star_r_absent 0
+f32 intermediate.bin[9].sigma_star_r 0x39c498d0  # 0.000374978874
+i32 intermediate.bin[9].sigma_star_r_checked 1
+i32 intermediate.bin[9].sigma_star_r_check_kind 2
+i32 intermediate.bin[9].sigma_star_r_validated_up 0
+i32 intermediate.bin[9].sigma_star_r_validated_down 0
+i32 intermediate.bin[9].sigma_star_r_validated 0
+i32 intermediate.bin[9].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[9].f_mol_r_absent 1
+i32 intermediate.bin[9].dM_H2_absent 1
+i32 intermediate.bin[9].M_H2_total_absent 1
+i32 intermediate.bin[10].skipped 1
+i32 intermediate.bin[10].stellar_floor_binds -1
+i32 intermediate.bin[10].r_absent 0
+f32 intermediate.bin[10].r 0x340d0e48  # 1.31368438e-07
+i32 intermediate.bin[10].r_checked 1
+i32 intermediate.bin[10].r_check_kind 2
+i32 intermediate.bin[10].r_validated_up 0
+i32 intermediate.bin[10].r_validated_down 0
+i32 intermediate.bin[10].r_validated 0
+i32 intermediate.bin[10].r_narrowing_limited 0
+i32 intermediate.bin[10].exp_factor_absent 0
+f32 intermediate.bin[10].exp_factor 0x3dfaca6d  # 0.122456409
+i32 intermediate.bin[10].exp_factor_checked 1
+i32 intermediate.bin[10].exp_factor_check_kind 2
+i32 intermediate.bin[10].exp_factor_validated_up 0
+i32 intermediate.bin[10].exp_factor_validated_down 0
+i32 intermediate.bin[10].exp_factor_validated 0
+i32 intermediate.bin[10].exp_factor_narrowing_limited 0
+i32 intermediate.bin[10].sigma_gas_r_absent 0
+f32 intermediate.bin[10].sigma_gas_r 0x39569cfe  # 0.000204671145
+i32 intermediate.bin[10].sigma_gas_r_checked 1
+i32 intermediate.bin[10].sigma_gas_r_check_kind 2
+i32 intermediate.bin[10].sigma_gas_r_validated_up 0
+i32 intermediate.bin[10].sigma_gas_r_validated_down 0
+i32 intermediate.bin[10].sigma_gas_r_validated 0
+i32 intermediate.bin[10].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[10].sigma_star_r_absent 0
+f32 intermediate.bin[10].sigma_star_r 0x39a0f5be  # 0.000307006703
+i32 intermediate.bin[10].sigma_star_r_checked 1
+i32 intermediate.bin[10].sigma_star_r_check_kind 2
+i32 intermediate.bin[10].sigma_star_r_validated_up 0
+i32 intermediate.bin[10].sigma_star_r_validated_down 0
+i32 intermediate.bin[10].sigma_star_r_validated 0
+i32 intermediate.bin[10].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[10].f_mol_r_absent 1
+i32 intermediate.bin[10].dM_H2_absent 1
+i32 intermediate.bin[10].M_H2_total_absent 1
+i32 intermediate.bin[11].skipped 1
+i32 intermediate.bin[11].stellar_floor_binds -1
+i32 intermediate.bin[11].r_absent 0
+f32 intermediate.bin[11].r 0x341a7d5b  # 1.43879717e-07
+i32 intermediate.bin[11].r_checked 1
+i32 intermediate.bin[11].r_check_kind 2
+i32 intermediate.bin[11].r_validated_up 0
+i32 intermediate.bin[11].r_validated_down 0
+i32 intermediate.bin[11].r_validated 0
+i32 intermediate.bin[11].r_narrowing_limited 0
+i32 intermediate.bin[11].exp_factor_absent 0
+f32 intermediate.bin[11].exp_factor 0x3dcd5480  # 0.100258827
+i32 intermediate.bin[11].exp_factor_checked 1
+i32 intermediate.bin[11].exp_factor_check_kind 2
+i32 intermediate.bin[11].exp_factor_validated_up 0
+i32 intermediate.bin[11].exp_factor_validated_down 0
+i32 intermediate.bin[11].exp_factor_validated 0
+i32 intermediate.bin[11].exp_factor_narrowing_limited 0
+i32 intermediate.bin[11].sigma_gas_r_absent 0
+f32 intermediate.bin[11].sigma_gas_r 0x392fb5e2  # 0.000167570572
+i32 intermediate.bin[11].sigma_gas_r_checked 1
+i32 intermediate.bin[11].sigma_gas_r_check_kind 2
+i32 intermediate.bin[11].sigma_gas_r_validated_up 0
+i32 intermediate.bin[11].sigma_gas_r_validated_down 0
+i32 intermediate.bin[11].sigma_gas_r_validated 0
+i32 intermediate.bin[11].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[11].sigma_star_r_absent 0
+f32 intermediate.bin[11].sigma_star_r 0x3983c869  # 0.000251355843
+i32 intermediate.bin[11].sigma_star_r_checked 1
+i32 intermediate.bin[11].sigma_star_r_check_kind 2
+i32 intermediate.bin[11].sigma_star_r_validated_up 0
+i32 intermediate.bin[11].sigma_star_r_validated_down 0
+i32 intermediate.bin[11].sigma_star_r_validated 0
+i32 intermediate.bin[11].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[11].f_mol_r_absent 1
+i32 intermediate.bin[11].dM_H2_absent 1
+i32 intermediate.bin[11].M_H2_total_absent 1
+i32 intermediate.bin[12].skipped 1
+i32 intermediate.bin[12].stellar_floor_binds -1
+i32 intermediate.bin[12].r_absent 0
+f32 intermediate.bin[12].r 0x3427ec6e  # 1.56390996e-07
+i32 intermediate.bin[12].r_checked 1
+i32 intermediate.bin[12].r_check_kind 2
+i32 intermediate.bin[12].r_validated_up 0
+i32 intermediate.bin[12].r_validated_down 0
+i32 intermediate.bin[12].r_validated 0
+i32 intermediate.bin[12].r_narrowing_limited 0
+i32 intermediate.bin[12].exp_factor_absent 0
+f32 intermediate.bin[12].exp_factor 0x3da81c2e  # 0.0820849985
+i32 intermediate.bin[12].exp_factor_checked 1
+i32 intermediate.bin[12].exp_factor_check_kind 2
+i32 intermediate.bin[12].exp_factor_validated_up 0
+i32 intermediate.bin[12].exp_factor_validated_down 0
+i32 intermediate.bin[12].exp_factor_validated 0
+i32 intermediate.bin[12].exp_factor_narrowing_limited 0
+i32 intermediate.bin[12].sigma_gas_r_absent 0
+f32 intermediate.bin[12].sigma_gas_r 0x390fdc0e  # 0.000137195195
+i32 intermediate.bin[12].sigma_gas_r_checked 1
+i32 intermediate.bin[12].sigma_gas_r_check_kind 2
+i32 intermediate.bin[12].sigma_gas_r_validated_up 0
+i32 intermediate.bin[12].sigma_gas_r_validated_down 0
+i32 intermediate.bin[12].sigma_gas_r_validated 0
+i32 intermediate.bin[12].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[12].sigma_star_r_absent 0
+f32 intermediate.bin[12].sigma_star_r 0x3957ca15  # 0.000205792792
+i32 intermediate.bin[12].sigma_star_r_checked 1
+i32 intermediate.bin[12].sigma_star_r_check_kind 2
+i32 intermediate.bin[12].sigma_star_r_validated_up 0
+i32 intermediate.bin[12].sigma_star_r_validated_down 0
+i32 intermediate.bin[12].sigma_star_r_validated 0
+i32 intermediate.bin[12].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[12].f_mol_r_absent 1
+i32 intermediate.bin[12].dM_H2_absent 1
+i32 intermediate.bin[12].M_H2_total_absent 1
+i32 intermediate.bin[13].skipped 1
+i32 intermediate.bin[13].stellar_floor_binds -1
+i32 intermediate.bin[13].r_absent 0
+f32 intermediate.bin[13].r 0x34355b81  # 1.68902275e-07
+i32 intermediate.bin[13].r_checked 1
+i32 intermediate.bin[13].r_check_kind 2
+i32 intermediate.bin[13].r_validated_up 0
+i32 intermediate.bin[13].r_validated_down 0
+i32 intermediate.bin[13].r_validated 0
+i32 intermediate.bin[13].r_narrowing_limited 0
+i32 intermediate.bin[13].exp_factor_absent 0
+f32 intermediate.bin[13].exp_factor 0x3d89a30b  # 0.067205511
+i32 intermediate.bin[13].exp_factor_checked 1
+i32 intermediate.bin[13].exp_factor_check_kind 2
+i32 intermediate.bin[13].exp_factor_validated_up 0
+i32 intermediate.bin[13].exp_factor_validated_down 0
+i32 intermediate.bin[13].exp_factor_validated 0
+i32 intermediate.bin[13].exp_factor_narrowing_limited 0
+i32 intermediate.bin[13].sigma_gas_r_absent 0
+f32 intermediate.bin[13].sigma_gas_r 0x38eb9086  # 0.000112325928
+i32 intermediate.bin[13].sigma_gas_r_checked 1
+i32 intermediate.bin[13].sigma_gas_r_check_kind 2
+i32 intermediate.bin[13].sigma_gas_r_validated_up 0
+i32 intermediate.bin[13].sigma_gas_r_validated_down 0
+i32 intermediate.bin[13].sigma_gas_r_validated 0
+i32 intermediate.bin[13].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[13].sigma_star_r_absent 0
+f32 intermediate.bin[13].sigma_star_r 0x3930ac64  # 0.000168488885
+i32 intermediate.bin[13].sigma_star_r_checked 1
+i32 intermediate.bin[13].sigma_star_r_check_kind 2
+i32 intermediate.bin[13].sigma_star_r_validated_up 0
+i32 intermediate.bin[13].sigma_star_r_validated_down 0
+i32 intermediate.bin[13].sigma_star_r_validated 0
+i32 intermediate.bin[13].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[13].f_mol_r_absent 1
+i32 intermediate.bin[13].dM_H2_absent 1
+i32 intermediate.bin[13].M_H2_total_absent 1
+i32 intermediate.bin[14].skipped 1
+i32 intermediate.bin[14].stellar_floor_binds -1
+i32 intermediate.bin[14].r_absent 0
+f32 intermediate.bin[14].r 0x3442ca94  # 1.81413554e-07
+i32 intermediate.bin[14].r_checked 1
+i32 intermediate.bin[14].r_check_kind 2
+i32 intermediate.bin[14].r_validated_up 0
+i32 intermediate.bin[14].r_validated_down 0
+i32 intermediate.bin[14].r_validated 0
+i32 intermediate.bin[14].r_narrowing_limited 0
+i32 intermediate.bin[14].exp_factor_absent 0
+f32 intermediate.bin[14].exp_factor 0x3d616006  # 0.0550232157
+i32 intermediate.bin[14].exp_factor_checked 1
+i32 intermediate.bin[14].exp_factor_check_kind 2
+i32 intermediate.bin[14].exp_factor_validated_up 0
+i32 intermediate.bin[14].exp_factor_validated_down 0
+i32 intermediate.bin[14].exp_factor_validated 0
+i32 intermediate.bin[14].exp_factor_narrowing_limited 0
+i32 intermediate.bin[14].sigma_gas_r_absent 0
+f32 intermediate.bin[14].sigma_gas_r 0x38c0dd2a  # 9.19646845e-05
+i32 intermediate.bin[14].sigma_gas_r_checked 1
+i32 intermediate.bin[14].sigma_gas_r_check_kind 2
+i32 intermediate.bin[14].sigma_gas_r_validated_up 0
+i32 intermediate.bin[14].sigma_gas_r_validated_down 0
+i32 intermediate.bin[14].sigma_gas_r_validated 0
+i32 intermediate.bin[14].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[14].sigma_star_r_absent 0
+f32 intermediate.bin[14].sigma_star_r 0x3910a5df  # 0.00013794702
+i32 intermediate.bin[14].sigma_star_r_checked 1
+i32 intermediate.bin[14].sigma_star_r_check_kind 2
+i32 intermediate.bin[14].sigma_star_r_validated_up 0
+i32 intermediate.bin[14].sigma_star_r_validated_down 0
+i32 intermediate.bin[14].sigma_star_r_validated 0
+i32 intermediate.bin[14].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[14].f_mol_r_absent 1
+i32 intermediate.bin[14].dM_H2_absent 1
+i32 intermediate.bin[14].M_H2_total_absent 1
+i32 intermediate.bin[15].skipped 1
+i32 intermediate.bin[15].stellar_floor_binds -1
+i32 intermediate.bin[15].r_absent 0
+f32 intermediate.bin[15].r 0x345039a7  # 1.93924834e-07
+i32 intermediate.bin[15].r_checked 1
+i32 intermediate.bin[15].r_check_kind 2
+i32 intermediate.bin[15].r_validated_up 0
+i32 intermediate.bin[15].r_validated_down 0
+i32 intermediate.bin[15].r_validated 0
+i32 intermediate.bin[15].r_narrowing_limited 0
+i32 intermediate.bin[15].exp_factor_absent 0
+f32 intermediate.bin[15].exp_factor 0x3d388581  # 0.0450491942
+i32 intermediate.bin[15].exp_factor_checked 1
+i32 intermediate.bin[15].exp_factor_check_kind 2
+i32 intermediate.bin[15].exp_factor_validated_up 0
+i32 intermediate.bin[15].exp_factor_validated_down 0
+i32 intermediate.bin[15].exp_factor_validated 0
+i32 intermediate.bin[15].exp_factor_narrowing_limited 0
+i32 intermediate.bin[15].sigma_gas_r_absent 0
+f32 intermediate.bin[15].sigma_gas_r 0x389de753  # 7.52943088e-05
+i32 intermediate.bin[15].sigma_gas_r_checked 1
+i32 intermediate.bin[15].sigma_gas_r_check_kind 2
+i32 intermediate.bin[15].sigma_gas_r_validated_up 0
+i32 intermediate.bin[15].sigma_gas_r_validated_down 0
+i32 intermediate.bin[15].sigma_gas_r_validated 0
+i32 intermediate.bin[15].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[15].sigma_star_r_absent 0
+f32 intermediate.bin[15].sigma_star_r 0x38ecdafb  # 0.000112941452
+i32 intermediate.bin[15].sigma_star_r_checked 1
+i32 intermediate.bin[15].sigma_star_r_check_kind 2
+i32 intermediate.bin[15].sigma_star_r_validated_up 0
+i32 intermediate.bin[15].sigma_star_r_validated_down 0
+i32 intermediate.bin[15].sigma_star_r_validated 0
+i32 intermediate.bin[15].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[15].f_mol_r_absent 1
+i32 intermediate.bin[15].dM_H2_absent 1
+i32 intermediate.bin[15].M_H2_total_absent 1
+i32 intermediate.bin[16].skipped 1
+i32 intermediate.bin[16].stellar_floor_binds -1
+i32 intermediate.bin[16].r_absent 0
+f32 intermediate.bin[16].r 0x345da8bb  # 2.06436127e-07
+i32 intermediate.bin[16].r_checked 1
+i32 intermediate.bin[16].r_check_kind 2
+i32 intermediate.bin[16].r_validated_up 0
+i32 intermediate.bin[16].r_validated_down 0
+i32 intermediate.bin[16].r_validated 0
+i32 intermediate.bin[16].r_narrowing_limited 0
+i32 intermediate.bin[16].exp_factor_absent 0
+f32 intermediate.bin[16].exp_factor 0x3d1712ca  # 0.036883153
+i32 intermediate.bin[16].exp_factor_checked 1
+i32 intermediate.bin[16].exp_factor_check_kind 2
+i32 intermediate.bin[16].exp_factor_validated_up 0
+i32 intermediate.bin[16].exp_factor_validated_down 0
+i32 intermediate.bin[16].exp_factor_validated 0
+i32 intermediate.bin[16].exp_factor_narrowing_limited 0
+i32 intermediate.bin[16].sigma_gas_r_absent 0
+f32 intermediate.bin[16].sigma_gas_r 0x388147d0  # 6.16457546e-05
+i32 intermediate.bin[16].sigma_gas_r_checked 1
+i32 intermediate.bin[16].sigma_gas_r_check_kind 2
+i32 intermediate.bin[16].sigma_gas_r_validated_up 0
+i32 intermediate.bin[16].sigma_gas_r_validated_down 0
+i32 intermediate.bin[16].sigma_gas_r_validated 0
+i32 intermediate.bin[16].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[16].sigma_star_r_absent 0
+f32 intermediate.bin[16].sigma_star_r 0x38c1ebb7  # 9.24686246e-05
+i32 intermediate.bin[16].sigma_star_r_checked 1
+i32 intermediate.bin[16].sigma_star_r_check_kind 2
+i32 intermediate.bin[16].sigma_star_r_validated_up 0
+i32 intermediate.bin[16].sigma_star_r_validated_down 0
+i32 intermediate.bin[16].sigma_star_r_validated 0
+i32 intermediate.bin[16].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[16].f_mol_r_absent 1
+i32 intermediate.bin[16].dM_H2_absent 1
+i32 intermediate.bin[16].M_H2_total_absent 1
+i32 intermediate.bin[17].skipped 1
+i32 intermediate.bin[17].stellar_floor_binds -1
+i32 intermediate.bin[17].r_absent 0
+f32 intermediate.bin[17].r 0x346b17ce  # 2.18947406e-07
+i32 intermediate.bin[17].r_checked 1
+i32 intermediate.bin[17].r_check_kind 2
+i32 intermediate.bin[17].r_validated_up 0
+i32 intermediate.bin[17].r_validated_down 0
+i32 intermediate.bin[17].r_validated 0
+i32 intermediate.bin[17].r_narrowing_limited 0
+i32 intermediate.bin[17].exp_factor_absent 0
+f32 intermediate.bin[17].exp_factor 0x3cf7607d  # 0.0301973764
+i32 intermediate.bin[17].exp_factor_checked 1
+i32 intermediate.bin[17].exp_factor_check_kind 2
+i32 intermediate.bin[17].exp_factor_validated_up 0
+i32 intermediate.bin[17].exp_factor_validated_down 0
+i32 intermediate.bin[17].exp_factor_validated 0
+i32 intermediate.bin[17].exp_factor_narrowing_limited 0
+i32 intermediate.bin[17].sigma_gas_r_absent 0
+f32 intermediate.bin[17].sigma_gas_r 0x3853b120  # 5.04712807e-05
+i32 intermediate.bin[17].sigma_gas_r_checked 1
+i32 intermediate.bin[17].sigma_gas_r_check_kind 2
+i32 intermediate.bin[17].sigma_gas_r_validated_up 0
+i32 intermediate.bin[17].sigma_gas_r_validated_down 0
+i32 intermediate.bin[17].sigma_gas_r_validated 0
+i32 intermediate.bin[17].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[17].sigma_star_r_absent 0
+f32 intermediate.bin[17].sigma_star_r 0x389ec4d8  # 7.57069211e-05
+i32 intermediate.bin[17].sigma_star_r_checked 1
+i32 intermediate.bin[17].sigma_star_r_check_kind 2
+i32 intermediate.bin[17].sigma_star_r_validated_up 0
+i32 intermediate.bin[17].sigma_star_r_validated_down 0
+i32 intermediate.bin[17].sigma_star_r_validated 0
+i32 intermediate.bin[17].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[17].f_mol_r_absent 1
+i32 intermediate.bin[17].dM_H2_absent 1
+i32 intermediate.bin[17].M_H2_total_absent 1
+i32 intermediate.bin[18].skipped 1
+i32 intermediate.bin[18].stellar_floor_binds -1
+i32 intermediate.bin[18].r_absent 0
+f32 intermediate.bin[18].r 0x347886e1  # 2.31458685e-07
+i32 intermediate.bin[18].r_checked 1
+i32 intermediate.bin[18].r_check_kind 2
+i32 intermediate.bin[18].r_validated_up 0
+i32 intermediate.bin[18].r_validated_down 0
+i32 intermediate.bin[18].r_validated 0
+i32 intermediate.bin[18].r_narrowing_limited 0
+i32 intermediate.bin[18].exp_factor_absent 0
+f32 intermediate.bin[18].exp_factor 0x3cca88fa  # 0.0247235186
+i32 intermediate.bin[18].exp_factor_checked 1
+i32 intermediate.bin[18].exp_factor_check_kind 2
+i32 intermediate.bin[18].exp_factor_validated_up 0
+i32 intermediate.bin[18].exp_factor_validated_down 0
+i32 intermediate.bin[18].exp_factor_validated 0
+i32 intermediate.bin[18].exp_factor_narrowing_limited 0
+i32 intermediate.bin[18].sigma_gas_r_absent 0
+f32 intermediate.bin[18].sigma_gas_r 0x382d5193  # 4.13223861e-05
+i32 intermediate.bin[18].sigma_gas_r_checked 1
+i32 intermediate.bin[18].sigma_gas_r_check_kind 2
+i32 intermediate.bin[18].sigma_gas_r_validated_up 0
+i32 intermediate.bin[18].sigma_gas_r_validated_down 0
+i32 intermediate.bin[18].sigma_gas_r_validated 0
+i32 intermediate.bin[18].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[18].sigma_star_r_absent 0
+f32 intermediate.bin[18].sigma_star_r 0x3881fd2e  # 6.19835773e-05
+i32 intermediate.bin[18].sigma_star_r_checked 1
+i32 intermediate.bin[18].sigma_star_r_check_kind 2
+i32 intermediate.bin[18].sigma_star_r_validated_up 0
+i32 intermediate.bin[18].sigma_star_r_validated_down 0
+i32 intermediate.bin[18].sigma_star_r_validated 0
+i32 intermediate.bin[18].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[18].f_mol_r_absent 1
+i32 intermediate.bin[18].dM_H2_absent 1
+i32 intermediate.bin[18].M_H2_total_absent 1
+i32 intermediate.bin[19].skipped 1
+i32 intermediate.bin[19].stellar_floor_binds -1
+i32 intermediate.bin[19].r_absent 0
+f32 intermediate.bin[19].r 0x3482fafa  # 2.43969964e-07
+i32 intermediate.bin[19].r_checked 1
+i32 intermediate.bin[19].r_check_kind 2
+i32 intermediate.bin[19].r_validated_up 0
+i32 intermediate.bin[19].r_validated_down 0
+i32 intermediate.bin[19].r_validated 0
+i32 intermediate.bin[19].r_narrowing_limited 0
+i32 intermediate.bin[19].exp_factor_absent 0
+f32 intermediate.bin[19].exp_factor 0x3ca5d25a  # 0.020241905
+i32 intermediate.bin[19].exp_factor_checked 1
+i32 intermediate.bin[19].exp_factor_check_kind 2
+i32 intermediate.bin[19].exp_factor_validated_up 0
+i32 intermediate.bin[19].exp_factor_validated_down 0
+i32 intermediate.bin[19].exp_factor_validated 0
+i32 intermediate.bin[19].exp_factor_narrowing_limited 0
+i32 intermediate.bin[19].sigma_gas_r_absent 0
+f32 intermediate.bin[19].sigma_gas_r 0x380de6bc  # 3.38319078e-05
+i32 intermediate.bin[19].sigma_gas_r_checked 1
+i32 intermediate.bin[19].sigma_gas_r_check_kind 2
+i32 intermediate.bin[19].sigma_gas_r_validated_up 0
+i32 intermediate.bin[19].sigma_gas_r_validated_down 0
+i32 intermediate.bin[19].sigma_gas_r_validated 0
+i32 intermediate.bin[19].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[19].sigma_star_r_absent 0
+f32 intermediate.bin[19].sigma_star_r 0x3854da1a  # 5.07478617e-05
+i32 intermediate.bin[19].sigma_star_r_checked 1
+i32 intermediate.bin[19].sigma_star_r_check_kind 2
+i32 intermediate.bin[19].sigma_star_r_validated_up 0
+i32 intermediate.bin[19].sigma_star_r_validated_down 0
+i32 intermediate.bin[19].sigma_star_r_validated 0
+i32 intermediate.bin[19].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[19].f_mol_r_absent 1
+i32 intermediate.bin[19].dM_H2_absent 1
+i32 intermediate.bin[19].M_H2_total_absent 1
+i32 intermediate.bin[20].skipped 1
+i32 intermediate.bin[20].stellar_floor_binds -1
+i32 intermediate.bin[20].r_absent 0
+f32 intermediate.bin[20].r 0x3489b283  # 2.56481229e-07
+i32 intermediate.bin[20].r_checked 1
+i32 intermediate.bin[20].r_check_kind 2
+i32 intermediate.bin[20].r_validated_up 0
+i32 intermediate.bin[20].r_validated_down 0
+i32 intermediate.bin[20].r_validated 0
+i32 intermediate.bin[20].r_narrowing_limited 0
+i32 intermediate.bin[20].exp_factor_absent 0
+f32 intermediate.bin[20].exp_factor 0x3c87c36c  # 0.0165726766
+i32 intermediate.bin[20].exp_factor_checked 1
+i32 intermediate.bin[20].exp_factor_check_kind 2
+i32 intermediate.bin[20].exp_factor_validated_up 0
+i32 intermediate.bin[20].exp_factor_validated_down 0
+i32 intermediate.bin[20].exp_factor_validated 0
+i32 intermediate.bin[20].exp_factor_narrowing_limited 0
+i32 intermediate.bin[20].sigma_gas_r_absent 0
+f32 intermediate.bin[20].sigma_gas_r 0x37e85ba7  # 2.76992341e-05
+i32 intermediate.bin[20].sigma_gas_r_checked 1
+i32 intermediate.bin[20].sigma_gas_r_check_kind 2
+i32 intermediate.bin[20].sigma_gas_r_validated_up 0
+i32 intermediate.bin[20].sigma_gas_r_validated_down 0
+i32 intermediate.bin[20].sigma_gas_r_validated 0
+i32 intermediate.bin[20].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[20].sigma_star_r_absent 0
+f32 intermediate.bin[20].sigma_star_r 0x382e44bd  # 4.15488503e-05
+i32 intermediate.bin[20].sigma_star_r_checked 1
+i32 intermediate.bin[20].sigma_star_r_check_kind 2
+i32 intermediate.bin[20].sigma_star_r_validated_up 0
+i32 intermediate.bin[20].sigma_star_r_validated_down 0
+i32 intermediate.bin[20].sigma_star_r_validated 0
+i32 intermediate.bin[20].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[20].f_mol_r_absent 1
+i32 intermediate.bin[20].dM_H2_absent 1
+i32 intermediate.bin[20].M_H2_total_absent 1
+i32 intermediate.bin[21].skipped 1
+i32 intermediate.bin[21].stellar_floor_binds -1
+i32 intermediate.bin[21].r_absent 0
+f32 intermediate.bin[21].r 0x34906a0d  # 2.68992522e-07
+i32 intermediate.bin[21].r_checked 1
+i32 intermediate.bin[21].r_check_kind 2
+i32 intermediate.bin[21].r_validated_up 0
+i32 intermediate.bin[21].r_validated_down 0
+i32 intermediate.bin[21].r_validated 0
+i32 intermediate.bin[21].r_narrowing_limited 0
+i32 intermediate.bin[21].exp_factor_absent 0
+f32 intermediate.bin[21].exp_factor 0x3c5e4ea7  # 0.0135685569
+i32 intermediate.bin[21].exp_factor_checked 1
+i32 intermediate.bin[21].exp_factor_check_kind 2
+i32 intermediate.bin[21].exp_factor_validated_up 0
+i32 intermediate.bin[21].exp_factor_validated_down 0
+i32 intermediate.bin[21].exp_factor_validated 0
+i32 intermediate.bin[21].exp_factor_narrowing_limited 0
+i32 intermediate.bin[21].sigma_gas_r_absent 0
+f32 intermediate.bin[21].sigma_gas_r 0x37be3d16  # 2.26782104e-05
+i32 intermediate.bin[21].sigma_gas_r_checked 1
+i32 intermediate.bin[21].sigma_gas_r_check_kind 2
+i32 intermediate.bin[21].sigma_gas_r_validated_up 0
+i32 intermediate.bin[21].sigma_gas_r_validated_down 0
+i32 intermediate.bin[21].sigma_gas_r_validated 0
+i32 intermediate.bin[21].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[21].sigma_star_r_absent 0
+f32 intermediate.bin[21].sigma_star_r 0x380eadd0  # 3.40173137e-05
+i32 intermediate.bin[21].sigma_star_r_checked 1
+i32 intermediate.bin[21].sigma_star_r_check_kind 2
+i32 intermediate.bin[21].sigma_star_r_validated_up 0
+i32 intermediate.bin[21].sigma_star_r_validated_down 0
+i32 intermediate.bin[21].sigma_star_r_validated 0
+i32 intermediate.bin[21].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[21].f_mol_r_absent 1
+i32 intermediate.bin[21].dM_H2_absent 1
+i32 intermediate.bin[21].M_H2_total_absent 1
+i32 intermediate.bin[22].skipped 1
+i32 intermediate.bin[22].stellar_floor_binds -1
+i32 intermediate.bin[22].r_absent 0
+f32 intermediate.bin[22].r 0x34972196  # 2.81503787e-07
+i32 intermediate.bin[22].r_checked 1
+i32 intermediate.bin[22].r_check_kind 2
+i32 intermediate.bin[22].r_validated_up 0
+i32 intermediate.bin[22].r_validated_down 0
+i32 intermediate.bin[22].r_validated 0
+i32 intermediate.bin[22].r_narrowing_limited 0
+i32 intermediate.bin[22].exp_factor_absent 0
+f32 intermediate.bin[22].exp_factor 0x3c360282  # 0.0111089963
+i32 intermediate.bin[22].exp_factor_checked 1
+i32 intermediate.bin[22].exp_factor_check_kind 2
+i32 intermediate.bin[22].exp_factor_validated_up 0
+i32 intermediate.bin[22].exp_factor_validated_down 0
+i32 intermediate.bin[22].exp_factor_validated 0
+i32 intermediate.bin[22].exp_factor_narrowing_limited 0
+i32 intermediate.bin[22].sigma_gas_r_absent 0
+f32 intermediate.bin[22].sigma_gas_r 0x379bc115  # 1.85673507e-05
+i32 intermediate.bin[22].sigma_gas_r_checked 1
+i32 intermediate.bin[22].sigma_gas_r_check_kind 2
+i32 intermediate.bin[22].sigma_gas_r_validated_up 0
+i32 intermediate.bin[22].sigma_gas_r_validated_down 0
+i32 intermediate.bin[22].sigma_gas_r_validated 0
+i32 intermediate.bin[22].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[22].sigma_star_r_absent 0
+f32 intermediate.bin[22].sigma_star_r 0x37e9a19f  # 2.78510252e-05
+i32 intermediate.bin[22].sigma_star_r_checked 1
+i32 intermediate.bin[22].sigma_star_r_check_kind 2
+i32 intermediate.bin[22].sigma_star_r_validated_up 0
+i32 intermediate.bin[22].sigma_star_r_validated_down 0
+i32 intermediate.bin[22].sigma_star_r_validated 0
+i32 intermediate.bin[22].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[22].f_mol_r_absent 1
+i32 intermediate.bin[22].dM_H2_absent 1
+i32 intermediate.bin[22].M_H2_total_absent 1
+i32 intermediate.bin[23].skipped 1
+i32 intermediate.bin[23].stellar_floor_binds -1
+i32 intermediate.bin[23].r_absent 0
+f32 intermediate.bin[23].r 0x349dd920  # 2.94015081e-07
+i32 intermediate.bin[23].r_checked 1
+i32 intermediate.bin[23].r_check_kind 2
+i32 intermediate.bin[23].r_validated_up 0
+i32 intermediate.bin[23].r_validated_down 0
+i32 intermediate.bin[23].r_validated 0
+i32 intermediate.bin[23].r_narrowing_limited 0
+i32 intermediate.bin[23].exp_factor_absent 0
+f32 intermediate.bin[23].exp_factor 0x3c150459  # 0.00909527484
+i32 intermediate.bin[23].exp_factor_checked 1
+i32 intermediate.bin[23].exp_factor_check_kind 2
+i32 intermediate.bin[23].exp_factor_validated_up 0
+i32 intermediate.bin[23].exp_factor_validated_down 0
+i32 intermediate.bin[23].exp_factor_validated 0
+i32 intermediate.bin[23].exp_factor_narrowing_limited 0
+i32 intermediate.bin[23].sigma_gas_r_absent 0
+f32 intermediate.bin[23].sigma_gas_r 0x377f0a9f  # 1.52016573e-05
+i32 intermediate.bin[23].sigma_gas_r_checked 1
+i32 intermediate.bin[23].sigma_gas_r_check_kind 2
+i32 intermediate.bin[23].sigma_gas_r_validated_up 0
+i32 intermediate.bin[23].sigma_gas_r_validated_down 0
+i32 intermediate.bin[23].sigma_gas_r_validated 0
+i32 intermediate.bin[23].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[23].sigma_star_r_absent 0
+f32 intermediate.bin[23].sigma_star_r 0x37bf47f7  # 2.28024855e-05
+i32 intermediate.bin[23].sigma_star_r_checked 1
+i32 intermediate.bin[23].sigma_star_r_check_kind 2
+i32 intermediate.bin[23].sigma_star_r_validated_up 0
+i32 intermediate.bin[23].sigma_star_r_validated_down 0
+i32 intermediate.bin[23].sigma_star_r_validated 0
+i32 intermediate.bin[23].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[23].f_mol_r_absent 1
+i32 intermediate.bin[23].dM_H2_absent 1
+i32 intermediate.bin[23].M_H2_total_absent 1
+i32 intermediate.bin[24].skipped 1
+i32 intermediate.bin[24].stellar_floor_binds -1
+i32 intermediate.bin[24].r_absent 0
+f32 intermediate.bin[24].r 0x34a490aa  # 3.06526374e-07
+i32 intermediate.bin[24].r_checked 1
+i32 intermediate.bin[24].r_check_kind 2
+i32 intermediate.bin[24].r_validated_up 0
+i32 intermediate.bin[24].r_validated_down 0
+i32 intermediate.bin[24].r_validated 0
+i32 intermediate.bin[24].r_narrowing_limited 0
+i32 intermediate.bin[24].exp_factor_absent 0
+f32 intermediate.bin[24].exp_factor 0x3bf4026e  # 0.0074465787
+i32 intermediate.bin[24].exp_factor_checked 1
+i32 intermediate.bin[24].exp_factor_check_kind 2
+i32 intermediate.bin[24].exp_factor_validated_up 0
+i32 intermediate.bin[24].exp_factor_validated_down 0
+i32 intermediate.bin[24].exp_factor_validated 0
+i32 intermediate.bin[24].exp_factor_narrowing_limited 0
+i32 intermediate.bin[24].sigma_gas_r_absent 0
+f32 intermediate.bin[24].sigma_gas_r 0x3750cf6c  # 1.24460603e-05
+i32 intermediate.bin[24].sigma_gas_r_checked 1
+i32 intermediate.bin[24].sigma_gas_r_check_kind 2
+i32 intermediate.bin[24].sigma_gas_r_validated_up 0
+i32 intermediate.bin[24].sigma_gas_r_validated_down 0
+i32 intermediate.bin[24].sigma_gas_r_validated 0
+i32 intermediate.bin[24].sigma_gas_r_narrowing_limited 0
+i32 intermediate.bin[24].sigma_star_r_absent 0
+f32 intermediate.bin[24].sigma_star_r 0x379c9b90  # 1.86690886e-05
+i32 intermediate.bin[24].sigma_star_r_checked 1
+i32 intermediate.bin[24].sigma_star_r_check_kind 2
+i32 intermediate.bin[24].sigma_star_r_validated_up 0
+i32 intermediate.bin[24].sigma_star_r_validated_down 0
+i32 intermediate.bin[24].sigma_star_r_validated 0
+i32 intermediate.bin[24].sigma_star_r_narrowing_limited 0
+i32 intermediate.bin[24].f_mol_r_absent 1
+i32 intermediate.bin[24].dM_H2_absent 1
+i32 intermediate.bin[24].M_H2_total_absent 1

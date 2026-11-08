@@ -1,0 +1,34 @@
+# R0 reference model_0.hdf5 (SHA-256 6d859a3a2ea422e3...), Snap_32 row 0, GalaxyIndex 0 (central): end-of-snapshot output values used as plausible call inputs, not reconstructed call-time state.
+# Age values as c03's r0_snap32 fixtures; effective_steps 10.
+# Diagnostics tcool, tff, RcoolToRvir, CoolingRate, Cooling and Heating are set to negative bit patterns no routine here writes, unless a comment says otherwise.
+format sage26-oracle-fixture 1
+routine cooling_recipe_hot
+
+i32 params.AGNrecipeOn 2  # R0 (the oracle's fixed flag)
+i32 params.CGMrecipeOn 0  # R0 (the oracle's fixed flag)
+f64 params.G 0x404580e7ed5ced1b  # 43.007077856420629  (GRAVITY / CUBE(L) * M * SQR(T))
+f64 params.RadioModeEfficiency 0x3fb47ae147ae147b  # 0.080000000000000002  (R/input/millennium.par:74)
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.72999999999999998  (R/input/millennium.par:40)
+f64 params.UnitEnergy_in_cgs 0x4b009ce7388de074  # 1.9890000000000001e+53  (M * SQR(L) / SQR(T))
+f64 params.UnitTime_in_s 0x43fac39601d1945f  # 3.0856799999999996e+19  (L / V)
+f64 params.UnitDensity_in_cgs 0x39ab764398088fc8  # 6.7698980144406312e-31  (M / CUBE(L))
+
+f64 call.Age_galaxy_snap 0x3f80253c9c200d22  # 0.0078835234780912401  (Age[galaxies[p].SnapNum])
+f64 call.halo_age 0x3f7f8a39f725e713  # 0.0077001823686886515  (Age[halo_snapnum])
+i32 call.effective_steps 10
+i32 galaxy[0].Type 0
+f32 galaxy[0].Mvir 0x43b73bdb  # 366.467621
+f32 galaxy[0].Rvir 0x3e0074c8  # 0.125445485
+f32 galaxy[0].Vvir 0x43b13a27  # 354.454315
+f32 galaxy[0].HotGas 0x425c64a6  # 55.0982895
+f32 galaxy[0].MetalsHotGas 0x3dcd419b  # 0.100222789
+f32 galaxy[0].ColdGas 0x00000000  # 0
+f32 galaxy[0].MetalsColdGas 0x00000000  # 0
+f32 galaxy[0].BlackHoleMass 0x3bf48f9d  # 0.0074634091
+f32 galaxy[0].r_heat 0x3d562c05  # 0.052288074
+f64 galaxy[0].Cooling 0xc04b800000000000  # -55  (input bit pattern no routine here writes)
+f64 galaxy[0].Heating 0xc050800000000000  # -66  (input bit pattern no routine here writes)
+f32 galaxy[0].tcool 0xc1300000  # -11  (input bit pattern no routine here writes)
+f32 galaxy[0].tff 0xc1b00000  # -22  (input bit pattern no routine here writes)
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33  (input bit pattern no routine here writes)
+f32 galaxy[0].CoolingRate 0xc2300000  # -44  (input bit pattern no routine here writes)

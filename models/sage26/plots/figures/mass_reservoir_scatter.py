@@ -1,0 +1,196 @@
+#!/usr/bin/env python
+
+"""
+SAGE Mass Reservoir Scatter Plot
+
+This module generates a scatter plot showing the mass in different galaxy components vs. halo mass.
+"""
+
+import random
+
+import numpy as np
+from figures import AXIS_LABEL_SIZE, setup_legend
+from matplotlib.ticker import MultipleLocator
+from output_schema import mass_to_msun
+from output_utils import (
+    check_required_fields,
+    get_profile_axes,
+    save_and_close_figure,
+    select_scatter_sample,
+    setup_figure,
+    validate_filtered_data,
+)
+
+
+def plot(
+    galaxies,
+    volume,
+    metadata,
+    params,
+    output_dir="plots",
+    output_format=".png",
+    verbose=False,
+):
+    """
+    Create a mass reservoir scatter plot.
+
+    Args:
+        galaxies: Galaxy data as a numpy recarray
+        volume: Simulation volume in (Mpc/h)^3
+        metadata: Dictionary with additional metadata
+        params: Dictionary with SAGE parameters
+        output_dir: Output directory for the plot
+        output_format: File format for the output
+
+    verbose: Whether to print verbose output
+
+
+    Returns:
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
+    """
+    # Check required fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=[
+            "Mvir",
+            "Type",
+            "StellarMass",
+            "ColdGas",
+            "HotGas",
+            "CGMgas",
+            "EjectedGas",
+            "ICS",
+        ],
+        plot_name="Mass Reservoir Scatter",
+    )
+
+    if not success:
+        return None, f"Required fields missing: {msg}"
+
+    # Set random seed for reproducibility when sampling points
+    random.seed(2222)
+
+    # Extract necessary metadata
+    hubble_h = metadata["hubble_h"]
+    schema_units = metadata.get("schema_units", {})
+
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "mass_reservoir_scatter", (10.0, 14.0), (7.5, 12.5)
+    )
+
+    # Maximum number of points to plot (for better performance and readability)
+    dilute = 7500
+
+    def mass_msun(field_name, idx):
+        units = schema_units.get(field_name, "1e10 Msun/h")
+        return mass_to_msun(getattr(galaxies, field_name)[idx], units, hubble_h)
+
+    # Floor at the display axis's x_min, not an absolute-mass literal, so a
+    # profile override reaches the plotted points, not just the canvas.
+    candidates = np.where(
+        (galaxies.Type == 0) & (galaxies.Mvir > 0.0) & (galaxies.StellarMass > 0.0)
+    )[0]
+    mvir = np.log10(mass_msun("Mvir", candidates))
+    keep_x = mvir >= x_min
+    candidates = candidates[keep_x]
+    mvir = mvir[keep_x]
+
+    # Validate filtered data
+    is_valid, skip_msg = validate_filtered_data(candidates, "Mass Reservoir Scatter", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # Compute every mass component for every candidate before restricting to
+    # the display box and diluting -- each series needs to be known to tell
+    # which points are actually inside the box.
+    stellar_mass = np.log10(mass_msun("StellarMass", candidates))
+    cold_gas = np.log10(np.maximum(mass_msun("ColdGas", candidates), 1.0))  # Avoid log(0)
+    hot_gas = np.log10(np.maximum(mass_msun("HotGas", candidates), 1.0))
+    cgm_gas = np.log10(np.maximum(mass_msun("CGMgas", candidates), 1.0))
+    ejected_gas = np.log10(np.maximum(mass_msun("EjectedGas", candidates), 1.0))
+    ics = np.log10(np.maximum(mass_msun("ICS", candidates), 1.0))
+
+    # Restrict to the display box before diluting, so the dilution budget is
+    # spent on points that will actually be visible: a point counts as
+    # visible if its halo mass is in range and at least one of its six
+    # components is too.
+    keep = select_scatter_sample(
+        mvir,
+        [stellar_mass, cold_gas, hot_gas, cgm_gas, ejected_gas, ics],
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        dilute,
+    )
+    mvir = mvir[keep]
+    stellar_mass = stellar_mass[keep]
+    cold_gas = cold_gas[keep]
+    hot_gas = hot_gas[keep]
+    cgm_gas = cgm_gas[keep]
+    ejected_gas = ejected_gas[keep]
+    ics = ics[keep]
+
+    is_valid, skip_msg = validate_filtered_data(mvir, "Mass Reservoir Scatter", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
+
+    # Print some debug information
+    # Print some debug information if verbose mode is enabled
+    if verbose:
+        print(f"  Number of galaxies plotted: {len(mvir)}")
+        print(f"  Halo mass range: {min(mvir):.2f} to {max(mvir):.2f}")
+        print(f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}")
+
+    # Plot each mass component
+    ax.scatter(mvir, stellar_mass, marker="o", s=0.8, c="k", alpha=0.5, label="Stars", gid="model")
+    ax.scatter(
+        mvir, cold_gas, marker="o", s=0.8, c="blue", alpha=0.5, label="Cold gas", gid="model"
+    )
+    ax.scatter(mvir, hot_gas, marker="o", s=0.8, c="red", alpha=0.5, label="Hot gas", gid="model")
+    ax.scatter(
+        mvir, ejected_gas, marker="o", s=0.8, c="green", alpha=0.5, label="Ejected gas", gid="model"
+    )
+    ax.scatter(
+        mvir,
+        ics,
+        marker="x",
+        s=5,
+        c="yellow",
+        alpha=0.7,
+        label="Intracluster stars",
+        gid="model",
+    )
+    # SAGE26's counterpart draws the same series (plotting/allresults-local.py:1489)
+    ax.scatter(
+        mvir, cgm_gas, marker="o", s=0.8, c="orange", alpha=0.5, label="CGM gas", gid="model"
+    )
+
+    # Customize the plot
+    ax.set_xlabel(r"log M$_{\rm vir}$ [h$^{-1}$ M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
+    ax.set_ylabel(r"Stellar, cold, hot, ejected, ICS mass", fontsize=AXIS_LABEL_SIZE)
+
+    # Set the x and y axis minor ticks
+    ax.xaxis.set_minor_locator(MultipleLocator(0.5))
+    ax.yaxis.set_minor_locator(MultipleLocator(0.5))
+
+    # Set axis limits
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+
+    # Add text annotation 'All' in the bottom-right corner
+    ax.text(0.95, 0.05, r"All", transform=ax.transAxes, fontsize=12, ha="right", va="bottom")
+
+    # Add consistently styled legend
+    setup_legend(ax, loc="upper left")
+
+    # Save and close the figure
+    plot_path = save_and_close_figure(
+        fig, output_dir, "MassReservoirScatter", output_format, verbose
+    )
+    return plot_path, None

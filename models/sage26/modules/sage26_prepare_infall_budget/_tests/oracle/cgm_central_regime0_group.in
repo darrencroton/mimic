@@ -1,0 +1,85 @@
+# A Regime 0 central with both its hot and CGM pairs non-empty, and two Type 1 satellites holding
+# CGM: galaxy[1] in the central's regime holds both pairs, galaxy[2] (Regime 1) holds its gas only
+# in the pair its regime does not use.
+# Shows the central migrating only its own gas (hot into CGM, I:164-169), the satellites keeping
+# their CGM and metals (no satellite CGM added to the central, though the budget counts it), the
+# ejected and ICS pooling unchanged, and the CGM safety checks not binding.
+# Reachability: R4-reachable state (constructed values): a CGM-regime central gains hot gas from
+# mergers (hot to hot) and a satellite keeps gas in the reservoir of an earlier regime; the R4
+# reference holds both (Snap_32: 188 hot-regime centrals with both pairs non-empty, 88 CGM-regime
+# satellites holding only hot gas).
+# R4's flags: CGMrecipeOn 1 (par/R4.par:54); ReionizationOn 1, BaryonFrac 0.17,
+# ReIncorporationFactor 0.19 and Reionization_z0/zr 8/7 as R3 (R4.par:51, :39, :72, :85-86).
+format sage26-oracle-fixture 1
+routine infall_recipe
+
+i32 params.ReionizationOn 1
+i32 params.CGMrecipeOn 1
+f64 params.BaryonFrac 0x3fc5c28f5c28f5c3  # 0.17000000000000001
+f64 params.a0 0x3fbc71c71c71c71c  # 0.1111111111111111  (1/(1+Reionization_z0), z0 = 8)
+f64 params.ar 0x3fc0000000000000  # 0.125  (1/(1+Reionization_zr), zr = 7)
+f64 params.Omega 0x3fd0000000000000  # 0.25
+f64 params.OmegaLambda 0x3fe8000000000000  # 0.75
+f64 params.Hubble 0x40590001165723b7  # 100.00006636151998  (HUBBLE * UnitTime_in_s)
+f64 params.G 0x404580e7ed5ced1b  # 43.007077856420629  (GRAVITY / CUBE(L) * M * SQR(T))
+
+i32 call.ngal 3
+i32 call.centralgal 0
+f64 call.Zcurr 0x0000000000000000  # 0.0  (z = 0)
+# galaxy[0]: Type 0 central, Regime 0, both pairs non-empty
+
+i32 galaxy[0].Type 0
+i32 galaxy[0].Regime 0
+f32 galaxy[0].Mvir 0x42c80000  # 100
+f32 galaxy[0].StellarMass 0x3fc00000  # 1.5
+f32 galaxy[0].BlackHoleMass 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].ColdGas 0x3f4ccccd  # 0.800000012
+f32 galaxy[0].HotGas 0x40200000  # 2.5
+f32 galaxy[0].MetalsHotGas 0x3d4ccccd  # 0.0500000007
+f32 galaxy[0].EjectedMass 0x3f333333  # 0.699999988
+f32 galaxy[0].MetalsEjectedMass 0x3be56042  # 0.00700000022
+f32 galaxy[0].ICS 0x3e4ccccd  # 0.200000003
+f32 galaxy[0].MetalsICS 0x3b03126f  # 0.00200000009
+f32 galaxy[0].CGMgas 0x40500000  # 3.25
+f32 galaxy[0].MetalsCGMgas 0x3d23d70a  # 0.0399999991
+f32 galaxy[0].ICS_disrupt 0x3dcccccd  # 0.100000001
+f32 galaxy[0].ICS_accrete 0x3dcccccd  # 0.100000001
+f32 galaxy[0].ICS_sum_mt 0x3d4ccccd  # 0.0500000007
+# galaxy[1]: Type 1, Regime 0, holds both pairs
+
+i32 galaxy[1].Type 1
+i32 galaxy[1].Regime 0
+f32 galaxy[1].Mvir 0x41200000  # 10
+f32 galaxy[1].StellarMass 0x3e99999a  # 0.300000012
+f32 galaxy[1].BlackHoleMass 0x3a83126f  # 0.00100000005
+f32 galaxy[1].ColdGas 0x3dcccccd  # 0.100000001
+f32 galaxy[1].HotGas 0x3ecccccd  # 0.400000006
+f32 galaxy[1].MetalsHotGas 0x3b83126f  # 0.00400000019
+f32 galaxy[1].EjectedMass 0x3d4ccccd  # 0.0500000007
+f32 galaxy[1].MetalsEjectedMass 0x3a03126f  # 0.000500000024
+f32 galaxy[1].ICS 0x3c23d70a  # 0.00999999978
+f32 galaxy[1].MetalsICS 0x38d1b717  # 9.99999975e-05
+f32 galaxy[1].CGMgas 0x3f19999a  # 0.600000024
+f32 galaxy[1].MetalsCGMgas 0x3c1374bc  # 0.00899999961
+f32 galaxy[1].ICS_disrupt 0x3ba3d70a  # 0.00499999989
+f32 galaxy[1].ICS_accrete 0x3ba3d70a  # 0.00499999989
+f32 galaxy[1].ICS_sum_mt 0x3b03126f  # 0.00200000009
+# galaxy[2]: Type 1, Regime 1, gas only in the pair its regime does not use
+
+i32 galaxy[2].Type 1
+i32 galaxy[2].Regime 1
+f32 galaxy[2].Mvir 0x41200000  # 10
+f32 galaxy[2].StellarMass 0x3e99999a  # 0.300000012
+f32 galaxy[2].BlackHoleMass 0x3a83126f  # 0.00100000005
+f32 galaxy[2].ColdGas 0x3dcccccd  # 0.100000001
+f32 galaxy[2].HotGas 0x00000000  # 0
+f32 galaxy[2].MetalsHotGas 0x00000000  # 0
+f32 galaxy[2].EjectedMass 0x3d4ccccd  # 0.0500000007
+f32 galaxy[2].MetalsEjectedMass 0x3a03126f  # 0.000500000024
+f32 galaxy[2].ICS 0x3c23d70a  # 0.00999999978
+f32 galaxy[2].MetalsICS 0x38d1b717  # 9.99999975e-05
+f32 galaxy[2].CGMgas 0x3e800000  # 0.25
+f32 galaxy[2].MetalsCGMgas 0x3b449ba6  # 0.00300000003
+f32 galaxy[2].ICS_disrupt 0x3ba3d70a  # 0.00499999989
+f32 galaxy[2].ICS_accrete 0x3ba3d70a  # 0.00499999989
+f32 galaxy[2].ICS_sum_mt 0x3b03126f  # 0.00200000009

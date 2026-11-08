@@ -1,0 +1,29 @@
+# Real galaxies of the R5 reference (/Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R5/model_0.hdf5,
+# SHA-256 b350d5d406066b9cecf94603d5aa9597e1dcf1074015bf4edb9131bd5139d7c3), Snap_32, matched by
+# GalaxyIndex to Snap_31. Rows whose Type at Snap_31 was 0 are halos that grew
+# (Mvir at Snap_32 above Mvir at Snap_31), so SAGE26's joining replaced Vvir with
+# get_virial_velocity of the new halo (R/src/core_build_model.c:267-270), which is the
+# Vvir the writer outputs (R/src/io/save_gals_hdf5.c:902), and Vmax is the halo's
+# (:260, :903): their written Vmax and Vvir are the pair SAGE26's call read, so the
+# oracle's float store must equal the written Concentration. Rows whose Type was 1 take
+# the infall pair written at Snap_31 (R/src/io/save_gals_hdf5.c:1005-1008).
+# Each case is the row's float Vmax and Vvir widened to double, as SAGE26 passes them.
+# Reachability: R5-reachable.
+format sage26-oracle-fixture 1
+routine concentration_from_vmax_vvir
+i32 call.ncase 5
+# case[0]: 0 -> 0, written 0 (ratio below 1): Snap_32 row 4, GalaxyIndex 31, written Concentration 0x00000000 (0.0)
+f64 case[0].Vmax 0x4073054880000000  # 304.3302001953125
+f64 case[0].Vvir 0x4073aaa420000000  # 314.6650695800781
+# case[1]: 0 -> 0, written exactly 1.0: Snap_32 row 579, GalaxyIndex 6000000065, written Concentration 0x3f800000 (1.0)
+f64 case[1].Vmax 0x40654320a0000000  # 170.0977325439453
+f64 case[1].Vvir 0x40653d1540000000  # 169.90884399414062
+# case[2]: 0 -> 0, the smallest written value above 1: Snap_32 row 29442, GalaxyIndex 6000033000000343, written Concentration 0x4023912e (2.5557360649108887)
+f64 case[2].Vmax 0x405d0ea960000000  # 116.22908782958984
+f64 case[2].Vvir 0x405cfbf0c0000000  # 115.93656921386719
+# case[3]: 0 -> 0, the median written value above 1: Snap_32 row 10790, GalaxyIndex 2000169000000004, written Concentration 0x40a58d87 (5.173526287078857)
+f64 case[3].Vmax 0x405d03cae0000000  # 116.05925750732422
+f64 case[3].Vvir 0x405b307e60000000  # 108.7577133178711
+# case[4]: 0 -> 0, the largest written value: Snap_32 row 18903, GalaxyIndex 3000470000000006, written Concentration 0x41f05d2d (30.045495986938477)
+f64 case[4].Vmax 0x40531c6900000000  # 76.44390869140625
+f64 case[4].Vvir 0x40478eb560000000  # 47.11491012573242

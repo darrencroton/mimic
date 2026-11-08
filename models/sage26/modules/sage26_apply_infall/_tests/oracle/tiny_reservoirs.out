@@ -1,0 +1,8 @@
+# SAGE26 oracle output for tiny_reservoirs.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+f64 intermediate.infallingGas_per_step 0xbddb7cdfd9d7bdbb  # -1e-10
+f32 galaxy[0].EjectedMass 0x21c50849  # 1.33514323e-18
+f32 galaxy[0].MetalsEjectedMass 0x1ead5df0  # 1.83559391e-20
+f32 galaxy[0].HotGas 0x3109705f  # 1.99999994e-09
+f32 galaxy[0].MetalsHotGas 0x2d2febff  # 9.99999996e-12

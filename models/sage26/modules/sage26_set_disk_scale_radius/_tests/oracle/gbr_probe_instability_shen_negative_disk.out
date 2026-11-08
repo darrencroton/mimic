@@ -1,0 +1,89 @@
+# SAGE26 oracle output for gbr_probe_instability_shen_negative_disk.in, written by oracle_c07 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine get_bulge_radius
+f64 return.R_bulge 0x3f45c1dc339e645e  # 0.00066397907288541134
+f32 galaxy[0].MergerBulgeMass 0x3ec00000  # 0.375
+f32 galaxy[0].InstabilityBulgeMass 0x3e800000  # 0.25
+f32 galaxy[0].DiskScaleRadius 0xbb03126f  # -0.00200000009
+f32 galaxy[0].BulgeRadius 0x3a2e0ee2  # 0.000663979095
+f32 galaxy[0].MergerBulgeRadius 0x3a51b717  # 0.00079999998
+f32 galaxy[0].InstabilityBulgeRadius 0x39f12523  # 0.000459947711
+i32 intermediate.total_nonpositive 0
+i32 intermediate.merger_mass_zero 0
+i32 intermediate.instability_mass_zero 0
+i32 intermediate.merger_fallback 0
+i32 intermediate.instability_fallback 2
+i32 intermediate.M_merger_absent 0
+f64 intermediate.M_merger 0x3fd8000000000000  # 0.375
+i32 intermediate.M_merger_checked 1
+i32 intermediate.M_merger_check_kind 2
+i32 intermediate.M_merger_validated_up 0
+i32 intermediate.M_merger_validated_down 1
+i32 intermediate.M_merger_validated 0
+i32 intermediate.M_merger_narrowing_limited 0
+i32 intermediate.M_instability_absent 0
+f64 intermediate.M_instability 0x3fd0000000000000  # 0.25
+i32 intermediate.M_instability_checked 1
+i32 intermediate.M_instability_check_kind 2
+i32 intermediate.M_instability_validated_up 0
+i32 intermediate.M_instability_validated_down 0
+i32 intermediate.M_instability_validated 0
+i32 intermediate.M_instability_narrowing_limited 0
+i32 intermediate.M_total_absent 0
+f64 intermediate.M_total 0x3fe4000000000000  # 0.625
+i32 intermediate.M_total_checked 1
+i32 intermediate.M_total_check_kind 2
+i32 intermediate.M_total_validated_up 1
+i32 intermediate.M_total_validated_down 1
+i32 intermediate.M_total_validated 1
+i32 intermediate.M_total_narrowing_limited 0
+i32 intermediate.M_merger_sun_absent 1
+i32 intermediate.log_R_merger_kpc_absent 1
+i32 intermediate.R_merger_absent 0
+f64 intermediate.R_merger 0x3f4a36e2e0000000  # 0.00079999997979030013
+i32 intermediate.R_merger_checked 1
+i32 intermediate.R_merger_check_kind 2
+i32 intermediate.R_merger_validated_up 0
+i32 intermediate.R_merger_validated_down 1
+i32 intermediate.R_merger_validated 0
+i32 intermediate.R_merger_narrowing_limited 0
+i32 intermediate.R_disc_absent 0
+f64 intermediate.R_disc 0xbf60624de0000000  # -0.0020000000949949026
+i32 intermediate.R_disc_checked 1
+i32 intermediate.R_disc_check_kind 2
+i32 intermediate.R_disc_validated_up 0
+i32 intermediate.R_disc_validated_down 0
+i32 intermediate.R_disc_validated 0
+i32 intermediate.R_disc_narrowing_limited 0
+i32 intermediate.M_inst_sun_absent 0
+f64 intermediate.M_inst_sun 0x41e984040fc7e3f2  # 3424657534.2465754
+i32 intermediate.M_inst_sun_checked 1
+i32 intermediate.M_inst_sun_check_kind 2
+i32 intermediate.M_inst_sun_validated_up 0
+i32 intermediate.M_inst_sun_validated_down 0
+i32 intermediate.M_inst_sun_validated 0
+i32 intermediate.M_inst_sun_narrowing_limited 0
+i32 intermediate.log_R_inst_kpc_absent 0
+f64 intermediate.log_R_inst_kpc 0xbfc9adbb88b48b37  # -0.20061439681111334
+i32 intermediate.log_R_inst_kpc_checked 1
+i32 intermediate.log_R_inst_kpc_check_kind 2
+i32 intermediate.log_R_inst_kpc_validated_up 0
+i32 intermediate.log_R_inst_kpc_validated_down 0
+i32 intermediate.log_R_inst_kpc_validated 0
+i32 intermediate.log_R_inst_kpc_narrowing_limited 0
+i32 intermediate.R_instability_absent 0
+f64 intermediate.R_instability 0x3f3e24a46217f5d4  # 0.00045994771252807804
+i32 intermediate.R_instability_checked 1
+i32 intermediate.R_instability_check_kind 2
+i32 intermediate.R_instability_validated_up 0
+i32 intermediate.R_instability_validated_down 0
+i32 intermediate.R_instability_validated 0
+i32 intermediate.R_instability_narrowing_limited 0
+i32 intermediate.R_bulge_absent 0
+f64 intermediate.R_bulge 0x3f45c1dc339e645e  # 0.00066397907288541134
+i32 intermediate.R_bulge_checked 1
+i32 intermediate.R_bulge_check_kind 2
+i32 intermediate.R_bulge_validated_up 1
+i32 intermediate.R_bulge_validated_down 1
+i32 intermediate.R_bulge_validated 1
+i32 intermediate.R_bulge_narrowing_limited 0

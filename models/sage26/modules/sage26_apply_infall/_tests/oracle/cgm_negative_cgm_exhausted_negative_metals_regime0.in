@@ -1,0 +1,20 @@
+# Negative infall beyond the CGM gas with tiny negative metals: no metal debit (I:376), and the
+# negative gas clears both fields (I:384), so the metals end at 0, not at their input.
+# Reachability: constructed routine-domain probe (tiny negative metals).
+# R4's flags: CGMrecipeOn 1 (par/R4.par:54); ReionizationOn 1, BaryonFrac 0.17,
+# ReIncorporationFactor 0.19 and Reionization_z0/zr 8/7 as R3 (R4.par:51, :39, :72, :85-86).
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+
+i32 params.CGMrecipeOn 1
+
+f64 call.InfallingGas 0xc000000000000000  # -2.0  (the snapshot budget infall_recipe returned)
+i32 call.effective_steps 1
+i32 galaxy[0].Type 0
+i32 galaxy[0].Regime 0
+f32 galaxy[0].EjectedMass 0x00000000  # 0
+f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[0].HotGas 0x40000000  # 2
+f32 galaxy[0].MetalsHotGas 0x3ca3d70a  # 0.0199999996
+f32 galaxy[0].CGMgas 0x3f800000  # 1
+f32 galaxy[0].MetalsCGMgas 0xaedbe6ff  # -1.00000001e-10

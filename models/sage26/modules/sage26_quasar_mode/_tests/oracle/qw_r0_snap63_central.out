@@ -1,0 +1,56 @@
+# SAGE26 oracle output for qw_r0_snap63_central.in, written by oracle_c06 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine quasar_mode_wind
+f32 galaxy[0].ColdGas 0x00000000  # 0
+f32 galaxy[0].MetalsColdGas 0x00000000  # 0
+f32 galaxy[0].StellarMass 0x40d15a6a  # 6.54228687
+f32 galaxy[0].MetalsStellarMass 0x3dc3de83  # 0.0956392512
+f32 galaxy[0].BulgeMass 0x3f57ad1b  # 0.84248513
+f32 galaxy[0].MetalsBulgeMass 0x3c36ea22  # 0.01116422
+f32 galaxy[0].MergerBulgeMass 0x3de6c541  # 0.112680919
+f32 galaxy[0].InstabilityBulgeMass 0x3f3ad472  # 0.729804158
+f32 galaxy[0].HotGas 0x4211a6f3  # 36.4130363
+f32 galaxy[0].MetalsHotGas 0x3e1bbe2b  # 0.152092621
+f32 galaxy[0].EjectedMass 0x3f5d120e  # 0.863556743
+f32 galaxy[0].MetalsEjectedMass 0x3c5e9cbc  # 0.0135871731
+f32 galaxy[0].BlackHoleMass 0x3b4ca2ef  # 0.00312250457
+f32 galaxy[0].QuasarModeBHaccretionMass 0x00000000  # 0
+f32 galaxy[0].ICS 0x40302874  # 2.75246906
+f32 galaxy[0].MetalsICS 0x3cd10acc  # 0.0255178437
+f32 galaxy[0].ICS_disrupt 0x401b00a6  # 2.42191458
+f32 galaxy[0].ICS_accrete 0x3ea93e73  # 0.330554575
+f32 galaxy[0].ICS_sum_mt 0x3c38f07e  # 0.0112878066
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[0].H1gas 0x3eacce97  # 0.337513655
+f32 galaxy[0].H2gas 0x00000000  # 0
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+f32 galaxy[0].DiskScaleRadius 0x3c025304  # 0.00795436278
+f32 galaxy[0].BulgeRadius 0x00000000  # 0
+f32 galaxy[0].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeRadius 0x00000000  # 0
+f32 galaxy[0].TimeOfLastMajorMerger 0xbf800000  # -1
+f32 galaxy[0].TimeOfLastMinorMerger 0x3b088f22  # 0.00208372669
+i32 intermediate.wind_ejects_cold 1
+i32 intermediate.wind_ejects_hot 0
+i32 intermediate.quasar_energy_absent 0
+f64 intermediate.quasar_energy 0x40e5865a385055fa  # 44082.819374244616
+i32 intermediate.quasar_energy_checked 1
+i32 intermediate.quasar_energy_check_kind 2
+i32 intermediate.quasar_energy_validated_up 0
+i32 intermediate.quasar_energy_validated_down 0
+i32 intermediate.quasar_energy_validated 0
+i32 intermediate.cold_gas_energy_absent 0
+f64 intermediate.cold_gas_energy 0x40cead6e78aec982  # 15706.863057945626
+i32 intermediate.cold_gas_energy_checked 1
+i32 intermediate.cold_gas_energy_check_kind 2
+i32 intermediate.cold_gas_energy_validated_up 0
+i32 intermediate.cold_gas_energy_validated_down 0
+i32 intermediate.cold_gas_energy_validated 0
+i32 intermediate.hot_gas_energy_absent 0
+f64 intermediate.hot_gas_energy 0x412ed7222eff566c  # 1010577.0917918212
+i32 intermediate.hot_gas_energy_checked 1
+i32 intermediate.hot_gas_energy_check_kind 2
+i32 intermediate.hot_gas_energy_validated_up 0
+i32 intermediate.hot_gas_energy_validated_down 0
+i32 intermediate.hot_gas_energy_validated 0

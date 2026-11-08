@@ -1,0 +1,21 @@
+# SAGE26 oracle output for cgm_central_regime0_negative_zero_metals.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine infall_recipe
+f64 return.InfallingGas 0x402aba83e88722c2  # 13.364287630554262
+f64 intermediate.reionization_modifier 0x3fef32db5233e47a  # 0.97495809607711625
+f64 intermediate.HaloBaryonFraction 0x3fc5371004b2a59b  # 0.16574287633310977
+f32 galaxy[0].EjectedMass 0x3f333333  # 0.699999988
+f32 galaxy[0].MetalsEjectedMass 0x3be56042  # 0.00700000022
+f32 galaxy[0].ICS 0x3e4ccccd  # 0.200000003
+f32 galaxy[0].MetalsICS 0x3b03126f  # 0.00200000009
+f32 galaxy[0].ICS_disrupt 0x3dcccccd  # 0.100000001
+f32 galaxy[0].ICS_accrete 0x3dcccccd  # 0.100000001
+f32 galaxy[0].ICS_sum_mt 0x3d4ccccd  # 0.0500000007
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x80000000  # -0
+f32 galaxy[0].HotGas 0x00000000  # 0
+f32 galaxy[0].MetalsHotGas 0x00000000  # 0
+i32 intermediate.central_regime_cgm 1
+i32 intermediate.cgm_metals_cap_binds 0
+i32 intermediate.cgm_gas_negative_clears 0
+i32 intermediate.cgm_metals_floor_binds 0

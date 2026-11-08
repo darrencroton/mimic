@@ -1,0 +1,43 @@
+# Every Type: a Type 0 central, a Type 1 satellite and a Type 2 orphan (Mvir 0, as SAGE26 sets an orphan's at joining, R/src/core_build_model.c:324-325) are classified;
+# three Type 3 rows with mergeType 1, 2 and 4 (merged or disrupted, R/src/core_build_model.c:241-243) are skipped (R/src/model_regimes.c:67) and keep their input Regime, even with Mvir above Mshock.
+# The input Regime of the classified rows differs from their result: no previous regime is reused.
+# Reachability: R4-reachable Types 0-2; Type 3 rows reach the call only through SAGE26's join guard (core_build_model.c:241-243) - constructed routine-domain probe.
+# R4's flags: CGMrecipeOn 1 (R4.par:54, a caller gate, not read here), Hubble_h 0.73 (R4.par:40), MShockMsun SAGE26's default 6.0e11 (core_read_parameter_file.c:114).
+format sage26-oracle-fixture 1
+routine determine_and_store_regime
+f64 params.MShockMsun 0x426176592e000000  # 600000000000.0
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.73
+i32 call.ngal 6
+# galaxy[0]: Type 0 central above Mshock, input Regime 0, deviate below hot_fraction: Regime 1
+i32 galaxy[0].Type 0
+i32 galaxy[0].mergeType 0
+f32 galaxy[0].Mvir 0x42af3333  # 87.5999984741211
+i32 galaxy[0].Regime 0
+# galaxy[1]: Type 3, mergeType 1 (minor merger): skipped, keeps Regime 1
+i32 galaxy[1].Type 3
+i32 galaxy[1].mergeType 1
+f32 galaxy[1].Mvir 0x42af3333  # 87.5999984741211
+i32 galaxy[1].Regime 1
+# galaxy[2]: Type 1 satellite below Mshock, input Regime 1, deviate above hot_fraction: Regime 0
+i32 galaxy[2].Type 1
+i32 galaxy[2].mergeType 0
+f32 galaxy[2].Mvir 0x41af3333  # 21.899999618530273
+i32 galaxy[2].Regime 1
+# galaxy[3]: Type 3, mergeType 2 (major merger): skipped, keeps Regime -1
+i32 galaxy[3].Type 3
+i32 galaxy[3].mergeType 2
+f32 galaxy[3].Mvir 0x42af3333  # 87.5999984741211
+i32 galaxy[3].Regime -1
+# galaxy[4]: Type 2 orphan, Mvir 0: no draw, Regime 0
+i32 galaxy[4].Type 2
+i32 galaxy[4].mergeType 0
+f32 galaxy[4].Mvir 0x00000000  # 0.0
+i32 galaxy[4].Regime 1
+# galaxy[5]: Type 3, mergeType 4 (disrupted to the ICS): skipped, keeps Regime 0
+i32 galaxy[5].Type 3
+i32 galaxy[5].mergeType 4
+f32 galaxy[5].Mvir 0x41af3333  # 21.899999618530273
+i32 galaxy[5].Regime 0
+i32 rand.queue_length 2
+i32 rand.queue[0] 2046631969  # the central's draw, just below hot_fraction 0.95303727798624649
+i32 rand.queue[1] 100851664  # the satellite's draw, just above hot_fraction 0.04696271524212086

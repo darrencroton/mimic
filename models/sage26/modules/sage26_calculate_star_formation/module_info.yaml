@@ -1,0 +1,42 @@
+module:
+  name: sage26_calculate_star_formation
+  description: >-
+    SAGE26 disk star formation: stellar mass formed this substep, stored in the NewStellarMass
+    transport field, above the Kauffmann critical cold gas (SFprescription 0, Croton et al. 2006)
+    or from the Blitz and Rosolowsky (2006) molecular gas by radial integration, written to H2gas
+    (SFprescription 1), and the H I diagnostic H1gas from the cold gas before star formation
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - FFBRegime       # read: 1 returns at once, writing nothing (SAGE26's FFB dispatch)
+      - Type
+      - HaloNr
+      - SnapNum
+      - dT
+      - Vvir
+      - ColdGas
+      - StellarMass
+      - BulgeMass
+      - DiskScaleRadius
+      - H2gas
+      - H1gas
+      - NewStellarMass
+    parameters:
+      - SfrEfficiency
+      - StarFormingDiskFactor
+      - SFprescription
+      - H2RadialIntegrationOn
+      - H2RadialNBins
+      - H2RadialRMaxFactor
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_calculate_star_formation.c
+      - _tests/test_unit_sage26_calculate_star_formation_oracle.c
+    integration: _tests/test_integration_sage26_calculate_star_formation.py
+    scientific: []
+
+  docs:
+    physics: README.md

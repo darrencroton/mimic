@@ -1,0 +1,256 @@
+# SAGE26 oracle output for tr_pass_cgm_r4_snap63.in, written by oracle_c06 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine merger_pass_fire
+i32 galaxy[0].Type 0
+i32 galaxy[0].SnapNum 31
+i32 galaxy[0].mergeType 0
+i32 galaxy[0].mergeIntoID -1
+i32 galaxy[0].CentralGal 0
+i32 galaxy[0].Len 842
+f32 galaxy[0].Mvir 0x4246a3bb  # 49.659893
+f32 galaxy[0].deltaMvir 0x3f7e4237  # 0.993197858
+f32 galaxy[0].Rvir 0x3e03dee7  # 0.128779992
+f32 galaxy[0].Vvir 0x4300c7b3  # 128.780075
+f32 galaxy[0].Vmax 0x431208b0  # 146.033936
+f32 galaxy[0].MergTime 0x4479f99a  # 999.900024
+f32 galaxy[0].ColdGas 0x4031edcc  # 2.78013897
+f32 galaxy[0].MetalsColdGas 0x3d33aa92  # 0.0438638404
+f32 galaxy[0].StellarMass 0x400bfe03  # 2.18737864
+f32 galaxy[0].MetalsStellarMass 0x3caff734  # 0.0214801803
+f32 galaxy[0].BulgeMass 0x3e92978a  # 0.286312401
+f32 galaxy[0].MetalsBulgeMass 0x3b463618  # 0.00302446447
+f32 galaxy[0].MergerBulgeMass 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeMass 0x3e92978a  # 0.286312401
+f32 galaxy[0].HotGas 0x00000000  # 0
+f32 galaxy[0].MetalsHotGas 0x00000000  # 0
+f32 galaxy[0].EjectedMass 0x3bebee62  # 0.00720004831
+f32 galaxy[0].MetalsEjectedMass 0x38cd99b2  # 9.80378973e-05
+f32 galaxy[0].BlackHoleMass 0x3a5f2b78  # 0.000851325225
+f32 galaxy[0].QuasarModeBHaccretionMass 0x00000000  # 0
+f32 galaxy[0].ICS 0x3f279426  # 0.654604316
+f32 galaxy[0].MetalsICS 0x3b53cddf  # 0.00323187537
+f32 galaxy[0].ICS_disrupt 0x3f26851a  # 0.650468469
+f32 galaxy[0].ICS_accrete 0x3b878621  # 0.00413586246
+f32 galaxy[0].ICS_sum_mt 0x3ba34a0d  # 0.00498319278
+f32 galaxy[0].CGMgas 0x401aace9  # 2.4168036
+f32 galaxy[0].MetalsCGMgas 0x3c9d5841  # 0.0192071218
+f32 galaxy[0].H1gas 0x3fc5fdcc  # 1.54680777
+f32 galaxy[0].H2gas 0x3ef48bbf  # 0.477628678
+f32 galaxy[0].OutflowRate 0x00000000  # 0
+f32 galaxy[0].DiskScaleRadius 0x3ba0bde5  # 0.00490544969
+f32 galaxy[0].BulgeRadius 0x3a29ca67  # 0.000647699868
+f32 galaxy[0].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[0].InstabilityBulgeRadius 0x3a29ca67  # 0.000647699868
+f32 galaxy[0].TimeOfLastMajorMerger 0xbf800000  # -1
+f32 galaxy[0].TimeOfLastMinorMerger 0xbf800000  # -1
+f32 galaxy[0].SfrDisk[0] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[1] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[2] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[3] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[4] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[5] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[6] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[7] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[8] 0x00000000  # 0
+f32 galaxy[0].SfrDisk[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulge[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrDiskColdGasMetals[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGas[9] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[0].SfrBulgeColdGasMetals[9] 0x00000000  # 0
+f32 galaxy[0].MassLoading 0x3fadf2ca  # 1.35897183
+i32 galaxy[0].Regime 0
+i32 galaxy[1].Type 1
+i32 galaxy[1].SnapNum 31
+i32 galaxy[1].mergeType 4
+i32 galaxy[1].mergeIntoID 100
+i32 galaxy[1].CentralGal 1
+i32 galaxy[1].Len 272
+f32 galaxy[1].Mvir 0x41bb22d1  # 23.3920002
+f32 galaxy[1].deltaMvir 0x41c487e2  # 24.566349
+f32 galaxy[1].Rvir 0x3dcd35cd  # 0.100200273
+f32 galaxy[1].Vvir 0x42c86693  # 100.20034
+f32 galaxy[1].Vmax 0x42ff8fdb  # 127.780968
+f32 galaxy[1].MergTime 0x3b8278a3  # 0.00398166617
+f32 galaxy[1].ColdGas 0x00000000  # 0
+f32 galaxy[1].MetalsColdGas 0x00000000  # 0
+f32 galaxy[1].StellarMass 0x00000000  # 0
+f32 galaxy[1].MetalsStellarMass 0x00000000  # 0
+f32 galaxy[1].BulgeMass 0x00000000  # 0
+f32 galaxy[1].MetalsBulgeMass 0x00000000  # 0
+f32 galaxy[1].MergerBulgeMass 0x00000000  # 0
+f32 galaxy[1].InstabilityBulgeMass 0x3d43d8e4  # 0.0478142649
+f32 galaxy[1].HotGas 0x00000000  # 0
+f32 galaxy[1].MetalsHotGas 0x00000000  # 0
+f32 galaxy[1].EjectedMass 0x00000000  # 0
+f32 galaxy[1].MetalsEjectedMass 0x00000000  # 0
+f32 galaxy[1].BlackHoleMass 0x00000000  # 0
+f32 galaxy[1].QuasarModeBHaccretionMass 0x00000000  # 0
+f32 galaxy[1].ICS 0x00000000  # 0
+f32 galaxy[1].MetalsICS 0x00000000  # 0
+f32 galaxy[1].ICS_disrupt 0x00000000  # 0
+f32 galaxy[1].ICS_accrete 0x00000000  # 0
+f32 galaxy[1].ICS_sum_mt 0x00000000  # 0
+f32 galaxy[1].CGMgas 0x00000000  # 0
+f32 galaxy[1].MetalsCGMgas 0x00000000  # 0
+f32 galaxy[1].H1gas 0x3f973365  # 1.18125594
+f32 galaxy[1].H2gas 0x3e6e515c  # 0.232732236
+f32 galaxy[1].OutflowRate 0x00000000  # 0
+f32 galaxy[1].DiskScaleRadius 0x3b90b29f  # 0.00441582454
+f32 galaxy[1].BulgeRadius 0x3a2ce91c  # 0.00065960153
+f32 galaxy[1].MergerBulgeRadius 0x00000000  # 0
+f32 galaxy[1].InstabilityBulgeRadius 0x3a2ce91c  # 0.00065960153
+f32 galaxy[1].TimeOfLastMajorMerger 0xbf800000  # -1
+f32 galaxy[1].TimeOfLastMinorMerger 0xbf800000  # -1
+f32 galaxy[1].SfrDisk[0] 0x00000000  # 0
+f32 galaxy[1].SfrDisk[1] 0x00000000  # 0
+f32 galaxy[1].SfrDisk[2] 0x00000000  # 0
+f32 galaxy[1].SfrDisk[3] 0x00000000  # 0
+f32 galaxy[1].SfrDisk[4] 0x00000000  # 0
+f32 galaxy[1].SfrDisk[5] 0x00000000  # 0
+f32 galaxy[1].SfrDisk[6] 0x00000000  # 0
+f32 galaxy[1].SfrDisk[7] 0x00000000  # 0
+f32 galaxy[1].SfrDisk[8] 0x00000000  # 0
+f32 galaxy[1].SfrDisk[9] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[0] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[1] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[2] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[3] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[4] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[5] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[6] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[7] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[8] 0x00000000  # 0
+f32 galaxy[1].SfrBulge[9] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[0] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[1] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[2] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[3] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[4] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[5] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[6] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[7] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[8] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGas[9] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[1].SfrDiskColdGasMetals[9] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[0] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[1] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[2] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[3] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[4] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[5] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[6] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[7] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[8] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGas[9] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[0] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[1] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[2] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[3] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[4] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[5] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[6] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[7] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[8] 0x00000000  # 0
+f32 galaxy[1].SfrBulgeColdGasMetals[9] 0x00000000  # 0
+f32 galaxy[1].MassLoading 0x3fdb1877  # 1.71168411
+i32 galaxy[1].Regime 1
+i32 intermediate.pass.galaxy[0].considered 0
+i32 intermediate.pass.galaxy[0].action 0
+i32 intermediate.pass.galaxy[0].deltaT_absent 1
+i32 intermediate.pass.galaxy[0].currentMvir_absent 1
+i32 intermediate.pass.galaxy[0].galaxyBaryons_absent 1
+i32 intermediate.pass.galaxy[0].gate_zero_baryons_absent 1
+i32 intermediate.pass.galaxy[0].gate_passed_absent 1
+i32 intermediate.pass.galaxy[0].merger_centralgal_absent 1
+i32 intermediate.pass.galaxy[0].redirected_absent 1
+i32 intermediate.pass.galaxy[0].clock_finite_absent 1
+i32 intermediate.pass.galaxy[0].event_time_absent 1
+i32 intermediate.pass.galaxy[0].step_bin_absent 1
+i32 intermediate.pass.galaxy[0].dt_absent 1
+i32 intermediate.pass.galaxy[1].considered 1
+i32 intermediate.pass.galaxy[1].action 4
+i32 intermediate.pass.galaxy[1].deltaT_absent 0
+f64 intermediate.pass.galaxy[1].deltaT 0x3f2807e823466620  # 0.00018334110940258861
+i32 intermediate.pass.galaxy[1].currentMvir_absent 0
+f64 intermediate.pass.galaxy[1].currentMvir 0x3ff4843e66666664  # 1.2822860717773432
+i32 intermediate.pass.galaxy[1].galaxyBaryons_absent 0
+f64 intermediate.pass.galaxy[1].galaxyBaryons 0x4004843f40000000  # 2.5645737648010254
+i32 intermediate.pass.galaxy[1].gate_zero_baryons_absent 0
+i32 intermediate.pass.galaxy[1].gate_zero_baryons 0
+i32 intermediate.pass.galaxy[1].gate_passed_absent 0
+i32 intermediate.pass.galaxy[1].gate_passed 1
+i32 intermediate.pass.galaxy[1].merger_centralgal_absent 0
+i32 intermediate.pass.galaxy[1].merger_centralgal 0
+i32 intermediate.pass.galaxy[1].redirected_absent 0
+i32 intermediate.pass.galaxy[1].redirected 0
+i32 intermediate.pass.galaxy[1].clock_finite_absent 0
+i32 intermediate.pass.galaxy[1].clock_finite 1
+i32 intermediate.pass.galaxy[1].event_time_absent 0
+f64 intermediate.pass.galaxy[1].event_time 0x3f80206e3a7f6574  # 0.0078743564226211107
+i32 intermediate.pass.galaxy[1].step_bin_absent 1
+i32 intermediate.pass.galaxy[1].dt_absent 1
+i32 intermediate.fire_mode 1
+i32 intermediate.pass_fire_mode_sensitive -1
+i32 intermediate.pass_fire_redshift_sensitive -1
+i32 intermediate.cgm_recipe_on 1
+i32 intermediate.pass.galaxy[0].disrupt_reservoir_cgm -1
+i32 intermediate.pass.galaxy[0].recipient_regime_sensitive -1
+i32 intermediate.pass.galaxy[0].central_regime_sensitive -1
+i32 intermediate.pass.galaxy[1].disrupt_reservoir_cgm 1
+i32 intermediate.pass.galaxy[1].recipient_regime_sensitive 1
+i32 intermediate.pass.galaxy[1].central_regime_sensitive -1

@@ -79,4 +79,4 @@ The recorded gate of 2026-10-02 (at commit `8d1e6908952ff9f46c62e4d346b36e8aecd4
 ## Related packages
 
 - `simulations/millennium/` — the same halos in L-Halo binary, the conversion source and the cosmology reference
-- `simulations/mini-millennium-horizontal/` — the complete mini-Millennium version 3 package, the reference gapped route, gated under both `halos-only` and `sage16`
+- `simulations/mini-millennium-horizontal/` — the complete mini-Millennium version 3 package, the reference gapped route, gated under `halos-only`, `sage16` and `sage26`

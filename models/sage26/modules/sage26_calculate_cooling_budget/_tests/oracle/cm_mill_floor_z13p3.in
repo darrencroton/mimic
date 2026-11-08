@@ -1,0 +1,8 @@
+# interpolate_clustering_mass (H:98-132), called directly.
+# The Millennium floor, z = 13.3: both endpoints the literal 1.0000.
+# Reachability: constructed routine-domain probe.
+format sage26-oracle-fixture 1
+routine interpolate_clustering_mass
+
+f64 params.Omega 0x3fd0000000000000  # 0.25
+f64 call.z 0x402a99999999999a  # 13.3

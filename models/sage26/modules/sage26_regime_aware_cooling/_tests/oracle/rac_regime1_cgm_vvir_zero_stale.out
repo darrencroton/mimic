@@ -1,0 +1,58 @@
+# SAGE26 oracle output for rac_regime1_cgm_vvir_zero_stale.in, written by oracle_c11 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine cooling_recipe_regime_aware
+f64 intermediate.deltaT 0x3f50624dd2f1a9fc  # 0.001
+f64 intermediate.dt 0x3f1a36e2eb1c432d  # 0.0001
+f64 return.total_cooling 0x0000000000000000  # 0
+f32 galaxy[0].HotGas 0x00000000  # 0
+f32 galaxy[0].MetalsHotGas 0x00000000  # 0
+f32 galaxy[0].CGMgas 0x40a00000  # 5
+f32 galaxy[0].MetalsCGMgas 0x3d4ccccd  # 0.0500000007
+f32 galaxy[0].ColdGas 0x3f800000  # 1
+f32 galaxy[0].MetalsColdGas 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].BlackHoleMass 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].r_heat 0x00000000  # 0
+f32 galaxy[0].tcool 0xc1300000  # -11
+f32 galaxy[0].tff 0xc1b00000  # -22
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33
+f32 galaxy[0].CoolingRate 0x00000000  # 0
+f32 galaxy[0].mdot_cool 0x00000000  # 0
+f32 galaxy[0].mdot_stream 0x00000000  # 0
+f64 galaxy[0].Cooling 0xc04b800000000000  # -55
+f64 galaxy[0].Heating 0xc050800000000000  # -66
+i32 intermediate.cgm_regime 0
+i32 intermediate.hot_called 0
+i32 intermediate.hot_diagnostics_valid 0
+i32 intermediate.cgm_called 1
+i32 intermediate.reset_called 0
+i32 intermediate.restored 0
+i32 intermediate.cgm_apply -1
+i32 intermediate.hot_apply -1
+f32 intermediate.hot_tcool 0xbf800000  # -1
+i32 intermediate.cgm.cgm_entered 0
+i32 intermediate.cgm.lambda_positive -1
+i32 intermediate.cgm.reservoir_cap -1
+i32 intermediate.cgm.agn_entered -1
+i32 intermediate.cgm.recapped -1
+i32 intermediate.cgm.agn_suppressed -1
+i32 intermediate.cgm.agn_saturated -1
+i32 intermediate.cgm.agn_reservoir_positive -1
+i32 intermediate.cgm.eddington_capped -1
+i32 intermediate.cgm.accretion_capped -1
+i32 intermediate.cgm.heating_capped -1
+i32 intermediate.cgm.ratchet_raised -1
+i32 intermediate.cgm.rheat_capped -1
+i32 intermediate.cgm_cooling_returned_absent 0
+f64 intermediate.cgm_cooling_returned 0x0000000000000000  # 0
+i32 intermediate.cgm_cooling_returned_checked 1
+i32 intermediate.cgm_cooling_returned_check_kind 2
+i32 intermediate.cgm_cooling_returned_validated_up 1
+i32 intermediate.cgm_cooling_returned_validated_down 1
+i32 intermediate.cgm_cooling_returned_validated 1
+i32 intermediate.total_cooling_absent 0
+f64 intermediate.total_cooling 0x0000000000000000  # 0
+i32 intermediate.total_cooling_checked 1
+i32 intermediate.total_cooling_check_kind 2
+i32 intermediate.total_cooling_validated_up 1
+i32 intermediate.total_cooling_validated_down 1
+i32 intermediate.total_cooling_validated 1

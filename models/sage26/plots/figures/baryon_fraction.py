@@ -1,0 +1,319 @@
+#!/usr/bin/env python
+
+"""
+Mimic Baryon Fraction Plot
+
+This module generates a plot showing the baryon fraction vs. halo mass.
+Adaptively plots all available baryonic components.
+
+Requires: Mvir, Type, UniqueCentralGalaxyID
+Optional: StellarMass, ColdGas, HotGas, CGMgas, EjectedGas, ICS, BlackHoleMass
+"""
+
+import numpy as np
+from figures import AXIS_LABEL_SIZE, setup_legend
+from matplotlib.ticker import MaxNLocator, MultipleLocator
+from output_utils import (
+    check_required_fields,
+    get_profile_axes,
+    make_bin_edges,
+    save_and_close_figure,
+    setup_figure,
+    warn,
+)
+
+# The seven baryon reservoirs, in drawing order: (key, output field). Each field is optional:
+# a reservoir the run does not write is left out of the total and not drawn. SAGE26's
+# counterpart sums the same seven into its total (plotting/allresults-local.py:1255, :1261) and
+# forms the circumgalactic medium's per-halo fraction (:1325), its bin mean (:1360) and draws it
+# as its own curve (:1447).
+BARYON_RESERVOIRS = (
+    ("stars", "StellarMass"),
+    ("cold", "ColdGas"),
+    ("hot", "HotGas"),
+    ("cgm", "CGMgas"),
+    ("ejected", "EjectedGas"),
+    ("ics", "ICS"),
+    ("bh", "BlackHoleMass"),
+)
+
+
+def baryon_reservoirs(galaxies, optional, group_of_galaxy, n_groups, central_group, central_mvir):
+    """
+    Return each reservoir's baryon fraction for every central, and their total.
+
+    Each reservoir is summed over every galaxy sharing a central's group (one pass with
+    np.bincount), then divided by that central's Mvir. A reservoir whose field is not
+    available (``optional`` maps field name to bool) contributes zeros.
+
+    Args:
+        galaxies: Galaxy data as a numpy recarray (or any mapping of field name to array)
+        optional: Mapping of reservoir field name to whether the run provides it
+        group_of_galaxy: Group index of every galaxy (np.unique return_inverse)
+        n_groups: Number of groups
+        central_group: Group index of every central
+        central_mvir: Mvir of every central, as float64
+
+    Returns:
+        dict mapping each key of BARYON_RESERVOIRS, then "baryons" (their sum, in the order of
+        BARYON_RESERVOIRS), to a float64 array with one entry per central
+    """
+    fractions = {}
+    for key, field in BARYON_RESERVOIRS:
+        if optional.get(field, False):
+            group_sum = np.bincount(
+                group_of_galaxy, weights=galaxies[field].astype(np.float64), minlength=n_groups
+            )
+            fractions[key] = group_sum[central_group] / central_mvir
+        else:
+            fractions[key] = np.zeros(len(central_group))
+    fractions["baryons"] = sum(fractions[key] for key, _ in BARYON_RESERVOIRS)
+    return fractions
+
+
+def plot(
+    galaxies,
+    volume,
+    metadata,
+    params,
+    output_dir="plots",
+    output_format=".png",
+    verbose=False,
+):
+    """
+    Create a baryon fraction vs. halo mass plot.
+
+    Adaptively plots all available baryonic components. If no baryonic
+    properties are available (physics-free mode), displays an informative
+    message. Otherwise, plots all available components and their total.
+
+    Args:
+        galaxies: Galaxy data as a numpy recarray
+        volume: Simulation volume in (Mpc/h)^3
+        metadata: Dictionary with additional metadata
+        params: Dictionary with Mimic parameters
+        output_dir: Output directory for the plot
+        output_format: File format for the output
+        verbose: Show detailed output
+
+    Returns:
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
+    """
+    # Check required and optional fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=["Mvir", "UniqueCentralGalaxyID"],
+        optional_fields=[field for _, field in BARYON_RESERVOIRS],
+        plot_name="Baryon Fraction",
+    )
+
+    if not success:
+        return None, f"Required fields missing: {msg}"
+
+    # Extract necessary metadata
+    hubble_h = metadata["hubble_h"]
+
+    # Get the baryon fraction parameter (or use default cosmic value if not available)
+    baryon_frac = params.get("BaryonFrac", 0.17) if params else 0.17
+
+    # Check which optional baryonic properties are available
+    has_stellar = optional.get("StellarMass", False)
+    has_cold = optional.get("ColdGas", False)
+    has_hot = optional.get("HotGas", False)
+    has_cgm = optional.get("CGMgas", False)
+    has_ejected = optional.get("EjectedGas", False)
+    has_ics = optional.get("ICS", False)
+    has_bh = optional.get("BlackHoleMass", False)
+
+    # Check if we have any baryonic properties at all
+    has_any_baryons = any([has_stellar, has_cold, has_hot, has_cgm, has_ejected, has_ics, has_bh])
+
+    if not has_any_baryons:
+        # No baryonic properties available - create plot with message
+        msg = "No baryonic properties found\n(Enable physics modules to generate baryon data)"
+        if verbose:
+            warn(msg)
+        return None, msg
+    # Only use central galaxies (Type = 0) with non-zero Mvir
+    central_mask = (galaxies.Type == 0) & (galaxies.Mvir > 0.0)
+
+    # Check if we have any central galaxies to plot
+    if not np.any(central_mask):
+        msg = "No central galaxies found with Mvir > 0"
+        if verbose:
+            warn(msg)
+        return None, msg
+    # Bin over the same x range as the display axis so a profile override
+    # reaches the plotted lines. y stays data-driven below, so only x is used here.
+    min_halo, max_halo, _, _ = get_profile_axes(params, "baryon_fraction", (10.8, 15.0), (0.0, 1.0))
+    interval = 0.1
+    halo_bins = make_bin_edges(min_halo, max_halo, interval)
+    nbins = len(halo_bins) - 1
+
+    # Arrays to store results
+    central_halo_mass = []  # Central halo mass
+    mean_baryon_fraction = []  # Total baryon fraction
+    mean_stars = []  # Stellar component (including bulge if available)
+    mean_cold = []  # Cold gas component
+    mean_hot = []  # Hot gas component
+    mean_cgm = []  # Circumgalactic medium component
+    mean_ejected = []  # Ejected gas component
+    mean_ics = []  # Intracluster stars component
+    mean_bh = []  # Black hole component
+
+    # Pre-compute central galaxy information and halo masses for faster lookup
+    valid_mvir = (galaxies.Mvir > 0) & central_mask
+    if not np.any(valid_mvir):
+        if verbose:
+            warn("No central galaxies found with Mvir > 0")
+        # Already handled above, but being defensive
+
+    # Compute log halo masses for all valid centrals
+    halo_mass = np.full(len(galaxies), -np.inf)  # Initialize with negative infinity
+    halo_mass[valid_mvir] = np.log10(galaxies.Mvir[valid_mvir] * 1.0e10 / hubble_h)
+
+    # Sum each baryonic component over every galaxy sharing a central's UniqueCentralGalaxyID in
+    # one pass. A group-by with np.unique + np.bincount keeps this O(N log N) in the galaxy count,
+    # where scanning the whole member list once per central is quadratic per mass bin.
+    _, group_of_galaxy = np.unique(galaxies.UniqueCentralGalaxyID, return_inverse=True)
+    n_groups = int(group_of_galaxy.max()) + 1
+
+    # Per-central baryon fractions: each central takes the full sum of its group, so two
+    # centrals carrying the same UniqueCentralGalaxyID share one group sum.
+    central_indices = np.flatnonzero(central_mask)
+    central_group = group_of_galaxy[central_indices]
+    central_mvir = galaxies.Mvir[central_indices].astype(np.float64)
+    central_log_mass = halo_mass[central_indices]
+    fractions = baryon_reservoirs(
+        galaxies, optional, group_of_galaxy, n_groups, central_group, central_mvir
+    )
+
+    # Loop through halo mass bins
+    for i in range(nbins):
+        # Get central galaxies in this mass bin
+        in_bin = (central_log_mass >= halo_bins[i]) & (central_log_mass < halo_bins[i + 1])
+
+        # Skip if not enough central galaxies in this bin
+        if np.count_nonzero(in_bin) < 3:  # Require at least 3 galaxies for statistics
+            continue
+
+        # Calculate means for this bin
+        central_halo_mass.append(np.mean(central_log_mass[in_bin]))
+        mean_baryon_fraction.append(np.mean(fractions["baryons"][in_bin]))
+        mean_stars.append(np.mean(fractions["stars"][in_bin]))
+        mean_cold.append(np.mean(fractions["cold"][in_bin]))
+        mean_hot.append(np.mean(fractions["hot"][in_bin]))
+        mean_cgm.append(np.mean(fractions["cgm"][in_bin]))
+        mean_ejected.append(np.mean(fractions["ejected"][in_bin]))
+        mean_ics.append(np.mean(fractions["ics"][in_bin]))
+        mean_bh.append(np.mean(fractions["bh"][in_bin]))
+
+    # Convert to numpy arrays
+    central_halo_mass = np.array(central_halo_mass)
+    mean_baryon_fraction = np.array(mean_baryon_fraction)
+    mean_stars = np.array(mean_stars)
+    mean_cold = np.array(mean_cold)
+    mean_hot = np.array(mean_hot)
+    mean_cgm = np.array(mean_cgm)
+    mean_ejected = np.array(mean_ejected)
+    mean_ics = np.array(mean_ics)
+    mean_bh = np.array(mean_bh)
+
+    # Print debug information if verbose mode is enabled
+    if verbose:
+        print(f"Baryon Fraction plot debug:")
+        print(f"  Number of mass bins with data: {len(central_halo_mass)}")
+        if len(central_halo_mass) > 0:
+            print(
+                f"  Halo mass range: {min(central_halo_mass):.2f} to {max(central_halo_mass):.2f}"
+            )
+            print(
+                f"  Mean baryon fraction range: {min(mean_baryon_fraction):.3f} to {max(mean_baryon_fraction):.3f}"
+            )
+        print(f"  Cosmic baryon fraction (parameter): {baryon_frac:.3f}")
+        print(f"  Available components:")
+        print(f"    Stars: {has_stellar}")
+        print(f"    Cold gas: {has_cold}")
+        print(f"    Hot gas: {has_hot}")
+        print(f"    CGM gas: {has_cgm}")
+        print(f"    Ejected gas: {has_ejected}")
+        print(f"    ICS: {has_ics}")
+        print(f"    Black holes: {has_bh}")
+
+    # Check if we have any data to plot
+    if len(central_halo_mass) == 0:
+        msg = "Insufficient data for baryon fraction analysis\n(Not enough central galaxies in mass bins)"
+        if verbose:
+            warn(msg)
+        return None, msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
+
+    # Plot the results
+    # Total baryon fraction
+    ax.plot(central_halo_mass, mean_baryon_fraction, "k-", lw=2, label="TOTAL", gid="model")
+
+    # Individual components (only plot if available and non-zero)
+    if has_stellar:
+        if np.any(mean_stars > 0):
+            ax.plot(central_halo_mass, mean_stars, "k--", label="Stars", gid="model")
+
+    if has_cold:
+        if np.any(mean_cold > 0):
+            ax.plot(central_halo_mass, mean_cold, "b-", label="Cold", gid="model")
+
+    if has_hot:
+        if np.any(mean_hot > 0):
+            ax.plot(central_halo_mass, mean_hot, "r-", label="Hot", gid="model")
+
+    if has_cgm:
+        if np.any(mean_cgm > 0):
+            ax.plot(central_halo_mass, mean_cgm, "c-", label="CGM", gid="model")
+
+    if has_ejected:
+        if np.any(mean_ejected > 0):
+            ax.plot(central_halo_mass, mean_ejected, "g-", label="Ejected", gid="model")
+
+    if has_ics:
+        if np.any(mean_ics > 0):
+            ax.plot(central_halo_mass, mean_ics, "y-", label="ICS", gid="model")
+
+    # Black hole mass is typically too small to show up well, but plot if available
+    if has_bh:
+        if np.any(mean_bh > 1e-6):  # Only if non-negligible
+            ax.plot(central_halo_mass, mean_bh, "k:", label="BH", gid="model")
+
+    # Add a horizontal line showing the cosmic baryon fraction
+    ax.axhline(
+        y=baryon_frac,
+        color="k",
+        linestyle=":",
+        lw=1.5,
+        label=f"Cosmic: {baryon_frac:.2f}",
+    )
+
+    # Customize the plot
+    ax.set_xlabel(r"Central log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
+    ax.set_ylabel(r"Baryon Fraction", fontsize=AXIS_LABEL_SIZE)
+
+    # Set the x and y axis minor ticks with MaxNLocator to avoid excessive ticks
+    ax.xaxis.set_minor_locator(MultipleLocator(0.5))
+    ax.yaxis.set_minor_locator(MaxNLocator(10))
+
+    # Set axis limits
+    y_max_data = max(0.23, max(mean_baryon_fraction) * 1.1)
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "baryon_fraction", (10.8, 15.0), (0.0, y_max_data)
+    )
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+
+    # Add consistently styled legend
+    leg = setup_legend(ax, loc="upper right")
+
+    # Save and close the figure
+    plot_path = save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
+    return plot_path, None

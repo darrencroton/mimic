@@ -1,0 +1,11 @@
+# Real central: R0 reference model_0.hdf5 (SHA-256 6d859a3a2ea422e3...), Snap_32 row 0, GalaxyIndex 0: end-of-snapshot output values used as plausible call inputs, not reconstructed call-time state.
+# Spin is the output's halo Spin; Vvir and Rvir are the output's current-halo values.
+format sage26-oracle-fixture 1
+routine get_disk_radius
+
+i32 galaxy[0].Type 0
+f32 galaxy[0].Vvir 0x43b13a27  # 354.454315
+f32 galaxy[0].Rvir 0x3e0074c8  # 0.125445485
+f32 halo.Spin[0] 0xc036b292  # -2.85464907
+f32 halo.Spin[1] 0x3fea884f  # 1.83228481
+f32 halo.Spin[2] 0x3f82c162  # 1.02152658

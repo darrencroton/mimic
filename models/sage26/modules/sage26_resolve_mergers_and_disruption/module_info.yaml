@@ -1,0 +1,132 @@
+module:
+  name: sage26_resolve_mergers_and_disruption
+  description: >-
+    SAGE26's per-substep merger and disruption pass (clock, gates, targets with the one-hop
+    redirect, event time) with its two transactions: deal_with_galaxy_merger (ratio, pre-transfer
+    morphology, add_galaxies_together, the merger event to the black-hole and burst consumers, the
+    major-merger bulge, with BulgeSizeOn 3 the bulge-radius synchronisation, remnant radius and
+    its major/minor assignment, and the timestamps) and disrupt_satellite_to_ICS
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - HaloNr
+      - SnapNum
+      - Type
+      - CentralHalo
+      - Mvir
+      - deltaMvir
+      - dT
+      - BlackHoleMass
+      - BulgeMass
+      - MergerBulgeMass
+      - InstabilityBulgeMass
+      - BulgeRadius
+      - MergerBulgeRadius
+      - InstabilityBulgeRadius
+      - DiskScaleRadius
+      - ColdGas
+      - EjectedGas
+      - HotGas
+      - ICS
+      - ICS_disrupt
+      - ICS_accrete
+      - ICS_sum_mt
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the disruption target's selects its pair
+      - MergTime
+      - MergerDiskDominated
+      - MetalsBulgeMass
+      - MetalsColdGas
+      - MetalsEjectedGas
+      - MetalsHotGas
+      - MetalsICS
+      - MetalsStellarMass
+      - StellarMass
+      - TimeOfLastMajorMerger
+      - TimeOfLastMinorMerger
+      - SfrDiskBin0
+      - SfrDiskBin1
+      - SfrDiskBin2
+      - SfrDiskBin3
+      - SfrDiskBin4
+      - SfrDiskBin5
+      - SfrDiskBin6
+      - SfrDiskBin7
+      - SfrDiskBin8
+      - SfrDiskBin9
+      - SfrBulgeBin0
+      - SfrBulgeBin1
+      - SfrBulgeBin2
+      - SfrBulgeBin3
+      - SfrBulgeBin4
+      - SfrBulgeBin5
+      - SfrBulgeBin6
+      - SfrBulgeBin7
+      - SfrBulgeBin8
+      - SfrBulgeBin9
+      - SfrDiskColdGasBin0
+      - SfrDiskColdGasBin1
+      - SfrDiskColdGasBin2
+      - SfrDiskColdGasBin3
+      - SfrDiskColdGasBin4
+      - SfrDiskColdGasBin5
+      - SfrDiskColdGasBin6
+      - SfrDiskColdGasBin7
+      - SfrDiskColdGasBin8
+      - SfrDiskColdGasBin9
+      - SfrDiskColdGasMetalsBin0
+      - SfrDiskColdGasMetalsBin1
+      - SfrDiskColdGasMetalsBin2
+      - SfrDiskColdGasMetalsBin3
+      - SfrDiskColdGasMetalsBin4
+      - SfrDiskColdGasMetalsBin5
+      - SfrDiskColdGasMetalsBin6
+      - SfrDiskColdGasMetalsBin7
+      - SfrDiskColdGasMetalsBin8
+      - SfrDiskColdGasMetalsBin9
+      - SfrBulgeColdGasBin0
+      - SfrBulgeColdGasBin1
+      - SfrBulgeColdGasBin2
+      - SfrBulgeColdGasBin3
+      - SfrBulgeColdGasBin4
+      - SfrBulgeColdGasBin5
+      - SfrBulgeColdGasBin6
+      - SfrBulgeColdGasBin7
+      - SfrBulgeColdGasBin8
+      - SfrBulgeColdGasBin9
+      - SfrBulgeColdGasMetalsBin0
+      - SfrBulgeColdGasMetalsBin1
+      - SfrBulgeColdGasMetalsBin2
+      - SfrBulgeColdGasMetalsBin3
+      - SfrBulgeColdGasMetalsBin4
+      - SfrBulgeColdGasMetalsBin5
+      - SfrBulgeColdGasMetalsBin6
+      - SfrBulgeColdGasMetalsBin7
+      - SfrBulgeColdGasMetalsBin8
+      - SfrBulgeColdGasMetalsBin9
+    parameters:
+      - ThresholdMajorMerger
+      - ThresholdSatDisruption
+      - BulgeSizeOn
+      - CGMrecipeOn     # required: 0 or 1
+
+  events:
+    emits:
+      - name: merger
+        description: >-
+          Emitted after add_galaxies_together, for every merger (a ratio of 0 included); payload:
+          value0=SAGE26's baryonic mass ratio, value1=the satellite's substep dt; the target carries
+          its pre-transfer morphology in MergerDiskDominated
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_merger_ordering_parity.c
+      - _tests/test_unit_sage26_resolve_mergers_and_disruption_oracle.c
+    integration: _tests/test_integration_sage26_merger_event_consumers.py
+    scientific: []
+
+  docs:
+    physics: README.md

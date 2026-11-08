@@ -1,0 +1,13 @@
+# Tiny reservoirs and a tiny negative budget over 30 substeps.
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+
+i32 params.CGMrecipeOn 0
+
+f64 call.InfallingGas 0xbe29c511dc3a41df  # -3e-09  (the snapshot budget infall_recipe returned)
+i32 call.effective_steps 30
+i32 galaxy[0].Type 0
+f32 galaxy[0].EjectedMass 0x2edbe6ff  # 1.00000001e-10
+f32 galaxy[0].MetalsEjectedMass 0x2b8cbccc  # 9.99999996e-13
+f32 galaxy[0].HotGas 0x3109705f  # 1.99999994e-09
+f32 galaxy[0].MetalsHotGas 0x2d2febff  # 9.99999996e-12

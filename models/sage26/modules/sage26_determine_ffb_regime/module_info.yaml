@@ -1,0 +1,28 @@
+module:
+  name: sage26_determine_ffb_regime
+  description: >-
+    Classifies every unmerged row of the FoF group as a feedback-free-burst row (FFBRegime 1) or
+    not (0) with SAGE26's Li et al. (2024) FFB fraction of its Mvir at the current redshift,
+    realised against SAGE26's own SplitMix64 draw of its MostBoundID and the current snapshot;
+    runs only with EnhancedStarFormationOn 1 and writes nothing with EnhancedStarFormationOn 0
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type            # read: Type 3 rows (SAGE26's mergeType > 0) are skipped
+      - Mvir            # read (narrowed to SAGE26's float)
+      - MostBoundID     # read: the draw's halo key
+      - FFBRegime       # written (EnhancedStarFormationOn 1 only)
+    parameters:
+      - EnhancedStarFormationOn # required: 0 (no classification) or 1 (the Li+24 classifier)
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_determine_ffb_regime.c
+      - _tests/test_unit_sage26_determine_ffb_regime_oracle.c
+    integration: _tests/test_integration_sage26_determine_ffb_regime.py
+    scientific: []
+
+  docs:
+    physics: README.md

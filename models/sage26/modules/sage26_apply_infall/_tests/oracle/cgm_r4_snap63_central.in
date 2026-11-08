@@ -1,0 +1,26 @@
+# Real central after its real infall_recipe call: the budget and the central's post-consolidation
+# reservoirs are the oracle output of cgm_r4_snap63_group (sage26_prepare_infall_budget), whose
+# galaxy[0] is R4 Snap_63 row 14532, GalaxyIndex 3000092000000000. effective_steps 10 is plausible.
+# Real halo values from the R4 reference output,
+# /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R4/model_0.hdf5 (SHA-256
+# 2b606ee7ac82559e32c7c91161f1edb44f89288ec57016e80da884e118ed0807), Snap_63: end-of-snapshot output
+# values used as plausible call inputs, not reconstructed call-time state. Zcurr = ZZ[63] from the
+# file header.
+# Reachability: R4-reachable.
+# R4's flags: CGMrecipeOn 1 (par/R4.par:54); ReionizationOn 1, BaryonFrac 0.17,
+# ReIncorporationFactor 0.19 and Reionization_z0/zr 8/7 as R3 (R4.par:51, :39, :72, :85-86).
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+
+i32 params.CGMrecipeOn 1
+
+f64 call.InfallingGas 0x3ef4aa97d909890a  # 1.9708995355202165e-05  (the snapshot budget infall_recipe returned)
+i32 call.effective_steps 10
+i32 galaxy[0].Type 0
+i32 galaxy[0].Regime 1
+f32 galaxy[0].EjectedMass 0x3e2ce6c5  # 0.168849066
+f32 galaxy[0].MetalsEjectedMass 0x3a23b1b2  # 0.000624443521
+f32 galaxy[0].HotGas 0x426266c5  # 56.6003609
+f32 galaxy[0].MetalsHotGas 0x3e4a2f8e  # 0.197447032
+f32 galaxy[0].CGMgas 0x00000000  # 0
+f32 galaxy[0].MetalsCGMgas 0x00000000  # 0

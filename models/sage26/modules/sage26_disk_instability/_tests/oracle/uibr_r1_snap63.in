@@ -1,0 +1,23 @@
+# Mode 3 on a real R1 galaxy: R1 reference /Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R1/model_0.hdf5 (SHA-256 870acea288250919624ae8a4b984a4dde7106e6355cdb972cf4880ff04635ca0), Snap_63 row 172 (GalaxyIndex 6000000000, Type 0).
+# End-of-snapshot output values used as plausible call inputs, not reconstructed call-time
+# state. Constructed: a transfer of 2% of the output InstabilityBulgeMass plus 1e-7 (0.030679979188537598),
+# already stored by the caller, so InstabilityBulgeMass is float(1.53399396 + d); the saved disk
+# radius is the row's DiskScaleRadius. Repeated transfer (incremental branch).
+# Reachability: R1-reachable.
+format sage26-oracle-fixture 1
+routine update_instability_bulge_radius
+
+i32 params.BulgeSizeOn 3  # R1 (R1.par:109)
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.72999999999999998  (R1.par:40; read in mode 3, R/src/model_misc.c:249,398)
+
+i32 call.ngal 1
+i32 call.p 0
+f64 call.delta_mass 0x3f9f6a928d06e420  # 0.030679979188537598  (the transfer just credited to InstabilityBulgeMass)
+f64 call.old_disk_radius 0x3f904d1b40000000  # 0.015919137746095657  (the disk radius the caller saved)
+
+f32 galaxy[0].MergerBulgeMass 0x3fbb6596  # 1.46403766
+f32 galaxy[0].InstabilityBulgeMass 0x3fc8473c  # 1.5646739
+f32 galaxy[0].DiskScaleRadius 0x3c8268da  # 0.0159191377
+f32 galaxy[0].BulgeRadius 0x3b93e11f  # 0.00451292051
+f32 galaxy[0].MergerBulgeRadius 0x3c15c8e9  # 0.009142139
+f32 galaxy[0].InstabilityBulgeRadius 0x38c6d633  # 9.48127345e-05

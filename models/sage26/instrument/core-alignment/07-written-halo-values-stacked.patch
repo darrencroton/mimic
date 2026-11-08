@@ -1,0 +1,66 @@
+x01-core-alignment patch 07-written-halo-values-stacked (git apply ignores this header)
+
+Stacked version of 07-written-halo-values.patch. Predecessor: the integration head
+b0071b073cb95c863ddcaab6f410e3d336cef22e with 01-particle-mass, 02-cosmic-time, 03-written-dt,
+04-substep-count, 05-float-halo-state and 06-inheritance-resets applied in that order. The original
+07 does not apply there because 03 adds its dT lines at the same place in prepare_halo_for_output
+(src/io/output/util.c); this version adds the same include and the same lines after 03's block.
+The change for item (f) is the same; 03's dT lines are untouched.
+
+E7 item: (f) Written halo values.
+
+SAGE26 behaviour: the HDF5 writer takes, for every row, Len, Mvir and Vmax from the galaxy's stored
+members (R/src/io/save_gals_hdf5.c:898, :899, :903), CentralMvir from get_virial_mass of the host's
+FoF first halo (:900), and SimulationHaloIndex = llabs(MostBoundID), Spin, Rvir, Vvir and VelDisp
+from the current raw host halo halos[g->HaloNr] (:878, :894-896, :901-902, :904), Rvir and Vvir
+through get_virial_radius and get_virial_velocity (R/src/model_halo_properties.c:31-85).
+
+Mimic behaviour replaced: prepare_halo_for_output (src/io/output/util.c:113-118, the generated
+copy_to_output.inc) writes Len, Mvir, Vmax, CentralMvir, MostBoundID, Spin and VelDisp from the
+stored row (copy_direct; CentralMvir stamped from the FoF first halo at
+src/core/halo_evolution.c:93-97), and Rvir and Vvir through output_rvir_conditional and
+output_vvir_conditional (src/module_system/output_helpers.h:65-83): recomputed from the host for
+Type 0 and 1, the stored value for Type 2. A Type 0 or 1 row's stored MostBoundID, Spin and VelDisp
+are its current host's (apply_descendant_properties, src/core/inheritance.c:47-57, and
+init_halo_from_payload), so the two writers differ only on a Type 2 row, whose stored values date
+from its last subhalo (make_orphan, src/core/inheritance.c:79-95, does not update them), and in the
+absolute value of a negative MostBoundID.
+
+What the patch changes: after the generated copy, the output record's MostBoundID is
+llabs(MostBoundID), Spin and VelDisp are the host halo's raw values, and Rvir and Vvir are
+get_virial_radius and get_virial_velocity of the host, for every row, read through the input view at
+g->HaloNr. Only the output record changes; the stored row g, which src/core/output_buffer.c:48-49 feeds
+to the next snapshot's inheritance (src/core/build_model.c:331-335), is untouched. No type changes.
+
+Reading for i02: yes for any package that writes Type 2 rows: sage16's and halos-only's Type 2 rows
+would carry the host's SimulationHaloIndex (MostBoundID), Spin, VelDisp, Rvir and Vvir instead of
+their last subhalo's; their Type 0 and 1 rows would not change (except a negative MostBoundID, written
+as its absolute value).
+
+diff --git a/src/io/output/util.c b/src/io/output/util.c
+index 6faa1324..a696d856 100644
+--- a/src/io/output/util.c
++++ b/src/io/output/util.c
+@@ -20,6 +20,7 @@
+ #include "output/hdf5.h"
+ #endif
+ #include "module_system/output_helpers.h"
++#include "generated/tree_property_accessors.h" /* x01 (f): the host halo's raw values */
+ #include "module_system/physical_constants.h" /* For SEC_PER_MEGAYEAR */
+ #include "vertical/reader.h" /* enum InputProcessingOrder only (the ProcessingOrder field), never the active reader pointer */
+ 
+@@ -120,4 +121,14 @@ void prepare_halo_for_output(struct HaloInputView view, const struct Halo *g,
+   if (g->dT != -1.0) {
+     o->dT = (double)(float)((double)(float)g->dT * MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR);
+   }
++  /* x01 (f): SAGE26 writes SimulationHaloIndex, Spin, Rvir, Vvir and VelDisp of every row from
++   * its current raw host halo (R/src/io/save_gals_hdf5.c:878, :894-896, :901-902, :904), not
++   * from the galaxy's stored values; the stored state g is unchanged */
++  o->MostBoundID = llabs(mimic_tree_get_MostBoundID(view, g->HaloNr));
++  for (int j = 0; j < 3; j++) {
++    o->Spin[j] = mimic_tree_get_Spin_component(view, g->HaloNr, j);
++  }
++  o->Rvir = get_virial_radius(view, g->HaloNr);
++  o->Vvir = get_virial_velocity(view, g->HaloNr);
++  o->VelDisp = mimic_tree_get_VelDisp(view, g->HaloNr);
+ }

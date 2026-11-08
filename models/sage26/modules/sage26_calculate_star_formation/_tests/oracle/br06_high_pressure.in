@@ -1,0 +1,11 @@
+# calculate_molecular_fraction_BR06 called directly (R/src/model_h2_chemistry.c:117-125): the stellar scale height (:48-60) and the pressure-based fraction (:68-101).
+# A dense gas and stellar disk: a pressure far above P0, f_mol close to 1.
+# On R2 the public routine itself is not called (only the single-slab branch, S:235, and other prescriptions call it); its core is what the radial integration calls per annulus.
+# Constructed input (not R2 output); every value is set explicitly.
+# Reachability: R2-reachable (as an inner annulus).
+format sage26-oracle-fixture 1
+routine calculate_molecular_fraction_BR06
+
+f32 call.gas_surface_density_msun_pc2 0x43480000  # 200  (Msun/pc^2)
+f32 call.stellar_surface_density_msun_pc2 0x44fa0000  # 2000  (Msun/pc^2)
+f32 call.disk_scale_length_pc 0x44bb8000  # 1500  (pc)

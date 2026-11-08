@@ -1,0 +1,5 @@
+# SAGE26 oracle output for both_zero.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine get_disk_radius
+f64 return.r_disk 0x0000000000000000  # 0
+f32 galaxy[0].DiskScaleRadius 0x00000000  # 0

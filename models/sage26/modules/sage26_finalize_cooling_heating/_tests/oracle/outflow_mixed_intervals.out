@@ -1,0 +1,17 @@
+# SAGE26 oracle output for outflow_mixed_intervals.in, written by oracle_c05 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine normalise_outflow_rate
+f64 intermediate.deltaT 0x3f3294bc10e8a7f0  # 0.00028352347809124014
+f64 intermediate.inv_deltaT 0x40ab8e16ebd3ffa3  # 3527.0447679757649
+f64 intermediate.galaxy[0].deltaT 0x3f3294bc10e8a7f0  # 0.00028352347809124014
+i32 intermediate.galaxy[0].normalised 1
+f64 galaxy[0].Cooling 0x40c138ce53647fc6  # 8817.6119199394125
+f64 galaxy[0].Heating 0x40b138ce53647fc6  # 4408.8059599697062
+f32 galaxy[0].OutflowRate 0x428d14f0  # 70.5408936
+f32 intermediate.writer.galaxy[0].OutflowRate 0x3f38a43c  # 0.721256018
+f64 intermediate.galaxy[1].deltaT 0x3f1a431ffd15d380  # 0.00010018236868865153
+i32 intermediate.galaxy[1].normalised 1
+f64 galaxy[1].Cooling 0x409b8e16ebd3ffa3  # 1763.5223839878824
+f64 galaxy[1].Heating 0x0000000000000000  # 0
+f32 galaxy[1].OutflowRate 0x4161bb1b  # 14.10818
+f32 intermediate.writer.galaxy[1].OutflowRate 0x3e13b697  # 0.144251212

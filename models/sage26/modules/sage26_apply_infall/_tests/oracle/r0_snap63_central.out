@@ -1,0 +1,8 @@
+# SAGE26 oracle output for r0_snap63_central.in, written by oracle_c03 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine add_infall_to_hot
+f64 intermediate.infallingGas_per_step 0x3ebe2b9f02a3f546  # 1.7982956799772201e-06
+f32 galaxy[0].EjectedMass 0x3d8cb9c9  # 0.0687137321
+f32 galaxy[0].MetalsEjectedMass 0x396bce6c  # 0.000224882446
+f32 galaxy[0].HotGas 0x4288ffd8  # 68.4996948
+f32 galaxy[0].MetalsHotGas 0x3e640bb9  # 0.222700968

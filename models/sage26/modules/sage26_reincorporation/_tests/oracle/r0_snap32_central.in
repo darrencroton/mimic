@@ -1,0 +1,19 @@
+# Real central with Vvir > Vcrit: R0 reference model_0.hdf5 (SHA-256 6d859a3a2ea422e3...), Snap_32 row 0, GalaxyIndex 0: end-of-snapshot output values used as plausible call inputs, not reconstructed call-time state.
+# Age values are plausible scipy lookback times for ZZ[31] and ZZ[32]; effective_steps from
+# R/src/core_build_model.c:430-459.
+format sage26-oracle-fixture 1
+routine reincorporate_gas
+
+f64 params.ReIncorporationFactor 0x3fc851eb851eb852  # 0.19
+i32 params.CGMrecipeOn 0
+
+f64 call.Age_galaxy_snap 0x3f80253c9c200d22  # 0.0078835234780912401  (Age[galaxies[p].SnapNum])
+f64 call.halo_age 0x3f7f8a39f725e713  # 0.0077001823686886515  (Age[halo_snapnum])
+i32 call.effective_steps 10
+i32 galaxy[0].Type 0
+f32 galaxy[0].Vvir 0x43b13a27  # 354.454315
+f32 galaxy[0].Rvir 0x3e0074c8  # 0.125445485
+f32 galaxy[0].EjectedMass 0x3ccabe25  # 0.0247488711
+f32 galaxy[0].MetalsEjectedMass 0x383cbdf0  # 4.4999586e-05
+f32 galaxy[0].HotGas 0x425c64a6  # 55.0982895
+f32 galaxy[0].MetalsHotGas 0x3dcd419b  # 0.100222789

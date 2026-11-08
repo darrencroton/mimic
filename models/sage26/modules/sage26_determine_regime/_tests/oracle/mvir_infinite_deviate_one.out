@@ -1,0 +1,27 @@
+# SAGE26 oracle output for mvir_infinite_deviate_one.in, written by oracle_c10 (regenerate.sh); do not edit.
+format sage26-oracle-fixture 1
+routine determine_and_store_regime
+i32 intermediate.RAND_MAX 2147483647
+i32 intermediate.draws_consumed 2
+i32 galaxy[0].Regime 0
+i32 intermediate.galaxy[0].skipped 0
+i32 intermediate.galaxy[0].drew 1
+i32 intermediate.galaxy[0].draw_index 0
+f64 intermediate.galaxy[0].Mshock 0x4045e66666666666  # 43.799999999999997
+f64 intermediate.galaxy[0].mass_ratio 0x7ff0000000000000  # inf
+f64 intermediate.galaxy[0].x 0x7ff0000000000000  # inf
+f64 intermediate.galaxy[0].hot_fraction 0x3ff0000000000000  # 1
+f64 intermediate.galaxy[0].deviate 0x3ff0000000000000  # 1
+i32 intermediate.galaxy[0].deviate_below_hot_fraction 0
+i32 intermediate.galaxy[0].deviate_equals_hot_fraction 1
+i32 galaxy[1].Regime 1
+i32 intermediate.galaxy[1].skipped 0
+i32 intermediate.galaxy[1].drew 1
+i32 intermediate.galaxy[1].draw_index 1
+f64 intermediate.galaxy[1].Mshock 0x4045e66666666666  # 43.799999999999997
+f64 intermediate.galaxy[1].mass_ratio 0x7ff0000000000000  # inf
+f64 intermediate.galaxy[1].x 0x7ff0000000000000  # inf
+f64 intermediate.galaxy[1].hot_fraction 0x3ff0000000000000  # 1
+f64 intermediate.galaxy[1].deviate 0x3fefffffffc00000  # 0.99999999953433871
+i32 intermediate.galaxy[1].deviate_below_hot_fraction 1
+i32 intermediate.galaxy[1].deviate_equals_hot_fraction 0

@@ -1,0 +1,41 @@
+module:
+  name: sage26_prepare_infall_budget
+  description: >-
+    Prepares the per-halo infall budget: consolidates satellite ejected gas and ICS to the central,
+    then computes cosmological gas infall; stores result in InfallingGas. With CGMrecipeOn 1
+    satellites keep their CGM and the central migrates its own gas between its hot and CGM
+    reservoirs by its Regime; with CGMrecipeOn 0 the group's CGM goes to the central's hot gas
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type
+      - Mvir
+      - HaloBaryonFraction
+      - InfallingGas
+      - StellarMass
+      - BlackHoleMass
+      - ColdGas
+      - HotGas
+      - ICS
+      - MetalsICS
+      - EjectedGas
+      - MetalsEjectedGas
+      - MetalsHotGas
+      - CGMgas
+      - MetalsCGMgas
+      - Regime          # read (CGMrecipeOn 1): the central's regime selects its migration
+    parameters:
+      - GlobalBaryonFraction
+      - CGMrecipeOn     # required: 0 or 1
+
+  tests:
+    unit:
+      - _tests/test_unit_sage26_prepare_infall_budget.c
+      - _tests/test_unit_sage26_prepare_infall_budget_oracle.c
+    integration: _tests/test_integration_sage26_prepare_infall_budget.py
+    scientific: []
+
+  docs:
+    physics: README.md

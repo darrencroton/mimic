@@ -1,0 +1,36 @@
+# r_heat == rcool (rcool is the widened float r_heat): full suppression (C:594); the
+# heating cap then zeroes the accretion (C:568-571).
+# Diagnostics tcool, tff, RcoolToRvir, CoolingRate, Cooling and Heating are set to negative bit patterns no routine here writes, unless a comment says otherwise.
+format sage26-oracle-fixture 1
+routine do_AGN_heating
+
+i32 params.AGNrecipeOn 2  # R0 (the oracle's fixed flag)
+i32 params.CGMrecipeOn 0  # R0 (the oracle's fixed flag)
+f64 params.G 0x404580e7ed5ced1b  # 43.007077856420629  (GRAVITY / CUBE(L) * M * SQR(T))
+f64 params.RadioModeEfficiency 0x3fb47ae147ae147b  # 0.080000000000000002  (R/input/millennium.par:74)
+f64 params.Hubble_h 0x3fe75c28f5c28f5c  # 0.72999999999999998  (R/input/millennium.par:40)
+f64 params.UnitEnergy_in_cgs 0x4b009ce7388de074  # 1.9890000000000001e+53  (M * SQR(L) / SQR(T))
+f64 params.UnitTime_in_s 0x43fac39601d1945f  # 3.0856799999999996e+19  (L / V)
+
+f64 call.Age_galaxy_snap 0x3f50624dd2f1a9fc  # 0.001  (Age[galaxies[p].SnapNum])
+f64 call.halo_age 0x0000000000000000  # 0  (Age[halo_snapnum])
+i32 call.effective_steps 10
+f64 call.coolingGas 0x4000000000000000  # 2  (the post-cap mass, positive)
+f64 call.x 0x3fd3333333333333  # 0.29999999999999999
+f64 call.rcool 0x3fceb851e0000000  # 0.23999999463558197
+i32 galaxy[0].Type 0
+f32 galaxy[0].Mvir 0x42c80000  # 100
+f32 galaxy[0].Rvir 0x3e19999a  # 0.150000006
+f32 galaxy[0].Vvir 0x43160000  # 150
+f32 galaxy[0].HotGas 0x41f00000  # 30
+f32 galaxy[0].MetalsHotGas 0x3d75c28f  # 0.0599999987
+f32 galaxy[0].ColdGas 0x40000000  # 2
+f32 galaxy[0].MetalsColdGas 0x3cf5c28f  # 0.0299999993
+f32 galaxy[0].BlackHoleMass 0x3c23d70a  # 0.00999999978
+f32 galaxy[0].r_heat 0x3e75c28f  # 0.239999995
+f64 galaxy[0].Cooling 0xc04b800000000000  # -55  (input bit pattern no routine here writes)
+f64 galaxy[0].Heating 0xc050800000000000  # -66  (input bit pattern no routine here writes)
+f32 galaxy[0].tcool 0xc1300000  # -11  (input bit pattern no routine here writes)
+f32 galaxy[0].tff 0xc1b00000  # -22  (input bit pattern no routine here writes)
+f32 galaxy[0].RcoolToRvir 0xc2040000  # -33  (input bit pattern no routine here writes)
+f32 galaxy[0].CoolingRate 0xc2300000  # -44  (input bit pattern no routine here writes)
