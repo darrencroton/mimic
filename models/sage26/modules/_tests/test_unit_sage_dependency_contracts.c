@@ -694,6 +694,70 @@ int test_dep_disk_instability_before_quasar_accepted(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_dep_disk_instability_merged_phase_accepted
+ * @brief   one phase holding the merger producer, the quasar module's per-event entry, disk
+ *          instability and the quasar module's by-galaxy entry, in that order, initialises:
+ *          the guard compares by-galaxy entries and ignores the per-event entry
+ */
+int test_dep_disk_instability_merged_phase_accepted(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  test_pre_timestep_add("sage26_initialise_merger_clock", PROCESSING_MODE_FULL_HALO);
+  test_phase_add("galaxy_physics", "sage26_resolve_mergers_and_disruption",
+                 PROCESSING_MODE_FULL_HALO);
+  test_phase_add("galaxy_physics", "sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
+  test_phase_add("galaxy_physics", "sage26_disk_instability", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+
+  int result = module_system_init();
+  TEST_ASSERT(result == 0, "the merged phase with disk instability before the by-galaxy quasar "
+                           "entry must initialise");
+
+  if (result == 0) {
+    module_system_cleanup();
+  } else {
+    test_free_pre_timestep();
+  }
+  test_free_substep_phases();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_disk_instability_quasar_other_phase_error
+ * @brief   disk instability in one phase with the by-galaxy quasar entry only in another is
+ *          refused (ERROR): the entry must follow in the same phase
+ */
+int test_dep_disk_instability_quasar_other_phase_error(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  test_phase_add("galaxy_physics", "sage26_disk_instability", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("satellite_mergers", "sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+
+  int result = module_system_init();
+  TEST_ASSERT(result != 0, "a by-galaxy quasar entry in another phase must fail init");
+
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_substep_phases();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -723,6 +787,8 @@ int main(void) {
   TEST_RUN(test_dep_disk_instability_after_quasar_error);
   TEST_RUN(test_dep_radio_chain_accepted);
   TEST_RUN(test_dep_disk_instability_before_quasar_accepted);
+  TEST_RUN(test_dep_disk_instability_merged_phase_accepted);
+  TEST_RUN(test_dep_disk_instability_quasar_other_phase_error);
 
   TEST_SUMMARY();
   return TEST_RESULT();
