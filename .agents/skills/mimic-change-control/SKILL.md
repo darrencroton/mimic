@@ -81,9 +81,10 @@ Never claim parity, correctness, or improvement from eyeballing plots or "it loo
 
 ### F. Baselines are recorded run outputs — regenerate via documented procedures only
 
-Baselines are byte-committed outputs of a known-good run, so hand-editing one is fabricating evidence. Two baselines, two procedures:
+Baselines are byte-committed outputs of a known-good run, so hand-editing one is fabricating evidence. Three baselines, three procedures:
 - Physics-free core baseline (`tests/data/output/baseline/`): regenerate the HDF5 side with `./scripts/regenerate_baseline.sh`, which validates the run is physics-free before copying. The script's own header says it best: "Never regenerate to fix a failing test — investigate the failure first!"
 - sage16 full-physics baseline (`models/sage16/modules/_tests/baseline/physics-binary/`): the exact refresh procedure lives in the docstring of `models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py` — run the test's own YAML, copy the output and its `output_schema.json`, and document why in the commit message.
+- sage26 full-physics baseline (`models/sage26/modules/_tests/baseline/physics-binary/`): the exact refresh procedure lives in the docstring of `models/sage26/modules/_tests/test_scientific_sage26_physics_baseline.py` — copy the run file's `SubSteps` and modules block into the input if the run file changed, rerun the input, copy both output files and the schema, and give the reason, the build's commit, compiler and platform and each file's SHA-256 in the commit message.
 
 Regeneration is legitimate only after a deliberate, validated change (e.g. commit `a646e7b4` regenerated all baselines after the parity campaign changed every baryonic property, and said so). Baseline regeneration and the code change that necessitates it belong in the same commit with the justification spelled out.
 
