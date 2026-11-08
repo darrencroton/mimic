@@ -20,6 +20,7 @@
 #include "output/hdf5.h"
 #endif
 #include "module_system/output_helpers.h"
+#include "generated/tree_property_accessors.h" /* x01 (f): the host halo's raw values */
 #include "module_system/physical_constants.h" /* For SEC_PER_MEGAYEAR */
 #include "vertical/reader.h" /* enum InputProcessingOrder only (the ProcessingOrder field), never the active reader pointer */
 
@@ -120,4 +121,14 @@ void prepare_halo_for_output(struct HaloInputView view, const struct Halo *g,
   if (g->dT != -1.0) {
     o->dT = (double)(float)((double)(float)g->dT * MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR);
   }
+  /* x01 (f): SAGE26 writes SimulationHaloIndex, Spin, Rvir, Vvir and VelDisp of every row from
+   * its current raw host halo (R/src/io/save_gals_hdf5.c:878, :894-896, :901-902, :904), not
+   * from the galaxy's stored values; the stored state g is unchanged */
+  o->MostBoundID = llabs(mimic_tree_get_MostBoundID(view, g->HaloNr));
+  for (int j = 0; j < 3; j++) {
+    o->Spin[j] = mimic_tree_get_Spin_component(view, g->HaloNr, j);
+  }
+  o->Rvir = get_virial_radius(view, g->HaloNr);
+  o->Vvir = get_virial_velocity(view, g->HaloNr);
+  o->VelDisp = mimic_tree_get_VelDisp(view, g->HaloNr);
 }
