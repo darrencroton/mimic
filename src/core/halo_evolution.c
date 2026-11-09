@@ -176,8 +176,9 @@ static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView
     double rvir = get_virial_radius(view, halonr);
     double vvir = get_virial_velocity(view, halonr);
     double t_dyn = (vvir > 0.0) ? (rvir / vvir) : 0.0;
-    ctx->num_substeps = compute_dynamic_substeps(ctx->time_interval, t_dyn, MimicConfig.SubSteps,
-                                                 MimicConfig.MaxDynamicSubsteps);
+    ctx->num_substeps =
+        compute_dynamic_substeps(ctx->time_interval, t_dyn, MimicConfig.SubSteps,
+                                 MimicConfig.MinDynamicSubsteps, MimicConfig.MaxDynamicSubsteps);
   } else {
     ctx->num_substeps = (MimicConfig.SubSteps > 0) ? MimicConfig.SubSteps : 1;
   }

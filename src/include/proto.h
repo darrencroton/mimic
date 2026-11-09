@@ -80,7 +80,7 @@ const char *timestep_scheme_name(enum TimestepScheme scheme);
 
 /* Timestep helpers (src/core/timestep.c) */
 int compute_dynamic_substeps(double time_interval, double t_dyn, int substeps_per_tdyn,
-                             int max_dynamic_substeps);
+                             int min_dynamic_substeps, int max_dynamic_substeps);
 
 /* Output writers (src/io/output/) */
 void save_halos(int filenr, int tree, struct HaloInputView view);

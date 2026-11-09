@@ -207,6 +207,7 @@ struct MimicConfig {
   /* Time sub-stepping */
   int SubSteps;                       /* Fixed count or dynamic resolution per dynamical time */
   enum TimestepScheme TimestepScheme; /* How SubSteps is interpreted */
+  int MinDynamicSubsteps; /* Floor on computed dynamic substeps (scheme: dynamic only) */
   int MaxDynamicSubsteps; /* Safety ceiling on computed dynamic substeps (scheme: dynamic only) */
 
   /* Pre-timestep: runs once before substeps */

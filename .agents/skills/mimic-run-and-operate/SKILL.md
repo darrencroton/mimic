@@ -87,7 +87,7 @@ make MODEL=halos-only SIMULATION=mini-millennium
 | `modules.post_snapshot:` | Optional, horizontal runs only: `process_snapshot` modules run once per snapshot over the whole population, before it is inherited from or written; recorded in `RunProperties/EnabledModules` with phase `post_snapshot` (absent in sage16 run files) |
 | `modules.parameters:` | Flat name→value map; every parameter a module declares must be present (no defaults — missing parameter fails that module's `init()`) |
 
-Unknown keys inside fixed-schema sections are rejected at startup (`model:`, `simulation:`, `input:`, `output:`, `plotting:`, and `modules:`). Top-level timestep keys (`SubSteps`, `TimestepScheme`, `MaxDynamicSubsteps`) are exact-spelling keys with no top-level whitelist, so a stray top-level key can be ignored; use the `mimic-config-and-flags` skill when editing run-file structure.
+Unknown keys inside fixed-schema sections are rejected at startup (`model:`, `simulation:`, `input:`, `output:`, `plotting:`, and `modules:`). Top-level timestep keys (`SubSteps`, `TimestepScheme`, `MinDynamicSubsteps`, `MaxDynamicSubsteps`) are exact-spelling keys with no top-level whitelist, so a stray top-level key can be ignored; use the `mimic-config-and-flags` skill when editing run-file structure.
 
 ### Empty pipeline and halos-only
 

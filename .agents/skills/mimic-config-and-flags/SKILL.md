@@ -1,6 +1,6 @@
 ---
 name: mimic-config-and-flags
-description: Catalog of every Mimic configuration axis and how to look one up or add one. Load when a task mentions a Make variable (MODEL, SIMULATION, SIM, USE-HDF5, USE-MPI, TEST_BUILD, EXTRA_CFLAGS), a CLI flag (--verbose, --debug, --quiet, --skip, --compress), a run-file YAML key (model.name, simulation.*, input.*, output.*, SubSteps, TimestepScheme, MaxDynamicSubsteps, plotting.profile, modules.*), simulation_info.yaml defaults, parameter_units.yaml, an "Unknown key" error, environment variables (MIMIC_BASELINE_RTOL, MIMIC_TEST_BUILD, NO_COLOR), changing project defaults, or adding a new configuration option/parameter axis.
+description: Catalog of every Mimic configuration axis and how to look one up or add one. Load when a task mentions a Make variable (MODEL, SIMULATION, SIM, USE-HDF5, USE-MPI, TEST_BUILD, EXTRA_CFLAGS), a CLI flag (--verbose, --debug, --quiet, --skip, --compress), a run-file YAML key (model.name, simulation.*, input.*, output.*, SubSteps, TimestepScheme, MinDynamicSubsteps, MaxDynamicSubsteps, plotting.profile, modules.*), simulation_info.yaml defaults, parameter_units.yaml, an "Unknown key" error, environment variables (MIMIC_BASELINE_RTOL, MIMIC_TEST_BUILD, NO_COLOR), changing project defaults, or adding a new configuration option/parameter axis.
 ---
 
 # Mimic Configuration and Flags
@@ -121,7 +121,8 @@ Summary table; full per-key semantics, parse behavior, and the simulation_info-v
 | `output.forests_per_file` | int | sim pkg | Sim-legal; alternative chunking control |
 | `SubSteps` | int (top-level) | 1 | Fixed scheme: substeps per snapshot interval; dynamic scheme: substeps per dynamical time (resolution knob) |
 | `TimestepScheme` | string (top-level) | `fixed` | `fixed` or `dynamic` |
-| `MaxDynamicSubsteps` | int (top-level) | 200 | ≥1. Safety ceiling, NOT a resolution target: dynamic scheme computes `n = ceil(dt × SubSteps / t_dyn)` clamped to `[1, MaxDynamicSubsteps]`, with `t_dyn = Rvir/Vvir`, per FoF group (`src/core/timestep.c`) |
+| `MinDynamicSubsteps` | int (top-level) | 1 | 1 to 100000 and ≤ `MaxDynamicSubsteps`. Floor of the dynamic scheme (also returned for a degenerate interval); ignored by `fixed` |
+| `MaxDynamicSubsteps` | int (top-level) | 200 | 1 to 100000 (`MAX_SUBSTEPS_PER_SNAPSHOT`). Safety ceiling, NOT a resolution target: dynamic scheme computes `n = ceil(dt × SubSteps / t_dyn)` clamped to `[MinDynamicSubsteps, MaxDynamicSubsteps]`, with `t_dyn = Rvir/Vvir`, per FoF group (`src/core/timestep.c`) |
 | `plotting.profile` | string | none | Repo-relative path ONLY to a plot profile YAML; absolute paths rejected |
 | `modules.pre_timestep` | list | optional | Modules run once per snapshot before substepping |
 | `modules.phases` | ordered map | required for physics | User-named substep phases, executed in YAML order, max 32; each maps to module lists with modes `process_full_halo` / `process_per_event` / `process_by_galaxy` |
@@ -186,7 +187,7 @@ grep -n "parse_cli" -A 60 src/core/main.c
 # Make defaults, shorthand, typo guards, model-free targets
 grep -n "DEFAULT_MODEL\|DEFAULT_SIMULATION\|MODEL_FREE_TARGETS\|ifdef model\|ifdef SIM" Makefile
 # Timestep keys and dynamic-substep formula
-grep -n "SubSteps\|TimestepScheme\|MaxDynamicSubsteps" src/core/read_parameter_file.c src/core/timestep.c src/include/constants.h
+grep -n "SubSteps\|TimestepScheme\|MinDynamicSubsteps\|MaxDynamicSubsteps" src/core/read_parameter_file.c src/core/timestep.c src/include/constants.h
 # Which models declare parameter units
 ls models/*/parameter_units.yaml
 # Environment variables

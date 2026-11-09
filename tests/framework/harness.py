@@ -495,6 +495,7 @@ def create_test_param_file(
     output_format=None,
     substeps=None,
     timestep_scheme=None,
+    min_dynamic_substeps=None,
     max_dynamic_substeps=None,
 ):
     """
@@ -534,6 +535,7 @@ def create_test_param_file(
         output_format (str): Output format override ('binary' or 'hdf5', default: from ref file)
         substeps (int, optional): SubSteps override (default: value from ref file, or 1)
         timestep_scheme (str, optional): TimestepScheme override (default: value from ref file)
+        min_dynamic_substeps (int, optional): MinDynamicSubsteps override (emitted only when given)
         max_dynamic_substeps (int, optional): MaxDynamicSubsteps override (default: from ref file)
 
     Returns:
@@ -614,6 +616,8 @@ def create_test_param_file(
         config["SubSteps"] = int(substeps)
     if timestep_scheme is not None:
         config["TimestepScheme"] = str(timestep_scheme)
+    if min_dynamic_substeps is not None:
+        config["MinDynamicSubsteps"] = int(min_dynamic_substeps)
     if max_dynamic_substeps is not None:
         config["MaxDynamicSubsteps"] = int(max_dynamic_substeps)
 

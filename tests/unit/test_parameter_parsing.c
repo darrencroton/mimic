@@ -12,6 +12,7 @@
  * - Populates MimicConfig structure correctly
  */
 
+#include "../../src/core/module_registry.h"
 #include "../../src/include/proto.h"
 #include "../../src/include/types.h"
 #include "../../src/io/horizontal/reader.h"
@@ -322,8 +323,14 @@ static int write_timestep_scheme_fixture(char *path, size_t path_size, const cha
   return write_timestep_scheme_fixture_with_label(path, path_size, scheme, scheme);
 }
 
-static int write_max_dynamic_substeps_fixture(char *path, size_t path_size, const char *label,
-                                              const char *value) {
+/**
+ * Write a copy of the shared run file with `keys` (full YAML lines) prepended.
+ *
+ * A prepended key shadows the same key later in the file: get_mapping_value() returns the
+ * first match, so the fixture's own SubSteps line is overridden by the prepended one.
+ */
+static int write_substep_keys_fixture(char *path, size_t path_size, const char *label,
+                                      const char *keys) {
   FILE *src;
   FILE *dst;
   char line[1024];
@@ -335,7 +342,7 @@ static int write_max_dynamic_substeps_fixture(char *path, size_t path_size, cons
     return -1;
   }
 
-  snprintf(path, path_size, "archive/test-fixtures/test_max_dynamic_substeps_%s.yaml", label);
+  snprintf(path, path_size, "archive/test-fixtures/test_substep_keys_%s.yaml", label);
   src = fopen(test_cosmology_param_file(), "r");
   if (src == NULL) {
     return -1;
@@ -346,7 +353,7 @@ static int write_max_dynamic_substeps_fixture(char *path, size_t path_size, cons
     return -1;
   }
 
-  fprintf(dst, "TimestepScheme: dynamic\nMaxDynamicSubsteps: %s\n", value);
+  fputs(keys, dst);
   while (fgets(line, sizeof(line), src) != NULL) {
     fputs(line, dst);
   }
@@ -354,6 +361,13 @@ static int write_max_dynamic_substeps_fixture(char *path, size_t path_size, cons
   fclose(dst);
   fclose(src);
   return 0;
+}
+
+static int write_max_dynamic_substeps_fixture(char *path, size_t path_size, const char *label,
+                                              const char *value) {
+  char keys[128];
+  snprintf(keys, sizeof(keys), "TimestepScheme: dynamic\nMaxDynamicSubsteps: %s\n", value);
+  return write_substep_keys_fixture(path, path_size, label, keys);
 }
 
 static int write_output_chunking_fixture(char *path, size_t path_size, const char *label,
@@ -1162,6 +1176,111 @@ int test_max_dynamic_substeps_rejects_invalid_value(void) {
   TEST_ASSERT(invalid_message_result == 1, "MaxDynamicSubsteps=0 should report a clear message");
 
   /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_min_dynamic_substeps_default_and_explicit
+ * @brief   MinDynamicSubsteps defaults to DEFAULT_MIN_DYNAMIC_SUBSTEPS and parses when given
+ */
+int test_min_dynamic_substeps_default_and_explicit(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  /* ===== EXECUTE / VALIDATE ===== */
+  read_parameter_file(test_cosmology_param_file());
+  TEST_ASSERT(MimicConfig.MinDynamicSubsteps == DEFAULT_MIN_DYNAMIC_SUBSTEPS,
+              "Default MinDynamicSubsteps should be DEFAULT_MIN_DYNAMIC_SUBSTEPS");
+
+  TEST_ASSERT(write_substep_keys_fixture(fixture_path, sizeof(fixture_path), "min_explicit",
+                                         "TimestepScheme: dynamic\nMinDynamicSubsteps: 4\n"
+                                         "MaxDynamicSubsteps: 4\n") == 0,
+              "Should create explicit MinDynamicSubsteps fixture");
+  read_parameter_file(fixture_path);
+  TEST_ASSERT(MimicConfig.MinDynamicSubsteps == 4, "Explicit MinDynamicSubsteps should parse");
+  TEST_ASSERT(MimicConfig.MaxDynamicSubsteps == 4,
+              "A floor equal to the ceiling should be accepted");
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_substep_keys_reject_out_of_range_values
+ * @brief   SubSteps, MinDynamicSubsteps and MaxDynamicSubsteps are bounded, and min <= max
+ */
+int test_substep_keys_reject_out_of_range_values(void) {
+  char fixture_path[MAX_STRING_LEN];
+  const struct {
+    const char *label;
+    const char *keys;
+    const char *message;
+  } cases[] = {
+      {"substeps_zero", "SubSteps: 0\n", "SubSteps must be >= 1, got 0"},
+      {"substeps_negative", "SubSteps: -3\n", "SubSteps must be >= 1, got -3"},
+      {"substeps_huge", "SubSteps: 100001\n", "SubSteps must be <= 100000, got 100001"},
+      {"min_zero", "MinDynamicSubsteps: 0\n", "MinDynamicSubsteps must be >= 1, got 0"},
+      {"min_huge", "MinDynamicSubsteps: 100001\nMaxDynamicSubsteps: 100000\n",
+       "MinDynamicSubsteps must be <= 100000, got 100001"},
+      {"max_huge", "MaxDynamicSubsteps: 100001\n",
+       "MaxDynamicSubsteps must be <= 100000, got 100001"},
+      {"min_above_max", "MinDynamicSubsteps: 300\n",
+       "MinDynamicSubsteps (300) must be <= MaxDynamicSubsteps (200)"},
+  };
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  /* ===== EXECUTE / VALIDATE ===== */
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    TEST_ASSERT(write_substep_keys_fixture(fixture_path, sizeof(fixture_path), cases[i].label,
+                                           cases[i].keys) == 0,
+                "Should create substep-bound fixture");
+    int result = read_parameter_file_fatal_message_contains(fixture_path, cases[i].message);
+    TEST_ASSERT(result != -1, "Substep-bound child should not crash");
+    TEST_ASSERT(result == 1, cases[i].message);
+  }
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_model_parameter_rejects_non_finite_double
+ * @brief   model_get_double() refuses nan, inf and -inf, as the run-file top-level parser does
+ */
+int test_model_parameter_rejects_non_finite_double(void) {
+  const char *refused[] = {"nan", "inf", "-inf"};
+  double value = 0.0;
+
+  /* ===== SETUP ===== */
+  setup_test();
+  MimicConfig.NumModelParams = 1;
+  strcpy(MimicConfig.ModelParams[0].param_name, "NonFiniteProbe");
+
+  /* ===== EXECUTE / VALIDATE ===== */
+  for (size_t i = 0; i < sizeof(refused) / sizeof(refused[0]); i++) {
+    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "%s", refused[i]);
+    TEST_ASSERT(model_get_double("NonFiniteProbe", &value) != 0,
+                "model_get_double should refuse a non-finite value");
+  }
+
+  snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "%s", "0.25");
+  value = 0.0;
+  TEST_ASSERT(model_get_double("NonFiniteProbe", &value) == 0,
+              "model_get_double should still accept a finite value");
+  TEST_ASSERT(value == 0.25, "A finite model parameter should parse as given");
+
+  /* ===== CLEANUP ===== */
+  MimicConfig.NumModelParams = 0;
   teardown_test();
 
   return TEST_PASS;
@@ -2153,6 +2272,9 @@ int main(int argc, char **argv) {
   TEST_RUN(test_default_max_dynamic_substeps);
   TEST_RUN(test_explicit_max_dynamic_substeps);
   TEST_RUN(test_max_dynamic_substeps_rejects_invalid_value);
+  TEST_RUN(test_min_dynamic_substeps_default_and_explicit);
+  TEST_RUN(test_substep_keys_reject_out_of_range_values);
+  TEST_RUN(test_model_parameter_rejects_non_finite_double);
   TEST_RUN(test_integer_parameters);
   TEST_RUN(test_float_parameters);
   TEST_RUN(test_string_parameters);

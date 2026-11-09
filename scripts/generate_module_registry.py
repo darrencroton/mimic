@@ -835,6 +835,13 @@ def generate_module_init_c(
         lines.append('#include "event_contracts.h"')
     lines.append("")
 
+    # Build-time form of the registry's runtime bounds check
+    lines.append(
+        f"_Static_assert({len(runtime_modules)} <= MAX_MODULES, "
+        '"Generated module count exceeds MAX_MODULES in src/core/module_registry.h");'
+    )
+    lines.append("")
+
     # Forward declarations for module lifecycle functions
     lines.extend(generate_lifecycle_forward_declarations(runtime_modules))
 

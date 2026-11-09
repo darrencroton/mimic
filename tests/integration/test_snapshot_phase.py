@@ -81,7 +81,7 @@ DUAL_FIXTURE_RANGE_ERROR = 2
 #: Vertical-reader input used to put a horizontal package's run on the vertical driver.
 #: simulation_dir is replaced by an empty directory: the compiled horizontal package's
 #: halo layout is not the L-Halo binary record, so no tree file may be read, and the
-#: vertical driver skips a missing tree file and completes.
+#: vertical driver refuses to start when no requested tree file exists.
 VERTICAL_INPUT = {
     "tree_type": "lhalo_binary",
     "processing_order": "vertical",
@@ -612,10 +612,11 @@ def test_vertical_driver_rejects_non_empty_phase():
               first module and the vertical reader the run file selects (read from it, so
               any vertical package's reader is named correctly); no module init() and no
               tree file read.
-    Expected (empty, []): the run completes on the vertical driver. On a vertical package
-              it processes the package's own test tree; on a horizontal package the vertical
-              input points at an empty directory (the compiled halo layout is not L-Halo's),
-              so the vertical driver runs, skips the missing tree file and completes.
+    Expected (empty, []): [] is accepted and the vertical driver runs. On a vertical package
+              the run completes on the package's own test tree; on a horizontal package the
+              vertical input points at an empty directory (the compiled halo layout is not
+              L-Halo's), so the driver starts, finds no requested tree file and stops with
+              the no-input fatal.
     """
     vertical_package = not selected_package_is_horizontal()
     overrides = None
@@ -655,12 +656,14 @@ def test_vertical_driver_rejects_non_empty_phase():
     returncode, stdout, stderr = run_mimic(param_file)
     output = stdout + stderr
     assert "modules.post_snapshot lists" not in output, f"[] must be accepted:\n{output}"
-    assert_ok(returncode, stdout, stderr, "empty post_snapshot under the vertical driver")
     assert "Opened horizontal run" not in stdout, "the run must use the vertical driver"
     processing = re.search(r"Processing \d+ input files? \(first_file=", stdout)
     assert processing, f"the vertical driver must run:\n{output}"
-    if not vertical_package:
-        assert "Missing tree" in stdout, f"no tree file may be read here:\n{output}"
+    if vertical_package:
+        assert_ok(returncode, stdout, stderr, "empty post_snapshot under the vertical driver")
+    else:
+        assert returncode != 0, f"no tree file exists here, so the run must stop:\n{output}"
+        assert "No input file exists" in output, f"expected the no-input fatal:\n{output}"
     print("  ✓ vertical driver: [] accepted, a configured snapshot module rejected at startup")
 
 

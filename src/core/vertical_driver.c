@@ -237,11 +237,38 @@ static void log_missing_per_file_partition(const struct VerticalReader *reader, 
   INFO_LOG("Missing tree %s ... skipping", tree_path);
 }
 
+/**
+ * @brief   Refuse a run with no input partition, and summarise any that are missing
+ *
+ * Missing per-file partitions are skipped one by one (see log_missing_per_file_partition), which
+ * on its own lets a mistyped first_file/last_file or SimulationDir finish with an empty output.
+ * Enumerated partitions are planned chunks of an opened dataset, so they always exist and the
+ * enumerated driver does not call this.
+ *
+ * @param   npartitions  Number of partitions requested
+ * @param   existing     Number of those that exist on disk
+ */
+static void check_partition_availability(const int npartitions, const int existing) {
+  if (existing == 0) {
+    FATAL_ERROR("No input file exists for first_file=%d, last_file=%d under SimulationDir '%s' "
+                "(%d requested)",
+                MimicConfig.FirstFile, MimicConfig.LastFile, MimicConfig.SimulationDir,
+                npartitions);
+  }
+  if (existing < npartitions && current_task_id() == 0) {
+    WARNING_LOG("%d of %d requested input files are missing and were skipped (first_file=%d, "
+                "last_file=%d, SimulationDir '%s')",
+                npartitions - existing, npartitions, MimicConfig.FirstFile, MimicConfig.LastFile,
+                MimicConfig.SimulationDir);
+  }
+}
+
 static int64_t *build_partition_file_offsets(const struct VerticalReader *reader,
                                              const int npartitions, int64_t *total_out,
                                              int64_t *max_unit_halos_out) {
   int64_t total_forests = 0;
   int64_t max_unit_halos = 0;
+  int existing = 0;
   int64_t *offsets = mymalloc_cat(sizeof(*offsets) * npartitions, MEM_TREES);
   const int64_t multiplier = MimicConfig.UniqueGalaxyIDMultiplier;
 
@@ -255,6 +282,7 @@ static int64_t *build_partition_file_offsets(const struct VerticalReader *reader
       /* Preserve skip semantics: missing files do not consume forest-id space. */
       continue;
     }
+    existing++;
 
     const int64_t partition_trees = reader_count_partition_units(reader, partition);
     max_unit_halos =
@@ -269,6 +297,7 @@ static int64_t *build_partition_file_offsets(const struct VerticalReader *reader
                   total_forests, mimic_unique_galaxy_id_max_forests(multiplier));
     }
   }
+  check_partition_availability(npartitions, existing);
 
   if (total_out)
     *total_out = total_forests;

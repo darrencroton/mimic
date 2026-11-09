@@ -8,7 +8,7 @@ Exhaustive per-key reference for Mimic's YAML configuration, transcribed from `s
 
 1. `simulation:` section is peeked first (`set_default_simulation_config_path`): `simulation.name` derives `simulations/<name>/` package paths and the default config path `simulations/<name>/simulation_info.yaml`; an explicit `simulation.config` overrides that path (resolved as-is if absolute or readable, otherwise relative to the run file's directory — `resolve_config_path`).
 2. The simulation config file is parsed FIRST (`parse_simulation_config_file`): its `input:`, `output:` (restricted whitelist), and `simulation:` sections load as defaults.
-3. Run-file sections then parse in order: `output`, `input`, `model`, `simulation`, `plotting`, top-level `SubSteps`/`TimestepScheme`/`MaxDynamicSubsteps`, `modules`. Any key present in both files takes the run-file value.
+3. Run-file sections then parse in order: `output`, `input`, `model`, `simulation`, `plotting`, top-level `SubSteps`/`TimestepScheme`/`MinDynamicSubsteps`/`MaxDynamicSubsteps`, `modules`. Any key present in both files takes the run-file value.
 4. `validate_and_postprocess()` enforces required keys, model/simulation-vs-binary match, reader/processing-order compatibility, then reads the snapshot list and expands `output.snapshot_list`.
 
 **Unknown-key rejection** (`reject_unknown_keys`): each fixed-schema section is checked against its `valid_keys[]` whitelist; violation is `FATAL_ERROR("Unknown key '%s.%s'", section_name, key)` — e.g. `Unknown key 'output.snapshotlist'`. **TRAP: there is NO whitelist at the top level.** An unknown top-level key — including case typos like `substeps:` instead of `SubSteps:`, or a whole misnamed section — is silently ignored. Only keys INSIDE recognized sections are typo-safe.
@@ -83,9 +83,10 @@ These are not separate `input:` keys — they are additional config-time checks 
 
 | Key | Type | Default | Behavior |
 |---|---|---|---|
-| `SubSteps` | int | 1 | Fixed scheme: substeps per snapshot interval. Dynamic scheme: substeps per dynamical time (resolution) |
+| `SubSteps` | int 1 to 100000 | 1 | Fixed scheme: substeps per snapshot interval. Dynamic scheme: substeps per dynamical time (resolution) |
 | `TimestepScheme` | string | `fixed` | Case-insensitive `fixed` or `dynamic`; unknown value fatal; non-scalar fatal |
-| `MaxDynamicSubsteps` | int ≥ 1 | 200 (`DEFAULT_MAX_DYNAMIC_SUBSTEPS`, `src/include/constants.h`) | Ceiling only. `compute_dynamic_substeps` (`src/core/timestep.c`): `n = ceil(dt × SubSteps / t_dyn)` clamped to `[1, MaxDynamicSubsteps]`, `t_dyn = Rvir/Vvir`, evaluated per FoF group; non-finite or non-positive inputs fall back to 1 |
+| `MinDynamicSubsteps` | int 1 to 100000, ≤ `MaxDynamicSubsteps` | 1 (`DEFAULT_MIN_DYNAMIC_SUBSTEPS`, `src/include/constants.h`) | Floor only; ignored by `fixed`. Not an HDF5 `RunProperties` attribute (the attribute set is held fixed for the reference-identity gate); the run's `metadata/` copy of the run file records it |
+| `MaxDynamicSubsteps` | int 1 to 100000 | 200 (`DEFAULT_MAX_DYNAMIC_SUBSTEPS`, `src/include/constants.h`) | Ceiling only. `compute_dynamic_substeps` (`src/core/timestep.c`): `n = ceil(dt × SubSteps / t_dyn)` clamped to `[MinDynamicSubsteps, MaxDynamicSubsteps]`, `t_dyn = Rvir/Vvir`, evaluated per FoF group; non-finite or non-positive inputs fall back to the floor. The 100000 bound is `MAX_SUBSTEPS_PER_SNAPSHOT` |
 
 ## `modules:` section — accepted keys: `pre_timestep`, `phases`, `post_timestep`, `post_snapshot`, `parameters`
 
@@ -105,7 +106,7 @@ Unknown keys here get a dedicated fatal: `Unknown key 'modules.<key>'; supported
 | `simulation.cosmology`, `box_size`, `particle_mass`, `unique_galaxy_id_multiplier` | yes — canonical home | yes, but overriding catalog physics is almost always wrong |
 | `output.target_file_size_mb`, `forests_per_file` | yes (the ONLY output keys allowed) | yes |
 | `output.output_filename/directory/format/snapshot_list` | NO — fatal if present | run-file only |
-| `model.*`, `plotting.*`, `SubSteps`, `TimestepScheme`, `MaxDynamicSubsteps`, `modules.*` | not parsed from simulation config | run-file only |
+| `model.*`, `plotting.*`, `SubSteps`, `TimestepScheme`, `MinDynamicSubsteps`, `MaxDynamicSubsteps`, `modules.*` | not parsed from simulation config | run-file only |
 
 ## Required keys (enforced by `validate_and_postprocess`)
 

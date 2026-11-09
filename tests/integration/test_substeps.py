@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
     REPO_ROOT,
+    TestNotApplicable,
     create_test_param_file,
     parse_test_fixture_executions,
     read_param_file,
@@ -431,6 +432,84 @@ def test_dynamic_timestep_computes_substeps():
         shutil.rmtree(temp_dir)
 
 
+def _dynamic_group_counts(min_dynamic_substeps, substeps, max_dynamic_substeps):
+    """Run the dynamic scheme and return each FOF group's substep count, in run order."""
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name=f"dynamic_floor_{min_dynamic_substeps}",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
+        first_file=0,
+        last_file=0,
+        substeps=substeps,
+        timestep_scheme="dynamic",
+        min_dynamic_substeps=min_dynamic_substeps,
+        max_dynamic_substeps=max_dynamic_substeps,
+    )
+    try:
+        returncode, stdout, stderr = run_mimic(param_file)
+        assert (
+            returncode == 0
+        ), f"Mimic failed with MinDynamicSubsteps={min_dynamic_substeps}: {stderr}"
+        executions = parse_test_fixture_executions(stdout)
+        assert len(executions) > 0, "Should have at least one execution"
+        counts = []
+        for execution in executions:
+            if execution["substep_number"] == 0:
+                counts.append(execution["num_substeps"])
+        return counts
+    finally:
+        shutil.rmtree(temp_dir)
+
+
+def test_dynamic_timestep_floor_raises_small_requests():
+    """
+    Test that MinDynamicSubsteps lifts a dynamic substep count that falls below it.
+
+    Expected: with SubSteps=1 the requested count is ceil(time_interval / t_dyn), small
+    for low-redshift intervals. The same run with MinDynamicSubsteps=4 reports, for every
+    FOF group, max(unfloored count, 4), and never more than the ceiling.
+
+    Validates: MinDynamicSubsteps reaches compute_dynamic_substeps() and drives the
+    substep loop. The formula's edge cases are covered by
+    tests/unit/test_dynamic_substeps.c.
+    """
+    print("Testing the dynamic timestep floor...")
+
+    # ===== SETUP =====
+    floor = 4
+    ceiling = 8
+
+    # ===== EXECUTE =====
+    unfloored = _dynamic_group_counts(1, 1, ceiling)
+    floored = _dynamic_group_counts(floor, 1, ceiling)
+
+    # ===== VALIDATE =====
+    assert len(floored) == len(
+        unfloored
+    ), f"Floor changed the number of FOF groups: {len(unfloored)} vs {len(floored)}"
+    if not any(count < floor for count in unfloored):
+        raise TestNotApplicable(
+            f"no FOF group in this package's data requests fewer than {floor} substeps "
+            f"(saw {sorted(set(unfloored))}), so the floor cannot be exercised here"
+        )
+    expected = [max(count, floor) for count in unfloored]
+    assert floored == expected, (
+        f"Floored counts should be max(unfloored, {floor}); "
+        f"unfloored={sorted(set(unfloored))}, floored={sorted(set(floored))}"
+    )
+    assert all(
+        floor <= count <= ceiling for count in floored
+    ), f"Floored counts must stay within [{floor}, {ceiling}], got {sorted(set(floored))}"
+
+    print(f"  ✓ MinDynamicSubsteps={floor} raises small requests, ceiling {ceiling} holds")
+    print(f"    unfloored counts {sorted(set(unfloored))} -> floored {sorted(set(floored))}")
+
+
 def main():
     """Run this file's tests via the shared framework runner."""
     return run_test_suite(
@@ -440,6 +519,7 @@ def main():
             test_module_context_fields,
             test_substeps_one_no_loop,
             test_dynamic_timestep_computes_substeps,
+            test_dynamic_timestep_floor_raises_small_requests,
         ],
         "SubSteps Time-Stepping and ModuleContext (test_substeps.py)",
     )

@@ -1653,7 +1653,7 @@ Common fields:
 
 `struct ModuleContext` carries data, not operations; the context is passed to the two operations a module may invoke, event emission (`module_emit_event(ctx, ...)`, see [Events](#events)) and record creation (`module_create_record(ctx, host_index, &row)`), and creation is legal only inside a running `process_full_halo` callback (see the [Record Creation Contract](#record-creation-contract)). `central_galaxy` is refreshed when created records are committed, so a module must not cache it, or any row pointer, across a callback boundary.
 
-`num_substeps` is `SubSteps` under `TimestepScheme: fixed`, or computed per FoF group from the halo dynamical time under `TimestepScheme: dynamic` and capped by `MaxDynamicSubsteps` (`src/core/timestep.c`; default `DEFAULT_MAX_DYNAMIC_SUBSTEPS` in `src/include/constants.h`) — see `docs/USER-GUIDE.md` for the run-configuration view.
+`num_substeps` is `SubSteps` under `TimestepScheme: fixed`, or computed per FoF group from the halo dynamical time under `TimestepScheme: dynamic` and clamped to `[MinDynamicSubsteps, MaxDynamicSubsteps]` (`src/core/timestep.c`; defaults `DEFAULT_MIN_DYNAMIC_SUBSTEPS` and `DEFAULT_MAX_DYNAMIC_SUBSTEPS`, and the parse-time bound `MAX_SUBSTEPS_PER_SNAPSHOT`, in `src/include/constants.h`) — see `docs/USER-GUIDE.md` for the run-configuration view.
 
 ### Parameter Loading Macros
 

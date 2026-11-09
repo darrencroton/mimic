@@ -23,6 +23,9 @@
 #define MAX_STRING_LEN 1024              /* Max length of a string containing a name */
 #define MAX_MODEL_PARAMS 256             /* Max modules.parameters entries in the input file */
 #define DEFAULT_MAX_DYNAMIC_SUBSTEPS 200 /* Default ceiling for dynamic timestep substeps */
+#define DEFAULT_MIN_DYNAMIC_SUBSTEPS 1   /* Default floor for dynamic timestep substeps */
+/* Upper bound on SubSteps, MinDynamicSubsteps and MaxDynamicSubsteps; fails fast on nonsense */
+#define MAX_SUBSTEPS_PER_SNAPSHOT 100000
 
 /* Cosmological constants */
 #define INITIAL_REDSHIFT 1000.0 /* Recombination era (CMB formation) */

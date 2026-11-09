@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,9 +39,6 @@
 #include "numeric.h"
 #include "task_layout.h"
 #include "generated/parameter_unit_conversions.h"
-
-/** Maximum number of modules that can be registered */
-#define MAX_MODULES 64
 
 /** Array of all registered modules (available for use) */
 static struct Module *registered_modules[MAX_MODULES];
@@ -2028,6 +2026,12 @@ static int parse_double_strict(const char *str, double *out, const char *param_n
 
   if (errno != 0 || endptr == str || *endptr != '\0') {
     ERROR_LOG("Parameter '%s': invalid double value '%s'", param_name, str);
+    return -1;
+  }
+
+  /* Same refusal as the run-file top-level doubles: a nan or inf parameter poisons the physics */
+  if (!isfinite(*out)) {
+    ERROR_LOG("Parameter '%s': non-finite double value '%s'", param_name, str);
     return -1;
   }
   return 0;

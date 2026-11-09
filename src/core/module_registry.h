@@ -37,6 +37,9 @@
 
 struct FoFWorkspace; /* fof_workspace.h */
 
+/** Maximum number of registered modules; the generated module_init.c asserts against it. */
+#define MAX_MODULES 64
+
 /**
  * @brief   Phase module configuration entry
  *
