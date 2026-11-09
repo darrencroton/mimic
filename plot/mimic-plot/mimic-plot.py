@@ -35,7 +35,12 @@ import sys
 from pathlib import Path
 
 import matplotlib
-import matplotlib.pyplot as plt
+
+# Figures are only saved, never shown: use the display-free Agg backend unless MPLBACKEND is set.
+if not os.environ.get("MPLBACKEND"):
+    matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt  # noqa: E402  (backend must be chosen before pyplot loads)
 import numpy as np
 from tqdm import tqdm
 

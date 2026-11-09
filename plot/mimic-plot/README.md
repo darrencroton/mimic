@@ -163,6 +163,10 @@ The tool supports three verbosity levels:
 - **Verbose** (`--verbose` or `-v`): Shows detailed information including data loading progress, validation details, and a SKIPPED PLOTS section with reasons for any skipped plots
 - **Quiet** (`--quiet` or `-q`): Shows only the final summary with plot counts and output location
 
+### Rendering Backend
+
+Figures are rendered with matplotlib's display-free Agg backend, so the tool needs no display: headless nodes work, and macOS does not start its GUI backend. `--format` still selects the file type. Set `MPLBACKEND` to use a different backend.
+
 ## Available Plots
 
 The plot registry is model-specific: it lives in the active model package at `models/<MODEL>/plots/figures/__init__.py`, which is the source of truth for registered plot names. The lists below summarise the shipped sage16 registry (18 snapshot plots and 4 evolution plots); the sage26 package registers 30 snapshot plots and 18 evolution plots (the sage16 figures and ports of figures from SAGE26's plotting scripts, listed in its README's *Plots* section); the sham package registers 8 snapshot plots and no evolution plots (`halo_mass_function`, `spin_distribution`, `velocity_distribution`, `spatial_distribution`, and the SHAM figures `stellar_mass_function`, `sham_stellar_halo_relation`, `sham_satellite_fraction` and `sham_correlation_function`), and the hod package registers 5 snapshot plots and no evolution plots (`halo_mass_function`, `spatial_distribution`, and the HOD figures `hod_occupation`, `hod_satellite_profile` and `hod_correlation_function`).
