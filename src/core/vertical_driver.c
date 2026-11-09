@@ -309,7 +309,7 @@ static int64_t *build_partition_file_offsets(const struct VerticalReader *reader
 /**
  * @brief   Process every unit of one partition and finalize its output.
  */
-static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_base,
+static void process_partition(int output_id, struct ProgressBar *ext_bar, int64_t tree_base,
                               struct OutputSnapshotSelection selection) {
   int unit, halonr;
 
@@ -318,8 +318,8 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
   /* A vertical partition has no task component. */
   prepare_output_files(output_id, -1, selection);
 
-  ProgressBar local_bar;
-  ProgressBar *bar = ext_bar;
+  struct ProgressBar local_bar;
+  struct ProgressBar *bar = ext_bar;
   if (bar == NULL) {
     char label[128] = "";
 #ifdef MPI
@@ -408,7 +408,8 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
  * behind. Under --skip a marked partition is redone whatever its files hold; an unmarked one
  * is skipped when all its outputs exist and is fatal when only some do.
  */
-static int claim_and_process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_base,
+static int claim_and_process_partition(int output_id, struct ProgressBar *ext_bar,
+                                       int64_t tree_base,
                                        struct OutputSnapshotSelection selection) {
   char marker_path[MAX_PATH_BUF_SIZE + 1];
 
@@ -494,7 +495,7 @@ static void run_per_file_driver(const struct VerticalReader *reader) {
     }
   }
 #else
-  ProgressBar global_bar;
+  struct ProgressBar global_bar;
   progress_bar_init(&global_bar, total_trees, "");
 
   for (int partition = 0; partition < npartitions; partition++) {
@@ -651,7 +652,7 @@ static void run_enumerated_driver(const struct VerticalReader *reader) {
     }
   }
 #else
-  ProgressBar global_bar;
+  struct ProgressBar global_bar;
   progress_bar_init(&global_bar, total_units, "");
 
   for (int partition = 0; partition < npartitions; partition++) {

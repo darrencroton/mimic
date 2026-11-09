@@ -53,6 +53,14 @@ void enable_debug_log_rate_limiting(void);
 void disable_debug_log_rate_limiting(void);
 FILE *set_log_output(FILE *output_file);
 
+/**
+ * Called around each log line written to stdout or stderr, so a live terminal
+ * display (the progress bar) can erase itself before the line and redraw after it.
+ */
+typedef void (*LogDisplayHook)(LogLevel level);
+/** Install the display hooks (NULL removes one); there is one pair, owned by the live display. */
+void set_log_display_hooks(LogDisplayHook before_line, LogDisplayHook after_line);
+
 // Both GCC and Clang define __GNUC__; expands to nothing elsewhere.
 #if defined(__GNUC__)
 #define MIMIC_NORETURN __attribute__((noreturn))

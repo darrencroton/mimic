@@ -225,6 +225,15 @@ FILE *set_log_output(FILE *output_file) {
   return old_output;
 }
 
+/* Live terminal display hooks (see set_log_display_hooks() in error.h). */
+static LogDisplayHook display_before_line = NULL;
+static LogDisplayHook display_after_line = NULL;
+
+void set_log_display_hooks(LogDisplayHook before_line, LogDisplayHook after_line) {
+  display_before_line = before_line;
+  display_after_line = after_line;
+}
+
 /** Bytes of one log line assembled before it is written (longer lines take the multi-call path) */
 #define LOG_LINE_CAPACITY 4096
 
@@ -315,6 +324,12 @@ static void emit_log(LogLevel level, const char *file, int line, const char *pre
     }
   }
 
+  /* A log file is not the terminal the live display draws on. */
+  const int to_terminal_stream = (output == stdout || output == stderr);
+  if (to_terminal_stream && display_before_line != NULL) {
+    display_before_line(level);
+  }
+
   struct LogLine text;
   text.output = output;
   text.used = 0;
@@ -364,6 +379,10 @@ static void emit_log(LogLevel level, const char *file, int line, const char *pre
   /* Flush output immediately for errors and fatal messages */
   if (level >= LOG_LEVEL_ERROR) {
     fflush(output);
+  }
+
+  if (to_terminal_stream && display_after_line != NULL) {
+    display_after_line(level);
   }
 }
 

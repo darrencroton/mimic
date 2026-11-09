@@ -2076,7 +2076,7 @@ static void horizontal_log_chunk(const struct HorizontalDriverState *state, int 
  * this chunk once the sweep is over.
  */
 static void horizontal_sweep_chunk(struct HorizontalDriverState *state,
-                                   const struct HorizontalRunInfo *info, ProgressBar *bar,
+                                   const struct HorizontalRunInfo *info, struct ProgressBar *bar,
                                    const struct OutputPartitionSource *output_source,
                                    int npartitions, int chunk) {
   state->range = state->task * state->nchunk + chunk;
@@ -2309,7 +2309,7 @@ static void horizontal_probe_output_directory(void) {
 void run_horizontal_driver(void) {
   struct HorizontalDriverState state;
   struct HorizontalRunInfo info;
-  ProgressBar bar;
+  struct ProgressBar bar;
 
   memset(&state, 0, sizeof(state));
   state.reader = MimicConfig.horizontal_reader;
