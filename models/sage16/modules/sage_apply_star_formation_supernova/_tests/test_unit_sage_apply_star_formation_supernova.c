@@ -18,6 +18,8 @@
  *   - test_module_initialization: Module lifecycle
  *   - test_memory_safety: No memory leaks
  *   - test_star_formation_with_recycling: Gas depletion and stellar mass growth
+ *   - test_star_formation_capped_at_cold_gas_without_calculator: Stars capped at ColdGas and
+ *     written back to NewStellarMass when no SN calculator is configured
  *   - test_star_formation_metal_transfer: Metal conservation during SF
  *   - test_star_formation_rate_accumulation: SFR calculation
  *   - test_reheating_gas_transfer: Cold→hot transfer to central
@@ -312,6 +314,56 @@ int test_star_formation_with_recycling(void) {
   double expected_stellar = initial_stellar + expected_gas_consumed;
   TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.StellarMass, expected_stellar, 1e-6,
                            "StellarMass should increase by (1 - RecycleFraction) * NewStellarMass");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_star_formation_capped_at_cold_gas_without_calculator
+ * @brief   Test that stars are capped at ColdGas when no SN calculator is configured
+ *
+ * Physics: SAGE's renormalisation with reheated_mass = 0 (stars *= ColdGas / stars,
+ *          sage-model/src/model_starformation_and_feedback.c:50-54). With no pipeline
+ *          configured, sage_calculate_supernova_feedback is absent, so nothing else caps SF.
+ *
+ * Expected: NewStellarMass written back as ColdGas; ColdGas ends at RecycleFraction * ColdGas
+ * Validates: Cap value, write-back for sage_apply_metal_enrichment, no negative ColdGas
+ */
+int test_star_formation_capped_at_cold_gas_without_calculator(void) {
+  /* ===== SETUP ===== */
+  setup_test_parameters(0.43, 0.0, 0.0);
+
+  int init_result = sage_apply_star_formation_supernova_init();
+  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+
+  struct Halo test_halo, central_halo;
+  struct GalaxyData test_galaxy, central_galaxy;
+
+  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0, 0.0);
+
+  /* 0.5 ColdGas but 2.0 new stars requested: far more than the cold gas */
+  const double initial_cold = 0.5;
+  const double initial_stellar = 20.0;
+  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, initial_cold, 50.0, 0.0, initial_stellar,
+                  0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0);
+
+  struct ModuleContext ctx;
+  setup_module_context(&ctx, &central_halo, 0.1);
+
+  /* ===== EXECUTE ===== */
+  int result = sage_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(result == 0, "Module process should succeed");
+  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, initial_cold, 1e-6,
+                           "NewStellarMass should be written back capped at ColdGas");
+  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.ColdGas, test_recycle_fraction * initial_cold, 1e-6,
+                           "ColdGas should end at RecycleFraction * initial ColdGas");
+  TEST_ASSERT(test_galaxy.ColdGas >= 0.0, "ColdGas must not go negative");
+  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.StellarMass,
+                           initial_stellar + (1.0 - test_recycle_fraction) * initial_cold, 1e-6,
+                           "StellarMass should grow by the capped star formation");
 
   return TEST_PASS;
 }
@@ -885,7 +937,10 @@ int test_metal_disk_vs_halo_split(void) {
  */
 int test_metal_enrichment_zero_cold_gas(void) {
   /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.025, 0.5);
+  /* RecycleFraction 0: with no calculator configured the apply step caps stars at ColdGas, so a
+   * recycling fraction above zero always leaves RecycleFraction * ColdGas behind; only R = 0 lets
+   * star formation exhaust the cold gas without exceeding it. */
+  setup_test_parameters(0.0, 0.025, 0.5);
 
   int init_result = sage_apply_star_formation_supernova_init();
   TEST_ASSERT(init_result == 0, "Module initialization should succeed");
@@ -1264,6 +1319,7 @@ int main(void) {
 
   /* Run star formation update tests */
   TEST_RUN(test_star_formation_with_recycling);
+  TEST_RUN(test_star_formation_capped_at_cold_gas_without_calculator);
   TEST_RUN(test_star_formation_metal_transfer);
   TEST_RUN(test_star_formation_rate_accumulation);
 

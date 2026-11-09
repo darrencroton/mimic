@@ -29,6 +29,9 @@
 
 static double RECYCLE_FRACTION;
 
+// True when sage_calculate_supernova_feedback is configured; it then owns the cold-gas cap.
+static bool SUPERNOVA_CALCULATOR_PRESENT;
+
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
@@ -42,6 +45,7 @@ int sage_apply_star_formation_supernova_init(void) {
 
   const bool sf_present = module_configured_anywhere("sage_calculate_star_formation");
   const bool sn_present = module_configured_anywhere("sage_calculate_supernova_feedback");
+  SUPERNOVA_CALCULATOR_PRESENT = sn_present;
 
   /* WARNING: apply step configured with no prescriptions — all fields will be zero */
   if (!sf_present && !sn_present) {
@@ -105,9 +109,20 @@ int sage_apply_star_formation_supernova_process(struct ModuleContext *ctx, struc
   struct GalaxyData *central_gal = ctx->central_galaxy->galaxy;
 
   // Read calculated values from previous modules
-  const double stars = gal->NewStellarMass;
+  double stars = gal->NewStellarMass;
   const double reheated_mass = gal->SupernovaReheatedMass;
   double ejected_mass = gal->SupernovaEjectedMass;
+
+  // Cold-gas cap. With the calculator present it renormalises stars and reheated mass together
+  // (sage_calculate_supernova_feedback.c), so nothing changes here. Without it nothing else caps
+  // star formation, so apply SAGE's renormalisation with reheated_mass = 0, i.e. stars =
+  // ColdGas (sage-model/src/model_starformation_and_feedback.c:50-54). The capped value goes back
+  // to NewStellarMass because sage_apply_metal_enrichment consumes it later. A negative ColdGas
+  // (never produced by a capped run) caps at zero so no negative stars are written back.
+  if (!SUPERNOVA_CALCULATOR_PRESENT && stars > gal->ColdGas) {
+    stars = (gal->ColdGas > 0.0) ? gal->ColdGas : 0.0;
+    gal->NewStellarMass = stars;
+  }
 
   // SAGE parity: skip only at exactly 0.0 — a larger epsilon would silently drop tiny SF events.
   // NewStellarMass is preserved (not zeroed here) for sage_apply_metal_enrichment to consume.

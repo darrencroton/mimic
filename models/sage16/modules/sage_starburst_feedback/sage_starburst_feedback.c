@@ -48,6 +48,7 @@ static double THRESHOLD_MAJOR_MERGER;
 static double POST_MERGER_STAR_FORMING_DISK_FACTOR;
 static double POST_MERGER_BLACK_HOLE_GROWTH_RATE;
 static double POST_MERGER_QUASAR_MODE_EFFICIENCY;
+static int AGN_RECIPE_ON;
 
 // ============================================================================
 // MODULE-LOCAL CONSTANTS (converted from physical constants)
@@ -140,11 +141,11 @@ int sage_starburst_feedback_init(void) {
 
   POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED =
       module_in_substep_phase("sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
-  POST_MERGER_QUASAR_FOLLOWUP_ENABLED =
+  const bool quasar_present =
       module_in_substep_phase("sage_quasar_mode", PROCESSING_MODE_PER_EVENT);
 
   /* WARNING: post-merger disk instability path loses quasar wind (SAGE parity) */
-  if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && !POST_MERGER_QUASAR_FOLLOWUP_ENABLED) {
+  if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && !quasar_present) {
     WARNING_LOG("sage_starburst_feedback: sage_disk_instability is configured "
                 "but sage_quasar_mode is absent as process_per_event — "
                 "post-merger disk instability quasar wind is silently skipped "
@@ -159,15 +160,25 @@ int sage_starburst_feedback_init(void) {
                 " not present as process_by_galaxy)");
   }
 
-  if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && POST_MERGER_QUASAR_FOLLOWUP_ENABLED) {
+  if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && quasar_present) {
     LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BlackHoleGrowthRate", POST_MERGER_BLACK_HOLE_GROWTH_RATE,
                                       0.0, 1.0, "BH growth rate");
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("QuasarModeEfficiency", POST_MERGER_QUASAR_MODE_EFFICIENCY,
                                       0.0, 1.0, "quasar mode efficiency");
+    /* Same accepted values as sage_quasar_mode and sage_radio_mode_heating: all three read one
+     * run-file key and must agree. */
+    LOAD_AND_VALIDATE_OPTION("AGNrecipe", AGN_RECIPE_ON, 3,
+                             "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
   } else if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED) {
     VERBOSE_LOG("  (BlackHoleGrowthRate, QuasarModeEfficiency not loaded:"
                 " sage_quasar_mode not present as process_per_event)");
   }
+
+  /* SAGE parity: AGNrecipe 0 skips grow_black_hole() in the disk-instability check that follows a
+   * minor merger (sage-model/src/model_disk_instability.c:67-68), so the follow-up grows no black
+   * hole. A deliberate AGNrecipe 0 run with the quasar module present gets no warning. */
+  POST_MERGER_QUASAR_FOLLOWUP_ENABLED =
+      POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && quasar_present && AGN_RECIPE_ON > 0;
 
   // Convert physical constants to code units (same as sage_calculate_supernova_feedback)
   energy_sn_code = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
@@ -306,6 +317,7 @@ int sage_starburst_feedback_cleanup(void) {
   POST_MERGER_STAR_FORMING_DISK_FACTOR = 0.0;
   POST_MERGER_BLACK_HOLE_GROWTH_RATE = 0.0;
   POST_MERGER_QUASAR_MODE_EFFICIENCY = 0.0;
+  AGN_RECIPE_ON = 0;
   VERBOSE_LOG("SAGE starburst feedback module cleaned up");
   return 0;
 }

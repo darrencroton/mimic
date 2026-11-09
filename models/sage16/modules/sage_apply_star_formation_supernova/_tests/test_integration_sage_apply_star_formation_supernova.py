@@ -20,6 +20,7 @@ Test cases:
   - test_parameter_sensitivity: Parameters affect results correctly
   - test_edge_cases: Zero gas, satellites behavior
   - test_memory_and_performance: Memory leaks and performance
+  - test_cold_gas_cap_without_supernova_calculator: ColdGas never negative without the SN calculator
 
 Author: Mimic Development Team
 Date: 2025-12-18 (Refactored for comprehensive physics validation)
@@ -30,6 +31,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
@@ -566,6 +568,105 @@ def test_memory_and_performance():
     print(f"{GREEN}✓ Memory and performance validated{NC}")
 
 
+def test_cold_gas_cap_without_supernova_calculator():
+    """Test that ColdGas never goes negative when the SN calculator is left out
+
+    Validates:
+    - With sage_calculate_supernova_feedback absent nothing else caps star formation,
+      so the apply step must cap NewStellarMass at ColdGas (SAGE's renormalisation with
+      reheated_mass = 0, sage-model/src/model_starformation_and_feedback.c:50-54)
+    - No galaxy has ColdGas < 0 at any written snapshot, with SubSteps = 1 so that one
+      substep spans many dynamical times and star formation can exceed the cold gas
+
+    Pipeline: the shipped phases (sage16_mini-millennium.yaml) minus
+    sage_calculate_supernova_feedback. No other module is dropped: nothing else names the
+    calculator, and the apply step initialises without it (it only warns when neither
+    calculator is configured).
+
+    Observed minimum ColdGas (output units, 1e10 Msun/h) over the eight written snapshots:
+    -3.024462 before the cap (the case fails), 0.0 after it (the case passes).
+    """
+    print(f"\n{BLUE}TEST: ColdGas cap without the supernova calculator{NC}")
+
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="update_sf_no_sn_cap",
+        phase_config={
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+                ("sage_set_disk_scale_radius", "process_full_halo"),
+                ("sage_initialise_merger_clock", "process_full_halo"),
+            ],
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_reincorporation", "process_full_halo"),
+                ("sage_satellite_stripping", "process_by_galaxy"),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_radio_mode_heating", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_quasar_mode", "process_by_galaxy"),
+                ("sage_starburst_feedback", "process_by_galaxy"),
+                ("sage_apply_metal_enrichment", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [
+                ("sage_resolve_mergers_and_disruption", "process_full_halo"),
+                ("sage_quasar_mode", "process_per_event"),
+                ("sage_starburst_feedback", "process_per_event"),
+            ],
+            "post_timestep": [],
+        },
+        model_params={
+            "GlobalBaryonFraction": 0.17,
+            "SfrEfficiency": 0.05,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "ReIncorporationFactor": 0.15,
+            "AGNrecipe": 2,
+            "RadioModeEfficiency": 0.08,
+            "BlackHoleGrowthRate": 0.015,
+            "QuasarModeEfficiency": 0.005,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+            "ThresholdMajorMerger": 0.3,
+            "ThresholdSatDisruption": 1.0,
+        },
+        substeps=1,
+    )
+
+    # Write several snapshots (the generated run file writes only the last one)
+    with open(param_file, "r") as f:
+        config = yaml.safe_load(f)
+    config["output"]["snapshot_list"] = [63, 37, 32, 27, 23, 20, 18, 16]
+    with open(param_file, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
+
+    output_files = sorted(output_dir.glob("model_z*_0"))
+    assert len(output_files) == 8, f"Expected eight snapshot outputs, found {len(output_files)}"
+
+    minimum_cold_gas = np.inf
+    for output_file in output_files:
+        halos, _ = load_binary_halos(output_file)
+        minimum_cold_gas = min(minimum_cold_gas, float(np.min(halos["ColdGas"])))
+    print(f"  Snapshots written: {len(output_files)}")
+    print(f"  Minimum ColdGas over all snapshots: {minimum_cold_gas:.6e}")
+
+    assert minimum_cold_gas >= 0.0, (
+        f"ColdGas went negative without the SN calculator (minimum {minimum_cold_gas:.6e}); "
+        "star formation must be capped at the cold gas"
+    )
+
+    shutil.rmtree(temp_dir)
+    print(f"{GREEN}✓ ColdGas cap without the supernova calculator validated{NC}")
+
+
 def main():
     """Main test runner"""
     print(f"{BLUE}{'=' * 60}{NC}")
@@ -580,6 +681,7 @@ def main():
         test_parameter_sensitivity,
         test_edge_cases,
         test_memory_and_performance,
+        test_cold_gas_cap_without_supernova_calculator,
     ]
 
     if not MIMIC_EXE.exists():

@@ -25,6 +25,8 @@
  *     same-step post-starburst disk instability follow-up when configured
  *   - test_per_event_recheck_respects_phase2_quasar_configuration: Same-step
  *     follow-up skips BH growth when the quasar event consumer is absent
+ *   - test_per_event_recheck_agn_recipe_zero_keeps_black_hole: AGNrecipe 0 stops the
+ *     follow-up's black-hole growth, as in SAGE, with the quasar module present
  *   - test_per_event_unknown_code_noop: Unknown event code is no-op
  *   - test_major_vs_minor_merger: Merger-only major/minor triggers are both ignored
  *   - test_mass_conservation: Total mass conserved
@@ -206,12 +208,27 @@ static void append_model_param(const char *param_name, double value) {
   MimicConfig.NumModelParams = idx + 1;
 }
 
-static void setup_post_merger_recheck_parameters(int include_quasar) {
+/* AGNrecipe is an integer key: the loader parses it strictly, so "%.6f" would be refused. */
+static void append_model_param_int(const char *param_name, int value) {
+  const int idx = MimicConfig.NumModelParams;
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "%s", param_name);
+  snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%d", value);
+  MimicConfig.NumModelParams = idx + 1;
+}
+
+/* The module loads AGNrecipe only with the recheck active and the quasar module present. */
+static void setup_post_merger_recheck_parameters_agn(int include_quasar, int agn_recipe) {
   append_model_param("StarFormingDiskFactor", 3.0);
   if (include_quasar) {
     append_model_param("BlackHoleGrowthRate", 0.02);
     append_model_param("QuasarModeEfficiency", 0.001);
+    append_model_param_int("AGNrecipe", agn_recipe);
   }
+}
+
+/* Shipped AGNrecipe (2, Bondi) */
+static void setup_post_merger_recheck_parameters(int include_quasar) {
+  setup_post_merger_recheck_parameters_agn(include_quasar, 2);
 }
 
 static void setup_runtime_phase_config(int enable_disk_instability, int enable_phase2_quasar) {
@@ -900,6 +917,109 @@ int test_per_event_recheck_respects_phase2_quasar_configuration(void) {
 
   sage_starburst_feedback_cleanup();
   teardown_runtime_phase_config();
+  check_memory_leaks();
+
+  return TEST_PASS;
+}
+
+/**
+ * @brief   Run one minor-merger event through the module and return the target's galaxy
+ *
+ * Same galaxies and event as test_per_event_minor_merger_rechecks_disk_instability.
+ *
+ * @param   enable_recheck  Configure sage_disk_instability (activates the follow-up)
+ * @param   enable_quasar   Configure sage_quasar_mode as process_per_event
+ * @param   agn_recipe      AGNrecipe supplied when the quasar module is configured
+ * @param   out_gal         Receives the target galaxy after processing
+ * @return  0 on success, non-zero if init or process failed
+ */
+static int run_minor_merger_event(int enable_recheck, int enable_quasar, int agn_recipe,
+                                  struct GalaxyData *out_gal) {
+  reset_config();
+  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
+  setup_post_merger_recheck_parameters_agn(enable_quasar, agn_recipe);
+  setup_runtime_phase_config(enable_recheck, enable_quasar);
+  MimicConfig.G = 43007.1;
+
+  int result = sage_starburst_feedback_init();
+  if (result != 0) {
+    teardown_runtime_phase_config();
+    return result;
+  }
+
+  struct Halo central;
+  struct GalaxyData central_gal;
+  setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+
+  struct Halo target;
+  struct GalaxyData target_gal;
+  setup_test_galaxy(&target, &target_gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+  target.Vmax = 120.0;
+  target.galaxy->DiskScaleRadius = 5.0;
+  target.galaxy->BlackHoleMass = 0.05;
+
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &central);
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 2,
+                              .target_index = 1,
+                              .value0 = 0.2,
+                              .value1 = 0.1};
+  ctx.active_event = &event;
+
+  result = sage_starburst_feedback_process(&ctx, &target, 1);
+  *out_gal = target_gal;
+
+  sage_starburst_feedback_cleanup();
+  teardown_runtime_phase_config();
+  return result;
+}
+
+/**
+ * @test    test_per_event_recheck_agn_recipe_zero_keeps_black_hole
+ * @brief   AGNrecipe 0 stops the post-minor-merger recheck's black-hole growth
+ *
+ * SAGE gates grow_black_hole() on AGNrecipeOn in check_disk_instability
+ * (sage-model/src/model_disk_instability.c:67-68). With the recheck active and
+ * sage_quasar_mode present, AGNrecipe 2 grows the black hole
+ * (test_per_event_minor_merger_rechecks_disk_instability); AGNrecipe 0 must leave the
+ * black hole as if the quasar module were absent, while the recheck's starburst still runs.
+ *
+ * Expected: BlackHoleMass and QuasarModeBHaccretionMass unchanged; every other reservoir
+ * equal to the run without the quasar module; bulge above the run with no recheck.
+ */
+int test_per_event_recheck_agn_recipe_zero_keeps_black_hole(void) {
+  init_memory_system(0);
+
+  struct GalaxyData no_recheck;
+  struct GalaxyData no_quasar;
+  struct GalaxyData agn_zero;
+  struct GalaxyData agn_on;
+
+  int result = run_minor_merger_event(0, 0, 2, &no_recheck);
+  TEST_ASSERT(result == 0, "Run without the recheck should succeed");
+  result = run_minor_merger_event(1, 0, 2, &no_quasar);
+  TEST_ASSERT(result == 0, "Run without the quasar module should succeed");
+  result = run_minor_merger_event(1, 1, 0, &agn_zero);
+  TEST_ASSERT(result == 0, "Init and process with AGNrecipe 0 should succeed");
+  result = run_minor_merger_event(1, 1, 2, &agn_on);
+  TEST_ASSERT(result == 0, "Run with AGNrecipe 2 should succeed");
+
+  TEST_ASSERT_DOUBLE_EQUAL(agn_zero.BlackHoleMass, 0.05, 1e-6,
+                           "BH mass should be unchanged by the recheck at AGNrecipe 0");
+  TEST_ASSERT_DOUBLE_EQUAL(agn_zero.QuasarModeBHaccretionMass, 0.0, 1e-6,
+                           "No BH accretion should be tallied by the recheck at AGNrecipe 0");
+  TEST_ASSERT_DOUBLE_EQUAL(agn_zero.ColdGas, no_quasar.ColdGas, 1e-9,
+                           "AGNrecipe 0 with the quasar module should match its absence (ColdGas)");
+  TEST_ASSERT_DOUBLE_EQUAL(agn_zero.BulgeMass, no_quasar.BulgeMass, 1e-9,
+                           "AGNrecipe 0 with the quasar module should match its absence (Bulge)");
+  TEST_ASSERT_DOUBLE_EQUAL(agn_zero.StellarMass, no_quasar.StellarMass, 1e-9,
+                           "AGNrecipe 0 with the quasar module should match its absence (Stars)");
+  TEST_ASSERT(agn_zero.BulgeMass > no_recheck.BulgeMass,
+              "The recheck's starburst should still run at AGNrecipe 0");
+  TEST_ASSERT(agn_on.BlackHoleMass > 0.05, "Positive control: AGNrecipe 2 should grow the BH");
+
   check_memory_leaks();
 
   return TEST_PASS;
@@ -1983,6 +2103,7 @@ int main(void) {
   TEST_RUN(test_per_event_merger_uses_target_full_interval_for_rates);
   TEST_RUN(test_per_event_minor_merger_rechecks_disk_instability);
   TEST_RUN(test_per_event_recheck_respects_phase2_quasar_configuration);
+  TEST_RUN(test_per_event_recheck_agn_recipe_zero_keeps_black_hole);
   TEST_RUN(test_per_event_unknown_code_noop);
   TEST_RUN(test_major_vs_minor_merger);
   TEST_RUN(test_mass_conservation);

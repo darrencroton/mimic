@@ -21,6 +21,8 @@
  *   - test_bh_growth_both_triggers: Disk trigger processed while merger trigger preserved
  *   - test_bh_growth_per_event_merger: Merger event processed in process_per_event mode
  *   - test_per_event_unknown_code_noop: Unknown per-event code ignored safely
+ *   - test_agn_recipe_zero_blocks_merger_growth: AGNrecipe 0 stops merger-event BH growth
+ *   - test_agn_recipe_zero_blocks_instability_growth: AGNrecipe 0 stops instability BH growth
  *   - test_vvir_suppression: Low Vvir suppresses accretion
  *   - test_mass_conservation_accretion: Mass conserved
  *   - test_metallicity_preservation_accretion: Metallicity preserved
@@ -114,12 +116,14 @@ static void setup_test_galaxy(struct Halo *halo, struct GalaxyData *gal, int typ
 }
 
 /**
- * @brief   Setup test parameters
+ * @brief   Setup test parameters with an explicit AGNrecipe
  *
  * @param   growth_rate       Black hole growth rate
  * @param   quasar_efficiency Quasar mode efficiency
+ * @param   agn_recipe        AGNrecipe (0=off, 1=empirical, 2=Bondi, 3=cold cloud)
  */
-static void setup_test_parameters(double growth_rate, double quasar_efficiency) {
+static void setup_test_parameters_agn(double growth_rate, double quasar_efficiency,
+                                      int agn_recipe) {
   /* Set model parameters in MimicConfig */
   int idx = 0;
 
@@ -129,7 +133,20 @@ static void setup_test_parameters(double growth_rate, double quasar_efficiency) 
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "QuasarModeEfficiency");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", quasar_efficiency);
 
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "AGNrecipe");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", agn_recipe);
+
   MimicConfig.NumModelParams = idx;
+}
+
+/**
+ * @brief   Setup test parameters with the shipped AGNrecipe (2, Bondi)
+ *
+ * @param   growth_rate       Black hole growth rate
+ * @param   quasar_efficiency Quasar mode efficiency
+ */
+static void setup_test_parameters(double growth_rate, double quasar_efficiency) {
+  setup_test_parameters_agn(growth_rate, quasar_efficiency, 2);
 }
 
 /**
@@ -409,6 +426,115 @@ int test_per_event_unknown_code_noop(void) {
                            "BH mass should remain unchanged for zero-ratio event");
   TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
                            "Cold gas should remain unchanged for zero-ratio event");
+
+  /* ===== CLEANUP ===== */
+  sage_quasar_mode_cleanup();
+  check_memory_leaks();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_agn_recipe_zero_blocks_merger_growth
+ * @brief   Test AGNrecipe 0 stops black-hole growth on a merger event
+ *
+ * SAGE gates grow_black_hole() on AGNrecipeOn after a merger
+ * (sage-model/src/model_mergers.c:75-76). The same event grows the black hole with
+ * AGNrecipe 2 (test_bh_growth_per_event_merger).
+ *
+ * Expected: BlackHoleMass, ColdGas and the accretion tally unchanged
+ * Validates: AGNrecipe gate in the process_per_event path
+ */
+int test_agn_recipe_zero_blocks_merger_growth(void) {
+  /* ===== SETUP ===== */
+  init_memory_system(0);
+  reset_config();
+
+  setup_test_parameters_agn(0.01, 0.001, 0);
+  int result = sage_quasar_mode_init();
+  TEST_ASSERT(result == 0, "Module init should accept AGNrecipe 0");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+
+  struct ModuleContext ctx;
+  setup_test_context(&ctx);
+
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 1,
+                              .target_index = 0,
+                              .value0 = 0.3,
+                              .value1 = 0.0};
+  ctx.active_event = &event;
+
+  const double initial_bh = gal.BlackHoleMass;
+  const double initial_cold = gal.ColdGas;
+
+  /* ===== EXECUTE ===== */
+  result = sage_quasar_mode_process(&ctx, &halo, 1);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(result == 0, "Per-event merger processing should succeed");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-12,
+                           "BH mass should be unchanged by a merger event at AGNrecipe 0");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
+                           "Cold gas should be unchanged by a merger event at AGNrecipe 0");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.QuasarModeBHaccretionMass, 0.0, 1e-12,
+                           "No accretion should be tallied at AGNrecipe 0");
+
+  /* ===== CLEANUP ===== */
+  sage_quasar_mode_cleanup();
+  check_memory_leaks();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_agn_recipe_zero_blocks_instability_growth
+ * @brief   Test AGNrecipe 0 stops black-hole growth on a disk instability
+ *
+ * SAGE gates grow_black_hole() on AGNrecipeOn in the disk-instability check
+ * (sage-model/src/model_disk_instability.c:67-68). The same trigger grows the black hole
+ * with AGNrecipe 2 (test_bh_growth_disk_instability).
+ *
+ * Expected: BlackHoleMass, ColdGas and the accretion tally unchanged
+ * Validates: AGNrecipe gate in the process_by_galaxy path
+ */
+int test_agn_recipe_zero_blocks_instability_growth(void) {
+  /* ===== SETUP ===== */
+  init_memory_system(0);
+  reset_config();
+
+  setup_test_parameters_agn(0.01, 0.001, 0);
+  int result = sage_quasar_mode_init();
+  TEST_ASSERT(result == 0, "Module init should accept AGNrecipe 0");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+  gal.UnstableDiskGasFraction = 0.5;
+
+  struct ModuleContext ctx;
+  setup_test_context(&ctx);
+
+  const double initial_bh = gal.BlackHoleMass;
+  const double initial_cold = gal.ColdGas;
+
+  /* ===== EXECUTE ===== */
+  result = sage_quasar_mode_process(&ctx, &halo, 1);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(result == 0, "Process function should succeed");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-12,
+                           "BH mass should be unchanged by a disk instability at AGNrecipe 0");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
+                           "Cold gas should be unchanged by a disk instability at AGNrecipe 0");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.QuasarModeBHaccretionMass, 0.0, 1e-12,
+                           "No accretion should be tallied at AGNrecipe 0");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
+                           "Disk-instability trigger should remain unchanged");
 
   /* ===== CLEANUP ===== */
   sage_quasar_mode_cleanup();
@@ -1147,6 +1273,8 @@ int test_module_initialization(void) {
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.01");
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "QuasarModeEfficiency");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.001");
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "AGNrecipe");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "2");
   MimicConfig.NumModelParams = idx;
 
   /* ===== EXECUTE ===== */
@@ -1223,6 +1351,8 @@ int main(void) {
   TEST_RUN(test_bh_growth_both_triggers);
   TEST_RUN(test_bh_growth_per_event_merger);
   TEST_RUN(test_per_event_unknown_code_noop);
+  TEST_RUN(test_agn_recipe_zero_blocks_merger_growth);
+  TEST_RUN(test_agn_recipe_zero_blocks_instability_growth);
   TEST_RUN(test_vvir_suppression);
   TEST_RUN(test_mass_conservation_accretion);
   TEST_RUN(test_metallicity_preservation_accretion);

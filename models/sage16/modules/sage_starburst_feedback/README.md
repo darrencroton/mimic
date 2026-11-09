@@ -24,6 +24,7 @@ Applies collisional starburst physics from disk-instability triggers and merger 
 - `BlackHoleGrowthRate`
 - `QuasarModeEfficiency`
 - `ThresholdMajorMerger`
+- `AGNrecipe` (0 to 3, the same key `sage_radio_mode_heating` and `sage_quasar_mode` read; loaded only when the post-minor-merger disk-instability recheck is active and `sage_quasar_mode` is configured as `process_per_event`): `0` stops the recheck's black-hole growth and quasar wind, as in SAGE (`sage-model/src/model_disk_instability.c:67-68`), so that run gets no warning about the quasar module; `1` to `3` leave behaviour unchanged. The shipped run files use `2`.
 
 ## Ordering
 

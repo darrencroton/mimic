@@ -17,6 +17,7 @@ Models black-hole growth and quasar-mode feedback from disk-instability triggers
 
 - `BlackHoleGrowthRate`
 - `QuasarModeEfficiency`
+- `AGNrecipe` (0 to 3, the same key `sage_radio_mode_heating` reads): `0` stops black-hole growth, and with it the quasar wind, on every merger event and every disk instability, as in SAGE (`sage-model/src/model_mergers.c:75-76`, `sage-model/src/model_disk_instability.c:67-68`); `1` to `3` leave this module's behaviour unchanged. A run file that configures this module must set it; the shipped run files use `2`.
 
 ## Ordering
 

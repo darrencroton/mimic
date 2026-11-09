@@ -76,6 +76,7 @@ def test_module_pipeline_integration():
             "post_timestep": [],
         },
         model_params={
+            "AGNrecipe": 2,
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
             # Disk instability module parameters (required dependency)
@@ -155,6 +156,7 @@ def test_quasar_physics_correctness():
             "post_timestep": [],
         },
         model_params={
+            "AGNrecipe": 2,
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
             "fStabInstability": 0.5,
@@ -233,6 +235,7 @@ def test_disk_instability_trigger():
             "post_timestep": [],
         },
         model_params={
+            "AGNrecipe": 2,
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
             "fStabInstability": 0.5,  # Triggers disk instability
@@ -280,7 +283,7 @@ def test_merger_trigger():
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        model_params={"BlackHoleGrowthRate": 0.01, "QuasarModeEfficiency": 0.001},
+        model_params={"AGNrecipe": 2, "BlackHoleGrowthRate": 0.01, "QuasarModeEfficiency": 0.001},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -324,6 +327,7 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            "AGNrecipe": 2,
             "BlackHoleGrowthRate": 0.005,  # Low
             "QuasarModeEfficiency": 0.001,
             "fStabInstability": 0.5,
@@ -353,6 +357,7 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            "AGNrecipe": 2,
             "BlackHoleGrowthRate": 0.02,  # High (4x)
             "QuasarModeEfficiency": 0.001,
             "fStabInstability": 0.5,
@@ -382,6 +387,7 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            "AGNrecipe": 2,
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.0001,  # Low
             "fStabInstability": 0.5,
@@ -411,6 +417,7 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
+            "AGNrecipe": 2,
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.01,  # High (100x)
             "fStabInstability": 0.5,
@@ -468,6 +475,7 @@ def test_memory_and_performance():
             "post_timestep": [],
         },
         model_params={
+            "AGNrecipe": 2,
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
             "fStabInstability": 0.5,

@@ -32,6 +32,7 @@
 
 static double BLACK_HOLE_GROWTH_RATE;
 static double QUASAR_MODE_EFFICIENCY;
+static int AGN_RECIPE_ON;
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -42,6 +43,8 @@ int sage_quasar_mode_init(void) {
                                     "BH growth rate");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("QuasarModeEfficiency", QUASAR_MODE_EFFICIENCY, 0.0, 1.0,
                                     "quasar mode efficiency");
+  LOAD_AND_VALIDATE_OPTION("AGNrecipe", AGN_RECIPE_ON, 3,
+                           "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
 
   /* Dependency check: process_per_event requires a merger event producer in
    * the same substep phase */
@@ -58,6 +61,7 @@ int sage_quasar_mode_init(void) {
   VERBOSE_LOG("SAGE quasar-mode AGN feedback initialized");
   VERBOSE_LOG("  BlackHoleGrowthRate = %.4f", BLACK_HOLE_GROWTH_RATE);
   VERBOSE_LOG("  QuasarModeEfficiency = %.3f", QUASAR_MODE_EFFICIENCY);
+  VERBOSE_LOG("  AGNrecipe = %d (0=off, 1=empirical, 2=Bondi, 3=cold cloud)", AGN_RECIPE_ON);
 
   return 0;
 }
@@ -75,6 +79,12 @@ int sage_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int 
 
     struct Halo *event_halo = &halos[0];
     if (event_halo->galaxy == NULL) {
+      return 0;
+    }
+
+    /* SAGE parity: AGNrecipe 0 skips grow_black_hole() after a merger
+     * (sage-model/src/model_mergers.c:75-76). */
+    if (AGN_RECIPE_ON == 0) {
       return 0;
     }
 
@@ -107,6 +117,12 @@ int sage_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int 
   struct GalaxyData *gal = halo->galaxy;
 
   if (gal == NULL) {
+    return 0;
+  }
+
+  /* SAGE parity: AGNrecipe 0 skips grow_black_hole() after a disk instability
+   * (sage-model/src/model_disk_instability.c:67-68). */
+  if (AGN_RECIPE_ON == 0) {
     return 0;
   }
 

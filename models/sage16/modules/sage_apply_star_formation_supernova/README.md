@@ -20,10 +20,14 @@ Applies star-formation and supernova transport fields to the persistent galaxy r
 - Neither `sage_calculate_star_formation` nor `sage_calculate_supernova_feedback` is configured — all SF/SN transport fields will be zero; likely a configuration mistake.
 - `sage_apply_metal_enrichment` is not configured when SF is active — the disk-SF metal yield will not be applied (SAGE parity loss; metals will be under-produced).
 
+## Cold-gas cap
+
+When `sage_calculate_supernova_feedback` is configured it renormalises star formation and reheated mass together so that their sum does not exceed the cold gas, as SAGE does, and this module applies its result unchanged. When the calculator is left out, nothing else limits star formation, so this module caps `NewStellarMass` at `ColdGas` before applying it and writes the capped value back for `sage_apply_metal_enrichment`; this is SAGE's renormalisation with no reheated mass (`sage-model/src/model_starformation_and_feedback.c:50-54`). The shipped run files configure the calculator.
+
 ## Properties
 
 - Reads: `dT`, `Mvir`, `ColdGas`, `MetalsColdGas`, `HotGas`, `MetalsHotGas`, `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass` (`HotGas`/`MetalsHotGas` are read on the FoF central for reheat/eject reservoir transfers)
-- Writes: `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, `HotGas`, `MetalsHotGas`, `EjectedGas`, `MetalsEjectedGas`, `StarFormationRate`, `SupernovaOutflowRate`
+- Writes: `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, `HotGas`, `MetalsHotGas`, `EjectedGas`, `MetalsEjectedGas`, `StarFormationRate`, `SupernovaOutflowRate`, and `NewStellarMass` (capped at `ColdGas` when `sage_calculate_supernova_feedback` is absent)
 
 ## Parameters
 

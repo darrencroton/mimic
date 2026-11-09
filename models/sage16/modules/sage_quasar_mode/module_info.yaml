@@ -21,6 +21,7 @@ module:
     parameters:
       - BlackHoleGrowthRate
       - QuasarModeEfficiency
+      - AGNrecipe
 
   events:
     consumes:
