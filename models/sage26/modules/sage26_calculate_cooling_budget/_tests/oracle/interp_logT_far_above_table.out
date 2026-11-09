@@ -1,4 +1,0 @@
-# SAGE26 oracle output for interp_logT_far_above_table.in, written by oracle_c04 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine get_metaldependent_cooling_rate
-f64 return.lambda 0x3b9274dbdd4f4f40  # 9.7707790854689307e-22

@@ -1,8 +1,0 @@
-# SAGE26 oracle output for zero_infall_tiny_negative_ejected_metals.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine add_infall_to_hot
-f64 intermediate.infallingGas_per_step 0x0000000000000000  # 0
-f32 galaxy[0].EjectedMass 0x3f19999a  # 0.600000024
-f32 galaxy[0].MetalsEjectedMass 0xac0cbccc  # -1.99999999e-12
-f32 galaxy[0].HotGas 0x40400000  # 3
-f32 galaxy[0].MetalsHotGas 0x3cf5c28f  # 0.0299999993

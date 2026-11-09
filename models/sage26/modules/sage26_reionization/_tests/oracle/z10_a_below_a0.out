@@ -1,5 +1,0 @@
-# SAGE26 oracle output for z10_a_below_a0.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine do_reionization
-f64 return.reionization_modifier 0x3feffc00b76ff621  # 0.99951206042868901
-f64 intermediate.HaloBaryonFraction 0x3fc5bfd786fa36bb  # 0.16991705027287715

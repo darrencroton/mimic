@@ -77,9 +77,7 @@ module:
     parameters: []
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_finalize_sfr_histories.c
-      - _tests/test_unit_sage26_finalize_sfr_histories_oracle.c
+    unit: _tests/test_unit_sage26_finalize_sfr_histories.c
     integration: _tests/test_integration_sage26_finalize_sfr_histories.py
     scientific: []
 

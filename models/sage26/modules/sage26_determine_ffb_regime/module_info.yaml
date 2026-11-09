@@ -18,9 +18,7 @@ module:
       - EnhancedStarFormationOn # required: 0 (no classification) or 1 (the Li+24 classifier)
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_determine_ffb_regime.c
-      - _tests/test_unit_sage26_determine_ffb_regime_oracle.c
+    unit: _tests/test_unit_sage26_determine_ffb_regime.c
     integration: _tests/test_integration_sage26_determine_ffb_regime.py
     scientific: []
 

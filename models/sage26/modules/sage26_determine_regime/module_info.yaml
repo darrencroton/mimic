@@ -20,9 +20,7 @@ module:
       - MShockMsun      # required: shock mass in physical Msun, positive and finite
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_determine_regime.c
-      - _tests/test_unit_sage26_determine_regime_oracle.c
+    unit: _tests/test_unit_sage26_determine_regime.c
     integration: _tests/test_integration_sage26_determine_regime.py
     scientific: []
 

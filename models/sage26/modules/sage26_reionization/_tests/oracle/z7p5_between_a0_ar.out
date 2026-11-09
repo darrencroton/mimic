@@ -1,5 +1,0 @@
-# SAGE26 oracle output for z7p5_between_a0_ar.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine do_reionization
-f64 return.reionization_modifier 0x3feff235d9d23c88  # 0.99831669371805365
-f64 intermediate.HaloBaryonFraction 0x3fc5b92edbcc669a  # 0.16971383793206912

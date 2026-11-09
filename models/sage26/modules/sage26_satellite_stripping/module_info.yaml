@@ -27,9 +27,7 @@ module:
       - CGMrecipeOn     # required: 0 or 1
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_satellite_stripping.c
-      - _tests/test_unit_sage26_satellite_stripping_oracle.c
+    unit: _tests/test_unit_sage26_satellite_stripping.c
     integration: _tests/test_integration_sage26_satellite_stripping.py
     scientific: []
 

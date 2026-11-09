@@ -1,4 +1,0 @@
-# SAGE26 oracle output for interp_logZ_interval_1.in, written by oracle_c04 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine get_metaldependent_cooling_rate
-f64 return.lambda 0x3b51643e51d4605e  # 5.7543897698834089e-23

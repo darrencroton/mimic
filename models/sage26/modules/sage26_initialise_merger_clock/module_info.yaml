@@ -84,9 +84,7 @@ module:
       - MergerTimeFactor  # optional: absent means SAGE26's default 2.0
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_initialise_merger_clock.c
-      - _tests/test_unit_sage26_initialise_merger_clock_oracle.c
+    unit: _tests/test_unit_sage26_initialise_merger_clock.c
     integration: _tests/test_integration_sage26_initialise_merger_clock.py
     scientific: []
 

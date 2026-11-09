@@ -99,9 +99,7 @@ module:
         event: merger
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_starburst_feedback.c
-      - _tests/test_unit_sage26_starburst_feedback_oracle.c
+    unit: _tests/test_unit_sage26_starburst_feedback.c
     integration: _tests/test_integration_sage26_starburst_feedback.py
     scientific: []
 

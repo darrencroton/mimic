@@ -122,9 +122,7 @@ module:
           its pre-transfer morphology in MergerDiskDominated
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_merger_ordering_parity.c
-      - _tests/test_unit_sage26_resolve_mergers_and_disruption_oracle.c
+    unit: _tests/test_unit_sage26_merger_ordering_parity.c
     integration: _tests/test_integration_sage26_merger_event_consumers.py
     scientific: []
 

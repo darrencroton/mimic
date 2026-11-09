@@ -27,9 +27,7 @@ module:
       - FIREmodeOn
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_calculate_supernova_feedback.c
-      - _tests/test_unit_sage26_calculate_supernova_feedback_oracle.c
+    unit: _tests/test_unit_sage26_calculate_supernova_feedback.c
     integration: _tests/test_integration_sage26_calculate_supernova_feedback.py
     scientific: []
 

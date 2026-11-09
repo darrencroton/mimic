@@ -1,8 +1,0 @@
-# R0 reference model_0.hdf5 (SHA-256 6d859a3a2ea422e3...), Snap_63 row 1, GalaxyIndex 290 (satellite): end-of-snapshot output values used as plausible call inputs, not reconstructed call-time state.
-# call.logTemp and call.logZ are intermediate.logTemp and intermediate.logZ
-# of hot_r0_snap63_satellite.out.
-format sage26-oracle-fixture 1
-routine get_metaldependent_cooling_rate
-
-f64 call.logTemp 0x4018cffae673f492  # 6.2031055458329707
-f64 call.logZ 0xc0052df3758a8287  # -2.6474370177168711

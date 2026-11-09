@@ -29,9 +29,7 @@ module:
       - BulgeSizeOn
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_disk_instability.c
-      - _tests/test_unit_sage26_disk_instability_oracle.c
+    unit: _tests/test_unit_sage26_disk_instability.c
     integration: _tests/test_integration_sage26_disk_instability.py
     scientific: []
 

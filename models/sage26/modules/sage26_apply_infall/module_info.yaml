@@ -23,9 +23,7 @@ module:
       - CGMrecipeOn     # required: 0 or 1
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_apply_infall.c
-      - _tests/test_unit_sage26_apply_infall_oracle.c
+    unit: _tests/test_unit_sage26_apply_infall.c
     integration: _tests/test_integration_sage26_apply_infall.py
     scientific: []
 

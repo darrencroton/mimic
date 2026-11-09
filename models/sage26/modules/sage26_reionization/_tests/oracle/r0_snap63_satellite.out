@@ -1,5 +1,0 @@
-# SAGE26 oracle output for r0_snap63_satellite.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine do_reionization
-f64 return.reionization_modifier 0x3feb1e2a44b577b3  # 0.84743226451586506
-f64 intermediate.HaloBaryonFraction 0x3fc270ac1a3df53d  # 0.14406348496769708

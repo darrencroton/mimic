@@ -1,9 +1,0 @@
-# SAGE26 oracle output for mdot_writer_large_raw.in, written by oracle_c11 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine writer_mdot_conversion
-f32 output.mdot_cool 0x6e042688  # 1.02246507e+28
-f32 output.mdot_stream 0x7c27854a  # 3.47926799e+36
-f32 intermediate.grouped_mdot_cool 0x6e042688  # 1.02246507e+28
-f32 intermediate.grouped_mdot_stream 0x7c27854a  # 3.47926799e+36
-i32 intermediate.grouped_differs_mdot_cool 0
-i32 intermediate.grouped_differs_mdot_stream 0

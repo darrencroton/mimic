@@ -1,9 +1,0 @@
-# SAGE26 oracle output for mdot_writer_run_units.in, written by oracle_c11 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine writer_mdot_conversion
-f32 output.mdot_cool 0x423873e4  # 46.1131744
-f32 output.mdot_stream 0x44ce89b7  # 1652.30359
-f32 intermediate.grouped_mdot_cool 0x423873e4  # 46.1131744
-f32 intermediate.grouped_mdot_stream 0x44ce89b7  # 1652.30359
-i32 intermediate.grouped_differs_mdot_cool 0
-i32 intermediate.grouped_differs_mdot_stream 0

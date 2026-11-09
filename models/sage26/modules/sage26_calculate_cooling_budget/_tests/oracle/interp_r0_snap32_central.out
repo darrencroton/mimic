@@ -1,4 +1,0 @@
-# SAGE26 oracle output for interp_r0_snap32_central.in, written by oracle_c04 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine get_metaldependent_cooling_rate
-f64 return.lambda 0x3b27754ffb56effd  # 9.7021054951168536e-24

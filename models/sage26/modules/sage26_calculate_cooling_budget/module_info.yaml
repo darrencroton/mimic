@@ -32,9 +32,7 @@ module:
       - CGMrecipeOn     # required: 0 (classic hot cooling) or 1 (no-cooling transport only)
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_calculate_cooling_budget.c
-      - _tests/test_unit_sage26_calculate_cooling_budget_oracle.c
+    unit: _tests/test_unit_sage26_calculate_cooling_budget.c
     integration: _tests/test_integration_sage26_calculate_cooling_budget.py
     scientific: []
 

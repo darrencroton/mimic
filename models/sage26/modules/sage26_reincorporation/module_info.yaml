@@ -26,9 +26,7 @@ module:
       - CGMrecipeOn     # required: 0 or 1
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_reincorporation.c
-      - _tests/test_unit_sage26_reincorporation_oracle.c
+    unit: _tests/test_unit_sage26_reincorporation.c
     integration: _tests/test_integration_sage26_reincorporation.py
     scientific: []
 

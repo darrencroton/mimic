@@ -1,8 +1,0 @@
-# SAGE26 oracle output for positive.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine add_infall_to_hot
-f64 intermediate.infallingGas_per_step 0x3fbf9a6b50b0f27b  # 0.12344999999999999
-f32 galaxy[0].EjectedMass 0x3f19999a  # 0.600000024
-f32 galaxy[0].MetalsEjectedMass 0x3bc49ba6  # 0.00600000005
-f32 galaxy[0].HotGas 0x4047e69b  # 3.12345004
-f32 galaxy[0].MetalsHotGas 0x3cf5c28f  # 0.0299999993

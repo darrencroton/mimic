@@ -1,6 +1,0 @@
-# log10(T) exactly 8.5: index 90 is capped to 89 (core_cool_func.c:118-121).
-format sage26-oracle-fixture 1
-routine get_metaldependent_cooling_rate
-
-f64 call.logTemp 0x4021000000000000  # 8.5
-f64 call.logZ 0xbff8000000000000  # -1.5

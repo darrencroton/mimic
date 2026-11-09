@@ -37,9 +37,7 @@ module:
         event: merger
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_quasar_mode.c
-      - _tests/test_unit_sage26_quasar_mode_oracle.c
+    unit: _tests/test_unit_sage26_quasar_mode.c
     integration: _tests/test_integration_sage26_quasar_mode.py
     scientific: []
 

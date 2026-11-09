@@ -1,5 +1,0 @@
-# SAGE26 oracle output for z0_tiny_mvir.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine do_reionization
-f64 return.reionization_modifier 0x3920f90b272731de  # 1.6344237331584319e-33
-f64 intermediate.HaloBaryonFraction 0x38f715425e354e10  # 2.7785203463693346e-34

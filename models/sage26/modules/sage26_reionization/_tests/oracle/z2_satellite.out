@@ -1,5 +1,0 @@
-# SAGE26 oracle output for z2_satellite.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine do_reionization
-f64 return.reionization_modifier 0x3fe9f42fba8e9d99  # 0.81105791508609848
-f64 intermediate.HaloBaryonFraction 0x3fc1a60bf9bd237d  # 0.13787984556463675

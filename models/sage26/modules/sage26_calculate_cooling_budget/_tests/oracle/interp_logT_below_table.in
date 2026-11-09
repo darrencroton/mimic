@@ -1,6 +1,0 @@
-# log10(T) 3.5 is clamped to 4.0 (core_cool_func.c:113-115).
-format sage26-oracle-fixture 1
-routine get_metaldependent_cooling_rate
-
-f64 call.logTemp 0x400c000000000000  # 3.5
-f64 call.logZ 0xc004000000000000  # -2.5

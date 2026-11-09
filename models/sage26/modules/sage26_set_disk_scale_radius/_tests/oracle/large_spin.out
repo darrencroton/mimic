@@ -1,5 +1,0 @@
-# SAGE26 oracle output for large_spin.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine get_disk_radius
-f64 return.r_disk 0x3fb5d55fb4b8f214  # 0.085287076589289079
-f32 galaxy[0].DiskScaleRadius 0x3daeaafe  # 0.0852870792

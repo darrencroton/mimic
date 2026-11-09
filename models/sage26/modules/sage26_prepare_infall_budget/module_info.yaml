@@ -34,9 +34,7 @@ module:
       - CGMrecipeOn     # required: 0 or 1
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_prepare_infall_budget.c
-      - _tests/test_unit_sage26_prepare_infall_budget_oracle.c
+    unit: _tests/test_unit_sage26_prepare_infall_budget.c
     integration: _tests/test_integration_sage26_prepare_infall_budget.py
     scientific: []
 

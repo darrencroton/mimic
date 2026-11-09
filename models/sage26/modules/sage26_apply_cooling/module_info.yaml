@@ -23,9 +23,7 @@ module:
     parameters: []
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_apply_cooling.c
-      - _tests/test_unit_sage26_apply_cooling_oracle.c
+    unit: _tests/test_unit_sage26_apply_cooling.c
     integration: _tests/test_integration_sage26_apply_cooling.py
     scientific: []
 

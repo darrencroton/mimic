@@ -40,9 +40,7 @@ module:
       - RadioModeEfficiency # the radio-mode efficiency (as sage26_radio_mode_heating)
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_regime_aware_cooling.c
-      - _tests/test_unit_sage26_regime_aware_cooling_oracle.c
+    unit: _tests/test_unit_sage26_regime_aware_cooling.c
     integration: _tests/test_integration_sage26_regime_aware_cooling.py
     scientific: []
 

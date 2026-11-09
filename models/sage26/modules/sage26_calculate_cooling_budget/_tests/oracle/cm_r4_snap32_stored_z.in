@@ -1,9 +1,0 @@
-# interpolate_clustering_mass (H:98-132), called directly.
-# z = ZZ[31] of the R4 reference header (/Volumes/Internal/results/sage26-campaign/workspace/e01-reference/out/R4/model_0.hdf5, SHA-256 2b606ee7ac82559e32c7c91161f1edb44f89288ec57016e80da884e118ed0807), the stored
-# snapshot of a Snap_32 galaxy.
-# Reachability: R4-reachable.
-format sage26-oracle-fixture 1
-routine interpolate_clustering_mass
-
-f64 params.Omega 0x3fd0000000000000  # 0.25
-f64 call.z 0x4001ea7757a9e790  # 2.2394854401326896

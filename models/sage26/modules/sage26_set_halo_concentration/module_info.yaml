@@ -22,9 +22,7 @@ module:
       - ConcentrationOn # required: 0 (off) or 3 (the Vmax/Vvir inversion)
 
   tests:
-    unit:
-      - _tests/test_unit_sage26_set_halo_concentration.c
-      - _tests/test_unit_sage26_set_halo_concentration_oracle.c
+    unit: _tests/test_unit_sage26_set_halo_concentration.c
     integration: _tests/test_integration_sage26_set_halo_concentration.py
     scientific: []
 

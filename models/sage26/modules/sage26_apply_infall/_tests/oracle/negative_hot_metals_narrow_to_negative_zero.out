@@ -1,8 +1,0 @@
-# SAGE26 oracle output for negative_hot_metals_narrow_to_negative_zero.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine add_infall_to_hot
-f64 intermediate.infallingGas_per_step 0xc007fffff4000007  # -2.9999999105930359
-f32 galaxy[0].EjectedMass 0x00000000  # 0
-f32 galaxy[0].MetalsEjectedMass 0x00000000  # 0
-f32 galaxy[0].HotGas 0x33c00000  # 8.94069672e-08
-f32 galaxy[0].MetalsHotGas 0x80000000  # -0

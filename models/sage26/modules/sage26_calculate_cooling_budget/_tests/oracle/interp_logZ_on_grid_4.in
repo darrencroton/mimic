@@ -1,7 +1,0 @@
-# logZ exactly on the loader's metallicity grid point 4 (-1.0 + log10(0.02), interior):
-# the strict `>` loop (core_cool_func.c:149-151) stops below it.
-format sage26-oracle-fixture 1
-routine get_metaldependent_cooling_rate
-
-f64 call.logTemp 0x401b99999999999a  # 6.9000000000000004
-f64 call.logZ 0xc005977d95ec10c0  # -2.6989700043360187

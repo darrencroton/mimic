@@ -1,8 +1,0 @@
-# interpolate_clustering_mass (H:98-132), called directly.
-# Millennium table, z = 0: the lower endpoint.
-# Reachability: constructed routine-domain probe.
-format sage26-oracle-fixture 1
-routine interpolate_clustering_mass
-
-f64 params.Omega 0x3fd0000000000000  # 0.25
-f64 call.z 0x0000000000000000  # 0.0

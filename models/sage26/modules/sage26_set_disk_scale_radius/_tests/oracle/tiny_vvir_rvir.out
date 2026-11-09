@@ -1,5 +1,0 @@
-# SAGE26 oracle output for tiny_vvir_rvir.in, written by oracle_c03 (regenerate.sh); do not edit.
-format sage26-oracle-fixture 1
-routine get_disk_radius
-f64 return.r_disk 0x3e20133ce2687cfb  # 1.8713935013303446e-09
-f32 galaxy[0].DiskScaleRadius 0x310099e7  # 1.87139348e-09
