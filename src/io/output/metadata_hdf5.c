@@ -113,8 +113,8 @@ static void write_version_metadata(hid_t parent_group_id) {
     FATAL_ERROR("Failed to set HDF5 string type size for version metadata");
   }
 
-  /* The release name: `git describe --tags` at build time, so a release build reads
-   * its tag (v1.2) and a later build reads the tag plus its distance and commit. */
+  /* The release name: `git describe` over the release tags at build time, so a release
+   * build reads its tag (v1.2) and a later build reads the tag plus its distance and commit. */
   write_string_attribute(version_group_id, "version", str_type, dataspace_id, GIT_VERSION);
   write_string_attribute(version_group_id, "git_commit", str_type, dataspace_id, GIT_COMMIT);
 

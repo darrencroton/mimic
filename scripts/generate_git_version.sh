@@ -6,7 +6,8 @@
 # run_log.c and the HDF5 metadata writer sees the same macros. Outside a git
 # checkout (an exported tarball) every git-derived value degrades to "unknown";
 # a checkout without tags (a shallow CI clone) records the commit hash as the
-# version through `git describe --always`.
+# version through `git describe --always`. Only release tags (v<digit>...) name
+# the version, so a local archive tag never stands in for a release.
 set -u
 
 if [ $# -ne 1 ]; then
@@ -23,7 +24,7 @@ git_value() {
 {
     echo "#ifndef GIT_VERSION_H"
     echo "#define GIT_VERSION_H"
-    echo "#define GIT_VERSION \"$(git_value git describe --tags --always --dirty)\""
+    echo "#define GIT_VERSION \"$(git_value git describe --tags --match 'v[0-9]*' --always --dirty)\""
     echo "#define GIT_COMMIT \"$(git_value git rev-parse HEAD)\""
     echo "#define GIT_BRANCH \"$(git_value git rev-parse --abbrev-ref HEAD)\""
     echo "#define GIT_DATE \"$(git_value git log -1 --format=%cd --date=short)\""
