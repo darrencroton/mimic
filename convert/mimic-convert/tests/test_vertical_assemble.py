@@ -1,17 +1,16 @@
 """The forest assembler (vertical/assemble.py) on synthetic version 3 datasets.
 
 Oracles, each typed literally from the fixture's topology as (``MostBoundID``, the five links as
-forest-local ranks, ``SnapNum``) by rank: :mod:`fixtures`' correspondence forests 1100, 1200,
-1300 and 1400 converted to a version 3 dataset (1300's one tree ends at snapshot 2, so the forest
-is absent from four of the six slabs; 1100 spans three trees whose FoF groups mix them);
-forest 2700, whose root has a progenitor chain of three; the three-piece forest cut by its
-decided table, where a satellite promoted out of its host's group is a group of one and its
-former group is in another forest; the committed ``shin-uchuu`` ``worked_ascii`` fixture; the
-committed ``mini-millennium-horizontal`` fixtures, whose ``HaloRankInForest`` is the L-Halo
-source's within-tree row, not ordered by snapshot, checked against an independent index of the
-dataset's rows; and a thousand small forests, on which the per-forest Python work is counted and
-the rows each slab reads are bounded. Every refusal comes from a copy of a dataset mutated in one
-way.
+forest-local ranks, ``SnapNum``) by rank: :mod:`fixtures`' correspondence forests 1100, 1200, 1300
+and 1400 converted to a version 3 dataset (1300's one tree ends at snapshot 2, so the forest is
+absent from four of the six slabs; 1100 spans three trees whose FoF groups mix them); forest 2700,
+whose root has a progenitor chain of three; the three-piece forest cut by its decided table, where a
+satellite promoted out of its host's group is a group of one and its former group is in another
+forest; the committed ``shin-uchuu-ascii-horizontal`` ``worked_ascii`` fixture; the committed
+``mini-millennium-horizontal`` fixtures, whose ``HaloRankInForest`` is the L-Halo source's
+within-tree row, not ordered by snapshot, checked against an independent index of the dataset's
+rows; and a thousand small forests, on which the per-forest Python work is counted and the rows each
+slab reads are bounded. Every refusal comes from a copy of a dataset mutated in one way.
 """
 
 import collections
@@ -59,7 +58,8 @@ MM_HORIZONTAL = REPO_ROOT / "simulations" / "mini-millennium-horizontal"
 MM_HORIZONTAL_RECORD = MM_HORIZONTAL / "halo_properties.yaml"
 MM_HORIZONTAL_DATA = MM_HORIZONTAL / "_tests" / "data"
 
-#: Every payload field of the shin-uchuu record, copied verbatim from the column of that name.
+#: Every payload field of the shin-uchuu-ascii-horizontal record, copied verbatim from the
+#: column of that name.
 PAYLOAD_FIELDS = (
     "Len",
     "M_Crit200",

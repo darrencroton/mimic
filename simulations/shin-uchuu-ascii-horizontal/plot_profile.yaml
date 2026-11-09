@@ -1,5 +1,5 @@
 simulation:
-  name: shin-uchuu-lhalo
+  name: shin-uchuu-ascii-horizontal
   box_size: 140.0
   particle_mass: 0.0000897
 

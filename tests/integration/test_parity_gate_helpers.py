@@ -198,7 +198,7 @@ def test_a_named_dataset_is_used_by_every_stage():
 
     Its snapshot list names the snapshot files stages 1 and 2 expect, a leg runs
     the dataset variant of the worktree's run file, and a leg refuses a horizontal
-    run that read the package's own snapshots. ``shin-uchuu`` stands in as the
+    run that read the package's own snapshots. ``shin-uchuu-ascii-horizontal`` stands in as the
     horizontal package because a leg reads the file range its package declares.
     """
     with tempfile.TemporaryDirectory() as tmp:
@@ -208,7 +208,7 @@ def test_a_named_dataset_is_used_by_every_stage():
         alist = _write(root, "named.a_list", "0.5\n1.0\n")
         package = GatePackage(
             vertical="vert",
-            horizontal="shin-uchuu",
+            horizontal="shin-uchuu-ascii-horizontal",
             alist="shin-uchuu.a_list",
             evidence="none",
             file_range=(0, 3),
@@ -227,14 +227,17 @@ def test_a_named_dataset_is_used_by_every_stage():
         gate = ParityGate(package)
         assert gate.expected_snapshot_files() == ["snapshot_000.h5", "snapshot_001.h5"]
 
-        run_file = worktree / gate.committed_run_file("halos-only", "shin-uchuu").relative_to(
-            REPO_ROOT
-        )
+        run_file = worktree / gate.committed_run_file(
+            "halos-only", "shin-uchuu-ascii-horizontal"
+        ).relative_to(REPO_ROOT)
         run_file.parent.mkdir(parents=True)
         run_file.write_text(HORIZONTAL.replace("input:\n  first_file: 0\n  last_file: 3\n", ""))
-        gate.scratch, gate.worktrees[gate.pair_key("halos-only", "shin-uchuu")] = root, worktree
+        gate.scratch, gate.worktrees[gate.pair_key("halos-only", "shin-uchuu-ascii-horizontal")] = (
+            root,
+            worktree,
+        )
         with mock.patch.object(gate, "run_in_worktree", side_effect=lambda *args: args[2]):
-            ran = gate.execute_run("halos-only", "shin-uchuu", "fixed")
+            ran = gate.execute_run("halos-only", "shin-uchuu-ascii-horizontal", "fixed")
         keys = flatten_keys(yaml.safe_load(ran.read_text()))
         assert (keys["input.simulation_dir"], keys["input.snapshot_list_file"]) == (
             str(dataset),
@@ -260,18 +263,18 @@ def test_a_named_dataset_is_used_by_every_stage():
         )
         named = run("named", SimulationDir=str(dataset), FileWithSnapList=str(alist))
         gate.assert_recorded_file_ranges(vertical, named)
-        own = package_path("shin-uchuu", "snapshots")
+        own = package_path("shin-uchuu-ascii-horizontal", "snapshots")
         own_run = run("own", SimulationDir=str(own), FileWithSnapList=str(alist))
         refused = partial(gate.assert_recorded_file_ranges, vertical, own_run)
         assert _refuses(refused), "a horizontal run of the package's own snapshots was accepted"
 
 
 #: Pins of a gate over a synthetic converted pair (``_converted_pair``). The vertical
-#: side is the real ``shin-uchuu-lhalo`` package: its simulation_info.yaml and
+#: side is the real ``shin-uchuu`` package: its simulation_info.yaml and
 #: committed run files, which declare no range, so the pinned 0-1 is an override.
 CONVERTED_PAIR = dict(
-    vertical="shin-uchuu-lhalo",
-    horizontal="shin-uchuu",
+    vertical="shin-uchuu",
+    horizontal="shin-uchuu-ascii-horizontal",
     alist="shin-uchuu.a_list",
     evidence="none",
     file_range=(0, 1),
@@ -417,16 +420,16 @@ def test_a_named_vertical_dataset_is_used_by_every_stage():
         assert f"missing {lhalo / 'shin-uchuu-cut.0'}" in missing, missing
 
         worktree = root / "worktree"
-        committed = gate.committed_run_file("halos-only", "shin-uchuu-lhalo")
+        committed = gate.committed_run_file("halos-only", "shin-uchuu")
         run_file = worktree / committed.relative_to(REPO_ROOT)
         run_file.parent.mkdir(parents=True)
         shutil.copyfile(committed, run_file)
-        gate.scratch, gate.worktrees[gate.pair_key("halos-only", "shin-uchuu-lhalo")] = (
+        gate.scratch, gate.worktrees[gate.pair_key("halos-only", "shin-uchuu")] = (
             root,
             worktree,
         )
         with mock.patch.object(gate, "run_in_worktree", side_effect=lambda *args: args[2]):
-            ran = gate.execute_run("halos-only", "shin-uchuu-lhalo", "fixed")
+            ran = gate.execute_run("halos-only", "shin-uchuu", "fixed")
         keys = flatten_keys(yaml.safe_load(ran.read_text()))
         assert [keys[key] for key in VERTICAL_DATASET_KEYS] == [str(lhalo), 0, 1], keys
 
@@ -449,9 +452,7 @@ def test_a_named_vertical_dataset_is_used_by_every_stage():
         recorded = dict(TreeName="shin-uchuu-cut", FirstFile=0, LastFile=1)
         named = run("named", SimulationDir=str(lhalo), **recorded)
         gate.assert_recorded_file_ranges(named, horizontal)
-        own = run(
-            "own", SimulationDir=str(package_path("shin-uchuu-lhalo", "snapshots")), **recorded
-        )
+        own = run("own", SimulationDir=str(package_path("shin-uchuu", "snapshots")), **recorded)
         refused = partial(gate.assert_recorded_file_ranges, own, horizontal)
         assert _refuses(refused), "a vertical run of the package's own snapshots was accepted"
 
@@ -463,10 +464,14 @@ def test_run_files_diff_against_the_committed_vertical_file_only_with_a_vertical
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         gate = _converted_pair(root)
-        vertical = gate.committed_run_file("halos-only", "shin-uchuu-lhalo")
-        horizontal = gate.committed_run_file("halos-only", "shin-uchuu")
+        vertical = gate.committed_run_file("halos-only", "shin-uchuu")
+        horizontal = gate.committed_run_file("halos-only", "shin-uchuu-ascii-horizontal")
         variant = gate.effective_vertical_run_file(vertical, root)
-        assert _refuses(partial(assert_horizontal_run_file_diff, variant, horizontal, "shin-uchuu"))
+        assert _refuses(
+            partial(
+                assert_horizontal_run_file_diff, variant, horizontal, "shin-uchuu-ascii-horizontal"
+            )
+        )
 
         # Without a vertical dataset the pinned 0-1 is a range override, which a committed
         # file declaring no range cannot take, so the effective file is stood in for.

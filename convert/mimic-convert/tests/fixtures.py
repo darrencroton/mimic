@@ -1668,7 +1668,9 @@ def rewrite_cut(source, out, scratch, table, input_dir=None, **overrides):
 SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "halo_properties.yaml"
 
 
-WORKED_ASCII = REPO_ROOT / "simulations" / "shin-uchuu" / "_tests" / "data" / "worked_ascii"
+WORKED_ASCII = (
+    REPO_ROOT / "simulations" / "shin-uchuu-ascii-horizontal" / "_tests" / "data" / "worked_ascii"
+)
 
 
 # The correspondence dataset's forests by rank: (MostBoundID, Descendant, FirstProgenitor,

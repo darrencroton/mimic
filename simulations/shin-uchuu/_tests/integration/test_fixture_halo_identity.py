@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-shin-uchuu-lhalo fixture identity, halo by halo.
+shin-uchuu fixture identity, halo by halo.
 
 Proves that the committed worked_ascii_lhalo fixture says, through Mimic's own
 lhalo_binary reader, exactly what the version 3 dataset it was converted from says:
@@ -11,7 +11,7 @@ the compiled model and this package), run in --source-payload mode through a
 scratch run file naming the fixture. The comparison is the generalisation
 acceptance harness's `compare`
 (convert/mimic-convert/tests/run_generalisation_acceptance.py) against
-simulations/shin-uchuu/_tests/data/worked_ascii, the fixture's source, whose
+simulations/shin-uchuu-ascii-horizontal/_tests/data/worked_ascii, the fixture's source, whose
 header names the Consistent-Trees ASCII route it was itself converted from.
 
 The build regenerates property and module code for the compiled pair, which is
@@ -19,14 +19,14 @@ the code already in place, so it is run in the same generation mode (test build
 or production) the ambient generated code was made in, and the test fails if that
 code changed.
 
-Skips unless SIMULATION=shin-uchuu-lhalo, or when h5py is not installed.
+Skips unless SIMULATION=shin-uchuu, or when h5py is not installed.
 
 Run with:
-  make MODEL=halos-only SIMULATION=shin-uchuu-lhalo generate
-  MODEL=halos-only SIMULATION=shin-uchuu-lhalo \\
-      python3 simulations/shin-uchuu-lhalo/_tests/integration/test_fixture_halo_identity.py
+  make MODEL=halos-only SIMULATION=shin-uchuu generate
+  MODEL=halos-only SIMULATION=shin-uchuu \\
+      python3 simulations/shin-uchuu/_tests/integration/test_fixture_halo_identity.py
 or (registered):
-  make MODEL=halos-only SIMULATION=shin-uchuu-lhalo tests-integration
+  make MODEL=halos-only SIMULATION=shin-uchuu tests-integration
 """
 
 import hashlib
@@ -51,11 +51,13 @@ from framework import (  # noqa: E402
     run_test_suite,
 )
 
-PACKAGE = "shin-uchuu-lhalo"
+PACKAGE = "shin-uchuu"
 FIXTURE = REPO_ROOT / "simulations" / PACKAGE / "_tests" / "data" / "worked_ascii_lhalo"
 FIXTURE_FILES = (0, 1)
 FIXTURE_HALOS = 13
-SOURCE_DATASET = REPO_ROOT / "simulations" / "shin-uchuu" / "_tests" / "data" / "worked_ascii"
+SOURCE_DATASET = (
+    REPO_ROOT / "simulations" / "shin-uchuu-ascii-horizontal" / "_tests" / "data" / "worked_ascii"
+)
 BUILD_SCRIPT = REPO_ROOT / "tests" / "unit" / "tools" / "build_topology_dump.sh"
 HARNESS = REPO_ROOT / "convert" / "mimic-convert" / "tests" / "run_generalisation_acceptance.py"
 
@@ -125,7 +127,7 @@ def test_fixture_matches_its_source_halo_by_halo():
         raise TestSkipped("h5py is not installed; the comparison reads the source dataset with it")
 
     model = compiled_model()
-    work = Path(tempfile.mkdtemp(prefix="shin_uchuu_lhalo_identity_"))
+    work = Path(tempfile.mkdtemp(prefix="shin_uchuu_identity_"))
     try:
         env = dict(
             os.environ,
@@ -200,6 +202,6 @@ if __name__ == "__main__":
     sys.exit(
         run_test_suite(
             [test_fixture_matches_its_source_halo_by_halo],
-            "shin-uchuu-lhalo fixture halo identity (test_fixture_halo_identity.py)",
+            "shin-uchuu fixture halo identity (test_fixture_halo_identity.py)",
         )
     )

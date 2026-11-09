@@ -317,7 +317,7 @@ For the `cut`, the remap store peaked at 1,296,188,984 B (143.9 B per widest-sla
 
 ## Writing vertical trees with `write_vertical_trees.py`
 
-`write_vertical_trees.py` is the reverse direction: it reads any forest-blocked version 3 horizontal dataset, whatever source route produced it, and writes it as L-Halo binary merger trees, the per-forest files Mimic's `lhalo_binary` reader and vertical driver consume. It exists for datasets whose vertical form cannot be produced from the original catalogue, such as the cut Shin-Uchuu trees, and it is the converter behind the `shin-uchuu-lhalo` package. It reads the dataset through the same bounded column reads as the other tools and never modifies it.
+`write_vertical_trees.py` is the reverse direction: it reads any forest-blocked version 3 horizontal dataset, whatever source route produced it, and writes it as L-Halo binary merger trees, the per-forest files Mimic's `lhalo_binary` reader and vertical driver consume. It exists for datasets whose vertical form cannot be produced from the original catalogue, such as the cut Shin-Uchuu trees, and it is the converter behind the `shin-uchuu` package. It reads the dataset through the same bounded column reads as the other tools and never modifies it.
 
 The converted trees carry the identity of the horizontal dataset. Forests are written in ascending `ForestIndex`, each forest's halos in `HaloRankInForest` order with forest-local links, and the files are numbered in plan order with none missing, so the vertical driver gives every halo the `UniqueGalaxyID` the horizontal driver gives it, at the same identity multiplier. A run that skips a file breaks that equality, because the forests after the gap take other forest numbers.
 
@@ -365,7 +365,7 @@ $H compare --record <record.json> --dataset <version 3 dataset dir> \
     --source-format lhalo_binary --dataset-source-format consistent_trees_ascii --dump <dump file>
 ```
 
-The dump tool's `--source-payload` mode is the one `dump` runs. The check proves the files are the dataset's trees; the run-level proof that the vertical driver then reproduces the horizontal driver's galaxies is the package's cross-format identity gate (`simulations/shin-uchuu-lhalo/_tests/scientific/test_cross_format_identity.py`, see [that package's README](../../simulations/shin-uchuu-lhalo/README.md)).
+The dump tool's `--source-payload` mode is the one `dump` runs. The check proves the files are the dataset's trees; the run-level proof that the vertical driver then reproduces the horizontal driver's galaxies is the package's cross-format identity gate (`simulations/shin-uchuu/_tests/scientific/test_cross_format_identity.py`, see [that package's README](../../simulations/shin-uchuu/README.md)).
 
 ## Module map
 

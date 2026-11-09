@@ -1,87 +1,75 @@
-# Shin-Uchuu Halo Catalog Properties — horizontal HDF5 format
+# Shin-Uchuu Halo Catalog Properties — L-Halo binary format (cut dataset)
 #
-# Defines the RawHalo contract for the horizontal_hdf5 reader. Every entry below
-# is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (format_version 3),
-# whose V3 Halo Datasets table makes dataset names and types normative: the
-# generated reader-side code consumes the datasets by name, so property names
-# and the on-disk names are the same strings and no `source:` mapping is needed.
+# The complete on-disk L-Halo record of the cut Shin-Uchuu merger trees, in file
+# order. This list generates `struct RawHalo`, and the lhalo_binary reader reads
+# each forest's records straight into it, so the record on disk is the compiled
+# struct: fourteen fields, 88 bytes with the compiler's alignment (MostBoundID at
+# offset 72, SnapNum at 80, four bytes of trailing padding). It is not the
+# 104-byte SAGE L-Halo record. convert/mimic-convert/write_vertical_trees.py derives
+# the same layout from this file when it writes the dataset.
 #
-# The shared fields mirror simulations/shin-uchuu-ascii/halo_properties.yaml
-# (key order, units, h_convention, range, output, init/output sources, and
-# core-role bindings) except the five link roles, which are `long long` here
-# because the version 3 format stores int64 links, while the vertical package
-# keeps `int`. The snapshot dataset is the full Shin-Uchuu Consistent-Trees
-# catalogue's production dataset (see README.md), which applies the same
-# reference value conventions. M_Crit200 therefore carries the native
-# ctrees Mvir in Msun/h, positions are Mpc/h, Spin is the specific angular
-# momentum J/Mvir, (Mpc/h)(km/s), for non-zero Mvir -- the converter
-# deliberately keeps raw J for zero-mass halos -- and Len is derived as
-# round(Mvir * 1e-10 / particle_mass).
-#
-# ForestIndex and HaloRankInForest, the producer-owned UniqueGalaxyID identity
-# components the on-disk format carries explicitly, are deliberately NOT
-# declared here: they are horizontal-format identity metadata governed by
-# convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, not catalog halo properties, so they are
-# read directly by src/io/horizontal/read_horizontal_hdf5.c into
-# struct SnapshotSlab's reader-owned forest_index/halo_rank_in_forest arrays,
-# never through this file or the generated RawHalo struct. This mirrors
-# simulations/micro-uchuu-ascii-horizontal/halo_properties.yaml, which omits both for
-# the same reason.
+# The values are the horizontal version 3 dataset's own (simulations/shin-uchuu-ascii-horizontal/),
+# copied without any unit, type or convention change: M_Crit200 is the stored
+# float32 Consistent-Trees Mvir in Msun/h (the generated reference-unit accessor
+# applies the x1e-10 conversion), positions are Mpc/h, Spin is the stored specific
+# angular momentum, (Mpc/h)(km/s), and Len is the stored particle count. The five
+# links are `int` forest-local indices: a halo's index is its position in its
+# forest's records, which is the horizontal dataset's HaloRankInForest.
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
 #
-# Mirror maintenance: the shared fields track simulations/shin-uchuu-ascii, link
-# types aside. Any other change to a shared field must be made in both, and any
-# change to a name or type here must first be made in the format
-# specification.
+# Mirror maintenance: the fields, their order, types, units, h_convention, roles
+# and ranges are those of simulations/shin-uchuu-ascii/halo_properties.yaml; keep
+# them in sync. A change here changes the record on disk, so every converted
+# dataset must be rewritten with the new layout.
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---
   - name: Descendant
-    type: long long
+    type: int
     units: dimensionless
-    description: Row index of the descendant in the DescendantSnapshot file, or -1 if none
+    description: Index of the descendant halo in this forest, or -1 if none
     provides_core_role: Descendant
 
   - name: FirstProgenitor
-    type: long long
+    type: int
     units: dimensionless
-    description: Row index of the main progenitor in the FirstProgenitorSnapshot file, or -1 if none
+    description: Index of the first progenitor halo in this forest, or -1 if none
     provides_core_role: FirstProgenitor
 
   - name: NextProgenitor
-    type: long long
+    type: int
     units: dimensionless
-    description: Row index of the next sibling progenitor in the NextProgenitorSnapshot file, or -1 if none
+    description: Index of the next progenitor linked to the same descendant, or -1 if none
     provides_core_role: NextProgenitor
 
   - name: FirstHaloInFOFgroup
-    type: long long
+    type: int
     units: dimensionless
-    description: Row index in this snapshot of the FoF central
+    description: Index of the first halo in this FoF group
     provides_core_role: FirstHaloInFOFgroup
 
   - name: NextHaloInFOFgroup
-    type: long long
+    type: int
     units: dimensionless
-    description: Row index in this snapshot of the next FoF-group member, or -1 if last
+    description: Index of the next halo in this FoF group, or -1 if none
     provides_core_role: NextHaloInFOFgroup
 
-  # --- particle count (derived by the producer from Mvir / particle_mass) ---
+  # --- particle count (stored value) ---
   - name: Len
     type: int
     units: particles
-    description: Particle count estimated from round(Mvir * 1e-10 / particle_mass)
+    description: Stored particle count, round(Mvir * 1e-10 / particle_mass)
     provides_core_role: Len
 
-  # --- catalog mass (ctrees native Msun/h; accessor converts to 1e10 Msun/h) ---
+  # --- catalog mass (stored float32 Msun/h; accessor converts to 1e10 Msun/h) ---
   - name: M_Crit200
     type: float
     units: Msun/h
     h_convention: carried
-    description: Rockstar/Consistent-Trees Mvir (M200c), in native Msun/h
+    description: Stored Rockstar/Consistent-Trees Mvir (M200c), in native Msun/h
     provides_core_role: HaloMass
 
   # --- phase-space properties ---
@@ -108,7 +96,7 @@ halo_properties:
   - name: Spin
     type: vec3_float
     units: Mpc/h km/s
-    description: Specific angular momentum (J/Mvir, applied by the producer before emission)
+    description: Stored specific angular momentum (J/Mvir; raw J for a zero-mass halo)
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array

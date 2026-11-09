@@ -10,11 +10,11 @@
 # (same ctrees bridge, same reader) with one change: the Pos range reflects
 # Shin-Uchuu's 140 Mpc/h box instead of micro-Uchuu's 100 Mpc/h.
 #
-# simulations/shin-uchuu-ascii/ and simulations/shin-uchuu/ (horizontal_hdf5) are
+# simulations/shin-uchuu-ascii/ and simulations/shin-uchuu-ascii-horizontal/ (horizontal_hdf5) are
 # a cross-format pair, mirroring the micro-uchuu-ascii / micro-uchuu-ascii-horizontal
 # pair: the horizontal package is produced from this ASCII catalog by
 # convert/mimic-convert/, so the shared fields here must stay in sync with
-# simulations/shin-uchuu/halo_properties.yaml.
+# simulations/shin-uchuu-ascii-horizontal/halo_properties.yaml.
 #
 # Key unit difference from the L-Halo binary format: M_Crit200 carries the
 # native ctrees Mvir in Msun/h (not 1e10 Msun/h); the generated reference-unit
@@ -28,7 +28,8 @@
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
 #
-# Mirror maintenance: keep in sync with simulations/shin-uchuu/halo_properties.yaml.
+# Mirror maintenance: keep in sync with
+# simulations/shin-uchuu-ascii-horizontal/halo_properties.yaml.
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---

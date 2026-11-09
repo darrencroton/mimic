@@ -2,7 +2,7 @@
  * @file    test_record_layout.c
  * @brief   Pins the compiled struct RawHalo to the L-Halo record the converter writes
  *
- * Validates: the shin-uchuu-lhalo record layout (size and every member offset)
+ * Validates: the shin-uchuu record layout (size and every member offset)
  *
  * The lhalo_binary reader reads each forest's records straight into
  * struct RawHalo, so the compiled struct is the record on disk. The converter
@@ -18,7 +18,7 @@
  *   - test_record_layout: sizeof(struct RawHalo) is 88 and every member sits at
  *     the converter's offset
  *
- * Skips, naming the compiled simulation, unless SIMULATION=shin-uchuu-lhalo.
+ * Skips, naming the compiled simulation, unless SIMULATION=shin-uchuu.
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -32,7 +32,7 @@
 static int passed = 0;
 static int failed = 0;
 
-#define PACKAGE "shin-uchuu-lhalo"
+#define PACKAGE "shin-uchuu"
 
 /* The converter's record: 14 members, 88 bytes, 4 bytes of trailing padding. */
 #define RECORD_SIZE 88
@@ -94,7 +94,7 @@ int test_record_layout(void) {
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
-  printf("Test Suite: shin-uchuu-lhalo Record Layout\n");
+  printf("Test Suite: shin-uchuu Record Layout\n");
   printf("============================================================\n");
   printf("%s", NC);
 

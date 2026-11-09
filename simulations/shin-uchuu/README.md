@@ -1,109 +1,153 @@
-# Shin-Uchuu Simulation Package — Horizontal HDF5 (version 3)
+# Shin-Uchuu Simulation Package — L-Halo binary (cut dataset)
 
-This package declares the horizontal HDF5 on-disk record, `format_version 3`, for the Shin-Uchuu halo catalog: one `snapshot_NNN.h5` file per snapshot holding that snapshot's whole halo population as a struct-of-arrays, plus the `forests.h5` provenance sidecar. Its production dataset is the **cut** version 3 dataset (every forest partitioned into its z = 0 FoF groups; see [How the production dataset was made](#how-the-production-dataset-was-made)). The on-disk contract is in [`convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md`](../../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md); this package conforms to that specification, never the other way around.
+This package runs Mimic's vertical driver on the **cut** Shin-Uchuu merger trees, the same trees as the `shin-uchuu-ascii-horizontal` package's production version 3 dataset, written as L-Halo binary files that the `lhalo_binary` reader consumes. Every forest is one unit, read in one allocation and one read; forests are stored in ascending `ForestIndex` and each forest's halos in `HaloRankInForest` order, so a run here assigns every halo the same `UniqueGalaxyID` a horizontal run of `shin-uchuu-ascii-horizontal` assigns it.
 
-- `simulation_info.yaml`: input paths, snapshot list path, cosmology, units, box size, and particle mass
-- `halo_properties.yaml`: the RawHalo field contract — every `/halos` dataset of format version 3, with names and types matching the specification exactly. Deliberately omits `ForestIndex` and `HaloRankInForest` (see file header), mirroring `micro-uchuu-ascii-horizontal`.
-- `shin-uchuu.a_list`: 70 snapshot scale factors (a=0.04773 to a=0.99998)
-- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults for the halo plots (spatial distribution over the 140 Mpc/h box; halo mass function limits from `models/sage16/plots/profiles/shin-uchuu_plot_profile.yaml`); `mimic-plot.py` discovers it from `simulations/<simulation.name>/`
-- `snapshots/`: symlink to the production (cut version 3) dataset directory (machine-local, not tracked)
-- `_tests/`: a synthetic contract fixture, the schema-conformance test and the subset gate (see "Maintenance notes")
+- `simulation_info.yaml`: input paths (`tree_name: shin-uchuu-cut`, files `shin-uchuu-cut.0` onwards), snapshot list path, cosmology, units, box size, particle mass and the identity multiplier
+- `halo_properties.yaml`: the on-disk L-Halo record, which generates `struct RawHalo` (see [The record](#the-record))
+- `shin-uchuu.a_list`: 70 snapshot scale factors (a=0.04773 to a=0.99998), a copy of the sibling packages' list
+- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults for the halo plots (spatial distribution over the 140 Mpc/h box; halo mass function limits from `models/sage16/plots/profiles/shin-uchuu_plot_profile.yaml`, the model-level profile `mimic-plot.py` loads by simulation name); `mimic-plot.py` discovers it from `simulations/<simulation.name>/`
+- `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked)
+- `_tests/`: a committed test-sized fixture, the record-layout and reader unit tests and the fixture's halo-level identity test (see [Tests](#tests))
 
-This package's dataset is not primary data: it is produced offline from the full Shin-Uchuu Consistent-Trees ASCII catalog (source: the Shin-Uchuu Consistent-Trees ASCII merger trees as held on the OzSTAR system, 2744 `tree_*.dat` files, 11.61 TB, 315,004,242 z=0 halos, 70 snapshots). The ASCII catalog was converted once to version 2 by the legacy converter (since removed), applying the reference reader's value conventions (spin normalisation, `Len` derivation, `fix_upid`) and rewriting global-id links as snapshot-local indices; that dataset was then migrated to version 3 (by the rewriter's `migrate` operation, since retired) and cut by `convert/mimic-convert/rewrite_trees.py cut`, neither step reading ASCII. The route available from the repository today is `convert_trees.py ingest --cut-table <cut table>`, which converts the catalogue directly into its cut form (see the [converter README](../../convert/mimic-convert/README.md#rewriting-a-horizontal-dataset-with-rewrite_treespy)); its equality with the rewriter's cut is shown on the 2,744-file subset and on micro-Uchuu only, not on the full catalogue. `MostBoundID` is always positive. Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774) is the Uchuu/Planck-2015 family; particle mass (8.97×10⁵ Msun/h) and box size (140 Mpc/h) are specific to Shin-Uchuu.
+Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774), box size (140 Mpc/h) and particle mass (8.97×10⁵ Msun/h) are those of `shin-uchuu-ascii-horizontal` and `shin-uchuu-ascii`.
 
-## Setting up the snapshots symlink
+## The record
+
+Each file is the traditional headerless L-Halo layout: `int ntrees`, `int totNHalos`, `int` halo counts for each of the `ntrees` forests, then every forest's records back to back. The record is this package's own, not the 104-byte SAGE L-Halo record: the fourteen fields of `halo_properties.yaml` in that order, laid out as the C compiler lays out `struct RawHalo` (little-endian on the platforms Mimic supports), 88 bytes per halo.
+
+| Offset | Field | Type | Units |
+|---:|---|---|---|
+| 0 | `Descendant` | int32 | forest-local index, −1 for none |
+| 4 | `FirstProgenitor` | int32 | forest-local index, −1 for none |
+| 8 | `NextProgenitor` | int32 | forest-local index, −1 for none |
+| 12 | `FirstHaloInFOFgroup` | int32 | forest-local index, never −1 |
+| 16 | `NextHaloInFOFgroup` | int32 | forest-local index, −1 for none |
+| 20 | `Len` | int32 | particles |
+| 24 | `M_Crit200` | float32 | Msun/h |
+| 28 | `Pos[3]` | float32 | Mpc/h, comoving |
+| 40 | `Vel[3]` | float32 | km/s |
+| 52 | `Spin[3]` | float32 | (Mpc/h)(km/s) |
+| 64 | `VelDisp` | float32 | km/s |
+| 68 | `Vmax` | float32 | km/s |
+| 72 | `MostBoundID` | int64 | Consistent-Trees halo id |
+| 80 | `SnapNum` | int32 | snapshot index |
+| 84 | (padding) | 4 bytes | |
+
+Every value is the horizontal dataset's own, copied without a unit, type or convention change. Masses are float32 in **Msun/h**, not the SAGE convention of 1e10 Msun/h; Mimic's generated accessor converts them to its reference unit on read. `Len` and `Spin` are the stored values (the particle count `round(Mvir × 1e-10 / particle_mass)` and the specific angular momentum `J/Mvir`, raw `J` for a zero-mass halo), not re-derived. A halo's index is its position in its forest's records, which is its `HaloRankInForest` in the horizontal dataset: descending snapshot first, then each FoF group with its central first. `SnapNum` therefore never increases along a forest's records.
+
+A change to `halo_properties.yaml` changes the record on disk: every converted dataset must then be rewritten, and the layout test below fails until its pinned offsets are updated.
+
+## Obtaining the data
+
+The dataset is converted from the `shin-uchuu-ascii-horizontal` package's version 3 dataset by `convert/mimic-convert/write_vertical_trees.py` (see the [converter README](../../convert/mimic-convert/README.md)), which derives the record from this package's `halo_properties.yaml`:
 
 ```bash
-ln -s /path/to/shin-uchuu-horizontal simulations/shin-uchuu/snapshots
+mimic_venv/bin/python convert/mimic-convert/write_vertical_trees.py plan \
+    --input /path/to/shin-uchuu-dataset \
+    --halo-properties simulations/shin-uchuu/halo_properties.yaml \
+    --output /path/to/shin-uchuu
+mimic_venv/bin/python convert/mimic-convert/write_vertical_trees.py convert \
+    --input /path/to/shin-uchuu-dataset \
+    --halo-properties simulations/shin-uchuu/halo_properties.yaml \
+    --output /path/to/shin-uchuu --tree-name shin-uchuu-cut --workers 2
+ln -s /path/to/shin-uchuu simulations/shin-uchuu/snapshots
 ```
 
-`snapshots/` is machine-local and gitignored (`.gitignore` matches `simulations/*/snapshots`); it must hold `snapshot_000.h5` … `snapshot_069.h5` and `forests.h5`.
+`plan` cuts the forests into files of contiguous `ForestIndex` ranges (by default at most 100,000,000 halos and 1,000,000 forests per file; a forest larger than the halo cap occupies its file alone) and writes `file_plan.json`; `convert` writes and verifies every planned file and records the conversion in `manifest.json`. `convert` re-derives every forest's halo total at the start of each invocation, so a rerun reads the dataset's `ForestIndex` and `SourceHaloID` columns again before it skips completed files. `--tree-name` must be `shin-uchuu-cut`, the package's `tree_name`. The committed `input.last_file` is 360, the last file of the production dataset's plan (see [How the production dataset was made](#how-the-production-dataset-was-made)); a conversion with other caps or another input has its own last file number in `file_plan.json`, which `input.last_file` in `simulation_info.yaml` (or in a run file's `input` section) must then name.
 
-## Running this package
+**Every file of the range must be present.** The reader skips a missing file, and the forests after it then take other forest numbers, and so other `UniqueGalaxyID`s, than the horizontal dataset gives them.
 
-Runnable end to end through the horizontal driver (`run_horizontal_driver()`), with shipped run files pairing it with both `halos-only` and `sage16`:
+`snapshots/` is machine-local and gitignored (`.gitignore` matches `simulations/*/snapshots`).
 
-```bash
-make MODEL=halos-only SIMULATION=shin-uchuu
-./mimic models/halos-only/input/halos-only_shin-uchuu.yaml
-```
-
-Horizontal runs are HDF5-only and do not support `--skip`; both are rejected at configuration time. The production dataset is forest-blocked version 3, so a multi-rank configuration (`NTask > 1`) and a chunked one (`input.forest_chunks` above 1) are both accepted by the driver. The shipped run files set neither (one task, one chunk), which holds the widest snapshot of 519,342,987 halos in memory; for a small-memory host set `input.forest_chunks`, as the laptop-class proxy measurement below did (128 chunks on one task). The shipped run files write output snapshots 69, 48, 44, 37, 32, 30, 27 and 24; the measured runs below used the output snapshots 69, 52, 43, 40, 20, 10, 5, 2, 1 and 0 (a set that differs from the shipped files', so a shipped run's galaxy totals are not those quoted here). See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Horizontal Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Horizontal Driver".
-
-## Maintenance notes
-
-- **`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰)** must match `simulations/shin-uchuu-ascii/`, or `UniqueGalaxyID` diverges between the two packages. Confirmed against the uncut forests' measured `max_halo_rank_in_forest` ≈ 1.265×10¹⁰, the bound the shared multiplier must cover (the cut dataset's is 126,380,325).
-- **`Spin` range `[-1000, 1000]`.** Measured over the full production dataset: max `|Spin|` = 416.69, zero non-finite.
-- **`deltaMvir` range `[-1000000.0, 1000000.0]`** (declared in `src/core/core_properties.yaml`, not this package; widened after a measured 4.77e4 on mini-Uchuu). Measured over the version 2 `sage16` production run: max `|deltaMvir|` = 12,432.
-- **`_tests/` ships a synthetic contract fixture, a schema-conformance test and the subset gate.** `_tests/data/worked_ascii/` holds the committed version 3 fixture (three forests holding four trees in all, over six snapshots, with its a_list) and `_tests/input/test_simulation.yaml` points the generic test tiers at it. `_tests/data/regenerate.sh` rebuilds it: it calls `micro-uchuu-ascii-horizontal/_tests/data/source/convert_worked_ascii.sh`, which generates the synthetic Consistent-Trees ASCII source of `generate_source.py` at this package's last six scale factors into a temporary directory and converts it with `convert_trees.py` under the `shin-uchuu-ascii` profile and metadata, runs the producer validation battery on the result, installs it under `worked_ascii/` and fails if the installed `snapshot_*.h5` files are not exactly the converted set. `_tests/integration/test_schema_conformance.py` checks the declarations against the converter's version 3 `/schema` and, when `snapshots/` holds a dataset, against its files. `_tests/scientific/test_cross_format_identity.py` is the subset gate (see "The subset gate" below).
-
-### Largest forest in the widest slab
-
-In the version 2 dataset and in its uncut version 3 migration, the widest slab is snapshot 34, which holds 519,342,987 halos, and the percolation super-forest (source forest id 26551468179 in the Consistent-Trees catalogue) holds 321,253,424 of them, 61.86%. A forest is never split across tasks or chunks, so that share was a floor: no `NTask` and no `input.forest_chunks` could put fewer of the widest slab's rows (about 321 million halos) in one process. The cut removes the floor: in the production dataset the largest forest is that same forest, keeping `ForestIndex` 0, with 126,380,326 halos in all (558,306 trees), peaking at 3,415,844 rows at snapshot 31.
+The converter prints its per-worker memory bound before it starts: about 20 GB for a file whose largest forest holds 1.25 million halos and about 84 GB for the file of the dataset's 126-million-halo forest, at 70 slabs and the default `--window-rows` (the converter manual gives the terms). On a rotational disk one or two workers saturate the conversion, which is seek-bound, and more can be slower (the converter manual gives the rest). Output does not depend on the worker count or the window. It exits 0 when every selected file is complete, 1 when a file fails verification and 2 on any refusal or other failure.
 
 ## How the production dataset was made
 
-The dataset under `snapshots/` is the **cut version 3 dataset**: 22,503,649,037 halos in 70 snapshot files plus the `forests.h5` sidecar (71 files, 3,156,784,461,544 B, 140.28 B per halo), 244,953,607 forests, `links_adjacent 1`, identity multiplier 2×10¹⁰. It comes from the legacy version 2 conversion by two operations of `convert/mimic-convert/rewrite_trees.py`, a migration to version 3 (`migrate`, since retired) and a cut (`cut`, still offered), neither of which reads the ASCII catalogue.
-
-### The version 2 conversion (history)
-
-The first production dataset was made by the legacy version 2 converter (`convert_ctrees.py`, since removed) from the full 2,744-file Consistent-Trees ASCII catalogue under the production `forests.list` (md5 `60dbf14a99ae9f23ca7c334474477a95`) and `locations.dat` (md5 `75442d7ae5b1f2465b485e60720e6df7`). The dataset was 71 files of 2,251,984,563,372 B holding 22,503,649,037 halos in 166,547,771 forests, with its largest snapshot, 34, at 519,342,987 halos. Its rows were sorted by `MostBoundID`, so it was not forest-blocked and the horizontal driver refused to distribute or chunk it.
-
-### The migration: the uncut version 3 dataset
+The package's production dataset is the `shin-uchuu-ascii-horizontal` package's cut version 3 dataset written as L-Halo binary by `convert/mimic-convert/write_vertical_trees.py` (`plan`, then `convert`).
 
 | | |
 |---|---|
-| Tool and commit | the rewriter's `migrate` operation (since retired), commit `b4903283994b066c811cabf83ae2c2ea1ed39a9c` |
-| Inputs | the version 2 dataset and its conversion manifest; the production `forests.list` and `locations.dat` (md5s above); the `shin-uchuu-ascii` package's `simulation_info.yaml`, a_list and column map; multiplier 2×10¹⁰ |
-| Result | 71 files, 3,154,903,285,150 B; 22,503,649,037 halos, 315,004,242 trees, 166,547,771 forests, `max_halo_rank_in_forest` 12,646,607,900 |
-| Checks | root correspondence (315,004,242 index roots, 315,004,242 terminal roots) and per-tree conservation against the version 2 manifest (2,744 files, 0 disagreeing) pass; the bounded battery (`convert_trees.py validate --bounded`) gives `validation: PASS`, 20 of 20 checks |
+| Input | the cut version 3 dataset of [`simulations/shin-uchuu-ascii-horizontal/`](../shin-uchuu-ascii-horizontal/README.md): 244,953,607 forests and 22,503,649,037 halos in 70 snapshot files, `links_adjacent 1`; `forest_id_sha256` `3c215f7a37eebe1fb174ed52e1c993fb1a9693b0a89ed1bdef688abd19393f22`, `column_mapping_sha256` `727d13f529fa80305f261b933612b6087aa52ade5dde7899bb18f8f4450f8f6d` |
+| Tool and commit | `write_vertical_trees.py` at commit `944364d41044eda4201916bc38d1aaa00e2bb418`; every file was written at that commit with the converter's directory unmodified, each re-read and its SHA-256 checked before it was renamed |
+| Caps | 100,000,000 halos and 1,000,000 forests per file; a forest larger than the halo cap occupies its file alone |
+| Files | 361, `shin-uchuu-cut.0` to `shin-uchuu-cut.360`, 1,981,300,932,572 B in all; file 0 holds the 126,380,326-halo forest alone |
+| Record | 88 bytes, 14 fields, layout digest `ab04dcbae52ffd11b1e773fe3c9aafecc22371f4583eeadf2353930e5bdf5e64` (`halo_properties.yaml` md5 `095cc9a62a460f61530989325d8d9e24`) |
+| Plan | `file_plan.json` md5 `071b080f67ed9d2557c934605fc32859` |
+| Totals | 244,953,607 forests and 22,503,649,037 halos, the input's |
 
-`sage16` on the uncut dataset (one task, `forest_chunks: 2`, the version 2 run's output snapshots 69, 52, 43, 40, 20, 10, 5, 2, 1 and 0) is bitwise identical to the recorded version 2 run: 2,058,518,068 galaxies over 10 output snapshots in all 42 fields, with identical `UniqueGalaxyID` sets, and every z = 0 science value (313,766,518 galaxies, 244,953,607 centrals) equals the version 2 reference's.
+### Identity with the horizontal run
 
-### The cut: the production dataset
+A `sage16` run on this dataset with the vertical driver (the committed `sage16` pipeline, `SubSteps: 10`, output snapshots 69, 52, 43, 40, 20, 10, 5, 2, 1 and 0, under `mpirun -np 4`) is identical to the cut horizontal `sage16` run of the `shin-uchuu-ascii-horizontal` package, which was made with the same pipeline and output snapshots: 2,059,547,378 galaxies over the ten output snapshots, all 42 fields byte for byte, identical `UniqueGalaxyID` sets and no duplicates, compared with `scripts/compare_cross_format_identity.py` in its default mode.
 
-| | |
-|---|---|
-| Tool and commit | `rewrite_trees.py cut` of the uncut dataset, commit `c4a73f70`; same index files and multiplier |
-| Cut table | `forests.list` md5 `6e9f2fb03b26a36ce51c5392e7bcf164` (its record md5 `432b157965cebf9420993e62d074377d`) |
-| Rule | every forest partitioned into its z = 0 FoF groups |
-| Pieces | 166,547,771 forests become 244,953,607; 8,053,562 forests are split into 86,459,398 pieces, 78,405,836 of them fresh; the super-forest keeps `ForestIndex` 0 with 126,380,326 halos (558,306 trees), its next two pieces holding 71,150,152 and 55,080,340; `max_halo_rank_in_forest` falls to 126,380,325 |
-| Promotions | 481,296,108 halos become centrals, none at snapshot 69; 155,039,609 groups lose members; the progenitor order changes for 254,554 descendants |
-| Checks | the bounded battery gives `validation: PASS`, 20 of 20 checks, and the census's per-snapshot predictions (promotions and progenitor-order changes) equal the cut's in every snapshot |
+| Snapshot | Galaxies |
+|---:|---:|
+| 0 | 1,854,727 |
+| 1 | 3,219,989 |
+| 2 | 5,147,402 |
+| 5 | 16,421,826 |
+| 10 | 66,306,470 |
+| 20 | 281,932,492 |
+| 40 | 490,934,902 |
+| 43 | 473,283,408 |
+| 52 | 406,693,129 |
+| 69 | 313,753,033 |
 
-**The rule.** Each tree joins the forest of its terminal halo's z = 0 FoF group, with no free parameter. This is exactly the partition that cuts every co-membership (a pair of trees, one holding a FoF member of a group centred in the other) that ended before the final snapshot and keeps every one present at it. "Ended" is an operational definition fixed by the dataset's final snapshot, not a claim that an encounter was an artificial join or a physical flyby. **The structural invariant** is that every z = 0 FoF group of the input is preserved exactly (every final-snapshot central/member relation, by `MostBoundID`: 315,004,242 halos and 244,953,607 centrals in both datasets, 0 relations differing); no halo is promoted at z = 0 and no tree is split. A forest's largest piece keeps its id and `ForestIndex`; every other piece gets a fresh id above the catalogue's maximum, in descending size.
+Snapshot 69 is z = 0: 313,753,033 galaxies, the horizontal run's count. The 22 `mimic-plot` figures of the vertical run, drawn with the `sage16` `shin-uchuu-ascii-horizontal` plot profile (`plotting.profile: models/sage16/plots/profiles/shin-uchuu-ascii-horizontal_plot_profile.yaml`), are byte-identical to the horizontal run's.
 
-**`sage16` against the uncut run.** Compared through the catalogue-key comparator, which pairs tree galaxies by (`MostBoundID`, `SnapNum`), 2,058,426,737 galaxies pair over 10 output snapshots, and every galaxy outside the split forests is identical in all 42 fields, bitwise except `UniqueGalaxyID`, the pairing key, with `UniqueCentralGalaxyID` compared through the pairing. Inside the 8,053,562 split forests the differences are by design, reported and not gated: of their records, 1,338,523,829 are identical, 180,067,108 differ, 91,331 are only in the uncut run and 1,120,641 only in the cut run, and 7,791,093 of those forests hold a difference. At z = 0, 160,691,061 galaxies are in unchanged forests and identical; of 153,015,126 paired galaxies in split forests, 76,093,915 differ. The fields differing most are `ColdGas` (144,137,859 records), `HotGas` (89,961,604) and `Cooling` (87,609,902); `Type`, `Mvir`, `UniqueCentralGalaxyID` and `Vvir` each differ in about 29.8 million records, because the promoted halos become FoF centrals.
+The identity is claimed for `sage16`. `halos-only` is gated at subset scale (see [Evidence](#evidence)) and ran at production scale on file 0 alone, without an identity comparison; `hod` and `sham` cannot run here (see [Created-record limit](#created-record-limit)).
 
-**Science checks at z = 0.** The cut run keeps every central and its halo mass function is identical in every bin; the satellites and baryon totals change, only inside the split forests. No numerical gate is set on these totals.
+## Running this package
 
-| z = 0 (snapshot 69) | Uncut | Cut | Cut − uncut |
-|---|---|---|---|
-| Galaxies | 313,766,518 | 313,753,033 | −13,485 (−0.004%) |
-| Type 0 (centrals) | 244,953,607 | 244,953,607 | 0 |
-| Type 1 | 68,812,911 | 68,799,426 | −13,485 |
-| Global baryon fraction | 0.123655 | 0.123676 | +0.017% |
-| Stellar mass (10¹⁰ Msun/h, summed) | 252,945.75 | 253,619.37 | +0.27% |
-| Cold gas | 102,958.12 | 102,231.07 | −0.71% |
-| Hot gas | 1,065,197.50 | 1,064,341.97 | −0.08% |
-| Ejected gas | 191,823.20 | 193,140.09 | +0.69% |
-| Intracluster stars | 102,497.79 | 102,383.33 | −0.11% |
-| Black holes | 102.910 | 105.223 | +2.25% |
+Shipped run files pair it with `halos-only` and `sage16`; they differ from the `shin-uchuu-ascii-horizontal` run files only in the header comment, `simulation.name` and `output_directory`, and declare no `input` section, so the package's `simulation_info.yaml` supplies the file range:
 
-The mean baryon fraction by halo mass differs in all 42 bins, by at most 0.091% (relative), with the same halo count in every bin. No identity of `sham` or `hod` is claimed on the cut dataset: `sham`, and `hod` with its audit, need `forest_chunks: 1`, no production run of either was made on it, and at subset scale their output differs inside split forests, measured and reported, not gated.
+```bash
+make MODEL=sage16 SIMULATION=shin-uchuu
+./mimic models/sage16/input/sage16_shin-uchuu.yaml
+```
 
-### Running it chunked, and the laptop-class proxy
+### Memory
 
-`sage16` on the cut dataset at one task and `input.forest_chunks: 128`, with the version 2 run's output snapshots, completed and peaked at **6,170,116,096 B (6.170 GB) RSS**, 0.575 of the 10 GiB (10,737,418,240 B) usable budget of a 16 GiB laptop class; this is a **proxy**: a Mac measurement under `MallocLargeCache=0`, which becomes the final laptop acceptance only when a laptop of the 16 GiB class runs it.
+The vertical driver holds one forest at a time, and a run's peak memory is set by the largest forest it processes, the 126,380,326-halo forest of file 0. Serial runs on that file, measured on one macOS host with the allocator's large-block cache disabled (`MallocLargeCache=0`; the default allocator can report more), peaked at 70.96 GB of resident memory for `sage16` (measured 2026-10-22); `sage16` needs a host with that much memory free. Of that peak, 24.4 GB is the output buffer (132,699,342 records of 184 B), sized to the forest's halos plus 5%. `halos-only` on that forest needed about 143 GB (142.6 GB), measured before the output buffer was resized and not re-measured since. Under `mpirun` each rank's peak follows the largest forest that rank holds, so the rank holding file 0 needs the same memory as a serial run.
 
-At subset scale (the cut version of the 2,744-file subset: 7,206,195 forests, widest slab 9,006,294 halos), serial, `forest_chunks: 8` and `mpirun -np 4` runs of `halos-only` and `sage16` write bitwise identical galaxies, and chunking in 8 lowers the peak RSS (measured under `MallocLargeCache=0`) from 9.012 to 1.503 GB (`halos-only`) and from 9.712 to 1.777 GB (`sage16`). No unchunked or distributed run of the cut production dataset was made, so that identity is measured at subset scale only.
+## Identity with the sibling packages
 
-### The subset gate
+`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰) must equal the value in `shin-uchuu-ascii-horizontal` and `shin-uchuu-ascii`, or `UniqueGalaxyID` diverges between the packages. The vertical driver numbers forests by the prefix sum of the files' tree counts in file-number order, so with every file present and the files in plan order a forest's number is its `ForestIndex`, and a halo's id is `HaloRankInForest + 2×10¹⁰ × (ForestIndex + 1)`, the id the horizontal driver gives it.
 
-`_tests/scientific/test_cross_format_identity.py` compares the vertical `shin-uchuu-ascii` reader over the 2,744-file subset (406,668,896 halos, 6,011,205 forests) with the horizontal reader over a version 3 conversion of exactly that subset, for `halos-only` and `sage16`, each with fixed and dynamic timesteps. It runs only when `MIMIC_SHIN_UCHUU_SUBSET_DATASET` names the subset's dataset (and `MIMIC_SHIN_UCHUU_SUBSET_MANIFEST` the subset's `convert_trees.py` conversion manifest, whose source dependencies name the 2,744 tree files), because this package's `snapshots/` holds the production dataset. On the subset migrated from its version 2 conversion all four legs pass bitwise in every field: `halos-only` 92,413,007 galaxies over 8 output snapshots in all 20 fields, fixed and dynamic; `sage16` 60,016,178 (fixed) and 60,016,233 (dynamic) galaxies in all 42 fields. The gate covers the migration at subset scale; it excludes the production super-forest and says nothing about the cut. The gate is a plain `ParityGate` over `tests/framework/parity_gate.py`, which threads the named dataset through every stage; with the dataset unset the tier still runs a data-free check that the pins name the subset's dataset and that each committed `shin-uchuu` run file's dataset variant differs from its vertical counterpart in exactly the authorized keys, and skips the comparison with its reason.
+## Created-record limit
+
+A module that creates records during processing names each one in a separate negative id space sized by the run's forest count times its largest forest (times 1,024 records per host). At the production dataset's 244,953,607 forests and its largest forest of 126,380,326 halos that space does not fit a signed 64-bit id, so a module that creates records cannot run on this package under the vertical driver: the run logs the verdict at startup (`Created-record identity space (vertical, reader 'lhalo_binary'): ... does not fit int64; this run cannot create records`) and refuses every `module_create_record()` call with an error naming the module. `halos-only` and `sage16` create no records and are unaffected.
+
+## Tests
+
+- `_tests/data/worked_ascii_lhalo/` is the committed fixture: the three synthetic forests (13 halos) of the `shin-uchuu-ascii-horizontal` package's `worked_ascii` version 3 fixture, converted by `write_vertical_trees.py` into two files (forests 0 and 1 in `shin-uchuu-cut.0`, forest 2 in `shin-uchuu-cut.1`), with the conversion's `file_plan.json` and the source fixture's a_list. `_tests/data/regenerate.sh` rebuilds it and fails if the installed data files are not exactly the converted set; the conversion's `manifest.json` is not kept, since it records the converting commit and run and would change on every rebuild. `_tests/input/test_simulation.yaml` points the generic test tiers at the fixture.
+- `_tests/unit/test_record_layout.c` pins the compiled `struct RawHalo` to the record above: size 88 and every member's offset, as the converter derives them.
+- `_tests/unit/test_tree_loading.c` reads both fixture files through the `lhalo_binary` reader and checks each file's tree and halo counts against its `file_plan.json`, every link inside its forest, `FirstHaloInFOFgroup` never −1, `SnapNum` non-increasing along each forest, and that reading leaks nothing.
+- `_tests/integration/test_fixture_halo_identity.py` builds the reference dump tool for the compiled model and this package, dumps the fixture through the reader and proves with the generalisation acceptance harness's `compare` that it says exactly what its source dataset says: every halo, link and payload bit.
+
+Each test runs only with `SIMULATION=shin-uchuu`:
+
+```bash
+make MODEL=halos-only SIMULATION=shin-uchuu tests
+```
+
+## Evidence
+
+The evidence is of two kinds. At production scale, a `sage16` run on the production dataset is identical to the cut horizontal run (see [How the production dataset was made](#how-the-production-dataset-was-made)). At subset scale, over the cut Shin-Uchuu subset (406,668,896 halos in 7,206,195 forests, the production dataset's layout and cut rule), the halo-level check and the gate below cover `halos-only` and `sage16`. No `hod` or `sham` claim is made.
+
+- **Halo-level check.** The subset converted to L-Halo binary reads, through this package's reader and the acceptance harness's dump tool, exactly as its version 3 horizontal dataset says: all 25 checks of `run_generalisation_acceptance.py compare --source-format lhalo_binary --dataset-source-format consistent_trees_ascii` pass over every halo, link and payload bit. Converting with 1, 4 and 8 workers gives byte-identical files.
+- **Cross-format identity gate.** `_tests/scientific/test_cross_format_identity.py` runs the vertical driver on the converted subset and the horizontal driver on the dataset it came from, for `halos-only` and `sage16`, each with fixed and dynamic timesteps, and requires identical `UniqueGalaxyID` sets and byte-identical fields in every output snapshot. All four legs pass: `halos-only` 92,429,377 galaxies in both schemes, `sage16` 60,033,537 (fixed) and 60,033,573 (dynamic), over eight output snapshots. A vertical `sage16` run under `mpirun -np 4` is bitwise identical to the serial run.
+
+The gate is a plain `ParityGate` over `tests/framework/parity_gate.py` with both `vertical_dataset` and `horizontal_dataset` set, because neither package's `snapshots/` holds the subset. It runs the comparison only when `MIMIC_SHIN_UCHUU_CUT_SUBSET_LHALO` names the subset's L-Halo conversion directory (which must hold the conversion's `file_plan.json` and `manifest.json`, the manifest proving the conversion's input and file list) and `MIMIC_SHIN_UCHUU_CUT_SUBSET_DATASET` the subset's horizontal dataset; with either unset it checks, without data, that its pins name the subset and that the committed run files differ in exactly the authorized keys, and skips the comparison with its reason. It needs 150 GiB (about 161 GB) free for its worktrees and runs, and the subset converted to at least two files:
+
+```bash
+MIMIC_SHIN_UCHUU_CUT_SUBSET_LHALO=/path/to/subset-lhalo \
+MIMIC_SHIN_UCHUU_CUT_SUBSET_DATASET=/path/to/subset-dataset \
+    make MODEL=halos-only SIMULATION=shin-uchuu tests-scientific
+```
+
+The gate covers the conversion and the vertical reader at subset scale. It does not exercise a forest of the production dataset's largest size; the production `sage16` run does.
 
 ## Related packages
 
-- `simulations/shin-uchuu-ascii/` — a subset of the same catalog in Consistent-Trees ASCII, read by the vertical driver
-- `simulations/shin-uchuu-lhalo/` — this package's cut dataset written as L-Halo binary trees by `convert/mimic-convert/write_vertical_trees.py` and read by the vertical driver; its gate compares it with this package over the cut subset, and a vertical run there assigns the `UniqueGalaxyID`s this package assigns
-- `simulations/micro-uchuu-ascii-horizontal/` — the worked exemplar this package's structure and conventions mirror
+- `simulations/shin-uchuu-ascii-horizontal/`: the horizontal version 3 dataset this package's dataset is converted from, read by the horizontal driver.
+- `simulations/shin-uchuu-ascii/`: the vertical Consistent-Trees ASCII subset package. It shares this package's fields and units but reads an uncut subset, not the cut trees.

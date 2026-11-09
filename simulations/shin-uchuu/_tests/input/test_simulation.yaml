@@ -1,28 +1,28 @@
-# Test Shin-Uchuu horizontal HDF5 (format version 3) Simulation Metadata
+# Test Shin-Uchuu L-Halo binary Simulation Metadata
 #
-# Points the generic test tiers at the committed worked_ascii fixture
-# (_tests/data/worked_ascii/, rebuilt by _tests/data/regenerate.sh): the
-# synthetic Consistent-Trees ASCII forests of
-# simulations/micro-uchuu-ascii-horizontal/'s fixture (three forests over six
-# snapshots with adjacent links, an empty snapshot 0 and a populated final
-# snapshot), converted by convert/mimic-convert/convert_trees.py under this
-# package's own metadata. The cosmology, box size, particle mass and identity
-# multiplier are this package's own (simulation_info.yaml), which the fixture's
-# headers carry and the reader checks at open; the fixture's snapshot list is
-# the last six scale factors of this package's own list, renumbered from 0.
-# This is test-sized synthetic data: it exercises this package's compiled schema
-# and reader path, not the Shin-Uchuu halo population. No input file range is
-# declared: the horizontal reader derives its file set from the snapshot list.
+# Points the generic test tiers at the committed worked_ascii_lhalo fixture
+# (_tests/data/worked_ascii_lhalo/, rebuilt by _tests/data/regenerate.sh): the
+# three synthetic forests of simulations/shin-uchuu-ascii-horizontal/'s worked_ascii fixture,
+# converted to two L-Halo binary files (forests 0 and 1 in file 0, forest 2 in
+# file 1) in this package's own record by
+# convert/mimic-convert/write_vertical_trees.py. The cosmology, box size and
+# particle mass are this package's own (simulation_info.yaml); the snapshot list
+# is the source fixture's, the last six scale factors of this package's own list,
+# renumbered from 0. No identity multiplier is declared: like every vertical
+# package's test config, the fixture runs at the default, which the generic
+# multiplier tests take as their reference encoding. This is test-sized synthetic
+# data: it exercises this package's compiled record and reader path, not the
+# Shin-Uchuu halo population.
 
 input:
-  tree_name: snapshot_%03d.h5
-  tree_type: horizontal_hdf5
-  processing_order: horizontal
-  simulation_dir: simulations/shin-uchuu/_tests/data/worked_ascii
-  snapshot_list_file: simulations/shin-uchuu/_tests/data/worked_ascii/worked_ascii.a_list
+  first_file: 0
+  last_file: 1
+  tree_name: shin-uchuu-cut
+  tree_type: lhalo_binary
+  simulation_dir: simulations/shin-uchuu/_tests/data/worked_ascii_lhalo
+  snapshot_list_file: simulations/shin-uchuu/_tests/data/worked_ascii_lhalo/worked_ascii.a_list
 
 simulation:
-  unique_galaxy_id_multiplier: 20000000000
   cosmology:
     omega_matter: 0.3089
     omega_lambda: 0.6911

@@ -23,7 +23,7 @@ output:
   forests_per_file: 500000
 
 simulation:
-  # Matches simulations/shin-uchuu/ exactly, or UniqueGalaxyID diverges
+  # Matches simulations/shin-uchuu-ascii-horizontal/ exactly, or UniqueGalaxyID diverges
   # between the two packages. This package's own subset only reaches a max
   # rank of 8,312,565; the multiplier is set for the full catalog's
   # max_halo_rank_in_forest = 12,646,607,900, which 2e10 satisfies.

@@ -24,7 +24,7 @@
 #
 # Usage (from anywhere; called by each package's _tests/data/regenerate.sh):
 #   convert_worked_ascii.sh <horizontal package> <vertical source package>
-#   e.g. convert_worked_ascii.sh shin-uchuu shin-uchuu-ascii
+#   e.g. convert_worked_ascii.sh shin-uchuu-ascii-horizontal shin-uchuu-ascii
 #
 # Exit codes: 0 on success; non-zero if an argument is wrong, an input is
 # missing, any converter stage fails or the installed snapshot files differ from

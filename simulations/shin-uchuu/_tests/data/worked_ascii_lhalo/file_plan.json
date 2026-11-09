@@ -28,8 +28,8 @@
   "format": "mimic-vertical-file-plan",
   "record": {
     "digest": "ab04dcbae52ffd11b1e773fe3c9aafecc22371f4583eeadf2353930e5bdf5e64",
-    "halo_properties": "simulations/shin-uchuu-lhalo/halo_properties.yaml",
-    "halo_properties_md5": "095cc9a62a460f61530989325d8d9e24"
+    "halo_properties": "simulations/shin-uchuu/halo_properties.yaml",
+    "halo_properties_md5": "5bc8c00bf4a00a90be7305fa962c6f7c"
   },
   "version": 1
 }

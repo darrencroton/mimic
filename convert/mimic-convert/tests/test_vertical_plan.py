@@ -1,12 +1,12 @@
 """The file plan (vertical/plan.py): forest totals, the file cut and ``file_plan.json``.
 
-Oracles, on :mod:`fixtures`' correspondence-valid forests 1100, 1200, 1300 and 1400 converted to
-a version 3 dataset (forest 1300's one tree ends at snapshot 2, so that forest has no halo in the
+Oracles, on :mod:`fixtures`' correspondence-valid forests 1100, 1200, 1300 and 1400 converted to a
+version 3 dataset (forest 1300's one tree ends at snapshot 2, so that forest has no halo in the
 final slab): the forests' halo totals, 8, 6, 2 and 3, typed literally and read at block sizes that
-split slabs between a forest's rows; the committed ``shin-uchuu`` ``worked_ascii`` fixture's
-totals, 7, 4 and 2 (its forest 30 ends at snapshot 2); literal file cuts for small caps; every
-refusal of :func:`forest_totals`, each from a copy of the dataset mutated in one way; the caps'
-and totals' refusals of :func:`cut_files`; and the plan file's round trip and refusals.
+split slabs between a forest's rows; the committed ``shin-uchuu-ascii-horizontal`` ``worked_ascii``
+fixture's totals, 7, 4 and 2 (its forest 30 ends at snapshot 2); literal file cuts for small caps;
+every refusal of :func:`forest_totals`, each from a copy of the dataset mutated in one way; the
+caps' and totals' refusals of :func:`cut_files`; and the plan file's round trip and refusals.
 """
 
 import json
@@ -43,7 +43,9 @@ from vertical.record import record_digest, record_dtype, record_layout  # noqa: 
 
 SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "halo_properties.yaml"
 MINI_MILLENNIUM_RECORD = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
-WORKED_ASCII = REPO_ROOT / "simulations" / "shin-uchuu" / "_tests" / "data" / "worked_ascii"
+WORKED_ASCII = (
+    REPO_ROOT / "simulations" / "shin-uchuu-ascii-horizontal" / "_tests" / "data" / "worked_ascii"
+)
 
 #: The fixture's forests by ForestIndex: 1100, 1200, 1300 (ends at snapshot 2) and 1400.
 TOTALS = [8, 6, 2, 3]

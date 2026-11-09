@@ -2,7 +2,7 @@
  * @file    test_tree_loading.c
  * @brief   Loads the committed worked_ascii_lhalo fixture through the lhalo_binary reader
  *
- * Validates: the shin-uchuu-lhalo fixture read through open_partition/load_unit
+ * Validates: the shin-uchuu fixture read through open_partition/load_unit
  *
  * The fixture (_tests/data/worked_ascii_lhalo/, rebuilt by _tests/data/regenerate.sh)
  * is three synthetic forests in two files. Its file_plan.json gives file 0 two
@@ -20,7 +20,7 @@
  *   - test_loading_leaks_nothing: opening, loading, freeing and closing every file
  *     returns the tracked tree and halo memory to where it started
  *
- * Skips, naming the compiled simulation, unless SIMULATION=shin-uchuu-lhalo.
+ * Skips, naming the compiled simulation, unless SIMULATION=shin-uchuu.
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -42,7 +42,7 @@ extern struct RawHalo *InputTreeHalos;
 extern int *InputTreeNHalos;
 extern int Ntrees;
 
-#define PACKAGE "shin-uchuu-lhalo"
+#define PACKAGE "shin-uchuu"
 #define N_FILES 2
 #define MAX_TREES_PER_FILE 2
 
@@ -188,7 +188,7 @@ int test_loading_leaks_nothing(void) {
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
-  printf("Test Suite: shin-uchuu-lhalo Tree Loading\n");
+  printf("Test Suite: shin-uchuu Tree Loading\n");
   printf("============================================================\n");
   printf("%s", NC);
 

@@ -1,4 +1,4 @@
-# Mimic SAGE26 on Shin-Uchuu Run Configuration - horizontal HDF5
+# Mimic SAGE26 on Shin-Uchuu Run Configuration - L-Halo binary (cut dataset)
 
 model:
   name: sage26

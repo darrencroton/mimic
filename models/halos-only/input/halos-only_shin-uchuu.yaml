@@ -1,4 +1,4 @@
-# Mimic halos-only Shin-Uchuu (horizontal HDF5) Run Configuration
+# Mimic halos-only Shin-Uchuu (L-Halo binary, cut dataset) Run Configuration
 
 model:
   name: halos-only

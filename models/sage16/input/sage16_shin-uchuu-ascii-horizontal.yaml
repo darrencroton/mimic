@@ -1,14 +1,14 @@
-# Mimic SAGE on Shin-Uchuu Run Configuration - L-Halo binary (cut dataset)
+# Mimic SAGE on Shin-Uchuu Run Configuration - horizontal HDF5
 
 model:
   name: sage16
 
 simulation:
-  name: shin-uchuu-lhalo
+  name: shin-uchuu-ascii-horizontal
 
 output:
   output_filename: model
-  output_directory: output/sage16-shin-uchuu-lhalo
+  output_directory: output/sage16-shin-uchuu-ascii-horizontal
   output_format: hdf5
   snapshot_list: [69, 48, 44, 37, 32, 30, 27, 24]
 

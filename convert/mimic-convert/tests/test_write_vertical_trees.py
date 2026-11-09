@@ -1092,7 +1092,7 @@ class CommittedFixtureTests(ConverterCase):
         """Pins the assembler and writer to a committed artifact: ``worked_ascii`` converted in
         the Shin-Uchuu L-Halo record, two forests to a file, is byte for byte the committed
         ``shin-uchuu-cut.0`` and ``.1``, from a plan equal to the committed one."""
-        package = REPO_ROOT / "simulations" / "shin-uchuu-lhalo"
+        package = REPO_ROOT / "simulations" / "shin-uchuu"
         committed = package / "_tests" / "data" / "worked_ascii_lhalo"
         for window_rows in (None, 1):
             with self.subTest(window_rows=window_rows):

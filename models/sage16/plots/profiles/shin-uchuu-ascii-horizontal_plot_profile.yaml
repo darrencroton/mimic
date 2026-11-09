@@ -3,7 +3,7 @@ inherits:
 
 mode: validation
 
-simulation: shin-uchuu-lhalo
+simulation: shin-uchuu-ascii-horizontal
 
 axes:
   halo_mass_function:

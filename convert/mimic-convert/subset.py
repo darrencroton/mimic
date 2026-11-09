@@ -1132,7 +1132,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     # They are reported separately rather than dropped, because the two answer
     # different questions. The figure above bounds the physical spin parameter;
     # but a zero-mass halo's Spin FIELD holds un-normalised J, and the Spin
-    # [-1000, 1000] range check (simulations/shin-uchuu/halo_properties.yaml) is
+    # [-1000, 1000] range check (simulations/shin-uchuu-ascii-horizontal/halo_properties.yaml) is
     # applied to the field. A bound drawn only from
     # the on-relation rows therefore says nothing about what that check will see.
     nonzero = cand_mvir.astype(np.float32) != np.float32(0.0)

@@ -72,10 +72,10 @@ models/<model>/      Self-contained package: input/ run YAMLs, model_properties.
                      shared/ helpers, plots/  (sage16, sage26, sham, hod, halos-only)
 simulations/<sim>/   Catalog halo_properties.yaml, tree fixtures, snapshot lists
                      vertical: mini-millennium, millennium, micro-uchuu, micro-uchuu-ascii,
-                     micro-uchuu-hdf5, mini-uchuu, uchuu, shin-uchuu-ascii, shin-uchuu-lhalo
+                     micro-uchuu-hdf5, mini-uchuu, uchuu, shin-uchuu-ascii, shin-uchuu
                      horizontal v3: mini-millennium-horizontal, micro-uchuu-horizontal,
                      micro-uchuu-hdf5-horizontal, millennium-horizontal, mini-uchuu-horizontal,
-                     micro-uchuu-ascii-horizontal, shin-uchuu
+                     micro-uchuu-ascii-horizontal, shin-uchuu-ascii-horizontal
 build/generated/     Build-time generated files (git_version.h, test lists, module registry)
 tests/               Unit, integration, scientific tests
 plot/mimic-plot/     Plotting system (registry is model-local)
