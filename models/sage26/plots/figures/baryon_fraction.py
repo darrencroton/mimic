@@ -25,9 +25,8 @@ from output_utils import (
 
 # The seven baryon reservoirs, in drawing order: (key, output field). Each field is optional:
 # a reservoir the run does not write is left out of the total and not drawn. SAGE26's
-# counterpart sums the same seven into its total (plotting/allresults-local.py:1255, :1261) and
-# forms the circumgalactic medium's per-halo fraction (:1325), its bin mean (:1360) and draws it
-# as its own curve (:1447).
+# counterpart sums the same seven into its total, forms the circumgalactic medium's per-halo
+# fraction and its bin mean, and draws it as its own curve.
 BARYON_RESERVOIRS = (
     ("stars", "StellarMass"),
     ("cold", "ColdGas"),
@@ -117,7 +116,7 @@ def plot(
     hubble_h = metadata["hubble_h"]
 
     # The cosmic baryon fraction is the run's GlobalBaryonFraction (modules.parameters); 0.17,
-    # SAGE26's own (plotting/allresults-local.py:1255), only when the run does not give it
+    # SAGE26's own, only when the run does not give it
     baryon_frac = module_parameter(params, "GlobalBaryonFraction", 0.17)
 
     # Check which optional baryonic properties are available

@@ -2,9 +2,9 @@
  * @file    sage26_determine_ffb_regime.h
  * @brief   The FFB classifier's per-row record and its test seam
  *
- * sage26_determine_ffb_regime ports SAGE26's determine_and_store_ffb_regime at
- * EnhancedStarFormationOn 1 (R = the staged SAGE26 source, R/src/model_regimes.c:188-240). This
- * header declares what its tests need beyond the module's lifecycle entries:
+ * sage26_determine_ffb_regime implements SAGE26's determine_and_store_ffb_regime at
+ * EnhancedStarFormationOn 1. This header declares what its tests need beyond the module's
+ * lifecycle entries:
  *
  * - struct Sage26FfbRowTrace, the classifier's values for one row: the keys of its draw
  *   (MostBoundID and the current snapshot), the current redshift, the widened float Mvir, the
@@ -35,13 +35,13 @@ struct Sage26FfbRowTrace {
   long long most_bound_id; /**< The row's MostBoundID (the draw's key) */
   int snapshot;            /**< ctx->snapshot_number (the draw's key, halo_snapnum) */
   double redshift;         /**< ctx->redshift (SAGE26's Zcurr) */
-  double mvir;             /**< (double)(float)Mvir, the float SAGE26 holds (:229) */
-  struct MimicSageFfbFractionLocals fraction; /**< The fraction's locals (:321-341) */
-  double f_ffb;                               /**< calculate_ffb_fraction(Mvir, Zcurr) (:232) */
-  uint64_t draw_bits;                         /**< halo_uniform's 64 hashed bits (:153-157) */
-  double draw;                                /**< halo_uniform(MostBoundID, snapnum) (:225) */
+  double mvir;             /**< (double)(float)Mvir, the float SAGE26 holds */
+  struct MimicSageFfbFractionLocals fraction; /**< The fraction's locals */
+  double f_ffb;                               /**< calculate_ffb_fraction(Mvir, Zcurr) */
+  uint64_t draw_bits;                         /**< halo_uniform's 64 hashed bits */
+  double draw;                                /**< halo_uniform(MostBoundID, snapnum) */
   double deviate; /**< The deviate compared with f_ffb: draw, or the seam's */
-  int ffb_regime; /**< The FFBRegime written (:236-240) */
+  int ffb_regime; /**< The FFBRegime written */
 };
 
 /**

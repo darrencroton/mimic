@@ -2,26 +2,23 @@
  * @file sage26_quasar_mode.c
  * @brief SAGE26's black-hole growth and quasar-mode wind
  *
- * Runs SAGE26's grow_black_hole, which calls quasar_mode_wind before it records the
- * accreted mass (R/src/model_mergers.c:346-441), through the shared
- * mimic_apply_black_hole_growth (shared/sage_agn_physics.h): accretion capped to ColdGas,
- * the black-hole, cold-gas and cold-metal updates with the negative-metal floor, for
- * SFprescription 1 the hydrogen cap (H2gas and H1gas each capped at the hydrogen of the
- * remaining cold gas, R/src/model_mergers.c:366-372), the wind against the cold and then the
- * cold plus selected-pair binding energies, and the float QuasarModeBHaccretionMass accumulation.
- * The wind's second test selects the WIND HOST's CGM pair with CGMrecipeOn 1 and the host's own
- * Regime 0, its hot pair otherwise (R/src/model_mergers.c:406-440); the host is the galaxy that
- * grows the black hole (the merger target or the unstable galaxy), never the FoF central as such.
+ * Implements SAGE26's grow_black_hole, which calls quasar_mode_wind before it records the
+ * accreted mass, through the shared mimic_apply_black_hole_growth (shared/sage_agn_physics.h):
+ * accretion capped to ColdGas, the black-hole, cold-gas and cold-metal updates with the
+ * negative-metal floor, for SFprescription 1 the hydrogen cap (H2gas and H1gas each capped at the
+ * hydrogen of the remaining cold gas), the wind against the cold and then the cold plus
+ * selected-pair binding energies, and the QuasarModeBHaccretionMass accumulation. The wind's
+ * second test selects the WIND HOST's CGM pair with CGMrecipeOn 1 and the host's own Regime 0,
+ * its hot pair otherwise; the host is the galaxy that grows the black hole (the merger target or
+ * the unstable galaxy), never the FoF central as such.
  *
  * Trigger channels:
  * - process_by_galaxy: the disk instability's gas branch (UnstableDiskGasFraction > 0,
- *   written by sage26_disk_instability), before sage26_starburst_feedback's burst
- *   (R/src/model_disk_instability.c:101-108). It never acts on a feedback-free-burst row
- *   (FFBRegime 1): SAGE26's FFB call runs no disk-instability check
- *   (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), and the package's
- *   sage26_disk_instability writes nothing on such a row, so its UnstableDiskGasFraction keeps its
- *   per-snapshot reset value 0
- * - process_per_event: the merger event, on the merger target (R/src/model_mergers.c:262-264)
+ *   written by sage26_disk_instability), before sage26_starburst_feedback's burst. It never
+ *   acts on a feedback-free-burst row (FFBRegime 1): SAGE26's FFB call runs no disk-instability
+ *   check, and sage26_disk_instability writes nothing on such a row, so its
+ *   UnstableDiskGasFraction keeps its per-snapshot reset value 0
+ * - process_per_event: the merger event, on the merger target
  *
  * The post-minor-merger recheck's black-hole growth runs inside
  * sage26_starburst_feedback's burst transaction, with this module's parameters and that
@@ -31,11 +28,9 @@
  * CGMrecipeOn (each 0 or 1; a missing key fails at initialisation, any other value is refused),
  * which select the accretion's hydrogen cap and the wind's pair, and AGNrecipe (0 or 2, refused
  * otherwise, shared/sage_agn_recipe.h), whose 0 stops the growth in both channels as SAGE26's
- * AGNrecipeOn 0 does (R/src/model_mergers.c:262-264, R/src/model_disk_instability.c:101-103).
+ * AGNrecipeOn 0 does.
  *
  * References:
- *   - SAGE26 R/src/model_mergers.c:346-441 (grow_black_hole, quasar_mode_wind)
- *   - SAGE26 R/src/model_disk_instability.c:101-104 (the instability's call)
  *   - Kauffmann & Haehnelt (2000) - BH growth model
  *   - Croton et al. (2006, 2016) - SAGE model papers
  *
@@ -62,12 +57,11 @@
 
 static double BLACK_HOLE_GROWTH_RATE;
 static double QUASAR_MODE_EFFICIENCY;
-/* SAGE26's SFprescription: 0 (R0, R1) or 1 (R2), which selects the accretion's hydrogen cap
- * (R/src/model_mergers.c:366-372); a required parameter with no default */
+/* SAGE26's SFprescription: 0 or 1, which selects the accretion's hydrogen cap; a required
+ * parameter with no default */
 static int SF_PRESCRIPTION;
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init, which with the wind host's Regime selects the wind's
- * second pair (R/src/model_mergers.c:406-407) */
+ * init, which with the wind host's Regime selects the wind's second pair */
 static int CGM_RECIPE_ON;
 /* SAGE26's AGNrecipeOn (the package's AGNrecipe, 0 or 2), required and checked at init; 0 grows
  * no black hole in either channel */
@@ -136,8 +130,7 @@ int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, in
       return 0;
     }
 
-    /* SAGE parity: AGNrecipeOn 0 skips grow_black_hole after a merger
-     * (R/src/model_mergers.c:262-264) */
+    /* SAGE parity: AGNrecipeOn 0 skips grow_black_hole after a merger */
     if (AGN_RECIPE_ON == MIMIC_SAGE_AGN_RECIPE_OFF) {
       return 0;
     }
@@ -149,8 +142,8 @@ int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, in
     const double merger_ratio = event->value0;
 
     /* SAGE parity: grow_black_hole on the merger target, its quasar wind included, for
-     * every merger, a ratio of 0 included (R/src/model_mergers.c:262-264, :346-378); the
-     * target is the wind host, whose own Regime selects the wind's pair (:374, :406) */
+     * every merger, a ratio of 0 included; the target is the wind host, whose own Regime
+     * selects the wind's pair */
     (void)mimic_apply_black_hole_growth(event_halo, merger_ratio, BLACK_HOLE_GROWTH_RATE,
                                         QUASAR_MODE_EFFICIENCY, ctx, SF_PRESCRIPTION, CGM_RECIPE_ON,
                                         NULL);
@@ -172,21 +165,18 @@ int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, in
     return 0;
   }
 
-  /* SAGE parity: AGNrecipeOn 0 skips grow_black_hole in the disk instability's gas branch
-   * (R/src/model_disk_instability.c:101-103) */
+  /* SAGE parity: AGNrecipeOn 0 skips grow_black_hole in the disk instability's gas branch */
   if (AGN_RECIPE_ON == MIMIC_SAGE_AGN_RECIPE_OFF) {
     return 0;
   }
 
   /* SAGE parity: the instability's gas branch grows the black hole of the unstable galaxy
-   * itself, its quasar wind included, before the burst (R/src/model_disk_instability.c:90-105);
-   * sage26_disk_instability hands the fraction on through UnstableDiskGasFraction. The unstable
-   * galaxy is the wind host, whose own Regime selects the wind's pair (R/src/model_mergers.c:406).
-   * The trigger is never positive on an FFB row: SAGE26 runs no instability check after its FFB
-   * call (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), and
-   * sage26_disk_instability writes nothing on that row, which keeps the per-snapshot reset value 0.
-   * The merger channel above runs on an FFB target as on any other (SAGE26's merger routines do
-   * not read FFBRegime). */
+   * itself, its quasar wind included, before the burst; sage26_disk_instability hands the
+   * fraction on through UnstableDiskGasFraction. The unstable galaxy is the wind host, whose own
+   * Regime selects the wind's pair. The trigger is never positive on an FFB row: SAGE26 runs no
+   * instability check after its FFB call, and sage26_disk_instability writes nothing on that
+   * row, which keeps the per-snapshot reset value 0. The merger channel above runs on an FFB
+   * target as on any other (SAGE26's merger routines do not read FFBRegime). */
   if (gal->UnstableDiskGasFraction > 0.0) {
     (void)mimic_apply_black_hole_growth(halo, gal->UnstableDiskGasFraction, BLACK_HOLE_GROWTH_RATE,
                                         QUASAR_MODE_EFFICIENCY, ctx, SF_PRESCRIPTION, CGM_RECIPE_ON,

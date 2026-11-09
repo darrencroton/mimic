@@ -2,10 +2,9 @@
  * @file    test_unit_sage_cgm_routing.c
  * @brief   Unit tests of SAGE26's regime-aware hot-phase deposits (shared/sage_cgm_routing.h)
  *
- * SAGE26's add_metals_to_hot_reservoir and add_gas_to_hot_reservoir (R = the staged SAGE26
- * source, R/src/model_misc.h:67-85) deposit into the CGM pair when CGMrecipeOn is 1 and the
- * receiving galaxy's Regime is 0, and into the hot pair otherwise. These tests are platform
- * independent: every input and deposit is a short binary fraction, so each sum is exact and each
+ * SAGE26's add_metals_to_hot_reservoir and add_gas_to_hot_reservoir deposit into the CGM pair
+ * when CGMrecipeOn is 1 and the receiving galaxy's Regime is 0, and into the hot pair
+ * otherwise. Every input and deposit is a short binary fraction, so each sum is exact and each
  * expectation is a literal.
  *
  * - test_metals_helper_selected_field: mimic_sage_add_metals_to_hot_reservoir adds to exactly
@@ -62,7 +61,7 @@ static const struct {
 
 /**
  * @test    test_metals_helper_selected_field
- * @brief   The metals deposit 0.0625 reaches exactly the selected metals field (X:67-74)
+ * @brief   The metals deposit 0.0625 reaches exactly the selected metals field
  */
 int test_metals_helper_selected_field(void) {
   for (int k = 0; k < NUM_RUNS; k++) {
@@ -80,7 +79,7 @@ int test_metals_helper_selected_field(void) {
 
 /**
  * @test    test_gas_helper_selected_pair
- * @brief   The gas deposit 0.5 with metals 0.0625 reaches exactly the selected pair (X:76-85)
+ * @brief   The gas deposit 0.5 with metals 0.0625 reaches exactly the selected pair
  */
 int test_gas_helper_selected_pair(void) {
   for (int k = 0; k < NUM_RUNS; k++) {
@@ -99,7 +98,7 @@ int test_gas_helper_selected_pair(void) {
 
 /**
  * @test    test_selection_and_validator
- * @brief   The selection is CGMrecipeOn 1 && Regime 0 (X:69, :78); only 0 and 1 are valid
+ * @brief   The selection is CGMrecipeOn 1 && Regime 0; only 0 and 1 are valid
  */
 int test_selection_and_validator(void) {
   TEST_ASSERT(mimic_sage_cgm_reservoir_selected(1, 0) == 1, "CGMrecipeOn 1, Regime 0: CGM");

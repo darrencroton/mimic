@@ -4,9 +4,9 @@
  *
  * The module records each galaxy row's final Type in PreviousType and writes the
  * outputs infallStellarMass and TimeOfInfall by SAGE26's writer rule (0 for a
- * Type 0 row, the held state otherwise, R/src/io/save_gals_hdf5.c:1004-1017).
+ * Type 0 row, the held state otherwise).
  * sage26_initialise_merger_clock reads PreviousType at the next snapshot's
- * pre_timestep to make SAGE26's joining writes (R/src/core_build_model.c:284-338).
+ * pre_timestep to make SAGE26's joining writes.
  *
  * Test cases:
  *   - test_placement_*: init() accepts only one post_timestep process_full_halo
@@ -89,7 +89,7 @@ static void free_phases(void) {
   test_free_substep_phases();
 }
 
-/** @brief R0's cosmology and particle mass (mini-Millennium), as the clock reads them */
+/** @brief The mini-Millennium cosmology and particle mass, as the clock reads them */
 static void set_cosmology(void) {
   MimicConfig.PartMass = 0.086;
   MimicConfig.Hubble = 100.0;

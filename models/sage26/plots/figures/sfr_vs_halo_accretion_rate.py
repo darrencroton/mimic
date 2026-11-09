@@ -3,22 +3,19 @@
 """
 SAGE26 Star Formation Rate Against Halo Accretion Rate Plot
 
-Port of the "Plotting SFR vs halo accretion rate" section of SAGE26's plotting script
-(plotting/allresults-local.py:1886-1937): the star formation rate against the gas accretion rate
-(the cooling rate plus the cold-stream rate) of galaxies with both positive, coloured by stellar
-mass, with the line of star formation rate equal to accretion rate. The section is the
-specification; where this port differs it is a permitted deviation below.
+Follows the "Plotting SFR vs halo accretion rate" section of SAGE26's plotting script: the star
+formation rate against the gas accretion rate (the cooling rate plus the cold-stream rate) of
+galaxies with both positive, coloured by stellar mass, with the line of star formation rate equal to
+accretion rate. Where it differs from SAGE26 the difference is stated below.
 
 Requires: SfrDisk, SfrBulge, mdot_cool, mdot_stream, StellarMass
 
-Fields read (units): SfrDisk and SfrBulge (Msun/yr; the rate is their sum, :1893), mdot_cool and
-mdot_stream (Msun/yr; SAGE26's MdotCool and MdotStream, :404-405) and StellarMass (1e10 Msun/h,
-converted to Msun as SAGE26 converts it: x 1e10 / hubble_h, :365). The redshift in the title is
-metadata["redshift"].
+Fields read (units): SfrDisk and SfrBulge (Msun/yr; the rate is their sum), mdot_cool and
+mdot_stream (Msun/yr; SAGE26's MdotCool and MdotStream) and StellarMass (1e10 Msun/h, converted to
+Msun as SAGE26 converts it: x 1e10 / hubble_h). The redshift in the title is metadata["redshift"].
 
-Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
-script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
-candidates exceed DILUTE.
+Differences from SAGE26: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once), so the drawn subset differs when the candidates exceed DILUTE.
 """
 
 import random
@@ -35,8 +32,7 @@ from output_utils import (
     setup_figure,
 )
 
-# Number of galaxies drawn at most: SAGE26's `dilute`, reassigned to 100000 at
-# allresults-local.py:1735 and in force here (:1901-1902)
+# Number of galaxies drawn at most: SAGE26's `dilute` as in force at this figure
 DILUTE = 100000
 
 
@@ -44,7 +40,7 @@ def halo_accretion_rate(mdot_cool, mdot_stream):
     """
     Return the gas accretion rate of each galaxy, the cooling rate plus the cold-stream rate.
 
-    SAGE26 allresults-local.py:1894: `MdotCool + MdotStream`.
+    As in SAGE26: `MdotCool + MdotStream`.
     """
     return mdot_cool + mdot_stream
 
@@ -92,18 +88,17 @@ def plot(
 
     stellar_mass = galaxies.StellarMass * 1.0e10 / hubble_h
 
-    # allresults-local.py:1893-1902
     SFR = total_sfr(galaxies.SfrDisk, galaxies.SfrBulge)
     HaloAccretionRate = halo_accretion_rate(galaxies.mdot_cool, galaxies.mdot_stream)
-    # SAGE26 figure parity: allresults-local.py:1896-1897 comments out `(Type == 0) &` in the
-    # selection, so satellites are drawn, while the title (:1922) says "Centrals".
+    # SAGE parity: SAGE26 comments out `(Type == 0) &` in the selection, so satellites are drawn,
+    # while the title says "Centrals".
     w = np.where((SFR > 0.0) & (HaloAccretionRate > 0.0))[0]
-    w = draw_sample(w, rng, DILUTE)  # allresults-local.py:1901-1902
+    w = draw_sample(w, rng, DILUTE)
 
     log_acc = np.log10(HaloAccretionRate[w])
     log_sfr = np.log10(SFR[w])
 
-    # Colour points by stellar mass, allresults-local.py:1908
+    # Colour points by stellar mass
     log_mstar = np.log10(np.maximum(stellar_mass[w], 1.0))
 
     if verbose:
@@ -112,7 +107,6 @@ def plot(
 
     fig, ax = setup_figure()
 
-    # allresults-local.py:1909-1914
     sc = ax.scatter(
         log_acc,
         log_sfr,
@@ -127,7 +121,7 @@ def plot(
     cbar.set_label(r"$\log_{10} M_{\star}\ [M_{\odot}]$", fontsize=AXIS_LABEL_SIZE)
     cbar.solids.set_alpha(1.0)
 
-    # 1:1 reference line, allresults-local.py:1917-1918
+    # 1:1 reference line
     x_ref = np.array([-4.0, 4.0])
     ax.plot(x_ref, x_ref, "k--", lw=1.2, alpha=0.5, label="SFR = accretion rate")
 
@@ -139,7 +133,6 @@ def plot(
     )
     ax.set_title(f"Centrals — z = {redshift:.2f}", fontsize=AXIS_LABEL_SIZE)
 
-    # allresults-local.py:1924-1928
     ax.xaxis.set_minor_locator(MultipleLocator(0.25))
     ax.yaxis.set_minor_locator(MultipleLocator(0.25))
     ax.set_xlim(x_min, x_max)

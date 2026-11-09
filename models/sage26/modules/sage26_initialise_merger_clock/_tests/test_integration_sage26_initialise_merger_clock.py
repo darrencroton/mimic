@@ -6,8 +6,8 @@ Validates pipeline integration: module initialization in pre_timestep (beside
 sage26_record_transition_state, the last post_timestep module, which supplies the
 previous Type the clock reads), the placement check, the MergerTimeFactor parameter,
 memory safety, output property existence and types, data flow, and standalone
-execution. Physics correctness is covered by the unit tests and the bit-exact oracle
-test; sage26_record_transition_state's integration test follows the transitions over
+execution. Physics correctness is covered by the unit tests;
+sage26_record_transition_state's integration test follows the transitions over
 consecutive snapshots.
 """
 

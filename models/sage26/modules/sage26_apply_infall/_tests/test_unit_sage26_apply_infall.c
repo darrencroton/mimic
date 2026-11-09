@@ -715,19 +715,18 @@ int test_no_central_galaxy(void) {
 }
 
 // ============================================================================
-// CGMrecipeOn 1 AGAINST 0 (platform independent)
+// CGMrecipeOn 1 AGAINST 0
 // ============================================================================
 //
-// SAGE26's add_infall_to_hot (R = the staged SAGE26 source, R/src/model_infall.c:351-414) selects
-// the central's CGM pair for CGMrecipeOn 1 and Regime 0 (:371-385) and its hot pair otherwise
-// (:386-413). Each case runs the same central at CGMrecipeOn 1 with Regime 0 (CGM selected), at
-// CGMrecipeOn 1 with Regime 1 and at CGMrecipeOn 0 with Regime 0 (hot selected in both), and
-// asserts the selected pair, the unselected pair unchanged and the ejected pair. Every input is a
-// short binary fraction (or, for the floor without a clear, a literal float pair), so each
-// expectation is an exact literal.
+// SAGE26's add_infall_to_hot selects the central's CGM pair for CGMrecipeOn 1 and Regime 0 and
+// its hot pair otherwise. Each case runs the same central at CGMrecipeOn 1 with Regime 0 (CGM
+// selected), at CGMrecipeOn 1 with Regime 1 and at CGMrecipeOn 0 with Regime 0 (hot selected in
+// both), and asserts the selected pair, the unselected pair unchanged and the ejected pair.
+// Every input is a short binary fraction (or, for the floor without a clear, a literal float
+// pair), so each expectation is an exact literal.
 
 /** @brief Read a captured log stream into a static buffer (valid until the next call) */
-static const char *c10_read_log(FILE *fp) {
+static const char *cgm_read_log(FILE *fp) {
   static char buf[8192];
   rewind(fp);
   const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
@@ -737,7 +736,7 @@ static const char *c10_read_log(FILE *fp) {
 
 /** @brief Initialise with the budget module in pre_timestep and CGMrecipeOn `cgm` (NULL: missing)
  */
-static int c10_init(const char *cgm, const char **log) {
+static int cgm_init(const char *cgm, const char **log) {
   static struct PhaseModuleConfig pre_timestep[1];
   static char budget_name[] = "sage26_prepare_infall_budget";
   reset_config();
@@ -754,7 +753,7 @@ static int c10_init(const char *cgm, const char **log) {
   const int status = sage26_apply_infall_init();
   if (capture != NULL) {
     set_log_output(old_out);
-    *log = c10_read_log(capture);
+    *log = cgm_read_log(capture);
     fclose(capture);
   } else {
     *log = "";
@@ -765,15 +764,15 @@ static int c10_init(const char *cgm, const char **log) {
 }
 
 /** @brief The central's reservoirs: ejected, hot and CGM pairs */
-struct c10_pairs {
+struct cgm_pairs {
   float ejected, metals_ejected, hot, metals_hot, cgm, metals_cgm;
 };
 
 /** @brief Run one central (Type 0, given Regime and reservoirs) at CGMrecipeOn `cgm` */
-static int c10_apply(const char *cgm, const int regime, const struct c10_pairs *in,
-                     const double infalling_gas, const int substeps, struct c10_pairs *out) {
+static int cgm_apply(const char *cgm, const int regime, const struct cgm_pairs *in,
+                     const double infalling_gas, const int substeps, struct cgm_pairs *out) {
   const char *log = "";
-  if (c10_init(cgm, &log) != 0) {
+  if (cgm_init(cgm, &log) != 0) {
     return -1;
   }
   struct GalaxyData gal;
@@ -806,14 +805,14 @@ static int c10_apply(const char *cgm, const int regime, const struct c10_pairs *
   return status;
 }
 
-static int c10_same_bits(const float a, const float b) { return memcmp(&a, &b, sizeof(a)) == 0; }
+static int cgm_same_bits(const float a, const float b) { return memcmp(&a, &b, sizeof(a)) == 0; }
 
 /**
  * @brief Run the three configurations and compare: the selected pair against (gas, metals), the
  *        unselected pair against its input, the ejected pair against (ejected, metals_ejected)
  * @return 1 when every configuration matches
  */
-static int c10_check_routing(const struct c10_pairs *in, const double infalling_gas,
+static int cgm_check_routing(const struct cgm_pairs *in, const double infalling_gas,
                              const int substeps, const float gas, const float metals,
                              const float ejected, const float metals_ejected) {
   const struct {
@@ -823,8 +822,8 @@ static int c10_check_routing(const struct c10_pairs *in, const double infalling_
   } runs[] = {{"1", 0, 1}, {"1", 1, 0}, {"0", 0, 0}};
   int ok = 1;
   for (size_t k = 0; k < sizeof(runs) / sizeof(runs[0]); k++) {
-    struct c10_pairs out;
-    if (c10_apply(runs[k].cgm, runs[k].regime, in, infalling_gas, substeps, &out) != 0) {
+    struct cgm_pairs out;
+    if (cgm_apply(runs[k].cgm, runs[k].regime, in, infalling_gas, substeps, &out) != 0) {
       printf("\n  CGMrecipeOn %s, Regime %d: init or process failed", runs[k].cgm, runs[k].regime);
       ok = 0;
       continue;
@@ -836,9 +835,9 @@ static int c10_check_routing(const struct c10_pairs *in, const double infalling_
     const float other_gas_in = runs[k].selects_cgm ? in->hot : in->cgm;
     const float other_metals_in = runs[k].selects_cgm ? in->metals_hot : in->metals_cgm;
     const int match =
-        c10_same_bits(sel_gas, gas) && c10_same_bits(sel_metals, metals) &&
-        c10_same_bits(other_gas, other_gas_in) && c10_same_bits(other_metals, other_metals_in) &&
-        c10_same_bits(out.ejected, ejected) && c10_same_bits(out.metals_ejected, metals_ejected);
+        cgm_same_bits(sel_gas, gas) && cgm_same_bits(sel_metals, metals) &&
+        cgm_same_bits(other_gas, other_gas_in) && cgm_same_bits(other_metals, other_metals_in) &&
+        cgm_same_bits(out.ejected, ejected) && cgm_same_bits(out.metals_ejected, metals_ejected);
     if (!match) {
       printf("\n  CGMrecipeOn %s, Regime %d (%s selected): selected %.9g/%.9g (want %.9g/%.9g), "
              "unselected %.9g/%.9g (input %.9g/%.9g), ejected %.9g/%.9g (want %.9g/%.9g)",
@@ -855,12 +854,12 @@ static int c10_check_routing(const struct c10_pairs *in, const double infalling_
 
 /**
  * @test    test_cgm_positive_infall_selected_pair
- * @brief   Positive infall adds gas, and no metals, to the selected pair only (I:383, :397, :411)
+ * @brief   Positive infall adds gas, and no metals, to the selected pair only
  */
 int test_cgm_positive_infall_selected_pair(void) {
   /* Both pairs hold 2.0 / 0.25: budget 1.0 over 4 substeps is 0.25 per substep */
-  const struct c10_pairs in = {0.5f, 0.0625f, 2.0f, 0.25f, 2.0f, 0.25f};
-  TEST_ASSERT(c10_check_routing(&in, 1.0, 4, 2.25f, 0.25f, 0.5f, 0.0625f),
+  const struct cgm_pairs in = {0.5f, 0.0625f, 2.0f, 0.25f, 2.0f, 0.25f};
+  TEST_ASSERT(cgm_check_routing(&in, 1.0, 4, 2.25f, 0.25f, 0.5f, 0.0625f),
               "positive infall must add 0.25 to the selected gas only");
   return TEST_PASS;
 }
@@ -868,14 +867,14 @@ int test_cgm_positive_infall_selected_pair(void) {
 /**
  * @test    test_cgm_negative_infall_metal_debit
  * @brief   Negative infall exhausts the ejected gas, then debits the selected metals at their
- *          metallicity and the selected gas (I:357-368, :376-383, :390-397)
+ *          metallicity and the selected gas
  *
  * Ejected 0.5 / 0.0625 (Z 1/8) takes -2.0: its metals floor at 0 and the residual is the narrowed
  * -1.5. The selected pair 2.0 / 0.25 (Z 1/8) then loses 1.5 and 0.1875: 0.5 / 0.0625.
  */
 int test_cgm_negative_infall_metal_debit(void) {
-  const struct c10_pairs in = {0.5f, 0.0625f, 2.0f, 0.25f, 2.0f, 0.25f};
-  TEST_ASSERT(c10_check_routing(&in, -2.0, 1, 0.5f, 0.0625f, 0.0f, 0.0f),
+  const struct cgm_pairs in = {0.5f, 0.0625f, 2.0f, 0.25f, 2.0f, 0.25f};
+  TEST_ASSERT(cgm_check_routing(&in, -2.0, 1, 0.5f, 0.0625f, 0.0f, 0.0f),
               "the residual must debit the selected pair only");
   return TEST_PASS;
 }
@@ -883,21 +882,21 @@ int test_cgm_negative_infall_metal_debit(void) {
 /**
  * @test    test_cgm_negative_infall_floor_and_clear
  * @brief   Negative infall beyond the selected gas floors its metals and clears both selected
- *          fields (I:379, :384; :393, :398)
+ *          fields
  *
  * No ejected gas; -4.0 against 2.0 / 0.25 (Z 1/8): metals 0.25 - 0.5 floor at 0, gas -2 clears.
  */
 int test_cgm_negative_infall_floor_and_clear(void) {
-  const struct c10_pairs in = {0.0f, 0.0f, 2.0f, 0.25f, 2.0f, 0.25f};
-  TEST_ASSERT(c10_check_routing(&in, -4.0, 1, 0.0f, 0.0f, 0.0f, 0.0f),
+  const struct cgm_pairs in = {0.0f, 0.0f, 2.0f, 0.25f, 2.0f, 0.25f};
+  TEST_ASSERT(cgm_check_routing(&in, -4.0, 1, 0.0f, 0.0f, 0.0f, 0.0f),
               "the selected pair must be cleared, the other unchanged");
   return TEST_PASS;
 }
 
 /**
  * @test    test_cgm_negative_infall_floor_without_clear
- * @brief   The selected metals floor at zero while the gas reaches exactly zero (I:379 without
- *          :384): 1.5 of gas with 0x3c75c290 (0.0150000006) of metals takes exactly -1.5
+ * @brief   The selected metals floor at zero while the gas reaches exactly zero without being
+ *          cleared: 1.5 of gas with 0x3c75c290 (0.0150000006) of metals takes exactly -1.5
  *
  * The float metallicity of that pair rounds above M / G, so M - 1.5 * Z is negative (exactly, by
  * any rounding of the exact product of two floats) and is floored to +0, while 1.5 - 1.5 = +0 is
@@ -907,21 +906,21 @@ int test_cgm_negative_infall_floor_without_clear(void) {
   const uint32_t metals_bits = 0x3c75c290u;
   float metals;
   memcpy(&metals, &metals_bits, sizeof(metals));
-  const struct c10_pairs in = {0.0f, 0.0f, 1.5f, metals, 1.5f, metals};
-  TEST_ASSERT(c10_check_routing(&in, -1.5, 1, 0.0f, 0.0f, 0.0f, 0.0f),
+  const struct cgm_pairs in = {0.0f, 0.0f, 1.5f, metals, 1.5f, metals};
+  TEST_ASSERT(cgm_check_routing(&in, -1.5, 1, 0.0f, 0.0f, 0.0f, 0.0f),
               "the selected metals must floor at +0 with the gas exactly consumed");
   return TEST_PASS;
 }
 
 /**
  * @test    test_cgm_negative_infall_non_positive_metals
- * @brief   Selected metals that are not positive are neither debited nor floored (I:376, :390):
+ * @brief   Selected metals that are not positive are neither debited nor floored:
  *          -2^-30 stays -2^-30 while the gas loses 1.0
  */
 int test_cgm_negative_infall_non_positive_metals(void) {
   const float tiny_negative = -0x1p-30f;
-  const struct c10_pairs in = {0.0f, 0.0f, 2.0f, tiny_negative, 2.0f, tiny_negative};
-  TEST_ASSERT(c10_check_routing(&in, -1.0, 1, 1.0f, tiny_negative, 0.0f, 0.0f),
+  const struct cgm_pairs in = {0.0f, 0.0f, 2.0f, tiny_negative, 2.0f, tiny_negative};
+  TEST_ASSERT(cgm_check_routing(&in, -1.0, 1, 1.0f, tiny_negative, 0.0f, 0.0f),
               "non-positive selected metals must be left as they are");
   return TEST_PASS;
 }
@@ -933,14 +932,14 @@ int test_cgm_negative_infall_non_positive_metals(void) {
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
-  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
-  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
   return TEST_PASS;
 }
 
@@ -974,7 +973,7 @@ int main(void) {
   TEST_RUN(test_zero_infall);
   TEST_RUN(test_no_central_galaxy);
 
-  /* CGMrecipeOn 1 against 0 (platform independent) */
+  /* CGMrecipeOn 1 against 0 */
   TEST_RUN(test_cgm_positive_infall_selected_pair);
   TEST_RUN(test_cgm_negative_infall_metal_debit);
   TEST_RUN(test_cgm_negative_infall_floor_and_clear);

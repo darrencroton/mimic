@@ -3,30 +3,27 @@
 """
 SAGE26 Quenched Fraction Evolution Plot
 
-Port of the "Quenched fraction as a function of StellarMass across the same redshift bins
-(centrals/satellites separated)" section of SAGE26's history plotting script
-(plotting/allresults-history.py:1252-1358, figure QuenchedFraction.StellarMassFunctionEvolution):
-the fraction of quiescent central galaxies (solid line, with a one-sigma band across the
+Follows the QuenchedFraction.StellarMassFunctionEvolution figure of SAGE26's history plotting
+script: the fraction of quiescent central galaxies (solid line, with a one-sigma band across the
 snapshots of a bin) and of satellite galaxies (dotted line) against stellar mass, in the fifteen
-redshift bins. The section is the specification; where this port differs it is a permitted
-deviation below.
+redshift bins. Where it differs from SAGE26 the difference is stated below.
 
 Requires: StellarMass, SfrDisk, SfrBulge, Type
 
-Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, allresults-history.py:337), SfrDisk and SfrBulge (Msun/yr; the rate is their
-sum, :1273) and Type (0 central, 1 satellite; :1297, :1307, so orphans, Type 2, are in neither
-curve). A galaxy is quiescent when its specific star formation rate is below 10^sSFRcut per
-year, sSFRcut = -11.0 (:23, :1286).
+Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 /
+hubble_h), SfrDisk and SfrBulge (Msun/yr; the rate is their sum) and Type (0 central, 1 satellite,
+so orphans, Type 2, are in neither curve). A galaxy is quiescent when its specific star formation
+rate is below 10^sSFRcut per year, sSFRcut = -11.0.
 
-Snapshots: those with a redshift in each bin of ``Z_BINS`` (:1257), chosen through
-``snapshots_in_z_range``; snapshot 63 (z = 0) falls in none, as in SAGE26.
+Snapshots: those with a redshift in each bin of ``Z_BINS``, chosen through ``snapshots_in_z_range``;
+snapshot 63 (z = 0) falls in none, as in SAGE26.
 
-SAGE26 also computes the quenched fraction of all galaxies in each bin (:1289-1294, :1322,
-:1328); only its commented-out line draws it (:1333), so it is not computed here.
+SAGE26 also computes the quenched fraction of all galaxies in each bin; only its commented-out line
+draws it, so it is not computed here.
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
-reads 64, so a bin holds at most one snapshot and the one-sigma band has zero width.
+Differences from SAGE26: none beyond drawing the figure from the snapshots the run writes, where
+SAGE26 reads all 64, so a bin may hold a single snapshot, and the one-sigma band then has zero
+width.
 """
 
 import warnings
@@ -44,10 +41,10 @@ from output_utils import (
 )
 
 # log10 of the specific star formation rate [1/yr] dividing quiescent from star-forming galaxies
-# (allresults-history.py:23, `sSFRcut = -11.0`)
+# (SAGE26's `sSFRcut = -11.0`)
 SSFR_CUT = -11.0
 
-# Number of the last redshift bins that start their mass bins at 8.0 (allresults-history.py:1262)
+# Number of the last redshift bins that start their mass bins at 8.0
 N_HIGH_Z_BINS = 4
 
 
@@ -55,8 +52,8 @@ def mass_bins_for(index):
     """
     Return the stellar-mass bin edges of redshift bin ``index``.
 
-    SAGE26 allresults-history.py:1262-1265: `np.arange(8.0, 13.5, 0.1)` for the last four z bins
-    (`i >= len(z_bins) - 4`), else `np.arange(7.2, 13.5, 0.1)`.
+    As in SAGE26: `np.arange(8.0, 13.5, 0.1)` for the last four z bins (`i >= len(z_bins) - 4`),
+    else `np.arange(7.2, 13.5, 0.1)`.
     """
     if index >= len(Z_BINS) - N_HIGH_Z_BINS:
         return np.arange(8.0, 13.5, 0.1)
@@ -67,8 +64,8 @@ def is_quenched(sfr_total, stellar_mass):
     """
     Return whether each galaxy is quiescent.
 
-    SAGE26 allresults-history.py:1282 and :1286: `sSFR_linear = sfr_total / stellar_mass` and
-    `quenched = sSFR_linear < 10.0**sSFRcut`, with the stellar mass in Msun.
+    As in SAGE26: `sSFR_linear = sfr_total / stellar_mass` and `quenched = sSFR_linear <
+    10.0**sSFRcut`, with the stellar mass in Msun.
     """
     return (sfr_total / stellar_mass) < 10.0**SSFR_CUT
 
@@ -77,7 +74,7 @@ def quenched_fraction_in_bins(masses, quenched, selected, mass_bins):
     """
     Return the quenched fraction of the ``selected`` galaxies in each stellar-mass bin.
 
-    SAGE26 allresults-history.py:1298-1303 (centrals) and :1308-1313 (satellites): a galaxy is in
+    As in SAGE26, for centrals and for satellites: a galaxy is in
     bin j when `masses >= mass_bins[j]` and `masses < mass_bins[j+1]`; the fraction is
     `np.sum(quenched[mask]) / np.sum(mask)` and NaN where the bin holds no selected galaxy.
     """
@@ -125,7 +122,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     fig, ax = setup_figure()
 
-    # allresults-history.py:1257-1344
     for i, (z_min, z_max) in enumerate(Z_BINS):
         snap_indices = snapshots_in_z_range(snapshots, z_min, z_max)
         if len(snap_indices) == 0:
@@ -143,18 +139,17 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             stellar_mass = galaxies.StellarMass * 1.0e10 / hubble_h
             galtype = galaxies.Type
 
-            # Every galaxy with positive stellar mass (:1278)
+            # Every galaxy with positive stellar mass
             w = np.where(stellar_mass > 0.0)[0]
             if len(w) > 0:
                 masses = np.log10(stellar_mass[w])
                 with np.errstate(divide="ignore", invalid="ignore"):
                     quenched = is_quenched(sfr_total[w], stellar_mass[w])
                 gtype = galtype[w]
-                # SAGE26 figure parity: allresults-history.py:1297 and :1307 take centrals as
-                # `gtype == 0` and satellites as `gtype == 1`, so orphans (Type 2) are in neither
-                # curve, whereas the same script counts "orphans (Type 2) are satellites too" with
-                # `types >= 1` in its counts figures (:1828, :1871, :1948, :2009). Mirrored as
-                # written.
+                # SAGE parity: SAGE26 takes centrals as `gtype == 0` and satellites as
+                # `gtype == 1`, so orphans (Type 2) are in neither curve,
+                # whereas the same script counts "orphans (Type 2) are satellites too" with `types
+                # >= 1` in its counts figures. Mirrored as written.
                 central_snapshots.append(
                     quenched_fraction_in_bins(masses, quenched, gtype == 0, mass_bins)
                 )
@@ -168,7 +163,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         central_snapshots_arr = np.array(central_snapshots)
         satellite_snapshots_arr = np.array(satellite_snapshots)
         with warnings.catch_warnings():
-            # SAGE26 silences these (allresults-history.py:13-14): an empty bin has no mean
+            # SAGE26 silences these: an empty bin has no mean
             warnings.simplefilter("ignore", RuntimeWarning)
             cen_frac_mean = np.nanmean(central_snapshots_arr, axis=0)
             sat_frac_mean = np.nanmean(satellite_snapshots_arr, axis=0)
@@ -203,10 +198,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             linewidth=2,
             alpha=0.25,
             gid="model",
-        )  # SAGE26 figure parity: allresults-history.py:1344 gives the satellite curve no label
+        )  # SAGE parity: SAGE26 gives the satellite curve no label
 
-    # allresults-history.py:1346-1354. SAGE26 figure parity: the y window stops at 0.8 (:1347),
-    # clipping fractions above it. Mirrored as written.
+    # SAGE parity: the y window stops at 0.8, clipping fractions above it. Mirrored as written.
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
     ax.set_xlabel(r"$\log_{10} M_* [M_\odot]$", fontsize=AXIS_LABEL_SIZE)

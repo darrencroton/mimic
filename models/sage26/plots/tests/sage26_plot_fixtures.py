@@ -38,8 +38,8 @@ PROPERTY_FILES = (
     (MODEL_PROPERTIES, "galaxy_properties"),
 )
 
-# The eight snapshots sage26's run files write (`snapshot_list` in models/sage26/input), in the
-# order the run file lists them.
+# The eight snapshots the mini-Millennium run files write (`snapshot_list` in models/sage26/input),
+# in the order the run file lists them.
 RUN_SNAPSHOTS = (63, 37, 32, 27, 23, 20, 18, 16)
 
 HUBBLE_H = 0.73  # simulations/mini-millennium/simulation_info.yaml
@@ -237,9 +237,9 @@ def build_catalogue(seed=20261107, n_halos=1500, epoch=0.0):
 
 
 def run_parameters():
-    """Return the cosmology entries of the engine's run parameters (mimic-plot.py:588-593) and
-    the module parameters the figures read from the run file's modules.parameters (mimic-plot.py
-    stores the modules section as EnabledModules), at the shipped run files' values
+    """Return the cosmology entries of the engine's run parameters and the module parameters the
+    figures read from the run file's modules.parameters (mimic-plot.py stores the modules section
+    as EnabledModules), at the shipped run files' values
     (models/sage26/input/sage26_mini-millennium.yaml)."""
     return {
         "Hubble_h": HUBBLE_H,
@@ -273,10 +273,10 @@ def snapshot_metadata(redshift=0.0, ngals=0):
 def build_evolution_input(fields, seed=20261107):
     """Return the ``snapshots`` argument of an evolution figure.
 
-    The engine reads only the fields an evolution figure lists in ``EVOLUTION_PLOT_FIELDS``
-    (mimic-plot.py:1554) for each written snapshot and passes ``{snapshot: (galaxies, volume,
-    metadata)}`` with the snapshots in increasing redshift, as the redshift mapper orders them.
-    This builds that input for the eight snapshots of RUN_SNAPSHOTS, each with only ``fields``.
+    The engine reads only the fields an evolution figure lists in ``EVOLUTION_PLOT_FIELDS`` for
+    each written snapshot and passes ``{snapshot: (galaxies, volume, metadata)}`` with the snapshots
+    in increasing redshift, as the redshift mapper orders them. This builds that input for the eight
+    snapshots of RUN_SNAPSHOTS, each with only ``fields``.
 
     Args:
         fields: Field names the record holds (the figure's ``EVOLUTION_PLOT_FIELDS`` entry).

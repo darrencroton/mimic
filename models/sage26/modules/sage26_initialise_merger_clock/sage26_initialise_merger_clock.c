@@ -2,52 +2,33 @@
  * @file    sage26_initialise_merger_clock.c
  * @brief   SAGE26's merger-clock, infall and history assignment of progenitor joining
  *
- * SAGE26 assigns merger clocks and infall values, and zeroes the SFR histories,
- * while it joins a halo's progenitor galaxies, from each galaxy's Type before
- * joining (its Type at the end of the previous snapshot) and the Type joining gives
- * it (R/src/core_build_model.c:240-338, R = the staged SAGE26 source). Mimic's core
- * performs the joining itself (src/core/inheritance.c) and assigns the new Type,
- * the halo values and the three core infall values; this module makes SAGE26's
- * remaining joining writes once per FoF group in pre_timestep, reading the old Type
- * from the package property PreviousType that sage26_record_transition_state wrote
- * at the end of the previous snapshot:
+ * Makes the merger-clock, infall and SFR-history writes of SAGE26's progenitor joining once per
+ * FoF group in pre_timestep. The core performs the joining itself and assigns the new Type, the
+ * halo values and infallMvir/Vvir/Vmax; the old Type is read from PreviousType, which
+ * sage26_record_transition_state wrote at the end of the previous snapshot:
  *
- *   previous Type 2 (or 3)  nothing: SAGE26 copies a Type 2 unchanged (B:240), and
- *                           the core drops a merged galaxy
- *   new Type 0 or 1         the six SFR histories zeroed (B:278-282), first
- *   new Type 0              MergTime = 999.9f (B:288)
+ *   previous Type 2 (or 3)  nothing: SAGE26 copies a Type 2 unchanged
+ *   new Type 0 or 1         the six SFR histories zeroed, first
+ *   new Type 0              MergTime = 999.9f
  *   new Type 1              previous Type 0: infallStellarMassState = StellarMass and
- *                           TimeOfInfallState = this snapshot's number (B:306-313);
+ *                           TimeOfInfallState = this snapshot's number;
  *                           previous Type 0 or MergTime > 999: MergTime =
- *                           estimate_merging_time(this halo, FoF's first) (B:315-318)
+ *                           estimate_merging_time(this halo, FoF's first)
  *   new Type 2 (orphan)     MergTime > 999 or previous Type 0: MergTime = 0 and
- *                           infallStellarMassState = StellarMass (B:327-335)
+ *                           infallStellarMassState = StellarMass
  *
- * where B is R/src/core_build_model.c. A galaxy with no previous snapshot
- * (PreviousType -1) is one the core created this snapshot, a Type 0 whose clock is
- * already 999.9f and whose histories are already zero; it takes the rows above with
- * "previous Type 0" false, which leaves it unchanged. The clock half of each
- * condition depends on MergTime alone, and the history reset on the new Type alone,
- * so without the recorder (PreviousType -1 throughout) clocks are still assigned and
- * exactly SAGE26's rows still have their histories zeroed, but the infall state of a
- * Type 0 -> 1 or 0 -> 2 transition is not recorded, and the outputs
- * infallStellarMass and TimeOfInfall keep their creation value -1 on every row:
- * init() warns.
+ * A galaxy the core created this snapshot (PreviousType -1) is a Type 0 whose clock is already
+ * 999.9f and whose histories are already zero, so it is left unchanged. Without the recorder
+ * (PreviousType -1 throughout) clocks are still assigned and histories still zeroed, but infall
+ * is never recorded and infallStellarMass and TimeOfInfall keep their creation value -1: init()
+ * warns.
  *
- * The histories are inherited package properties with no init_repeat, so this reset
- * is their only one after creation. The module runs first in pre_timestep in the
- * shipped run files; no pre_timestep module reads or writes a history, so the reset
- * precedes every history access of the snapshot wherever it sits in pre_timestep.
+ * The histories are inherited package properties with no init_repeat, so this reset is their
+ * only one after creation; no pre_timestep module reads or writes a history, so it precedes every
+ * history access of the snapshot. The core-owned infall values are not changed here.
  *
- * The infall values the core writes (infallMvir, infallVvir and infallVmax for a
- * Type 0 that becomes a Type 1 or 2, src/core/inheritance.c:69-73, :88-92) and the
- * one case where SAGE26 also writes them and the core does not (a Type 1 with a
- * clock above 999 losing its subhalo, B:327-333, unreachable on R0 because every
- * Type 1 holds an estimated clock) are core-owned and not changed here.
- *
- * The clock estimate is shared/sage_merger_clock.h, with the run parameter
- * MergerTimeFactor (SAGE26 default 2.0, R/src/core_read_parameter_file.c:128,
- * which R0 does not override).
+ * The clock estimate is shared/sage_merger_clock.h, scaled by MergerTimeFactor (SAGE26's
+ * default 2.0 when the run file omits it).
  *
  * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
  * models/sage26/LICENSE-SAGE26.
@@ -74,13 +55,11 @@ static const char *RECORDER_NAME = "sage26_record_transition_state";
 // MODULE-LOCAL CONSTANTS AND PARAMETERS
 // ============================================================================
 
-/* SAGE parity: SAGE26's default MergerTimeFactor (R/src/core_read_parameter_file.c:128),
- * the value SAGE26 runs with, since its input/millennium.par does not set it */
+/* SAGE parity: SAGE26's default MergerTimeFactor */
 static const double MERGER_TIME_FACTOR_DEFAULT = 2.0;
 
-/* SAGE parity: joining's "unset clock" tests compare the float clock with 999
- * (R/src/core_build_model.c:315 as float, :327 as double; both exact for a float
- * clock) */
+/* SAGE parity: joining's "unset clock" tests compare the float clock with 999 (once as float,
+ * once as double; both exact for a float clock) */
 static const float MERGTIME_UNSET_ABOVE = 999.0f;
 
 static double MERGER_TIME_FACTOR = 2.0;
@@ -129,7 +108,7 @@ static int check_placement(void) {
 }
 
 /**
- * @brief SAGE26's joining writes for one galaxy row (R/src/core_build_model.c:284-338)
+ * @brief SAGE26's joining writes for one galaxy row
  *
  * @return 0 on success, -1 when a new satellite has no FoF central to merge into
  */
@@ -138,37 +117,34 @@ static int join_galaxy(struct Halo *halos, const int i, const int fof_central_id
   struct GalaxyData *gal = halos[i].galaxy;
   const int previous_type = gal->PreviousType;
 
-  // SAGE parity: joining's assignments run only for a galaxy that was a Type 0 or 1
-  // (R/src/core_build_model.c:240); a Type 2 is copied unchanged
+  // SAGE parity: joining's assignments run only for a galaxy that was a Type 0 or 1;
+  // a Type 2 is copied unchanged
   if (previous_type == 2 || previous_type == 3) {
     return 0;
   }
 
   /* SAGE parity: the histories are zeroed only on the first-occupied (main-branch) update,
-   * where the galaxy stays a Type 0 or 1 (R/src/core_build_model.c:252, :278-282); a galaxy
-   * that becomes an orphan keeps them (:322-337) and moves them in a merger this snapshot
-   * (R/src/model_mergers.c:529-532). SAGE26 resets them before the clock, infall and radius
-   * writes below, none of which reads them */
+   * where the galaxy stays a Type 0 or 1; a galaxy that becomes an orphan keeps them and moves
+   * them in a merger this snapshot. None of the writes below reads them */
   if (halos[i].Type == 0 || halos[i].Type == 1) {
     mimic_sage_reset_sfr_histories(gal);
   }
 
   switch (halos[i].Type) {
   case 0:
-    // SAGE parity: every FoF central's clock is reset (R/src/core_build_model.c:288)
+    // SAGE parity: every FoF central's clock is reset
     gal->MergTime = SAGE_MERGTIME_UNSET;
     break;
 
   case 1:
     if (previous_type == 0) {
-      // SAGE parity: the infall values of a central becoming a satellite
-      // (R/src/core_build_model.c:306-313); the core writes infallMvir/Vvir/Vmax, the package the
-      // two package members. TimeOfInfall is the descendant halo's snapshot number as a float
-      // (R/src/core_build_model.c:311)
+      // SAGE parity: the infall values of a central becoming a satellite; the core writes
+      // infallMvir/Vvir/Vmax, the package these two. TimeOfInfall is the descendant halo's
+      // snapshot number as a float
       gal->infallStellarMassState = gal->StellarMass;
       gal->TimeOfInfallState = (float)ctx->snapshot_number;
     }
-    // SAGE parity: R/src/core_build_model.c:315-318, the Type test first, then the float clock test
+    // SAGE parity: the Type test first, then the float clock test
     if (previous_type == 0 || gal->MergTime > MERGTIME_UNSET_ABOVE) {
       if (fof_central_idx < 0) {
         ERROR_LOG("%s: satellite %lld has no Type 0 FoF central to estimate its clock against",
@@ -185,8 +161,7 @@ static int join_galaxy(struct Halo *halos, const int i, const int fof_central_id
     break;
 
   case 2:
-    // SAGE parity: R/src/core_build_model.c:327-335, the clock test first (as double), then the
-    // Type test
+    // SAGE parity: the clock test first (as double), then the Type test
     if (gal->MergTime > (double)MERGTIME_UNSET_ABOVE || previous_type == 0) {
       gal->MergTime = 0.0f;
       gal->infallStellarMassState = gal->StellarMass;
@@ -209,8 +184,8 @@ int sage26_initialise_merger_clock_init(void) {
     return -1;
   }
 
-  // MergerTimeFactor is optional: SAGE26 registers it with a default
-  // (R/src/core_read_parameter_file.c:128), so a run file may leave it out
+  // MergerTimeFactor is optional: SAGE26 registers it with a default, so a run file may
+  // leave it out
   MERGER_TIME_FACTOR = MERGER_TIME_FACTOR_DEFAULT;
   if (model_has_param("MergerTimeFactor")) {
     LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("MergerTimeFactor", MERGER_TIME_FACTOR, 0.0, 1000.0,
@@ -241,8 +216,7 @@ int sage26_initialise_merger_clock_process(struct ModuleContext *ctx, struct Hal
     return 0;
   }
 
-  // SAGE parity: the mother halo is the FoF's first halo (R/src/core_build_model.c:317), whose
-  // galaxy row is the FoF's Type 0
+  // SAGE parity: the mother halo is the FoF's first halo, whose galaxy row is the FoF's Type 0
   const int fof_central_idx = mimic_find_fof_central_index(halos, ngal);
 
   for (int i = 0; i < ngal; i++) {

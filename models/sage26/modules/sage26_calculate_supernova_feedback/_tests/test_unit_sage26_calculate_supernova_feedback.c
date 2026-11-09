@@ -13,26 +13,23 @@
  *
  * Physics tests:
  * - Reheating calculation (proportional to stars formed)
- * - Ejection calculation (energy-based, depends on the forming galaxy's own Vvir, SAGE26
- *   R/src/model_starformation_and_feedback.c:783, :795-798)
+ * - Ejection calculation (energy-based, depends on the forming galaxy's own Vvir, as in SAGE26)
  * - Renormalization (scales stars and reheating when exceeding ColdGas)
  * - Edge cases (zero stars, zero Vvir, negative ejection clamping)
  * - FIREmodeOn: the required parameter and its refusals, FIREmodeOn 1 against 0 on the same galaxy,
- *   the scaling's guards, floor and slopes, the high-velocity division SAGE26's object computes,
+ *   the scaling's guards, floor and slopes, the high-velocity division SAGE26 computes,
  *   the reheating cap and MassLoading (also with no stars, before the renormalisation), the
  *   energy-based ejection with the float Vvir, the skip of the initial-boundary state (SnapNum -1,
- *   dT 0) and the refusal of a stored SnapNum outside the redshift table otherwise (SAGE26
- *   R/src/model_starformation_and_feedback.c:743-792, R/src/model_misc.h:118-149). Each FIRE helper
- *   and the module's FIREmodeOn 1 branch is asserted against an expectation derived without the
- *   helpers: literal inputs whose results are exact, or SAGE26's own expressions written in the
- *   test with its operand order and literal constants (test_fire_helpers_independent_expectations
- *   and the expectations of the other FIRE tests). The oracle tests skip off macOS arm64, so these
- *   are the platform-independent guard of the FIRE arithmetic (run with MODEL=sage26).
+ *   dT 0) and the refusal of a stored SnapNum outside the redshift table otherwise. Each FIRE
+ *   helper and the module's FIREmodeOn 1 branch is asserted against an expectation derived
+ *   without the helpers: literal inputs whose results are exact, or SAGE26's own expressions
+ *   written in the test with its operand order and literal constants
+ *   (test_fire_helpers_independent_expectations and the expectations of the other FIRE tests).
  * - The feedback-free-burst bypass (test_ffb_row_bypassed): a row whose FFBRegime is 1 leaves
  *   itself and its FoF central bytewise unchanged, with FIREmodeOn 0 and with FIREmodeOn 1 on a
  *   stored SnapNum the redshift lookup refuses (the bypass precedes the lookup and the
  *   time guard); the same row with FFBRegime 0 gets SAGE26's fixed-epsilon reheating
- *   (R/src/model_starformation_and_feedback.c:767), and the refusal with FIREmodeOn 1.
+ *   and the refusal with FIREmodeOn 1.
  *
  * Reference: Croton et al. (2006, 2016) - SAGE model
  *
@@ -240,7 +237,7 @@ int test_module_initialization(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
   /* sage26_apply_star_formation_supernova's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
@@ -283,7 +280,7 @@ int test_parameter_reading(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
   /* sage26_apply_star_formation_supernova's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
@@ -326,7 +323,7 @@ int test_memory_safety(void) {
                  PROCESSING_MODE_BY_GALAXY);
   MimicConfig.SubSteps = 1;
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
   /* sage26_apply_star_formation_supernova's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
@@ -363,7 +360,7 @@ int test_basic_reheating_calculation(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters(); /* Set model parameters for module init */
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   /* Initialize module to set up physics constants */
@@ -420,7 +417,7 @@ int test_renormalization_triggered(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -480,7 +477,7 @@ int test_renormalization_boundary(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -522,7 +519,7 @@ int test_renormalization_boundary(void) {
  * @brief   Test ejection mass calculation based on the forming galaxy's own Vvir
  *
  * Physics: ejected = (eta * EnergySN / Vvir^2 - epsilon) * stars, with the forming
- * galaxy's own Vvir squared in float (SAGE26 R/src/model_starformation_and_feedback.c:795-798)
+ * galaxy's own Vvir squared in float, as SAGE26 does
  *
  * Expected: Ejection depends on the satellite's own Vvir, not the central's
  * Validates: Ejection formula and the own-Vvir potential
@@ -531,7 +528,7 @@ int test_ejection_calculation(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -588,7 +585,7 @@ int test_negative_ejection_clamped(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -639,7 +636,7 @@ int test_zero_stellar_mass(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -677,15 +674,14 @@ int test_zero_stellar_mass(void) {
  * @test    test_zero_vvir
  * @brief   Test edge case: the forming galaxy has zero own Vvir
  *
- * Expected: zero ejection, whatever the central's Vvir (SAGE26
- * R/src/model_starformation_and_feedback.c:783, :876-878)
+ * Expected: zero ejection, whatever the central's Vvir
  * Validates: Division by zero protection on the own-Vvir potential
  */
 int test_zero_vvir(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -766,7 +762,7 @@ int test_very_low_cold_gas(void) {
   /* ===== SETUP ===== */
   init_test_constants();
   set_test_model_parameters();
-  /* The module's required FIREmodeOn, at R2's value */
+  /* The module's required FIREmodeOn */
   sage26_test_append_model_parameter("FIREmodeOn", "0");
 
   int init_result = sage26_calculate_supernova_feedback_init();
@@ -805,9 +801,9 @@ int test_very_low_cold_gas(void) {
 // FIREmodeOn TESTS (the FIRE scaling, capped loading and energy-based ejection)
 // ============================================================================
 
-/* SAGE26's float pow(x, -1.0) separator (R/src/model_starformation_and_feedback.c:751): this Vvir
- * gives x = (double)Vvir / 60 = 0x1.0000cp+0, whose 1.0 / x is 0x3fefffe80011fff3, the value
- * SAGE26's object (fdiv) computes; macOS pow(x, -1.0) gives 0x3fefffe80011fff2 */
+/* SAGE parity: the high-velocity term is 1.0 / x, not libm pow(x, -1.0). This Vvir gives
+ * x = (double)Vvir / 60 = 0x1.0000cp+0, where the two differ in the last bit; the expected bits
+ * are those of 1.0 / x, SAGE26's value */
 #define FIRE_TEST_VVIR_DIVISION_SEPARATOR 0x1.e00168p+5f
 #define FIRE_TEST_V_TERM_DIVISION_BITS 0x3fefffe80011fff3ULL
 
@@ -951,18 +947,17 @@ int test_fire_on_versus_off(void) {
               "FIREmodeOn 0 reheats FeedbackReheatingEpsilon * stars");
 
   /* FIREmodeOn 1, the expectation written as SAGE26's own expressions with literal constants (never
-   * the package helpers): 80 km/s takes the slope -1.0, which SAGE26's object evaluates as 1.0 / x
-   * (S:751); redshift 3.1 (S:752); 0.3 * scaling < 2 and the loading below its cap (X:120-124,
-   * X:147-149, checked below) */
+   * the package helpers): 80 km/s takes the slope -1.0, which SAGE26 evaluates as 1.0 / x;
+   * redshift 3.1; 0.3 * scaling < 2 and the loading below its cap (checked below) */
   const double vc = 80.0;
-  const double scaling = pow(1.0 + MimicConfig.ZZ[snap], 1.25) * (1.0 / (vc / 60.0)); /* S:752 */
-  const double eta = test_epsilon * scaling;                                          /* S:763 */
+  const double scaling = pow(1.0 + MimicConfig.ZZ[snap], 1.25) * (1.0 / (vc / 60.0));
+  const double eta = test_epsilon * scaling;
   TEST_ASSERT(eta < 2.0 * (eta_sn_code_test * energy_sn_code_test) / (vc * vc),
-              "the loading is below its cap on this input (X:147-149)");
-  const double coupling = test_eta * scaling; /* X:120, below 2 */
-  TEST_ASSERT(coupling < 2.0, "the coupling is below its cap on this input (X:121)");
-  const double E_FB = coupling * 0.5 * stars * (eta_sn_code_test * energy_sn_code_test); /* S:789 */
-  const double E_lift = 0.5 * (eta * stars) * vc * vc;                                   /* S:791 */
+              "the loading is below its cap on this input");
+  const double coupling = test_eta * scaling; /* below 2 */
+  TEST_ASSERT(coupling < 2.0, "the coupling is below its cap on this input");
+  const double E_FB = coupling * 0.5 * stars * (eta_sn_code_test * energy_sn_code_test);
+  const double E_lift = 0.5 * (eta * stars) * vc * vc;
   const double expect_ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc * vc) : 0.0;
   TEST_ASSERT(loading[1] == (float)eta, "FIREmodeOn 1 must write MassLoading = (float)eta");
   TEST_ASSERT(fire_bits(reheated[1]) == fire_bits(eta * stars), "FIREmodeOn 1 reheats eta * stars");
@@ -974,7 +969,7 @@ int test_fire_on_versus_off(void) {
 
 /**
  * @test    test_fire_scaling_branches
- * @brief   The scaling's guards, floor and slopes (S:743-753), platform independent
+ * @brief   The scaling's guards, floor and slopes
  */
 int test_fire_scaling_branches(void) {
   struct MimicSageFireLocals a, b;
@@ -1014,23 +1009,23 @@ int test_fire_scaling_branches(void) {
   TEST_ASSERT(a.high_velocity == 1 && a.v_term == 0.5, "120 km/s: (120 / 60)^-1 = 0.5 exactly");
 
   /* Independent expectations: literal results, or SAGE26's own expression written here with its
-   * literal constants (S:748-752), never the helper */
+   * literal constants, never the helper */
   mimic_sage_fire_locals_init(&a);
   TEST_ASSERT(mimic_sage_fire_scaling(120.0f, 0.0, &a) == 0.5,
               "120 km/s at redshift 0: scaling (120 / 60)^-1 = 0.5 exactly");
   mimic_sage_fire_locals_init(&a);
   const double s_z15 = mimic_sage_fire_scaling(120.0f, 15.0, &a);
   TEST_ASSERT(fire_bits(s_z15) == fire_bits(pow(1.0 + 15.0, 1.25) * (1.0 / (120.0 / 60.0))),
-              "redshift 15: SAGE26's pow(1 + z, 1.25) * v_term (S:752)");
+              "redshift 15: SAGE26's pow(1 + z, 1.25) * v_term");
   printf("\n  scaling(120 km/s, z 15) = %.17g (16 = 32 * 0.5 where pow(16, 1.25) is exact)", s_z15);
   mimic_sage_fire_locals_init(&a);
   const double s_30 = mimic_sage_fire_scaling(30.0f, 0.0, &a);
   TEST_ASSERT(fire_bits(s_30) == fire_bits(pow(1.0 + 0.0, 1.25) * pow(30.0 / 60.0, -3.2)),
-              "30 km/s: SAGE26's slope pow(v / 60, -3.2) (S:750)");
+              "30 km/s: SAGE26's slope pow(v / 60, -3.2)");
   mimic_sage_fire_locals_init(&a);
   const double s_floor = mimic_sage_fire_scaling(0.5f, 0.0, &a);
   TEST_ASSERT(fire_bits(s_floor) == fire_bits(pow(1.0 + 0.0, 1.25) * pow(1.0 / 60.0, -3.2)),
-              "0.5 km/s: the velocity floored at 1 km/s (S:748) with the slope -3.2 (S:750)");
+              "0.5 km/s: the velocity floored at 1 km/s with the slope -3.2");
   return TEST_PASS;
 }
 
@@ -1038,12 +1033,12 @@ int test_fire_scaling_branches(void) {
  * @test    test_fire_helpers_independent_expectations
  * @brief   Each FIRE helper and the module's FIRE branch against expectations derived without the
  *          helpers: literal inputs whose results are exact, or SAGE26's own expressions written
- *          here with its operand order (X:118-124, X:141-149, S:743-792)
+ *          here with its operand order
  */
 int test_fire_helpers_independent_expectations(void) {
   struct MimicSageFireLocals l;
   /* capped_eta_reheat with EtaSNcode * EnergySNcode = 1000 at 10 km/s: eta_max = 2 * 1000 / 100 =
-   * 20 (X:147-148); 1000 is capped to 20, 5 is not, and vvir 0 returns eta_raw (X:144-146) */
+   * 20; 1000 is capped to 20, 5 is not, and vvir 0 returns eta_raw */
   mimic_sage_fire_locals_init(&l);
   TEST_ASSERT(mimic_sage_capped_eta_reheat(1000.0, 10.0, 1000.0, 1.0, &l) == 20.0 &&
                   l.eta_max == 20.0 && l.eta_cap_binds == 1,
@@ -1052,14 +1047,14 @@ int test_fire_helpers_independent_expectations(void) {
   TEST_ASSERT(mimic_sage_capped_eta_reheat(5.0, 10.0, 1000.0, 1.0, &l) == 5.0 &&
                   l.eta_cap_binds == 0,
               "a loading below the cap is unchanged");
-  /* sn_energy_coupling: 0.25 * 4 = 1 is below the cap, 0.25 * 40 = 10 is capped at 2 (X:120-124) */
+  /* sn_energy_coupling: 0.25 * 4 = 1 is below the cap, 0.25 * 40 = 10 is capped at 2 */
   mimic_sage_fire_locals_init(&l);
   TEST_ASSERT(mimic_sage_sn_energy_coupling(4.0, 0.25, &l) == 1.0 && l.coupling_capped == 0,
               "a coupling of 1 is not capped");
   mimic_sage_fire_locals_init(&l);
   TEST_ASSERT(mimic_sage_sn_energy_coupling(40.0, 0.25, &l) == 2.0 && l.coupling_capped == 1,
               "a coupling of 10 is capped at 2");
-  /* The energies (S:789-792): coupling 2, stars 1, reheated 1, v 10, EtaSNcode * EnergySNcode 1000:
+  /* The energies: coupling 2, stars 1, reheated 1, v 10, EtaSNcode * EnergySNcode 1000:
    * E_FB = 2 * 0.5 * 1 * 1000 = 1000, E_lift = 0.5 * 1 * 10 * 10 = 50, ejection 950 / 50 = 19 */
   mimic_sage_fire_locals_init(&l);
   const double ej = mimic_sage_fire_energy_ejection(2.0, 1.0, 1.0, 10.0, 1000.0, 1.0, &l);
@@ -1069,7 +1064,8 @@ int test_fire_helpers_independent_expectations(void) {
 
   /* process() with FIREmodeOn 1, the cap not binding: Vvir 120 km/s at redshift 0 (ZZ[63] = 0),
    * stars 1, ColdGas 100. Scaling 0.5, eta = 3 * 0.5 = 1.5 (below 2 * esn / 120^2), no
-   * renormalisation, coupling 0.3 * 0.5 below 2; the ejection is SAGE26's S:789-792 written here */
+   * renormalisation, coupling 0.3 * 0.5 below 2; the ejection is SAGE26's energy balance, written
+   * here */
   const double esn = eta_sn_code_test * energy_sn_code_test;
   const char *log = "";
   TEST_ASSERT(fire_init_captured("1", &log) == 0, "init must succeed");
@@ -1106,9 +1102,9 @@ int test_fire_helpers_independent_expectations(void) {
   TEST_ASSERT(fire_process_captured(&halo, &log) == 0, "process must succeed");
   {
     const double vc = 120.0, stars = 1.0;
-    const double eta_max = 2.0 * esn / (vc * vc); /* X:148 */
+    const double eta_max = 2.0 * esn / (vc * vc);
     const double reheated = eta_max * stars;
-    const double E_FB = 2.0 * 0.5 * stars * esn; /* the capped coupling, S:789-790 */
+    const double E_FB = 2.0 * 0.5 * stars * esn; /* the capped coupling */
     const double E_lift = 0.5 * reheated * vc * vc;
     const double ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc * vc) : 0.0;
     printf("\n  process (120 km/s, z 15): MassLoading %.9g reheated %.17g ejected %.17g "
@@ -1127,8 +1123,8 @@ int test_fire_helpers_independent_expectations(void) {
 
 /**
  * @test    test_fire_high_velocity_division
- * @brief   The high-velocity term is 1.0 / x as SAGE26's object computes it (S:751, fdiv), not
- *          libm pow(x, -1.0), which differs for this Vvir on macOS
+ * @brief   The high-velocity term is 1.0 / x as SAGE26 computes it, not libm pow(x, -1.0),
+ *          which differs for this Vvir on some platforms
  */
 int test_fire_high_velocity_division(void) {
   const float vvir = FIRE_TEST_VVIR_DIVISION_SEPARATOR;
@@ -1152,7 +1148,7 @@ int test_fire_high_velocity_division(void) {
 
 /**
  * @test    test_fire_reheating_cap_and_mass_loading
- * @brief   capped_eta_reheat (X:141-149) above, below and without a positive velocity, and
+ * @brief   capped_eta_reheat above, below and without a positive velocity, and
  *          MassLoading written before the renormalisation, also with no stars
  */
 int test_fire_reheating_cap_and_mass_loading(void) {
@@ -1170,8 +1166,8 @@ int test_fire_reheating_cap_and_mass_loading(void) {
   const double s_high = mimic_sage_fire_scaling(300.0f, 0.0, &l);
   const double eta_high = mimic_sage_capped_eta_reheat(test_epsilon * s_high, 300.0, fire_eta_sn(),
                                                        fire_energy_sn(), &l);
-  /* Expected: SAGE26's eta_raw = epsilon * (pow(1 + z, 1.25) * (1.0 / (v / 60))) (S:751-752,
-   * S:763), written here, not taken from the scaling helper */
+  /* Expected: SAGE26's eta_raw = epsilon * (pow(1 + z, 1.25) * (1.0 / (v / 60))), written here,
+   * not taken from the scaling helper */
   TEST_ASSERT(l.eta_cap_binds == 0 &&
                   fire_bits(eta_high) ==
                       fire_bits(test_epsilon * (pow(1.0 + 0.0, 1.25) * (1.0 / (300.0 / 60.0)))) &&
@@ -1202,10 +1198,10 @@ int test_fire_reheating_cap_and_mass_loading(void) {
   setup_test_halo(&halo, &gal, 0, 100.0, 10.0, 0.05, 0.01);
   halo.SnapNum = 63;
   TEST_ASSERT(fire_process_captured(&halo, &log) == 0, "process must succeed");
-  /* Expected: SAGE26's eta_raw at 10 km/s and redshift 0 (S:750, S:752, S:763), uncapped */
+  /* Expected: SAGE26's eta_raw at 10 km/s and redshift 0, uncapped */
   const double eta10 = test_epsilon * (pow(1.0 + 0.0, 1.25) * pow(10.0 / 60.0, -3.2));
   TEST_ASSERT(eta10 < 2.0 * esn / (10.0 * 10.0), "the loading is below its cap on this input");
-  /* ColdGas is a float: the factor divides its widened value (S:776) */
+  /* ColdGas is a float: the factor divides its widened value */
   const double fac = (double)gal.ColdGas / (0.01 + eta10 * 0.01);
   TEST_ASSERT(gal.MassLoading == (float)eta10, "MassLoading is the loading before renormalisation");
   TEST_ASSERT(fire_bits(gal.NewStellarMass) == fire_bits(0.01 * fac) &&
@@ -1216,7 +1212,7 @@ int test_fire_reheating_cap_and_mass_loading(void) {
 
 /**
  * @test    test_fire_energy_ejection
- * @brief   sn_energy_coupling's cap (X:118-124), the energy-based ejection (S:786-792), the
+ * @brief   sn_energy_coupling's cap, the energy-based ejection, the
  *          narrowing of the double halo Vvir to SAGE26's float, and no ejection for Vvir <= 0
  */
 int test_fire_energy_ejection(void) {
@@ -1233,7 +1229,7 @@ int test_fire_energy_ejection(void) {
   mimic_sage_fire_locals_init(&l);
   const double ej = mimic_sage_fire_energy_ejection(2.0, 1.0, 1.0, 10.0, esn_eta, esn_energy, &l);
   {
-    /* SAGE26's S:789-792 written here */
+    /* SAGE26's energy balance written here */
     const double E_FB = 2.0 * 0.5 * 1.0 * (esn_eta * esn_energy);
     const double E_lift = 0.5 * 1.0 * 10.0 * 10.0;
     TEST_ASSERT(l.energy_ejects == 1 && fire_bits(l.e_fb) == fire_bits(E_FB) && l.e_lift == 50.0 &&
@@ -1261,7 +1257,7 @@ int test_fire_energy_ejection(void) {
   halo.SnapNum = 40;
   TEST_ASSERT(fire_process_captured(&halo, &log) == 0, "process must succeed");
   const float vf = (float)vvir_double;
-  /* Expected: SAGE26's S:745-792 written here with the float Vvir widened (80.0 exactly) and
+  /* Expected: SAGE26's FIRE expressions written here with the float Vvir widened (80.0 exactly) and
    * ZZ[40] = 2.3; the loading and the coupling are below their caps on this input */
   const double vc = vf;
   const double s = pow(1.0 + MimicConfig.ZZ[40], 1.25) * (1.0 / (vc / 60.0));
@@ -1385,10 +1381,10 @@ int test_fire_negative_snapnum_positive_dt_refused(void) {
  * @brief   An FFBRegime 1 row is not processed; the same row with FFBRegime 0 is
  *
  * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb and returns
- * before compute_sn_feedback (R/src/model_starformation_and_feedback.c:1004-1008). The row is a
+ * before compute_sn_feedback. The row is a
  * satellite with its own FoF central, both compared byte for byte with their inputs. With
- * FIREmodeOn 0 the FFBRegime 0 row's reheated mass is FeedbackReheatingEpsilon * stars (:767),
- * 3.0 * 1.0 exactly, with no renormalisation (ample cold gas, :775). With FIREmodeOn 1 a stored
+ * FIREmodeOn 0 the FFBRegime 0 row's reheated mass is FeedbackReheatingEpsilon * stars,
+ * 3.0 * 1.0 exactly, with no renormalisation (ample cold gas). With FIREmodeOn 1 a stored
  * SnapNum outside the redshift table is refused on an ordinary row and passed over,
  * writing nothing, on an FFB row.
  */
@@ -1442,7 +1438,7 @@ int test_ffb_row_bypassed(void) {
       "FFBRegime 1: returns before the time guard and the redshift lookup, writing nothing");
   gal.FFBRegime = 0;
   TEST_ASSERT(sage26_calculate_supernova_feedback_process(&ctx, &row, 1) != 0,
-              "FFBRegime 0: the same stored SnapNum is refused (D35)");
+              "FFBRegime 0: the same stored SnapNum is refused");
   return TEST_PASS;
 }
 

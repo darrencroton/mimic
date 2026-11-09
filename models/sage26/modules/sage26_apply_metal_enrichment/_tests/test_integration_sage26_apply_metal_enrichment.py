@@ -33,7 +33,7 @@ PHASE_CONFIG = {
     "galaxy_physics": [("sage26_apply_metal_enrichment", "process_by_galaxy")],
     "post_timestep": [],
 }
-# CGMrecipeOn is required, at R3's value
+# CGMrecipeOn is required (the CGM recipe is off, 0)
 MODEL_PARAMS = {"Yield": 0.025, "FracZleaveDisk": 0.0, "CGMrecipeOn": 0}
 
 

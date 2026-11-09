@@ -3,21 +3,18 @@
 """
 SAGE26 Specific Star Formation Rate Density Plot
 
-Port of the "Plotting specific SFR vs stellar mass" section of SAGE26's plotting script
-(plotting/allresults-local.py:1728-1842): the density of galaxies in specific star formation
-rate against stellar mass, as smoothed filled contours of the quiescent (red) and star-forming
-(blue) populations either side of the specific star formation rate cut at -11 yr^-1. The
-section is the specification; where this port differs it is a permitted deviation below.
+Follows the "Plotting specific SFR vs stellar mass" section of SAGE26's plotting script: the density
+of galaxies in specific star formation rate against stellar mass, as smoothed filled contours of the
+quiescent (red) and star-forming (blue) populations either side of the specific star formation rate
+cut at -11 yr^-1. Where it differs from SAGE26 the difference is stated below.
 
 Requires: StellarMass, SfrDisk, SfrBulge
 
-Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, allresults-local.py:365), SfrDisk and SfrBulge (Msun/yr; the rate is their
-sum, :1740).
+Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 /
+hubble_h), SfrDisk and SfrBulge (Msun/yr; the rate is their sum).
 
-Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
-script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
-candidates exceed DILUTE.
+Differences from SAGE26: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once), so the drawn subset differs when the candidates exceed DILUTE.
 """
 
 import random
@@ -34,18 +31,18 @@ from output_utils import (
     setup_figure,
 )
 
-# Number of galaxies drawn at most: SAGE26 reassigns its script-level `dilute` to 100000
-# here (allresults-local.py:1735), and the value holds for every later section
+# Number of galaxies drawn at most: SAGE26 reassigns its script-level `dilute` to 100000 here, and
+# the value holds for every later section
 DILUTE = 100000
 
-# Specific star formation rate dividing quiescent from star-forming galaxies (:1745), in yr^-1
+# Specific star formation rate dividing quiescent from star-forming galaxies, in yr^-1
 SSFR_CUT = -11.0
 
-# Grid of the density calculation, allresults-local.py:1758-1759
+# Grid of the density calculation
 X_BINS = np.linspace(8.0, 12.2, 100)
 Y_BINS = np.linspace(-13, -8, 100)
 
-# Value of the specific star formation rate of a galaxy with no stellar mass (:1741)
+# Value of the specific star formation rate of a galaxy with no stellar mass
 NO_SSFR = -99.0
 
 
@@ -53,8 +50,8 @@ def log_specific_sfr(sfr_disk, sfr_bulge, stellar_mass):
     """
     Return log10 of the specific star formation rate, -99 where there is no stellar mass.
 
-    SAGE26 allresults-local.py:1740-1743: the rate is SfrDisk + SfrBulge; sSFR starts at -99 and
-    holds log10(rate / StellarMass) where StellarMass > 0.
+    As in SAGE26: the rate is SfrDisk + SfrBulge; sSFR starts at -99 and holds log10(rate /
+    StellarMass) where StellarMass > 0.
     """
     starformationrate = sfr_disk + sfr_bulge
     sSFR = np.full_like(starformationrate, NO_SSFR)
@@ -68,9 +65,9 @@ def smoothed_histogram(x, y, clip_above=None, clip_below=None):
     """
     Return the smoothed 2-D histogram of a population and the bin centres of its grid.
 
-    SAGE26 allresults-local.py:1767-1783: np.histogram2d on X_BINS and Y_BINS, transposed,
-    smoothed with a Gaussian filter of sigma 1.5, then zeroed in the rows whose centre lies
-    above ``clip_above`` or below ``clip_below``.
+    As in SAGE26: np.histogram2d on X_BINS and Y_BINS, transposed, smoothed with a Gaussian filter
+    of sigma 1.5, then zeroed in the rows whose centre lies above ``clip_above`` or below
+    ``clip_below``.
 
     Returns:
         (H_smooth, x_centers, y_centers)
@@ -97,10 +94,9 @@ def sigma_levels(H_smooth):
     """
     Return the (3 sigma, 2 sigma, 1 sigma) contour levels of a smoothed histogram, or None.
 
-    SAGE26 allresults-local.py:1786-1798: the non-zero cells sorted from the highest, their
-    cumulative sum normalised to 1; each level is the first cell value at which the cumulative
-    fraction reaches 0.997, 0.95 and 0.68 (the lowest non-zero value if it never does). None
-    where every cell is zero.
+    As in SAGE26: the non-zero cells sorted from the highest, their cumulative sum normalised to 1;
+    each level is the first cell value at which the cumulative fraction reaches 0.997, 0.95 and 0.68
+    (the lowest non-zero value if it never does). None where every cell is zero.
     """
     sorted_H = np.sort(H_smooth.flatten())[::-1]
     sorted_H = sorted_H[sorted_H > 0]  # Remove zeros
@@ -124,7 +120,7 @@ def sigma_levels(H_smooth):
 
 def plot_density_contours(ax, x, y, color, label, clip_above=None, clip_below=None):
     """
-    Plot filled contours with 1, 2 and 3 sigma levels (SAGE26 allresults-local.py:1761-1816).
+    Plot filled contours with 1, 2 and 3 sigma levels, as SAGE26 does.
 
     A population of fewer than 10 galaxies, or of an all-zero histogram, draws nothing.
     """
@@ -137,11 +133,11 @@ def plot_density_contours(ax, x, y, color, label, clip_above=None, clip_below=No
         return
     alphas = [0.3, 0.5, 0.7]
 
-    # Plot filled contours. SAGE26 passes `label=label` to the last contourf (:1806-1808);
-    # Matplotlib 3.10 does not use it (it warns that the keyword is unused), so no legend
-    # entry results, in SAGE26's figure as in this one.
-    # SAGE26 figure parity: allresults-local.py:1808 passes label= to contourf, which gives
-    # no legend entry under Matplotlib 3.10, so "Quiescent" and "Star-forming" never appear.
+    # Plot filled contours. SAGE26 passes `label=label` to the last contourf; Matplotlib 3.10 does
+    # not use it (it warns that the keyword is unused), so no legend entry results, in SAGE26's
+    # figure as in this one.
+    # SAGE parity: SAGE26 passes label= to contourf, which gives no legend entry under
+    # Matplotlib 3.10, so "Quiescent" and "Star-forming" never appear.
     for i, (level, alpha) in enumerate(zip(levels, alphas, strict=False)):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
@@ -217,19 +213,18 @@ def plot(
     sfr_disk = galaxies.SfrDisk
     sfr_bulge = galaxies.SfrBulge
 
-    # allresults-local.py:1737-1743
     w2 = np.where(stellar_mass > 0.0)[0]
-    # SAGE26 figure parity: allresults-local.py:1738 samples positions from range(len(w2)) and
-    # then indexes the full arrays with them (StellarMass[w2]), so above DILUTE candidates it
-    # draws arbitrary galaxies, zero-mass ones included (mapped to -99 and left out). The
-    # mini-Millennium run is below DILUTE, where w2 is not sampled.
+    # SAGE parity: SAGE26 samples positions from range(len(w2)) and then indexes the full arrays
+    # with them (StellarMass[w2]), so above DILUTE candidates it draws arbitrary galaxies, zero-mass
+    # ones included (mapped to -99 and left out). A run with fewer candidates than DILUTE (the
+    # mini-Millennium run, for example) is not sampled.
     w2 = draw_sample_positions(w2, rng, DILUTE)
     # A zero-mass galaxy the sampled branch can reach has log10 = -inf, which is not drawn
     with np.errstate(divide="ignore"):
         mass = np.log10(stellar_mass[w2])
     sSFR = log_specific_sfr(sfr_disk[w2], sfr_bulge[w2], stellar_mass[w2])
 
-    # Separate populations, allresults-local.py:1749-1755
+    # Separate populations
     sf_mask = (sSFR > SSFR_CUT) & (sSFR > NO_SSFR)  # Star-forming
     q_mask = (sSFR <= SSFR_CUT) & (sSFR > NO_SSFR)  # Quiescent
     mass_sf = mass[sf_mask]
@@ -245,7 +240,6 @@ def plot(
     fig, ax = setup_figure(figsize=(10, 8))
 
     # Quiescent population (red), clipped above the cut; star-forming (blue), clipped below it
-    # (allresults-local.py:1818-1824)
     if len(mass_q) > 0:
         plot_density_contours(ax, mass_q, sSFR_q, "firebrick", "Quiescent", clip_above=SSFR_CUT)
     if len(mass_sf) > 0:
@@ -253,7 +247,7 @@ def plot(
             ax, mass_sf, sSFR_sf, "dodgerblue", "Star-forming", clip_below=SSFR_CUT
         )
 
-    # The specific star formation rate cut line, allresults-local.py:1826-1827
+    # The specific star formation rate cut line
     ax.axhline(
         y=SSFR_CUT,
         color="k",
@@ -266,7 +260,6 @@ def plot(
     ax.set_ylabel(r"$\log_{10} \mathrm{sSFR}\ (\mathrm{yr^{-1}})$", fontsize=AXIS_LABEL_SIZE)
     ax.set_xlabel(r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$", fontsize=AXIS_LABEL_SIZE)
 
-    # allresults-local.py:1832-1838
     ax.xaxis.set_minor_locator(MultipleLocator(0.1))
     ax.yaxis.set_minor_locator(MultipleLocator(0.25))
     ax.set_xlim(x_min, x_max)

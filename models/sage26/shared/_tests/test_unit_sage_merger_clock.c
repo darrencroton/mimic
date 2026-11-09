@@ -2,9 +2,7 @@
  * @file    test_unit_sage_merger_clock.c
  * @brief   Unit tests for shared/sage_merger_clock.h (SAGE26's estimate_merging_time)
  *
- * Platform-independent checks of each branch and guard of
- * R/src/model_mergers.c:89-121 on hand-checkable inputs; the bit-exact comparison
- * with SAGE26 is sage26_initialise_merger_clock's oracle test.
+ * Checks of each branch and guard of SAGE26's estimate_merging_time on hand-checkable inputs.
  *
  * Test cases:
  *   - test_same_halo: equal halo numbers return -1 with nothing formed

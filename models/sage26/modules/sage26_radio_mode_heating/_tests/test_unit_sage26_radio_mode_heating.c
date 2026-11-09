@@ -20,15 +20,15 @@
  *   - test_heating_radius_update: Rheat increases with AGN heating
  *   - test_heating_energy_tracking: Heating accumulator tracks energy
  *   - test_bondi_uses_carried_x: Bondi accretion from the carried x, Heating undivided,
- *     no second subtraction of the heating from the cooling mass (SAGE26 R0)
+ *     no second subtraction of the heating from the cooling mass (CGMrecipeOn 0)
  *   - test_agn_off_no_changes: No changes when AGN disabled
  *   - test_zero_cooling_gas: No AGN when no cooling
  *   - test_zero_hot_gas: No accretion without hot gas
  *   - test_zero_black_hole_mass: Edge case handling
  *   - test_orphan_galaxy_processed: Type 2 galaxies processed like centrals (SAGE parity)
  *   - test_parameter_sensitivity_efficiency: RadioModeEfficiency affects results
- *   - test_agn_recipe_1_refused: AGNrecipe 1 (SAGE26's empirical rate, not ported) is refused
- *   - test_agn_recipe_3_refused: AGNrecipe 3 (SAGE26's cold cloud rate, not ported) is refused
+ *   - test_agn_recipe_1_refused: AGNrecipe 1 (SAGE26's empirical rate) is not supported; refused
+ *   - test_agn_recipe_3_refused: AGNrecipe 3 (SAGE26's cold cloud rate) is not supported; refused
  *   - test_module_initialization: Module lifecycle
  *   - test_memory_safety: No memory leaks
  *
@@ -400,7 +400,7 @@ int test_heating_energy_tracking(void) {
 
 /**
  * @test    test_bondi_uses_carried_x
- * @brief   SAGE26's R0 Bondi path (model_cooling_heating.c:538-540, :587-626)
+ * @brief   SAGE26's Bondi path with CGMrecipeOn 0
  *
  * Expected: the accretion rate is built from the CoolingX the cooling budget
  *           carries (none without it); Heating gains 0.5 * AGNheating * Vvir^2
@@ -749,8 +749,8 @@ static int init_with_recipe_captured(const int recipe, const char **log) {
 
 /**
  * @test    test_agn_recipe_1_refused
- * @brief   AGNrecipe 1, SAGE26's empirical rate (R/src/model_cooling_heating.c:545-551), is not
- *          ported: init fails with an error naming the parameter
+ * @brief   AGNrecipe 1, SAGE26's empirical rate, is not supported: init fails with an error
+ *          naming the parameter
  */
 int test_agn_recipe_1_refused(void) {
   init_memory_system(0);
@@ -766,8 +766,8 @@ int test_agn_recipe_1_refused(void) {
 
 /**
  * @test    test_agn_recipe_3_refused
- * @brief   AGNrecipe 3, SAGE26's cold cloud rate (R/src/model_cooling_heating.c:541-544), is not
- *          ported: init fails with an error naming the parameter
+ * @brief   AGNrecipe 3, SAGE26's cold cloud rate, is not supported: init fails with an error
+ *          naming the parameter
  */
 int test_agn_recipe_3_refused(void) {
   init_memory_system(0);
@@ -870,9 +870,8 @@ int test_memory_safety(void) {
 // THE CGMrecipeOn 1 RADIO AGN (shared/sage_cooling_physics.h)
 // ============================================================================
 //
-// Platform-independent behavioural tests of the CGM-on AGN helpers. Each expectation is a literal
-// chosen so the result is exact, or SAGE26's expression written inline with its line cited (C =
-// R/src/model_cooling_heating.c), never a call of the helper under test.
+// Behavioural tests of the CGM-on AGN helpers. Each expectation is a literal chosen so the result
+// is exact, or SAGE26's expression written inline, never a call of the helper under test.
 
 /** @brief A galaxy for the AGN helper tests (Millennium units, Bondi accretion) */
 static void setup_agn_helper_galaxy(struct Halo *halo, struct GalaxyData *gal) {
@@ -909,10 +908,10 @@ static void saturation_pair(const double rcool, float *below, float *at) {
 
 /**
  * @test    test_cgm_on_saturation_either_side
- * @brief   The CGMrecipeOn 1 saturation Rheat >= 0.99 * rcool (C:590-595, C:638-643)
+ * @brief   The CGMrecipeOn 1 saturation Rheat >= 0.99 * rcool
  *
  * Expected: Rheat the largest float below 0.99 * rcool suppresses the mass to
- * (1 - Rheat / rcool) * m (C:592), in both calls; the smallest float at or above zeroes it with
+ * (1 - Rheat / rcool) * m, in both calls; the smallest float at or above zeroes it with
  * CGMrecipeOn 1 but not with CGMrecipeOn 0 (the classic call).
  */
 int test_cgm_on_saturation_either_side(void) {
@@ -959,8 +958,8 @@ int test_cgm_on_saturation_either_side(void) {
  * inside
  *
  * Expected: with HotGas 0 and Rheat 0.3 > Rvir 0.1 the hot call caps Rheat to the float Rvir with
- * CGMrecipeOn 1 (C:623-624) and leaves it with 0; with CGMgas positive and Rheat above Rvir the
- * CGM call caps it (C:663-664), and with CGMgas 0 it does not reach the cap.
+ * CGMrecipeOn 1 and leaves it with 0; with CGMgas positive and Rheat above Rvir the
+ * CGM call caps it, and with CGMgas 0 it does not reach the cap.
  */
 int test_cgm_on_rheat_caps(void) {
   struct Halo halo;
@@ -994,11 +993,11 @@ int test_cgm_on_rheat_caps(void) {
 
 /**
  * @test    test_cgm_agn_recaps_to_post_accretion_cgm
- * @brief   The CGM AGN re-caps the returned mass to the CGMgas left after accretion (C:675-677)
+ * @brief   The CGM AGN re-caps the returned mass to the CGMgas left after accretion
  *
  * Expected: m = CGMgas = 1, Rheat 0 (no suppression), a black hole of mass 1 at Vvir 1e5 km/s
  * accretes from the CGM, so the returned mass is the post-accretion CGMgas, below 1; the CGM pair
- * loses the accretion with its metallicity (C:653-656) and the heating is not subtracted.
+ * loses the accretion with its metallicity and the heating is not subtracted.
  */
 int test_cgm_agn_recaps_to_post_accretion_cgm(void) {
   struct Halo halo;
@@ -1011,7 +1010,7 @@ int test_cgm_agn_recaps_to_post_accretion_cgm(void) {
   gal.Rheat = 0.0f;
   const double ret =
       mimic_sage_do_agn_heating_cgm(&halo, &MimicConfig, 2, 0.08, 1, 0.01, 1.0, 1.0, 0.1, &al);
-  /* C:540-571 inline: Bondi rate, Eddington cap, reservoir cap, AGNcoeff, heating cap */
+  /* SAGE26's chain, inline: Bondi rate, Eddington cap, reservoir cap, AGNcoeff, heating cap */
   const double bh = 1.0f, vv = 1.0e5f, m = 1.0, x = 1.0, dt = 0.01;
   double rate = (2.5 * M_PI * 43.007077856420629) * (0.375 * 0.6 * x) * bh * 0.08;
   const double edd = (1.3e38 * bh * 1e10 / 0.73) / (1.989e53 / 3.08568e19) / (0.1 * 9.0e10);
@@ -1026,7 +1025,7 @@ int test_cgm_agn_recaps_to_post_accretion_cgm(void) {
   TEST_ASSERT(al.accreted == acc && acc > 0.0, "AGNaccreted from the inline accretion");
   TEST_ASSERT(gal.CGMgas < 1.0f, "the accretion drains the CGM");
   TEST_ASSERT(ret == (double)gal.CGMgas && al.recapped == 1, "re-capped to the post-accretion CGM");
-  TEST_ASSERT(gal.CGMgas == (float)(1.0f - acc), "CGMgas -= AGNaccreted (C:655)");
+  TEST_ASSERT(gal.CGMgas == (float)(1.0f - acc), "CGMgas -= AGNaccreted");
   TEST_ASSERT(gal.HotGas == 10.0f, "the hot pair is not touched");
   return TEST_PASS;
 }

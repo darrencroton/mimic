@@ -1,16 +1,13 @@
 /**
  * @file    test_unit_sage26_determine_ffb_regime.c
- * @brief   Platform-independent behavioural tests of sage26_determine_ffb_regime
+ * @brief   Behavioural tests of sage26_determine_ffb_regime
  *
- * The oracle test (test_unit_sage26_determine_ffb_regime_oracle.c) skips off macOS arm64, so these
- * tests are the classifier's guard on every other platform. Each runs the module's process(),
- * through its test seam (sage26_determine_ffb_regime.h) where a test must place the compared
- * deviate exactly or see which rows were classified. Every expectation is derived independently of
- * the module: literal inputs and the halo_uniform deviates of an independent transcription of
- * SAGE26's routine (which SAGE26's own values from the oracle confirm), or SAGE26's own expressions
- * written here with their operand order (R/src/model_regimes.c:309-312 for the threshold, :332-339
- * for the fraction, :236 for the comparison), never by calling the module or its shared helpers. R/
- * is the staged SAGE26 source root.
+ * Each runs the module's process(), through its test seam (sage26_determine_ffb_regime.h) where a
+ * test must place the compared deviate exactly or see which rows were classified. Every
+ * expectation is derived independently of the module: literal inputs and the halo_uniform deviates
+ * of SAGE26's routine (the expected values were produced by executing it), or SAGE26's own
+ * expressions written here with their operand order (the threshold, the fraction and the
+ * comparison), never by calling the module or its shared helpers.
  *
  * Software quality:
  * - test_module_lifecycle: registration, module_system_init with the module in pre_timestep,
@@ -40,7 +37,7 @@
  * - test_draw_keys: the production draw is keyed on MostBoundID and ctx->snapshot_number, not on
  *   UniqueGalaxyID or the row's stored SnapNum
  * - test_seam_tie: a deviate equal to the fraction gives 0, one ulp below gives 1 (the strict
- *   comparison, R/src/model_regimes.c:236)
+ *   comparison)
  * - test_initial_boundary_row: a row in the initial-boundary state (stored SnapNum -1, dT 0) is
  *   classified without error
  */
@@ -71,11 +68,10 @@ extern int sage26_determine_ffb_regime_cleanup(void);
 
 #define MAX_ROWS 8
 
-/* R6's Hubble_h (input/millennium.par:40) */
+/* The mini-Millennium Hubble_h */
 #define TEST_HUBBLE_H 0.73
 
-/* halo_uniform deviates (R/src/model_regimes.c:151-159) as f64 bit patterns, from an independent
- * transcription of SAGE26's routine */
+/* halo_uniform deviates as f64 bit patterns, produced by executing SAGE26's routine */
 #define DEVIATE_ID0_SNAP0 0x3fec4415072f63baULL      /* (0, 0): ~0.8833 */
 #define DEVIATE_ID1_SNAP0 0x3fe22145bd91204cULL      /* (1, 0): ~0.5666 */
 #define DEVIATE_4896973_SNAP12 0x3fdc862dc2b4faddULL /* ~0.4457 */
@@ -244,11 +240,11 @@ static int run_process(struct Halo *halos, const int ngal, struct recording_seam
 /**
  * @brief SAGE26's FFB fraction of a float Mvir, written as SAGE26 writes it
  *
- * calculate_ffb_threshold_mass (R/src/model_regimes.c:308-312) with the log term fused as
- * SAGE26's object computes it (model_regimes.o 0x908: fmadd of log10(z_norm), -6.2 and
- * log10(h) + 0.8), then calculate_ffb_fraction (:330-339) on the widened float. The inputs pass
+ * calculate_ffb_threshold_mass, then calculate_ffb_fraction on the widened float. The inputs pass
  * through volatile locals and the helper is never inlined, so the compiler cannot fold log10,
  * exp or pow at compile time with a different rounding than the runtime libm.
+ *
+ * SAGE parity: the log term of the threshold is a fused multiply-add, as SAGE26 computes it.
  */
 #if defined(__GNUC__) || defined(__clang__)
 #define SAGE26_FFB_TEST_NOINLINE __attribute__((noinline))
@@ -290,7 +286,7 @@ static SAGE26_FFB_TEST_NOINLINE float mvir_at_offset(const double z, const doubl
 /**
  * @test    test_module_lifecycle
  * @brief   The module registers, initialises through module_system_init in pre_timestep with
- *          EnhancedStarFormationOn 0 (SAGE26's R0-R5 value), cleans up, no leaks
+ *          EnhancedStarFormationOn 0 (SAGE26's default), cleans up, no leaks
  */
 int test_module_lifecycle(void) {
   reset_config();
@@ -325,7 +321,7 @@ int test_enhanced_sf_missing_refused(void) {
 
 /**
  * @test    test_enhanced_sf_values
- * @brief   EnhancedStarFormationOn 2 (BK25, not ported), 3 and -1 are refused naming the
+ * @brief   EnhancedStarFormationOn 2 (BK25, not supported), 3 and -1 are refused naming the
  *          parameter; 0 and 1 initialise
  */
 int test_enhanced_sf_values(void) {
@@ -433,8 +429,8 @@ static void arrange_transaction_full_halo(void) {
  * @test    test_requires_transaction
  * @brief   At EnhancedStarFormationOn 1 init refuses, naming sage26_ffb_star_formation, a
  *          configuration without the transaction by galaxy in a substep phase: an FFBRegime 1 row
- *          bypasses the ordinary star-formation chain (R/src/model_starformation_and_feedback.c
- *          :1004-1008) and would form no stars; at 0 nothing is classified and both are accepted
+ *          bypasses the ordinary star-formation chain and would form no stars; at 0 nothing is
+ *          classified and both are accepted
  */
 int test_requires_transaction(void) {
   const struct {
@@ -465,8 +461,8 @@ int test_requires_transaction(void) {
 
 /**
  * @test    test_off_writes_nothing
- * @brief   EnhancedStarFormationOn 0 writes nothing and classifies no row: SAGE26 skips the call
- *          (R/src/core_build_model.c:425)
+ * @brief   EnhancedStarFormationOn 0 writes nothing and classifies no row: SAGE26 skips the
+ *          classification
  */
 int test_off_writes_nothing(void) {
   TEST_ASSERT(init_ok("0") == 0, "init must succeed");
@@ -497,9 +493,9 @@ int test_off_writes_nothing(void) {
 
 /**
  * @test    test_types_classified_type3_kept
- * @brief   Types 0, 1 and 2 are each classified, with no Type restriction (R/src/model_regimes.c
- *          :212-240); Type 3 (SAGE26's mergeType > 0, :213) and galaxy-less rows keep a seeded
- *          FFBRegime; an input FFBRegime is overwritten
+ * @brief   Types 0, 1 and 2 are each classified, with no Type restriction; Type 3 (SAGE26's
+ *          mergeType > 0) and galaxy-less rows keep a seeded FFBRegime; an input FFBRegime is
+ *          overwritten
  */
 int test_types_classified_type3_kept(void) {
   TEST_ASSERT(init_ok("1") == 0, "init must succeed");
@@ -539,7 +535,7 @@ int test_types_classified_type3_kept(void) {
 /**
  * @test    test_cgm_regime_ignored
  * @brief   Rows that differ only in their CGM Regime (-1, 0 and 1) get the same FFBRegime from the
- *          production draw (R/src/model_regimes.c:215-217: no regime restriction)
+ *          production draw (SAGE26 applies no regime restriction)
  */
 int test_cgm_regime_ignored(void) {
   TEST_ASSERT(init_ok("1") == 0, "init must succeed");
@@ -575,9 +571,9 @@ int test_cgm_regime_ignored(void) {
 
 /**
  * @test    test_reads_narrowed_mvir
- * @brief   The fraction is of the float Mvir SAGE26 holds (R/src/model_regimes.c:229), not the
- *          core's double: with the deviate placed exactly at the float's fraction the row ties
- *          (0), where the double's larger fraction would give 1
+ * @brief   The fraction is of the float Mvir SAGE26 holds, not the core's double: with the deviate
+ *          placed exactly at the float's fraction the row ties (0), where the double's larger
+ *          fraction would give 1
  */
 int test_reads_narrowed_mvir(void) {
   TEST_ASSERT(init_ok("1") == 0, "init must succeed");
@@ -608,10 +604,10 @@ int test_reads_narrowed_mvir(void) {
 
 /**
  * @test    test_reads_current_redshift
- * @brief   The fraction is at ctx->redshift (SAGE26's Zcurr, R/src/core_build_model.c:408), not
- *          at the redshift of the row's stored snapshot: with the deviate at the current
- *          redshift's fraction the row ties (0), where the stored snapshot's higher redshift
- *          (a lower threshold, a larger fraction) would give 1
+ * @brief   The fraction is at ctx->redshift (SAGE26's Zcurr), not at the redshift of the row's
+ *          stored snapshot: with the deviate at the current redshift's fraction the row ties (0),
+ *          where the stored snapshot's higher redshift (a lower threshold, a larger fraction)
+ *          would give 1
  */
 int test_reads_current_redshift(void) {
   TEST_ASSERT(init_ok("1") == 0, "init must succeed");
@@ -643,9 +639,9 @@ int test_reads_current_redshift(void) {
 
 /**
  * @test    test_draw_keys
- * @brief   The production draw is halo_uniform(MostBoundID, ctx->snapshot_number)
- *          (R/src/model_regimes.c:225, :151-159), not keyed on UniqueGalaxyID or the row's stored
- *          SnapNum: each pair of keys is placed either side of the row's fraction
+ * @brief   The production draw is halo_uniform(MostBoundID, ctx->snapshot_number), not keyed on
+ *          UniqueGalaxyID or the row's stored SnapNum: each pair of keys is placed either side of
+ *          the row's fraction
  */
 int test_draw_keys(void) {
   TEST_ASSERT(init_ok("1") == 0, "init must succeed");
@@ -694,8 +690,7 @@ int test_draw_keys(void) {
 /**
  * @test    test_seam_tie
  * @brief   Through the seam, a deviate equal to the fraction gives 0 and one ulp below gives 1:
- *          SAGE26's comparison is strict (R/src/model_regimes.c:236). The tie is not constructible
- *          through SAGE26's hash.
+ *          SAGE26's comparison is strict. The tie is not constructible through SAGE26's hash.
  */
 int test_seam_tie(void) {
   const double z = 7.0;

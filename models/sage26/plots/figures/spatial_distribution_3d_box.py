@@ -3,21 +3,20 @@
 """
 SAGE26 Spatial Distribution 3-D Box Plot
 
-Port of the "Plotting the spatial distribution of all galaxies in 3D Box" section of SAGE26's
-plotting script (plotting/allresults-local.py:1565-1619): the positions of galaxies with
-Mvir > 0 and a stellar mass above 1e9 Msun in the simulation box, coloured by the local density
-of the drawn points (a Gaussian kernel density estimate), inside the twelve edges of the box.
-The section is the specification; where this port differs it is a permitted deviation below.
+Follows the "Plotting the spatial distribution of all galaxies in 3D Box" section of SAGE26's
+plotting script: the positions of galaxies with Mvir > 0 and a stellar mass above 1e9 Msun in the
+simulation box, coloured by the local density of the drawn points (a Gaussian kernel density
+estimate), inside the twelve edges of the box. Where it differs from SAGE26 the difference is stated
+below.
 
 Requires: Mvir, StellarMass, Pos
 
-Fields read (units): Mvir and StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts
-them: x 1e10 / hubble_h, allresults-local.py:364-365), Pos (Mpc/h; SAGE26's Posx, Posy and Posz
-are Pos[:, 0], Pos[:, 1] and Pos[:, 2]). The box size is metadata["box_size"] (Mpc/h).
+Fields read (units): Mvir and StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts them: x
+1e10 / hubble_h), Pos (Mpc/h; SAGE26's Posx, Posy and Posz are Pos[:, 0], Pos[:, 1] and Pos[:, 2]).
+The box size is metadata["box_size"] (Mpc/h).
 
-Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
-script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
-candidates exceed DILUTE.
+Differences from SAGE26: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once), so the drawn subset differs when the candidates exceed DILUTE.
 """
 
 import random
@@ -32,8 +31,7 @@ from output_utils import (
     save_and_close_figure,
 )
 
-# Number of galaxies drawn at most: SAGE26's script-level `dilute` (allresults-local.py:73),
-# in force here (it is reassigned only at :1735)
+# Number of galaxies drawn at most: SAGE26's script-level `dilute`, in force here
 DILUTE = 7500
 
 
@@ -41,8 +39,8 @@ def box_edges(box_size):
     """
     Return the 12 edges of the box as [start, end] pairs of corners.
 
-    SAGE26 allresults-local.py:1583-1588: the eight corners of [0, BoxSize]^3 in SAGE26's
-    order, joined bottom square, top square, then the four verticals.
+    As in SAGE26: the eight corners of [0, BoxSize]^3 in SAGE26's order, joined bottom square, top
+    square, then the four verticals.
     """
     points = np.array(
         [
@@ -121,7 +119,7 @@ def plot(
     stellar_mass = galaxies.StellarMass * 1.0e10 / hubble_h
     pos = galaxies.Pos
 
-    # allresults-local.py:1570-1575: the sample is drawn before the density is computed on it
+    # The sample is drawn before the density is computed on it
     w = np.where((mvir > 0.0) & (stellar_mass > 1.0e9))[0]
     w = draw_sample(w, rng, DILUTE)
     xx = pos[w, 0]
@@ -136,28 +134,26 @@ def plot(
     ax = fig.add_subplot(111, projection="3d")
     setup_plot_fonts(ax)
 
-    # allresults-local.py:1577-1580. gaussian_kde needs more points than dimensions, so with
-    # three or fewer galaxies there is no density to colour by and nothing is drawn.
+    # gaussian_kde needs more points than dimensions, so with three or fewer galaxies there is no
+    # density to colour by and nothing is drawn.
     if len(w) > 3:
         xyz = np.vstack([xx, yy, zz])
         density = gaussian_kde(xyz)(xyz)
-        # SAGE26 figure parity: allresults-local.py:1580 colours by density with no colour bar.
-        # Mirrored as written.
+        # SAGE parity: SAGE26 colours by density with no colour bar. Mirrored as written.
         ax.scatter(xx, yy, zz, s=0.3, c=density, cmap="plasma", alpha=0.8, gid="model")
 
-    # Box edges, allresults-local.py:1582-1591
+    # Box edges
     ax.add_collection3d(Line3DCollection(box_edges(box_size), colors="k"))
 
     ax.set_xlabel("X (Mpc/h)", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel("Y (Mpc/h)", fontsize=AXIS_LABEL_SIZE)
     ax.set_zlabel("Z (Mpc/h)", fontsize=AXIS_LABEL_SIZE)
 
-    # allresults-local.py:1597-1599
     ax.set_xlim([x_min, x_max])
     ax.set_ylim([y_min, y_max])
     ax.set_zlim([0, box_size])
 
-    # Black panes, no grid and black ticks, as SAGE26 draws them (:1601-1611)
+    # Black panes, no grid and black ticks, as SAGE26 draws them
     ax.xaxis.set_pane_color((0.0, 0.0, 0.0, 1.0))
     ax.yaxis.set_pane_color((0.0, 0.0, 0.0, 1.0))
     ax.zaxis.set_pane_color((0.0, 0.0, 0.0, 1.0))
@@ -166,7 +162,7 @@ def plot(
     ax.tick_params(axis="y", colors="k")
     ax.tick_params(axis="z", colors="k")
 
-    # Equal aspect ratio, allresults-local.py:1614
+    # Equal aspect ratio
     ax.set_box_aspect([1, 1, 1])
 
     plot_path = save_and_close_figure(

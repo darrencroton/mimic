@@ -1,18 +1,16 @@
 /**
  * @file    test_unit_sage_halo_concentration.c
- * @brief   Platform-independent tests of shared/sage_halo_concentration.h (SAGE26's
+ * @brief   Tests of shared/sage_halo_concentration.h (SAGE26's
  *          concentration_from_vmax_vvir, the ConcentrationOn 3 dispatch and the validator)
  *
- * The bit-exact comparison with SAGE26 is sage26_set_halo_concentration's oracle test, which
- * skips off macOS arm64, so these tests guard the helpers on every other platform. Each
- * expectation is derived independently of the helpers: a literal where the input makes the result
- * exact, or SAGE26's own loop written here (sage26_inline_inversion, with the lines it restates;
- * R/ is the staged SAGE26 source root), never by calling a helper under test.
+ * Each expectation is derived independently of the helpers: a literal where the input makes the
+ * result exact, or SAGE26's own loop written here (sage26_inline_inversion), never by calling a
+ * helper under test.
  *
  * Test cases:
  *   - test_velocity_guards: Vvir +0, -0 and negative, and Vmax +0, -0 and negative, each on its
- *     own, return +0 with nothing formed (R/src/model_halo_properties.c:294)
- *   - test_ratio_below_one: Vmax < Vvir returns +0 after forming ratio_sq (:306)
+ *     own, return +0 with nothing formed
+ *   - test_ratio_below_one: Vmax < Vvir returns +0 after forming ratio_sq
  *   - test_ratio_exactly_one: Vmax == Vvir returns exactly 1.0 after exactly 60 steps, c_lo stays
  *     at its bound 1.0 and c_hi ends at SAGE26's inline value (the double just above 1)
  *   - test_jump: the last ratio below f(2.5546875) returns exactly 1.0, the next SAGE26's inline
@@ -63,12 +61,10 @@ struct inline_result {
 };
 
 /**
- * @brief SAGE26's concentration_from_vmax_vvir, R/src/model_halo_properties.c:294-318,
- *        statement by statement
+ * @brief SAGE26's concentration_from_vmax_vvir, statement by statement
  *
  * Compared with the helper bit for bit, so it must run with the runtime libm: never inlined, and
- * its inputs pass through volatile locals, so a compiler cannot fold log at compile time (GCC
- * folds with MPFR, correctly rounded, which may differ from the runtime libm in the last bit).
+ * its inputs pass through volatile locals, so log is evaluated at run time.
  */
 static CONCENTRATION_TEST_NOINLINE double
 sage26_inline_inversion(const double vmax_in, const double vvir_in, struct inline_result *r) {
@@ -81,21 +77,21 @@ sage26_inline_inversion(const double vmax_in, const double vvir_in, struct inlin
   r->steps = 0;
   r->first_tie_step = -1;
 
-  if (Vvir <= 0.0 || Vmax <= 0.0) /* :294 */
+  if (Vvir <= 0.0 || Vmax <= 0.0)
     return 0.0;
-  const double ratio_sq = (Vmax / Vvir) * (Vmax / Vvir); /* :296 */
-  const double A = 0.21621;                              /* :301 */
-  double c_lo = 1.0, c_hi = 200.0;                       /* :303 */
-  if (ratio_sq < 1.0)                                    /* :306 */
+  const double ratio_sq = (Vmax / Vvir) * (Vmax / Vvir);
+  const double A = 0.21621;
+  double c_lo = 1.0, c_hi = 200.0;
+  if (ratio_sq < 1.0)
     return 0.0;
-  for (int iter = 0; iter < 60; iter++) {                       /* :308 */
-    const double c_mid = 0.5 * (c_lo + c_hi);                   /* :309 */
-    const double mu = log(1.0 + c_mid) - c_mid / (1.0 + c_mid); /* :310 */
-    const double f_mid = A * c_mid / mu;                        /* :311 */
+  for (int iter = 0; iter < 60; iter++) {
+    const double c_mid = 0.5 * (c_lo + c_hi);
+    const double mu = log(1.0 + c_mid) - c_mid / (1.0 + c_mid);
+    const double f_mid = A * c_mid / mu;
     if (f_mid == ratio_sq && r->first_tie_step < 0) {
       r->first_tie_step = iter;
     }
-    if (f_mid < ratio_sq) { /* :312-316 */
+    if (f_mid < ratio_sq) {
       c_lo = c_mid;
     } else {
       c_hi = c_mid;
@@ -104,7 +100,7 @@ sage26_inline_inversion(const double vmax_in, const double vvir_in, struct inlin
   }
   r->c_lo = c_lo;
   r->c_hi = c_hi;
-  return 0.5 * (c_lo + c_hi); /* :318 */
+  return 0.5 * (c_lo + c_hi);
 }
 
 /** @brief The helper under test, its inputs passed through volatile locals as above */
@@ -228,7 +224,7 @@ int test_ratio_exactly_one(void) {
  * @test    test_jump
  * @brief   Either side of the jump at f(2.5546875), about 1.00503 (the non-monotonic quirk): with
  *          Vvir 1, the last Vmax returning exactly 1.0 and the next double, which returns SAGE26's
- *          inline result (2.5546875 on the oracle platform)
+ *          inline result (2.5546875)
  */
 int test_jump(void) {
   const double q_last = 1.0025106939461708;
@@ -260,9 +256,9 @@ int test_typical_ratio(void) {
 
 /**
  * @test    test_tie_at_visited_midpoint
- * @brief   ratio_sq equal to f at the visited midpoint 7.21875 (on the oracle platform; the inline
- *          loop reports the tie): the strict f_mid < ratio_sq moves c_hi, and the result is
- *          SAGE26's inline one (7.2187499999999947 there; <= would give 7.21875)
+ * @brief   ratio_sq equal to f at the visited midpoint 7.21875 (the inline loop reports the tie):
+ *          the strict f_mid < ratio_sq moves c_hi, and the result is SAGE26's inline one
+ *          (7.2187499999999947; <= would give 7.21875)
  */
 int test_tie_at_visited_midpoint(void) {
   TEST_ASSERT(differs_from_inline(1.1273365592411466, 1.0, "tie at 7.21875") == 0, INLINE_MESSAGE);
@@ -287,8 +283,8 @@ int test_saturation(void) {
 
 /**
  * @test    test_float_store_visible
- * @brief   The float store SAGE26's joining makes, (float) of the double (R/src/core_build_model.c
- *          :292-294), of a typical result: SAGE26's inline double narrowed, and not equal to it
+ * @brief   The float store SAGE26's joining makes, (float) of the double, of a typical result:
+ *          SAGE26's inline double narrowed, and not equal to it
  */
 int test_float_store_visible(void) {
   struct inline_result r;
@@ -309,8 +305,8 @@ int test_float_store_visible(void) {
 
 /**
  * @test    test_dispatch_selects_by_type
- * @brief   Type 0 takes Vmax and Vvir; 1, 2 and -1 take infallVmax and infallVvir
- *          (R/src/model_halo_properties.c:342-347), each float widened exactly
+ * @brief   Type 0 takes Vmax and Vvir; 1, 2 and -1 take infallVmax and infallVvir, each float
+ *          widened exactly
  */
 int test_dispatch_selects_by_type(void) {
   const float vmax = 220.3f, vvir = 180.7f, infall_vmax = 260.1f, infall_vvir = 199.9f;

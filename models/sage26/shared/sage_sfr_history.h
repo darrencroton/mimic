@@ -2,34 +2,27 @@
  * @file sage_sfr_history.h
  * @brief SAGE26's per-substep star-formation histories and their output averaging
  *
- * SAGE26 keeps six float arrays of STEPS = 10 bins in struct GALAXY
- * (R/src/core_allvars.h:158-163, R = the staged SAGE26 source; STEPS at
- * R/src/macros.h:17): the disk and bulge star-formation rates SfrDisk and SfrBulge
- * (1e10 Msun/h per code time), and the cold gas and its metals sampled with each
- * (SfrDiskColdGas, SfrDiskColdGasMetals, SfrBulgeColdGas, SfrBulgeColdGasMetals,
- * 1e10 Msun/h), plus the int SubstepsUsed (:164). The property generator emits
+ * SAGE26 keeps six float arrays of STEPS = 10 bins in struct GALAXY: the disk and
+ * bulge star-formation rates SfrDisk and SfrBulge (1e10 Msun/h per code time), and
+ * the cold gas and its metals sampled with each (SfrDiskColdGas,
+ * SfrDiskColdGasMetals, SfrBulgeColdGas, SfrBulgeColdGasMetals, 1e10 Msun/h), plus
+ * the int SubstepsUsed. The property generator emits
  * scalars only, so the package holds each element as its own float property,
  * <history>Bin<k> (models/sage26/model_properties.yaml, output: false), and this
  * header is the one way modules reach them:
  *
  * - mimic_sage_sfr_history(): the element (history, bin) of a galaxy;
  * - mimic_sage_sfr_step_bin(): the bin of a substep, (step * STEPS) / N capped at
- *   STEPS - 1 (R/src/core_build_model.c:514-515, :579-580);
+ *   STEPS - 1, as evolve_galaxies maps its substeps;
  * - mimic_sage_sample_disk_sfr() and mimic_sage_sample_bulge_sfr(): SAGE26's disk
- *   (R/src/model_starformation_and_feedback.c:1058-1060) and burst
- *   (R/src/model_mergers.c:755-757) sampling, with SAGE26's operators and float
- *   stores;
+ *   (starformation_and_feedback) and burst (collisional_starburst_recipe) sampling,
+ *   with SAGE26's operators and float stores;
  * - mimic_sage_reset_sfr_histories(): SAGE26's reset of every bin at the
- *   first-occupied Type 0/1 update (R/src/core_build_model.c:278-282), which the
- *   package applies at joining instead of an init_repeat reset of every row;
- * - mimic_sage_average_sfr_histories(): the writer's averaging of the six
- *   histories into SfrDisk, SfrBulge, SfrDiskZ and SfrBulgeZ
- *   (R/src/io/save_gals_hdf5.c:934-959), with its divisors
- *   (R/src/model_misc.h:49-58).
- *
- * None of these expressions contains a multiply-add: each sample adds a quotient
- * or a float, and each averaging term ends in a division, so floating-point
- * contraction cannot fuse them and they are written left to right as SAGE26 does.
+ *   first-occupied Type 0/1 update, which the package applies at joining instead
+ *   of an init_repeat reset of every row;
+ * - mimic_sage_average_sfr_histories(): the HDF5 writer's averaging of the six
+ *   histories into SfrDisk, SfrBulge, SfrDiskZ and SfrBulgeZ, with SAGE26's
+ *   sfr_rate_divisor and sfr_metallicity_divisor.
  *
  * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
  * models/sage26/LICENSE-SAGE26.
@@ -44,16 +37,15 @@
 #include "types.h"
 #include "module_system/physical_constants.h"
 
-/* SAGE26's STEPS, the number of history bins (R/src/macros.h:17) */
+/* SAGE26's STEPS, the number of history bins */
 #define MIMIC_SAGE_SFR_STEPS 10
 
-/* SAGE26's SEC_PER_YEAR and SOLAR_MASS (R/src/macros.h:38, :24), as the writer's
- * rate conversion uses them (R/src/io/save_gals_hdf5.c:944-945): the same literals, 3.155e7 and
- * 1.989e33, as physical_constants.h's, which these names alias */
+/* SAGE26's SEC_PER_YEAR and SOLAR_MASS, as the writer's rate conversion uses them: the same
+ * literals, 3.155e7 and 1.989e33, as physical_constants.h's, which these names alias */
 #define MIMIC_SAGE_SEC_PER_YEAR SEC_PER_YEAR
 #define MIMIC_SAGE_SOLAR_MASS SOLAR_MASS
 
-/** @brief SAGE26's six per-substep histories (R/src/core_allvars.h:158-163) */
+/** @brief SAGE26's six per-substep histories */
 enum MimicSageSfrHistory {
   MIMIC_SFR_HISTORY_DISK = 0,              /* SfrDisk[STEPS] */
   MIMIC_SFR_HISTORY_BULGE,                 /* SfrBulge[STEPS] */
@@ -122,7 +114,7 @@ static inline float *mimic_sage_sfr_history(struct GalaxyData *gal,
 #undef MIMIC_SAGE_SFR_HISTORY_BINS
 
 /**
- * @brief The history bin of substep step of num_substeps (R/src/core_build_model.c:514-515)
+ * @brief The history bin of substep step of num_substeps, as SAGE26's evolve_galaxies maps it
  *
  *   int step_bin = (step * STEPS) / effective_steps;
  *   if(step_bin >= STEPS) step_bin = STEPS - 1;
@@ -146,7 +138,7 @@ static inline int mimic_sage_sfr_step_bin(const int step, const int num_substeps
 }
 
 /**
- * @brief SAGE26's disk history sampling (R/src/model_starformation_and_feedback.c:1058-1060)
+ * @brief SAGE26's disk history sampling (starformation_and_feedback)
  *
  *   galaxies[p].SfrDisk[step] += stars / dt;
  *   galaxies[p].SfrDiskColdGas[step] = galaxies[p].ColdGas;
@@ -174,7 +166,7 @@ static inline int mimic_sage_sample_disk_sfr(struct GalaxyData *gal, const int b
 }
 
 /**
- * @brief SAGE26's burst history sampling (R/src/model_mergers.c:755-757)
+ * @brief SAGE26's burst history sampling (collisional_starburst_recipe)
  *
  *   galaxies[merger_centralgal].SfrBulge[step] += stars / dt;
  *   galaxies[merger_centralgal].SfrBulgeColdGas[step] += galaxies[merger_centralgal].ColdGas;
@@ -203,7 +195,7 @@ static inline int mimic_sage_sample_bulge_sfr(struct GalaxyData *gal, const int 
 }
 
 /**
- * @brief SAGE26's history reset at the first-occupied update (R/src/core_build_model.c:278-282)
+ * @brief SAGE26's history reset at the first-occupied update
  *
  *   for(int step = 0; step < STEPS; step++) {
  *       galaxies[ngal].SfrDisk[step] = galaxies[ngal].SfrBulge[step] = 0.0;
@@ -230,12 +222,12 @@ static inline int mimic_sage_reset_sfr_histories(struct GalaxyData *gal) {
   return 0;
 }
 
-/** @brief SAGE26's sfr_rate_divisor (R/src/model_misc.h:49-52) */
+/** @brief SAGE26's sfr_rate_divisor */
 static inline int mimic_sage_sfr_rate_divisor(const int substeps_used) {
   return (substeps_used > 0) ? substeps_used : MIMIC_SAGE_SFR_STEPS;
 }
 
-/** @brief SAGE26's sfr_metallicity_divisor (R/src/model_misc.h:54-58) */
+/** @brief SAGE26's sfr_metallicity_divisor */
 static inline int mimic_sage_sfr_metallicity_divisor(const int substeps_used) {
   const int n = mimic_sage_sfr_rate_divisor(substeps_used);
   return (n < MIMIC_SAGE_SFR_STEPS) ? n : MIMIC_SAGE_SFR_STEPS;
@@ -250,7 +242,7 @@ struct MimicSageSfrAverageLocals {
 };
 
 /**
- * @brief The writer's averaging of the six histories (R/src/io/save_gals_hdf5.c:934-959)
+ * @brief SAGE26's HDF5 writer's averaging of the six histories
  *
  *   float tmp_SfrDisk = 0.0; ... (four float accumulators)
  *   const int sfr_norm = sfr_rate_divisor(g->SubstepsUsed);

@@ -107,8 +107,8 @@ def plot(
     ax.plot(xaxis, gmf, "k-", label="Model - Cold Gas", gid="model")
 
     # Model H2 and H I mass functions over the same galaxies and the same bins as the cold-gas
-    # curve, as SAGE26's counterpart draws them (plotting/allresults-local.py:617-618, :700-701).
-    # A galaxy with no H2 (or H I) has no finite log mass and falls outside the histogram range.
+    # curve, as SAGE26's counterpart draws them. A galaxy with no H2 (or H I) has no finite log mass
+    # and falls outside the histogram range.
     mass_lo = np.floor(min(mass)) - 2
     mass_hi = np.floor(max(mass)) + 2
     if optional.get("H2gas", False):

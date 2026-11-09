@@ -45,7 +45,7 @@ MERGER_MODEL_PARAMS = {
     "StarFormingDiskFactor": 3.0,
     "FeedbackReheatingEpsilon": 3.0,
     "FeedbackEjectionEfficiency": 0.3,
-    "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+    "FIREmodeOn": 0,  # required by the SN module, the fixed-epsilon feedback
     "ReIncorporationFactor": 0.15,
     "AGNrecipe": 2,
     "RadioModeEfficiency": 0.08,
@@ -56,13 +56,13 @@ MERGER_MODEL_PARAMS = {
     "FracZleaveDisk": 0.0,
     "ThresholdMajorMerger": 0.3,
     "ThresholdSatDisruption": 1.0,
-    # Required by the SF module, the apply step and the burst module, at R1's values
+    # Required by the SF module, the apply step and the burst module, with SFprescription 0
     "SFprescription": 0,
     "H2RadialIntegrationOn": 1,
     "H2RadialNBins": 25,
     "H2RadialRMaxFactor": 5.0,
     "StarburstColdGasOn": 1,
-    "CGMrecipeOn": 0,  # required by the infall modules, R3's value
+    "CGMrecipeOn": 0,  # required by the infall modules (the CGM recipe off)
 }
 
 PRE_TIMESTEP_PHASE = [
@@ -165,17 +165,17 @@ BOUND_GALAXY_PHYSICS_MODULES = [
     not in ("sage26_disk_instability", "sage26_quasar_mode", "sage26_starburst_feedback")
 ]
 
-# SAGE26's never-merged timestamp, -1 (src/model_misc.c:179-180)
+# SAGE26's never-merged timestamp, -1
 NEVER_MERGED = -1.0
 
 
 def unit_time_in_megayears():
-    """Mimic's UnitTime_in_Megayears, as src/core/init.c:84-85 forms it
+    """Mimic's UnitTime_in_Megayears, formed as the core forms it
 
     UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s, divided by
     SEC_PER_MEGAYEAR (src/module_system/physical_constants.h), in double precision, the
-    same operations as SAGE26's set_units (src/core_init.c:94-95). Mimic's reference units
-    are fixed (src/core/core_properties.yaml reference_units).
+    same operations as SAGE26's set_units. Mimic's reference units are fixed
+    (src/core/core_properties.yaml reference_units).
     """
     unit_length_in_cm = 3.08568e24
     unit_velocity_in_cm_per_s = 1.0e5
@@ -187,7 +187,7 @@ def substep_event_times(param_file):
     """Every substep midpoint lookback time of the run, in code units
 
     Mimic's event time is Age[SnapNum] - (step + 0.5) * dT / SubSteps, with Age the
-    lookback time to each snapshot (src/core/init.c:202-235; the resolver's pass) and
+    lookback time to each snapshot (the resolver's pass) and
     dT the interval back to the progenitor's snapshot. Returns the midpoints of every
     interval of up to five snapshots, enough for any progenitor gap of these trees.
     """
@@ -242,16 +242,15 @@ def merger_bulge_bound_holds(stellar, bulge):
     start at 0 (creation) and change only through:
 
     - disk star formation, StellarMass += (1 - RecycleFraction) * stars and its metals
-      += Z * (1 - RecycleFraction) * stars, each one fused multiply-add rounded to double
-      and then to float (src/model_starformation_and_feedback.c:1123-1126), with stars >= 0
-      and Z >= 0 (get_metallicity): a non-negative addend, and rounding is monotone, so
-      the float result is never below the old float value, and the bulge is untouched;
-    - add_galaxies_together, StellarMass += p.StellarMass and BulgeMass += p.StellarMass
-      (src/model_mergers.c:461, :500), and the same for the metals (:462, :501): the same
-      float addend on both sides, and float addition is monotone (x <= y implies
-      fl(x + s) <= fl(y + s) for any s), so bulge <= stellar survives;
+      += Z * (1 - RecycleFraction) * stars, with stars >= 0 and Z >= 0 (get_metallicity):
+      a non-negative addend, and rounding is monotone, so the float result is never below
+      the old float value, and the bulge is untouched;
+    - add_galaxies_together, StellarMass += p.StellarMass and BulgeMass += p.StellarMass,
+      and the same for the metals: the same float addend on both sides, and float addition
+      is monotone (x <= y implies fl(x + s) <= fl(y + s) for any s), so bulge <= stellar
+      survives;
     - make_bulge_from_burst, BulgeMass = StellarMass and MetalsBulgeMass =
-      MetalsStellarMass (:556, :559): exact float copies, equality.
+      MetalsStellarMass: exact float copies, equality.
 
     Nothing else writes these four fields here (no burst, no disk instability, and a
     satellite's own bulge excess never reaches its target, which adds the satellite's
@@ -380,13 +379,10 @@ def test_starburst_consumer_receives_merger_events():
         assert (
             stellar_delta > 5.0
         ), "satellite_mergers starburst consumer should form additional stars in merger remnants"
-        # The burst net-consumes a few M_sun/h of cold gas. SAGE parity note: the
-        # merger quasar wind (grow_black_hole -> quasar_mode_wind, which fires
-        # BEFORE the starburst in SAGE deal_with_galaxy_merger,
-        # src/model_mergers.c:262-287) ejects some cold
-        # gas first, so the net cold-gas reduction attributable to the burst is a
-        # few M_sun/h (~-4.7 here), not the larger value seen before the quasar
-        # wind energy was unit-corrected.
+        # The burst net-consumes a few M_sun/h of cold gas. SAGE parity: the merger quasar
+        # wind (grow_black_hole -> quasar_mode_wind) fires before the starburst in SAGE26's
+        # deal_with_galaxy_merger and ejects some cold gas first, so the net cold-gas
+        # reduction attributable to the burst is a few M_sun/h (~-4.7 here).
         assert (
             cold_gas_delta < -3.0
         ), "satellite_mergers starburst consumer should net-consume cold gas in merger remnants"
@@ -399,8 +395,7 @@ def test_merger_bulge_bound():
     """The merger transaction's bulge writes keep BulgeMass <= StellarMass exactly
 
     Runs the merger-bound pipeline (see merger_bulge_bound_holds), which reaches the
-    writes of src/model_mergers.c:461-462, :500-501 (every merger) and :556, :559 (major
-    mergers), and requires both bounds on every row, with major and minor mergers present
+    merger transaction's bulge writes (every merger, and major mergers), and requires both bounds on every row, with major and minor mergers present
     and the bound attained.
     """
     param_file, output_dir, temp_dir = run_bound_pipeline("merger_bulge_bound")
@@ -436,8 +431,7 @@ def test_written_merger_timestamps():
     """The timestamps are written as SAGE26 writes them: value * UnitTime_in_Megayears
 
     A galaxy that never had a merger of a kind is written as float(-1 * factor); a merged
-    one as float(t * factor) for its float lookback time t, a substep midpoint event time
-    (src/model_mergers.c:310, :316, src/io/save_gals_hdf5.c:992-993).
+    one as float(t * factor) for its float lookback time t, a substep midpoint event time.
     """
     param_file, output_dir, temp_dir = run_bound_pipeline("merger_timestamps")
     try:

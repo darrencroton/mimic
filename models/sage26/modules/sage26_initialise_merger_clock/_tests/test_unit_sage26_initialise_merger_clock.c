@@ -2,11 +2,10 @@
  * @file    test_unit_sage26_initialise_merger_clock.c
  * @brief   Unit tests for sage26_initialise_merger_clock: placement, parameter, transitions
  *
- * The module makes SAGE26's joining writes (R/src/core_build_model.c:284-338) from
- * each galaxy's PreviousType (recorded by sage26_record_transition_state) and the
- * Type the core assigned. These tests build FoF workspaces by hand; the bit-exact
- * comparison with SAGE26 is the oracle test, and the two-snapshot test through the
- * core's inheritance service is sage26_record_transition_state's unit test.
+ * The module makes SAGE26's joining writes from each galaxy's PreviousType (recorded by
+ * sage26_record_transition_state) and the Type the core assigned. These tests build FoF
+ * workspaces by hand; the two-snapshot test through the core's inheritance service is
+ * sage26_record_transition_state's unit test.
  *
  * Test cases:
  *   - test_placement: init() accepts one pre_timestep process_full_halo entry and
@@ -24,8 +23,7 @@
  *   - test_type2_untouched: a galaxy that was already Type 2 is not changed
  *   - test_without_recorder: with no previous Type (-1) the clock half still runs
  *   - test_history_reset: the six SFR histories are zeroed for a row that stays a
- *     Type 0 or 1 and kept for a new or old orphan (R/src/core_build_model.c:252,
- *     :278-282, :322-337)
+ *     Type 0 or 1 and kept for a new or old orphan
  *   - test_missing_central: a satellite needing a clock without a Type 0 is an error
  *   - test_empty_and_null_rows: empty FoFs and rows without a galaxy
  */
@@ -203,7 +201,7 @@ static int test_merger_time_factor(void) {
 
 /**
  * @test    test_central_clock_reset
- * @brief   A Type 0 central gets MergTime 999.9f (R/src/core_build_model.c:288)
+ * @brief   A Type 0 central gets MergTime 999.9f
  */
 static int test_central_clock_reset(void) {
   TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
@@ -329,7 +327,7 @@ static int test_type1_to_type2(void) {
 
 /**
  * @test    test_type2_untouched
- * @brief   A galaxy that was already Type 2 is copied unchanged (R/src/core_build_model.c:240)
+ * @brief   A galaxy that was already Type 2 is copied unchanged
  */
 static int test_type2_untouched(void) {
   TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");
@@ -397,10 +395,9 @@ static int histories_state(struct GalaxyData *galaxy) {
  * @brief   The histories are zeroed exactly for the rows SAGE26 resets
  *
  * SAGE26 zeroes the six histories only on the first-occupied update of a galaxy that
- * was a Type 0 or 1 (R/src/core_build_model.c:252, :278-282), the rows that stay a Type
- * 0 or 1; a galaxy that becomes an orphan keeps them (:322-337), and a Type 2 is copied
- * unchanged (:240). The reset reads the new Type alone, so a run without the recorder
- * (PreviousType -1) resets the same rows.
+ * was a Type 0 or 1, the rows that stay a Type 0 or 1; a galaxy that becomes an orphan keeps
+ * them, and a Type 2 is copied unchanged. The reset reads the new Type alone, so a run without
+ * the recorder (PreviousType -1) resets the same rows.
  */
 static int test_history_reset(void) {
   TEST_ASSERT(init_clock(NULL) == 0, "init succeeds");

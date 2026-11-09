@@ -3,24 +3,22 @@
 """
 SAGE26 Disk Radius Against Virial Radius Plot
 
-Port of the "Plotting disk radii vs stellar mass" section of SAGE26's plotting script
-(plotting/allresults-local.py:2120-2188): the effective disk radius against the virial radius of
-galaxies with a stellar mass between 10^9.3 and 10^11.3 Msun (the stellar mass only selects),
-with the median and one standard deviation of each virial-radius bin and the Somerville et al.
-(2018) stellar-to-halo size ratio. The section is the specification; where this port differs
-it is a permitted deviation below.
+Follows the "Plotting disk radii vs stellar mass" section of SAGE26's plotting script: the effective
+disk radius against the virial radius of galaxies with a stellar mass between 10^9.3 and 10^11.3
+Msun (the stellar mass only selects), with the median and one standard deviation of each
+virial-radius bin and the Somerville et al. (2018) stellar-to-halo size ratio. Where it differs from
+SAGE26 the difference is stated below.
 
 Requires: DiskScaleRadius, StellarMass, Rvir
 
-Fields read (units): DiskScaleRadius (Mpc/h; SAGE26's DiskRadius, :2129), StellarMass (1e10
-Msun/h, converted to Msun as SAGE26 converts it: x 1e10 / hubble_h, :2137) and Rvir (Mpc/h,
-:2138). Both radii are drawn in kpc/h. SAGE26's `RSRHSomerville.dat` overlay is held inline as
-OBS_SOMERVILLE18.
+Fields read (units): DiskScaleRadius (Mpc/h; SAGE26's DiskRadius), StellarMass (1e10 Msun/h,
+converted to Msun as SAGE26 converts it: x 1e10 / hubble_h) and Rvir (Mpc/h). Both radii are drawn
+in kpc/h. SAGE26's `RSRHSomerville.dat` overlay is held inline as OBS_SOMERVILLE18.
 
-Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
-script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
-candidates exceed DILUTE. SAGE26 prints a skip notice when no galaxy is selected (:2142-2144) and
-then fails; this figure draws its empty axes instead, as it skips only for a missing field.
+Differences from SAGE26: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once), so the drawn subset differs when the candidates exceed DILUTE.
+SAGE26 prints a skip notice when no galaxy is selected and then fails; this figure draws its empty
+axes instead, as it skips only for a missing field.
 """
 
 import random
@@ -36,14 +34,13 @@ from output_utils import (
     setup_figure,
 )
 
-# Number of galaxies drawn at most: SAGE26's `dilute`, reassigned to 100000 at
-# allresults-local.py:1735 and in force here (:2146)
+# Number of galaxies drawn at most: SAGE26's `dilute` as in force at this figure
 DILUTE = 100000
 
-# Somerville et al. (2018), GAMA at z = 0.1: the stellar-to-halo size ratio SRHR (the stellar
-# scale radius over the halo radius) in eight stellar mass bins, transcribed from SAGE26's
-# data/SizesAndAM/RSRHSomerville.dat (read at allresults-local.py:2169). Columns: log10(Mstar /
-# Msun), SRHR, in the file's row order. SAGE26 draws column 1 only (:2170).
+# Somerville et al. (2018), GAMA at z = 0.1: the stellar-to-halo size ratio SRHR (the stellar scale
+# radius over the halo radius) in eight stellar mass bins, transcribed from SAGE26's
+# data/SizesAndAM/RSRHSomerville.dat (read as SAGE26 reads it). Columns: log10(Mstar /
+# Msun), SRHR, in the file's row order. SAGE26 draws column 1 only.
 OBS_SOMERVILLE18 = np.array(
     [
         [9.25168, 0.0183622],
@@ -57,7 +54,7 @@ OBS_SOMERVILLE18 = np.array(
     ]
 )
 
-# Number of bin edges of the median line: np.logspace(..., 50), allresults-local.py:2155
+# Number of bin edges of the median line: np.logspace(..., 50)
 N_BIN_EDGES = 50
 
 
@@ -65,8 +62,8 @@ def effective_disk_radius(disk_scale_radius):
     """
     Return the effective disk radius in kpc/h from the disk scale length in Mpc/h.
 
-    SAGE26 allresults-local.py:2129-2136: the scale length times 1.0e3 (Mpc/h to kpc/h), then
-    times 1.68 (r_e = 1.68 r_d for a pure exponential disk).
+    As in SAGE26: the scale length times 1.0e3 (Mpc/h to kpc/h), then times 1.68 (r_e = 1.68 r_d for
+    a pure exponential disk).
     """
     disk_radius = disk_scale_radius * 1.0e3  # Convert to kpc/h
     disk_radius = disk_radius * 1.68  # Scale length -> effective radius
@@ -77,7 +74,7 @@ def virial_radius_kpc(rvir):
     """
     Return the virial radius in kpc/h from Mpc/h.
 
-    SAGE26 allresults-local.py:2138-2139: `Rvir * 1.0e3`.
+    As in SAGE26: `Rvir * 1.0e3`.
     """
     return rvir * 1.0e3
 
@@ -118,24 +115,22 @@ def plot(
 
     hubble_h = metadata["hubble_h"]
     rng = random.Random(2222)
-    # SAGE26 sets only the y window (allresults-local.py:2183); its x window is the data's
+    # SAGE26 sets only the y window; its x window is the data's
     _, _, y_min, y_max = get_profile_axes(
         params, "disk_radius_vs_stellar_mass", (None, None), (10**-2, 10**2)
     )
 
-    # allresults-local.py:2129-2139
     DiskRadius = effective_disk_radius(galaxies.DiskScaleRadius)
     StellarMass = galaxies.StellarMass * 1.0e10 / hubble_h  # Convert to solar masses
     Rvir = virial_radius_kpc(galaxies.Rvir)
 
-    # allresults-local.py:2141-2146. A galaxy with no stellar mass has log10 = -inf, which the
-    # mass window leaves out.
+    # A galaxy with no stellar mass has log10 = -inf, which the mass window leaves out.
     with np.errstate(divide="ignore", invalid="ignore"):
         log_stellar_mass = np.log10(StellarMass)
     w = np.where(
         (Rvir > 0.0) & (DiskRadius > 0.0) & (log_stellar_mass > 9.3) & (log_stellar_mass < 11.3)
     )[0]
-    w = draw_sample(w, rng, DILUTE)  # allresults-local.py:2146
+    w = draw_sample(w, rng, DILUTE)
 
     if verbose:
         print("Disk Radius Vs Stellar Mass plot debug:")
@@ -144,10 +139,9 @@ def plot(
     fig, ax = setup_figure()
 
     if len(w) > 0:
-        # allresults-local.py:2152
         ax.scatter(Rvir[w], DiskRadius[w], s=2, alpha=0.5, rasterized=True, gid="model")
 
-        # Median line and 1-sigma shading, allresults-local.py:2155-2162
+        # Median line and 1-sigma shading
         bin_edges = np.logspace(np.log10(Rvir[w].min()), np.log10(Rvir[w].max()), N_BIN_EDGES)
         bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
         medians, stds = binned_median_and_std(Rvir[w], DiskRadius[w], bin_edges)
@@ -168,8 +162,8 @@ def plot(
             gid="model",
         )
 
-        # Somerville et al. (2018), allresults-local.py:2164-2176. Both radii are kpc/h, so the
-        # ratio carries no h and needs no correction.
+        # Somerville et al. (2018). Both radii are kpc/h, so the ratio carries no h and needs no
+        # correction.
         re_over_rvir = OBS_SOMERVILLE18[:, 1]
         rvir_ref = np.array([Rvir[w].min(), Rvir[w].max()])
         ax.fill_between(
@@ -195,8 +189,8 @@ def plot(
     ax.set_ylim(y_min, y_max)
     ax.set_xscale("log")
     ax.set_yscale("log")
-    # SAGE26 figure parity: allresults-local.py:2174 writes $\log M_\star$, whose star renders as a
-    # low subscript, and :2186 places the legend at upper left over the scatter. Mirrored as written.
+    # SAGE parity: SAGE26 writes $\log M_\star$, whose star renders as a low subscript, and
+    # places the legend at upper left over the scatter; mirrored as written
     setup_legend(ax, loc="upper left", frameon=False)
 
     plot_path = save_and_close_figure(

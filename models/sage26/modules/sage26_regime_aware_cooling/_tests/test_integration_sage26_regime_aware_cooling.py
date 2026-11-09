@@ -36,31 +36,26 @@ On writes its domain: with CGMrecipeOn 1, on the vertical run file's full pipeli
 run file's modules and order with every key they read set explicitly. The minimal pipeline has no
 stripping or merger pass, so Type 2 orphans with Mvir 0 keep CGM gas, and SAGE26's CGM recipe gives
 them tff = +inf by design: g_accel = G * Mvir / Rvir^2 is 0, so tff = sqrt(2 Rvir / g_accel) is
-infinite (models/sage26/shared/sage_cooling_physics.h:588-594). On the test trees that is 3863 rows
-at z = 0 (2725 with sage26_satellite_stripping added). That reachable configuration is outside the
-domain below. The domain case does not cover it, and the case is stated here. The full pipeline
-gives no such row. The observable list, on every output row of both snapshots:
+infinite. That reachable configuration is outside the domain below, and the full pipeline gives
+no such row. The following hold on every output row of both snapshots:
   - HotGas, MetalsHotGas, CGMgas, MetalsCGMgas, ColdGas, MetalsColdGas, BlackHoleMass: finite and
-    non-negative (masses; range [0.0, ...] with creation value 0, models/sage26/model_properties.
-    yaml:69-78, :191-200, :506-514, :516-524, :58-67, :180-189, :228-237).
+    non-negative (masses; range [0.0, ...] with creation value 0).
   - CoolingRate: finite and non-negative (the applied cooled mass over the substep, a mass rate,
-    creation value 0, model_properties.yaml:560-567; the transaction's total of two masses each
-    capped to a non-negative reservoir, sage26_regime_aware_cooling.c).
-  - Rheat: finite and non-negative (range [0.0, 10.0], creation value 0,
-    model_properties.yaml:341-349).
+    creation value 0; the transaction's total of two masses each capped to a non-negative
+    reservoir, sage26_regime_aware_cooling.c).
+  - Rheat: finite and non-negative (range [0.0, 10.0], creation value 0).
   - tcool, tff, RcoolToRvir: finite and either non-negative or exactly the documented sentinel -1
-    (creation value and sentinel -1, model_properties.yaml:530-538, :540-548, :550-558; the
-    diagnostic reset writes tcool 0, tff -1 and RcoolToRvir -1, and the hot restoration writes
-    tff -1, by design: sage26_regime_aware_cooling.c, reset_cgm_diagnostics and the restoration).
-  - mdot_cool, mdot_stream: finite and non-negative, with no witness (rates, creation value 0,
-    model_properties.yaml:569-576, :578-585), since the full pipeline includes
-    sage26_finalize_cooling_heating, which writes them from the raw rates; the test trees need not
-    reach the cold streams.
+    (creation value and sentinel -1; the diagnostic reset writes tcool 0, tff -1 and RcoolToRvir -1,
+    and the hot restoration writes tff -1, by design: sage26_regime_aware_cooling.c,
+    reset_cgm_diagnostics and the restoration).
+  - mdot_cool, mdot_stream: finite and non-negative, with no witness (rates, creation value 0), since
+    the full pipeline includes sage26_finalize_cooling_heating, which writes them from the raw
+    rates; the test trees need not reach the cold streams.
   - Witness: at least one Regime 0 row (the CGM branch only this module computes) with non-zero
     CoolingRate at snapshot 63.
   - Excluded: mdot_cool_raw and mdot_stream_raw, package-private state that binary output never
-    writes (output: false, model_properties.yaml:587-603); Cooling and Heating, which
-    sage26_finalize_cooling_heating finalises after this module's accumulation.
+    writes (output: false); Cooling and Heating, which sage26_finalize_cooling_heating finalises
+    after this module's accumulation.
 
 Required-key refusal, isolated (a real run; mimic exits non-zero with "Required model parameter
 'MShockMsun' not found" and "Module 'sage26_regime_aware_cooling' initialization failed", and no

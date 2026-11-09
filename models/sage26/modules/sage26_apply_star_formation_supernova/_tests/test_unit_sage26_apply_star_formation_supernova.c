@@ -32,9 +32,9 @@
  *   - test_zero_stars_no_updates: A zero event leaves positive reservoirs unchanged
  *   - test_zero_event_caps_negative_hot_metals: A zero event still runs the metal cap
  *   - test_sf_commit_fused_rounding: the shared SF commit rounds as SAGE26's fused build
- *   - test_sf_commit_hydrogen_caps: SFprescription 1's post-SF H2/H1 caps (S:1131-1135)
+ *   - test_sf_commit_hydrogen_caps: SFprescription 1's post-SF H2/H1 caps
  *   - test_feedback_commit_hydrogen_caps: SFprescription 1's post-reheating H2/H1 caps on the
- *     reheated galaxy only (S:1169-1173)
+ *     reheated galaxy only
  *   - test_ejection_exceeds_hot_gas: Ejection limited to HotGas
  *   - test_satellite_reheats_to_central: Satellites reheat to central's hot halo
  *   - test_temporary_properties_reset: Cleanup after processing
@@ -49,7 +49,7 @@
  *     the FoF central's CGM pair (central Regime 0) or hot pair (Regime 1, or CGMrecipeOn 0), the
  *     ejection cap and the metal cap binding and not, the unselected pair and the satellite's own
  *     pairs unchanged; the satellite's Regime is always the other value (the commit routes by the
- *     FoF central's regime, S:1175-1247)
+ *     FoF central's regime)
  *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
  *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
  *     bytewise unchanged, its history included, also in an interval the time guard refuses (the
@@ -126,7 +126,7 @@ static void setup_test_parameters(double recycle, double yield, double frac_z) {
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", frac_z);
 
   MimicConfig.NumModelParams = idx;
-  /* The module's required SFprescription, at R1's value */
+  /* The module's required SFprescription */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
@@ -574,8 +574,8 @@ int test_reheating_metal_transfer(void) {
  * @brief   Test that SupernovaOutflowRate accumulates the undivided reheated mass
  *
  * Physics: SupernovaOutflowRate += reheated mass, a float accumulation of SAGE26's
- * OutflowRate (R/src/model_starformation_and_feedback.c:1249). The division by the
- * interval happens once per halo in sage26_finalize_cooling_heating.
+ * OutflowRate. The division by the interval happens once per halo in
+ * sage26_finalize_cooling_heating.
  *
  * Expected: the reheated mass itself, in code mass units
  * Validates: Outflow accumulation
@@ -974,9 +974,8 @@ int test_metal_enrichment_zero_cold_gas(void) {
  * @test    test_zero_stars_no_updates
  * @brief   Test that a zero event leaves positive reservoirs unchanged
  *
- * SAGE26 commits star formation and feedback on every call, also with zero masses
- * (R/src/model_starformation_and_feedback.c:1063-1085), so the apply step runs both
- * commits; with zero masses and non-negative reservoirs nothing moves.
+ * SAGE26 commits star formation and feedback on every call, also with zero masses, so the
+ * apply step runs both commits; with zero masses and non-negative reservoirs nothing moves.
  *
  * Expected: All properties unchanged except temporary properties zeroed
  * Validates: The zero-mass commit path
@@ -1035,12 +1034,10 @@ int test_zero_stars_no_updates(void) {
  * @test    test_zero_event_caps_negative_hot_metals
  * @brief   A zero event still runs update_from_feedback's metal cap
  *
- * SAGE26 calls update_from_feedback on every substep, also with no stars
- * (R/src/model_starformation_and_feedback.c:1063-1085). With zero ejected mass the
- * metal transfer metallicityHot * 0 = 0 exceeds a negative MetalsHotGas, so the cap
- * (:1237-1240) moves the negative hot metals into the ejected reservoir and leaves
- * MetalsHotGas at zero. A module that returned early on zero stars would not.
- * No oracle wrapper fixture has both zero stars and negative hot metals.
+ * SAGE26 calls update_from_feedback on every substep, also with no stars. With zero ejected
+ * mass the metal transfer metallicityHot * 0 = 0 exceeds a negative MetalsHotGas, so the cap
+ * moves the negative hot metals into the ejected reservoir and leaves MetalsHotGas at zero.
+ * A module that returned early on zero stars would not.
  */
 int test_zero_event_caps_negative_hot_metals(void) {
   setup_test_parameters(0.43, 0.025, 0.0);
@@ -1092,20 +1089,14 @@ static uint32_t f32_bits(const float value) {
 
 /**
  * @test    test_sf_commit_fused_rounding
- * @brief   The shared SF commit rounds each update once, as SAGE26's build fuses them
+ * @brief   The shared SF commit rounds each update once, as SAGE26 does
  *
- * SAGE26's compiled update_from_star_formation (R/src/model_starformation_and_feedback.c
- * :1123-1126) applies two fmla.2d: [ColdGas, StellarMass] += [-(1-R), (1-R)] * stars
- * and [MetalsColdGas, MetalsStellarMass] += [-(Z(1-R)), Z(1-R)] * stars, one rounding
- * per lane. No oracle fixture distinguishes that from separate roundings, so these
- * cases pin it. Every expected bit pattern was produced by executing SAGE26's own
- * compiled update_from_star_formation: the function-level oracle's object for
- * model_starformation_and_feedback.c, built by _tests/oracle/build.sh with the pinned
- * toolchain (oracle README "Oracle Environment"), linked into a small caller that
- * passes SAGE26's get_metallicity of the cold gas. The inputs were chosen so that each
- * exact result lies near a float rounding midpoint, where a fused and an unfused
- * commit round to different floats: case 0 differs in StellarMass, cases 1 and 2 in
- * ColdGas and StellarMass, case 3 in MetalsColdGas and MetalsStellarMass. R is 0.43.
+ * SAGE26's update_from_star_formation updates [ColdGas, StellarMass] += [-(1-R), (1-R)] * stars
+ * and [MetalsColdGas, MetalsStellarMass] += [-(Z(1-R)), Z(1-R)] * stars with one rounding per
+ * update. The inputs lie near a float rounding midpoint, where a fused and an unfused commit
+ * round to different floats: case 0 differs in StellarMass, cases 1 and 2 in ColdGas and
+ * StellarMass, case 3 in MetalsColdGas and MetalsStellarMass. R is 0.43. The expected bit
+ * patterns were produced by executing SAGE26's own update_from_star_formation.
  */
 int test_sf_commit_fused_rounding(void) {
   static const struct {
@@ -1144,19 +1135,19 @@ int test_sf_commit_fused_rounding(void) {
     TEST_ASSERT(metallicity == f64_from_bits(cases[c].metallicity),
                 "the cold-gas metallicity must equal SAGE26's get_metallicity");
 
-    /* SFprescription 0: SAGE26's R0 and R1 commit, with no hydrogen cap */
+    /* SFprescription 0: SAGE26's commit, with no hydrogen cap */
     mimic_sage_update_from_star_formation(&gal, f64_from_bits(cases[c].stars), metallicity,
                                           recycle_fraction, MIMIC_SAGE_SF_PRESCRIPTION_CROTON,
                                           NULL);
 
     TEST_ASSERT(f32_bits(gal.ColdGas) == cases[c].sage26_out[0],
-                "ColdGas must round as SAGE26's fused update (S:1123)");
+                "ColdGas must round as SAGE26's fused update");
     TEST_ASSERT(f32_bits(gal.StellarMass) == cases[c].sage26_out[1],
-                "StellarMass must round as SAGE26's fused update (S:1125)");
+                "StellarMass must round as SAGE26's fused update");
     TEST_ASSERT(f32_bits(gal.MetalsColdGas) == cases[c].sage26_out[2],
-                "MetalsColdGas must round as SAGE26's fused update (S:1124)");
+                "MetalsColdGas must round as SAGE26's fused update");
     TEST_ASSERT(f32_bits(gal.MetalsStellarMass) == cases[c].sage26_out[3],
-                "MetalsStellarMass must round as SAGE26's fused update (S:1126)");
+                "MetalsStellarMass must round as SAGE26's fused update");
   }
   return TEST_PASS;
 }
@@ -1165,14 +1156,11 @@ int test_sf_commit_fused_rounding(void) {
 // HYDROGEN CAPS OF THE SHARED COMMITS (SFPRESCRIPTION 1)
 // ============================================================================
 //
-// Platform-independent invariants of the two hydrogen caps SAGE26 runs for a prescription that
-// tracks H2: update_from_star_formation's after its four reservoir stores (S:1131-1135) and
-// update_from_feedback's after the cold-gas and metal debits (S:1169-1173). Each bound is the
-// float max_h = (ColdGas > 0.0f) ? ColdGas * 0.74 : 0.0f of the cold gas the commit leaves,
-// formed here as the commit forms it (one double product, narrowed: no operation a compiler can
-// contract). They carry no oracle fixture and no reference-build bit pattern; the bit-for-bit
-// parity with SAGE26 is the oracle test's
-// (test_unit_sage26_apply_star_formation_supernova_oracle.c).
+// Invariants of the two hydrogen caps SAGE26 runs for a prescription that tracks H2:
+// update_from_star_formation's after its four reservoir stores and update_from_feedback's after
+// the cold-gas and metal debits. Each bound is the float
+// max_h = (ColdGas > 0.0f) ? ColdGas * 0.74 : 0.0f of the cold gas the commit leaves, formed here
+// as the commit forms it (one double product, narrowed).
 
 /** @brief The float hydrogen bound of a cold-gas reservoir, as both commits form it */
 static float hydrogen_bound(const float cold_gas) {
@@ -1194,7 +1182,7 @@ static void commit_star_formation(struct GalaxyData *gal, const float cold_gas, 
 /**
  * @test    test_sf_commit_hydrogen_caps
  * @brief   update_from_star_formation at SFprescription 1 caps H2gas and H1gas independently and
- *          strictly at max_h of the cold gas it leaves, never their sum (S:1131-1135)
+ *          strictly at max_h of the cold gas it leaves, never their sum
  */
 int test_sf_commit_hydrogen_caps(void) {
   struct GalaxyData gal;
@@ -1272,7 +1260,7 @@ static void commit_feedback(struct GalaxyData *gal, struct GalaxyData *central,
  * @test    test_feedback_commit_hydrogen_caps
  * @brief   update_from_feedback at SFprescription 1 caps the reheated galaxy's H2gas and H1gas
  *          independently and strictly at max_h of its cold gas after the debit, never their sum,
- *          and never the central's (S:1169-1173)
+ *          and never the central's
  */
 int test_feedback_commit_hydrogen_caps(void) {
   struct GalaxyData gal;
@@ -1601,8 +1589,7 @@ static float history(struct GalaxyData *gal, const enum MimicSageSfrHistory h, c
  * @brief   Every call samples the disk history at its substep's bin, zero stars included
  *
  * SAGE26 samples on every starformation_and_feedback call, after the feedback
- * renormalisation and before any reservoir update
- * (R/src/model_starformation_and_feedback.c:1053-1060):
+ * renormalisation and before any reservoir update:
  *   SfrDisk[bin] += stars / dt; SfrDiskColdGas[bin] = ColdGas;
  *   SfrDiskColdGasMetals[bin] = MetalsColdGas.
  * With 13 substeps, bins 0, 3 and 6 are shared by two substeps (bin (step * 10) / 13).
@@ -1755,37 +1742,30 @@ int test_disk_history_initial_boundary(void) {
 }
 
 // ============================================================================
-// MAIN TEST RUNNER
-
-// ============================================================================
-
-// ============================================================================
 // CGM ROUTING TESTS (CGMrecipeOn)
 // ============================================================================
 //
-// SAGE26's update_from_feedback (R = the staged SAGE26 source,
-// R/src/model_starformation_and_feedback.c:1146-1251) credits the reheated gas to, caps the
-// ejection against and ejects from the FoF CENTRAL's CGM pair when CGMrecipeOn is 1 and the
-// central's Regime is 0 (:1175-1199), and its hot pair otherwise (:1200-1223, :1224-1247). The
-// forming galaxy's own Regime is never read. Each case below gives the central's two pairs the SAME
-// input values, so the selected pair ends at the case's literal values and the unselected one keeps
-// its input; the forming satellite always holds the other Regime. Every value is a short binary
-// fraction, so every expectation is an exact literal:
+// SAGE26's update_from_feedback credits the reheated gas to, caps the ejection against and
+// ejects from the FoF CENTRAL's CGM pair when CGMrecipeOn is 1 and the central's Regime is 0,
+// and its hot pair otherwise. The forming galaxy's own Regime is never read. Each case below
+// gives the central's two pairs the SAME input values, so the selected pair ends at the case's
+// literal values and the unselected one keeps its input; the forming satellite always holds the
+// other Regime. Every value is a short binary fraction, so every expectation is an exact literal:
 //
 //   satellite ColdGas 4, MetalsColdGas 0.5 (Z 0.125), no stars, reheated 1 -> ColdGas 3,
 //   MetalsColdGas 0.375, outflow 1; the central's ejected pair 0.5 / 0.0625.
 //   A (no cap binds): pairs 2 / 0.25, ejected 0.5 -> selected 3 / 0.375 after the reheating,
 //     metallicity 0.125, -> 2.5 / 0.3125; ejected pair 1 / 0.125.
-//   B (the gas cap binds, :1184-1186 / :1208-1210 / :1232-1234): ejected 5 -> capped to the
-//     selected 3 after the reheating -> 0 / 0; ejected pair 3.5 / 0.4375.
-//   C (the metal cap binds, :1189-1192 / :1213-1216 / :1237-1240): pairs 2 / -0.5 -> 3 / -0.375
-//     after the reheating; metallicity 0 (get_metallicity of negative metals), the transfer 0 is
-//     above -0.375, so it is capped to -0.375 -> 2.5 / 0; ejected pair 1 / -0.3125. A constructed
+//   B (the gas cap binds): ejected 5 -> capped to the selected 3 after the reheating -> 0 / 0;
+//     ejected pair 3.5 / 0.4375.
+//   C (the metal cap binds): pairs 2 / -0.5 -> 3 / -0.375 after the reheating; metallicity 0
+//     (get_metallicity of negative metals), the transfer 0 is above -0.375, so it is capped to
+//     -0.375 -> 2.5 / 0; ejected pair 1 / -0.3125. A constructed
 //     edge state (negative metals arise from float cancellation, as test_zero_event_caps_negative_
 //     hot_metals uses for the hot pair).
 
 /** @brief Set the parameter list's CGMrecipeOn to `value`, or remove it for NULL */
-static void c10_set_cgm_recipe_on(const char *value) {
+static void cgm_set_cgm_recipe_on(const char *value) {
   int n = 0;
   for (int i = 0; i < MimicConfig.NumModelParams; i++) {
     if (strcmp(MimicConfig.ModelParams[i].param_name, "CGMrecipeOn") != 0) {
@@ -1801,7 +1781,7 @@ static void c10_set_cgm_recipe_on(const char *value) {
 }
 
 /** @brief Read a captured log stream into a static buffer (valid until the next call) */
-static const char *c10_read_log(FILE *fp) {
+static const char *cgm_read_log(FILE *fp) {
   static char buf[8192];
   rewind(fp);
   const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
@@ -1810,15 +1790,15 @@ static const char *c10_read_log(FILE *fp) {
 }
 
 /** @brief Initialise the module with CGMrecipeOn `value` (NULL: missing), capturing the log */
-static int c10_init(const char *value, const char **log) {
+static int cgm_init(const char *value, const char **log) {
   setup_test_parameters(0.5, 0.0, 0.0);
-  c10_set_cgm_recipe_on(value);
+  cgm_set_cgm_recipe_on(value);
   FILE *capture = tmpfile();
   FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
   const int status = sage26_apply_star_formation_supernova_init();
   if (capture != NULL) {
     set_log_output(old_out);
-    *log = c10_read_log(capture);
+    *log = cgm_read_log(capture);
     fclose(capture);
   } else {
     *log = "";
@@ -1850,7 +1830,7 @@ int test_cgm_feedback_destination(void) {
   for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
     for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
       const char *log = "";
-      TEST_ASSERT(c10_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+      TEST_ASSERT(cgm_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
 
       struct Halo central_halo, satellite_halo;
       struct GalaxyData central, satellite;
@@ -1908,14 +1888,14 @@ int test_cgm_feedback_destination(void) {
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
-  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
-  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
   return TEST_PASS;
 }
 
@@ -1928,13 +1908,13 @@ int test_cgm_recipe_on_refused(void) {
  * @brief   An FFBRegime 1 row is not processed; the same row with FFBRegime 0 is
  *
  * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb and returns
- * before its ordinary history sample and commits (R/src/model_starformation_and_feedback.c
- * :1004-1008). The row is a satellite with seeded transport fields and its own FoF central; with
- * FFBRegime 1 both galaxy structs are compared byte for byte with their inputs, in a valid
- * interval and in one the time guard refuses on an ordinary row (dT 0 with a stored snapshot).
- * With FFBRegime 0 the expectations are literals: SfrDisk[0] += 1.0 / 0.1 (:1057), the locked
- * (1 - 0.43) * 1.0 leaves the cold gas (:1121-1124), then the reheated 2.0 (:1166), which the
- * central's hot gas gains before 0.5 is ejected from it (CGMrecipeOn 0, :1203-1222).
+ * before its ordinary history sample and commits. The row is a satellite with seeded transport
+ * fields and its own FoF central; with FFBRegime 1 both galaxy structs are compared byte for
+ * byte with their inputs, in a valid interval and in one the time guard refuses on an ordinary
+ * row (dT 0 with a stored snapshot).
+ * With FFBRegime 0 the expectations are literals: SfrDisk[0] += 1.0 / 0.1, the locked
+ * (1 - 0.43) * 1.0 leaves the cold gas, then the reheated 2.0, which the central's hot gas
+ * gains before 0.5 is ejected from it (CGMrecipeOn 0).
  */
 int test_ffb_row_bypassed(void) {
   reset_config();

@@ -2,31 +2,20 @@
 """
 sage26 full-physics galaxy-output baseline regression.
 
-Validates: the package's complete default pipeline (R6), run on the committed single-file test
+Validates: the package's complete default pipeline, run on the committed single-file test
            trees, reproduces the committed galaxy-physics baseline: every property of every row at
            each output snapshot (63, and 16, the snapshot holding the most FFBRegime 1 rows);
            the input's SubSteps and modules block equal the package's vertical run file's, value
-           for value and in order; and the baseline covers R6's new physics (FFBRegime 1 rows at
-           snapshot 16; Regime 1 rows and non-zero Concentration, MassLoading and H2gas at 63)
+           for value and in order; and the baseline covers the default pipeline's CGM-regime, FFB,
+           concentration and FIRE-feedback physics (FFBRegime 1 rows at snapshot 16; Regime 1
+           rows and non-zero Concentration, MassLoading and H2gas at 63)
 Tolerance: integers exact; floats at baseline_rtol() (1e-6 relative unless MIMIC_BASELINE_RTOL
            overrides it) with the absolute floor BASELINE_ATOL_DEFAULT (1e-10). Under a relaxed
-           override, float differences beyond 1e-6 are reported as warnings. The baseline was
-           captured on macOS arm64 (Apple clang) and reproduces there bit for bit
-Cross-platform floor: MIMIC_BASELINE_RTOL=1e-3 is the documented cross-platform tolerance for
-           this baseline, as it is for sage16's (.github/workflows/ci.yml, scientific step).
-           Measured on Ubuntu 24.04, arm64, gcc 13.3.0, glibc 2.39, on 2026-11-08 at commit
-           470068a3: the strict comparison fails with 38 properties at snapshot 63 and 5 at
-           snapshot 16 beyond 1e-6 relative, the largest CGMgas 5.5e-4, MetalsCGMgas 5.3e-4,
-           CoolingRate 1.6e-4 and tcool 1.1e-4, all below 1e-3, and the run passes at 1e-3 (the
-           post-campaign review's record of that run is
-           /Volumes/Internal/results/sage26-campaign/post-campaign-review/fresh-install/
-           RESULTS-linux.md). Locally on the capture platform the strict 1e-6 applies, and a
-           difference beyond it there is a finding, not noise
-
-This is a regression guard on the package's own output on the test trees, not a parity
-measurement against SAGE26: the package's parity with SAGE26 is measured by the instrument under
-models/sage26/tools. A pass says the output has not moved since the baseline was captured; it
-says nothing about whether that output matches SAGE26.
+           override, float differences beyond 1e-6 are reported as warnings. The baseline
+           reproduces bit for bit on the platform it was captured on
+Cross-platform floor: CI applies MIMIC_BASELINE_RTOL=1e-3 across platforms; locally on the
+           capture platform the strict 1e-6 applies, and a difference beyond it there is a finding,
+           not noise
 
 The repository-level baseline (tests/data/output/baseline/) is physics-free and belongs to the
 default package pair, so it cannot catch drift in sage26 galaxy formation. This model-owned
@@ -38,11 +27,11 @@ NA under every sage26 pair.
 Test cases:
   - test_pair_guard_outcomes: the guard raises nothing under (sage26, mini-millennium),
     TestNotApplicable under (sage26, micro-uchuu) and (sage26, mini-millennium-horizontal), and
-    TestSkipped under (sage16, mini-millennium)
+    TestSkipped under a build of another model
   - test_input_matches_run_file: the input's SubSteps and modules block equal the run file's,
     so a deliberate run-file change fails here until the baseline is refreshed with it
   - test_sage26_physics_baseline: a fresh run of the input matches the committed baseline at
-    every output snapshot, and the baseline covers R6's new physics
+    every output snapshot, and the baseline covers the default pipeline's new physics
 
 Run: make MODEL=sage26 SIMULATION=mini-millennium && \\
      MODEL=sage26 SIMULATION=mini-millennium \\
@@ -214,7 +203,7 @@ def test_input_matches_run_file():
 
 
 def _row_counts(halos):
-    """Counts of the rows that show R6's new physics in one output snapshot."""
+    """Counts of the rows that show the default pipeline's new physics in one output snapshot."""
     return {
         "FFBRegime == 1": int(np.sum(halos["FFBRegime"] == 1)),
         "Regime == 1": int(np.sum(halos["Regime"] == 1)),
@@ -241,7 +230,7 @@ def test_sage26_physics_baseline():
         OUTPUT_FILES
     ), f"input snapshot_list {snapshot_list} is not the baseline's {sorted(OUTPUT_FILES)}"
 
-    # The committed baseline must exercise R6's new physics, or a pass would say nothing about it
+    # The committed baseline must exercise the default pipeline's new physics, or a pass would say nothing about it
     ffb_counts = _row_counts(load_binary_halos(BASELINE_DIR / OUTPUT_FILES[FFB_SNAPSHOT])[0])
     z0_counts = _row_counts(load_binary_halos(BASELINE_DIR / OUTPUT_FILES[63])[0])
     print(f"  baseline coverage, snapshot {FFB_SNAPSHOT}: {ffb_counts}")

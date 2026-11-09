@@ -24,7 +24,6 @@
  *     metals of both branches (retained, ColdGas > 1e-8; all metals, ColdGas <= 1e-8) go to the FoF
  *     central's CGM metals (its Regime 0) or hot metals (Regime 1, or CGMrecipeOn 0); the forming
  *     satellite holds the other Regime; the unselected pair and the gas fields unchanged
- *     (R/src/model_starformation_and_feedback.c:1093-1108, R/src/model_misc.h:67-74)
  *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
  *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
  *     bytewise unchanged (no yield, NewStellarMass not consumed); the same row with FFBRegime 0
@@ -306,11 +305,9 @@ int test_zero_new_stellar_mass(void) {
  * @test    test_zero_event_still_adds_yield
  * @brief   SAGE26 adds the yield on every call, also with no new stars
  *
- * SAGE26's starformation_and_feedback adds the disk yield unconditionally
- * (R/src/model_starformation_and_feedback.c:1092-1109), so a zero yield is still
- * added: a -0.0 metal reservoir becomes +0.0 (-0.0 + +0.0 = +0.0). A module that
- * returned early on zero stars would leave -0.0. No oracle fixture has both zero
- * stars and a -0.0 reservoir, so this pins the behaviour.
+ * SAGE26's starformation_and_feedback adds the disk yield unconditionally, so a zero yield is
+ * still added: a -0.0 metal reservoir becomes +0.0 (-0.0 + +0.0 = +0.0). A module that
+ * returned early on zero stars would leave -0.0.
  */
 int test_zero_event_still_adds_yield(void) {
   reset_config();
@@ -425,17 +422,16 @@ int test_invalid_ngal(void) {
 // CGM ROUTING TESTS (CGMrecipeOn)
 // ============================================================================
 //
-// SAGE26's disk yield (R = the staged SAGE26 source, R/src/model_starformation_and_feedback.c
-// :1093-1108) sends the escaping metals through add_metals_to_hot_reservoir
-// (R/src/model_misc.h:67-74) to the FoF CENTRAL's MetalsCGMgas when CGMrecipeOn is 1 and the
-// central's Regime is 0, and to its MetalsHotGas otherwise. With Yield 0.5, FracZleaveDisk 0.5 and
+// SAGE26's disk yield sends the escaping metals through add_metals_to_hot_reservoir to the FoF
+// CENTRAL's MetalsCGMgas when CGMrecipeOn is 1 and the central's Regime is 0, and to its
+// MetalsHotGas otherwise. With Yield 0.5, FracZleaveDisk 0.5 and
 // a central Mvir of 0 (exp(-0) = 1, so FracZleaveDiskVal = 0.5) and 1 star formed, every value is
 // exact: the retained branch (satellite ColdGas 4) keeps 0.5 * (1 - 0.5) * 1 = 0.25 in the
 // satellite's cold metals and sends 0.5 * 0.5 * 1 = 0.25 out; the all-metals branch (ColdGas 0)
 // sends 0.5 * 1 = 0.5 out. Both central metal fields start at 0.125.
 
 /** @brief Read a captured log stream into a static buffer (valid until the next call) */
-static const char *c10_read_log(FILE *fp) {
+static const char *cgm_read_log(FILE *fp) {
   static char buf[8192];
   rewind(fp);
   const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
@@ -444,7 +440,7 @@ static const char *c10_read_log(FILE *fp) {
 }
 
 /** @brief Initialise with Yield 0.5, FracZleaveDisk 0.5 and CGMrecipeOn `cgm` (NULL: missing) */
-static int c10_init(const char *cgm, const char **log) {
+static int cgm_init(const char *cgm, const char **log) {
   reset_config();
   sage26_test_append_model_parameter("Yield", "0.5");
   sage26_test_append_model_parameter("FracZleaveDisk", "0.5");
@@ -456,7 +452,7 @@ static int c10_init(const char *cgm, const char **log) {
   const int status = sage26_apply_metal_enrichment_init();
   if (capture != NULL) {
     set_log_output(old_out);
-    *log = c10_read_log(capture);
+    *log = cgm_read_log(capture);
     fclose(capture);
   } else {
     *log = "";
@@ -485,7 +481,7 @@ int test_cgm_yield_destination(void) {
   for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
     for (size_t b = 0; b < sizeof(branches) / sizeof(branches[0]); b++) {
       const char *log = "";
-      TEST_ASSERT(c10_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+      TEST_ASSERT(cgm_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
       struct ModuleContext ctx = create_test_context();
       struct GalaxyData cen_gal;
       memset(&cen_gal, 0, sizeof(cen_gal));
@@ -541,14 +537,14 @@ int test_cgm_yield_destination(void) {
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
-  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
-  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
   return TEST_PASS;
 }
 
@@ -557,11 +553,11 @@ int test_cgm_recipe_on_refused(void) {
  * @brief   An FFBRegime 1 row gets no yield; the same row with FFBRegime 0 does
  *
  * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb and returns
- * before its ordinary yield (R/src/model_starformation_and_feedback.c:1004-1008). The row is a
- * satellite with a seeded NewStellarMass and its own FoF central; with FFBRegime 1 both galaxy
- * structs are compared byte for byte with their inputs. With FFBRegime 0 the yield is SAGE26's
- * (:1093-1103): the retained Yield * (1 - FracZleaveDiskVal) * stars into the cold metals and the
- * rest to the central's hot metals (CGMrecipeOn 0), and NewStellarMass is consumed.
+ * before its ordinary yield. The row is a satellite with a seeded NewStellarMass and its own FoF
+ * central; with FFBRegime 1 both galaxy structs are compared byte for byte with their inputs.
+ * With FFBRegime 0 the retained Yield * (1 - FracZleaveDiskVal) * stars goes into the cold
+ * metals and the rest to the central's hot metals (CGMrecipeOn 0), and NewStellarMass is
+ * consumed.
  */
 int test_ffb_row_bypassed(void) {
   reset_config();
@@ -596,9 +592,9 @@ int test_ffb_row_bypassed(void) {
   TEST_ASSERT(sage26_apply_metal_enrichment_process(&ctx, &halos[1], 1) == 0,
               "process succeeds on an ordinary row");
   const double stars = 2.0;
-  const double frac_z_leave = TEST_FRAC_Z_LEAVE_DISK * exp(-1.0 * 30.0 / 30.0); /* :1094 */
-  const double expected_cold = TEST_YIELD * (1.0 - frac_z_leave) * stars;       /* :1097 */
-  const double expected_hot = TEST_YIELD * frac_z_leave * stars;                /* :1100-1102 */
+  const double frac_z_leave = TEST_FRAC_Z_LEAVE_DISK * exp(-1.0 * 30.0 / 30.0);
+  const double expected_cold = TEST_YIELD * (1.0 - frac_z_leave) * stars;
+  const double expected_hot = TEST_YIELD * frac_z_leave * stars;
   printf("\n  FFBRegime 0: MetalsColdGas %.9g (expected %.9g), central MetalsHotGas %.9g (%.9g)",
          (double)sat_gal.MetalsColdGas, expected_cold, (double)cen_gal.MetalsHotGas, expected_hot);
   TEST_ASSERT(FLOAT_EQ(sat_gal.MetalsColdGas, expected_cold, 1e-7),

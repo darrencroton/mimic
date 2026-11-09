@@ -4,14 +4,12 @@
  *          (shared/sage_ffb_feedback_physics.h), the H I block (shared/sage_hi_physics.h) and the
  *          disk yield (shared/sage_metal_yield_physics.h)
  *
- * R = the staged SAGE26 source, S = R/src/model_starformation_and_feedback.c, X =
- * R/src/model_misc.h. Every expectation is derived independently of the helper under test: a
- * literal from inputs chosen so the result is exact, or SAGE26's expression written here in its
- * operand order with its lines cited, in separate statements where SAGE26 has them (so no
- * contraction can differ); never by calling the helper under test. Platform independent: libm's
- * pow, exp and log are called by the helper and by the expectation alike.
+ * Every expectation is derived independently of the helper under test: a literal from inputs
+ * chosen so the result is exact, or SAGE26's expression written here in its operand order; never
+ * by calling the helper under test. libm's pow, exp and log are called by the helper and by the
+ * expectation alike.
  *
- * FFB feedback budget (compute_sn_feedback_ffb, S:901-972):
+ * FFB feedback budget (SAGE26's compute_sn_feedback_ffb):
  * - test_ffb_feedback_valid_capped: a valid scaling (Vvir 100 km/s, z 1) above 60 km/s: the
  *   division form of the velocity term, the eta cap binding, MassLoading written as the float
  *   eta, reheated = eta * stars, no renormalisation, E_FB below E_lift: no ejection
@@ -22,23 +20,23 @@
  *   no ejection, stars unchanged
  * - test_ffb_feedback_invalid_redshift: z -0.5 with Vvir 100: the same, although Vvir > 0
  * - test_ffb_feedback_renormalised: stars + reheated above the cold gas the caller passes: both
- *   scaled by ColdGas / (stars + reheated) (S:943-947), the ejection from the scaled values
+ *   scaled by ColdGas / (stars + reheated), the ejection from the scaled values
  * - test_ffb_feedback_renorm_second_guard: cold gas -1, stars 0, an invalid scaling: the first
  *   guard holds and the second (stars + reheated > 0) does not, so nothing is scaled
- * H I block (S:1035-1046, S:1280-1292, S:130-152):
+ * H I block (SAGE26's calculate_h1gas and ionized_gas_fraction):
  * - test_hi_general_and_writes_only_h1: the ionisation cut's general expression; only H1gas written
  * - test_hi_paths: a disk below the cut (f_ion 1), non-positive inputs (f_ion 0), H2 above the
  *   cold hydrogen (atomicH floored at 0)
- * - test_hi_ffb_zero_h2: with H2gas +0 the block equals the plain multiply ColdGas * 0.74 (S:1285)
- * Disk yield (S:1092-1109, S:1353-1362):
+ * - test_hi_ffb_zero_h2: with H2gas +0 the block equals the plain multiply ColdGas * 0.74
+ * Disk yield:
  * - test_yield_above_floor_routing: the retained metals to the cold gas, the escaping metals to the
  *   central's selected metals by CGMrecipeOn and the CENTRAL's Regime, with retained and escaping
  *   amounts that differ (FracZleaveDisk 0.25), the central's float Mvir in the scale, the stars the
  *   argument (NewStellarMass not read or written)
  * - test_yield_below_floor: ColdGas at or below 1e-8: all of Yield * stars to the central's
  * selected metals, the cold metals untouched
- * - test_yield_fused_retained: the retained metals are one fused multiply-add (S:1097, S:1356) on
- *   an input (a cancelling negative metal reservoir) where the unfused form differs
+ * - test_yield_fused_retained: the retained metals are one fused multiply-add, on an input (a
+ *   cancelling negative metal reservoir) where the unfused form differs
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -73,7 +71,7 @@ static int same_f32(const float a, const float b) { return memcmp(&a, &b, sizeof
 // FFB FEEDBACK BUDGET
 // ============================================================================
 
-/** SAGE26's compute_sn_feedback_ffb with FIREmodeOn 1, written out (S:905-967, X:118-149) */
+/** SAGE26's compute_sn_feedback_ffb with FIREmodeOn 1, written out */
 struct ffb_expected {
   double stars, reheated, ejected;
   float mass_loading;
@@ -85,43 +83,43 @@ static struct ffb_expected expected_ffb(const float vvir, const double z, const 
   struct ffb_expected e = {stars_in, 0.0, 0.0, mass_loading_in};
   double fire_scaling = 0.0;
   int valid = 0;
-  const double vc = vvir;                            /* S:916 */
-  if (vc > 0.0 && z >= 0.0) {                        /* S:917 */
-    const double vc_floored = (vc < 1.0) ? 1.0 : vc; /* S:918 */
-    const double z_term = pow(1.0 + z, 1.25);        /* S:919 */
-    /* S:920-921; pow(x, -1.0) in the form SAGE26's object computes, 1.0 / x */
+  const double vc = vvir;
+  if (vc > 0.0 && z >= 0.0) {
+    const double vc_floored = (vc < 1.0) ? 1.0 : vc;
+    const double z_term = pow(1.0 + z, 1.25);
+    /* SAGE parity: pow(x, -1.0) is written as 1.0 / x, as SAGE26 computes it */
     const double v_term =
         (vc_floored < 60.0) ? pow(vc_floored / 60.0, -3.2) : 1.0 / (vc_floored / 60.0);
-    fire_scaling = z_term * v_term; /* S:922 */
+    fire_scaling = z_term * v_term;
     valid = 1;
   }
   if (valid) {
-    const double eta_raw = TEST_EPSILON * fire_scaling; /* S:931 */
-    double eta = eta_raw;                               /* X:144-146: vvir > 0 here */
+    const double eta_raw = TEST_EPSILON * fire_scaling;
+    double eta = eta_raw;
     if (vvir > 0.0) {
-      const double esn = TEST_ETA_SN_CODE * energy_sn;                  /* X:147 */
-      const double eta_max = 2.0 * esn / ((double)vvir * (double)vvir); /* X:148 */
-      eta = (eta_raw > eta_max) ? eta_max : eta_raw;                    /* X:149 */
+      const double esn = TEST_ETA_SN_CODE * energy_sn;
+      const double eta_max = 2.0 * esn / ((double)vvir * (double)vvir);
+      eta = (eta_raw > eta_max) ? eta_max : eta_raw;
     }
-    e.mass_loading = (float)eta; /* S:932 */
-    e.reheated = eta * e.stars;  /* S:933 */
+    e.mass_loading = (float)eta;
+    e.reheated = eta * e.stars;
   }
-  if ((e.stars + e.reheated) > cold_gas && (e.stars + e.reheated) > 0.0) { /* S:943 */
-    const double fac = cold_gas / (e.stars + e.reheated);                  /* S:944 */
+  if ((e.stars + e.reheated) > cold_gas && (e.stars + e.reheated) > 0.0) {
+    const double fac = cold_gas / (e.stars + e.reheated);
     e.stars *= fac;
     e.reheated *= fac;
   }
-  if (vvir > 0.0 && valid) {                                   /* S:950-952 */
-    double coupling = TEST_EJECTION_EFFICIENCY * fire_scaling; /* X:120 */
+  if (vvir > 0.0 && valid) {
+    double coupling = TEST_EJECTION_EFFICIENCY * fire_scaling;
     if (coupling > 2.0) {
-      coupling = 2.0; /* X:121-123 */
+      coupling = 2.0;
     }
-    const double E_FB = coupling * 0.5 * e.stars * (TEST_ETA_SN_CODE * energy_sn); /* S:954-956 */
-    const double E_lift = 0.5 * e.reheated * vc * vc;                              /* S:957 */
-    e.ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc * vc) : 0.0;         /* S:958 */
+    const double E_FB = coupling * 0.5 * e.stars * (TEST_ETA_SN_CODE * energy_sn);
+    const double E_lift = 0.5 * e.reheated * vc * vc;
+    e.ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc * vc) : 0.0;
   }
   if (e.ejected < 0.0) {
-    e.ejected = 0.0; /* S:967 */
+    e.ejected = 0.0;
   }
   return e;
 }
@@ -188,9 +186,9 @@ static int test_ffb_feedback_low_velocity_floor(void) {
   TEST_ASSERT(l.fire.vc_floored == 1 && l.fire.high_velocity == 0,
               "the scaling's velocity is floored at 1 km/s and takes the -3.2 slope");
   TEST_ASSERT(l.fire.coupling_capped == 1 && same_f64(l.fire.coupling, 2.0),
-              "the coupling is capped at 2 (X:121-123)");
+              "the coupling is capped at 2");
   TEST_ASSERT(l.fire.eta_cap_vvir_nonpositive == 0 && same_f64(l.fire.eta_max, 2.0 * 2000.0 / 0.25),
-              "the eta cap uses the unfloored Vvir 0.5 (X:148)");
+              "the eta cap uses the unfloored Vvir 0.5");
   return TEST_PASS;
 }
 
@@ -203,7 +201,7 @@ static int test_ffb_feedback_invalid_vvir(void) {
         run_and_compare(velocities[k], 1.0, 1000.0f, 0.5, TEST_ENERGY_SN_CODE_HIGH, &l, &got),
         "invalid scaling (Vvir <= 0): outputs equal SAGE26's expressions");
     TEST_ASSERT(same_f32(got.mass_loading, SEEDED_MASS_LOADING) && l.mass_loading_written == 0,
-                "SAGE parity: an invalid scaling leaves MassLoading stale (S:929-934)");
+                "SAGE parity: an invalid scaling leaves MassLoading stale");
     TEST_ASSERT(same_f64(got.reheated, 0.0) && same_f64(got.ejected, 0.0) &&
                     same_f64(got.stars, 0.5),
                 "no reheating, no ejection, the stars unchanged");
@@ -218,9 +216,9 @@ static int test_ffb_feedback_invalid_redshift(void) {
   TEST_ASSERT(run_and_compare(100.0f, -0.5, 1000.0f, 0.5, TEST_ENERGY_SN_CODE_HIGH, &l, &got),
               "invalid scaling (z < 0, Vvir > 0): outputs equal SAGE26's expressions");
   TEST_ASSERT(same_f32(got.mass_loading, SEEDED_MASS_LOADING),
-              "SAGE parity: z < 0 leaves MassLoading stale although Vvir > 0 (S:917)");
+              "SAGE parity: z < 0 leaves MassLoading stale although Vvir > 0");
   TEST_ASSERT(same_f64(got.reheated, 0.0) && same_f64(got.ejected, 0.0),
-              "no reheating and no ejection with a positive Vvir (S:952)");
+              "no reheating and no ejection with a positive Vvir");
   return TEST_PASS;
 }
 
@@ -231,9 +229,9 @@ static int test_ffb_feedback_renormalised(void) {
   TEST_ASSERT(run_and_compare(100.0f, 1.0, 0.7f, 1.0, TEST_ENERGY_SN_CODE_LOW, &l, &got),
               "renormalised: outputs equal SAGE26's expressions bit for bit");
   TEST_ASSERT(l.renorm_binds == 1 && same_f64(l.renorm_fac, (double)0.7f / (1.0 + 0.4)),
-              "fac = ColdGas / (stars + reheated) (S:944)");
+              "fac = ColdGas / (stars + reheated)");
   TEST_ASSERT(same_f64(got.stars, 1.0 * l.renorm_fac) && same_f64(got.reheated, 0.4 * l.renorm_fac),
-              "stars and reheated scaled by fac (S:945-946)");
+              "stars and reheated scaled by fac");
   TEST_ASSERT(same_f64(l.stars_in, 1.0) && !same_f64(got.stars, 1.0),
               "the renormalised stars differ from the stars passed");
   return TEST_PASS;
@@ -245,7 +243,7 @@ static int test_ffb_feedback_renorm_second_guard(void) {
   TEST_ASSERT(run_and_compare(0.0f, 1.0, -1.0f, 0.0, TEST_ENERGY_SN_CODE_HIGH, &l, &got),
               "second guard: outputs equal SAGE26's expressions");
   TEST_ASSERT(l.renorm_binds == 0 && same_f64(got.stars, 0.0) && same_f64(got.reheated, 0.0),
-              "stars + reheated = 0 > ColdGas -1, but not > 0: nothing scaled (S:943)");
+              "stars + reheated = 0 > ColdGas -1, but not > 0: nothing scaled");
   return TEST_PASS;
 }
 
@@ -253,7 +251,7 @@ static int test_ffb_feedback_renorm_second_guard(void) {
 // H I BLOCK
 // ============================================================================
 
-/** SAGE26's ionized_gas_fraction (S:135-152), written out */
+/** SAGE26's ionized_gas_fraction, written out */
 static double expected_f_ion(const double cold, const double rs, const double h) {
   if (cold <= 0.0 || rs <= 0.0 || 0.5 <= 0.0 || h <= 0.0) {
     return 0.0;
@@ -287,15 +285,15 @@ static struct GalaxyData hi_galaxy(const float cold, const float h2, const float
 }
 
 static int test_hi_general_and_writes_only_h1(void) {
-  /* ColdGas 1 (so ColdGas * 0.74 is exact, fused or not), H2 0.25, r_s 0.004 Mpc/h */
+  /* ColdGas 1 (so ColdGas * 0.74 is exact), H2 0.25, r_s 0.004 Mpc/h */
   struct GalaxyData g = hi_galaxy(1.0f, 0.25f, 0.004f);
   struct GalaxyData before = g;
   mimic_sage_calculate_h1gas(&g, 0.73);
-  const double atomicH = 1.0 * 0.74 - 0.25; /* S:1036, exact */
+  const double atomicH = 1.0 * 0.74 - 0.25;
   const double f_ion = expected_f_ion(1.0, (double)0.004f * 1.0, 0.73);
   TEST_ASSERT(f_ion > 0.0 && f_ion < 1.0, "the general expression (0 < f_ion < 1)");
   TEST_ASSERT(same_f32(g.H1gas, (float)(atomicH * (1.0 - f_ion))),
-              "H1gas = atomicH * (1 - f_ion) narrowed to float (S:1044-1045)");
+              "H1gas = atomicH * (1 - f_ion) narrowed to float");
   before.H1gas = g.H1gas;
   TEST_ASSERT(memcmp(&before, &g, sizeof(g)) == 0, "only H1gas is written");
   return TEST_PASS;
@@ -311,7 +309,7 @@ static int test_hi_paths(void) {
   g = hi_galaxy(0.5f, 0.125f, 0.0f);
   mimic_sage_calculate_h1gas(&g, 0.73);
   TEST_ASSERT(same_f32(g.H1gas, (float)(0.5 * 0.74 - 0.125)), "r_s 0: f_ion 0, H1gas the atomic H");
-  /* H2 above the cold hydrogen: atomicH floored at 0 (S:1037-1040) */
+  /* H2 above the cold hydrogen: atomicH floored at 0 */
   g = hi_galaxy(1.0f, 0.875f, 0.004f);
   mimic_sage_calculate_h1gas(&g, 0.73);
   TEST_ASSERT(same_f32(g.H1gas, 0.0f) && !signbit(g.H1gas), "atomicH < 0 floored at +0");
@@ -319,12 +317,12 @@ static int test_hi_paths(void) {
 }
 
 static int test_hi_ffb_zero_h2(void) {
-  /* SAGE parity: on the FFB path H2gas is +0 and SAGE26's object multiplies (S:1285) */
+  /* SAGE parity: on the FFB path H2gas is +0 and the block is the plain multiply */
   const float colds[4] = {0.3f, 1.7f, 12.345f, 3.0e-7f};
   for (int k = 0; k < 4; k++) {
     struct GalaxyData g = hi_galaxy(colds[k], 0.0f, 0.004f);
     mimic_sage_calculate_h1gas(&g, 0.73);
-    double atomicH = (double)colds[k] * 0.74; /* S:1285 as the object computes it */
+    double atomicH = (double)colds[k] * 0.74;
     if (atomicH < 0.0) {
       atomicH = 0.0;
     }
@@ -355,7 +353,7 @@ static struct GalaxyData yield_galaxy(const float cold, const int regime) {
 
 static int test_yield_above_floor_routing(void) {
   /* Yield 0.25, FracZleaveDisk 0.25, central Mvir 0 (exp(-0) = 1): FracZleaveDiskVal 0.25,
-   * retained 0.25 * 0.75 * 1 = 0.1875, escaping 0.25 * 0.25 * 1 = 0.0625 (S:1094-1100) */
+   * retained 0.25 * 0.75 * 1 = 0.1875, escaping 0.25 * 0.25 * 1 = 0.0625 */
   static const struct {
     int cgm_recipe_on, regime, to_cgm;
   } runs[3] = {{1, 0, 1}, {1, 1, 0}, {0, 0, 0}};
@@ -382,14 +380,14 @@ static int test_yield_above_floor_routing(void) {
                 "locals: above the floor, FracZleaveDiskVal 0.25, the selection");
   }
   /* A positive central Mvir: FracZleaveDiskVal = FracZleaveDisk * exp(-1.0 * Mvir / 30.0) with the
-   * float Mvir (S:1094) */
+   * float Mvir */
   struct GalaxyData gal = yield_galaxy(1.0f, 0);
   struct GalaxyData central = yield_galaxy(1.0f, 1);
   struct MimicSageDiskYieldLocals l;
   const float mvir = 12.3f;
   mimic_sage_apply_disk_yield(&gal, &central, mvir, 1.0, 0.25, 0.25, 1, &l);
   const double frac = 0.25 * exp(-1.0 * mvir / 30.0);
-  const double escaping = 0.25 * frac * 1.0; /* S:1100 */
+  const double escaping = 0.25 * frac * 1.0;
   TEST_ASSERT(same_f64(l.frac_z_leave_disk_val, frac), "the central's float Mvir in the scale");
   TEST_ASSERT(same_f32(central.MetalsHotGas, (float)((double)0.25f + escaping)),
               "escaping metals = Yield * FracZleaveDiskVal * stars, added as a completed double");
@@ -405,7 +403,7 @@ static int test_yield_below_floor(void) {
     mimic_sage_apply_disk_yield(&gal, &central, 0.0f, 2.0, 0.25, 0.25, 1, &l);
     TEST_ASSERT(gal.MetalsColdGas == 0.5f, "ColdGas <= 1e-8: the cold metals untouched");
     TEST_ASSERT(central.MetalsCGMgas == 0.125f + 0.5f && central.MetalsHotGas == 0.25f,
-                "all metals Yield * stars = 0.5 to the central's selected (CGM) metals (S:1106)");
+                "all metals Yield * stars = 0.5 to the central's selected (CGM) metals");
     TEST_ASSERT(l.coldgas_above_threshold == 0 && isnan(l.frac_z_leave_disk_val),
                 "locals: below the floor, no FracZleaveDiskVal");
   }
@@ -414,15 +412,13 @@ static int test_yield_below_floor(void) {
 
 static int test_yield_fused_retained(void) {
   /* Yield 0.025, FracZleaveDisk 0, so the retained coefficient is 0.025. With stars = 0.1f / 0.025
-   * the exact product is within a double rounding of the float 0.1f, and with MetalsColdGas -0.1f
-   * (a constructed edge state: a negative metal reservoir) the sum cancels to that rounding, so the
-   * fused MetalsColdGas + 0.025 * stars (one rounding) and the unfused one (the product rounded
-   * first) differ after the float store */
+   * and MetalsColdGas -0.1f (a constructed edge state: a negative metal reservoir) the sum cancels
+   * to a double rounding, so the fused and unfused forms differ after the float store */
   const double yield = 0.025;
   const double stars = (double)0.1f / yield;
   const float metals = -0.1f;
   const double retained = yield * (1.0 - 0.0);
-  const float fused = (float)fma(retained, stars, (double)metals); /* S:1097, S:1356 */
+  const float fused = (float)fma(retained, stars, (double)metals);
   const double product = retained * stars;
   const float unfused = (float)((double)metals + product);
   TEST_ASSERT(!same_f32(fused, unfused), "the input separates the fused and unfused forms");
@@ -431,7 +427,7 @@ static int test_yield_fused_retained(void) {
   struct GalaxyData central = yield_galaxy(1.0f, 0);
   mimic_sage_apply_disk_yield(&gal, &central, 0.0f, stars, yield, 0.0, 1, NULL);
   TEST_ASSERT(same_f32(gal.MetalsColdGas, fused),
-              "SAGE parity: the retained metals are one fused multiply-add (S:1097, S:1356)");
+              "SAGE parity: the retained metals are one fused multiply-add");
   return TEST_PASS;
 }
 

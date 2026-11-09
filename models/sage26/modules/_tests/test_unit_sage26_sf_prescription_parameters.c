@@ -11,18 +11,18 @@
  *                                          H2RadialRMaxFactor (the BR06 branch, sfr_br06)
  *   sage26_apply_star_formation_supernova  SFprescription (the commits' hydrogen caps)
  *   sage26_quasar_mode                     SFprescription (the black-hole accretion's hydrogen
- *                                          cap, R/src/model_mergers.c:366-372)
+ *                                          cap)
  *   sage26_starburst_feedback              SFprescription (the burst's commits' caps, its
  *                                          hydrogen refresh and its recheck's black-hole cap)
  *                                          and StarburstColdGasOn (the burst fuel)
  *   sage26_ffb_star_formation              SFprescription (the FFB transaction's hydrogen caps),
- *                                          initialised at EnhancedStarFormationOn 0 (R0-R5),
- *                                          where it still loads and validates the key
+ *                                          initialised at EnhancedStarFormationOn 0, where
+ *                                          it still loads and validates the key
  *
  * Supported: SFprescription 0 (Croton) and 1 (BR06 with radial integration);
- * H2RadialIntegrationOn 1, H2RadialNBins 25 and H2RadialRMaxFactor 5.0 (SAGE26's defaults,
- * R/src/core_read_parameter_file.c:99-101; the single-slab branch is not ported);
- * StarburstColdGasOn 1 (:109; the H2 burst fuel of 0 is not ported).
+ * H2RadialIntegrationOn 1, H2RadialNBins 25 and H2RadialRMaxFactor 5.0 (SAGE26's defaults; the
+ * single-slab branch is not supported); StarburstColdGasOn 1 (the H2 burst fuel of 0 is not
+ * supported).
  *
  * Test cases:
  *   - test_missing_parameter_refused: each module's init fails without each key it reads
@@ -70,8 +70,8 @@ struct sf_module {
 
 /**
  * @brief sage26_ffb_star_formation's other required keys, with FFB off (EnhancedStarFormationOn 0,
- *        R0-R5, so the dispatch guards do not apply), and its one substep-phase entry, which the
- *        run files place before the star-formation chain
+ *        so the dispatch guards do not apply), and its one substep-phase entry, which the run
+ *        files place before the star-formation chain
  */
 static void ffb_requirements(void) {
   sage26_test_append_model_parameter("EnhancedStarFormationOn", "0");
@@ -115,8 +115,8 @@ static const char *read_captured_log(FILE *fp) {
 }
 
 /**
- * @brief The package's test parameters with the module's keys at R1's values, then `key` removed
- *        (value NULL) or set to `value`
+ * @brief The package's test parameters with the module's keys at their supported values, then
+ *        `key` removed (value NULL) or set to `value`
  *
  * Also configures the dependencies each module's init checks (the SF chain in one substep phase,
  * as the run files have it, and the module's own requirements) and SAGE26's unit system.
@@ -227,7 +227,7 @@ int test_unsupported_values_refused(void) {
 
 /**
  * @test    test_supported_values_accepted
- * @brief   SFprescription 0 (R1) and 1 (R2), with the supported H2 parameters and
+ * @brief   SFprescription 0 (Croton) and 1 (BR06), with the supported H2 parameters and
  *          StarburstColdGasOn 1, initialise every module
  */
 int test_supported_values_accepted(void) {
@@ -248,7 +248,7 @@ int test_supported_values_accepted(void) {
 
 /**
  * @test    test_tracks_h2
- * @brief   The caps' guard is SAGE26's sf_prescription_tracks_h2 (R/src/model_misc.h:93-96):
+ * @brief   The caps' guard is SAGE26's sf_prescription_tracks_h2:
  *          false for 0 and 2, true for every other prescription
  */
 int test_tracks_h2(void) {

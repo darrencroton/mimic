@@ -3,7 +3,7 @@
  * @brief   Unit tests for sage26_finalize_cooling_heating
  *
  * Validates: module lifecycle, the once-per-FoF normalisation of Cooling and
- * Heating by the first galaxy's interval (SAGE26 core_build_model.c:590-603), and
+ * Heating by the first galaxy's interval (as SAGE26's model builder does), and
  * the package's boundary handling: merged (Type 3) rows and rows without a galaxy
  * are skipped, and a first galaxy without a positive interval zeroes the energies.
  *
@@ -19,7 +19,7 @@
  *   - test_diagnostics_untouched: tcool, tff, RcoolToRvir, CoolingRate are not changed
  *   - test_empty_input: NULL halos or ngal 0 is a no-op
  *   - test_mdot_writer_conversion: the output mdot rates are SAGE26's writer expression of the
- *     raw rates (save_gals_hdf5.c:996-997), left to right, for every live galaxy
+ *     raw rates, left to right, for every live galaxy
  *   - test_mdot_on_nonpositive_interval: the conversion also runs where the first galaxy has no
  *     positive interval, and a never-assigned (zero) raw rate is written as 0
  */
@@ -317,7 +317,7 @@ static double opaque_double(const double value) {
 #define T_RAW_COOL_BITS 0x3fa9c5eau   /* 1.32635236 */
 #define T_RAW_STREAM_BITS 0x3ff90024u /* 1.94531679 */
 
-/** @brief SAGE26's writer expression (R/src/io/save_gals_hdf5.c:996-997), inline */
+/** @brief SAGE26's writer expression, inline */
 static float writer_value(const float raw) {
   return (float)(raw * opaque_double(T_UNIT_MASS) / opaque_double(T_UNIT_TIME) * 3.155e7 /
                  1.989e33);
@@ -355,7 +355,7 @@ static void setup_mdot_rows(void) {
  *
  * Expected: every live galaxy's outputs equal raw * UnitMass_in_g / UnitTime_in_s *
  * SEC_PER_YEAR / SOLAR_MASS evaluated left to right and narrowed (SAGE26's writer, with
- * 3.155e7 and 1.989e33, R/src/macros.h:24, :38); for row 0 that differs from the regrouped
+ * 3.155e7 and 1.989e33); for row 0 that differs from the regrouped
  * constant factor; a zero raw rate is written 0; the merged row keeps its stale outputs.
  */
 int test_mdot_writer_conversion(void) {

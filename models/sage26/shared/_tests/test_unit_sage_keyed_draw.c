@@ -2,10 +2,10 @@
  * @file    test_unit_sage_keyed_draw.c
  * @brief   Unit tests of the package's keyed uniform draw (shared/sage_keyed_draw.h)
  *
- * The keyed draw replaces SAGE26's libc draw in the CGM regime classifier
- * (R/src/model_regimes.c:94). Its key contract is stated in shared/sage_keyed_draw.h; the eight
- * reference vectors were computed with an independent Python implementation of that contract. These
- * tests are platform independent (integer arithmetic and exact double conversions only):
+ * The keyed draw replaces SAGE26's libc draw in the CGM regime classifier. Its key contract is
+ * stated in shared/sage_keyed_draw.h; the eight reference vectors were computed with an
+ * independent Python implementation of that contract. The tests use integer arithmetic and
+ * exact double conversions only:
  *
  * - test_reference_vectors: all eight vectors, `bits` and the deviate, bit for bit;
  * - test_deviate_strictly_inside_unit_interval: the deviate of the extreme bit patterns

@@ -3,21 +3,20 @@
 """
 SAGE26 Concentration Against Halo Mass Plot
 
-Port of the "Plotting concentration vs Mvir colored by stellar mass (centrals & satellites)"
-section of SAGE26's plotting script (plotting/allresults-local.py:1846-1882): the halo
-concentration against halo mass in two panels side by side, centrals on the left and satellites
-on the right, with the points coloured by stellar mass on a shared scale. The section is the
-specification; where this port differs it is a permitted deviation below.
+Follows the "Plotting concentration vs Mvir colored by stellar mass (centrals & satellites)" section
+of SAGE26's plotting script: the halo concentration against halo mass in two panels side by side,
+centrals on the left and satellites on the right, with the points coloured by stellar mass on a
+shared scale. Where it differs from SAGE26 the difference is stated below.
 
 Requires: Concentration, Mvir, StellarMass, Type
 
-Fields read (units): Concentration (dimensionless), Mvir and StellarMass (1e10 Msun/h, converted
-to Msun as SAGE26 converts them: x 1e10 / hubble_h, allresults-local.py:364-365) and Type (0
-central, above 0 satellite). The redshift in the titles is metadata["redshift"].
+Fields read (units): Concentration (dimensionless), Mvir and StellarMass (1e10 Msun/h, converted to
+Msun as SAGE26 converts them: x 1e10 / hubble_h) and Type (0 central, above 0 satellite). The
+redshift in the titles is metadata["redshift"].
 
-Permitted deviations: the sample comes from one random.Random(2222) per figure, drawn centrals first
-and then satellites from that one stream, not from SAGE26's script-wide stream (seeded once,
-allresults-local.py:357), so the drawn subset differs when a panel's candidates exceed DILUTE.
+Differences from SAGE26: the sample comes from one random.Random(2222) per figure, drawn centrals
+first and then satellites from that one stream, not from SAGE26's script-wide stream (seeded once),
+so the drawn subset differs when a panel's candidates exceed DILUTE.
 """
 
 import random
@@ -32,8 +31,7 @@ from output_utils import (
     save_and_close_figure,
 )
 
-# Number of galaxies drawn at most per panel: SAGE26's `dilute`, reassigned to 100000 at
-# allresults-local.py:1735 and in force here (:1861)
+# Number of galaxies drawn at most per panel: SAGE26's `dilute` as in force at this figure
 DILUTE = 100000
 
 
@@ -83,12 +81,11 @@ def plot(
     concentration = galaxies.Concentration
     galaxy_type = galaxies.Type
 
-    # allresults-local.py:1852-1854
     base = np.where((concentration > 0) & (mvir > 0) & (stellar_mass > 1.0e8))[0]
     w_cen = np.intersect1d(base, np.where(galaxy_type == 0)[0])
     w_sat = np.intersect1d(base, np.where(galaxy_type > 0)[0])
 
-    # Shared colour limits, allresults-local.py:1857-1858. With no galaxy there is no scale.
+    # Shared colour limits. With no galaxy there is no scale.
     if len(base) > 0:
         vmin = np.log10(stellar_mass[base]).min()
         vmax = np.log10(stellar_mass[base]).max()
@@ -103,7 +100,7 @@ def plot(
     setup_plot_fonts(ax_cen)
     setup_plot_fonts(ax_sat)
 
-    # allresults-local.py:1860-1872: centrals then satellites, from one stream
+    # Centrals then satellites, from one stream
     sc = None
     for ax, w, title in [(ax_cen, w_cen, "Centrals"), (ax_sat, w_sat, "Satellites")]:
         sel = draw_sorted_sample(w, rng, DILUTE)
@@ -126,7 +123,7 @@ def plot(
 
     ax_cen.set_ylabel(r"Concentration $c$", fontsize=AXIS_LABEL_SIZE)
 
-    # The colour bar of the satellite panel, allresults-local.py:1876-1878
+    # The colour bar of the satellite panel
     cbar = fig.colorbar(sc, ax=ax_sat, pad=0.02)
     cbar.set_label(r"$\log_{10} M_{\star}\ [M_{\odot}]$", fontsize=AXIS_LABEL_SIZE)
     cbar.solids.set_alpha(1.0)

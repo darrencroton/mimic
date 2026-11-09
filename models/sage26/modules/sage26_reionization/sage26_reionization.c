@@ -2,17 +2,10 @@
  * @file    sage26_reionization.c
  * @brief   SAGE26 reionization module - suppression of gas accretion onto low-mass halos
  *
- * Calculates the reionization suppression factor of SAGE26's do_reionization
- * (model_infall.c:286-337): the Gnedin (2000) filtering-mass model with the fitting
- * formulas of Kravtsov et al. (2004) Appendix B. Each galaxy's HaloBaryonFraction is
- * set to the once-rounded product modifier * GlobalBaryonFraction, the leading
- * product SAGE26 forms in infall_recipe (model_infall.c:128-130) and
- * strip_from_satellite (model_infall.c:243-244); those modules finish the
- * expression with the halo's Mvir.
- *
- * Every floating-point expression is transcribed from SAGE26 with its operand
- * order, grouping and types (pow(..., -0.5) and / sqrt(...) where SAGE26 writes
- * each, the CUBE grouping, dmax), so that compiler contraction treats both alike.
+ * Implements SAGE26's do_reionization: the Gnedin (2000) filtering-mass suppression factor with
+ * the fitting formulas of Kravtsov et al. (2004) Appendix B. Each galaxy's HaloBaryonFraction is
+ * set to modifier * GlobalBaryonFraction, the leading product SAGE26 forms in infall_recipe and
+ * strip_from_satellite; the infall and stripping modules multiply it by the halo's Mvir.
  *
  * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2016)
  *
@@ -31,7 +24,7 @@
 #include "numeric.h"
 #include "types.h"
 
-/** SAGE26 macros.h:55, expanded textually exactly as SAGE26 expands it */
+/** SAGE26's CUBE macro, expanded textually as SAGE26 expands it */
 #define SAGE26_CUBE(X) ((X) * (X) * (X))
 
 // ============================================================================
@@ -40,15 +33,13 @@
 
 static double GLOBAL_BARYON_FRAC;
 
-/* Reionization redshifts of the R0 configuration (SAGE26 Reionization_z0 = 8,
- * Reionization_zr = 7). SAGE26 derives a0 and ar at run time
- * (core_init.c:70-71); they are derived the same way in init(). */
+/* Reionization redshifts of SAGE26's default configuration (Reionization_z0 = 8,
+ * Reionization_zr = 7); a0 and ar are derived from them in init(), as SAGE26 does. */
 static const double REIONIZATION_Z0 = 8.0;
 static const double REIONIZATION_ZR = 7.0;
 static double REIONIZATION_A0;
 static double REIONIZATION_AR;
 
-/* SAGE26 model_infall.c:36-55, same names and values */
 static const double GNEDIN_FILTER_COEFF = 0.26;
 static const double KRAVTSOV04_MJEANS_0 = 25.0;
 static const double KRAVTSOV04_MU_NEG1PT5 = 2.21;
@@ -61,15 +52,14 @@ static const double TVIR_VCHAR_COEFF = 36.0;
 // ============================================================================
 
 /**
- * @brief SAGE26 dmax (model_misc.c:440-442): comparison-based maximum
+ * @brief SAGE26's dmax: comparison-based maximum
  *
- * SAGE parity: SAGE26 uses this comparison rather than fmax, so a NaN in the
- * first argument selects the second exactly as SAGE26 does (model_misc.c:440-442).
+ * SAGE parity: a comparison rather than fmax, so a NaN in the first argument selects the second.
  */
 static inline double sage26_dmax(const double x, const double y) { return (x > y) ? x : y; }
 
 /**
- * @brief SAGE26 do_reionization (model_infall.c:286-337) for one galaxy
+ * @brief SAGE26's do_reionization for one galaxy
  *
  * @param Zcurr  Redshift of the call (SAGE26 ZZ[halo_snapnum]; Mimic ctx->redshift)
  * @param Mvir   The galaxy's virial mass as SAGE26 holds it, a float
@@ -86,7 +76,7 @@ static double do_reionization(const struct ModuleContext *ctx, const double Zcur
   const double a0 = REIONIZATION_A0;
   const double ar = REIONIZATION_AR;
 
-  // Filtering mass (SAGE26 model_infall.c:298-315)
+  // Filtering mass
   const double a = 1.0 / (1.0 + Zcurr);
   const double a_on_a0 = a / a0;
   const double a_on_ar = a / ar;
@@ -98,8 +88,7 @@ static double do_reionization(const struct ModuleContext *ctx, const double Zcur
                  (1.0 / (2.0 + alpha) - 2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * alpha)) +
              a * a / 10.0 - (a0 * a0 / 10.0) * (5.0 - 4.0 * pow(a_on_a0, -0.5));
   } else {
-    // SAGE parity: SAGE26 mixes pow(x, -0.5) and 1 / sqrt(x) within this one
-    // expression (model_infall.c:309-314); each form is kept where SAGE26 writes it.
+    // SAGE parity: pow(x, -0.5) and 1 / sqrt(x) are both used, as SAGE26 writes them
     f_of_a = (3.0 / a) *
              (a0 * a0 * (1.0 / (2.0 + alpha) - 2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * alpha)) +
               (ar * ar / 10.0) * (5.0 - 4.0 * pow(a_on_ar, -0.5)) -
@@ -120,8 +109,8 @@ static double do_reionization(const struct ModuleContext *ctx, const double Zcur
   // Bryan & Norman (1998) overdensity criterion
   const double deltacritZ = 18.0 * M_PI * M_PI + BN98_DELTA_LIN * xZ - BN98_DELTA_QUAD * xZ * xZ;
   /* SAGE parity: Hubble is H0 in code units with no factor of h, as SAGE26 sets
-   * it (run_params->Hubble = HUBBLE * UnitTime_in_s, core_init.c:106); using
-   * 100*h here would inflate Mchar by 1/h. */
+   * it (run_params->Hubble = HUBBLE * UnitTime_in_s); using 100*h here would
+   * inflate Mchar by 1/h. */
   const double HubbleZ = ctx->params->Hubble * sqrt(ctx->params->Omega * SAGE26_CUBE(1.0 + Zcurr) +
                                                     ctx->params->OmegaLambda);
 
@@ -142,7 +131,6 @@ int sage26_reionization_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
 
-  /* SAGE26 core_init.c:70-71 */
   REIONIZATION_A0 = 1.0 / (1.0 + REIONIZATION_Z0);
   REIONIZATION_AR = 1.0 / (1.0 + REIONIZATION_ZR);
 
@@ -175,10 +163,9 @@ int sage26_reionization_process(struct ModuleContext *ctx, struct Halo *halos, i
       continue;
     }
 
-    /* Centrals and satellites alike use their own Mvir, as SAGE26 passes the
-     * galaxy itself (model_infall.c:123, :231). SAGE26 evaluates the formula
-     * for every Mvir with no gate: Mvir = 0 (an orphan) gives 1 / inf = 0. Mvir
-     * is read as the float SAGE26 holds (core_allvars.h:129). */
+    /* Centrals and satellites alike use their own Mvir, as SAGE26 does. The formula is
+     * evaluated for every Mvir with no gate: Mvir = 0 (an orphan) gives 1 / inf = 0.
+     * SAGE parity: Mvir is read as the float SAGE26 holds. */
     const double reionization_modifier = do_reionization(ctx, ctx->redshift, (float)halos[i].Mvir);
     halos[i].galaxy->HaloBaryonFraction = reionization_modifier * GLOBAL_BARYON_FRAC;
 

@@ -3,12 +3,8 @@
  * @brief Unit tests for the shared SFR history helper (shared/sage_sfr_history.h)
  *
  * Validates the package's representation of SAGE26's six per-substep histories
- * (R/src/core_allvars.h:158-163) as sixty float properties, and the helper's
- * transcriptions of SAGE26's bin map (R/src/core_build_model.c:514-515), its disk and
- * burst sampling operators (R/src/model_starformation_and_feedback.c:1058-1060,
- * R/src/model_mergers.c:755-757) and its divisors (R/src/model_misc.h:49-58). The
- * averaging is checked bit for bit against SAGE26 by sage26_finalize_sfr_histories'
- * oracle test.
+ * as sixty float properties, and the helper's implementation of SAGE26's bin map, its disk and
+ * burst sampling operators and its divisors.
  *
  * Test cases:
  *   - test_history_elements_distinct: the sixty (history, bin) pairs name sixty distinct

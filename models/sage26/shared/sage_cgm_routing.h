@@ -3,33 +3,15 @@
  * @brief SAGE26's regime-aware hot-phase deposits (CGMrecipeOn 1) and the required CGMrecipeOn
  *        parameter's check
  *
- * Ports SAGE26's add_metals_to_hot_reservoir and add_gas_to_hot_reservoir (R = the staged SAGE26
- * source, R/src/model_misc.h:60-85): a deposit into a galaxy's hot-phase reservoir goes to its
- * CGM pair (CGMgas, MetalsCGMgas) when the CGM recipe is on (CGMrecipeOn 1) and the galaxy is in
- * the CGM regime (Regime 0), and to its hot pair (HotGas, MetalsHotGas) otherwise. With
- * CGMrecipeOn 0 every deposit is the hot pair's, whatever Regime holds, which is SAGE26's R0-R3
- * behaviour.
+ * Implements SAGE26's add_metals_to_hot_reservoir and add_gas_to_hot_reservoir: a deposit into a
+ * galaxy's hot-phase reservoir goes to its CGM pair (CGMgas, MetalsCGMgas) when the CGM recipe is
+ * on (CGMrecipeOn 1) and the galaxy is in the CGM regime (Regime 0), and to its hot pair (HotGas,
+ * MetalsHotGas) otherwise. With CGMrecipeOn 0 every deposit goes to the hot pair, whatever Regime
+ * holds. Also validates the required CGMrecipeOn and MShockMsun parameters.
  *
- * - mimic_sage_cgm_reservoir_selected(): SAGE26's selection, CGMrecipeOn == 1 && Regime == 0
- *   (R/src/model_misc.h:69, :78).
- * - mimic_sage_add_metals_to_hot_reservoir(): add_metals_to_hot_reservoir (:67-74).
- * - mimic_sage_add_gas_to_hot_reservoir(): add_gas_to_hot_reservoir (:76-85).
- * - mimic_sage_validate_cgm_recipe_on(): the required CGMrecipeOn, 0 or 1, refused otherwise with
- *   an error naming the parameter.
- * - mimic_sage_validate_mshock_msun(): the required MShockMsun, positive and finite, refused
- *   otherwise with an error naming the parameter.
- *
- * Rounding points. Each helper takes an already completed double and adds it to the selected
- * float field, a double sum narrowed once on the store, exactly as SAGE26's helpers do: a caller's
- * product such as metallicity * reincorporated is evaluated as the double argument before the
- * call, so it is never contracted into the addition (SAGE26's reincorporate_gas multiplies at
- * R/src/model_reincorporation.c:64 and adds with a separate fadd at R/src/model_misc.h:82 in its
- * object; the oracle README's "The c10 Group"). Clang contracts only within one C expression, and
- * an inlined call does not merge its argument's expression with the callee's.
- *
- * The selection reads the galaxy passed: the caller chooses which galaxy's regime routes the
- * deposit (the FoF central for infall and reincorporation, the passed recipient for disruption),
- * as SAGE26's callers do.
+ * Each helper adds an already completed double to the selected float field, narrowing once on the
+ * store, as SAGE26's helpers do. The caller chooses which galaxy's regime routes the deposit (the
+ * FoF central for infall and reincorporation, the passed recipient for disruption).
  *
  * @note This file is part of the model-local shared utilities system.
  *       Modules include it as #include "shared/sage_cgm_routing.h"
@@ -46,8 +28,7 @@
 #include "error.h"
 #include "types.h"
 
-/** SAGE26's CGMrecipeOn values the package ports (R/src/core_allvars.h:485; SAGE26 accepts 0 and
- * 1, R/src/core_read_parameter_file.c:526) */
+/** SAGE26's CGMrecipeOn values: 0 routes every deposit to the hot pair, 1 routes by regime */
 #define MIMIC_SAGE_CGM_RECIPE_OFF 0
 #define MIMIC_SAGE_CGM_RECIPE_ON 1
 
@@ -66,7 +47,7 @@
  */
 static inline int mimic_sage_validate_cgm_recipe_on(const char *module_name, const int value) {
   if (value != MIMIC_SAGE_CGM_RECIPE_OFF && value != MIMIC_SAGE_CGM_RECIPE_ON) {
-    ERROR_LOG("%s: CGMrecipeOn = %d is not supported: the package ports only 0 (hot-gas "
+    ERROR_LOG("%s: CGMrecipeOn = %d is not supported: the package accepts only 0 (hot-gas "
               "routing) and 1 (SAGE26's regime-aware CGM routing)",
               module_name, value);
     return -1;
@@ -96,7 +77,7 @@ static inline int mimic_sage_validate_mshock_msun(const char *module_name, const
 }
 
 /**
- * @brief Whether a deposit routed by this regime goes to the CGM pair (R/src/model_misc.h:69, :78)
+ * @brief Whether a deposit routed by this regime goes to the CGM pair, as SAGE26's helpers select
  *
  * @param cgm_recipe_on  The module's CGMrecipeOn
  * @param regime         The routing galaxy's Regime
@@ -107,7 +88,7 @@ static inline int mimic_sage_cgm_reservoir_selected(const int cgm_recipe_on, con
 }
 
 /**
- * @brief SAGE26's add_metals_to_hot_reservoir (R/src/model_misc.h:67-74)
+ * @brief SAGE26's add_metals_to_hot_reservoir
  *
  * @param galaxy         The galaxy whose regime routes the deposit and which receives it
  * @param cgm_recipe_on  The module's CGMrecipeOn
@@ -124,7 +105,7 @@ static inline void mimic_sage_add_metals_to_hot_reservoir(struct GalaxyData *gal
 }
 
 /**
- * @brief SAGE26's add_gas_to_hot_reservoir (R/src/model_misc.h:76-85)
+ * @brief SAGE26's add_gas_to_hot_reservoir
  *
  * The gas is added before the metals, each a double sum narrowed once into its float field.
  *

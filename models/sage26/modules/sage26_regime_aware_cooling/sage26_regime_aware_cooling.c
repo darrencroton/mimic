@@ -2,37 +2,29 @@
  * @file    sage26_regime_aware_cooling.c
  * @brief   SAGE26 regime-aware cooling: cooling_recipe_regime_aware as one by-galaxy transaction
  *
- * Ports SAGE26's cooling_recipe_regime_aware (R = the staged SAGE26 source,
- * C = R/src/model_cooling_heating.c:420-506) whole, which SAGE26 calls instead of
- * cooling_recipe_hot when CGMrecipeOn is 1 (C:125-132, R/src/core_build_model.c:503-509). The
- * module runs by galaxy in galaxy_physics immediately after sage26_apply_cooling. With CGMrecipeOn
- * 0 it writes nothing; with CGMrecipeOn 1 sage26_calculate_cooling_budget writes only its
- * no-cooling transport, so the radio and apply modules write nothing, and this module owns
- * every galaxy's cooling:
+ * Implements SAGE26's cooling_recipe_regime_aware whole, which SAGE26 calls instead of
+ * cooling_recipe_hot when CGMrecipeOn is 1. The module runs by galaxy in galaxy_physics
+ * immediately after sage26_apply_cooling. With CGMrecipeOn 0 it writes nothing; with CGMrecipeOn
+ * 1 sage26_calculate_cooling_budget writes only its no-cooling transport, so the radio and apply
+ * modules write nothing, and this module owns every galaxy's cooling:
  *
- *   mdot_cool = mdot_stream = 0                                        (C:433-434)
- *   Regime 0:    CGMgas > 0 ? cooling_recipe_cgm : reset_cgm_diagnostics  (C:436-444)
+ *   mdot_cool = mdot_stream = 0
+ *   Regime 0:    CGMgas > 0 ? cooling_recipe_cgm : reset_cgm_diagnostics
  *   otherwise:   HotGas > 0 ? cooling_recipe_hot, then save the float tcool
- *                             when Vvir > 0 && tcool > 0               (C:451-457)
+ *                             when Vvir > 0 && tcool > 0
  *                CGMgas > 0 ? cooling_recipe_cgm
- *                           : reset_cgm_diagnostics if the hot diagnostics are invalid (C:460-464)
- *                valid hot diagnostics: tcool = saved, tff = -1        (C:466-469)
- *   apply CGM, then hot, each capped to its post-AGN reservoir      (C:475-496)
- *   CoolingRate = rate(CGM + hot)                                    (C:498-502)
+ *                           : reset_cgm_diagnostics if the hot diagnostics are invalid
+ *                valid hot diagnostics: tcool = saved, tff = -1
+ *   apply CGM, then hot, each capped to its post-AGN reservoir
+ *   CoolingRate = rate(CGM + hot)
  *
  * Each recipe runs with its AGN call, through the shared composed recipes
  * (shared/sage_cooling_physics.h: mimic_sage_cooling_recipe_hot and mimic_sage_cooling_recipe_cgm),
  * so the CGM AGN reads the black-hole mass and heating radius the hot AGN changed, and Cooling and
  * Heating accumulate inside the recipes, before the application caps. Every wrapper local is local
- * to the call; nothing is carried between modules. The hot recipe's float mdot stores (C:282-283)
- * go to the raw state properties mdot_cool_raw and mdot_stream_raw, which
- * sage26_finalize_cooling_heating converts to the output mdot fields.
- *
- * Rounding points. Each expression is one C expression with SAGE26's operand order and types.
- * SAGE26's object fuses the applications' metal credits and debits (C:481, :483, :493, :495;
- * model_cooling_heating.o 0x168, 0x190, 0x200, 0x228, an fmadd or fmsub of the double metallicity
- * and the double mass with the widened float reservoir); each stays one contractible compound
- * assignment here, which clang contracts alike (the oracle README, "The c11 Group").
+ * to the call; nothing is carried between modules. The hot recipe's float mdot stores go to the
+ * raw state properties mdot_cool_raw and mdot_stream_raw, which sage26_finalize_cooling_heating
+ * converts to the output mdot fields.
  *
  * Reference: Croton et al. (2006, 2016); Dekel & Birnboim (2006); Carr et al. (2023)
  *
@@ -70,7 +62,7 @@
 static int CGM_RECIPE_ON;
 
 /* SAGE26's MShockMsun, the streams' shock mass in physical Msun (no h), required, positive and
- * finite; SAGE26's default is 6.0e11 (R/src/core_read_parameter_file.c:114) */
+ * finite; SAGE26's default is 6.0e11 */
 static double MSHOCK_MSUN;
 
 /* SAGE26's AGNrecipeOn (the package's AGNrecipe, 0 or 2, refused otherwise) and
@@ -86,7 +78,7 @@ static double RADIO_MODE_EFFICIENCY;
  * @brief With CGMrecipeOn 1, require exactly one entry, immediately after sage26_apply_cooling
  *
  * SAGE26 cools each galaxy once per substep, in cooling_recipe_regime_aware, at the point of the
- * substep where the classic trio runs (R/src/core_build_model.c:503-509): the module must have
+ * substep where the classic trio runs: the module must have
  * exactly one entry, in a substep phase (galaxy_physics in the run files), as process_by_galaxy,
  * directly after sage26_apply_cooling's by-galaxy entry, and none in pre_timestep or
  * post_timestep. The entries are counted with the registry's phase queries; the adjacency is read
@@ -132,8 +124,8 @@ static int validate_placement(void) {
   }
   if (!after_apply) {
     ERROR_LOG("%s must run immediately after sage26_apply_cooling (process_by_galaxy) in the same "
-              "substep phase, with CGMrecipeOn 1: it takes the classic cooling trio's place "
-              "(R/src/core_build_model.c:503-509)",
+              "substep phase, with CGMrecipeOn 1: it takes the classic cooling trio's "
+              "place",
               MODULE_NAME);
     return -1;
   }
@@ -141,7 +133,7 @@ static int validate_placement(void) {
 }
 
 /**
- * @brief SAGE26's static reset_cgm_diagnostics (C:413-418)
+ * @brief SAGE26's static reset_cgm_diagnostics
  *
  * Writes exactly tcool 0, tff -1 and RcoolToRvir -1; no mass or energy.
  */
@@ -177,20 +169,18 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
   struct Sage26RegimeAwareCoolingTrace *t = (trace != NULL) ? trace : &local;
   trace_init(t);
 
-  /* C:422-425 */
   double cgm_cooling = 0.0;
   double hot_cooling = 0.0;
   float hot_tcool = -1.0f;
   int hot_diagnostics_valid = 0;
 
   // SAGE parity: the float mdot rates are reset on every regime-aware call and are assigned only
-  // on the hot recipe's cold-stream path below (R/src/model_cooling_heating.c:433-434, :282-283);
-  // here they are the raw state properties
+  // on the hot recipe's cold-stream path below; here they are the raw state properties
   galaxy->mdot_cool_raw = 0.0f;
   galaxy->mdot_stream_raw = 0.0f;
 
   if (galaxy->Regime == 0) {
-    /* C:436-444: the CGM regime cools its CGM pair only */
+    /* The CGM regime cools its CGM pair only */
     t->cgm_regime = 1;
     if (galaxy->CGMgas > 0.0) {
       cgm_cooling = mimic_sage_cooling_recipe_cgm(halo, params, &cfg->agn, cfg->cgm_recipe_on, dt,
@@ -201,7 +191,7 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
       t->reset_called = 1;
     }
   } else {
-    /* C:450-457: the hot recipe and its AGN, then the hot diagnostics it left */
+    /* The hot recipe and its AGN, then the hot diagnostics it left */
     if (galaxy->HotGas > 0.0) {
       if (mimic_sage_cooling_recipe_hot(halo, params, &cfg->agn, cfg->cgm_recipe_on,
                                         cfg->mshock_msun, dt, &t->hot, &t->hot_agn,
@@ -210,13 +200,12 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
       }
       t->hot_called = 1;
       if (t->hot.branch == MIMIC_SAGE_HOT_BRANCH_STREAMS) {
-        /* C:282-283: the streams' float stores, before the cap and the AGN */
+        /* The streams' float stores, before the cap and the AGN */
         galaxy->mdot_cool_raw = t->hot.stream.mdot_cool;
         galaxy->mdot_stream_raw = t->hot.stream.mdot_stream;
       }
       // SAGE parity: "valid" needs only Vvir > 0 and the float tcool > 0 after the hot call, not
       // a positive cooling mass or a completed lambda or rho_rcool step
-      // (R/src/model_cooling_heating.c:453-456)
       if ((float)halo->Vvir > 0.0 && galaxy->tcool > 0.0) {
         hot_tcool = galaxy->tcool;
         hot_diagnostics_valid = 1;
@@ -224,9 +213,8 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
     }
 
     // SAGE parity: residual CGM gas cools in a hot-regime galaxy too, after the hot AGN changed
-    // the black-hole mass and heating radius the CGM AGN reads (R/src/model_cooling_heating.c:
-    // 459-461); without CGM gas the diagnostics are reset only when the hot ones are invalid
-    // (:462-464)
+    // the black-hole mass and heating radius the CGM AGN reads; without CGM gas the diagnostics
+    // are reset only when the hot ones are invalid
     if (galaxy->CGMgas > 0.0) {
       cgm_cooling = mimic_sage_cooling_recipe_cgm(halo, params, &cfg->agn, cfg->cgm_recipe_on, dt,
                                                   &t->cgm, &t->cgm_agn);
@@ -237,7 +225,7 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
     }
 
     // SAGE parity: valid hot diagnostics restore the saved float tcool and set tff to -1, even
-    // after CGM cooling wrote its own (R/src/model_cooling_heating.c:466-469)
+    // after CGM cooling wrote its own
     if (hot_diagnostics_valid) {
       galaxy->tcool = hot_tcool;
       galaxy->tff = -1.0f;
@@ -251,52 +239,48 @@ int sage26_regime_aware_cooling_run(struct Halo *halo, const struct MimicConfig 
 
   // SAGE parity: the CGM mass is applied before the hot mass, each capped to its reservoir as the
   // AGN left it and moved with that reservoir's metallicity, without the classic transfer's
-  // "move all metals on equality" branch (R/src/model_cooling_heating.c:475-496, :689-705)
+  // "move all metals on equality" branch
   if (cgm_cooling > 0.0) {
     t->cgm_apply = SAGE26_RAC_APPLY_UNCAPPED;
     t->cgm_reservoir = galaxy->CGMgas;
-    if (cgm_cooling > galaxy->CGMgas) { /* C:476-478 */
+    if (cgm_cooling > galaxy->CGMgas) {
       cgm_cooling = galaxy->CGMgas;
       t->cgm_apply = SAGE26_RAC_APPLY_CAPPED;
     }
     const double metallicity = mimic_get_metallicity(galaxy->CGMgas, galaxy->MetalsCGMgas);
-    galaxy->ColdGas += cgm_cooling;                     /* C:480 */
-    galaxy->MetalsColdGas += metallicity * cgm_cooling; /* C:481, fused in SAGE26's object */
-    galaxy->CGMgas -= cgm_cooling;                      /* C:482 */
-    galaxy->MetalsCGMgas -= metallicity * cgm_cooling;  /* C:483, fused in SAGE26's object */
+    galaxy->ColdGas += cgm_cooling;
+    galaxy->MetalsColdGas += metallicity * cgm_cooling;
+    galaxy->CGMgas -= cgm_cooling;
+    galaxy->MetalsCGMgas -= metallicity * cgm_cooling;
     t->cgm_metallicity = metallicity;
   }
 
   if (hot_cooling > 0.0) {
     t->hot_apply = SAGE26_RAC_APPLY_UNCAPPED;
     t->hot_reservoir = galaxy->HotGas;
-    if (hot_cooling > galaxy->HotGas) { /* C:488-490 */
+    if (hot_cooling > galaxy->HotGas) {
       hot_cooling = galaxy->HotGas;
       t->hot_apply = SAGE26_RAC_APPLY_CAPPED;
     }
     const double metallicity = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
-    galaxy->ColdGas += hot_cooling;                     /* C:492 */
-    galaxy->MetalsColdGas += metallicity * hot_cooling; /* C:493, fused in SAGE26's object */
-    galaxy->HotGas -= hot_cooling;                      /* C:494 */
-    galaxy->MetalsHotGas -= metallicity * hot_cooling;  /* C:495, fused in SAGE26's object */
+    galaxy->ColdGas += hot_cooling;
+    galaxy->MetalsColdGas += metallicity * hot_cooling;
+    galaxy->HotGas -= hot_cooling;
+    galaxy->MetalsHotGas -= metallicity * hot_cooling;
     t->hot_metallicity = metallicity;
   }
   t->cgm_applied = cgm_cooling;
   t->hot_applied = hot_cooling;
 
   // SAGE parity: CoolingRate is always overwritten with the total applied, after both caps, even
-  // where a nested recipe returned early (R/src/model_cooling_heating.c:498-502)
+  // where a nested recipe returned early
   const double total_cooling = cgm_cooling + hot_cooling;
   galaxy->CoolingRate = mimic_sage_cooling_rate(total_cooling, dt, params);
   t->total_cooling = total_cooling;
 
-  // SAGE parity: SAGE26 ends the wrapper with XASSERT(total_cooling >= 0.0)
-  // (R/src/model_cooling_heating.c:503-504), which is not ported: from a valid state it cannot
-  // fire. Each recipe returns a non-negative mass: the CGM recipe's floor (:366-369), its
-  // suppression factor with r_heat < rcool (:638-643) and its re-cap to the non-negative CGMgas
-  // (:675-677); the hot recipe's cap and floor (:288-292), checked by its own XASSERT (:307-308).
-  // A skipped application adds that unchanged non-negative term to the total (:498), and an
-  // applied one caps a positive mass to its non-negative reservoir, so the total is non-negative
+  // SAGE26 ends the wrapper with XASSERT(total_cooling >= 0.0), which is omitted here: from a
+  // valid state it cannot fire, since each recipe returns a non-negative mass and each applied
+  // mass is capped to its non-negative reservoir
   return 0;
 }
 
@@ -334,7 +318,7 @@ int sage26_regime_aware_cooling_init(void) {
 
 int sage26_regime_aware_cooling_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
   // SAGE parity: with CGMrecipeOn 0 SAGE26 calls cooling_recipe_hot, which the classic modules
-  // run (R/src/model_cooling_heating.c:128-131); this module writes nothing
+  // run; this module writes nothing
   if (CGM_RECIPE_ON == 0) {
     return 0;
   }
@@ -348,7 +332,6 @@ int sage26_regime_aware_cooling_process(struct ModuleContext *ctx, struct Halo *
 
   // SAGE parity: cooling runs for every non-merged galaxy, Type 2 orphans included: SAGE26 calls
   // cooling_recipe for every galaxy with mergeType 0 before the merger pass
-  // (R/src/core_build_model.c:473-516)
   if (halo->galaxy == NULL) {
     return 0;
   }
@@ -357,7 +340,7 @@ int sage26_regime_aware_cooling_process(struct ModuleContext *ctx, struct Halo *
   const enum MimicObjectTimeStatus dt_status = mimic_object_substep_dt(halo, ctx, &dt_obj);
   if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
     // No positive interval (the core's snapshot-zero birth; SAGE26 is undefined there, reading
-    // Age[-1], R/src/core_build_model.c:479): as the classic trio with CGMrecipeOn 0, which
+    // Age[-1]): as the classic trio with CGMrecipeOn 0, which
     // writes only its transport there, the transaction reads no table and writes nothing
     return 0;
   }

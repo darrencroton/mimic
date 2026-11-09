@@ -2,35 +2,17 @@
  * @file    sage26_calculate_cooling_budget.c
  * @brief   SAGE26 hot-halo cooling budget: the cooling_recipe_hot calculation up to the AGN step
  *
- * Ports SAGE26's cooling_recipe_hot (R/src/model_cooling_heating.c:135-314, R0:
- * CGMrecipeOn 0) up to the point where it calls do_AGN_heating. The routine is
- * split across three modules that run consecutively in galaxy_physics:
+ * Computes the hot-halo cooling diagnostics (tcool, tff, RcoolToRvir), the cooling radius and the
+ * capped rapid or static cooling mass, and carries the mass, x, rcool and the return path to
+ * sage26_radio_mode_heating (AGN suppression) and sage26_apply_cooling (the transfer). Implements
+ * SAGE26's cooling_recipe_hot up to its do_AGN_heating call (shared/sage_cooling_physics.h).
  *
- *   1. this module: the diagnostics tcool, tff and RcoolToRvir, the cooling
- *      function, the cooling radius, the rapid or static cooling mass, and its
- *      cap and floor (:139-292);
- *   2. sage26_radio_mode_heating: do_AGN_heating on the post-cap mass (:297-299);
- *   3. sage26_apply_cooling: the routine's tail, Cooling and CoolingRate
- *      (:301-313), then cool_gas_onto_galaxy (R/src/core_build_model.c:508-509).
- *
- * The arithmetic is shared/sage_cooling_physics.h's mimic_sage_hot_cooling_budget, called
- * with CGMrecipeOn 0 (the R0-R3 behaviour).
- *
- * CGMrecipeOn (required, 0 or 1) selects the path. With CGMrecipeOn 1 SAGE26 calls
- * cooling_recipe_regime_aware instead (R/src/core_build_model.c:503-509,
- * R/src/model_cooling_heating.c:125-132), which sage26_regime_aware_cooling owns whole: this module
- * then writes only its no-cooling transport (CoolingGas = CoolingX = Rcool = 0,
- * CoolingReturnPath = -1) and no galaxy property, so sage26_radio_mode_heating and
- * sage26_apply_cooling skip by their own gates. Because a CGMrecipeOn 1 run without the transaction
- * would cool nothing, and one without the classifier would route every galaxy through the hot
- * branch, init() then refuses unless sage26_regime_aware_cooling is configured in the substep phase
- * that holds this module and sage26_determine_regime in pre_timestep.
- *
- * It carries SAGE26's locals between them in package-private transport
- * properties, written on every call because init_repeat resets them only once per
- * snapshot: the post-cap mass (CoolingGas), x (CoolingX), rcool (Rcool) and the
- * return path (CoolingReturnPath), which tells sage26_apply_cooling whether SAGE26
- * reached the tail.
+ * With CGMrecipeOn 1 SAGE26 calls cooling_recipe_regime_aware instead, which
+ * sage26_regime_aware_cooling owns: this module then writes only its no-cooling transport
+ * (CoolingGas = CoolingX = Rcool = 0, CoolingReturnPath = -1), and init() refuses unless
+ * sage26_regime_aware_cooling is in the same substep phase and sage26_determine_regime in
+ * pre_timestep. The transport is written on every call, as init_repeat resets it only once per
+ * snapshot.
  *
  * Reference: White & Frenk (1991), Croton et al. (2006, 2016)
  *
@@ -71,8 +53,8 @@ static int CGM_RECIPE_ON;
  *
  * With CGMrecipeOn 1 this module writes no cooling: without sage26_regime_aware_cooling in the
  * substep phase that holds this module no galaxy would cool, and without sage26_determine_regime in
- * pre_timestep every Regime would stay -1 and route every galaxy through the hot branch
- * (R/src/model_cooling_heating.c:446). With CGMrecipeOn 0 nothing is required.
+ * pre_timestep every Regime would stay -1 and route every galaxy through the hot branch.
+ * With CGMrecipeOn 0 nothing is required.
  *
  * @return 0 when the configuration is complete (or CGMrecipeOn is 0); -1 otherwise
  */
@@ -139,21 +121,18 @@ int sage26_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Ha
   struct Halo *halo = &halos[0];
 
   // SAGE parity: cooling runs for every non-merged galaxy, Type 2 orphans
-  // included: SAGE26 calls cooling_recipe for every galaxy with mergeType 0
-  // before the merger pass (R/src/core_build_model.c:473-516). An orphan keeps
-  // its last Rvir and Vvir, and the outer guard needs only HotGas > 0 and
-  // Vvir > 0 (R/src/model_cooling_heating.c:141).
+  // included, before the merger pass. An orphan keeps its last Rvir and Vvir, and
+  // the outer guard needs only HotGas > 0 and Vvir > 0.
   if (halo->galaxy == NULL) {
     return 0;
   }
 
   struct GalaxyData *galaxy = halo->galaxy;
 
-  // With CGMrecipeOn 1 SAGE26 calls cooling_recipe_regime_aware instead of cooling_recipe_hot
-  // (R/src/model_cooling_heating.c:128-129), which sage26_regime_aware_cooling owns whole. The
-  // carried state says no cooling, so sage26_radio_mode_heating (CoolingGas > 0 gate) and
-  // sage26_apply_cooling (path -1, zero mass) write nothing, and no galaxy property
-  // is written here.
+  // With CGMrecipeOn 1 SAGE26 calls cooling_recipe_regime_aware instead of cooling_recipe_hot,
+  // which sage26_regime_aware_cooling owns whole. The carried state says no cooling, so
+  // sage26_radio_mode_heating (CoolingGas > 0 gate) and sage26_apply_cooling (path -1, zero
+  // mass) write nothing, and no galaxy property is written here.
   if (CGM_RECIPE_ON == 1) {
     galaxy->CoolingGas = 0.0;
     galaxy->CoolingX = 0.0;
@@ -179,7 +158,7 @@ int sage26_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Ha
     return -1;
   }
 
-  // SAGE26's cooling_recipe_hot up to the AGN step, with CGMrecipeOn 0 (R0-R3): the shared
+  // SAGE26's cooling_recipe_hot up to the AGN step, with CGMrecipeOn 0: the shared
   // implementation writes tcool, tff and RcoolToRvir as SAGE26 does, including its early
   // returns, and never refuses with CGMrecipeOn 0 (only the CGMrecipeOn 1 streams read the
   // stored snapshot's redshift).

@@ -3,23 +3,22 @@
 """
 SAGE26 Stellar Mass - Halo Mass Relation Evolution Plot
 
-Port of the "Plotting stellar mass-halo mass relation evolution" section of SAGE26's history
-plotting script (plotting/allresults-history.py:846-958, figure StellarMassHaloMassRelation):
-the mean stellar mass of galaxies against the mass of their halo, in the fifteen redshift bins,
-with the standard error of the mean over the snapshots of a bin as a shaded band. The section is
-the specification; where this port differs it is a permitted deviation below.
+Follows the StellarMassHaloMassRelation figure of SAGE26's history plotting script: the mean stellar
+mass of galaxies against the mass of their halo, in the fifteen redshift bins, with the standard
+error of the mean over the snapshots of a bin as a shaded band. Where it differs from SAGE26 the
+difference is stated below.
 
 Requires: StellarMass, Mvir
 
 Fields read (units): StellarMass and Mvir (1e10 Msun/h each, converted to Msun as SAGE26
-converts them: x 1e10 / hubble_h, allresults-history.py:337 and :342). Every galaxy row is read,
+converts them: x 1e10 / hubble_h). Every galaxy row is read,
 with no Type cut, as in SAGE26.
 
-Snapshots: those with a redshift in each bin of ``Z_BINS`` (:852-856), chosen through
-``snapshots_in_z_range``; snapshot 63 (z = 0) falls in none, as in SAGE26.
+Snapshots: those with a redshift in each bin of ``Z_BINS``, chosen through ``snapshots_in_z_range``;
+snapshot 63 (z = 0) falls in none, as in SAGE26.
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
-reads 64, so a bin holds at most one snapshot and its standard error is zero.
+Differences from SAGE26: none beyond drawing the figure from the snapshots the run writes, where
+SAGE26 reads all 64, so a bin may hold a single snapshot, and its standard error is then zero.
 """
 
 import matplotlib.pyplot as plt
@@ -35,10 +34,10 @@ from output_utils import (
     setup_figure,
 )
 
-# Halo-mass bins (allresults-history.py:863, `np.arange(10.0, 15.0, 0.1)`)
+# Halo-mass bins (SAGE26's `np.arange(10.0, 15.0, 0.1)`)
 HALO_MASS_BINS = np.arange(10.0, 15.0, 0.1)
 
-# Line styles, cycled over the redshift bins (:860)
+# Line styles, cycled over the redshift bins
 LINE_STYLES = ["-", ":", "--", "-."] * 4
 
 
@@ -46,8 +45,7 @@ def select_with_halo(stellar_mass, halo_mass):
     """
     Return the indices of galaxies with positive stellar mass and positive halo mass.
 
-    SAGE26 allresults-history.py:889-890:
-    `np.where((StellarMassFull > 0.0) & (HaloMassFull > 0.0))[0]`.
+    As in SAGE26: `np.where((StellarMassFull > 0.0) & (HaloMassFull > 0.0))[0]`.
     """
     return np.where((stellar_mass > 0.0) & (halo_mass > 0.0))[0]
 
@@ -56,8 +54,8 @@ def mean_stellar_mass_in_halo_bins(stellar_masses, halo_masses, halo_mass_bins):
     """
     Return the mean stellar mass (linear) in each halo-mass bin; NaN for an empty bin.
 
-    SAGE26 allresults-history.py:897-903: a galaxy is in bin j when `halo_masses >=
-    halo_mass_bins[j]` and `halo_masses < halo_mass_bins[j+1]`, with halo_masses in log10.
+    As in SAGE26: a galaxy is in bin j when `halo_masses >= halo_mass_bins[j]` and `halo_masses <
+    halo_mass_bins[j+1]`, with halo_masses in log10.
     """
     means = np.full(len(halo_mass_bins) - 1, np.nan)
     for j in range(len(means)):
@@ -99,13 +97,12 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         params, "stellar_mass_halo_mass_relation", (10.0, 15.0), (7.0, 12.0)
     )
 
-    # allresults-history.py:859 (plasma, dark to light)
+    # Plasma, dark to light
     colors = plt.cm.plasma(np.linspace(0.1, 0.9, len(Z_BINS)))
     halo_mass_centers = HALO_MASS_BINS[:-1] + 0.05
 
     fig, ax = setup_figure()
 
-    # allresults-history.py:876-931
     for i, (z_min, z_max) in enumerate(Z_BINS):
         snap_indices = snapshots_in_z_range(snapshots, z_min, z_max)
         if len(snap_indices) == 0:
@@ -152,7 +149,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
                 gid="model",
             )
 
-    # allresults-history.py:936-949
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
     ax.set_xlabel(r"$\log_{10} M_{\rm vir}$ [$M_\odot$]", fontsize=AXIS_LABEL_SIZE)

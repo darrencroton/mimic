@@ -191,7 +191,7 @@ def test_property_values_physical():
     Validates: Property values are within physical bounds, with SAGE26's rounding
 
     SAGE26 adds the double unstable_stars straight into the float BulgeMass, with no
-    clamp to StellarMass (R/src/model_disk_instability.c:77-79), so a full-disk transfer
+    clamp to StellarMass, so a full-disk transfer
     can leave the bulge one float above the stellar total. A bulge already above it has
     a negative disk and transfers nothing more, so one float is the bound.
     """

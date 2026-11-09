@@ -3,28 +3,26 @@
 """
 SAGE26 Quenched Central and Satellite Counts Plot
 
-Port of the "Plotting histogram of quiecent centrals with satellites overlaid as a function of
-redshift" section of SAGE26's history plotting script (plotting/allresults-history.py:1982-2031,
-figure QuenchedCentralSatelliteCounts): the average number of quenched central galaxies and of
-quenched satellite galaxies (orphans included) over the snapshots in each of the fifteen redshift
-bins, as pairs of bars. The section is the specification; where this port differs it is a
-permitted deviation below.
+Follows the QuenchedCentralSatelliteCounts figure of SAGE26's history plotting script: the average
+number of quenched central galaxies and of quenched satellite galaxies (orphans included) over the
+snapshots in each of the fifteen redshift bins, as pairs of bars. Where it differs from SAGE26 the
+difference is stated below.
 
 Requires: StellarMass, SfrDisk, SfrBulge, Type
 
-Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, allresults-history.py:337), SfrDisk and SfrBulge (Msun/yr; the rate is their
-sum, :2004) and Type (0 central, 1 or more satellite; :2008-2009). A galaxy is quenched when its
-specific star formation rate is below 10^sSFRcut per year, sSFRcut = -11.0 (:23, :2007). A galaxy
-with no stellar mass has a specific rate of infinity or NaN and is never quenched.
+Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 /
+hubble_h), SfrDisk and SfrBulge (Msun/yr; the rate is their sum) and Type (0 central, 1 or more
+satellite). A galaxy is quenched when its specific star formation rate is below 10^sSFRcut per year,
+sSFRcut = -11.0. A galaxy with no stellar mass has a specific rate of infinity or NaN and is never
+quenched.
 
-Snapshots: those with a redshift in each bin of ``Z_BINS`` (:1987-1991), chosen through
-``snapshots_in_z_range``; snapshot 63 (z = 0) falls in none, as in SAGE26.
+Snapshots: those with a redshift in each bin of ``Z_BINS``, chosen through ``snapshots_in_z_range``;
+snapshot 63 (z = 0) falls in none, as in SAGE26.
 
-SAGE26 draws no legend (it is commented out, :2025-2027), so the port draws none.
+SAGE26 draws no legend (it is commented out), so the figure draws none.
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
-reads 64, so a bin holds at most one snapshot.
+Differences from SAGE26: none beyond drawing the figure from the snapshots the run writes, where
+SAGE26 reads all 64, so a bin may hold a single snapshot.
 """
 
 import matplotlib.pyplot as plt
@@ -39,7 +37,7 @@ from output_utils import (
 )
 
 # log10 of the specific star formation rate [1/yr] dividing quiescent from star-forming galaxies
-# (allresults-history.py:23, `sSFRcut = -11.0`)
+# (SAGE26's `sSFRcut = -11.0`)
 SSFR_CUT = -11.0
 
 
@@ -47,9 +45,9 @@ def count_quenched(types, sfr_total, stellar_mass):
     """
     Return the numbers of quenched central and quenched satellite galaxies.
 
-    SAGE26 allresults-history.py:2006-2009: `sSFR_linear = sfr_total / stellar_mass`,
-    `quenched = sSFR_linear < 10.0**sSFRcut`, `np.sum((types == 0) & quenched)` and
-    `np.sum((types >= 1) & quenched)` (">= 1: orphans too"), the stellar mass in Msun.
+    As in SAGE26: `sSFR_linear = sfr_total / stellar_mass`, `quenched = sSFR_linear <
+    10.0**sSFRcut`, `np.sum((types == 0) & quenched)` and `np.sum((types >= 1) & quenched)` (">= 1:
+    orphans too"), the stellar mass in Msun.
     """
     with np.errstate(divide="ignore", invalid="ignore"):
         sfr_per_mass = sfr_total / stellar_mass
@@ -85,12 +83,11 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # allresults-history.py:1992 (cividis)
+    # Cividis
     colors = plt.cm.cividis(np.linspace(0.1, 0.9, len(Z_BINS)))
 
     fig, ax = setup_figure(figsize=(10, 7))
 
-    # allresults-history.py:1994-2018
     for i, (z_min, z_max) in enumerate(Z_BINS):
         snap_indices = snapshots_in_z_range(snapshots, z_min, z_max)
         if len(snap_indices) == 0:
@@ -128,7 +125,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             gid="model",
         )
 
-    # allresults-history.py:2020-2024: the upper limit is 1.1 times the autoscaled top
+    # The upper limit is 1.1 times the autoscaled top
     x_min, x_max, y_min, y_max = get_profile_axes(
         params,
         "quenched_central_satellite_counts",
@@ -141,8 +138,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.set_xticklabels(
         [f"{z_min:.1f}-{z_max:.1f}" for z_min, z_max in Z_BINS], rotation=45, ha="right"
     )
-    # SAGE26 figure parity: allresults-history.py:2024-2027 sets no x label and comments out the
-    # legend, and no bin holds z = 0. Mirrored as written.
+    # SAGE parity: SAGE26 sets no x label and comments out the legend, and no bin holds z = 0.
+    # Mirrored as written.
     ax.set_ylabel("Average Count", fontsize=AXIS_LABEL_SIZE)
 
     fig.tight_layout()

@@ -3,20 +3,17 @@
 """
 SAGE26 Star Formation Rate Plot
 
-Port of the "Plotting the SFR" section of SAGE26's plotting script
-(plotting/allresults-local.py:1625-1652): the star formation rate of galaxies with a stellar mass
-above 0.01 Msun against stellar mass. The section is the specification; where this port differs
-it is a permitted deviation below.
+Follows the "Plotting the SFR" section of SAGE26's plotting script: the star formation rate of
+galaxies with a stellar mass above 0.01 Msun against stellar mass. Where it differs from SAGE26 the
+difference is stated below.
 
 Requires: StellarMass, SfrDisk, SfrBulge
 
-Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, allresults-local.py:365), SfrDisk and SfrBulge (Msun/yr; the rate is their
-sum, :1634).
+Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 /
+hubble_h), SfrDisk and SfrBulge (Msun/yr; the rate is their sum).
 
-Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
-script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
-candidates exceed DILUTE.
+Differences from SAGE26: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once), so the drawn subset differs when the candidates exceed DILUTE.
 """
 
 import random
@@ -32,7 +29,7 @@ from output_utils import (
     setup_figure,
 )
 
-# Number of galaxies drawn at most: SAGE26's own `dilute_sfr` (allresults-local.py:1631)
+# Number of galaxies drawn at most: SAGE26's own `dilute_sfr`
 DILUTE = 10000
 
 
@@ -40,7 +37,7 @@ def total_sfr(sfr_disk, sfr_bulge):
     """
     Return the star formation rate of each galaxy, the disk plus the bulge rate.
 
-    SAGE26 allresults-local.py:1634: `SfrDisk[w2] + SfrBulge[w2]`.
+    As in SAGE26: `SfrDisk[w2] + SfrBulge[w2]`.
     """
     return sfr_disk + sfr_bulge
 
@@ -87,7 +84,6 @@ def plot(
 
     stellar_mass = galaxies.StellarMass * 1.0e10 / hubble_h
 
-    # allresults-local.py:1630-1634
     w2 = np.where(stellar_mass > 0.01)[0]
     w2 = draw_sample(w2, rng, DILUTE)
     mass = np.log10(stellar_mass[w2])
@@ -99,8 +95,7 @@ def plot(
 
     fig, ax = setup_figure()
 
-    # allresults-local.py:1637. A galaxy with no star formation has log10(0) = -inf and is not
-    # drawn, as in SAGE26.
+    # A galaxy with no star formation has log10(0) = -inf and is not drawn, as in SAGE26.
     with np.errstate(divide="ignore", invalid="ignore"):
         log_sfr = np.log10(starformationrate)
     ax.scatter(mass, log_sfr, c="k", marker="x", s=1, alpha=0.9, gid="model")
@@ -110,7 +105,6 @@ def plot(
     )
     ax.set_xlabel(r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$", fontsize=AXIS_LABEL_SIZE)
 
-    # allresults-local.py:1643-1647
     ax.xaxis.set_minor_locator(MultipleLocator(0.05))
     ax.yaxis.set_minor_locator(MultipleLocator(0.25))
     ax.set_xlim(x_min, x_max)

@@ -63,14 +63,14 @@
  *   - test_hydrogen_refresh_module_wiring: initialised with SFprescription 1 the module wires the
  *     prescription into the burst (the commits' caps and the hydrogen refresh run), and with
  *     SFprescription 0 it does not
- *   - test_hydrogen_refresh_invariants: the refresh (R/src/model_mergers.c:798-803) overwrites
- *     a stale H1gas with the fused atomic remainder, caps H2gas only against the double budget,
+ *   - test_hydrogen_refresh_invariants: the refresh overwrites
+ *     a stale H1gas with the atomic remainder, caps H2gas only against the double budget,
  *     floors a negative remainder to 0, keeps a -0.0 H2gas and runs for a zero-star burst
  *   - test_hydrogen_cap_recheck_growth: the post-minor-merger recheck's black-hole growth
- *     receives the burst's SFprescription (its hydrogen-cap locals, R/src/model_mergers.c:366-372)
+ *     receives the burst's SFprescription (its hydrogen-cap locals)
  *
  *   - test_fire_burst_budget_independent: FIREmodeOn 1: the burst's FIRE budget against
- *     SAGE26's expressions written in the test (R/src/model_mergers.c:692-752), across the
+ *     SAGE26's expressions written in the test, across the
  *     scaling's guards, floor and slopes and both caps, MassLoading left unwritten
  *   - test_fire_burst_on_versus_off: the same burst with FIREmodeOn 1 and 0 (the fixed-epsilon
  *     budget), neither writing MassLoading
@@ -89,11 +89,10 @@
  *     module's two channels (the instability burst, process_by_galaxy; the merger burst,
  *     process_per_event): the feedback and the escaping yield reach the FoF central's CGM pair
  *     (its Regime 0) or hot pair (Regime 1, or CGMrecipeOn 0); the burst host holds the other
- *     Regime; the unselected pair and the host's own pairs unchanged (the bundle's CGMrecipeOn)
+ *     Regime; the unselected pair and the host's own pairs unchanged
  *   - test_cgm_burst_recheck_sites: the post-minor-merger recheck's own sites: its quasar wind
  *     selects by the burst HOST's Regime, its nested burst's feedback and yield by the FoF
- *     central's, as do the outer burst's (R/src/model_mergers.c:806-831,
- *     R/src/model_disk_instability.c:102-108)
+ *     central's, as do the outer burst's
  *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
  *   - test_ffb_target_merger_continuation: a minor merger on a feedback-free-burst
  *     target (FFBRegime 1) grows its black hole (the quasar consumer), bursts and runs the
@@ -101,11 +100,10 @@
  *     states are bytewise equal but for FFBRegime, which each target keeps; the recheck is shown
  *     to act (without it the end state differs), so the comparison discriminates a recheck that
  *     skipped FFB targets
- * The three hydrogen tests are platform independent (no oracle bit pattern; the remainder is
- * formed with C's correctly rounded fma, as the shared helper forms it), so they run on every
- * platform. So are the FIRE tests: each expectation is SAGE26's expression written in the test
- * with its operand order and literal constants (sb_fire_expected), or the fixture's input, never
- * a call of the package's FIRE helpers.
+ * In the three hydrogen tests the remainder is formed with C's correctly rounded fma, as the
+ * shared helper forms it. In the FIRE tests each expectation is SAGE26's expression written in
+ * the test with its operand order and literal constants (sb_fire_expected), or the fixture's
+ * input, never a call of the package's FIRE helpers.
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -263,12 +261,12 @@ static void setup_test_parameters(double reheating_eps, double ejection_eff, dou
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold_major);
 
-  /* The required bulge-size mode, SAGE26's R0 0 (no sizes) */
+  /* The required bulge-size mode: BulgeSizeOn 0 (no sizes) */
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", 0);
 
   MimicConfig.NumModelParams = idx;
-  /* The module's required SFprescription and StarburstColdGasOn, at R1's values */
+  /* The module's required SFprescription and StarburstColdGasOn */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 }
@@ -402,8 +400,7 @@ int test_disk_instability_starburst(void) {
  *          snapshot interval (halo->dT), like the normal disk-SF channel, so the
  *          reported rate is the snapshot-mean and is INVARIANT to num_substeps.
  *          SAGE output averages per-substep SfrBulge[step] by STEPS, giving the
- *          same snapshot mean regardless of substep count
- *          (R/src/io/save_gals_hdf5.c:934-959).
+ *          same snapshot mean regardless of substep count.
  *
  * Expected: With identical physics and num_substeps changing from 1 to 2,
  * StarFormationRate and SupernovaOutflowRate are unchanged (ratio = 1.0). The
@@ -611,7 +608,7 @@ int test_per_event_merger_starburst(void) {
  *
  * Expected: Event target forms stars, but feedback destination is ctx->central_galaxy
  * Validates: SAGE parity for merger_centralgal vs centralgal roles (the burst host
- *            and the FoF central of R/src/model_mergers.c:584-831)
+ *            and the FoF central of SAGE26's merger burst)
  */
 int test_per_event_merger_uses_fof_central_feedback_destination(void) {
   /* ===== SETUP ===== */
@@ -670,10 +667,9 @@ int test_per_event_merger_uses_fof_central_feedback_destination(void) {
  *          normal SF channel — NOT the per-substep event payload dt
  *          (event->value1). So the reported rate scales as 1/dT_target and is
  *          independent of event->value1. (SAGE output averages SfrBulge[step]
- *          by STEPS, giving the snapshot mean total_burst_stars/dT,
- *          R/src/io/save_gals_hdf5.c:934-959.) The outflow is
- *          SAGE26's undivided OutflowRate += reheated mass (shared feedback commit,
- *          R/src/model_starformation_and_feedback.c:1249), normalised once per halo
+ *          by STEPS, giving the snapshot mean total_burst_stars/dT.) The outflow is
+ *          SAGE26's undivided OutflowRate += reheated mass (shared feedback commit),
+ *          normalised once per halo
  *          by sage26_finalize_cooling_heating, so it depends on neither interval.
  *
  * Expected: SFR ratio follows the inverse of the target full interval; the outflows
@@ -761,12 +757,12 @@ int test_per_event_merger_uses_target_full_interval_for_rates(void) {
  * @test    test_per_event_minor_merger_rechecks_disk_instability
  * @brief   Minor merger event applies same-step disk-instability follow-up
  *
- * SAGE parity (check_disk_instability, R/src/model_disk_instability.c:47-108): the follow-up
+ * SAGE parity (check_disk_instability): the follow-up
  * (a) transfers unstable disk stars to the bulge (BulgeMass grows; this is a
  * disk->bulge redistribution that does NOT change total StellarMass), and
  * (b) for the unstable gas, calls grow_black_hole — which itself drives a
- * quasar_mode_wind (grow_black_hole -> quasar_mode_wind, R/src/model_mergers.c:346-378) —
- * and then collisional_starburst. Because the (now correctly scaled) quasar wind
+ * quasar_mode_wind (grow_black_hole -> quasar_mode_wind) —
+ * and then collisional_starburst. Because the quasar wind
  * can eject the cold gas before that burst, additional NEW stars are not
  * guaranteed; the robust observables of the recheck are bulge growth, BH growth,
  * and cold-gas consumption/ejection.
@@ -877,7 +873,7 @@ int test_per_event_minor_merger_rechecks_disk_instability(void) {
               "Disk-instability follow-up should add extra bulge growth (disk->bulge transfer)");
   /* SAGE parity: total StellarMass need not increase — the quasar wind from the
    * disk-instability BH growth can eject the cold gas before the burst, so no
-   * new stars form (R/src/model_disk_instability.c:101-108). It must not DECREASE. */
+   * new stars form. It must not DECREASE. */
   TEST_ASSERT(follow_target.galaxy->StellarMass >= baseline_stellar,
               "Disk-instability follow-up must not reduce stellar mass");
   TEST_ASSERT(follow_target.galaxy->ColdGas < baseline_cold_gas,
@@ -1045,11 +1041,10 @@ static void run_recheck_with_quasar(const char *agn_recipe, struct GalaxyData *t
  * @test    test_per_event_recheck_agn_recipe_off
  * @brief   AGNrecipe 0: the post-minor-merger recheck grows no black hole, as SAGE26's
  *          AGNrecipeOn 0 skips grow_black_hole in check_disk_instability
- *          (R/src/model_disk_instability.c:101-103)
  *
  * Expected: with sage26_disk_instability and the quasar event consumer configured, the same minor
  * merger leaves BlackHoleMass at 0.05 and QuasarModeBHaccretionMass at 0 with AGNrecipe 0, while
- * the recheck's burst still forms stars; with AGNrecipe 2 the black hole grows (the control).
+ * the recheck's burst still forms stars; with AGNrecipe 2 the black hole grows.
  */
 int test_per_event_recheck_agn_recipe_off(void) {
   init_memory_system(0);
@@ -1109,9 +1104,9 @@ int test_agn_recipe_refused(void) {
  * @test    test_per_event_zero_ratio_bursts
  * @brief   A zero mass ratio merger event still runs SAGE26's burst
  *
- * SAGE26 bursts on every merger, a ratio of 0 included (R/src/model_mergers.c:284-287):
- * the burst forms no stars (eburst = 0.56 * 0^0.7 = 0), but still samples the host's
- * cold gas and metals into its bulge history (:754-757).
+ * SAGE26 bursts on every merger, a ratio of 0 included: the burst forms no stars
+ * (eburst = 0.56 * 0^0.7 = 0), but still samples the host's cold gas and metals into its bulge
+ * history.
  *
  * Expected: success; StellarMass, BulgeMass and ColdGas unchanged; the substep's
  *           SfrBulgeColdGas and SfrBulgeColdGasMetals bins grow by ColdGas and MetalsColdGas
@@ -1162,9 +1157,9 @@ int test_per_event_zero_ratio_bursts(void) {
   TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
                            "A zero-ratio burst consumes no cold gas");
   TEST_ASSERT(*bulge_cold == expected_bulge_cold,
-              "A zero-ratio burst still samples ColdGas into SfrBulgeColdGas (M:756)");
+              "A zero-ratio burst still samples ColdGas into SfrBulgeColdGas");
   TEST_ASSERT(*bulge_metals == expected_bulge_metals,
-              "A zero-ratio burst still samples MetalsColdGas into SfrBulgeColdGasMetals (M:757)");
+              "A zero-ratio burst still samples MetalsColdGas into SfrBulgeColdGasMetals");
 
   /* ===== CLEANUP ===== */
   sage26_starburst_feedback_cleanup();
@@ -2119,7 +2114,7 @@ int test_module_initialization(void) {
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0");
   MimicConfig.NumModelParams = idx;
-  /* The module's required SFprescription and StarburstColdGasOn, at R1's values */
+  /* The module's required SFprescription and StarburstColdGasOn */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
@@ -2200,12 +2195,11 @@ static int bulge_history_zero_outside(struct GalaxyData *gal, const int bin) {
 /**
  * @test    test_instability_burst_samples_bulge_history
  * @brief   SfrBulge[bin] += stars / dt, SfrBulgeColdGas[bin] += ColdGas,
- *          SfrBulgeColdGasMetals[bin] += MetalsColdGas (R/src/model_mergers.c:755-757)
+ *          SfrBulgeColdGasMetals[bin] += MetalsColdGas
  *
  * With 13 substeps, substep 5 maps to bin 3 ((5 * 10) / 13). The disk-instability
- * burst's dt is the galaxy's substep interval, dT / 13 (SAGE26's
- * starformation_and_feedback dt handed to collisional_starburst_recipe,
- * R/src/model_disk_instability.c:106). The burst mass is formed here with the kernel's
+ * burst's dt is the galaxy's substep interval, dT / 13 (SAGE26's starformation_and_feedback dt
+ * handed to collisional_starburst_recipe). The burst mass is formed here with the kernel's
  * own expressions (mode 1: eburst = the unstable fraction; the feedback
  * renormalisation), and the sample is taken before the burst consumes the cold gas. A
  * second burst in the same bin adds its own rate and its own (smaller) cold gas.
@@ -2301,7 +2295,7 @@ static int run_merger_burst(const double event_dt, struct GalaxyData *gal_out) {
 /**
  * @test    test_merger_burst_samples_with_event_dt
  * @brief   The merger burst samples bin (step * 10) / N with SAGE26's merger dt, the
- *          satellite's substep interval (R/src/core_build_model.c:579-581), which the
+ *          satellite's substep interval, which the
  *          merger event carries in value1
  *
  * The burst mass is formed with the kernel's mode-0 expressions; the rate is stars /
@@ -2383,7 +2377,7 @@ static int run_recheck_burst(const int recheck, const double event_dt, struct Ga
  * @test    test_post_merger_recheck_samples_with_event_dt
  * @brief   The post-merger instability burst samples the merger's bin with the merger's
  *          dt, as SAGE26's deal_with_galaxy_merger passes its dt and step to
- *          check_disk_instability (R/src/model_mergers.c:809) and on to the burst
+ *          check_disk_instability and on to the burst
  *
  * With the recheck the bin holds two bursts: more rate and more sampled gas than the
  * merger burst alone. Halving the event dt doubles the bin's rate exactly, so both
@@ -2420,12 +2414,12 @@ int test_post_merger_recheck_samples_with_event_dt(void) {
  * @test    test_consecutive_bursts_bulge_excess_grows
  * @brief   Consecutive bursts can leave BulgeMass more than one float above StellarMass
  *
- * A burst adds the rounded double recycled_stars to BulgeMass (R/src/model_mergers.c:770-772) while
- * update_from_star_formation adds the same product to StellarMass as one fused multiply-add
- * (R/src/model_starformation_and_feedback.c:1125), so each burst can move BulgeMass - StellarMass
+ * A burst adds the rounded double recycled_stars to BulgeMass while StellarMass takes the same
+ * product through a differently rounded update, so each burst can move BulgeMass - StellarMass
  * by one float, and the excess can accumulate over consecutive bursts. SAGE26's own
- * collisional_starburst_recipe gives it under R0's parameters: ColdGas 1, StellarMass = BulgeMass =
- * 0x3f800001, three mode-1 bursts, each fed the previous output. The shared burst transaction must
+ * collisional_starburst_recipe gives it with SAGE26's default parameters: ColdGas 1,
+ * StellarMass = BulgeMass = 0x3f800001, three mode-1 bursts, each fed the previous output; the
+ * expected bits below were produced by executing that routine. The shared burst transaction must
  * give the same bits: StellarMass/BulgeMass 0x3f800001/0x3f800002, then 0x3f800002/0x3f800003, then
  * 0x3f800002/0x3f800004, a two-float excess. Those bits depend only on ColdGas, the ratios,
  * FeedbackReheatingEpsilon and RecycleFraction (the ejection, the hot gas and the metals do not
@@ -2459,7 +2453,7 @@ int test_consecutive_bursts_bulge_excess_grows(void) {
   MimicConfig.G = 43.00707785642063;
   MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
 
-  /* R0's parameters at the oracle fixtures' bit patterns (input/millennium.par:69-83) */
+  /* SAGE26's default parameters, as exact bit patterns */
   const struct MimicStarburstParams params = {
       .feedback_reheating_epsilon = 0x1.7333333333333p+1,   /* 2.9 */
       .feedback_ejection_efficiency = 0x1.3333333333333p-2, /* 0.3 */
@@ -2506,7 +2500,7 @@ int test_consecutive_bursts_bulge_excess_grows(void) {
  * Executes all sage26_starburst_feedback unit tests and reports results.
  */
 /**
- * @brief The refresh's expected H1gas for a galaxy's final ColdGas and H2gas (M:801-803)
+ * @brief The refresh's expected H1gas for a galaxy's final ColdGas and H2gas
  */
 static float expected_refreshed_h1(const struct GalaxyData *gal) {
   const float h1 = (float)fma((double)gal->ColdGas, 0.74, -(double)gal->H2gas);
@@ -2593,7 +2587,7 @@ static void zero_star_burst(struct GalaxyData *gal, const float cold_gas, const 
 
 /**
  * @test    test_hydrogen_refresh_invariants
- * @brief   The burst's hydrogen refresh is not a pair of caps (R/src/model_mergers.c:798-803)
+ * @brief   The burst's hydrogen refresh is not a pair of caps
  */
 int test_hydrogen_refresh_invariants(void) {
   struct GalaxyData gal;
@@ -2615,7 +2609,7 @@ int test_hydrogen_refresh_invariants(void) {
               "a reduced H1gas is restored to the full remainder");
 
   /* ColdGas 1.0: the float bound 0.74f lies above the double budget 1.0 * 0.74, so an H2gas at
-   * the float bound binds the refresh's cap (storing the same float), and the fused remainder
+   * the float bound binds the refresh's cap (storing the same float), and the remainder
    * is negative and floored to 0 */
   zero_star_burst(&gal, 1.0f, 0.74f, 0.25f, &b);
   TEST_ASSERT((double)0.74f > 1.0 * 0.74, "the float bound rounds up");
@@ -2677,8 +2671,6 @@ static void recheck_growth_burst(const int sf_prescription, struct GalaxyData *g
 /**
  * @test    test_hydrogen_cap_recheck_growth
  * @brief   The post-minor-merger recheck's black-hole growth receives the burst's SFprescription
- *          (R/src/model_mergers.c:806-811 into R/src/model_disk_instability.c:102-104, cap
- *          :366-372)
  *
  * The cap is end-state invariant here (the recheck's own burst re-caps and refreshes the
  * hydrogen), so its locals are the evidence: with SFprescription 1 the growth's guard holds and
@@ -2708,11 +2700,11 @@ int test_hydrogen_cap_recheck_growth(void) {
 }
 
 // ============================================================================
-// FIREmodeOn: THE BURST'S FIRE BUDGET (R/src/model_mergers.c:690-752)
+// FIREmodeOn: THE BURST'S FIRE BUDGET
 // ============================================================================
 
-/* The burst parameters the FIRE tests use: SAGE26's R3 values (input/millennium.par:69-70, :75-82)
- * and its EtaSNcode and EnergySNcode bit patterns (R/src/core_init.c:102-103) */
+/* The burst parameters the FIRE tests use: FeedbackReheatingEpsilon 2.9 and
+ * FeedbackEjectionEfficiency 0.3, with SAGE26's EtaSNcode and EnergySNcode bit patterns */
 #define FIRE_TEST_EPS 2.9
 #define FIRE_TEST_EJ 0.3
 #define FIRE_TEST_ETA_SN 68493150.684931502
@@ -2736,11 +2728,10 @@ struct sb_fire_budget {
 
 /**
  * @brief SAGE26's burst FIRE budget written inline with its operand order and literal constants
- *        (R/src/model_mergers.c:692-752, capped_eta_reheat and sn_energy_coupling of
- *        R/src/model_misc.h:118-149): an expectation that calls no package helper
+ *        (including SAGE26's capped_eta_reheat and sn_energy_coupling): an expectation that calls
+ *        no package helper
  *
- * The high-velocity term is the division SAGE26's object computes for its pow(x, -1.0) (fdiv at
- * model_mergers.o offset 0xdc8).
+ * SAGE parity: the high-velocity term is the division 1.0 / x, not pow(x, -1.0).
  *
  * @param vvir      The host's float Vvir
  * @param z         The redshift of the host's stored snapshot
@@ -2751,14 +2742,14 @@ static struct sb_fire_budget sb_fire_expected(const float vvir, const double z,
                                               const double stars_in, const double gas) {
   struct sb_fire_budget r;
   double fire_scaling = 0.0;
-  const double vc_fire = vvir;                                               /* M:695 */
-  if (vc_fire > 0.0 && z >= 0.0) {                                           /* M:696 */
-    const double vc_floored = (vc_fire < 1.0) ? 1.0 : vc_fire;               /* M:697 */
-    const double v_term = (vc_floored < 60.0) ? pow(vc_floored / 60.0, -3.2) /* M:698-699 */
-                                              : 1.0 / (vc_floored / 60.0);   /* M:700, fdiv */
-    fire_scaling = pow(1.0 + z, 1.25) * v_term;                              /* M:701 */
+  const double vc_fire = vvir;
+  if (vc_fire > 0.0 && z >= 0.0) {
+    const double vc_floored = (vc_fire < 1.0) ? 1.0 : vc_fire;
+    const double v_term =
+        (vc_floored < 60.0) ? pow(vc_floored / 60.0, -3.2) : 1.0 / (vc_floored / 60.0);
+    fire_scaling = pow(1.0 + z, 1.25) * v_term;
   }
-  double eta = FIRE_TEST_EPS * fire_scaling; /* M:709, X:144-149 */
+  double eta = FIRE_TEST_EPS * fire_scaling;
   if (vc_fire > 0.0) {
     const double eta_max = 2.0 * (FIRE_TEST_ETA_SN * FIRE_TEST_ENERGY_SN) / (vc_fire * vc_fire);
     if (eta > eta_max) {
@@ -2766,23 +2757,23 @@ static struct sb_fire_budget sb_fire_expected(const float vvir, const double z,
     }
   }
   double stars = stars_in;
-  double reheated = eta * stars;  /* M:708-710 */
-  if ((stars + reheated) > gas) { /* M:721 */
+  double reheated = eta * stars;
+  if ((stars + reheated) > gas) {
     const double fac = gas / (stars + reheated);
     stars *= fac;
     reheated *= fac;
   }
   double ejected = 0.0;
-  if (vc_fire > 0.0) {                             /* M:728 */
-    double coupling = FIRE_TEST_EJ * fire_scaling; /* X:120-123 */
+  if (vc_fire > 0.0) {
+    double coupling = FIRE_TEST_EJ * fire_scaling;
     if (coupling > 2.0) {
       coupling = 2.0;
     }
     const double E_FB = coupling * 0.5 * stars * (FIRE_TEST_ETA_SN * FIRE_TEST_ENERGY_SN);
     const double E_lift = 0.5 * reheated * vc_fire * vc_fire;
-    ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc_fire * vc_fire) : 0.0; /* M:733-736 */
+    ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc_fire * vc_fire) : 0.0;
   }
-  if (ejected < 0.0) { /* M:746-748 */
+  if (ejected < 0.0) {
     ejected = 0.0;
   }
   r.scaling = fire_scaling;
@@ -2844,14 +2835,14 @@ static void sb_fire_pair(struct Halo *host, struct GalaxyData *host_gal, struct 
 /**
  * @test    test_fire_burst_budget_independent
  * @brief   The burst's FIRE budget against SAGE26's expressions written in the test, across the
- *          scaling's guards, floor and slopes and both caps (R/src/model_mergers.c:692-752)
+ *          scaling's guards, floor and slopes and both caps
  *
  * A mode-1 burst (fraction 0.1) of one galaxy with ColdGas 1 and ample hot gas, at a host Vvir
  * below, at and above 1 and 60 km/s, zero and negative, and a stored-snapshot redshift of 0, 2.35,
  * 14.09 (both caps binding at 100 km/s) and -0.5, and at 30 km/s (the coupling capped at 2 while
  * the loading is not, so the cap decides the ejection): the transaction's stars, reheated and
  * ejected mass and the FIRE scaling must equal the inline expectation bit for bit, and MassLoading
- * must keep its stale value (no burst writes it, M:707-710).
+ * must keep its stale value (no burst writes it).
  */
 int test_fire_burst_budget_independent(void) {
   reset_config();
@@ -2896,7 +2887,7 @@ int test_fire_burst_budget_independent(void) {
 /**
  * @test    test_fire_burst_on_versus_off
  * @brief   The same burst with FIREmodeOn 1 and 0: 1 is the inline FIRE budget, 0 the
- *          fixed-epsilon one (M:711-712, M:738-743, the float Vvir squared in float); neither
+ *          fixed-epsilon one (the float Vvir squared in float); neither
  *          writes MassLoading
  */
 int test_fire_burst_on_versus_off(void) {
@@ -2926,10 +2917,10 @@ int test_fire_burst_on_versus_off(void) {
                   "FIREmodeOn 1: SAGE26's FIRE budget with the host's values");
     } else {
       const float v = 80.0f;
-      const double e_reheated = FIRE_TEST_EPS * stars; /* M:712 */
+      const double e_reheated = FIRE_TEST_EPS * stars;
       double e_ejected =
           (FIRE_TEST_EJ * (FIRE_TEST_ETA_SN * FIRE_TEST_ENERGY_SN) / (v * v) - FIRE_TEST_EPS) *
-          stars; /* M:739-741 */
+          stars;
       if (e_ejected < 0.0) {
         e_ejected = 0.0;
       }
@@ -2950,7 +2941,7 @@ int test_fire_burst_on_versus_off(void) {
 /**
  * @test    test_fire_burst_wiring_direct
  * @brief   The burst reads its HOST's float Vvir and stored SnapNum, not the FoF central's
- *          (R/src/model_mergers.c:694-695): host Vvir 80 at SnapNum 40, central 300 at 50
+ *          host Vvir 80 at SnapNum 40, central 300 at 50
  */
 int test_fire_burst_wiring_direct(void) {
   reset_config();
@@ -3006,8 +2997,8 @@ static const char *sb_fire_read_log(FILE *fp) {
 }
 
 /**
- * @brief Initialise the module with R3's burst parameters and FIREmodeOn `value` (NULL: the key
- *        missing), capturing the log
+ * @brief Initialise the module with the FIRE tests' burst parameters and FIREmodeOn `value`
+ *        (NULL: the key missing), capturing the log
  * @return The init status
  */
 static int sb_fire_init(const char *value, const char **log) {
@@ -3038,7 +3029,7 @@ static double sb_fire_module_esn(void) {
 
 /**
  * @brief SAGE26's burst budget at the module's own SN constants (the module derives them from the
- *        run's units, R/src/core_init.c:102-103): sb_fire_expected's expressions with that
+ *        run's units): sb_fire_expected's expressions with that
  *        product, which is all the budget reads of them
  */
 static struct sb_fire_budget sb_fire_module_expected(const float vvir, const double z,
@@ -3108,7 +3099,7 @@ int test_fire_burst_wiring_merger_event(void) {
                               .value1 = 0.01};
   ctx.active_event = &event;
   TEST_ASSERT(sage26_starburst_feedback_process(&ctx, &target, 1) == 0, "the merger bursts");
-  const double eburst = 0.56 * pow(0.2, 0.7); /* M:603 */
+  const double eburst = 0.56 * pow(0.2, 0.7);
   const struct sb_fire_budget e =
       sb_fire_module_expected(80.0f, MimicConfig.ZZ[40], eburst * (double)1.0f, (double)1.0f);
   const struct sb_fire_budget c =
@@ -3130,7 +3121,7 @@ int test_fire_burst_wiring_merger_event(void) {
 /**
  * @test    test_fire_burst_wiring_instability_channel
  * @brief   The instability channel (process_by_galaxy) bursts the satellite with its own Vvir and
- *          stored SnapNum, not its FoF central's (R/src/model_disk_instability.c:106)
+ *          stored SnapNum, not its FoF central's
  */
 int test_fire_burst_wiring_instability_channel(void) {
   const char *log = "";
@@ -3156,8 +3147,7 @@ int test_fire_burst_wiring_instability_channel(void) {
 
 /**
  * @test    test_fire_burst_wiring_recheck
- * @brief   The post-minor-merger recheck's own burst (R/src/model_mergers.c:806-811 into
- *          R/src/model_disk_instability.c:106-108) takes the FIRE branch with the host's own
+ * @brief   The post-minor-merger recheck's own burst takes the FIRE branch with the host's own
  *          stored SnapNum, float Vvir and redshift, not the central's
  */
 int test_fire_burst_wiring_recheck(void) {
@@ -3295,33 +3285,31 @@ int test_fire_burst_snapnum_refused(void) {
 // CGM ROUTING TESTS (CGMrecipeOn)
 // ============================================================================
 //
-// SAGE26's burst (R = the staged SAGE26 source, R/src/model_mergers.c:584-831) commits its feedback
-// through update_from_feedback to the FoF CENTRAL (:791), whose CGM pair it uses with CGMrecipeOn 1
-// and the central's Regime 0 and whose hot pair otherwise
-// (R/src/model_starformation_and_feedback.c:1175-1247), and sends its escaping yield through
-// add_metals_to_hot_reservoir to the same central's selected metals (:824, :830,
-// R/src/model_misc.h:67-74). The burst host is given the other Regime throughout. The parameters
+// SAGE26's burst commits its feedback through update_from_feedback to the FoF CENTRAL, whose CGM
+// pair it uses with CGMrecipeOn 1 and the central's Regime 0 and whose hot pair otherwise, and
+// sends its escaping yield through add_metals_to_hot_reservoir to the same central's selected
+// metals. The burst host is given the other Regime throughout. The parameters
 // make the instability burst exact: FeedbackReheatingEpsilon 1, FeedbackEjectionEfficiency 0 (the
-// ejection (0 - 1) * stars is floored to 0, :738-748), RecycleFraction 0.5, Yield 0.5,
-// FracZleaveDisk 1 with the central's Mvir 0 (FracZleaveDiskVal = 1 * exp(-0 / 30) = 1, :816),
+// ejection (0 - 1) * stars is floored to 0), RecycleFraction 0.5, Yield 0.5,
+// FracZleaveDisk 1 with the central's Mvir 0 (FracZleaveDiskVal = 1 * exp(-0 / 30) = 1),
 // ThreshMajorMerger 0.3, a host with ColdGas 1 and no cold metals:
-//   instability (mode 1, fraction 0.25): eburst 0.25 (:600-601), stars 0.25, reheated 0.25 (:712),
+//   instability (mode 1, fraction 0.25): eburst 0.25, stars 0.25, reheated 0.25,
 //   no renormalisation (0.5 <= 1); the host keeps 1 - 0.125 - 0.25 = 0.625 of cold gas, so the
-//   yield takes the retained branch (:814) with nothing retained and 0.5 * 1 * 0.25 = 0.125
-//   escaping (:822); the central's selected pair 2 / 0.25 -> 2.25 / 0.375.
-//   merger (mode 0, ratio 0.5, a major merger: no recheck, :807-808, and all the yield escapes,
-//   :828): eburst = 0.56 * pow(0.5, 0.7) (:603), formed at run time below, stars = eburst * 1,
+//   yield takes the retained branch with nothing retained and 0.5 * 1 * 0.25 = 0.125
+//   escaping; the central's selected pair 2 / 0.25 -> 2.25 / 0.375.
+//   merger (mode 0, ratio 0.5, a major merger: no recheck, and all the yield escapes):
+//   eburst = 0.56 * pow(0.5, 0.7), formed at run time below, stars = eburst * 1,
 //   reheated = stars; the selected pair -> (float)(2 + stars) / (float)(0.25 + 0.5 * stars).
 
-/** @brief SAGE26's merger burst stars from ColdGas 1 (R/src/model_mergers.c:603, :685) */
-static __attribute__((noinline)) double c10_merger_burst_stars(double mass_ratio) {
+/** @brief SAGE26's merger burst stars from ColdGas 1 */
+static __attribute__((noinline)) double cgm_merger_burst_stars(double mass_ratio) {
   volatile double ratio = mass_ratio;
   volatile float cold_gas = 1.0f;
   return 0.56 * pow(ratio, 0.7) * cold_gas;
 }
 
 /** @brief Initialise with the exact-burst parameters and CGMrecipeOn `cgm` (NULL: missing) */
-static int c10_init(const char *cgm, const char **log) {
+static int cgm_init(const char *cgm, const char **log) {
   init_memory_system(0);
   reset_config();
   setup_test_parameters(1.0, 0.0, 0.5, 0.5, 1.0, 0.3);
@@ -3350,12 +3338,12 @@ int test_cgm_burst_module_channels(void) {
     int central_regime;
     int to_cgm;
   } runs[] = {{"1", 0, 1}, {"1", 1, 0}, {"0", 0, 0}, {"0", 1, 0}};
-  const double merger_stars = c10_merger_burst_stars(0.5);
+  const double merger_stars = cgm_merger_burst_stars(0.5);
   int ok = 1;
   for (int channel = 0; channel < 2; channel++) { /* 0 the instability, 1 the merger event */
     for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
       const char *log = "";
-      TEST_ASSERT(c10_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+      TEST_ASSERT(cgm_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
       struct Halo host, central;
       struct GalaxyData host_gal, central_gal;
       setup_test_galaxy(&central, &central_gal, 0, 0.0, 200.0, 3.0, 0.0, 4.0, 1.0, 2.0, 0.25);
@@ -3424,7 +3412,7 @@ int test_cgm_burst_module_channels(void) {
  *
  * The minor merger of recheck_growth_burst (ratio 0.2 below ThreshMajorMerger 0.3, a gas-unstable
  * host disk) runs the recheck, its black-hole growth and wind on the host and its nested mode-1
- * burst (R/src/model_mergers.c:806-811, R/src/model_disk_instability.c:90-108). Each galaxy's two
+ * burst. Each galaxy's two
  * pairs hold the same input. The central's selected pair receives both bursts; its unselected pair
  * must keep its input, and so must the host's pair its wind does not select. The site selections
  * are the transaction's locals, each compared with the Regime of the galaxy that must route it.
@@ -3514,14 +3502,14 @@ int test_cgm_burst_recheck_sites(void) {
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
-  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
-  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
   sage26_starburst_feedback_cleanup();
   return TEST_PASS;
 }
@@ -3533,7 +3521,7 @@ int test_cgm_recipe_on_refused(void) {
 /**
  * @brief Run one minor merger (ratio 0.2, below ThresholdMajorMerger 0.3) on a target with the
  *        given FFBRegime through both merger consumers, sage26_quasar_mode then
- *        sage26_starburst_feedback (R/src/model_mergers.c:262-287), with the post-merger recheck
+ *        sage26_starburst_feedback, with the post-merger recheck
  *        configured or not (sage26_disk_instability by galaxy, SAGE26's DiskInstabilityOn), and
  *        return the target's and the central's end states
  */
@@ -3586,8 +3574,7 @@ static int run_ffb_target_merger(const int ffb_regime, const int recheck,
  * @test    test_ffb_target_merger_continuation
  * @brief   A merger on an FFB target bursts, grows its black hole and runs the post-merger recheck
  *          as on an ordinary target: SAGE26's merger routines do not read FFBRegime
- *          (R/src/model_mergers.c:259-287, :806-811), and only the FFB disk call skips the
- *          instability (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367)
+ *          and only the FFB disk call skips the instability
  */
 int test_ffb_target_merger_continuation(void) {
   struct GalaxyData ffb_target, ffb_central, normal_target, normal_central;

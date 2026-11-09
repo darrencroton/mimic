@@ -3,22 +3,20 @@
 """
 SAGE26 Central and Satellite Fraction Plot
 
-Port of the "Plotting central/satellite fraction as a function of redshift" section of SAGE26's
-history plotting script (plotting/allresults-history.py:1856-1900, figure CentralSatelliteFraction):
-the fractions of galaxies that are central and that are satellites (orphans included) against
-redshift. The section is the specification; where this port differs it is a permitted deviation
-below.
+Follows the CentralSatelliteFraction figure of SAGE26's history plotting script: the fractions of
+galaxies that are central and that are satellites (orphans included) against redshift. Where it
+differs from SAGE26 the difference is stated below.
 
 Requires: Type
 
-Fields read (units): Type (0 central, 1 satellite, 2 orphan; :1870-1871, a Type of 1 or more is
-a satellite); a snapshot's redshift is its metadata["redshift"].
+Fields read (units): Type (0 central, 1 satellite, 2 orphan; a Type of 1 or more is a satellite); a
+snapshot's redshift is its metadata["redshift"].
 
-Snapshots: every written snapshot (:1865), chosen through ``all_snapshots``; a snapshot without
-galaxies is skipped (:1866-1873).
+Snapshots: every written snapshot, chosen through ``all_snapshots``; a snapshot without galaxies is
+skipped.
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where
-SAGE26 reads 64.
+Differences from SAGE26: none beyond drawing the figure from the snapshots the run writes, where
+SAGE26 reads all 64.
 """
 
 import numpy as np
@@ -37,9 +35,8 @@ def central_and_satellite_fractions(types):
     """
     Return the fractions of galaxies that are central and that are satellite.
 
-    SAGE26 allresults-history.py:1869-1876: `n_total = len(types)`, `n_cen = np.sum(types == 0)`,
-    `n_sat = np.sum(types >= 1)` (">= 1: orphans (Type 2) are satellites too") and
-    `n_cen / n_total`, `n_sat / n_total`.
+    As in SAGE26: `n_total = len(types)`, `n_cen = np.sum(types == 0)`, `n_sat = np.sum(types >= 1)`
+    (">= 1: orphans (Type 2) are satellites too") and `n_cen / n_total`, `n_sat / n_total`.
     """
     n_total = len(types)
     n_cen = np.sum(types == 0)
@@ -73,7 +70,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # allresults-history.py:1861-1880
     z_arr_cs = []
     central_frac = []
     satellite_frac = []
@@ -91,7 +87,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     central_frac = np.array(central_frac)
     satellite_frac = np.array(satellite_frac)
 
-    # Sort by redshift (:1882-1885)
+    # Sort by redshift
     sort_idx = np.argsort(z_arr_cs)
     z_arr_cs = z_arr_cs[sort_idx]
     central_frac = central_frac[sort_idx]
@@ -106,7 +102,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     fig, ax = setup_figure(figsize=(10, 7))
 
-    # allresults-history.py:1887-1896
     ax.plot(z_arr_cs, central_frac, color="steelblue", lw=2.5, label="Centrals", gid="model")
     ax.plot(z_arr_cs, satellite_frac, color="firebrick", lw=2.5, label="Satellites", gid="model")
 

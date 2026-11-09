@@ -1,59 +1,44 @@
 # `sage26_calculate_cooling_budget`
 
-Calculates the hot-halo cooling budget: the mass of hot gas that cools onto the disk this substep, before AGN suppression, with SAGE26's cooling diagnostics. The result is carried in package-private transport properties to `sage26_radio_mode_heating` and `sage26_apply_cooling`. This is the classic path, `CGMrecipeOn 0` (R0-R3); with `CGMrecipeOn 1` the module writes only its no-cooling transport and `sage26_regime_aware_cooling` owns the whole of SAGE26's regime-aware cooling (below).
+Calculates the hot-halo cooling budget of the classic path (`CGMrecipeOn 0`): the hot gas that cools onto the disk this substep, before AGN suppression, with SAGE26's cooling diagnostics. The mass is carried in package-private transport properties to `sage26_radio_mode_heating` and `sage26_apply_cooling`; together the three implement SAGE26's `cooling_recipe_hot`. With `CGMrecipeOn 1` (the run files' value) `sage26_regime_aware_cooling` owns the cooling and this module writes only a no-cooling transport.
 
-## SAGE26 Source
+## Physics
 
-A port of the first part of SAGE26's `cooling_recipe_hot` (`src/model_cooling_heating.c:135-314`) on the R0 path (`CGMrecipeOn 0`), up to its call of `do_AGN_heating`. The arithmetic is the shared `mimic_sage_hot_cooling_budget` (`shared/sage_cooling_physics.h`), called with `CGMrecipeOn 0`; the same file holds the `CGMrecipeOn 1` pieces (the clustering-mass table, the cold streams and bulk CGM cooling), which `sage26_regime_aware_cooling` calls. SAGE26's routine is split across three modules that run consecutively in `galaxy_physics`: this one (`:139-292`), `sage26_radio_mode_heating` (`do_AGN_heating`, `:297-299`) and `sage26_apply_cooling` (the routine's tail, `:301-313`, then `cool_gas_onto_galaxy`, `src/core_build_model.c:508-509`).
+The isothermal cooling model of Croton et al. (2006), through `mimic_sage_hot_cooling_budget` (`shared/sage_cooling_physics.h`). When `HotGas > 0` and `Vvir > 0`: the cooling time is the halo dynamical time `tcool = Rvir / Vvir`; the cooling function is evaluated at `T_vir = 35.9 * Vvir^2` K and the hot gas's metallicity; the density at which the cooling time equals `tcool` sets the cooling radius `rcool` of an isothermal profile with `rho0 = HotGas / (4 pi Rvir)`. If `rcool > Rvir` the halo cools rapidly, `HotGas / tcool * dt`; otherwise quasi-statically, `(HotGas / Rvir) * (rcool / (2 tcool)) * dt`. The mass is capped at `HotGas` and floored at 0. `rcool` is not capped, so the two branches differ by a factor 2 at `rcool == Rvir`, as in SAGE26.
 
-Every call first sets `tcool = 0`. When `HotGas > 0` and `Vvir > 0` the module:
-
-1. forms SAGE26's `tcool = Rvir / Vvir` as a float division of the float `Rvir` and `Vvir` stored in a double, and `tff = sqrt(2) * tcool`, and writes both as float diagnostics with SAGE26's conversion `value * 1e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s` (a mass-rate factor applied to a time, so neither is a time in Gyr);
-2. evaluates the cooling function at `T_vir = 35.9 * Vvir^2` K and `logZ = log10(MetalsHotGas / HotGas)` (a float division; `-10` without metals), returning 0 if `lambda <= 0`;
-3. forms `x = m_p k_B T / lambda` in code units and `rho_rcool = x / tcool * (1.5 * 0.59)`, returning 0 if `rho_rcool <= 0`;
-4. forms the cooling radius of an isothermal profile, `rcool = sqrt(rho0 / rho_rcool)` with `rho0 = HotGas / (4 pi Rvir)`, and writes `RcoolToRvir = rcool / Rvir`;
-5. cools rapidly, `HotGas / tcool * dt`, when `rcool > Rvir`, otherwise quasi-statically, `(HotGas / Rvir) * (rcool / (2 tcool)) * dt` (with `HotGas / Rvir` a float division); then caps the mass to `HotGas` and floors it at 0.
-
-The early returns come after `tcool` and `tff` are written and leave `RcoolToRvir`, `Cooling` and `CoolingRate` as they were. An outer-guard failure leaves `tff` and `RcoolToRvir` as they were and reaches SAGE26's tail with zero mass. `rcool` is left uncapped, so the rapid and static branches stay discontinuous by a factor 2 at `rcool == Rvir`, as SAGE26 keeps them.
-
-`Mvir`, `Rvir` and `Vvir` are SAGE26 floats (`src/core_allvars.h:106-221`); the core's double halo values are read as those floats.
-
-## Carried State
-
-Package-private transport properties (`output: false`, reset once per snapshot at inheritance), written on every call:
-
-- `CoolingGas` — the post-cap, pre-suppression cooling mass (0 on every early return);
-- `CoolingX` — SAGE26's `x`, carried exactly to the radio module's Bondi rate (0 where not formed);
-- `Rcool` — SAGE26's `rcool` (0 where not formed);
-- `CoolingReturnPath` — the return path: -1 not evaluated (no positive interval), 0 the normal tail, 1 the outer guard, 2 `lambda <= 0`, 3 `rho_rcool <= 0`.
+The cooling functions are the Sutherland & Dopita (1993) collisional-ionisation-equilibrium tables at eight metallicities, primordial to super-solar, loaded from `CoolFunctions/` at `init()` (`cooling_tables.c`). `log10(T)` below 4.0 is raised to 4.0, above the last grid point (8.5) the rate extrapolates linearly along the final interval, and `log10(Z)` is clamped to the grid.
 
 ## Processing Contract
 
 - Supported mode: `process_by_galaxy`
 - Expected phase: `galaxy_physics`, immediately before `sage26_radio_mode_heating` and `sage26_apply_cooling`
-- Receives one galaxy at a time; every non-merged galaxy cools, Type 2 orphans included (`src/core_build_model.c:473-516`)
-- Without a positive interval (the core's snapshot-zero birth, `SnapNum < 0` and `dT <= 0`) cooling does not run and the return path is -1
-- `init()` refuses a placement only with `CGMrecipeOn 1` (below). It does not check this module's phase, entry count or position: with `CGMrecipeOn 0` it initialises in any phase that accepts `process_by_galaxy`, `pre_timestep` included. Nor does it check the presence or order of `sage26_radio_mode_heating` and `sage26_apply_cooling` (`sage26_apply_cooling`'s own `init()` refuses that module unless this one precedes it in a substep phase), or, with `CGMrecipeOn 1`, where `sage26_regime_aware_cooling` sits within the shared phase or `sage26_determine_regime` within `pre_timestep` (`sage26_regime_aware_cooling`'s own `init()` requires that module immediately after `sage26_apply_cooling`)
+- Receives one galaxy at a time; every galaxy that has not merged cools, Type 2 orphans included
+- Without a positive interval (the core's snapshot-zero birth) cooling does not run and the return path is -1
+- With `CGMrecipeOn 1` the module writes `CoolingGas = CoolingX = Rcool = 0` and `CoolingReturnPath = -1` for every galaxy and no galaxy property, so the radio and apply modules write nothing either
 
-## `CGMrecipeOn 1`
+## Ordering
 
-With `CGMrecipeOn 1` SAGE26 calls `cooling_recipe_regime_aware` instead of `cooling_recipe_hot` (`src/model_cooling_heating.c:125-132`), and `sage26_regime_aware_cooling`, the package's port of that routine as one by-galaxy transaction, runs it whole. This module then writes only `CoolingGas = CoolingX = Rcool = 0` and `CoolingReturnPath = -1` for every galaxy, and no galaxy property, so `sage26_radio_mode_heating` (its `CoolingGas > 0` gate) and `sage26_apply_cooling` (path -1, zero mass) write nothing either. Because such a run would cool nothing without the transaction, and route every galaxy through the hot branch without the classifier, `init()` with `CGMrecipeOn 1` refuses, naming the missing module, unless `sage26_regime_aware_cooling` is configured (`process_by_galaxy`) in the substep phase that holds this module and `sage26_determine_regime` (`process_full_halo`) in `pre_timestep`. With `CGMrecipeOn 0` neither is required.
+**Enforced at init (fails with ERROR if violated):**
+
+1. Only with `CGMrecipeOn 1`: `sage26_regime_aware_cooling` must be configured as `process_by_galaxy` in the same substep phase as this module — otherwise no galaxy would cool.
+2. Only with `CGMrecipeOn 1`: `sage26_determine_regime` must be configured in `pre_timestep` as `process_full_halo` — otherwise every `Regime` stays -1 and the regime-aware cooling sends every galaxy through the hot branch.
+
+`init()` also fails, naming the file, if a cooling table cannot be opened or read. It does not check this module's own phase or position, nor the presence of the radio and apply modules (`sage26_apply_cooling`'s own `init()` requires this module before it).
 
 ## Properties
 
 - Reads: `HaloNr`, `SnapNum`, `dT`, `HotGas`, `MetalsHotGas`, `Vvir`, `Rvir`
-- Writes: `CoolingGas`, `CoolingX`, `Rcool`, `CoolingReturnPath`, `tcool`, `tff`, `RcoolToRvir` (with `CGMrecipeOn 1` only the four transport properties)
+- Writes: the transport properties `CoolingGas` (the cooling mass before AGN suppression), `CoolingX` and `Rcool` (the cooling model's `x` and `rcool`, for the radio module's AGN heating) and `CoolingReturnPath` (-1 not evaluated, 0 normal, 1 no hot gas or `Vvir`, 2 `lambda <= 0`, 3 `rho_rcool <= 0`); and the diagnostics `tcool`, `tff` and `RcoolToRvir` (`CGMrecipeOn 0` only)
 
 ## Parameters
 
-- `CGMrecipeOn` — required, with no default (`LOAD_PARAM_INT`, `src/module_system/parameter_helpers.h`), 0 or 1, SAGE26's accepted range (`src/core_read_parameter_file.c:526`); any other value, or a missing key, fails `init()` naming the parameter. The run files' value is 1, SAGE26's default (`input/millennium.par:54`) and the value of configurations R4–R6, so on the shipped runs this module writes only its no-cooling transport.
+- `CGMrecipeOn`: required, 0 or 1; 0 runs the classic hot cooling, 1 (the run files' value) writes only the no-cooling transport and requires the CGM partners above. Any other value, or a missing key, fails initialisation naming the parameter.
 
-The unit factors and `Hubble_h` are core-owned.
+## Notes
 
-## Cooling Tables
-
-The Sutherland & Dopita (1993) collisional-ionisation-equilibrium tables at eight metallicities, from primordial to super-solar, loaded from `CoolFunctions/` during `init()`. The eight stripped tables are byte-identical to SAGE26's (`src/auxdata/CoolFunctions`). The interpolation follows SAGE26's `get_metaldependent_cooling_rate` and `get_rate` (`src/core_cool_func.c:106-158`): `log10(T)` below 4.0 is raised to 4.0, while above the last grid point (8.5) the rate extrapolates linearly along the final interval, although SAGE26's comment says it clamps; `logZ` is clamped to the metallicity grid. `init()` fails, naming the file, if any of the eight tables cannot be opened or one of its rows cannot be read (`cooling_tables_init`, `cooling_tables.c`).
+The transport properties are not output and reset once per snapshot. `tcool` and `tff = sqrt(2) * tcool` are written with SAGE26's mass-rate conversion (`value * 1e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s`), so neither is a time in Gyr. The early returns leave `RcoolToRvir`, `Cooling` and `CoolingRate` as they were. The `CGMrecipeOn 1` cooling pieces (the clustering-mass table, cold streams and bulk CGM cooling) live in the same shared header and are called by `sage26_regime_aware_cooling`.
 
 ## Tests
 
-`_tests/test_unit_sage26_calculate_cooling_budget_oracle.c` runs every fixture under `_tests/oracle/` (listed in `../_tests/oracle/fixtures.manifest`) and asserts bit-for-bit equality with the SAGE26 function-level oracle (`../_tests/oracle/README.md`): the interpolation fixtures through `get_metaldependent_cooling_rate`, and the `cooling_recipe_hot` fixtures through the chained budget → radio → apply `process()` entries, with the carried state asserted after the budget step. The c11 fixtures (`cm_*`, `hs_*`, `cgm_*`: the clustering-mass table, `cooling_recipe_hot` with `CGMrecipeOn 1` and `cooling_recipe_cgm`) run through the shared helpers directly (`../_tests/oracle/README.md`, "The c11 Group"). Outside the oracle environment (macOS arm64, Apple clang 21) it reports SKIP. `_tests/test_unit_sage26_calculate_cooling_budget.c` tests, on every platform, the cooling tables (all eight load; temperature and metallicity interpolation; primordial, super-solar and out-of-range inputs), the module's registration and an init/cleanup cycle without leaks, and the carried state on the outer-guard, normal-tail and no-interval paths. It also tests those `CGMrecipeOn 1` helpers on every platform, with expectations written independently of them: the table at every grid point, between grid points, at its clamps and either side of the cosmology selection; the streams' sigmoid from the stored snapshot, the cutoff at its equalities, both exponent clamps, `ratio <= 0` and the refusal of a stored `SnapNum` outside the redshift table (SAGE26 reads `ZZ[SnapNum]` without a bounds check, `src/model_cooling_heating.c:205`; the package refuses it, naming it, in `mimic_sage_fire_stored_redshift`, `shared/sage_fire_feedback_physics.h`); CGM cooling's profile and times, its `lambda > 0` guard, cap and floor. It also tests the module's `CGMrecipeOn` handling: with 1 the module writes only its no-cooling transport (and the radio and apply modules nothing), the refusals of a missing or unsupported (2) `CGMrecipeOn`, and initialisation with `CGMrecipeOn 1` in the configuration the guard requires (`sage26_regime_aware_cooling`'s unit tests cover the guard's refusals and its inactivity with `CGMrecipeOn 0`). `_tests/test_integration_sage26_calculate_cooling_budget.py` runs Mimic with this module and `CGMrecipeOn 0`, alone and after `sage26_prepare_infall_budget`, and checks that each run succeeds (two of them also without memory leaks), that a run with the module in `pre_timestep` ahead of the infall budget also succeeds, that HDF5 output is written, and that the output `HotGas` is non-negative and finite.
+- `_tests/test_unit_sage26_calculate_cooling_budget.c`: the cooling tables (loading and interpolation in temperature and metallicity, out-of-range inputs), registration and lifecycle, the carried state on each return path, the shared `CGMrecipeOn 1` cooling helpers, and the module's `CGMrecipeOn` handling and refusals.
+- `_tests/test_integration_sage26_calculate_cooling_budget.py`: `CGMrecipeOn 0` runs with the module alone, after the infall budget and in `pre_timestep`, checking that each succeeds, writes HDF5 output, leaks no memory and leaves `HotGas` finite and non-negative.

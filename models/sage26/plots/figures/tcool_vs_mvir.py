@@ -3,20 +3,19 @@
 """
 SAGE26 Cooling Rate Against Halo Mass Plot
 
-Port of the "Plotting tcool/tff vs Mvir" section of SAGE26's plotting script
-(plotting/allresults-local.py:1940-2005): the cooling rate of galaxies against halo mass on a
-logarithmic axis, the circumgalactic-medium regime in blue and the hot regime in red; a galaxy of
-any other regime is drawn coloured by virial temperature, with a colour bar, only where there is
-one. The section is the specification; where this port differs it is a permitted deviation below.
+Follows the "Plotting tcool/tff vs Mvir" section of SAGE26's plotting script: the cooling rate of
+galaxies against halo mass on a logarithmic axis, the circumgalactic-medium regime in blue and the
+hot regime in red; a galaxy of any other regime is drawn coloured by virial temperature, with a
+colour bar, only where there is one. Where it differs from SAGE26 the difference is stated below.
 
 Requires: CoolingRate, Mvir, Rvir, Regime, Vvir
 
 Fields read (units): CoolingRate (Msun/Gyr over h, models/sage26/model_properties.yaml, where
-SAGE26's label says Msun/Gyr; held in SAGE26's variable `tcool`, allresults-local.py:1948), Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, :1949), Rvir (Mpc/h, only to select), Regime (0 circumgalactic medium,
-1 hot) and Vvir (km/s; the virial temperature is 35.9 Vvir^2 K, :411).
+SAGE26's label says Msun/Gyr; held in SAGE26's variable `tcool`), Mvir (1e10 Msun/h, converted to
+Msun as SAGE26 converts it: x 1e10 / hubble_h), Rvir (Mpc/h, only to select), Regime (0
+circumgalactic medium, 1 hot) and Vvir (km/s; the virial temperature is 35.9 Vvir^2 K).
 
-Permitted deviations: none beyond the display freedoms (figure size, font sizes, colours, marker
+Differences from SAGE26: none beyond the display freedoms (figure size, font sizes, colours, marker
 sizes, dpi, bbox) taken through the house helpers.
 """
 
@@ -34,7 +33,7 @@ def virial_temperature(vvir):
     """
     Return the virial temperature in Kelvin of each halo, 35.9 times the virial velocity squared.
 
-    SAGE26 allresults-local.py:411: `35.9 * (Vvir)**2  # in Kelvin`.
+    As in SAGE26: `35.9 * (Vvir)**2  # in Kelvin`.
     """
     return 35.9 * (vvir) ** 2
 
@@ -75,15 +74,14 @@ def plot(
 
     hubble_h = metadata["hubble_h"]
 
-    # SAGE26 figure parity: allresults-local.py:1943 and the figure's name say "tcool/tff", but
-    # the quantity drawn is CoolingRate (:1948, labelled "Cooling rate" at :2000).
+    # SAGE parity: SAGE26's section title and the figure's name say "tcool/tff", but the quantity
+    # drawn is CoolingRate (labelled "Cooling rate").
     tcool = galaxies.CoolingRate
     Mvir = galaxies.Mvir * 1.0e10 / hubble_h  # Convert to solar masses
     Rvir = galaxies.Rvir
     Regime = galaxies.Regime
     Tvir = virial_temperature(galaxies.Vvir)
 
-    # allresults-local.py:1954-1960
     w = np.where((Mvir > 0.0) & (tcool > 0.0) & (Rvir > 0.0))[0]
     with np.errstate(divide="ignore", invalid="ignore"):
         log_Mvir = np.log10(Mvir)[w]
@@ -105,8 +103,8 @@ def plot(
 
     fig, ax = setup_figure()
 
-    # allresults-local.py:1983-1996. A regime with no galaxy draws nothing; the colour bar
-    # exists only with the unclassified galaxies.
+    # A regime with no galaxy draws nothing; the colour bar exists only with the unclassified
+    # galaxies.
     if np.any(cgm):
         ax.scatter(
             log_Mvir[cgm],
@@ -146,10 +144,10 @@ def plot(
         colorbar.set_label(r"$T_{\rm vir}$ (K)", fontsize=AXIS_LABEL_SIZE)
     ax.set_yscale("log")
 
-    # SAGE26 sets no axis window here (allresults-local.py:2002-2003 are commented out)
+    # SAGE26 sets no axis window here (its limits are commented out)
     ax.set_xlabel(r"$\log_{10} M_{\rm vir}\ (M_{\odot})$", fontsize=AXIS_LABEL_SIZE)
-    # SAGE26 figure parity: allresults-local.py:2000 labels the axis Msun/Gyr, but the plotted
-    # CoolingRate is Msun/Gyr over h (its declared unit, model_properties.yaml). Mirrored as written.
+    # SAGE parity: SAGE26 labels the axis Msun/Gyr, but the plotted CoolingRate is Msun/Gyr over h
+    # (its declared unit, model_properties.yaml). Mirrored as written.
     ax.set_ylabel(
         r"$\mathrm{Cooling\ rate}\ (M_{\odot}\ \mathrm{Gyr}^{-1})$", fontsize=AXIS_LABEL_SIZE
     )

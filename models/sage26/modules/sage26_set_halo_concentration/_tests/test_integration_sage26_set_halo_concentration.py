@@ -29,8 +29,8 @@ every row of both snapshots.
 On writes its domain (the observable list):
   - Concentration: finite and non-negative on every output row of both snapshots. Domain: the
     NFW concentration of SAGE26's Vmax/Vvir inversion, 0 if (Vmax/Vvir)^2 < 1, with creation value
-    0, and every other row keeps its value (models/sage26/model_properties.yaml:1371-1378; README.md,
-    "Processing Contract", the assignment table).
+    0, and every other row keeps its value (README.md, "Processing Contract", the assignment
+    table).
   - Witness: at least one Type 0 row with Concentration > 0 at snapshot 63.
   - Exceptions: none. Concentration is the only property the module writes.
 

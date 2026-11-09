@@ -1,82 +1,56 @@
 /**
  * @file    test_unit_sage26_ffb_star_formation.c
- * @brief   Platform-independent behavioural tests of sage26_ffb_star_formation
- *
- * The oracle test (test_unit_sage26_ffb_star_formation_oracle.c) skips off macOS arm64, so these
- * tests are the transaction's guard on every other platform. R = the staged SAGE26 source, S =
- * R/src/model_starformation_and_feedback.c, X = R/src/model_misc.h.
+ * @brief   Behavioural tests of sage26_ffb_star_formation
  *
  * Every expectation is derived independently of the module and of the shared helpers it calls:
  * either a literal from inputs chosen so the result is exact, or SAGE26's starformation_ffb
- * written out in this file (sage26_ffb_written_out: S:1270-1362 with compute_sn_feedback_ffb
- * S:905-967, update_from_star_formation S:1121-1135, update_from_feedback S:1150-1249,
- * ionized_gas_fraction S:135-152, get_metallicity, capped_eta_reheat X:141-149 and
- * sn_energy_coupling X:118-124), statement by statement with SAGE26's operand order and the forms
- * SAGE26's object computes (its fused multiply-adds as fma(), the high-velocity pow as a division),
- * cited line by line. The written-out transaction never calls the package's code. A test runs the
- * module's process() and compares the forming row and its FoF central with the written-out end
- * state byte for byte (memcmp of the whole galaxy struct, so a field the module must not write,
- * such as the instability state or a transport field, is compared too), and asserts the named
- * behaviour with literals or the observer (sage26_ffb_star_formation.h). Where a test targets a
- * misordering, it also shows that its input discriminates: the written-out transaction run with
- * that misordering (a "variant") gives a different end state.
+ * written out in this file (sage26_ffb_written_out, with compute_sn_feedback_ffb,
+ * update_from_star_formation, update_from_feedback, ionized_gas_fraction, get_metallicity,
+ * capped_eta_reheat and sn_energy_coupling), statement by statement with SAGE26's operand order.
+ * The written-out transaction never calls the package's code. A test runs the module's process()
+ * and compares the forming row and its FoF central with the written-out end state byte for byte
+ * (memcmp of the whole galaxy struct, so a field the module must not write, such as the
+ * instability state or a transport field, is compared too), and asserts the named behaviour with
+ * literals or the observer (sage26_ffb_star_formation.h). Where a test targets a misordering, it
+ * also shows that its input discriminates: the written-out transaction run with that misordering
+ * (a "variant") gives a different end state.
  *
  * Software quality:
  * - test_module_lifecycle: registration, module_system_init in a substep phase, cleanup, no leaks
- * - test_parameters_refused: each missing key (EnhancedStarFormationOn, EnhancedSFEfficiency),
- *   EnhancedStarFormationOn 2, EnhancedSFEfficiency negative, above 1 and NaN, and FIREmodeOn 0 at
- *   EnhancedStarFormationOn 1 are refused naming what they refuse; FIREmodeOn 0 is accepted at 0
+ * - test_parameters_refused: missing or out-of-range EnhancedStarFormationOn and
+ *   EnhancedSFEfficiency, and FIREmodeOn 0 at EnhancedStarFormationOn 1, are refused naming what
+ *   they refuse; FIREmodeOn 0 is accepted at 0
  * - test_placement_refused: pre_timestep, post_timestep, twice, and process_full_halo are refused
  *   naming the module; once by galaxy in a substep phase is accepted
- * - test_dispatch_guards: at EnhancedStarFormationOn 1, init refuses, naming the missing or
- *   misplaced module, without sage26_determine_ffb_regime in pre_timestep, and with the transaction
- *   not immediately before sage26_calculate_star_formation (absent, after it, separated from it, it
- *   as process_full_halo, or in another substep phase); the complete configuration initialises; at
- *   EnhancedStarFormationOn 0 every one of those configurations initialises
- * - test_chain_initialises: module_system_init over the run files' pre_timestep classifier and
- *   by-galaxy star-formation chain at EnhancedStarFormationOn 1 succeeds; without the transaction,
- *   without the classifier and with the transaction after sage26_calculate_star_formation it fails
- *   naming the module; at 0 each of those succeeds
+ * - test_dispatch_guards: at EnhancedStarFormationOn 1, init refuses, naming the module, a
+ *   configuration without sage26_determine_ffb_regime in pre_timestep or with the transaction not
+ *   immediately before sage26_calculate_star_formation; at 0 every such configuration initialises
+ * - test_chain_initialises: module_system_init over the run files' classifier and by-galaxy
+ *   star-formation chain succeeds at EnhancedStarFormationOn 1, fails naming the module when the
+ *   transaction or the classifier is missing or misordered, and succeeds at 0 in each case
  *
  * Behaviour (EnhancedStarFormationOn 1 unless stated):
- * - test_off_writes_nothing: EnhancedStarFormationOn 0 writes nothing on an FFBRegime 1 row
- * - test_non_ffb_row_not_written: an FFBRegime 0 row is not written
- * - test_initial_boundary_and_refusal: the initial-boundary state writes nothing and observes a
- * trace whose every value is its not-formed sentinel; an out-of-range stored SnapNum with dT > 0 is
- *   refused, naming it, with nothing written
+ * - test_off_writes_nothing, test_non_ffb_row_not_written: nothing is written at
+ *   EnhancedStarFormationOn 0 or on an FFBRegime 0 row
+ * - test_initial_boundary_and_refusal: the initial-boundary state writes nothing; an out-of-range
+ *   stored SnapNum with dT > 0 is refused, naming it
  * - test_stars_formed_and_renormalised: the committed stellar mass and the history sample use the
- *   stars formed, the yield the renormalised stars (they differ: the cap at ColdGas binds and the
- *   renormalisation binds)
- * - test_pre_commit_metallicity: the feedback uses the metallicity before the commit, on an input
- *   where the recomputed one changes the end state
- * - test_invalid_fire_scaling: Vvir 0 and, separately, z < 0 with Vvir > 0 leave a seeded
- *   MassLoading and give no reheating or ejection
- * - test_hydrogen: H2gas is zeroed and H1gas is the H I block's; H2DepletionTime_Gyr is not
- *   written; the prescription-1 caps bind
- * - test_guards_and_tdyn: the NaN/infinity guards (ColdGas, Vvir, DiskScaleRadius), tdyn 0 from a
- *   zero radius, a zero Vvir and a negative radius (observed tdyn +0)
- * - test_satellite_routing: a Type 1 row's reheated gas and metals go to its FoF central's pair by
- *   the CENTRAL's Regime (CGMrecipeOn 1 Regime 0 and 1; CGMrecipeOn 0), with metals that are not a
- *   fixed fraction of the gas moved; the row's own hot and CGM pairs untouched
+ *   stars formed, the yield the renormalised stars
+ * - test_pre_commit_metallicity: the feedback uses the metallicity before the commit
+ * - test_invalid_fire_scaling: Vvir 0 or z < 0 gives no reheating or ejection and leaves
+ *   MassLoading as it was
+ * - test_hydrogen: H2gas is zeroed and H1gas is the H I block's; the prescription-1 caps bind
+ * - test_guards_and_tdyn: the NaN/infinity guards and a zero dynamical time form no stars
+ * - test_satellite_routing: a Type 1 row's reheated gas and metals go to its FoF central's pair,
+ *   selected by the CENTRAL's Regime
  * - test_no_instability_no_transport: a seeded unstable disk and seeded transport fields are left
  *   as they were
- * - test_reheat_clamp_wiring: on an in-domain state where the clamp of S:1346 binds with positive
- *   cold gas (the inputs of the oracle fixture ffb_reheat_clamp_binds), the end state equals
- *   SAGE26's and the reheated mass passed to the feedback commit (the observer) is the written-out
- *   clamped value; the commit clamps the same argument again, so only this wiring assertion shows
- *   the earlier clamp ran
- * - test_reheat_clamp_negative_gas_probe: an out-of-domain probe (ColdGas -1, where SAGE26 aborts)
- *   asserting the wiring value alone
- * - test_sf_prescription_zero_probe: SFprescription 0 (the commits' caps off) matches SAGE26
- * - test_no_central: with no FoF central H2gas, H1gas and the history are written, nothing else;
- *   the observed budget and commit locals hold their not-formed sentinels
- * - test_chain_leaves_trigger: after the transaction, the rest of the by-galaxy chain in the run
- *   files' order (the five bypassed modules, sage26_quasar_mode and sage26_starburst_feedback by
- *   galaxy) leaves an FFB satellite whose disk is unstable by its masses and radii (SAGE26's
- *   criterion written out, R/src/model_disk_instability.c:54-57), and its central, bytewise as the
- *   transaction left them: UnstableDiskGasFraction keeps its reset value 0 and the quasar and burst
- *   entries write nothing. The same state with FFBRegime 0 sets a positive trigger, so
- *   the input discriminates.
+ * - test_reheat_clamp_wiring, test_reheat_clamp_negative_gas_probe: the reheated mass is clamped
+ *   to the remaining cold gas before the feedback commit
+ * - test_sf_prescription_zero_probe: SFprescription 0 (the commits' caps off)
+ * - test_no_central: with no FoF central only H2gas, H1gas and the history are written
+ * - test_chain_leaves_trigger: the rest of the by-galaxy chain leaves an FFB satellite with an
+ *   unstable disk, and its central, as the transaction left them
  *
  * Every test that initialises the module at EnhancedStarFormationOn 1 configures the complete
  * dispatch the cross-module guards require (sage26_determine_ffb_regime in pre_timestep, the
@@ -108,7 +82,7 @@ extern int sage26_ffb_star_formation_process(struct ModuleContext *ctx, struct H
                                              int ngal);
 extern int sage26_ffb_star_formation_cleanup(void);
 
-/* R6's values */
+/* The FFB configuration's values */
 #define TEST_HUBBLE_H 0.73
 #define TEST_RECYCLE 0.43
 #define TEST_EPSILON 2.9
@@ -201,7 +175,7 @@ struct test_params {
       *frac_z_leave;
 };
 
-static const struct test_params R6_PARAMS = {"1", "0.2", "1", "1", "1", "0.0"};
+static const struct test_params FFB_PARAMS = {"1", "0.2", "1", "1", "1", "0.0"};
 
 /**
  * @brief Configure the run, the parameters and the placement (`arrange`, or once by galaxy), and
@@ -287,7 +261,7 @@ static float *history(struct GalaxyData *g, const int which, const int bin) {
 #undef SAGE26_TEST_BINS
 }
 
-/** get_metallicity (R/src/model_misc.c), written out */
+/** SAGE26's get_metallicity, written out */
 static double metallicity_of(const double gas, const double metals) {
   double z = 0.0;
   if (gas > 0.0 && metals > 0.0) {
@@ -299,7 +273,7 @@ static double metallicity_of(const double gas, const double metals) {
   return z;
 }
 
-/** ionized_gas_fraction (S:135-152), written out */
+/** SAGE26's ionized_gas_fraction, written out */
 static double f_ion_of(const double cold, const double rs, const double h) {
   if (cold <= 0.0 || rs <= 0.0 || 0.5 <= 0.0 || h <= 0.0) {
     return 0.0;
@@ -321,7 +295,7 @@ static double f_ion_of(const double cold, const double rs, const double h) {
   return f;
 }
 
-/** The hydrogen cap of the commits (S:1131-1135, S:1169-1173), written out */
+/** The hydrogen cap of the commits, written out */
 static void cap_hydrogen(struct GalaxyData *g, const int sf_prescription) {
   if (sf_prescription != 0 && sf_prescription != 2) {
     const float max_h = (g->ColdGas > 0.0f) ? g->ColdGas * 0.74 : 0.0f;
@@ -352,7 +326,7 @@ struct tx {
   int bin, sf_prescription, cgm_recipe_on;
 };
 
-/** compute_sn_feedback_ffb (S:905-967), written out; returns the reheated and ejected masses */
+/** SAGE26's compute_sn_feedback_ffb, written out; returns the reheated and ejected masses */
 static void budget(const struct tx *in, const float cold_gas, double *stars, double *reheated,
                    double *ejected, float *mass_loading) {
   *reheated = 0.0;
@@ -393,35 +367,37 @@ static void budget(const struct tx *in, const float cold_gas, double *stars, dou
 }
 
 /** The written-out transaction's reheated mass passed to update_from_feedback, and whether the
- *  clamp of S:1346 bound, from its last call */
+ *  reheated-mass clamp bound, from its last call */
 static double written_out_reheated_commit;
 static int written_out_clamp_binds;
 
 /**
- * @brief SAGE26's starformation_ffb (S:1270-1362) on g with its FoF central c (c may be g), plus
+ * @brief SAGE26's starformation_ffb on g with its FoF central c (c may be g), plus
  *        the package's StarFormationRate diagnostic, run with the given variant
+ *
+ * SAGE parity: SAGE26's multiply-adds are written with fma(), as SAGE26 computes them.
  */
 static void sage26_ffb_written_out(struct GalaxyData *g, struct GalaxyData *c, const struct tx *in,
                                    const int variant) {
-  const double reff = TEST_SF_DISK_FACTOR * g->DiskScaleRadius;               /* S:1273 */
-  const double tdyn = (reff > 0.0 && in->vvir > 0.0) ? reff / in->vvir : 0.0; /* S:1274 */
-  g->H2gas = 0.0;                                                             /* S:1280 */
+  const double reff = TEST_SF_DISK_FACTOR * g->DiskScaleRadius;
+  const double tdyn = (reff > 0.0 && in->vvir > 0.0) ? reff / in->vvir : 0.0;
+  g->H2gas = 0.0;
   {
-    double atomicH = (double)g->ColdGas * 0.74; /* S:1285, the object's plain multiply (H2 +0) */
+    double atomicH = (double)g->ColdGas * 0.74;
     if (atomicH < 0.0) {
       atomicH = 0.0;
     }
     const double f_ion = f_ion_of(g->ColdGas, 1.0 * g->DiskScaleRadius, TEST_HUBBLE_H);
     atomicH *= (1.0 - f_ion);
-    g->H1gas = atomicH; /* S:1291 */
+    g->H1gas = atomicH;
   }
-  const double gas_for_sf = g->ColdGas; /* S:1297 */
+  const double gas_for_sf = g->ColdGas;
   double stars;
   if (isnan(g->ColdGas) || isinf(g->ColdGas) || isnan(in->vvir) || isinf(in->vvir) || isnan(reff) ||
       isinf(reff) || isnan(tdyn) || isinf(tdyn)) {
     stars = 0.0;
   } else if (tdyn > 0.0 && gas_for_sf > 0.0) {
-    const double strdot = in->efficiency * gas_for_sf / tdyn; /* S:1309 */
+    const double strdot = in->efficiency * gas_for_sf / tdyn;
     if (isnan(strdot) || isinf(strdot) || strdot < 0.0) {
       stars = 0.0;
     } else {
@@ -450,14 +426,14 @@ static void sage26_ffb_written_out(struct GalaxyData *g, struct GalaxyData *c, c
     budget(in, cold_after, &s, &r, &e, &ml);
     *history(g, 0, in->bin) += s / in->dt;
   } else {
-    *history(g, 0, in->bin) += commit_stars / in->dt; /* S:1325 */
+    *history(g, 0, in->bin) += commit_stars / in->dt;
   }
-  *history(g, 1, in->bin) = g->ColdGas;       /* S:1326 */
-  *history(g, 2, in->bin) = g->MetalsColdGas; /* S:1327 */
+  *history(g, 1, in->bin) = g->ColdGas;
+  *history(g, 2, in->bin) = g->MetalsColdGas;
 
-  double metallicity = metallicity_of(g->ColdGas, g->MetalsColdGas); /* S:1329 */
+  double metallicity = metallicity_of(g->ColdGas, g->MetalsColdGas);
   {
-    /* update_from_star_formation (S:1121-1135), its four updates fused as the object has them */
+    /* update_from_star_formation */
     const double locked = 1 - TEST_RECYCLE;
     const double metals_fraction = metallicity * locked;
     g->ColdGas = (float)fma(-locked, commit_stars, (double)g->ColdGas);
@@ -469,30 +445,30 @@ static void sage26_ffb_written_out(struct GalaxyData *g, struct GalaxyData *c, c
   g->StarFormationRate += commit_stars / in->dT; /* the package's diagnostic */
 
   if (!(variant & VAR_RENORM_BEFORE_COMMIT)) {
-    budget(in, g->ColdGas, &fb_stars, &reheated, &ejected, &g->MassLoading); /* S:1344 */
+    budget(in, g->ColdGas, &fb_stars, &reheated, &ejected, &g->MassLoading);
   }
   if (variant & VAR_RECOMPUTE_Z) {
     metallicity = metallicity_of(g->ColdGas, g->MetalsColdGas);
   }
   written_out_clamp_binds = reheated > g->ColdGas;
   if (reheated > g->ColdGas) {
-    reheated = g->ColdGas; /* S:1346 */
+    reheated = g->ColdGas;
   }
   written_out_reheated_commit = reheated;
 
-  /* update_from_feedback (S:1150-1249) */
+  /* update_from_feedback */
   struct GalaxyData *dest = (variant & VAR_FEEDBACK_TO_ROW) ? g : c;
   if (reheated > g->ColdGas) {
     reheated = g->ColdGas;
   }
   g->ColdGas -= reheated;
-  g->MetalsColdGas = (float)fma(-metallicity, reheated, (double)g->MetalsColdGas); /* S:1168 */
+  g->MetalsColdGas = (float)fma(-metallicity, reheated, (double)g->MetalsColdGas);
   cap_hydrogen(g, in->sf_prescription);
-  const int to_cgm = in->cgm_recipe_on == 1 && dest->Regime == 0; /* S:1175-1176 */
+  const int to_cgm = in->cgm_recipe_on == 1 && dest->Regime == 0;
   float *gas = to_cgm ? &dest->CGMgas : &dest->HotGas;
   float *metals = to_cgm ? &dest->MetalsCGMgas : &dest->MetalsHotGas;
   *gas += reheated;
-  *metals = (float)fma(metallicity, reheated, (double)*metals); /* S:1181, :1205, :1229 */
+  *metals = (float)fma(metallicity, reheated, (double)*metals);
   if (ejected > *gas) {
     ejected = *gas;
   }
@@ -505,9 +481,9 @@ static void sage26_ffb_written_out(struct GalaxyData *g, struct GalaxyData *c, c
   *metals -= metals_to_eject;
   dest->EjectedGas += ejected;
   dest->MetalsEjectedGas += metals_to_eject;
-  g->SupernovaOutflowRate += reheated; /* S:1249 */
+  g->SupernovaOutflowRate += reheated;
 
-  /* the yield (S:1353-1362) */
+  /* the yield */
   const double ystars = (variant & VAR_YIELD_FORMED) ? stars : fb_stars;
   const int yield_cgm = in->cgm_recipe_on == 1 && c->Regime == 0;
   if (g->ColdGas > 1.0e-8) {
@@ -740,7 +716,7 @@ int test_parameters_refused(void) {
               "FIREmodeOn 0 is accepted at EnhancedStarFormationOn 0");
   const struct test_params bounds = {"1", "1.0", "1", "1", "1", "0.0"};
   TEST_ASSERT(init_with(&bounds) == 0, "EnhancedSFEfficiency 1.0 is accepted");
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "R6's configuration initialises");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "the FFB configuration initialises");
   return TEST_PASS;
 }
 
@@ -769,12 +745,12 @@ int test_placement_refused(void) {
   const char *labels[4] = {"pre_timestep", "post_timestep", "twice", "process_full_halo"};
   for (int k = 0; k < 4; k++) {
     const char *log = "";
-    const int status = init_captured(&R6_PARAMS, arrangements[k], &log);
+    const int status = init_captured(&FFB_PARAMS, arrangements[k], &log);
     printf("\n  placement %s: init %d", labels[k], status);
     TEST_ASSERT(status != 0, "a misplacement must be refused");
     TEST_ASSERT(strstr(log, module_name) != NULL, "the error must name the module");
   }
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "once by galaxy in a substep phase is accepted");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "once by galaxy in a substep phase is accepted");
   return TEST_PASS;
 }
 
@@ -826,7 +802,7 @@ int test_dispatch_guards(void) {
   const struct test_params off = {"0", "0.2", "1", "1", "1", "0.0"};
   for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
     const char *log = "";
-    int status = init_captured(&R6_PARAMS, refused[k].arrange, &log);
+    int status = init_captured(&FFB_PARAMS, refused[k].arrange, &log);
     printf("\n  %s (EnhancedStarFormationOn 1): init %d", refused[k].label, status);
     TEST_ASSERT(status != 0, "init must refuse the incomplete dispatch");
     TEST_ASSERT(strstr(log, refused[k].named) != NULL,
@@ -837,7 +813,7 @@ int test_dispatch_guards(void) {
     TEST_ASSERT(status == 0, "at EnhancedStarFormationOn 0 no cross-module guard applies");
   }
   const char *log = "";
-  TEST_ASSERT(init_captured(&R6_PARAMS, NULL, &log) == 0,
+  TEST_ASSERT(init_captured(&FFB_PARAMS, NULL, &log) == 0,
               "the complete dispatch initialises at EnhancedStarFormationOn 1");
   return TEST_PASS;
 }
@@ -965,7 +941,7 @@ int test_off_writes_nothing(void) {
 }
 
 int test_non_ffb_row_not_written(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   struct Halo row;
   struct GalaxyData gal;
   make_row(&row, &gal, 0, 80.0);
@@ -973,12 +949,12 @@ int test_non_ffb_row_not_written(void) {
   const struct GalaxyData before = gal;
   TEST_ASSERT(run(&row, &row) == 0, "process succeeds");
   TEST_ASSERT(galaxies_equal(&gal, &before) && observed_count == 0,
-              "an FFBRegime 0 row is not written (S:1004)");
+              "an FFBRegime 0 row is not written");
   return TEST_PASS;
 }
 
 int test_initial_boundary_and_refusal(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   struct Halo row;
   struct GalaxyData gal;
   make_row(&row, &gal, 0, 80.0);
@@ -987,7 +963,7 @@ int test_initial_boundary_and_refusal(void) {
   struct GalaxyData before = gal;
   TEST_ASSERT(run(&row, &row) == 0, "the initial-boundary state returns 0");
   TEST_ASSERT(galaxies_equal(&gal, &before) && observed.path == SAGE26_FFB_PATH_INITIAL_BOUNDARY,
-              "the initial-boundary state writes nothing (D37)");
+              "the initial-boundary state writes nothing");
   TEST_ASSERT(unformed_budget_and_commit(&observed) && nan_f64(observed.dt) &&
                   nan_f64(observed.stars_formed),
               "the observed trace holds the not-formed sentinels (NAN, -1)");
@@ -1004,14 +980,14 @@ int test_initial_boundary_and_refusal(void) {
     log = read_captured_log(capture);
     fclose(capture);
   }
-  TEST_ASSERT(status != 0, "an out-of-range stored SnapNum with dT > 0 is refused (D35)");
+  TEST_ASSERT(status != 0, "an out-of-range stored SnapNum with dT > 0 is refused");
   TEST_ASSERT(strstr(log, "SnapNum = 64") != NULL, "the refusal names the SnapNum");
   TEST_ASSERT(galaxies_equal(&gal, &before), "nothing is written before the refusal");
   return TEST_PASS;
 }
 
 int test_stars_formed_and_renormalised(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   struct Halo row;
   struct GalaxyData gal, expected;
   /* Vvir 2 km/s (a large loading) and a short tdyn = 3 * 0.004 / 2 = 0.006: strdot * dt =
@@ -1021,14 +997,14 @@ int test_stars_formed_and_renormalised(void) {
   TEST_ASSERT(central_matches(&row, 1, 1, 0.0, &expected),
               "the end state equals SAGE26's written-out starformation_ffb byte for byte");
   TEST_ASSERT(observed.stars_cap_binds == 1 && same_f64(observed.stars_formed, 1.0),
-              "the stars are capped at ColdGas = 1 (S:1315)");
+              "the stars are capped at ColdGas = 1");
   TEST_ASSERT(same_f32(gal.StellarMass, (float)((double)2.5f + (1 - TEST_RECYCLE))),
-              "the committed stellar mass gains (1 - R) * the stars formed (1) (S:1330)");
+              "the committed stellar mass gains (1 - R) * the stars formed (1)");
   TEST_ASSERT(same_f32(*history(&gal, 0, TEST_BIN), (float)(0.125 + 1.0 / 0.125)),
-              "the history samples the stars formed over dt: SfrDisk += 1 / 0.125 (S:1325)");
+              "the history samples the stars formed over dt: SfrDisk += 1 / 0.125");
   TEST_ASSERT(same_f32(*history(&gal, 1, TEST_BIN), 1.0f) &&
                   same_f32(*history(&gal, 2, TEST_BIN), 0.0234567f),
-              "the history samples the cold gas before any commit (S:1326-1327)");
+              "the history samples the cold gas before any commit");
   TEST_ASSERT(observed.feedback.renorm_binds == 1 && observed.yield_stars < 1.0 &&
                   same_f64(observed.yield_stars, observed.feedback.stars_out),
               "the budget renormalises the stars, and the yield receives the renormalised stars");
@@ -1043,7 +1019,7 @@ int test_stars_formed_and_renormalised(void) {
 }
 
 int test_pre_commit_metallicity(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   /* Search the cold metals for an input whose recomputed metallicity changes the end state */
   struct Halo row;
   struct GalaxyData gal, expected;
@@ -1059,14 +1035,14 @@ int test_pre_commit_metallicity(void) {
   }
   TEST_ASSERT(found, "an input where the recomputed metallicity changes the end state exists");
   TEST_ASSERT(central_matches(&row, 1, 1, 0.0, &expected),
-              "the end state equals SAGE26's, with the pre-commit metallicity (S:1329, S:1348)");
+              "the end state equals SAGE26's, with the pre-commit metallicity");
   TEST_ASSERT(observed.commit.reheated_mass_clamped > 0.0,
               "the feedback commit moves gas with that metallicity");
   return TEST_PASS;
 }
 
 int test_invalid_fire_scaling(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   for (int k = 0; k < 2; k++) {
     struct Halo row;
     struct GalaxyData gal, expected;
@@ -1080,7 +1056,7 @@ int test_invalid_fire_scaling(void) {
     TEST_ASSERT(central_matches(&row, 1, 1, 0.0, &expected),
                 "the end state equals SAGE26's written-out transaction");
     TEST_ASSERT(same_f32(gal.MassLoading, SEEDED_MASS_LOADING),
-                "SAGE parity: an invalid FIRE scaling leaves MassLoading stale (S:929-934)");
+                "SAGE parity: an invalid FIRE scaling leaves MassLoading stale");
     TEST_ASSERT(same_f64(observed.reheated_to_commit, 0.0) &&
                     same_f64(observed.ejected_to_commit, 0.0),
                 "no reheating and no ejection");
@@ -1093,14 +1069,14 @@ int test_invalid_fire_scaling(void) {
 }
 
 int test_hydrogen(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   struct Halo row;
   struct GalaxyData gal, expected;
   make_row(&row, &gal, 0, 80.0);
   gal.H1gas = 9.0f;
   TEST_ASSERT(central_matches(&row, 1, 1, 0.0, &expected),
               "the end state equals SAGE26's written-out transaction");
-  TEST_ASSERT(same_f32(gal.H2gas, 0.0f) && !signbit(gal.H2gas), "H2gas is zeroed (S:1280)");
+  TEST_ASSERT(same_f32(gal.H2gas, 0.0f) && !signbit(gal.H2gas), "H2gas is zeroed");
   TEST_ASSERT(same_f32(gal.H2DepletionTime_Gyr, 1.5f), "H2DepletionTime_Gyr is not written");
   /* The H I block from the input cold gas, before the commits' caps */
   const double f_ion = f_ion_of(1.0f, 0.004f, TEST_HUBBLE_H);
@@ -1109,15 +1085,15 @@ int test_hydrogen(void) {
   TEST_ASSERT(same_f32(gal.H1gas, h1_block < max_h ? h1_block : max_h),
               "H1gas is the H I block's, capped at the hydrogen of the remaining cold gas");
   TEST_ASSERT(observed.sf_caps.tracks_h2 == 1 && observed.sf_caps.h1_cap_binds == 1,
-              "the prescription-1 cap binds on H1gas after the commit (S:1131-1135)");
+              "the prescription-1 cap binds on H1gas after the commit");
   return TEST_PASS;
 }
 
 int test_guards_and_tdyn(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   struct Halo row;
   struct GalaxyData gal, expected;
-  /* NaN ColdGas, infinite Vvir, NaN radius: stars 0 (S:1303-1306) */
+  /* NaN ColdGas, infinite Vvir, NaN radius: stars 0 */
   for (int k = 0; k < 3; k++) {
     make_row(&row, &gal, 0, 80.0);
     if (k == 0) {
@@ -1132,7 +1108,7 @@ int test_guards_and_tdyn(void) {
     TEST_ASSERT(observed.nonfinite_guard == 1 && same_f64(observed.stars_formed, 0.0),
                 "the NaN/infinity guard forms no stars");
   }
-  /* tdyn 0 from a zero radius, a zero Vvir and a negative radius (reff > 0.0 false, S:1274) */
+  /* tdyn 0 from a zero radius, a zero Vvir and a negative radius (reff > 0.0 false) */
   const float radii[3] = {0.0f, 0.004f, -0.5f};
   const double velocities[3] = {80.0, 0.0, 80.0};
   for (int k = 0; k < 3; k++) {
@@ -1154,7 +1130,7 @@ int test_satellite_routing(void) {
     int to_cgm;
   } runs[3] = {{"1", 0, 1}, {"1", 1, 0}, {"0", 0, 0}};
   for (int k = 0; k < 3; k++) {
-    struct test_params p = R6_PARAMS;
+    struct test_params p = FFB_PARAMS;
     p.cgm_recipe_on = runs[k].cgm;
     TEST_ASSERT(init_with(&p) == 0, "init");
     struct Halo row, central;
@@ -1199,12 +1175,12 @@ int test_satellite_routing(void) {
 }
 
 int test_no_instability_no_transport(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   struct Halo row;
   struct GalaxyData gal, expected;
   /* An unstable disk by its masses and radius: the Mo, Mao & White (1998) critical mass
    * Vmax^2 * 3 * DiskScaleRadius / G = 900 * 0.012 / 43.0071, about 0.25, against a disk of
-   * ColdGas 1 + StellarMass 2.5 - BulgeMass 0.75 = 2.75 (R/src/model_disk_instability.c:54-58) */
+   * ColdGas 1 + StellarMass 2.5 - BulgeMass 0.75 = 2.75 */
   TEST_ASSERT(900.0 * (3.0 * (double)0.004f) / 43.0071 < 1.0 + (2.5 - 0.75),
               "the seeded disk is unstable");
   make_row(&row, &gal, 0, 80.0);
@@ -1216,7 +1192,7 @@ int test_no_instability_no_transport(void) {
                   same_f32(gal.MergerBulgeRadius, 0.001f) &&
                   same_f32(gal.InstabilityBulgeRadius, 0.003f) &&
                   same_f64(gal.UnstableDiskGasFraction, 0.0),
-              "no instability field is written (S:1365-1367)");
+              "no instability field is written");
   TEST_ASSERT(same_f64(gal.NewStellarMass, 7.0) && same_f64(gal.SupernovaReheatedMass, 8.0) &&
                   same_f64(gal.SupernovaEjectedMass, 9.0),
               "no transport field is written");
@@ -1238,11 +1214,11 @@ static double f64_bits(const uint64_t bits) {
 }
 
 int test_reheat_clamp_wiring(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
-  /* An in-domain state where the clamp of S:1346 binds with positive cold gas: the inputs of the
-   * oracle fixture ffb_reheat_clamp_binds, as literals. A satellite with its own Vvir 1e-10 at a
-   * constructed stored-snapshot redshift 1e8 has a loading near 1e16, so the renormalised
-   * reheated mass (S:943-947) rounds above the cold gas the star-formation commit left */
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
+  /* An in-domain state where the reheated-mass clamp binds with positive cold gas. A satellite
+   * with its own Vvir 1e-10 at a constructed stored-snapshot redshift 1e8 has a loading near
+   * 1e16, so the renormalised reheated mass rounds above the cold gas the star-formation commit
+   * left */
   struct Halo row, central;
   struct GalaxyData gal, cgal;
   make_row(&central, &cgal, 0, 0.0);
@@ -1279,7 +1255,7 @@ int test_reheat_clamp_wiring(void) {
   in.bin = 3;
   sage26_ffb_written_out(&exp_row, &exp_central, &in, VAR_NONE);
   TEST_ASSERT(written_out_clamp_binds == 1 && written_out_reheated_commit > 0.0,
-              "the input binds the clamp of S:1346 with positive cold gas (in SAGE26's domain)");
+              "the input binds the reheated-mass clamp with positive cold gas");
 
   const int status = run_at(&row, &central, 10, 3);
   MimicConfig.ZZ[16] = (63 - 16) / 10.0;
@@ -1288,19 +1264,18 @@ int test_reheat_clamp_wiring(void) {
               "row and central equal SAGE26's written-out transaction byte for byte");
   TEST_ASSERT(observed.reheat_clamp_binds == 1 &&
                   observed.reheated_from_budget > observed.reheated_to_commit,
-              "the clamp of S:1346 binds and lowers the budget's reheated mass");
+              "the clamp binds and lowers the budget's reheated mass");
   TEST_ASSERT(same_f64(observed.reheated_to_commit, written_out_reheated_commit),
-              "wiring: the reheated mass passed to the feedback commit is the remaining ColdGas "
-              "(S:1346)");
+              "wiring: the reheated mass passed to the feedback commit is the remaining "
+              "ColdGas");
   return TEST_PASS;
 }
 
 int test_reheat_clamp_negative_gas_probe(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
-  /* OUT OF SAGE26's DOMAIN, a labelled probe of the wiring only: with ColdGas -1 no stars form, the
-   * budget's reheated mass 0 exceeds the cold gas, and the clamp of S:1346 passes -1 to the
-   * commit, on which SAGE26's update_from_feedback aborts (S:1158-1160). No end state is asserted
-   */
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
+  /* OUT OF SAGE26's DOMAIN, a probe of the wiring only: with ColdGas -1 no stars form, the
+   * budget's reheated mass 0 exceeds the cold gas, and the clamp passes -1 to the commit, on
+   * which SAGE26's update_from_feedback aborts. No end state is asserted */
   struct Halo row;
   struct GalaxyData gal;
   make_row(&row, &gal, 0, 80.0);
@@ -1312,7 +1287,7 @@ int test_reheat_clamp_negative_gas_probe(void) {
 }
 
 int test_sf_prescription_zero_probe(void) {
-  struct test_params p = R6_PARAMS;
+  struct test_params p = FFB_PARAMS;
   p.sf_prescription = "0";
   TEST_ASSERT(init_with(&p) == 0, "init with SFprescription 0");
   struct Halo row;
@@ -1326,7 +1301,7 @@ int test_sf_prescription_zero_probe(void) {
 }
 
 int test_no_central(void) {
-  TEST_ASSERT(init_with(&R6_PARAMS) == 0, "init at R6");
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   struct Halo row;
   struct GalaxyData gal;
   make_row(&row, &gal, 0, 80.0);
@@ -1361,7 +1336,7 @@ extern int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct H
 extern int sage26_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo *halos,
                                                  int ngal);
 
-/** SAGE26's check_disk_instability criterion (R/src/model_disk_instability.c:54-57) */
+/** SAGE26's check_disk_instability criterion */
 static int disk_unstable(const struct GalaxyData *g, const float vmax) {
   const double diskmass = g->ColdGas + (g->StellarMass - g->BulgeMass);
   const double Mcrit = vmax * vmax * (3.0 * g->DiskScaleRadius) / MimicConfig.G;
@@ -1375,8 +1350,7 @@ static int disk_unstable(const struct GalaxyData *g, const float vmax) {
  *          burst entries write nothing
  *
  * SAGE26's FFB dispatch returns from starformation_and_feedback after starformation_ffb, which
- * runs no instability check (R/src/model_starformation_and_feedback.c:1004-1008, :1365-1367), so
- * neither grow_black_hole nor the instability burst runs (R/src/model_disk_instability.c:90-108).
+ * runs no instability check, so neither grow_black_hole nor the instability burst runs.
  * The modules are initialised by module_system_init over the run files' configuration at
  * EnhancedStarFormationOn 1, then each process() runs on the FFB satellite in the run files'
  * order. The trigger starts at its per-snapshot reset value 0 (init_repeat); a positively seeded

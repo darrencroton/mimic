@@ -2,9 +2,8 @@
  * @file    sage26_determine_regime.h
  * @brief   The CGM regime classifier's per-row record and its test seam
  *
- * sage26_determine_regime ports SAGE26's determine_and_store_regime (R = the staged SAGE26
- * source, R/src/model_regimes.c:63-100). This header declares what its tests need beyond the
- * module's lifecycle entries:
+ * sage26_determine_regime implements SAGE26's determine_and_store_regime. This header declares
+ * what its tests need beyond the module's lifecycle entries:
  *
  * - struct Sage26RegimeRowTrace, the classifier's values for one row: SAGE26's locals Mshock,
  *   mass_ratio, x and hot_fraction, the deviate it compared, whether it requested one, and the
@@ -24,7 +23,7 @@
 #ifndef SAGE26_DETERMINE_REGIME_H
 #define SAGE26_DETERMINE_REGIME_H
 
-/** SAGE26's sigmoid width in dex, the double local delta_log_M (R/src/model_regimes.c:82) */
+/** SAGE26's sigmoid width in dex, the double local delta_log_M */
 #define SAGE26_REGIME_DELTA_LOG_M 0.1
 
 /** The classifier's values for one row (each double as SAGE26 forms it) */
@@ -32,13 +31,13 @@ struct Sage26RegimeRowTrace {
   int row;                    /**< Index of the row in the FoF workspace */
   long long unique_galaxy_id; /**< The row's UniqueGalaxyID (the draw's key) */
   int snapshot;               /**< ctx->snapshot_number (the draw's key) */
-  double mshock;       /**< MShockMsun * Hubble_h / 1.0e10, in 1e10 Msun/h (R/src/macros.h:47) */
-  double mass_ratio;   /**< (double)(float)Mvir / Mshock (R/src/model_regimes.c:74) */
-  double x;            /**< log10(mass_ratio) / delta_log_M (:85); NaN on the no-draw branch */
-  double hot_fraction; /**< 1.0 / (1.0 + exp(-x)) (:89); NaN on the no-draw branch */
-  double deviate;      /**< The deviate compared with hot_fraction (:94-95); NaN without one */
-  int drew;            /**< 1 when the row requested a deviate (mass_ratio not <= 0.0) */
-  int regime;          /**< The Regime written: 0 CGM, 1 hot (:77-98) */
+  double mshock;              /**< MShockMsun * Hubble_h / 1.0e10, in 1e10 Msun/h */
+  double mass_ratio;          /**< (double)(float)Mvir / Mshock */
+  double x;                   /**< log10(mass_ratio) / delta_log_M; NaN on the no-draw branch */
+  double hot_fraction;        /**< 1.0 / (1.0 + exp(-x)); NaN on the no-draw branch */
+  double deviate;             /**< The deviate compared with hot_fraction; NaN without one */
+  int drew;                   /**< 1 when the row requested a deviate (mass_ratio not <= 0.0) */
+  int regime;                 /**< The Regime written: 0 CGM, 1 hot */
 };
 
 /**

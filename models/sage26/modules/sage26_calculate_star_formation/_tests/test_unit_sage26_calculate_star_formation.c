@@ -108,7 +108,7 @@ static void setup_test_galaxy(struct Halo *halo, struct GalaxyData *gal, double 
  *
  * @param   efficiency      Star formation efficiency
  * @param   disk_factor     Star forming disk factor
- * @param   sf_prescription SFprescription: 0 (R1, the Croton law) or 1 (R2, BR06)
+ * @param   sf_prescription SFprescription: 0 (the Croton law) or 1 (BR06)
  */
 static void setup_test_parameters_for_prescription(double efficiency, double disk_factor,
                                                    int sf_prescription) {
@@ -128,7 +128,7 @@ static void setup_test_parameters_for_prescription(double efficiency, double dis
     snprintf(value, sizeof(value), "%d", sf_prescription);
     sage26_test_append_model_parameter("SFprescription", value);
   }
-  /* The module's required SFprescription and H2 integration parameters, at R1's values */
+  /* The module's required SFprescription and H2 integration parameters */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
 
   /* The SF dependency check requires sage26_apply_star_formation_supernova to be
@@ -145,7 +145,7 @@ static void setup_test_parameters_for_prescription(double efficiency, double dis
 }
 
 /**
- * @brief   Setup test parameters at SFprescription 0 (R1, the Croton law)
+ * @brief   Setup test parameters at SFprescription 0 (the Croton law)
  *
  * @param   efficiency  Star formation efficiency
  * @param   disk_factor Star forming disk factor
@@ -467,20 +467,18 @@ int test_sf_parameter_sensitivity(void) {
 // SFPRESCRIPTION 1 (BR06) TESTS
 // ============================================================================
 //
-// Platform-independent invariants of SAGE26's sfr_br06 (R/src/model_starformation_and_feedback.c
-// :193-252, R = the staged SAGE26 source) as the module ports it. They carry no oracle fixture and
-// no reference-build bit pattern, so they run wherever the unit tier runs; the bit-for-bit parity
-// with SAGE26 is the oracle test's (test_unit_sage26_calculate_star_formation_oracle.c).
+// Invariants of SAGE26's sfr_br06 as the module implements it: the guards, the H2 cap and the
+// star-formation law.
 
 /* Hubble_h of the BR06 tests (Millennium's), read through ctx->params */
 #define BR06_TEST_HUBBLE_H 0.73
 
 /* The H2DepletionTime_Gyr every BR06 test galaxy starts with: sfr_br06 must leave it as it is,
- * because it passes no SFR-output pointer to the radial integration (:222) */
+ * because it passes no SFR-output pointer to the radial integration */
 #define BR06_TEST_DEPLETION_TIME (-1.0f)
 
 /**
- * @brief   Initialise the module at SFprescription 1, R2's BR06 law with radial integration
+ * @brief   Initialise the module at SFprescription 1, the BR06 law with radial integration
  *
  * @param   efficiency  Star formation efficiency
  * @return  The module's init result
@@ -515,7 +513,7 @@ static void setup_br06_galaxy(struct Halo *halo, struct GalaxyData *gal, double 
 
 /**
  * @test    test_br06_vvir_nonpositive
- * @brief   A non-positive own Vvir sets H2gas to 0 and forms no stars (:208-210)
+ * @brief   A non-positive own Vvir sets H2gas to 0 and forms no stars
  */
 int test_br06_vvir_nonpositive(void) {
   static const double vvirs[] = {0.0, -50.0};
@@ -544,7 +542,6 @@ int test_br06_vvir_nonpositive(void) {
 /**
  * @test    test_br06_disk_radius_nonpositive
  * @brief   A non-positive disk scale radius (rs_pc <= 0) sets H2gas to 0 and forms no stars
- *          (:216-218)
  */
 int test_br06_disk_radius_nonpositive(void) {
   static const double radii[] = {0.0, -0.003};
@@ -572,9 +569,8 @@ int test_br06_disk_radius_nonpositive(void) {
 
 /**
  * @test    test_br06_coldgas_zero_clears_stale_h2
- * @brief   With no cold gas the radial integration returns early without writing H2gas
- *          (R/src/model_h2_chemistry.c:141-143); the ColdGas * 0.74 cap then clears the stale
- *          value (:239-242), and no stars form
+ * @brief   With no cold gas the radial integration returns early without writing H2gas; the
+ *          ColdGas * 0.74 cap then clears the stale value, and no stars form
  */
 int test_br06_coldgas_zero_clears_stale_h2(void) {
   TEST_ASSERT(init_br06_module(0.02) == 0, "Module init at SFprescription 1 should succeed");
@@ -600,7 +596,7 @@ int test_br06_coldgas_zero_clears_stale_h2(void) {
 /**
  * @test    test_br06_h2_within_hydrogen_and_sf_law
  * @brief   After process() H2gas is positive and at most the double ColdGas * 0.74, stars follow
- *          strdot = SfrEfficiency * H2gas / tdyn (:244-248), and H2DepletionTime_Gyr is unchanged
+ *          strdot = SfrEfficiency * H2gas / tdyn, and H2DepletionTime_Gyr is unchanged
  *
  * The expected stellar mass repeats the module's double operations in SAGE26's order (products
  * and quotients only, which no compiler contracts), so the comparison is exact.
@@ -778,12 +774,12 @@ int test_memory_safety(void) {
  * @brief   An FFBRegime 1 row is not processed; the same row with FFBRegime 0 is
  *
  * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb and returns
- * before its ordinary chain (R/src/model_starformation_and_feedback.c:1004-1008). The row is a
+ * before its ordinary chain. The row is a
  * satellite with its own FoF central; with FFBRegime 1 both galaxy structs are compared byte for
  * byte with their inputs, in a valid interval and in one the time guard refuses (dT 0 with a
  * stored snapshot, which errors on an ordinary row), so the bypass precedes the guard. With
- * FFBRegime 0 the row forms SAGE26's sfr_croton06 stars (R/src/model_starformation_and_feedback.c
- * :160-184, :1048-1051), written here with SAGE26's operand order, never by calling the module.
+ * FFBRegime 0 the row forms SAGE26's sfr_croton06 stars, computed here independently of the
+ * module.
  */
 int test_ffb_row_bypassed(void) {
   init_memory_system(0);
@@ -829,17 +825,17 @@ int test_ffb_row_bypassed(void) {
               "the time guard refuses that interval on an ordinary row");
   row.dT = 0.01;
 
-  /* The same row with FFBRegime 0: SAGE26's sfr_croton06 (:168-178) and stars = strdot * dt */
+  /* The same row with FFBRegime 0: SAGE26's sfr_croton06 and stars = strdot * dt */
   memcpy(&gal, &row_in, sizeof(gal));
   gal.FFBRegime = 0;
   TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &row, 1) == 0,
               "process succeeds on an ordinary row");
   const float vvir = 200.0f;
-  const double reff = 3.0 * (double)row_in.DiskScaleRadius;               /* :168 */
-  const double tdyn = reff / vvir;                                        /* :173 */
-  const double cold_crit = 0.19 * vvir * reff;                            /* :176 */
-  const double strdot = efficiency * (row_in.ColdGas - cold_crit) / tdyn; /* :178 */
-  const double expected_stars = strdot * 0.01;                            /* :1048 */
+  const double reff = 3.0 * (double)row_in.DiskScaleRadius;
+  const double tdyn = reff / vvir;
+  const double cold_crit = 0.19 * vvir * reff;
+  const double strdot = efficiency * (row_in.ColdGas - cold_crit) / tdyn;
+  const double expected_stars = strdot * 0.01;
   printf("\n  FFBRegime 0: NewStellarMass %.17g, expected %.17g", gal.NewStellarMass,
          expected_stars);
   TEST_ASSERT(fabs(gal.NewStellarMass - expected_stars) <= 1e-12 * expected_stars,

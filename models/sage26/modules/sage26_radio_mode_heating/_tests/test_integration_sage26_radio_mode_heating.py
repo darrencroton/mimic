@@ -78,7 +78,7 @@ def test_module_pipeline_integration():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
-            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget, R3's value
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (the CGM recipe off)
         },
     )
 
@@ -169,7 +169,7 @@ def test_agn_physics_correctness():
         model_params={
             "RadioModeEfficiency": 0.08,
             "AGNrecipe": 2,
-            # The gas supply, the star-formation chain and the black-hole seeding, at R1's values
+            # The gas supply, the star-formation chain (SFprescription 0) and the black-hole seeding
             "GlobalBaryonFraction": 0.17,
             "BulgeSizeOn": 0,
             "SFprescription": 0,
@@ -188,7 +188,7 @@ def test_agn_physics_correctness():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
-            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget, R3's value
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (the CGM recipe off)
         },
     )
 
@@ -260,7 +260,7 @@ GAS_PHASES = {
 
 
 def run_gas_pipeline(output_name, radio_mode_efficiency, agn_recipe):
-    """Run GAS_PHASES at R1's values with the two radio-mode parameters; return the z = 0 halos."""
+    """Run GAS_PHASES with the two radio-mode parameters (SFprescription 0); return z = 0 halos."""
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name=output_name,
         phase_config=GAS_PHASES,
@@ -302,7 +302,7 @@ def test_parameter_sensitivity():
     - RadioModeEfficiency is read and acts: both efficiencies heat some rows and give different
       heating and black-hole masses. No direction is asserted: the radio mode's feedback on the
       cooling that feeds it and the quasar-mode growth makes the z = 0 totals non-monotonic
-    - AGNrecipe 3 (SAGE26's cold cloud rate, not ported) is refused at initialisation, naming the
+    - AGNrecipe 3 (SAGE26's cold cloud rate, not supported) is refused at initialisation, naming the
       parameter
     """
     print(f"\n{BLUE}TEST: Parameter sensitivity{NC}")
@@ -375,7 +375,7 @@ def test_memory_and_performance():
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,
-            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget, R3's value
+            "CGMrecipeOn": 0,  # required by sage26_calculate_cooling_budget (the CGM recipe off)
         },
     )
 

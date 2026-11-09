@@ -70,7 +70,7 @@ static void setup_test_parameters(double disk_factor) {
   int idx = 0;
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "StarFormingDiskFactor");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", disk_factor);
-  /* The required bulge-size mode, SAGE26's R0 0 (no sizes) */
+  /* The required bulge-size mode: BulgeSizeOn 0 (no sizes) */
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", 0);
   MimicConfig.NumModelParams = idx;
@@ -603,7 +603,6 @@ int test_unstable_disk_gas_only(void) {
  * Expected: Stars transferred, trigger flags = 0 (only set if unstable_gas > 0)
  * Validates: Stars-only disk behavior
  * Note: Module only sets triggers if unstable_gas > 0 and ColdGas > 0
- *       (R/src/model_disk_instability.c:90)
  */
 int test_unstable_disk_stars_only(void) {
   /* ===== SETUP ===== */
@@ -626,8 +625,7 @@ int test_unstable_disk_stars_only(void) {
   TEST_ASSERT(test_halo.galaxy->BulgeMass > initial_bulge,
               "Stars-only unstable disk should transfer stars");
 
-  /* Trigger flag is ONLY set if unstable_gas > 0 and ColdGas > 0
-   * (R/src/model_disk_instability.c:90) */
+  /* Trigger flag is ONLY set if unstable_gas > 0 and ColdGas > 0 */
   TEST_ASSERT(test_halo.galaxy->UnstableDiskGasFraction == 0.0f,
               "Stars-only disk should have gas trigger flag = 0 (no gas)");
 
@@ -717,7 +715,7 @@ int test_zero_disk_radius(void) {
 }
 
 /* ---------------------------------------------------------------------------
- * No cap and no clamp (SAGE26 R/src/model_disk_instability.c:77-79)
+ * No cap and no clamp
  *
  * SAGE26 adds the double unstable_stars and its metallicity product straight into
  * the float bulge fields. With Vmax = 0 (Mcrit = 0) and ColdGas = 0 the whole float
@@ -725,12 +723,11 @@ int test_zero_disk_radius(void) {
  * MetalsBulgeMass one rounding above StellarMass or MetalsStellarMass. SAGE26 keeps
  * that; it has no cap on the transfer and no clamp of the bulge.
  *
- * The inputs and expected bit patterns below come from executing SAGE26's own
- * compiled check_disk_instability (SAGE26 commit 11b1ae85, Apple clang 21, the
- * oracle's compile flags) on exactly these inputs, with G = 43007.1, AGNrecipeOn 2
- * and BulgeSizeOn 0. ColdGas = 0 keeps SAGE26's routine from reaching its
- * black-hole and burst calls, so its end state is the transfer alone. SAGE26 left
- * the bulge radii (set to 0.25, 0.125 and 0.0625) unchanged on every input.
+ * The expected bit patterns below were produced by executing SAGE26's own
+ * check_disk_instability on exactly these inputs, with G = 43007.1, AGNrecipeOn 2 and
+ * BulgeSizeOn 0. ColdGas = 0 keeps SAGE26's routine from reaching its black-hole and
+ * burst calls, so its end state is the transfer alone. SAGE26 leaves the bulge radii
+ * (set to 0.25, 0.125 and 0.0625) unchanged.
  * --------------------------------------------------------------------------- */
 
 static float f32_from_bits(const uint32_t bits) {
@@ -791,7 +788,7 @@ static int run_sage26_transfer_case(const struct sage26_transfer_case *c) {
   TEST_ASSERT(gal->UnstableDiskGasFraction == 0.0, "No cold gas: no unstable gas is handed on");
   TEST_ASSERT(gal->BulgeRadius == 0.25f && gal->MergerBulgeRadius == 0.125f &&
                   gal->InstabilityBulgeRadius == 0.0625f,
-              "BulgeSizeOn 0: the bulge radii keep their values (R/src/model_misc.c:395)");
+              "BulgeSizeOn 0: the bulge radii keep their values");
 
   free_test_halo(&test_halo);
   module_system_cleanup();
@@ -804,7 +801,7 @@ static int run_sage26_transfer_case(const struct sage26_transfer_case *c) {
  * @brief   A full stellar-disk transfer is not capped to the disk's stars or metals
  *
  * Expected: SAGE26's bits; BulgeMass ends one float above StellarMass, as in SAGE26
- * Validates: no transfer cap and no bulge clamp (R/src/model_disk_instability.c:77-79)
+ * Validates: no transfer cap and no bulge clamp
  */
 int test_full_disk_transfer_is_not_capped(void) {
   const struct sage26_transfer_case c = {
@@ -827,8 +824,7 @@ int test_full_disk_transfer_is_not_capped(void) {
  * @brief   BulgeMass above StellarMass after a transfer is kept, not clamped
  *
  * Expected: SAGE26's bits; BulgeMass ends one float above StellarMass
- * Validates: the sage16-era clamp of BulgeMass to StellarMass is gone
- *            (absent from R/src/model_disk_instability.c:77-84)
+ * Validates: SAGE26 applies no clamp of BulgeMass to StellarMass
  */
 int test_bulge_mass_not_clamped_to_stellar_mass(void) {
   const struct sage26_transfer_case c = {
@@ -851,7 +847,7 @@ int test_bulge_mass_not_clamped_to_stellar_mass(void) {
  *
  * Expected: SAGE26's bits; MetalsBulgeMass ends one float above MetalsStellarMass
  * Validates: no cap of the transferred metals to the disk metals and no clamp of the
- *            bulge metals (R/src/model_disk_instability.c:75, :79)
+ *            bulge metals
  */
 int test_metals_bulge_not_clamped_to_stellar_metals(void) {
   const struct sage26_transfer_case c = {
@@ -928,12 +924,11 @@ int test_disk_factor_sensitivity(void) {
  * @brief   An FFBRegime 1 row is not checked; the same row with FFBRegime 0 is
  *
  * SAGE26's starformation_and_feedback hands an FFBRegime 1 row to starformation_ffb, which
- * returns with no disk-instability check (R/src/model_starformation_and_feedback.c:1004-1008,
- * :1365-1367). The row is a satellite on an unstable disk (diskmass 13 far above Mcrit) with its
- * own FoF central; with FFBRegime 1 both galaxy structs are compared byte for byte with their
- * inputs, so no stars move and UnstableDiskGasFraction keeps its reset value 0. With FFBRegime 0
- * the trigger is SAGE26's check_disk_instability (R/src/model_disk_instability.c:54-101), written
- * here with its operand order and float sums.
+ * returns with no disk-instability check. The row is a satellite on an unstable disk (diskmass 13
+ * far above Mcrit) with its own FoF central; with FFBRegime 1 both galaxy structs are compared
+ * byte for byte with their inputs, so no stars move and UnstableDiskGasFraction keeps its reset
+ * value 0. With FFBRegime 0 the trigger is SAGE26's check_disk_instability, written here with its
+ * operand order and float sums.
  */
 int test_ffb_row_bypassed(void) {
   setup_module_for_physics_test(3.0);
@@ -961,11 +956,11 @@ int test_ffb_row_bypassed(void) {
   TEST_ASSERT(sage26_disk_instability_process(&ctx, &row, 1) == 0,
               "process succeeds on an ordinary row");
   const float vmax = 200.0f;
-  const double diskmass = row_in.ColdGas + (row_in.StellarMass - row_in.BulgeMass);  /* :54 */
-  const double Mcrit = vmax * vmax * (3.0 * row_in.DiskScaleRadius) / MimicConfig.G; /* :57 */
-  const double gas_fraction = row_in.ColdGas / diskmass;                             /* :63 */
-  const double unstable_gas = gas_fraction * (diskmass - Mcrit);                     /* :64 */
-  const double expected = unstable_gas / row_in.ColdGas;                             /* :101 */
+  const double diskmass = row_in.ColdGas + (row_in.StellarMass - row_in.BulgeMass);
+  const double Mcrit = vmax * vmax * (3.0 * row_in.DiskScaleRadius) / MimicConfig.G;
+  const double gas_fraction = row_in.ColdGas / diskmass;
+  const double unstable_gas = gas_fraction * (diskmass - Mcrit);
+  const double expected = unstable_gas / row_in.ColdGas;
   printf("\n  FFBRegime 0: UnstableDiskGasFraction %.17g, expected %.17g (Mcrit %.6g)",
          row.galaxy->UnstableDiskGasFraction, expected, Mcrit);
   TEST_ASSERT(Mcrit < diskmass, "the disk is unstable");

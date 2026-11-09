@@ -133,10 +133,10 @@ def load_engine():
 def profile_stack(engine, run_file):
     """Return the merged plot profile the engine builds for a run file.
 
-    The layers and their order follow configure_plot_profile() (mimic-plot.py:308-371): the
-    global profile, the model's default profile, the simulation's plot_profile.yaml, then the
-    model's <simulation>_plot_profile.yaml, each included only if it exists. The sage26 run
-    files set neither `plotting.profile` nor overrides.
+    The layers and their order follow configure_plot_profile(): the global profile, the model's
+    default profile, the simulation's plot_profile.yaml, then the model's
+    <simulation>_plot_profile.yaml, each included only if it exists. The sage26 run files set
+    neither `plotting.profile` nor overrides.
     """
     run = yaml.safe_load(run_file.read_text())
     assert "plotting" not in run, f"{run_file.name} sets plotting keys this stack does not model"
@@ -202,7 +202,7 @@ def test_every_registry_field_is_a_declared_output_property():
 
     A halo property (declared by the mini-Millennium halo catalogue) must also be an output
     property of the horizontal package, which sage26's horizontal run reads
-    (docs/DEVELOPER-GUIDE.md:482, "register only figures whose required properties the model
+    (the developer guide: "register only figures whose required properties the model
     declares").
     """
     declared = set(output_property_declarations())

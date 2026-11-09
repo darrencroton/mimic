@@ -2,17 +2,12 @@
  * @file    sage26_reincorporation.c
  * @brief   SAGE26 reincorporation module - returns ejected gas to hot halo in massive systems
  *
- * Ports SAGE26's reincorporate_gas (R = the staged SAGE26 source,
- * R/src/model_reincorporation.c:44-66): a central whose Vvir exceeds
+ * Implements SAGE26's reincorporate_gas: a central whose Vvir exceeds
  * Vcrit = 354.53 * ReIncorporationFactor recaptures previously ejected gas at the rate
  * (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir), with the ejected metallicity. The required parameter
  * CGMrecipeOn selects only the destination, through SAGE26's regime-aware add_gas_to_hot_reservoir
- * (R/src/model_misc.h:76-85, shared/sage_cgm_routing.h): the central's CGM pair with CGMrecipeOn 1
- * and Regime 0, its hot pair otherwise. The amount, guards, cap, metallicity and ejected debits are
- * the same either way (R/src/model_reincorporation.c:46-61).
- *
- * Every floating-point expression is transcribed from SAGE26 with its operand
- * order and types, so that compiler contraction treats both alike.
+ * (shared/sage_cgm_routing.h): the central's CGM pair with CGMrecipeOn 1 and Regime 0, its hot
+ * pair otherwise. The amount, guards, cap, metallicity and ejected debits are the same either way.
  *
  * Reference: Croton et al. (2006, 2016)
  *
@@ -42,7 +37,7 @@ static double REINCORPORATION_FACTOR;
  * checked at init */
 static int CGM_RECIPE_ON;
 
-/* SAGE26 model_reincorporation.c:28-34: SN ejecta leave the disk at ~501 km/s; a
+/* SN ejecta leave the disk at ~501 km/s; a
  * halo retains them when its escape velocity sqrt(2) * Vvir exceeds that, i.e.
  * when Vvir > 501 / sqrt(2) ~ 354.53 km/s, scaled by ReIncorporationFactor. */
 static const double REINC_VCRIT_KMS = 354.53;
@@ -76,7 +71,7 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
   struct GalaxyData *gal;
 
   /* SAGE parity: acts on the FOF central only, as SAGE26 calls reincorporate_gas
-   * for p == centralgal (core_build_model.c:486-492, model_reincorporation.c:44). */
+   * for p == centralgal. */
   if (ctx == NULL || halos == NULL || ngal <= 0 || ctx->central_galaxy == NULL) {
     return 0;
   }
@@ -98,29 +93,22 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
 
   gal = central_halo->galaxy;
 
-  // Skip if no ejected gas to reincorporate. SAGE26 has no such guard
-  // (R/src/model_reincorporation.c:48-64), and it now gates the CGM destination too. For
-  // EjectedGas +0.0 SAGE26 reincorporates +0.0 and its ejected debits leave both ejected fields as
-  // they are, but its destination additions (R/src/model_misc.h:79-80, :82-83) add +0.0, which
-  // turns a -0.0 destination field (hot or CGM, gas or metals) into +0.0, while this guard
-  // leaves -0.0: the two are equal in every value comparison and differ only in an exact-zero
-  // field's sign bit. A negative or -0.0 EjectedGas would differ more, but none occurs on the R4
-  // domain: SAGE26's R4 output has no negative and no -0.0 EjectedMass or MetalsEjectedMass in any
-  // of its 64 snapshots (1519062 rows), and the package floors the ejected gas at infall
-  // preparation and clears it to +0.0 when infall exhausts it, as SAGE26
-  // does (R/src/model_infall.c:140-141, :365).
+  // Skip if no ejected gas to reincorporate. SAGE26 has no such guard, and it gates the CGM
+  // destination too. For EjectedGas +0.0 SAGE26 adds +0.0 to the destination, which turns a
+  // -0.0 destination field into +0.0 where this guard leaves -0.0; the two differ only in an
+  // exact zero's sign bit. EjectedGas is never negative: the package floors it at infall
+  // preparation and clears it to +0.0 when infall exhausts it, as SAGE26 does.
   if (gal->EjectedGas <= 0.0f) {
     return 0;
   }
 
-  // Vvir and Rvir are read as the floats SAGE26 holds (core_allvars.h:131-132)
+  // SAGE parity: Vvir and Rvir are read as the floats SAGE26 holds
   const float Vvir = (float)central_halo->Vvir;
   const float Rvir = (float)central_halo->Rvir;
 
   const double Vcrit = REINC_VCRIT_KMS * REINCORPORATION_FACTOR;
 
   // SAGE26's guards: positive Vcrit, own Vvir above it, positive own Rvir
-  // (model_reincorporation.c:48)
   if (!(Vcrit > 0.0 && Vvir > Vcrit && Rvir > 0.0)) {
     return 0;
   }
@@ -137,7 +125,7 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
     return -1;
   }
 
-  /* (Vvir/Vcrit - 1) * M_eject / (Rvir/Vvir) * dt (model_reincorporation.c:50-52).
+  /* (Vvir/Vcrit - 1) * M_eject / (Rvir/Vvir) * dt.
    * SAGE parity: Rvir / Vvir is a float division, as SAGE26's float fields make
    * it, before it enters the double expression. */
   double reincorporated = (Vvir / Vcrit - 1.0) * gal->EjectedGas / (Rvir / Vvir) * dt_obj;
@@ -155,14 +143,10 @@ int sage26_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos
   const double metallicity = mimic_get_metallicity(gal->EjectedGas, gal->MetalsEjectedGas);
 
   // Remove from the ejected reservoir, the same for every regime
-  // (R/src/model_reincorporation.c:59-61)
   gal->EjectedGas -= reincorporated;
   gal->MetalsEjectedGas -= metallicity * reincorporated;
 
-  /* Add to the central's regime-selected reservoir (:63-64). SAGE parity: the metal mass
-   * arrives at SAGE26's add_gas_to_hot_reservoir as an argument already rounded to double, so
-   * the caller's product and the helper's sum are two operations, as in SAGE26's object
-   * (R/src/model_reincorporation.c:64, R/src/model_misc.h:76-85), not one fused multiply-add. */
+  /* Add to the central's regime-selected reservoir (SAGE26's add_gas_to_hot_reservoir) */
   mimic_sage_add_gas_to_hot_reservoir(gal, CGM_RECIPE_ON, reincorporated,
                                       metallicity * reincorporated);
 

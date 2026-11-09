@@ -3,17 +3,10 @@
  * @brief   SAGE26 infall application - distributes infalling gas budget to the central's hot or
  * CGM reservoir over substeps
  *
- * Ports SAGE26's add_infall_to_hot (R = the staged SAGE26 source, R/src/model_infall.c:351-414),
- * with its call-site share infallingGas / effective_steps (R/src/core_build_model.c:488):
- * distributes the infalling gas budget from sage26_prepare_infall_budget to the central's selected
- * reservoir over substeps with metallicity tracking. For negative infall (mass loss), removes from
- * the ejected reservoir first, then from the selected reservoir. The required parameter CGMrecipeOn
- * selects it: the central's CGM pair (CGMgas, MetalsCGMgas) with CGMrecipeOn 1 and Regime 0
- * (R/src/model_infall.c:371-385), and its hot pair otherwise (:386-399 with CGMrecipeOn 1, :400-413
- * with CGMrecipeOn 0, the same arithmetic). Positive infall adds gas and no metals.
- *
- * Every floating-point expression is transcribed from SAGE26 with its operand
- * order and types, so that compiler contraction treats both alike.
+ * Distributes the infalling gas budget from sage26_prepare_infall_budget to the central's selected
+ * reservoir, one share per substep, with metallicity tracking; negative infall (mass loss) removes
+ * from the ejected reservoir first. CGMrecipeOn selects the reservoir: the CGM pair with
+ * CGMrecipeOn 1 and Regime 0, the hot pair otherwise. Implements SAGE26's add_infall_to_hot.
  *
  * Reference: Croton et al. (2006, 2016)
  *
@@ -86,14 +79,11 @@ int sage26_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, i
 
   struct GalaxyData *galaxy = halos[central_idx].galaxy;
 
-  // The per-substep share of the snapshot budget (core_build_model.c:488)
+  // The per-substep share of the snapshot budget
   double infallingGas = galaxy->InfallingGas / (double)ctx->num_substeps;
 
-  // SAGE parity: add_infall_to_hot removes from ejected first, then from the selected (CGM or
-  // hot) reservoir, with a float metallicity and double products accumulated into float
-  // reservoirs, no intermediate rounding (R/src/model_infall.c:354-368, :376-384, :390-398,
-  // :404-412). The residual recovered when the ejected gas runs out is the already narrowed
-  // negative float EjectedGas (:362-364).
+  // SAGE parity: removes from ejected first, then from the selected (CGM or hot) reservoir;
+  // the residual when the ejected gas runs out is the narrowed negative float EjectedGas.
   if (infallingGas < 0.0 && galaxy->EjectedGas > 0.0f) {
     const float metallicity = mimic_get_metallicity(galaxy->EjectedGas, galaxy->MetalsEjectedGas);
     galaxy->MetalsEjectedGas += infallingGas * metallicity;
@@ -111,8 +101,7 @@ int sage26_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, i
     }
   }
 
-  // The central's CGM pair for CGMrecipeOn 1 and Regime 0, else its hot pair
-  // (R/src/model_infall.c:371-372, :386, :400). The three branches of SAGE26 share one
+  // The central's CGM pair for CGMrecipeOn 1 and Regime 0, else its hot pair. Both share one
   // arithmetic: the selected metals are debited only while positive and floored at zero, the
   // signed gas added, and both selected fields cleared if the gas becomes negative.
   const int to_cgm =
@@ -120,7 +109,7 @@ int sage26_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, i
   float *const gas = to_cgm ? &galaxy->CGMgas : &galaxy->HotGas;
   float *const metals = to_cgm ? &galaxy->MetalsCGMgas : &galaxy->MetalsHotGas;
 
-  // If the halo has lost mass, debit the selected metals first (:376-380, :390-394, :404-408)
+  // If the halo has lost mass, debit the selected metals first
   if (infallingGas < 0.0 && *metals > 0.0f) {
     const float metallicity = mimic_get_metallicity(*gas, *metals);
     *metals += infallingGas * metallicity;
@@ -129,8 +118,7 @@ int sage26_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, i
     }
   }
 
-  // Add (subtract) the infalling gas; a negative result clears both (:383-384, :397-398,
-  // :411-412)
+  // Add (subtract) the infalling gas; a negative result clears both
   *gas += infallingGas;
   if (*gas < 0.0f) {
     *gas = 0.0f;

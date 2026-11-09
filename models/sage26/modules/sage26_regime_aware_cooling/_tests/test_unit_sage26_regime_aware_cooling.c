@@ -1,32 +1,30 @@
 /**
  * @file    test_unit_sage26_regime_aware_cooling.c
- * @brief   Platform-independent tests of sage26_regime_aware_cooling, SAGE26's regime-aware
- *          cooling transaction (C = R/src/model_cooling_heating.c:420-506)
+ * @brief   Tests of sage26_regime_aware_cooling, SAGE26's regime-aware cooling transaction
  *
  * Every expectation is derived independently of the transaction and the shared helpers it calls:
  * a literal chosen so the result is exact, or SAGE26's expression written inline with its operand
- * order and its line cited. The oracle test (test_unit_sage26_regime_aware_cooling_oracle.c)
- * covers the same transaction bit for bit on macOS arm64 only; these run everywhere.
+ * order.
  *
  * Test cases:
  *   - test_cgm_recipe_off_writes_nothing: CGMrecipeOn 0 leaves the halo and galaxy untouched
- *   - test_mdot_reset_and_rate_overwrite: the raw mdot rates reset (C:433-434) and CoolingRate
- *     overwritten (C:498-502) on a call that cools nothing
+ *   - test_mdot_reset_and_rate_overwrite: the raw mdot rates reset and CoolingRate overwritten on
+ *     a call that cools nothing
  *   - test_stream_rates_stored_raw: the streams' float stores reach mdot_cool_raw and
- *     mdot_stream_raw (C:282-283)
+ *     mdot_stream_raw
  *   - test_hot_agn_before_cgm_cooling: the hot AGN's heating radius is what the CGM AGN reads
- *   - test_cgm_applied_before_hot: CGM then hot application, each capped (C:475-496)
+ *   - test_cgm_applied_before_hot: CGM then hot application, each capped
  *   - test_hot_apply_fresh_cap: the hot application is capped to the post-AGN HotGas
  *   - test_cgm_apply_after_cgm_agn: with the CGM AGN on, the CGM application moves the CGM pair
- *     as that AGN left it, with its own metallicity (C:475-483 after C:630-680)
+ *     as that AGN left it, with its own metallicity
  *   - test_equality_metals: no "move all metals" branch at equality; metals above the
- *     proportional split (C:479-483, :491-495)
- *   - test_diagnostics_reset_survival_restoration: every diagnostic path (C:436-469)
+ *     proportional split
+ *   - test_diagnostics_reset_survival_restoration: every diagnostic path
  *   - test_initial_boundary_matches_classic: no positive interval: what the classic trio writes
- *   - test_d35_refusal_with_positive_interval: a stored SnapNum outside ZZ is refused
+ *   - test_refusal_with_positive_interval: a stored SnapNum outside ZZ is refused
  *   - test_parameter_refusals: CGMrecipeOn and MShockMsun
- *   - test_agn_recipe_1_refused: AGNrecipe 1 (SAGE26's empirical rate, not ported) is refused
- *   - test_agn_recipe_3_refused: AGNrecipe 3 (SAGE26's cold cloud rate, not ported) is refused
+ *   - test_agn_recipe_1_refused: AGNrecipe 1 (SAGE26's empirical rate, not supported) is refused
+ *   - test_agn_recipe_3_refused: AGNrecipe 3 (SAGE26's cold cloud rate, not supported) is refused
  *   - test_guard_*: the CGMrecipeOn 1 configuration guard of this module and the budget
  */
 
@@ -102,8 +100,8 @@ static int load_tables(void) {
 
 /**
  * @brief A central with both reservoirs: Mvir 100 above the shock mass 43.8 and z = 0, so the
- *        streams' cutoff sets f_stream = 0 exactly (C:263-265); every written field holds a
- *        sentinel no path writes
+ *        streams' cutoff sets f_stream = 0 exactly; every written field holds a sentinel no path
+ *        writes
  */
 static void setup_galaxy(struct Halo *halo, struct GalaxyData *gal, const int regime) {
   memset(halo, 0, sizeof(*halo));
@@ -134,59 +132,56 @@ static void setup_galaxy(struct Halo *halo, struct GalaxyData *gal, const int re
   gal->mdot_stream_raw = -88.0f;
 }
 
-/**
- * @brief A float the compiler cannot constant-fold, so an inline expected expression is evaluated
- *        at run time and contracted (fused) as the module's own expression is; a folded constant
- *        expression is evaluated unfused
- */
+/** @brief A float the compiler cannot constant-fold: an inline expected expression is then
+ *         evaluated at run time, as the module's own expression is */
 static float opaque(const float value) {
   volatile float v = value;
   return v;
 }
 
-/** @brief SAGE26's float CoolingRate of a mass (C:499-502), inline */
+/** @brief SAGE26's float CoolingRate of a mass, inline */
 static float expected_rate(const double mass, const double dt) {
   return (dt > 0.0) ? (float)((mass / dt) * 1.0e10 / T_HUBBLE * 3.155e16 / T_UNIT_TIME) : 0.0f;
 }
 
-/** @brief The hot recipe's tcool diagnostic (C:142, :145-146), inline */
+/** @brief The hot recipe's tcool diagnostic, inline */
 static float expected_hot_tcool(const float rvir, const float vvir) {
-  const double tcool = rvir / vvir; /* C:142: a float division stored in a double */
+  const double tcool = rvir / vvir; /* a float division stored in a double */
   return (float)((tcool * 1.0e10 / T_HUBBLE * 3.155e16 / T_UNIT_TIME));
 }
 
-/** @brief The hot recipe's uncapped rcool (C:142-173), inline */
+/** @brief The hot recipe's uncapped rcool, inline */
 static double expected_hot_rcool(const float hot, const float zhot, const float rvir,
                                  const float vvir) {
-  const double tcool = rvir / vvir;                                         /* C:142 */
-  const double temp = 35.9 * vvir * vvir;                                   /* C:150 */
-  const double logZ = log10(zhot / hot);                                    /* C:154 */
-  const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ); /* C:157 */
-  double x = PROTONMASS * BOLTZMANN * temp / lambda;                        /* C:163 */
-  x /= (T_UNIT_DENSITY * T_UNIT_TIME);                                      /* C:164 */
-  const double rho_rcool = x / tcool * (1.5 * 0.59);                        /* C:165 */
-  const double rho0 = hot / (4 * M_PI * rvir);                              /* C:172 */
-  return sqrt(rho0 / rho_rcool);                                            /* C:173 */
+  const double tcool = rvir / vvir;
+  const double temp = 35.9 * vvir * vvir;
+  const double logZ = log10(zhot / hot);
+  const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ);
+  double x = PROTONMASS * BOLTZMANN * temp / lambda;
+  x /= (T_UNIT_DENSITY * T_UNIT_TIME);
+  const double rho_rcool = x / tcool * (1.5 * 0.59);
+  const double rho0 = hot / (4 * M_PI * rvir);
+  return sqrt(rho0 / rho_rcool);
 }
 
-/** @brief The CGM recipe's tcool and tff diagnostics (C:322-357), inline */
+/** @brief The CGM recipe's tcool and tff diagnostics, inline */
 static void expected_cgm_diagnostics(const float cgm, const float zcgm, const float mvir,
                                      const float rvir, const float vvir, float *tcool_out,
                                      float *tff_out) {
-  const double temp = 35.9 * vvir * vvir;                                                /* C:322 */
-  const double lambda = get_metaldependent_cooling_rate(log10(temp), log10(zcgm / cgm)); /* :329 */
-  double x = PROTONMASS * BOLTZMANN * temp / lambda;                                     /* C:332 */
-  x /= (T_UNIT_DENSITY * T_UNIT_TIME);                                                   /* C:333 */
-  const double alpha = 1.4, r0 = 0.1 * rvir, ratio = 10.0;                           /* C:336-338 */
-  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);                /* C:341 */
-  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha); /* C:342 */
-  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);                       /* C:345 */
-  const double rho_eff = rho0 * (I_cool / I_M);                                      /* C:346 */
-  const double tcool = (x / rho_eff) * (1.5 * 0.59);                                 /* C:349 */
-  const double g_accel = T_G * mvir / (rvir * rvir);                                 /* C:352 */
-  const double tff = sqrt(2.0 * rvir / g_accel);                                     /* C:353 */
-  *tcool_out = (float)(tcool * T_UNIT_TIME / 3.155e16);                              /* C:356 */
-  *tff_out = (float)(tff * T_UNIT_TIME / 3.155e16);                                  /* C:357 */
+  const double temp = 35.9 * vvir * vvir;
+  const double lambda = get_metaldependent_cooling_rate(log10(temp), log10(zcgm / cgm));
+  double x = PROTONMASS * BOLTZMANN * temp / lambda;
+  x /= (T_UNIT_DENSITY * T_UNIT_TIME);
+  const double alpha = 1.4, r0 = 0.1 * rvir, ratio = 10.0;
+  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);
+  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha);
+  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);
+  const double rho_eff = rho0 * (I_cool / I_M);
+  const double tcool = (x / rho_eff) * (1.5 * 0.59);
+  const double g_accel = T_G * mvir / (rvir * rvir);
+  const double tff = sqrt(2.0 * rvir / g_accel);
+  *tcool_out = (float)(tcool * T_UNIT_TIME / 3.155e16);
+  *tff_out = (float)(tff * T_UNIT_TIME / 3.155e16);
 }
 
 /** @brief The transaction's model parameters (all four keys it reads) */
@@ -225,7 +220,7 @@ static void setup_ctx(struct ModuleContext *ctx, struct Halo *halo) {
 
 /**
  * @test    test_cgm_recipe_off_writes_nothing
- * @brief   With CGMrecipeOn 0 SAGE26 calls cooling_recipe_hot (C:128-131): the module is inert
+ * @brief   With CGMrecipeOn 0 SAGE26 calls cooling_recipe_hot: the module is inert
  *
  * Expected: process() returns 0 and every byte of the halo and the galaxy is unchanged, for both
  * regimes and both reservoirs present.
@@ -253,8 +248,8 @@ int test_cgm_recipe_off_writes_nothing(void) {
 
 /**
  * @test    test_mdot_reset_and_rate_overwrite
- * @brief   A Regime 0 galaxy without CGM gas: the mdot reset (C:433-434), the diagnostic reset
- *          (C:443) and the final CoolingRate of zero total (C:498-502)
+ * @brief   A Regime 0 galaxy without CGM gas: the mdot reset, the diagnostic reset and the final
+ *          CoolingRate of zero total
  *
  * Expected: mdot_cool_raw and mdot_stream_raw 0; tcool 0, tff -1, RcoolToRvir -1; CoolingRate
  * overwritten from -44 to 0; no mass moves and Cooling and Heating are untouched.
@@ -270,7 +265,7 @@ int test_mdot_reset_and_rate_overwrite(void) {
               "the transaction succeeds");
   TEST_ASSERT(gal.mdot_cool_raw == 0.0f && gal.mdot_stream_raw == 0.0f, "the raw rates reset");
   TEST_ASSERT(gal.tcool == 0.0f && gal.tff == -1.0f && gal.RcoolToRvir == -1.0f,
-              "reset_cgm_diagnostics writes exactly 0, -1, -1 (C:413-418)");
+              "reset_cgm_diagnostics writes exactly 0, -1, -1");
   TEST_ASSERT(gal.CoolingRate == 0.0f, "CoolingRate is overwritten with the zero total");
   TEST_ASSERT(gal.ColdGas == 1.0f && gal.HotGas == 10.0f && gal.Cooling == 2.0 &&
                   gal.Heating == 3.0,
@@ -281,11 +276,11 @@ int test_mdot_reset_and_rate_overwrite(void) {
 
 /**
  * @test    test_stream_rates_stored_raw
- * @brief   The hot recipe's float stores reach the raw state (C:282-283)
+ * @brief   The hot recipe's float stores reach the raw state
  *
  * Expected: with the cutoff (Mvir 100 above M_shock = 6e11 * 0.73 / 1e10 = 43.8, z = 0, so
  * 3 M_*(0) >> M_shock) f_stream is exactly 0, so mdot_stream_raw is 0 and mdot_cool_raw is
- * SAGE26's float hot_halo_cooling / dt (C:279-282) with rcool written inline (C:142-173).
+ * SAGE26's float hot_halo_cooling / dt with rcool written inline.
  */
 int test_stream_rates_stored_raw(void) {
   TEST_ASSERT(load_tables() == 0, "cooling tables load");
@@ -299,32 +294,29 @@ int test_stream_rates_stored_raw(void) {
               "the transaction succeeds");
 
   const float hot = 10.0f, zhot = 0.2f, rvir = 0.2f, vvir = 150.0f;
-  const double tcool = rvir / vvir;                               /* C:142 */
-  const double rcool = expected_hot_rcool(hot, zhot, rvir, vvir); /* C:173 */
-  const double f_stream = 0.0;                                    /* C:263-265 */
-  const double cold_stream_cooling = f_stream * hot / tcool * dt; /* C:277 */
-  const double hot_halo_cooling =
-      (1.0 - f_stream) * (hot / rvir) * (rcool / (2.0 * tcool)) * dt; /* C:279-280 */
-  TEST_ASSERT(gal.mdot_cool_raw == (float)(hot_halo_cooling / dt), "mdot_cool_raw (C:282)");
+  const double tcool = rvir / vvir;
+  const double rcool = expected_hot_rcool(hot, zhot, rvir, vvir);
+  const double f_stream = 0.0;
+  const double cold_stream_cooling = f_stream * hot / tcool * dt;
+  const double hot_halo_cooling = (1.0 - f_stream) * (hot / rvir) * (rcool / (2.0 * tcool)) * dt;
+  TEST_ASSERT(gal.mdot_cool_raw == (float)(hot_halo_cooling / dt), "mdot_cool_raw");
   TEST_ASSERT(gal.mdot_stream_raw == (float)(cold_stream_cooling / dt) &&
                   gal.mdot_stream_raw == 0.0f,
-              "mdot_stream_raw (C:283)");
+              "mdot_stream_raw");
   sage26_calculate_cooling_budget_cleanup();
   return TEST_PASS;
 }
 
 /**
  * @test    test_hot_agn_before_cgm_cooling
- * @brief   The CGM AGN reads the heating radius the hot AGN changed (C:451-461)
+ * @brief   The CGM AGN reads the heating radius the hot AGN changed
  *
  * A hot-regime central with dense hot gas and a large black hole: the hot recipe's rcool exceeds
  * Rvir, the hot AGN's heating is capped to the cooling mass, so its ratchet sets Rheat = rcool, and
- * the CGMrecipeOn 1 cap sets Rheat = Rvir (C:612-616, :623-624). The CGM recipe then pins rcool to
- * Rvir (C:360). Its AGN gate sees the positive post-cap mass (C:372-374), so the CGM AGN is called;
- * its suppression then zeroes the mass, as Rheat >= rcool (C:638-643); the accretion's heating cap
- * then binds against the zero mass and sets the accretion to 0 / AGNcoeff = 0 (C:568-571), so the
- * CGM pair is not drawn from, and nothing is applied (C:475). The pair is not touched (the oracle's
- * rac_regime1_hot_rheat_saturates_cgm records cgm.agn_entered 1, heating_capped 1, AGNaccreted 0).
+ * the CGMrecipeOn 1 cap sets Rheat = Rvir. The CGM recipe then pins rcool to Rvir. Its AGN gate
+ * sees the positive post-cap mass, so the CGM AGN is called; its suppression then zeroes the mass,
+ * as Rheat >= rcool; the accretion's heating cap then binds against the zero mass and sets the
+ * accretion to 0 / AGNcoeff = 0, so the CGM pair is not drawn from and nothing is applied.
  *
  * Expected: RcoolToRvir > 1 (the precondition), Rheat equal to the float Rvir, CGMgas and
  * MetalsCGMgas exactly as they were, the black hole grown. Run in the other order the CGM AGN
@@ -355,10 +347,10 @@ int test_hot_agn_before_cgm_cooling(void) {
 
 /**
  * @test    test_cgm_applied_before_hot
- * @brief   CGM is applied before hot (C:475-496), each capped to its reservoir
+ * @brief   CGM is applied before hot, each capped to its reservoir
  *
- * With AGN off and a long dt, each recipe caps its mass to its whole reservoir (C:288-292,
- * :366-370), so the applied masses are the literals CGMgas = 2^-24 and HotGas = 2^-23. With
+ * With AGN off and a long dt, each recipe caps its mass to its whole reservoir, so the applied
+ * masses are the literals CGMgas = 2^-24 and HotGas = 2^-23. With
  * ColdGas 1, adding the CGM mass first rounds 1 + 2^-24 to 1 (a tie to even), then
  * 1 + 2^-23; the other order gives 1 + 2^-23 then the tie 1 + 2^-23 + 2^-24, rounded to
  * 1 + 2^-22.
@@ -384,7 +376,7 @@ int test_cgm_applied_before_hot(void) {
   TEST_ASSERT(t.hot.cap == MIMIC_SAGE_CAP_RESERVOIR && t.cgm.cap == MIMIC_SAGE_CAP_RESERVOIR,
               "precondition: each recipe caps its mass to its reservoir");
 
-  float cold = opaque(1.0f); /* C:480 then C:492 */
+  float cold = opaque(1.0f); /* CGM mass first, then hot */
   cold += (double)cgm;
   cold += (double)hot;
   float other_order = opaque(1.0f);
@@ -394,18 +386,18 @@ int test_cgm_applied_before_hot(void) {
   TEST_ASSERT(gal.ColdGas == cold, "the CGM mass is added before the hot mass");
   TEST_ASSERT(gal.CGMgas == 0.0f && gal.HotGas == 0.0f, "both reservoirs are consumed");
   TEST_ASSERT(gal.CoolingRate == expected_rate((double)cgm + (double)hot, dt),
-              "CoolingRate of the total (C:498-502)");
+              "CoolingRate of the total");
   sage26_calculate_cooling_budget_cleanup();
   return TEST_PASS;
 }
 
 /**
  * @test    test_hot_apply_fresh_cap
- * @brief   The hot application caps to the HotGas the hot AGN left (C:488-490)
+ * @brief   The hot application caps to the HotGas the hot AGN left
  *
  * With a long dt the hot recipe caps its mass to HotGas and the hot AGN (Bondi, Rheat 0, so no
- * suppression) then accretes from HotGas without re-capping the returned mass (C:599-626): the
- * returned mass exceeds the post-AGN HotGas.
+ * suppression) then accretes from HotGas without re-capping the returned mass: the returned mass
+ * exceeds the post-AGN HotGas.
  *
  * Expected: HotGas exactly 0 after the application (capped to the post-AGN reservoir, not the
  * pre-AGN one, which would leave it negative), the black hole grown.
@@ -431,23 +423,21 @@ int test_hot_apply_fresh_cap(void) {
 
 /**
  * @test    test_cgm_apply_after_cgm_agn
- * @brief   The CGM application uses the CGM pair as the CGM AGN left it (C:475-483 after
- *          C:630-680)
+ * @brief   The CGM application uses the CGM pair as the CGM AGN left it
  *
  * A Regime 0 central with CGMgas 5 and metals 0.3 (metallicity 0.06, not a fixed fraction of the
  * gas moved), no hot gas, Rheat 0 (no suppression), a black hole of 0.1 and AGNrecipe 2 (Bondi),
- * dt 1e12. The CGM recipe caps its mass to CGMgas (C:366-367); the Bondi and Eddington rates over
- * that dt exceed the reservoir, so the accretion is capped to it (C:559-560) and then by the
- * heating cap to mass / AGNcoeff (C:562-571), a few 1e-6 of the gas, drawn from CGMgas and its
- * metals at their metallicity (C:653-656); the returned mass is re-capped to the post-accretion
- * CGMgas (C:675-677), so the application moves exactly the post-AGN pair, with the post-AGN
- * metallicity (C:479-483), leaving CGMgas 0 and a metal residual of rounding size.
+ * dt 1e12. The CGM recipe caps its mass to CGMgas; the Bondi and Eddington rates over that dt
+ * exceed the reservoir, so the accretion is capped to it and then by the heating cap to
+ * mass / AGNcoeff, a few 1e-6 of the gas, drawn from CGMgas and its metals at their metallicity;
+ * the returned mass is re-capped to the post-accretion CGMgas, so the application moves exactly
+ * the post-AGN pair, with the post-AGN metallicity, leaving CGMgas 0 and a metal residual of
+ * rounding size.
  *
  * Expected: ColdGas, MetalsColdGas, CGMgas, MetalsCGMgas, BlackHoleMass, Rheat and CoolingRate as
- * SAGE26's statements written inline give them (every input read through opaque(), so the inline
- * fused metal statements contract as the module's do). Preconditions assert that the pre-AGN
- * metallicity, the hot pair's metallicity (0: no hot gas) and the pre-AGN CGMgas would each give a
- * different end state.
+ * SAGE26's statements written inline give them (every input read through opaque()). Preconditions
+ * assert that the pre-AGN metallicity, the hot pair's metallicity (0: no hot gas) and the pre-AGN
+ * CGMgas would each give a different end state.
  */
 int test_cgm_apply_after_cgm_agn(void) {
   TEST_ASSERT(load_tables() == 0, "cooling tables load");
@@ -466,48 +456,48 @@ int test_cgm_apply_after_cgm_agn(void) {
   TEST_ASSERT(sage26_regime_aware_cooling_run(&halo, &MimicConfig, &AGN_BONDI, dt, NULL) == 0,
               "the transaction succeeds");
 
-  /* SAGE26's float inputs (R/src/core_allvars.h:106-221), read at run time */
+  /* SAGE26's float inputs, read at run time */
   const float mvir = opaque(100.0f), rvir = opaque(0.2f), vvir = opaque(150.0f);
   float cgm = opaque(5.0f), zcgm = opaque(0.3f), bh = opaque(0.1f), rheat = opaque(0.0f);
   float cold = opaque(1.0f), zcold = opaque(0.01f);
   const double efficiency = 0.08;
 
-  /* cooling_recipe_cgm up to the AGN step (C:322-370) */
-  const double temp = 35.9 * vvir * vvir;                                                /* C:322 */
-  const double lambda = get_metaldependent_cooling_rate(log10(temp), log10(zcgm / cgm)); /* :329 */
-  double x = PROTONMASS * BOLTZMANN * temp / lambda;                                     /* C:332 */
-  x /= (T_UNIT_DENSITY * T_UNIT_TIME);                                                   /* C:333 */
-  const double alpha = 1.4, r0 = 0.1 * rvir, ratio = 10.0;                           /* C:336-338 */
-  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);                /* C:341 */
-  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha); /* C:342 */
-  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);                       /* C:345 */
-  const double rho_eff = rho0 * (I_cool / I_M);                                      /* C:346 */
-  const double tcool = (x / rho_eff) * (1.5 * 0.59);                                 /* C:349 */
-  const double g_accel = T_G * mvir / (rvir * rvir);                                 /* C:352 */
-  const double tff = sqrt(2.0 * rvir / g_accel);                                     /* C:353 */
-  const double rcool = rvir;                                                         /* C:360 */
-  double cooling = (cgm / (tcool + tff)) * dt;                                       /* C:364 */
+  /* cooling_recipe_cgm up to the AGN step */
+  const double temp = 35.9 * vvir * vvir;
+  const double lambda = get_metaldependent_cooling_rate(log10(temp), log10(zcgm / cgm));
+  double x = PROTONMASS * BOLTZMANN * temp / lambda;
+  x /= (T_UNIT_DENSITY * T_UNIT_TIME);
+  const double alpha = 1.4, r0 = 0.1 * rvir, ratio = 10.0;
+  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);
+  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha);
+  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);
+  const double rho_eff = rho0 * (I_cool / I_M);
+  const double tcool = (x / rho_eff) * (1.5 * 0.59);
+  const double g_accel = T_G * mvir / (rvir * rvir);
+  const double tff = sqrt(2.0 * rvir / g_accel);
+  const double rcool = rvir;
+  double cooling = (cgm / (tcool + tff)) * dt;
   TEST_ASSERT(cooling > cgm, "precondition: the CGM recipe caps its mass to CGMgas");
-  cooling = cgm; /* C:366-367 */
+  cooling = cgm;
 
-  /* do_AGN_heating_cgm (C:635-680) with agn_accretion_compute's Bondi branch (C:526-576) */
-  if (rheat < rcool && !(rheat >= 0.99 * rcool)) { /* C:638-643 */
+  /* do_AGN_heating_cgm with agn_accretion_compute's Bondi branch */
+  if (rheat < rcool && !(rheat >= 0.99 * rcool)) {
     cooling = (1.0 - rheat / rcool) * cooling;
   } else {
     cooling = 0.0;
   }
   const double bh_mass = bh;
-  double rate = (2.5 * M_PI * T_G) * (0.375 * 0.6 * x) * bh_mass * efficiency; /* C:540 */
-  const double edd = (1.3e38 * bh_mass * 1e10 / T_HUBBLE) / (T_UNIT_ENERGY / T_UNIT_TIME) /
-                     (0.1 * 9.0e10); /* C:553-556 */
-  if (rate > edd)                    /* C:557 */
+  double rate = (2.5 * M_PI * T_G) * (0.375 * 0.6 * x) * bh_mass * efficiency;
+  const double edd =
+      (1.3e38 * bh_mass * 1e10 / T_HUBBLE) / (T_UNIT_ENERGY / T_UNIT_TIME) / (0.1 * 9.0e10);
+  if (rate > edd)
     rate = edd;
-  double accreted = rate * dt; /* C:559 */
-  if (accreted > cgm)          /* C:560 */
+  double accreted = rate * dt;
+  if (accreted > cgm)
     accreted = cgm;
   double heating = 0.0;
   const double vvir_d = vvir;
-  if (vvir_d > 0.0) { /* C:562-572 */
+  if (vvir_d > 0.0) {
     const double coeff = (1.34e5 / vvir_d) * (1.34e5 / vvir_d);
     heating = coeff * accreted;
     if (heating > cooling && coeff > 0.0) {
@@ -515,34 +505,34 @@ int test_cgm_apply_after_cgm_agn(void) {
       heating = cooling;
     }
   }
-  const double z_pre = (cgm > 0.0 && zcgm > 0.0) ? fmin((double)zcgm / cgm, 1.0) : 0.0; /* :653 */
+  const double z_pre = (cgm > 0.0 && zcgm > 0.0) ? fmin((double)zcgm / cgm, 1.0) : 0.0;
   const float cgm_pre = cgm;
-  bh += accreted;                       /* C:654 */
-  cgm -= accreted;                      /* C:655 */
-  zcgm -= z_pre * accreted;             /* C:656 */
-  if (rheat < rcool && cooling > 0.0) { /* C:658-662 */
+  bh += accreted;
+  cgm -= accreted;
+  zcgm -= z_pre * accreted;
+  if (rheat < rcool && cooling > 0.0) {
     const double rheat_new = (heating / cooling) * rcool;
     if (rheat_new > rheat)
       rheat = rheat_new;
   }
-  if (rheat > rvir) /* C:663-664 */
+  if (rheat > rvir)
     rheat = rvir;
-  if (cooling > cgm) /* C:675-677 */
+  if (cooling > cgm)
     cooling = cgm;
   TEST_ASSERT(accreted > 0.0 && cgm < cgm_pre && cooling == (double)cgm,
               "precondition: the AGN drew CGM gas and the returned mass is the post-AGN CGMgas");
 
-  /* the CGM application (C:475-483) */
-  if (cooling > cgm) /* C:476-478 */
+  /* the CGM application */
+  if (cooling > cgm)
     cooling = cgm;
-  const double z_post = (cgm > 0.0 && zcgm > 0.0) ? fmin((double)zcgm / cgm, 1.0) : 0.0; /* :479 */
+  const double z_post = (cgm > 0.0 && zcgm > 0.0) ? fmin((double)zcgm / cgm, 1.0) : 0.0;
   const float zcgm_post_agn = zcgm;
-  cold += cooling;           /* C:480 */
-  zcold += z_post * cooling; /* C:481 */
-  cgm -= cooling;            /* C:482 */
-  zcgm -= z_post * cooling;  /* C:483 */
+  cold += cooling;
+  zcold += z_post * cooling;
+  cgm -= cooling;
+  zcgm -= z_post * cooling;
 
-  /* What the pre-AGN metallicity would leave (mutants a and c) */
+  /* What the pre-AGN metallicity would leave */
   float zcgm_with_pre_z = zcgm_post_agn;
   zcgm_with_pre_z -= z_pre * cooling;
   TEST_ASSERT(zcgm_with_pre_z != zcgm, "precondition: the pre-AGN metallicity leaves other metals");
@@ -550,8 +540,8 @@ int test_cgm_apply_after_cgm_agn(void) {
 
   TEST_ASSERT(gal.CGMgas == cgm && cgm == 0.0f, "the application empties the post-AGN CGMgas");
   TEST_ASSERT(gal.MetalsCGMgas == zcgm, "the CGM metals debited at the post-AGN metallicity");
-  TEST_ASSERT(gal.ColdGas == cold, "ColdGas gains the post-AGN CGM mass (C:480)");
-  TEST_ASSERT(gal.MetalsColdGas == zcold, "MetalsColdGas gains the CGM pair's metals (C:481)");
+  TEST_ASSERT(gal.ColdGas == cold, "ColdGas gains the post-AGN CGM mass");
+  TEST_ASSERT(gal.MetalsColdGas == zcold, "MetalsColdGas gains the CGM pair's metals");
   TEST_ASSERT(gal.BlackHoleMass == bh && gal.Rheat == rheat, "the CGM AGN's accretion and Rheat");
   TEST_ASSERT(gal.CoolingRate == expected_rate(cooling, dt), "CoolingRate of the applied mass");
   sage26_calculate_cooling_budget_cleanup();
@@ -560,17 +550,16 @@ int test_cgm_apply_after_cgm_agn(void) {
 
 /**
  * @test    test_equality_metals
- * @brief   The CGM-on application has no "move all metals on equality" branch (C:475-496)
+ * @brief   The CGM-on application has no "move all metals on equality" branch
  *
  * With AGN off and a long dt both masses equal their whole reservoirs. HotGas 0.7 carries metals
  * 0.2, a metallicity not exact in double, so metallicity * HotGas differs from MetalsHotGas and
- * the debit leaves a residual (the classic transfer, C:700-704, would zero it and credit all
- * 0.2). CGMgas 0.25 carries metals 0.4, above the gas, so the metallicity caps at 1
- * (get_metallicity, R/src/model_misc.c:427-437) and only 0.25 of the metals moves.
+ * the debit leaves a residual (the classic transfer would zero it and credit all 0.2). CGMgas 0.25
+ * carries metals 0.4, above the gas, so the metallicity caps at 1 (get_metallicity) and only 0.25
+ * of the metals moves.
  *
  * Expected: every reservoir as SAGE26's statements written inline give, with the compound
- * assignments' types (C:479-483, :491-495), evaluated at run time (opaque()) so that the inline
- * metal credits and debits contract as the module's do.
+ * assignments' types, evaluated at run time (opaque()).
  */
 int test_equality_metals(void) {
   TEST_ASSERT(load_tables() == 0, "cooling tables load");
@@ -594,12 +583,12 @@ int test_equality_metals(void) {
   const double z_hot = (double)opaque(zhot) / (double)opaque(hot);
   float cold = opaque(1.0f), metals_cold = opaque(0.01f), metals_cgm = opaque(zcgm),
         metals_hot = opaque(zhot);
-  cold += (double)cgm;                /* C:480 */
-  metals_cold += z_cgm * (double)cgm; /* C:481 */
-  metals_cgm -= z_cgm * (double)cgm;  /* C:483 */
-  cold += (double)hot;                /* C:492 */
-  metals_cold += z_hot * (double)hot; /* C:493 */
-  metals_hot -= z_hot * (double)hot;  /* C:495 */
+  cold += (double)cgm;
+  metals_cold += z_cgm * (double)cgm;
+  metals_cgm -= z_cgm * (double)cgm;
+  cold += (double)hot;
+  metals_cold += z_hot * (double)hot;
+  metals_hot -= z_hot * (double)hot;
   TEST_ASSERT(metals_hot != 0.0f, "precondition: the hot debit leaves a residual");
   TEST_ASSERT(gal.HotGas == 0.0f && gal.CGMgas == 0.0f, "both reservoirs are consumed");
   TEST_ASSERT(gal.MetalsHotGas == metals_hot, "the hot metals keep the residual (no equality "
@@ -614,7 +603,7 @@ int test_equality_metals(void) {
 
 /**
  * @test    test_diagnostics_reset_survival_restoration
- * @brief   Every diagnostic path of the wrapper (C:436-469, reset C:413-418)
+ * @brief   Every diagnostic path of the wrapper
  *
  * Expected, case by case:
  *   A  Regime 0, no CGM gas: reset (tcool 0, tff -1, RcoolToRvir -1)
@@ -633,7 +622,7 @@ int test_diagnostics_reset_survival_restoration(void) {
   struct GalaxyData gal;
   const double dt = 1.0e-4;
   const float hot_tcool = expected_hot_tcool(0.2f, 150.0f);
-  const float hot_ratio = (float)(expected_hot_rcool(10.0f, 0.2f, 0.2f, 150.0f) / 0.2f); /* :175 */
+  const float hot_ratio = (float)(expected_hot_rcool(10.0f, 0.2f, 0.2f, 150.0f) / 0.2f);
   float cgm_tcool, cgm_tff;
   expected_cgm_diagnostics(5.0f, 0.05f, 100.0f, 0.2f, 150.0f, &cgm_tcool, &cgm_tff);
 
@@ -729,7 +718,7 @@ static void free_phases(void) {
  * @test    test_initial_boundary_matches_classic
  * @brief   No positive interval (stored SnapNum -1, dT -1; MIMIC_OBJECT_TIME_SKIP_INITIAL)
  *
- * SAGE26 is undefined there (Age[-1], R/src/core_build_model.c:479). The classic trio with
+ * SAGE26 is undefined there (it reads Age[-1]). The classic trio with
  * CGMrecipeOn 0 writes only its no-cooling transport there; with CGMrecipeOn 1 the budget, radio,
  * apply and transaction together must write exactly the same, and read no table: Snaplistlen 0
  * makes any ZZ read a refusal of an out-of-range stored SnapNum.
@@ -782,13 +771,13 @@ int test_initial_boundary_matches_classic(void) {
 }
 
 /**
- * @test    test_d35_refusal_with_positive_interval
+ * @test    test_refusal_with_positive_interval
  * @brief   A hot-regime galaxy whose stored SnapNum is outside ZZ is refused, with dT > 0
  *
  * Expected: process() returns -1 for the stored SnapNum 64 (Snaplistlen 64), where SAGE26 reads
- * ZZ out of bounds (C:205); the same galaxy at SnapNum 40 succeeds.
+ * ZZ out of bounds; the same galaxy at SnapNum 40 succeeds.
  */
-int test_d35_refusal_with_positive_interval(void) {
+int test_refusal_with_positive_interval(void) {
   struct Halo halo;
   struct GalaxyData gal;
   struct ModuleContext ctx;
@@ -864,8 +853,8 @@ static int init_with_agn_recipe(const char *recipe, char *log_out, const size_t 
 
 /**
  * @test    test_agn_recipe_1_refused
- * @brief   AGNrecipe 1, SAGE26's empirical rate (C:545-551), is not ported: init fails with an
- *          error naming the parameter, and AGNrecipe 2 initialises
+ * @brief   AGNrecipe 1, SAGE26's empirical rate, is not supported: init fails with an error
+ *          naming the parameter, and AGNrecipe 2 initialises
  */
 int test_agn_recipe_1_refused(void) {
   static char log[8192];
@@ -879,8 +868,8 @@ int test_agn_recipe_1_refused(void) {
 
 /**
  * @test    test_agn_recipe_3_refused
- * @brief   AGNrecipe 3, SAGE26's cold cloud rate (C:541-544), is not ported: init fails with an
- *          error naming the parameter, and AGNrecipe 0 initialises
+ * @brief   AGNrecipe 3, SAGE26's cold cloud rate, is not supported: init fails with an error
+ *          naming the parameter, and AGNrecipe 0 initialises
  */
 int test_agn_recipe_3_refused(void) {
   static char log[8192];
@@ -1020,7 +1009,7 @@ int main(void) {
   TEST_RUN(test_equality_metals);
   TEST_RUN(test_diagnostics_reset_survival_restoration);
   TEST_RUN(test_initial_boundary_matches_classic);
-  TEST_RUN(test_d35_refusal_with_positive_interval);
+  TEST_RUN(test_refusal_with_positive_interval);
   TEST_RUN(test_parameter_refusals);
   TEST_RUN(test_agn_recipe_1_refused);
   TEST_RUN(test_agn_recipe_3_refused);

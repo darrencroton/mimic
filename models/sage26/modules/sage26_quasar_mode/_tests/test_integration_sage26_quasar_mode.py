@@ -79,8 +79,8 @@ def test_module_pipeline_integration():
             "BulgeSizeOn": 0,
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription, at R1's value
-            "CGMrecipeOn": 0,  # required, R3's value
+            "SFprescription": 0,  # the module's required SFprescription
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "AGNrecipe": 2,  # required: 0 or 2
             # Disk instability module parameters (required dependency)
             "fStabInstability": 0.5,
@@ -214,7 +214,7 @@ GAS_PHASES = {
 
 
 def run_gas_pipeline(output_name, black_hole_growth_rate, quasar_mode_efficiency):
-    """Run GAS_PHASES at R1's values with the two quasar parameters; return the z = 0 halos."""
+    """Run GAS_PHASES with the two quasar parameters (SFprescription 0); return the z = 0 halos."""
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name=output_name,
         phase_config=GAS_PHASES,
@@ -296,8 +296,8 @@ def test_merger_trigger():
             "BulgeSizeOn": 0,
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription, at R1's value
-            "CGMrecipeOn": 0,  # required, R3's value
+            "SFprescription": 0,  # the module's required SFprescription
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "AGNrecipe": 2,  # required: 0 or 2
         },
     )
@@ -371,8 +371,8 @@ def test_memory_and_performance():
             "BulgeSizeOn": 0,
             "BlackHoleGrowthRate": 0.01,
             "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription, at R1's value
-            "CGMrecipeOn": 0,  # required, R3's value
+            "SFprescription": 0,  # the module's required SFprescription
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "AGNrecipe": 2,  # required: 0 or 2
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,

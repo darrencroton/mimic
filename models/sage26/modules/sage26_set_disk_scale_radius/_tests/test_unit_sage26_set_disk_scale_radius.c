@@ -10,7 +10,7 @@
  * - Edge cases (zero spin, zero velocity, zero radius)
  * - Fallback logic (invalid virial properties)
  * - Type filtering (Type 0 processed, Type 1+ skipped/frozen for SAGE parity: SAGE26
- *   recomputes the radius only for the FoF central, SAGE26 src/core_build_model.c:284-298)
+ *   recomputes the radius only for the FoF central)
  * - Module lifecycle and memory safety
  *
  * Test cases:
@@ -48,7 +48,7 @@
 #include <math.h>
 
 /* Shared sage26 test fixture boilerplate (counters, module registration); this file keeps its
- * own reset_config(), which adds the module's required BulgeSizeOn at SAGE26's R0 value 0 */
+ * own reset_config(), which adds the module's required BulgeSizeOn at 0 */
 #define SAGE_TEST_LOCAL_RESET_CONFIG
 #include "modules/_tests/sage_test_fixtures.h"
 
@@ -131,7 +131,7 @@ static void setup_test_context(struct ModuleContext *ctx, double dt) {
 static float calculate_expected_disk_radius(float spin_x, float spin_y, float spin_z, float vvir,
                                             float rvir) {
   if (vvir > 0.0 && rvir > 0.0) {
-    /* SAGE26 get_disk_radius (model_misc.c:203-228): float spin products and sum
+    /* SAGE26 get_disk_radius: float spin products and sum
      * widened for the double sqrt, the truncated 1.414 literal, a positive-Vvir and
      * positive-Rvir guard, and the double fallback 0.1 * Rvir. */
     const double spin_mag = sqrt(spin_x * spin_x + spin_y * spin_y + spin_z * spin_z);
@@ -414,7 +414,7 @@ int test_disk_radius_zero_rvir(void) {
  * @test    test_disk_radius_small_vvir_rvir
  * @brief   Test disk radius when Vvir and Rvir are tiny but positive
  *
- * Expected: SAGE26 guards only Vvir > 0 && Rvir > 0 (model_misc.c:206), so tiny
+ * Expected: SAGE26 guards only Vvir > 0 && Rvir > 0, so tiny
  *           positive virial properties use the Mo, Mao & White formula, not the
  *           0.1 * Rvir fallback
  * Validates: SAGE26's positive guard (no epsilon threshold)
@@ -457,8 +457,7 @@ int test_disk_radius_small_vvir_rvir(void) {
 /**
  * @test    test_disk_radius_type1_satellite_frozen
  * @brief   SAGE parity: Type 1 satellites keep their inherited disk radius
- *          (SAGE26 recomputes it only for the FoF central,
- *          SAGE26 src/core_build_model.c:284-298)
+ *          (SAGE26 recomputes it only for the FoF central)
  *
  * Expected: DiskScaleRadius unchanged (sentinel value)
  * Validates: Type 1 satellite freeze contract
@@ -663,7 +662,7 @@ int test_module_initialization(void) {
   MimicConfig.num_pre_timestep = 1;
   MimicConfig.SubSteps = 1;
 
-  /* The module's one parameter, BulgeSizeOn, is set by reset_config() (R0's 0) */
+  /* The module's one parameter, BulgeSizeOn, is set by reset_config() (0) */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();

@@ -3,42 +3,18 @@
  * @brief   SAGE26 end-of-halo normalisation of the Cooling, Heating and OutflowRate sums, and
  *          SAGE26's written mdot rates
  *
- * sage26_apply_cooling and sage26_radio_mode_heating accumulate the cooling and
- * AGN heating energies 0.5 * m * Vvir^2 undivided over every substep, and the
- * shared feedback commit (shared/sage_sf_feedback_physics.h) accumulates the
- * reheated mass into SupernovaOutflowRate (SAGE26's OutflowRate) undivided, for
- * disk star formation and bursts alike, as SAGE26 does. After the last substep
- * SAGE26 turns the three sums into rates once per halo
- * (R/src/core_build_model.c:590-604):
+ * Divides the Cooling and Heating energies and the SupernovaOutflowRate reheated mass, accumulated
+ * undivided over the substeps, by the FoF's snapshot interval (the dT of its first galaxy), and
+ * writes the output mdot_cool and mdot_stream from the raw rates sage26_regime_aware_cooling
+ * stores. Implements SAGE26's end-of-halo normalisation after its last substep and its HDF5
+ * writer's mdot conversion:
  *
- *   deltaT       = Age[galaxies[0].SnapNum] - halo_age;
- *   inv_deltaT   = 1.0 / deltaT;
- *   Cooling     *= inv_deltaT;  Heating *= inv_deltaT;
- *   OutflowRate *= inv_deltaT;                     (every galaxy with mergeType 0)
+ *   Cooling *= 1/dT;  Heating *= 1/dT;  OutflowRate *= 1/dT   (every unmerged galaxy)
+ *   mdot = (float)(raw * UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS)
  *
- * This module reproduces that block in post_timestep, once per FoF group. The
- * interval is the dT of the FoF's first galaxy in the order Mimic holds the rows;
- * the core computes each row's dT with SAGE26's deltaT expression. A galaxy that
- * merged or was disrupted this snapshot (the package's Type 3, which
- * sage26_resolve_mergers_and_disruption sets where SAGE26 sets mergeType > 0) is
- * not normalised. OutflowRate is a float: its product with the double inverse is
- * rounded to float, as SAGE26's `*=` on its float member does.
- *
- * It also writes the output mdot_cool and mdot_stream of every galaxy it finalises, on every path,
- * from the raw float rates sage26_regime_aware_cooling stores (mdot_cool_raw and mdot_stream_raw)
- * with SAGE26's writer expression (R/src/io/save_gals_hdf5.c:996-997):
- *
- *   output = (float)(raw * UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS)
- *
- * evaluated left to right in double from the widened float, as SAGE26's save_gals_hdf5.o computes
- * it (fcvt, fmul, fdiv, fmul, fdiv, fcvt; no fused instruction; the oracle README,
- * "The c11 Group"). The output fields declare no output_convert, whose generated grouping would
- * round differently. With CGMrecipeOn 0 the raw rates stay 0 and so do the outputs.
- *
- * It must run once per FoF step, after the substeps: in a substep phase it would
- * multiply by 1/dT every substep. init() therefore requires exactly one
- * post_timestep entry as process_full_halo and no entry in pre_timestep or any
- * substep phase.
+ * A galaxy that merged or was disrupted this snapshot (Type 3) is not normalised. init() requires
+ * exactly one post_timestep entry as process_full_halo and no other entry: in a substep phase it
+ * would multiply by 1/dT every substep. With CGMrecipeOn 0 the raw rates and outputs stay 0.
  *
  * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
  * models/sage26/LICENSE-SAGE26.
@@ -64,11 +40,10 @@ static int has_merged(const struct Halo *halo) { return halo->Type == 3; }
 /**
  * @brief The output mdot rates from the raw float rates, as SAGE26's writer forms them
  *
- * SAGE parity: g->mdot_cool * UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS, one C
- * expression evaluated left to right in double from the widened float raw rate and narrowed to
- * the float output (R/src/io/save_gals_hdf5.c:996-997); SEC_PER_YEAR (3.155e7) and SOLAR_MASS
- * (1.989e33) equal SAGE26's (R/src/macros.h:24, :38). A rate never assigned is the raw creation
- * value 0, written as 0.
+ * SAGE parity: evaluated left to right in double from the widened float raw rate and narrowed to
+ * the float output, as SAGE26's writer does, so the output fields declare no output_convert;
+ * SEC_PER_YEAR (3.155e7) and SOLAR_MASS (1.989e33) equal SAGE26's. A rate never assigned is the
+ * raw creation value 0, written as 0.
  */
 static void write_mdot_rates(struct GalaxyData *galaxy, const struct MimicConfig *params) {
   galaxy->mdot_cool = (float)(galaxy->mdot_cool_raw * params->UnitMass_in_g /
@@ -138,7 +113,7 @@ int sage26_finalize_cooling_heating_process(struct ModuleContext *ctx, struct Ha
 
   // SAGE26's galaxies[0]: the FoF's first galaxy in the order Mimic holds the
   // rows. Workspace rows without a galaxy are not galaxies and are skipped. Its
-  // interval is used even when it has merged itself (R/src/core_build_model.c:591).
+  // interval is used even when it has merged itself.
   int first = -1;
   for (int i = 0; i < ngal; i++) {
     if (halos[i].galaxy != NULL) {
@@ -154,9 +129,9 @@ int sage26_finalize_cooling_heating_process(struct ModuleContext *ctx, struct Ha
 
   // Where the core gives the first galaxy no positive interval (its snapshot-zero
   // birth, dT = -1) no physics ran this snapshot, and the three sums are set to 0.
-  // SAGE26 always has a positive interval there (R/src/core_init.c:60-67): a
-  // core-boundary difference, not reproduced. The mdot rates are still written from their
-  // raw values, as SAGE26's writer writes every output galaxy's.
+  // SAGE26 always has a positive interval there: a core-boundary difference, not
+  // reproduced. The mdot rates are still written from their raw values, as SAGE26's
+  // writer writes every output galaxy's.
   if (!(deltaT > 0.0)) {
     for (int i = 0; i < ngal; i++) {
       if (halos[i].galaxy == NULL || has_merged(&halos[i])) {
@@ -173,11 +148,11 @@ int sage26_finalize_cooling_heating_process(struct ModuleContext *ctx, struct Ha
   const double inv_deltaT = 1.0 / deltaT;
 
   for (int i = 0; i < ngal; i++) {
-    // Don't bother with galaxies that have already merged (:597-600)
+    // Don't bother with galaxies that have already merged
     if (halos[i].galaxy == NULL || has_merged(&halos[i])) {
       continue;
     }
-    // In SAGE26's statement order (:601-603)
+    // In SAGE26's statement order
     halos[i].galaxy->Cooling *= inv_deltaT;
     halos[i].galaxy->Heating *= inv_deltaT;
     halos[i].galaxy->SupernovaOutflowRate *= inv_deltaT;

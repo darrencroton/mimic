@@ -4,50 +4,29 @@
  *        velocity and redshift scaling, the capped reheating loading and the Hirschmann et al.
  *        (2016) energy-based ejection
  *
- * Ports what SAGE26's FIREmodeOn 1 switches on in its supernova feedback (R = the staged SAGE26
- * source, S = R/src/model_starformation_and_feedback.c, X = R/src/model_misc.h):
+ * Implements what SAGE26's FIREmodeOn 1 switches on in its supernova feedback
+ * (starformation_and_feedback, starformation_ffb and the burst's copy in
+ * collisional_starburst_recipe), and SAGE26's capped_eta_reheat and sn_energy_coupling:
  *
- * - mimic_sage_fire_stored_redshift(): the redshift of the galaxy's stored snapshot, ZZ[SnapNum]
- *   (S:745), never the current halo snapshot's or a substep's. SAGE26 indexes ZZ without a bounds
- *   check; a stored SnapNum outside the redshift table is an out-of-bounds read in SAGE26, not a
- *   physics rule, so the package refuses it, naming the SnapNum and the table size, and never
- *   invents a redshift. It is shared with the cold streams of shared/sage_cooling_physics.h, so its
- *   log names no single caller; each caller logs its own context after a refusal.
- * - mimic_sage_fire_scaling(): the scaling (S:743-753, constants S:75, S:79): zero unless the
- *   host's velocity is positive and the redshift is not negative; otherwise
- *   (1 + z)^1.25 * (max(V, 1) / 60)^beta with beta = -3.2 below 60 km/s and -1.0 at and above.
- *   The 1 km/s floor applies to the scaling only.
- * - mimic_sage_capped_eta_reheat(): SAGE26's capped_eta_reheat (X:141-149): the reheating loading
- *   capped at 2 * EtaSNcode * EnergySNcode / V^2 in double, returned unchanged for V <= 0.
- * - mimic_sage_sn_energy_coupling(): SAGE26's sn_energy_coupling (X:118-124):
- *   FeedbackEjectionEfficiency * scaling capped at MAX_SN_ENERGY_COUPLING, 2.0 (X:31).
- * - mimic_sage_fire_energy_ejection(): the energy-based ejection (S:786-792): the coupled energy
- *   E_FB = coupling * 0.5 * stars * (EtaSNcode * EnergySNcode), the cost of lifting the reheated
- *   gas E_lift = 0.5 * reheated * V * V, and the mass the remainder ejects at 0.5 * V * V, zero
- *   when E_FB does not exceed E_lift.
+ * - mimic_sage_fire_stored_redshift(): the redshift ZZ[SnapNum] of the galaxy's stored snapshot,
+ *   never the current halo snapshot's or a substep's; a SnapNum outside the redshift table is
+ *   refused (SAGE26 has no bounds check there). Also used by the cold streams of
+ *   shared/sage_cooling_physics.h, so its log names no single caller.
+ * - mimic_sage_fire_scaling(): the Muratov et al. (2015) scaling, zero unless the host's velocity
+ *   is positive and the redshift not negative; otherwise (1 + z)^1.25 * (max(V, 1) / 60)^beta
+ *   with beta = -3.2 below 60 km/s and -1.0 at and above.
+ * - mimic_sage_capped_eta_reheat(): the reheating loading capped at
+ *   2 * EtaSNcode * EnergySNcode / V^2, unchanged for V <= 0.
+ * - mimic_sage_sn_energy_coupling(): FeedbackEjectionEfficiency * scaling capped at 2.0.
+ * - mimic_sage_fire_energy_ejection(): the Hirschmann et al. (2016) energy-based ejection.
  *
- * Precision. SAGE26 holds Vvir as a float, so the caller narrows Mimic's double halo Vvir to float
- * once and every FIRE local widens that float to double (S:746, S:763, S:787); every local is a
- * double. The non-FIRE ejection's float-squared Vvir does not apply here.
+ * SAGE26 holds Vvir as a float, so the caller narrows Mimic's double halo Vvir to float once and
+ * every FIRE local widens that float to double.
  *
- * Rounding points. SAGE26's objects (Apple clang -O2 -march=native, arm64; objdump -d -l of
- * model_starformation_and_feedback.o and model_mergers.o, the oracle README's "The c09 Group") fuse
- * no multiply-add on these lines, on the disk path or the burst's copy (M = R/src/model_mergers.c,
- * M:690-752): E_FB, E_lift and their difference keep separate roundings. Each expression here is
- * one C expression with SAGE26's operand order and types, none of which clang contracts. The
- * objects evaluate two of the scaling's three pow calls with pow (S:750, S:752; M:699, M:701; never
- * powf) but compile the high-velocity pow(x, -1.0) (S:751, M:700) to the division 1.0 / x (fdiv at
- * model_starformation_and_feedback.o offset 0x8fc and model_mergers.o offset 0xdc8), which macOS
- * pow(x, -1.0) does not reproduce for every x; the package writes that
- * division (see mimic_sage_fire_scaling).
- *
- * @note Used by sage26_calculate_supernova_feedback (the disk path, S:732-889), by the
- *       feedback-free-burst budget (shared/sage_ffb_feedback_physics.h, S:901-972, the forming
- *       galaxy's own float Vvir and stored SnapNum, MassLoading written only with a valid scaling)
- *       and by the burst transaction mimic_apply_collisional_starburst
- *       (shared/sage_starburst_physics.h, M:690-752, the burst host's own float Vvir and stored
- *       SnapNum, no MassLoading write), and by the oracle and unit tests of those modules, which
- *       call the helpers with locals.
+ * @note Used by sage26_calculate_supernova_feedback (the disk path), by the feedback-free-burst
+ *       budget (shared/sage_ffb_feedback_physics.h, MassLoading written only with a valid
+ *       scaling) and by mimic_apply_collisional_starburst (shared/sage_starburst_physics.h, the
+ *       burst host's own Vvir and stored SnapNum, no MassLoading write).
  *
  * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
  * models/sage26/LICENSE-SAGE26.
@@ -62,20 +41,20 @@
 #include "error.h"
 #include "types.h"
 
-/** @brief FIREmodeOn 0: SAGE26's fixed-epsilon Croton et al. (2016) feedback (R0-R2) */
+/** @brief FIREmodeOn 0: SAGE26's fixed-epsilon Croton et al. (2016) feedback */
 #define MIMIC_SAGE_FIRE_MODE_OFF 0
-/** @brief FIREmodeOn 1: the FIRE scaling, capped loading and energy-based ejection (R3) */
+/** @brief FIREmodeOn 1: the FIRE scaling, capped loading and energy-based ejection */
 #define MIMIC_SAGE_FIRE_MODE_ON 1
 
-/** @brief SAGE26's FIRE_V_CRIT_KMS (S:75): the velocity separating the two slopes [km/s] */
+/** @brief SAGE26's FIRE_V_CRIT_KMS: the velocity separating the two slopes [km/s] */
 #define MIMIC_SAGE_FIRE_V_CRIT_KMS 60.0
-/** @brief SAGE26's FIRE_REDSHIFT_EXPONENT (S:79): eta ~ (1 + z)^1.25 */
+/** @brief SAGE26's FIRE_REDSHIFT_EXPONENT: eta ~ (1 + z)^1.25 */
 #define MIMIC_SAGE_FIRE_REDSHIFT_EXPONENT 1.25
-/** @brief The low-velocity slope, below MIMIC_SAGE_FIRE_V_CRIT_KMS (S:750) */
+/** @brief The low-velocity slope, below MIMIC_SAGE_FIRE_V_CRIT_KMS */
 #define MIMIC_SAGE_FIRE_LOW_V_EXPONENT -3.2
-/** @brief The velocity floor of the scaling only (S:748) [km/s] */
+/** @brief The velocity floor of the scaling only [km/s] */
 #define MIMIC_SAGE_FIRE_VELOCITY_FLOOR_KMS 1.0
-/** @brief SAGE26's MAX_SN_ENERGY_COUPLING (X:31): the cap on the coupling and the loading budget */
+/** @brief SAGE26's MAX_SN_ENERGY_COUPLING: the cap on the coupling and the loading budget */
 #define MIMIC_SAGE_MAX_SN_ENERGY_COUPLING 2.0
 
 /**
@@ -90,7 +69,7 @@
  */
 static inline int mimic_sage_validate_fire_mode(const char *module_name, const int value) {
   if (value != MIMIC_SAGE_FIRE_MODE_OFF && value != MIMIC_SAGE_FIRE_MODE_ON) {
-    ERROR_LOG("%s: FIREmodeOn = %d is not supported: the package ports only 0 (fixed-epsilon "
+    ERROR_LOG("%s: FIREmodeOn = %d is not supported: the package supports only 0 (fixed-epsilon "
               "feedback) and 1 (FIRE scaling with energy-based ejection)",
               module_name, value);
     return -1;
@@ -99,12 +78,13 @@ static inline int mimic_sage_validate_fire_mode(const char *module_name, const i
 }
 
 /**
- * @brief The redshift of a galaxy's stored snapshot, ZZ[SnapNum] (S:745), or a refusal
+ * @brief The redshift of a galaxy's stored snapshot, ZZ[SnapNum], or a refusal
  *
- * SAGE26 reads ZZ[galaxies[p].SnapNum] before testing the velocity or the redshift (S:745-747),
- * with no bounds check. A stored SnapNum outside the run's redshift table (0 to Snaplistlen - 1,
- * the entries the core filled from the snapshot list) is refused with an error naming the SnapNum
- * and the table size; no redshift is invented for it.
+ * SAGE26 reads ZZ[galaxies[p].SnapNum] before testing the velocity or the redshift, with no bounds
+ * check; an out-of-range SnapNum is an out-of-bounds read there, not a physics rule. A stored
+ * SnapNum outside the run's redshift table (0 to Snaplistlen - 1, the entries the core filled from
+ * the snapshot list) is refused with an error naming the SnapNum and the table size; no redshift
+ * is invented for it.
  *
  * @param params   The run configuration (its ZZ table and Snaplistlen)
  * @param snapnum  The galaxy's stored SnapNum
@@ -118,12 +98,11 @@ static inline int mimic_sage_fire_stored_redshift(const struct MimicConfig *para
     return -1;
   }
   if (snapnum < 0 || snapnum >= params->Snaplistlen) {
-    ERROR_LOG(
-        "Stored-snapshot redshift: the galaxy's stored SnapNum = %d is outside the "
-        "redshift table ZZ of %d entries (snapshots 0 to %d); SAGE26 reads ZZ[SnapNum] "
-        "without a bounds check (FIRE feedback, R/src/model_starformation_and_feedback.c:745; "
-        "cold streams, R/src/model_cooling_heating.c:205), so no redshift is defined for it",
-        snapnum, params->Snaplistlen, params->Snaplistlen - 1);
+    ERROR_LOG("Stored-snapshot redshift: the galaxy's stored SnapNum = %d is outside the "
+              "redshift table ZZ of %d entries (snapshots 0 to %d); SAGE26 reads ZZ[SnapNum] "
+              "without a bounds check (FIRE feedback, "
+              "cold streams), so no redshift is defined for it",
+              snapnum, params->Snaplistlen, params->Snaplistlen - 1);
     return -1;
   }
   *z_out = params->ZZ[snapnum];
@@ -131,29 +110,29 @@ static inline int mimic_sage_fire_stored_redshift(const struct MimicConfig *para
 }
 
 /**
- * @brief The locals of one FIRE feedback budget, for tests that compare them with the oracle
+ * @brief The locals of one FIRE feedback budget, for tests that inspect intermediate values
  *
  * Each helper fills its own part. A double is NAN, and a flag -1, where its helper did not run or
  * its path does not form it.
  */
 struct MimicSageFireLocals {
-  double redshift;              /**< ZZ[SnapNum], the stored snapshot's redshift (S:745) */
-  int scaling_valid;            /**< vc > 0.0 && z >= 0.0 (S:747) */
-  int vc_floored;               /**< vc < 1.0: the scaling's velocity floored at 1 km/s (S:748) */
-  int high_velocity;            /**< vc_floored >= 60: the slope -1.0 (S:749-751) */
-  double v_term;                /**< the velocity term (S:749-751) */
-  double scaling;               /**< the FIRE scaling (S:752), 0.0 where not valid */
-  double eta_raw;               /**< the argument FeedbackReheatingEpsilon * scaling (S:763) */
-  int eta_cap_vvir_nonpositive; /**< vvir <= 0.0: eta_raw returned unchanged (X:144-146) */
-  double eta_max;               /**< 2.0 * EtaSNcode * EnergySNcode / (vvir * vvir) (X:147-148) */
-  int eta_cap_binds;            /**< eta_raw > eta_max (X:149) */
-  double eta;                   /**< the capped loading, MassLoading's double (S:762-764) */
-  double eps_eff;               /**< FeedbackEjectionEfficiency * scaling (X:120) */
-  int coupling_capped;          /**< eps_eff > MAX_SN_ENERGY_COUPLING (X:121) */
-  double coupling;              /**< the capped coupling (X:121-124) */
-  double e_fb;                  /**< the coupled supernova energy (S:789-790) */
-  double e_lift;                /**< the energy lifting the reheated gas (S:791) */
-  int energy_ejects;            /**< E_FB > E_lift (S:792) */
+  double redshift;              /**< ZZ[SnapNum], the stored snapshot's redshift */
+  int scaling_valid;            /**< vc > 0.0 && z >= 0.0 */
+  int vc_floored;               /**< vc < 1.0: the scaling's velocity floored at 1 km/s */
+  int high_velocity;            /**< vc_floored >= 60: the slope -1.0 */
+  double v_term;                /**< the velocity term */
+  double scaling;               /**< the FIRE scaling, 0.0 where not valid */
+  double eta_raw;               /**< the argument FeedbackReheatingEpsilon * scaling */
+  int eta_cap_vvir_nonpositive; /**< vvir <= 0.0: eta_raw returned unchanged */
+  double eta_max;               /**< 2.0 * EtaSNcode * EnergySNcode / (vvir * vvir) */
+  int eta_cap_binds;            /**< eta_raw > eta_max */
+  double eta;                   /**< the capped loading, MassLoading's double */
+  double eps_eff;               /**< FeedbackEjectionEfficiency * scaling */
+  int coupling_capped;          /**< eps_eff > MAX_SN_ENERGY_COUPLING */
+  double coupling;              /**< the capped coupling */
+  double e_fb;                  /**< the coupled supernova energy */
+  double e_lift;                /**< the energy lifting the reheated gas */
+  int energy_ejects;            /**< E_FB > E_lift */
 };
 
 /** @brief Mark every local of a FIRE budget as not formed (NAN, flags -1) */
@@ -178,12 +157,11 @@ static inline void mimic_sage_fire_locals_init(struct MimicSageFireLocals *l) {
 }
 
 /**
- * @brief SAGE26's FIRE velocity and redshift scaling (S:743-753)
+ * @brief SAGE26's FIRE velocity and redshift scaling
  *
- * fire_scaling = 0.0 unless vc > 0.0 and z >= 0.0 (S:747); then the velocity floored at 1 km/s
- * (S:748), the slope -3.2 below 60 km/s and -1.0 at and above (S:749-751), and
- * pow(1.0 + z, 1.25) * v_term (S:752). The velocity is SAGE26's float Vvir widened to double
- * (S:746): the caller passes Mimic's halo Vvir narrowed to float.
+ * fire_scaling = 0.0 unless vc > 0.0 and z >= 0.0; then the velocity floored at 1 km/s, the slope
+ * -3.2 below 60 km/s and -1.0 at and above, and pow(1.0 + z, 1.25) * v_term. The velocity is
+ * SAGE26's float Vvir widened to double: the caller passes Mimic's halo Vvir narrowed to float.
  *
  * @param vvir      The host galaxy's own Vvir, as SAGE26's float
  * @param redshift  Its stored snapshot's redshift (mimic_sage_fire_stored_redshift)
@@ -204,14 +182,8 @@ static inline double mimic_sage_fire_scaling(const float vvir, const double reds
     const double vc_floored = (vc_fire < MIMIC_SAGE_FIRE_VELOCITY_FLOOR_KMS)
                                   ? MIMIC_SAGE_FIRE_VELOCITY_FLOOR_KMS
                                   : vc_fire;
-    /* SAGE parity: SAGE26 writes the high-velocity term as pow(vc_floored / FIRE_V_CRIT_KMS, -1.0)
-     * (R/src/model_starformation_and_feedback.c:751; the burst's copy R/src/model_mergers.c:700),
-     * and its objects compute it as the division 1.0 / x (fdiv at
-     * model_starformation_and_feedback.o offset 0x8fc and model_mergers.o offset 0xdc8, clang's
-     * simplification of pow with exponent -1). macOS pow(x, -1.0) differs from 1.0 / x for 1352565
-     * of the floats from 60 km/s up (an exhaustive check), so the division is written as the object
-     * has it, correctly rounded at every optimisation level. The low-velocity term stays pow
-     * (:750). */
+    /* SAGE parity: SAGE26's pow(x, -1.0) for the high-velocity term runs as the division
+     * 1.0 / x in its build, so the division is written here; the low-velocity term stays pow */
     const double v_term =
         (vc_floored < MIMIC_SAGE_FIRE_V_CRIT_KMS)
             ? pow(vc_floored / MIMIC_SAGE_FIRE_V_CRIT_KMS, MIMIC_SAGE_FIRE_LOW_V_EXPONENT)
@@ -230,7 +202,7 @@ static inline double mimic_sage_fire_scaling(const float vvir, const double reds
 }
 
 /**
- * @brief SAGE26's capped_eta_reheat (X:141-149)
+ * @brief SAGE26's capped_eta_reheat
  *
  * Returns eta_reheat unchanged for vvir <= 0.0; otherwise caps it at
  * eta_max = MAX_SN_ENERGY_COUPLING * esn_per_mass / (vvir * vvir), esn_per_mass =
@@ -270,7 +242,7 @@ static inline double mimic_sage_capped_eta_reheat(const double eta_reheat, const
 }
 
 /**
- * @brief SAGE26's sn_energy_coupling (X:118-124)
+ * @brief SAGE26's sn_energy_coupling
  *
  * eps_eff = FeedbackEjectionEfficiency * fire_scaling, capped (strictly) at
  * MAX_SN_ENERGY_COUPLING.
@@ -295,12 +267,13 @@ static inline double mimic_sage_sn_energy_coupling(const double fire_scaling,
 }
 
 /**
- * @brief SAGE26's FIRE energy-based ejection (S:786-792), for a positive host velocity
+ * @brief SAGE26's FIRE energy-based ejection (Hirschmann et al. 2016), for a positive host
+ *        velocity
  *
  * E_FB = coupling * 0.5 * stars * (EtaSNcode * EnergySNcode) and E_lift = 0.5 * reheated * vc * vc,
- * from the renormalised stars and reheated mass (S:775-779); the ejected mass is
+ * from the renormalised stars and reheated mass; the ejected mass is
  * (E_FB - E_lift) / (0.5 * vc * vc) when E_FB > E_lift, else 0.0. The caller tests vc > 0.0
- * first (S:783) and applies the negative-ejection floor after (S:880-882).
+ * first and applies the negative-ejection floor after.
  *
  * @param coupling        mimic_sage_sn_energy_coupling() of the scaling
  * @param stars           The renormalised stars

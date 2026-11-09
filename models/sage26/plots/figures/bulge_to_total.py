@@ -3,21 +3,19 @@
 """
 SAGE26 Bulge-to-Total Plot
 
-Port of the "Plotting the bulge-to-total ratio" section of SAGE26's plotting script
-(plotting/allresults-local.py:1179-1244): the bulge-to-total mass ratio of every galaxy against
-stellar mass, with the median and 16-84th percentile of each stellar-mass bin, the mean
-merger-driven and mean instability-driven components, and the Moffett et al. (2016)
-observations. The section is the specification; where this port differs it is a permitted
-deviation below.
+Follows the "Plotting the bulge-to-total ratio" section of SAGE26's plotting script: the
+bulge-to-total mass ratio of every galaxy against stellar mass, with the median and 16-84th
+percentile of each stellar-mass bin, the mean merger-driven and mean instability-driven components,
+and the Moffett et al. (2016) observations. Where it differs from SAGE26 the difference is stated
+below.
 
 Requires: StellarMass, BulgeMass, MergerBulgeMass, InstabilityBulgeMass
 
-Fields read (units): StellarMass, BulgeMass, MergerBulgeMass and InstabilityBulgeMass, each in
-1e10 Msun/h and converted to Msun as SAGE26 converts them (x 1e10 / hubble_h,
-allresults-local.py:365, :367, :383, :384). SAGE26's `Moffet16.dat` overlay is held inline as
-OBS_MOFFETT16.
+Fields read (units): StellarMass, BulgeMass, MergerBulgeMass and InstabilityBulgeMass, each in 1e10
+Msun/h and converted to Msun as SAGE26 converts them (x 1e10 / hubble_h). SAGE26's `Moffet16.dat`
+overlay is held inline as OBS_MOFFETT16.
 
-Permitted deviations: none beyond the display freedoms (figure size, font sizes, colours, marker
+Differences from SAGE26: none beyond the display freedoms (figure size, font sizes, colours, marker
 sizes, dpi, bbox) taken through the house helpers.
 """
 
@@ -31,7 +29,7 @@ from output_utils import (
 )
 
 # Moffett et al. (2016, MNRAS, 462, 4336) GAMA bulge mass fractions, transcribed from SAGE26's
-# data/morphology/Moffet16.dat (read at allresults-local.py:1224). Columns: log10(stellar
+# data/morphology/Moffet16.dat (read as SAGE26 reads it). Columns: log10(stellar
 # mass / Msun), fraction of mass in the bulge, statistical -1 sigma boundary, statistical
 # +1 sigma boundary, in the file's row order.
 OBS_MOFFETT16 = np.array(
@@ -57,14 +55,14 @@ OBS_MOFFETT16 = np.array(
     ]
 )
 
-# SAGE26 shifts the Moffett masses by imf_shift('chabrier') (allresults-local.py:1226): the
-# dex of the selected IMF (whichimf = 1, Chabrier, :46) above the Chabrier scale minus the dex
-# of the data's native IMF (Chabrier), both 0.00 (:52-53, :60-72).
+# SAGE26 shifts the Moffett masses by imf_shift('chabrier'): the dex of the selected IMF (whichimf =
+# 1, Chabrier) above the Chabrier scale minus the dex of the data's native IMF (Chabrier), both
+# 0.00.
 MOFFETT_IMF_SHIFT_DEX = 0.0 - 0.0
 
 # Stellar-mass bins of the percentile and mean curves: np.arange(8.5, 12.5 + binwidth, binwidth)
-# with binwidth 0.25 (allresults-local.py:1189-1190), and the smallest bin SAGE26 summarises
-# (:1205, "too few galaxies for a meaningful percentile")
+# with binwidth 0.25, and the smallest bin SAGE26 summarises ("too few galaxies for a
+# meaningful percentile")
 BIN_WIDTH = 0.25
 BIN_START = 8.5
 BIN_STOP = 12.5
@@ -75,8 +73,8 @@ def bulge_to_total_ratios(stellar_mass, bulge_mass, merger_bulge_mass, instabili
     """
     Return (B/T, merger-driven B/T, instability-driven B/T) of the selected galaxies.
 
-    SAGE26 allresults-local.py:1185-1187: BulgeMass / StellarMass, MergerBulgeMass /
-    StellarMass and InstabilityBulgeMass / StellarMass, each over the selected galaxies.
+    As in SAGE26: BulgeMass / StellarMass, MergerBulgeMass / StellarMass and InstabilityBulgeMass /
+    StellarMass, each over the selected galaxies.
     """
     btot = bulge_mass / stellar_mass
     btot_merger = merger_bulge_mass / stellar_mass
@@ -88,10 +86,9 @@ def bulge_to_total_bins(mass, btot, btot_merger, btot_instab):
     """
     Return the per-bin statistics of the bulge-to-total ratio.
 
-    SAGE26 allresults-local.py:1189-1210: bins from np.arange(8.5, 12.5 + 0.25, 0.25) assigned
-    with np.digitize; a bin with fewer than 5 galaxies is left at NaN; otherwise it holds the
-    median and 16th / 84th percentiles of B/T and the means of the merger- and
-    instability-driven ratios.
+    As in SAGE26: bins from np.arange(8.5, 12.5 + 0.25, 0.25) assigned with np.digitize; a bin with
+    fewer than 5 galaxies is left at NaN; otherwise it holds the median and 16th / 84th percentiles
+    of B/T and the means of the merger- and instability-driven ratios.
 
     Returns:
         (bin_centres, median, lower, upper, merger_mean, instability_mean), each one value
@@ -162,7 +159,6 @@ def plot(
     merger_bulge_mass = galaxies.MergerBulgeMass * 1.0e10 / hubble_h
     instability_bulge_mass = galaxies.InstabilityBulgeMass * 1.0e10 / hubble_h
 
-    # allresults-local.py:1183-1187
     w = np.where((stellar_mass > 0.0) & (bulge_mass > 0.0))[0]
     mass = np.log10(stellar_mass[w])
     btot, btot_merger, btot_instab = bulge_to_total_ratios(
@@ -179,7 +175,6 @@ def plot(
 
     fig, ax = setup_figure()
 
-    # allresults-local.py:1212-1219
     good = np.isfinite(btot_med)
     ax.fill_between(
         bin_centres[good],
@@ -210,10 +205,10 @@ def plot(
         gid="model",
     )
 
-    # allresults-local.py:1221, points on top of the lines
+    # Points on top of the lines
     ax.scatter(mass, btot, color="k", s=0.5, zorder=10, alpha=0.45, gid="model")
 
-    # Moffett et al. (2016), allresults-local.py:1224-1230
+    # Moffett et al. (2016)
     moffett = OBS_MOFFETT16
     obs_mass = moffett[:, 0] + MOFFETT_IMF_SHIFT_DEX
     ax.errorbar(
@@ -231,14 +226,12 @@ def plot(
         label="Moffett et al. (2016)",
     )
 
-    # allresults-local.py:1232-1234
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
     ax.set_ylabel(r"$M_{\mathrm{bulge}} / M_{\mathrm{stars}}$", fontsize=AXIS_LABEL_SIZE)
     ax.set_xlabel(r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$", fontsize=AXIS_LABEL_SIZE)
 
-    # SAGE26 figure parity: allresults-local.py:1236 places the legend at upper left over the
-    # scatter. Mirrored as written.
+    # SAGE parity: SAGE26 places the legend at upper left over the scatter; mirrored as written
     setup_legend(ax, loc="upper left")
 
     plot_path = save_and_close_figure(fig, output_dir, "BulgeToTotal", output_format, verbose)

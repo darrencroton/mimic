@@ -6,10 +6,9 @@
  * target index within a FoF workspace. Multiple modules use these to locate the central
  * galaxy without duplicating the Type == 0 scan or the CentralHalo traversal.
  *
- * @note SAGE parity: the merger and disruption target follows SAGE26's per-substep pass
- *       (R/src/core_build_model.c:539-543, R = the staged SAGE26 source); Mimic's core sets
- *       every row's CentralHalo to its subhalo's Type 0 or 1 row, as SAGE26's joining sets
- *       CentralGal (src/core/inheritance.c set_local_centrals, B:358-370).
+ * @note SAGE parity: the merger and disruption target follows SAGE26's per-substep merger pass
+ *       in evolve_galaxies; Mimic's core sets every row's CentralHalo to its subhalo's Type 0 or
+ *       1 row (set_local_centrals), as SAGE26's joining sets CentralGal.
  */
 
 #ifndef MIMIC_SHARED_CENTRAL_LINK_H
@@ -41,11 +40,7 @@ static inline int mimic_find_fof_central_index(const struct Halo *halos, int nga
 }
 
 /**
- * @brief SAGE26's merger and disruption target (R/src/core_build_model.c:539-543)
- *
- *   int merger_centralgal = galaxies[p].Type==1 ? centralgal : galaxies[p].CentralGal;
- *   if(galaxies[merger_centralgal].mergeType > 0)
- *       merger_centralgal = galaxies[merger_centralgal].CentralGal;
+ * @brief SAGE26's merger and disruption target, as evolve_galaxies chooses merger_centralgal
  *
  * A Type 1 targets the FoF central, a Type 2 its subhalo's central (its CentralHalo). A
  * target that has merged or been disrupted in this snapshot (the package's Type 3,
@@ -54,11 +49,10 @@ static inline int mimic_find_fof_central_index(const struct Halo *halos, int nga
  * so an orphan whose Type 1 has just merged is redirected onto that merged galaxy, as in
  * SAGE26.
  *
- * SAGE26 indexes its galaxies with these links directly. The package has no fallback to
- * the FoF central for an invalid link (the earlier one is gone); an index outside the
+ * There is no fallback to the FoF central for an invalid link: an index outside the
  * workspace returns -1, which the caller reports as an error instead of reading outside
  * the array. The core sets every CentralHalo inside its subhalo's slice
- * (src/core/inheritance.c set_local_centrals), so a valid run never reaches it.
+ * (set_local_centrals in src/core/inheritance.c), so a valid run never reaches it.
  *
  * @param halos              FoF workspace halo array
  * @param ngal               Number of halos in the workspace

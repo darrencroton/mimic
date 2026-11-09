@@ -1,7 +1,7 @@
 """
 Run parameters read by the SAGE26 figures.
 
-The cosmology comes from the engine's parameters (plot/mimic-plot/mimic-plot.py:588-593). A
+The cosmology comes from the plotting engine's parameters. A
 module parameter comes from the run file's modules.parameters (params["EnabledModules"]
 ["parameters"], read with output_utils.read_module_parameters, as the hod and sham figures read
 theirs), so a figure drawn from a non-default run uses that run's value. SAGE26's plotting scripts

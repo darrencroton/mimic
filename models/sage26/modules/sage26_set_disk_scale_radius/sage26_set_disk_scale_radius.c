@@ -2,19 +2,14 @@
  * @file    sage26_set_disk_scale_radius.c
  * @brief   SAGE26 disk scale radius - sets disk scale radius from halo spin parameters
  *
- * Ports SAGE26's get_disk_radius (model_misc.c:203-228), the Mo, Mao & White (1998)
- * disk radius from the Bullock spin parameter, and its float store into
- * DiskScaleRadius (core_build_model.c:297), followed at once by the central's bulge
- * radius synchronisation, get_bulge_radius (core_build_model.c:298, model_misc.c:239-377,
- * shared/sage_bulge_size_physics.h): with BulgeSizeOn 0 it zeroes the three bulge radii,
- * with BulgeSizeOn 3 it recombines them from the two bulge channels. Computed for the FOF
- * central (Type 0) only. SAGE parity: SAGE26 recomputes both only for the FOF central in
- * join_galaxies_of_progenitors (core_build_model.c:284-300); Type 1 satellites freeze
- * the disk radius they last had as a central and are not resynchronised here. Runs in
- * the pre_timestep phase before the physics modules execute.
- *
- * Every floating-point expression is transcribed from SAGE26 with its operand
- * order and types, so that compiler contraction treats both alike.
+ * Implements SAGE26's get_disk_radius, the Mo, Mao & White (1998) disk radius from the Bullock
+ * spin parameter, and its float store into DiskScaleRadius, followed at once by the central's
+ * bulge radius synchronisation, get_bulge_radius (shared/sage_bulge_size_physics.h): with
+ * BulgeSizeOn 0 it zeroes the three bulge radii, with BulgeSizeOn 3 it recombines them from the
+ * two bulge channels. Computed for the FOF central (Type 0) only. SAGE parity: SAGE26 recomputes
+ * both only for the FOF central in join_galaxies_of_progenitors; Type 1 satellites freeze the
+ * disk radius they last had as a central and are not resynchronised here. Runs in the
+ * pre_timestep phase before the physics modules execute.
  *
  * Reference: Mo, Mao & White (1998), Bullock et al. (2001)
  *
@@ -36,10 +31,9 @@
 // CONSTANTS
 // ============================================================================
 
-/* SAGE26 model_misc.c:40-42, same names and values.
- * SAGE parity: SQRT_REPLACEMENT is the truncated literal 1.414 SAGE26 uses in
- * place of sqrt(2) (model_misc.c:42, :207-210); replacing it shifts every disk
- * radius. DISK_CONCENTRATION_FACTOR is f_R frozen at 1.0 (model_misc.c:219-226). */
+/* SAGE parity: SQRT_REPLACEMENT is the truncated literal 1.414 SAGE26 uses in
+ * place of sqrt(2); replacing it shifts every disk radius. DISK_CONCENTRATION_FACTOR
+ * is f_R frozen at 1.0. */
 static const double DISK_RADIUS_FALLBACK_FRAC = 0.1;
 static const double DISK_CONCENTRATION_FACTOR = 1.0;
 static const double SQRT_REPLACEMENT = 1.414;
@@ -48,8 +42,8 @@ static const double SQRT_REPLACEMENT = 1.414;
 // MODULE PARAMETERS
 // ============================================================================
 
-/* SAGE26's BulgeSizeOn: 0 (R0) or 3 (Tonini sizes), the mode of the central's bulge
- * radius synchronisation (R/src/model_misc.c:242, :317) */
+/* SAGE26's BulgeSizeOn: 0 (off) or 3 (Tonini sizes), the mode of the central's bulge
+ * radius synchronisation */
 static int BULGE_SIZE_ON;
 
 // ============================================================================
@@ -57,7 +51,7 @@ static int BULGE_SIZE_ON;
 // ============================================================================
 
 /**
- * @brief SAGE26 get_disk_radius (model_misc.c:203-228)
+ * @brief SAGE26's get_disk_radius
  *
  * @param Spin  The halo's specific angular momentum vector (float, as SAGE26's
  *              halo_data holds it)
@@ -70,7 +64,7 @@ static double get_disk_radius(const float Spin[3], const float Vvir, const float
   if (Vvir > 0.0 && Rvir > 0.0) {
     /* SAGE parity: the spin-component products and their sum are float
      * arithmetic, as SAGE26's float Spin makes them; only the sum is widened to
-     * double for sqrt (model_misc.c:212-213). The spin parameter's denominator
+     * double for sqrt. The spin parameter's denominator
      * 1.414 * Vvir * Rvir is double, the float fields widened. */
     double SpinMagnitude = sqrt(Spin[0] * Spin[0] + Spin[1] * Spin[1] + Spin[2] * Spin[2]);
 
@@ -78,7 +72,7 @@ static double get_disk_radius(const float Spin[3], const float Vvir, const float
     r_disk = (SpinParameter / SQRT_REPLACEMENT) * Rvir;
     return r_disk * DISK_CONCENTRATION_FACTOR;
   } else {
-    // SAGE26's fallback is the double product 0.1 * Rvir (model_misc.c:226-227)
+    // SAGE26's fallback is the double product 0.1 * Rvir
     return DISK_RADIUS_FALLBACK_FRAC * Rvir;
   }
 }
@@ -104,8 +98,7 @@ int sage26_set_disk_scale_radius_process(struct ModuleContext *ctx, struct Halo 
   if (halos == NULL || ngal <= 0) {
     return 0;
   }
-  /* SAGE26's run_params->BulgeSizeOn and Hubble_h (R/src/model_misc.c:242, :249); only
-   * mode 3 reads Hubble_h */
+  /* SAGE26's run_params->BulgeSizeOn and Hubble_h; only mode 3 reads Hubble_h */
   if (BULGE_SIZE_ON == MIMIC_SAGE_BULGE_SIZE_TONINI && (ctx == NULL || ctx->params == NULL)) {
     ERROR_LOG("sage26_set_disk_scale_radius: BulgeSizeOn 3 needs the run configuration "
               "(Hubble_h)");
@@ -116,21 +109,21 @@ int sage26_set_disk_scale_radius_process(struct ModuleContext *ctx, struct Halo 
 
   for (int i = 0; i < ngal; i++) {
     // SAGE parity: the disk scale radius is recomputed ONLY for the FOF
-    // central (Type 0), inside join_galaxies_of_progenitors
-    // (core_build_model.c:284-298). Type 1 satellites freeze the value they had
+    // central (Type 0), inside join_galaxies_of_progenitors.
+    // Type 1 satellites freeze the value they had
     // as a central; recomputing it here would change their star formation
     // (reff -> tdyn -> cold_crit).
     if (halos[i].galaxy == NULL || halos[i].Type != 0) {
       continue;
     }
 
-    // Vvir and Rvir are read as the floats SAGE26 holds (core_allvars.h:131-132);
-    // the double result is stored in the float field (core_build_model.c:297)
+    // SAGE parity: Vvir and Rvir are read as the floats SAGE26 holds; the double
+    // result is stored in the float field
     halos[i].galaxy->DiskScaleRadius =
         get_disk_radius(halos[i].Spin, (float)halos[i].Vvir, (float)halos[i].Rvir);
 
     /* SAGE parity: the central's bulge radius is synchronised immediately after its disk
-     * radius (core_build_model.c:297-298), so the mode-3 instability fallback reads the new
+     * radius, so the mode-3 instability fallback reads the new
      * disk radius; the returned double is discarded, as SAGE26 discards it */
     (void)mimic_sage_get_bulge_radius(halos[i].galaxy, &sizes, NULL);
 

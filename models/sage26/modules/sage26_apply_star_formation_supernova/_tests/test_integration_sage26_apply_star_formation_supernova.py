@@ -81,7 +81,7 @@ PHASES = {
     "post_timestep": [],
 }
 
-# The gas supply's keys, at R1's values
+# The gas supply's keys (SFprescription 0)
 SUPPLY_PARAMS = {
     "GlobalBaryonFraction": 0.17,
     "AGNrecipe": 2,
@@ -116,9 +116,9 @@ def test_full_pipeline_conservation():
         phase_config=PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -126,7 +126,7 @@ def test_full_pipeline_conservation():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -215,9 +215,9 @@ def test_gas_transfer_physics():
         phase_config=PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -225,7 +225,7 @@ def test_gas_transfer_physics():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -307,9 +307,9 @@ def test_metal_enrichment():
         phase_config=PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -317,7 +317,7 @@ def test_metal_enrichment():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.03,  # Higher yield for testing
             "FracZleaveDisk": 0.5,
@@ -372,9 +372,9 @@ def test_parameter_sensitivity():
         phase_config=PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -382,7 +382,7 @@ def test_parameter_sensitivity():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.3,  # Lower recycling
             "Yield": 0.015,  # Lower yield
             "FracZleaveDisk": 0.0,
@@ -401,9 +401,9 @@ def test_parameter_sensitivity():
         phase_config=PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -411,7 +411,7 @@ def test_parameter_sensitivity():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.5,  # Higher recycling
             "Yield": 0.035,  # Higher yield
             "FracZleaveDisk": 0.0,
@@ -486,9 +486,9 @@ def test_edge_cases():
         phase_config=PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -496,7 +496,7 @@ def test_edge_cases():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -578,9 +578,9 @@ def test_memory_and_performance():
         phase_config=PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -588,7 +588,7 @@ def test_memory_and_performance():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -655,7 +655,7 @@ NO_CALCULATOR_PHASES = {
     ],
 }
 
-# The run files' parameters (R6)
+# The run files' parameters
 RUN_FILE_PARAMS = {
     "GlobalBaryonFraction": 0.17,
     "CGMrecipeOn": 1,
@@ -704,8 +704,8 @@ NON_NEGATIVE_FIELDS = (
 # residues of at most about 6e-18 on rows whose EjectedGas is 0 (the metals left when all the gas
 # moves), at SubSteps 1 with or without the calculator (-5.5e-20 with it, where nothing goes
 # negative otherwise), and the other metal fields can carry the same residue on another libm. The
-# defect drives the gas reservoirs to order -1 and MetalsHotGas to -5.5e-4 in the R0 run, so -1e-12
-# separates the two; the gas and rate fields are held strictly to 0
+# defect the cap prevents drives the gas reservoirs to order -1 and MetalsHotGas to order -5e-4,
+# so -1e-12 separates the two; the gas and rate fields are held strictly to 0
 METALS_ROUNDING_FLOOR = -1.0e-12
 
 
@@ -718,27 +718,17 @@ def test_cold_gas_cap_without_supernova_calculator():
       that one substep spans many dynamical times and star formation can exceed the cold gas
 
     Mechanism: without sage26_calculate_supernova_feedback nothing caps star formation (its cap is
-    SAGE26's renormalisation, R/src/model_starformation_and_feedback.c:775-779), so the commit can
-    leave the cold gas negative. The ported feedback step then clamps the reheated mass to that
-    negative cold gas (R/src/model_starformation_and_feedback.c:1153-1156; SAGE26 itself stops
-    there on an assertion, :1158, which the port does not carry), which resets ColdGas to 0 and
-    ships the deficit to the FoF central as a negative reheat, and the ejection cap carries it into
-    EjectedGas once it exceeds the central's reservoir (:1184-1186, :1207-1209), so the defect
-    appears in the central's reservoirs and outflow rate rather than in ColdGas. The apply step
-    therefore caps NewStellarMass at ColdGas.
+    SAGE26's renormalisation), so the commit can leave the cold gas negative. The feedback step
+    then clamps the reheated mass to that negative cold gas (SAGE26 itself stops there on an
+    assertion, which this module does not carry), which resets ColdGas to 0 and ships the deficit
+    to the FoF central as a negative reheat, and the ejection cap carries it into EjectedGas once
+    it exceeds the central's reservoir, so the defect appears in the central's reservoirs and
+    outflow rate rather than in ColdGas. The apply step therefore caps NewStellarMass at ColdGas.
 
     Pipeline: NO_CALCULATOR_PHASES, the run files' phases minus the calculator, at the run files'
-    parameters (R6), writing the run files' eight snapshots.
+    parameters, writing the run files' eight snapshots.
 
     The three metal fields are held to METALS_ROUNDING_FLOOR rather than 0 (the floor's comment).
-
-    Observed minima over the eight written snapshots (output units; negative rows in brackets).
-    R6, this case, before the cap (fails): EjectedGas -1.89383 (2), SupernovaOutflowRate -288.793
-    (14), MetalsEjectedGas -5.95e-18 (57, rounding residue), every other field 0 (0). R6 after the
-    cap (passes): every field 0 (0) except MetalsEjectedGas -5.95e-18 (61, rounding residue). An R0
-    run of the same pipeline (SFprescription, CGMrecipeOn, FIREmodeOn, EnhancedStarFormationOn,
-    ConcentrationOn and BulgeSizeOn 0) before the cap: EjectedGas -1.922 (8), SupernovaOutflowRate
-    -303.6 (42), MetalsHotGas -5.52e-4 (1); after it all three are 0 (0).
     """
     print(f"\n{BLUE}TEST: Cold-gas cap without the supernova calculator{NC}")
 

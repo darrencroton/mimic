@@ -3,26 +3,24 @@
 """
 SAGE26 H2 Fraction Evolution Plot
 
-Port of the "Plotting H2 fraction vs stellar mass at different redshifts" section of SAGE26's
-history plotting script (plotting/allresults-history.py:1611-1725, figure H2FractionEvolution):
-the mean molecular fraction of the cold gas, M_H2 / (M_cold x 0.74), of galaxies against stellar
-mass, in the fifteen redshift bins, with the standard error of the mean over the snapshots of a
-bin as a shaded band. The section is the specification; where this port differs it is a
-permitted deviation below.
+Follows the H2FractionEvolution figure of SAGE26's history plotting script: the mean molecular
+fraction of the cold gas, M_H2 / (M_cold x 0.74), of galaxies against stellar mass, in the fifteen
+redshift bins, with the standard error of the mean over the snapshots of a bin as a shaded band.
+Where it differs from SAGE26 the difference is stated below.
 
 Requires: StellarMass, ColdGas, H2gas
 
-Fields read (units): StellarMass, ColdGas and H2gas (1e10 Msun/h each, converted to Msun as
-SAGE26 converts them: x 1e10 / hubble_h, allresults-history.py:337, :357 and :345).
+Fields read (units): StellarMass, ColdGas and H2gas (1e10 Msun/h each, converted to Msun as SAGE26
+converts them: x 1e10 / hubble_h).
 
-Snapshots: those with a redshift in each bin of ``Z_BINS`` (:1542-1546), chosen through
-``snapshots_in_z_range``; snapshot 63 (z = 0) falls in none, as in SAGE26.
+Snapshots: those with a redshift in each bin of ``Z_BINS``, chosen through ``snapshots_in_z_range``;
+snapshot 63 (z = 0) falls in none, as in SAGE26.
 
-SAGE26 prints diagnostics of the first snapshots and of each bin (:1620-1632, :1672-1693); they
-change nothing drawn and are not reproduced.
+SAGE26 prints diagnostics of the first snapshots and of each bin; they change nothing drawn and are
+not reproduced.
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
-reads 64, so a bin holds at most one snapshot and its standard error is zero.
+Differences from SAGE26: none beyond drawing the figure from the snapshots the run writes, where
+SAGE26 reads all 64, so a bin may hold a single snapshot, and its standard error is then zero.
 """
 
 import matplotlib.pyplot as plt
@@ -38,7 +36,7 @@ from output_utils import (
     setup_figure,
 )
 
-# Hydrogen mass fraction of the cold gas (allresults-history.py:1616)
+# Hydrogen mass fraction of the cold gas
 HYDROGEN_MASS_FRAC = 0.74
 
 
@@ -46,7 +44,7 @@ def mass_bins():
     """
     Return the stellar-mass bin edges, the same for every redshift bin.
 
-    SAGE26 allresults-history.py:1617: `np.arange(7.2, 12.5, 0.1)`.
+    As in SAGE26: `np.arange(7.2, 12.5, 0.1)`.
     """
     return np.arange(7.2, 12.5, 0.1)
 
@@ -55,7 +53,7 @@ def select_with_cold_gas(stellar_mass, cold_gas):
     """
     Return the indices of galaxies with positive stellar mass and positive cold gas.
 
-    SAGE26 allresults-history.py:1654: `np.where((mstar > 0.0) & (cold > 0.0))[0]`.
+    As in SAGE26: `np.where((mstar > 0.0) & (cold > 0.0))[0]`.
     """
     return np.where((stellar_mass > 0.0) & (cold_gas > 0.0))[0]
 
@@ -64,8 +62,7 @@ def molecular_fraction(h2_gas, cold_gas):
     """
     Return the molecular fraction of the cold gas, clipped to 0 to 1.
 
-    SAGE26 allresults-history.py:1660: `np.clip(h2[w] / (cold[w] * HYDROGEN_MASS_FRAC), 0.0,
-    1.0)`.
+    As in SAGE26: `np.clip(h2[w] / (cold[w] * HYDROGEN_MASS_FRAC), 0.0, 1.0)`.
     """
     return np.clip(h2_gas / (cold_gas * HYDROGEN_MASS_FRAC), 0.0, 1.0)
 
@@ -102,14 +99,13 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         params, "h2_fraction_evolution", (7.2, 12.0), (0.0, 1.05)
     )
 
-    # allresults-history.py:1547 (viridis)
+    # Viridis
     colors = plt.cm.viridis(np.linspace(0.1, 0.9, len(Z_BINS)))
     bins = mass_bins()
     mass_centers = bins[:-1] + 0.05
 
     fig, ax = setup_figure(figsize=(10, 7))
 
-    # allresults-history.py:1635-1711
     for i, (z_min, z_max) in enumerate(Z_BINS):
         snap_indices = snapshots_in_z_range(snapshots, z_min, z_max)
         if len(snap_indices) == 0:
@@ -158,7 +154,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             gid="model",
         )
 
-    # allresults-history.py:1713-1719
     ax.axhline(1.0, color="k", linestyle="--", linewidth=1, alpha=0.5)
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
@@ -168,8 +163,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     )
     ax.xaxis.set_minor_locator(MultipleLocator(0.1))
     if ax.get_legend_handles_labels()[0]:
-        # SAGE26 figure parity: allresults-history.py:1719 places the legend at upper left over
-        # the curves. Mirrored as written.
+        # SAGE parity: SAGE26 places the legend at upper left over the curves; mirrored as written
         ax.legend(loc="upper left", frameon=False)
 
     fig.tight_layout()

@@ -3,23 +3,21 @@
 """
 SAGE26 Star Formation Rate Evolution Plot
 
-Port of the "Plotting SFR evolution with redshift bins" section of SAGE26's history plotting
-script (plotting/allresults-history.py:755-841, figure SFR_evolution): the mean star formation
-rate of galaxies against stellar mass, in the fifteen redshift bins, with the standard error of
-the mean over the snapshots of a bin as a shaded band. The section is the specification; where
-this port differs it is a permitted deviation below.
+Follows the SFR_evolution figure of SAGE26's history plotting script: the mean star formation rate
+of galaxies against stellar mass, in the fifteen redshift bins, with the standard error of the mean
+over the snapshots of a bin as a shaded band. Where it differs from SAGE26 the difference is stated
+below.
 
 Requires: StellarMass, SfrDisk, SfrBulge
 
-Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, allresults-history.py:337) and SfrDisk and SfrBulge (Msun/yr; the rate is
-their sum, :799).
+Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 /
+hubble_h) and SfrDisk and SfrBulge (Msun/yr; the rate is their sum).
 
-Snapshots: those with a redshift in each bin of ``Z_BINS`` (:761-765), chosen through
-``snapshots_in_z_range``; snapshot 63 (z = 0) falls in none, as in SAGE26.
+Snapshots: those with a redshift in each bin of ``Z_BINS``, chosen through ``snapshots_in_z_range``;
+snapshot 63 (z = 0) falls in none, as in SAGE26.
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
-reads 64, so a bin holds at most one snapshot and its standard error is zero.
+Differences from SAGE26: none beyond drawing the figure from the snapshots the run writes, where
+SAGE26 reads all 64, so a bin may hold a single snapshot, and its standard error is then zero.
 """
 
 import matplotlib.pyplot as plt
@@ -35,7 +33,7 @@ from output_utils import (
     setup_figure,
 )
 
-# Number of the last redshift bins that start their mass bins at 8.0 (allresults-history.py:788)
+# Number of the last redshift bins that start their mass bins at 8.0
 N_HIGH_Z_BINS = 4
 
 
@@ -43,8 +41,8 @@ def mass_bins_for(index):
     """
     Return the stellar-mass bin edges of redshift bin ``index``.
 
-    SAGE26 allresults-history.py:788-791: `np.arange(8.0, 12.5, 0.1)` for the last four z bins
-    (`i >= len(z_bins) - 4`), else `np.arange(7.2, 12.5, 0.1)`.
+    As in SAGE26: `np.arange(8.0, 12.5, 0.1)` for the last four z bins (`i >= len(z_bins) - 4`),
+    else `np.arange(7.2, 12.5, 0.1)`.
     """
     if index >= len(Z_BINS) - N_HIGH_Z_BINS:
         return np.arange(8.0, 12.5, 0.1)
@@ -55,7 +53,7 @@ def select_star_forming(stellar_mass, sfr_total):
     """
     Return the indices of galaxies with positive stellar mass and positive star formation rate.
 
-    SAGE26 allresults-history.py:800: `np.where((StellarMassFull > 0.0) & (sfr_total > 0.0))[0]`.
+    As in SAGE26: `np.where((StellarMassFull > 0.0) & (sfr_total > 0.0))[0]`.
     """
     return np.where((stellar_mass > 0.0) & (sfr_total > 0.0))[0]
 
@@ -90,12 +88,11 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     x_min, x_max, y_min, y_max = get_profile_axes(params, "sfr_evolution", (8.0, 12.2), (-4.0, 3.0))
 
-    # allresults-history.py:768 (plasma, dark to light)
+    # Plasma, dark to light
     colors = plt.cm.plasma(np.linspace(0.1, 0.9, len(Z_BINS)))
 
     fig, ax = setup_figure(figsize=(10, 8))
 
-    # allresults-history.py:782-827
     for i, (z_min, z_max) in enumerate(Z_BINS):
         snap_indices = snapshots_in_z_range(snapshots, z_min, z_max)
         if len(snap_indices) == 0:
@@ -140,7 +137,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             gid="model",
         )
 
-    # allresults-history.py:829-836
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
     ax.set_xlabel(r"$\log_{10} M_* [M_\odot]$", fontsize=AXIS_LABEL_SIZE)

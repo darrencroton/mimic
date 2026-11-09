@@ -4,9 +4,8 @@
  *
  * Provides the substep dt with strict boundary handling matching SAGE's
  * initial-snapshot sentinel and multi-substep loop. Used by modules that
- * accumulate rates or apply physics per substep. The merger pass forms SAGE26's
- * fused event time itself (sage26_resolve_mergers_and_disruption,
- * R/src/core_build_model.c:549).
+ * accumulate rates or apply physics per substep. The merger pass
+ * (sage26_resolve_mergers_and_disruption) forms its own event time.
  */
 
 #ifndef MIMIC_SHARED_TIME_PARITY_H

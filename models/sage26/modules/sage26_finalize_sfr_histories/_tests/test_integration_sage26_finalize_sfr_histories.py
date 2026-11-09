@@ -5,14 +5,12 @@ sage26_finalize_sfr_histories - Integration Test
 Validates: module lifecycle in post_timestep and its effect on a real run
 
 Disk star formation samples the per-substep history SfrDisk[bin] += stars / dt on
-every call (SAGE26 model_starformation_and_feedback.c:1058-1060), and the finaliser
-averages the bins into SfrDisk, SfrBulge, SfrDiskZ and SfrBulgeZ once per FoF, as
-SAGE26's writer does (io/save_gals_hdf5.c:934-959). Without bursts in the pipeline,
+every call, and the finaliser averages the bins into SfrDisk, SfrBulge, SfrDiskZ and
+SfrBulgeZ once per FoF, as SAGE26's writer does. Without bursts in the pipeline,
 the mean disk rate over the substeps is the snapshot's disk stellar mass formed over
 its interval, which the package's StarFormationRate diagnostic also holds (it adds
 stars / dT per substep); the two are formed in different float orders, so they agree
-to float rounding, not bit for bit. The averaging itself is asserted bit for bit by
-the module's oracle unit test.
+to float rounding, not bit for bit.
 
 Test cases:
   - test_module_loads: module registers and initialises in post_timestep
@@ -51,7 +49,7 @@ from framework import (  # noqa: E402
 SFR_OUTPUTS = ("SfrDisk", "SfrBulge", "SfrDiskZ", "SfrBulgeZ")
 
 # The merger clock zeroes the histories of the rows SAGE26 resets at joining (a galaxy that
-# stays a Type 0 or 1, core_build_model.c:278-282): the histories are inherited, so without it
+# stays a Type 0 or 1): the histories are inherited, so without it
 # they would accumulate over the snapshots. The disk scale radius sets the star-forming disk
 # (reff = 3 r_s): without it no stars form
 PRE_TIMESTEP = [
@@ -81,17 +79,17 @@ MODEL_PARAMS = {
     "StarFormingDiskFactor": 3.0,
     "FeedbackReheatingEpsilon": 2.9,
     "FeedbackEjectionEfficiency": 0.3,
-    "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+    "FIREmodeOn": 0,  # required by the SN module, the fixed-epsilon feedback
     "RecycleFraction": 0.43,
     "Yield": 0.025,
     "FracZleaveDisk": 0.0,
     "BulgeSizeOn": 0,
-    # Required by the SF module (and SFprescription by the apply step), at R1's values
+    # Required by the SF module (SFprescription also by the apply step)
     "SFprescription": 0,
     "H2RadialIntegrationOn": 1,
     "H2RadialNBins": 25,
     "H2RadialRMaxFactor": 5.0,
-    "CGMrecipeOn": 0,  # required by the infall modules, R3's value
+    "CGMrecipeOn": 0,  # required by the infall modules (the CGM recipe off)
 }
 
 
@@ -175,10 +173,10 @@ def test_disk_average_matches_formed_mass():
 
     Expected: at 10 and at 13 substeps (where several substeps share a bin and the
     rate divisor is 13), SfrDisk equals StarFormationRate to float rounding on every
-    row that stays a Type 0 or 1, whose histories joining zeroes (SAGE26
-    core_build_model.c:252, :278-282). This pipeline has no merger pass, so orphans
+    row that stays a Type 0 or 1, whose histories joining zeroes, as in
+    SAGE26. This pipeline has no merger pass, so orphans
     persist; an orphan keeps its histories from the snapshots before (SAGE26 resets them
-    only on the main branch, :322-337), so its SfrDisk is at least the snapshot's own
+    only on the main branch), so its SfrDisk is at least the snapshot's own
     StarFormationRate (StarFormationRate is reset on every row). With no burst module
     SfrBulge and SfrBulgeZ are zero; SfrDiskZ lies in [0, 1] (a disk forming from
     metal-free gas has SfrDiskZ 0).

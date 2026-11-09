@@ -3,10 +3,8 @@
  * @brief   Unit tests for sage26_finalize_sfr_histories
  *
  * Validates: module lifecycle and placement, SubstepsUsed recorded on every galaxy row
- * of the FoF (merged rows included, as SAGE26 does, R/src/core_build_model.c:461-468),
- * and the writer's averaging of the histories into the four output scalars
- * (R/src/io/save_gals_hdf5.c:934-959) on hand-checkable values. The bit-exact
- * comparison with SAGE26 is the module's oracle test.
+ * of the FoF (merged rows included, as SAGE26 does), and the writer's averaging of the
+ * histories into the four output scalars on hand-checkable values.
  *
  * Test cases:
  *   - test_module_initialization: module init/cleanup lifecycle through the module system
@@ -54,7 +52,7 @@ static struct GalaxyData galaxies[NROWS];
 static struct Halo halos[NROWS];
 static struct ModuleContext ctx;
 
-/* SAGE26's R0 units (R/input/millennium.par): 1e10 Msun, 1 Mpc / (1 km/s) */
+/* SAGE26's default units: 1e10 Msun, 1 Mpc / (1 km/s) */
 #define UNIT_MASS_IN_G 1.989e43
 #define UNIT_TIME_IN_S (3.08568e24 / 1.0e5)
 
@@ -190,7 +188,7 @@ int test_placement_enforced(void) {
  * @brief   init() requires sage26_initialise_merger_clock in pre_timestep as process_full_halo
  *
  * The histories are inherited (no init_repeat); the clock module's reset at joining is
- * their only reset (SAGE26 core_build_model.c:278-282). Without it they accumulate across
+ * their only reset. Without it they accumulate across
  * snapshots, so the run must be rejected at init.
  */
 int test_requires_merger_clock(void) {
@@ -227,7 +225,7 @@ int test_requires_merger_clock(void) {
 int test_substeps_used_on_every_row(void) {
   setup_rows();
   ctx.num_substeps = 13;
-  halos[2].Type = 3;       /* merged this snapshot: SAGE26 sets it too (:461-468) */
+  halos[2].Type = 3;       /* merged this snapshot: SAGE26 sets it too */
   halos[3].galaxy = NULL;  /* the core can keep a row whose galaxy it discarded */
   galaxies[3].SfrDisk = 5; /* ... which must not be touched */
 
@@ -291,7 +289,7 @@ int test_metallicity_skips_nonpositive_gas(void) {
 
 /**
  * @test    test_divisors
- * @brief   SAGE26's sfr_rate_divisor and sfr_metallicity_divisor (R/src/model_misc.h:49-58)
+ * @brief   SAGE26's sfr_rate_divisor and sfr_metallicity_divisor
  */
 int test_divisors(void) {
   TEST_ASSERT(mimic_sage_sfr_rate_divisor(0) == 10 && mimic_sage_sfr_metallicity_divisor(0) == 10,

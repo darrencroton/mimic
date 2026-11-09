@@ -187,7 +187,7 @@ SNAPSHOT_PLOTS = [
     "bulge_mass_fraction",
     "quiescent_fraction",
     "mass_reservoir_scatter",
-    # SAGE26 allresults-local.py figures no forked figure covers
+    # Figures that follow SAGE26's local plotting script
     "bulge_to_total",
     "spatial_distribution_3d_box",
     "star_formation_rate",
@@ -209,7 +209,7 @@ EVOLUTION_PLOTS = [
     "smf_evolution",
     "sfr_density_evolution",
     "stellar_mass_density_evolution",
-    # SAGE26 allresults-history.py figures no forked figure covers
+    # Figures that follow SAGE26's history plotting script
     "rcool_to_rvir_above_mshock",
     "sfr_evolution",
     "stellar_mass_halo_mass_relation",
@@ -223,7 +223,7 @@ EVOLUTION_PLOTS = [
     "central_satellite_fraction",
     "central_satellite_fraction_massive_quiescent",
     "quenched_central_satellite_counts",
-    # Cut-down port of SAGE26's paper_plots.py figure 23c (eight snapshots, no MBK25 run)
+    # SAGE26's paper figure 23c cut down to the snapshots a run writes (no MBK25 run)
     "ffb_fraction_cut_down",
 ]
 
@@ -264,7 +264,7 @@ PLOT_REQUIREMENTS = {
         "EjectedGas",
         "ICS",
     ],
-    # SAGE26 allresults-local.py figures no forked figure covers
+    # Figures that follow SAGE26's local plotting script
     "bulge_to_total": ["StellarMass", "BulgeMass", "MergerBulgeMass", "InstabilityBulgeMass"],
     "spatial_distribution_3d_box": ["Mvir", "StellarMass", "Pos"],
     "star_formation_rate": ["StellarMass", "SfrDisk", "SfrBulge"],
@@ -285,7 +285,7 @@ PLOT_REQUIREMENTS = {
     "disk_radius_vs_stellar_mass": ["DiskScaleRadius", "StellarMass", "Rvir"],
     "sfr_density_evolution": ["StarFormationRate", "StellarMass"],
     "stellar_mass_density_evolution": ["StellarMass"],
-    # SAGE26 allresults-history.py figures no forked figure covers
+    # Figures that follow SAGE26's history plotting script
     "rcool_to_rvir_above_mshock": ["Mvir", "RcoolToRvir"],
     "sfr_evolution": ["StellarMass", "SfrDisk", "SfrBulge"],
     "stellar_mass_halo_mass_relation": ["StellarMass", "Mvir"],

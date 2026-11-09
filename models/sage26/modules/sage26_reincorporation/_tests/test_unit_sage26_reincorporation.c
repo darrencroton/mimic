@@ -39,7 +39,7 @@
  *   - test_null_galaxy_safety: Handles NULL galaxy gracefully
  *   - test_negative_prevention: Catches negative reincorporation values
  *
- * CGMrecipeOn 1 against 0 (platform independent):
+ * CGMrecipeOn 1 against 0:
  *   - test_cgm_reincorporation_destination: the destination by CGMrecipeOn and the central's Regime
  *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it
  *
@@ -83,7 +83,7 @@ static void setup_module_for_physics_test(void) {
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
 
   /* ReIncorporationFactor = 1.0 is default in test_stubs.c */
-  /* This gives Vcrit = 354.53 km/s (SAGE26 model_reincorporation.c:34, :46) */
+  /* This gives Vcrit = 354.53 km/s */
 
   sage26_reincorporation_init();
 }
@@ -237,7 +237,7 @@ int test_memory_safety(void) {
  * @brief   Test standard reincorporation calculation
  *
  * Physics: reincorporated = (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir) * dt
- * With ReIncorporationFactor = 1.0, Vcrit = 354.53 km/s (SAGE26 model_reincorporation.c:34)
+ * With ReIncorporationFactor = 1.0, Vcrit = 354.53 km/s
  */
 int test_physics_basic_reincorporation(void) {
   init_memory_system(0);
@@ -389,7 +389,7 @@ int test_physics_full_halo_nonzero_central_index(void) {
  * @test    test_physics_velocity_threshold
  * @brief   Test that reincorporation only occurs when Vvir > Vcrit
  *
- * With ReIncorporationFactor = 1.0, Vcrit = 354.53 km/s (SAGE26 model_reincorporation.c:34)
+ * With ReIncorporationFactor = 1.0, Vcrit = 354.53 km/s
  */
 int test_physics_velocity_threshold(void) {
   init_memory_system(0);
@@ -744,8 +744,7 @@ int test_negative_prevention(void) {
   /* Validate: No (meaningfully) negative masses. SAGE parity note: the
    * double-precision metallicity times a float reservoir can leave metal
    * fields ULP-negative after full drainage (~-1e-9); SAGE26's debit does the
-   * same (SAGE26 src/model_reincorporation.c:57-61) and its get_metallicity treats
-   * negative metals as zero downstream (SAGE26 src/model_misc.c:427-437). */
+   * same and its get_metallicity treats negative metals as zero downstream. */
   TEST_ASSERT(halo.galaxy->EjectedGas >= 0.0, "EjectedGas must not be negative");
   TEST_ASSERT(halo.galaxy->HotGas >= 0.0, "HotGas must not be negative");
   TEST_ASSERT(halo.galaxy->MetalsEjectedGas >= -1e-6f,
@@ -766,20 +765,19 @@ int test_negative_prevention(void) {
 /* ========================================================================== */
 
 // ============================================================================
-// CGMrecipeOn 1 AGAINST 0 (platform independent)
+// CGMrecipeOn 1 AGAINST 0
 // ============================================================================
 //
-// SAGE26's reincorporate_gas (R = the staged SAGE26 source, R/src/model_reincorporation.c:44-66)
-// changes only its destination with CGMrecipeOn: add_gas_to_hot_reservoir
-// (R/src/model_misc.h:76-85) gives the central's CGM pair for CGMrecipeOn 1 and Regime 0, its hot
-// pair otherwise. The central (Vvir 800, Rvir 0.3, dT 1.0 over one substep,
-// ReIncorporationFactor 1.0) would reincorporate far more than its ejected 0.5, so the cap binds
-// (:54-55): all 0.5 returns, with its metals 0.0625 (metallicity 1/8), leaving 0 / 0 ejected. Every
-// reservoir value, before and after, is a short binary fraction, so each expectation is an exact
-// literal; Vvir, Rvir and dT (0.3 is not one) only make the cap bind and never reach a reservoir.
+// SAGE26's reincorporate_gas changes only its destination with CGMrecipeOn:
+// add_gas_to_hot_reservoir gives the central's CGM pair for CGMrecipeOn 1 and Regime 0, its hot
+// pair otherwise. The central (Vvir 800, Rvir 0.3, dT 1.0 over one substep, ReIncorporationFactor
+// 1.0) would reincorporate far more than its ejected 0.5, so the cap binds: all 0.5 returns, with
+// its metals 0.0625 (metallicity 1/8), leaving 0 / 0 ejected. Every reservoir value, before and
+// after, is a short binary fraction, so each expectation is an exact literal; Vvir, Rvir and dT
+// (0.3 is not one) only make the cap bind and never reach a reservoir.
 
 /** @brief Read a captured log stream into a static buffer (valid until the next call) */
-static const char *c10_read_log(FILE *fp) {
+static const char *cgm_read_log(FILE *fp) {
   static char buf[8192];
   rewind(fp);
   const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
@@ -788,7 +786,7 @@ static const char *c10_read_log(FILE *fp) {
 }
 
 /** @brief Initialise with ReIncorporationFactor 1.0 and CGMrecipeOn `cgm` (NULL: missing) */
-static int c10_init(const char *cgm, const char **log) {
+static int cgm_init(const char *cgm, const char **log) {
   reset_config();
   sage26_test_append_model_parameter("ReIncorporationFactor", "1.0");
   if (cgm != NULL) {
@@ -799,7 +797,7 @@ static int c10_init(const char *cgm, const char **log) {
   const int status = sage26_reincorporation_init();
   if (capture != NULL) {
     set_log_output(old_out);
-    *log = c10_read_log(capture);
+    *log = cgm_read_log(capture);
     fclose(capture);
   } else {
     *log = "";
@@ -823,7 +821,7 @@ int test_cgm_reincorporation_destination(void) {
   init_memory_system(0);
   for (size_t k = 0; k < sizeof(runs) / sizeof(runs[0]); k++) {
     const char *log = "";
-    TEST_ASSERT(c10_init(runs[k].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+    TEST_ASSERT(cgm_init(runs[k].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
     struct Halo halo = create_test_halo(0, 800.0, 0.3);
     halo.dT = 1.0;
     struct GalaxyData *g = halo.galaxy;
@@ -866,14 +864,14 @@ int test_cgm_reincorporation_destination(void) {
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
-  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
-  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
   return TEST_PASS;
 }
 
@@ -916,8 +914,8 @@ int main(void) {
   TEST_RUN(test_null_galaxy_safety);
   TEST_RUN(test_negative_prevention);
 
-  /* CGMrecipeOn 1 against 0 (platform independent) */
-  printf("\n%sCGM REGIME ROUTING TESTS (c10):%s\n", BLUE, NC);
+  /* CGMrecipeOn 1 against 0 */
+  printf("\n%sCGM REGIME ROUTING TESTS:%s\n", BLUE, NC);
   TEST_RUN(test_cgm_reincorporation_destination);
   TEST_RUN(test_cgm_recipe_on_refused);
 

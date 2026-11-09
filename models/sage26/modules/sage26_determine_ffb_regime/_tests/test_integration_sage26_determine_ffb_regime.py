@@ -32,8 +32,8 @@ Off is a no-op: with EnhancedStarFormationOn 0, the minimal pipeline with the mo
 pipeline without it give byte-identical output in every field of every row of both snapshots.
 
 On writes its domain (the observable list):
-  - FFBRegime: in {0, 1} on every output row of both snapshots (range [0, 1], creation value 0,
-    models/sage26/model_properties.yaml:496-504; README.md, "Properties": "Writes: FFBRegime").
+  - FFBRegime: in {0, 1} on every output row of both snapshots (range [0, 1], creation value 0;
+    README.md, "Properties": "Writes: FFBRegime").
   - Witness: at least one row with FFBRegime 1 at snapshot S = 16.
   - Exceptions: none. FFBRegime is the only property the module writes.
 

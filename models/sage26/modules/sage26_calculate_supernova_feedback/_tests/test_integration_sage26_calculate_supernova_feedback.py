@@ -80,7 +80,7 @@ PHYSICS_PHASES = {
     "post_timestep": [("sage26_finalize_cooling_heating", "process_full_halo")],
 }
 
-# The gas supply's keys, at R1's values
+# The gas supply's keys (SFprescription 0)
 SUPPLY_PARAMS = {
     "GlobalBaryonFraction": 0.17,
     "AGNrecipe": 2,
@@ -111,9 +111,9 @@ def test_module_loads():
             "post_timestep": [],
         },
         model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -121,7 +121,7 @@ def test_module_loads():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -155,9 +155,9 @@ def test_output_properties_exist():
             "post_timestep": [],
         },
         model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -165,7 +165,7 @@ def test_output_properties_exist():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -204,9 +204,9 @@ def test_parameters_configurable():
             "post_timestep": [],
         },
         model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -214,7 +214,7 @@ def test_parameters_configurable():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 5.0,  # Custom value
             "FeedbackEjectionEfficiency": 0.8,  # Custom value
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -245,9 +245,9 @@ def test_memory_safety():
             "post_timestep": [],
         },
         model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -255,7 +255,7 @@ def test_memory_safety():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -288,9 +288,9 @@ def test_execution_completes():
             "post_timestep": [],
         },
         model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -298,7 +298,7 @@ def test_execution_completes():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -336,9 +336,9 @@ def test_pipeline_with_star_formation():
             "post_timestep": [],
         },
         model_params={
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -346,7 +346,7 @@ def test_pipeline_with_star_formation():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -383,9 +383,9 @@ def test_feedback_values_nonnegative():
         phase_config=PHYSICS_PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -393,7 +393,7 @@ def test_feedback_values_nonnegative():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -425,9 +425,9 @@ def test_feedback_proportional_to_sf():
         phase_config=PHYSICS_PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -435,7 +435,7 @@ def test_feedback_proportional_to_sf():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -495,9 +495,9 @@ def test_feedback_reasonable_magnitude():
         phase_config=PHYSICS_PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -505,7 +505,7 @@ def test_feedback_reasonable_magnitude():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 3.0,  # epsilon = 3
             "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -559,9 +559,9 @@ def test_edge_case_zero_efficiency():
         phase_config=PHYSICS_PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -569,7 +569,7 @@ def test_edge_case_zero_efficiency():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 0.0,  # Zero reheating
             "FeedbackEjectionEfficiency": 0.0,  # Zero ejection
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -604,9 +604,9 @@ def test_edge_case_very_high_efficiency():
         phase_config=PHYSICS_PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -614,7 +614,7 @@ def test_edge_case_very_high_efficiency():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 50.0,  # Very high reheating
             "FeedbackEjectionEfficiency": 10.0,  # Very high ejection
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -647,9 +647,9 @@ def test_parameter_variation_effect():
         phase_config=PHYSICS_PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -657,7 +657,7 @@ def test_parameter_variation_effect():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 1.0,  # Low
             "FeedbackEjectionEfficiency": 0.1,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,
@@ -677,9 +677,9 @@ def test_parameter_variation_effect():
         phase_config=PHYSICS_PHASES,
         model_params={
             **SUPPLY_PARAMS,
-            # Required by the SF module (and SFprescription by the apply step), at R1's values
+            # Required by the SF module (SFprescription also by the apply step)
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "H2RadialIntegrationOn": 1,
             "H2RadialNBins": 25,
             "H2RadialRMaxFactor": 5.0,
@@ -687,7 +687,7 @@ def test_parameter_variation_effect():
             "StarFormingDiskFactor": 3.0,
             "FeedbackReheatingEpsilon": 5.0,  # High
             "FeedbackEjectionEfficiency": 0.5,
-            "FIREmodeOn": 0,  # required by the SN module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
             "RecycleFraction": 0.43,
             "Yield": 0.025,
             "FracZleaveDisk": 0.0,

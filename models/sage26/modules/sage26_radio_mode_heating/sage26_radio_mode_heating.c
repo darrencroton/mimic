@@ -2,24 +2,23 @@
  * @file    sage26_radio_mode_heating.c
  * @brief   SAGE26 radio-mode AGN heating: do_AGN_heating on the hot-cooling path
  *
- * Ports SAGE26's do_AGN_heating and its private agn_accretion_compute
- * (R/src/model_cooling_heating.c:526-626) as cooling_recipe_hot calls them on R0
- * (:297-299, CGMrecipeOn 0). It reads the post-cap cooling mass and SAGE26's x and
- * rcool locals that sage26_calculate_cooling_budget carries (CoolingGas, CoolingX,
- * Rcool), suppresses the mass by the earlier heating radius, grows the black hole
- * from the hot gas, ratchets Rheat, accumulates Heating undivided, and writes the
- * suppressed mass back into CoolingGas for sage26_apply_cooling.
+ * Implements SAGE26's do_AGN_heating and its private agn_accretion_compute as cooling_recipe_hot
+ * calls them with CGMrecipeOn 0. It reads the post-cap cooling mass and SAGE26's x and rcool
+ * locals that sage26_calculate_cooling_budget carries (CoolingGas, CoolingX, Rcool), suppresses
+ * the mass by the earlier heating radius, grows the black hole from the hot gas, ratchets Rheat,
+ * accumulates Heating undivided, and writes the suppressed mass back into CoolingGas for
+ * sage26_apply_cooling.
  *
  * The arithmetic is shared/sage_cooling_physics.h's mimic_sage_do_agn_heating_hot and
- * mimic_sage_agn_accretion_compute, called with CGMrecipeOn 0 (the R0-R3 behaviour). With
- * CGMrecipeOn 1 SAGE26's do_AGN_heating adds the 0.99 * rcool saturation and the cap of Rheat to
- * Rvir (:590-595, :623-624), which apply there: sage26_regime_aware_cooling calls those helpers
- * with CGMrecipeOn 1 inside SAGE26's regime-aware cooling, and this module then writes nothing, as
- * sage26_calculate_cooling_budget carries CoolingGas 0 and the gate below returns.
+ * mimic_sage_agn_accretion_compute, called with CGMrecipeOn 0. With CGMrecipeOn 1 SAGE26's
+ * do_AGN_heating adds the 0.99 * rcool saturation and the cap of Rheat to Rvir, which apply
+ * there: sage26_regime_aware_cooling calls those helpers with CGMrecipeOn 1 inside SAGE26's
+ * regime-aware cooling, and this module then writes nothing, as sage26_calculate_cooling_budget
+ * carries CoolingGas 0 and the gate below returns.
  *
- * AGNrecipe 2 (Bondi-Hoyle) is SAGE26's R0 recipe and is ported exactly; 0 turns the radio mode
- * off. SAGE26's empirical (1) and cold-cloud (3) rates are not ported, and both values are refused
- * at initialisation (shared/sage_agn_recipe.h).
+ * AGNrecipe 2 selects SAGE26's Bondi-Hoyle accretion and 0 turns the radio mode off. SAGE26's
+ * empirical (1) and cold-cloud (3) rates are not supported; they are refused at initialisation
+ * (shared/sage_agn_recipe.h).
  *
  * Reference: Croton et al. (2006, 2016)
  *
@@ -112,8 +111,7 @@ int sage26_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *ha
 
   // SAGE parity: radio-mode heating suppresses a galaxy's own cooling with its
   // own black hole for every non-merged galaxy, Type 2 orphans included: SAGE26
-  // calls do_AGN_heating from cooling_recipe_hot for every galaxy it cools
-  // (R/src/core_build_model.c:473-516, R/src/model_cooling_heating.c:297-299).
+  // calls do_AGN_heating from cooling_recipe_hot for every galaxy it cools.
   if (halo->galaxy == NULL) {
     return 0;
   }
@@ -121,7 +119,7 @@ int sage26_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *ha
   struct GalaxyData *galaxy = halo->galaxy;
 
   // SAGE26 calls do_AGN_heating only with AGNrecipeOn > 0 and a positive
-  // post-cap cooling mass (R/src/model_cooling_heating.c:297); otherwise every
+  // post-cap cooling mass; otherwise every
   // field, the carried mass included, is left as it is. With CGMrecipeOn 1 the budget
   // carries CoolingGas 0, so this module writes nothing (sage26_regime_aware_cooling runs
   // the hot and CGM AGN calls itself).
@@ -142,9 +140,9 @@ int sage26_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *ha
   }
 
   // The suppressed mass replaces the post-cap mass for sage26_apply_cooling
-  // (SAGE26's do_AGN_heating with CGMrecipeOn 0, the R0-R3 behaviour: no 0.99 * rcool
-  // saturation and no cap of Rheat to Rvir, R/src/model_cooling_heating.c:590-595, :623-624;
-  // with CGMrecipeOn 1 both apply, in sage26_regime_aware_cooling's call of the same helper)
+  // (SAGE26's do_AGN_heating with CGMrecipeOn 0: no 0.99 * rcool saturation and no cap of
+  // Rheat to Rvir; with CGMrecipeOn 1 both apply, in sage26_regime_aware_cooling's call of
+  // the same helper)
   galaxy->CoolingGas = mimic_sage_do_agn_heating_hot(
       halo, ctx->params, AGN_RECIPE_ON, RADIO_MODE_EFFICIENCY, 0, dt_obj, galaxy->CoolingGas,
       galaxy->CoolingX, galaxy->Rcool, NULL);

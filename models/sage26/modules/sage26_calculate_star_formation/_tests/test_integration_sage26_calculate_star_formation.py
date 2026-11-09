@@ -72,14 +72,14 @@ RECYCLE_FRACTION = 0.43
 
 
 def model_params(sfr_efficiency):
-    """Every key the pipeline reads, the SF chain's at R1's values, and SfrEfficiency."""
+    """Every key the pipeline reads, the SF chain's with SFprescription 0, and SfrEfficiency."""
     return {
         "GlobalBaryonFraction": 0.17,
         "AGNrecipe": 2,
         "RadioModeEfficiency": 0.08,
         "BulgeSizeOn": 0,
         "SFprescription": 0,
-        "CGMrecipeOn": 0,  # required, R3's value
+        "CGMrecipeOn": 0,  # required (the CGM recipe off)
         "H2RadialIntegrationOn": 1,
         "H2RadialNBins": 25,
         "H2RadialRMaxFactor": 5.0,

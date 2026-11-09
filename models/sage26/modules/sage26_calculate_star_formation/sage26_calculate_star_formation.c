@@ -2,36 +2,22 @@
  * @file    sage26_calculate_star_formation.c
  * @brief   SAGE26 disk star formation (SFprescription 0 or 1) and the H I diagnostic
  *
- * Ports the start of SAGE26's starformation_and_feedback()
- * (R/src/model_starformation_and_feedback.c, R = the staged SAGE26 source), selected by
- * SFprescription as SAGE26's switch selects it (:1015-1017):
+ * Computes the stars formed this substep (NewStellarMass, for sage26_calculate_supernova_feedback)
+ * and the H I diagnostic H1gas. Implements the start of SAGE26's starformation_and_feedback, with
+ * the law selected by SFprescription:
  *
- * - SFprescription 0 (R0, R1), sfr_croton06 (:160-184): stars form from the cold gas
- *   above the Kauffmann (1996) critical mass over the dynamical time of the
- *   star-forming disk, reff = 3.0 * DiskScaleRadius (SF_DISK_RADIUS_FRAC, :60). A
- *   galaxy whose own Vvir is not positive forms no stars and SAGE26 never forms tdyn
- *   (:170-171). H2gas is not written.
- * - SFprescription 1 (R2 onward), sfr_br06 (:193-252): the Blitz & Rosolowsky (2006)
- *   molecular gas of the disk, by radial integration (shared/sage_h2_physics.h), is
- *   written to H2gas, capped at the double ColdGas * 0.74, and stars form from it,
- *   strdot = SfrEfficiency * H2gas / tdyn, with no critical-mass threshold. A galaxy
- *   whose own Vvir is not positive, or whose disk scale radius in pc is not positive,
- *   gets H2gas 0 and forms no stars (:208-218).
- * - the H I block (:1035-1046), on every ordinary (non-FFB) call: the atomic remainder of the cold
- *   hydrogen, ColdGas * 0.74 - H2gas floored at zero, times the neutral fraction
- *   1 - f_ion of an exponential gas disk truncated at 0.5 Msun/pc^2
- *   (ionized_gas_fraction, :130-152), stored in the float H1gas; the package's one H I
- *   block, shared/sage_hi_physics.h, which sage26_ffb_star_formation also calls.
- * - stars = strdot * dt, floored at zero (:1048-1051), stored in NewStellarMass
- *   for sage26_calculate_supernova_feedback.
+ * - SFprescription 0, sfr_croton06: stars form from the cold gas above the Kauffmann (1996)
+ *   critical mass over the dynamical time of the star-forming disk,
+ *   reff = StarFormingDiskFactor * DiskScaleRadius. H2gas is not written.
+ * - SFprescription 1, sfr_br06: the Blitz & Rosolowsky (2006) molecular gas of the disk, by radial
+ *   integration (shared/sage_h2_physics.h), is written to H2gas, capped at ColdGas * 0.74, and
+ *   strdot = SfrEfficiency * H2gas / tdyn, with no critical-mass threshold.
+ * - H1gas (shared/sage_hi_physics.h): the atomic remainder ColdGas * 0.74 - H2gas, floored at
+ *   zero, times the neutral fraction of an exponential gas disk truncated at 0.5 Msun/pc^2.
  *
- * A row whose FFBRegime is 1 (written by sage26_determine_ffb_regime only with
- * EnhancedStarFormationOn 1) is not processed: SAGE26 hands it to starformation_ffb before any of
- * the above (:1004-1008), so this module returns at once and writes nothing, and
- * sage26_ffb_star_formation, immediately before it in the run files, runs that row's transaction.
- *
- * Mvir, Vvir and the other halo values are SAGE26 floats; the core holds them as
- * doubles and they are read here as the floats SAGE26 holds.
+ * A galaxy whose own Vvir is not positive forms no stars. A row whose FFBRegime is 1 is left to
+ * sage26_ffb_star_formation: this module writes nothing on it. Halo values are read as the
+ * floats SAGE26 holds.
  *
  * Reference: Croton et al. (2006, 2016)
  *
@@ -68,10 +54,10 @@ static int H2_RADIAL_NBINS;
 static double H2_RADIAL_RMAX_FACTOR;
 
 // ============================================================================
-// SAGE26 CONSTANTS (R/src/model_starformation_and_feedback.c)
+// SAGE26 CONSTANTS
 // ============================================================================
 
-/* Kauffmann (1996) eq. 7 critical cold-gas coefficient (:66) */
+/* Kauffmann (1996) eq. 7 critical cold-gas coefficient */
 static const double KAUFFMANN96_SF_THRESHOLD = 0.19;
 
 // ============================================================================
@@ -79,56 +65,45 @@ static const double KAUFFMANN96_SF_THRESHOLD = 0.19;
 // ============================================================================
 
 /**
- * @brief SAGE26's H I block of starformation_and_feedback (:1035-1046)
+ * @brief SAGE26's H I block of starformation_and_feedback
  *
- * SAGE parity: H I is computed on every ordinary (non-FFB) call (an FFB row returned before it,
- * :1004-1008, and its transaction runs the block itself), from the cold gas before this substep's
- * star formation and the H2gas at that point: under SFprescription 0 the inherited
- * H2gas, which that prescription never writes, under SFprescription 1 the BR06 H2gas
- * sfr_br06 has just written. Under SFprescription 0 H I is not resynchronised after the
- * depletion (the commits' caps, :1131-1135, :1169-1173, run only for prescriptions that
- * track H2), so it can exceed the hydrogen left after star formation and feedback: a
- * deliberate SAGE26 quirk. Under SFprescription 1 the commits and the black-hole accretion cap
- * it (shared/sage_sf_feedback_physics.h, shared/sage_agn_physics.h, :1131-1135, :1169-1173,
- * R/src/model_mergers.c:366-372), and every burst overwrites it with the un-ionised atomic
- * remainder (shared/sage_starburst_physics.h, R/src/model_mergers.c:798-803), which this block
- * replaces with the ionisation-corrected value at the next call.
+ * SAGE parity: H I is computed on every ordinary (non-FFB) call, from the cold gas before this
+ * substep's star formation and the H2gas at that point (inherited under SFprescription 0, the
+ * BR06 value under SFprescription 1). Under SFprescription 0 H I is not resynchronised after the
+ * depletion, so it can exceed the hydrogen left after star formation and feedback: a deliberate
+ * SAGE26 quirk.
  */
 static void calculate_h1gas(struct GalaxyData *gal, const double hubble_h) {
-  /* The package's one H I block (shared/sage_hi_physics.h): SAGE26's fused
-   * ColdGas * HYDROGEN_MASS_FRAC - H2gas (:1036, model_starformation_and_feedback.o offset
-   * 0x728) floored at zero, times 1 - ionized_gas_fraction (:130-152) */
+  /* ColdGas * HYDROGEN_MASS_FRAC - H2gas floored at zero, times 1 - ionized_gas_fraction */
   mimic_sage_calculate_h1gas(gal, hubble_h);
 }
 
 /**
- * @brief SAGE26's sfr_br06 (:193-252) with radial integration, the SFprescription 1 law
+ * @brief SAGE26's sfr_br06 with radial integration, the SFprescription 1 law
  *
- * reff and tdyn are doubles (:195), h and rs_pc floats (:214-215), as SAGE26 has them. The
- * radial integration (R/src/model_h2_chemistry.c:134-290) writes H2gas, except when the
- * cold gas is not positive, when H2gas keeps its value for the cap (:141-143); the cap
- * compares the float H2gas with the double ColdGas * 0.74 and stores that product
- * narrowed (:239-242). There is no critical-mass threshold, and the depletion time
- * H2DepletionTime_Gyr is not written (sfr_br06 passes no SFR-output pointer, :222).
+ * reff and tdyn are doubles, h and rs_pc floats, as SAGE26 has them. The radial integration
+ * writes H2gas, except when the cold gas is not positive, when H2gas keeps its value for the
+ * cap; the cap compares the float H2gas with the double ColdGas * 0.74 and stores that product
+ * narrowed. There is no critical-mass threshold, and H2DepletionTime_Gyr is not written.
  *
  * @return The instantaneous star-formation rate strdot (double)
  */
 static double sfr_br06(struct GalaxyData *gal, const float vvir, const double hubble_h) {
   /* The star-forming region, StarFormingDiskFactor * r_s, where SAGE26's double
-   * SF_DISK_RADIUS_FRAC (3.0, :60) enters (:206) */
+   * SF_DISK_RADIUS_FRAC (3.0) enters */
   const double reff = STAR_FORMING_DISK_FACTOR * gal->DiskScaleRadius;
   double strdot = 0.0;
 
   /* SAGE parity: a non-positive own Vvir sets H2gas to 0 and forms no stars, before tdyn is
-   * formed (:208-210) */
+   * formed */
   if (vvir <= 0.0) {
     gal->H2gas = 0.0f;
     return strdot;
   }
   const double tdyn = reff / vvir;
 
-  /* SAGE parity: the float h and the float rs_pc of CODE_LENGTH_TO_PC (:214-215,
-   * R/src/macros.h:46); a non-positive one sets H2gas to 0 and forms no stars (:216-218) */
+  /* SAGE parity: the float h and the float rs_pc of CODE_LENGTH_TO_PC; a non-positive one
+   * sets H2gas to 0 and forms no stars */
   const float h = (float)hubble_h;
   const float rs_pc = (float)(gal->DiskScaleRadius * 1.0e6 / h);
   if (rs_pc <= 0.0) {
@@ -136,12 +111,12 @@ static double sfr_br06(struct GalaxyData *gal, const float vvir, const double hu
     return strdot;
   }
 
-  /* Radial integration, as sfr_br06 calls it with H2RadialIntegrationOn 1 (:221-223) */
+  /* Radial integration, as sfr_br06 calls it with H2RadialIntegrationOn 1 */
   (void)mimic_sage_h2_radial_integration(gal, hubble_h, H2_RADIAL_NBINS, H2_RADIAL_RMAX_FACTOR,
                                          NULL);
 
   /* SAGE parity: H2gas is capped at the double ColdGas * HYDROGEN_MASS_FRAC, which also clears
-   * an H2gas the radial integration left from before when the cold gas is gone (:239-242) */
+   * an H2gas the radial integration left from before when the cold gas is gone */
   if (gal->H2gas > gal->ColdGas * SAGE_HYDROGEN_MASS_FRAC) {
     gal->H2gas = gal->ColdGas * SAGE_HYDROGEN_MASS_FRAC;
   }
@@ -212,13 +187,10 @@ int sage26_calculate_star_formation_process(struct ModuleContext *ctx, struct Ha
 
   struct GalaxyData *gal = halo->galaxy;
 
-  /* SAGE parity: SAGE26's starformation_and_feedback hands an FFBRegime 1 row to
-   * starformation_ffb and returns before its ordinary chain
-   * (R/src/model_starformation_and_feedback.c:1004-1008), so this module returns at once and
-   * writes nothing, before its time guard: no star formation, no H I block, no NewStellarMass.
-   * sage26_ffb_star_formation runs that row's whole transaction. FFBRegime is 1 only where
-   * sage26_determine_ffb_regime wrote it, which it does only with EnhancedStarFormationOn 1, so
-   * this is SAGE26's test EnhancedStarFormationOn >= 1 && FFBRegime == 1 (:1004). */
+  /* SAGE parity: SAGE26 hands an FFBRegime 1 row to starformation_ffb before its ordinary
+   * chain, so this module writes nothing on that row (no star formation, no H I block, no
+   * NewStellarMass); sage26_ffb_star_formation runs its whole transaction. FFBRegime is 1 only
+   * with EnhancedStarFormationOn 1. */
   if (gal->FFBRegime == 1) {
     return 0;
   }
@@ -240,11 +212,10 @@ int sage26_calculate_star_formation_process(struct ModuleContext *ctx, struct Ha
   if (SF_PRESCRIPTION == MIMIC_SAGE_SF_PRESCRIPTION_BR06) {
     strdot = sfr_br06(gal, vvir, ctx->params->Hubble_h);
   } else {
-    // sfr_croton06 (:160-184). The star-forming region is StarFormingDiskFactor * r_s,
-    // entering exactly where SAGE26's double SF_DISK_RADIUS_FRAC (3.0, :60) does; the
-    // run files hold 3.0.
+    // sfr_croton06. The star-forming region is StarFormingDiskFactor * r_s, entering
+    // where SAGE26's double SF_DISK_RADIUS_FRAC (3.0) does; the run files hold 3.0.
     const double reff = STAR_FORMING_DISK_FACTOR * gal->DiskScaleRadius;
-    /* SAGE parity: a non-positive own Vvir forms no stars, before tdyn is formed (:170-171);
+    /* SAGE parity: a non-positive own Vvir forms no stars, before tdyn is formed;
      * the prescription-0 law leaves H2gas as it was */
     if (vvir > 0.0) {
       const double tdyn = reff / vvir;
@@ -256,7 +227,7 @@ int sage26_calculate_star_formation_process(struct ModuleContext *ctx, struct Ha
     }
   }
 
-  // H I from the cold gas before star formation (:1035-1046)
+  // H I from the cold gas before star formation
   calculate_h1gas(gal, ctx->params->Hubble_h);
 
   double stars = strdot * dt;

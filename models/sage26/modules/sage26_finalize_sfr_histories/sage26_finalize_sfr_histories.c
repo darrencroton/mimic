@@ -2,40 +2,17 @@
  * @file    sage26_finalize_sfr_histories.c
  * @brief   SAGE26's end-of-snapshot averaging of the per-substep star-formation histories
  *
- * Disk star formation (sage26_apply_star_formation_supernova) and every burst (the
- * shared kernel in shared/sage_starburst_physics.h) sample the package's copies of
- * SAGE26's six per-substep histories, SfrDisk, SfrBulge and the cold gas and metals
- * sampled with each, ten bins each (R/src/core_allvars.h:158-163, R = the staged
- * SAGE26 source). SAGE26 records the substep count on every galaxy of the halo
- * (R/src/core_build_model.c:466-468) and its HDF5 writer averages the histories into
- * the four output scalars SfrDisk, SfrBulge (Msun/yr), SfrDiskZ and SfrBulgeZ
- * (dimensionless) (R/src/io/save_gals_hdf5.c:934-959).
+ * Records the substep count (SubstepsUsed) on every galaxy row, merged ones included, and averages
+ * the six per-substep star-formation histories (SfrDisk, SfrBulge and the cold gas and metals
+ * sampled with each, ten bins each) into the output scalars SfrDisk, SfrBulge (Msun/yr), SfrDiskZ
+ * and SfrBulgeZ (dimensionless), once per FoF in post_timestep. Implements the substep-count
+ * record after SAGE26's last substep and its HDF5 writer's averaging
+ * (mimic_sage_average_sfr_histories).
  *
- * This module does both once per FoF group in post_timestep, after the last substep
- * and its merger phase:
- *
- *   SubstepsUsed = N                     for every galaxy row, merged ones included;
- *   SfrDisk, SfrBulge, SfrDiskZ, SfrBulgeZ = the writer's averaging of the histories
- *                                        (mimic_sage_average_sfr_histories)
- *
- * N is the package's substep count for the halo (ctx->num_substeps), the count the
- * substep phases ran and binned with; SAGE26's is its effective_steps. The four
- * outputs then hold their final values and are written as they are (no
- * output_convert). The averaging reads the run's UnitMass_in_g and UnitTime_in_s,
- * which the core forms as SAGE26 does (R/src/core_init.c:94).
- *
- * It reads and writes no field sage26_finalize_cooling_heating touches (that module
- * normalises Cooling, Heating and SupernovaOutflowRate), so their order in
- * post_timestep does not matter; the run files place it after that module. It must
- * run once per FoF step, after the substeps: in a substep phase it would average
- * histories still being sampled. init() therefore requires exactly one post_timestep
- * entry as process_full_halo and no entry in pre_timestep or any substep phase.
- *
- * The histories are inherited package properties (no init_repeat): their only reset is
- * sage26_initialise_merger_clock's at joining, for the rows SAGE26 resets
- * (R/src/core_build_model.c:278-282). Without it they would accumulate across snapshots
- * and every average written here would be wrong, so init() also requires that module in
- * pre_timestep as process_full_halo.
+ * init() requires exactly one post_timestep entry as process_full_halo and no other entry (in a
+ * substep phase it would average histories still being sampled), and
+ * sage26_initialise_merger_clock in pre_timestep: its reset at joining is the histories' only
+ * reset, without which they would accumulate across snapshots.
  *
  * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
  * models/sage26/LICENSE-SAGE26.
@@ -106,8 +83,8 @@ int sage26_finalize_sfr_histories_init(void) {
   }
 
   /* Dependency check: the histories are inherited (no init_repeat), and
-   * sage26_initialise_merger_clock's reset at joining is their only reset (SAGE26
-   * core_build_model.c:278-282, for a galaxy that stays a Type 0 or 1) */
+   * sage26_initialise_merger_clock's reset at joining is their only reset (for a galaxy that
+   * stays a Type 0 or 1, as SAGE26 resets them) */
   if (!module_configured_in_phase(CLOCK_NAME, MimicConfig.pre_timestep,
                                   MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO)) {
     ERROR_LOG("%s requires %s in pre_timestep as process_full_halo — it owns the SFR-history "
@@ -134,7 +111,7 @@ int sage26_finalize_sfr_histories_process(struct ModuleContext *ctx, struct Halo
 
   for (int i = 0; i < ngal; i++) {
     // Workspace rows without a galaxy are not galaxies. Merged (Type 3) rows are
-    // averaged too: SAGE26 records SubstepsUsed on them as well (:461-468)
+    // averaged too: SAGE26 records SubstepsUsed on them as well
     if (halos[i].galaxy == NULL) {
       continue;
     }

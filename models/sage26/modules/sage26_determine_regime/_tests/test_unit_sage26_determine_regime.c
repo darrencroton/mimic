@@ -1,14 +1,12 @@
 /**
  * @file    test_unit_sage26_determine_regime.c
- * @brief   Platform-independent behavioural tests of sage26_determine_regime
+ * @brief   Behavioural tests of sage26_determine_regime
  *
- * The oracle test (test_unit_sage26_determine_regime_oracle.c) skips off macOS arm64, so these
- * tests are the classifier's guard on every other platform. Each runs the module's process()
- * through its test seam (sage26_determine_regime.h): the seam supplies the deviates and reports
- * which rows requested one and each row's values. Every expectation is derived independently of
- * the module: literal inputs, or SAGE26's own expressions written here with their operand order
- * (R/src/macros.h:47 for the shock mass, R/src/model_regimes.c:74-95 for the ratio, sigmoid and
- * comparison), never by calling the module's helpers. R/ is the staged SAGE26 source root.
+ * Each runs the module's process() through its test seam (sage26_determine_regime.h): the seam
+ * supplies the deviates and reports which rows requested one and each row's values. Every
+ * expectation is derived independently of the module: literal inputs, or SAGE26's own expressions
+ * written here with their operand order (the shock mass, the mass ratio, the sigmoid and the
+ * comparison), never by calling the module's helpers.
  *
  * Software quality:
  * - test_module_lifecycle: registration, module_system_init with the module in pre_timestep,
@@ -61,8 +59,7 @@ extern int sage26_determine_regime_cleanup(void);
 
 #define MAX_ROWS 8
 
-/* R4's Hubble_h (input/millennium.par:40) and SAGE26's
- * default MShockMsun (core_read_parameter_file.c:114) */
+/* The mini-Millennium Hubble_h and SAGE26's default MShockMsun */
 #define TEST_HUBBLE_H 0.73
 #define TEST_MSHOCK_MSUN 6.0e11
 
@@ -122,7 +119,7 @@ static int init_captured(const char *cgm, const char *mshock, const double hubbl
   return status;
 }
 
-/** @brief init_captured() with R4's values for the given CGMrecipeOn, asserting success */
+/** @brief init_captured() with the run files' MShockMsun for the given CGMrecipeOn */
 static int init_ok(const char *cgm, const double hubble_h) {
   const char *log = "";
   return init_captured(cgm, "6.0e11", hubble_h, &log);
@@ -196,16 +193,12 @@ static uint64_t bits_of(const double v) {
 /**
  * @brief SAGE26's sigmoid for a float Mvir, written as SAGE26 writes it
  *
- * MSUN_TO_CODE_MASS(MShockMsun, Hubble_h) = ((x) * (h) / 1.0e10) (R/src/macros.h:47), the ratio
- * of the float Mvir to it (R/src/model_regimes.c:74), x = log10(ratio) / delta_log_M with
- * delta_log_M 0.1 (:82, :85), hot_fraction = 1.0 / (1.0 + exp(-x)) (:89).
+ * MSUN_TO_CODE_MASS(MShockMsun, Hubble_h) = ((x) * (h) / 1.0e10), the ratio of the float Mvir to
+ * it, x = log10(ratio) / delta_log_M with delta_log_M 0.1, hot_fraction = 1.0 / (1.0 + exp(-x)).
  *
- * The tests assert the module's runtime result bit for bit and at one-ulp boundaries, so this
- * expectation must also be computed at run time by the same libm. The callers pass compile-time
- * constants, and an optimising compiler could inline the helper and fold log10 and exp at
- * compile time (GCC folds with MPFR, correctly rounded, which can differ from the runtime libm by
- * one ulp). The helper is therefore never inlined, and its inputs pass through volatile locals the
- * compiler cannot treat as constants.
+ * The tests compare the module's result exactly and at one-ulp boundaries, so this expectation is
+ * computed at run time by the same libm: the helper is never inlined and its inputs pass through
+ * volatile locals, so the compiler cannot fold log10 and exp.
  */
 #if defined(__GNUC__) || defined(__clang__)
 #define SAGE26_REGIME_TEST_NOINLINE __attribute__((noinline))
@@ -241,7 +234,7 @@ static SAGE26_REGIME_TEST_NOINLINE double sage26_hot_fraction(const float mvir_i
 /**
  * @test    test_module_lifecycle
  * @brief   The module registers, initialises through module_system_init in pre_timestep with
- *          CGMrecipeOn 0 (SAGE26's R0-R3 value), MShockMsun 6.0e11, cleans up, no leaks
+ *          CGMrecipeOn 0 (SAGE26's default), MShockMsun 6.0e11, cleans up, no leaks
  */
 int test_module_lifecycle(void) {
   reset_config();
@@ -379,7 +372,7 @@ int test_placement_refused(void) {
 /**
  * @test    test_cgm_recipe_off_writes_nothing
  * @brief   With CGMrecipeOn 0 the module writes nothing and requests no deviate: SAGE26 skips the
- *          call (R/src/core_build_model.c:410)
+ *          classification
  */
 int test_cgm_recipe_off_writes_nothing(void) {
   TEST_ASSERT(init_ok("0", TEST_HUBBLE_H) == 0, "init must succeed");
@@ -411,7 +404,6 @@ int test_cgm_recipe_off_writes_nothing(void) {
 /**
  * @test    test_mvir_zero_and_negative_no_deviate
  * @brief   Mvir +0, -0 and negative give mass_ratio <= 0.0: Regime 0 and no deviate requested
- *          (R/src/model_regimes.c:77-78)
  */
 int test_mvir_zero_and_negative_no_deviate(void) {
   TEST_ASSERT(init_ok("1", TEST_HUBBLE_H) == 0, "init must succeed");
@@ -465,8 +457,8 @@ int test_mvir_nan_requests_deviate(void) {
 /**
  * @test    test_ratio_above_at_below
  * @brief   Mass ratios 2, the float nearest 1 and 1/2, each against the deviate one step below,
- *          equal to and one step above SAGE26's sigmoid value: Regime 1, 0 and 0
- *          (R/src/model_regimes.c:95, a strict u < hot_fraction)
+ *          equal to and one step above SAGE26's sigmoid value: Regime 1, 0 and 0 (the comparison
+ *          is a strict u < hot_fraction)
  */
 int test_ratio_above_at_below(void) {
   /* 87.6, 43.8 and 21.9 against Mshock = 6e11 * 0.73 / 1e10 = 43.8 */
@@ -491,9 +483,9 @@ int test_ratio_above_at_below(void) {
              s.deviate_for_row[0], gals[0].Regime);
       TEST_ASSERT(s.requests == 1, "a positive Mvir must request one deviate");
       TEST_ASSERT(bits_of(s.trace[0].mshock) == bits_of(expected_mshock),
-                  "Mshock must be MShockMsun * Hubble_h / 1.0e10 (R/src/macros.h:47)");
+                  "Mshock must be MShockMsun * Hubble_h / 1.0e10");
       TEST_ASSERT(bits_of(s.trace[0].hot_fraction) == bits_of(p),
-                  "hot_fraction must be SAGE26's sigmoid (R/src/model_regimes.c:74-89)");
+                  "hot_fraction must be SAGE26's sigmoid");
       TEST_ASSERT(gals[0].Regime == expected_regime[d],
                   "Regime must be 1 exactly when the deviate is below hot_fraction");
     }
@@ -534,7 +526,6 @@ int test_ratio_one_tie(void) {
  * @test    test_initial_boundary_row
  * @brief   A row in the package's initial-boundary state (stored SnapNum -1, dT 0) is
  *          classified like any other: the classifier reads no snapshot-indexed table
- *          (R/src/model_regimes.c:63-100)
  */
 int test_initial_boundary_row(void) {
   TEST_ASSERT(init_ok("1", TEST_HUBBLE_H) == 0, "init must succeed");

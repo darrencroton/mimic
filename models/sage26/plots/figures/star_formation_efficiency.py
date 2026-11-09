@@ -3,28 +3,25 @@
 """
 SAGE26 Star Formation Efficiency Plot
 
-Port of the "Plotting star formation efficiency across cosmic time" section of SAGE26's history
-plotting script (plotting/allresults-history.py:1731-1798, figure StarFormationEfficiency): the
-median of M_* / (f_b M_vir) of central galaxies, with a 16th to 84th percentile band, against the
-age of the universe at each snapshot. The section is the specification; where this port differs
-it is a permitted deviation below.
+Follows the StarFormationEfficiency figure of SAGE26's history plotting script: the median of M_* /
+(f_b M_vir) of central galaxies, with a 16th to 84th percentile band, against the age of the
+universe at each snapshot. Where it differs from SAGE26 the difference is stated below.
 
 Requires: StellarMass, Mvir, Type
 
-Fields read (units): StellarMass and Mvir (1e10 Msun/h each, converted to Msun as SAGE26
-converts them: x 1e10 / hubble_h, allresults-history.py:337 and :342) and Type (0 central,
-:1762). The cosmology (Omega, OmegaLambda, Hubble_h) is the run's, from the engine's parameters
-(plot/mimic-plot/mimic-plot.py:588-593), where SAGE26 reads it from its file header (:1738-1739);
-a snapshot's redshift is its metadata["redshift"].
+Fields read (units): StellarMass and Mvir (1e10 Msun/h each, converted to Msun as SAGE26 converts
+them: x 1e10 / hubble_h) and Type (0 central). The cosmology
+(Omega, OmegaLambda, Hubble_h) is the run's, from the engine's parameters, where SAGE26 reads it
+from its file header; a snapshot's redshift is its metadata["redshift"].
 
-Snapshots: every written snapshot (:1752), chosen through ``all_snapshots``; a snapshot needs at
-least 5 central galaxies with positive stellar and halo mass (:1762-1764).
+Snapshots: every written snapshot, chosen through ``all_snapshots``; a snapshot needs at least 5
+central galaxies with positive stellar and halo mass.
 
-Permitted deviations: SAGE26's `np.trapz` (:1745) is computed with `np.trapezoid`, the same
-trapezoidal rule under NumPy 2's name; the baryon fraction f_b is the run's GlobalBaryonFraction
-(modules.parameters), where SAGE26 writes the literal 0.17 (:1736), which is the fallback, with a
-warning, for a run that does not give it. The figure is drawn from the run's eight snapshots, where
-SAGE26 reads 64.
+Differences from SAGE26: SAGE26's `np.trapz` is computed with `np.trapezoid`, the same trapezoidal
+rule under NumPy 2's name; the baryon fraction f_b is the run's GlobalBaryonFraction
+(modules.parameters), where SAGE26 writes the literal 0.17, which is the fallback, with a warning,
+for a run that does not give it. The figure is drawn from the snapshots the run writes, where SAGE26
+reads all 64.
 """
 
 import numpy as np
@@ -39,11 +36,11 @@ from output_utils import (
     setup_figure,
 )
 
-# Cosmological baryon fraction Omega_b / Omega_m (allresults-history.py:1736): the fallback when
-# the run does not give GlobalBaryonFraction
+# Cosmological baryon fraction Omega_b / Omega_m: the fallback when the run does not give
+# GlobalBaryonFraction
 F_BARYON = 0.17
 
-# A snapshot needs at least this many central galaxies (allresults-history.py:1763)
+# A snapshot needs at least this many central galaxies
 MIN_CENTRALS = 5
 
 
@@ -51,9 +48,8 @@ def z_to_age_gyr(z, omega_m, omega_l, hubble_h):
     """
     Return the age of the universe at redshift ``z`` in Gyr.
 
-    SAGE26 allresults-history.py:1741-1745: `z_int = np.linspace(z, 1000.0, 10000)`,
-    `E_z = np.sqrt(OmegaM * (1 + z_int)**3 + OmegaL)` and
-    `(9.778 / Hubble_h) * np.trapz(1.0 / ((1 + z_int) * E_z), z_int)`; `np.trapz` is
+    As in SAGE26: `z_int = np.linspace(z, 1000.0, 10000)`, `E_z = np.sqrt(OmegaM * (1 + z_int)**3 +
+    OmegaL)` and `(9.778 / Hubble_h) * np.trapz(1.0 / ((1 + z_int) * E_z), z_int)`; `np.trapz` is
     `np.trapezoid` under NumPy 2.
     """
     z_int = np.linspace(z, 1000.0, 10000)
@@ -65,7 +61,7 @@ def select_centrals(galaxy_type, stellar_mass, halo_mass):
     """
     Return the indices of central galaxies with positive stellar mass and positive halo mass.
 
-    SAGE26 allresults-history.py:1762: `np.where((gtype == 0) & (mstar > 0) & (mvir > 0))[0]`.
+    As in SAGE26: `np.where((gtype == 0) & (mstar > 0) & (mvir > 0))[0]`.
     """
     return np.where((galaxy_type == 0) & (stellar_mass > 0) & (halo_mass > 0))[0]
 
@@ -75,9 +71,8 @@ def efficiency_statistics(stellar_mass, halo_mass, f_baryon=F_BARYON):
     Return the median and the 16th and 84th percentiles of M_* / (f_b M_vir), or None when fewer
     than 5 galaxies are given.
 
-    SAGE26 allresults-history.py:1763-1769: `if len(w) < 5: continue`,
-    `sfe = mstar[w] / (mvir[w] * f_baryon)`, then `np.median(sfe)` and
-    `np.percentile(sfe, 16)` and `np.percentile(sfe, 84)`.
+    As in SAGE26: `if len(w) < 5: continue`, `sfe = mstar[w] / (mvir[w] * f_baryon)`, then
+    `np.median(sfe)` and `np.percentile(sfe, 16)` and `np.percentile(sfe, 84)`.
     """
     if len(stellar_mass) < MIN_CENTRALS:
         return None
@@ -121,7 +116,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     omega_m, omega_l, run_hubble_h = cosmo
     f_baryon = module_parameter(params, "GlobalBaryonFraction", F_BARYON)
 
-    # allresults-history.py:1747-1769
     t_arr_sfe = []
     med_sfe = []
     p16_sfe = []
@@ -149,7 +143,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     p16_sfe = np.array(p16_sfe)
     p84_sfe = np.array(p84_sfe)
 
-    # Sort by ascending cosmic time (:1777-1782)
+    # Sort by ascending cosmic time
     sort_idx = np.argsort(t_arr_sfe)
     t_arr_sfe = t_arr_sfe[sort_idx]
     med_sfe = med_sfe[sort_idx]
@@ -163,7 +157,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     fig, ax = setup_figure(figsize=(10, 7))
 
-    # allresults-history.py:1786-1794
     ax.plot(t_arr_sfe, med_sfe, color="steelblue", lw=2.5, gid="model")
     ax.fill_between(t_arr_sfe, p16_sfe, p84_sfe, color="steelblue", alpha=0.3, gid="model")
 

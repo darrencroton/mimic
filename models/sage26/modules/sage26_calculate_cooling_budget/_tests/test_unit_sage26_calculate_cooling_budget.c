@@ -2,9 +2,9 @@
  * @file    test_unit_sage26_calculate_cooling_budget.c
  * @brief   Unit tests for sage26_calculate_cooling_budget module
  *
- * Validates: Module lifecycle, cooling tables, interpolation, memory safety, and the
- * carried state process() writes on every call. Bit-exact physics against SAGE26's
- * cooling_recipe_hot is tested by test_unit_sage26_calculate_cooling_budget_oracle.c.
+ * Validates: Module lifecycle, cooling tables, interpolation, memory safety, the carried state
+ * process() writes on every call, and the CGMrecipeOn 1 helpers (clustering table, cold streams,
+ * bulk CGM cooling).
  *
  * Test cases:
  *   Suite 1: Cooling Tables
@@ -344,7 +344,7 @@ int test_memory_safety(void) {
 
 /**
  * @test    test_outer_guard_writes_carried_state
- * @brief   SAGE26's outer guard (HotGas > 0 && Vvir > 0, model_cooling_heating.c:139-141)
+ * @brief   SAGE26's outer guard (HotGas > 0 && Vvir > 0) writes the carried state
  *
  * Expected: tcool reset to 0 at entry; tff and RcoolToRvir untouched; CoolingGas,
  *           CoolingX and Rcool written as 0 and the return path as 1, since the
@@ -436,14 +436,11 @@ int test_no_interval_marks_not_evaluated(void) {
 // SUITE 4: THE CGMrecipeOn 1 SHARED HELPERS (shared/sage_cooling_physics.h)
 // ============================================================================
 //
-// Platform-independent behavioural tests of the shared cooling helpers
-// (shared/sage_cooling_physics.h). Every expectation is derived independently of the helper under
-// test: a literal chosen so the result is exact, or SAGE26's expression written inline with its
-// operand order and its line cited (C = R/src/model_cooling_heating.c, H =
-// R/src/model_halo_properties.c). The oracle tests cover the same helpers bit for bit on
-// macOS arm64 only.
+// Behavioural tests of the shared cooling helpers (shared/sage_cooling_physics.h). Every
+// expectation is derived independently of the helper under test: a literal chosen so the result
+// is exact, or SAGE26's expression written inline with its operand order.
 
-/* SAGE26's literal clustering tables (H:104-108, H:111-115), copied independently of the package */
+/* SAGE26's literal clustering tables, copied independently of the package */
 static const double TEST_MSTAR_MILL[31] = {
     12.8964, 12.2501, 11.5685, 10.9046, 10.2717, 9.6699, 9.0969, 8.5486, 8.0214, 7.5126, 7.0206,
     6.5435,  6.0794,  5.6266,  5.1842,  4.7514,  4.3276, 3.9122, 3.5045, 3.1039, 2.7098, 2.3217,
@@ -453,7 +450,7 @@ static const double TEST_MSTAR_UCHUU[31] = {
     5.6901,  5.1521,  4.6241,  4.1054,  3.5950, 3.0915, 2.5943, 2.1027, 1.6166, 1.1359, 1.0000,
     1.0000,  1.0000,  1.0000,  1.0000,  1.0000, 1.0000, 1.0000, 1.0000, 1.0000};
 
-/* 10^x in the form SAGE26's object computes pow(10.0, x) at C:222 and C:242 (__exp10 on Apple) */
+/* 10^x as SAGE26 computes pow(10.0, x) (__exp10 on Apple) */
 static double test_exp10(const double x) {
 #if defined(__APPLE__)
   return __exp10(x);
@@ -467,7 +464,7 @@ static double test_exp10(const double x) {
  * @brief   At every grid point z = 0.5 k the table returns SAGE26's literal entry, both tables
  *
  * Expected: fz = 0, so fma(table[k], 1, table[k+1] * 0) is table[k] exactly (k = 30 through the
- * clamped iz = 29 with fz = 1, H:126-131); the Uchuu table for Omega 0.3089 exactly (H:118).
+ * clamped iz = 29 with fz = 1); the Uchuu table for Omega 0.3089 exactly.
  */
 int test_clustering_table_grid_points(void) {
   for (int k = 0; k <= 30; k++) {
@@ -486,13 +483,14 @@ int test_clustering_table_grid_points(void) {
  * @test    test_clustering_table_between_and_clamps
  * @brief   Between grid points, at each z clamp and at the iz clamp
  *
- * Expected: z = 2.25 gives SAGE26's fused H:131 at iz 4, fz 0.5 written inline; z = -1 the z = 0
- * entry (H:123); z = 20 and z = 15 the z = 15 entry with iz clamped to 29 and fz 1 (H:124-128).
+ * Expected: z = 2.25 gives SAGE26's fused multiply-add interpolation at iz 4, fz 0.5 written
+ * inline; z = -1 the z = 0 entry; z = 20 and z = 15 the z = 15 entry with iz clamped to 29 and
+ * fz 1.
  */
 int test_clustering_table_between_and_clamps(void) {
   struct MimicSageClusteringLocals l;
   const double mid = mimic_sage_interpolate_clustering_mass(2.25, 0.25, &l);
-  /* H:131 as SAGE26's object computes it (fmadd of the first product, model_halo_properties.o) */
+  /* SAGE parity: a fused multiply-add of the first product, as SAGE26 writes it */
   const double expected_mid = fma(TEST_MSTAR_MILL[4], 1.0 - 0.5, TEST_MSTAR_MILL[5] * 0.5);
   TEST_ASSERT(mid == expected_mid, "z = 2.25 interpolates entries 4 and 5 with fz 0.5");
   TEST_ASSERT(l.iz == 4 && l.fz == 0.5, "iz 4 and fz 0.5 between grid points");
@@ -509,16 +507,16 @@ int test_clustering_table_between_and_clamps(void) {
   (void)mimic_sage_interpolate_clustering_mass(14.75, 0.25, &l);
   TEST_ASSERT(l.iz == 29 && l.fz == 0.5, "the last interval needs no clamp");
 
-  /* z = 5.01e-05: SAGE26's fused H:131 differs from the separately rounded sum, so the fused
-   * form is pinned on every platform (correctly rounded fma and IEEE products) */
+  /* z = 5.01e-05: the fused form differs from the separately rounded sum, so this pins the
+   * fused interpolation */
   const double z = 5.0100000000000005e-05;
-  const double fz = (z - 0.0) / (0.5 - 0.0); /* H:130 */
+  const double fz = (z - 0.0) / (0.5 - 0.0);
   const volatile double first = TEST_MSTAR_MILL[0] * (1.0 - fz);
   const volatile double second = TEST_MSTAR_MILL[1] * fz;
   const double fused = fma(TEST_MSTAR_MILL[0], 1.0 - fz, TEST_MSTAR_MILL[1] * fz);
   TEST_ASSERT(fused != first + second, "the fused and unfused forms differ at this z");
   TEST_ASSERT(mimic_sage_interpolate_clustering_mass(z, 0.25, NULL) == fused,
-              "the interpolation is fused as SAGE26's object computes it");
+              "the interpolation is fused as SAGE26 computes it");
   return TEST_PASS;
 }
 
@@ -526,8 +524,8 @@ int test_clustering_table_between_and_clamps(void) {
  * @test    test_clustering_table_cosmology_boundary
  * @brief   The Uchuu selection fabs(Omega - 0.3089) < 0.01, just inside and outside both ends
  *
- * Expected: the doubles 0.2989 and 0.3189 select Millennium; one double inside each selects Uchuu
- * (H:118), visible as the z = 0 entry.
+ * Expected: the doubles 0.2989 and 0.3189 select Millennium; one double inside each selects Uchuu,
+ * visible as the z = 0 entry.
  */
 int test_clustering_table_cosmology_boundary(void) {
   const double low_out = 0.2989;
@@ -562,7 +560,7 @@ static void setup_stream_galaxy(struct Halo *halo, struct GalaxyData *gal, const
     MimicConfig.ZZ[k] = NAN;
   }
   MimicConfig.ZZ[40] = z;
-  MimicConfig.ZZ[41] = 0.0; /* the current snapshot: the streams must not read it (C:205) */
+  MimicConfig.ZZ[41] = 0.0; /* the current snapshot: the streams must not read it */
   halo->galaxy = gal;
   halo->SnapNum = 40;
   halo->Mvir = 100.0;
@@ -577,11 +575,11 @@ static void setup_stream_galaxy(struct Halo *halo, struct GalaxyData *gal, const
 
 /**
  * @test    test_streams_sigmoid_from_stored_snapshot
- * @brief   The cold streams at z = 3 (no cutoff): SAGE26's chain written inline (C:205-285)
+ * @brief   The cold streams at z = 3 (no cutoff): SAGE26's chain written inline
  *
  * Expected: every local and the cooling mass equal SAGE26's expressions with ZZ[stored SnapNum]
  * = 3 (the current snapshot's ZZ 0 would cut the streams off), the mdot stores floats of the
- * components before the cap (C:282-283).
+ * components before the cap.
  */
 int test_streams_sigmoid_from_stored_snapshot(void) {
   struct Halo halo;
@@ -597,7 +595,7 @@ int test_streams_sigmoid_from_stored_snapshot(void) {
               "the streams accept a stored SnapNum inside the table");
   TEST_ASSERT(l.branch == MIMIC_SAGE_HOT_BRANCH_STREAMS, "CGMrecipeOn 1 takes the streams");
 
-  /* C:142, C:205-226, inline */
+  /* SAGE26's stream chain, inline */
   const float rvir = 0.1f, vvir = 200.0f, mvir = 100.0f, hot = 10.0f;
   const double tcool = rvir / vvir;
   const double M_shock = 6.0e11 * 0.73 / 1.0e10;
@@ -605,34 +603,33 @@ int test_streams_sigmoid_from_stored_snapshot(void) {
   const double Mstar = test_exp10(TEST_MSTAR_MILL[6]) * 0.73 / 1.0e10; /* z = 3 is grid point 6 */
   const double fMstar = 3.0 * Mstar;
   const double ratio = pow(fMstar / mvir, 2.0 / 3.0) * pow(mass_ratio, 4.0 / 3.0);
-  const double exponent = log10(ratio) / 0.15;                /* C:239 */
-  const double f_stream = 1.0 / (1.0 + test_exp10(exponent)); /* C:242 */
+  const double exponent = log10(ratio) / 0.15;
+  const double f_stream = 1.0 / (1.0 + test_exp10(exponent));
   TEST_ASSERT(l.stream.z == 3.0, "the stored snapshot's redshift is read");
   TEST_ASSERT(l.stream.M_shock == M_shock && l.stream.mass_ratio == mass_ratio, "M_shock, ratio");
   TEST_ASSERT(l.stream.fMstar == fMstar && fMstar < M_shock, "fMstar below M_shock: no cutoff");
-  TEST_ASSERT(l.stream.ratio == ratio, "the stream ratio (C:225-226)");
+  TEST_ASSERT(l.stream.ratio == ratio, "the stream ratio");
   TEST_ASSERT(l.stream.exponent == exponent && l.stream.exponent_capped_high == 0 &&
                   l.stream.exponent_capped_low == 0,
               "the exponent, unclamped");
   TEST_ASSERT(l.stream.cutoff == 0 && l.stream.f_stream == f_stream, "the sigmoid f_stream");
-  /* C:150-173 from the literal inputs: the hot recipe's x and rcool */
-  const double temp = 35.9 * vvir * vvir;                                   /* C:150 */
-  const double logZ = log10(0.1f / hot);                                    /* C:154 */
-  const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ); /* C:157 */
-  double x = PROTONMASS * BOLTZMANN * temp / lambda;                        /* C:163 */
-  x /= (MimicConfig.UnitDensity_in_cgs * MimicConfig.UnitTime_in_s);        /* C:164 */
-  const double rho_rcool = x / tcool * (1.5 * 0.59);                        /* C:165 */
-  const double rho0 = hot / (4 * M_PI * rvir);                              /* C:172 */
-  const double rcool = sqrt(rho0 / rho_rcool);                              /* C:173 */
-  TEST_ASSERT(l.x == x && l.rcool == rcool, "x and rcool from the inline hot chain (C:150-173)");
-  const double cold = f_stream * hot / tcool * dt; /* C:277 */
-  const double hot_halo =
-      (1.0 - f_stream) * (hot / rvir) * (rcool / (2.0 * tcool)) * dt; /* C:279 */
+  /* The hot recipe's x and rcool from the literal inputs */
+  const double temp = 35.9 * vvir * vvir;
+  const double logZ = log10(0.1f / hot);
+  const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ);
+  double x = PROTONMASS * BOLTZMANN * temp / lambda;
+  x /= (MimicConfig.UnitDensity_in_cgs * MimicConfig.UnitTime_in_s);
+  const double rho_rcool = x / tcool * (1.5 * 0.59);
+  const double rho0 = hot / (4 * M_PI * rvir);
+  const double rcool = sqrt(rho0 / rho_rcool);
+  TEST_ASSERT(l.x == x && l.rcool == rcool, "x and rcool from the inline hot chain");
+  const double cold = f_stream * hot / tcool * dt;
+  const double hot_halo = (1.0 - f_stream) * (hot / rvir) * (rcool / (2.0 * tcool)) * dt;
   TEST_ASSERT(l.stream.cold_stream_cooling == cold && l.stream.hot_halo_cooling == hot_halo,
               "both components");
   TEST_ASSERT(l.stream.mdot_cool == (float)(hot_halo / dt) &&
                   l.stream.mdot_stream == (float)(cold / dt),
-              "the float mdot stores (C:282-283)");
+              "the float mdot stores");
   TEST_ASSERT(cooling == cold + hot_halo && l.cap == MIMIC_SAGE_CAP_NONE, "the uncapped total");
 
   sage26_calculate_cooling_budget_cleanup();
@@ -641,7 +638,7 @@ int test_streams_sigmoid_from_stored_snapshot(void) {
 
 /**
  * @test    test_streams_cutoff_equality
- * @brief   The cutoff fMstar >= M_shock && mass_ratio > 1 at its equalities (C:263)
+ * @brief   The cutoff fMstar >= M_shock && mass_ratio > 1 at its equalities
  *
  * Expected: with M_shock equal to fMstar (a shock mass found by stepping MShockMsun one double at
  * a time until (MShockMsun * h) / 1e10 equals fMstar) and Mvir above it, f_stream is 0; one
@@ -716,12 +713,12 @@ int test_streams_cutoff_equality(void) {
 
 /**
  * @test    test_streams_exponent_clamps_and_nonpositive_ratio
- * @brief   The exponent clamps above 300 and below -300, and ratio <= 0 (C:229-243)
+ * @brief   The exponent clamps above 300 and below -300, and ratio <= 0
  *
  * Expected: MShockMsun 1e-25 at z = 0.5 clamps the exponent to 300 exactly (the cutoff then
  * zeroes f_stream); Mvir 1e-30 with MShockMsun 1.37e50 clamps it to -300 exactly and f_stream is
  * 1 / (1 + 1e-300) = 1; MShockMsun 1e300 underflows ratio to 0, so f_stream is 1, mdot_cool 0 and
- * the mass HotGas / tcool * dt (C:277).
+ * the mass HotGas / tcool * dt.
  */
 int test_streams_exponent_clamps_and_nonpositive_ratio(void) {
   struct Halo halo;
@@ -739,7 +736,7 @@ int test_streams_exponent_clamps_and_nonpositive_ratio(void) {
   TEST_ASSERT(l.stream.exponent_capped_high == 1 && l.stream.exponent == 300.0,
               "the exponent is clamped to 300");
   TEST_ASSERT(l.stream.f_stream_criterion == 1.0 / (1.0 + test_exp10(300.0)),
-              "the clamped sigmoid (C:242)");
+              "the clamped sigmoid");
 
   setup_stream_galaxy(&halo, &gal, 0.0);
   halo.Mvir = 1.0e-30;
@@ -757,7 +754,7 @@ int test_streams_exponent_clamps_and_nonpositive_ratio(void) {
   TEST_ASSERT(l.stream.f_stream == 1.0 && l.stream.mdot_cool == 0.0f,
               "ratio <= 0 gives f_stream 1");
   const double tcool = 0.1f / 200.0f;
-  TEST_ASSERT(cooling == 1.0 * 10.0f / tcool * dt, "every hot gas mass is a cold stream (C:277)");
+  TEST_ASSERT(cooling == 1.0 * 10.0f / tcool * dt, "every hot gas mass is a cold stream");
 
   sage26_calculate_cooling_budget_cleanup();
   return TEST_PASS;
@@ -768,8 +765,8 @@ int test_streams_exponent_clamps_and_nonpositive_ratio(void) {
  * @brief   A stored SnapNum outside the redshift table is refused through the streams
  *
  * Expected: with a positive dt and the stored SnapNum 64 (Snaplistlen 64) or -1, the CGMrecipeOn
- * 1 budget returns -1 at C:205 (SAGE26 reads ZZ out of bounds there); CGMrecipeOn 0 does not read
- * the table and accepts the same galaxy.
+ * 1 budget returns -1 (SAGE26 would read ZZ out of bounds); CGMrecipeOn 0 does not read the
+ * table and accepts the same galaxy.
  */
 int test_streams_refuse_stored_snapnum_outside_table(void) {
   struct Halo halo;
@@ -835,28 +832,28 @@ static void setup_cgm_galaxy(struct Halo *halo, struct GalaxyData *gal) {
 }
 
 /**
- * @brief SAGE26's bulk CGM cooling mass (C:322-364) for setup_cgm_galaxy's literal inputs, inline
+ * @brief SAGE26's bulk CGM cooling mass for setup_cgm_galaxy's literal inputs, inline
  */
 static double expected_cgm_mass(const double dt) {
   const float mvir = 100.0f, rvir = 0.1f, vvir = 200.0f, cgm = 5.0f, zcgm = 0.05f;
-  const double temp = 35.9 * vvir * vvir;                                                /* C:322 */
-  const double lambda = get_metaldependent_cooling_rate(log10(temp), log10(zcgm / cgm)); /* :329 */
-  double x = PROTONMASS * BOLTZMANN * temp / lambda;                                     /* C:332 */
-  x /= (MimicConfig.UnitDensity_in_cgs * MimicConfig.UnitTime_in_s);                     /* C:333 */
-  const double alpha = 1.4, r0 = 0.1 * rvir, ratio = 10.0;                           /* C:336-338 */
-  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);                /* C:341 */
-  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha); /* C:342 */
-  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);                       /* C:345 */
-  const double rho_eff = rho0 * (I_cool / I_M);                                      /* C:346 */
-  const double tcool = (x / rho_eff) * (1.5 * 0.59);                                 /* C:349 */
-  const double g_accel = MimicConfig.G * mvir / (rvir * rvir);                       /* C:352 */
-  const double tff = sqrt(2.0 * rvir / g_accel);                                     /* C:353 */
-  return (cgm / (tcool + tff)) * dt;                                                 /* C:364 */
+  const double temp = 35.9 * vvir * vvir;
+  const double lambda = get_metaldependent_cooling_rate(log10(temp), log10(zcgm / cgm));
+  double x = PROTONMASS * BOLTZMANN * temp / lambda;
+  x /= (MimicConfig.UnitDensity_in_cgs * MimicConfig.UnitTime_in_s);
+  const double alpha = 1.4, r0 = 0.1 * rvir, ratio = 10.0;
+  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);
+  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha);
+  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);
+  const double rho_eff = rho0 * (I_cool / I_M);
+  const double tcool = (x / rho_eff) * (1.5 * 0.59);
+  const double g_accel = MimicConfig.G * mvir / (rvir * rvir);
+  const double tff = sqrt(2.0 * rvir / g_accel);
+  return (cgm / (tcool + tff)) * dt;
 }
 
 /**
  * @test    test_cgm_cooling_profile_and_times
- * @brief   Bulk CGM cooling: SAGE26's Carr et al. profile chain written inline (C:321-370)
+ * @brief   Bulk CGM cooling: SAGE26's Carr et al. profile chain written inline
  *
  * Expected: alpha 1.4, r0 = 0.1 Rvir, Rvir / r0 = 10, the integrals, rho0, rho_eff, tcool with
  * 1.5 * 0.59, g_accel with the float Rvir * Rvir, tff, the Gyr diagnostics and the uncapped mass
@@ -874,31 +871,31 @@ int test_cgm_cooling_profile_and_times(void) {
   const double cooling = mimic_sage_cgm_cooling_budget(&halo, &MimicConfig, dt, &l);
 
   const float mvir = 100.0f, rvir = 0.1f, vvir = 200.0f, cgm = 5.0f, zcgm = 0.05f;
-  const double temp = 35.9 * vvir * vvir;                                            /* C:322 */
-  const double logZ = log10(zcgm / cgm);                                             /* C:326 */
-  const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ);          /* C:329 */
-  double x = PROTONMASS * BOLTZMANN * temp / lambda;                                 /* C:332 */
-  x /= (MimicConfig.UnitDensity_in_cgs * MimicConfig.UnitTime_in_s);                 /* C:333 */
-  const double alpha = 1.4;                                                          /* C:336 */
-  const double r0 = 0.1 * rvir;                                                      /* C:337 */
-  const double ratio = 10.0;                                                         /* C:338 */
-  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);                /* C:341 */
-  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha); /* C:342 */
-  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);                       /* C:345 */
-  const double rho_eff = rho0 * (I_cool / I_M);                                      /* C:346 */
-  const double tcool = (x / rho_eff) * (1.5 * 0.59);                                 /* C:349 */
-  const double g_accel = MimicConfig.G * mvir / (rvir * rvir);                       /* C:352 */
-  const double tff = sqrt(2.0 * rvir / g_accel);                                     /* C:353 */
-  const double mass = (cgm / (tcool + tff)) * dt;                                    /* C:364 */
+  const double temp = 35.9 * vvir * vvir;
+  const double logZ = log10(zcgm / cgm);
+  const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ);
+  double x = PROTONMASS * BOLTZMANN * temp / lambda;
+  x /= (MimicConfig.UnitDensity_in_cgs * MimicConfig.UnitTime_in_s);
+  const double alpha = 1.4;
+  const double r0 = 0.1 * rvir;
+  const double ratio = 10.0;
+  const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);
+  const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha);
+  const double rho0 = cgm / (4.0 * M_PI * r0 * r0 * r0 * I_M);
+  const double rho_eff = rho0 * (I_cool / I_M);
+  const double tcool = (x / rho_eff) * (1.5 * 0.59);
+  const double g_accel = MimicConfig.G * mvir / (rvir * rvir);
+  const double tff = sqrt(2.0 * rvir / g_accel);
+  const double mass = (cgm / (tcool + tff)) * dt;
 
   TEST_ASSERT(l.entered == 1 && l.lambda_positive == 1 && l.lambda == lambda, "the guards pass");
   TEST_ASSERT(l.x == x && l.rho0 == rho0 && l.rho_eff == rho_eff, "x, rho0 and rho_eff");
   TEST_ASSERT(l.tcool == tcool && l.g_accel == g_accel && l.tff == tff, "tcool, g_accel and tff");
   TEST_ASSERT(gal.tcool == (float)(tcool * MimicConfig.UnitTime_in_s / SAGE_SEC_PER_GIGAYEAR) &&
                   gal.tff == (float)(tff * MimicConfig.UnitTime_in_s / SAGE_SEC_PER_GIGAYEAR),
-              "the Gyr diagnostics (C:356-357)");
+              "the Gyr diagnostics");
   TEST_ASSERT(l.rcool == (double)rvir && gal.RcoolToRvir == -33.0f,
-              "rcool is Rvir and RcoolToRvir is not written (C:360-361)");
+              "rcool is Rvir and RcoolToRvir is not written");
   TEST_ASSERT(mass < cgm && cooling == mass && l.cap == MIMIC_SAGE_CAP_NONE, "the uncapped mass");
 
   sage26_calculate_cooling_budget_cleanup();
@@ -907,7 +904,7 @@ int test_cgm_cooling_profile_and_times(void) {
 
 /**
  * @test    test_cgm_cooling_guard_cap_and_floor
- * @brief   The lambda > 0 guard, the cap to CGMgas and the floor at zero (C:331, C:366-370)
+ * @brief   The lambda > 0 guard, the cap to CGMgas and the floor at zero
  *
  * Expected: CGMgas and MetalsCGMgas +inf make the float metallicity inf / inf NaN, so lambda is
  * NaN and fails lambda > 0: nothing is written and the mass is 0; dt 10 makes the mass exceed
@@ -952,10 +949,10 @@ int test_cgm_cooling_guard_cap_and_floor(void) {
 
 /**
  * @test    test_cgm_recipe_composition_tail
- * @brief   mimic_sage_cooling_recipe_cgm with AGN off: Cooling and CoolingRate (C:376-385)
+ * @brief   mimic_sage_cooling_recipe_cgm with AGN off: Cooling and CoolingRate
  *
  * Expected: Cooling grows by 0.5 * m * Vvir^2 and CoolingRate is SAGE26's float rate of the mass;
- * on the NaN-lambda state Cooling is left and CoolingRate is written 0 (C:382-385, always).
+ * on the NaN-lambda state Cooling is left and CoolingRate is written 0 (always).
  */
 int test_cgm_recipe_composition_tail(void) {
   struct Halo halo;
@@ -972,11 +969,11 @@ int test_cgm_recipe_composition_tail(void) {
   gal.CoolingRate = -44.0f;
   const double ret = mimic_sage_cooling_recipe_cgm(&halo, &MimicConfig, &off, 1, dt, &l, NULL);
   const double m = expected_cgm_mass(dt); /* below CGMgas: no cap, and AGN is off */
-  TEST_ASSERT(ret == m, "the composed recipe returns SAGE26's mass (C:364, C:390)");
+  TEST_ASSERT(ret == m, "the composed recipe returns SAGE26's mass");
   const float vvir = 200.0f;
-  TEST_ASSERT(m > 0.0 && gal.Cooling == 2.0 + 0.5 * m * vvir * vvir, "Cooling accumulates (C:377)");
+  TEST_ASSERT(m > 0.0 && gal.Cooling == 2.0 + 0.5 * m * vvir * vvir, "Cooling accumulates");
   TEST_ASSERT(gal.CoolingRate == (float)((m / dt) * 1.0e10 / 0.73 * 3.155e16 / 3.08568e19),
-              "CoolingRate (C:382-385)");
+              "CoolingRate");
 
   setup_cgm_galaxy(&halo, &gal);
   gal.CGMgas = INFINITY;
@@ -1126,7 +1123,7 @@ int main(void) {
   TEST_RUN(test_cgm_recipe_composition_tail);
 
   printf("\n");
-  printf("Suite 5: CGMrecipeOn (D33, D38)\n");
+  printf("Suite 5: CGMrecipeOn\n");
   printf("------------------------------------------------------------\n");
 
   TEST_RUN(test_cgm_recipe_on_refusals);

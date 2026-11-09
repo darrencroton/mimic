@@ -3,27 +3,26 @@
 """
 SAGE26 Ejection Efficiency Against Virial Velocity Plot
 
-Port of the "Ejection vs Vvir" section of SAGE26's plotting script
-(plotting/allresults-local.py:2041-2118): the ejection efficiency of galaxies with star
-formation, mass loading and a halo against the virial velocity, with the median and one
-standard deviation of each virial-velocity bin. The section is the specification; where this
-port differs it is a permitted deviation below.
+Follows the "Ejection vs Vvir" section of SAGE26's plotting script: the ejection efficiency of
+galaxies with star formation, mass loading and a halo against the virial velocity, with the median
+and one standard deviation of each virial-velocity bin. Where it differs from SAGE26 the difference
+is stated below.
 
 Requires: SfrDisk, SfrBulge, MassLoading, Vvir, Mvir
 
-Fields read (units): SfrDisk and SfrBulge (Msun/yr; the rate is their sum, :2075), MassLoading
-(dimensionless), Vvir (km/s) and Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, :364, only to select).
+Fields read (units): SfrDisk and SfrBulge (Msun/yr; the rate is their sum), MassLoading
+(dimensionless), Vvir (km/s) and Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10
+/ hubble_h, only to select).
 
 Run parameters: the disk reheating and halo ejection efficiencies are the run's
 FeedbackReheatingEpsilon and FeedbackEjectionEfficiency (modules.parameters), where SAGE26 writes
-the literals 2.9 and 0.3 (:2071-2072); the literals are the fallback, with a warning, for a run
-that does not give them.
+the literals 2.9 and 0.3; the literals are the fallback, with a warning, for a run that does not
+give them.
 
-Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
-script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
-candidates exceed DILUTE. SAGE26 prints a skip notice when no galaxy is selected (:2051-2053) and
-then fails; this figure draws its empty axes instead, as it skips only for a missing field.
+Differences from SAGE26: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once), so the drawn subset differs when the candidates exceed DILUTE.
+SAGE26 prints a skip notice when no galaxy is selected and then fails; this figure draws its empty
+axes instead, as it skips only for a missing field.
 """
 
 import random
@@ -39,18 +38,17 @@ from output_utils import (
     setup_figure,
 )
 
-# Number of galaxies drawn at most: SAGE26's `dilute`, reassigned to 100000 at
-# allresults-local.py:1735 and in force here (:2055)
+# Number of galaxies drawn at most: SAGE26's `dilute` as in force at this figure
 DILUTE = 100000
 
 # Constants of SAGE26's feedback model as the plotting script writes them; the two efficiencies
 # are the fallbacks when the run does not give FeedbackReheatingEpsilon and
 # FeedbackEjectionEfficiency
-EPSILON_DISK = 2.9  # allresults-local.py:2071
-EPSILON_HALO = 0.3  # :2072
-V_SN = 501.0  # km/s, characteristic supernova velocity (:2073)
+EPSILON_DISK = 2.9
+EPSILON_HALO = 0.3
+V_SN = 501.0  # km/s, characteristic supernova velocity
 
-# Bin edges of the median line: np.arange(1.0, 3.0, 0.1), allresults-local.py:2105
+# Bin edges of the median line: np.arange(1.0, 3.0, 0.1)
 BIN_EDGES = np.arange(1.0, 3.0, 0.1)
 
 
@@ -60,11 +58,10 @@ def ejection_efficiency(
     """
     Return the ejection efficiency of each galaxy (the ejected mass over the star formation rate).
 
-    SAGE26 allresults-local.py:2075-2097: with sfr = SfrDisk + SfrBulge and reheat =
-    MassLoading * sfr, the feedback energy is E_fb = 0.5 * epsilon_halo * (MassLoading /
-    epsilon_disk) * sfr * 501^2 (SAGE26's epsilon_halo 0.3 and epsilon_disk 2.9) and the lifting
-    energy E_lift = 0.5 * reheat * Vvir^2; the ejected mass is
-    max(0, (E_fb - E_lift) / (0.5 * Vvir^2)) and the efficiency is that over sfr.
+    As in SAGE26: with sfr = SfrDisk + SfrBulge and reheat = MassLoading * sfr, the feedback energy
+    is E_fb = 0.5 * epsilon_halo * (MassLoading / epsilon_disk) * sfr * 501^2 (SAGE26's epsilon_halo
+    0.3 and epsilon_disk 2.9) and the lifting energy E_lift = 0.5 * reheat * Vvir^2; the ejected
+    mass is max(0, (E_fb - E_lift) / (0.5 * Vvir^2)) and the efficiency is that over sfr.
     """
     sfr = sfr_disk + sfr_bulge
     reheat = mass_loading * sfr
@@ -128,14 +125,13 @@ def plot(
 
     Mvir = galaxies.Mvir * 1.0e10 / hubble_h
 
-    # allresults-local.py:2050-2060
     w = np.where(
         (galaxies.SfrDisk + galaxies.SfrBulge > 0.0)
         & (galaxies.MassLoading > 0.0)
         & (galaxies.Vvir > 0.0)
         & (Mvir > 0.0)
     )[0]
-    w = draw_sample(w, rng, DILUTE)  # allresults-local.py:2055
+    w = draw_sample(w, rng, DILUTE)
     MassLoading = galaxies.MassLoading[w]
     Vvir = galaxies.Vvir[w]
     SfrDisk = galaxies.SfrDisk[w]
@@ -147,8 +143,8 @@ def plot(
 
     fig, ax = setup_figure()
 
-    # allresults-local.py:2102-2112. SAGE26 sets no axis window here (:2116 is commented out)
-    # and calls no legend, so the median line's label is not shown.
+    # SAGE26 sets no axis window here (its limits are commented out) and calls no legend, so the
+    # median line's label is not shown.
     if len(w) > 0:
         ejection = ejection_efficiency(
             MassLoading, SfrDisk, SfrBulge, Vvir, epsilon_disk, epsilon_halo
@@ -172,7 +168,7 @@ def plot(
         ax.plot(bin_centers, medians, color="k", lw=2, label="Median ± 1σ", gid="model")
 
     ax.set_xlabel(r"$\log_{10} V_{\rm vir}\ (\mathrm{km/s})$", fontsize=AXIS_LABEL_SIZE)
-    # SAGE26 figure parity: allresults-local.py:2115 labels the axis "Ejection Efficiency", with no
+    # SAGE parity: SAGE26 labels the axis "Ejection Efficiency", with no
     # log marker, for log10 of the efficiency. Mirrored as written.
     ax.set_ylabel(r"$\mathrm{Ejection\ Efficiency}$", fontsize=AXIS_LABEL_SIZE)
 

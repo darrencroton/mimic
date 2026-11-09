@@ -3,25 +3,23 @@
 """
 SAGE26 Metallicity Evolution Plot
 
-Port of the "Plotting metallicity vs stellar mass at different redshifts" section of SAGE26's
-history plotting script (plotting/allresults-history.py:1537-1605, figure MetallicityEvolution):
-the mean of log10 of the stellar metal mass of galaxies against stellar mass, in the fifteen
-redshift bins, with the standard error of the mean over the snapshots of a bin as a shaded band.
-The section is the specification; where this port differs it is a permitted deviation below.
+Follows the MetallicityEvolution figure of SAGE26's history plotting script: the mean of log10 of
+the stellar metal mass of galaxies against stellar mass, in the fifteen redshift bins, with the
+standard error of the mean over the snapshots of a bin as a shaded band. Where it differs from
+SAGE26 the difference is stated below.
 
 Requires: StellarMass, MetalsStellarMass
 
-Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, allresults-history.py:337) and MetalsStellarMass (1e10 Msun/h, read as it is,
-with no conversion: :365).
+Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 /
+hubble_h) and MetalsStellarMass (1e10 Msun/h, read as it is, with no conversion).
 
-Snapshots: those with a redshift in each bin of ``Z_BINS`` (:1542-1546), chosen through
-``snapshots_in_z_range``; snapshot 63 (z = 0) falls in none, as in SAGE26.
+Snapshots: those with a redshift in each bin of ``Z_BINS``, chosen through ``snapshots_in_z_range``;
+snapshot 63 (z = 0) falls in none, as in SAGE26.
 
-SAGE26 sets no axis window (its limits are commented out, :1594-1595), so the port sets none.
+SAGE26 sets no axis window (its limits are commented out), so the figure sets none.
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
-reads 64, so a bin holds at most one snapshot and its standard error is zero.
+Differences from SAGE26: none beyond drawing the figure from the snapshots the run writes, where
+SAGE26 reads all 64, so a bin may hold a single snapshot, and its standard error is then zero.
 """
 
 import matplotlib.pyplot as plt
@@ -37,7 +35,7 @@ def mass_bins():
     """
     Return the stellar-mass bin edges, the same for every redshift bin.
 
-    SAGE26 allresults-history.py:1554: `np.arange(7.2, 12.5, 0.1)`.
+    As in SAGE26: `np.arange(7.2, 12.5, 0.1)`.
     """
     return np.arange(7.2, 12.5, 0.1)
 
@@ -46,8 +44,7 @@ def select_with_metals(stellar_mass, metals):
     """
     Return the indices of galaxies with positive stellar mass and positive stellar metal mass.
 
-    SAGE26 allresults-history.py:1561:
-    `np.where((StellarMassFull > 0.0) & (MetallicityFull > 0.0))[0]`.
+    As in SAGE26: `np.where((StellarMassFull > 0.0) & (MetallicityFull > 0.0))[0]`.
     """
     return np.where((stellar_mass > 0.0) & (metals > 0.0))[0]
 
@@ -80,14 +77,13 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # allresults-history.py:1547 (viridis)
+    # Viridis
     colors = plt.cm.viridis(np.linspace(0.1, 0.9, len(Z_BINS)))
     bins = mass_bins()
     mass_centers = bins[:-1] + 0.05
 
     fig, ax = setup_figure(figsize=(10, 7))
 
-    # allresults-history.py:1549-1592
     for i, (z_min, z_max) in enumerate(Z_BINS):
         snap_indices = snapshots_in_z_range(snapshots, z_min, z_max)
         if len(snap_indices) == 0:
@@ -98,10 +94,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             galaxies, _volume, metadata = snapshots[snap]
             hubble_h = metadata["hubble_h"]
             stellar_mass = galaxies.StellarMass * 1.0e10 / hubble_h
-            # SAGE26 figure parity: allresults-history.py:365 reads MetalsStellarMass, the
-            # stellar metal mass in 1e10 Msun/h, with no x 1e10 / hubble_h and no division by the
-            # stellar mass, yet the y axis (:1597) is labelled log10 Z, a metallicity. Mirrored as
-            # written.
+            # SAGE parity: SAGE26 reads MetalsStellarMass, the stellar metal mass in 1e10 Msun/h,
+            # with no x 1e10 / hubble_h and no division by the stellar mass, yet the y axis is
+            # labelled log10 Z, a metallicity. Mirrored as written.
             metals = galaxies.MetalsStellarMass
             w = select_with_metals(stellar_mass, metals)
             if len(w) > 0:
@@ -136,7 +131,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             gid="model",
         )
 
-    # allresults-history.py:1596-1599
     ax.set_xlabel(r"$\log_{10} M_* [M_\odot]$", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel(r"$\log_{10} Z$", fontsize=AXIS_LABEL_SIZE)
     ax.xaxis.set_minor_locator(MultipleLocator(0.1))

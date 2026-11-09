@@ -3,20 +3,19 @@
 """
 SAGE26 Stellar Mass Against Halo Mass By Regime Plot
 
-Port of the "Plotting stellar mass vs halo mass colored by regime" section of SAGE26's plotting
-script (plotting/allresults-local.py:1687-1724): the stellar mass of galaxies against the mass
-of their halo, the circumgalactic-medium regime in blue and the hot regime in red. The section is
-the specification; where this port differs it is a permitted deviation below.
+Follows the "Plotting stellar mass vs halo mass colored by regime" section of SAGE26's plotting
+script: the stellar mass of galaxies against the mass of their halo, the circumgalactic-medium
+regime in blue and the hot regime in red. Where it differs from SAGE26 the difference is stated
+below.
 
 Requires: Mvir, StellarMass, Regime
 
-Fields read (units): Mvir and StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts
-them: x 1e10 / hubble_h, allresults-local.py:364-365) and Regime (0 circumgalactic medium,
-1 hot; other values are drawn in neither series, :1701-1702).
+Fields read (units): Mvir and StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts them: x
+1e10 / hubble_h) and Regime (0 circumgalactic medium, 1 hot; other values are drawn in neither
+series).
 
-Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
-script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
-candidates exceed DILUTE.
+Differences from SAGE26: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once), so the drawn subset differs when the candidates exceed DILUTE.
 """
 
 import random
@@ -31,8 +30,7 @@ from output_utils import (
     setup_figure,
 )
 
-# Number of galaxies drawn at most: SAGE26's script-level `dilute` (allresults-local.py:73),
-# in force here (it is reassigned only at :1735)
+# Number of galaxies drawn at most: SAGE26's script-level `dilute`, in force here
 DILUTE = 7500
 
 
@@ -79,14 +77,13 @@ def plot(
     mvir = galaxies.Mvir * 1.0e10 / hubble_h
     stellar_mass = galaxies.StellarMass * 1.0e10 / hubble_h
 
-    # allresults-local.py:1693-1698
     w = np.where((mvir > 0.0) & (stellar_mass > 0.0))[0]
     w = draw_sample(w, rng, DILUTE)
     log10_halo_mass = np.log10(mvir[w])
     log10_stellar_mass = np.log10(stellar_mass[w])
     regime_values = galaxies.Regime[w]
 
-    # Separate the data by regime, allresults-local.py:1701-1702
+    # Separate the data by regime
     cgm_regime = regime_values == 0
     hot_regime = regime_values == 1
 
@@ -98,7 +95,7 @@ def plot(
 
     fig, ax = setup_figure()
 
-    # A regime with no galaxy draws nothing, allresults-local.py:1705-1711
+    # A regime with no galaxy draws nothing
     if np.any(cgm_regime):
         ax.scatter(
             log10_halo_mass[cgm_regime],

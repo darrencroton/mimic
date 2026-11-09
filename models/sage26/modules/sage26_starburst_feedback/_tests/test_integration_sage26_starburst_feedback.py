@@ -90,16 +90,13 @@ def bulge_upper_bound(stellar_mass, bulge_mass, param_file):
     By induction, -b * D <= e <= (3 * b + 1) * D:
 
     - a burst adds the rounded double recycled_stars = (1 - RecycleFraction) * stars to
-      BulgeMass (SAGE26 src/model_mergers.c:770-772) and the same product to StellarMass
-      in one fused multiply-add (src/model_starformation_and_feedback.c:1125, fused per
-      the oracle README's "The c06 Group", Fused Multiply-Adds); each sum is rounded to double and
-      then to float, so e moves by at most one float rounding of each reservoir plus the product's
+      BulgeMass and the same product to StellarMass; each sum is rounded to double and then to
+      float, so e moves by at most one float rounding of each reservoir plus the product's
       double rounding, at most D in either direction;
-    - the instability transfer adds unstable_stars to BulgeMass (src/model_disk_instability.c:77)
-      only when the star fraction is positive, i.e. when the float disk
-      StellarMass - BulgeMass is positive (:54, :63-66), so only from e < 0, and it never
-      lowers e. That disk is exactly -e (the two floats are within a factor of two). The
-      float disk mass ColdGas + (-e) exceeds ColdGas only if -e is at least half a float
+    - the instability transfer adds unstable_stars to BulgeMass only when the star fraction is
+      positive, i.e. when the float disk StellarMass - BulgeMass is positive, so only from
+      e < 0, and it never lowers e. That disk is exactly -e (the two floats are within a factor
+      of two). The float disk mass ColdGas + (-e) exceeds ColdGas only if -e is at least half a float
       spacing of ColdGas, so unstable_stars is at most -e plus one float spacing of the
       disk mass plus double roundings, at most 3 * (-e), and the transfer leaves
       e <= 2 * (-e) + D <= 3 * b * D + D.
@@ -109,8 +106,7 @@ def bulge_upper_bound(stellar_mass, bulge_mass, param_file):
     looser than SAGE26's arithmetic: the excess does grow with the number of bursts, as
     test_unit_sage26_starburst_feedback.c::test_consecutive_bursts_bulge_excess_grows pins
     with SAGE26's own bits (two floats above after three bursts), so no fixed number of
-    floats bounds it. SAGE26's own R0 output and these pipelines show no row above
-    StellarMass at all.
+    floats bounds it. These pipelines show no row above StellarMass at all.
     """
     stellar = np.asarray(stellar_mass, dtype=np.float32).astype(np.float64)
     bulge = np.asarray(bulge_mass, dtype=np.float32).astype(np.float64)
@@ -144,11 +140,11 @@ def test_module_pipeline_integration():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -243,11 +239,11 @@ def test_starburst_physics_correctness():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -336,11 +332,11 @@ def test_disk_instability_trigger():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -402,11 +398,11 @@ def test_merger_trigger():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -456,11 +452,11 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 1.0,  # Low
             "FeedbackEjectionEfficiency": 0.5,
@@ -494,11 +490,11 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 5.0,  # High (5x)
             "FeedbackEjectionEfficiency": 0.5,
@@ -532,11 +528,11 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.1,  # Low
@@ -570,11 +566,11 @@ def test_parameter_sensitivity():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 2.0,  # High (20x)
@@ -636,11 +632,11 @@ def test_memory_and_performance():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required, R3's value
+            "CGMrecipeOn": 0,  # required (the CGM recipe off)
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             "FeedbackReheatingEpsilon": 3.0,
             "FeedbackEjectionEfficiency": 0.5,
@@ -709,10 +705,10 @@ def test_full_pipeline_star_formation():
             "post_timestep": [],
         },
         model_params={
-            # Required by the burst module, at R1's values
+            # Required by the burst module, with SFprescription 0
             "SFprescription": 0,
             "StarburstColdGasOn": 1,
-            "FIREmodeOn": 0,  # required by the burst module, R2's fixed-epsilon feedback
+            "FIREmodeOn": 0,  # required by the burst module (the fixed-epsilon feedback)
             "BulgeSizeOn": 0,
             # Infall/Reionization
             "GlobalBaryonFraction": 0.17,
@@ -729,7 +725,7 @@ def test_full_pipeline_star_formation():
             "Yield": 0.03,
             "FracZleaveDisk": 0.5,
             "ThresholdMajorMerger": 0.3,
-            "CGMrecipeOn": 0,  # required by the infall modules, R3's value
+            "CGMrecipeOn": 0,  # required by the infall modules (the CGM recipe off)
         },
     )
 

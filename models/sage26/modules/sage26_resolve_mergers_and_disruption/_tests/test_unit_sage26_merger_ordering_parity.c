@@ -72,14 +72,14 @@ static void setup_model_parameters_with_sizes(double threshold_sat_disruption,
   /* The required bulge-size mode */
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BulgeSizeOn");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", bulge_size_on);
-  /* The required CGMrecipeOn, at R3's value 0 */
+  /* The required CGMrecipeOn, set to 0 */
   snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "CGMrecipeOn");
   snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%d", 0);
 
   MimicConfig.NumModelParams = idx;
 }
 
-/** @brief The ordering fixtures' parameters, with SAGE26's R0 bulge-size mode 0 (no sizes) */
+/** @brief The ordering fixtures' parameters, with bulge-size mode 0 (no sizes) */
 static void setup_model_parameters(double threshold_sat_disruption, double threshold_major_merger) {
   setup_model_parameters_with_sizes(threshold_sat_disruption, threshold_major_merger, 0);
 }
@@ -379,10 +379,10 @@ static int count_emit(struct ModuleContext *ctx, struct Halo *halos, int source_
 
 /**
  * @test    test_mode3_merge_refuses_missing_core_parameters
- * @brief   With BulgeSizeOn 3 the merger transaction needs the core's Hubble_h
- *          (R/src/model_misc.c:249, :398): a context without parameters is refused with -1
- *          before any galaxy or halo changes and before the merger event is emitted. The same
- *          call with the parameters runs, so the refusal is the mode-3 guard's.
+ * @brief   With BulgeSizeOn 3 the merger transaction needs the core's Hubble_h: a context
+ *          without parameters is refused with -1 before any galaxy or halo changes and before
+ *          the merger event is emitted. The same call with the parameters runs, so the refusal
+ *          is the mode-3 guard's.
  */
 int test_mode3_merge_refuses_missing_core_parameters(void) {
   struct ModuleContext ctx;
@@ -426,19 +426,18 @@ int test_mode3_merge_refuses_missing_core_parameters(void) {
 // CGM ROUTING TESTS (CGMrecipeOn)
 // ============================================================================
 //
-// SAGE26's disrupt_satellite_to_ICS (R = the staged SAGE26 source, R/src/model_mergers.c:845-902)
-// sums the satellite's ColdGas + HotGas + CGMgas, and their metals, in float, widens each sum and
-// deposits it through add_gas_to_hot_reservoir (R/src/model_misc.h:76-85) on the PASSED recipient:
-// its CGM pair with CGMrecipeOn 1 and the recipient's Regime 0, its hot pair otherwise. The pass
-// passes merger_centralgal, which for a Type 2 orphan is its subhalo's central
-// (R/src/core_build_model.c:539-543, :575), here a Type 1 that is not the FoF central; the FoF
-// central holds the other Regime. The orphan (Mvir 0, so the gate passes, :534-537, with a clock
-// of 5 that stays positive after the 0.1 decrement, :529-530, :574-575) holds cold 0.5 / 0.0625,
-// hot 0.25 / 0.03125 and CGM 0.125 / 0.015625, summing exactly to 0.875 / 0.109375; both of the
-// recipient's pairs start at 1 / 0.125, so its selected pair ends at 1.875 / 0.234375.
+// SAGE26's disrupt_satellite_to_ICS sums the satellite's ColdGas + HotGas + CGMgas, and their
+// metals, in float, widens each sum and deposits it through add_gas_to_hot_reservoir on the
+// PASSED recipient: its CGM pair with CGMrecipeOn 1 and the recipient's Regime 0, its hot pair
+// otherwise. The pass passes merger_centralgal, which for a Type 2 orphan is its subhalo's
+// central, here a Type 1 that is not the FoF central; the FoF central holds the other Regime.
+// The orphan (Mvir 0, so the gate passes, with a clock of 5 that stays positive after the 0.1
+// decrement) holds cold 0.5 / 0.0625, hot 0.25 / 0.03125 and CGM 0.125 / 0.015625, summing
+// exactly to 0.875 / 0.109375; both of the recipient's pairs start at 1 / 0.125, so its selected
+// pair ends at 1.875 / 0.234375.
 
 /** @brief Read a captured log stream into a static buffer (valid until the next call) */
-static const char *c10_read_log(FILE *fp) {
+static const char *cgm_read_log(FILE *fp) {
   static char buf[8192];
   rewind(fp);
   const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
@@ -447,7 +446,7 @@ static const char *c10_read_log(FILE *fp) {
 }
 
 /** @brief Set the parameter list's CGMrecipeOn to `value`, or remove it for NULL */
-static void c10_set_cgm_recipe_on(const char *value) {
+static void cgm_set_cgm_recipe_on(const char *value) {
   int n = 0;
   for (int i = 0; i < MimicConfig.NumModelParams; i++) {
     if (strcmp(MimicConfig.ModelParams[i].param_name, "CGMrecipeOn") != 0) {
@@ -463,16 +462,16 @@ static void c10_set_cgm_recipe_on(const char *value) {
 }
 
 /** @brief Initialise the resolver (clock in pre_timestep) with CGMrecipeOn `cgm`, NULL missing */
-static int c10_init(const char *cgm, const char **log) {
+static int cgm_init(const char *cgm, const char **log) {
   reset_config();
   setup_model_parameters(TEST_THRESHOLD_DISRUPTION, TEST_THRESHOLD_MAJOR);
-  c10_set_cgm_recipe_on(cgm);
+  cgm_set_cgm_recipe_on(cgm);
   FILE *capture = tmpfile();
   FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
   const int status = init_parity_modules();
   if (capture != NULL) {
     set_log_output(old_out);
-    *log = c10_read_log(capture);
+    *log = cgm_read_log(capture);
     fclose(capture);
   } else {
     *log = "";
@@ -495,12 +494,12 @@ int test_cgm_disruption_to_passed_recipient(void) {
   init_memory_system(0);
   for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
     const char *log = "";
-    TEST_ASSERT(c10_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+    TEST_ASSERT(cgm_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
     struct ModuleContext ctx;
     struct Halo halos[3];
     struct GalaxyData galaxies[3];
     setup_context(&ctx);
-    /* FoF central, a Type 1 subhalo central that stays (Mvir 50 against baryons 1.5, :537) and
+    /* FoF central, a Type 1 subhalo central that stays (Mvir 50 against baryons 1.5) and
      * the Type 2 orphan of that subhalo */
     setup_test_halo(&halos[0], &galaxies[0], 3000, 0, -1, 80.0, 0.0, 240.0, 999.9, 18.0, 2.0, 1.0,
                     1.0, 0.2, 3.0);
@@ -558,18 +557,18 @@ int test_cgm_disruption_to_passed_recipient(void) {
  */
 int test_cgm_recipe_on_refused(void) {
   const char *log = "";
-  TEST_ASSERT(c10_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
+  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
   cleanup_parity_modules();
-  TEST_ASSERT(c10_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
+  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
   cleanup_parity_modules();
-  TEST_ASSERT(c10_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
+  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
   TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
   cleanup_parity_modules();
-  TEST_ASSERT(c10_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
+  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
   cleanup_parity_modules();
-  TEST_ASSERT(c10_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
+  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
   cleanup_parity_modules();
   return TEST_PASS;
 }

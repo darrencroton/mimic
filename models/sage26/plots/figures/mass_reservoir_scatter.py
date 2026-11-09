@@ -166,7 +166,7 @@ def plot(
         label="Intracluster stars",
         gid="model",
     )
-    # SAGE26's counterpart draws the same series (plotting/allresults-local.py:1489)
+    # SAGE26's counterpart draws the same series
     ax.scatter(
         mvir, cgm_gas, marker="o", s=0.8, c="orange", alpha=0.5, label="CGM gas", gid="model"
     )

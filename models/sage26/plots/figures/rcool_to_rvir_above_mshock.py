@@ -3,31 +3,26 @@
 """
 SAGE26 Cooling Radius over Virial Radius Plot, Haloes above the Shock Mass
 
-Port of the "Quick visual: rcool/Rvir distribution for the Mvir > Mshock subset" section of
-SAGE26's history plotting script (plotting/allresults-history.py:387-455, figure
-RcoolToRvir_above_Mshock). The section is the specification; where this port differs it is a
-permitted deviation below.
+Follows the RcoolToRvir_above_Mshock figure of SAGE26's history plotting script. Where it differs
+from SAGE26 the difference is stated below.
 
 Requires: Mvir, RcoolToRvir
 
-Fields read (units): Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, allresults-history.py:342) and RcoolToRvir (rcool / Rvir, dimensionless; a
-negative value is SAGE26's "undefined" sentinel and is excluded, :413). Every galaxy row of the
-snapshot is read, with no Type cut, as in SAGE26.
+Fields read (units): Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 / hubble_h)
+and RcoolToRvir (rcool / Rvir, dimensionless; a negative value is SAGE26's "undefined" sentinel and
+is excluded). Every galaxy row of the snapshot is read, with no Type cut, as in SAGE26.
 
-Snapshots: the written snapshot nearest z = 0, 2 and 6 (:390, :399-400), chosen through
-``nearest_snapshot``.
+Snapshots: the written snapshot nearest z = 0, 2 and 6, chosen through ``nearest_snapshot``.
 
-Run parameter: the shock mass is the run's MShockMsun (modules.parameters), where SAGE26 writes
-the literal 6e11 Msun (:389, "must match the C source"); the literal is the fallback, with a
-warning, for a run that does not give it.
+Run parameter: the shock mass is the run's MShockMsun (modules.parameters), where SAGE26 writes the
+literal 6e11 Msun ("must match the C source"); the literal is the fallback, with a warning, for a
+run that does not give it.
 
-Permitted deviations: the nearest snapshot is searched among the written snapshots only (SAGE26
-searches all 64 and the run writes eight), and a target whose nearest written snapshot an
-earlier target already drew is not drawn again (a sparse snapshot_list maps several targets to one
-snapshot, which SAGE26's 64 snapshots never do); the measurement SAGE26 prints (:387-429) goes to the log
-(printed with --verbose), and only the strict fraction in each legend entry stays on the
-figure, as in SAGE26 (:443-446).
+Differences from SAGE26: the nearest snapshot is searched among the written snapshots only (SAGE26
+searches all 64), and a target whose nearest written snapshot an earlier target already drew is not
+drawn again (a sparse snapshot_list maps several targets to one snapshot, which SAGE26's 64
+snapshots never do); the measurement SAGE26 prints goes to the log (printed with --verbose), and
+only the strict fraction in each legend entry stays on the figure, as in SAGE26.
 """
 
 import matplotlib.pyplot as plt
@@ -41,14 +36,14 @@ from output_utils import (
     setup_figure,
 )
 
-# Mshock = 6e11 Msun, physical (allresults-history.py:389, `Mshock_Msun = 6.0e11`): the fallback
-# when the run does not give MShockMsun
+# Mshock = 6e11 Msun, physical (SAGE26's `Mshock_Msun = 6.0e11`): the fallback when the run does not
+# give MShockMsun
 MSHOCK_MSUN = 6.0e11
 
-# Target redshifts (:390, `measure_targets = [0.0, 2.0, 6.0]`)
+# Target redshifts (SAGE26's `measure_targets = [0.0, 2.0, 6.0]`)
 TARGET_REDSHIFTS = [0.0, 2.0, 6.0]
 
-# Histogram bins (:432, `rr_bins = np.arange(0.0, 2.2, 0.05)`)
+# Histogram bins (SAGE26's `rr_bins = np.arange(0.0, 2.2, 0.05)`)
 RATIO_BINS = np.arange(0.0, 2.2, 0.05)
 
 
@@ -56,8 +51,8 @@ def select_above_mshock(mvir_msun, rcool_ratio, mshock_msun=MSHOCK_MSUN):
     """
     Return the mask of haloes above the shock mass with a defined cooling radius.
 
-    SAGE26 allresults-history.py:413 and :440: `sel = (Mvir > Mshock_Msun) & (rcool_ratio >= 0.0)`, with
-    Mvir and the shock mass in Msun.
+    As in SAGE26: `sel = (Mvir > Mshock_Msun) & (rcool_ratio >= 0.0)`, with Mvir and the shock mass
+    in Msun.
     """
     return (mvir_msun > mshock_msun) & (rcool_ratio >= 0.0)
 
@@ -66,7 +61,7 @@ def shock_mass_text(mshock_msun):
     """
     Return the shock mass as SAGE26's title writes it, mantissa times a power of ten.
 
-    SAGE26 allresults-history.py:451 writes `6\times10^{11}` for its literal 6e11.
+    SAGE26 writes `6\times10^{11}` for its literal 6e11.
     """
     exponent = int(np.floor(np.log10(mshock_msun)))
     return rf"{mshock_msun / 10.0**exponent:g}\times10^{{{exponent}}}"
@@ -76,7 +71,7 @@ def strict_fraction(rcool_ratio):
     """
     Return the fraction of selected haloes with rcool / Rvir above 1.
 
-    SAGE26 allresults-history.py:421: `f_strict = np.mean(rcool_ratio[sel] > 1.0)`.
+    As in SAGE26: `f_strict = np.mean(rcool_ratio[sel] > 1.0)`.
     """
     return np.mean(rcool_ratio > 1.0)
 
@@ -85,7 +80,7 @@ def at_least_one_fraction(rcool_ratio):
     """
     Return the fraction of selected haloes with rcool / Rvir at or above 1.
 
-    SAGE26 allresults-history.py:422: `f_geq = np.mean(rcool_ratio[sel] >= 1.0)` (logged only).
+    As in SAGE26: `f_geq = np.mean(rcool_ratio[sel] >= 1.0)` (logged only).
     """
     return np.mean(rcool_ratio >= 1.0)
 
@@ -94,7 +89,7 @@ def clip_to_bins(rcool_ratio):
     """
     Return the ratios clipped to the ends of the histogram bins.
 
-    SAGE26 allresults-history.py:443: `np.clip(rcool_ratio[sel], rr_bins[0], rr_bins[-1])`.
+    As in SAGE26: `np.clip(rcool_ratio[sel], rr_bins[0], rr_bins[-1])`.
     """
     return np.clip(rcool_ratio, RATIO_BINS[0], RATIO_BINS[-1])
 
@@ -129,7 +124,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     mshock_msun = module_parameter(params, "MShockMsun", MSHOCK_MSUN)
 
-    # SAGE26 sets no axis window (allresults-history.py:446-453)
+    # SAGE26 sets no axis window
     colors = plt.cm.viridis(np.linspace(0.15, 0.85, len(TARGET_REDSHIFTS)))
 
     fig, ax = setup_figure()
@@ -141,7 +136,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             f"{'f(rcool>Rvir)':>14} {'f(rcool>=Rvir)':>15}"
         )
 
-    # allresults-history.py:434-446
     drawn = set()
     for k, target_z in enumerate(TARGET_REDSHIFTS):
         snap = nearest_snapshot(snapshots, target_z)
@@ -180,7 +174,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         for patch in patches:
             patch.set_gid("model")
 
-    # allresults-history.py:447-453
     ax.axvline(1.0, color="k", ls="--", lw=1, alpha=0.7)
     ax.set_xlabel(r"$r_{\rm cool}\,/\,R_{\rm vir}$", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel("PDF", fontsize=AXIS_LABEL_SIZE)

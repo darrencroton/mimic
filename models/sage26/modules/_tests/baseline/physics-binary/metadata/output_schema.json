@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "scripts/generate_properties.py",
-  "source_md5": "5694a2aeb4b71cbf40879822d6649cbd",
+  "source_md5": "dddeeab08c76adc08dd7f7c6b6d2b95a",
   "model": "sage26",
   "model_path": "models/sage26",
   "reference_units": {
@@ -879,7 +879,7 @@
       "offset": 380,
       "size": 4,
       "units": "dimensionless",
-      "description": "NFW halo concentration, set at joining for a new FoF central that was a Type 0 or 1, by SAGE26's Vmax/Vvir inversion (ConcentrationOn 3, R5; a former satellite's infall pair), 0 if (Vmax/Vvir)^2 < 1; 0 throughout with ConcentrationOn 0 (R0-R4)"
+      "description": "NFW halo concentration, set at joining for a new FoF central that was a Type 0 or 1 by SAGE26's Vmax/Vvir inversion (ConcentrationOn 3; a former satellite's infall pair), 0 if (Vmax/Vvir)^2 < 1; 0 throughout with ConcentrationOn 0"
     }
   ]
 }

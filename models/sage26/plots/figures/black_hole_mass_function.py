@@ -3,28 +3,27 @@
 """
 SAGE26 Black Hole Mass Function Plot
 
-Port of the "Black Hole Mass Function at specific redshifts" section of SAGE26's history plotting
-script (plotting/allresults-history.py:1150-1245, figure BlackHoleMassFunction): the number
-density of black holes against black hole mass at the snapshots nearest z = 0.1, 1, 2, 4, 6 and 8,
-with the TRINITY black hole mass functions as dashed lines and shaded bands. The section is the
-specification; where this port differs it is a permitted deviation below.
+Follows the BlackHoleMassFunction figure of SAGE26's history plotting script: the number density of
+black holes against black hole mass at the snapshots nearest z = 0.1, 1, 2, 4, 6 and 8, with the
+TRINITY black hole mass functions as dashed lines and shaded bands. Where it differs from SAGE26 the
+difference is stated below.
 
 Requires: BlackHoleMass
 
-Fields read (units): BlackHoleMass (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, allresults-history.py:340). The volume is the snapshot's volume in (Mpc/h)^3
-divided by hubble_h^3, which is SAGE26's `(BoxSize / Hubble_h)**3 * VolumeFraction` (:305), in Mpc^3.
+Fields read (units): BlackHoleMass (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 /
+hubble_h). The volume is the snapshot's volume in (Mpc/h)^3 divided by hubble_h^3, which is SAGE26's
+`(BoxSize / Hubble_h)**3 * VolumeFraction`, in Mpc^3.
 
-Snapshots: the written snapshot nearest each target redshift (:1155-1164), chosen through
-``nearest_snapshot``; the legend gives that snapshot's actual redshift.
+Snapshots: the written snapshot nearest each target redshift, chosen through ``nearest_snapshot``;
+the legend gives that snapshot's actual redshift.
 
-Observations: the TRINITY black hole mass functions of SAGE26's data files R/data/bh/
-fig4_bhmf_z*.txt (:1192-1220), held as the named constants OBS_TRINITY_Z*.
+Observations: the TRINITY black hole mass functions of SAGE26's data files fig4_bhmf_z*.txt, held
+as the named constants OBS_TRINITY_Z*.
 
-Permitted deviations: the nearest snapshot is searched among the written snapshots only (SAGE26
-searches all 64 and the run writes eight), and a target whose nearest written snapshot an earlier
-target already drew is not drawn again (a sparse snapshot_list maps several targets to one
-snapshot, which SAGE26's 64 snapshots never do); the observations are inline arrays (columns: log10 Mbh
+Differences from SAGE26: the nearest snapshot is searched among the written snapshots only (SAGE26
+searches all 64), and a target whose nearest written snapshot an earlier target already drew is not
+drawn again (a sparse snapshot_list maps several targets to one snapshot, which SAGE26's 64
+snapshots never do); the observations are inline arrays (columns: log10 Mbh
 [Msun], best, 16th and 84th percentile BHMF [Mpc^-3 dex^-1]) instead of files read at plot time.
 """
 
@@ -40,17 +39,16 @@ from output_utils import (
     setup_figure,
 )
 
-# Target redshifts (allresults-history.py:1155, `bhmf_redshifts`)
+# Target redshifts (SAGE26's `bhmf_redshifts`)
 TARGET_REDSHIFTS = [0.1, 1.0, 2.0, 4.0, 6.0, 8.0]
 
-# Black hole mass bins (:1170, `np.arange(6.0, 11.5, 0.1)`)
+# Black hole mass bins, `np.arange(6.0, 11.5, 0.1)`
 MASS_BINS = np.arange(6.0, 11.5, 0.1)
 
-# TRINITY supermassive black hole mass functions, paper IV (arXiv:2309.07210), as the header of
-# each SAGE26 file names them. Each constant is the file's rows, read as np.loadtxt reads it
-# (allresults-history.py:1207): columns log10(Mbh [Msun]), BHMF_best, BHMF_16th and BHMF_84th
-# [Mpc^-3 dex^-1].
-# z = 0.1: R/data/bh/fig4_bhmf_z0.1.txt, 66 rows
+# TRINITY supermassive black hole mass functions, paper IV (arXiv:2309.07210), as the header of each
+# SAGE26 file names them. Each constant is the file's rows, read as np.loadtxt reads it: columns
+# log10(Mbh [Msun]), BHMF_best, BHMF_16th and BHMF_84th [Mpc^-3 dex^-1].
+# z = 0.1: fig4_bhmf_z0.1.txt, 66 rows
 OBS_TRINITY_Z0P1 = np.array(
     [
         [4.0, 0.01868892, 0.01607018, 0.02439403],
@@ -122,7 +120,7 @@ OBS_TRINITY_Z0P1 = np.array(
     ]
 )
 
-# z = 1.0: R/data/bh/fig4_bhmf_z1.0.txt, 66 rows
+# z = 1.0: fig4_bhmf_z1.0.txt, 66 rows
 OBS_TRINITY_Z1P0 = np.array(
     [
         [4.0, 0.01537181, 0.01353809, 0.01949825],
@@ -194,7 +192,7 @@ OBS_TRINITY_Z1P0 = np.array(
     ]
 )
 
-# z = 2.0: R/data/bh/fig4_bhmf_z2.0.txt, 66 rows
+# z = 2.0: fig4_bhmf_z2.0.txt, 66 rows
 OBS_TRINITY_Z2P0 = np.array(
     [
         [4.0, 0.01226637, 0.01033197, 0.0156545],
@@ -266,7 +264,7 @@ OBS_TRINITY_Z2P0 = np.array(
     ]
 )
 
-# z = 4.0: R/data/bh/fig4_bhmf_z4.0.txt, 66 rows
+# z = 4.0: fig4_bhmf_z4.0.txt, 66 rows
 OBS_TRINITY_Z4P0 = np.array(
     [
         [4.0, 0.005003901, 0.00332821, 0.007310317],
@@ -338,7 +336,7 @@ OBS_TRINITY_Z4P0 = np.array(
     ]
 )
 
-# z = 6.0: R/data/bh/fig4_bhmf_z6.0.txt, 66 rows
+# z = 6.0: fig4_bhmf_z6.0.txt, 66 rows
 OBS_TRINITY_Z6P0 = np.array(
     [
         [4.0, 0.001052044, 0.000498886, 0.00181559],
@@ -410,7 +408,7 @@ OBS_TRINITY_Z6P0 = np.array(
     ]
 )
 
-# z = 8.0: R/data/bh/fig4_bhmf_z8.0.txt, 66 rows
+# z = 8.0: fig4_bhmf_z8.0.txt, 66 rows
 OBS_TRINITY_Z8P0 = np.array(
     [
         [4.0, 9.373186e-05, 2.764798e-05, 0.0001960069],
@@ -496,13 +494,12 @@ def mass_function(black_hole_mass_msun, volume_mpc3):
     """
     Return the black hole mass function of the galaxies with a black hole.
 
-    SAGE26 allresults-history.py:1177-1182: `w = np.where(BlackHoleMass > 0.0)`, the counts of
-    `np.histogram(np.log10(mass), bins=bhmf_mass_bins)` over `volume * bin_width`, with
-    `bin_width = bins[1] - bins[0]` (:1172).
+    As in SAGE26: `w = np.where(BlackHoleMass > 0.0)`, the counts of `np.histogram(np.log10(mass),
+    bins=bhmf_mass_bins)` over `volume * bin_width`, with `bin_width = bins[1] - bins[0]`.
 
     Returns:
-        Tuple of (bin centres, phi, valid) where valid is `phi > 0` (:1185), or None when no
-        galaxy has a black hole.
+        Tuple of (bin centres, phi, valid) where valid is `phi > 0`, or None when no galaxy has a
+        black hole.
     """
     w = np.where(black_hole_mass_msun > 0.0)[0]
     if len(w) == 0:
@@ -546,12 +543,12 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         params, "black_hole_mass_function", (6.0, 11.0), (1.0e-5, 1.0e-1), log_y=True
     )
 
-    # allresults-history.py:1167 (plasma, dark to light)
+    # Plasma, dark to light
     colors = plt.cm.plasma(np.linspace(0.1, 0.9, len(TARGET_REDSHIFTS)))
 
     fig, ax = setup_figure(figsize=(10, 8))
 
-    # allresults-history.py:1175-1190
+    # Model curves
     drawn = set()
     for i, target_z in enumerate(TARGET_REDSHIFTS):
         snap = nearest_snapshot(snapshots, target_z)
@@ -574,13 +571,12 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
                 color=colors[i],
                 linewidth=2,
                 linestyle="-",
-                # SAGE26 figure parity: allresults-history.py:1187 labels the model curves
-                # "(SAGE)". Mirrored as written.
+                # SAGE parity: SAGE26 labels the model curves "(SAGE)"; mirrored as written
                 label=f"z = {actual_z:.1f} (SAGE)",
                 gid="model",
             )
 
-    # Observations, allresults-history.py:1192-1222
+    # Observations
     for i, target_z in enumerate(TARGET_REDSHIFTS):
         obs = OBS_TRINITY[target_z]
         ax.plot(
@@ -594,7 +590,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         )
         ax.fill_between(obs[:, 0], obs[:, 2], obs[:, 3], color=colors[i], alpha=0.2)
 
-    # allresults-history.py:1224-1240
+    # Axes
     ax.set_yscale("log")
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)

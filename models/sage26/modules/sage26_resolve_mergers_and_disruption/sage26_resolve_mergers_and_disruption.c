@@ -2,64 +2,58 @@
  * @file    sage26_resolve_mergers_and_disruption.c
  * @brief   SAGE26's per-substep merger and disruption pass and its two transactions
  *
- * The pass reproduces SAGE26's (R/src/core_build_model.c:519-587, B below; R = the staged
- * SAGE26 source) once per substep, after every galaxy's physics: for each row in order, a
- * Type 1 or 2 not yet merged (B:523)
+ * Implements SAGE26's merger and disruption pass once per substep, after every galaxy's physics,
+ * with its two transactions, deal_with_galaxy_merger and disrupt_satellite_to_ICS. For each row
+ * in order, a Type 1 or 2 not yet merged
  *
- *   1. must hold a clock below 999 (B:524-527, where SAGE26 aborts);
- *   2. has its clock decremented by its substep interval deltaT / N, a float store
- *      (B:529-530);
+ *   1. must hold a clock below 999 (where SAGE26 aborts);
+ *   2. has its clock decremented by its substep interval deltaT / N, a float store;
  *   3. is eligible if its float StellarMass + ColdGas is exactly zero, or positive with
  *      the interpolated Mvir - deltaMvir * (1 - (step + 1) / N), not floored, at most
- *      ThresholdSatDisruption times it (B:534-537);
+ *      ThresholdSatDisruption times it;
  *   4. targets the FoF central (Type 1) or its subhalo's central (Type 2), redirected
- *      once through that target's central if it has merged (B:539-543,
- *      shared/central_link.h);
- *   5. with a finite clock (B:547), at the event time Age - (step + 0.5) * (deltaT / N)
- *      (B:549), is disrupted to the target's ICS while its clock is positive (B:574-575),
- *      else merges into the target (B:576-581).
+ *      once through that target's central if it has merged (shared/central_link.h);
+ *   5. with a finite clock, at the event time Age - (step + 0.5) * (deltaT / N), is
+ *      disrupted to the target's ICS while its clock is positive, else merges into the target.
  *
  * The target is mutated at once, before the next row. A satellite that is not eligible,
  * or whose clock is not finite, stays and is reconsidered next substep; there is no
  * early orphan purge and no forced clock, so an orphan's removal is the pass's outcome
- * (an orphan's interpolated Mvir reaches 0 at the last substep, B:323-325).
+ * (an orphan's interpolated Mvir reaches 0 at the last substep).
  *
- * The merger transaction reproduces SAGE26's deal_with_galaxy_merger with BulgeSizeOn 0 or 3
- * (R/src/model_mergers.c:228-333, M below), in its statement order:
+ * The merger transaction follows SAGE26's deal_with_galaxy_merger with BulgeSizeOn 0 or 3, in its
+ * statement order:
  *
- *   1. the mass ratio from the float StellarMass + ColdGas sums (M:235-249);
- *   2. the target's pre-transfer morphology flag (M:253-254), carried with the event;
- *   3. add_galaxies_together (M:259, :456-543), whose satellite disk stars credited to the
- *      instability channel update the target's instability-bulge radius with BulgeSizeOn 3
- *      (M:516-522);
+ *   1. the mass ratio from the float StellarMass + ColdGas sums;
+ *   2. the target's pre-transfer morphology flag, carried with the event;
+ *   3. add_galaxies_together, whose satellite disk stars credited to the instability channel
+ *      update the target's instability-bulge radius with BulgeSizeOn 3;
  *   4. the merger event, whose consumers run immediately in the phase's YAML order:
- *      sage26_quasar_mode's grow_black_hole (M:262-264), then sage26_starburst_feedback's
- *      burst into the channel the carried flag selects (M:266-287), with the satellite's
- *      substep dt in the event for the burst's history bin;
- *   5. with BulgeSizeOn 3 (R1 onward): get_bulge_radius on the target (M:293), then the
- *      remnant radius by energy conservation from the post-burst target and the still
- *      populated satellite (M:297, :135-212, shared/sage_merger_physics.h);
- *   6. for a ratio strictly above ThresholdMajorMerger, make_bulge_from_burst (M:302), the
- *      remnant radius into MergerBulgeRadius, get_bulge_radius and TimeOfLastMajorMerger
- *      (M:299-312); otherwise TimeOfLastMinorMerger and, onto a target that was
- *      disk-dominated before the addition, get_bulge_radius alone (the remnant radius is
- *      discarded), onto a spheroid-dominated one the remnant radius into MergerBulgeRadius
- *      and get_bulge_radius (M:313-331). DiskScaleRadius is never zeroed. With BulgeSizeOn 0
- *      (R0) every get_bulge_radius of steps 5 and 6 zeroes the three radii
- *      (R/src/model_misc.c:242-247), so the remnant radius never reaches the state and is
+ *      sage26_quasar_mode's grow_black_hole, then sage26_starburst_feedback's burst into the
+ *      channel the carried flag selects, with the satellite's substep dt in the event for the
+ *      burst's history bin;
+ *   5. with BulgeSizeOn 3: get_bulge_radius on the target, then the remnant radius by energy
+ *      conservation from the post-burst target and the still populated satellite
+ *      (shared/sage_merger_physics.h);
+ *   6. for a ratio strictly above ThresholdMajorMerger, make_bulge_from_burst, the
+ *      remnant radius into MergerBulgeRadius, get_bulge_radius and TimeOfLastMajorMerger;
+ *      otherwise TimeOfLastMinorMerger and, onto a target that was disk-dominated before the
+ *      addition, get_bulge_radius alone (the remnant radius is discarded), onto a
+ *      spheroid-dominated one the remnant radius into MergerBulgeRadius and get_bulge_radius.
+ *      DiskScaleRadius is never zeroed. With BulgeSizeOn 0 every get_bulge_radius of steps 5
+ *      and 6 zeroes the three radii, so the remnant radius never reaches the state and is
  *      not formed;
- *   7. the satellite leaves the pass as Type 3 (SAGE26's mergeType 1 or 2, M:311, :315).
+ *   7. the satellite leaves the pass as Type 3 (SAGE26's mergeType 1 or 2).
  *
  * A ratio of 0 (both baryon sums zero) is not suppressed: the transaction, the event and
  * its consumers run as in SAGE26.
  *
- * The disruption reproduces SAGE26's disrupt_satellite_to_ICS (M:845-902) through
- * shared/sage_merger_physics.h; the satellite leaves as Type 3 (SAGE26's mergeType 4). Its gas goes
- * to the PASSED target's selected pair: its CGM pair with the required CGMrecipeOn 1 and the
- * target's own Regime 0, its hot pair otherwise (M:851, R/src/model_misc.h:76-85). For an orphan
- * the target is its subhalo's central (step 4), which need not be the FoF central (B:539-543,
- * :575). The merger's addition moves CGM to CGM and hot to hot whatever either
- * regime (M:464-465, :496-497).
+ * The disruption follows SAGE26's disrupt_satellite_to_ICS through shared/sage_merger_physics.h;
+ * the satellite leaves as Type 3 (SAGE26's mergeType 4). Its gas goes to the PASSED target's
+ * selected pair: its CGM pair with the required CGMrecipeOn 1 and the target's own Regime 0, its
+ * hot pair otherwise. For an orphan the target is its subhalo's central (step 4), which need not
+ * be the FoF central. The merger's addition moves CGM to CGM and hot to hot whatever either
+ * regime.
  *
  * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
  * models/sage26/LICENSE-SAGE26.
@@ -88,13 +82,12 @@
 static double THRESHOLD_MAJOR_MERGER;
 static double THRESHOLD_SAT_DISRUPTION;
 
-/* SAGE26's BulgeSizeOn: 0 (R0) or 3 (Tonini sizes), the mode of add_galaxies_together's
- * satellite disk-star radius update (R/src/model_misc.c:395) and of the transaction's bulge
- * radii after the burst (M:293-330) */
+/* SAGE26's BulgeSizeOn: 0 (off) or 3 (Tonini sizes), the mode of add_galaxies_together's
+ * satellite disk-star radius update and of the transaction's bulge radii after the burst */
 static int BULGE_SIZE_ON;
 
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
- * init, which with the disruption target's Regime selects its pair (R/src/model_misc.h:78) */
+ * init, which with the disruption target's Regime selects its pair */
 static int CGM_RECIPE_ON;
 
 // ============================================================================
@@ -176,12 +169,12 @@ int sage26_resolve_mergers_and_disruption_disrupt(struct Halo *halos, int ngal, 
     return -1;
   }
 
-  /* SAGE parity: the passed target's own regime routes the gas (M:851), the FoF central's only
+  /* SAGE parity: the passed target's own regime routes the gas, the FoF central's only
    * when it is the target */
   mimic_sage_disrupt_satellite_to_ics(halos[target_idx].galaxy, halos[satellite_idx].galaxy,
                                       event_time, CGM_RECIPE_ON, locals);
 
-  // SAGE parity: the satellite is marked disrupted (mergeType 4, M:902); here Type 3
+  // SAGE parity: the satellite is marked disrupted (mergeType 4); here Type 3
   halos[satellite_idx].Type = 3;
   record_action("disrupt", satellite_idx, target_idx, 0.0);
   return 0;
@@ -202,9 +195,8 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
               target_idx, ngal);
     return -1;
   }
-  /* SAGE26's run_params->BulgeSizeOn and Hubble_h (R/src/model_misc.c:242, :249, :395, :398);
-   * mode 3 reads Hubble_h, so it refuses a context without the core's parameters, as
-   * sage26_set_disk_scale_radius does */
+  /* SAGE26's run_params->BulgeSizeOn and Hubble_h; mode 3 reads Hubble_h, so it refuses a
+   * context without the core's parameters, as sage26_set_disk_scale_radius does */
   if (BULGE_SIZE_ON == MIMIC_SAGE_BULGE_SIZE_TONINI && ctx->params == NULL) {
     ERROR_LOG("sage26_resolve_mergers_and_disruption: BulgeSizeOn 3 needs the core parameters "
               "(Hubble_h)");
@@ -216,10 +208,10 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
   struct GalaxyData *satellite = halos[satellite_idx].galaxy;
   struct GalaxyData *target = halos[target_idx].galaxy;
 
-  // SAGE parity: the ratio and the morphology flag before the addition (M:235-254)
+  // SAGE parity: the ratio and the morphology flag before the addition
   const double mass_ratio = mimic_sage_merger_mass_ratio(satellite, target, merger_locals);
   const int is_disk_dominated = mimic_sage_merger_target_disk_dominated(target, merger_locals);
-  /* SAGE26 saves the target's disk radius before the addition for the burst (M:257); the burst
+  /* SAGE26 saves the target's disk radius before the addition for the burst; the burst
    * consumer reads the target's DiskScaleRadius at the event, which equals it: nothing here or
    * in the black-hole consumer writes DiskScaleRadius (sage26_set_disk_scale_radius, at
    * pre-timestep, is its only writer) */
@@ -227,32 +219,31 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
     merger_locals->old_disk_radius = target->DiskScaleRadius;
   }
 
-  // SAGE parity: add_galaxies_together before the black hole and the burst (M:259)
+  // SAGE parity: add_galaxies_together before the black hole and the burst
   mimic_sage_add_galaxies_together(target, satellite, &sizes, add_locals);
 
   /* The flag travels with the event on the target, the halo its consumers receive: the
-   * burst selects its channel from it (M:266-282), never from a re-read after the
-   * transfer */
+   * burst selects its channel from it, never from a re-read after the transfer */
   target->MergerDiskDominated = is_disk_dominated;
 
-  /* SAGE parity: grow_black_hole, then the burst, for every merger, ratio 0 included
-   * (M:262-287); the consumers run inside the emission */
+  /* SAGE parity: grow_black_hole, then the burst, for every merger, ratio 0 included;
+   * the consumers run inside the emission */
   if (emit(ctx, halos, satellite_idx, target_idx, mass_ratio, source_dt) != 0) {
     return -1;
   }
 
-  // SAGE parity: strictly above the threshold is major, everything else minor (M:299-331)
+  // SAGE parity: strictly above the threshold is major, everything else minor
   const int major_merger = mass_ratio > THRESHOLD_MAJOR_MERGER;
   if (BULGE_SIZE_ON == MIMIC_SAGE_BULGE_SIZE_TONINI) {
-    /* SAGE parity: the target's bulge radius is synchronised after the addition and the burst
-     * (M:293), then the remnant radius is formed from that post-burst target and the
-     * satellite, which still holds its reservoirs (M:297) */
+    /* SAGE parity: the target's bulge radius is synchronised after the addition and the burst,
+     * then the remnant radius is formed from that post-burst target and the satellite, which
+     * still holds its reservoirs */
     (void)mimic_sage_get_bulge_radius(target, &sizes, NULL);
     const double new_merger_radius = mimic_sage_merger_remnant_radius(
         target, satellite, merger_locals != NULL ? &merger_locals->remnant : NULL);
     if (major_merger) {
       /* SAGE parity: the whole stellar mass becomes a merger bulge with the remnant radius,
-       * then the radii are synchronised (M:302-308); DiskScaleRadius is not zeroed */
+       * then the radii are synchronised; DiskScaleRadius is not zeroed */
       mimic_sage_make_bulge_from_burst(target);
       target->MergerBulgeRadius = (float)new_merger_radius;
       (void)mimic_sage_get_bulge_radius(target, &sizes, NULL);
@@ -261,18 +252,18 @@ int sage26_resolve_mergers_and_disruption_merge(struct ModuleContext *ctx, struc
       target->TimeOfLastMinorMerger = event_time;
       if (is_disk_dominated) {
         /* SAGE parity: a minor merger onto a target that was disk-dominated before the
-         * addition discards the remnant radius it formed and only synchronises (M:318-325) */
+         * addition discards the remnant radius it formed and only synchronises */
         (void)mimic_sage_get_bulge_radius(target, &sizes, NULL);
       } else {
-        // SAGE parity: onto a spheroid-dominated target the remnant radius is kept (M:326-330)
+        // SAGE parity: onto a spheroid-dominated target the remnant radius is kept
         target->MergerBulgeRadius = (float)new_merger_radius;
         (void)mimic_sage_get_bulge_radius(target, &sizes, NULL);
       }
     }
   } else {
     /* SAGE parity: with BulgeSizeOn 0 every get_bulge_radius of the transaction zeroes the
-     * radii (M:293, :308, :325, :330; R/src/model_misc.c:242-247), so the remnant radius SAGE26
-     * forms between them (M:297) never reaches the state and is not formed here */
+     * radii, so the remnant radius SAGE26 forms between them never reaches the state and is
+     * not formed here */
     mimic_sage_reset_bulge_radii(target);
     if (major_merger) {
       mimic_sage_make_bulge_from_burst(target);
@@ -325,7 +316,7 @@ int sage26_resolve_mergers_and_disruption_pass(struct ModuleContext *ctx, struct
     pass_record_reset(records != NULL ? &records[i] : NULL);
   }
 
-  /* SAGE26's centralgal, the FoF's Type 0 (B:393-400); only a Type 1's target reads it, so
+  /* SAGE26's centralgal, the FoF's Type 0; only a Type 1's target reads it, so
    * a workspace without one fails at the first eligible Type 1 */
   const int fof_central_idx = mimic_find_fof_central_index(halos, ngal);
   const int step = ctx->substep_number;
@@ -334,13 +325,13 @@ int sage26_resolve_mergers_and_disruption_pass(struct ModuleContext *ctx, struct
   for (int i = 0; i < ngal; i++) {
     struct MimicSagePassRecord *record = (records != NULL) ? &records[i] : NULL;
 
-    // SAGE parity: a Type 1 or 2 not yet merged (B:523); a merged row is the package's Type 3
+    // SAGE parity: a Type 1 or 2 not yet merged; a merged row is the package's Type 3
     if ((halos[i].Type != 1 && halos[i].Type != 2) || halos[i].galaxy == NULL) {
       continue;
     }
     struct GalaxyData *satellite = halos[i].galaxy;
 
-    /* The row's substep interval, Age[SnapNum] - halo_age over the substep count (B:529):
+    /* The row's substep interval, Age[SnapNum] - halo_age over the substep count:
      * the core's dT is that difference of its Age table. A row the core marks as the first
      * snapshot's boundary (SnapNum < 0, dT <= 0) is not evolved; a satellite never is one */
     double dt = 0.0;
@@ -361,26 +352,25 @@ int sage26_resolve_mergers_and_disruption_pass(struct ModuleContext *ctx, struct
       record->deltaT = deltaT;
     }
 
-    // SAGE parity: SAGE26 aborts unless the clock is below 999 (B:524-527); a NaN fails too
+    // SAGE parity: SAGE26 aborts unless the clock is below 999; a NaN fails too
     if (!(satellite->MergTime < SAGE_MERGTIME_UNSET_THRESHOLD)) {
-      ERROR_LOG("Satellite %lld has MergTime %g, not below %.1f (SAGE26 aborts here, "
-                "core_build_model.c:524-527)",
+      ERROR_LOG("Satellite %lld has MergTime %g, not below %.1f "
+                "(SAGE26 aborts here)",
                 halos[i].HaloNr, (double)satellite->MergTime, SAGE_MERGTIME_UNSET_THRESHOLD);
       return -1;
     }
 
-    // SAGE parity: the float clock less the double substep interval (B:530)
+    // SAGE parity: the float clock less the double substep interval
     satellite->MergTime -= deltaT / num_substeps;
 
-    /* SAGE parity: the interpolated Mvir with no floor at zero (B:534), one fused
-     * multiply-subtract in SAGE26's objects (oracle README c06 table), written as fma() */
+    /* SAGE parity: the interpolated Mvir with no floor at zero, written as fma() to match
+     * SAGE26's result */
     const double current_mvir =
         fma(-halos[i].deltaMvir, 1.0 - ((double)step + 1.0) / (double)num_substeps, halos[i].Mvir);
-    // SAGE parity: the float sum of two float members, widened on assignment (B:535)
+    // SAGE parity: the float sum of two float members, widened on assignment
     const double galaxy_baryons = satellite->StellarMass + satellite->ColdGas;
     const int gate_zero_baryons = (galaxy_baryons == 0.0);
     // SAGE parity: zero baryons, or positive baryons with the ratio at the threshold or below
-    // (B:537)
     const int gate_passed =
         gate_zero_baryons ||
         (galaxy_baryons > 0.0 && (current_mvir / galaxy_baryons <= THRESHOLD_SAT_DISRUPTION));
@@ -394,7 +384,7 @@ int sage26_resolve_mergers_and_disruption_pass(struct ModuleContext *ctx, struct
       continue;
     }
 
-    // SAGE parity: the target and its one-hop redirect (B:539-543)
+    // SAGE parity: the target and its one-hop redirect
     int redirected = 0;
     const int target_idx =
         mimic_resolve_immediate_target_index(halos, ngal, i, fof_central_idx, &redirected);
@@ -406,7 +396,7 @@ int sage26_resolve_mergers_and_disruption_pass(struct ModuleContext *ctx, struct
       return -1;
     }
 
-    // SAGE parity: a non-finite clock leaves the satellite as it is (B:547)
+    // SAGE parity: a non-finite clock leaves the satellite as it is
     const int clock_finite = isfinite(satellite->MergTime);
     if (record != NULL) {
       record->clock_finite = clock_finite;
@@ -417,16 +407,16 @@ int sage26_resolve_mergers_and_disruption_pass(struct ModuleContext *ctx, struct
       continue;
     }
 
-    /* SAGE parity: the event time Age[SnapNum] - (step + 0.5) * (deltaT / N) (B:549), one
-     * fused multiply-subtract in SAGE26's objects, written as fma(); Age[SnapNum] is the
-     * core's Age[current] (ctx->time) plus the row's dT, Age[SnapNum] - Age[current] */
+    /* SAGE parity: the event time Age[SnapNum] - (step + 0.5) * (deltaT / N), written as
+     * fma() to match SAGE26's result; Age[SnapNum] is the core's Age[current] (ctx->time)
+     * plus the row's dT, Age[SnapNum] - Age[current] */
     const double age = ctx->time + deltaT;
     const double event_time = fma(-((double)step + 0.5), deltaT / num_substeps, age);
     if (record != NULL) {
       record->event_time = event_time;
     }
 
-    // SAGE parity: a positive clock disrupts the satellite to the ICS (B:574-575)
+    // SAGE parity: a positive clock disrupts the satellite to the ICS
     if (satellite->MergTime > 0.0) {
       if (sage26_resolve_mergers_and_disruption_disrupt(halos, ngal, i, target_idx, event_time,
                                                         NULL) != 0) {
@@ -438,7 +428,7 @@ int sage26_resolve_mergers_and_disruption_pass(struct ModuleContext *ctx, struct
       continue;
     }
 
-    // SAGE parity: otherwise a merger, in the substep's history bin (B:576-581)
+    // SAGE parity: otherwise a merger, in the substep's history bin
     if (record != NULL) {
       record->step_bin = mimic_sage_sfr_step_bin(step, num_substeps);
       record->dt = dt;
@@ -500,8 +490,8 @@ int sage26_resolve_mergers_and_disruption_init(void) {
     return -1;
   }
 
-  /* SAGE parity: the merger transaction grows the black hole before the burst
-   * (R/src/model_mergers.c:262-287); the event reaches its consumers in YAML order */
+  /* SAGE parity: the merger transaction grows the black hole before the burst; the event
+   * reaches its consumers in YAML order */
   if (modules_in_same_substep_phase("sage26_quasar_mode", PROCESSING_MODE_PER_EVENT,
                                     "sage26_starburst_feedback", PROCESSING_MODE_PER_EVENT) &&
       !module_precedes_in_substep_phase("sage26_quasar_mode", PROCESSING_MODE_PER_EVENT,

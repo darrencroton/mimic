@@ -5,11 +5,10 @@
  * Every module that calls a bulge-size helper (sage26_set_disk_scale_radius,
  * sage26_disk_instability, sage26_starburst_feedback, sage26_resolve_mergers_and_disruption)
  * loads BulgeSizeOn at initialisation through the required-parameter path: a missing key fails
- * initialisation, and any value but 0 (SAGE26's R0, no sizes) or 3 (the Tonini sizes) is
- * refused with an error naming the parameter. Modes 1 and 2 of SAGE26 (R/src/model_misc.c:
- * 252-315) are not ported. The mode-0 helpers keep SAGE26's BulgeSizeOn 0 behaviour:
- * get_bulge_radius zeroes the three radii and returns 0 (R/src/model_misc.c:242-247), and
- * update_instability_bulge_radius returns at once (:395), stale radii included.
+ * initialisation, and any value but 0 (no sizes, SAGE26's default) or 3 (the Tonini sizes) is
+ * refused with an error naming the parameter. Modes 1 and 2 of SAGE26 are not supported. The
+ * mode-0 helpers keep SAGE26's BulgeSizeOn 0 behaviour: get_bulge_radius zeroes the three radii
+ * and returns 0, and update_instability_bulge_radius returns at once, stale radii included.
  *
  * Test cases:
  *   - test_missing_parameter_refused: each module's init fails without BulgeSizeOn
@@ -96,7 +95,7 @@ static void setup(const char *value) {
     snprintf(MimicConfig.ModelParams[n].value, MAX_STRING_LEN, "%s", value);
     MimicConfig.NumModelParams = n + 1;
   }
-  /* sage26_starburst_feedback's required SFprescription and StarburstColdGasOn, at R1's values */
+  /* sage26_starburst_feedback's required SFprescription and StarburstColdGasOn */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_STARBURST_MODULE);
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
   MimicConfig.Hubble_h = 0.73;
@@ -223,7 +222,7 @@ int test_mode0_helpers(void) {
 /**
  * @test    test_mode3_disk_radius_needs_configuration
  * @brief   The disk-radius module refuses BulgeSizeOn 3 without the run configuration
- *          (Hubble_h, R/src/model_misc.c:249) and runs BulgeSizeOn 0 without it
+ *          (Hubble_h) and runs BulgeSizeOn 0 without it
  */
 int test_mode3_disk_radius_needs_configuration(void) {
   const char *const values[] = {"3", "0"};

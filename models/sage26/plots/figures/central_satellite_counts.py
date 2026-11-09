@@ -3,25 +3,22 @@
 """
 SAGE26 Central and Satellite Counts Plot
 
-Port of the "Plotting histogram of Centrals with satellites overlaid as a function of redshift"
-section of SAGE26's history plotting script (plotting/allresults-history.py:1805-1850, figure
-CentralSatelliteCounts): the average number of central galaxies and of satellite galaxies (orphans
-included) over the snapshots in each of the fifteen redshift bins, as pairs of bars. The section
-is the specification; where this port differs it is a permitted deviation below.
+Follows the CentralSatelliteCounts figure of SAGE26's history plotting script: the average number of
+central galaxies and of satellite galaxies (orphans included) over the snapshots in each of the
+fifteen redshift bins, as pairs of bars. Where it differs from SAGE26 the difference is stated
+below.
 
 Requires: Type
 
-Fields read (units): Type (0 central, 1 satellite, 2 orphan; :1827-1828, a Type of 1 or more is
-a satellite).
+Fields read (units): Type (0 central, 1 satellite, 2 orphan; a Type of 1 or more is a satellite).
 
-Snapshots: those with a redshift in each bin of ``Z_BINS`` (:1810-1814), chosen through
-``snapshots_in_z_range``; snapshot 63 (z = 0) falls in none, as in SAGE26. The bar of a bin with
-no snapshot is not drawn.
+Snapshots: those with a redshift in each bin of ``Z_BINS``, chosen through ``snapshots_in_z_range``;
+snapshot 63 (z = 0) falls in none, as in SAGE26. The bar of a bin with no snapshot is not drawn.
 
-SAGE26 draws no legend (it is commented out, :1844-1846), so the port draws none.
+SAGE26 draws no legend (it is commented out), so the figure draws none.
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where SAGE26
-reads 64, so a bin holds at most one snapshot.
+Differences from SAGE26: none beyond drawing the figure from the snapshots the run writes, where
+SAGE26 reads all 64, so a bin may hold a single snapshot.
 """
 
 import matplotlib.pyplot as plt
@@ -40,8 +37,8 @@ def count_centrals_and_satellites(types):
     """
     Return the numbers of central and satellite galaxies.
 
-    SAGE26 allresults-history.py:1827-1828: `np.sum(types == 0)` and `np.sum(types >= 1)`
-    (">= 1: orphans (Type 2) are satellites too").
+    As in SAGE26: `np.sum(types == 0)` and `np.sum(types >= 1)` (">= 1: orphans (Type 2) are
+    satellites too").
     """
     return np.sum(types == 0), np.sum(types >= 1)
 
@@ -72,12 +69,11 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # allresults-history.py:1815 (cividis)
+    # Cividis
     colors = plt.cm.cividis(np.linspace(0.1, 0.9, len(Z_BINS)))
 
     fig, ax = setup_figure(figsize=(10, 7))
 
-    # allresults-history.py:1817-1837
     for i, (z_min, z_max) in enumerate(Z_BINS):
         snap_indices = snapshots_in_z_range(snapshots, z_min, z_max)
         if len(snap_indices) == 0:
@@ -111,7 +107,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             gid="model",
         )
 
-    # allresults-history.py:1839-1843: the upper limit is 1.1 times the autoscaled top
+    # The upper limit is 1.1 times the autoscaled top
     x_min, x_max, y_min, y_max = get_profile_axes(
         params,
         "central_satellite_counts",
@@ -124,8 +120,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.set_xticklabels(
         [f"{z_min:.1f}-{z_max:.1f}" for z_min, z_max in Z_BINS], rotation=45, ha="right"
     )
-    # SAGE26 figure parity: allresults-history.py:1843-1846 sets no x label and comments out the
-    # legend, and no bin holds z = 0. Mirrored as written.
+    # SAGE parity: SAGE26 sets no x label and comments out the legend, and no bin holds z = 0;
+    # mirrored as written
     ax.set_ylabel("Average Count", fontsize=AXIS_LABEL_SIZE)
 
     fig.tight_layout()

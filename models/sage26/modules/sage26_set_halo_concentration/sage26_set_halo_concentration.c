@@ -2,30 +2,28 @@
  * @file    sage26_set_halo_concentration.c
  * @brief   SAGE26's halo-concentration assignment of progenitor joining (ConcentrationOn 0 or 3)
  *
- * SAGE26 assigns a galaxy's NFW concentration while it joins a halo's progenitor galaxies, inside
- * the FoF-central branch, before it sets Type = 0 (R/src/core_build_model.c:290-295, R = the
- * staged SAGE26 source):
+ * Implements SAGE26's get_halo_concentration call at progenitor joining. SAGE26 assigns a
+ * galaxy's NFW concentration inside the FoF-central branch of joining, before it sets Type = 0:
  *
  *   if (ConcentrationOn > 0)
  *     Concentration = (float)get_halo_concentration(ngal, ZZ[SnapNum], galaxies, run_params);
  *
- * The branch is reached only by a galaxy that was a Type 0 or 1 before joining (:240), whose
- * progenitor is the first-occupied one (:252) and whose halo is its FoF's first (:284), so its
- * Type at the call is the old one. Mimic's core performs the joining (src/core/inheritance.c) and
- * gives that galaxy Type 0; this module makes SAGE26's concentration write once per FoF group in
- * pre_timestep, immediately after sage26_initialise_merger_clock (SAGE26's order: the clock at
- * :288, the concentration at :290-294, the disk and bulge radii at :297-298). The old Type is the
- * package property PreviousType, which sage26_record_transition_state wrote at the end of the
- * previous snapshot. With ConcentrationOn 3, for each row whose new Type is 0:
+ * The branch is reached only by a galaxy that was a Type 0 or 1 before joining, whose progenitor
+ * is the first-occupied one and whose halo is its FoF's first, so its Type at the call is the old
+ * one. Mimic's core performs the joining and gives that galaxy Type 0; this module makes SAGE26's
+ * concentration write once per FoF group in pre_timestep, immediately after
+ * sage26_initialise_merger_clock (SAGE26's order: the clock, the concentration, then the disk and
+ * bulge radii). The old Type is the package property PreviousType, which
+ * sage26_record_transition_state wrote at the end of the previous snapshot. With
+ * ConcentrationOn 3, for each row whose new Type is 0:
  *
  *   PreviousType 0 or 1   Concentration = (float) the inversion of the pair the mode-3 dispatch
  *                         selects by PreviousType: the current float Vmax and Vvir for 0, the
  *                         infall-frozen float infallVmax and infallVvir for 1
- *                         (R/src/model_halo_properties.c:339-350; shared/sage_halo_concentration.h)
+ *                         (shared/sage_halo_concentration.h)
  *   PreviousType -1       kept: a galaxy the core created this snapshot holds its creation
  *                         value 0, as SAGE26's init_galaxy is not followed by the call
- *                         (R/src/model_misc.c:93, R/src/core_build_model.c:347-351)
- *   PreviousType 2 or 3   kept: SAGE26's joining passes a former orphan over (:240)
+ *   PreviousType 2 or 3   kept: SAGE26's joining passes a former orphan over
  *
  * and every row whose new Type is not 0 keeps its value: a satellite or orphan carries its last
  * central value (Concentration is inherited, with no init_repeat). The core's double Vmax, Vvir,
@@ -163,7 +161,7 @@ int sage26_set_halo_concentration_init(void) {
 int sage26_set_halo_concentration_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
   (void)ctx;
 
-  // SAGE parity (R/src/core_build_model.c:291): no call with ConcentrationOn 0
+  // SAGE parity: no call with ConcentrationOn 0
   if (CONCENTRATION_ON == MIMIC_SAGE_CONCENTRATION_OFF) {
     return 0;
   }
@@ -173,20 +171,18 @@ int sage26_set_halo_concentration_process(struct ModuleContext *ctx, struct Halo
 
   for (int i = 0; i < ngal; i++) {
     struct GalaxyData *gal = halos[i].galaxy;
-    // SAGE parity (R/src/core_build_model.c:284-300): only the FoF central of the joined halo,
-    // whose new Type is 0, is assigned
+    // SAGE parity: only the FoF central of the joined halo, whose new Type is 0, is assigned
     if (gal == NULL || halos[i].Type != 0) {
       continue;
     }
     const int previous_type = gal->PreviousType;
-    // SAGE parity: a galaxy created this snapshot (-1) keeps its creation value 0
-    // (R/src/model_misc.c:93, R/src/core_build_model.c:347-351), and joining passes a former
-    // Type 2 over (:240)
+    // SAGE parity: a galaxy created this snapshot (-1) keeps its creation value 0, and
+    // joining passes a former Type 2 over
     if (previous_type != 0 && previous_type != 1) {
       continue;
     }
-    // SAGE parity (R/src/core_build_model.c:292-294, R/src/model_halo_properties.c:339-350): the
-    // dispatch selects by the Type before joining; each core double is SAGE26's float
+    // SAGE parity: the dispatch selects by the Type before joining; each core double is
+    // SAGE26's float
     const double concentration = mimic_sage_get_halo_concentration(
         CONCENTRATION_ON, previous_type, (float)halos[i].Vmax, (float)halos[i].Vvir,
         (float)halos[i].infallVmax, (float)halos[i].infallVvir, NULL);

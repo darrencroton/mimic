@@ -3,23 +3,21 @@
 """
 SAGE26 Concentration Evolution Plot
 
-Port of the "Plotting median concentration vs redshift by mass bin" section of SAGE26's history
-plotting script (plotting/allresults-history.py:1470-1531, figure ConcentrationEvolution): the
-median halo concentration, with a 16th to 84th percentile band, against redshift in four
-halo-mass bins. The section is the specification; where this port differs it is a permitted
-deviation below.
+Follows the ConcentrationEvolution figure of SAGE26's history plotting script: the median halo
+concentration, with a 16th to 84th percentile band, against redshift in four halo-mass bins. Where
+it differs from SAGE26 the difference is stated below.
 
 Requires: Concentration, Mvir
 
-Fields read (units): Concentration (dimensionless; a galaxy needs a positive value, :1501) and
-Mvir (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 / hubble_h,
-allresults-history.py:342). Every galaxy row is read, with no Type cut, as in SAGE26.
+Fields read (units): Concentration (dimensionless; a galaxy needs a positive value) and Mvir (1e10
+Msun/h, converted to Msun as SAGE26 converts it: x 1e10 / hubble_h). Every galaxy row is read, with
+no Type cut, as in SAGE26.
 
-Snapshots: every written snapshot (:1488), chosen through ``all_snapshots``, taken in increasing
-snapshot number; a snapshot without galaxies is skipped (:1492-1495).
+Snapshots: every written snapshot, chosen through ``all_snapshots``, taken in increasing snapshot
+number; a snapshot without galaxies is skipped.
 
-Permitted deviations: none beyond drawing the figure from the run's eight snapshots, where
-SAGE26 reads 64.
+Differences from SAGE26: none beyond drawing the figure from the snapshots the run writes, where
+SAGE26 reads all 64.
 """
 
 import numpy as np
@@ -32,7 +30,7 @@ from output_utils import (
     setup_figure,
 )
 
-# Halo-mass bins in Msun with their legend text (allresults-history.py:1475-1480)
+# Halo-mass bins in Msun with their legend text
 MASS_BINS = [
     (1e10, 1e11, r"$10^{10} - 10^{11}$"),
     (1e11, 1e12, r"$10^{11} - 10^{12}$"),
@@ -40,10 +38,10 @@ MASS_BINS = [
     (1e13, 1e15, r"$10^{13} - 10^{15}$"),
 ]
 
-# Line colours of the four bins (:1481)
+# Line colours of the four bins
 COLORS = ["dodgerblue", "forestgreen", "darkorange", "firebrick"]
 
-# A bin needs at least this many galaxies at a snapshot (allresults-history.py:1502)
+# A bin needs at least this many galaxies at a snapshot
 MIN_GALAXIES = 5
 
 
@@ -51,9 +49,8 @@ def concentration_statistics(concentration, mvir_msun, mass_lo, mass_hi):
     """
     Return the median and the 16th and 84th percentiles of the concentration in one mass bin.
 
-    SAGE26 allresults-history.py:1501-1509: `w = np.where((conc > 0) & (mvir >= mlo) &
-    (mvir < mhi))[0]`; with `len(w) >= 5` the median and the 16th and 84th percentiles of
-    `conc[w]`, else NaN for all three.
+    As in SAGE26: `w = np.where((conc > 0) & (mvir >= mlo) & (mvir < mhi))[0]`; with `len(w) >= 5`
+    the median and the 16th and 84th percentiles of `conc[w]`, else NaN for all three.
     """
     w = np.where((concentration > 0) & (mvir_msun >= mass_lo) & (mvir_msun < mass_hi))[0]
     if len(w) >= MIN_GALAXIES:
@@ -97,7 +94,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         params, "concentration_evolution", (0.0, 15.0), (0.0, 30.0)
     )
 
-    # allresults-history.py:1483-1510
     z_arr = []
     medians = {i: [] for i in range(len(MASS_BINS))}
     p16 = {i: [] for i in range(len(MASS_BINS))}
@@ -120,7 +116,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     fig, ax = setup_figure(figsize=(10, 7))
 
-    # allresults-history.py:1512-1521
     z_arr = np.array(z_arr)
     for i, (_, _, label) in enumerate(MASS_BINS):
         med = np.array(medians[i])
@@ -140,7 +135,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
                 z_arr[valid], lo[valid], hi[valid], color=COLORS[i], alpha=0.15, gid="model"
             )
 
-    # allresults-history.py:1523-1527
     ax.set_xlabel(r"Redshift $z$", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel(r"Concentration $c$", fontsize=AXIS_LABEL_SIZE)
     if ax.get_legend_handles_labels()[0]:

@@ -2,11 +2,10 @@
  * @file    sage26_ffb_star_formation.h
  * @brief   Test observer of sage26_ffb_star_formation: the transaction's carried values
  *
- * SAGE26's starformation_ffb (R/src/model_starformation_and_feedback.c:1262-1368, R = the staged
- * SAGE26 source) keeps every value it carries between its steps in locals, and so does the
- * package's transaction. Tests read them through this observer, which the module calls once per
- * call that reaches the transaction, after the call's last write. It is inactive in a run (no
- * observer is set) and never changes what the module computes.
+ * SAGE26's starformation_ffb keeps every value it carries between its steps in locals, and so
+ * does the package's transaction. Tests read them through this observer, which the module calls
+ * once per call that reaches the transaction, after the call's last write. It is inactive in a
+ * run (no observer is set) and never changes what the module computes.
  */
 
 #ifndef SAGE26_FFB_STAR_FORMATION_H
@@ -32,28 +31,28 @@ struct Sage26FfbStarFormationTrace {
   enum Sage26FfbPath path;
   double dt;             /**< the substep interval dT / num_substeps */
   int bin;               /**< the substep's history bin */
-  double redshift;       /**< ZZ of the row's stored SnapNum (S:915) */
-  double reff;           /**< StarFormingDiskFactor * DiskScaleRadius (S:1273) */
-  double tdyn;           /**< reff / Vvir, or 0 (S:1274) */
-  int nonfinite_guard;   /**< ColdGas, Vvir, reff or tdyn NaN or infinite (S:1303-1306) */
-  int tdyn_gas_positive; /**< tdyn > 0 && gas > 0 (S:1307), -1 if not evaluated */
-  double strdot;         /**< EnhancedSFEfficiency * gas / tdyn (S:1309) */
-  int strdot_rejected;   /**< strdot NaN, infinite or negative (S:1311), -1 if not formed */
-  double stars_uncapped; /**< strdot * dt (S:1314) */
-  int stars_cap_binds;   /**< strdot * dt > ColdGas (S:1315), -1 if not formed */
-  int stars_rejected;    /**< the capped stars NaN, infinite or negative (S:1316) */
-  double stars_formed;   /**< the stars sampled and committed (S:1325-1330) */
-  double metallicity;    /**< the cold-gas metallicity before the commit (S:1329), reused by
-                              the feedback commit (S:1348) */
+  double redshift;       /**< ZZ of the row's stored SnapNum */
+  double reff;           /**< StarFormingDiskFactor * DiskScaleRadius */
+  double tdyn;           /**< reff / Vvir, or 0 */
+  int nonfinite_guard;   /**< ColdGas, Vvir, reff or tdyn NaN or infinite */
+  int tdyn_gas_positive; /**< tdyn > 0 && gas > 0, -1 if not evaluated */
+  double strdot;         /**< EnhancedSFEfficiency * gas / tdyn */
+  int strdot_rejected;   /**< strdot NaN, infinite or negative, -1 if not formed */
+  double stars_uncapped; /**< strdot * dt */
+  int stars_cap_binds;   /**< strdot * dt > ColdGas, -1 if not formed */
+  int stars_rejected;    /**< the capped stars NaN, infinite or negative */
+  double stars_formed;   /**< the stars sampled and committed */
+  double metallicity;    /**< the cold-gas metallicity before the commit, reused by the
+                              feedback commit */
   struct MimicSageHydrogenCapLocals sf_caps;  /**< the star-formation commit's caps */
-  struct MimicSageFfbFeedbackLocals feedback; /**< compute_sn_feedback_ffb's locals (S:1344) */
-  double reheated_from_budget;                /**< the budget's reheated mass (S:1344) */
-  int reheat_clamp_binds;                     /**< reheated > ColdGas at S:1346 */
+  struct MimicSageFfbFeedbackLocals feedback; /**< compute_sn_feedback_ffb's locals */
+  double reheated_from_budget;                /**< the budget's reheated mass */
+  int reheat_clamp_binds;                     /**< reheated > ColdGas at the second clamp */
   double reheated_to_commit;                  /**< the reheated mass passed to the commit */
   double ejected_to_commit;                   /**< the ejected mass passed to the commit */
-  struct MimicSageFeedbackLocals commit;      /**< update_from_feedback's locals (S:1348) */
+  struct MimicSageFeedbackLocals commit;      /**< update_from_feedback's locals */
   double yield_stars;                         /**< the renormalised stars of the yield */
-  struct MimicSageDiskYieldLocals yield;      /**< the yield's locals (S:1353-1362) */
+  struct MimicSageDiskYieldLocals yield;      /**< the yield's locals */
 };
 
 /** @brief Called once per call that reaches the transaction (never at EnhancedStarFormationOn 0

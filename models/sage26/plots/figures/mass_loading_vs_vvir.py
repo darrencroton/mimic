@@ -3,21 +3,19 @@
 """
 SAGE26 Mass Loading Against Virial Velocity Plot
 
-Port of the "Plotting mass loading factor vs Vvir" section of SAGE26's plotting script
-(plotting/allresults-local.py:1656-1683): the supernova mass-loading factor of galaxies with
-stellar mass and a positive mass loading against the virial velocity. The section is the
-specification; where this port differs it is a permitted deviation below.
+Follows the "Plotting mass loading factor vs Vvir" section of SAGE26's plotting script: the
+supernova mass-loading factor of galaxies with stellar mass and a positive mass loading against the
+virial velocity. Where it differs from SAGE26 the difference is stated below.
 
 Requires: StellarMass, MassLoading, Vvir
 
-Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it:
-x 1e10 / hubble_h, allresults-local.py:365), MassLoading (dimensionless) and Vvir (km/s).
+Fields read (units): StellarMass (1e10 Msun/h, converted to Msun as SAGE26 converts it: x 1e10 /
+hubble_h), MassLoading (dimensionless) and Vvir (km/s).
 
-Permitted deviations: the sample comes from one random.Random(2222) per figure, not from SAGE26's
-script-wide stream (seeded once, allresults-local.py:357), so the drawn subset differs when the
-candidates exceed DILUTE. SAGE26 prints a skip notice and draws nothing when no galaxy has
-MassLoading > 0 (:1662-1665); this figure draws its empty axes instead, as it skips only for
-a missing field.
+Differences from SAGE26: the sample comes from one random.Random(2222) per figure, not from SAGE26's
+script-wide stream (seeded once), so the drawn subset differs when the candidates exceed DILUTE.
+SAGE26 prints a skip notice and draws nothing when no galaxy has MassLoading > 0; this figure draws
+its empty axes instead, as it skips only for a missing field.
 """
 
 import random
@@ -31,8 +29,7 @@ from output_utils import (
     setup_figure,
 )
 
-# Number of galaxies drawn at most: SAGE26's script-level `dilute` (allresults-local.py:73),
-# in force here (it is reassigned only at :1735)
+# Number of galaxies drawn at most: SAGE26's script-level `dilute`, in force here
 DILUTE = 7500
 
 
@@ -75,7 +72,6 @@ def plot(
 
     stellar_mass = galaxies.StellarMass * 1.0e10 / hubble_h
 
-    # allresults-local.py:1661-1670
     w = np.where((stellar_mass > 0.0) & (galaxies.MassLoading > 0.0))[0]
     w = draw_sample(w, rng, DILUTE)
     mass_loading = galaxies.MassLoading[w]
@@ -89,7 +85,7 @@ def plot(
 
     fig, ax = setup_figure()
 
-    # allresults-local.py:1672. SAGE26 sets no axis window here (:1677-1678 are commented out).
+    # SAGE26 sets no axis window here (its limits are commented out).
     ax.scatter(log_vvir, mass_loading, c="k", marker="x", s=1, alpha=0.9, gid="model")
 
     ax.set_xlabel(r"$\log_{10} V_{\mathrm{vir}}\ (\mathrm{km/s})$", fontsize=AXIS_LABEL_SIZE)

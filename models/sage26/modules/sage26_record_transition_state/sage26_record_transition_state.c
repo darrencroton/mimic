@@ -3,23 +3,18 @@
  * @brief   Records each galaxy's final Type for the next snapshot's joining, and
  *          writes SAGE26's infall outputs
  *
- * SAGE26's progenitor joining decides a galaxy's merger clock and infall values
- * from its Type before joining, the Type it ended the previous snapshot with
- * (R/src/core_build_model.c:240-338, R = the staged SAGE26 source). Mimic's core
- * assigns the new Type while it copies the galaxy (src/core/inheritance.c:66-75,
- * :79-95) and does not publish the old one. This module, the last post_timestep
- * module, records each galaxy row's final Type in the package property
+ * SAGE26's progenitor joining decides a galaxy's merger clock and infall values from its Type
+ * before joining, the Type it ended the previous snapshot with. Mimic's core assigns the new Type
+ * while it copies the galaxy and does not publish the old one. This module, the last
+ * post_timestep module, records each galaxy row's final Type in the package property
  * PreviousType; the galaxy carries it into the next snapshot, where
- * sage26_initialise_merger_clock reads it in pre_timestep before anything changes
- * it.
+ * sage26_initialise_merger_clock reads it in pre_timestep before anything changes it.
  *
- * It also applies SAGE26's output rule for the two package infall values
- * (R/src/io/save_gals_hdf5.c:1004-1017): a Type 0 row is written with
- * infallStellarMass and TimeOfInfall 0, any other row with the values the galaxy
- * holds. SAGE26 keeps the members of a central (the non-main-branch transition to
- * Type 2 keeps an earlier TimeOfInfall, R/src/core_build_model.c:327-335), so the
- * package keeps them in the private infallStellarMassState and TimeOfInfallState
- * and sets the output properties from them here, once the final Type is known:
+ * It also applies SAGE26's output rule for the two package infall values: a Type 0 row is
+ * written with infallStellarMass and TimeOfInfall 0, any other row with the values the galaxy
+ * holds. SAGE26 keeps the members of a central (the non-main-branch transition to Type 2 keeps an
+ * earlier TimeOfInfall), so the package keeps them in the private infallStellarMassState and
+ * TimeOfInfallState and sets the output properties from them here, once the final Type is known:
  *
  *   PreviousType      = Type
  *   infallStellarMass = Type != 0 ? infallStellarMassState : 0
@@ -120,8 +115,8 @@ int sage26_record_transition_state_process(struct ModuleContext *ctx, struct Hal
 
     gal->PreviousType = type;
 
-    // SAGE parity: the writer stores the members for Type != 0 and 0.0 for a Type 0
-    // (R/src/io/save_gals_hdf5.c:1004-1017), without changing the members
+    // SAGE parity: SAGE26's writer stores the members for Type != 0 and 0.0 for a Type 0,
+    // without changing the members
     if (type != 0) {
       gal->infallStellarMass = gal->infallStellarMassState;
       gal->TimeOfInfall = gal->TimeOfInfallState;

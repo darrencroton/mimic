@@ -6,19 +6,18 @@ Validates: the module's placement, and on a real run over consecutive snapshots 
 progenitor-joining transitions it hands to sage26_initialise_merger_clock and the
 infall outputs it writes.
 
-SAGE26 decides a galaxy's infall values from its Type before progenitor joining
-(core_build_model.c:240-338): a Type 0 that becomes a Type 1 records its previous
-Mvir, Vvir and Vmax, its StellarMass and the descendant's snapshot number as
-TimeOfInfall (:306-313); a Type 1 that stays one keeps them. SAGE26's writer stores
-infallMvir, infallVvir, infallVmax, infallStellarMass and TimeOfInfall for Type != 0
-and 0 for a Type 0 (io/save_gals_hdf5.c:1004-1017).
+SAGE26 decides a galaxy's infall values from its Type before progenitor joining: a Type 0
+that becomes a Type 1 records its previous Mvir, Vvir and Vmax, its StellarMass and the
+descendant's snapshot number as TimeOfInfall; a Type 1 that stays one keeps them. SAGE26's
+writer stores infallMvir, infallVvir, infallVmax, infallStellarMass and TimeOfInfall for
+Type != 0 and 0 for a Type 0.
 
 Galaxies are followed by UniqueGalaxyID between consecutive written snapshots. The
 package's run-file pipeline makes and consumes orphans (Type 2) within one snapshot,
 so its written rows hold the transitions 0 -> 0, 0 -> 1, 1 -> 1 and 1 -> 0. The same
 pipeline without its merger pass keeps orphans, so its written rows also hold the
 orphan transitions 0 -> 2, 1 -> 2 and 2 -> 2. MergTime is not written; the clocks
-are asserted by the merger clock's oracle and unit tests.
+are asserted by the merger clock's unit tests.
 
 Test cases:
   - test_module_loads: the module initialises as the last post_timestep entry
@@ -157,15 +156,14 @@ def _check_transitions(snapshots, first, last):
       0 -> 1: TimeOfInfall = s + 1; infallStellarMass, infallMvir and infallVmax are
               the previous StellarMass, Mvir and Vmax as written; infallVvir is the
               previous Vvir where the previous halo grew (deltaMvir > 0), since the
-              core stores Vvir only when a halo grows (src/core/inheritance.c:60-63,
-              as SAGE26 does, core_build_model.c:267) while it writes the current
-              halo's Vvir for a Type 0 or 1 row
+              core stores Vvir only when a halo grows, as
+              SAGE26 does, while it writes the current halo's Vvir for a Type 0 or 1 row
       1 -> 1, 1 -> 2, 2 -> 2: all five kept
       0 -> 2: infallStellarMass, infallMvir and infallVmax as for 0 -> 1 (infallVvir
               where the halo grew), and TimeOfInfall kept from the galaxy's last
-              earlier infall, or -1 if it never had one (core_build_model.c:327-335
-              writes no TimeOfInfall); checked only when the run writes every snapshot
-              from 0, so that each galaxy's whole history is known
+              earlier infall, or -1 if it never had one
+              (SAGE26 writes no TimeOfInfall there); checked only when the run writes every
+              snapshot from 0, so that each galaxy's whole history is known
       1 -> 0: all five written as 0
 
     Returns the count of each transition and of the rows behind each conditional check.

@@ -2,13 +2,11 @@
  * @file    sage_keyed_draw.h
  * @brief   The sage26 package's keyed uniform draw, in place of SAGE26's libc rand()
  *
- * SAGE26 draws its CGM regime from the process-global libc stream,
- * `(double)rand() / (double)RAND_MAX` (R = the staged SAGE26 source,
- * R/src/model_regimes.c:94), so a galaxy's draw depends on how many draws every earlier galaxy
- * of the run consumed, which docs/VISION.md Principle 4 forbids. The package replaces that one draw
- * (the one deliberate departure from SAGE26's arithmetic in the classifier) with a stateless keyed
- * draw:
- * the uniform deviate is a pure function of four inputs,
+ * SAGE26's determine_and_store_regime draws its CGM regime from the process-global libc stream,
+ * `(double)rand() / (double)RAND_MAX`, so a galaxy's draw depends on how many draws every earlier
+ * galaxy of the run consumed (forbidden by docs/VISION.md Principle 4). The package replaces that
+ * one draw, its one deliberate departure in the classifier, with a stateless keyed draw whose
+ * uniform deviate is a pure function of four inputs,
  *
  *   - the galaxy row's UniqueGalaxyID (64-bit, converted by its two's-complement bits),
  *   - the current snapshot number (the halo's snapshot at the call, ctx->snapshot_number; never
@@ -133,8 +131,8 @@ static inline double mimic_sage_keyed_uniform(const int64_t galaxy_id, const int
 /**
  * @brief   The CGM regime classifier's deviate: the CGM purpose and ordinal 0
  *
- * The package's replacement for SAGE26's `(double)rand() / (double)RAND_MAX`
- * (R/src/model_regimes.c:94), the one deliberate departure in the classifier.
+ * The package's replacement for SAGE26's `(double)rand() / (double)RAND_MAX` in
+ * determine_and_store_regime, the one deliberate departure in the classifier.
  *
  * @param   galaxy_id  The row's UniqueGalaxyID
  * @param   snapshot   The current snapshot number (ctx->snapshot_number)

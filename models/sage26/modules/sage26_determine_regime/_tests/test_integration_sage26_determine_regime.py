@@ -25,7 +25,7 @@ On writes its domain (the observable list):
   - Regime: in {0, 1} on every output row of both snapshots. Domain: the module classifies every
     live row 0 or 1 and leaves only Type 3 rows, which are never output (README.md, "Rows" and
     "Properties": "Writes: Regime"); the property's range is [-1, 1] with -1 the creation value
-    and "not yet assigned" sentinel (models/sage26/model_properties.yaml:485-494), so -1 on an
+    and "not yet assigned" sentinel, so -1 on an
     output row would be a row the classifier missed.
   - Witness: at least one row with Regime 1 and at least one with Regime 0 at snapshot 63.
   - Exceptions: none. Regime is the only property the module writes.

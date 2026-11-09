@@ -1,19 +1,18 @@
 /**
  * @file    test_unit_sage_ffb_regime.c
- * @brief   Platform-independent tests of shared/sage_ffb_regime.h, SAGE26's FFB threshold,
+ * @brief   Tests of shared/sage_ffb_regime.h, SAGE26's FFB threshold,
  *          fraction and SplitMix64 draw, and the EnhancedStarFormationOn validator
  *
- * Every expectation is derived independently of the helpers: the draw's reference vectors (computed
- * by an independent transcription; SAGE26's own values, from the oracle, confirm them), literal
- * inputs whose result is exact, or SAGE26's expressions written in this file with their operand
- * order (R/src/model_regimes.c:309-312 and :330-339; R/ is the staged SAGE26 source root), never by
- * calling the helper under test.
+ * Every expectation is derived independently of the helpers: the draw's reference vectors (the
+ * values SAGE26's own routine produces when executed), literal inputs whose result is exact, or
+ * SAGE26's expressions written in this file with their operand order, never by calling the helper
+ * under test.
  *
  * - test_draw_vectors: the 64 hashed bits and the deviate, bit for bit, of the eight reference
  *   vectors (the first is SplitMix64's published first output for seed 0) and of two negative
  *   snapshots, whose (uint32_t) conversion the result depends on
  * - test_deviate_endpoints: the deviate of the hashed bits 0 is 2^-54 and of all ones exactly 1.0
- *   (SAGE26's + 0.5 with no endpoint correction, :158)
+ *   (SAGE26's + 0.5 with no endpoint correction)
  * - test_threshold_inline: the threshold and its locals at literal redshifts equal SAGE26's
  *   expression written here; z 9 gives z_norm exactly 1
  * - test_fraction_guards: each guard gives exactly 0 on its own: Mvir +0, -0, negative and -inf,
@@ -39,7 +38,7 @@
 static int passed = 0;
 static int failed = 0;
 
-/* R6's Hubble_h (input/millennium.par:40) */
+/* Hubble_h of SAGE26's default configuration */
 #define TEST_HUBBLE_H 0.73
 
 static uint64_t bits_of(const double v) {
@@ -55,12 +54,11 @@ static uint64_t bits_of(const double v) {
 #endif
 
 /**
- * @brief SAGE26's calculate_ffb_threshold_mass written here (R/src/model_regimes.c:308-312),
- *        its log term fused as SAGE26's object computes it (model_regimes.o 0x908: fmadd of
- *        log10(z_norm), -6.2 and log10(h) + 0.8)
+ * @brief SAGE26's calculate_ffb_threshold_mass written here
  *
- * Never inlined, its inputs through volatile locals, so the compiler cannot fold the libm calls
- * at compile time with another rounding than the runtime libm's.
+ * SAGE parity: the log term is a fused multiply-add, as SAGE26 computes it.
+ *
+ * Never inlined, its inputs through volatile locals, so the libm calls are evaluated at run time.
  */
 static FFB_TEST_NOINLINE double sage26_threshold(const double z_in, const double h_in,
                                                  double *z_norm_out, double *log_out) {
@@ -75,7 +73,7 @@ static FFB_TEST_NOINLINE double sage26_threshold(const double z_in, const double
   return pow(10.0, log_Mvir_ffb_code);
 }
 
-/** @brief SAGE26's calculate_ffb_fraction written here (:330-339), for a positive Mvir */
+/** @brief SAGE26's calculate_ffb_fraction written here, for a positive Mvir */
 static FFB_TEST_NOINLINE double sage26_fraction(const double mvir_in, const double z,
                                                 const double h) {
   volatile double mvir_runtime = mvir_in;
@@ -92,7 +90,7 @@ static FFB_TEST_NOINLINE double sage26_fraction(const double mvir_in, const doub
 
 /**
  * @test    test_draw_vectors
- * @brief   halo_uniform's bits and deviate (R/src/model_regimes.c:151-159), bit for bit
+ * @brief   SAGE26's halo_uniform bits and deviate, bit for bit
  */
 int test_draw_vectors(void) {
   const struct {
@@ -111,7 +109,7 @@ int test_draw_vectors(void) {
       {4896973LL, 12, 0x7218b70ad3eb71d1ULL, 0x3fdc862dc2b4faddULL},
       {9391591LL, 16, 0x14bdcaf7d17309fbULL, 0x3fb4bdcaf7d1730cULL},
       /* Negative snapshots: (uint32_t)-1 is 4294967295, not the sign-extended 64-bit -1;
-       * SAGE26's own bits for both (the oracle's cls_negative_snapshot_probe) */
+       * SAGE26's own bits for both */
       {4896973LL, -1, 0xe8efcc1adad0340eULL, 0x3fed1df9835b5a06ULL},
       {5LL, -1, 0x956865b57d4c09a2ULL, 0x3fe2ad0cb6afa982ULL},
   };
@@ -130,7 +128,7 @@ int test_draw_vectors(void) {
 
 /**
  * @test    test_deviate_endpoints
- * @brief   ((double)(x >> 11) + 0.5) * 2^-53 (R/src/model_regimes.c:158): 2^-54 for x 0, and
+ * @brief   ((double)(x >> 11) + 0.5) * 2^-53: 2^-54 for x 0, and
  *          exactly 1.0 for x all ones (2^53 - 1 + 0.5 rounds to 2^53: no endpoint correction)
  */
 int test_deviate_endpoints(void) {
@@ -147,8 +145,7 @@ int test_deviate_endpoints(void) {
 /**
  * @test    test_threshold_inline
  * @brief   The threshold and its locals equal SAGE26's expression written here at literal
- *          redshifts (R/src/model_regimes.c:309-312); z 9 gives z_norm 1 and log10 0, so the log
- *          is exactly 0.8 + log10(h)
+ *          redshifts; z 9 gives z_norm 1 and log10 0, so the log is exactly 0.8 + log10(h)
  */
 int test_threshold_inline(void) {
   const double redshifts[] = {0.0, 5.0, 7.0, 9.0, 12.5, 30.0};
@@ -173,7 +170,7 @@ int test_threshold_inline(void) {
 
 /**
  * @test    test_fraction_guards
- * @brief   Each guard of R/src/model_regimes.c:332 gives exactly 0 on its own; NaN passes them
+ * @brief   Each guard of SAGE26's calculate_ffb_fraction gives exactly 0 on its own; NaN passes
  */
 int test_fraction_guards(void) {
   const struct {
@@ -231,7 +228,6 @@ int test_fraction_half(void) {
 /**
  * @test    test_fraction_inline
  * @brief   The fraction across the sigmoid equals SAGE26's expression written here
- *          (R/src/model_regimes.c:330-339)
  */
 int test_fraction_inline(void) {
   const double z = 7.0;
@@ -262,8 +258,8 @@ static const char *read_captured_log(FILE *fp) {
 
 /**
  * @test    test_validator
- * @brief   EnhancedStarFormationOn 0 and 1 are accepted; 2 (BK25, not ported), 3 and -1 refused,
- *          naming the parameter
+ * @brief   EnhancedStarFormationOn 0 and 1 are accepted; 2 (BK25, not supported), 3 and -1
+ *          are refused, naming the parameter
  */
 int test_validator(void) {
   TEST_ASSERT(mimic_sage_validate_enhanced_star_formation_on("test", 0) == 0, "0 is supported");

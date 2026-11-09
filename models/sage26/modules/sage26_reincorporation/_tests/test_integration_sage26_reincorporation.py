@@ -281,7 +281,7 @@ def test_physics_metallicity_bounds():
             "GlobalBaryonFraction": 0.17,
             "ReIncorporationFactor": 1.0,
             "CGMrecipeOn": 0,
-            # Cooling, the star-formation chain and the metal yield, at R1's values
+            # Cooling, the star-formation chain (SFprescription 0) and the metal yield
             "AGNrecipe": 2,
             "RadioModeEfficiency": 0.08,
             "BulgeSizeOn": 0,
@@ -400,7 +400,7 @@ def test_physics_velocity_threshold():
         model_params={
             "GlobalBaryonFraction": 0.17,
             "ReIncorporationFactor": 1.0,  # Vcrit = 354.53 km/s (SAGE26),
-            "CGMrecipeOn": 0,  # required by the infall modules, R3's value
+            "CGMrecipeOn": 0,  # required by the infall modules (the CGM recipe off)
         },
     )
 
@@ -413,7 +413,7 @@ def test_physics_velocity_threshold():
     # Filter centrals by velocity
     centrals = halos[halos["Type"] == 0]
 
-    # Vcrit = 354.53 km/s with ReIncorporationFactor = 1.0 (SAGE26 model_reincorporation.c:34)
+    # Vcrit = 354.53 km/s with ReIncorporationFactor = 1.0
     Vcrit = 354.53
 
     low_vvir = centrals[centrals["Vvir"] < Vcrit]

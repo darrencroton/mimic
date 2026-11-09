@@ -6,11 +6,10 @@ Validates: module lifecycle in post_timestep and its effect on a real run
 
 The module normalises the Cooling and Heating energies, accumulated undivided over
 the substeps by sage26_apply_cooling and sage26_radio_mode_heating, once per FoF by
-the first galaxy's snapshot interval (SAGE26 core_build_model.c:590-603). The run
+the first galaxy's snapshot interval, as SAGE26 does. The run
 with the finaliser must therefore differ from the same run without it only in
 Cooling and Heating: a zero energy stays zero, and every positive energy rises
-(it is multiplied by 1 / deltaT, with deltaT well below one code time unit). The
-factor itself is asserted bit for bit by the module's oracle unit test.
+(it is multiplied by 1 / deltaT, with deltaT well below one code time unit).
 
 Test cases:
   - test_module_loads: module registers and initialises in post_timestep
@@ -58,7 +57,7 @@ MODEL_PARAMS = {
     "GlobalBaryonFraction": 0.17,
     "AGNrecipe": 2,
     "RadioModeEfficiency": 0.08,
-    "CGMrecipeOn": 0,  # required by the infall modules, R3's value
+    "CGMrecipeOn": 0,  # required by the infall modules (the CGM recipe off)
 }
 
 

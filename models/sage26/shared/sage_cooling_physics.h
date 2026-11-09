@@ -3,76 +3,24 @@
  * @brief SAGE26's cooling, radio-mode AGN heating and cooling transfer, shared by the cooling
  * modules
  *
- * C = R/src/model_cooling_heating.c and H = R/src/model_halo_properties.c of the staged SAGE26
- * source (R). One implementation of each piece of SAGE26's cooling arithmetic, used by the classic
- * three-module hot path (sage26_calculate_cooling_budget -> sage26_radio_mode_heating ->
- * sage26_apply_cooling, CGMrecipeOn 0) and by the CGMrecipeOn 1 cooling transaction
- * (sage26_regime_aware_cooling). The helpers that serve both paths (mimic_sage_hot_cooling_budget,
- * mimic_sage_do_agn_heating_hot, mimic_sage_do_agn_heating_cgm and the two composed recipes) take
- * CGMrecipeOn as an argument, and the classic callers pass CGMrecipeOn 0, the R0-R3 behaviour; the
- * others (the table, the streams, bulk CGM cooling, the accretion, the tail and the transfer) take
- * the run quantities they read and no CGMrecipeOn.
+ * Implements SAGE26's cooling_recipe_hot and cooling_recipe_cgm (Carr et al. 2023 bulk CGM
+ * cooling), the hot regime's cold streams (Dekel & Birnboim 2006), interpolate_clustering_mass,
+ * agn_accretion_compute (Bondi accretion, AGNrecipe 2), do_AGN_heating, do_AGN_heating_cgm and
+ * cool_gas_onto_galaxy. Used by the CGMrecipeOn 0 path (sage26_calculate_cooling_budget ->
+ * sage26_radio_mode_heating -> sage26_apply_cooling) and by the CGMrecipeOn 1 cooling transaction
+ * (sage26_regime_aware_cooling); helpers serving both paths take CGMrecipeOn as an argument.
  *
- * The cooling helpers (mimic_sage_hot_cooling_budget, mimic_sage_cgm_cooling_budget and the
- * composed recipes) call get_metaldependent_cooling_rate from sage26_calculate_cooling_budget's
- * cooling_tables.c, so the tables must be loaded (sage26_calculate_cooling_budget_init) before
- * they run: unloaded tables return 0, which reads as lambda <= 0. That include of the budget
- * module's header is the one coupling of this shared file to a module.
+ * The cooling helpers call get_metaldependent_cooling_rate from sage26_calculate_cooling_budget's
+ * cooling_tables.c, so the tables must be loaded (sage26_calculate_cooling_budget_init) before they
+ * run: unloaded tables return 0, which reads as lambda <= 0. That include is the one coupling of
+ * this shared file to a module.
  *
- * No helper writes the galaxy's mdot_cool or mdot_stream. SAGE26 stores its float rates at
- * C:282-283; here they are returned in the stream locals (struct MimicSageColdStreamLocals), and
- * the CGMrecipeOn 1 cooling transaction (sage26_regime_aware_cooling) stores them in the raw-rate
- * state properties mdot_cool_raw and mdot_stream_raw, from which sage26_finalize_cooling_heating
- * writes the output fields.
+ * No helper writes the galaxy's mdot_cool or mdot_stream: the float rates are returned in struct
+ * MimicSageColdStreamLocals, and sage26_regime_aware_cooling stores them in mdot_cool_raw and
+ * mdot_stream_raw, from which sage26_finalize_cooling_heating writes the output fields.
  *
- * The classic pieces, moved here from the three modules with every expression unchanged:
- *
- * - mimic_sage_hot_cooling_budget(): cooling_recipe_hot up to the AGN step (C:139-292): the
- *   diagnostics tcool and tff, the cooling function, x, rcool and the float RcoolToRvir, the
- *   cooling mass of the selected branch (CGMrecipeOn 0: the rapid or static branch, C:190-201;
- *   CGMrecipeOn 1: the cold streams below), and its cap to HotGas and floor at zero.
- * - mimic_sage_agn_accretion_compute(): agn_accretion_compute (C:526-576): the Bondi rate
- *   (AGNrecipe 2, C:538-540, the one recipe the package ports: shared/sage_agn_recipe.h refuses
- *   SAGE26's 1 and 3), the Eddington cap, the cap of the accreted mass to the reservoir, AGNcoeff
- *   and the cap of the heating to the suppressed cooling mass.
- * - mimic_sage_do_agn_heating_hot(): do_AGN_heating (C:587-627): the heating-radius suppression,
- *   the accretion from the hot pair, the radius ratchet and the Heating energy.
- * - mimic_sage_cooling_energy() and mimic_sage_cooling_rate(): the recipes' tail (C:301-313).
- * - mimic_sage_cool_gas_onto_galaxy(): cool_gas_onto_galaxy (C:689-707), the classic transfer.
- *
- * The CGMrecipeOn 1 pieces, called by sage26_regime_aware_cooling:
- *
- * - mimic_sage_interpolate_clustering_mass(): interpolate_clustering_mass (H:98-132), the
- *   Press-Schechter clustering mass log10 M_*(z) in log10 Msun (not Msun/h) from SAGE26's literal
- *   31-entry tables, Uchuu for fabs(Omega - 0.3089) < 0.01 and Millennium otherwise.
- * - mimic_sage_cold_stream_cooling(): the hot regime's cold streams (C:205-285), reading the
- *   redshift of the galaxy's STORED snapshot, ZZ[SnapNum] (C:205), through the
- *   package's bounds-checked mimic_sage_fire_stored_redshift.
- * - mimic_sage_cgm_cooling_budget(): bulk CGM cooling up to the AGN step (C:319-370).
- * - mimic_sage_do_agn_heating_hot() with CGMrecipeOn 1: the 0.99 * rcool saturation (C:590-591)
- *   and the cap of Rheat to Rvir outside the positive-reservoir block (C:623-624).
- * - mimic_sage_do_agn_heating_cgm(): the static do_AGN_heating_cgm (C:635-680): the same
- *   suppression, accretion from the CGM pair, the Rvir cap inside the positive-reservoir block and
- *   the re-cap of the returned mass to the post-accretion CGMgas.
- * - mimic_sage_cooling_recipe_hot() and mimic_sage_cooling_recipe_cgm(): the two recipes as SAGE26
- *   composes them (C:135-315, C:317-391), each with its AGN call and its tail; the hot recipe
- *   returns its mdot stores in its locals instead of writing them (below).
- *
- * Precision. SAGE26 holds the reservoirs and Mvir, Rvir, Vvir as floats and every local as a
- * double (R/src/core_allvars.h:106-221); the callers' core doubles are read as those floats.
- * Float-only divisions stay float before widening: Rvir / Vvir (C:142), the metallicity divisions
- * before log10 (C:154, C:326), HotGas / Rvir (C:200, C:279) and the CGM free-fall Rvir * Rvir
- * (C:352).
- *
- * Rounding points. Each expression is one C expression with SAGE26's operand order and types. The
- * fused-instruction table (oracle README, "The c11 Group") read from SAGE26's objects: the
- * clustering interpolation (H:131, fmadd of the first endpoint product with the separately
- * rounded second, model_halo_properties.o 0x3ac) is an explicit fma(); the Cooling and Heating
- * accumulations (C:302, C:377, C:619, C:667), the AGN metal debits (C:609, C:656) and the
- * transfer's metal credit and debit (C:697, C:699) fuse in SAGE26's object and stay one
- * contractible expression here, as they were in the classic modules; the stream and CGM-time
- * arithmetic fuses nothing. SAGE26's object computes both pow(10.0, x) of the streams (C:222,
- * C:242) as __exp10(x); mimic_sage_exp10 (shared/sage_exp10.h) writes that form.
+ * SAGE parity: Mvir, Rvir, Vvir and the reservoirs are read as SAGE26's floats, and float-only
+ * operations (Rvir / Vvir, the metallicities, HotGas / Rvir, Rvir * Rvir) stay float.
  *
  * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
  * models/sage26/LICENSE-SAGE26.
@@ -96,45 +44,47 @@
 #include "shared/sage_fire_feedback_physics.h"
 #include "modules/sage26_calculate_cooling_budget/cooling_tables.h"
 
-/* Mean molecular weight of a fully ionised gas (C:52) */
+/* Mean molecular weight of a fully ionised gas */
 #define MIMIC_SAGE_MU_IONISED 0.59
-/* Dekel & Birnboim (2006) stream width factor f and logistic width in dex (C:104-105) */
+/* Dekel & Birnboim (2006) stream width factor f and logistic width in dex */
 #define MIMIC_SAGE_DB06_STREAM_MASS_FACTOR 3.0
 #define MIMIC_SAGE_STREAM_THRESHOLD_WIDTH_DEX 0.15
-/* The fraction of rcool at which a CGMrecipeOn 1 heating radius saturates (C:591, C:639) */
+/* The fraction of rcool at which a CGMrecipeOn 1 heating radius saturates */
 #define MIMIC_SAGE_RHEAT_SATURATION 0.99
 
 /* Which cooling-mass branch mimic_sage_hot_cooling_budget took */
 #define MIMIC_SAGE_HOT_BRANCH_NONE -1   /* an early return: no cooling mass formed */
-#define MIMIC_SAGE_HOT_BRANCH_STATIC 0  /* CGMrecipeOn 0, rcool <= Rvir (C:198-201) */
-#define MIMIC_SAGE_HOT_BRANCH_RAPID 1   /* CGMrecipeOn 0, rcool > Rvir (C:193-197) */
-#define MIMIC_SAGE_HOT_BRANCH_STREAMS 2 /* CGMrecipeOn 1, the cold streams (C:202-286) */
+#define MIMIC_SAGE_HOT_BRANCH_STATIC 0  /* CGMrecipeOn 0, rcool <= Rvir */
+#define MIMIC_SAGE_HOT_BRANCH_RAPID 1   /* CGMrecipeOn 0, rcool > Rvir */
+#define MIMIC_SAGE_HOT_BRANCH_STREAMS 2 /* CGMrecipeOn 1, the cold streams */
 
-/* How a reservoir cap of the cooling mass ended (C:288-292, C:366-370) */
+/* How a reservoir cap of the cooling mass ended */
 #define MIMIC_SAGE_CAP_NOT_REACHED -1
 #define MIMIC_SAGE_CAP_NONE 0
 #define MIMIC_SAGE_CAP_RESERVOIR 1 /* capped to the reservoir */
 #define MIMIC_SAGE_CAP_FLOOR 2     /* floored at zero */
 
 // ============================================================================
-// THE CLUSTERING-MASS TABLE (H:98-132)
+// THE CLUSTERING-MASS TABLE
 // ============================================================================
 
 /** @brief interpolate_clustering_mass's locals, for tests; NULL when not wanted */
 struct MimicSageClusteringLocals {
-  int uchuu; /**< 1 when the Uchuu table was selected (H:118) */
-  double zz; /**< the redshift after the clamps to [0, 15] (H:122-124) */
-  int iz;    /**< the lower grid index after its clamps to [0, 29] (H:126-128) */
-  double fz; /**< the fractional position (H:130) */
+  int uchuu; /**< 1 when the Uchuu table was selected */
+  double zz; /**< the redshift after the clamps to [0, 15] */
+  int iz;    /**< the lower grid index after its clamps to [0, 29] */
+  double fz; /**< the fractional position */
 };
 
 /**
- * @brief SAGE26's interpolate_clustering_mass: log10 M_*(z) in log10 Msun (H:98-132)
+ * @brief SAGE26's interpolate_clustering_mass: log10 M_*(z) in log10 Msun
  *
- * Both 31-entry tables are SAGE26's literal arrays, never recomputed. The interpolation
- * table[iz] * (1 - fz) + table[iz + 1] * fz is fused in SAGE26's object as
- * fma(table[iz], 1 - fz, table[iz + 1] * fz) (model_halo_properties.o 0x3a8-0x3ac: fmul of the
- * second product, then fmadd), written here as that explicit fma().
+ * The Press-Schechter clustering mass in log10 Msun (not Msun/h), linearly interpolated in a
+ * 31-entry table: Uchuu (Planck15) for fabs(Omega - 0.3089) < 0.01, Millennium (WMAP1) otherwise.
+ * Both tables are SAGE26's literal arrays, never recomputed.
+ *
+ * SAGE parity: the interpolation is the fma(table[iz], 1 - fz, table[iz + 1] * fz) SAGE26
+ * computes.
  *
  * @param z       Redshift
  * @param omega   The run's Omega (selects the table)
@@ -147,12 +97,12 @@ mimic_sage_interpolate_clustering_mass(const double z, const double omega,
   static const double mstar_table_z[31] = {
       0.0, 0.5, 1.0, 1.5, 2.0,  2.5,  3.0,  3.5,  4.0,  4.5,  5.0,  5.5,  6.0,  6.5,  7.0, 7.5,
       8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5, 12.0, 12.5, 13.0, 13.5, 14.0, 14.5, 15.0};
-  /* Millennium / WMAP1 (H:104-108) */
+  /* Millennium / WMAP1 */
   static const double mstar_mill[31] = {
       12.8964, 12.2501, 11.5685, 10.9046, 10.2717, 9.6699, 9.0969, 8.5486, 8.0214, 7.5126, 7.0206,
       6.5435,  6.0794,  5.6266,  5.1842,  4.7514,  4.3276, 3.9122, 3.5045, 3.1039, 2.7098, 2.3217,
       1.9393,  1.5626,  1.1912,  1.0000,  1.0000,  1.0000, 1.0000, 1.0000, 1.0000};
-  /* Uchuu / Planck15 (H:111-115) */
+  /* Uchuu / Planck15 */
   static const double mstar_uchuu[31] = {
       12.8028, 12.0672, 11.3101, 10.5795, 9.8831, 9.2194, 8.5834, 7.9701, 7.3764, 6.8002, 6.2389,
       5.6901,  5.1521,  4.6241,  4.1054,  3.5950, 3.0915, 2.5943, 2.1027, 1.6166, 1.1359, 1.0000,
@@ -160,18 +110,18 @@ mimic_sage_interpolate_clustering_mass(const double z, const double omega,
 
   const double *table = mstar_mill;
   int uchuu = 0;
-  if (fabs(omega - 0.3089) < 0.01) { /* H:118 */
+  if (fabs(omega - 0.3089) < 0.01) {
     table = mstar_uchuu;
     uchuu = 1;
   }
 
-  double zz = z; /* H:122-124 */
+  double zz = z;
   if (zz < mstar_table_z[0])
     zz = mstar_table_z[0];
   if (zz > mstar_table_z[31 - 1])
     zz = mstar_table_z[31 - 1];
 
-  int iz = (int)(zz / 0.5); /* H:126-128 */
+  int iz = (int)(zz / 0.5);
   if (iz < 0)
     iz = 0;
   if (iz >= 31 - 1)
@@ -185,44 +135,44 @@ mimic_sage_interpolate_clustering_mass(const double z, const double omega,
     locals->iz = iz;
     locals->fz = fz;
   }
-  /* H:131, fused as SAGE26's object computes it */
   return fma(table[iz], 1.0 - fz, table[iz + 1] * fz);
 }
 
 // ============================================================================
-// THE HOT RECIPE UP TO THE AGN STEP (C:139-292)
+// THE HOT RECIPE UP TO THE AGN STEP
 // ============================================================================
 
-/** @brief The cold-stream locals of one CGMrecipeOn 1 hot call (C:205-285) */
+/** @brief The cold-stream locals of one CGMrecipeOn 1 hot call */
 struct MimicSageColdStreamLocals {
-  double z;                  /**< ZZ[stored SnapNum] (C:205) */
-  double M_shock;            /**< MShockMsun * Hubble_h / 1e10 (C:210) */
-  double mass_ratio;         /**< Mvir / M_shock (C:211) */
-  double log_mstar;          /**< interpolate_clustering_mass(z) (C:222) */
-  double Mstar;              /**< 10^log_mstar * Hubble_h / 1e10 (C:222-223) */
-  double fMstar;             /**< 3 * Mstar (C:224) */
-  double ratio;              /**< (fMstar / Mvir)^(2/3) * mass_ratio^(4/3) (C:225-226) */
-  int ratio_nonpositive;     /**< 1 when ratio <= 0 (C:229) */
-  double exponent;           /**< log10(ratio) / 0.15 after its clamps (C:239-241); NaN if unused */
-  int exponent_capped_high;  /**< 1 when the 300 clamp bound (C:240) */
-  int exponent_capped_low;   /**< 1 when the -300 clamp bound (C:241) */
-  double f_stream_criterion; /**< f_stream before the cutoff (C:230 or C:242) */
-  int cutoff;                /**< 1 when fMstar >= M_shock && mass_ratio > 1 (C:263) */
-  double f_stream;           /**< after the cutoff and the clamps (C:263-271) */
-  double cold_stream_cooling; /**< f_stream * HotGas / tcool * dt (C:277) */
-  double hot_halo_cooling;    /**< (1 - f_stream) * float(HotGas / Rvir) * ... (C:279-280) */
-  float mdot_cool;            /**< float(hot_halo_cooling / dt), before the cap and AGN (C:282) */
-  float mdot_stream;          /**< float(cold_stream_cooling / dt) (C:283) */
+  double z;                   /**< ZZ[stored SnapNum] */
+  double M_shock;             /**< MShockMsun * Hubble_h / 1e10 */
+  double mass_ratio;          /**< Mvir / M_shock */
+  double log_mstar;           /**< interpolate_clustering_mass(z) */
+  double Mstar;               /**< 10^log_mstar * Hubble_h / 1e10 */
+  double fMstar;              /**< 3 * Mstar */
+  double ratio;               /**< (fMstar / Mvir)^(2/3) * mass_ratio^(4/3) */
+  int ratio_nonpositive;      /**< 1 when ratio <= 0 */
+  double exponent;            /**< log10(ratio) / 0.15 after its clamps; NaN if unused */
+  int exponent_capped_high;   /**< 1 when the 300 clamp bound */
+  int exponent_capped_low;    /**< 1 when the -300 clamp bound */
+  double f_stream_criterion;  /**< f_stream before the cutoff */
+  int cutoff;                 /**< 1 when fMstar >= M_shock && mass_ratio > 1 */
+  double f_stream;            /**< after the cutoff and the clamps */
+  double cold_stream_cooling; /**< f_stream * HotGas / tcool * dt */
+  double hot_halo_cooling;    /**< (1 - f_stream) * float(HotGas / Rvir) * ... */
+  float mdot_cool;            /**< float(hot_halo_cooling / dt), before the cap and AGN */
+  float mdot_stream;          /**< float(cold_stream_cooling / dt) */
 };
 
 /**
- * @brief SAGE26's hot-regime cold streams (C:205-285): the cooling mass before the cap
+ * @brief SAGE26's hot-regime cold streams: the cooling mass before the cap
  *
- * Reads the redshift of the galaxy's stored snapshot, ZZ[stored_snapnum] (C:205), never the current
- * snapshot's; a stored SnapNum outside the run's redshift table is refused with an error naming it,
- * where SAGE26 reads out of bounds. Every local is a double; HotGas, Rvir and Mvir are SAGE26's
- * floats. SAGE26's float mdot stores (C:282-283) are returned in s->mdot_cool and s->mdot_stream;
- * no galaxy field is written.
+ * Dekel & Birnboim (2006) cold streams: the stream fraction is a logistic function of the halo mass
+ * relative to the shock mass and the clustering mass, switched off above the shock mass once
+ * f M_* reaches it. Reads the redshift of the galaxy's stored snapshot, ZZ[stored_snapnum], never
+ * the current snapshot's; a stored SnapNum outside the run's redshift table is refused with an
+ * error naming it, where SAGE26 reads out of bounds. HotGas, Rvir and Mvir are SAGE26's floats.
+ * The float mdot rates are returned in s->mdot_cool and s->mdot_stream; no galaxy field is written.
  *
  * @param params          Run configuration (ZZ, Snaplistlen, Omega, Hubble_h)
  * @param stored_snapnum  The galaxy's stored SnapNum
@@ -230,11 +180,11 @@ struct MimicSageColdStreamLocals {
  * @param mvir            SAGE26's float Mvir
  * @param hot_gas         HotGas
  * @param rvir            SAGE26's float Rvir
- * @param tcool           The hot recipe's tcool, the float Rvir / Vvir widened (C:142)
- * @param rcool           The uncapped cooling radius (C:173)
+ * @param tcool           The hot recipe's tcool, the float Rvir / Vvir widened
+ * @param rcool           The uncapped cooling radius
  * @param dt              Substep interval
  * @param s               Output: the stream locals
- * @param cooling_out     Output: cold_stream_cooling + hot_halo_cooling (C:285)
+ * @param cooling_out     Output: cold_stream_cooling + hot_halo_cooling
  * @return 0, or -1 when the stored SnapNum has no redshift
  */
 static inline int mimic_sage_cold_stream_cooling(
@@ -243,18 +193,18 @@ static inline int mimic_sage_cold_stream_cooling(
     const double dt, struct MimicSageColdStreamLocals *s, double *cooling_out) {
   double z;
   if (mimic_sage_fire_stored_redshift(params, stored_snapnum, &z) != 0) {
-    ERROR_LOG("Cold streams: SAGE26 reads ZZ[SnapNum] of the galaxy's stored snapshot "
-              "(R/src/model_cooling_heating.c:205); stored SnapNum = %d has no redshift",
+    ERROR_LOG("Cold streams: SAGE26 reads ZZ[SnapNum] of the galaxy's stored snapshot; "
+              "stored SnapNum = %d has no redshift",
               stored_snapnum);
     return -1;
   }
   s->z = z;
 
-  /* C:210-211: MSUN_TO_CODE_MASS(x, h) is ((x) * (h) / 1.0e10) (R/src/macros.h:47) */
+  /* The shock mass in code units, 1e10 Msun/h */
   const double M_shock = mshock_msun * params->Hubble_h / 1.0e10;
   const double mass_ratio = mvir / M_shock;
 
-  /* C:222-226 */
+  /* The clustering mass in code units and the stream criterion's mass ratio */
   const double log_mstar = mimic_sage_interpolate_clustering_mass(z, params->Omega, NULL);
   const double Mstar = mimic_sage_exp10(log_mstar) * params->Hubble_h / 1.0e10;
   const double fMstar = MIMIC_SAGE_DB06_STREAM_MASS_FACTOR * Mstar;
@@ -270,7 +220,6 @@ static inline int mimic_sage_cold_stream_cooling(
   s->exponent_capped_high = 0;
   s->exponent_capped_low = 0;
 
-  /* C:228-243 */
   double f_stream;
   if (ratio <= 0.0) {
     s->ratio_nonpositive = 1;
@@ -279,7 +228,6 @@ static inline int mimic_sage_cold_stream_cooling(
     s->ratio_nonpositive = 0;
     double exponent = log10(ratio) / MIMIC_SAGE_STREAM_THRESHOLD_WIDTH_DEX;
     // SAGE parity: the exponent is clamped above 300 and then below -300 before 10^exponent
-    // (R/src/model_cooling_heating.c:240-241)
     if (exponent > 300.0) {
       exponent = 300.0;
       s->exponent_capped_high = 1;
@@ -294,27 +242,26 @@ static inline int mimic_sage_cold_stream_cooling(
   s->f_stream_criterion = f_stream;
 
   // SAGE parity: streams are switched off for a halo above the shock mass once f M_* reaches it,
-  // a step at z_crit SAGE26 keeps (R/src/model_cooling_heating.c:245-265)
+  // a step at z_crit SAGE26 keeps
   s->cutoff = 0;
   if (fMstar >= M_shock && mass_ratio > 1.0) {
     f_stream = 0.0;
     s->cutoff = 1;
   }
 
-  /* C:270-271 */
   if (f_stream > 1.0)
     f_stream = 1.0;
   if (f_stream < 0.0)
     f_stream = 0.0;
   s->f_stream = f_stream;
 
-  /* C:274-285: HotGas / Rvir is a float division */
+  /* HotGas / Rvir is a float division */
   const double cold_stream_cooling = f_stream * hot_gas / tcool * dt;
   const double hot_halo_cooling =
       (1.0 - f_stream) * (hot_gas / rvir) * (rcool / (2.0 * tcool)) * dt;
 
   // SAGE parity: the mdot rates are stored as floats before the reservoir cap and the AGN
-  // suppression, so they are not the applied rates (R/src/model_cooling_heating.c:282-283)
+  // suppression, so they are not the applied rates
   s->mdot_cool = (float)(hot_halo_cooling / dt);
   s->mdot_stream = (float)(cold_stream_cooling / dt);
   s->cold_stream_cooling = cold_stream_cooling;
@@ -327,27 +274,26 @@ static inline int mimic_sage_cold_stream_cooling(
 /** @brief SAGE26's locals of cooling_recipe_hot up to the AGN step */
 struct MimicSageHotCoolingLocals {
   int path;              /**< SAGE_COOLING_PATH_* */
-  double tcool;          /**< float Rvir / Vvir widened (C:142); 0 on the outer guard */
-  double lambda;         /**< the cooling function (C:157); NaN when not formed */
-  double x;              /**< PROTONMASS * BOLTZMANN * temp / lambda in code units (C:163-164) */
-  double rcool;          /**< the uncapped cooling radius (C:173) */
+  double tcool;          /**< float Rvir / Vvir widened; 0 on the outer guard */
+  double lambda;         /**< the cooling function; NaN when not formed */
+  double x;              /**< PROTONMASS * BOLTZMANN * temp / lambda in code units */
+  double rcool;          /**< the uncapped cooling radius */
   int branch;            /**< MIMIC_SAGE_HOT_BRANCH_* */
   double cooling_precap; /**< the branch's cooling mass before the cap; 0 when not formed */
-  int cap;               /**< MIMIC_SAGE_CAP_* (C:288-292) */
+  int cap;               /**< MIMIC_SAGE_CAP_* */
   struct MimicSageColdStreamLocals stream; /**< valid only for MIMIC_SAGE_HOT_BRANCH_STREAMS */
 };
 
 /**
- * @brief SAGE26's cooling_recipe_hot up to the AGN step: the post-cap cooling mass (C:139-292)
+ * @brief SAGE26's cooling_recipe_hot up to the AGN step: the post-cap cooling mass
  *
  * Writes tcool, tff and RcoolToRvir as SAGE26 does, including its early returns, which leave
- * RcoolToRvir untouched. Mvir, Rvir and Vvir are SAGE26 floats (R/src/core_allvars.h:106-221); the
- * core's doubles are read as those floats. With CGMrecipeOn 0 the cooling mass is the rapid or
- * static branch (C:190-201); with 1 it is the cold streams (C:202-286), which read the galaxy's
- * stored SnapNum (halo->SnapNum) and can refuse it. The streams' float mdot stores (C:282-283) are
- * returned in l->stream, never written to the galaxy. On the -1 return l->path is
- * SAGE_COOLING_PATH_NOT_EVALUATED and the stream locals are zero except those formed before the
- * refusal (none: the refusal is the streams' first step).
+ * RcoolToRvir untouched. Mvir, Rvir and Vvir are read as SAGE26's floats. With CGMrecipeOn 0 the
+ * cooling mass is the rapid or static branch of an isothermal hot halo; with 1 it is the cold
+ * streams, which read the galaxy's stored SnapNum (halo->SnapNum) and can refuse it. The streams'
+ * float mdot rates are returned in l->stream, never written to the galaxy. On the -1 return
+ * l->path is SAGE_COOLING_PATH_NOT_EVALUATED and the stream locals are zero (the refusal is the
+ * streams' first step).
  *
  * @param halo           Halo whose galaxy cools (galaxy not NULL)
  * @param params         Run configuration
@@ -385,16 +331,13 @@ static inline int mimic_sage_hot_cooling_budget(struct Halo *halo, const struct 
     return 0;
   }
 
-  // SAGE parity: SAGE26 divides its float Rvir by its float Vvir in float and
-  // stores the result in a double (R/src/model_cooling_heating.c:142); every
-  // cooling branch then uses that tcool (:190-200, :277-280).
+  // SAGE parity: tcool is the float Rvir / Vvir stored in a double, used by every cooling branch
   const double tcool = rvir / vvir;
   const double tff = M_SQRT2 * tcool;
   l->tcool = tcool;
 
   // SAGE parity: tcool and tff are written with SAGE26's conversion, a mass-rate
   // factor applied to a time, so neither is a time in Gyr
-  // (R/src/model_cooling_heating.c:142-148).
   galaxy->tcool =
       (float)((tcool * 1.0e10 / params->Hubble_h * SAGE_SEC_PER_GIGAYEAR / params->UnitTime_in_s));
   galaxy->tff =
@@ -402,7 +345,7 @@ static inline int mimic_sage_hot_cooling_budget(struct Halo *halo, const struct 
 
   const double temp = SAGE_TVIR_K_PER_SQKMS * vvir * vvir; // T_vir in Kelvin
 
-  // The float MetalsHotGas / HotGas is a float division, as in SAGE26 (:152-155)
+  // The float MetalsHotGas / HotGas is a float division, as in SAGE26
   double logZ = -10.0;
   if (galaxy->MetalsHotGas > 0) {
     logZ = log10(galaxy->MetalsHotGas / galaxy->HotGas);
@@ -411,12 +354,9 @@ static inline int mimic_sage_hot_cooling_budget(struct Halo *halo, const struct 
   const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ);
   l->lambda = lambda;
 
-  // SAGE parity: the lambda <= 0 and rho_rcool <= 0 early returns come after
-  // tcool and tff are written and skip the rest of the routine, so RcoolToRvir,
-  // Cooling and CoolingRate keep their previous values
-  // (R/src/model_cooling_heating.c:157-169, :175, :302, :310). With CGMrecipeOn 1 the
-  // early returns still occur, but the regime-aware wrapper overwrites CoolingRate at its
-  // tail (:498-502).
+  // SAGE parity: the lambda <= 0 and rho_rcool <= 0 early returns skip the rest of the routine,
+  // so RcoolToRvir, Cooling and CoolingRate keep their previous values (with CGMrecipeOn 1 the
+  // regime-aware wrapper overwrites CoolingRate)
   if (lambda <= 0.0) {
     l->path = SAGE_COOLING_PATH_LAMBDA;
     return 0;
@@ -440,16 +380,13 @@ static inline int mimic_sage_hot_cooling_budget(struct Halo *halo, const struct 
   galaxy->RcoolToRvir = rcool / rvir;
 
   if (cgm_recipe_on == 0) {
-    // SAGE parity: with CGMrecipeOn 0 rcool is left uncapped, and the rapid branch cools the
-    // whole corona in one tcool while the static branch cools at half that rate at rcool == Rvir:
-    // the branches are discontinuous by a factor 2, as SAGE26 keeps them
-    // (R/src/model_cooling_heating.c:177-201). CGMrecipeOn 1 replaces the choice by the cold
-    // streams (:202-286).
+    // SAGE parity: rcool is uncapped, and the rapid and static branches are discontinuous by a
+    // factor 2 at rcool == Rvir, as SAGE26 keeps them
     if (rcool > rvir) {
       coolingGas = galaxy->HotGas / tcool * dt;
       l->branch = MIMIC_SAGE_HOT_BRANCH_RAPID;
     } else {
-      // HotGas / Rvir is a float division, as in SAGE26 (:200)
+      // HotGas / Rvir is a float division, as in SAGE26
       coolingGas = (galaxy->HotGas / rvir) * (rcool / (2.0 * tcool)) * dt;
       l->branch = MIMIC_SAGE_HOT_BRANCH_STATIC;
     }
@@ -482,35 +419,34 @@ static inline int mimic_sage_hot_cooling_budget(struct Halo *halo, const struct 
 }
 
 // ============================================================================
-// BULK CGM COOLING UP TO THE AGN STEP (C:319-370)
+// BULK CGM COOLING UP TO THE AGN STEP
 // ============================================================================
 
 /** @brief SAGE26's locals of cooling_recipe_cgm up to the AGN step */
 struct MimicSageCgmCoolingLocals {
-  int entered;           /**< CGMgas > 0 && Vvir > 0 (C:321) */
-  int lambda_positive;   /**< lambda > 0 (C:331); -1 when not entered */
-  double lambda;         /**< the cooling function (C:329); NaN when not formed */
-  double x;              /**< as the hot recipe's (C:332-333); NaN when not formed */
-  double rho0;           /**< CGMgas / (4 pi r0^3 I_M) (C:345); NaN when not formed */
-  double rho_eff;        /**< rho0 * (I_cool / I_M) (C:346); NaN when not formed */
-  double tcool;          /**< (x / rho_eff) * (1.5 * 0.59) (C:349); NaN when not formed */
-  double g_accel;        /**< G * Mvir / float(Rvir * Rvir) (C:352); NaN when not formed */
-  double tff;            /**< sqrt(2 Rvir / g_accel) (C:352-353); NaN when not formed */
-  double rcool;          /**< Rvir (C:360); NaN when not formed */
-  double cooling_precap; /**< (CGMgas / (tcool + tff)) * dt (C:364); NaN when not formed */
-  int cap;               /**< MIMIC_SAGE_CAP_* (C:366-370) */
+  int entered;           /**< CGMgas > 0 && Vvir > 0 */
+  int lambda_positive;   /**< lambda > 0; -1 when not entered */
+  double lambda;         /**< the cooling function; NaN when not formed */
+  double x;              /**< as the hot recipe's; NaN when not formed */
+  double rho0;           /**< CGMgas / (4 pi r0^3 I_M); NaN when not formed */
+  double rho_eff;        /**< rho0 * (I_cool / I_M); NaN when not formed */
+  double tcool;          /**< (x / rho_eff) * (1.5 * 0.59); NaN when not formed */
+  double g_accel;        /**< G * Mvir / float(Rvir * Rvir); NaN when not formed */
+  double tff;            /**< sqrt(2 Rvir / g_accel); NaN when not formed */
+  double rcool;          /**< Rvir; NaN when not formed */
+  double cooling_precap; /**< (CGMgas / (tcool + tff)) * dt; NaN when not formed */
+  int cap;               /**< MIMIC_SAGE_CAP_* */
 };
 
 /**
  * @brief SAGE26's cooling_recipe_cgm up to the AGN step: the post-cap CGM cooling mass
  *
- * Carr et al. (2023) bulk cooling of the CGM pair (C:319-370): the double locals, logZ = -10
- * unless MetalsCGMgas > 0, the cooling function, the lambda > 0 guard, alpha 1.4, r0 = 0.1 Rvir,
- * Rvir / r0 = 10, the volume integrals, rho0, rho_eff, tcool and tff, each written to its float
- * diagnostic with its own conversion (C:356-357), rcool = Rvir and the cap to CGMgas and floor at
- * zero. No positive Mvir or Rvir guard is added where SAGE26 has none, and RcoolToRvir is not
- * written (C:361 is commented out in SAGE26). A positive CGMgas with a failed Vvir or lambda
- * guard writes nothing.
+ * Carr et al. (2023) bulk cooling of the CGM pair: logZ = -10 unless MetalsCGMgas > 0, the cooling
+ * function, the lambda > 0 guard, a power-law profile with alpha 1.4 and r0 = 0.1 Rvir, the volume
+ * integrals, rho0, rho_eff, tcool and tff, each written to its float diagnostic with its own
+ * conversion, rcool = Rvir and the cap to CGMgas and floor at zero. No positive Mvir or Rvir guard
+ * is added where SAGE26 has none, and RcoolToRvir is not written. A positive CGMgas with a failed
+ * Vvir or lambda guard writes nothing.
  *
  * @param halo    Halo whose galaxy cools (galaxy not NULL)
  * @param params  Run configuration (G, UnitDensity_in_cgs, UnitTime_in_s)
@@ -545,7 +481,7 @@ static inline double mimic_sage_cgm_cooling_budget(struct Halo *halo,
     l->entered = 1;
     const double temp = SAGE_TVIR_K_PER_SQKMS * vvir * vvir; // T_vir in Kelvin
 
-    // The float MetalsCGMgas / CGMgas is a float division, as in SAGE26 (:324-327)
+    // The float MetalsCGMgas / CGMgas is a float division, as in SAGE26
     double logZ = -10.0;
     if (galaxy->MetalsCGMgas > 0) {
       logZ = log10(galaxy->MetalsCGMgas / galaxy->CGMgas);
@@ -559,34 +495,33 @@ static inline double mimic_sage_cgm_cooling_budget(struct Halo *halo,
       double x = PROTONMASS * BOLTZMANN * temp / lambda;
       x /= (params->UnitDensity_in_cgs * params->UnitTime_in_s);
 
-      // Carr et al. (2023) profile constants (C:336-342); SAGE26's object folds the integrals
+      // Carr et al. (2023) profile constants: alpha, r0 and Rvir / r0
       const double alpha = 1.4;
       const double r0 = 0.1 * rvir;
       const double ratio = 10.0;
       const double I_M = (pow(ratio, 3.0 - alpha) - 1.0) / (3.0 - alpha);
       const double I_cool = (pow(ratio, 3.0 - 2.0 * alpha) - 1.0) / (3.0 - 2.0 * alpha);
 
-      const double rho0 = galaxy->CGMgas / (4.0 * M_PI * r0 * r0 * r0 * I_M); /* C:345 */
-      const double rho_eff = rho0 * (I_cool / I_M);                           /* C:346 */
-      const double tcool = (x / rho_eff) * (1.5 * MIMIC_SAGE_MU_IONISED);     /* C:349 */
+      const double rho0 = galaxy->CGMgas / (4.0 * M_PI * r0 * r0 * r0 * I_M);
+      const double rho_eff = rho0 * (I_cool / I_M);
+      const double tcool = (x / rho_eff) * (1.5 * MIMIC_SAGE_MU_IONISED);
 
-      // C:352-353: Rvir * Rvir is a float product
+      // Rvir * Rvir is a float product
       const double g_accel = params->G * mvir / (rvir * rvir);
       const double tff = sqrt(2.0 * rvir / g_accel);
 
       // SAGE parity: the CGM diagnostics are tcool and tff in Gyr, a different conversion from
-      // the hot recipe's (R/src/model_cooling_heating.c:145-148, :356-357)
+      // the hot recipe's
       galaxy->tcool = (float)(tcool * params->UnitTime_in_s / SAGE_SEC_PER_GIGAYEAR);
       galaxy->tff = (float)(tff * params->UnitTime_in_s / SAGE_SEC_PER_GIGAYEAR);
 
       // SAGE parity: rcool is pinned to Rvir for the AGN call, and RcoolToRvir is not written
-      // (R/src/model_cooling_heating.c:359-361)
       const double rcool = rvir;
 
-      coolingGas = (galaxy->CGMgas / (tcool + tff)) * dt; /* C:364 */
+      coolingGas = (galaxy->CGMgas / (tcool + tff)) * dt;
       l->cooling_precap = coolingGas;
 
-      if (coolingGas > galaxy->CGMgas) { /* C:366-370 */
+      if (coolingGas > galaxy->CGMgas) {
         coolingGas = galaxy->CGMgas;
         l->cap = MIMIC_SAGE_CAP_RESERVOIR;
       } else if (coolingGas < 0.0) {
@@ -609,14 +544,14 @@ static inline double mimic_sage_cgm_cooling_budget(struct Halo *halo,
 }
 
 // ============================================================================
-// RADIO-MODE AGN ACCRETION (C:526-576)
+// RADIO-MODE AGN ACCRETION
 // ============================================================================
 
 /**
  * @brief Bondi-Hoyle accretion recipe (Bondi 1952), AGNrecipe 2
  *
- * SAGE26's Bondi branch of agn_accretion_compute (R/src/model_cooling_heating.c:538-540),
- * with x carried from the cooling budget rather than recomputed from the cooling function.
+ * SAGE26's Bondi branch of agn_accretion_compute, with x carried from the cooling budget rather
+ * than recomputed from the cooling function.
  */
 static inline double mimic_sage_agn_rate_bondi(const double black_hole_mass, const double x,
                                                const double efficiency,
@@ -629,16 +564,14 @@ static inline double mimic_sage_agn_rate_bondi(const double black_hole_mass, con
  *
  * The Bondi accretion rate, the Eddington cap, the reservoir cap, the heating
  * coefficient and the cap of heating to the suppressed cooling mass, in SAGE26's
- * order and with its Vvir > 0 and AGNcoeff > 0 guards
- * (R/src/model_cooling_heating.c:526-575). Reads no field it writes. The heating
- * coefficient uses SAGE26's float Vvir. Only SAGE26's Bondi branch (:538-540) is
- * ported: its readers refuse every AGNrecipe but 0 and 2 (shared/sage_agn_recipe.h),
- * and none calls this with 0.
+ * order and with its Vvir > 0 and AGNcoeff > 0 guards. Reads no field it writes. The heating
+ * coefficient uses SAGE26's float Vvir. Only the Bondi branch is implemented: its readers refuse
+ * every AGNrecipe but 0 and 2 (shared/sage_agn_recipe.h), and none calls this with 0.
  *
  * @param halo            Halo whose galaxy accretes (galaxy not NULL)
- * @param agn_recipe      AGNrecipe (only 2 reaches here and forms the Bondi rate; the package
- *                        forms no rate for any other value, where SAGE26 forms the empirical rate
- *                        for anything but 2 and 3, :545-551)
+ * @param agn_recipe      AGNrecipe (only 2 reaches here and forms the Bondi rate; no rate is
+ *                        formed for any other value, where SAGE26 forms the empirical rate for
+ *                        anything but 2 and 3)
  * @param efficiency      RadioModeEfficiency
  * @param dt              Substep interval
  * @param x               SAGE26's x of the calling recipe
@@ -663,7 +596,7 @@ static inline void mimic_sage_agn_accretion_compute(const struct Halo *halo, con
   }
 
   // Eddington-limited accretion: L_edd = 1.3e38 erg/s per Msun, radiative
-  // efficiency 0.1, c^2 = 9e10 (km/s)^2 (R/src/model_cooling_heating.c:65-67, :553-557)
+  // efficiency 0.1, c^2 = 9e10 (km/s)^2
   const double EDDrate = (1.3e38 * black_hole_mass * 1e10 / params->Hubble_h) /
                          (params->UnitEnergy_in_cgs / params->UnitTime_in_s) / (0.1 * 9.0e10);
   if (AGNrate > EDDrate)
@@ -673,7 +606,7 @@ static inline void mimic_sage_agn_accretion_compute(const struct Halo *halo, con
   if (AGNaccreted > reservoir_mass)
     AGNaccreted = reservoir_mass;
 
-  // Heating coefficient 1.34e5 km/s = sqrt(2 eta c^2) (:72, :562-572)
+  // Heating coefficient 1.34e5 km/s = sqrt(2 eta c^2)
   double AGNheating = 0.0;
   if (vvir > 0.0) {
     const double AGNcoeff = (1.34e5 / vvir) * (1.34e5 / vvir);
@@ -690,28 +623,27 @@ static inline void mimic_sage_agn_accretion_compute(const struct Halo *halo, con
 }
 
 // ============================================================================
-// RADIO-MODE AGN HEATING (C:587-680)
+// RADIO-MODE AGN HEATING
 // ============================================================================
 
 /** @brief The locals of one do_AGN_heating or do_AGN_heating_cgm call, for tests */
 struct MimicSageAgnLocals {
-  int suppressed; /**< 1 when the radius suppression formula ran, 0 when zeroed (C:590-595) */
+  int suppressed; /**< 1 when the radius suppression formula ran, 0 when zeroed */
   int saturated;  /**< 1 when the CGMrecipeOn 1 saturation zeroed it (Rheat >= 0.99 rcool) */
   double coolingGas_suppressed; /**< after the suppression */
-  int reservoir_positive;       /**< the selected reservoir was positive (C:599, C:648) */
+  int reservoir_positive;       /**< the selected reservoir was positive */
   double accreted;              /**< agn_accretion_compute's AGNaccreted; 0 when not formed */
   double heating;               /**< its AGNheating; 0 when not formed */
-  int ratchet_raised;           /**< 1 when the ratchet raised Rheat (C:612-616, C:658-662) */
-  int rheat_capped;             /**< 1 when Rheat was capped to Rvir (C:623-624, C:663-664) */
-  int recapped;                 /**< CGM call: 1 when the returned mass was re-capped (C:675-677) */
+  int ratchet_raised;           /**< 1 when the ratchet raised Rheat */
+  int rheat_capped;             /**< 1 when Rheat was capped to Rvir */
+  int recapped;                 /**< CGM call: 1 when the returned mass was re-capped */
 };
 
-/** @brief Whether SAGE26's heating-radius suppression applies (C:590-591, C:638-639) */
+/** @brief Whether SAGE26's heating-radius suppression applies */
 static inline int mimic_sage_agn_suppression_applies(const float rheat, const double rcool,
                                                      const int cgm_recipe_on, int *saturated) {
   // SAGE parity: the cooling mass is suppressed only by the heating radius from earlier events;
-  // Rheat >= rcool suppresses it completely, and with CGMrecipeOn 1 so does
-  // Rheat >= 0.99 * rcool (R/src/model_cooling_heating.c:590-595, :638-643)
+  // Rheat >= rcool suppresses it completely, and with CGMrecipeOn 1 so does Rheat >= 0.99 * rcool
   if (rheat < rcool && !(cgm_recipe_on == 1 && rheat >= MIMIC_SAGE_RHEAT_SATURATION * rcool)) {
     *saturated = 0;
     return 1;
@@ -723,8 +655,8 @@ static inline int mimic_sage_agn_suppression_applies(const float rheat, const do
 /**
  * @brief SAGE26's do_AGN_heating: suppress the cooling mass, grow the BH from the hot pair
  *
- * Reproduces R/src/model_cooling_heating.c:587-627. Vvir and Rvir are SAGE26 floats
- * (R/src/core_allvars.h:106-221); the core's doubles are read as those floats.
+ * The heating-radius suppression, the accretion from the hot pair, the radius ratchet and the
+ * Heating energy. Vvir and Rvir are read as SAGE26's floats.
  *
  * @param halo           Halo whose galaxy is heated (galaxy not NULL)
  * @param params         Run configuration
@@ -773,13 +705,13 @@ mimic_sage_do_agn_heating_hot(struct Halo *halo, const struct MimicConfig *param
     l->accreted = AGNaccreted;
     l->heating = AGNheating;
 
-    // Metallicity of the hot gas before the accretion is drawn from it (:605-608)
+    // Metallicity of the hot gas before the accretion is drawn from it
     const double metallicity = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
     galaxy->BlackHoleMass += AGNaccreted;
     galaxy->HotGas -= AGNaccreted;
     galaxy->MetalsHotGas -= metallicity * AGNaccreted;
 
-    // The heating radius ratchet: it only grows (:612-616)
+    // The heating radius ratchet: it only grows
     if (galaxy->Rheat < rcool && coolingGas > 0.0) {
       const double rheat_new = (AGNheating / coolingGas) * rcool;
       if (rheat_new > galaxy->Rheat) {
@@ -789,31 +721,29 @@ mimic_sage_do_agn_heating_hot(struct Halo *halo, const struct MimicConfig *param
     }
 
     // Heating energy, accumulated undivided; sage26_finalize_cooling_heating
-    // normalises it once per snapshot (:618-620, R/src/core_build_model.c:590-603)
+    // normalises it once per snapshot
     if (AGNheating > 0.0)
       galaxy->Heating += 0.5 * AGNheating * vvir * vvir;
   }
 
   // SAGE parity: with CGMrecipeOn 1 the hot call caps Rheat to Rvir outside its positive-reservoir
-  // block, so a galaxy without hot gas is capped too (R/src/model_cooling_heating.c:623-624)
+  // block, so a galaxy without hot gas is capped too
   if (cgm_recipe_on > 0 && galaxy->Rheat > rvir) {
     galaxy->Rheat = rvir;
     l->rheat_capped = 1;
   }
 
   // SAGE parity: the AGN heating is not subtracted from the cooling mass a second
-  // time; only the earlier heating radius suppresses it, and the returned mass is
-  // the radius-suppressed one (R/src/model_cooling_heating.c:590-626).
+  // time; the returned mass is the radius-suppressed one
   return coolingGas;
 }
 
 /**
  * @brief SAGE26's static do_AGN_heating_cgm: suppress, grow the BH from the CGM pair, re-cap
  *
- * Reproduces R/src/model_cooling_heating.c:635-680: the suppression as the hot call's, the
- * accretion from CGMgas and its metals, the ratchet, the cap of Rheat to Rvir inside the
- * positive-reservoir block (C:663-664), the Heating energy and the re-cap of the returned mass to
- * the post-accretion CGMgas (C:675-677).
+ * The suppression as the hot call's, the accretion from CGMgas and its metals, the ratchet, the
+ * cap of Rheat to Rvir inside the positive-reservoir block, the Heating energy and the re-cap of
+ * the returned mass to the post-accretion CGMgas.
  *
  * @param halo           Halo whose galaxy is heated (galaxy not NULL)
  * @param params         Run configuration
@@ -862,13 +792,13 @@ mimic_sage_do_agn_heating_cgm(struct Halo *halo, const struct MimicConfig *param
     l->accreted = AGNaccreted;
     l->heating = AGNheating;
 
-    /* C:653-656: the CGM pair's metallicity before the accretion is drawn from it */
+    /* The CGM pair's metallicity before the accretion is drawn from it */
     const double metallicity = mimic_get_metallicity(galaxy->CGMgas, galaxy->MetalsCGMgas);
     galaxy->BlackHoleMass += AGNaccreted;
     galaxy->CGMgas -= AGNaccreted;
     galaxy->MetalsCGMgas -= metallicity * AGNaccreted;
 
-    /* C:658-662 */
+    /* The heating radius ratchet: it only grows */
     if (galaxy->Rheat < rcool && coolingGas > 0.0) {
       const double rheat_new = (AGNheating / coolingGas) * rcool;
       if (rheat_new > galaxy->Rheat) {
@@ -877,18 +807,18 @@ mimic_sage_do_agn_heating_cgm(struct Halo *halo, const struct MimicConfig *param
       }
     }
     // SAGE parity: the CGM call caps Rheat to Rvir inside its positive-reservoir block, with no
-    // CGMrecipeOn test (R/src/model_cooling_heating.c:663-664)
+    // CGMrecipeOn test
     if (galaxy->Rheat > rvir) {
       galaxy->Rheat = rvir;
       l->rheat_capped = 1;
     }
 
-    /* C:666-667 */
+    /* Heating energy, accumulated undivided */
     if (AGNheating > 0.0)
       galaxy->Heating += 0.5 * AGNheating * vvir * vvir;
 
     // SAGE parity: the returned mass is re-capped to the CGM left after the accretion, and the
-    // heating is not subtracted from it (R/src/model_cooling_heating.c:669-677)
+    // heating is not subtracted from it
     if (coolingGas > galaxy->CGMgas) {
       coolingGas = galaxy->CGMgas;
       l->recapped = 1;
@@ -902,10 +832,9 @@ mimic_sage_do_agn_heating_cgm(struct Halo *halo, const struct MimicConfig *param
 // ============================================================================
 
 /**
- * @brief Cooling energy, accumulated undivided (C:301-303, C:376-378)
+ * @brief Cooling energy, accumulated undivided
  *
- * sage26_finalize_cooling_heating normalises it once per snapshot
- * (R/src/core_build_model.c:590-603). Vvir is SAGE26's float.
+ * sage26_finalize_cooling_heating normalises it once per snapshot. Vvir is SAGE26's float.
  */
 static inline void mimic_sage_cooling_energy(struct GalaxyData *galaxy, const float vvir,
                                              const double coolingGas) {
@@ -915,11 +844,10 @@ static inline void mimic_sage_cooling_energy(struct GalaxyData *galaxy, const fl
 }
 
 /**
- * @brief CoolingRate from a cooled mass (C:310-313, C:382-385, C:499-502)
+ * @brief CoolingRate from a cooled mass
  *
  * SAGE parity: (mass / dt) * 1.0e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s narrowed to
- * float, the true Msun/Gyr rate over little h; 0 for a non-positive dt
- * (R/src/model_cooling_heating.c:310-313).
+ * float, the true Msun/Gyr rate over little h; 0 for a non-positive dt.
  */
 static inline float mimic_sage_cooling_rate(const double coolingGas, const double dt,
                                             const struct MimicConfig *params) {
@@ -931,9 +859,8 @@ static inline float mimic_sage_cooling_rate(const double coolingGas, const doubl
 /**
  * @brief SAGE26's cool_gas_onto_galaxy: move the cooled mass from hot to cold gas
  *
- * Reproduces R/src/model_cooling_heating.c:689-705: below the hot reservoir the
- * mass moves with the hot gas's metallicity; at or above it the whole hot
- * reservoir, metals included, moves. The classic (CGMrecipeOn 0) transfer.
+ * Below the hot reservoir the mass moves with the hot gas's metallicity; at or above it the whole
+ * hot reservoir, metals included, moves. The CGMrecipeOn 0 transfer.
  */
 static inline void mimic_sage_cool_gas_onto_galaxy(struct GalaxyData *galaxy,
                                                    const double coolingGas) {
@@ -964,14 +891,13 @@ struct MimicSageAgnConfig {
 };
 
 /**
- * @brief SAGE26's cooling_recipe_hot (C:135-315), with its AGN call and its tail, except the mdot
- * stores
+ * @brief SAGE26's cooling_recipe_hot, with its AGN call and its tail, except the mdot stores
  *
- * The budget, do_AGN_heating when AGNrecipe > 0 and the post-cap mass is positive (C:297-299), the
- * Cooling energy, and CoolingRate on the paths that reach the tail (the normal tail and the outer
- * guard; the two early returns leave it, C:159-169). The one exception to SAGE26's routine: its
- * galaxy writes of mdot_cool and mdot_stream (C:282-283) are not made; their float values are
- * returned in l->stream for the caller.
+ * The budget, do_AGN_heating when AGNrecipe > 0 and the post-cap mass is positive, the Cooling
+ * energy, and CoolingRate on the paths that reach the tail (the normal tail and the outer guard;
+ * the two early returns leave it). The one exception to SAGE26's routine: its galaxy writes of
+ * mdot_cool and mdot_stream are not made; their float values are returned in l->stream for the
+ * caller.
  *
  * On the -1 return *cooling_out is 0 and the galaxy holds the budget's partial writes made before
  * the refusal (tcool, tff and RcoolToRvir; mimic_sage_hot_cooling_budget); the caller fails the
@@ -998,26 +924,26 @@ static inline int mimic_sage_cooling_recipe_hot(struct Halo *halo, const struct 
   }
   *cooling_out = coolingGas;
   if (l->path != SAGE_COOLING_PATH_TAIL && l->path != SAGE_COOLING_PATH_OUTER_GUARD) {
-    return 0; /* C:159-169: the early returns skip the tail */
+    return 0; /* the early returns skip the tail */
   }
   if (l->path == SAGE_COOLING_PATH_TAIL) {
-    if (agn->recipe > 0 && coolingGas > 0.0) { /* C:297-299 */
+    if (agn->recipe > 0 && coolingGas > 0.0) {
       coolingGas =
           mimic_sage_do_agn_heating_hot(halo, params, agn->recipe, agn->efficiency, cgm_recipe_on,
                                         dt, coolingGas, l->x, l->rcool, agn_locals);
     }
-    mimic_sage_cooling_energy(halo->galaxy, (float)halo->Vvir, coolingGas); /* C:301-303 */
+    mimic_sage_cooling_energy(halo->galaxy, (float)halo->Vvir, coolingGas);
   }
-  halo->galaxy->CoolingRate = mimic_sage_cooling_rate(coolingGas, dt, params); /* C:310-313 */
+  halo->galaxy->CoolingRate = mimic_sage_cooling_rate(coolingGas, dt, params);
   *cooling_out = coolingGas;
   return 0;
 }
 
 /**
- * @brief SAGE26's cooling_recipe_cgm (C:317-391), with its AGN call and its tail
+ * @brief SAGE26's cooling_recipe_cgm, with its AGN call and its tail
  *
- * The budget, do_AGN_heating_cgm when AGNrecipe > 0 and the post-cap mass is positive
- * (C:372-374), the Cooling energy (C:376-378) and CoolingRate, always written (C:382-385).
+ * The budget, do_AGN_heating_cgm when AGNrecipe > 0 and the post-cap mass is positive, the Cooling
+ * energy and CoolingRate, always written.
  *
  * @param agn_locals  Optional AGN locals (may be NULL); suppressed is -1 when AGN did not run
  * @return The mass SAGE26 returns
@@ -1032,14 +958,14 @@ static inline double mimic_sage_cooling_recipe_cgm(struct Halo *halo,
     agn_locals->suppressed = -1;
   double coolingGas = mimic_sage_cgm_cooling_budget(halo, params, dt, l);
   if (l->lambda_positive == 1) {
-    if (agn->recipe > 0 && coolingGas > 0.0) { /* C:372-374 */
+    if (agn->recipe > 0 && coolingGas > 0.0) {
       coolingGas =
           mimic_sage_do_agn_heating_cgm(halo, params, agn->recipe, agn->efficiency, cgm_recipe_on,
                                         dt, coolingGas, l->x, l->rcool, agn_locals);
     }
-    mimic_sage_cooling_energy(halo->galaxy, (float)halo->Vvir, coolingGas); /* C:376-378 */
+    mimic_sage_cooling_energy(halo->galaxy, (float)halo->Vvir, coolingGas);
   }
-  halo->galaxy->CoolingRate = mimic_sage_cooling_rate(coolingGas, dt, params); /* C:382-385 */
+  halo->galaxy->CoolingRate = mimic_sage_cooling_rate(coolingGas, dt, params);
   return coolingGas;
 }
 

@@ -64,7 +64,7 @@ extern int sage26_apply_cooling_cleanup(void);
 
 /* Test fixtures for physics tests */
 
-/* SAGE26's R0 Hubble_h and UnitTime_in_s (R/input/millennium.par:40, R/src/core_init.c:94) */
+/* Hubble_h and UnitTime_in_s as SAGE26's default configuration sets them */
 #define TEST_HUBBLE_H 0.73
 #define TEST_UNIT_TIME_IN_S 3.08568e19
 
@@ -419,9 +419,8 @@ int test_physics_metallicity_preservation(void) {
  * @test    test_physics_cooling_energy_tracking
  * @brief   Test that cooling energy is tracked correctly
  *
- * Expected: Cooling accumulates E = 0.5 * m * Vvir^2 undivided, as SAGE26 does
- *           (R/src/model_cooling_heating.c:301-302); sage26_finalize_cooling_heating
- *           divides by the snapshot interval once per halo
+ * Expected: Cooling accumulates E = 0.5 * m * Vvir^2 undivided, as SAGE26 does;
+ *           sage26_finalize_cooling_heating divides by the snapshot interval once per halo
  * Validates: Cooling energy calculation
  */
 int test_physics_cooling_energy_tracking(void) {
@@ -470,7 +469,7 @@ int test_physics_cooling_energy_tracking(void) {
 /**
  * @test    test_cooling_rate_diagnostic
  * @brief   CoolingRate is SAGE26's float (m / dt) * 1e10 / Hubble_h * SEC_PER_GIGAYEAR /
- *          UnitTime_in_s (R/src/model_cooling_heating.c:310-313)
+ *          UnitTime_in_s
  */
 int test_cooling_rate_diagnostic(void) {
   init_memory_system(0);
@@ -500,7 +499,7 @@ int test_cooling_rate_diagnostic(void) {
 /**
  * @test    test_early_return_skips_tail
  * @brief   SAGE26's lambda <= 0 and rho_rcool <= 0 early returns skip the tail: Cooling
- *          and CoolingRate keep their previous values (R/src/model_cooling_heating.c:157-169)
+ *          and CoolingRate keep their previous values
  */
 int test_early_return_skips_tail(void) {
   init_memory_system(0);
@@ -535,7 +534,7 @@ int test_early_return_skips_tail(void) {
 /**
  * @test    test_outer_guard_writes_zero_rate
  * @brief   An outer-guard failure (HotGas or Vvir not positive) reaches SAGE26's tail with
- *          zero mass: CoolingRate becomes 0 and Cooling is unchanged (:141, :301-313)
+ *          zero mass: CoolingRate becomes 0 and Cooling is unchanged
  */
 int test_outer_guard_writes_zero_rate(void) {
   init_memory_system(0);

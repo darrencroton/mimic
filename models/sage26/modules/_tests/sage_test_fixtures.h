@@ -48,9 +48,8 @@ static inline void ensure_modules_registered(void) {
 }
 
 /* Test fixture: set the package's common required model parameters to standard
- * test values (the SAGE defaults the package inherited from sage16). Model-owned:
- * every model package provides its own parameter fixture; the core test stubs
- * carry no model knowledge. */
+ * test values (SAGE's defaults). Model-owned: every model package provides its own
+ * parameter fixture; the core test stubs carry no model knowledge. */
 static inline void set_test_model_parameters(void) {
   static const struct {
     const char *name;
@@ -79,7 +78,7 @@ static inline void set_test_model_parameters(void) {
       {"ThresholdSatDisruption", "1.0"},
       /* Disk instability */
       {"StarFormingDiskFactor", "3.0"},
-      /* Bulge sizes: SAGE26's R0 mode (no sizes) */
+      /* Bulge sizes: off */
       {"BulgeSizeOn", "0"},
   };
   const int n = (int)(sizeof(params) / sizeof(params[0]));
@@ -91,15 +90,15 @@ static inline void set_test_model_parameters(void) {
 }
 
 /*
- * Test fixture: the required parameters SAGE26's SF prescription selects, at R1's values, for a
- * test that initialises a module reading them with its own parameters rather than the run
- * files'. Each test adds exactly the keys its modules read (a union of the flags below):
+ * Test fixture: the required parameters SAGE26's SF prescription selects, for a test that
+ * initialises a module reading them with its own parameters rather than the run files'. Each
+ * test adds exactly the keys its modules read (a union of the flags below):
  * sage26_calculate_star_formation reads SFprescription and the three H2 integration
  * parameters, sage26_apply_star_formation_supernova and sage26_quasar_mode SFprescription,
- * and sage26_starburst_feedback SFprescription, StarburstColdGasOn and FIREmodeOn (0, R2's
- * fixed-epsilon feedback: a required parameter). A key already present is not added twice.
+ * and sage26_starburst_feedback SFprescription, StarburstColdGasOn and FIREmodeOn (0, fixed-epsilon
+ * feedback: a required parameter). A key already present is not added twice.
  */
-#define SAGE26_TEST_KEY_SF_PRESCRIPTION 1 /* SFprescription: 0 (R1, the Croton law) */
+#define SAGE26_TEST_KEY_SF_PRESCRIPTION 1 /* SFprescription: 0 (the Croton law) */
 #define SAGE26_TEST_KEYS_H2_RADIAL                                                                 \
   2                                          /* H2RadialIntegrationOn 1, H2RadialNBins 25,         \
                                                 H2RadialRMaxFactor 5.0 (SAGE26's defaults) */
@@ -141,7 +140,7 @@ static inline void add_test_sf_prescription_parameters(const int keys) {
 }
 
 /*
- * Test fixture: the required CGMrecipeOn at R3's value 0, for a test that initialises
+ * Test fixture: the required CGMrecipeOn at value 0, for a test that initialises
  * sage26_prepare_infall_budget, sage26_apply_infall, sage26_satellite_stripping,
  * sage26_reincorporation, sage26_apply_star_formation_supernova, sage26_apply_metal_enrichment,
  * sage26_starburst_feedback, sage26_quasar_mode, sage26_resolve_mergers_and_disruption or

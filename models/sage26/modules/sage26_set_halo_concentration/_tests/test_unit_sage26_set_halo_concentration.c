@@ -1,18 +1,16 @@
 /**
  * @file    test_unit_sage26_set_halo_concentration.c
- * @brief   Platform-independent behavioural tests of sage26_set_halo_concentration
+ * @brief   Behavioural tests of sage26_set_halo_concentration
  *
- * The oracle test (test_unit_sage26_set_halo_concentration_oracle.c) skips off macOS arm64, so
- * these tests are the module's guard on every other platform. They build FoF workspaces by hand
- * and run the module's init() and process(). Every expected concentration is derived
- * independently of the module and of shared/sage_halo_concentration.h: SAGE26's inversion is
- * written here (sage26_inline_concentration, R/src/model_halo_properties.c:294-318; R/ is the
- * staged SAGE26 source root) and fed the float pair SAGE26's mode-3 dispatch selects
- * (:342-347), or the expectation is a literal.
+ * The tests build FoF workspaces by hand and run the module's init() and process(). Every
+ * expected concentration is derived independently of the module and of
+ * shared/sage_halo_concentration.h: SAGE26's inversion is written here
+ * (sage26_inline_concentration) and fed the float pair SAGE26's mode-3 dispatch selects, or the
+ * expectation is a literal.
  *
  * Software quality:
  * - test_module_lifecycle: registration, module_system_init in pre_timestep with ConcentrationOn
- *   0 (SAGE26's R0-R4 value, which needs no recorder), cleanup, no leaks
+ *   0 (which needs no recorder), cleanup, no leaks
  * - test_concentration_on_missing_refused: a missing ConcentrationOn fails init, naming it
  * - test_concentration_on_values: 1, 2 and 7 are refused naming ConcentrationOn; 0 and 3 accepted
  * - test_placement_refused: a substep-phase entry, a post_timestep entry, two pre_timestep
@@ -37,8 +35,7 @@
  * then the module runs on the joined rows, as the run files order them in pre_timestep. Each
  * progenitor's PreviousType is its Type, as sage26_record_transition_state wrote it at the end of
  * its snapshot. The expectations are SAGE26's inversion written here, fed the float pair SAGE26's
- * joining has at the call (R/src/core_build_model.c:261-271, :290-294), never the module's or the
- * shared helper's result:
+ * joining has at the call, never the module's or the shared helper's result:
  * - test_join_type1_to_0_infall_pair: a Type 1 whose subhalo becomes its FoF's first halo takes
  *   its infall pair; its current pair's result differs
  * - test_join_type0_to_0_updated_current_pair: a central whose halo grew takes the updated pair
@@ -183,8 +180,8 @@ static uint32_t bits32(const float v) {
 #endif
 
 /**
- * @brief SAGE26's concentration_from_vmax_vvir (R/src/model_halo_properties.c:294-318), written
- *        here, on the float pair the dispatch selected (each widened, :343-347)
+ * @brief SAGE26's concentration_from_vmax_vvir, written here, on the float pair the dispatch
+ *        selected (each widened)
  *
  * Never inlined, inputs through volatile locals: the expectation must use the runtime libm.
  */
@@ -194,24 +191,24 @@ static CONCENTRATION_TEST_NOINLINE double sage26_inline_concentration(const floa
   volatile double vvir_runtime = vvir_f;
   const double Vmax = vmax_runtime;
   const double Vvir = vvir_runtime;
-  if (Vvir <= 0.0 || Vmax <= 0.0) /* :294 */
+  if (Vvir <= 0.0 || Vmax <= 0.0)
     return 0.0;
-  const double ratio_sq = (Vmax / Vvir) * (Vmax / Vvir); /* :296 */
-  const double A = 0.21621;                              /* :301 */
-  double c_lo = 1.0, c_hi = 200.0;                       /* :303 */
-  if (ratio_sq < 1.0)                                    /* :306 */
+  const double ratio_sq = (Vmax / Vvir) * (Vmax / Vvir);
+  const double A = 0.21621;
+  double c_lo = 1.0, c_hi = 200.0;
+  if (ratio_sq < 1.0)
     return 0.0;
-  for (int iter = 0; iter < 60; iter++) {                       /* :308 */
-    const double c_mid = 0.5 * (c_lo + c_hi);                   /* :309 */
-    const double mu = log(1.0 + c_mid) - c_mid / (1.0 + c_mid); /* :310 */
-    const double f_mid = A * c_mid / mu;                        /* :311 */
-    if (f_mid < ratio_sq) {                                     /* :312-316 */
+  for (int iter = 0; iter < 60; iter++) {
+    const double c_mid = 0.5 * (c_lo + c_hi);
+    const double mu = log(1.0 + c_mid) - c_mid / (1.0 + c_mid);
+    const double f_mid = A * c_mid / mu;
+    if (f_mid < ratio_sq) {
       c_lo = c_mid;
     } else {
       c_hi = c_mid;
     }
   }
-  return 0.5 * (c_lo + c_hi); /* :318 */
+  return 0.5 * (c_lo + c_hi);
 }
 
 // ============================================================================
@@ -221,7 +218,7 @@ static CONCENTRATION_TEST_NOINLINE double sage26_inline_concentration(const floa
 /**
  * @test    test_module_lifecycle
  * @brief   The module registers, initialises through module_system_init in pre_timestep with
- *          ConcentrationOn 0 (SAGE26's R0-R4 value), cleans up, no leaks
+ *          ConcentrationOn 0, cleans up, no leaks
  */
 int test_module_lifecycle(void) {
   reset_config();
@@ -255,7 +252,7 @@ int test_concentration_on_missing_refused(void) {
 
 /**
  * @test    test_concentration_on_values
- * @brief   ConcentrationOn 1, 2 (not ported) and 7 are refused naming it; 0 and 3 initialise
+ * @brief   ConcentrationOn 1, 2 (not supported) and 7 are refused naming it; 0 and 3 initialise
  */
 int test_concentration_on_values(void) {
   const char *refused[] = {"1", "2", "7"};
@@ -372,8 +369,8 @@ int test_recorder_required_at_3(void) {
 /**
  * @test    test_current_and_infall_pairs
  * @brief   New Type 0 rows: PreviousType 0 takes the current pair, PreviousType 1 the infall pair
- *          (R/src/model_halo_properties.c:342-347 at the Type before joining, B:290-294). The
- *          other pair of each row would give a different result (ratio below 1, so 0)
+ *          (SAGE26 selects the pair at the Type before joining). The other pair of each row
+ *          would give a different result (ratio below 1, so 0)
  */
 int test_current_and_infall_pairs(void) {
   TEST_ASSERT(init_ok("3") == 0, "init must succeed");
@@ -404,9 +401,9 @@ int test_current_and_infall_pairs(void) {
 /**
  * @test    test_kept_rows
  * @brief   Rows the joining branch does not reach keep a seeded non-zero Concentration: a new
- *          Type 0 created this snapshot (PreviousType -1, R/src/core_build_model.c:347-351) or
- *          formerly a Type 2 (:240), and every new Type 1 or 2 (satellites keep their last
- *          central value). Every row holds valid pairs, so any write would be visible
+ *          Type 0 created this snapshot (PreviousType -1) or formerly a Type 2, and every new
+ *          Type 1 or 2 (satellites keep their last central value). Every row holds valid pairs,
+ *          so any write would be visible
  */
 int test_kept_rows(void) {
   TEST_ASSERT(init_ok("3") == 0, "init must succeed");
@@ -431,7 +428,7 @@ int test_kept_rows(void) {
 
 /**
  * @test    test_float_store
- * @brief   The stored float is (float) of SAGE26's double (B:292-294), a visible rounding;
+ * @brief   The stored float is (float) of SAGE26's double, a visible rounding;
  *          each core double is narrowed to SAGE26's float before the inversion (Vvir 200.00001
  *          and the infall pair's doubles round to floats that change the result)
  */
@@ -465,7 +462,7 @@ int test_float_store(void) {
  * @test    test_ratio_cases
  * @brief   A previous central whose ratio is below 1 is overwritten with 0 (a non-zero earlier
  *          value is not kept); one at ratio exactly 1 gets exactly 1.0; one beyond f(200) exactly
- *          200 (literal expectations: R/src/model_halo_properties.c:306, :308-318)
+ *          200 (literal expectations)
  */
 int test_ratio_cases(void) {
   TEST_ASSERT(init_ok("3") == 0, "init must succeed");
@@ -489,7 +486,7 @@ int test_ratio_cases(void) {
 /**
  * @test    test_off_writes_nothing
  * @brief   With ConcentrationOn 0 no row is written, whatever its Type, PreviousType and pairs
- *          (SAGE26 makes no call, R/src/core_build_model.c:291)
+ *          (SAGE26 makes no call)
  */
 int test_off_writes_nothing(void) {
   TEST_ASSERT(init_ok("0") == 0, "init must succeed");
@@ -594,10 +591,9 @@ static int join_then_process(struct GalaxyPool *pool, struct Halo *workspace,
 /**
  * @test    test_join_type1_to_0_infall_pair
  * @brief   A Type 1 whose subhalo becomes its FoF's first halo (Type 1 -> 0): SAGE26's call sits
- *          before Type = 0 (B:290-300), so the dispatch sees Type 1 and inverts the infall pair
- *          (R/src/model_halo_properties.c:345-347). The halo did not grow (B:267 not taken), so
- *          the current pair at the call is the halo's Vmax 76 and the kept Vvir 70, whose result
- *          differs
+ *          before Type = 0, so the dispatch sees Type 1 and inverts the infall pair. The halo did
+ *          not grow, so the current pair at the call is the halo's Vmax 76 and the kept Vvir 70,
+ *          whose result differs
  */
 int test_join_type1_to_0_infall_pair(void) {
   TEST_ASSERT(init_ok("3") == 0, "init must succeed");
@@ -628,9 +624,8 @@ int test_join_type1_to_0_infall_pair(void) {
 
 /**
  * @test    test_join_type0_to_0_updated_current_pair
- * @brief   A central whose halo grew (Type 0 -> 0, B:267 taken): SAGE26's call reads the updated
- *          pair, the halo's Vmax (B:262) and the new Vvir (B:269), not the pre-join pair, whose
- *          result differs (R/src/model_halo_properties.c:342-344)
+ * @brief   A central whose halo grew (Type 0 -> 0): SAGE26's call reads the updated pair, the
+ *          halo's Vmax and the new Vvir, not the pre-join pair, whose result differs
  */
 int test_join_type0_to_0_updated_current_pair(void) {
   TEST_ASSERT(init_ok("3") == 0, "init must succeed");
@@ -660,8 +655,8 @@ int test_join_type0_to_0_updated_current_pair(void) {
 
 /**
  * @test    test_join_type0_to_1_keeps
- * @brief   A central whose halo becomes a subhalo (Type 0 -> 1, B:301-321) makes no call and keeps
- *          its value; it holds valid current and infall pairs, so any write would be visible
+ * @brief   A central whose halo becomes a subhalo (Type 0 -> 1) makes no call and keeps its
+ *          value; it holds valid current and infall pairs, so any write would be visible
  */
 int test_join_type0_to_1_keeps(void) {
   TEST_ASSERT(init_ok("3") == 0, "init must succeed");

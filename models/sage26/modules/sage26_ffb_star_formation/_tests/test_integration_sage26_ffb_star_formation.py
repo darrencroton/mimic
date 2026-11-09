@@ -43,19 +43,16 @@ On writes its domain (the observable list), with EnhancedStarFormationOn 1:
   - On the FFBRegime 1 rows at snapshot S = 16, each finite and non-negative: ColdGas,
     MetalsColdGas, StellarMass, MetalsStellarMass, H1gas, StarFormationRate and
     SupernovaOutflowRate (the last written by the shared feedback commit the transaction calls).
-    Domains: models/sage26/model_properties.yaml:58-67, :180-189, :95-104, :158-167, :619-627,
-    :140-152 and :351-363 (each a mass or rate, range [0.0, ...], creation value 0).
+    Domains: each is a mass or rate, with range [0.0, ...] and creation value 0.
   - Witnesses: at least one FFBRegime 1 row with StarFormationRate > 0, and at least one with
     SupernovaOutflowRate > 0 (the feedback commit's outflow accumulation ran).
-  - H2gas: exactly 0 on every FFBRegime 1 row at S. The transaction writes 0.0f, its creation value
-    (model_properties.yaml:609-617), and sage26_calculate_star_formation returns at once on an
-    FFBRegime 1 row.
+  - H2gas: exactly 0 on every FFBRegime 1 row at S. The transaction writes 0.0f, its creation value,
+    and sage26_calculate_star_formation returns at once on an FFBRegime 1 row.
   - MassLoading: finite and non-negative on the FFBRegime 1 rows at S, with no witness. It is
-    written only with a valid FIRE scaling and otherwise left stale (model_properties.yaml:
-    1246-1253).
+    written only with a valid FIRE scaling and otherwise left stale.
   - The FoF central's reservoirs that feedback credits, HotGas, MetalsHotGas, CGMgas, MetalsCGMgas,
     EjectedGas and MetalsEjectedGas: finite and non-negative on every row at S, since other modules
-    write them too (model_properties.yaml:69-78, :191-200, :506-514, :516-524, :80-89, :213-222).
+    write them too.
   - Excluded: SfrDisk and SfrDiskZ, which sage26_finalize_sfr_histories writes from the non-output
     history bins; that module is not in the pipeline. The transaction's carried values (the stars
     formed, the pre-star-formation metallicity, the renormalised stars, the reheated and ejected
