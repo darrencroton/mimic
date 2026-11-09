@@ -2,7 +2,7 @@ module:
   name: sage26_radio_mode_heating
   description: >-
     SAGE26's do_AGN_heating on the hot-cooling path: suppresses the cooling mass by the heating
-    radius and grows the black hole by Bondi-Hoyle accretion (empirical and cold-cloud rates kept)
+    radius and grows the black hole by Bondi-Hoyle accretion (AGNrecipe 2; 0 off, 1 and 3 refused)
 
   supported_processing_modes: [process_by_galaxy]
 
@@ -11,7 +11,6 @@ module:
       - HaloNr
       - SnapNum
       - dT
-      - Mvir
       - Vvir
       - Rvir
       - CoolingGas

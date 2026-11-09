@@ -60,7 +60,7 @@ static inline void set_test_model_parameters(void) {
       {"GlobalBaryonFraction", "0.17"},
       /* Cooling & AGN feedback */
       {"RadioModeEfficiency", "0.01"},
-      {"AGNrecipe", "1"},
+      {"AGNrecipe", "2"}, /* Bondi: the package accepts only 0 and 2 */
       /* Star formation */
       {"SfrEfficiency", "0.02"},
       /* Stellar feedback */

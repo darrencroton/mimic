@@ -399,7 +399,10 @@ static int setup_modules(struct oracle_fixture *in) {
       oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
       /* CGMrecipeOn: required by the commits', yields', wind's and
        * disruption's modules, the fixture's */
-      oracle_set_model_param("CGMrecipeOn", (double)fixture_cgm_recipe_on) != 0) {
+      oracle_set_model_param("CGMrecipeOn", (double)fixture_cgm_recipe_on) != 0 ||
+      /* AGNrecipe: required by the wind's module (and the recheck's with the quasar consumer),
+       * the fixture's AGNrecipeOn, 2 in every fixture that reaches here */
+      oracle_set_model_param("AGNrecipe", (double)oracle_in_i32(in, "params.AGNrecipeOn")) != 0) {
     problems++;
   }
   /* The burst consumer's required FIREmodeOn: the fixture's */

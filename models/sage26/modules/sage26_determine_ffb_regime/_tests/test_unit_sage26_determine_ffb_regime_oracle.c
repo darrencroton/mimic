@@ -24,13 +24,14 @@
  * the widened Mvir) bit for bit, the guard flag and the comparison's outcome and tie flags, and
  * checks each local's markers (present or absent as in the port, checked, of the recorded
  * check kind, `_validated` the conjunction of its two directions). It asserts the oracle's
- * pow_equals_exp10 is 1 at every threshold evaluation: the package writes pow(10.0, ...), which
- * this -O0 build calls, while SAGE26's object calls __exp10. In a classifier fixture it asserts
- * SAGE26's discarded-draw count equals the number of rows the package classified (one per row not
- * skipped) and that the oracle found the result independent of the rand() queue; the queue itself
- * is consumed unused (the product calls no rand()). Where the fixture carries the R6 reference's
- * written FFBRegime it asserts the package's equals it. unfused_threshold_differs is consumed
- * unasserted: an observation of the oracle, not SAGE26 or package state. It prints its tallies.
+ * pow_equals_exp10 is 1 at every threshold evaluation: the package calls __exp10, as SAGE26's
+ * object does (shared/sage_exp10.h), and pow agrees with it there. In a classifier fixture it
+ * asserts SAGE26's discarded-draw count equals the number of rows the package classified (one per
+ * row not skipped) and that the oracle found the result independent of the rand() queue; the queue
+ * itself is consumed unused (the product calls no rand()). Where the fixture carries the R6
+ * reference's written FFBRegime it asserts the package's equals it. unfused_threshold_differs is
+ * consumed unasserted: an observation of the oracle, not SAGE26 or package state. It prints its
+ * tallies.
  *
  * Outside the oracle environment (macOS arm64, Apple clang 21) the bit-exact test reports SKIP.
  *
@@ -160,7 +161,7 @@ static int check_threshold_locals(struct oracle_fixture *out, const char *prefix
   int problems = 0;
   problems += check_local(out, prefix, "z_norm", CHECK_TAIL, 0, l->z_norm);
   problems += check_local(out, prefix, "log_Mvir_ffb_code", CHECK_TAIL, 0, l->log_Mvir_ffb_code);
-  /* The package writes pow(10.0, ...); SAGE26's object calls __exp10: they must agree here */
+  /* The package and SAGE26's object call __exp10; the oracle found pow equal to it here */
   snprintf(field, sizeof(field), "%s.pow_equals_exp10", prefix);
   problems += oracle_check_i32(out, field, 1);
   tally.pow_checks++;

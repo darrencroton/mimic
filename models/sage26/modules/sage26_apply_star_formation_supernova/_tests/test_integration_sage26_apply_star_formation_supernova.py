@@ -25,6 +25,8 @@ Test cases:
   - test_parameter_sensitivity: Parameters affect results correctly
   - test_edge_cases: Zero gas, satellites behavior
   - test_memory_and_performance: Memory leaks and performance
+  - test_cold_gas_cap_without_supernova_calculator: no negative reservoir or outflow rate without
+    the SN calculator
 
 Author: Mimic Development Team
 Date: 2025-12-18 (Refactored for comprehensive physics validation)
@@ -35,6 +37,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
@@ -610,6 +613,184 @@ def test_memory_and_performance():
     print(f"{GREEN}✓ Memory and performance validated{NC}")
 
 
+# The run files' pipeline (models/sage26/input/sage26_mini-millennium.yaml) without
+# sage26_calculate_supernova_feedback. No other module needs dropping: nothing else requires the
+# calculator, and the apply step initialises without it (it warns only when neither prescription
+# module is configured).
+NO_CALCULATOR_PHASES = {
+    "pre_timestep": [
+        ("sage26_initialise_merger_clock", "process_full_halo"),
+        ("sage26_set_halo_concentration", "process_full_halo"),
+        ("sage26_set_disk_scale_radius", "process_full_halo"),
+        ("sage26_reionization", "process_full_halo"),
+        ("sage26_determine_regime", "process_full_halo"),
+        ("sage26_prepare_infall_budget", "process_full_halo"),
+        ("sage26_determine_ffb_regime", "process_full_halo"),
+    ],
+    "galaxy_physics": [
+        ("sage26_apply_infall", "process_full_halo"),
+        ("sage26_reincorporation", "process_full_halo"),
+        ("sage26_satellite_stripping", "process_by_galaxy"),
+        ("sage26_calculate_cooling_budget", "process_by_galaxy"),
+        ("sage26_radio_mode_heating", "process_by_galaxy"),
+        ("sage26_apply_cooling", "process_by_galaxy"),
+        ("sage26_regime_aware_cooling", "process_by_galaxy"),
+        ("sage26_ffb_star_formation", "process_by_galaxy"),
+        ("sage26_calculate_star_formation", "process_by_galaxy"),
+        ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
+        ("sage26_disk_instability", "process_by_galaxy"),
+        ("sage26_quasar_mode", "process_by_galaxy"),
+        ("sage26_starburst_feedback", "process_by_galaxy"),
+        ("sage26_apply_metal_enrichment", "process_by_galaxy"),
+    ],
+    "satellite_mergers": [
+        ("sage26_resolve_mergers_and_disruption", "process_full_halo"),
+        ("sage26_quasar_mode", "process_per_event"),
+        ("sage26_starburst_feedback", "process_per_event"),
+    ],
+    "post_timestep": [
+        ("sage26_finalize_cooling_heating", "process_full_halo"),
+        ("sage26_finalize_sfr_histories", "process_full_halo"),
+        ("sage26_record_transition_state", "process_full_halo"),
+    ],
+}
+
+# The run files' parameters (R6)
+RUN_FILE_PARAMS = {
+    "GlobalBaryonFraction": 0.17,
+    "CGMrecipeOn": 1,
+    "MShockMsun": 6.0e11,
+    "EnhancedStarFormationOn": 1,
+    "EnhancedSFEfficiency": 0.2,
+    "ConcentrationOn": 3,
+    "SfrEfficiency": 0.05,
+    "StarFormingDiskFactor": 3.0,
+    "SFprescription": 1,
+    "H2RadialIntegrationOn": 1,
+    "H2RadialNBins": 25,
+    "H2RadialRMaxFactor": 5.0,
+    "StarburstColdGasOn": 1,
+    "FeedbackReheatingEpsilon": 2.9,
+    "FeedbackEjectionEfficiency": 0.3,
+    "FIREmodeOn": 1,
+    "ReIncorporationFactor": 0.19,
+    "AGNrecipe": 2,
+    "RadioModeEfficiency": 0.08,
+    "BlackHoleGrowthRate": 0.015,
+    "QuasarModeEfficiency": 0.005,
+    "RecycleFraction": 0.43,
+    "Yield": 0.025,
+    "FracZleaveDisk": 0.0,
+    "ThresholdMajorMerger": 0.3,
+    "ThresholdSatDisruption": 1.0,
+    "MergerTimeFactor": 2.0,
+    "BulgeSizeOn": 3,
+}
+
+
+# The reservoirs and rate an uncapped star formation drives negative, through the feedback step
+NON_NEGATIVE_FIELDS = (
+    "ColdGas",
+    "HotGas",
+    "MetalsHotGas",
+    "CGMgas",
+    "MetalsCGMgas",
+    "EjectedGas",
+    "MetalsEjectedGas",
+    "SupernovaOutflowRate",
+)
+
+# The metal fields are allowed a rounding floor: MetalsEjectedGas carries float cancellation
+# residues of at most about 6e-18 on rows whose EjectedGas is 0 (the metals left when all the gas
+# moves), at SubSteps 1 with or without the calculator (-5.5e-20 with it, where nothing goes
+# negative otherwise), and the other metal fields can carry the same residue on another libm. The
+# defect drives the gas reservoirs to order -1 and MetalsHotGas to -5.5e-4 in the R0 run, so -1e-12
+# separates the two; the gas and rate fields are held strictly to 0
+METALS_ROUNDING_FLOOR = -1.0e-12
+
+
+def test_cold_gas_cap_without_supernova_calculator():
+    """Test that star formation is capped at the cold gas when the SN calculator is left out
+
+    Validates:
+    - No galaxy at any written snapshot has a negative ColdGas, HotGas, MetalsHotGas, CGMgas,
+      MetalsCGMgas, EjectedGas, MetalsEjectedGas or SupernovaOutflowRate, with SubSteps = 1 so
+      that one substep spans many dynamical times and star formation can exceed the cold gas
+
+    Mechanism: without sage26_calculate_supernova_feedback nothing caps star formation (its cap is
+    SAGE26's renormalisation, R/src/model_starformation_and_feedback.c:775-779), so the commit can
+    leave the cold gas negative. The ported feedback step then clamps the reheated mass to that
+    negative cold gas (R/src/model_starformation_and_feedback.c:1153-1156; SAGE26 itself stops
+    there on an assertion, :1158, which the port does not carry), which resets ColdGas to 0 and
+    ships the deficit to the FoF central as a negative reheat, and the ejection cap carries it into
+    EjectedGas once it exceeds the central's reservoir (:1184-1186, :1207-1209), so the defect
+    appears in the central's reservoirs and outflow rate rather than in ColdGas. The apply step
+    therefore caps NewStellarMass at ColdGas.
+
+    Pipeline: NO_CALCULATOR_PHASES, the run files' phases minus the calculator, at the run files'
+    parameters (R6), writing the run files' eight snapshots.
+
+    The three metal fields are held to METALS_ROUNDING_FLOOR rather than 0 (the floor's comment).
+
+    Observed minima over the eight written snapshots (output units; negative rows in brackets).
+    R6, this case, before the cap (fails): EjectedGas -1.89383 (2), SupernovaOutflowRate -288.793
+    (14), MetalsEjectedGas -5.95e-18 (57, rounding residue), every other field 0 (0). R6 after the
+    cap (passes): every field 0 (0) except MetalsEjectedGas -5.95e-18 (61, rounding residue). An R0
+    run of the same pipeline (SFprescription, CGMrecipeOn, FIREmodeOn, EnhancedStarFormationOn,
+    ConcentrationOn and BulgeSizeOn 0) before the cap: EjectedGas -1.922 (8), SupernovaOutflowRate
+    -303.6 (42), MetalsHotGas -5.52e-4 (1); after it all three are 0 (0).
+    """
+    print(f"\n{BLUE}TEST: Cold-gas cap without the supernova calculator{NC}")
+
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="update_sf_no_sn_cap",
+        phase_config=NO_CALCULATOR_PHASES,
+        model_params=RUN_FILE_PARAMS,
+        substeps=1,
+    )
+
+    # Write several snapshots (the generated run file writes only the last one)
+    with open(param_file, "r") as f:
+        config = yaml.safe_load(f)
+    config["output"]["snapshot_list"] = [63, 37, 32, 27, 23, 20, 18, 16]
+    with open(param_file, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
+
+    output_files = sorted(output_dir.glob("model_z*_0"))
+    assert len(output_files) == 8, f"Expected eight snapshot outputs, found {len(output_files)}"
+
+    minima = {field: np.inf for field in NON_NEGATIVE_FIELDS}
+    negative_rows = {field: 0 for field in NON_NEGATIVE_FIELDS}
+    for output_file in output_files:
+        halos, _ = load_binary_halos(output_file)
+        for field in NON_NEGATIVE_FIELDS:
+            assert field in halos.dtype.names, f"the output should carry {field}"
+            values = halos[field].astype(np.float64)
+            minima[field] = min(minima[field], float(np.min(values)))
+            negative_rows[field] += int(np.sum(values < 0.0))
+    for field in NON_NEGATIVE_FIELDS:
+        print(f"  {field}: minimum {minima[field]:.6g} ({negative_rows[field]} negative rows)")
+
+    floors = {field: 0.0 for field in NON_NEGATIVE_FIELDS}
+    for field in ("MetalsHotGas", "MetalsCGMgas", "MetalsEjectedGas"):
+        floors[field] = METALS_ROUNDING_FLOOR
+    negative = [
+        f"{field} {minima[field]:.6g}"
+        for field in NON_NEGATIVE_FIELDS
+        if minima[field] < floors[field]
+    ]
+    assert not negative, (
+        "without the SN calculator these went negative: " + ", ".join(negative) + "; star "
+        "formation must be capped at the cold gas"
+    )
+
+    shutil.rmtree(temp_dir)
+    print(f"{GREEN}✓ Cold-gas cap without the supernova calculator validated{NC}")
+
+
 def main():
     """Main test runner"""
     print(f"{BLUE}{'=' * 60}{NC}")
@@ -624,6 +805,7 @@ def main():
         test_parameter_sensitivity,
         test_edge_cases,
         test_memory_and_performance,
+        test_cold_gas_cap_without_supernova_calculator,
     ]
 
     if not MIMIC_EXE.exists():

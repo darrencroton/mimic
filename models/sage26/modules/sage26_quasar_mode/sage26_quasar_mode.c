@@ -29,7 +29,9 @@
  *
  * Parameters: BlackHoleGrowthRate, QuasarModeEfficiency, and the required SFprescription and
  * CGMrecipeOn (each 0 or 1; a missing key fails at initialisation, any other value is refused),
- * which select the accretion's hydrogen cap and the wind's pair.
+ * which select the accretion's hydrogen cap and the wind's pair, and AGNrecipe (0 or 2, refused
+ * otherwise, shared/sage_agn_recipe.h), whose 0 stops the growth in both channels as SAGE26's
+ * AGNrecipeOn 0 does (R/src/model_mergers.c:262-264, R/src/model_disk_instability.c:101-103).
  *
  * References:
  *   - SAGE26 R/src/model_mergers.c:346-441 (grow_black_hole, quasar_mode_wind)
@@ -44,6 +46,7 @@
 #include "constants.h"
 #include "error.h"
 #include "shared/sage_agn_physics.h"
+#include "shared/sage_agn_recipe.h"
 #include "shared/sage_cgm_routing.h"
 #include "shared/sage_h2_physics.h"
 #include "module_system/generated/event_contracts.h"
@@ -66,6 +69,9 @@ static int SF_PRESCRIPTION;
  * init, which with the wind host's Regime selects the wind's
  * second pair (R/src/model_mergers.c:406-407) */
 static int CGM_RECIPE_ON;
+/* SAGE26's AGNrecipeOn (the package's AGNrecipe, 0 or 2), required and checked at init; 0 grows
+ * no black hole in either channel */
+static int AGN_RECIPE_ON;
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -83,6 +89,11 @@ int sage26_quasar_mode_init(void) {
   /* Required, no default: a missing key fails here */
   LOAD_PARAM_INT("CGMrecipeOn", CGM_RECIPE_ON);
   if (mimic_sage_validate_cgm_recipe_on("sage26_quasar_mode", CGM_RECIPE_ON) != 0) {
+    return -1;
+  }
+  /* Required, no default: a missing key fails here */
+  LOAD_PARAM_INT("AGNrecipe", AGN_RECIPE_ON);
+  if (mimic_sage_validate_agn_recipe("sage26_quasar_mode", AGN_RECIPE_ON) != 0) {
     return -1;
   }
 
@@ -103,6 +114,8 @@ int sage26_quasar_mode_init(void) {
   VERBOSE_LOG("  QuasarModeEfficiency = %.3f", QUASAR_MODE_EFFICIENCY);
   VERBOSE_LOG("  SFprescription = %d", SF_PRESCRIPTION);
   VERBOSE_LOG("  CGMrecipeOn = %d", CGM_RECIPE_ON);
+  VERBOSE_LOG("  AGNrecipe = %d%s", AGN_RECIPE_ON,
+              AGN_RECIPE_ON == MIMIC_SAGE_AGN_RECIPE_OFF ? " (no black-hole growth)" : "");
 
   return 0;
 }
@@ -120,6 +133,12 @@ int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, in
 
     struct Halo *event_halo = &halos[0];
     if (event_halo->galaxy == NULL) {
+      return 0;
+    }
+
+    /* SAGE parity: AGNrecipeOn 0 skips grow_black_hole after a merger
+     * (R/src/model_mergers.c:262-264) */
+    if (AGN_RECIPE_ON == MIMIC_SAGE_AGN_RECIPE_OFF) {
       return 0;
     }
 
@@ -150,6 +169,12 @@ int sage26_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, in
   struct GalaxyData *gal = halo->galaxy;
 
   if (gal == NULL) {
+    return 0;
+  }
+
+  /* SAGE parity: AGNrecipeOn 0 skips grow_black_hole in the disk instability's gas branch
+   * (R/src/model_disk_instability.c:101-103) */
+  if (AGN_RECIPE_ON == MIMIC_SAGE_AGN_RECIPE_OFF) {
     return 0;
   }
 

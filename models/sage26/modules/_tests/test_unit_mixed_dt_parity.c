@@ -685,18 +685,23 @@ int test_mixed_dt_radio_mode_ignores_global(void) {
   init_memory_system(0);
   reset_config();
 
-  /* Unit conversions needed by AGN rate calculations */
+  /* Unit conversions and G needed by the Bondi rate */
   MimicConfig.UnitMass_in_g = 1.989e43;
   MimicConfig.UnitTime_in_s = 3.08568e16;
   MimicConfig.UnitEnergy_in_cgs = 1.989e53;
   MimicConfig.Hubble_h = 0.73;
+  MimicConfig.G = 43.0071;
 
-  /* Set radio mode parameters */
+  /* Set radio mode parameters: AGNrecipe 2 (Bondi), the package accepts only 0 and 2 */
   snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "RadioModeEfficiency");
   snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.08");
   snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "AGNrecipe");
-  snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "1");
+  snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "2");
   MimicConfig.NumModelParams = 2;
+
+  /* A carried x small enough that neither the Eddington nor the heating cap binds, so the
+   * accreted mass is proportional to the dt the module uses */
+  const double cooling_x = 1.0e-5;
 
   sage26_radio_mode_heating_init();
 
@@ -710,6 +715,7 @@ int test_mixed_dt_radio_mode_ignores_global(void) {
   gal1->CoolingGas = 1.0;
   gal1->Rcool = 0.05;
   gal1->Rheat = 0.0;
+  gal1->CoolingX = cooling_x;
   struct Halo halo1 = {0};
   halo1.Type = 0;
   halo1.Mvir = 100.0;
@@ -733,6 +739,7 @@ int test_mixed_dt_radio_mode_ignores_global(void) {
   gal2->CoolingGas = 1.0;
   gal2->Rcool = 0.05;
   gal2->Rheat = 0.0;
+  gal2->CoolingX = cooling_x;
   struct Halo halo2 = {0};
   halo2.Type = 0;
   halo2.Mvir = 100.0;

@@ -91,6 +91,7 @@ module:
       - StarburstColdGasOn
       - FIREmodeOn
       - CGMrecipeOn     # required: 0 or 1
+      - AGNrecipe       # read with the recheck and the quasar consumer: 0 or 2
 
   events:
     consumes:

@@ -28,8 +28,9 @@
  * and the ejection capped against it after the reheating.
  *
  * The sample is taken at SAGE26's point: stars is the renormalised mass
- * sage26_calculate_supernova_feedback leaves in NewStellarMass, and the cold gas is
- * the reservoir before anything is committed. bin is the substep's history bin,
+ * sage26_calculate_supernova_feedback leaves in NewStellarMass (without that module, the mass
+ * this step caps at the cold gas first, below), and the cold gas is the reservoir before
+ * anything is committed. bin is the substep's history bin,
  * (substep * STEPS) / num_substeps capped at STEPS - 1 (R/src/core_build_model.c:514-515),
  * and dt the substep interval dT / num_substeps.
  *
@@ -88,6 +89,9 @@ static int SF_PRESCRIPTION;
  * init, which with the FoF central's Regime selects the
  * feedback's pair (R/src/model_starformation_and_feedback.c:1175) */
 static int CGM_RECIPE_ON;
+
+/* True when sage26_calculate_supernova_feedback is configured; it then owns the cold-gas cap */
+static bool SUPERNOVA_CALCULATOR_PRESENT;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -149,6 +153,7 @@ int sage26_apply_star_formation_supernova_init(void) {
 
   const bool sf_present = module_configured_anywhere("sage26_calculate_star_formation");
   const bool sn_present = module_configured_anywhere("sage26_calculate_supernova_feedback");
+  SUPERNOVA_CALCULATOR_PRESENT = sn_present;
 
   /* WARNING: apply step configured with no prescriptions — all fields will be zero */
   if (!sf_present && !sn_present) {
@@ -215,6 +220,20 @@ int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx, str
    * EnhancedStarFormationOn >= 1 && FFBRegime == 1 (:1004). */
   if (halo->galaxy->FFBRegime == 1) {
     return 0;
+  }
+
+  // Cold-gas cap. With the calculator present it renormalises stars and reheated mass together
+  // (sage26_calculate_supernova_feedback.c, R/src/model_starformation_and_feedback.c:775-779),
+  // so nothing changes here. Without it nothing else caps star formation, and the ported feedback
+  // commit would clamp the reheated mass to the negative cold gas (:1153-1156; SAGE26 itself stops
+  // there on an assertion, :1158, which the port does not carry), ship the deficit to the central
+  // as a negative reheat and, through the ejection cap (:1184-1186, :1207-1209), into EjectedGas;
+  // so this step applies that renormalisation with no reheated mass, i.e. stars = ColdGas, before
+  // the commit. The capped value goes back to
+  // NewStellarMass before the history sample below and for sage26_apply_metal_enrichment, which
+  // consumes it later. A negative ColdGas caps at zero so no negative stars are written back.
+  if (!SUPERNOVA_CALCULATOR_PRESENT && halo->galaxy->NewStellarMass > halo->galaxy->ColdGas) {
+    halo->galaxy->NewStellarMass = (halo->galaxy->ColdGas > 0.0) ? halo->galaxy->ColdGas : 0.0;
   }
 
   // ========================================================================

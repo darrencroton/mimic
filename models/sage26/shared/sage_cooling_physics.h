@@ -31,10 +31,10 @@
  *   diagnostics tcool and tff, the cooling function, x, rcool and the float RcoolToRvir, the
  *   cooling mass of the selected branch (CGMrecipeOn 0: the rapid or static branch, C:190-201;
  *   CGMrecipeOn 1: the cold streams below), and its cap to HotGas and floor at zero.
- * - mimic_sage_agn_accretion_compute(): agn_accretion_compute (C:526-576): the rate of the
- *   selected recipe (2, Bondi, ported exactly; 1, empirical, and 3, cold cloud, the earlier
- *   package's), the Eddington cap, the cap of the accreted mass to the reservoir, AGNcoeff and the
- *   cap of the heating to the suppressed cooling mass.
+ * - mimic_sage_agn_accretion_compute(): agn_accretion_compute (C:526-576): the Bondi rate
+ *   (AGNrecipe 2, C:538-540, the one recipe the package ports: shared/sage_agn_recipe.h refuses
+ *   SAGE26's 1 and 3), the Eddington cap, the cap of the accreted mass to the reservoir, AGNcoeff
+ *   and the cap of the heating to the suppressed cooling mass.
  * - mimic_sage_do_agn_heating_hot(): do_AGN_heating (C:587-627): the heating-radius suppression,
  *   the accretion from the hot pair, the radius ratchet and the Heating energy.
  * - mimic_sage_cooling_energy() and mimic_sage_cooling_rate(): the recipes' tail (C:301-313).
@@ -72,7 +72,7 @@
  * transfer's metal credit and debit (C:697, C:699) fuse in SAGE26's object and stay one
  * contractible expression here, as they were in the classic modules; the stream and CGM-time
  * arithmetic fuses nothing. SAGE26's object computes both pow(10.0, x) of the streams (C:222,
- * C:242) as __exp10(x); mimic_sage_exp10 writes that form.
+ * C:242) as __exp10(x); mimic_sage_exp10 (shared/sage_exp10.h) writes that form.
  *
  * Ported from SAGE26 (MIT; Copyright (c) 2019-2026 Semi-Analytic Galaxy Evolution (SAGE)); see
  * models/sage26/LICENSE-SAGE26.
@@ -90,7 +90,9 @@
 #include "types.h"
 #include "module_system/physical_constants.h"
 #include "shared/metallicity.h"
+#include "shared/sage_agn_recipe.h"
 #include "shared/sage_constants.h"
+#include "shared/sage_exp10.h"
 #include "shared/sage_fire_feedback_physics.h"
 #include "modules/sage26_calculate_cooling_budget/cooling_tables.h"
 
@@ -113,25 +115,6 @@
 #define MIMIC_SAGE_CAP_NONE 0
 #define MIMIC_SAGE_CAP_RESERVOIR 1 /* capped to the reservoir */
 #define MIMIC_SAGE_CAP_FLOOR 2     /* floored at zero */
-
-// ============================================================================
-// SMALL HELPERS
-// ============================================================================
-
-/**
- * @brief 10^x in the form SAGE26's object computes pow(10.0, x)
- *
- * Apple clang compiles SAGE26's pow(10.0, x) at C:222 and C:242 to a call of __exp10 (the
- * relocations of model_cooling_heating.o, oracle README "The c11 Group"); macOS's __exp10 and pow
- * need not agree in the last bit, so the package calls __exp10 there. Elsewhere it writes pow.
- */
-static inline double mimic_sage_exp10(const double x) {
-#if defined(__APPLE__)
-  return __exp10(x);
-#else
-  return pow(10.0, x);
-#endif
-}
 
 // ============================================================================
 // THE CLUSTERING-MASS TABLE (H:98-132)
@@ -630,33 +613,7 @@ static inline double mimic_sage_cgm_cooling_budget(struct Halo *halo,
 // ============================================================================
 
 /**
- * @brief AGN Mode 1: Empirical accretion recipe (the earlier package's, not SAGE26's form)
- *
- * Scales with black hole mass, virial velocity, and hot gas fraction.
- * Normalized to typical massive galaxy: M_BH = 10^8 M_sun, V_vir = 200 km/s, f_hot = 0.1
- */
-static inline double mimic_sage_agn_rate_empirical(const double black_hole_mass, const double mvir,
-                                                   const double vvir, const double hot_gas,
-                                                   const double efficiency,
-                                                   const struct MimicConfig *run_params) {
-  const double unit_conv =
-      run_params->UnitMass_in_g / run_params->UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS;
-
-  double AGNrate;
-  if (mvir > 0.0) {
-    AGNrate = efficiency / unit_conv * (black_hole_mass / 0.01) * // Normalized to M_BH = 10^8 M_sun
-              (vvir / 200.0) * (vvir / 200.0) * (vvir / 200.0) *  // Normalized to V_vir = 200 km/s
-              ((hot_gas / mvir) / 0.1);                           // Normalized to f_hot = 0.1
-  } else {
-    AGNrate = efficiency / unit_conv * (black_hole_mass / 0.01) * (vvir / 200.0) * (vvir / 200.0) *
-              (vvir / 200.0);
-  }
-
-  return AGNrate;
-}
-
-/**
- * @brief AGN Mode 2: Bondi-Hoyle accretion recipe (Bondi 1952)
+ * @brief Bondi-Hoyle accretion recipe (Bondi 1952), AGNrecipe 2
  *
  * SAGE26's Bondi branch of agn_accretion_compute (R/src/model_cooling_heating.c:538-540),
  * with x carried from the cooling budget rather than recomputed from the cooling function.
@@ -668,38 +625,24 @@ static inline double mimic_sage_agn_rate_bondi(const double black_hole_mass, con
 }
 
 /**
- * @brief AGN Mode 3: Cold cloud accretion recipe (the earlier package's, not SAGE26's form)
- *
- * Triggered when BH mass exceeds threshold: M_BH > 10^-4 * M_vir * (R_cool/R_vir)^3
- * Accretion rate = 0.01% of cooling rate when triggered.
- */
-static inline double mimic_sage_agn_rate_cold_cloud(const double black_hole_mass, const double mvir,
-                                                    const double rcool, const double rvir,
-                                                    const double coolingGas, const double dt) {
-  if (black_hole_mass > 0.0001 * mvir * (rcool / rvir) * (rcool / rvir) * (rcool / rvir)) {
-    return 0.0001 * coolingGas / dt;
-  } else {
-    return 0.0;
-  }
-}
-
-/**
  * @brief SAGE26's agn_accretion_compute: accreted mass and heating mass
  *
- * Accretion rate by recipe, the Eddington cap, the reservoir cap, the heating
+ * The Bondi accretion rate, the Eddington cap, the reservoir cap, the heating
  * coefficient and the cap of heating to the suppressed cooling mass, in SAGE26's
  * order and with its Vvir > 0 and AGNcoeff > 0 guards
  * (R/src/model_cooling_heating.c:526-575). Reads no field it writes. The heating
- * coefficient uses SAGE26's float Vvir; the empirical and cold-cloud rates, which
- * are not ported, keep the core's double halo values they always used.
+ * coefficient uses SAGE26's float Vvir. Only SAGE26's Bondi branch (:538-540) is
+ * ported: its readers refuse every AGNrecipe but 0 and 2 (shared/sage_agn_recipe.h),
+ * and none calls this with 0.
  *
  * @param halo            Halo whose galaxy accretes (galaxy not NULL)
- * @param agn_recipe      AGNrecipe (1, 2 or 3; any other positive value is the empirical rate)
+ * @param agn_recipe      AGNrecipe (only 2 reaches here and forms the Bondi rate; the package
+ *                        forms no rate for any other value, where SAGE26 forms the empirical rate
+ *                        for anything but 2 and 3, :545-551)
  * @param efficiency      RadioModeEfficiency
  * @param dt              Substep interval
  * @param x               SAGE26's x of the calling recipe
  * @param coolingGas      The suppressed cooling mass
- * @param rcool           SAGE26's rcool of the calling recipe
  * @param reservoir_mass  The selected reservoir: HotGas (hot call) or CGMgas (CGM call)
  * @param params          Run configuration
  * @param accreted_out    Output: the accreted mass
@@ -708,21 +651,15 @@ static inline double mimic_sage_agn_rate_cold_cloud(const double black_hole_mass
 static inline void mimic_sage_agn_accretion_compute(const struct Halo *halo, const int agn_recipe,
                                                     const double efficiency, const double dt,
                                                     const double x, const double coolingGas,
-                                                    const double rcool, const double reservoir_mass,
+                                                    const double reservoir_mass,
                                                     const struct MimicConfig *params,
                                                     double *accreted_out, double *heating_out) {
   const double black_hole_mass = halo->galaxy->BlackHoleMass;
   const double vvir = (float)halo->Vvir;
 
-  double AGNrate;
-  if (agn_recipe == 2) {
+  double AGNrate = 0.0;
+  if (agn_recipe == MIMIC_SAGE_AGN_RECIPE_BONDI) {
     AGNrate = mimic_sage_agn_rate_bondi(black_hole_mass, x, efficiency, params);
-  } else if (agn_recipe == 3) {
-    AGNrate = mimic_sage_agn_rate_cold_cloud(black_hole_mass, halo->Mvir, rcool, halo->Rvir,
-                                             coolingGas, dt);
-  } else {
-    AGNrate = mimic_sage_agn_rate_empirical(black_hole_mass, halo->Mvir, halo->Vvir, reservoir_mass,
-                                            efficiency, params);
   }
 
   // Eddington-limited accretion: L_edd = 1.3e38 erg/s per Msun, radiative
@@ -831,7 +768,7 @@ mimic_sage_do_agn_heating_hot(struct Halo *halo, const struct MimicConfig *param
   l->reservoir_positive = (galaxy->HotGas > 0.0) ? 1 : 0;
   if (galaxy->HotGas > 0.0) {
     double AGNaccreted, AGNheating;
-    mimic_sage_agn_accretion_compute(halo, agn_recipe, efficiency, dt, x, coolingGas, rcool,
+    mimic_sage_agn_accretion_compute(halo, agn_recipe, efficiency, dt, x, coolingGas,
                                      galaxy->HotGas, params, &AGNaccreted, &AGNheating);
     l->accreted = AGNaccreted;
     l->heating = AGNheating;
@@ -920,7 +857,7 @@ mimic_sage_do_agn_heating_cgm(struct Halo *halo, const struct MimicConfig *param
   l->reservoir_positive = (galaxy->CGMgas > 0.0) ? 1 : 0;
   if (galaxy->CGMgas > 0.0) {
     double AGNaccreted, AGNheating;
-    mimic_sage_agn_accretion_compute(halo, agn_recipe, efficiency, dt, x, coolingGas, rcool,
+    mimic_sage_agn_accretion_compute(halo, agn_recipe, efficiency, dt, x, coolingGas,
                                      galaxy->CGMgas, params, &AGNaccreted, &AGNheating);
     l->accreted = AGNaccreted;
     l->heating = AGNheating;

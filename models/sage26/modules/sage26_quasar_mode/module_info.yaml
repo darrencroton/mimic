@@ -29,6 +29,7 @@ module:
       - QuasarModeEfficiency
       - SFprescription
       - CGMrecipeOn     # required: 0 or 1
+      - AGNrecipe       # required: 0 (no black-hole growth) or 2
 
   events:
     consumes:

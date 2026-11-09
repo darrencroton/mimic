@@ -54,21 +54,25 @@
  * 0x860 (calculate_ffb_fraction) and 0x908 (calculate_ffb_threshold_mass). The package writes that
  * site as an explicit fma(), which is the same single rounding on every platform whose fma is
  * correctly rounded, as C requires. SAGE26's object computes pow(10.0, log_Mvir_ffb_code) as a call
- * of __exp10 at the same three sites; the package writes pow(10.0, ...), which Mimic's -O2 build on
- * Apple clang also compiles to __exp10 and its -O0 unit-test build to pow. The equality was
- * established only for the redshifts of mini-Millennium's snapshots at Hubble_h 0.73 and of the
- * classifier's oracle fixtures, where the two give the same double (the executed check in the
- * oracle README). It does not hold for every simulation package: at micro-Uchuu's snapshot 3 (z
- * 10.458691417440129, Hubble_h 0.6774) the argument 0x1.0e8c8da54b3b8p-2 gives pow
- * 0x1.d6610c1d85ba4p+0 and __exp10 0x1.d6610c1d85ba3p+0. The fraction's exp(-x) is compiled as
- * exp(log10(Mvir / Mvir_ffb) / -0.15), the division by the negated constant (0x4a8, 0x88c), and x
- * is never formed. That equals the source form bit for bit for every non-NaN x (round-to-nearest
- * division is sign-symmetric), but not for a NaN: a negation flips its sign bit and the division
- * carries it, so a source-form exp(-x) compiled without that fold (Mimic's -O0 unit-test build)
- * returns a NaN of the other sign. The package therefore writes the object's form, and reports
- * SAGE26's local x beside it. No other expression has a multiply feeding an add or subtract. The
- * draw's ((double)(x >> 11) + 0.5) * 2^-53 is an add feeding a multiply, which no contraction fuses
- * (ucvtf, fadd, fmul at 0x444-0x44c).
+ * of __exp10 at the same three sites, and the package calls that function too, through
+ * mimic_sage_exp10 (shared/sage_exp10.h), in its -O2 and -O0 builds alike, as it does at the cold
+ * streams' two sites (shared/sage_cooling_physics.h). Those are the three sites the package routes
+ * through mimic_sage_exp10; SAGE26's object also calls __exp10 at the Shen et al. bulge-radius
+ * fallback (R/src/model_misc.c:346, :360) and the cooling-table lambda
+ * (R/src/core_cool_func.c:158), where the package still writes pow
+ * (shared/sage_bulge_size_physics.h, modules/sage26_calculate_cooling_budget/cooling_tables.c),
+ * equal to __exp10 in the -O2 build only, and at the BR06 height, whose result narrows to float,
+ * where the two never differ (shared/sage_h2_physics.h). pow is not equivalent: at micro-Uchuu's
+ * snapshot 3 (z 10.458691417440129, Hubble_h 0.6774) the argument 0x1.0e8c8da54b3b8p-2 gives pow
+ * 0x1.d6610c1d85ba4p+0 and __exp10 0x1.d6610c1d85ba3p+0, one ulp apart (the oracle README, "The c13
+ * Group"). The fraction's exp(-x) is compiled as exp(log10(Mvir / Mvir_ffb) / -0.15), the division
+ * by the negated constant (0x4a8, 0x88c), and x is never formed. That equals the source form bit
+ * for bit for every non-NaN x (round-to-nearest division is sign-symmetric), but not for a NaN: a
+ * negation flips its sign bit and the division carries it, so a source-form exp(-x) compiled
+ * without that fold (Mimic's -O0 unit-test build) returns a NaN of the other sign. The package
+ * therefore writes the object's form, and reports SAGE26's local x beside it. No other expression
+ * has a multiply feeding an add or subtract. The draw's ((double)(x >> 11) + 0.5) * 2^-53 is an add
+ * feeding a multiply, which no contraction fuses (ucvtf, fadd, fmul at 0x444-0x44c).
  *
  * Reference: Li et al. (2024), eqs. 2-3, and Steele, Lea & Flood (2014), as SAGE26 cites them
  *            (R/src/model_regimes.c:46-50, :146, :167)
@@ -89,6 +93,7 @@
 #include <stdint.h>
 
 #include "error.h"
+#include "shared/sage_exp10.h"
 
 /** EnhancedStarFormationOn 0: no FFB classification or FFB star formation (SAGE26 R0-R5) */
 #define MIMIC_SAGE_FFB_OFF 0
@@ -147,11 +152,9 @@ static inline double mimic_sage_ffb_threshold_mass(const double z, const double 
     locals->z_norm = z_norm;
     locals->log_Mvir_ffb_code = log_Mvir_ffb_code;
   }
-  /* :312; SAGE26's object calls __exp10 here. pow equals it at every mini-Millennium snapshot
-   * redshift (Hubble_h 0.73) and every redshift of the classifier's oracle fixtures, but not at
-   * every argument of every simulation package (one ulp apart at micro-Uchuu's snapshot 3;
-   * oracle README, "The c13 Group") */
-  return pow(10.0, log_Mvir_ffb_code);
+  /* :312; SAGE26's object calls __exp10 here, which pow does not always equal (one ulp apart at
+   * micro-Uchuu's snapshot 3; oracle README, "The c13 Group") */
+  return mimic_sage_exp10(log_Mvir_ffb_code);
 }
 
 /**

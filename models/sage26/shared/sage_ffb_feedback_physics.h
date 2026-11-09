@@ -87,7 +87,7 @@ struct MimicSageFfbFeedbackLocals {
  * @param reheated_out                  Out: the reheated mass
  * @param ejected_out                   Out: the ejected mass
  * @param mass_loading                  The galaxy's MassLoading, written only with a valid scaling
- * @param locals                        Optional: receives the call's locals (NULL in production)
+ * @param locals                        Optional, may be NULL: receives the call's locals
  */
 static inline void mimic_sage_ffb_sn_feedback(const float vvir, const double redshift,
                                               const float cold_gas,

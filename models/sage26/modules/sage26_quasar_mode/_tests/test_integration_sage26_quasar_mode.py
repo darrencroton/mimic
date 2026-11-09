@@ -81,6 +81,7 @@ def test_module_pipeline_integration():
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
             "CGMrecipeOn": 0,  # required, R3's value
+            "AGNrecipe": 2,  # required: 0 or 2
             # Disk instability module parameters (required dependency)
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
@@ -297,6 +298,7 @@ def test_merger_trigger():
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
             "CGMrecipeOn": 0,  # required, R3's value
+            "AGNrecipe": 2,  # required: 0 or 2
         },
     )
 
@@ -371,6 +373,7 @@ def test_memory_and_performance():
             "QuasarModeEfficiency": 0.001,
             "SFprescription": 0,  # the module's required SFprescription, at R1's value
             "CGMrecipeOn": 0,  # required, R3's value
+            "AGNrecipe": 2,  # required: 0 or 2
             "fStabInstability": 0.5,
             "StarFormingDiskFactor": 3.0,
         },

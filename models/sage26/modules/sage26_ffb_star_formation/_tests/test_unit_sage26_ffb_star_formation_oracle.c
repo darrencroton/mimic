@@ -415,6 +415,7 @@ static int check_chain(struct oracle_fixture *in, struct oracle_fixture *out,
                   {"BulgeSizeOn", 3.0},
                   {"BlackHoleGrowthRate", 0.015},
                   {"QuasarModeEfficiency", 0.005},
+                  {"AGNrecipe", 2.0},
                   {"ThresholdMajorMerger", 0.3},
                   {"StarburstColdGasOn", 1.0}};
   for (size_t k = 0; k < COUNT(run_keys); k++) {

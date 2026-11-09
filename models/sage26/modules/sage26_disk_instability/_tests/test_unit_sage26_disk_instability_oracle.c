@@ -289,7 +289,9 @@ static int setup_parameters(struct oracle_fixture *in, int *bulge_size_on) {
   if (oracle_set_model_param("SFprescription", (double)fixture_sf_prescription) != 0 ||
       oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
       /* CGMrecipeOn: required by the commits', yields', wind's and disruption's modules */
-      oracle_set_model_param("CGMrecipeOn", 0.0) != 0) {
+      oracle_set_model_param("CGMrecipeOn", 0.0) != 0 ||
+      /* AGNrecipe: required by the wind's module, the fixture's AGNrecipeOn (checked above) */
+      oracle_set_model_param("AGNrecipe", (double)oracle_in_i32(in, "params.AGNrecipeOn")) != 0) {
     problems++;
   }
   /* sage26_starburst_feedback's required FIREmodeOn: the fixture's, 0 for every

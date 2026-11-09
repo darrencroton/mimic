@@ -25,6 +25,8 @@
  *   - test_initial_boundary_matches_classic: no positive interval: what the classic trio writes
  *   - test_d35_refusal_with_positive_interval: a stored SnapNum outside ZZ is refused
  *   - test_parameter_refusals: CGMrecipeOn and MShockMsun
+ *   - test_agn_recipe_1_refused: AGNrecipe 1 (SAGE26's empirical rate, not ported) is refused
+ *   - test_agn_recipe_3_refused: AGNrecipe 3 (SAGE26's cold cloud rate, not ported) is refused
  *   - test_guard_*: the CGMrecipeOn 1 configuration guard of this module and the budget
  */
 
@@ -837,6 +839,60 @@ int test_parameter_refusals(void) {
 }
 
 /**
+ * @brief Initialise the transaction with AGNrecipe `recipe` and the run files' other values,
+ *        capturing its log
+ *
+ * @param recipe   The AGNrecipe to load
+ * @param log_out  Receives the captured log
+ * @param log_len  Its size
+ * @return The init status
+ */
+static int init_with_agn_recipe(const char *recipe, char *log_out, const size_t log_len) {
+  reset_config();
+  sage26_test_append_model_parameter("AGNrecipe", recipe); /* before the default 0 below */
+  set_transaction_parameters("0", "6.0e11");
+  FILE *capture = tmpfile();
+  FILE *old_out = set_log_output(capture);
+  const int status = sage26_regime_aware_cooling_init();
+  set_log_output(old_out);
+  rewind(capture);
+  const size_t n = fread(log_out, 1, log_len - 1, capture);
+  log_out[n] = '\0';
+  fclose(capture);
+  return status;
+}
+
+/**
+ * @test    test_agn_recipe_1_refused
+ * @brief   AGNrecipe 1, SAGE26's empirical rate (C:545-551), is not ported: init fails with an
+ *          error naming the parameter, and AGNrecipe 2 initialises
+ */
+int test_agn_recipe_1_refused(void) {
+  static char log[8192];
+  TEST_ASSERT(init_with_agn_recipe("1", log, sizeof(log)) != 0, "AGNrecipe 1 is refused");
+  TEST_ASSERT(strstr(log, "AGNrecipe") != NULL, "the error names AGNrecipe");
+  sage26_regime_aware_cooling_cleanup();
+  TEST_ASSERT(init_with_agn_recipe("2", log, sizeof(log)) == 0, "AGNrecipe 2 is accepted");
+  sage26_regime_aware_cooling_cleanup();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_agn_recipe_3_refused
+ * @brief   AGNrecipe 3, SAGE26's cold cloud rate (C:541-544), is not ported: init fails with an
+ *          error naming the parameter, and AGNrecipe 0 initialises
+ */
+int test_agn_recipe_3_refused(void) {
+  static char log[8192];
+  TEST_ASSERT(init_with_agn_recipe("3", log, sizeof(log)) != 0, "AGNrecipe 3 is refused");
+  TEST_ASSERT(strstr(log, "AGNrecipe") != NULL, "the error names AGNrecipe");
+  sage26_regime_aware_cooling_cleanup();
+  TEST_ASSERT(init_with_agn_recipe("0", log, sizeof(log)) == 0, "AGNrecipe 0 is accepted");
+  sage26_regime_aware_cooling_cleanup();
+  return TEST_PASS;
+}
+
+/**
  * @brief Run module_system_init() on a phase configuration, capturing the log
  *
  * @param cgm_on           CGMrecipeOn
@@ -966,6 +1022,8 @@ int main(void) {
   TEST_RUN(test_initial_boundary_matches_classic);
   TEST_RUN(test_d35_refusal_with_positive_interval);
   TEST_RUN(test_parameter_refusals);
+  TEST_RUN(test_agn_recipe_1_refused);
+  TEST_RUN(test_agn_recipe_3_refused);
   TEST_RUN(test_guard_missing_transaction);
   TEST_RUN(test_guard_missing_classifier);
   TEST_RUN(test_guard_misplaced_transaction);

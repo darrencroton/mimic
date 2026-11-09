@@ -9,7 +9,7 @@ This test validates the sage26_radio_mode_heating module integration:
 - AGN feedback suppresses cooling appropriately
 - Black hole mass increases via accretion
 - Hot gas is consumed by BH accretion
-- Parameter sensitivity (efficiency and recipe mode)
+- Parameter sensitivity (efficiency, AGNrecipe 0, and the refusal of AGNrecipe 3)
 - Memory safety and performance
 
 Test cases:
@@ -73,7 +73,7 @@ def test_module_pipeline_integration():
         },
         model_params={
             "RadioModeEfficiency": 0.08,
-            "AGNrecipe": 1,
+            "AGNrecipe": 2,
             # Cooling module parameters (required dependency)
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
@@ -168,7 +168,7 @@ def test_agn_physics_correctness():
         },
         model_params={
             "RadioModeEfficiency": 0.08,
-            "AGNrecipe": 1,
+            "AGNrecipe": 2,
             # The gas supply, the star-formation chain and the black-hole seeding, at R1's values
             "GlobalBaryonFraction": 0.17,
             "BulgeSizeOn": 0,
@@ -297,20 +297,21 @@ def test_parameter_sensitivity():
     """Test that changing parameters changes results
 
     Validates, on GAS_PHASES, where black holes exist and hot gas cools:
-    - AGNrecipe 0 turns the radio mode off: no row is heated
+    - AGNrecipe 0 turns the radio mode off: no row is heated (and, as in SAGE26, the quasar-mode
+      growth seeds no black hole)
     - RadioModeEfficiency is read and acts: both efficiencies heat some rows and give different
       heating and black-hole masses. No direction is asserted: the radio mode's feedback on the
       cooling that feeds it and the quasar-mode growth makes the z = 0 totals non-monotonic
-    - The cold-cloud recipe (AGNrecipe 3) heats, with finite, non-negative black-hole masses
+    - AGNrecipe 3 (SAGE26's cold cloud rate, not ported) is refused at initialisation, naming the
+      parameter
     """
     print(f"\n{BLUE}TEST: Parameter sensitivity{NC}")
 
     off = run_gas_pipeline("agn_off", 0.08, 0)
-    low = run_gas_pipeline("agn_low_eff", 0.02, 1)
-    high = run_gas_pipeline("agn_high_eff", 0.20, 1)
-    cloud = run_gas_pipeline("agn_cold_cloud", 0.08, 3)
+    low = run_gas_pipeline("agn_low_eff", 0.02, 2)
+    high = run_gas_pipeline("agn_high_eff", 0.20, 2)
 
-    for name, halos in (("off", off), ("low", low), ("high", high), ("cold cloud", cloud)):
+    for name, halos in (("off", off), ("low", low), ("high", high)):
         print(
             f"  {name}: BlackHoleMass {np.sum(halos['BlackHoleMass']):.3e}, "
             f"Heating {np.sum(halos['Heating']):.3e} on {int(np.sum(halos['Heating'] > 0))} rows"
@@ -323,9 +324,27 @@ def test_parameter_sensitivity():
         assert not np.array_equal(
             low[field], high[field]
         ), f"RadioModeEfficiency should change {field}"
-    bh_cloud = cloud["BlackHoleMass"]
-    assert np.all(np.isfinite(bh_cloud) & (bh_cloud >= 0.0)), "cold-cloud BH masses must be valid"
-    assert np.sum(cloud["Heating"]) > 0, "the cold-cloud recipe should heat some rows"
+
+    # AGNrecipe 3 is refused before any tree is processed
+    param_file, _output_dir, temp_dir = create_test_param_file(
+        output_name="agn_cold_cloud_refused",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage26_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage26_radio_mode_heating", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={"RadioModeEfficiency": 0.08, "AGNrecipe": 3, "CGMrecipeOn": 0},
+    )
+    try:
+        returncode, stdout, stderr = run_mimic(param_file)
+    finally:
+        shutil.rmtree(temp_dir)
+    assert returncode != 0, "AGNrecipe 3 should be refused at initialisation"
+    assert "AGNrecipe" in stdout + stderr, "the refusal should name AGNrecipe"
 
     print(f"{GREEN}✓ Parameter sensitivity validated{NC}")
 
@@ -352,7 +371,7 @@ def test_memory_and_performance():
         },
         model_params={
             "RadioModeEfficiency": 0.08,
-            "AGNrecipe": 1,
+            "AGNrecipe": 2,
             "CoolingRecipe": 1,
             "CoolingEfficiency": 1.0,
             "ReincorporationFactor": 1.0,

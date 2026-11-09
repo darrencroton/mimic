@@ -52,6 +52,12 @@
  *     central always holds the other Regime and is untouched; the unselected pair unchanged
  *     (R/src/model_mergers.c:390-441)
  *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
+ *   - test_agn_recipe_off_merger_event: AGNrecipe 0 grows no black hole after a merger
+ *     (R/src/model_mergers.c:262-264)
+ *   - test_agn_recipe_off_disk_instability: AGNrecipe 0 grows no black hole in the instability's
+ *     gas branch (R/src/model_disk_instability.c:101-103)
+ *   - test_agn_recipe_refused: the module loads AGNrecipe through the package's validator, which
+ *     refuses 1
  *
  * The five hydrogen-cap tests (R/src/model_mergers.c:366-372) are platform independent: they
  * assert the cap's invariants from the package's own float arithmetic, with no oracle bit
@@ -151,7 +157,17 @@ static void setup_test_parameters(double growth_rate, double quasar_efficiency) 
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription, at R1's value */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+  add_test_cgm_recipe_parameter();                      /* CGMrecipeOn: 0, required */
+  sage26_test_append_model_parameter("AGNrecipe", "2"); /* required: 0 or 2 */
+}
+
+/** @brief Set the parameter list's AGNrecipe (setup_test_parameters adds it) to `value` */
+static void set_agn_recipe(const char *value) {
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, "AGNrecipe") == 0) {
+      snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%s", value);
+    }
+  }
 }
 
 /**
@@ -1183,7 +1199,8 @@ int test_module_initialization(void) {
   MimicConfig.NumModelParams = idx;
   /* The module's required SFprescription, at R1's value */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+  add_test_cgm_recipe_parameter();                      /* CGMrecipeOn: 0, required */
+  sage26_test_append_model_parameter("AGNrecipe", "2"); /* required: 0 or 2 */
 
   /* ===== EXECUTE ===== */
   int result = module_system_init();
@@ -1647,6 +1664,126 @@ int test_cgm_recipe_on_refused(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_agn_recipe_off_merger_event
+ * @brief   AGNrecipe 0: a merger event grows no black hole, as SAGE26's AGNrecipeOn 0 skips
+ *          grow_black_hole after the merger (R/src/model_mergers.c:262-264)
+ *
+ * Expected: success; BlackHoleMass, ColdGas, MetalsColdGas and QuasarModeBHaccretionMass
+ *           unchanged for a merger that grows the black hole at AGNrecipe 2
+ */
+int test_agn_recipe_off_merger_event(void) {
+  init_memory_system(0);
+  reset_config();
+  setup_test_parameters(0.01, 0.001);
+  set_agn_recipe("0");
+  TEST_ASSERT(sage26_quasar_mode_init() == 0, "init with AGNrecipe 0 succeeds");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+  struct ModuleContext ctx;
+  setup_test_context(&ctx);
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 1,
+                              .target_index = 0,
+                              .value0 = 0.3, /* as test_bh_growth_per_event_merger, which grows */
+                              .value1 = 0.0};
+  ctx.active_event = &event;
+  const float initial_bh = gal.BlackHoleMass;
+  const float initial_cold = gal.ColdGas;
+  const float initial_metals = gal.MetalsColdGas;
+  const float initial_accretion = gal.QuasarModeBHaccretionMass;
+
+  TEST_ASSERT(sage26_quasar_mode_process(&ctx, &halo, 1) == 0, "process succeeds");
+  TEST_ASSERT(gal.BlackHoleMass == initial_bh, "AGNrecipe 0: the merger grows no black hole");
+  TEST_ASSERT(gal.ColdGas == initial_cold, "AGNrecipe 0: the merger takes no cold gas");
+  TEST_ASSERT(gal.MetalsColdGas == initial_metals, "AGNrecipe 0: the cold metals are unchanged");
+  TEST_ASSERT(gal.QuasarModeBHaccretionMass == initial_accretion,
+              "AGNrecipe 0: the merger records no accretion");
+
+  sage26_quasar_mode_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_agn_recipe_off_disk_instability
+ * @brief   AGNrecipe 0: the instability's gas branch grows no black hole, as SAGE26's
+ *          AGNrecipeOn 0 skips grow_black_hole there (R/src/model_disk_instability.c:101-103)
+ *
+ * Expected: success; BlackHoleMass, ColdGas, MetalsColdGas and QuasarModeBHaccretionMass
+ *           unchanged for an instability trigger that grows the black hole at AGNrecipe 2
+ */
+int test_agn_recipe_off_disk_instability(void) {
+  init_memory_system(0);
+  reset_config();
+  setup_test_parameters(0.01, 0.001);
+  set_agn_recipe("0");
+  TEST_ASSERT(sage26_quasar_mode_init() == 0, "init with AGNrecipe 0 succeeds");
+
+  struct Halo halo;
+  struct GalaxyData gal;
+  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+  gal.UnstableDiskGasFraction = 0.5; /* as test_bh_growth_disk_instability, which grows */
+  struct ModuleContext ctx;
+  setup_test_context(&ctx);
+  const float initial_bh = gal.BlackHoleMass;
+  const float initial_cold = gal.ColdGas;
+  const float initial_metals = gal.MetalsColdGas;
+  const float initial_accretion = gal.QuasarModeBHaccretionMass;
+
+  TEST_ASSERT(sage26_quasar_mode_process(&ctx, &halo, 1) == 0, "process succeeds");
+  TEST_ASSERT(gal.BlackHoleMass == initial_bh, "AGNrecipe 0: the instability grows no black hole");
+  TEST_ASSERT(gal.ColdGas == initial_cold, "AGNrecipe 0: the instability takes no cold gas");
+  TEST_ASSERT(gal.MetalsColdGas == initial_metals, "AGNrecipe 0: the cold metals are unchanged");
+  TEST_ASSERT(gal.QuasarModeBHaccretionMass == initial_accretion,
+              "AGNrecipe 0: the instability records no accretion");
+
+  sage26_quasar_mode_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_agn_recipe_refused
+ * @brief   The module loads AGNrecipe through the package's validator (shared/sage_agn_recipe.h):
+ *          1 is refused with an error naming the parameter, and a missing key fails init
+ */
+int test_agn_recipe_refused(void) {
+  init_memory_system(0);
+  const char *log = "";
+  reset_config();
+  setup_test_parameters(0.01, 0.001);
+  set_agn_recipe("1");
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = sage26_quasar_mode_init();
+  if (capture != NULL) {
+    set_log_output(old_out);
+    log = c10_read_log(capture);
+    fclose(capture);
+  }
+  TEST_ASSERT(status != 0, "init must refuse AGNrecipe 1");
+  TEST_ASSERT(strstr(log, "AGNrecipe") != NULL, "the refusal must name AGNrecipe");
+
+  reset_config();
+  setup_test_parameters(0.01, 0.001);
+  int n = 0;
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, "AGNrecipe") != 0) {
+      MimicConfig.ModelParams[n++] = MimicConfig.ModelParams[i];
+    }
+  }
+  MimicConfig.NumModelParams = n;
+  TEST_ASSERT(sage26_quasar_mode_init() != 0, "init must fail when AGNrecipe is missing");
+
+  sage26_quasar_mode_cleanup();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -1694,6 +1831,9 @@ int main(void) {
   TEST_RUN(test_hydrogen_cap_module_wiring_per_event);
   TEST_RUN(test_cgm_wind_energy_tests);
   TEST_RUN(test_cgm_recipe_on_refused);
+  TEST_RUN(test_agn_recipe_off_merger_event);
+  TEST_RUN(test_agn_recipe_off_disk_instability);
+  TEST_RUN(test_agn_recipe_refused);
 
   /* Print summary and return result */
   TEST_SUMMARY();

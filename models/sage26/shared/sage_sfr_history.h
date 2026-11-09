@@ -39,6 +39,7 @@
 #define MIMIC_SHARED_SAGE_SFR_HISTORY_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "types.h"
 #include "module_system/physical_constants.h"
@@ -136,7 +137,8 @@ static inline int mimic_sage_sfr_step_bin(const int step, const int num_substeps
   if (num_substeps < 1 || step < 0 || step >= num_substeps) {
     return -1;
   }
-  int step_bin = (step * MIMIC_SAGE_SFR_STEPS) / num_substeps;
+  /* The product in 64 bits cannot overflow for any int step; the quotient is below STEPS */
+  int step_bin = (int)(((int64_t)step * MIMIC_SAGE_SFR_STEPS) / num_substeps);
   if (step_bin >= MIMIC_SAGE_SFR_STEPS) {
     step_bin = MIMIC_SAGE_SFR_STEPS - 1;
   }

@@ -17,8 +17,9 @@
  * with CGMrecipeOn 1 inside SAGE26's regime-aware cooling, and this module then writes nothing, as
  * sage26_calculate_cooling_budget carries CoolingGas 0 and the gate below returns.
  *
- * AGNrecipe 2 (Bondi-Hoyle) is SAGE26's R0 recipe and is ported exactly. The
- * empirical (1) and cold-cloud (3) rates are the earlier package's, not ported.
+ * AGNrecipe 2 (Bondi-Hoyle) is SAGE26's R0 recipe and is ported exactly; 0 turns the radio mode
+ * off. SAGE26's empirical (1) and cold-cloud (3) rates are not ported, and both values are refused
+ * at initialisation (shared/sage_agn_recipe.h).
  *
  * Reference: Croton et al. (2006, 2016)
  *
@@ -32,6 +33,7 @@
 #include "constants.h"
 #include "error.h"
 #include "globals.h"
+#include "shared/sage_agn_recipe.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_cooling_physics.h"
 #include "shared/time_parity.h"
@@ -54,8 +56,10 @@ static int AGN_RECIPE_ON;
 int sage26_radio_mode_heating_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RadioModeEfficiency", RADIO_MODE_EFFICIENCY, 0.0, 1.0,
                                     "AGN radio mode heating efficiency");
-  LOAD_AND_VALIDATE_OPTION("AGNrecipe", AGN_RECIPE_ON, 3,
-                           "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
+  LOAD_PARAM_INT("AGNrecipe", AGN_RECIPE_ON);
+  if (mimic_sage_validate_agn_recipe("sage26_radio_mode_heating", AGN_RECIPE_ON) != 0) {
+    return -1;
+  }
 
   /* Placement, checked in every substep phase that holds this module when the partner is
    * configured: the budget, whose cooling values this module reads, before it, and the apply
@@ -91,7 +95,7 @@ int sage26_radio_mode_heating_init(void) {
 
   VERBOSE_LOG("SAGE radio-mode AGN heating module initialized");
   VERBOSE_LOG("  RadioModeEfficiency = %.4f", RADIO_MODE_EFFICIENCY);
-  VERBOSE_LOG("  AGNrecipe = %d (0=off, 1=empirical, 2=Bondi, 3=cold cloud)", AGN_RECIPE_ON);
+  VERBOSE_LOG("  AGNrecipe = %d (0=off, 2=Bondi)", AGN_RECIPE_ON);
   return 0;
 }
 

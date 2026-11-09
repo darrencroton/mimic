@@ -229,7 +229,9 @@ static int setup_parameters(struct oracle_fixture *in, struct chain *c) {
                              oracle_in_f64(in, "params.QuasarModeEfficiency")) != 0 ||
       oracle_set_model_param("StarburstColdGasOn", 1.0) != 0 ||
       /* CGMrecipeOn: required by the commits', yields', wind's and disruption's modules */
-      oracle_set_model_param("CGMrecipeOn", 0.0) != 0) {
+      oracle_set_model_param("CGMrecipeOn", 0.0) != 0 ||
+      /* AGNrecipe: required by the wind's module, the fixture's AGNrecipeOn (checked above) */
+      oracle_set_model_param("AGNrecipe", (double)oracle_in_i32(in, "params.AGNrecipeOn")) != 0) {
     problems++;
   }
 

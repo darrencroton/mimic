@@ -51,6 +51,7 @@
 #include "module_registry.h"
 #include "module_system/parameter_helpers.h"
 #include "shared/metallicity.h"
+#include "shared/sage_agn_recipe.h"
 #include "shared/sage_cgm_routing.h"
 #include "shared/sage_constants.h"
 #include "shared/sage_cooling_physics.h"
@@ -72,8 +73,8 @@ static int CGM_RECIPE_ON;
  * finite; SAGE26's default is 6.0e11 (R/src/core_read_parameter_file.c:114) */
 static double MSHOCK_MSUN;
 
-/* SAGE26's AGNrecipeOn (the package's AGNrecipe) and RadioModeEfficiency, as
- * sage26_radio_mode_heating reads them */
+/* SAGE26's AGNrecipeOn (the package's AGNrecipe, 0 or 2, refused otherwise) and
+ * RadioModeEfficiency, as sage26_radio_mode_heating reads them */
 static int AGN_RECIPE_ON;
 static double RADIO_MODE_EFFICIENCY;
 
@@ -315,8 +316,10 @@ int sage26_regime_aware_cooling_init(void) {
   }
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RadioModeEfficiency", RADIO_MODE_EFFICIENCY, 0.0, 1.0,
                                     "AGN radio mode heating efficiency");
-  LOAD_AND_VALIDATE_OPTION("AGNrecipe", AGN_RECIPE_ON, 3,
-                           "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
+  LOAD_PARAM_INT("AGNrecipe", AGN_RECIPE_ON);
+  if (mimic_sage_validate_agn_recipe(MODULE_NAME, AGN_RECIPE_ON) != 0) {
+    return -1;
+  }
   if (CGM_RECIPE_ON == 1 && validate_placement() != 0) {
     return -1;
   }

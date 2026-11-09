@@ -68,7 +68,7 @@ struct MimicSageDiskYieldLocals {
  * @param yield              Yield
  * @param frac_z_leave_disk  FracZleaveDisk
  * @param cgm_recipe_on      CGMrecipeOn (0 or 1)
- * @param locals             Optional: receives the call's locals (NULL in production)
+ * @param locals             Optional, may be NULL: receives the call's locals
  */
 static inline void mimic_sage_apply_disk_yield(struct GalaxyData *gal,
                                                struct GalaxyData *central_gal,

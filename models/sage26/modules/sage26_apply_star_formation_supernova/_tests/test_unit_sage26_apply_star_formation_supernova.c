@@ -919,7 +919,10 @@ int test_metal_disk_vs_halo_split(void) {
  */
 int test_metal_enrichment_zero_cold_gas(void) {
   /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.025, 0.5);
+  /* RecycleFraction 0: with no calculator configured the apply step caps stars at ColdGas, so a
+   * recycling fraction above zero always leaves RecycleFraction * ColdGas behind; only R = 0 lets
+   * star formation exhaust the cold gas without exceeding it. */
+  setup_test_parameters(0.0, 0.025, 0.5);
 
   int init_result = sage26_apply_star_formation_supernova_init();
   TEST_ASSERT(init_result == 0, "Module initialization should succeed");

@@ -41,8 +41,9 @@
  *
  * The post-minor-merger recheck (R/src/model_mergers.c:806-811) runs inside the shared
  * transaction when sage26_disk_instability is configured (SAGE26's DiskInstabilityOn);
- * its gas branch grows the black hole when the quasar event consumer is configured
- * (SAGE26's AGNrecipeOn), with that module's BlackHoleGrowthRate and QuasarModeEfficiency.
+ * its gas branch grows the black hole when the quasar event consumer is configured and AGNrecipe
+ * is positive (SAGE26's AGNrecipeOn > 0, R/src/model_disk_instability.c:102), with that module's
+ * BlackHoleGrowthRate and QuasarModeEfficiency.
  *
  * Every burst samples the bursting galaxy's bulge star-formation history
  * (R/src/model_mergers.c:755-757). Each call passes the substep's history bin and SAGE26's
@@ -82,6 +83,7 @@
 #include "module_registry.h"
 #include "types.h"
 #include "shared/sage_agn_physics.h"
+#include "shared/sage_agn_recipe.h"
 #include "shared/sage_bulge_size_physics.h"
 #include "shared/sage_cgm_routing.h"
 #include "shared/sage_fire_feedback_physics.h"
@@ -132,6 +134,10 @@ static int FIRE_MODE_ON;
 /* SAGE26's CGMrecipeOn (0 hot-gas routing, 1 regime-aware CGM routing), required and checked at
  * init; the bundle carries it to every burst (shared/sage_starburst_physics.h) */
 static int CGM_RECIPE_ON;
+
+/* SAGE26's AGNrecipeOn (the package's AGNrecipe, 0 or 2), loaded only when the recheck can grow
+ * the black hole (sage26_disk_instability and the quasar event consumer both configured) */
+static int AGN_RECIPE_ON;
 
 // ============================================================================
 // MODULE-LOCAL CONSTANTS (converted from physical constants)
@@ -209,13 +215,13 @@ int sage26_starburst_feedback_init(void) {
 
   POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED =
       module_in_substep_phase("sage26_disk_instability", PROCESSING_MODE_BY_GALAXY);
-  POST_MERGER_QUASAR_FOLLOWUP_ENABLED =
+  const bool quasar_present =
       module_in_substep_phase("sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
 
   /* WARNING: without the quasar event consumer the post-merger recheck skips its black-hole
    * growth and wind, which SAGE26 runs before the recheck's burst
    * (R/src/model_disk_instability.c:102-104) */
-  if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && !POST_MERGER_QUASAR_FOLLOWUP_ENABLED) {
+  if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && !quasar_present) {
     WARNING_LOG("sage26_starburst_feedback: sage26_disk_instability is configured "
                 "but sage26_quasar_mode is absent as process_per_event — "
                 "post-merger disk instability quasar wind is silently skipped "
@@ -230,15 +236,27 @@ int sage26_starburst_feedback_init(void) {
                 " not present as process_by_galaxy)");
   }
 
-  if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && POST_MERGER_QUASAR_FOLLOWUP_ENABLED) {
+  AGN_RECIPE_ON = MIMIC_SAGE_AGN_RECIPE_OFF;
+  if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && quasar_present) {
     LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BlackHoleGrowthRate", POST_MERGER_BLACK_HOLE_GROWTH_RATE,
                                       0.0, 1.0, "BH growth rate");
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("QuasarModeEfficiency", POST_MERGER_QUASAR_MODE_EFFICIENCY,
                                       0.0, 1.0, "quasar mode efficiency");
+    /* The validator sage26_quasar_mode and the radio-mode readers use: one run-file key */
+    LOAD_PARAM_INT("AGNrecipe", AGN_RECIPE_ON);
+    if (mimic_sage_validate_agn_recipe("sage26_starburst_feedback", AGN_RECIPE_ON) != 0) {
+      return -1;
+    }
   } else if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED) {
-    VERBOSE_LOG("  (BlackHoleGrowthRate, QuasarModeEfficiency not loaded:"
+    VERBOSE_LOG("  (BlackHoleGrowthRate, QuasarModeEfficiency, AGNrecipe not loaded:"
                 " sage26_quasar_mode not present as process_per_event)");
   }
+
+  /* SAGE parity: AGNrecipeOn 0 skips grow_black_hole in the post-minor-merger recheck
+   * (R/src/model_disk_instability.c:101-103), so the follow-up grows no black hole. A deliberate
+   * AGNrecipe 0 run with the quasar module present gets no warning. */
+  POST_MERGER_QUASAR_FOLLOWUP_ENABLED =
+      POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && quasar_present && AGN_RECIPE_ON > 0;
 
   /* SAGE26's EnergySNcode and EtaSNcode (R/src/core_init.c:102-103), through the helpers
    * sage26_calculate_supernova_feedback uses */
@@ -260,9 +278,7 @@ int sage26_starburst_feedback_init(void) {
   VERBOSE_LOG("  post-minor-merger disk instability follow-up = %s",
               POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED ? "enabled" : "disabled");
   VERBOSE_LOG("  post-minor-merger quasar follow-up = %s",
-              (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED && POST_MERGER_QUASAR_FOLLOWUP_ENABLED)
-                  ? "enabled"
-                  : "disabled");
+              POST_MERGER_QUASAR_FOLLOWUP_ENABLED ? "enabled" : "disabled");
 
   return 0;
 }
@@ -281,9 +297,10 @@ int sage26_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *ha
       .threshold_major_merger = THRESHOLD_MAJOR_MERGER,
       .energy_sn_code = energy_sn_code,
       .eta_sn_code = eta_sn_code,
-      /* The post-minor-merger recheck: SAGE26's DiskInstabilityOn and AGNrecipeOn > 0
-       * (R/src/model_mergers.c:807, R/src/model_disk_instability.c:102) are this run's
-       * configuration of sage26_disk_instability and of the quasar event consumer */
+      /* The post-minor-merger recheck: SAGE26's DiskInstabilityOn (R/src/model_mergers.c:807)
+       * is this run's configuration of sage26_disk_instability, and its AGNrecipeOn > 0
+       * (R/src/model_disk_instability.c:102) that of the quasar event consumer with a positive
+       * AGNrecipe */
       .disk_instability_on = POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED,
       .star_forming_disk_factor = POST_MERGER_STAR_FORMING_DISK_FACTOR,
       .agn_recipe_on = POST_MERGER_QUASAR_FOLLOWUP_ENABLED,
@@ -448,6 +465,7 @@ int sage26_starburst_feedback_cleanup(void) {
   POST_MERGER_STAR_FORMING_DISK_FACTOR = 0.0;
   POST_MERGER_BLACK_HOLE_GROWTH_RATE = 0.0;
   POST_MERGER_QUASAR_MODE_EFFICIENCY = 0.0;
+  AGN_RECIPE_ON = MIMIC_SAGE_AGN_RECIPE_OFF;
   BULGE_SIZE_ON = MIMIC_SAGE_BULGE_SIZE_OFF;
   FIRE_MODE_ON = MIMIC_SAGE_FIRE_MODE_OFF;
   CGM_RECIPE_ON = MIMIC_SAGE_CGM_RECIPE_OFF;

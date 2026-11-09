@@ -151,7 +151,7 @@ struct MimicSageHydrogenCapLocals {
  * @param metallicity       Cold-gas metallicity at the call (get_metallicity of the cold gas)
  * @param recycle_fraction  RecycleFraction
  * @param sf_prescription   SFprescription (0 or 1), which selects the hydrogen cap
- * @param caps              Optional (NULL in production): receives the cap's locals
+ * @param caps              Optional, may be NULL: receives the cap's locals
  */
 static inline void mimic_sage_update_from_star_formation(struct GalaxyData *gal, const double stars,
                                                          const double metallicity,
@@ -257,7 +257,7 @@ struct MimicSageFeedbackLocals {
  * @param metallicity    Cold-gas metallicity of gal at the call (get_metallicity)
  * @param sf_prescription SFprescription (0 or 1), which selects the hydrogen cap
  * @param cgm_recipe_on  CGMrecipeOn (0 or 1), which with the central's Regime selects the pair
- * @param locals         Optional: receives the call's locals (NULL in production)
+ * @param locals         Optional, may be NULL: receives the call's locals
  */
 static inline void
 mimic_sage_update_from_feedback(struct GalaxyData *gal, struct GalaxyData *central_gal,
