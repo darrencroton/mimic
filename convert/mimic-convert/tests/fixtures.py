@@ -1665,7 +1665,7 @@ def rewrite_cut(source, out, scratch, table, input_dir=None, **overrides):
 
 # Vertical-assembly oracles and the dataset-editing helper
 
-SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "halo_properties.yaml"
+SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu" / "halo_properties.yaml"
 
 
 WORKED_ASCII = (

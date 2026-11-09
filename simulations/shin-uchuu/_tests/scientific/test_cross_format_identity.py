@@ -111,7 +111,7 @@ def subset_package(lhalo: Path, file_range: tuple[int, int], dataset: Path) -> G
         format_version=3,
         source_format="lhalo_binary",
         header_source_format="consistent_trees_ascii",
-        # simulations/shin-uchuu-ascii/converter_columns.yaml, the route's default ASCII profile.
+        # convert/mimic-convert/profiles/consistent_trees_ascii.yaml, the route's default profile.
         column_mapping_sha256="727d13f529fa80305f261b933612b6087aa52ade5dde7899bb18f8f4450f8f6d",
         links_adjacent=1,
         halos=406_668_896,

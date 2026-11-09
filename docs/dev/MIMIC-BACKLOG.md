@@ -35,6 +35,10 @@ The architectural direction is [`docs/VISION.md`](../VISION.md); the conventions
 
 **SAGE26 v1.0.** When SAGE26 tags its v1.0, bring the package up to it: diff SAGE26 at the tag against the commit the package follows (`11b1ae8`), carry each physics change into the owning module with its tests, refresh the baseline, and re-measure agreement with the tooling on `sage26/import-tooling` (comparator against a SAGE26 v1.0 run on mini-Millennium; the alignment set, re-based on the new `main`, for the bit-for-bit check). Record the result under *Claims and limits* and in `models/sage26/README.md`, *Agreement with SAGE26*.
 
+## Simulations
+
+**The Shin-Uchuu ASCII subset package lives on a branch, not on `main`.** `shin-uchuu-ascii`, its three run files, its `sage16` plot profile and the subset gate left `main` on 2026-11-09 because no clone can run them (the subset is defined by machine-local index files); they are kept whole on `shin-uchuu/ascii-validation` (`main` at `78334f8b`, plus that branch's `docs/dev/SHIN-UCHUU-ASCII-VALIDATION.md` on restoring them). Bring them back to re-run the subset gate at Shin-Uchuu scale, or to convert the ASCII catalogue again, since `convert_trees.py --simulation-info` needs that package's `consistent_trees_ascii` metadata.
+
 ## Release
 
 **v1.6 (held by the owner).** The CHANGELOG's *Unreleased* section is complete and the gates are green on `main`; the owner holds the tag for work in other sessions. When ready: rerun `make clean && make && make tests`, `make MODEL=sage26 SIMULATION=mini-millennium` with `tests-unit`, `tests-integration` and `tests-scientific`, `make check-format` and `make check-docs`; rename *Unreleased* to `## v1.6 (<date>)`; `git tag -a v1.6 -m "..."` on the last release commit; `git push origin main v1.6`; watch the three CI jobs (the `sage26` job expects the relaxed scientific gate).

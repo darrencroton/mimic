@@ -6,17 +6,17 @@
 # generated reader-side code consumes the datasets by name, so property names
 # and the on-disk names are the same strings and no `source:` mapping is needed.
 #
-# The shared fields mirror simulations/shin-uchuu-ascii/halo_properties.yaml
-# (key order, units, h_convention, range, output, init/output sources, and
-# core-role bindings) except the five link roles, which are `long long` here
-# because the version 3 format stores int64 links, while the vertical package
-# keeps `int`. The snapshot dataset is the full Shin-Uchuu Consistent-Trees
-# catalogue's production dataset (see README.md), which applies the same
-# reference value conventions. M_Crit200 therefore carries the native
-# ctrees Mvir in Msun/h, positions are Mpc/h, Spin is the specific angular
-# momentum J/Mvir, (Mpc/h)(km/s), for non-zero Mvir -- the converter
-# deliberately keeps raw J for zero-mass halos -- and Len is derived as
-# round(Mvir * 1e-10 / particle_mass).
+# The shared fields mirror simulations/shin-uchuu/halo_properties.yaml, the
+# vertical L-Halo package of the same cut trees (key order, units, h_convention,
+# range, output, init/output sources, and core-role bindings), except the five
+# link roles, which are `long long` here because the version 3 format stores
+# int64 links, while the vertical package keeps `int`. The snapshot dataset is
+# the full Shin-Uchuu Consistent-Trees catalogue's production dataset (see
+# README.md), which applies the same reference value conventions. M_Crit200
+# therefore carries the native ctrees Mvir in Msun/h, positions are Mpc/h, Spin
+# is the specific angular momentum J/Mvir, (Mpc/h)(km/s), for non-zero Mvir --
+# the converter deliberately keeps raw J for zero-mass halos -- and Len is
+# derived as round(Mvir * 1e-10 / particle_mass).
 #
 # ForestIndex and HaloRankInForest, the producer-owned UniqueGalaxyID identity
 # components the on-disk format carries explicitly, are deliberately NOT
@@ -32,8 +32,8 @@
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
 #
-# Mirror maintenance: the shared fields track simulations/shin-uchuu-ascii, link
-# types aside. Any other change to a shared field must be made in both, and any
+# Mirror maintenance: the shared fields track simulations/shin-uchuu, link types
+# aside. Any other change to a shared field must be made in both, and any
 # change to a name or type here must first be made in the format
 # specification.
 

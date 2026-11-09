@@ -20,10 +20,11 @@
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
 #
-# Mirror maintenance: the fields, their order, types, units, h_convention, roles
-# and ranges are those of simulations/shin-uchuu-ascii/halo_properties.yaml; keep
-# them in sync. A change here changes the record on disk, so every converted
-# dataset must be rewritten with the new layout.
+# Mirror maintenance: the fields, their order, units, h_convention, roles and
+# ranges are those of
+# simulations/shin-uchuu-ascii-horizontal/halo_properties.yaml, whose links are
+# `long long`; keep them in sync. A change here changes the record on disk, so
+# every converted dataset must be rewritten with the new layout.
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---

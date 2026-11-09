@@ -22,8 +22,9 @@ input:
 
 simulation:
   # max_halo_rank_in_forest = 12,646,607,900 for this catalog, so 2e10
-  # satisfies halonr < multiplier. Must match shin-uchuu-ascii's value
-  # exactly, or UniqueGalaxyID diverges between the two packages.
+  # satisfies halonr < multiplier. Must match shin-uchuu's value exactly, or
+  # UniqueGalaxyID diverges between the two packages. The physical values here
+  # are mirrored in _tests/data/source/simulation_info.yaml, the fixture's input.
   unique_galaxy_id_multiplier: 20000000000
   cosmology:
     omega_matter: 0.3089

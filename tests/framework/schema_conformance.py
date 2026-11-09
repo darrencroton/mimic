@@ -6,8 +6,8 @@ the ``/schema`` the converter writes for its route. Each
 file: a ``SchemaPackage`` naming what the package pins, and a ``main()`` calling
 ``run_schema_conformance(SPEC, title)``, which runs four tests:
 
-1. ``test_converter_schema_is_the_pinned_route`` -- the vertical package's
-   converter profile (convert/mimic-convert/column_schema.py, the code that writes
+1. ``test_converter_schema_is_the_pinned_route`` -- the route's converter
+   profile (convert/mimic-convert/column_schema.py, the code that writes
    every file's ``/schema`` and stamps its ``column_mapping_sha256``) derives the
    pinned source format, digest and mass units. Needs no dataset.
 2. ``test_yaml_declarations_match_converter_schema`` -- the YAML declarations
@@ -89,7 +89,8 @@ class SchemaPackage:
 
     Args:
         package: The horizontal package under test.
-        vertical_package: The package whose converter_columns.yaml is the route.
+        vertical_package: The package whose converter_columns.yaml is the route,
+            or None when ``column_map`` names the route's profile instead.
         source_format: The route's expected ``source_format``.
         column_mapping_sha256: The pinned digest of that route.
         mass_units: The mass role's (M_Crit200) native units, asserted
@@ -97,14 +98,22 @@ class SchemaPackage:
             per-source-format package exists to stop.
         fixture_datasets: Repo-relative directories of committed version 3
             datasets that must exist and satisfy the one-way rule.
+        column_map: The repo-relative converter profile of a route whose source
+            has no vertical package on main, or None. Not for an lhalo_binary
+            route, which also needs its vertical package's halo_properties.yaml.
     """
 
     package: str
-    vertical_package: str
+    vertical_package: str | None
     source_format: str
     column_mapping_sha256: str
     mass_units: str
     fixture_datasets: tuple[str, ...] = ()
+    column_map: str | None = None
+
+    def __post_init__(self):
+        if (self.vertical_package is None) == (self.column_map is None):
+            raise ValueError(f"{self.package}: name exactly one of vertical_package and column_map")
 
 
 def _text(value) -> str:
@@ -131,7 +140,14 @@ class SchemaConformance:
     def __init__(self, spec: SchemaPackage):
         self.spec = spec
         self.package_root = REPO_ROOT / "simulations" / spec.package
-        self.vertical_root = REPO_ROOT / "simulations" / spec.vertical_package
+        self.vertical_root = (
+            REPO_ROOT / "simulations" / spec.vertical_package if spec.vertical_package else None
+        )
+        self.column_map = (
+            REPO_ROOT / spec.column_map
+            if spec.column_map
+            else self.vertical_root / "converter_columns.yaml"
+        )
         self.halo_properties = f"simulations/{spec.package}/halo_properties.yaml"
 
     def tests(self):
@@ -150,12 +166,14 @@ class SchemaConformance:
             raise TestSkipped(f"compiled simulation is {simulation!r}, not {self.spec.package}")
 
     def _converter_schema(self):
-        """The converter's canonical schema for the vertical package's profile."""
+        """The converter's canonical schema for the route's profile."""
         import column_schema as cs
 
-        column_map = cs.load_column_map(self.vertical_root / "converter_columns.yaml")
+        column_map = cs.load_column_map(self.column_map)
         source_properties = None
         if column_map.source_format == "lhalo_binary":
+            msg = f"{self.spec.package}: an lhalo_binary route needs its vertical_package"
+            assert self.vertical_root is not None, msg
             source_properties = cs.load_source_properties(
                 self.vertical_root / "halo_properties.yaml"
             )
@@ -218,7 +236,7 @@ class SchemaConformance:
     # ---- tests -----------------------------------------------------------
 
     def test_converter_schema_is_the_pinned_route(self):
-        """The vertical profile derives the pinned route, digest and mass units."""
+        """The route's profile derives the pinned route, digest and mass units."""
         self._require_simulation()
         spec = self.spec
         schema = self._converter_schema()

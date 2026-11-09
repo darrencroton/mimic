@@ -13,11 +13,12 @@ block per tree), ``forests.list`` (every tree root to its forest) and
 ``../regenerate.sh`` converts them with ``convert/mimic-convert/convert_trees.py``
 into ``../worked_ascii/`` (via ``convert_worked_ascii.sh`` beside this script).
 
-The scale factors are the last six of a vertical Consistent-Trees ASCII package's
-own snapshot list (its ``simulation_info.yaml`` ``input.snapshot_list_file``),
-renumbered from 0, so the fixture's timesteps have that package's real spacing.
-``--package`` names the package (default ``micro-uchuu-ascii``, the source of
-this horizontal package); ``--output-dir`` writes elsewhere, which is how
+The scale factors are the last six of a Consistent-Trees ASCII source's own
+snapshot list (its ``simulation_info.yaml`` ``input.snapshot_list_file``),
+renumbered from 0, so the fixture's timesteps have that source's real spacing.
+``--package`` names the source, a directory under ``simulations/`` holding that
+``simulation_info.yaml`` (default ``micro-uchuu-ascii``, the source of this
+horizontal package); ``--output-dir`` writes elsewhere, which is how
 ``convert_worked_ascii.sh`` builds the same forests at each package's scale factors in a
 temporary directory.
 
@@ -213,8 +214,8 @@ def main(argv=None):
     parser.add_argument(
         "--package",
         default="micro-uchuu-ascii",
-        help="vertical package whose last six scale factors the fixture uses "
-        "(default: micro-uchuu-ascii)",
+        help="source (a directory under simulations/ holding its simulation_info.yaml) "
+        "whose last six scale factors the fixture uses (default: micro-uchuu-ascii)",
     )
     parser.add_argument(
         "--output-dir",

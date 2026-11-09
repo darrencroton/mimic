@@ -7,9 +7,9 @@
 # six snapshots, written as Consistent-Trees ASCII by generate_source.py beside
 # this script. The ASCII source embeds scale factors, so each package needs its
 # own source: this script generates it at the last six scale factors of the
-# vertical package's snapshot list into a temporary directory, converts it with
+# source's snapshot list into a temporary directory, converts it with
 # convert/mimic-convert/convert_trees.py (ingest, transpose, write, then report,
-# which runs the producer validation battery) under that vertical package's own
+# which runs the producer validation battery) under that source's own
 # simulation_info.yaml and converter profile, so the fixture's headers carry
 # exactly the cosmology, box size, particle mass and scale factors the
 # horizontal package declares and its reader checks at open, and installs the
@@ -23,8 +23,13 @@
 # before they go.
 #
 # Usage (from anywhere; called by each package's _tests/data/regenerate.sh):
-#   convert_worked_ascii.sh <horizontal package> <vertical source package>
-#   e.g. convert_worked_ascii.sh shin-uchuu-ascii-horizontal shin-uchuu-ascii
+#   convert_worked_ascii.sh <horizontal package> <source>
+#   e.g. convert_worked_ascii.sh micro-uchuu-ascii-horizontal micro-uchuu-ascii
+# <source> is a directory under simulations/ holding the source route's
+# simulation_info.yaml: a vertical package, or a horizontal package's
+# _tests/data/source when its source has no package on main
+# (shin-uchuu-ascii-horizontal/_tests/data/source). A source without its own
+# converter_columns.yaml converts under the shipped consistent_trees_ascii profile.
 #
 # Exit codes: 0 on success; non-zero if an argument is wrong, an input is
 # missing, any converter stage fails or the installed snapshot files differ from
@@ -34,7 +39,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
-    echo "usage: $0 <horizontal package> <vertical source package>" >&2
+    echo "usage: $0 <horizontal package> <source>" >&2
     exit 2
 fi
 PACKAGE="$1"
@@ -51,8 +56,12 @@ GENERATOR="simulations/micro-uchuu-ascii-horizontal/_tests/data/source/generate_
 S="simulations/${SOURCE_PACKAGE}"
 FIXTURE_DIR="simulations/${PACKAGE}/_tests/data/worked_ascii"
 CONVERT="convert/mimic-convert/convert_trees.py"
+PROFILE="${S}/converter_columns.yaml"
+if [ ! -f "$PROFILE" ]; then
+    PROFILE="convert/mimic-convert/profiles/consistent_trees_ascii.yaml"
+fi
 
-for required in "$GENERATOR" "${S}/simulation_info.yaml" "${S}/converter_columns.yaml"; do
+for required in "$GENERATOR" "${S}/simulation_info.yaml" "$PROFILE"; do
     if [ ! -f "$required" ]; then
         echo "ERROR: required input not found: ${required}" >&2
         exit 1
@@ -72,7 +81,7 @@ workdir="${WORKROOT}/convert"
 
 "$MIMIC_PYTHON" "$CONVERT" ingest --workdir "$workdir" --source-format consistent_trees_ascii \
     --simulation-info "${S}/simulation_info.yaml" --a-list "${source_dir}/worked_ascii.a_list" \
-    --column-map "${S}/converter_columns.yaml" --forests-list "${source_dir}/forests.list" \
+    --column-map "$PROFILE" --forests-list "${source_dir}/forests.list" \
     --tree-file "${source_dir}/tree_0_0_0.dat"
 "$MIMIC_PYTHON" "$CONVERT" transpose --workdir "$workdir"
 "$MIMIC_PYTHON" "$CONVERT" write --workdir "$workdir" --simulation-info "${S}/simulation_info.yaml"

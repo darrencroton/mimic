@@ -9,7 +9,7 @@ This package runs Mimic's vertical driver on the **cut** Shin-Uchuu merger trees
 - `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked)
 - `_tests/`: a committed test-sized fixture, the record-layout and reader unit tests and the fixture's halo-level identity test (see [Tests](#tests))
 
-Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774), box size (140 Mpc/h) and particle mass (8.97×10⁵ Msun/h) are those of `shin-uchuu-ascii-horizontal` and `shin-uchuu-ascii`.
+Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774), box size (140 Mpc/h) and particle mass (8.97×10⁵ Msun/h) are those of `shin-uchuu-ascii-horizontal`.
 
 ## The record
 
@@ -111,7 +111,7 @@ The vertical driver holds one forest at a time, and a run's peak memory is set b
 
 ## Identity with the sibling packages
 
-`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰) must equal the value in `shin-uchuu-ascii-horizontal` and `shin-uchuu-ascii`, or `UniqueGalaxyID` diverges between the packages. The vertical driver numbers forests by the prefix sum of the files' tree counts in file-number order, so with every file present and the files in plan order a forest's number is its `ForestIndex`, and a halo's id is `HaloRankInForest + 2×10¹⁰ × (ForestIndex + 1)`, the id the horizontal driver gives it.
+`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰) must equal the value in `shin-uchuu-ascii-horizontal`, or `UniqueGalaxyID` diverges between the packages. The vertical driver numbers forests by the prefix sum of the files' tree counts in file-number order, so with every file present and the files in plan order a forest's number is its `ForestIndex`, and a halo's id is `HaloRankInForest + 2×10¹⁰ × (ForestIndex + 1)`, the id the horizontal driver gives it.
 
 ## Created-record limit
 
@@ -150,4 +150,3 @@ The gate covers the conversion and the vertical reader at subset scale. It does 
 ## Related packages
 
 - `simulations/shin-uchuu-ascii-horizontal/`: the horizontal version 3 dataset this package's dataset is converted from, read by the horizontal driver.
-- `simulations/shin-uchuu-ascii/`: the vertical Consistent-Trees ASCII subset package. It shares this package's fields and units but reads an uncut subset, not the cut trees.

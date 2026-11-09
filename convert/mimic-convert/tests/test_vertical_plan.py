@@ -41,7 +41,7 @@ from vertical.plan import (  # noqa: E402
 )
 from vertical.record import record_digest, record_dtype, record_layout  # noqa: E402
 
-SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "halo_properties.yaml"
+SHIN_UCHUU_RECORD = REPO_ROOT / "simulations" / "shin-uchuu" / "halo_properties.yaml"
 MINI_MILLENNIUM_RECORD = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
 WORKED_ASCII = (
     REPO_ROOT / "simulations" / "shin-uchuu-ascii-horizontal" / "_tests" / "data" / "worked_ascii"

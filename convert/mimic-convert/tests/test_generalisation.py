@@ -9,7 +9,7 @@ checked against that package's source metadata -- the ordered
 ``halo_properties.yaml`` for the four L-Halo binary packages (field order, types and
 offsets recomputed here from the declared types), the committed fixture's
 ``Forests/`` datasets for the two forests-HDF5 packages and the fixture's header for
-the one ASCII package. shin-uchuu-ascii's profile is not covered here.
+the one ASCII package.
 
 **User-defined extras.** For each adapter, a profile written by the test with
 freshly generated output names (so no stage can know them in advance) is run

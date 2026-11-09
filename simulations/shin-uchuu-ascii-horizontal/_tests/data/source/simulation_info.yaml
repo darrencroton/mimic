@@ -1,0 +1,36 @@
+# Shin-Uchuu Consistent-Trees ASCII source metadata — worked_ascii fixture input
+#
+# The source-route metadata ../regenerate.sh converts this package's worked_ascii
+# fixture under (through
+# simulations/micro-uchuu-ascii-horizontal/_tests/data/source/convert_worked_ascii.sh).
+# convert_trees.py requires input.tree_type to name the source format, which this
+# package's own simulation_info.yaml (horizontal_hdf5) cannot, so the route keeps
+# its metadata here. The fixture's scale factors are the last six of the snapshot
+# list named below, and its headers carry the simulation values below, which the
+# reader checks at open: keep them equal to ../../../simulation_info.yaml's. Test
+# input only; no run reads it. The vertical ASCII package these values come from
+# is kept on the shin-uchuu/ascii-validation branch.
+
+input:
+  first_file: 0
+  last_file: 0
+  tree_name: tree_0_0_0.dat
+  tree_type: consistent_trees_ascii
+  # Required by the configuration layer; the fixture's tree file is passed explicitly.
+  simulation_dir: simulations/shin-uchuu-ascii-horizontal/_tests/data/source
+  snapshot_list_file: simulations/shin-uchuu-ascii-horizontal/shin-uchuu.a_list
+
+simulation:
+  unique_galaxy_id_multiplier: 20000000000
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 140.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0000897
+    units: 1e10 Msun/h
+    h_convention: carried

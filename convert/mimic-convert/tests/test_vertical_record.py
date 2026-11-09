@@ -28,7 +28,7 @@ from vertical.record import (  # noqa: E402
     record_layout,
 )
 
-SHIN_UCHUU = REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "halo_properties.yaml"
+SHIN_UCHUU = REPO_ROOT / "simulations" / "shin-uchuu" / "halo_properties.yaml"
 MINI_MILLENNIUM = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
 
 
@@ -114,7 +114,7 @@ class RecordLayoutTests(RecordTestCase):
         with self.assertRaisesRegex(ConverterError, "entry 0 has no name"):
             self.dtype_of([{"type": "int"}])
         with self.assertRaisesRegex(ConverterError, "no halo_properties list"):
-            record_dtype(REPO_ROOT / "simulations" / "shin-uchuu-ascii" / "simulation_info.yaml")
+            record_dtype(REPO_ROOT / "simulations" / "shin-uchuu" / "simulation_info.yaml")
 
 
 class RecordDigestTests(RecordTestCase):
