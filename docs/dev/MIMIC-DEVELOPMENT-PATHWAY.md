@@ -15,6 +15,32 @@ Roadmap steps 1 to 5 are complete (Shin-Uchuu end to end, snapshot-global module
 
 ---
 
+## Where This Is Heading
+
+**The goal the remaining steps serve is science campaigns** (proposed 2026-11-10, not yet adopted): the owner writes a brief containing a science question, and a Campaign Manager answers it with Mimic in a long, mostly unattended campaign, reading the literature, building tools and models, running experiments, judging the results against the brief, and bringing the owner in where a decision is the owner's. [`MIMIC-SCIENCE-CAMPAIGNS-MAP.md`](MIMIC-SCIENCE-CAMPAIGNS-MAP.md) holds the map, the gaps and the reasoning.
+
+Read against that goal, the road's parts are one system:
+
+- **Engine:** campaign mode (built), taking three classes of brief: port (done, the import), build (step 8) and investigate (new).
+- **Apparatus:** Mimic (built). A model package is a hypothesis that can be run, and swapping a module in a run file is a controlled experiment.
+- **Instruments:** step 6's spike builds the first evaluation boundary and its first method. Others join as campaigns need them, chosen by the question asked: is the effect numerical, what matters, what does the data exclude, where is the fit, does it predict held-out data, is structure A better supported than B.
+- **Constraints:** one shared source of observations, consumed by the figures and the instruments alike (missing).
+- **Literature and write-up:** sci-paper, a separate repository still in development; the owner intends to finish it by writing the Mimic paper with it.
+
+The largest gap is not a tool. An import is gated by parity with a reference, and an open question has none, so a science campaign needs claims as its unit of progress, each with a test declared in advance, and a refutation counted as an answer.
+
+**The map is a direction, not a commitment.** Its decisions are open, and the steps below are chosen for what they tell us; any of them may redraw the map and the order of the road.
+
+**Next steps that shape it**, in order (steps 1, 3 and 4 can run alongside each other):
+
+1. **Run the step 6 spike as planned.** It gives a verdict on history matching and the evaluation boundary as working code.
+2. **Hold step 8's re-review with the map as an input.** It decides whether the model builder becomes the build class of brief.
+3. **Run a science shakedown:** one question with a held-out answer, written as a brief on the existing template with a claim ledger. It shows whether campaign mode can carry a science question as it stands, and what an experiment costs. This is the step that tests the map.
+4. **Write the Mimic paper with sci-paper.** It shows what the write-up leg needs.
+5. **Then decide** where observational constraints live and which bounded real question is the second campaign.
+
+---
+
 ## The Ordered Road
 
 Four numbered steps remain. The numbered order is the **planned order**, not a dependency chain: each step is worth building on its own, but several are worth more in combination. The dotted arrows mark where one step feeds a later one, and [Why this order](#why-this-order) records where a later step constrains other work.
@@ -28,30 +54,37 @@ flowchart TD
     S7["7 · Coupled rate formulation<br/>declared transfers, one integrated system"]
     S8["8 · Model builder<br/>paper to tested model package"]
     S9["9 · Embedded engine (optional)<br/>physics-only API for external hosts"]
+    GOAL["Science campaigns (direction)<br/>a brief with a science question,<br/>answered with Mimic"]
 
     DONE --> S5 --> S6 --> S7 --> S8 --> S9
     S5 --> PCW
     S5 -.->|first version, reference-port class,<br/>starts the re-review| S8
     S6 -.->|candidate science gate<br/>for novel models| S8
+    S5 -.->|the engine| GOAL
+    S6 -.->|instruments| GOAL
+    S8 -.->|build class of brief| GOAL
 
     classDef done fill:#d5e8d4,stroke:#478c47,color:#12300f
     classDef next fill:#fff2cc,stroke:#b8932e,color:#3d2e00
     classDef step fill:#e8e8ff,stroke:#6a6ac0,color:#1c1c4d
+    classDef goal fill:#f5f5f5,stroke:#666666,stroke-dasharray:5 4,color:#222222
     class DONE,S5,PCW done
     class S8 next
     class S6,S7,S9 step
+    class GOAL goal
 ```
 
 | Step | Work | Owned by | Gate or next action |
 |---|---|---|---|
 | **5** | **Model builder prototype** — PM campaign mode: a Campaign Manager that plans, runs and validates a campaign against an owner-approved dossier through child PMs and read-only tasks, tested on importing SAGE26 as `models/sage26` | The campaign dossiers (shakedown, shakedown 2, sage26) and ai-agent-coder's `campaign-mode.md`; the design brief is archived | **Done** (2026-11-08): the import met all five targets and is merged; see [Step 5](#step-5-model-builder-prototype-done). The work it deferred landed on 2026-11-09 (the [Changelog](#changelog) line); the toolkit's own machinery work document is in ai-agent-coder (`docs/sage26-campaign-machinery-work-20261108.md`) |
-| **6** | **Emulator** — is a model package well-posed, and what constrains what | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md), with [`MIMIC-EMULATOR-IMPLEMENTATION-PLAN.md`](MIMIC-EMULATOR-IMPLEMENTATION-PLAN.md) for its spike | Run its calibrated-variance spike under the implementation plan: seven Mode B slices in a new repository outside the product tree, written so that, on a pass, it is the first version of the instrument step 8 and later campaigns would call. It changes nothing in this repository, so it can run alongside the re-review, provided the default binary is not rebuilt meanwhile |
-| **7** | **Coupled rate formulation** — declared transfers, one integrated system | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md), with [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) and [`SAGE26-PRESCRIPTION-CLASSIFICATION.md`](SAGE26-PRESCRIPTION-CLASSIFICATION.md) as its settled inputs | Run its measurement spike (new files under `models/` only, no core change). The spike sets priority, solver family and the attribution baseline; it is not a veto |
-| **8** | **Model builder** — paper to tested model package | [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) | Its re-review, due since 2026-08-12, starts from the sage26 campaign's retrospective and the post-campaign review's axis 1, now that v1.6 is released. Novel models still need a science gate, with step 6 the candidate |
+| **6** | **Emulator** — is a model package well-posed, and what constrains what | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md), with [`MIMIC-EMULATOR-IMPLEMENTATION-PLAN.md`](MIMIC-EMULATOR-IMPLEMENTATION-PLAN.md) for its spike | Run its calibrated-variance spike under the implementation plan: seven Mode B slices in a new repository outside the product tree, written so that, on a pass, it is the first version of the instrument step 8 and later campaigns would call. It changes nothing in this repository, so it can run alongside the re-review, provided the default binary is not rebuilt meanwhile. The map reads its spec, capture and provenance as the evaluation boundary other methods would share; what is promoted after the verdict is decided then |
+| **7** | **Coupled rate formulation** — declared transfers, one integrated system | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md), with [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) and [`SAGE26-PRESCRIPTION-CLASSIFICATION.md`](SAGE26-PRESCRIPTION-CLASSIFICATION.md) as its settled inputs | Run its measurement spike (new files under `models/` only, no core change). The spike sets priority, solver family and the attribution baseline; it is not a veto. It is also a candidate early science campaign (the map) |
+| **8** | **Model builder** — paper to tested model package | [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) | Its re-review, due since 2026-08-12, starts from the sage26 campaign's retrospective and the post-campaign review's axis 1, now that v1.6 is released. Novel models still need a science gate, with step 6 the candidate. The map proposes that its orchestration become the build class of campaign brief, with its requirements kept: an input to the re-review, not a decision |
 | **9** | **Embedded engine** — optional, possibly never | [`MIMIC-EMBEDDED-ENGINE-PLAN.md`](MIMIC-EMBEDDED-ENGINE-PLAN.md) | Nothing depends on it. Promote only if a scientific need arises |
 
 **Open candidates, unnumbered and unscheduled.** Each becomes a step only when the owner chooses it.
 
+- **The map's pieces:** a science shakedown campaign, a science brief template with a claim ledger (in ai-agent-coder, tried first as a convention on existing targets), and one shared source of observational constraints that the figures consume (a Mimic change outside the core). Each waits on the map's decisions; [Where This Is Heading](#where-this-is-heading) orders the steps that inform them.
 - **4.3, thread-per-forest parallelism** (spectrum item 16). `mpirun` already scales both drivers to 85 to 86% efficiency at 16 ranks on the full mini-Uchuu box ([`MIMIC-PERFORMANCE-REFERENCE.md`](MIMIC-PERFORMANCE-REFERENCE.md)), so threads would buy that efficiency gap and intra-node balance, not a new order of magnitude; they pay where memory rather than cores is the bound (where `input.forest_chunks` already applies). Determinism is in place (no RNG in the physics path, module statics write-once at `init()`); the work is instancing enumerable global mutable state, with bit-identity an acceptance criterion and `MPI_THREAD_FUNNELED` sufficient, since the MPI decomposition keeps every call between FoF sweeps.
 - **Further performance work** (the spectrum's Tiers B and C, and the performance residuals below). Months of work whose value is best judged after 4.3, if it runs. Batched dispatch and the SoA generator (items 17 and 19) stay deferred behind step 7, and the spectrum's Tier D (module-major interchange, static fusion and language changes, GPU offload at this scale, substep reduction) is ruled out with measurements: do not re-propose it without new evidence. The baseline to measure against is the closing composite in the spectrum's [Tier A outcome](OPTIMISATION-SPECTRUM.md#outcome-of-the-tier-a-plan-2026-10-22) (full tables in the archived acceptance record's Slice 9). Any of it starts from a frozen implementation plan with acceptance slices, must clear `make tests-reference-identity REFERENCE_COMMIT=<hash>`, and, if it touches the drivers, must keep the distributed and chunked gates (`make tests-distributed`) and the cross-format identity gates green.
 - **Full Uchuu.** Converted only from its six-halo fixture. It is storage-bound before it is memory-bound (about 37 TB of source and about 26 TB of output), and it has its own super-forest question, which chunking and distribution cannot get past because a forest is never split. The Shin-Uchuu route (census, decided cut table, `convert_trees.py ingest --cut-table`) is the template.
@@ -106,6 +139,7 @@ The rule for a future campaign is the same: do not pre-solve campaign content, s
 | Document | Role |
 |---|---|
 | `MIMIC-DEVELOPMENT-PATHWAY.md` | This index: the road ahead, the next task, and a one-line changelog of finished work |
+| [`MIMIC-SCIENCE-CAMPAIGNS-MAP.md`](MIMIC-SCIENCE-CAMPAIGNS-MAP.md) | Direction brief, proposed and not adopted: the goal the remaining steps serve (science campaigns), its parts and who owns each, the gaps ranked, the toolkit for judging ideas, the VISION principles extended, the next steps and the open decisions |
 | [`MIMIC-BACKLOG.md`](MIMIC-BACKLOG.md) | Standing: small items, bounded fixes and decisions not being addressed now, each with what to do and how to accept it; also the release recipe and the SAGE26 hand-back |
 | (archived) `MIMIC-MODEL-BUILDER-PROTOTYPE-2026-10-24-design-brief.md` | Step 5's design brief, in `archive/dev-plans/` since 2026-10-24: the live contract is ai-agent-coder's `campaign-mode.md` and the live plan of work is each campaign dossier; this index's [Step 5](#step-5-model-builder-prototype-done) keeps the exercise, the hold-out discipline and what lands here decisions, the import's drafted brief, and the design review's findings |
 | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Step 6: requirements brief |
@@ -225,5 +259,6 @@ One line per finished piece of work. The record of each lives in its archived do
 | 2026-11-09 | **The SAGE post-campaign work**, one commit per group, each reviewed by an independent Codex and Opus panel: core `375be172` (non-finite model parameters refused; the `MinDynamicSubsteps` floor with bounds on the substep keys; the vertical driver fatal with no input file; the module limit asserted at build time), `sage16` `fd8579e8` and `sage26` `30b44f7e` (star formation capped at the cold gas when the supernova calculator is left out; `AGNrecipe 0` stops black-hole growth at every site; `sage26` also refuses `AGNrecipe` 1 and 3, calls `exp10` at the FFB threshold and forms the SFR-history bin in 64 bits), with every shipped output unchanged (strict baselines, the oracle tier, and the reference-identity byte gate against `407b3edc`); the items not taken on moved to `MIMIC-BACKLOG.md` | `SAGE-POST-CAMPAIGN-WORK.md` (in `archive/dev-plans/`) |
 | 2026-11-09 | **The `sage26` user-facing cleanup for v1.6**, reviewed over three rounds by an independent Codex and Opus panel: the import's verification apparatus (comparator, controls, core-alignment set, function-level oracle with its 1,044 fixtures and 24 oracle tests) moved off `main` to the `sage26/import-tooling` and `sage26/core-alignment` branches on `origin`; every source, header, test, property note, plot docstring, README and run file rewritten to the `sage16` level of detail with no citation, configuration label, campaign or `sage16` comparison left; code tokens unchanged but for test-local identifier renames, verified by comment-stripped token comparison; run files added for every simulation package `sage16` ships, each built and validated and ten run on local data | `docs/dev/SAGE26-IMPORT-TOOLING.md` on the `sage26/import-tooling` branch |
 | 2026-11-09 | **v1.6** released from `main` and published on GitHub: the `sage26` package, the cut Shin-Uchuu on the vertical driver with the two Shin-Uchuu packages renamed, the Tier A performance work, the post-campaign fixes and Python 3.12; the release notes condensed from the full *Unreleased* record (which stays in git history at `cb60175d`); the build's recorded version now taken from release tags only, since the local `archive/*` tags had become the nearest tag | — |
+| 2026-11-10 | **Science-campaign map written**: a direction brief that reads steps 6 and 8, campaign mode and sci-paper as parts of one goal, proposed and not adopted, with its decisions left open and the next steps that inform them added to this index | (kept: the map, listed above) |
 
 **History decision, standing: `f81e2385` is not squashed into `13c0c9a7`** (2026-08-14). It is cited by SHA in archived records, the two commits are not adjacent, and the boundary is the evidence for the rule now in the validation skill (run the full suite as the last action). `git bisect skip` covers the two red commits.

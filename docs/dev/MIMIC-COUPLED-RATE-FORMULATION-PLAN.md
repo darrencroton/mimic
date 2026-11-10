@@ -185,7 +185,7 @@ Symmetric splitting is a **comparator, not an alternative**: it reduces error fo
 
 **Nor does it decide whether the work happens. Recorded 2026-08-20, so the spike is never read as a veto.** Sequential operator splitting has no defined answer to adjudicate: permuting the module list in a run file changes the result, and that ordering carries no physics. A small residual measured for `sage16` at z = 0 constrains this package at this epoch — it says nothing about a stiffer successor, nor about massive halos where cooling and dynamical timescales separate. The declarative benefits are independent of the residual's size in any case: machine-checkable conservation, a side-effect-free process path, and transfers that map onto published equations. What the measurement sets is **priority, solver family, and the baseline the eventual comparison is attributed against** — not permission.
 
-This spike touches only new files under `models/`, so it is safe to run alongside any other in-flight work.
+This spike touches only new files under `models/`, so it is safe to run alongside any other in-flight work. [`MIMIC-SCIENCE-CAMPAIGNS-MAP.md`](MIMIC-SCIENCE-CAMPAIGNS-MAP.md) (proposed 2026-11-10, not adopted) names it a candidate early science campaign: it asks a question, constructs its own reference and needs no discrepancy budget. That would change how the spike is run, not what it measures.
 
 ---
 

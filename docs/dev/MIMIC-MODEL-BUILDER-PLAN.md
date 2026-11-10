@@ -6,6 +6,8 @@
 **Prototype adopted (2026-10-22):** this brief is pathway step 8. The prototype's design brief (written 2026-10-20, archived 2026-10-24 as `archive/dev-plans/MIMIC-MODEL-BUILDER-PROTOTYPE-2026-10-24-design-brief.md` once campaign mode was built and the campaigns drafted) builds its workflow first as a prototype for the reference-port class, tested on importing SAGE26; it is pathway step 5, the next task, and the starting point for the re-review above. The live contract is ai-agent-coder's `skills/project-manager/references/campaign-mode.md`, and the exercise is the sage26 campaign dossier.
 **Prototype exercised (2026-11-08):** campaign sage26 ran to sign-off and the import is merged; the re-review above starts from the campaign's retrospective (`/Users/dcroton/Local/git-repos/campaigns/sage26/retrospective.md`) and the post-campaign review's axis 1, after the v1.6 release (the post-campaign work landed on 2026-11-09).
 
+**Map proposed (2026-11-10):** [`MIMIC-SCIENCE-CAMPAIGNS-MAP.md`](MIMIC-SCIENCE-CAMPAIGNS-MAP.md) proposes that this brief's orchestration be read as the *build* class of campaign brief, beside port and investigate, with the requirements below carried over as that brief's clauses and the science gate still owed. It is an input to the re-review above, not a decision.
+
 ---
 
 ## Purpose
