@@ -1,6 +1,6 @@
 # Mimic Emulator Plan
 
-**Status:** Requirements brief; pathway step 6 in the planned order, not started. Records a direction and two decisions so they are not re-litigated; the design is deliberately left open until the work is due.
+**Status:** Requirements brief; pathway step 6 in the planned order, not started. Records a direction and two decisions so they are not re-litigated; the design is deliberately left open until the work is due. The spike under [First Work](#first-work-measure-before-building) is planned in [`MIMIC-EMULATOR-IMPLEMENTATION-PLAN.md`](MIMIC-EMULATOR-IMPLEMENTATION-PLAN.md) (2026-11-10), which also records the facts re-measured for it.
 
 **Date:** 2026-08-20
 
@@ -124,8 +124,8 @@ Governed by `docs/VISION.md`. This work is a **consumer** of Mimic's contracts, 
 The reusable surface is larger than it looks, which is part of why the effort is bounded:
 
 - **Parameters are already declared and already external.** The `modules.parameters:` block of a run file is the design vector; `models/sage16/input/sage16_mini-millennium.yaml` exposes 15, of which 14 are continuous and `AGNrecipe` is a discrete structural switch. Sweeping means writing YAML, not patching code.
-- **Summary statistics are already factored out of plotting.** `plot/mimic-plot/output_utils.py:259` provides `calculate_mass_function()` with standardised binning and normalisation, and `hdf5_reader.py` plus `output_schema.py` give programmatic access to galaxy output.
-- **Observational constraints already exist inline, in two forms that are not interchangeable.** Some figure modules embed digitised point tables with errors: `models/sage16/plots/figures/stellar_mass_function.py:210` computes upper and lower bounds separately, which is the shape a discrepancy-aware implausibility wants. Others embed analytic fitted relations carrying no error at all — `baryonic_mass_function.py:90` (Bell 2003), `black_hole_bulge_relation.py:103` (Häring & Rix 2004), `metallicity.py:149` (Tremonti 2003). **Only the first kind can supply an observational variance; the second needs one invented for it.** Both need lifting into a declared constraint set, and sorting them into those two classes is the first task, not a detail of it.
+- **The histogram step of the summary statistics is already factored out of plotting.** `plot/mimic-plot/output_utils.py:293` provides `calculate_mass_function()` with standardised binning and normalisation, and `hdf5_reader.py` plus `output_schema.py` give programmatic access to galaxy output and its units. The rest is not factored out: selections, bin edges and the volume sit inside each figure, no figure returns its statistic, and the loader that knows the volume and h is in the script `mimic-plot.py`, which cannot be imported by name, so an instrument reads `BoxSize` and `Hubble_h` from a run's `RunProperties`.
+- **Observational constraints already exist inline, in three forms that are not interchangeable.** Some figure modules embed digitised point tables with errors: `models/sage16/plots/figures/stellar_mass_function.py:210` builds upper and lower bounds from the table's one error column, which is the shape a discrepancy-aware implausibility wants. Others embed analytic fitted relations carrying no error at all — `baryonic_mass_function.py:90` (Bell 2003), `black_hole_bulge_relation.py:113` (Häring & Rix 2004), `metallicity.py:161` (Tremonti 2003). A third form is a digitised table with no error column (`gas_mass_function.py`: Zwaan 2005, Obreschkow & Rawlings 2009), which behaves like the second. **Only the first kind can supply an observational variance; the others need one invented for them.** All need lifting into a declared constraint set, and sorting them into those classes is the first task, not a detail of it. The tables are already duplicated between model packages (the Baldry et al. 2008 table is in `sage16`, `sage26` and `sham`), so the lift is to one source that every package's figures consume.
 
 ---
 
@@ -145,8 +145,8 @@ The reusable surface is larger than it looks, which is part of why the effort is
 
 A zero-repository-change spike, outside the product tree:
 
-1. Latin-hypercube sample ~5 `sage16` parameters spanning star formation and supernova feedback, holding the rest at defaults, on mini-Millennium with a reduced snapshot list and a subset of tree files.
-2. Evaluate a few hundred points — hours on one machine, embarrassingly parallel across cores.
+1. Latin-hypercube sample ~5 `sage16` parameters spanning star formation and supernova feedback, holding the rest at defaults, on mini-Millennium with a reduced snapshot list and a subset of tree files. (The implementation plan runs the whole box and one snapshot: measured 2026-11-10, a run takes 2.4 s for all eight tree files, a cost set by the tree files and not by the snapshot list.)
+2. Evaluate a few hundred points — minutes on one machine (measured 2026-11-10: 176 runs in 56 s at eight processes), embarrassingly parallel across cores.
 3. Fit the emulator on part of the design and test it against the rest. The pass criterion is **calibrated variance, not accuracy**: held-out residuals must fall within the emulator's own claimed uncertainty at the expected rate. An emulator that is inaccurate but honest is usable; one that is accurate on average but overconfident is not.
 4. Report the fraction of parameter space a single iteration removes at a defensible discrepancy budget, and the sensitivity of that fraction to the budget.
 
