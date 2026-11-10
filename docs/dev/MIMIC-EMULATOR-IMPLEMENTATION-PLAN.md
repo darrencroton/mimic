@@ -2,7 +2,7 @@
 
 **Purpose:** Execute the *First Work* of [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md): measure whether a cheap emulator predicts `sage16`'s response well enough and knows honestly when it cannot, and how much of parameter space one history-matching iteration removes. The deliverable is a verdict of pass, fail or error against criteria frozen here, with a report. The code that produces it is written as the first working version of the instrument, so that a pass leaves something a campaign or the model builder can call, and a fail leaves nothing to unpick in Mimic.
 
-**Status:** Planning contract, revision 2 (2026-11-10: revision 1 was reviewed by an independent two-reviewer panel, and revision 2 took its findings; revision 3 makes the package's independence from `sage16` a contract (Decision 13) and was re-reviewed by the same panel; revision 4 adds Decision 14 and the time-resolution limit after a substep scan, and was not re-reviewed; revision 5 adds one acceptance criterion to Slice 2, that `capture`'s workers are threads, so that the run works inside a sandbox, and was not re-reviewed). Seven Mode B slices on one feature branch of a new repository outside Mimic; no slice changes a file in Mimic.
+**Status:** Planning contract, revision 2 (2026-11-10: revision 1 was reviewed by an independent two-reviewer panel, and revision 2 took its findings; revision 3 makes the package's independence from `sage16` a contract (Decision 13) and was re-reviewed by the same panel; revision 4 adds Decision 14 and the time-resolution limit after a substep scan, and was not re-reviewed; revision 5 adds one acceptance criterion to Slice 2, that `capture`'s workers are threads, so that the run works inside a sandbox, and was not re-reviewed; revision 6 names the reviewer seats the owner chose and the run's sandbox policy, in the launchers and Run Preparation, changes no slice, and was not re-reviewed). Seven Mode B slices on one feature branch of a new repository outside Mimic; no slice changes a file in Mimic.
 
 **Planning baseline:** Mimic `9ee08e55` on `main` (v1.6), clean tree. Every `path:line` anchor below was read at that baseline, and every measurement under [Frozen Facts and Evidence](#frozen-facts-and-evidence) was taken on 2026-11-10 with a `sage16` / `mini-millennium` binary whose physics and core sources equal the baseline's. PM binds a run to the SHA-256 of this file's bytes.
 
@@ -189,6 +189,10 @@ git commit -m "Scaffold: pinned environment and tool configuration"
 python3 ~/.claude/skills/lint/scripts/lint.py detect      # resolve anything it reports missing
 ```
 
+**3. The sandbox.** The run's base policy is `archive/sandbox-policies/MIMIC-EMULATOR-SANDBOX.json` in the Mimic checkout, passed to `init` as `--sandbox` with its absolute path. It is kept in the gitignored `archive/` and not committed, because it lists this machine's private paths; as checked below its SHA-256 is `5d9c46437f258e0e44561edaa786f227f2a6763d74eba7faecd21340c9c21153`. `init` validates it and records that digest, so it must not change during the run. Only the PM, on the host, reads it: the policy itself denies reads of `archive/` from inside. It allows the three seat harnesses their hosts and their own state (Claude Code, Codex, and OpenCode with `opencode.ai:443` and the two key files its configuration references), leaves the Mimic checkout, `docs/dev/` and the mini-Millennium trees readable, and denies reads of credentials, private notes, other sessions' transcripts, campaign dossiers and results, and the `archive` and `.orchestrator` directories of Mimic and the toolkit. It grants no write in Mimic: the toolkit adds the run's repository, its git directory and a temporary directory, which is everything a slice writes. `~/.matplotlib` is writable so the figure slices do not rebuild the font cache in every process.
+
+Checked on 2026-11-10 under `srt` 0.0.81, with a scratch directory standing in for the repository grant: the toolkit's base-policy checks pass with no warning; each denied read and write fails and each needed read succeeds; `./mimic -q` run from the Mimic root completes and writes its master file; a `ThreadPoolExecutor` runs two evaluations as subprocesses; a `ProcessPoolExecutor` fails with `PermissionError`, which is why Slice 2 requires threads. Not checked: a real harness inside the sandbox. Before the first slice, make one real-model launch per harness, including one `review` per reviewer harness, as the toolkit's `references/sandbox.md` asks (*Producing your policy*, steps 7 and 8).
+
 ---
 
 ## Execution Structure
@@ -210,7 +214,8 @@ python3 ~/.claude/skills/lint/scripts/lint.py detect      # resolve anything it 
 | 6 | `claude-sonnet-5-5` | high | moderate | standard | Reporting analyses and figures over finished numerics |
 | 7 | `claude-opus-5-5` | high | moderate | elevated | The measurement of record and its report |
 
-- **Reviewers.** Drift auditor `claude-sonnet-5-5` at high effort; code reviewers `claude-opus-5-5` at high effort and `gpt-6.1-sol` on Codex at high effort (pass `high` explicitly to Codex).
+- **Reviewers.** Drift auditor `opencode-go/deepseek-v4.1-flash` on OpenCode at max effort; code reviewers `claude-opus-5-5` at high effort, `gpt-6.1-sol` on Codex at high effort (pass `high` explicitly to Codex) and `opencode-go/qwen3.8-flash` on OpenCode at xhigh effort.
+- **Sandbox.** The run is sandboxed: `init` takes `--sandbox /Users/dcroton/Local/git-repos/mimic/archive/sandbox-policies/MIMIC-EMULATOR-SANDBOX.json` ([Run Preparation](#run-preparation), step 3). The policy is written for these seats' three harnesses (Claude Code, Codex, OpenCode); a seat on another harness needs the policy changed first.
 
 ## Resource Profile
 
@@ -611,7 +616,7 @@ Owner's steps in Mimic, outside the plan's slices:
 Plan file: /Users/dcroton/Local/git-repos/mimic/docs/dev/MIMIC-EMULATOR-IMPLEMENTATION-PLAN.md
 Scope: Slice 1
 Supervision: checkpointed — I am present: ask me before coding an approval-flagged slice and before each commit
-Reviewers (optional): drift auditor claude claude-sonnet-5-5 high; code reviewers claude claude-opus-5-5 high; codex gpt-6.1-sol high
+Reviewers (optional): drift auditor opencode opencode-go/deepseek-v4.1-flash max; code reviewers claude claude-opus-5-5 high; codex gpt-6.1-sol high; opencode opencode-go/qwen3.8-flash xhigh
 
 Read the full plan file first. If a slice or batch receipt in scope is incomplete or the plan state is unclear, stop and tell me before coding.
 
@@ -642,8 +647,9 @@ Confirm before starting: plan file read, scope, supervision, branch, and the fir
 Plan file: /Users/dcroton/Local/git-repos/mimic/docs/dev/MIMIC-EMULATOR-IMPLEMENTATION-PLAN.md
 Repo: /Users/dcroton/Local/git-repos/mimic-emulator
 Developer: claude per plan (each slice's Recommended Developer line)
-Drift auditor: claude claude-sonnet-5-5 high
-Code reviewers: claude claude-opus-5-5 high; codex gpt-6.1-sol high
+Drift auditor: opencode opencode-go/deepseek-v4.1-flash max
+Code reviewers: claude claude-opus-5-5 high; codex gpt-6.1-sol high; opencode opencode-go/qwen3.8-flash xhigh
+Sandbox policy: /Users/dcroton/Local/git-repos/mimic/archive/sandbox-policies/MIMIC-EMULATOR-SANDBOX.json
 Run tag (optional): emulator-spike
 Use the project-manager skill. You are the PM: the accountable supervisor of this run. You never write slice code.
 
