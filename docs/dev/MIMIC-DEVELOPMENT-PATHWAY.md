@@ -37,7 +37,7 @@ The largest gap is not a tool. An import is gated by parity with a reference, an
 2. **Hold step 8's re-review with the map as an input.** It decides whether the model builder becomes the build class of brief.
 3. **Run a science shakedown:** one question with a held-out answer, written as a brief on the existing template with a claim ledger. It shows whether campaign mode can carry a science question as it stands, and what an experiment costs. This is the step that tests the map.
 4. **Write the Mimic paper with sci-paper.** It shows what the write-up leg needs.
-5. **Then decide** where observational constraints live and which bounded real question is the second campaign.
+5. **Then decide** where observational constraints live, where the instruments live once the spike is promoted (the default is inside Mimic, beside `plot/` and `convert/`), and which bounded real question is the second campaign.
 
 ---
 
