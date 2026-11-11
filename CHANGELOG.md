@@ -6,6 +6,14 @@ Versions are git tags; `RunProperties/Version` in every HDF5 output and `metadat
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- **Run times are now recorded in UTC.** `run_date` in `metadata/version_info.json` carried a `Z` suffix but held the host's local time, so it was wrong by the host's UTC offset; it is now the current UTC time in ISO 8601 (`YYYY-MM-DDThh:mm:ssZ`). The HDF5 attribute `RunProperties/RunEndTime` was naive local time with no zone marker; it is now UTC with the same `Z` suffix. Only these two provenance values change, and no galaxy output does.
+
+---
+
 ## v1.6 (2026-11-09)
 
 Mimic v1.6 adds `sage26`, an implementation of the SAGE26 galaxy model, as a second full-physics package beside `sage16`, and runs the cut Shin-Uchuu box under the vertical driver, galaxy for galaxy identical to the horizontal run. The two Shin-Uchuu packages are renamed to match every other package, the default run is about 11% faster on both drivers with every galaxy unchanged on the mini-Millennium byte gate, and Python 3.12 is now the minimum.

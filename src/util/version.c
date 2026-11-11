@@ -37,16 +37,20 @@
  * @param   buffer    Output buffer to store the date string
  * @param   size      Size of the buffer
  *
- * The date is formatted as YYYY-MM-DDThh:mm:ssZ (ISO 8601 format)
+ * The date is the current UTC time, formatted as YYYY-MM-DDThh:mm:ssZ (ISO 8601 format)
  */
 static void get_current_datetime(char *buffer, size_t size) {
   time_t now;
-  struct tm *tm_info;
+  struct tm tm_info;
 
   time(&now);
-  tm_info = localtime(&now);
+  if (gmtime_r(&now, &tm_info) == NULL) {
+    ERROR_LOG("Failed to convert the current time to UTC");
+    snprintf(buffer, size, "%s", "unknown");
+    return;
+  }
 
-  strftime(buffer, size, "%Y-%m-%dT%H:%M:%SZ", tm_info);
+  strftime(buffer, size, "%Y-%m-%dT%H:%M:%SZ", &tm_info);
 }
 
 /**

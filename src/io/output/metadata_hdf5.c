@@ -525,7 +525,7 @@ void store_run_properties(hid_t master_file_id) {
   hsize_t dims;
   herr_t status;
   time_t t;
-  struct tm *local;
+  struct tm utc;
   int i;
 
   /* Configuration parameter table - defines what to write to HDF5
@@ -674,10 +674,13 @@ void store_run_properties(hid_t master_file_id) {
   }
   H5Aclose(attribute_id);
 
+  /* UTC with a Z suffix (ISO 8601), so the attribute reads the same on every host */
   time(&t);
-  local = localtime(&t);
+  if (gmtime_r(&t, &utc) == NULL) {
+    FATAL_ERROR("Failed to convert the run end time to UTC for HDF5 output");
+  }
   char end_time[64];
-  strftime(end_time, sizeof(end_time), "%Y-%m-%dT%H:%M:%S", local);
+  strftime(end_time, sizeof(end_time), "%Y-%m-%dT%H:%M:%SZ", &utc);
   write_string_attribute(props_group_id, "RunEndTime", str_type, dataspace_id, end_time);
 
   /* Add input simulation info if defined */
