@@ -24,7 +24,7 @@ The model builder is not ready to implement. It becomes actionable only after:
 
 - Mimic v1.0 is tagged and the v1.0 baseline is refreshed.
 - ~~The dual-driver architecture is implemented and the horizontal driver passes cross-format identity.~~ **Met 2026-08-12.**
-- A science-gate prototype exists and has been validated on at least one trusted model or module. **A candidate mechanism is now on record: [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) (2026-08-20).** It is a brief, not a prototype, and it is gated on its own measurement spike — so this precondition is still unmet, but it is no longer unaddressed.
+- A science-gate prototype exists and has been validated on at least one trusted model or module. **A candidate mechanism is now on record: [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) (2026-08-20).** It is a brief, not a prototype; its own measurement spike has passed (2026-11-11), but the science gate itself still does not exist — so this precondition is still unmet, but it is no longer unaddressed.
 - The team has reviewed which orchestration and model-serving tools are appropriate at that time.
 
 Until those conditions hold, this document is a requirements brief and design checklist.
