@@ -40,6 +40,7 @@ Classify by what the change touches. Run gates in the order listed; each column'
 | Core/framework | `src/core/`, `src/io/`, `src/util/`, `src/module_system/` (never `*/generated/`) | `make clean && make` → `make check-generated` → all three tiers → baseline comparisons must pass or be deliberately regenerated with justification |
 | Simulation package | `simulations/<s>/` (halo_properties.yaml, simulation_info.yaml, a_list, fixtures) | `make MODEL=<m> SIMULATION=<s> generate` → `make MODEL=<m> SIMULATION=<s> check-generated` → `make MODEL=<m> SIMULATION=<s>` → `make MODEL=<m> SIMULATION=<s> tests` (same selector everywhere) |
 | Converter | `convert/mimic-convert/`, or a Mimic file its suite reads or builds (`src/`, `scripts/`, simulation metadata and fixtures; full list under Testing in `docs/DEVELOPER-GUIDE.md`) | `make tests-converter` (~6 min, delegate it) on top of the other classes' gates; `make tests` does not run it |
+| Bench | `bench/mimic-bench/`, the run-file keys it writes or verifies, the `RunProperties` and `version_info.json` fields it verifies, the output schema, or `plot/mimic-plot/hdf5_reader.py` / `output_schema.py` (full list under Testing in `docs/DEVELOPER-GUIDE.md`) | `make tests-bench` (~5 min, delegate it) on top of the other classes' gates; `make tests` does not run it |
 | Plotting | `plot/mimic-plot/`, `models/<m>/plots/` | plot tests under `plot/mimic-plot/tests/` → run `mimic-plot` on real output → see the `mimic-plots-and-analysis` skill |
 | Docs only | `*.md`, `docs/` | `make check-docs` → no hard-wrapped prose → `make check-format` (harmless, CI runs it anyway) |
 | Generated output | any `*/generated/*`, `tests/generated/` | never edited directly — regenerate via `make generate` and commit alongside the metadata change that produced it |
@@ -53,7 +54,7 @@ make tests-unit > archive/test-logs/tests-unit.log 2>&1; rc=$?
 echo "exit_code=$rc"
 ```
 
-Treat any non-zero exit code as failure regardless of what the log text looks like. `make tests` runs the core suite (clean + build + check-docs + validate-modules + the three tiers; not `tests-converter`); append the `summary` goal to any test target to filter output down to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS and NA are suppressed; NA means not applicable to the selected pair).
+Treat any non-zero exit code as failure regardless of what the log text looks like. `make tests` runs the core suite (clean + build + check-docs + validate-modules + the three tiers; not `tests-converter` or `tests-bench`); append the `summary` goal to any test target to filter output down to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS and NA are suppressed; NA means not applicable to the selected pair).
 
 ## 2. Non-negotiables
 
@@ -139,9 +140,10 @@ Job `test` (Build and Test), default selectors, steps in order:
 4. `make check-docs`
 5. `make validate-modules`
 6. `make tests-converter` (not part of `make tests`)
-7. `make tests-unit`
-8. `make tests-integration`
-9. `make tests-scientific` with `MIMIC_BASELINE_RTOL=1e-3` — the physics baseline was generated on macOS and Linux libm/compiler reproduces it only to ~7e-4 relative, so CI relaxes the gate above that measured noise floor; the strict 1e-6 default still applies locally, and diffs in (1e-6, 1e-3] surface as warnings.
+7. `make tests-bench` (not part of `make tests`)
+8. `make tests-unit`
+9. `make tests-integration`
+10. `make tests-scientific` with `MIMIC_BASELINE_RTOL=1e-3` — the physics baseline was generated on macOS and Linux libm/compiler reproduces it only to ~7e-4 relative, so CI relaxes the gate above that measured noise floor; the strict 1e-6 default still applies locally, and diffs in (1e-6, 1e-3] surface as warnings.
 
 Job `horizontal-v3` (45 min timeout), needs no real dataset:
 

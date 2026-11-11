@@ -25,6 +25,7 @@ make tests-unit          # C unit tests
 make tests-integration   # Python integration tests
 make tests-scientific    # Scientific validation
 make tests-converter     # manual: converter self-tests (convert/mimic-convert/tests/); not run by make tests
+make tests-bench         # manual: bench self-tests (bench/mimic-bench/tests/); not run by make tests (capture tests skip without a built ./mimic and the mini-millennium trees)
 make tests-horizontal-v3  # v3 reader, retention and identity battery + package tests (including the chunked-sweep test) on fixtures (own CI job, which also runs the integration tier on `mini-millennium-horizontal`, `make tests-snapshot-global` and `make tests-distributed`)
 make tests-snapshot-global  # post_snapshot phase, typed callback/schema, sham_rank_match and hod_populate batteries on fixtures
 make tests-snapshot-global-sham  # sham_rank_match unit and end-to-end tests (also run by tests-snapshot-global)

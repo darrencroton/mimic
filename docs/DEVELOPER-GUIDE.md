@@ -18,11 +18,12 @@ This guide is for contributors and researchers modifying Mimic internals: writin
 8. [Adding a New Simulation](#adding-a-new-simulation)
 9. [Adding a Vertical Reader](#adding-a-vertical-reader)
 10. [The Horizontal Driver](#the-horizontal-driver)
-11. [Testing](#testing)
-12. [Development Workflow](#development-workflow)
-13. [Debugging](#debugging)
-14. [Reference](#reference)
-15. [Documentation Directory](#documentation-directory)
+11. [The Bench](#the-bench)
+12. [Testing](#testing)
+13. [Development Workflow](#development-workflow)
+14. [Debugging](#debugging)
+15. [Reference](#reference)
+16. [Documentation Directory](#documentation-directory)
 
 Common tasks:
 
@@ -40,6 +41,7 @@ Common tasks:
 - Distributing horizontal runs over MPI tasks or sweeping them in chunks: [Distributed operation](#distributed-operation) and [Chunked sweeps](#chunked-sweeps)
 - Bringing a simulation to the horizontal driver: [Converting Trees to Horizontal Input](#converting-trees-to-horizontal-input)
 - Wiring event-triggered modules: [Events](#events)
+- Working on the bench, or evaluating a model over a parameter design: [The Bench](#the-bench)
 - Running tests: [Testing](#testing)
 - Day-to-day development (including regenerating code): [Development Workflow](#development-workflow)
 
@@ -1281,9 +1283,23 @@ Commands, routes, field selection and restart behaviour are in the converter man
 
 ---
 
+## The Bench
+
+The bench, `bench/mimic-bench/`, is an offline Python tool that sits beside `plot/mimic-plot/` and `convert/mimic-convert/` rather than inside the executable. It turns a declared spec (a model, a simulation, a run-file template, parameter ranges, one statistic and one constraint) into a design of Mimic evaluations, runs each with the repository's own `./mimic`, verifies each from what the run recorded, and applies methods that need many runs to the result; history matching with emulators is the first. It is not linked into `mimic`, and Mimic's runtime knows nothing of it.
+
+The bench depends on three things Mimic owns, and a change to any of them can break it without breaking anything else:
+
+- **The run-file interface.** It writes a run file from the spec's template, changing only the output directory, the spec's dotted-path overrides and the design's parameter values under `modules.parameters`, and it verifies what Mimic recorded: the run-file MD5 in `metadata/version_info.json`, and `RunProperties` (`ModelName`, `SimulationName`, `FirstFile`, `LastFile`, `SubSteps`, `BoxSize`, `Hubble_h` and the `Parameters` table).
+- **The output schema.** It reads a run's galaxies through `plot/mimic-plot/hdf5_reader.py` and converts the statistic's property through `plot/mimic-plot/output_schema.py`, importing both from the checkout it lives in and recording their SHA-256 in each capture; it does not reimplement either.
+- **Its own independence.** The package names no model, parameter or galaxy property; a model's names appear only in a spec, a constraint table, the README's worked example and tests that read the spec. Keep it that way: model-specific logic belongs in a spec or, when a new statistic or noise model is genuinely needed, in a new generic function.
+
+Commands, the spec, the capture and verdict files and the tool's limits are in the bench manual, [`bench/mimic-bench/README.md`](../bench/mimic-bench/README.md); its tests are described under [Testing](#testing).
+
+---
+
 ## Testing
 
-Mimic uses three test tiers, plus a separate converter suite. Every tier runs the core tests, selected-simulation tests under `simulations/<SIMULATION>/_tests/`, and, for full-validation simulations, tests declared by the selected model package. Empty generated lists are valid; if a simulation or model has no tests in a tier, that tier still runs the core tests and exits successfully. Unit and integration tiers can each take about three minutes; scientific validation is usually shorter, around tens of seconds for the shipped configuration. The quick-reference version of this section is [tests/README.md](../tests/README.md).
+Mimic uses three test tiers, plus separate converter and bench suites. Every tier runs the core tests, selected-simulation tests under `simulations/<SIMULATION>/_tests/`, and, for full-validation simulations, tests declared by the selected model package. Empty generated lists are valid; if a simulation or model has no tests in a tier, that tier still runs the core tests and exits successfully. Unit and integration tiers can each take about three minutes; scientific validation is usually shorter, around tens of seconds for the shipped configuration. The quick-reference version of this section is [tests/README.md](../tests/README.md).
 
 | Tier | Command | Scope |
 | --- | --- | --- |
@@ -1291,6 +1307,7 @@ Mimic uses three test tiers, plus a separate converter suite. Every tier runs th
 | Integration | `make tests-integration` | End-to-end Python tests for core workflows, selected-simulation fixtures, and selected-model modules |
 | Scientific | `make tests-scientific` | Core scientific contracts plus selected-simulation and selected-model scientific regressions |
 | Converter | `make tests-converter` | The converter's stdlib-unittest suite (`convert/mimic-convert/tests/`), run through `tests/framework/unittest_runner.py` so each test case emits a marker |
+| Bench | `make tests-bench` | The bench's stdlib-unittest suite (`bench/mimic-bench/tests/`), run through the same runner |
 
 Run `check-docs`, `validate-modules` and the three tiers:
 
@@ -1299,6 +1316,8 @@ make tests
 ```
 
 `make tests` does not run the converter suite, which takes about 6 min; CI does. Run `make tests-converter` by hand when a change touches `convert/mimic-convert/` or a Mimic file the suite reads, builds or runs through: `src/` (drift guards read `src/core/core_properties.yaml` and `src/io/vertical/read_ctrees_hdf5.c`; the acceptance tests compile core, util and vertical-reader sources through `tests/unit/tools/build_topology_dump.sh`), `scripts/`, the `Makefile`, `models/halos-only/`, `tests/unit/tools/`, `tests/framework/` (the marker runner), or a simulation package's metadata or `_tests/` fixtures.
+
+`make tests` does not run the bench suite either, which takes about 5 min; CI does. Run `make tests-bench` by hand when a change touches `bench/`, the run-file keys the bench writes or verifies (`modules.parameters`, `output.output_directory`, `output.output_filename`, `output.output_format`, `input.first_file`, `input.last_file`, `SubSteps`, `model.name`, `simulation.name`), the `RunProperties` or `metadata/version_info.json` fields it verifies, the output schema (`metadata/output_schema.json`), or `plot/mimic-plot/hdf5_reader.py` or `plot/mimic-plot/output_schema.py`, which it imports. Most of its tests need no Mimic run; those that run `./mimic` skip, with a stated reason, when it is not built or the shipped spec's simulation trees are absent, so build `sage16` on `mini-millennium` first for the whole suite to exercise them (the suite is described in the [bench manual](../bench/mimic-bench/README.md#controls-and-tests)).
 
 A change that must not move a result (an optimisation, a build-flag change, a refactor) is gated by `make tests-reference-identity REFERENCE_COMMIT=<hash>`, a manual test that builds an ancestor commit and HEAD and requires per-`UniqueGalaxyID` byte identity, with the same files, HDF5 objects, attributes and metadata, on real mini-Millennium under both drivers, both models and fixed and dynamic timestepping; it needs the `snapshots` data links and no uncommitted edit under `src/`, `models/`, `simulations/`, `scripts/` or the `Makefile` ([tests/README.md](../tests/README.md) describes it).
 
@@ -1430,6 +1449,7 @@ Keep documentation close to the decision it supports:
 | `docs/STYLE-GUIDE.md` | Naming, comments, documentation, metadata, tests, and review conventions |
 | `CHANGELOG.md` | What each release changed and what it claims |
 | `convert/mimic-convert/README.md` | Converter usage: converting merger trees to horizontal input |
+| `bench/mimic-bench/README.md` | Bench usage: the stages, the spec, capture and verdict files, controls and limits |
 | `convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md` | The horizontal input contract (`format_version` 3; version 2 is retained as history) |
 | `models/<model>/modules/<module>/README.md` | Module-local physics contract, dependencies, parameters, events, and tests |
 | Metadata and generated output | Exhaustive field lists, unit labels, module registries, and event IDs |
@@ -1725,6 +1745,7 @@ Used by [Adding a New Simulation](#adding-a-new-simulation) when defining catalo
 - [convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md](../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md): on-disk contract for horizontal HDF5 merger-tree input
 - [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
 - [convert/mimic-convert/README.md](../convert/mimic-convert/README.md): merger-tree converter manual
+- [bench/mimic-bench/README.md](../bench/mimic-bench/README.md): bench manual (evaluating a model over a parameter design)
 - [tests/README.md](../tests/README.md): test-suite quick reference
 - `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
 - `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes

@@ -1,6 +1,6 @@
 ---
 name: mimic-docs-and-writing
-description: Maintaining Mimic's documentation of record and house writing style. Load when a task involves editing README.md, docs/VISION.md, docs/USER-GUIDE.md, docs/DEVELOPER-GUIDE.md, docs/STYLE-GUIDE.md, tests/README.md, plot/mimic-plot/README.md, any model/simulation/module README, files under docs/dev/ (plans), make check-docs failures or broken links/anchors, Markdown formatting rules (hard-wrapping, line length), writing commit-message or report prose about Mimic, or deciding what may be claimed about Mimic externally (papers, release notes) versus what must stay labeled open/candidate.
+description: Maintaining Mimic's documentation of record and house writing style. Load when a task involves editing README.md, docs/VISION.md, docs/USER-GUIDE.md, docs/DEVELOPER-GUIDE.md, docs/STYLE-GUIDE.md, tests/README.md, plot/mimic-plot/README.md, bench/mimic-bench/README.md, any model/simulation/module README, files under docs/dev/ (plans), make check-docs failures or broken links/anchors, Markdown formatting rules (hard-wrapping, line length), writing commit-message or report prose about Mimic, or deciding what may be claimed about Mimic externally (papers, release notes) versus what must stay labeled open/candidate.
 ---
 
 # Mimic Docs and Writing
@@ -33,6 +33,7 @@ Do NOT use for:
 | `docs/STYLE-GUIDE.md` | Naming, comments, metadata style, test style, review conventions | "What should contributions look like?" |
 | `convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md` (beside the converter manual `convert/mimic-convert/README.md`) | Normative on-disk contract for horizontal HDF5 input (`format_version` ratchet): version 3, the only supported version, in its own normative `Version 3` section; version 2 is kept unchanged under a historical heading. An edit that changes which files conform needs a version bump; an edit that only corrects inaccurate wording goes in that doc's dated Errata table. Never edit version 2's text to accommodate version 3 | "What must a horizontal-HDF5 input file contain?" |
 | `convert/mimic-convert/README.md` | Converter manual: converting Consistent-Trees ASCII/HDF5, L-Halo and forests-HDF5 trees to horizontal HDF5 input | "How do I convert my trees to horizontal input?" |
+| `bench/mimic-bench/README.md` | Bench manual: the stages, the spec format key by key, the capture and verdict files, controls and limits; stands alone, with no reference into `docs/dev/` | "How do I evaluate a model over a parameter design?" |
 | `tests/README.md`, `plot/mimic-plot/README.md` | Quick references for their subsystems, deferring depth to the guides | — |
 | `models/<m>/README.md` | That package's science scope, pipeline, parameters, plots, references, citations | — |
 | `simulations/<s>/README.md` | Data provenance, units, snapshot lists, fixtures, maintenance obligations | — |

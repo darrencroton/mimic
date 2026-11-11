@@ -74,6 +74,7 @@ Useful entry points along the way:
 - **`models/<model>/README.md`** — every model package documents its own scientific scope, pipeline, and references; see [models/](models/) for what's shipped
 - **[plot/mimic-plot/README.md](plot/mimic-plot/README.md)** — the plotting manual: available plots, options, and adding new figures
 - **[convert/mimic-convert/README.md](convert/mimic-convert/README.md)** — the converter manual: converting merger trees to horizontal input
+- **[bench/mimic-bench/README.md](bench/mimic-bench/README.md)** — the bench manual: evaluating a model over a parameter design
 - **[tests/README.md](tests/README.md)** — running the test suite
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed in each release
 

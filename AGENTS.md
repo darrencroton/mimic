@@ -47,11 +47,12 @@ make clean                    # Remove build artifacts
 make tests                    # Core suite: check-docs, validate-modules, then unit/integration/scientific
 make tests summary            # Same, showing only warnings/failures/skips/outcomes
 make tests-converter          # Converter self-tests (~6 min); manual, not part of make tests
+make tests-bench              # Bench self-tests (~5 min); manual, not part of make tests
 ```
 
 **MODEL/SIMULATION invariant (footgun):** Mimic builds one model set and one simulation package at a time. Use the **same** `MODEL=` and `SIMULATION=` for `generate`, `validate-modules`, tests, and `make` — mixing selectors produces silently inconsistent output. Missing packages fail loudly (`Unknown MODEL` / `Unknown SIMULATION`). Defaults are `sage16` / `mini-millennium`.
 
-**Testing note:** Unit and integration tiers take up to ~3 min and produce large output — **delegate them to a subagent** that captures logs and returns a pass/fail summary; act on that in the main context. Scientific tests are fast (~30 s). The converter suite is manual: run `make tests-converter` when a change touches `convert/mimic-convert/` or a Mimic file it reads or builds (the list is under Testing in `docs/DEVELOPER-GUIDE.md`). Never run multiple test suites in parallel. Details, markers, and baselines: `mimic-validation-and-qa`.
+**Testing note:** Unit and integration tiers take up to ~3 min and produce large output — **delegate them to a subagent** that captures logs and returns a pass/fail summary; act on that in the main context. Scientific tests are fast (~30 s). The converter and bench suites are manual: run `make tests-converter` when a change touches `convert/mimic-convert/` or a Mimic file it reads or builds, and `make tests-bench` when a change touches `bench/mimic-bench/`, the run-file keys or `RunProperties`/`version_info.json` metadata it verifies, the output schema, or `plot/mimic-plot/hdf5_reader.py` or `output_schema.py` (the lists are under Testing in `docs/DEVELOPER-GUIDE.md`). Never run multiple test suites in parallel. Details, markers, and baselines: `mimic-validation-and-qa`.
 
 ---
 
@@ -80,6 +81,7 @@ build/generated/     Build-time generated files (git_version.h, test lists, modu
 tests/               Unit, integration, scientific tests
 plot/mimic-plot/     Plotting system (registry is model-local)
 convert/mimic-convert/  Merger-tree converters and the horizontal HDF5 format specification
+bench/mimic-bench/   Offline evaluation bench: designs, captures and analyses Mimic runs over a parameter space
 ```
 
 **Load-bearing boundaries** (details in the architecture skill):
@@ -112,6 +114,7 @@ Full rules: `docs/STYLE-GUIDE.md` (human readability) and the formatter (mechani
 - `docs/STYLE-GUIDE.md` — naming, comments, metadata, tests, review conventions
 - `convert/mimic-convert/README.md` — merger-tree converter manual (producing horizontal HDF5 input)
 - `convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md` — horizontal HDF5 input contract (`format_version` ratchet)
+- `bench/mimic-bench/README.md` — bench manual (design, capture and analysis of Mimic runs over a parameter space; spec format)
 - `docs/dev/` — Mimic's own development pathway (plans and briefs); not user documentation. **Reference rule:** documents inside `docs/dev/` may reference anything, but no document outside it (the guides, READMEs, CHANGELOG, skills, code comments, tests) may reference a `docs/dev/` document; completed plans leave the tree for the gitignored `archive/`, so such a reference would break for anyone who clones the repository
 - `plot/mimic-plot/README.md` — plotting manual · `tests/README.md` — test-suite quick reference
 - `models/<model>/README.md` — package science scope, pipeline, parameters, plots, references

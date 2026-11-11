@@ -142,6 +142,7 @@ For implementation details, see [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md#architec
 - [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
 - [convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md](../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md): on-disk contract for horizontal HDF5 merger-tree input
 - [convert/mimic-convert/README.md](../convert/mimic-convert/README.md): merger-tree converter manual
+- [bench/mimic-bench/README.md](../bench/mimic-bench/README.md): bench manual (evaluating a model over a parameter design)
 - [tests/README.md](../tests/README.md): test-suite quick reference
 - `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
 - `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes

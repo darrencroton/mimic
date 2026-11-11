@@ -8,6 +8,14 @@ Versions are git tags; `RunProperties/Version` in every HDF5 output and `metadat
 
 ## Unreleased
 
+### New capabilities
+
+- **The bench, `bench/mimic-bench/`: an offline tool for evaluating a model over a parameter design, with history matching by emulators as its first method.** Beside `mimic-plot` and `mimic-convert`, `mimic-bench.py` turns a declared spec (a model and simulation, a run-file template, parameter ranges, one mass-function statistic and one constraint table; the shipped `specs/sage16-smf.yaml` compares `sage16` on mini-Millennium with a stellar mass function) into a design, runs each row with the repository's own `./mimic`, and trusts a run only after its recorded `RunProperties` and run-file MD5 confirm what was asked. A capture records the request hash of what defines the evaluation, every input's SHA-256, the versions of the code and libraries, the counts and the bins, under two SHA-256 manifests that `shasum -a 256 -c` checks. The `analyse` stage fits a Gaussian process (the primary) and a Bayes linear comparator with a declared Poisson count noise, judges them on a holdout, and ends in a verdict of pass, fail or error (exit status 0, 1 or 2) with tables and figures. It is not a calibrator, and supports one statistic, one constraint shape, one noise model, continuous parameters, one wave and whole-box runs only. Manual: `bench/mimic-bench/README.md`. It adds `scikit-learn==1.9.1` and `threadpoolctl==3.8.0` to `requirements.txt`; install them into an existing `mimic_venv` with `pip install -r requirements.txt`.
+
+### Developer-facing changes
+
+- **`make tests-bench` runs the bench's stdlib-unittest suite** (`bench/mimic-bench/tests/`, through `tests/framework/unittest_runner.py`, about 5 minutes), and CI runs it beside the converter suite. It is manual, not part of `make tests`: run it when a change touches `bench/`, the run-file keys or `RunProperties` and `version_info.json` metadata the bench verifies, the output schema, or `plot/mimic-plot/hdf5_reader.py` or `output_schema.py`. Tests that run `./mimic` skip, naming why, when it is not built or the mini-Millennium trees are absent.
+
 ### Fixes
 
 - **Run times are now recorded in UTC.** `run_date` in `metadata/version_info.json` carried a `Z` suffix but held the host's local time, so it was wrong by the host's UTC offset; it is now the current UTC time in ISO 8601 (`YYYY-MM-DDThh:mm:ssZ`). The HDF5 attribute `RunProperties/RunEndTime` was naive local time with no zone marker; it is now UTC with the same `Z` suffix. Only these two provenance values change, and no galaxy output does.

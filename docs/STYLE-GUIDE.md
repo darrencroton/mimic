@@ -58,6 +58,7 @@ Keep changes in the package that owns the behavior.
 - `simulations/<simulation>/` owns catalog halo properties, simulation metadata, snapshot lists, tree fixtures, and simulation-local tests.
 - `plot/mimic-plot/` owns plotting, schema readers, plotting profiles, and plot validation helpers.
 - `convert/mimic-convert/` owns the merger-tree converters, the horizontal HDF5 format specification, converter profiles, and converter tests.
+- `bench/mimic-bench/` owns the evaluation bench: the spec and constraint-table formats, design, capture and verification, the analysis methods built on them, shipped specs and constraint tables, and the bench's tests. It consumes Mimic through the run-file interface and the output schema only, and names no model in code.
 - `tests/` owns cross-package framework, unit, integration, and scientific tests.
 
 Do not put model-specific physics in the core. Do not make a simulation package depend on a model package. Cross-model experiments should become a new model package with reconciled properties, parameters, dependencies, tests, and plots.

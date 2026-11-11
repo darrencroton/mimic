@@ -5,7 +5,7 @@ description: Mimic's plotting system and output analysis. Load when a task invol
 
 # Mimic Plots and Analysis
 
-The plotting engine lives in `plot/mimic-plot/` and is model-agnostic; the figures are model-local Python modules under `models/<model>/plots/figures/`, selected and styled by a stack of profile YAMLs. Figures never touch files — the engine hands every figure the same NumPy recarray regardless of output format. This skill covers running, extending, and debugging that system.
+The plotting engine lives in `plot/mimic-plot/` and is model-agnostic; the figures are model-local Python modules under `models/<model>/plots/figures/`, selected and styled by a stack of profile YAMLs. Figures never touch files — the engine hands every figure the same NumPy recarray regardless of output format. This skill covers running, extending, and debugging that system. `plot/mimic-plot/hdf5_reader.py` and `output_schema.py` are also imported by the bench (`bench/mimic-bench/`), which reads run output through them: a change to either, or to the output schema they read, needs `make tests-bench` as well as the plot suite.
 
 ## When to use / when NOT to use
 

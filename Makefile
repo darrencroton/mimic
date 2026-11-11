@@ -320,7 +320,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-reference-identity tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-reference-identity tests-converter tests-bench test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -509,6 +509,7 @@ help:
 	@echo "  make tests-reference-identity REFERENCE_COMMIT=<hash> - Require byte-identical galaxy output between an ancestor commit and HEAD on real mini-Millennium (manual, 8 legs; the byte gate for performance work; REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS/_LDFLAGS gate a candidate build)"
 	@echo "  make tests-distributed  - Run the distributed horizontal gate: the MPI collectives control test, serial-versus-MPI identity at -np 1, 2, 3, 4 and 8 for halos-only, sage16, sham and hod, chunked legs (input.forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3 for halos-only, sage16 and hod, with the sham/hod chunked refusal); needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; a few minutes; rebuild with make afterwards"
 	@echo "  make tests-converter    - Run the converter self-tests (manual, ~6 min; not run by make tests)"
+	@echo "  make tests-bench        - Run the bench self-tests (manual, ~5 min; the capture tests need ./mimic built and the mini-millennium trees and otherwise skip; not run by make tests)"
 	@echo "  make tests summary      - Run make tests with concise warning/failure/skip output"
 	@echo "  make test-clean         - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
@@ -812,6 +813,41 @@ tests-converter:
 		exit 1; \
 	else \
 		printf "$${GREEN}=== TLDR: ALL CONVERTER TESTS PASSED ===$${NC}\n"; \
+		echo ""; \
+	fi
+
+# Bench self-tests: stdlib-unittest suite for bench/mimic-bench/ (emulator-based history
+# matching on Mimic's run-file interface). Independent of MODEL/SIMULATION. Manual: `make
+# tests` does not run it; CI does. Like the converter suite it needs the venv stack (numpy,
+# scipy, h5py, scikit-learn), so it reuses CONVERTER_PYTHON. The capture tests also need a
+# built ./mimic and the mini-millennium trees, and skip with a stated reason without them.
+tests-bench:
+	@. scripts/lib/colors.sh; \
+	printf "$${BLUE}============================================================$${NC}\n"; \
+	printf "$${BLUE}RUNNING BENCH TESTS$${NC}\n"; \
+	printf "$${BLUE}============================================================$${NC}\n"
+	@. scripts/lib/colors.sh; . scripts/lib/test_tally.sh; \
+	run_tallied env PYTHONPATH=tests $(CONVERTER_PYTHON) -m framework.unittest_runner \
+	    bench/mimic-bench/tests; \
+	rc=$$?; \
+	print_tally_line Bench; \
+	if [ $$rc -ne 0 ]; then \
+		mkdir -p build; \
+		failed_modules=$$(printf '%s\n' $$TALLY_FAIL_NAMES \
+		    | sed 's/^unittest\.loader\._FailedTest\.//; s/\..*//' | sort -u); \
+		for module in $$failed_modules; do \
+			failure="bench: bench/mimic-bench/tests/$$module.py"; \
+			grep -qxF "$$failure" build/.test_failures 2>/dev/null || echo "$$failure" >> build/.test_failures; \
+		done; \
+		printf "$${RED}=== TLDR: BENCH TESTS FAILED ===$${NC}\n"; \
+		printf "$${RED}Failed tests:$${NC}\n"; \
+		for module in $$failed_modules; do \
+			echo "  - bench/mimic-bench/tests/$$module.py"; \
+		done; \
+		echo ""; \
+		exit 1; \
+	else \
+		printf "$${GREEN}=== TLDR: ALL BENCH TESTS PASSED ===$${NC}\n"; \
 		echo ""; \
 	fi
 

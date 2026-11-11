@@ -1,11 +1,12 @@
 """Run a stdlib-unittest suite and report it through Mimic's marker protocol.
 
-The converter package (convert/mimic-convert/) is standalone: its tests are plain
-unittest and must keep running under `python -m unittest discover` with no Mimic
-import. This adapter is the Mimic side of that boundary. It discovers the suite the
-way `unittest discover -s DIR` does and emits exactly one MIMIC_RESULT: line per test
-case through markers.py, so summary mode, the counts line and the failure record
-treat the converter tier like every other tier.
+The converter (convert/mimic-convert/) and the bench (bench/mimic-bench/) are
+standalone packages: their tests are plain unittest and must keep running under
+`python -m unittest discover` with no Mimic import. This adapter is the Mimic side of
+that boundary. It discovers a suite the way `unittest discover -s DIR` does and emits
+exactly one MIMIC_RESULT: line per test case through markers.py, so summary mode, the
+counts line and the failure record treat the converter and bench tiers like every
+other tier.
 
 Usage (from the repository root):
     PYTHONPATH=tests python -m framework.unittest_runner START_DIR

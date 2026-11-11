@@ -1,0 +1,151 @@
+# Campaign spec: does emulation with history matching transfer to this model?
+#
+# Everything the campaign varies or judges by is declared here and nowhere in code.
+# Paths: `run_file.template` is relative to the Mimic root; `constraint.table` is relative to
+# this file's directory. Scalars follow YAML 1.2 (`063` is 63; only true/false are booleans).
+# Units are given in each comment: "dex" is a decade in log10, "Msun" a solar mass.
+
+# --- What is run -------------------------------------------------------------------------
+model: sage16
+simulation: mini-millennium
+
+run_file:
+  template: models/sage16/input/sage16_mini-millennium.yaml
+  # Dotted run-file paths set before the design's parameters; every other scalar of the
+  # template is left exactly as written. Snapshot 63 is z = 0 in this simulation.
+  overrides:
+    output.snapshot_list: [63]
+
+# --- What is varied ----------------------------------------------------------------------
+# Each parameter is sampled uniformly in its own scale (`log`: uniform in log10 of the value;
+# `linear`: uniform in the value). `default` is the template's value and must lie in the range.
+# Ranges are the default divided and multiplied by five, with the reheating upper bound
+# clipped to 10, the limit its module accepts. All values are dimensionless.
+parameters:
+  - name: SfrEfficiency # star formation efficiency
+    low: 0.01
+    high: 0.25
+    default: 0.05
+    scale: log
+  - name: FeedbackReheatingEpsilon # supernova reheating efficiency
+    low: 0.6
+    high: 10.0
+    default: 3.0
+    scale: log
+  - name: FeedbackEjectionEfficiency # ejection efficiency
+    low: 0.06
+    high: 1.5
+    default: 0.3
+    scale: log
+  - name: ReIncorporationFactor # reincorporation timescale factor
+    low: 0.03
+    high: 0.75
+    default: 0.15
+    scale: log
+  - name: RadioModeEfficiency # radio-mode AGN feedback efficiency
+    low: 0.016
+    high: 0.4
+    default: 0.08
+    scale: log
+
+# A control the model never sees: it is sampled like a parameter, so the analysis must find
+# it unconstrained, but it is marked inert and no run file carries it.
+inert_control:
+  name: InertControl
+  low: 0.1
+  high: 10
+  default: 1.0
+  scale: log
+
+# --- The evaluations ---------------------------------------------------------------------
+design:
+  seed: 20261110 # one seed; each set draws from its own stream derived from it
+  sets:
+    # Row order: one row at every default, the corners of the real parameters' box (the inert
+    # control at its default), then the Latin-hypercube points.
+    pilot:
+      include_defaults: true
+      include_corners: true
+      latin_hypercube: 100 # points
+    train:
+      latin_hypercube: 400 # points
+    holdout:
+      latin_hypercube: 200 # points
+
+# --- What is measured --------------------------------------------------------------------
+# A mass function of one galaxy property at one snapshot: counts of galaxies where the
+# property is positive, in bins of `bin_width_dex` centred on the constraint's converted masses.
+statistic:
+  kind: mass_function
+  property: StellarMass # mass-valued galaxy property, converted to Msun by the run's schema
+  snapshot: 63
+  selection: positive # galaxies of every type whose property exceeds zero
+  bin_width_dex: 0.1 # dex
+  bin_centres: constraint # the converted centre of each constraint point
+
+# --- The statistic's declared noise --------------------------------------------------------
+# A bin holding N galaxies has a Poisson count. Carried to the emulated log10 density (log10 N
+# plus a constant), its variance is declared, not fitted:
+#   v(N) = scale * (log10 e)^2 / max(N, 1)   in dex^2, with (log10 e)^2 = 0.18861...
+# The floor of one galaxy matches the statistic's single-galaxy floor. `scale` 1 is Poisson.
+noise_model:
+  kind: poisson_log10
+  scale: 1.0 # dimensionless multiplier of the Poisson variance
+
+# --- Which bins are judged ---------------------------------------------------------------
+# A bin is a core output when all of: its centre is at least `min_bin_centre`; the constraint's
+# error is below its value; and it holds at least `min_galaxies` galaxies in at least `min_runs`
+# of the pilot's Latin-hypercube runs. A bin meeting the first two conditions, failing the
+# third, and holding at least `min_galaxies` galaxies in the pilot's default row is exploratory.
+# Both lists are filled from the pilot capture, as the constraint table's log10 M values.
+outputs:
+  selection_rule:
+    min_bin_centre: 9.0 # log10(Msun), converted
+    require_error_below_value: true # constraint sigma_phi < phi
+    min_galaxies: 10 # galaxies per bin
+    min_runs: 95 # of the pilot's Latin-hypercube runs
+  core: [9.05, 9.15, 9.25, 9.35, 9.45, 9.55, 9.65, 9.75, 9.85, 9.95,
+         10.05, 10.15, 10.25, 10.35, 10.45, 10.55]
+  exploratory: [10.65, 10.75, 10.85, 10.95, 11.05, 11.15, 11.25, 11.35]
+
+# --- What it is compared with ------------------------------------------------------------
+# The table is read unconverted and brought to the run's conventions with the run's own h:
+#   converted log10 mass = log10 M + mass_h_power * log10(h) + mass_shift_dex
+#   converted density    = phi * h ** density_h_power
+# that is `x - 2 log10(h) - 0.26` and `phi h^3`: h^-2 on mass, a -0.26 dex shift between
+# initial mass functions, and h^3 on number density.
+constraint:
+  table: ../constraints/baldry2008_smf.csv
+  conversion:
+    hubble_h: run # taken from the run's recorded Hubble_h
+    mass_h_power: -2
+    mass_shift_dex: -0.26 # dex
+    density_h_power: 3
+
+# --- How a mismatch is tolerated and judged ----------------------------------------------
+discrepancy:
+  budgets_dex: [0.05, 0.075, 0.1, 0.15, 0.2, 0.3] # dex, scanned
+  gate_budget_dex: 0.1 # dex, one of the scanned budgets
+
+# A point is rejected when the `rank`-th largest implausibility exceeds `threshold`.
+implausibility:
+  rank: 2 # the second largest
+  threshold: 3 # standard deviations
+
+criteria:
+  # Per output, on the holdout's standardised errors.
+  per_output:
+    within_sigma: 2
+    within_min_fraction: 0.90 # at least this fraction within `within_sigma`
+    beyond_sigma: 3
+    beyond_max_fraction: 0.05 # at most this fraction beyond `beyond_sigma`
+    min_rms: 0.5 # root-mean-square standardised error of at least this
+  calibrated_min_fraction: 0.75 # of core outputs validated
+  false_exclusion_max_rate: 0.05 # over runs, at the gate budget
+  false_exclusion_min_kept_runs: 20 # holdout runs the simulator keeps, for the rate to count
+  non_implausible_max_fraction: 0.75 # of the prior box, at the gate budget
+
+# --- Which emulators are judged ----------------------------------------------------------
+# The candidates, in verdict order: the first is the primary, and the verdict names the first
+# that passes. Known: gaussian_process, bayes_linear.
+emulators: [gaussian_process, bayes_linear]

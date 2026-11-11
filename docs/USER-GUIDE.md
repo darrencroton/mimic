@@ -19,9 +19,10 @@ If you're still deciding whether Mimic fits your science, start with the [README
 5. [Choosing Model and Simulation Packages](#choosing-model-and-simulation-packages)
 6. [Working With Your Catalogue](#working-with-your-catalogue)
 7. [Plotting](#plotting)
-8. [Troubleshooting](#troubleshooting)
-9. [Documentation Directory](#documentation-directory)
-10. [Citations](#citations)
+8. [Evaluating a Model Over a Parameter Design](#evaluating-a-model-over-a-parameter-design)
+9. [Troubleshooting](#troubleshooting)
+10. [Documentation Directory](#documentation-directory)
+11. [Citations](#citations)
 
 ---
 
@@ -753,6 +754,20 @@ The plot registry is model-specific — it lives in `models/<model>/plots/figure
 
 ---
 
+## Evaluating a Model Over a Parameter Design
+
+One run answers one question: what does this model produce at these parameter values? Some questions need hundreds of runs: which parts of a parameter box are consistent with an observed mass function, or whether a cheap emulator can stand in for the model. The bench, `bench/mimic-bench/`, is an offline tool for that. You declare a campaign in a spec (the model and simulation, a run file to start from, the parameters to vary and their ranges, one statistic and the observational constraint to compare it with), and the bench writes a design of parameter vectors, runs each with your built `./mimic`, verifies from each run's own record that it ran what was asked, counts galaxies in the statistic's bins, and writes the result with provenance and SHA-256 manifests. Its first method, history matching with emulators, fits emulators to those counts and ends in a verdict of pass, fail or error with its tables and figures.
+
+```bash
+source mimic_venv/bin/activate
+python bench/mimic-bench/mimic-bench.py design --spec bench/mimic-bench/specs/sage16-smf.yaml \
+    --out output/bench/design.csv
+```
+
+`capture` and `analyse` follow the same pattern (`--spec`, a new `--out` directory, and `--capture` for `analyse`); `capture` needs Mimic built with the spec's `MODEL` and `SIMULATION`. The bench is not a calibrator: it does not search for best-fit parameters, and it supports one statistic, one constraint shape, one noise model, continuous parameters and whole-box runs. The stages, the spec, the files written, exit statuses and limits are in the [bench manual](../bench/mimic-bench/README.md).
+
+---
+
 ## Troubleshooting
 
 ### Build Issues
@@ -842,6 +857,7 @@ pip install -r requirements.txt
 - [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
 - [convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md](../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md): on-disk contract for horizontal HDF5 merger-tree input
 - [convert/mimic-convert/README.md](../convert/mimic-convert/README.md): merger-tree converter manual
+- [bench/mimic-bench/README.md](../bench/mimic-bench/README.md): bench manual (evaluating a model over a parameter design)
 - [tests/README.md](../tests/README.md): test-suite quick reference
 - `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
 - `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes

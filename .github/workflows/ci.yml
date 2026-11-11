@@ -54,6 +54,10 @@ jobs:
       run: |
         make tests-converter
 
+    - name: Run bench tests
+      run: |
+        make tests-bench
+
     - name: Run unit tests
       run: |
         make tests-unit

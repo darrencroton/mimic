@@ -79,7 +79,7 @@ make
 
 ## The mimic_venv virtual environment
 
-`requirements.txt` installs: numpy, matplotlib, tqdm (plotting); h5py, PyYAML (integration/scientific tests and HDF5 inspection); pandas (ctrees→horizontal-HDF5 converter under `convert/mimic-convert/`); scipy (two `sage26` figures, `spatial_distribution_3d_box.py` and `specific_star_formation_rate.py`, and one `sage26` integration test, `test_integration_sage26_merger_event_consumers.py`); black, isort, and a **pinned `clang-format>=20,<21`** (formatting — the pin keeps formatting byte-identical across machines and CI).
+`requirements.txt` installs: numpy, matplotlib, tqdm (plotting); h5py, PyYAML (integration/scientific tests and HDF5 inspection); pandas (ctrees→horizontal-HDF5 converter under `convert/mimic-convert/`); scikit-learn and threadpoolctl (the Gaussian-process emulator and the library record of the bench, `bench/mimic-bench/`; scipy serves it too); scipy (two `sage26` figures, `spatial_distribution_3d_box.py` and `specific_star_formation_rate.py`, and one `sage26` integration test, `test_integration_sage26_merger_event_consumers.py`); black, isort, and a **pinned `clang-format>=20,<21`** (formatting — the pin keeps formatting byte-identical across machines and CI).
 
 - Activate: `source mimic_venv/bin/activate` — deactivate: `deactivate`.
 - What needs it: `plot/mimic-plot/mimic-plot.py`, the Python test tiers, `./scripts/beautify.sh`, and `make check-format`.
