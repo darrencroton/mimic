@@ -315,14 +315,17 @@ Notes on the order:
 - **The published packages are not changed.** A fork carries the rate formulation. Mimic's standing rule already sends corrected numerics to a new package, the rate mode works in double precision while properties are declared per package, and the campaign needs the published package intact as its reference.
 - **The forks are for us.** They are not written up as new published models. What the Mimic paper takes from stage 4, if anything, is settled by writing the paper. One point to weigh there: the coupled-rate brief records that a reviewer who asks how converged the model is cannot presently be answered, and 4a's measurement is that answer.
 
-### What stage 1's plan must settle
+### What stage 1's plan is derived from
 
-The coupled-rate brief was written for a different order: measure the defect by hand, then build. Three of its points need restating when its implementation plan is frozen.
+[The coupled-rate brief](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md) was revised on 2026-11-12 for this order and now governs stage 1 alone. It was first written for a different one: measure the defect by hand, then build. What the revision settled:
 
-- **How the solver family is chosen.** The brief chooses it from stiffness measured on `sage16`'s rate laws. Writing those rate laws ahead of the campaign would do part of the campaign's build for it. The plan should either prove an explicit and a stiff integrator on fixtures and leave the choice to a run-file key, or make one narrow stiffness measurement first and say what it pre-solves.
-- **Its First Work moves.** The measurement of order dependence and of the splitting residual becomes campaign 4a. The throwaway monolithic integrator is no longer needed as a reference, because 4b compares against the rate-mode package itself.
-- **Its recalibration target changes.** The brief says the new package will not reproduce `sage16` and should not. The target is now to reproduce the published population results if that is possible. Galaxy-by-galaxy parity is still not a goal.
-- **Its package name is settled in pattern.** The brief's working name was `sage16-coupled`; the fork is `sage16rate`, and `sage26` follows the same pattern. The brief planned a rename once the package was recalibrated, because it would then be a distinct model. That concern falls away: the fork's target is the published model's own results, and it is not published as a model in its own right.
+- **The solver is chosen without a stiffness measurement.** Writing `sage16`'s rate laws ahead of the campaign would do part of the campaign's build. The brief asks for an explicit positivity-preserving scheme first and a first-order implicit one behind the same interface, and has the core record the stiffness figures a measurement would have given, so campaign 4b reads them from its own output.
+- **Its First Work moved.** The measurement of order dependence and of the splitting residual is campaign 4a. The throwaway monolithic integrator is no longer needed as a reference, because 4b compares against the rate mode itself.
+- **Its recalibration target changed.** The earlier brief said the new package would not reproduce `sage16` and should not. The target is now to reproduce the published population results if that is possible. Galaxy-by-galaxy parity is still not a goal.
+- **Its package name is settled in pattern.** The fork is `sage16rate`, and `sage26` follows the same pattern. The earlier brief planned a rename once the package was recalibrated, because it would then be a distinct model. That concern falls away: the fork's target is the published model's own results, and it is not published as a model in its own right.
+- **Its contracts are now precise enough to plan from:** what a rate law may be, how phases, substeps and jumps fit together, which kinds of state exist, what the ledger checks, and the fixture problems the mode is proven on.
+
+Two decisions in that brief are the owner's to take before the plan is frozen: whether the implicit scheme ships in stage 1, and the user-facing names.
 
 ### Campaigns as shakedowns
 

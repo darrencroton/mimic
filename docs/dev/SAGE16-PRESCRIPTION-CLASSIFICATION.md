@@ -3,6 +3,7 @@
 **Status:** Complete. Settles Open Question 1 of [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md).
 **Date:** 2026-08-20
 **Scope:** Every prescription in the shipped `sage16` package, classified as **rate**, **jump**, **algebraic** or **forcing** by its state-reset semantics. Analysis only — no code changes, and none are implied. The coupled-rate work remains gated on its own measurement spike.
+**Note (2026-11-12):** the coupled-rate brief was revised and no longer has numbered open questions or a measurement spike ahead of the core work. This classification is an input to the campaign that forks the model onto the rate mode. Its lists of caps and clamps name the load-bearing ones and are not exhaustive.
 
 ---
 

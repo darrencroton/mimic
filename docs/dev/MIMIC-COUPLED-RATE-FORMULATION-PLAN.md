@@ -1,215 +1,353 @@
 # Mimic Coupled Rate Formulation Plan
 
-**Status:** Requirements brief; pathway step 7 in the planned order, not started. Complete enough to derive a frozen implementation plan from, once two prerequisites exist: the measurement in [First Work](#first-work-measure-before-building), and the per-prescription hybrid classification (Open Question 1).
-**Note, updated 2026-10-22:** the classification prerequisite is discharged ([`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md)), and the ordering question this brief once fed is settled — `MIMIC-DEVELOPMENT-PATHWAY.md` → "The Ordered Road" schedules this work as step 7 (renumbered from 6 on 2026-10-22), after the snapshot-global modules, the performance work, the model builder prototype (step 5) and the emulator (step 6), and treats it as certain rather than contingent. **No core change starts ahead of the measurement spike**, which stays fixture-scale; what it sets is priority, solver family and the attribution baseline, not permission.
-**Next (2026-11-12):** this is the next work on the road, and [`AGENTIC-SCIENCE-ARCHITECTURE.md`](AGENTIC-SCIENCE-ARCHITECTURE.md) splits it in two. Its stage 1 is the rate mode alone: a frozen implementation plan derived from this brief, run by the Project Manager and proven on a model-neutral fixture, then a release. Its stage 4 is campaign work: [First Work](#first-work-measure-before-building)'s measurement of the published models, then a fork of `sage16` onto the rate mode (`sage16rate`), recalibrated to reproduce the published results if that is possible. That document's *What stage 1's plan must settle* lists the three points of this brief the split changes: how the solver family is chosen, where First Work goes, and the recalibration target.
-**Date:** 2026-08-18
+**Purpose:** State what the coupled rate formulation is, what Mimic's core must gain to run it, and what must be true before that work is accepted, in enough detail to derive a frozen implementation plan from.
+
+**Status:** Requirements brief; pathway step 7 and the next work on the road. Revised 2026-11-12 from the brief of 2026-08-18, against the code as it stands at v1.6 and against [`AGENTIC-SCIENCE-ARCHITECTURE.md`](AGENTIC-SCIENCE-ARCHITECTURE.md), which splits the work in two. This brief governs the first part. The earlier text is in git history (`56ed8484` and before).
+
+**Scope:** The rate mode in Mimic's core: a new processing mode, the assembly of declared transfers, the integrator, the conservation ledger, their metadata and their tests. It is built from an ordinary implementation plan under the Project Manager and proven on a model-neutral fixture. Putting a real model on the mode is campaign work, described under [The Campaigns That Follow](#the-campaigns-that-follow), and no model package changes in this part.
 
 ---
 
 ## Goal
 
-Replace sequential operator-split module execution with a coupled formulation in which physics modules **declare conservative transfers** between named reservoirs, and a physics-agnostic integrator advances the assembled system with error control. Physics that genuinely resets state stays discrete and explicitly ordered.
+Replace sequential operator-split module execution, for the models that choose it, with a coupled formulation in which physics modules **declare conservative transfers** between named reservoirs and a physics-agnostic integrator advances the assembled system with error control. Physics that resets state stays discrete and explicitly ordered.
 
-The objective is mathematical consistency: a model whose output does not depend on the order its modules are listed in, whose conservation is structural rather than audited, and whose numerical accuracy is set and measured rather than inherited.
+The objective is mathematical consistency: a model whose output does not depend on the order its rate terms are listed in, whose conservation is checked by the framework, and whose numerical accuracy is set and measured.
 
 ---
 
 ## Motivation
 
-Mimic evolves galaxies by walking a configured list of modules, `SubSteps` times per snapshot interval (ten in the shipped `sage16` configuration). Each module reads galaxy state, computes its effect, and writes it back before the next module runs — see `execute_module_pipeline()` in `src/core/module_registry.c` and the `process(ctx, halos, ngal)` contract in `src/core/module_interface.h`.
+Mimic evolves galaxies by walking a configured list of modules. `execute_module_pipeline()` (`src/core/module_registry.c`) runs the `pre_timestep` phase once, then the named phases under `modules.phases` once per substep, then `post_timestep` once. Each module reads galaxy state, computes its effect and writes it back before the next module runs.
 
-The consequence is that **the scientific result depends on the order of the list**. Run cooling before star formation and star formation sees gas that has already arrived; reverse them and it does not. Both orderings are equally defensible and they produce different galaxies. The same holds for every competing pair in the pipeline, compounded over every substep, snapshot, and tree.
+The consequence is that **the scientific result depends on the order of execution**. Run cooling before star formation and star formation sees gas that has already arrived; reverse them and it does not. Both orderings are defensible and they give different galaxies. Within a phase the order is also set by dispatch: full-halo modules run first and by-galaxy modules follow galaxy by galaxy, so wherever a satellite writes into its central the result depends on workspace row order too.
 
-For any prescription that is genuinely a rate, this order dependence is a first-order splitting artefact: a property of our bookkeeping rather than of the physics, and one that shrinks as the timestep shrinks. But what it converges *to* has never been specified. The pipeline mixes true rates with staged budgets, hard caps, and immediately dispatched events, and no document states which mathematical object that mixture approximates. Specifying it is the substance of this work.
+For a prescription that is a rate, this is a first-order splitting artefact that shrinks with the time step. What it converges to has never been specified, because the pipeline mixes true rates with staged budgets, hard caps and immediately dispatched events.
 
-Two consequences follow that are worth stating plainly:
+Two facts make this concrete:
 
-- **Calibrated parameters absorb the residual.** `sage16`'s parameters were tuned against a pipeline carrying an unquantified splitting error. Some fraction of every calibrated value is compensating for numerics.
-- **We cannot presently answer a reviewer who asks how converged the model is**, because there is no convergence rate to report and no error target that was set.
+- **The shipped `sage16` is not converged.** At its ten fixed substeps, total z = 0 stellar mass on mini-Millennium is 66% above its value at 1,000 fixed substeps. The mass function differs by 0.08 dex RMS below the knee and by 0.4 to 0.8 dex above it. The fixed and dynamic schemes converge to one answer, roughly first order in the step (measured 2026-11-10).
+- **Calibrated parameters absorb the residual.** `sage16`'s parameters were tuned against that pipeline, so some part of every calibrated value compensates for numerics. Order dependence itself has not been measured.
+
+---
+
+## What This Brief Governs
+
+| Part | Work | How it runs | Governed by |
+|---|---|---|---|
+| **Stage 1** | The rate mode in the core, proven on a fixture, then a release | A frozen implementation plan under the Project Manager | This brief |
+| **Stage 4a** | The numerics of the published models as shipped: time-step convergence and order dependence | A science campaign | The architecture document |
+| **Stage 4b** | A fork of `sage16` on the rate mode (`sage16rate`), recalibrated to reproduce the published results if that is possible | A science campaign | The architecture document, with the requirements here as its inputs |
+
+Three things follow from the split, each a change from the 2026-08-18 brief:
+
+- **The core is built before any measurement on real physics.** The earlier brief required the defect to be sized first. Its size is now partly known (above), the owner has set the priority, and the measurement is campaign work.
+- **The solver is chosen without a stiffness measurement.** Writing `sage16`'s rate laws to measure their stiffness would do part of the campaign's build. [The integrator](#the-integrator) says how the choice is kept open and how the campaign then measures stiffness at no extra cost.
+- **Acceptance of this part rests on the fixture.** No production physics is needed to pass [the gate](#gate).
 
 ---
 
 ## Target Formulation
 
-### Hybrid system, not a pure ODE
+### A hybrid system
 
 The target is a hybrid system: coupled continuous flow between events, explicit jumps at events.
 
-```
-ẋ = f(x, h(t), θ)        continuous transfer between reservoirs
-x⁺ = J(x⁻, h, θ)         discrete jumps at located event times
+```text
+dx/dt = f(x, h(t), θ)     continuous transfer between reservoirs
+x⁺    = J(x⁻, h, θ)       discrete jumps
 ```
 
-Mergers, disruption, and instantaneous restructuring are jumps and stay jumps; forcing them into rate form would be less physical, not more. A threshold alone does **not** make a process discrete — a prescription that is zero below a critical density and a smooth rate above it is still a rate with a crossing to locate. Each existing prescription must be classified by its state-reset semantics, not by the presence of a threshold. That classification is a prerequisite deliverable (see [Open Questions](#open-questions)).
+Mergers, disruption and instantaneous restructuring are jumps and stay jumps. A threshold alone does not make a process discrete: a prescription that is zero below a critical density and a smooth rate above it is a rate. Each prescription is classified by its state-reset semantics, and the two published models are already classified ([`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md), [`SAGE26-PRESCRIPTION-CLASSIFICATION.md`](SAGE26-PRESCRIPTION-CLASSIFICATION.md)).
 
 ### Modules declare transfers, not updates
 
-Today a module *applies* its effect to galaxy state. Under this formulation it *declares* a flux — a mass rate, out of one named reservoir and into another — without touching state at all. The integrator decides how declared fluxes are realised in time.
+Today a module applies its effect to galaxy state. Under this formulation a rate module declares a transfer, out of one named reservoir and into another, and does not touch state. The integrator decides how declared transfers are realised in time.
 
-Two properties follow, and they are the whole point:
+- **Every transfer has two ends.** Mass cannot go missing inside a closed set of reservoirs through a coding error, because one computed amount is subtracted from the donor and added to the recipient. What enters or leaves the system (infall, metals made in stars) is declared as a source or a sink and is visible as one.
+- **Declaration order stops mattering.** Rate terms evaluated at a common state sum. Within a rate phase they are an unordered set.
 
-- **Conservation becomes structural.** Because every flux names both a source and a destination, mass cannot go missing inside a closed set of reservoirs through a coding error. What genuinely enters or leaves — infall from outside the halo, metals produced in stars — must be declared as a source or a sink and is therefore *visible* as one, instead of hiding inside an unbalanced update. Hand-written rate equations conserve when their author is careful; declared transfers conserve because nothing else is expressible.
-- **Declaration order stops mattering.** Fluxes evaluated at a common state simply sum. Within a phase, rate terms become an unordered set, and a whole class of silent configuration error becomes inexpressible in a run file.
+The second property holds only if every rate is a pure function of the declared state, the forcing and the parameters. Some current prescriptions are not: cooling is modified by accumulated heating, and feedback consumes the star-formation budget an earlier module computed. Those dependencies become state functions or declared couplings.
 
-The second property holds **only if every rate is a pure function of the declared state, forcing, and parameters**. Some current prescriptions are not: cooling is modified by accumulated heating (`Rheat`), and feedback consumes the star-formation budget computed by an earlier module. Those dependencies must become explicit state functions or declared algebraic couplings. This is part of the re-derivation, not an afterthought.
+### The rate-law contract
 
-### Depletion is handled by rate laws, not adjudication
+"Source-limited" needs a precise form, because it is what makes negative reservoirs impossible without clamping.
 
-When two processes want the last of the cold gas, today whichever runs first wins and each caps its own demand with `min(requested, available)`. This is the sharpest form of the order problem.
+- **A transfer out of a reservoir inside the system is declared as a specific rate.** The module returns a non-negative coefficient `k(x, h, θ)` in units of inverse time, and the core forms the flux as `k` times the donor's content. A flux that scales with its donor vanishes as the donor empties.
+- **A source from outside the system is declared as an absolute rate.**
+- **Fluxes are non-negative.** Flow in the reverse direction is a second transfer.
+- **A law is continuous in the state and receives only the state, the forcing, the parameters and the time.** It never sees the solver's step or a substep index. The snapshot interval is legitimate forcing.
+- **A law has no side effects.** The integrator evaluates it repeatedly, out of chronological order, and at trial states it later rejects.
 
-It dissolves in a continuous formulation **provided each rate is source-limited**: a flux that scales with its source vanishes as that source empties, so competing draws throttle each other automatically. This is a constraint on how rate laws are written, plus a positivity-preserving integrator — deliberately **not** a new arbitration mechanism inside the framework. An arbiter that rations competing demands would import finite-step thinking into a continuous system, introduce a physics policy into physics-agnostic infrastructure, and add nonsmooth behaviour for the solver to fight.
+This form does more than limit the source:
 
-A negative committed state is therefore an invariant violation, not a value to repair: reduce the step, and if the invariant cannot be recovered, fail. **Never clamp.** This is the existing fast-failure principle (`docs/VISION.md` §7) applied to the solver.
+- **The positivity bound is computable.** A forward Euler step keeps every reservoir non-negative when the step times the reservoir's total specific outflow is at most one, so the core knows the largest safe step before it takes it.
+- **Tracers come free.** A companion reservoir (the metals in a gas reservoir) moves at the same `k` as its parent, so its flux is `k` times its own content and no division by a possibly empty parent is needed.
+- **An ill-posed law fails loudly.** A coefficient that grows without bound as its donor empties forces the step towards zero and trips the failure rule below, which is the intended outcome.
 
-Genuine shared finite budgets that must be allocated — infall distribution across a group is the candidate — stay explicit and model-declared rather than becoming a general framework mechanism.
+What the form excludes is deliberate: a constant drain, `min(demand, available / dt)`, and any law that empties a reservoir in finite time. Each of today's caps becomes a law that satisfies the contract, which is physics work for the campaign and not for the core.
+
+### Negative state is a violation, not a value to repair
+
+A committed negative reservoir is an invariant violation. The integrator reduces the step, and if it cannot recover it fails. **It never clamps.** This is `docs/VISION.md` principle 7 applied to the solver.
+
+The rule needs a termination condition to be implementable:
+
+- **Negative means strictly below zero at any stage.**
+- **Retries and steps per segment are bounded** by declared budgets.
+- **A failure names its cause:** the component, the reservoir, the law and the time, with enough state written out to reproduce it. One halo in ten billion must not end a production run without a diagnosis.
+- **Nothing is committed from a failed segment.**
+
+Genuine shared budgets that must be allocated, such as infall across a group, stay explicit and model-declared. The framework gains no arbiter.
+
+### Phases, segments and time
+
+The existing phase structure carries the hybrid system with one new rule.
+
+- **A phase is either a rate phase or a discrete phase.** A rate phase holds only rate modules and is integrated as one system. A discrete phase holds modules in the existing modes and runs in order, as today. A phase that mixes the two is refused at startup.
+- **At most one rate phase is configured.** Two would be split against each other in order, which is the artefact this work removes. The limit is lifted only on a demonstrated need.
+- **A substep is a segment.** The integrator advances the rate phase across one segment, steps freely inside it and lands exactly on its end. Discrete phases run at segment boundaries. `SubSteps` and `TimestepScheme` keep their meaning and now set the cadence of jumps, per FoF group under the dynamic scheme.
+- **Convergence is two separate claims.** Inside a segment the error is controlled by the tolerance. Across segments the timing of jumps is first order in the segment count, and no tolerance removes that. Any stated convergence rate says which one it measures.
+- **Halo properties arrive as discontinuities at snapshot boundaries.** Integration stops and restarts there. Whether forcing is also interpolated within an interval is a scientific choice for a model, not for the core.
+
+One point is open and must be settled by the implementation plan: **rows in one FoF group can have different elapsed times.** Each row carries its own `dT`, the published `sage16` evolves each object over its own `dT / num_substeps`, and mixed `dT` within a group is tested today (`tests/unit/test_unit_mixed_dt_parity.c`). A coupled component needs one rule for this. The candidates are a common span for every row, or each row advancing on its own clock with a transfer's amount computed once, on the donor's clock, so that it still conserves.
+
+### State kinds
+
+"A source and a destination" does not cover everything a real model declares. The published models need these kinds, and the property metadata must be able to say which a property is:
+
+| Kind | Meaning | In stage 1 |
+|---|---|---|
+| Reservoir | A conserved, non-negative quantity that transfers move | Yes |
+| Tracer companion | A quantity carried with a parent reservoir at the parent's specific rates (metals in gas) | Yes |
+| External source or sink | Where mass enters or leaves the system, integrated so that the ledger can account for it | Yes |
+| Observer | The time integral of a declared flux, read out and never fed back (a star-formation rate, a history bin) | Yes |
+| Slaved source | A source proportional to another declared transfer's flux (metals yielded by star formation). Evaluation is ordered by dependency and a cycle is refused at startup | Yes |
+| Auxiliary state | Non-conserved state that evolves but is not a mass (a merger clock, an accumulated heating radius) | No: it stays in discrete phases |
+| Label | A discrete value that changes only at a jump or a snapshot boundary (a galaxy type, a keyed random regime draw) | Read as forcing |
 
 ### Integration domain
 
-The integration domain is **each connected component of the declared transfer graph** within the processing workspace, not the whole workspace by default.
+A transfer's two ends are either on the same record or on a galaxy and its FoF central. Those are the only cross-record transfers the two classifications show. The domain is therefore decided at startup from the configured transfers: each galaxy alone when none crosses records, and the whole FoF group when any does.
 
-Where physics genuinely couples galaxies — satellite feedback depositing into its central's hot halo — that component spans those galaxies and solver cost follows. Where it does not, galaxies remain independently solvable and by-galaxy dispatch survives unchanged. We neither pay group-scale solver cost for galaxy-local physics, nor fake independence where the physics couples.
+For `sage16` it is the whole group in the common case, because satellites return gas and metals to their central. By-galaxy independence does not survive for that model, and the cost follows ([Costs and Risks](#costs-and-risks)). A general transfer graph with component discovery waits until a model declares an endpoint that needs it.
+
+### The ledger
+
+Conservation is checked, not assumed. A Runge–Kutta scheme that applies one computed amount to both ends of every transfer preserves each conserved total to rounding, not exactly, and jumps and open systems are outside that argument altogether. The ledger is three things:
+
+- **External sources and sinks are integrated** by the same scheme as the state, so their totals over a segment are known.
+- **Closure is asserted per component per segment:** the change in each conserved total equals the net external flow, within a tolerance that scales with the number of steps, the machine precision and the size of the total.
+- **Every discrete phase's net change to each conserved total is recorded,** and is either zero or declared by the module that caused it.
+
+A tracer never exceeds its parent. That bound is checked as well, because not every integrator preserves it.
+
+### The integrator
+
+No external library is used. The build links only the maths library, libyaml, HDF5 and MPI, and an ODE package would raise that floor while suiting short, cold-started, per-group integrations poorly.
+
+The integrator sits behind one internal interface: it is given a component's state, the means to evaluate the coefficients, a segment and the tolerances, and it returns the advanced state, a status and its step statistics.
+
+- **First, an explicit strong-stability-preserving Runge–Kutta pair with an embedded error estimate** (the three-stage third-order scheme with a second-order embedded estimate is the candidate). Every stage of such a scheme is a convex combination of forward Euler steps. With the rate-law contract its steps can be capped in advance, laws never see a negative state, tracer bounds hold, and reducing the step provably terminates. It needs no Jacobian.
+- **Second, behind the same interface, a linearly implicit first-order scheme with coefficients frozen at the start of the step.** Its matrix is diagonally dominant by construction, so it is positive and conservative at any step size and needs no pivoting. It is the fallback for a stiff component. It also removes the loud failure above, because it will integrate an ill-posed law without complaint, so it is never the default.
+
+Unconditionally positive schemes of this kind are limited to first order, which is why no higher-order implicit method is proposed.
+
+The stiffness of the real models is not measured. A timescale estimate puts the product of the fastest specific rate and a snapshot interval between one and a hundred, which an explicit scheme handles; that is an estimate and not a measurement. So the core records what a measurement would have given: per run, the distribution of the fastest specific rate times the segment length, and of steps per segment. Campaign 4b reads the stiffness of the fork from its own output.
+
+### Tolerance and step policy
+
+The plan fixes the formula. The brief fixes its properties:
+
+- **Component-wise weights** with an absolute and a relative part, the absolute part non-zero so that an empty reservoir has a scale.
+- **A galaxy-local scale.** A dwarf in a cluster is not ignored because the cluster is large.
+- **A maximum norm,** so that a galaxy's accuracy does not depend on the size of its group.
+- **The tolerance is a local error target and is stated as one.** Accuracy is measured by rerunning at a tighter tolerance, not read off the setting.
+- **The step sequence is a pure function** of the state at the start of the segment, the forcing, the parameters, the segment and the tolerances. The integrator starts cold in every segment and carries nothing between segments or between groups.
+
+### Events and jumps
+
+In stage 1 jumps fire at segment boundaries, in discrete phases, exactly as events fire today: from full-halo producers to per-event consumers in the same phase, dispatched immediately. Locating an event at its guard crossing is a later increment, and four requirements now keep it from needing a redesign:
+
+- **The integrator advances one segment and returns, and the driver owns segmentation.** An early return at a located time is then an addition.
+- **State is gathered from the records at the start of a segment and written back at its end.** A change in the number of galaxies (a merger, or records created by `module_create_record()`) is then free, because nothing is cached across callbacks.
+- **Jumps see committed state only,** and the integrator restarts cold after any jump.
+- **A cascade terminates by construction:** one configured pass of the discrete phases per boundary. `sage16`'s disk instability shows the question is real, since its reset does not by itself restore its own guard, and `sage26` has a cascade two jumps deep.
+
+---
+
+## How It Meets the Core As Built
+
+A great deal has landed since this brief was first written. Each item below is a fact about the code and the requirement it places on the rate mode.
+
+**The mode machinery is a closed table, not an open set.** `src/core/processing_modes.c` holds the single C table of modes, with a static assertion that every enumerator has an entry, and `scripts/module_modes.py` holds its Python counterpart, which is an input to the generation hash. FoF phases refuse a mode of any other family, `struct PhasePlan` holds three fixed dispatch lists and `execute_phase()` makes three fixed passes. A rate mode is therefore explicit work in each of those places.
+
+**A rate module needs its own callback family.** `process(ctx, halos, ngal)` mutates state and is frozen. A rate law must not mutate, so it gets a third family beside `MODULE_CALLBACK_FAMILY_FOF` and `MODULE_CALLBACK_FAMILY_SNAPSHOT`, with a callback whose signature takes read-only state. While a rate callback runs, `module_emit_event()` and `module_create_record()` refuse, as they already refuse outside their own callback kinds.
+
+**The core cannot address a reservoir by index today.** Properties are generated as struct fields, and no table of galaxy properties is emitted. Reservoirs, their kinds and their conserved totals are therefore declared in property metadata, and the generator emits the table the assembler and the ledger read. Transfers are declared in `module_info.yaml` by reservoir name, so a transfer to an undeclared reservoir fails at startup.
+
+**Rate-mode reservoirs are stored as `double`.** Adaptive error control against single-precision state is not meaningful, and a round trip through `float` each segment would break the ledger at one part in ten million. A reservoir declared `float` in a rate phase is refused. Property types are declared per package and new models default to `double`, so a fork can be `double` while the published `sage16`, which declares 21 `float` properties, stays as it is.
+
+**Records are created only from full-halo callbacks and join the workspace when the callback returns.** The state vector is assembled from the workspace at the start of each segment and never held across a callback.
+
+**Both drivers call one function.** `process_halo_evolution()` (`src/core/halo_evolution.c`) serves the vertical and horizontal drivers, and neither MPI decomposition nor chunking ever splits a FoF group. An integrator that reads only the workspace and no run-level state inherits every identity gate.
+
+**Determinism has a rule already.** `docs/VISION.md` principle 4 requires identical output whatever driver or traversal order processed the data. For the rate mode that means the order of the state vector, the order in which inflows to one reservoir are summed, and the order in which the error norm is evaluated are all canonical: independent of the run file's order, of registration order and of the driver. The canonical key cannot be a created record's `UniqueGalaxyID`, which differs between drivers. Whether both drivers present a group's rows in the same order was not established for this brief, so the plan must not assume it.
+
+**The snapshot scope is separate.** `docs/VISION.md` describes snapshot-wide rate callbacks as prospective. The rate mode here is FoF-scoped and is not that. A `post_snapshot` module that writes a reservoir does so outside the ledger, and the documentation says so.
+
+**Output provenance must cover the new settings.** HDF5 output records the enabled modules, the parameters and the event contracts. The integrator, its tolerances and budgets, and the declared transfers are recorded the same way. One existing constraint bears on this: the reference-identity gate requires a run's attribute names to match the reference commit's exactly, so new `RunProperties` attributes need the gate's named allowance, which [`MIMIC-BACKLOG.md`](MIMIC-BACKLOG.md) already describes for another attribute.
+
+**Infrastructure is tested on fixtures.** The model-neutral fixtures live under `src/module_system/` (`test_fixture`, `test_snapshot_fixture`, the event producers and consumers), are compiled only in test builds, and take their properties from `test_fixture/test_properties.yaml`. `test_snapshot_fixture` is the precedent for adding a mode. The rate fixture follows the same pattern, with `double` reservoir properties.
 
 ---
 
 ## Relationship to the Vision
 
-This work is governed by `docs/VISION.md`. Assessed against each principle:
-
 | Principle | Effect |
 |---|---|
-| 1. Physics-agnostic core | **Strengthened.** The integrator, the transfer assembler, and event location are pure numerics — they know nothing about galaxies, exactly like the allocator and the HDF5 writer |
-| 2. Runtime modularity | **Strengthened, with one deliberate refinement — see below** |
-| 3. Metadata as structural truth | **Extended.** Reservoirs, their conservation relationships, and transfer endpoints become declared metadata |
-| 4. One coherent processing model | **Preserved.** Rate terms are a dispatch mode within the existing model, not a new traversal |
-| 5. Bounded memory | **Preserved.** Integrator stages cost a fixed small multiple of the state vector — see the memory note in [Costs and Risks](#costs-and-risks) |
-| 6. Format-agnostic I/O and provenance | **Untouched** |
-| 7. Validation and fast failure | **Strengthened.** Non-conservation and negative reservoirs become detectable invariant violations rather than silently absorbed |
+| 1. Physics-agnostic core | **Strengthened.** The integrator, the transfer assembler and the ledger are pure numerics and know nothing about galaxies |
+| 2. Runtime modularity | **Refined in one sentence.** See below |
+| 3. Metadata as structural truth | **Extended.** Reservoirs, their kinds, their conserved totals and each transfer's ends become declared metadata, and the reservoir table is generated |
+| 4. One coherent processing model | **Amended.** The principle names three FoF dispatch modes and one additive snapshot scope, and says a further mode needs its own explicit contract. The rate mode is a fourth dispatch mode inside the same traversal, and its contract is written into the principle |
+| 5. Bounded memory | **Preserved, with a bound to meet.** Solver memory is linear in the component's state and its transfers, from one reused, tracked allocation |
+| 6. Format-agnostic I/O and provenance | **Extended.** The integrator, its tolerances and the declared transfers join the recorded provenance |
+| 7. Validation and fast failure | **Strengthened.** A mixed phase, an undeclared reservoir, a `float` reservoir, a dependency cycle and a negative coefficient fail at startup or at first use, and non-conservation becomes a detected violation |
 
-### The one deliberate refinement
+**The refinement to principle 2.** It states that scientific ordering remains explicit in configuration. Under this work jumps keep explicit configured ordering, because they do not commute, and rate terms within a rate phase become unordered, because ordering them was an artefact of sequential execution. `docs/VISION.md` changes when the implemented behaviour justifies it, so the edits to principles 2, 4 and 6 are part of the implementation plan's last slice and not made ahead of it.
 
-`docs/VISION.md` §2 states that *scientific ordering remains explicit in configuration*. This work refines that:
-
-- **Jumps retain explicit configured ordering**, because they genuinely do not commute.
-- **Continuous rates become unordered**, because ordering them was never physics in the first place — it was an artefact of sequential execution.
-
-This is a deliberate, documented change to a vision statement, not an oversight, and it should be reflected in `docs/VISION.md` when this work is promoted from brief to plan.
-
-### Modularity is protected, explicitly
-
-Several current modules are not physical processes but stages of a splitting recipe — calculate, then apply, then enrich. Those stages disappear, and the module count drops. **This must never mean a model-specific monolith.** Independently selectable physical processes remain separate runtime modules; the core must still assemble whatever compatible set a run file configures, including the empty set. Collapse means fewer bookkeeping steps, never fewer scientific choices.
+**Modularity is protected.** Several current modules are stages of a splitting recipe (calculate, then apply, then enrich), and under this formulation those stages disappear. That must never mean a model-specific monolith. Independently selectable physical processes stay separate runtime modules, and the core assembles whatever compatible set a run file configures, including the empty set.
 
 ---
 
 ## Constraints Carried Forward
 
-- **The existing FoF-scoped module ABI stays frozen.** The rate-term contract is **additive**: a new processing mode alongside `PROCESSING_MODE_FULL_HALO` / `BY_GALAXY` / `PER_EVENT`, declared in module metadata. `process(ctx, halos, ngal)` is not changed and not removed. This is what allows existing model packages — including the control — to keep running unmodified, and it is what keeps this work compatible with the three briefs that assume a frozen ABI (see [Relationship to Other Plans](#relationship-to-other-plans)).
-- **The new physics lives in a new model package.** `sage16` is not converted in place; it becomes the experimental control.
-- **Faithful housing of published models is a first-class goal, not a concession.** `sage16` is a published model and Mimic's stated purpose is to house it as written. A published model's numerics are part of what was published: reproducing it *requires* reproducing its operator splitting, order dependence included. The frozen mode is therefore not legacy baggage to be retired — it is the mode in which any externally published SAGE-like model can be imported and run faithfully, without modification and without silently improving it. The new mode is for models we are free to derive properly: an improved successor, and anything built from scratch afterwards. Housing both is the flexibility Mimic exists to provide.
-- **The existing event system is reused, not replaced.** Jump modules keep `PROCESSING_MODE_PER_EVENT` dispatch and `module_emit_event()` (`src/core/module_interface.h`) as they work today. This work adds a rate-term mode beside them; it does not redesign event contracts, subscription routing, or the producer/consumer validation already in place.
-- **Rate laws must be side-effect free.** An adaptive integrator evaluates them repeatedly, out of chronological order, and at trial states it will subsequently reject. No counters, no emitted events, no writes to galaxy state. Jump modules keep a separate, frankly mutating contract.
-- **Working state is `double`.** Adaptive error control against `float` reservoirs is not meaningful. This breaks SAGE storage parity, which is acceptable in a new package and is the settled precedent for non-parity packages.
-- **Determinism.** Assembled transfers must reduce in a canonical order so results are reproducible independent of module registration order.
-- **Cross-format identity must stay green** for existing packages on both drivers. This work adds a mode; it must not perturb the tree/snapshot identity gate for models that do not use it.
+- **The existing module ABI is frozen.** The rate contract is additive. `process(ctx, halos, ngal)` and `process_snapshot()` are neither changed nor removed, every existing package runs unmodified, and the three other briefs that assume a preserved ABI (the emulator, the model builder and the embedded engine) stay valid.
+- **Published models are housed as published.** `sage16` and `sage26` are not converted in place. A published model's numerics are part of what was published, and reproducing it requires reproducing its splitting. The frozen modes are how any externally published model is imported and run faithfully. The rate mode is for forks and for models derived afresh.
+- **The event system is reused, not replaced.** Discrete phases keep the existing modes, `module_emit_event()` and the producer and consumer validation.
+- **Cross-format identity stays green** for every existing package on both drivers. This work adds a mode and must not perturb any model that does not use it.
+- **Bit-identity is claimed for one binary.** Compilers contract multiply-adds differently and the build sets no flag to stop them, so no claim crosses compilers or platforms.
+
+---
+
+## The Proving Fixture
+
+Two levels: integrator tests on hand-built components with no trees, and fixture modules run through real dispatch on a tree fixture. Each problem has a known solution or invariant.
+
+| Problem | What it demonstrates | Accepted when |
+|---|---|---|
+| A linear chain, A to B to C | Order of convergence; error tracks tolerance | The measured fixed-step order is within 0.2 of the scheme's over at least three halvings, and error falls monotonically with tolerance |
+| A closed three-cycle | A conserved total to rounding | Drift stays within the ledger's tolerance over a long integration |
+| Two sinks drawing on one source | Source limitation; order-independence | The two receive in the ratio of their rates; nothing goes negative when the rate times the interval is large; permuting the modules is bit-identical |
+| An external source, a reservoir and a sink | The ledger | The integrated source and sink match their closed forms, and closure holds to rounding |
+| A stiff reversible pair with a slow drain | Step control; the choice of scheme | The explicit scheme is correct with a step count near the stability prediction; the implicit scheme's step count does not depend on the fast rate |
+| A bimolecular reaction | Nonlinearity; a second invariant | The closed form is met, and the second invariant is exact under the explicit scheme with the implicit scheme's drift recorded |
+| A tracer with dilution and a slaved yield | Companions and cross-module dependence | The tracer stays between zero and its parent, the closed-form concentration is met, and an empty donor produces no undefined value |
+| A star: satellites feeding one central, at several sizes | Coupled groups; determinism; cost | Isolated groups are bit-identical; results are identical across drivers, task counts and chunk counts; time grows linearly with the number of galaxies |
+| A threshold law | Behaviour at a kink | The measured order stays near second, with a bounded number of rejected steps |
+| Two intervals with different rates, and a jump that removes a galaxy | Restart, a change of dimension, the jump ledger | The piecewise closed form is met |
+| A constant drain; an undefined or negative coefficient; an exhausted step budget | Loud failure | A non-zero exit that names the law, with nothing committed |
+
+Record creation in the middle of an interval, located events, cascades and a classic stiff benchmark can wait for a later increment.
+
+One probe belongs with the fixture because the order-independence gate cannot see it: **a purity check in test builds** that evaluates the laws twice in reversed order and requires bitwise-equal coefficients. Canonical sorting makes the permutation gate pass by construction, so it does not show that a law is pure.
+
+---
+
+## Gate
+
+Stage 1 is accepted when all of these hold.
+
+1. Every fixture problem above meets its criterion.
+2. Permuting the rate modules in a run file gives bit-identical output on one binary, and the same holds across the vertical and horizontal drivers, MPI task counts and chunk counts.
+3. The ledger closes on every fixture problem, and a planted non-conserving transfer is detected.
+4. Every failure case exits non-zero, names its cause and commits nothing.
+5. Every existing package and gate is green with the mode unused: `make tests` for each shipped package, `make check-generated` for every package (generator edits reach all of them), `make tests-reference-identity` against a commit that precedes the work, `make tests-distributed`, `make tests-snapshot-global`, `make tests-horizontal-v3`, the converter and bench suites, and the strict baselines of the packages the byte gate does not cover.
+6. The cost of the mode on the fixture is measured and reported: time against group size, and peak memory. No production figure is claimed.
+7. The documents of record describe the mode: `docs/VISION.md` principles 2, 4 and 6, the Developer Guide's module and property sections, and the skills that own modules, properties, the architecture contract and configuration keys.
+
+---
+
+## Decisions for the Owner Before the Plan Is Frozen
+
+1. **Whether the implicit scheme ships in stage 1.** Recommended: yes. A run-file key with one legal value is a mechanism for a need not yet shown, the stiff fixture proves nothing about the interface without a second scheme, and campaign 4b cannot cheaply reopen the core if the fork turns out stiff. The alternative is to ship the explicit scheme alone with no key, and add the second when the campaign's telemetry asks for it.
+2. **The names.** The mode's configuration string, the callback, and the run-file keys for the integrator and its tolerances. They become user-facing and are recorded in output.
+
+## Decisions for the Implementation Plan
+
+The plan settles these, each with a slice and an acceptance criterion:
+
+1. The metadata keys that declare a reservoir, its kind, its parent and its conserved total, and the shape of the generated table.
+2. How a module declares a transfer, a source, an observer and a slaved source in `module_info.yaml`, and what the validator checks.
+3. The rate callback's signature and its context.
+4. The tolerance formula and its defaults, the step and retry budgets, and the diagnostic a failure writes.
+5. The canonical ordering key, proved independent of the driver.
+6. The rule for rows with different elapsed times in one component.
+7. The memory category, owner and free point of the solver's workspace.
+8. The linear solve for the implicit scheme, which must exploit the satellite-to-central structure and never form a dense matrix.
+9. How the new output attributes pass the reference-identity gate.
+
+---
+
+## The Campaigns That Follow
+
+These are not part of the implementation plan. They are recorded so that the plan builds what they will need and nothing more.
+
+- **Stage 4a measures the published models as shipped:** the noise floor, time-step refinement and the legal module orderings, for `sage16` and `sage26`. It needs no new core. This is what the earlier brief called First Work, with two changes: the throwaway monolithic integrator is no longer needed as a reference, because stage 4b compares against the rate mode itself, and the sampled Jacobian spectra are replaced by the stiffness telemetry the core records.
+- **Stage 4b forks `sage16` as `sage16rate`:** the classified prescriptions rewritten to satisfy the rate-law contract, convergence and order-independence shown on the fork, and its parameters sought so that it reproduces the published population results, if that is possible. Galaxy-by-galaxy parity is not a goal. The earlier brief said the new package would not reproduce `sage16` and should not; the target is now the opposite, with a refusal as a legitimate result.
+- **The forks are not new models for publication.** They exist to develop the tools and the workflow, and for the owner's scientific curiosity.
+
+What the classifications say the forks will meet, beyond what stage 1 supports: observer state that depends on the substep count, a redshift held from a row's previous snapshot, rates whose time constant is the snapshot interval, stored relations re-clamped after each debit, a ratcheting heating radius with an order dependence inside one module, and a jump fired by a label inside a budget module. Each is a question for the campaign's build, and some may ask the core for a further state kind.
+
+The classification documents were written to open this work and are not exhaustive on one point: the caps and clamps they list are the load-bearing ones, not every one. `sage_apply_infall.c` alone holds several, and the fork's build must find them all.
 
 ---
 
 ## Relationship to Other Plans
 
-**Three of the five remaining requirements briefs assume the physics-module ABI is frozen.** The additive-contract constraint above is what makes that assumption survive this work, and it is the single most important interface decision in this document.
-
-- **Snapshot-global modules (`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md`, executed 2026-10-03 and archived) — delivered the machinery this brief extends.** It added the snapshot processing mode as an open set of explicit mode descriptors shared by generator and validator, with a typed callback per family and no assumption that every non-FoF mode is the snapshot mode, specifically so that a rate-term mode can join it without a second, incompatible notion of "a mode". This brief adds its mode to that set. Its contract — *"a snapshot-global contract is additive … never a change to `process(ctx, halos, ngal)`"* — is satisfied by this brief's additive constraint, so the two do not conflict. Note also that snapshot-global operations (rank-order SHAM, environment measures) are **population operations, not transfers**; they do not join the coupled system and are genuinely orthogonal in physics terms. A synchronous reionization radiation field is the possible exception, because the field and the sources it suppresses depend on each other — see the note under that brief's Constraints Carried Forward (in the archived plan).
-- **Distributed snapshot operations (`MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`, executed 2026-10-06 and archived) — satisfies the constraint by construction.** Domain decomposition must not cut a connected component of the transfer graph, or the coupled solve is split across ranks. The landed decomposition shards by whole forest and never splits a FoF workspace, so every transfer-graph component stays on one rank.
-- **`OPTIMISATION-SPECTRUM.md` — upstream (pathway step 4), and this brief constrains it.** Two of its options are deferred specifically because of this work: item 19 (SoA generator) would transpose the eight `output: false` transport-scratch properties this formulation deletes, and item 17 (batched dispatch) would be a third independent extension of the mode machinery. Its Tier A work is unaffected and lands first, which means this brief's measurement spike compares solver families against a baseline that is not carrying removable dispatch overhead. Note also that its item 3 (substep-invariant hoisting) must **not** cache into new declared transport properties, since rate laws here must be side-effect free.
-- **`MIMIC-EMBEDDED-ENGINE-PLAN.md` — strongly synergistic; sequence after.** That brief records that reentrancy is blocked by `init(void)`/`cleanup(void)` reading globals, and that threading state through `ModuleContext` covers only the `process()` path. A side-effect-free transfer declaration is trivially reentrant by construction. Building the embedded engine against the imperative ABI first would be effort spent on the contract this work supersedes for new models.
-- **`MIMIC-MODEL-BUILDER-PLAN.md` — strongly synergistic; sequence after.** A declared transfer (source reservoir, destination reservoir, rate law, units) maps far more directly onto "extract equations, parameters, units from a paper" than an imperative `process()` body does, and is far more machine-checkable. That brief states it should not drive architecture except where it reinforces already-valid constraints; this work reinforces exactly the ones it names. Its prototype (pathway step 5; design brief archived as `archive/dev-plans/MIMIC-MODEL-BUILDER-PROTOTYPE-2026-10-24-design-brief.md`) comes before this work rather than after: it is a reference port, and it names migrating a package to this formulation as a candidate second campaign.
-- **[`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) — supplies part of this brief's acceptance evidence; its spike has run and passed (2026-11-11), ahead of this work.** Gate item 5 requires the new package's differences from `sage16` to be quantified and attributed, and Open Question 7 asks which observables define acceptance. That brief is the instrument for both, and it is independent of this one: it adds no processing mode and touches none of the dispatch or metadata machinery, so the two do not contend. Note one interaction in the other direction — a declared transfer (source reservoir, destination, rate law, units) is a far better emulator design vector than an imperative `process()` body, so this work makes that one easier rather than harder.
-- **Horizontal pathway (`MIMIC-DUAL-DRIVER-PLAN.md`, `SHIN-UCHUU-CONVERSION-PLAN.md`, both executed and archived) — prerequisite, and already delivered the seam this work needs.** Phase 5 extracted `process_halo_evolution()` into `src/core/halo_evolution.c` parameterised by `struct HaloInputView`, giving both drivers a single evolution entry point; it also made the galaxy pool an instanced object and the output seam driver-neutral. This work must be built on that foundation, not on the pre-Phase-5 vertical-driver-shaped one.
+- **[`AGENTIC-SCIENCE-ARCHITECTURE.md`](AGENTIC-SCIENCE-ARCHITECTURE.md)** sets the order: this brief's part is its stage 1, and the campaigns are its stage 4.
+- **[`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md).** Its Tier A work has landed. Two of its options stay deferred behind this work: the structure-of-arrays generator (item 19) would transpose the transport-scratch properties a rate-mode model no longer needs, and batched dispatch (item 17) would be a further extension of the mode machinery. The init-time dispatch plans Tier A added are the structure the rate pass extends.
+- **[`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) and the bench.** The bench (`bench/mimic-bench/`) is the instrument campaign 4b uses to compare the fork with its reference. It rules parameter regions out and does not locate a best point, so the campaign needs a calibration method beside it. A declared transfer is also a better design vector than an imperative `process()` body.
+- **[`MIMIC-EMBEDDED-ENGINE-PLAN.md`](MIMIC-EMBEDDED-ENGINE-PLAN.md).** Sequence it after this. A side-effect-free rate law is re-entrant by construction, where the imperative ABI is blocked by `init(void)` and `cleanup(void)` reading globals.
+- **[`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md).** A declared transfer (a donor, a recipient, a rate law, units) maps onto "extract equations, parameters and units from a paper" far more directly than an imperative body does, and is more machine-checkable.
+- **Delivered work this builds on.** The snapshot-global modules added the callback-family and mode-descriptor machinery this mode extends. Distributed operation and chunking shard by whole forest and never split a FoF group, so no component is cut. The dual-driver work gave both drivers one evolution entry point.
 
 ---
 
 ## Costs and Risks
 
-- **This is a re-derivation, not a port.** Rewriting hard caps as source-limited rate laws is the largest single item and is physics work, not engineering. Making every rate a pure function of state is part of it.
-- **Parity is not the goal, and parameters will move.** The new model will not reproduce `sage16` and should not. The deliverable is a new model package, a recalibration, and a quantitative comparison against the control.
-- **Solver memory is a new term in a budget under active pressure.** An RK-class integrator holds several copies of the state vector per component. Every run reports its own peak memory profile, and the Shin-Uchuu production runs set the largest measured cases (the vertical `sage16` run's largest forest peaked at 164.8 GB; the cut horizontal run at one task and 128 chunks at 6.17 GB). This work must be costed against measured peaks like these, not against projections.
-- **Stiffness is a live unknown.** Cooling, dynamical, and feedback timescales span orders of magnitude. An explicit integrator may crawl or fail in the massive-halo regime; an implicit method needs a Jacobian, which for a component of dimension N costs order-N extra evaluations by finite differences.
-- **Scale interaction with snapshot-global work.** A coupled component confined to a FoF group is a small object. If a future snapshot-global module introduces transfers across a co-resident population, the component could in principle span the box. The transfer-graph framing handles this correctly in principle, but the scale is qualitatively different and is not in scope here.
-- **Event location is deferrable but not free.** A first implementation may fire events at step boundaries as today; locating them at their guard crossings is a second increment.
+- **Run time rises, and by how much is not measured.** The module pipeline is about 83% of a default `sage16` run on mini-Millennium. A three-stage scheme costs at least three evaluations per step, so keeping ten segments costs at least three times that share before any step is rejected. An estimate of two to five times the whole run at a loose tolerance is plausible and unmeasured. Against operator splitting of equal accuracy, which the 66% defect puts at hundreds of substeps, the coupled scheme should be several times cheaper. Stage 1 measures the fixture only.
+- **A group steps at the pace of its stiffest member.** With the whole FoF group as one component, a cluster's thousands of satellites share one step sequence. Schemes that step members at different rates exist and are a later optimisation, not part of stage 1.
+- **Work and memory must be linear in the component.** A rich group has thousands of galaxies and tens of reservoirs each. A dense matrix at that size is tens of gigabytes and its factorisation is cubic, so no dense matrix is ever formed and no Jacobian is built by differences per step.
+- **The persistent memory term is precision, not solver stages.** The solver's workspace is a few copies of one group's state from a reused allocation. Storing a fork's reservoirs as `double` widens every galaxy in the pool, which matters at the scale of the largest measured run: the cut Shin-Uchuu's largest forest peaks at 70.96 GB for `sage16`, of which the galaxy pool is 22.9 GB.
+- **The conversion is a re-derivation, not a port.** Rewriting hard caps as laws that satisfy the contract is the largest single item and is physics work. It belongs to campaign 4b.
+- **Jump cadence caps the accuracy.** With jumps at segment boundaries, the hybrid solution keeps a first-order error in the segment count. Located events remove it and are a later increment.
+- **A fork's parameters will move.** That movement is a result of campaign 4b, not a defect.
 
 ---
 
 ## Language and Backend
 
-**Implement in C, in the existing framework.** The formulation is language-independent, and the goal — mathematical consistency — is not what automatic differentiation provides.
+**Implement in C, in the existing framework.** The formulation is language-independent, and its goal, mathematical consistency, is not what automatic differentiation provides.
 
-A JAX or AD-based backend was assessed and rejected for this purpose. In brief: reverse-mode differentiation retains evolution history and needs checkpointing or adjoint methods to respect bounded memory; ragged, topology-changing merger trees suit array compilers poorly; the dependency floor rises from a C compiler to a pinned Python and toolchain stack; the MPI model does not carry over; and maintaining physics in two languages requires a permanent cross-language parity harness. Mature stiff ODE solvers for C are long established and sufficient.
-
-The one argument that could reopen this is cost: if measured component dimension N proves large and stiffness forces an implicit solver, exact Jacobians become valuable. That is a decision to revisit **after** the transfer contract is defined and N is measured — not before. Note also that the side-effect-free declarative contract this work introduces is the prerequisite for any future differentiable backend, so this choice forecloses nothing.
+A JAX or other differentiable backend was assessed and rejected for this purpose. Reverse-mode differentiation retains evolution history and needs checkpointing or adjoint methods to respect bounded memory. Ragged merger trees whose topology changes suit array compilers poorly. The dependency floor rises from a C compiler to a pinned Python stack. The MPI model does not carry over. And maintaining physics in two languages needs a permanent parity harness between them. The side-effect-free contract this work introduces is the prerequisite for any future differentiable backend, so the choice forecloses nothing.
 
 ---
 
 ## Prior Art and What Was Not Adopted
 
-**Recorded 2026-08-20 as context for the implementation plan, not as a change of scope.** The target formulation coincides with two established formalisms, and two adjacent ideas were assessed and set aside. Nothing here adds scope; what it settles is whether the implementation plan derives its answers or cites them, and which options it inherits an argument for rather than re-running.
+The target formulation coincides with two established formalisms, and the implementation plan should cite their results where they apply.
 
-### Two formalisms the target formulation already matches
+- **Compartmental and production–destruction systems.** Declared conservative transfers between reservoirs are a compartmental system. Two standard results are used above: a Runge–Kutta scheme preserves linear invariants to rounding when each transfer's amount is applied to both ends, and the non-negative orthant is invariant when each reservoir's outflow is bounded by a multiple of its content. The specific-rate form is also the structure the positivity-preserving schemes of that literature are built on.
+- **Hybrid dynamical systems.** Continuous flow with guard crossings and resets is a hybrid automaton. That field names the failure the earlier brief did not: an unbounded cascade of jumps in finite time. Stage 1 avoids it by construction, with one pass of the discrete phases per boundary, and a termination rule is owed when events are located.
 
-- **Compartmental (positive) systems.** Declared conservative transfers between named reservoirs, integrated per connected component of the transfer digraph, is a compartmental system as that literature defines one. Two consequences are worth testing before [Gate](#gate-when-activated) item 2 is scoped. Runge–Kutta methods preserve *linear* invariants in exact arithmetic, so if total mass is a linear invariant of the declared graph then the machine-checked conservation ledger may reduce to a structural argument plus a tolerance-aware assertion covering floating-point drift, rather than a subsystem. Non-negativity of the reservoir orthant likewise has known structural conditions, of which this brief's "every rate must be source-limited" is the informal statement. If both hold, this is a **deletion** from the plan rather than an addition.
-- **Hybrid dynamical systems.** Continuous flow with located guard crossings and resets is a hybrid automaton, and [Open Questions](#open-questions) item 5 restates that field's standard problem set. It also names a failure mode this brief does not: **Zeno behaviour**, an unbounded jump cascade in finite time. Two framework decisions follow for any model with located events — what constitutes one composite reset when several modules share a guard, and what progress-or-fail rule terminates a cascade that does not converge. `sage16` shows the question is concrete rather than hypothetical: its disk instability ([`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) item 14) transfers only the unstable *stellar* share to the bulge and leaves the unstable gas in `ColdGas`, returning it as a fraction for downstream consumers (`sage_disk_instability_physics.h:80`, `:107`), so its reset does not by itself restore its own guard, and whether the consumers that follow clear it depends on their own reset maps and thresholds. Cheaper to design than to debug inside a solver.
+Two ideas were assessed and set aside, and the reasons stand:
 
-Neither observation adds a deliverable, and neither should acquire a vocabulary of its own in this repository. The finding is only that some of the design work this brief anticipates may already exist elsewhere, and that the implementation plan is the place to check.
-
-### Assessed and not adopted, with reasons
-
-Recorded so that the implementation plan inherits the argument rather than repeating it.
-
-- **A forward-sensitivity core service.** Integrating parameter sensitivities alongside the state would give the local response of outputs to continuous parameters — related to, but not the same as, [Gate](#gate-when-activated) item 5, which attributes *structural* differences between a coupled package and its control. Set aside for now on the general rule that a core service needs a demonstrated need: start with controlled ablation — disable a term, re-run, difference the output — which needs no service, no new metadata, and no per-parameter multiplication of solver cost. Reopen on measured cost for the coupled solver, which is not the current pipeline's cost and is not yet known.
-- **A core runtime-control service** — framework machinery that adjusts parameters mid-run, or steers output toward an observational target. Rejected outright *for the core*: it would put scientific policy inside physics-agnostic infrastructure (`docs/VISION.md` §1), the same reason this brief already refuses to build a depletion arbiter. Note the boundary, because it is a framework question rather than a model one — a module may implement whatever self-regulating prescription its physics calls for, and several already do; what is rejected is the framework owning that policy on a model's behalf.
+- **A forward-sensitivity service in the core.** Integrating parameter sensitivities beside the state would give the local response of outputs to parameters. A core service needs a demonstrated need, and controlled ablation (disable a term, rerun, difference) needs no service.
+- **A runtime-control service in the core** that adjusts parameters during a run or steers output toward a target. Rejected for the core outright: it puts scientific policy inside physics-agnostic infrastructure. A module may implement whatever self-regulating prescription its physics calls for; the framework does not own that policy.
 
 ---
 
-## First Work: Measure Before Building
+## How This Revision Was Produced
 
-**No core change should be made until the size of the defect is known.**
-
-Build a throwaway model package containing a single monolithic integrator module — legal today under the existing ABI, using `process_full_halo` with `SubSteps: 1`, with physics terms as model-local helpers and zero core changes. Then measure the current pipeline against a conservative coupled reference for the rate-shaped subset:
-
-- several module orderings, to size the order dependence directly;
-- timestep refinement, to size the splitting residual;
-- Strang splitting, as the cheap comparator;
-- sampled **Jacobian spectra** along representative trajectories, as one stiffness diagnostic feeding Open Question 3's solver-family choice — a local indicator rather than a decision procedure for a nonlinear system, and bounded to classifying the stiffness regime rather than a full spectral study, since its own cost scales with the component dimension this brief has not yet measured;
-
-stratified by halo mass and redshift, and reported against familiar `sage16` statistics.
-
-Symmetric splitting is a **comparator, not an alternative**: it reduces error for two operators without removing permutation dependence among many, and it does nothing about the undefined hybrid semantics. The measurement sets priority and sizes the defect. It does not decide whether the defect is real.
-
-**Nor does it decide whether the work happens. Recorded 2026-08-20, so the spike is never read as a veto.** Sequential operator splitting has no defined answer to adjudicate: permuting the module list in a run file changes the result, and that ordering carries no physics. A small residual measured for `sage16` at z = 0 constrains this package at this epoch — it says nothing about a stiffer successor, nor about massive halos where cooling and dynamical timescales separate. The declarative benefits are independent of the residual's size in any case: machine-checkable conservation, a side-effect-free process path, and transfers that map onto published equations. What the measurement sets is **priority, solver family, and the baseline the eventual comparison is attributed against** — not permission.
-
-This spike touches only new files under `models/`, so it is safe to run alongside any other in-flight work. [`MIMIC-SCIENCE-CAMPAIGNS-MAP.md`](MIMIC-SCIENCE-CAMPAIGNS-MAP.md) (proposed 2026-11-10, not adopted) names it a candidate early science campaign: it asks a question, constructs its own reference and needs no discrepancy budget. That would change how the spike is run, not what it measures. Decided 2026-11-12: its measurement of the published models is campaign work, after the rate mode is built.
-
----
-
-## Open Questions
-
-To be settled before or during the implementation plan, not by it:
-
-1. ~~**Per-prescription hybrid classification.**~~ — **SETTLED 2026-08-20**, in [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md). All 18 shipped `sage16` prescriptions classified by state-reset semantics with `path:line` evidence: 10 rate, 4 jump, 3 algebraic, 1 forcing. Three results feed the questions below — the eight operator-split fluxes are already declared transport buffers with producer→consumer notes (bears on Question 2), the six `min(requested, available)` sites and two clamp-to-zero sites are enumerated (the clamps are a real behavioural difference, so acceptance must be observational — Question 7), and the transfer graph connects the whole FoF group in the common case (bears on cost and on Question 9).
-2. **Metadata mechanism.** Whether reservoirs and their roles are declared explicitly in property YAML, or derived from module transfer endpoints with validation for undeclared writes. Derivation is preferable if it can be made complete and fast-failing.
-3. **Solver family.** Explicit adaptive versus semi-implicit or Rosenbrock, decided from measured stiffness rather than assumed — the sampled-Jacobian item in [First Work](#first-work-measure-before-building) is one input to it.
-4. **Tolerance policy.** Component-wise absolute and relative tolerances, acceptance norms, and the precision at which state is committed to output.
-5. **Event semantics.** Step-boundary firing (first increment) versus located guard crossings; simultaneous-event priority; cascading jumps; restart rules. Includes a termination rule for jump cascades — see the hybrid-systems note in [Prior Art](#prior-art-and-what-was-not-adopted).
-6. **Tree forcing.** Halo properties arrive as discontinuities at snapshot boundaries. Integration should terminate and restart there rather than letting an adaptive solver fight the jump; whether forcing is additionally interpolated within an interval is a separate scientific choice.
-7. **Recalibration methodology**, and which observables define acceptance for the new package. **A candidate instrument is on record: [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) (2026-08-20).** Its relevance here is the comparison, not the calibration: Gate item 5 asks for this package's differences from the control to be *quantified and attributed*, and a best-fit score cannot compare two structures on equal footing because it rewards whichever has more freedom. Surviving parameter-space fraction compares them fairly, provided each structure's prior measure is stated and comparable; attributing a particular output difference to a particular physics change remains a direct control-versus-package comparison that no emulator performs. Point calibration itself remains an optimiser's job.
-8. **Package naming.** A working name such as `sage16-coupled` is self-documenting while the package is explicitly the coupled counterpart of the control. Once recalibrated it is a scientifically distinct model with its own parameters and results, and carrying the `sage16` name would misstate its provenance — so plan to rename at that point. Cheap to defer: it is a directory name, and nothing cites it yet.
-9. **Build on the shared dispatch-mode and metadata machinery** that snapshot-global modules delivered (an open set of mode descriptors), adding the rate-term mode to it rather than a parallel mechanism.
-
----
-
-## Gate (when activated)
-
-1. The measurement in [First Work](#first-work-measure-before-building) is complete and published, and its results have set the solver family, the error target, and the baseline that gate item 5's attribution is measured against.
-2. A new model package reproduces the classified rate-shaped subset as declared transfers, with a machine-checked conservation ledger and a demonstrated convergence rate under step refinement.
-3. Order-independence is demonstrated: permuting rate terms in the run file produces bit-identical output.
-4. All existing packages, both drivers, and the cross-format identity gate stay green with the new mode unused.
-5. The new package is recalibrated, and its differences from the control are quantified and attributed.
+The brief of 2026-08-18 was checked on 2026-11-12 by two independent reviews: one of every statement against the code and the other documents, and one of the numerical design. Their main citations were checked against the files. The stiffness estimate, the run-time estimate and the claim about rich groups are reviewer estimates and are marked as unmeasured where they appear. Nothing here was tested by building or running Mimic.
