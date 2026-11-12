@@ -16,6 +16,7 @@ benchmarks
 archive
 obsidian-inbox
 sage-code
+.obsidian
 
 # Machine-local operational scripts (cluster-specific paths/accounts, not portable
 # project source - e.g. per-cluster SLURM job scripts)
