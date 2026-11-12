@@ -1,0 +1,83 @@
+# Module Metadata: test_rate_stripping
+#
+# ⚠️  WARNING: This module is for TESTING INFRASTRUCTURE ONLY ⚠️
+#
+# DO NOT USE IN PRODUCTION RUNS
+#
+# Purpose: one of the four process_rates modules of the model-neutral rate
+# fixture. It strips a satellite's hot reservoir onto the FoF central's hot
+# reservoir (the only cross-record end, to_record: central; zero on the central
+# itself) and ejects cold out of every row through a sink. The laws are
+# documented in README.md.
+#
+# For metadata schema documentation, see:
+#   docs/DEVELOPER-GUIDE.md#module-metadata-schema
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: test_rate_stripping
+  display_name: "Test Rate Stripping Fixture"
+  description: "Rate fixture: stripping onto the central and ejection. NOT FOR PRODUCTION."
+  version: "1.0.0"
+  author: "Mimic Development Team"
+
+  # ===========================================================================
+  # Processing Configuration
+  # ===========================================================================
+
+  # test_rate_stripping.c is implicit (auto-included)
+
+  supported_processing_modes: [process_rates]
+
+  # One coefficient per transfer, in this order (the law's coefficient slots).
+  rates:
+    transfers:
+      - name: stripping       # internal, onto the central's record: specific rate, 0 on Type 0
+        from: RateFixtureHot
+        to: RateFixtureHot
+        to_record: central
+      - name: ejection        # sink: specific rate
+        from: RateFixtureCold
+        to: external
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  # The halo field the law reads, and the reservoirs its transfers move.
+  dependencies:
+    properties:
+      - Type
+      - RateFixtureHot
+      - RateFixtureCold
+    parameters:
+      - TestRateStrippingRate
+      - TestRateStrippingEjectionRate
+
+  # ===========================================================================
+  # Tests
+  # ===========================================================================
+
+  # Exercised by tests/unit/test_rate_transfer_tables.c and
+  # tests/integration/test_rate_metadata.py, which the test registry discovers
+  # directly.
+  tests:
+    unit: null
+    integration: null
+    scientific: null
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: README.md
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []

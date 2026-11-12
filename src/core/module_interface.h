@@ -380,6 +380,88 @@ struct RateContext {
   const struct MimicConfig *params;
 };
 
+/** A transfer end that is no record's reservoir: a source's donor or a sink's recipient */
+#define RATE_TRANSFER_EXTERNAL (-1)
+
+/**
+ * @brief   Kind of a declared rate transfer, decided by its two ends
+ *
+ * The kind fixes what the law's coefficient for the transfer means. Generated
+ * from `rates.transfers` in module_info.yaml; scripts/module_modes.py mirrors
+ * the names (TRANSFER_KINDS).
+ */
+enum RateTransferKind {
+  RATE_TRANSFER_INTERNAL,      /**< Reservoir to reservoir of one total; specific rate (1/time) */
+  RATE_TRANSFER_SINK,          /**< Reservoir to external; specific rate (1/time) */
+  RATE_TRANSFER_SOURCE,        /**< External to a reservoir or tracer; absolute rate */
+  RATE_TRANSFER_SLAVED_SOURCE, /**< External, a dimensionless multiple of its master's flux */
+};
+
+/**
+ * @brief   Which record receives a transfer
+ *
+ * Declared as `to_record` (`self`, the default, or `central`); a transfer to
+ * external has no recipient record and is always RATE_TRANSFER_TO_SELF.
+ */
+enum RateTransferRecord {
+  RATE_TRANSFER_TO_SELF,    /**< The evaluated row's own record */
+  RATE_TRANSFER_TO_CENTRAL, /**< The FoF central's record (on the central, its own) */
+};
+
+/**
+ * @brief   One transfer a process_rates module declares (generated, read-only)
+ *
+ * Generated into module_init.c from `rates.transfers`, one descriptor per
+ * transfer in declaration order, so a descriptor's position in its module's
+ * table equals its coefficient_index. Ends hold reservoir table indices
+ * (enum ReservoirIndex in generated/reservoir_table.h) or RATE_TRANSFER_EXTERNAL.
+ */
+struct RateTransfer {
+  /** Transfer name as declared; unique within its module */
+  const char *name;
+
+  /** Slot the module's law writes this transfer's coefficient to */
+  int coefficient_index;
+
+  /**
+   * Position in the global transfer index, which orders every compiled rate
+   * module's transfers by (module name, declaration order)
+   */
+  int global_index;
+
+  /** What the coefficient means (see enum RateTransferKind) */
+  enum RateTransferKind kind;
+
+  /** Donor: a reservoir table index, or RATE_TRANSFER_EXTERNAL for a source */
+  int from;
+
+  /** Recipient: a reservoir table index (a tracer only for a source), or RATE_TRANSFER_EXTERNAL */
+  int to;
+
+  /** Record that receives the transfer */
+  enum RateTransferRecord to_record;
+
+  /** Global index of a slaved source's master transfer, else -1 */
+  int slaved_master;
+
+  /** A slaved source's master as declared, "<module>.<transfer>", else NULL */
+  const char *slaved_to;
+};
+
+/**
+ * @brief   One observer a process_rates module declares (generated, read-only)
+ *
+ * An observer accumulates the committed amount of one of its module's
+ * transfers into a property of reservoir kind `observer`.
+ */
+struct RateObserver {
+  /** Reservoir table index of the observer property */
+  int property;
+
+  /** Coefficient index, in the same module, of the observed transfer */
+  int transfer;
+};
+
 /**
  * @brief Emit a phase-local event for subscribed PROCESSING_MODE_PER_EVENT consumers
  *
@@ -752,6 +834,42 @@ struct Module {
    * @brief Length of emitted_event_ids array (0 if not a producer)
    */
   int num_emitted_events;
+
+  /* ===== Rate Mode (generated from module_info.yaml rates section) ===== */
+
+  /**
+   * @brief Transfers the rates() callback returns coefficients for (NULL if not a rate module)
+   *
+   * Points to a generated table of the module's `rates.transfers`, in
+   * declaration order: entry i describes coefficients[i]. Populated in
+   * module_init.c for a module advertising process_rates.
+   */
+  const struct RateTransfer *rate_transfers;
+
+  /**
+   * @brief Length of rate_transfers (0 if not a rate module), the number of coefficient slots
+   */
+  int num_rate_transfers;
+
+  /**
+   * @brief Observers of the module's transfers (NULL if it declares none)
+   *
+   * Points to a generated table of the module's `rates.observers`.
+   */
+  const struct RateObserver *rate_observers;
+
+  /**
+   * @brief Length of rate_observers (0 if it declares none)
+   */
+  int num_rate_observers;
+
+  /**
+   * @brief Whether the law reads the FoF central through RateContext.central
+   *
+   * Set via `rates.reads_central` (default false). Only a module that declares
+   * it is given a non-NULL central (see struct RateContext).
+   */
+  bool reads_central;
 };
 
 #endif // MODULE_INTERFACE_H

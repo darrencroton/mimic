@@ -1610,7 +1610,7 @@ Required fields for directory runtime modules:
 | Field | Type | Description |
 | --- | --- | --- |
 | `name` | string | Module name, usually matching directory and C function prefix |
-| `supported_processing_modes` | array | Allowed processing modes: a non-empty list without duplicates, drawn from `scripts/module_modes.py` (`process_full_halo`, `process_per_event`, `process_by_galaxy`, `process_snapshot`). The generator and validator reject unknown, duplicate and empty lists identically |
+| `supported_processing_modes` | array | Allowed processing modes: a non-empty list without duplicates, drawn from `scripts/module_modes.py` (`process_full_halo`, `process_per_event`, `process_by_galaxy`, `process_snapshot`, `process_rates`). The generator and validator reject unknown, duplicate and empty lists identically |
 
 Common optional fields:
 
@@ -1628,8 +1628,12 @@ Common optional fields:
 | `docs.physics` | Module-local physics/contract documentation |
 | `compilation_requires` | Required optional features such as HDF5 or MPI |
 | `snapshot_distribution` | `serial_only` (default) or `collective`; only for a module that advertises `process_snapshot`. `collective` declares that the module reaches every whole-population quantity through the snapshot collectives and may run under `NTask > 1` (see [Snapshot Callback Contract](#snapshot-callback-contract)) |
+| `rates` | Required for a module that advertises `process_rates`, and refused on any other module: the mapping of `rates.*` keys below. Unknown keys are refused inside `rates`, inside a transfer and inside an observer |
+| `rates.transfers` | Non-empty list, in coefficient-slot order, of `{name, from, to, to_record, slaved_to}`. `name`: a C identifier unique in the module. `from`: a galaxy property of reservoir kind `reservoir`, or `external`. `to`: a `reservoir`, `external`, or a `tracer` when `from` is `external`; never both ends `external`. A transfer between two reservoirs must stay within one conserved total. `to_record`: `self` (default) or `central` (the FoF central's record), refused with `to: external`. `slaved_to: <module>.<transfer>`: only on a transfer from `external`, naming a transfer out of a reservoir whose total differs from the recipient's. The law's coefficient is a specific rate for a transfer out of a reservoir, an absolute rate for a source, and a dimensionless multiple of the master's flux for a slaved source. A slaved source makes its recipient's total depend on its master donor's total; a cycle of such dependencies among totals is refused over every compiled rate module, naming the totals |
+| `rates.observers` | List of `{property, transfer}`: a galaxy property of reservoir kind `observer` that accumulates the amount moved by `transfer`, which the same module declares |
+| `rates.reads_central` | `true` or `false` (default `false`): whether the law reads the FoF central through `RateContext.central`, which is NULL for a module that does not declare it |
 
-The validator implementation in `scripts/validate_modules.py` is the enforcement source for this schema. Processing-mode lists are checked through the descriptors in `scripts/module_modes.py`, which the registry generator shares; that file is a module-generation input, so the generator's freshness hash and `make check-generated` both cover its path and bytes and the `Makefile` module-generation stamp depends on it.
+The validator implementation in `scripts/validate_modules.py` is the enforcement source for this schema. Processing-mode lists are checked through the descriptors in `scripts/module_modes.py`, which the registry generator shares. Every `rates:` rule lives there too (`rate_metadata_errors()`), so both tools check `rates:` declarations against the galaxy properties' `reservoir:` declarations identically. For each rate module the generator emits a coefficient index constant per transfer, `<MODULE>_TRANSFER_<NAME>`, into `src/module_system/generated/rate_contracts.h`, and the module's transfer and observer tables, naming reservoirs by their generated index symbols, into its registration (`struct Module.rate_transfers`, `rate_observers` and `reads_central`). Each transfer's global index orders every compiled rate module's transfers by module name, then declaration order. `scripts/module_modes.py` is a module-generation input, so the generator's freshness hash and `make check-generated` both cover its path and bytes and the `Makefile` module-generation stamp depends on it.
 
 ### Property Metadata Schema
 

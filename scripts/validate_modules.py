@@ -15,6 +15,12 @@ src/module_system/test_* are validated too, and the test-only galaxy properties 
 (``test_property_files()``, e.g. TestDummyProperty) are loaded into the property metadata so
 the fixtures' declared dependencies resolve. Production runs load none of them.
 
+The ``rates:`` declaration of a ``process_rates`` module is checked by the rules in
+scripts/module_modes.py (rate_metadata_errors()), which the registry generator shares.
+Its cross-module rules (a slaved source's master and the order of the conserved
+totals) always run over every discovered module, so validating one module path still
+resolves a master declared by another module.
+
 Exit codes:
     0 - All validations passed
     1 - Schema error (missing fields, wrong types)
@@ -49,6 +55,7 @@ from generate_properties import load_parameter_units
 from module_modes import (
     STANDALONE_FALLBACK_MODES,
     mode_list_errors,
+    rate_metadata_errors,
     snapshot_distribution_errors,
 )
 
@@ -719,6 +726,41 @@ def validate_parameter_units(valid_modules, results: ValidationResults) -> None:
             )
 
 
+def validate_rate_declarations(
+    modules: List[Tuple[Path, Dict[str, Any]]],
+    property_metadata: Dict[str, Dict[str, Any]],
+    results: ValidationResults,
+    report_only: Optional[set] = None,
+) -> bool:
+    """Validate every module's rates: declaration against the property metadata.
+
+    The rules live in rate_metadata_errors() in scripts/module_modes.py, which the
+    registry generator also uses, so the two tools refuse the same metadata. They
+    run over every module passed, because a slaved source's master and the order
+    of the conserved totals span modules. A malformed declaration is a schema
+    error (exit code 1); a reference to an unknown property or to an undeclared
+    transfer is a dependency error (exit code 3).
+
+    Args:
+        modules: (module directory, metadata) pairs, every discovered module.
+        property_metadata: Property metadata by name (galaxy and halo).
+        results: Collector the refusals are added to.
+        report_only: When given, only refusals against these module names are
+            reported (validating one module path with every module as context).
+
+    Returns:
+        True when no refusal was reported.
+    """
+    metadata = [module for _, module in modules if module is not None]
+    valid = True
+    for error in rate_metadata_errors(metadata, property_metadata):
+        if report_only is not None and error.module not in report_only:
+            continue
+        results.add_error(error.module, 3 if error.dependency else 1, error.message)
+        valid = False
+    return valid
+
+
 # ==============================================================================
 # MAIN VALIDATION FUNCTION
 # ==============================================================================
@@ -856,9 +898,20 @@ def main():
             return 1
 
         modules = [(module_dir, metadata)]
+        # Every discovered module, with this one in place of its namesake, is the
+        # context for the cross-module rate rules.
+        selected_name = metadata.get("name", module_dir.name)
+        rate_context = [
+            (path, other)
+            for path, other in discover_modules()
+            if other is None or other.get("name") != selected_name
+        ] + modules
+        rate_report_only = {selected_name}
     else:
         # Validate all modules
         modules = discover_modules()
+        rate_context = modules
+        rate_report_only = None
 
     if not modules:
         print("No modules found to validate.")
@@ -897,6 +950,8 @@ def main():
         validate_dependencies(valid_modules, property_metadata, results, args.verbose)
         print("Validating parameter unit metadata...")
         validate_parameter_units(valid_modules, results)
+        print("Validating rate declarations...")
+        validate_rate_declarations(rate_context, property_metadata, results, rate_report_only)
 
     # Print summary
     results.print_summary()

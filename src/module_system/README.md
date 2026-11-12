@@ -15,6 +15,10 @@
 - **`test_event_consumer_alpha/`** — Consumer subscribed to `test_event` from `test_event_producer`
 - **`test_event_consumer_beta/`** — Consumer subscribed to `test_event_alt` from `test_event_producer`
 - **`test_event_consumer_gamma/`** — Consumer subscribed to `test_event_b` from `test_event_producer_b`
+- **`test_rate_supply/`** — Rate fixture (`process_rates`): sources into the hot reservoir and its tracer on central rows, and cooling from hot to cold
+- **`test_rate_formation/`** — Rate fixture (`process_rates`): threshold star formation from cold to stars, observed by `RateFixtureFormed`
+- **`test_rate_feedback/`** — Rate fixture (`process_rates`): reheating from cold to hot, and a yield into the cold tracer slaved to `test_rate_formation.star_formation`
+- **`test_rate_stripping/`** — Rate fixture (`process_rates`): stripping of a satellite's hot reservoir onto the FoF central's (`to_record: central`), and an ejection sink from cold
 - **`generated/`** — Auto-generated registration code (do not edit)
 
 ## Usage

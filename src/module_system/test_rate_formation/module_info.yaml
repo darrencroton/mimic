@@ -1,0 +1,81 @@
+# Module Metadata: test_rate_formation
+#
+# ⚠️  WARNING: This module is for TESTING INFRASTRUCTURE ONLY ⚠️
+#
+# DO NOT USE IN PRODUCTION RUNS
+#
+# Purpose: one of the four process_rates modules of the model-neutral rate
+# fixture. It forms stars from the cold reservoir with a threshold law, zero
+# below a critical content and continuous above it, and observes the amount
+# formed. The law is documented in README.md.
+#
+# For metadata schema documentation, see:
+#   docs/DEVELOPER-GUIDE.md#module-metadata-schema
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: test_rate_formation
+  display_name: "Test Rate Formation Fixture"
+  description: "Rate fixture: threshold star formation from cold gas. NOT FOR PRODUCTION."
+  version: "1.0.0"
+  author: "Mimic Development Team"
+
+  # ===========================================================================
+  # Processing Configuration
+  # ===========================================================================
+
+  # test_rate_formation.c is implicit (auto-included)
+
+  supported_processing_modes: [process_rates]
+
+  # One coefficient per transfer, in this order (the law's coefficient slots).
+  rates:
+    transfers:
+      - name: star_formation  # internal: specific rate with a threshold
+        from: RateFixtureCold
+        to: RateFixtureStars
+    observers:
+      - property: RateFixtureFormed
+        transfer: star_formation
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  # The reservoir the law reads, and the properties its transfer and observer touch.
+  dependencies:
+    properties:
+      - RateFixtureCold
+      - RateFixtureStars
+      - RateFixtureFormed
+    parameters:
+      - TestRateFormationEfficiency
+      - TestRateFormationThreshold
+
+  # ===========================================================================
+  # Tests
+  # ===========================================================================
+
+  # Exercised by tests/unit/test_rate_transfer_tables.c and
+  # tests/integration/test_rate_metadata.py, which the test registry discovers
+  # directly.
+  tests:
+    unit: null
+    integration: null
+    scientific: null
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: README.md
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []

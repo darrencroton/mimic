@@ -14,10 +14,13 @@ Reads:
     models/<MODEL>/modules/*/module_info.yaml
     src/module_system/test_*/module_info.yaml  (test builds only)
     scripts/module_modes.py                     - Shared processing-mode descriptors
+    galaxy property YAML (model, and test-only in test builds) - reservoir: kinds that
+                                                  rates: transfers are validated against
 
 Generates:
     src/module_system/generated/module_init.c      - Module registration code
     src/module_system/generated/event_contracts.h  - Event ID enums and module IDs
+    src/module_system/generated/rate_contracts.h   - Rate transfer coefficient slots
     tests/generated/module_sources.txt               - Module source list for the unit-test runner
     build/generated/module_registry_hash.txt         - Validation hash
 
@@ -52,12 +55,23 @@ from discovery import (
 )
 from module_modes import (
     CALLBACK_FAMILIES,
+    DEFAULT_TRANSFER_RECORD,
+    EXTERNAL_END,
     STANDALONE_FALLBACK_MODES,
+    TRANSFER_KINDS,
+    TRANSFER_RECORDS,
     callback_families,
     enum_for_mode,
+    global_transfer_index,
+    is_rate_module,
     mode_list_errors,
+    rate_metadata_errors,
+    rate_observers,
+    rate_reads_central,
+    rate_transfers,
     snapshot_distribution_enum,
     snapshot_distribution_errors,
+    transfer_kind,
 )
 
 # ==============================================================================
@@ -67,6 +81,7 @@ from module_modes import (
 # Output files
 MODULE_INIT_C = generated_module_dir() / "module_init.c"
 EVENT_CONTRACTS_H = generated_module_dir() / "event_contracts.h"
+RATE_CONTRACTS_H = generated_module_dir() / "rate_contracts.h"
 MODULE_SOURCES_TXT = REPO_ROOT / "tests" / "generated" / "module_sources.txt"
 MODULE_HASH_FILE = REPO_ROOT / "build" / "generated" / "module_registry_hash.txt"
 
@@ -307,6 +322,44 @@ def validate_property_dependencies(
                 )
 
     return errors
+
+
+def load_galaxy_property_metadata() -> Dict[str, Dict[str, Any]]:
+    """Load every galaxy property's metadata by name.
+
+    Reads the model's galaxy property files and, in test builds, the fixture-owned
+    test properties (test_property_files() is empty for production builds). The
+    rates: rules read each property's ``reservoir:`` mapping from these.
+    """
+    properties: Dict[str, Dict[str, Any]] = {}
+    for galaxy_props_path in model_property_files() + test_property_files():
+        try:
+            with open(galaxy_props_path, "r", encoding="utf-8") as f:
+                props_yaml = yaml.safe_load(f) or {}
+            for prop in props_yaml.get("galaxy_properties", []) or []:
+                properties[prop["name"]] = prop
+        except (OSError, yaml.YAMLError, KeyError, TypeError) as e:
+            print_warning(f"Failed to load galaxy properties from {rel(galaxy_props_path)}: {e}")
+    return properties
+
+
+def validate_rate_declarations(
+    modules: List[Dict[str, Any]], galaxy_properties: Dict[str, Dict[str, Any]]
+) -> List[str]:
+    """Verify every module's rates: declaration against the galaxy property metadata.
+
+    The rules, including the cross-module ones (slaved masters and the order of
+    the conserved totals, over every compiled rate module), live in
+    rate_metadata_errors() in scripts/module_modes.py, which
+    scripts/validate_modules.py shares, so the two tools refuse the same metadata.
+
+    Returns:
+        Error messages naming the module and the transfer (empty if all valid).
+    """
+    return [
+        f"{error.module}/module_info.yaml: {error.message}"
+        for error in rate_metadata_errors(modules, galaxy_properties)
+    ]
 
 
 def validate_module_files(modules: List[Dict[str, Any]]) -> List[str]:
@@ -650,6 +703,120 @@ def generate_event_contracts_h(
 
 
 # ==============================================================================
+# CODE GENERATION - rate_contracts.h
+# ==============================================================================
+
+
+def rate_transfer_enum_type(module_name: str) -> str:
+    """Return the C enum type of a rate module's coefficient slots (PascalCase + Transfer)."""
+    return "".join(part.capitalize() for part in module_name.split("_")) + "Transfer"
+
+
+def rate_coefficient_constant(module_name: str, transfer_name: str) -> str:
+    """Return the coefficient index constant of one transfer (the slot its law writes)."""
+    return f"{module_name.upper()}_TRANSFER_{transfer_name.upper()}"
+
+
+def rate_transfer_count_macro(module_name: str) -> str:
+    """Return the macro holding a rate module's number of transfers (its coefficient slots)."""
+    return f"{module_name.upper()}_NUM_TRANSFERS"
+
+
+def reservoir_end_symbol(end: str) -> str:
+    """Return the C symbol of a transfer end: a reservoir table index symbol or external.
+
+    Ends are always written as symbols, never as integers, so a table left stale by
+    a reservoir removed from the property metadata fails to compile.
+    """
+    return "RATE_TRANSFER_EXTERNAL" if end == EXTERNAL_END else f"RESERVOIR_INDEX_{end}"
+
+
+def render_rate_contracts_h(modules: List[Dict[str, Any]], metadata_hash: str) -> str:
+    """Return the text of rate_contracts.h for a set of validated modules.
+
+    Every compiled rate module gets an enum of coefficient index constants, one
+    per transfer in declaration order (the slot its law writes), and a count macro.
+    MIMIC_RATE_TRANSFER_COUNT is the length of the global transfer index. A build
+    with no rate module, which is every production build, gets the count alone.
+    The text depends on the modules' names and declarations, not on their order.
+    """
+    rate_modules = sorted((m for m in modules if is_rate_module(m)), key=lambda m: m["name"])
+    order = global_transfer_index(modules)
+
+    lines: List[str] = []
+    header = generate_c_header(
+        metadata_hash,
+        "Rate transfer contract definitions for module C code: the coefficient slot\n"
+        "of every transfer a process_rates module declares.\n"
+        'Include as: #include "module_system/generated/rate_contracts.h"',
+    )
+    lines.extend(header.splitlines())
+    lines.append("")
+    lines.append("#ifndef MIMIC_RATE_CONTRACTS_H")
+    lines.append("#define MIMIC_RATE_CONTRACTS_H")
+    lines.append("")
+    lines.append("/*")
+    lines.append(" * Number of transfers over every compiled rate module: the length of the")
+    lines.append(" * global transfer index, which orders them by (module name, declaration order).")
+    lines.append(" */")
+    lines.append(f"#define MIMIC_RATE_TRANSFER_COUNT {len(order)}")
+    lines.append("")
+
+    if not rate_modules:
+        lines.append("/* No compiled module declares rates:, so there are no coefficient slots. */")
+        lines.append("")
+    else:
+        lines.append("/*")
+        lines.append(" * Coefficient slots: a law writes the coefficient of each transfer at its")
+        lines.append(
+            " * constant's index, in declaration order (rates.transfers in module_info.yaml)."
+        )
+        lines.append(" */")
+        lines.append("")
+        for module in rate_modules:
+            name = module["name"]
+            transfers = rate_transfers(module)
+            lines.append(f"enum {rate_transfer_enum_type(name)} {{")
+            for slot, transfer in enumerate(transfers):
+                constant = rate_coefficient_constant(name, transfer["name"])
+                kind = transfer_kind(transfer).replace("_", " ")
+                ends = f"{transfer['from']} -> {transfer['to']}"
+                lines.append(f"  {constant} = {slot}, /**< {kind}: {ends} */")
+            lines.append("};")
+            lines.append(f"#define {rate_transfer_count_macro(name)} {len(transfers)}")
+            lines.append("")
+
+    lines.append("#endif /* MIMIC_RATE_CONTRACTS_H */")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def generate_rate_contracts_h(
+    modules: List[Dict[str, Any]],
+    metadata_hash: str,
+    output_path: Path,
+    dry_run: bool = False,
+) -> bool:
+    """Generate the public rate contracts header (coefficient slots of every rate module)."""
+    content = render_rate_contracts_h(modules, metadata_hash)
+
+    if dry_run:
+        print("\n=== rate_contracts.h (DRY RUN) ===")
+        print(content)
+        return True
+
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"✓ Generated: {output_path.relative_to(REPO_ROOT)}")
+        return True
+    except Exception as e:
+        print(f"ERROR: Failed to write {output_path}: {e}", file=sys.stderr)
+        return False
+
+
+# ==============================================================================
 # HASH COMPUTATION
 # ==============================================================================
 
@@ -744,6 +911,94 @@ def generate_lifecycle_forward_declarations(modules: List[Dict[str, Any]]) -> Li
     return lines
 
 
+def generate_rate_table_definitions(modules: List[Dict[str, Any]]) -> List[str]:
+    """Generate the transfer and observer tables of every rate module.
+
+    Returns no lines when no module declares rates:, so a build without a rate
+    module, which is every production build, has no rate table. The global index
+    and each slaved master are resolved over the modules passed, which is every
+    compiled module, so the lines do not depend on their order.
+    """
+    rate_modules = sorted((m for m in modules if is_rate_module(m)), key=lambda m: m["name"])
+    if not rate_modules:
+        return []
+
+    global_index = {pair: index for index, pair in enumerate(global_transfer_index(modules))}
+
+    lines: List[str] = []
+    lines.append("/* ========================================================================== */")
+    lines.append("/* RATE TRANSFER TABLES (Auto-generated from module_info.yaml)               */")
+    lines.append("/* ========================================================================== */")
+    lines.append("")
+    lines.append("/*")
+    lines.append(" * One descriptor per transfer a process_rates module declares, in declaration")
+    lines.append(" * order, so a transfer's position is its coefficient slot. Ends are reservoir")
+    lines.append(" * table index symbols (RESERVOIR_INDEX_<Property>) or RATE_TRANSFER_EXTERNAL,")
+    lines.append(" * so a table left stale by a removed reservoir fails to compile. global_index")
+    lines.append(" * orders every compiled rate module's transfers by (module name, declaration")
+    lines.append(" * order); slaved_master is the global index of a slaved source's master.")
+    lines.append(" *")
+    lines.append(" * Generated from 'rates' sections in module_info.yaml.")
+    lines.append(" */")
+    lines.append("")
+
+    for module in rate_modules:
+        name = module["name"]
+        lines.append(f"static const struct RateTransfer {name}_rate_transfers[] = {{")
+        for transfer in rate_transfers(module):
+            transfer_name = transfer["name"]
+            master = transfer.get("slaved_to")
+            if master is None:
+                master_index = "-1"
+                master_name = "NULL"
+            else:
+                master_index = str(global_index[tuple(master.split(".", 1))])
+                master_name = f'"{master}"'
+            record = transfer.get("to_record", DEFAULT_TRANSFER_RECORD)
+            lines.append("    {")
+            lines.append(f'        .name = "{transfer_name}",')
+            lines.append(
+                f"        .coefficient_index = {rate_coefficient_constant(name, transfer_name)},"
+            )
+            lines.append(f"        .global_index = {global_index[(name, transfer_name)]},")
+            lines.append(f"        .kind = {TRANSFER_KINDS[transfer_kind(transfer)]},")
+            lines.append(f"        .from = {reservoir_end_symbol(transfer['from'])},")
+            lines.append(f"        .to = {reservoir_end_symbol(transfer['to'])},")
+            lines.append(f"        .to_record = {TRANSFER_RECORDS[record]},")
+            lines.append(f"        .slaved_master = {master_index},")
+            lines.append(f"        .slaved_to = {master_name},")
+            lines.append("    },")
+        lines.append("};")
+        lines.append("")
+
+        observers = rate_observers(module)
+        if observers:
+            lines.append(f"static const struct RateObserver {name}_rate_observers[] = {{")
+            for observer in observers:
+                prop = reservoir_end_symbol(observer["property"])
+                slot = rate_coefficient_constant(name, observer["transfer"])
+                lines.append(f"    {{.property = {prop}, .transfer = {slot}}},")
+            lines.append("};")
+            lines.append("")
+
+    return lines
+
+
+def generate_rate_module_members(module: Dict[str, Any]) -> List[str]:
+    """Generate the struct Module rate members of one rate module's registration."""
+    name = module["name"]
+    observers = rate_observers(module)
+    observers_val = f"{name}_rate_observers" if observers else "NULL"
+    reads_central = "true" if rate_reads_central(module) else "false"
+    return [
+        f"    .rate_transfers = {name}_rate_transfers,",
+        f"    .num_rate_transfers = {rate_transfer_count_macro(name)},",
+        f"    .rate_observers = {observers_val},",
+        f"    .num_rate_observers = {len(observers)},",
+        f"    .reads_central = {reads_central}",
+    ]
+
+
 def generate_module_struct_definitions(
     modules: List[Dict[str, Any]], event_info: Dict[str, Any]
 ) -> List[str]:
@@ -780,7 +1035,13 @@ def generate_module_struct_definitions(
         num_emitted = len(emit_list)
         emitted_ids_val = f"{name}_emitted_event_ids" if num_emitted > 0 else "NULL"
 
-        lines.append(f"static struct Module {name}_module = {{")
+        rate_module = is_rate_module(module)
+        if rate_module:
+            # External linkage, unlike other modules' registrations, so the C unit
+            # tests can read the generated rate members directly.
+            lines.append(f"struct Module {name}_module = {{")
+        else:
+            lines.append(f"static struct Module {name}_module = {{")
         lines.append(f'    .name = "{name}",')
         lines.append(f"    .init = {name}_init,")
         # Every callback member is initialised explicitly: the advertised
@@ -796,7 +1057,11 @@ def generate_module_struct_definitions(
         lines.append(f"    .subscriptions = {subscriptions_val},")
         lines.append(f"    .num_subscriptions = {num_subscriptions},")
         lines.append(f"    .emitted_event_ids = {emitted_ids_val},")
-        lines.append(f"    .num_emitted_events = {num_emitted}")
+        if rate_module:
+            lines.append(f"    .num_emitted_events = {num_emitted},")
+            lines.extend(generate_rate_module_members(module))
+        else:
+            lines.append(f"    .num_emitted_events = {num_emitted}")
         lines.append("};")
         lines.append("")
 
@@ -829,10 +1094,15 @@ def generate_module_init_c(
     lines.append("")
 
     # Includes
+    rate_table_lines = generate_rate_table_definitions(runtime_modules)
+
     lines.append('#include "module_registry.h"')
     lines.append('#include "module_interface.h"')
     if emits or consumes:
         lines.append('#include "event_contracts.h"')
+    if rate_table_lines:
+        lines.append('#include "generated/reservoir_table.h"')
+        lines.append('#include "rate_contracts.h"')
     lines.append("")
 
     # Build-time form of the registry's runtime bounds check
@@ -955,6 +1225,9 @@ def generate_module_init_c(
                 lines.append(f"    }},")
             lines.append("};")
             lines.append("")
+
+    # Rate transfer and observer tables (none without a rate module)
+    lines.extend(rate_table_lines)
 
     # Module struct definitions
     lines.extend(generate_module_struct_definitions(runtime_modules, event_info))
@@ -1216,6 +1489,16 @@ def main():
                 f"✓ All property dependencies valid ({len(valid_properties)} properties available)"
             )
 
+        # Validate rates: declarations (shared with scripts/validate_modules.py)
+        print("Validating rate declarations...")
+        rate_errors = validate_rate_declarations(modules, load_galaxy_property_metadata())
+        if rate_errors:
+            print_error("Invalid rate declarations:")
+            for err in rate_errors:
+                print(f"  - {err}", file=sys.stderr)
+            return 1
+        print("✓ All rate declarations valid")
+
         # Check test files (warning only - always shown, not just verbose)
         print("Checking declared test files...")
         test_warnings = validate_test_files(modules)
@@ -1293,6 +1576,9 @@ def main():
     success = True
     success &= generate_event_contracts_h(
         sorted_modules, event_info, metadata_hash, EVENT_CONTRACTS_H, args.dry_run
+    )
+    success &= generate_rate_contracts_h(
+        sorted_modules, metadata_hash, RATE_CONTRACTS_H, args.dry_run
     )
     success &= generate_module_init_c(
         sorted_modules, event_info, metadata_hash, MODULE_INIT_C, args.dry_run

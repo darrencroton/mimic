@@ -13,6 +13,9 @@
  *   diagnostic naming the phase and the module
  * - struct RateContext as a module sees it: the evaluation's own time, a NULL
  *   central for a module that did not declare reads_central, and no solver state
+ * - Generated registration of the four rate fixtures: register_all_modules()
+ *   succeeds with them, and has registered each one (registering it again is
+ *   refused as a duplicate)
  *
  * Registration aborts through FATAL_ERROR and the registry has no unregister, so
  * each case runs in a forked child (child_capture.h).
@@ -192,6 +195,55 @@ int test_rate_registration_requires_callback(void) {
   return TEST_PASS;
 }
 
+/* Generated registrations of the four rate fixtures (rate modules have external linkage) */
+extern struct Module test_rate_supply_module;
+extern struct Module test_rate_formation_module;
+extern struct Module test_rate_feedback_module;
+extern struct Module test_rate_stripping_module;
+
+/** @brief Child body: run the generated registration of every compiled module */
+static void register_generated_body(const char *unused) {
+  (void)unused;
+  register_all_modules();
+}
+
+/** @brief Child body: run the generated registration, then register one rate fixture again */
+static void register_generated_then_repeat_body(const char *which) {
+  register_all_modules();
+  struct Module *const fixtures[] = {&test_rate_supply_module, &test_rate_formation_module,
+                                     &test_rate_feedback_module, &test_rate_stripping_module};
+  for (size_t i = 0; i < sizeof(fixtures) / sizeof(fixtures[0]); i++) {
+    if (strcmp(fixtures[i]->name, which) == 0) {
+      module_registry_add(fixtures[i]);
+    }
+  }
+}
+
+/**
+ * @test    test_generated_rate_fixtures_register
+ * @brief   Generated registration includes the four rate fixtures and passes the family checks
+ *
+ * register_all_modules() aborts if a module advertising process_rates has no
+ * rates callback, so its success shows every rate fixture's binding is valid;
+ * registering a fixture a second time is then refused as already registered,
+ * which shows the generated registration added it.
+ */
+int test_generated_rate_fixtures_register(void) {
+  TEST_ASSERT_EQUAL(expect_success(NULL, register_generated_body), 1,
+                    "generated registration with the rate fixtures succeeds");
+
+  const char *const fixtures[] = {"test_rate_supply", "test_rate_formation", "test_rate_feedback",
+                                  "test_rate_stripping"};
+  char needle[128];
+  for (size_t i = 0; i < sizeof(fixtures) / sizeof(fixtures[0]); i++) {
+    snprintf(needle, sizeof(needle), "Module '%s' is already registered", fixtures[i]);
+    TEST_ASSERT_EQUAL(
+        expect_fatal(fixtures[i], register_generated_then_repeat_body, fixtures[i], needle), 1,
+        "the generated registration has registered the rate fixture");
+  }
+  return TEST_PASS;
+}
+
 /** One illegal placement of process_rates and what startup must say about it */
 struct PlacementCase {
   const char *phase;  /**< pre_timestep, a substep phase name, post_timestep or post_snapshot */
@@ -343,6 +395,7 @@ int main(void) {
   TEST_RUN(test_rate_registration_requires_callback);
   TEST_RUN(test_rate_mode_refused_in_every_phase);
   TEST_RUN(test_rate_context_as_a_module_sees_it);
+  TEST_RUN(test_generated_rate_fixtures_register);
 
   TEST_SUMMARY();
   return TEST_RESULT();

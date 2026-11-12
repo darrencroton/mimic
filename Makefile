@@ -127,6 +127,10 @@ SOURCES += $(SRC_DIR)/module_system/test_event_consumer_alpha/test_event_consume
 SOURCES += $(SRC_DIR)/module_system/test_event_consumer_beta/test_event_consumer_beta.c
 SOURCES += $(SRC_DIR)/module_system/test_event_producer_b/test_event_producer_b.c
 SOURCES += $(SRC_DIR)/module_system/test_event_consumer_gamma/test_event_consumer_gamma.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_supply/test_rate_supply.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_formation/test_rate_formation.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_feedback/test_rate_feedback.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_stripping/test_rate_stripping.c
 endif
 
 OBJECTS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(SOURCES))
