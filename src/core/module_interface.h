@@ -35,6 +35,9 @@
  *    - process_snapshot() (snapshot family) once per snapshot from the
  *      post_snapshot phase, with a borrowed view of that snapshot's whole
  *      population; see struct Module.process_snapshot for the contract
+ *    - rates() (rate family) for the process_rates mode: declared here, with
+ *      its context, but not yet dispatched by any phase; see
+ *      struct Module.rates and struct RateContext
  * 4. Core calls cleanup() during program shutdown
  *
  * For a complete, maintained example implementation (including the
@@ -87,6 +90,10 @@
  * Snapshot family (struct Module.process_snapshot):
  * - PROCESSING_MODE_SNAPSHOT: Module processes one whole snapshot population at once
  *
+ * Rate family (struct Module.rates):
+ * - PROCESSING_MODE_RATES: Module returns transfer coefficients for one row at a trial state
+ *   (declared only: every phase refuses it at startup until the mode is dispatched)
+ *
  * When multiple PROCESSING_MODE_BY_GALAXY modules exist in a phase, they execute in
  * galaxy-major order:
  *   for each galaxy g:
@@ -101,6 +108,7 @@ enum ProcessingMode {
   PROCESSING_MODE_PER_EVENT, /**< Module called for each emitted event target */
   PROCESSING_MODE_BY_GALAXY, /**< Module called per-galaxy (galaxy-major loop) */
   PROCESSING_MODE_SNAPSHOT,  /**< Module called once with a whole snapshot population */
+  PROCESSING_MODE_RATES,     /**< Module called per row for transfer coefficients (not yet run) */
   PROCESSING_MODE_COUNT      /**< Number of processing modes */
 };
 
@@ -115,6 +123,7 @@ enum ProcessingMode {
 enum ModuleCallbackFamily {
   MODULE_CALLBACK_FAMILY_FOF,      /**< struct Module.process (per-FoF workspace) */
   MODULE_CALLBACK_FAMILY_SNAPSHOT, /**< struct Module.process_snapshot (whole snapshot) */
+  MODULE_CALLBACK_FAMILY_RATE,     /**< struct Module.rates (coefficients for one row) */
 };
 
 /**
@@ -335,6 +344,43 @@ struct SnapshotContext {
 };
 
 /**
+ * @brief   Context of one rate-law evaluation
+ *
+ * Passed to struct Module.rates for one row at one trial state. It carries
+ * what a law needs to evaluate and nothing about how the core integrates: there
+ * is no solver step, substep index or substep count, so a law cannot depend on
+ * the integration path. The context is owned by the caller and valid only for
+ * the duration of one callback; modules treat every field as read-only.
+ */
+struct RateContext {
+  /** Index of the snapshot being processed (0 = earliest, increasing towards z=0) */
+  int snapshot_number;
+
+  /** Redshift of the snapshot */
+  double redshift;
+
+  /**
+   * Lookback time from z=0, in internal time units (same convention as
+   * ModuleContext.time), at the evaluation point and on the evaluated row's own
+   * clock: rows with different elapsed times see different values.
+   */
+  double time;
+
+  /**
+   * Scratch copy of the FoF central at the trial state, or NULL.
+   *
+   * Non-NULL only for a module that declares `reads_central: true`; for every
+   * other module it is NULL, so a law that did not declare the read cannot
+   * depend on another record. The pointee is core-owned scratch: read it, never
+   * write it, and never retain the pointer past the callback.
+   */
+  const struct Halo *central;
+
+  /** Read-only configuration (cosmology, units, model parameters) */
+  const struct MimicConfig *params;
+};
+
+/**
  * @brief Emit a phase-local event for subscribed PROCESSING_MODE_PER_EVENT consumers
  *
  * Intended for producer modules running in PROCESSING_MODE_FULL_HALO.
@@ -482,9 +528,9 @@ int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo 
  *
  * KEY DESIGN: Modules are simple - they implement physics through one typed
  * callback per callback family they advertise: process() for the FoF modes,
- * process_snapshot() for the snapshot mode. The module doesn't specify its
- * execution phase or processing mode - those are configuration details
- * specified in the input YAML file. This makes modules maximally reusable.
+ * process_snapshot() for the snapshot mode, rates() for the rate mode. The module doesn't specify
+ * its execution phase or processing mode - those are configuration details specified in the input
+ * YAML file. This makes modules maximally reusable.
  */
 struct Module {
   /**
@@ -582,6 +628,29 @@ struct Module {
                           int64_t count);
 
   /**
+   * @brief Return the transfer coefficients of one row (rate callback family)
+   *
+   * Required when the module advertises PROCESSING_MODE_RATES and NULL
+   * otherwise; registration rejects a missing callback. The mode is declared
+   * but not yet dispatched: every phase refuses it at startup, so no core path
+   * calls this member today.
+   *
+   * @p halo is a core-owned scratch copy of one row whose galaxy holds the trial
+   * state; read it, never write it. @p coefficients has one zeroed slot per
+   * transfer the module declares, which the callback fills with finite,
+   * non-negative values. @p ctx carries the evaluation's time and the central
+   * (see struct RateContext). The const qualifier is shallow, so it does not by
+   * itself stop a write through halo->galaxy: purity is checked at run time, not
+   * by the signature.
+   *
+   * @param ctx          Rate context (snapshot, redshift, the row's own time, central, params)
+   * @param halo         Scratch copy of the row at the trial state
+   * @param coefficients One slot per declared transfer, zeroed before the call
+   * @return 0 on success, non-zero on failure
+   */
+  int (*rates)(const struct RateContext *ctx, const struct Halo *halo, double *coefficients);
+
+  /**
    * @brief Cleanup module
    *
    * Called once during program shutdown. Use for:
@@ -601,6 +670,7 @@ struct Module {
    * - PROCESSING_MODE_PER_EVENT: Module processes one event target at a time
    * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (per-galaxy operations)
    * - PROCESSING_MODE_SNAPSHOT: Module processes one whole snapshot population
+   * - PROCESSING_MODE_RATES: Module returns transfer coefficients for one row
    *
    * Set via module_info.yaml (supported_processing_modes field).
    * Runtime directory modules must declare this explicitly. Standalone

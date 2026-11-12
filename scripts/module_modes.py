@@ -62,6 +62,7 @@ class CallbackFamily:
 
 FAMILY_FOF = "fof"
 FAMILY_SNAPSHOT = "snapshot"
+FAMILY_RATE = "rate"
 
 # Ordered as the callbacks appear in struct Module (src/core/module_interface.h).
 CALLBACK_FAMILIES: Tuple[CallbackFamily, ...] = (
@@ -76,6 +77,12 @@ CALLBACK_FAMILIES: Tuple[CallbackFamily, ...] = (
         field="process_snapshot",
         symbol_suffix="_process_snapshot",
         parameters="const struct SnapshotContext *ctx, const struct Halo *halos, int64_t count",
+    ),
+    CallbackFamily(
+        key=FAMILY_RATE,
+        field="rates",
+        symbol_suffix="_rates",
+        parameters="const struct RateContext *ctx, const struct Halo *halo, double *coefficients",
     ),
 )
 
@@ -105,13 +112,15 @@ PROCESSING_MODES: Tuple[ProcessingModeDescriptor, ...] = (
     ProcessingModeDescriptor("process_per_event", "PROCESSING_MODE_PER_EVENT", FAMILY_FOF),
     ProcessingModeDescriptor("process_by_galaxy", "PROCESSING_MODE_BY_GALAXY", FAMILY_FOF),
     ProcessingModeDescriptor("process_snapshot", "PROCESSING_MODE_SNAPSHOT", FAMILY_SNAPSHOT),
+    ProcessingModeDescriptor("process_rates", "PROCESSING_MODE_RATES", FAMILY_RATE),
 )
 
 MODES_BY_NAME: Dict[str, ProcessingModeDescriptor] = {mode.name: mode for mode in PROCESSING_MODES}
 FAMILIES_BY_KEY: Dict[str, CallbackFamily] = {family.key: family for family in CALLBACK_FAMILIES}
 
 # Standalone fallback modules (models/<model>/modules/<name>.c with no metadata)
-# advertise exactly the original three FoF modes; they never gain later modes.
+# advertise exactly the original three FoF modes; they never gain later modes, so a
+# standalone .c module cannot advertise process_snapshot or process_rates.
 STANDALONE_FALLBACK_MODES: Tuple[str, ...] = (
     "process_full_halo",
     "process_per_event",

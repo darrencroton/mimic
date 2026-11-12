@@ -22,6 +22,9 @@
  *   argument and state guards, and a real marshalled buffer that never contains
  *   a Type 3 entry
  *
+ * The rate family (process_rates, struct Module.rates) is covered by
+ * test_rate_mode_contract.c; this file only extends the mode-table checks to it.
+ *
  * Registration aborts through FATAL_ERROR and the registry has no unregister, so
  * each hand-built registration case runs in a forked child (child_capture.h).
  * The unit runner always builds with MIMIC_TEST_BUILD, so the framework fixture
@@ -305,12 +308,16 @@ int test_mode_table_round_trip(void) {
       [PROCESSING_MODE_PER_EVENT] = MODULE_CALLBACK_FAMILY_FOF,
       [PROCESSING_MODE_BY_GALAXY] = MODULE_CALLBACK_FAMILY_FOF,
       [PROCESSING_MODE_SNAPSHOT] = MODULE_CALLBACK_FAMILY_SNAPSHOT,
+      [PROCESSING_MODE_RATES] = MODULE_CALLBACK_FAMILY_RATE,
   };
 
   /* ===== EXECUTE / VALIDATE ===== */
   TEST_ASSERT_EQUAL(PROCESSING_MODE_FULL_HALO, 0, "existing enum value FULL_HALO unchanged");
   TEST_ASSERT_EQUAL(PROCESSING_MODE_PER_EVENT, 1, "existing enum value PER_EVENT unchanged");
   TEST_ASSERT_EQUAL(PROCESSING_MODE_BY_GALAXY, 2, "existing enum value BY_GALAXY unchanged");
+  TEST_ASSERT_EQUAL(PROCESSING_MODE_SNAPSHOT, 3, "existing enum value SNAPSHOT unchanged");
+  TEST_ASSERT_EQUAL(PROCESSING_MODE_RATES, 4, "RATES follows SNAPSHOT, before COUNT");
+  TEST_ASSERT_EQUAL(PROCESSING_MODE_COUNT, 5, "the table holds five modes");
 
   for (int m = 0; m < PROCESSING_MODE_COUNT; m++) {
     const char *name = processing_mode_to_string((enum ProcessingMode)m);
@@ -328,6 +335,8 @@ int test_mode_table_round_trip(void) {
 
   TEST_ASSERT_STRING_EQUAL(processing_mode_to_string(PROCESSING_MODE_SNAPSHOT), "process_snapshot",
                            "snapshot mode configuration name");
+  TEST_ASSERT_STRING_EQUAL(processing_mode_to_string(PROCESSING_MODE_RATES), "process_rates",
+                           "rate mode configuration name");
   return TEST_PASS;
 }
 
@@ -337,7 +346,9 @@ int test_mode_table_round_trip(void) {
  */
 int test_mode_lookup_fails_closed(void) {
   /* ===== SETUP ===== */
-  const char *bad_names[] = {"process_global", "", "PROCESS_SNAPSHOT", "process_snapshot "};
+  const char *bad_names[] = {"process_global",   "",
+                             "PROCESS_SNAPSHOT", "process_snapshot ",
+                             "process_rate",     "PROCESS_RATES"};
   const enum ProcessingMode bad_modes[] = {PROCESSING_MODE_COUNT, (enum ProcessingMode) - 1,
                                            (enum ProcessingMode)99};
 

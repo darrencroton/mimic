@@ -1178,7 +1178,8 @@ static void format_processing_mode_names(char *buffer, size_t size) {
  * (processing_mode_from_string(), processing_modes.c), so the parser keeps no
  * name list of its own. Whether a mode is legal in its phase (FoF modes in
  * pre_timestep, the named substep phases and post_timestep; only
- * process_snapshot in post_snapshot) and whether the module supports it are
+ * process_snapshot in post_snapshot; process_rates in no phase yet, so it parses
+ * here and every phase refuses it) and whether the module supports it are
  * checked by module_system_init(), before any module init().
  *
  * @param   doc         YAML document

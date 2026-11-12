@@ -290,6 +290,7 @@ enum RunningCallbackKind {
   RUNNING_CALLBACK_PER_EVENT, /**< A process_per_event process() call */
   RUNNING_CALLBACK_BY_GALAXY, /**< A process_by_galaxy process() call */
   RUNNING_CALLBACK_SNAPSHOT,  /**< A process_snapshot() call from execute_post_snapshot() */
+  RUNNING_CALLBACK_RATE,      /**< A process_rates rates() call (declared; no phase runs it yet) */
   RUNNING_CALLBACK_CLEANUP,   /**< A module's cleanup() */
 };
 

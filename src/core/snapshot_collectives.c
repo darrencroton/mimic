@@ -60,6 +60,8 @@ static const char *callback_kind_phrase(enum RunningCallbackKind kind) {
     return "cleanup()";
   case RUNNING_CALLBACK_SNAPSHOT:
     return "a process_snapshot callback";
+  case RUNNING_CALLBACK_RATE:
+    return "a process_rates callback";
   case RUNNING_CALLBACK_NONE:
     return "outside any module callback";
   }

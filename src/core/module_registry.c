@@ -282,6 +282,12 @@ static void check_module_callback_families(const struct Module *module) {
                     module->name, processing_mode_to_string(mode));
       }
       break;
+    case MODULE_CALLBACK_FAMILY_RATE:
+      if (module->rates == NULL) {
+        FATAL_ERROR("Module '%s' advertises rate mode '%s' but has a NULL rates callback",
+                    module->name, processing_mode_to_string(mode));
+      }
+      break;
     default:
       FATAL_ERROR("Module '%s' mode '%s' maps to unhandled callback family %d", module->name,
                   processing_mode_to_string(mode), (int)family);
@@ -603,14 +609,23 @@ static int validate_phase_processing_modes(struct PhaseModuleConfig *config, int
     }
 
     /* Every phase validated here is dispatched by execute_phase(), which calls
-     * only FoF callbacks: any other family would be skipped silently. */
-    enum ModuleCallbackFamily family;
+     * only FoF callbacks: any other family would be skipped silently. A mode outside
+     * the table leaves the family at this FoF default and is reported as not a FoF mode. */
+    enum ModuleCallbackFamily family = MODULE_CALLBACK_FAMILY_FOF;
     if (processing_mode_family(config[i].processing_mode, &family) != 0 ||
         family != MODULE_CALLBACK_FAMILY_FOF) {
       ERROR_LOG("Configuration error in phase '%s':", phase_name);
-      ERROR_LOG("  Module '%s' is configured with processing mode '%s', which is not a "
-                "FoF mode (process_full_halo, process_per_event, process_by_galaxy)",
-                mod->name, processing_mode_to_string(config[i].processing_mode));
+      if (family == MODULE_CALLBACK_FAMILY_RATE) {
+        /* The mode is declared but no phase dispatches it yet, so it is refused everywhere. */
+        ERROR_LOG("  Module '%s' is configured with processing mode '%s', which no phase can "
+                  "run yet (it is not a FoF mode: process_full_halo, process_per_event, "
+                  "process_by_galaxy)",
+                  mod->name, processing_mode_to_string(config[i].processing_mode));
+      } else {
+        ERROR_LOG("  Module '%s' is configured with processing mode '%s', which is not a "
+                  "FoF mode (process_full_halo, process_per_event, process_by_galaxy)",
+                  mod->name, processing_mode_to_string(config[i].processing_mode));
+      }
       return -1;
     }
 
@@ -843,6 +858,12 @@ static int collect_phase_mode(const struct PhaseModuleConfig *modules, int num_m
   return count;
 }
 
+/**
+ * @brief   for_each_phase visitor: build the dispatch plan of one FoF phase
+ *
+ * Fatal when an entry is unresolved, when the plan table is full, or when the
+ * three mode lists do not together cover every entry of the phase.
+ */
 static void build_phase_plan_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
                                      int num_modules, void *userdata) {
   (void)userdata;
@@ -867,6 +888,16 @@ static void build_phase_plan_visitor(const char *phase_name, struct PhaseModuleC
       collect_phase_mode(modules, num_modules, PROCESSING_MODE_PER_EVENT, slots + num_full_halo);
   const int num_by_galaxy = collect_phase_mode(modules, num_modules, PROCESSING_MODE_BY_GALAXY,
                                                slots + num_full_halo + num_per_event);
+
+  /* Internal invariant: validate_phase_processing_modes() has already refused every mode that
+   * is not a FoF mode, so the three lists cover the phase. An entry in none of them would be
+   * dropped silently from dispatch (a mode added without its list), so fail rather than plan. */
+  const int num_planned = num_full_halo + num_per_event + num_by_galaxy;
+  if (num_planned != num_modules) {
+    FATAL_ERROR("Phase '%s' has %d entries but its dispatch plan covers only %d: a configured "
+                "processing mode has no plan list",
+                phase_name, num_modules, num_planned);
+  }
 
   phase_plans[num_phase_plans++] = (struct PhasePlan){
       .phase_config = modules,
@@ -1380,6 +1411,8 @@ static const char *running_callback_description(void) {
     return "from a process_by_galaxy callback";
   case RUNNING_CALLBACK_SNAPSHOT:
     return "from a process_snapshot callback";
+  case RUNNING_CALLBACK_RATE:
+    return "from a process_rates callback";
   case RUNNING_CALLBACK_CLEANUP:
     return "from cleanup()";
   case RUNNING_CALLBACK_FULL_HALO: /* creation is legal there, so it is never refused */
