@@ -368,9 +368,9 @@ int test_supply_law(void) {
  * @test    test_formation_law
  * @brief   Zero at and below the threshold, ((Cold - threshold) / Cold) * efficiency above it
  *
- * Parameters: efficiency 2, threshold 1; then efficiency 1e308, threshold 1, where
- * the bounded ratio formed first keeps the coefficient finite (forming
- * efficiency * (Cold - threshold) first would overflow).
+ * Parameters: efficiency 2, threshold 1; then efficiency 1e308, threshold 2 and
+ * Cold 4, where the bounded ratio formed first keeps the coefficient finite:
+ * forming efficiency * (Cold - threshold) first gives 1e308 * 2 = inf.
  */
 int test_formation_law(void) {
   static const char *const names[] = {"TestRateFormationEfficiency", "TestRateFormationThreshold"};
@@ -407,20 +407,23 @@ int test_formation_law(void) {
     }
   }
 
-  /* A huge efficiency: Cold 2 above threshold 1 gives the ratio 1/2 exactly, so the
-   * coefficient is 1e308 / 2 = 5e307 (halving is exact in binary). */
-  static const double huge_values[] = {1e308, 1.0};
+  /* A huge efficiency: Cold 4 above threshold 2 gives the ratio 2/4 = 1/2 exactly, so the
+   * coefficient is 1e308 / 2 = 5e307 (halving is exact in binary). Multiplying first
+   * would overflow: 1e308 * (4 - 2) = inf. */
+  static const double huge_values[] = {1e308, 2.0};
   set_params(names, huge_values, COUNT_OF(names));
   TEST_ASSERT_EQUAL(test_rate_formation_init(), 0, "init accepts a finite efficiency of 1e308");
   struct Halo halo;
   struct GalaxyData galaxy;
   make_row(&halo, &galaxy, 0, 10.0);
-  galaxy.RateFixtureCold = 2.0;
+  galaxy.RateFixtureCold = 4.0;
   double coefficients[TEST_RATE_FORMATION_NUM_TRANSFERS] = {0.0};
   TEST_ASSERT_EQUAL(test_rate_formation_rates(&ctx, &halo, coefficients), 0,
                     "the law succeeds with a huge efficiency");
+  TEST_ASSERT(isfinite(coefficients[TEST_RATE_FORMATION_TRANSFER_STAR_FORMATION]),
+              "Cold 4, threshold 2, efficiency 1e308: star_formation is finite");
   TEST_ASSERT(coefficients[TEST_RATE_FORMATION_TRANSFER_STAR_FORMATION] == 5e307,
-              "Cold 2, threshold 1, efficiency 1e308: star_formation is exactly 5e307");
+              "Cold 4, threshold 2, efficiency 1e308: star_formation is exactly 5e307");
   return TEST_PASS;
 }
 

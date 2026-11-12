@@ -12,7 +12,7 @@ The law returns one coefficient per transfer, in declaration order (the slot `TE
 |---|---|---|---|
 | 0 | `star_formation`: `RateFixtureCold` to `RateFixtureStars` | Internal (specific rate) | `((Cold - TestRateFormationThreshold) / Cold) * TestRateFormationEfficiency` when `Cold > TestRateFormationThreshold`, else 0 |
 
-The flux, the coefficient times `Cold`, is `TestRateFormationEfficiency * max(0, Cold - TestRateFormationThreshold)`: zero at and below the threshold and continuous across it, with a kink at the threshold. `Cold` above a non-negative threshold is positive, so the coefficient never divides by zero. The ratio `(Cold - TestRateFormationThreshold) / Cold` lies in (0, 1] and is formed before the efficiency multiplies it, so any finite efficiency gives a finite coefficient (an efficiency of `1e308` with `Cold = 2` and threshold 1 gives `5e307`).
+The flux, the coefficient times `Cold`, is `TestRateFormationEfficiency * max(0, Cold - TestRateFormationThreshold)`: zero at and below the threshold and continuous across it, with a kink at the threshold. `Cold` above a non-negative threshold is positive, so the coefficient never divides by zero. The ratio `(Cold - TestRateFormationThreshold) / Cold` lies in (0, 1] and is formed before the efficiency multiplies it, so any finite efficiency gives a finite coefficient (an efficiency of `1e308` with `Cold = 4` and threshold 2 gives `5e307`, where multiplying first would overflow to infinity).
 
 ## Observers
 

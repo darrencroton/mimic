@@ -1039,7 +1039,8 @@ def _identifier_collision_errors(modules: List[Dict[str, Any]], scan: _RateScan)
 
     Checks, over every rate module, the coefficient constants, the count macros and
     the enum tags the generator emits, against each other, against the core's own
-    names of those forms and against the event identifiers. Each rate module
+    names of those forms, against the event identifiers and against the names
+    reservoir_table.h declares. Each rate module
     involved gets one refusal listing its colliding names, so validating any one of
     them alone reports the collision.
     """
@@ -1084,8 +1085,8 @@ def rate_metadata_errors(
     makes its recipient's total depend on its master donor's total, and a tracer
     total on its tracers' parents' totals; a cycle among totals is refused against
     every module whose slaved source is on it, naming the totals. Finally no
-    generated name may collide with another, with a core name of the same form or
-    with an event identifier.
+    generated name may collide with another, with a core name of the same form,
+    with an event identifier or with a name reservoir_table.h declares.
 
     Args:
         modules: Module metadata dicts (module_info.yaml contents).
