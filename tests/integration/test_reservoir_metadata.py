@@ -583,10 +583,10 @@ def test_fixture_fields_in_hdf5_output():
     _require_test_build()
     run = RUNS.run("reservoir_fixture_hdf5", output_format="hdf5")
     if run.returncode != 0:
-        text = (run.stdout + run.stderr).lower()
-        if "hdf5" in text and any(
-            phrase in text for phrase in ("not compiled", "not supported", "unknown")
-        ):
+        # A USE-HDF5=no build refuses output_format: hdf5 with these two lines
+        # (src/core/read_parameter_file.c); any other failure is a real one.
+        text = run.stdout + run.stderr
+        if "requires HDF5 support" in text or "Recompile with HDF5 enabled" in text:
             raise TestSkipped("Mimic was built without HDF5")
     assert run.returncode == 0, f"Mimic failed ({run.returncode}):\n{run.stdout}{run.stderr}"
     files = sorted(run.output_dir.glob("model_[0-9][0-9][0-9].hdf5"))

@@ -285,7 +285,9 @@ def test_output_names_reject_doctored_production_fields():
         ),
         ("production field renamed", renamed + fixture, names_ref[middle] + "Renamed"),
         ("production fields reordered", swapped + fixture, position),
-        ("fixture fields missing", names_ref, repr(fixture[0])),
+        # The message's first line already lists the fixture names, so check the
+        # difference part, which lists the missing names sorted.
+        ("fixture fields missing", names_ref, f"Only in expected: {sorted(fixture)}"),
     ]
     for label, names_now, fragment in doctored:
         try:
