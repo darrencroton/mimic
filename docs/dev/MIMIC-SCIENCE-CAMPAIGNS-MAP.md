@@ -2,6 +2,8 @@
 
 **Status:** Direction brief, proposed 2026-11-10 and not adopted. It draws the goal the remaining pathway steps serve and the parts that goal needs, so each step can be judged against it. It decides nothing: the decisions under [Open Decisions and Explorations](#open-decisions-and-explorations) are the owner's, and the explorations listed there may redraw the map.
 
+**Revised (2026-11-12):** [`AGENTIC-SCIENCE-ARCHITECTURE.md`](AGENTIC-SCIENCE-ARCHITECTURE.md) is now the working direction and wins where the two differ. Three things changed: the standard of evidence is a set of clauses in each brief; the coupled rate formulation's processing mode is built first, from an ordinary implementation plan; and the ladder of first campaigns is replaced by campaigns on the published models, which measure their numerics and then fork `sage16` onto the rate mode and recalibrate it to its published results. This map is kept for its gaps, its judging toolkit and its reasoning until that document's stage 3 consolidation.
+
 **Date:** 2026-11-10
 
 ---
