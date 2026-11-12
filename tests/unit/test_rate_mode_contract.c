@@ -43,7 +43,7 @@ static void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
  * Hand-built modules
  * ========================================================================== */
 
-/** Calls of fof_probe_init() in this process; non-zero means an init() ran */
+/** Calls of probe_init() in this process; non-zero means an init() ran */
 static int init_calls = 0;
 
 static int probe_init(void) {
@@ -301,9 +301,13 @@ int test_rate_mode_refused_in_every_phase(void) {
 
 /**
  * @test    test_rate_context_as_a_module_sees_it
- * @brief   The callback reads the evaluation's time, snapshot and central through
- *          struct RateContext (the Python mirror test pins its field list, which
- *          carries no solver step, substep index or substep count)
+ * @brief   A rates callback can read every struct RateContext field it is handed
+ *
+ * The context here is hand-built and the callback is the test's own, so this
+ * exercises no core path: whether the central is NULL or non-NULL is the
+ * caller's choice, and the core will make it (NULL unless the module declares
+ * reads_central) only once a phase dispatches the mode. The Python mirror test
+ * pins the field list, which carries no solver step, substep index or substep count.
  */
 int test_rate_context_as_a_module_sees_it(void) {
   /* ===== SETUP ===== */
@@ -319,12 +323,12 @@ int test_rate_context_as_a_module_sees_it(void) {
   /* ===== EXECUTE / VALIDATE ===== */
   TEST_ASSERT(mod.rates == rate_probe_rates, "the Module member binds the callback");
   TEST_ASSERT_EQUAL(mod.rates(&ctx, &halo, coefficients), 0,
-                    "a module that did not declare reads_central sees a NULL central");
+                    "the callback sees the NULL central it is handed");
   TEST_ASSERT(coefficients[0] == 9.25, "the callback reads the row's own time and the snapshot");
 
   ctx.central = &central;
   TEST_ASSERT_EQUAL(mod.rates(&ctx, &halo, coefficients), 1,
-                    "a declaring module's central is the pointer the core supplies");
+                    "the callback sees the non-NULL central it is handed");
   return TEST_PASS;
 }
 

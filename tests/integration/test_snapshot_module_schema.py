@@ -129,6 +129,42 @@ def generator_distribution_errors(module):
     return generator.validate_processing_modes([module])
 
 
+def struct_member_names(body):
+    """Return every member name declared in a C struct body, in declaration order.
+
+    Comments are stripped, the body is split on ';' and each declaration on its top-level
+    commas, and each declarator's identifier is taken (pointer stars, array brackets and a
+    function-pointer '(*name)(...)' form handled), so any added member appears in the result
+    whatever its type spelling.
+    """
+    code = re.sub(r"/\*.*?\*/", "", body, flags=re.DOTALL)
+    names = []
+    for declaration in code.split(";"):
+        declaration = " ".join(declaration.split())
+        if not declaration:
+            continue
+        declarators, depth, current = [], 0, ""
+        for char in declaration:
+            if char == "," and depth == 0:
+                declarators.append(current)
+                current = ""
+                continue
+            depth += {"(": 1, ")": -1}.get(char, 0)
+            current += char
+        declarators.append(current)
+        for index, declarator in enumerate(declarators):
+            declarator = re.sub(r"\[[^\]]*\]", "", declarator)
+            function_pointer = re.search(r"\(\s*\*\s*(\w+)\s*\)", declarator)
+            if function_pointer:
+                names.append(function_pointer.group(1))
+                continue
+            identifiers = re.findall(r"[A-Za-z_]\w*", declarator)
+            # The first declarator carries the type; later ones are bare (possibly starred).
+            assert identifiers and (index > 0 or len(identifiers) >= 2), declaration
+            names.append(identifiers[-1])
+    return names
+
+
 def validator_distribution_errors(module):
     """Run the validator's snapshot_distribution validation on one module."""
     results = validator.ValidationResults()
@@ -186,7 +222,19 @@ def test_descriptors_mirror_c_mode_table():
     # The rate context carries the evaluation's own state and no solver step or substep.
     context_body = re.search(r"struct RateContext \{(.*?)\n\};", interface, re.DOTALL).group(1)
     code = re.sub(r"/\*.*?\*/", "", context_body, flags=re.DOTALL)
-    context_fields = re.findall(r"^\s*(?:const )?(?:struct )?\w+ \*?(\w+);", code, re.MULTILINE)
+    # The extractor must see declarations a looser pattern would drop silently.
+    doctored = (
+        "int a; unsigned int substep_index; int step, nsteps; double *v[3]; int (*f)(int, int);"
+    )
+    assert struct_member_names(doctored) == [
+        "a",
+        "substep_index",
+        "step",
+        "nsteps",
+        "v",
+        "f",
+    ], struct_member_names(doctored)
+    context_fields = struct_member_names(context_body)
     assert context_fields == [
         "snapshot_number",
         "redshift",
@@ -273,8 +321,20 @@ def test_standalone_fallback_keeps_three_modes():
         init_c = tmp / "module_init.c"
         assert generator.generate_module_init_c([metadata], event_info, "0" * 32, init_c)
         text = init_c.read_text(encoding="utf-8")
-    assert "demo_rates(" not in text and "PROCESSING_MODE_RATES" not in text, text
-    assert ".rates = NULL," in text, text
+    # Scoped to this module's own lines, so the file-level legend may change independently.
+    module_lines = [
+        line
+        for line in text.splitlines()
+        if line.startswith(f"const enum ProcessingMode {metadata['name']}_supported_modes")
+        or line.startswith(f"extern int {metadata['name']}_")
+    ]
+    assert any("_supported_modes" in line for line in module_lines), module_lines
+    assert not any("PROCESSING_MODE_RATES" in line for line in module_lines), module_lines
+    assert not any(f"{metadata['name']}_rates(" in line for line in module_lines), module_lines
+    block = re.search(
+        rf"static struct Module {metadata['name']}_module = \{{(.*?)\}};", text, re.DOTALL
+    )
+    assert block and ".rates = NULL," in block.group(1), text
     print("  ✓ standalone modules keep [process_full_halo, process_per_event, process_by_galaxy]")
 
 
