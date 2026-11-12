@@ -34,9 +34,9 @@ static int failed = 0;
 /* u = 2^-53, the unit roundoff of IEEE binary64. */
 #define UNIT_ROUNDOFF 0x1p-53
 
-#define MAX_ENTRIES 96
-#define MAX_FLUXES 96
-#define MAX_ROWS 40
+#define MAX_ENTRIES 1024
+#define MAX_FLUXES 2048
+#define MAX_ROWS 1024
 #define MAX_TOTALS 4
 #define LOG_CAPACITY 8192
 
@@ -149,6 +149,23 @@ static int constant_law(const struct LawProbe *probe, double tau, const double *
   (void)x;
   for (int f = 0; f < probe->system->num_fluxes; f++) {
     k[f] = probe->system->coefficient[f];
+  }
+  return 0;
+}
+
+/**
+ * Each sink drains its constant in System.coefficient as an amount per unit
+ * time (coefficient c / x for the donor's content x); every other flux keeps
+ * its constant coefficient.
+ */
+static int constant_outflow_law(const struct LawProbe *probe, double tau, const double *x,
+                                double *k) {
+  constant_law(probe, tau, x, k);
+  for (int f = 0; f < probe->system->num_fluxes; f++) {
+    const struct RateFlux *flux = &probe->system->fluxes[f];
+    if (flux->kind == RATE_FLUX_SINK) {
+      k[f] = probe->system->coefficient[f] / x[flux->from];
+    }
   }
   return 0;
 }
@@ -332,7 +349,7 @@ static int same_sequence(const struct AttemptLog *a, const struct AttemptLog *b)
  * ------------------------------------------------------------------------- */
 
 /* The caller-owned workspace every case integrates in. */
-static double workspace[1 << 15];
+static double workspace[1 << 17];
 
 static struct RateIntegratorSettings adaptive_settings(double relative_tolerance) {
   struct RateIntegratorSettings settings;
@@ -1475,6 +1492,42 @@ static void build_fixed_step_too_long(struct System *system, struct LawProbe *pr
   *settings = fixed_settings(1);
 }
 
+/** One entry at 1 with a constant sink at 1e15, Delta = 1: the cap 1.8e-15 is below 2^-46. */
+static void build_immediate_underflow(struct System *system, struct LawProbe *probe,
+                                      struct RateIntegratorSettings *settings) {
+  system_init(system, 1, 1);
+  system->delta[0] = 1.0;
+  const int x = add_entry(system, 0, 0, 1.0);
+  add_flux(system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, 1e15);
+  *probe = law_probe(constant_law);
+  *settings = adaptive_settings(1e-4);
+}
+
+/** The linear chain over Delta = 2 asked for 2000 fixed steps against a budget of 1000. */
+static void build_fixed_step_budget(struct System *system, struct LawProbe *probe,
+                                    struct RateIntegratorSettings *settings) {
+  build_chain(system, 2.0);
+  *probe = law_probe(constant_law);
+  *settings = fixed_settings(2000);
+  settings->max_steps_per_segment = 1000;
+}
+
+/**
+ * A reservoir at 1 fed by a constant source of 1, Delta = 1, a budget of two
+ * attempts: no outflow (no K_max limiter, no cap clamp) and an error estimate of
+ * exactly zero, so no step meets a limiter before the budget runs out.
+ */
+static void build_unclamped_budget(struct System *system, struct LawProbe *probe,
+                                   struct RateIntegratorSettings *settings) {
+  system_init(system, 1, 1);
+  system->delta[0] = 1.0;
+  const int r = add_entry(system, 0, 0, 1.0);
+  add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, 1.0);
+  *probe = law_probe(constant_law);
+  *settings = adaptive_settings(1e-4);
+  settings->max_steps_per_segment = 2;
+}
+
 static const struct FailureCase FAILURE_CASES[] = {
     {"sink at c/x", build_inverse_sink, RATE_CAUSE_STEP_UNDERFLOW, 0, 0},
     {"NaN coefficient", build_nan_coefficient, RATE_CAUSE_BAD_COEFFICIENT, 1, 1},
@@ -1484,6 +1537,9 @@ static const struct FailureCase FAILURE_CASES[] = {
     {"divergent sink, 5 rejections", build_divergent_sink, RATE_CAUSE_REJECTION_BUDGET, 0, 1},
     {"fixed step past the bound", build_fixed_step_too_long, RATE_CAUSE_REJECTION_BUDGET, 0, 0},
     {"law reports failure", build_failing_law, RATE_CAUSE_BAD_COEFFICIENT, -1, -1},
+    {"immediate underflow at the cap", build_immediate_underflow, RATE_CAUSE_STEP_UNDERFLOW, 0, 0},
+    {"fixed steps past the budget", build_fixed_step_budget, RATE_CAUSE_STEP_BUDGET, 0, 0},
+    {"budget, source only, no clamp", build_unclamped_budget, RATE_CAUSE_STEP_BUDGET, 0, 0},
 };
 #define NUM_FAILURE_CASES ((int)(sizeof(FAILURE_CASES) / sizeof(FAILURE_CASES[0])))
 
@@ -1578,7 +1634,11 @@ static int test_rejection_budget(void) {
  *
  * Expected for every failure case: the state and the external-amount arrays
  * keep their bytes, and the record names the cause, the entry and the flux
- * (none for a law that reports failure as a whole).
+ * (none for a law that reports failure as a whole). The last three cases meet
+ * no limiter before failing (an underflow at the first step, a fixed-step
+ * budget, a budget with no outflow and a zero error estimate), so they name the
+ * start-of-step limiter: the K_max entry and its outflow, or the largest-rate
+ * flux and its recipient.
  */
 static int test_failures_leave_state_unchanged(void) {
   for (int c = 0; c < NUM_FAILURE_CASES; c++) {
@@ -1594,6 +1654,149 @@ static int test_failures_leave_state_unchanged(void) {
                 "the record must name a cause");
   }
   printf("\n");
+  return TEST_PASS;
+}
+
+/**
+ * @test    Many external fluxes into one total close within tol_F
+ *
+ * 1000 rows of one entry each, a transfer from each entry to the next at
+ * 1e-12, every Delta 1, 10000 fixed steps, default settings: (a) every entry
+ * empty and fed by a source of 1; (b) every entry at 1.25 drained by a sink of
+ * a constant 1 per unit time (coefficient 1 / x). Both add the same amount,
+ * 1e-4, on every step, the case where the rounding of one running sum per
+ * total accumulates fastest. Each entry carries at most three flux terms (L =
+ * 3) and n_F = 1000, while the total's external amount gathers 1e7 flux
+ * amounts. Expected: the segment succeeds (no ledger failure), the total
+ * closes within tol_F, and the external amount is 1000 within that tolerance.
+ */
+static int test_many_external_fluxes_close_within_tolerance(void) {
+  for (int sinks = 0; sinks <= 1; sinks++) {
+    static struct System system;
+    struct LawProbe probe = law_probe(sinks ? constant_outflow_law : constant_law);
+    const struct RateIntegratorSettings settings = fixed_settings(10000);
+    struct Run run;
+    system_init(&system, 1000, 1);
+    for (int r = 0; r < 1000; r++) {
+      system.delta[r] = 1.0;
+      add_entry(&system, r, 0, sinks ? 1.25 : 0.0);
+    }
+    for (int r = 0; r < 1000; r++) {
+      if (sinks) {
+        add_flux(&system, RATE_FLUX_SINK, r, RATE_END_EXTERNAL, 0, 1.0);
+      } else {
+        add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, 1.0);
+      }
+      if (r + 1 < 1000) {
+        add_flux(&system, RATE_FLUX_INTERNAL, r, r + 1, 1, 1e-12);
+      }
+    }
+    double start_total = 0.0;
+    for (int i = 0; i < system.num_entries; i++) {
+      start_total += system.state[i];
+    }
+    TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
+    TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "many external fluxes must not fail the ledger");
+    TEST_ASSERT(run.outcome.max_terms_per_entry == 3, "L is 3 (an external and two transfers)");
+    double end_total = 0.0;
+    for (int i = 0; i < system.num_entries; i++) {
+      end_total += system.state[i];
+    }
+    const double drift = fabs((end_total - start_total) - (run.source[0] - run.sink[0]));
+    const double tolerance =
+        closure_tolerance(3, 10000, 1000, start_total, run.source[0], run.sink[0]);
+    printf("\n  many %s Src=%.12f Snk=%.12f closure=%.3e tol_F=%.3e", sinks ? "sinks  " : "sources",
+           run.source[0], run.sink[0], drift, tolerance);
+    TEST_ASSERT(drift <= tolerance, "many external fluxes must close within tol_F");
+    const double external = sinks ? run.sink[0] : run.source[0];
+    TEST_ASSERT(fabs(external - 1000.0) <= tolerance,
+                "the external amount must be 1000 within tol_F");
+  }
+  printf("\n");
+  return TEST_PASS;
+}
+
+/**
+ * @test    The first step follows the Hairer and Wanner rule adapted to the norm
+ *
+ * One entry x0 = 1 drained at k = 3, Delta = 1 (K = 3), default tolerances. The
+ * linear law gives F0 = -K x0 and, at the probe x1 = x0 + h0 F0, F1 = -K (1 -
+ * h0 K) x0. With w0 = atol S + rtol |x0| (S = x0), d0 = |x0|/w0, d1 = |F0|/w0,
+ * h0 = min(0.01 d0/d1, 1, sigma/K), d2 = |F1 - F0|/w0/h0 and h1 = (0.01 /
+ * max(d1, d2))^(1/3), the first step is min(100 h0, h1, 1, sigma C/K), here h1
+ * (d2 > d1 since K > 1). Expected: the first attempt's step equals this closed
+ * form bit for bit, each formula evaluated in the order the rule states it.
+ */
+static int test_first_step_follows_its_rule(void) {
+  const double x0 = 1.0;
+  const double k = 3.0;
+  const double delta = 1.0;
+  const double rtol = 1e-4;
+  const double atol = 1e-7;
+  const double big_k = delta * k;
+  const double w0 = atol * x0 + rtol * x0;
+  const double f0 = -big_k * x0;
+  const double d0 = fabs(x0) / w0;
+  const double d1 = fabs(f0) / w0;
+  const double h0 = fmin(fmin(0.01 * d0 / d1, 1.0), 0.9 / big_k);
+  const double f1 = -big_k * (1.0 - h0 * big_k) * x0;
+  const double d2 = fabs(f1 - f0) / w0 / h0;
+  const double h1 = cbrt(0.01 / fmax(d1, d2));
+  const double expected = fmin(fmin(100.0 * h0, h1), fmin(1.0, 0.9 * 2.0 / big_k));
+  struct System system;
+  struct LawProbe probe = law_probe(constant_law);
+  struct RateIntegratorSettings settings = adaptive_settings(rtol);
+  static struct AttemptLog log;
+  struct Run run;
+  system_init(&system, 1, 1);
+  system.delta[0] = delta;
+  const int x = add_entry(&system, 0, 0, x0);
+  add_flux(&system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, k);
+  attach_log(&settings, &log, &system);
+  TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the decay must integrate");
+  printf("\n  first step d1=%.6e d2=%.6e h0=%.6e h1=%.10e expected=%.17g got=%.17g\n", d1, d2, h0,
+         h1, expected, log.step[0]);
+  TEST_ASSERT(d2 > d1 && expected == h1, "the case must exercise d2 and h1");
+  TEST_ASSERT(log.count > 0 && log.tau[0] == 0.0, "the first attempt starts at tau = 0");
+  TEST_ASSERT(log.step[0] == expected, "the first step must equal the rule's closed form exactly");
+  return TEST_PASS;
+}
+
+/**
+ * @test    The last step is stretched by up to 10% to land on tau = 1
+ *
+ * A reservoir at 1 fed by a constant source of 32.25, Delta = 1, relative
+ * tolerance 0.5. A constant rate has an error estimate of exactly zero, so each
+ * step grows by the factor 5; the first step is 100 h0 = x0 / (Delta s) =
+ * 1/32.25 (below h1 at this tolerance), so the third proposal is 25/32.25
+ * against a remainder of 26.25/32.25, 1.05 times the proposal. Expected: three
+ * attempts, the remainder within (h, 1.1 h] of the proposal h = 5 times the
+ * previous step, and the last step equal to the remainder 1 - tau exactly
+ * (without the stretch the remainder would be split into two steps).
+ */
+static int test_landing_stretch_reaches_the_end(void) {
+  struct System system;
+  struct LawProbe probe = law_probe(constant_law);
+  struct RateIntegratorSettings settings = adaptive_settings(0.5);
+  static struct AttemptLog log;
+  struct Run run;
+  system_init(&system, 1, 1);
+  system.delta[0] = 1.0;
+  const int r = add_entry(&system, 0, 0, 1.0);
+  add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, 32.25);
+  attach_log(&settings, &log, &system);
+  TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the source must integrate");
+  TEST_ASSERT_EQUAL(log.count, 3, "three attempts: two growing steps and a stretched landing");
+  TEST_ASSERT(log.accepted[0] && log.accepted[1] && log.accepted[2], "every attempt is accepted");
+  const double remainder = 1.0 - log.tau[2];
+  const double proposal = 5.0 * log.step[1];
+  printf("\n  landing steps=%.10f %.10f %.10f remainder/proposal=%.6f (in (1, 1.1])\n", log.step[0],
+         log.step[1], log.step[2], remainder / proposal);
+  TEST_ASSERT(remainder > proposal && remainder <= 1.1 * proposal,
+              "the remainder must lie within (h, 1.1 h] of the proposal");
+  TEST_ASSERT(log.step[2] == remainder, "the last step must be the remainder 1 - tau exactly");
   return TEST_PASS;
 }
 
@@ -1630,6 +1833,9 @@ int main(void) {
   TEST_RUN(test_closure_check_detects_imbalance);
   TEST_RUN(test_star_repeatable);
   TEST_RUN(test_failures_leave_state_unchanged);
+  TEST_RUN(test_many_external_fluxes_close_within_tolerance);
+  TEST_RUN(test_first_step_follows_its_rule);
+  TEST_RUN(test_landing_stretch_reaches_the_end);
 
   TEST_SUMMARY();
   return TEST_RESULT();

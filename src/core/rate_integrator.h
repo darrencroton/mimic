@@ -50,6 +50,12 @@
  * otherwise a remainder shorter than two steps is split into two equal steps;
  * tau is assigned 1.0 at the end, never accumulated. A step below 2^-46 fails.
  *
+ * Closure. The external amounts accumulate per entry over accepted steps and are
+ * summed per total once at segment end, in entry order, so the rounding of the
+ * per-total amounts stays inside the closure tolerance however many external
+ * fluxes a total has; the segment then fails with RATE_CAUSE_LEDGER when a total
+ * does not close (rate_check_closure()).
+ *
  * Fixed steps. With settings.fixed_steps = n > 0 the segment is n equal steps
  * with the controller off and no error estimate. The positivity checks stay on;
  * a fixed step that fails one fails the segment with RATE_CAUSE_REJECTION_BUDGET:
@@ -182,12 +188,28 @@ enum RateCause {
 /**
  * @brief   What failed, where and when
  *
- * `entry` and `flux` are the caller's indices (RateComponent order), or -1. For
- * a bad coefficient they are the offending flux and its donor (its recipient
- * for a source). For a budget or underflow failure they are the entry that
- * limited the last step and its outflow with the largest coefficient (or, when
- * the error estimate limited it, the flux with the largest error amount at that
- * entry). For a ledger failure `total` names the total and both are -1.
+ * `entry` and `flux` are the caller's indices (RateComponent order), or -1.
+ *
+ * - bad_coefficient: the first offending flux in canonical order and its donor
+ *   (its recipient for a source). A law that returns non-zero names neither.
+ * - step_budget, step_underflow and rejection_budget in adaptive mode: the
+ *   latest limiter met in the segment, which is one of
+ *   - a step clamped to the positivity cap (the cap binds when the step reaches
+ *     it), or rejected because step * K_max exceeded C at a stage: the entry
+ *     attaining K_max at that state and its outflow with the largest
+ *     coefficient there;
+ *   - a rejection because an entry went below zero: the first such entry in
+ *     entry order and its outflow with the largest amount at that stage;
+ *   - an attempt whose error estimate ran with a non-zero error: the entry with
+ *     the largest weighted error and its flux, outflow or inflow, with the
+ *     largest error amount (outflows first, canonical order, on ties);
+ *   - while none of these has been met: the start-of-step limiter, the entry
+ *     attaining K_max at the step start and its outflow with the largest
+ *     coefficient, or, when no entry with content has an outflow, the flux
+ *     with the largest start-of-step rate and its donor (recipient for a source).
+ * - Fixed steps: step_budget names the failing step's start-of-step limiter; a
+ *   positivity rejection (rejection_budget) names its own limiter as above.
+ * - ledger: `total` names the total and both are -1.
  */
 struct RateFailure {
   enum RateCause cause;
