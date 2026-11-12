@@ -327,6 +327,28 @@ def _event_identifier_collision(m, p):
     m["test_ev_event_y"] = _sink_module("test_ev_event_y", "z")
 
 
+def _reservoir_index_collision(m, p):
+    # A property A_TRANSFER_B gets RESERVOIR_INDEX_A_TRANSFER_B in reservoir_table.h, the
+    # coefficient constant of module reservoir_index_a's transfer b
+    p["A_TRANSFER_B"] = {
+        **reservoir("A_TRANSFER_B", "unused"),
+        "reservoir": {"kind": "observer"},
+    }
+    m["reservoir_index_a"] = _sink_module("reservoir_index_a", "b")
+
+
+def _references_to_refused_transfer(m, p):
+    # STAR_FORMATION is refused as a case-only duplicate of star_formation; the observer
+    # and the slaved source naming it add no refusal of their own
+    m["test_rate_formation"]["rates"]["transfers"].append(
+        {"name": "STAR_FORMATION", "from": "RateFixtureCold", "to": "RateFixtureStars"}
+    )
+    m["test_rate_formation"]["rates"]["observers"][0]["transfer"] = "STAR_FORMATION"
+    find_transfer(m, "test_rate_feedback", "yield")[
+        "slaved_to"
+    ] = "test_rate_formation.STAR_FORMATION"
+
+
 REFUSALS = [
     ("both ends external", _both_external, "test_rate_supply", "infall", "both ends 'external'", 1),
     (
@@ -366,7 +388,7 @@ REFUSALS = [
         _to_not_reservoir,
         "test_rate_supply",
         "cooling",
-        "'TestDummyProperty', a property that declares no reservoir:",
+        "'TestDummyProperty', a property that declares no reservoir mapping",
         1,
     ),
     (
@@ -595,6 +617,22 @@ REFUSALS = [
         "identifier TEST_EV_EVENT_Y_TRANSFER_Z",
         1,
     ),
+    (
+        "coefficient constant collides with a reservoir index",
+        _reservoir_index_collision,
+        "reservoir_index_a",
+        "b",
+        "identifier RESERVOIR_INDEX_A_TRANSFER_B",
+        1,
+    ),
+    (
+        "references to a transfer refused as a case-only duplicate",
+        _references_to_refused_transfer,
+        "test_rate_formation",
+        "STAR_FORMATION",
+        "and rates.transfers 'star_formation' differ only in case",
+        1,  # the duplicate itself; the observer and the slaved source add nothing
+    ),
 ]
 
 
@@ -812,26 +850,22 @@ def test_validator_resolves_master_for_one_module_path():
     print("  ✓ one module path validated with every module as the rate context")
 
 
-def test_single_module_validation_reports_cycle_from_both_sides():
-    """Validating either module of a two-total cycle alone exits non-zero, naming the totals.
+def run_validator_main(modules, extra_props, selected):
+    """Run validate_modules.main() on one temporary module path; return (exit code, output).
 
-    Runs validate_modules.main() on one module path, so its report filter applies,
-    with two cycle modules written to a temporary directory and added to discovery,
-    and their two reservoirs added to the property metadata.
+    Writes each module (keyed by directory name) with a placeholder source to a
+    temporary directory, adds them to discovery and ``extra_props`` to the property
+    metadata (as galaxy properties), then validates the module ``selected`` alone,
+    so the single-module report filter applies.
     """
     galaxy_source = rel(model_property_files()[0])
-    cycle_props = {
-        name: {**reservoir(name, total), "source": galaxy_source}
-        for name, total in (("CycleA", "total_a"), ("CycleB", "total_b"))
-    }
+    props = {name: {**prop, "source": galaxy_source} for name, prop in extra_props.items()}
     real_discover = validate_modules.discover_modules
     real_properties = validate_modules.load_property_metadata
     real_argv = sys.argv
     with tempfile.TemporaryDirectory() as tmp:
-        cycle = {}
-        _total_cycle(cycle, {})
         dirs = {}
-        for name, module in cycle.items():
+        for name, module in modules.items():
             module_dir = Path(tmp) / name
             module_dir.mkdir()
             (module_dir / "module_info.yaml").write_text(yaml.safe_dump({"module": module}))
@@ -840,23 +874,53 @@ def test_single_module_validation_reports_cycle_from_both_sides():
         validate_modules.discover_modules = lambda: real_discover() + [
             (path, validate_modules.load_module_metadata(path)) for path in dirs.values()
         ]
-        validate_modules.load_property_metadata = lambda: {**real_properties(), **cycle_props}
+        validate_modules.load_property_metadata = lambda: {**real_properties(), **props}
         try:
-            for name, module_dir in sorted(dirs.items()):
-                sys.argv = ["validate_modules.py", str(module_dir)]
-                output = io.StringIO()
-                with contextlib.redirect_stdout(output):
-                    code = validate_modules.main()
-                text = output.getvalue()
-                assert code != 0, f"validating {name} alone exited 0:\n{text}"
-                assert (
-                    f"[ERROR] {name}: rates: conserved totals ['total_a', 'total_b']" in text
-                ), f"validating {name} alone did not report the cycle naming the totals:\n{text}"
+            sys.argv = ["validate_modules.py", str(dirs[selected])]
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = validate_modules.main()
+            return code, output.getvalue()
         finally:
             validate_modules.discover_modules = real_discover
             validate_modules.load_property_metadata = real_properties
             sys.argv = real_argv
+
+
+def test_single_module_validation_reports_cycle_from_both_sides():
+    """Validating either module of a two-total cycle alone exits non-zero, naming the totals.
+
+    Runs validate_modules.main() on one module path, so its report filter applies,
+    with two cycle modules written to a temporary directory and added to discovery,
+    and their two reservoirs added to the property metadata.
+    """
+    cycle_props = {
+        name: reservoir(name, total)
+        for name, total in (("CycleA", "total_a"), ("CycleB", "total_b"))
+    }
+    cycle = {}
+    _total_cycle(cycle, {})
+    for name in sorted(cycle):
+        code, text = run_validator_main(cycle, cycle_props, name)
+        assert code != 0, f"validating {name} alone exited 0:\n{text}"
+        assert (
+            f"[ERROR] {name}: rates: conserved totals ['total_a', 'total_b']" in text
+        ), f"validating {name} alone did not report the cycle naming the totals:\n{text}"
     print("  ✓ the cycle is reported when either of its modules is validated alone")
+
+
+def test_single_module_validation_of_an_unnamed_module():
+    """A module whose metadata has no name still has its rate refusals reported when
+    validated alone, under the name the rules attribute them to."""
+    unnamed = {
+        "supported_processing_modes": ["process_rates"],
+        "rates": {"transfers": [{"name": "drift", "from": "external", "to": "external"}]},
+    }
+    code, text = run_validator_main({"test_unnamed_rate": unnamed}, {}, "test_unnamed_rate")
+    assert code != 0, text
+    expected = "[ERROR] <unnamed>: rates.transfers 'drift' has both ends 'external'"
+    assert expected in text, f"the unnamed module's rate refusal was dropped:\n{text}"
+    print("  ✓ an unnamed module's rate refusal is reported when it is validated alone")
 
 
 def test_tools_share_the_galaxy_property_view():
@@ -919,11 +983,17 @@ def test_reads_central_emitted():
 def test_reserved_names_match_sources():
     """The reserved name lists cover the core's names of the generated forms, and the
     event identifiers mirror the generator's event naming."""
-    sources = [
-        path
-        for directory in ("src/core", "src/include", "src/util", "src/module_system")
-        for path in (REPO_ROOT / directory).glob("*.h")
-    ]
+    # Every header a rate module's code can reach: the core, the generated headers
+    # under src/include/generated and src/module_system/generated, and the model
+    # packages' shared helpers. rate_contracts.h holds the per-module generated names
+    # themselves, so it is represented by its empty form.
+    rate_contracts = REPO_ROOT / "src" / "module_system" / "generated" / "rate_contracts.h"
+    roots = [REPO_ROOT / d for d in ("src/core", "src/include", "src/util", "src/module_system")]
+    roots += sorted((REPO_ROOT / "models").glob("*/shared"))
+    sources = sorted(
+        path for root in roots for path in root.rglob("*.h") if path.resolve() != rate_contracts
+    )
+    assert any("generated" in path.parts for path in sources), "no generated header scanned"
     text = "\n".join(path.read_text(encoding="utf-8") for path in sources)
     text += render_rate_contracts_h([], "0" * 32)
     identifiers = set(re.findall(r"\b[A-Z0-9_]+_(?:TRANSFER_[A-Z0-9_]+|NUM_TRANSFERS)\b", text))
@@ -962,6 +1032,7 @@ def main():
             test_production_generation_has_no_rate_table,
             test_validator_resolves_master_for_one_module_path,
             test_single_module_validation_reports_cycle_from_both_sides,
+            test_single_module_validation_of_an_unnamed_module,
             test_tools_share_the_galaxy_property_view,
             test_reads_central_emitted,
             test_reserved_names_match_sources,

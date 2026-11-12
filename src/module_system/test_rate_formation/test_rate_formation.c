@@ -9,7 +9,7 @@
  * One of the four process_rates modules of the model-neutral rate fixture. Its
  * law returns one coefficient (README.md states the law):
  * - star_formation: RateFixtureCold to RateFixtureStars at the specific rate
- *   TestRateFormationEfficiency * (Cold - TestRateFormationThreshold) / Cold
+ *   ((Cold - TestRateFormationThreshold) / Cold) * TestRateFormationEfficiency
  *   when Cold exceeds the threshold, else 0
  *
  * The flux, coefficient times Cold, is then efficiency * max(0, Cold - threshold):
@@ -67,7 +67,9 @@ int test_rate_formation_init(void) {
 /**
  * @brief   Return the formation fixture's coefficient for one row
  *
- * Cold above a non-negative threshold is positive, so the division is safe.
+ * Cold above a non-negative threshold is positive, so the division is safe. The
+ * ratio (Cold - threshold) / Cold lies in (0, 1] and is formed before the
+ * efficiency multiplies it, so any finite efficiency gives a finite coefficient.
  *
  * @param   ctx           Rate context (unused: the law depends on the row alone)
  * @param   halo          Scratch copy of the row at the trial state
@@ -84,7 +86,7 @@ int test_rate_formation_rates(const struct RateContext *ctx, const struct Halo *
   const double cold = halo->galaxy->RateFixtureCold;
 
   coefficients[TEST_RATE_FORMATION_TRANSFER_STAR_FORMATION] =
-      (cold > threshold) ? efficiency * (cold - threshold) / cold : 0.0;
+      (cold > threshold) ? ((cold - threshold) / cold) * efficiency : 0.0;
   return 0;
 }
 

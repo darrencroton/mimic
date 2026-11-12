@@ -450,7 +450,7 @@ def _describe_end(galaxy_properties: Dict[str, Dict[str, Any]], name: str) -> st
         return f"'{name}', which is not a declared galaxy property"
     mapping = _reservoir_mapping(galaxy_properties, name)
     if mapping is None:
-        return f"'{name}', a property that declares no reservoir:"
+        return f"'{name}', a property that declares no reservoir mapping"
     return f"'{name}', a property of reservoir kind '{mapping.get('kind')}'"
 
 
@@ -465,6 +465,8 @@ class _RateScan:
         resolved: Those transfers whose ends are valid.
         slaved: Slaved sources with valid ends, as (module, transfer mapping).
         names: Each rate module's uniquely named transfers, in declaration order.
+        refused: Transfers refused as case-only duplicates, by (module, transfer); a
+            slaved_to or observer naming one is not refused again.
     """
 
     galaxy_properties: Dict[str, Dict[str, Any]]
@@ -473,6 +475,7 @@ class _RateScan:
     resolved: Set[Tuple[str, str]] = field(default_factory=set)
     slaved: List[Tuple[str, Dict[str, Any]]] = field(default_factory=list)
     names: Dict[str, List[str]] = field(default_factory=dict)
+    refused: Set[Tuple[str, str]] = field(default_factory=set)
 
     def refuse(self, module: str, message: str, dependency: bool = False) -> None:
         """Record one refusal against a module."""
@@ -665,6 +668,7 @@ def _claim_transfer_name(
             f"generate the coefficient constant {constant}; transfer names in a module must "
             "differ other than in case",
         )
+        scan.refused.add((name, transfer_name))
         return False
     by_constant[constant] = transfer_name
     scan.declared[(name, transfer_name)] = transfer
@@ -768,7 +772,9 @@ def _observer_errors(name: str, observers: Any, scan: _RateScan) -> None:
                 name,
                 f"{label} has unknown key(s) {unknown}; allowed keys are {list(OBSERVER_KEYS)}",
             )
-        if not isinstance(observed, str) or observed not in declared:
+        if (name, observed) in scan.refused:
+            pass  # The transfer's own refusal names its defect.
+        elif not isinstance(observed, str) or observed not in declared:
             scan.refuse(
                 name,
                 f"{label} observes a transfer this module does not declare (declared: "
@@ -788,9 +794,22 @@ def _observer_errors(name: str, observers: Any, scan: _RateScan) -> None:
             )
 
 
+UNNAMED_MODULE = "<unnamed>"
+
+
+def rate_error_module(module: Dict[str, Any]) -> str:
+    """Return the module name rate refusals are reported against.
+
+    A module whose metadata has no string name is reported as UNNAMED_MODULE; the
+    validator filters single-module reports by this same name.
+    """
+    name = module.get("name")
+    return name if isinstance(name, str) and name else UNNAMED_MODULE
+
+
 def _module_rate_errors(module: Dict[str, Any], scan: _RateScan) -> None:
     """Check the rules decidable from one module's own metadata."""
-    name = str(module.get("name", "<unnamed>"))
+    name = rate_error_module(module)
     rates = _rates_header(module, name, scan)
     if rates is None:
         return
@@ -824,6 +843,8 @@ def _slaved_master_edges(
         target = transfer["slaved_to"]
         master_key = tuple(SLAVED_TO.fullmatch(target).groups())
         master = scan.declared.get(master_key)
+        if master_key in scan.refused:
+            continue  # The master's own refusal names its defect.
         if master is None:
             scan.refuse(
                 module_name,
@@ -935,12 +956,52 @@ def _cycle_errors(
 _NameClaims = Dict[Tuple[str, str], List[Tuple[Optional[str], str]]]
 
 
+# A property name that no metadata uses, rendered through the reservoir-table generator to
+# learn the form of the index symbol it emits for a property.
+_RESERVOIR_NAME_PROBE = "MimicRateNameProbe"
+
+
+def _reservoir_table_names(
+    galaxy_properties: Dict[str, Dict[str, Any]],
+) -> Tuple[Dict[str, str], Set[str]]:
+    """Return the identifiers and tags reservoir_table.h declares, which module_init.c includes.
+
+    The forms come from scripts/generate_properties.py itself: a one-entry table is
+    rendered for a probe property, its index symbol gives the per-property form,
+    and its other macros, enum constants and tags are the table's fixed names. Every
+    galaxy property with a reservoir: mapping then claims its index symbol.
+
+    Returns:
+        (identifier -> description, tags).
+    """
+    from generate_properties import generate_reservoir_table_h  # Owner of these names.
+
+    text = generate_reservoir_table_h(
+        [{"name": _RESERVOIR_NAME_PROBE, "reservoir": {"kind": "observer"}}], ""
+    )
+    defined = set(re.findall(r"^#define\s+([A-Za-z_][A-Za-z0-9_]*)", text, re.M))
+    defined |= set(re.findall(r"^\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", text, re.M))
+    tags = set(re.findall(r"\b(?:enum|struct|union)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", text))
+
+    identifiers: Dict[str, str] = {}
+    for identifier in sorted(defined):
+        if _RESERVOIR_NAME_PROBE in identifier:
+            template = identifier.replace(_RESERVOIR_NAME_PROBE, "{}")
+            for name in sorted(galaxy_properties):
+                if _reservoir_mapping(galaxy_properties, name) is not None:
+                    identifiers[template.format(name)] = f"the reservoir index of '{name}'"
+        else:
+            identifiers[identifier] = f"the reservoir-table identifier {identifier}"
+    return identifiers, tags
+
+
 def _generated_name_claims(modules: List[Dict[str, Any]], scan: _RateScan) -> _NameClaims:
     """Return every name the generator would emit per rate module, plus the names they must avoid.
 
     Rate modules claim their enum tag, count macro and coefficient constants; the
-    core's reserved names and every module's event identifiers are claimed by no
-    rate module. Transfers already refused as case-only duplicates are not claimed.
+    core's reserved names, every module's event identifiers and the names
+    reservoir_table.h declares (module_init.c includes it) are claimed by no rate
+    module. Transfers already refused as case-only duplicates are not claimed.
     """
     claims: _NameClaims = {}
 
@@ -965,6 +1026,11 @@ def _generated_name_claims(modules: List[Dict[str, Any]], scan: _RateScan) -> _N
     for module in modules:
         for identifier in event_identifiers(module):
             claim("id", identifier, None, f"an event identifier of {module.get('name')}")
+    reservoir_identifiers, reservoir_tags = _reservoir_table_names(scan.galaxy_properties)
+    for identifier, what in reservoir_identifiers.items():
+        claim("id", identifier, None, what)
+    for tag in sorted(reservoir_tags):
+        claim("tag", tag, None, f"the reservoir-table tag {tag}")
     return claims
 
 

@@ -55,6 +55,7 @@ from generate_properties import load_parameter_units
 from module_modes import (
     STANDALONE_FALLBACK_MODES,
     mode_list_errors,
+    rate_error_module,
     rate_metadata_errors,
     snapshot_distribution_errors,
 )
@@ -915,15 +916,22 @@ def main():
             return 1
 
         modules = [(module_dir, metadata)]
-        # Every discovered module, with this one in place of its namesake, is the
-        # context for the cross-module rate rules.
-        selected_name = metadata.get("name", module_dir.name)
+        # Every discovered module, with this one in place of its namesake (by name or
+        # directory), is the context for the cross-module rate rules. Rate refusals are
+        # reported only against this module, under the name the rules attribute them to
+        # (rate_error_module(), UNNAMED_MODULE when its metadata has no string name).
+        selected_name = metadata.get("name")
         rate_context = [
             (path, other)
             for path, other in discover_modules()
-            if other is None or other.get("name") != selected_name
+            if path.resolve() != module_dir.resolve()
+            and (
+                other is None
+                or not isinstance(selected_name, str)
+                or other.get("name") != selected_name
+            )
         ] + modules
-        rate_report_only = {selected_name}
+        rate_report_only = {rate_error_module(metadata)}
     else:
         # Validate all modules
         modules = discover_modules()
