@@ -34,11 +34,14 @@ The generated tables' contents in a test build, and the fixture laws, are checke
 by tests/unit/test_rate_transfer_tables.c.
 """
 
+import contextlib
 import copy
+import io
 import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -48,14 +51,24 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 import validate_modules  # noqa: E402  (path set up above)
+from discovery import model_property_files, rel  # noqa: E402
 from framework import run_test_suite  # noqa: E402
 from generate_module_registry import (  # noqa: E402
+    event_name_to_enum_constant,
+    generate_module_struct_definitions,
     generate_rate_table_definitions,
+    load_galaxy_property_metadata,
     load_module_metadata,
+    module_name_to_id_macro,
     render_rate_contracts_h,
     validate_rate_declarations,
 )
-from module_modes import global_transfer_index  # noqa: E402
+from module_modes import (  # noqa: E402
+    RESERVED_RATE_IDENTIFIERS,
+    RESERVED_RATE_TAGS,
+    event_identifiers,
+    global_transfer_index,
+)
 
 MODULE_SYSTEM = REPO_ROOT / "src" / "module_system"
 FIXTURES = ("test_rate_supply", "test_rate_formation", "test_rate_feedback", "test_rate_stripping")
@@ -250,14 +263,79 @@ def _empty_transfers(m, p):
     # The yield's master no longer exists in this module, so nothing else is slaved.
 
 
+def _to_record_list(m, p):
+    find_transfer(m, "test_rate_stripping", "ejection")["to_record"] = ["central"]
+
+
+def _to_record_mapping(m, p):
+    find_transfer(m, "test_rate_stripping", "ejection")["to_record"] = {"central": True}
+
+
+def _missing_total(m, p):
+    del p["RateFixtureStars"]["reservoir"]["total"]
+
+
+def _case_duplicate(m, p):
+    find_transfer(m, "test_rate_supply", "cooling")["name"] = "Infall"
+
+
+def _sink_module(name, transfer, extra=None):
+    """Return a synthetic rate module with one sink out of RateFixtureCold."""
+    module = {
+        "name": name,
+        "supported_processing_modes": ["process_rates"],
+        "rates": {"transfers": [{"name": transfer, "from": "RateFixtureCold", "to": "external"}]},
+    }
+    module.update(extra or {})
+    return module
+
+
+def _constant_collision(m, p):
+    # TEST_CROSS + _TRANSFER_ + TRANSFER_DRAIN == TEST_CROSS_TRANSFER + _TRANSFER_ + DRAIN
+    m["test_cross"] = _sink_module("test_cross", "transfer_drain")
+    m["test_cross_transfer"] = _sink_module("test_cross_transfer", "drain")
+
+
+def _count_macro_collision(m, p):
+    # test_n's constant TEST_N_TRANSFER_NUM_TRANSFERS is test_n_transfer's count macro
+    m["test_n"] = _sink_module("test_n", "num_transfers")
+    m["test_n_transfer"] = _sink_module("test_n_transfer", "drain")
+
+
+def _enum_tag_collision(m, p):
+    # test__tag and test_tag both generate the enum tag TestTagTransfer
+    m["test__tag"] = _sink_module("test__tag", "drain")
+    m["test_tag"] = _sink_module("test_tag", "drain")
+
+
+def _core_tag_collision(m, p):
+    # A module named rate generates enum RateTransfer, the tag of struct RateTransfer
+    m["rate"] = _sink_module("rate", "drain")
+
+
+def _core_identifier_collision(m, p):
+    m["mimic_rate"] = _sink_module("mimic_rate", "count")
+
+
+def _event_identifier_collision(m, p):
+    # test_ev's event constant TEST_EV_EVENT_Y_TRANSFER_Z is test_ev_event_y's z constant
+    m["test_ev"] = {
+        "name": "test_ev",
+        "supported_processing_modes": ["process_full_halo"],
+        "events": {"emits": [{"name": "y_transfer_z", "description": "probe"}]},
+    }
+    m["test_ev_event_y"] = _sink_module("test_ev_event_y", "z")
+
+
 REFUSALS = [
-    ("both ends external", _both_external, "test_rate_supply", "infall", "both ends 'external'"),
+    ("both ends external", _both_external, "test_rate_supply", "infall", "both ends 'external'", 1),
     (
         "reads_central not a boolean",
         _reads_central_not_bool,
         "test_rate_supply",
         "cooling",
         "reads_central is 'yes'",
+        1,
     ),
     (
         "from is a tracer",
@@ -265,6 +343,7 @@ REFUSALS = [
         "test_rate_supply",
         "cooling",
         "takes from 'RateFixtureHotTracer', a property of reservoir kind 'tracer'",
+        1,
     ),
     (
         "from is an observer",
@@ -272,13 +351,15 @@ REFUSALS = [
         "test_rate_formation",
         "star_formation",
         "takes from 'RateFixtureFormed', a property of reservoir kind 'observer'",
+        1,
     ),
     (
         "to is not a declared property",
         _to_undeclared,
         "test_rate_supply",
         "cooling",
-        "'NoSuchProperty', which is not a declared property",
+        "'NoSuchProperty', which is not a declared galaxy property",
+        1,
     ),
     (
         "to declares no reservoir:",
@@ -286,6 +367,7 @@ REFUSALS = [
         "test_rate_supply",
         "cooling",
         "'TestDummyProperty', a property that declares no reservoir:",
+        1,
     ),
     (
         "to is an observer",
@@ -293,6 +375,7 @@ REFUSALS = [
         "test_rate_supply",
         "cooling",
         "moves into 'RateFixtureFormed', a property of reservoir kind 'observer'",
+        1,
     ),
     (
         "tracer as to from a reservoir",
@@ -300,6 +383,7 @@ REFUSALS = [
         "test_rate_supply",
         "cooling",
         "a tracer may be a transfer's to only when its from is 'external'",
+        1,
     ),
     (
         "internal transfer across totals",
@@ -307,6 +391,7 @@ REFUSALS = [
         "test_rate_supply",
         "cooling",
         "an internal transfer stays within one conserved total",
+        1,
     ),
     (
         "to_record central with to external",
@@ -314,6 +399,7 @@ REFUSALS = [
         "test_rate_stripping",
         "ejection",
         "to_record: central with to: external",
+        1,
     ),
     (
         "to_record not self or central",
@@ -321,6 +407,7 @@ REFUSALS = [
         "test_rate_stripping",
         "ejection",
         "has to_record 'neighbour'",
+        1,
     ),
     (
         "duplicate transfer name",
@@ -328,14 +415,16 @@ REFUSALS = [
         "test_rate_supply",
         "infall",
         "is declared twice",
+        1,
     ),
-    ("transfer name not an identifier", _bad_name, "test_rate_supply", "2cool", "C identifier"),
+    ("transfer name not an identifier", _bad_name, "test_rate_supply", "2cool", "C identifier", 1),
     (
         "slaved_to names no transfer",
         _slaved_unknown,
         "test_rate_feedback",
         "yield",
         "names no transfer declared by a rate module",
+        1,
     ),
     (
         "slaved_to not <module>.<transfer>",
@@ -343,6 +432,7 @@ REFUSALS = [
         "test_rate_feedback",
         "yield",
         "<module>.<transfer>",
+        1,
     ),
     (
         "slaved_to names a source",
@@ -350,6 +440,7 @@ REFUSALS = [
         "test_rate_feedback",
         "yield",
         "'test_rate_supply.infall', a source",
+        1,
     ),
     (
         "slaved_to names a slaved source",
@@ -357,6 +448,7 @@ REFUSALS = [
         "test_rate_feedback",
         "second_yield",
         "'test_rate_feedback.yield', a source",
+        1,
     ),
     (
         "slaved_to whose donor's total is the recipient's",
@@ -364,6 +456,7 @@ REFUSALS = [
         "test_rate_feedback",
         "yield",
         "the recipient's total",
+        1,
     ),
     (
         "slaved_to on a transfer out of a reservoir",
@@ -371,6 +464,7 @@ REFUSALS = [
         "test_rate_feedback",
         "reheating",
         "only a source (from: external) is slaved",
+        1,
     ),
     (
         "dependency cycle among totals",
@@ -378,6 +472,7 @@ REFUSALS = [
         "test_cycle_a",
         "feed_a",
         "conserved totals ['total_a', 'total_b'] depend on each other in a cycle",
+        2,  # one refusal against each module on the cycle
     ),
     (
         "observer property not of kind observer",
@@ -385,6 +480,7 @@ REFUSALS = [
         "test_rate_formation",
         "star_formation",
         "an observer's property is of reservoir kind 'observer'",
+        1,
     ),
     (
         "observer names an undeclared transfer",
@@ -392,6 +488,7 @@ REFUSALS = [
         "test_rate_formation",
         "cooling",
         "observes a transfer this module does not declare",
+        1,
     ),
     (
         "rates: without process_rates",
@@ -399,6 +496,7 @@ REFUSALS = [
         "test_rate_supply",
         "infall",
         "do not include process_rates",
+        1,
     ),
     (
         "process_rates without rates:",
@@ -406,6 +504,7 @@ REFUSALS = [
         "test_rate_supply",
         None,
         "advertises process_rates but declares no rates:",
+        1,
     ),
     (
         "empty transfer list",
@@ -413,6 +512,88 @@ REFUSALS = [
         "test_rate_feedback",
         None,
         "rates.transfers must be a non-empty list",
+        1,
+    ),
+    (
+        "to_record a list",
+        _to_record_list,
+        "test_rate_stripping",
+        "ejection",
+        "has to_record ['central']",
+        1,
+    ),
+    (
+        "to_record a mapping",
+        _to_record_mapping,
+        "test_rate_stripping",
+        "ejection",
+        "has to_record {'central': True}",
+        1,
+    ),
+    (
+        "reservoir end without a total",
+        _missing_total,
+        "test_rate_formation",
+        "star_formation",
+        "names 'RateFixtureStars', whose reservoir: mapping declares no total",
+        1,
+    ),
+    (
+        "transfer names differing only in case",
+        _case_duplicate,
+        "test_rate_supply",
+        "Infall",
+        "and rates.transfers 'infall' differ only in case",
+        1,
+    ),
+    (
+        "coefficient constants collide across modules",
+        _constant_collision,
+        "test_cross",
+        "transfer_drain",
+        "identifier TEST_CROSS_TRANSFER_TRANSFER_DRAIN",
+        2,  # one refusal against each module
+    ),
+    (
+        "a coefficient constant collides with a count macro",
+        _count_macro_collision,
+        "test_n_transfer",
+        "drain",
+        "identifier TEST_N_TRANSFER_NUM_TRANSFERS",
+        2,  # one refusal against each module
+    ),
+    (
+        "enum tags collide across modules",
+        _enum_tag_collision,
+        "test__tag",
+        "drain",
+        "enum tag TestTagTransfer",
+        2,  # one refusal against each module
+    ),
+    (
+        "enum tag collides with a core tag",
+        _core_tag_collision,
+        "rate",
+        "drain",
+        "enum tag RateTransfer (the coefficient enum of rate (transfers ['drain']) and the "
+        "core tag",
+        1,
+    ),
+    (
+        "coefficient constant collides with a core identifier",
+        _core_identifier_collision,
+        "mimic_rate",
+        "count",
+        "identifier MIMIC_RATE_TRANSFER_COUNT",
+        1,
+    ),
+    (
+        "coefficient constant collides with an event identifier",
+        _event_identifier_collision,
+        "test_ev_event_y",
+        "z",
+        "identifier TEST_EV_EVENT_Y_TRANSFER_Z",
+        1,
     ),
 ]
 
@@ -425,9 +606,21 @@ def run_both_tools(doctor):
     return generator_errors(modules, props), validator_errors(modules, props)
 
 
-def assert_refused(case, doctor, module, transfer, fragment):
-    """Assert both tools refuse a doctored set, naming the module, the transfer and the reason."""
+def assert_refused(case, doctor, module, transfer, fragment, count):
+    """Assert both tools refuse a doctored set, naming the module, the transfer and the reason.
+
+    Each tool must report exactly ``count`` refusals, so a row cannot pass on a
+    refusal that some other defect of the doctored set causes.
+    """
     gen_errors, val_errors = run_both_tools(doctor)
+    assert len(gen_errors) == count, (
+        f"{case}: the generator reported {len(gen_errors)} refusal(s), expected {count}: "
+        f"{gen_errors}"
+    )
+    assert len(val_errors) == count, (
+        f"{case}: validate_modules.py reported {len(val_errors)} refusal(s), expected {count}: "
+        f"{val_errors}"
+    )
 
     gen_hits = [
         e
@@ -470,8 +663,8 @@ def test_fixture_declarations_accepted():
 
 def test_rate_refusals():
     """Every metadata-decidable refusal is raised by both tools, naming module and transfer."""
-    for case, doctor, module, transfer, fragment in REFUSALS:
-        assert_refused(case, doctor, module, transfer, fragment)
+    for case, doctor, module, transfer, fragment, count in REFUSALS:
+        assert_refused(case, doctor, module, transfer, fragment, count)
     print(f"  ✓ {len(REFUSALS)} refusals raised by both tools")
 
 
@@ -493,7 +686,7 @@ def test_unknown_keys_refused():
         ("unknown observer key", in_observer, "has unknown key(s) ['scale']"),
     ]
     for case, doctor, fragment in cases:
-        assert_refused(case, doctor, "test_rate_formation", "star_formation", fragment)
+        assert_refused(case, doctor, "test_rate_formation", "star_formation", fragment, 1)
     print("  ✓ unknown keys inside rates:, a transfer and an observer refused by both tools")
 
 
@@ -554,7 +747,7 @@ def test_removed_property_fails_generation():
         for e in errors
         if e.startswith("test_rate_formation/module_info.yaml: ")
         and "'star_formation'" in e
-        and "'RateFixtureStars', which is not a declared property" in e
+        and "'RateFixtureStars', which is not a declared galaxy property" in e
     ]
     assert (
         hits
@@ -619,6 +812,137 @@ def test_validator_resolves_master_for_one_module_path():
     print("  ✓ one module path validated with every module as the rate context")
 
 
+def test_single_module_validation_reports_cycle_from_both_sides():
+    """Validating either module of a two-total cycle alone exits non-zero, naming the totals.
+
+    Runs validate_modules.main() on one module path, so its report filter applies,
+    with two cycle modules written to a temporary directory and added to discovery,
+    and their two reservoirs added to the property metadata.
+    """
+    galaxy_source = rel(model_property_files()[0])
+    cycle_props = {
+        name: {**reservoir(name, total), "source": galaxy_source}
+        for name, total in (("CycleA", "total_a"), ("CycleB", "total_b"))
+    }
+    real_discover = validate_modules.discover_modules
+    real_properties = validate_modules.load_property_metadata
+    real_argv = sys.argv
+    with tempfile.TemporaryDirectory() as tmp:
+        cycle = {}
+        _total_cycle(cycle, {})
+        dirs = {}
+        for name, module in cycle.items():
+            module_dir = Path(tmp) / name
+            module_dir.mkdir()
+            (module_dir / "module_info.yaml").write_text(yaml.safe_dump({"module": module}))
+            (module_dir / f"{name}.c").write_text("/* placeholder */\n")
+            dirs[name] = module_dir
+        validate_modules.discover_modules = lambda: real_discover() + [
+            (path, validate_modules.load_module_metadata(path)) for path in dirs.values()
+        ]
+        validate_modules.load_property_metadata = lambda: {**real_properties(), **cycle_props}
+        try:
+            for name, module_dir in sorted(dirs.items()):
+                sys.argv = ["validate_modules.py", str(module_dir)]
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    code = validate_modules.main()
+                text = output.getvalue()
+                assert code != 0, f"validating {name} alone exited 0:\n{text}"
+                assert (
+                    f"[ERROR] {name}: rates: conserved totals ['total_a', 'total_b']" in text
+                ), f"validating {name} alone did not report the cycle naming the totals:\n{text}"
+        finally:
+            validate_modules.discover_modules = real_discover
+            validate_modules.load_property_metadata = real_properties
+            sys.argv = real_argv
+    print("  ✓ the cycle is reported when either of its modules is validated alone")
+
+
+def test_tools_share_the_galaxy_property_view():
+    """Both tools' own property loaders give the rate rules the same galaxy properties.
+
+    A transfer end naming a halo property (Mvir) then gets one identical refusal
+    from each tool.
+    """
+    saved = os.environ.get("MIMIC_TEST_BUILD")
+    os.environ["MIMIC_TEST_BUILD"] = "1"
+    try:
+        generator_view = load_galaxy_property_metadata()
+        validator_view = validate_modules.galaxy_property_view(
+            validate_modules.load_property_metadata()
+        )
+    finally:
+        if saved is None:
+            os.environ.pop("MIMIC_TEST_BUILD")
+        else:
+            os.environ["MIMIC_TEST_BUILD"] = saved
+    assert set(generator_view) == set(
+        validator_view
+    ), f"property views differ: {sorted(set(generator_view) ^ set(validator_view))}"
+    assert "Mvir" not in validator_view and "RateFixtureCold" in validator_view
+
+    modules = copy.deepcopy(fixture_modules())
+    find_transfer(modules, "test_rate_supply", "cooling")["to"] = "Mvir"
+    gen = generator_errors(modules, generator_view)
+    val = validator_errors(modules, validator_view)
+    assert len(gen) == 1 and len(val) == 1, (gen, val)
+    assert "'Mvir', which is not a declared galaxy property" in val[0][2], val
+    assert gen[0] == f"{val[0][0]}/module_info.yaml: {val[0][2]}", (gen, val)
+    print("  ✓ identical galaxy property views and an identical refusal for a halo-property end")
+
+
+def struct_block(text, module):
+    """Return the generated struct Module definition of one module."""
+    match = re.search(rf"struct Module {module}_module = \{{\n(.*?)\n\}};", text, re.S)
+    assert match, f"no struct Module for {module}"
+    return match.group(1)
+
+
+def test_reads_central_emitted():
+    """reads_central: true is emitted as .reads_central = true, and false otherwise."""
+    no_events = {"producer_ids": {}, "emits": {}, "consumes": {}}
+    modules = copy.deepcopy(fixture_modules())
+    text = "\n".join(generate_module_struct_definitions(list(modules.values()), no_events))
+    for name in FIXTURES:
+        assert ".reads_central = false" in struct_block(text, name), f"{name}: not false"
+
+    modules["test_rate_formation"]["rates"]["reads_central"] = True
+    assert generator_errors(modules, fixture_properties()) == []
+    text = "\n".join(generate_module_struct_definitions(list(modules.values()), no_events))
+    for name in FIXTURES:
+        want = "true" if name == "test_rate_formation" else "false"
+        assert f".reads_central = {want}" in struct_block(text, name), f"{name}: not {want}"
+    print("  ✓ .reads_central = true only for the module declaring it")
+
+
+def test_reserved_names_match_sources():
+    """The reserved name lists cover the core's names of the generated forms, and the
+    event identifiers mirror the generator's event naming."""
+    sources = [
+        path
+        for directory in ("src/core", "src/include", "src/util", "src/module_system")
+        for path in (REPO_ROOT / directory).glob("*.h")
+    ]
+    text = "\n".join(path.read_text(encoding="utf-8") for path in sources)
+    text += render_rate_contracts_h([], "0" * 32)
+    identifiers = set(re.findall(r"\b[A-Z0-9_]+_(?:TRANSFER_[A-Z0-9_]+|NUM_TRANSFERS)\b", text))
+    tags = set(re.findall(r"\b(?:struct|enum|union)\s+([A-Za-z_][A-Za-z0-9_]*Transfer)\b", text))
+    assert identifiers <= set(RESERVED_RATE_IDENTIFIERS), sorted(
+        identifiers - set(RESERVED_RATE_IDENTIFIERS)
+    )
+    assert tags <= set(RESERVED_RATE_TAGS), sorted(tags - set(RESERVED_RATE_TAGS))
+    assert "RateTransfer" in tags and "RATE_TRANSFER_EXTERNAL" in identifiers
+
+    producer = {"name": "probe_producer", "events": {"emits": [{"name": "a"}, {"name": "b_c"}]}}
+    assert event_identifiers(producer) == [
+        module_name_to_id_macro("probe_producer"),
+        event_name_to_enum_constant("probe_producer", "a"),
+        event_name_to_enum_constant("probe_producer", "b_c"),
+    ]
+    print(f"  ✓ {len(identifiers)} core identifiers and {len(tags)} core tag(s) reserved")
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -637,6 +961,10 @@ def main():
             test_tables_name_reservoirs_by_symbol,
             test_production_generation_has_no_rate_table,
             test_validator_resolves_master_for_one_module_path,
+            test_single_module_validation_reports_cycle_from_both_sides,
+            test_tools_share_the_galaxy_property_view,
+            test_reads_central_emitted,
+            test_reserved_names_match_sources,
         ],
         "Rate Metadata (test_rate_metadata.py)",
     )

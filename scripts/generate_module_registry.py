@@ -65,9 +65,12 @@ from module_modes import (
     global_transfer_index,
     is_rate_module,
     mode_list_errors,
+    rate_coefficient_constant,
     rate_metadata_errors,
     rate_observers,
     rate_reads_central,
+    rate_transfer_count_macro,
+    rate_transfer_enum_type,
     rate_transfers,
     snapshot_distribution_enum,
     snapshot_distribution_errors,
@@ -705,21 +708,6 @@ def generate_event_contracts_h(
 # ==============================================================================
 # CODE GENERATION - rate_contracts.h
 # ==============================================================================
-
-
-def rate_transfer_enum_type(module_name: str) -> str:
-    """Return the C enum type of a rate module's coefficient slots (PascalCase + Transfer)."""
-    return "".join(part.capitalize() for part in module_name.split("_")) + "Transfer"
-
-
-def rate_coefficient_constant(module_name: str, transfer_name: str) -> str:
-    """Return the coefficient index constant of one transfer (the slot its law writes)."""
-    return f"{module_name.upper()}_TRANSFER_{transfer_name.upper()}"
-
-
-def rate_transfer_count_macro(module_name: str) -> str:
-    """Return the macro holding a rate module's number of transfers (its coefficient slots)."""
-    return f"{module_name.upper()}_NUM_TRANSFERS"
 
 
 def reservoir_end_symbol(end: str) -> str:

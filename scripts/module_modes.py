@@ -46,7 +46,7 @@ This module is imported, not run.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 # ==============================================================================
@@ -300,6 +300,60 @@ TRANSFER_KINDS: Dict[str, str] = {
 TRANSFER_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SLAVED_TO = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)")
 
+# ------------------------------------------------------------------------------
+# Generated names. The generator emits these per rate module, and the rules below
+# refuse metadata whose generated names would collide, so a collision is reported
+# at validation instead of as a C redefinition.
+# ------------------------------------------------------------------------------
+
+
+def rate_transfer_enum_type(module_name: str) -> str:
+    """Return the C enum tag of a rate module's coefficient slots (PascalCase + Transfer)."""
+    return "".join(part.capitalize() for part in module_name.split("_")) + "Transfer"
+
+
+def rate_coefficient_constant(module_name: str, transfer_name: str) -> str:
+    """Return the coefficient index constant of one transfer (the slot its law writes)."""
+    return f"{module_name.upper()}_TRANSFER_{transfer_name.upper()}"
+
+
+def rate_transfer_count_macro(module_name: str) -> str:
+    """Return the macro holding a rate module's number of transfers (its coefficient slots)."""
+    return f"{module_name.upper()}_NUM_TRANSFERS"
+
+
+# Core C tags of the generated enum-tag form <Pascal>Transfer (struct, enum and union
+# tags share one C namespace), and core identifiers of the generated constant forms
+# <MODULE>_TRANSFER_<NAME> and <MODULE>_NUM_TRANSFERS, from module_interface.h and
+# rate_contracts.h. tests/integration/test_rate_metadata.py checks these lists
+# against the sources.
+RESERVED_RATE_TAGS: Tuple[str, ...] = ("RateTransfer",)
+RESERVED_RATE_IDENTIFIERS: Tuple[str, ...] = (
+    "MIMIC_RATE_TRANSFER_COUNT",
+    "RATE_TRANSFER_EXTERNAL",
+    *TRANSFER_KINDS.values(),
+    *TRANSFER_RECORDS.values(),
+)
+
+
+def event_identifiers(module: Dict[str, Any]) -> List[str]:
+    """Return the event macros and constants the generator emits for a producer module.
+
+    These mirror module_name_to_id_macro() and event_name_to_enum_constant() in
+    scripts/generate_module_registry.py (tests/integration/test_rate_metadata.py
+    checks that they agree), so a rate constant that would redefine one is refused.
+    """
+    events = module.get("events")
+    emits = events.get("emits") if isinstance(events, dict) else None
+    name = module.get("name")
+    if not isinstance(emits, list) or not emits or not isinstance(name, str):
+        return []
+    identifiers = [f"MODULE_ID_{name.upper()}"]
+    for event in emits:
+        if isinstance(event, dict) and isinstance(event.get("name"), str):
+            identifiers.append(f"{name.upper()}_EVENT_{event['name'].upper()}")
+    return identifiers
+
 
 @dataclass(frozen=True)
 class RateMetadataError:
@@ -371,9 +425,11 @@ def global_transfer_index(modules: List[Dict[str, Any]]) -> List[Tuple[str, str]
 
 
 def _reservoir_mapping(
-    galaxy_properties: Dict[str, Dict[str, Any]], name: str
+    galaxy_properties: Dict[str, Dict[str, Any]], name: Any
 ) -> Optional[Dict[str, Any]]:
     """Return a property's reservoir: mapping, or None when it declares none."""
+    if not isinstance(name, str):
+        return None
     prop = galaxy_properties.get(name)
     if not isinstance(prop, dict):
         return None
@@ -381,14 +437,122 @@ def _reservoir_mapping(
     return mapping if isinstance(mapping, dict) else None
 
 
+def _total_of(galaxy_properties: Dict[str, Dict[str, Any]], name: Any) -> Optional[str]:
+    """Return the conserved total a reservoir or tracer names, or None when it names none."""
+    mapping = _reservoir_mapping(galaxy_properties, name)
+    total = mapping.get("total") if mapping else None
+    return total if isinstance(total, str) and total else None
+
+
 def _describe_end(galaxy_properties: Dict[str, Dict[str, Any]], name: str) -> str:
     """Describe what a named transfer end is, for a refusal message."""
     if name not in galaxy_properties:
-        return f"'{name}', which is not a declared property"
+        return f"'{name}', which is not a declared galaxy property"
     mapping = _reservoir_mapping(galaxy_properties, name)
     if mapping is None:
         return f"'{name}', a property that declares no reservoir:"
     return f"'{name}', a property of reservoir kind '{mapping.get('kind')}'"
+
+
+@dataclass
+class _RateScan:
+    """What the per-module rules collect for the cross-module rules.
+
+    Attributes:
+        galaxy_properties: Galaxy property metadata by name.
+        errors: Refusals found so far.
+        declared: Every transfer with a valid, unique name, by (module, transfer).
+        resolved: Those transfers whose ends are valid.
+        slaved: Slaved sources with valid ends, as (module, transfer mapping).
+        names: Each rate module's uniquely named transfers, in declaration order.
+    """
+
+    galaxy_properties: Dict[str, Dict[str, Any]]
+    errors: List[RateMetadataError] = field(default_factory=list)
+    declared: Dict[Tuple[str, str], Dict[str, Any]] = field(default_factory=dict)
+    resolved: Set[Tuple[str, str]] = field(default_factory=set)
+    slaved: List[Tuple[str, Dict[str, Any]]] = field(default_factory=list)
+    names: Dict[str, List[str]] = field(default_factory=dict)
+
+    def refuse(self, module: str, message: str, dependency: bool = False) -> None:
+        """Record one refusal against a module."""
+        self.errors.append(RateMetadataError(module, message, dependency))
+
+
+def _end_kind_errors(
+    source: str, target: str, label: str, galaxy_properties: Dict[str, Dict[str, Any]]
+) -> List[Tuple[str, bool]]:
+    """Return the refusals of a transfer's ends by reservoir kind, as (message, dependency)."""
+    errors: List[Tuple[str, bool]] = []
+    if source != EXTERNAL_END:
+        mapping = _reservoir_mapping(galaxy_properties, source)
+        if mapping is None or mapping.get("kind") != "reservoir":
+            errors.append(
+                (
+                    f"{label} takes from {_describe_end(galaxy_properties, source)}; a transfer's "
+                    "from is a property of reservoir kind 'reservoir' or 'external' (never a "
+                    "tracer or an observer)",
+                    source not in galaxy_properties,
+                )
+            )
+    if target == EXTERNAL_END:
+        return errors
+    mapping = _reservoir_mapping(galaxy_properties, target)
+    kind = mapping.get("kind") if mapping else None
+    if kind == "tracer" and source != EXTERNAL_END:
+        errors.append(
+            (
+                f"{label} moves from '{source}' into the tracer '{target}'; a tracer may be a "
+                "transfer's to only when its from is 'external' (tracers otherwise move with "
+                "their parent without declaration)",
+                False,
+            )
+        )
+    elif kind not in ("reservoir", "tracer"):
+        errors.append(
+            (
+                f"{label} moves into {_describe_end(galaxy_properties, target)}; a transfer's "
+                "to is a property of reservoir kind 'reservoir', 'external', or a tracer when "
+                "the from is 'external'",
+                target not in galaxy_properties,
+            )
+        )
+    return errors
+
+
+def _end_total_errors(
+    source: str, target: str, label: str, galaxy_properties: Dict[str, Dict[str, Any]]
+) -> List[Tuple[str, bool]]:
+    """Return the refusals of a transfer's totals, for ends whose kinds are valid.
+
+    Every reservoir or tracer end names a total, and an internal transfer's two
+    reservoirs share one.
+    """
+    errors: List[Tuple[str, bool]] = []
+    for end in (source, target):
+        if end != EXTERNAL_END and _total_of(galaxy_properties, end) is None:
+            errors.append(
+                (
+                    f"{label} names '{end}', whose reservoir: mapping declares no total; every "
+                    "reservoir and tracer belongs to a conserved total",
+                    False,
+                )
+            )
+    if errors or EXTERNAL_END in (source, target):
+        return errors
+
+    source_total = _total_of(galaxy_properties, source)
+    target_total = _total_of(galaxy_properties, target)
+    if source_total != target_total:
+        errors.append(
+            (
+                f"{label} moves from '{source}' in total '{source_total}' to '{target}' in total "
+                f"'{target_total}'; an internal transfer stays within one conserved total "
+                "(movement between totals is a sink in one and a slaved source in the other)",
+                False,
+            )
+        )
+    return errors
 
 
 def _end_errors(
@@ -396,8 +560,8 @@ def _end_errors(
 ) -> List[Tuple[str, bool]]:
     """Return the refusals of one transfer's from and to, as (message, dependency) pairs.
 
-    An empty list means both ends are valid and, for an internal transfer, that
-    its two reservoirs share one conserved total.
+    An empty list means both ends are valid, each reservoir or tracer end names a
+    total, and an internal transfer's two reservoirs share one conserved total.
     """
     errors: List[Tuple[str, bool]] = []
     ends = {key: transfer.get(key) for key in ("from", "to")}
@@ -414,218 +578,298 @@ def _end_errors(
         return [
             (f"{label} has both ends 'external'; a transfer moves into or out of a record", False)
         ]
-
-    if source != EXTERNAL_END:
-        mapping = _reservoir_mapping(galaxy_properties, source)
-        if mapping is None or mapping.get("kind") != "reservoir":
-            errors.append(
-                (
-                    f"{label} takes from {_describe_end(galaxy_properties, source)}; a transfer's "
-                    "from is a property of reservoir kind 'reservoir' or 'external' (never a "
-                    "tracer or an observer)",
-                    source not in galaxy_properties,
-                )
-            )
-    if target != EXTERNAL_END:
-        mapping = _reservoir_mapping(galaxy_properties, target)
-        kind = mapping.get("kind") if mapping else None
-        if kind == "tracer" and source != EXTERNAL_END:
-            errors.append(
-                (
-                    f"{label} moves from '{source}' into the tracer '{target}'; a tracer may be a "
-                    "transfer's to only when its from is 'external' (tracers otherwise move with "
-                    "their parent without declaration)",
-                    False,
-                )
-            )
-        elif kind not in ("reservoir", "tracer"):
-            errors.append(
-                (
-                    f"{label} moves into {_describe_end(galaxy_properties, target)}; a transfer's "
-                    "to is a property of reservoir kind 'reservoir', 'external', or a tracer when "
-                    "the from is 'external'",
-                    target not in galaxy_properties,
-                )
-            )
-    if errors or EXTERNAL_END in (source, target):
-        return errors
-
-    source_total = galaxy_properties[source]["reservoir"].get("total")
-    target_total = galaxy_properties[target]["reservoir"].get("total")
-    if source_total != target_total:
-        errors.append(
-            (
-                f"{label} moves from '{source}' in total '{source_total}' to '{target}' in total "
-                f"'{target_total}'; an internal transfer stays within one conserved total "
-                "(movement between totals is a sink in one and a slaved source in the other)",
-                False,
-            )
-        )
-    return errors
+    return _end_kind_errors(source, target, label, galaxy_properties) or _end_total_errors(
+        source, target, label, galaxy_properties
+    )
 
 
-def _module_rate_errors(
-    module: Dict[str, Any],
-    galaxy_properties: Dict[str, Dict[str, Any]],
-    declared: Dict[Tuple[str, str], Dict[str, Any]],
-    resolved: Set[Tuple[str, str]],
-    slaved: List[Tuple[str, Dict[str, Any]]],
-) -> List[RateMetadataError]:
-    """Return the refusals decidable from one module's own metadata.
+def _rates_header(module: Dict[str, Any], name: str, scan: _RateScan) -> Optional[Dict[str, Any]]:
+    """Check that rates: and process_rates come together; return rates: to check further.
 
-    Records, for the cross-module checks, every named transfer in ``declared``,
-    those whose ends are valid in ``resolved``, and the slaved sources with valid
-    ends in ``slaved``.
+    Returns None when the module declares no rates: or is refused here, in which
+    case its transfers take no part in the cross-module rules.
     """
-    name = str(module.get("name", "<unnamed>"))
-    errors: List[RateMetadataError] = []
-
-    def refuse(message: str, dependency: bool = False) -> None:
-        errors.append(RateMetadataError(name, message, dependency))
-
     modes = module.get("supported_processing_modes")
     utility = module.get("is_utility", False)
     advertises = not utility and isinstance(modes, list) and RATES_MODE in modes
 
     if RATES_KEY not in module:
         if advertises:
-            refuse(
+            scan.refuse(
+                name,
                 f"advertises {RATES_MODE} but declares no {RATES_KEY}:; a rate module declares "
-                "the transfers its law returns coefficients for"
+                "the transfers its law returns coefficients for",
             )
-        return errors
+        return None
 
     rates = module[RATES_KEY]
-    raw_transfers = rates.get("transfers") if isinstance(rates, dict) else None
+    raw = rates.get("transfers") if isinstance(rates, dict) else None
     named = (
-        [t.get("name") for t in raw_transfers if isinstance(t, dict) and "name" in t]
-        if isinstance(raw_transfers, list)
+        [t.get("name") for t in raw if isinstance(t, dict) and "name" in t]
+        if isinstance(raw, list)
         else []
     )
     if utility:
-        refuse(
+        scan.refuse(
+            name,
             f"declares {RATES_KEY}: (transfers {named}) on a utility module; utility modules "
-            "compile no runtime module and run no rate law"
+            "compile no runtime module and run no rate law",
         )
-        return errors
+        return None
     if not advertises:
-        refuse(
+        scan.refuse(
+            name,
             f"declares {RATES_KEY}: (transfers {named}) but its supported_processing_modes do not "
-            f"include {RATES_MODE}"
+            f"include {RATES_MODE}",
         )
-        return errors
-
+        return None
     if not isinstance(rates, dict):
-        refuse(f"{RATES_KEY}: must be a mapping with keys {list(RATES_KEYS)}")
-        return errors
+        scan.refuse(name, f"{RATES_KEY}: must be a mapping with keys {list(RATES_KEYS)}")
+        return None
+
     unknown = [key for key in rates if key not in RATES_KEYS]
     if unknown:
-        refuse(
+        scan.refuse(
+            name,
             f"has unknown {RATES_KEY}: key(s) {unknown} (transfers {named}); allowed keys are "
-            f"{list(RATES_KEYS)}"
+            f"{list(RATES_KEYS)}",
         )
     if "reads_central" in rates and not isinstance(rates["reads_central"], bool):
-        refuse(
+        scan.refuse(
+            name,
             f"{RATES_KEY}.reads_central is {rates['reads_central']!r} (transfers {named}); "
-            "it must be true or false (default false)"
+            "it must be true or false (default false)",
         )
+    return rates
 
-    transfers = raw_transfers if isinstance(raw_transfers, list) else []
-    if not transfers:
-        refuse(f"{RATES_KEY}.transfers must be a non-empty list of transfers")
 
-    seen: Set[str] = set()
-    for position, transfer in enumerate(transfers):
-        label = f"{RATES_KEY}.transfers[{position}]"
-        if not isinstance(transfer, dict):
-            refuse(f"{label} must be a mapping with keys {list(TRANSFER_KEYS)}")
-            continue
-        transfer_name = transfer.get("name")
-        valid_name = isinstance(transfer_name, str) and bool(TRANSFER_NAME.fullmatch(transfer_name))
-        if valid_name:
-            label = f"{RATES_KEY}.transfers '{transfer_name}'"
-        else:
-            refuse(f"{label} has name {transfer_name!r}; a transfer name is a C identifier")
+def _claim_transfer_name(
+    name: str, label: str, transfer: Dict[str, Any], by_constant: Dict[str, str], scan: _RateScan
+) -> bool:
+    """Record a validly named transfer unless its name, or its generated constant, is taken.
 
-        unknown = [key for key in transfer if key not in TRANSFER_KEYS]
-        if unknown:
-            refuse(f"{label} has unknown key(s) {unknown}; allowed keys are {list(TRANSFER_KEYS)}")
+    ``by_constant`` maps each coefficient constant already generated in the module to
+    the transfer that took it, so a name differing from another only in case, which
+    generates the same constant, is refused. Returns True when the transfer was recorded.
+    """
+    transfer_name = transfer["name"]
+    constant = rate_coefficient_constant(name, transfer_name)
+    first = by_constant.get(constant)
+    if first == transfer_name:
+        scan.refuse(name, f"{label} is declared twice; a transfer name is unique within its module")
+        return False
+    if first is not None:
+        scan.refuse(
+            name,
+            f"{label} and {RATES_KEY}.transfers '{first}' differ only in case and would both "
+            f"generate the coefficient constant {constant}; transfer names in a module must "
+            "differ other than in case",
+        )
+        return False
+    by_constant[constant] = transfer_name
+    scan.declared[(name, transfer_name)] = transfer
+    scan.names.setdefault(name, []).append(transfer_name)
+    return True
 
-        if valid_name:
-            if transfer_name in seen:
-                refuse(f"{label} is declared twice; a transfer name is unique within its module")
-                continue
-            seen.add(transfer_name)
-            declared[(name, transfer_name)] = transfer
 
-        end_errors = _end_errors(transfer, label, galaxy_properties)
-        for message, dependency in end_errors:
-            refuse(message, dependency)
-        ends_valid = not end_errors
+def _record_errors(transfer: Dict[str, Any], label: str) -> List[str]:
+    """Return the refusals of a transfer's to_record."""
+    record = transfer.get("to_record", DEFAULT_TRANSFER_RECORD)
+    if not isinstance(record, str) or record not in TRANSFER_RECORDS:
+        return [
+            f"{label} has to_record {record!r}; it must be one of {list(TRANSFER_RECORDS)} "
+            f"(default {DEFAULT_TRANSFER_RECORD})"
+        ]
+    if record == "central" and transfer.get("to") == EXTERNAL_END:
+        return [
+            f"{label} has to_record: central with to: external; only a transfer into a "
+            "reservoir or tracer has a recipient record"
+        ]
+    return []
 
-        record = transfer.get("to_record", DEFAULT_TRANSFER_RECORD)
-        if record not in TRANSFER_RECORDS:
-            refuse(
-                f"{label} has to_record {record!r}; it must be one of {list(TRANSFER_RECORDS)} "
-                f"(default {DEFAULT_TRANSFER_RECORD})"
-            )
-        elif record == "central" and transfer.get("to") == EXTERNAL_END:
-            refuse(
-                f"{label} has to_record: central with to: external; only a transfer into a "
-                "reservoir or tracer has a recipient record"
-            )
 
-        if "slaved_to" in transfer:
-            target = transfer["slaved_to"]
-            if not isinstance(target, str) or not SLAVED_TO.fullmatch(target):
-                refuse(
-                    f"{label} has slaved_to {target!r}; it names its master transfer as "
-                    "<module>.<transfer>"
-                )
-            elif transfer.get("from") != EXTERNAL_END:
-                refuse(
-                    f"{label} has slaved_to but takes from {transfer.get('from')!r}; only a source "
-                    "(from: external) is slaved to a master transfer"
-                )
-            elif ends_valid and valid_name:
-                slaved.append((name, transfer))
+def _slaved_to_errors(transfer: Dict[str, Any], label: str) -> List[str]:
+    """Return the refusals of a transfer's slaved_to that need no other module."""
+    if "slaved_to" not in transfer:
+        return []
+    target = transfer["slaved_to"]
+    if not isinstance(target, str) or not SLAVED_TO.fullmatch(target):
+        return [
+            f"{label} has slaved_to {target!r}; it names its master transfer as "
+            "<module>.<transfer>"
+        ]
+    if transfer.get("from") != EXTERNAL_END:
+        return [
+            f"{label} has slaved_to but takes from {transfer.get('from')!r}; only a source "
+            "(from: external) is slaved to a master transfer"
+        ]
+    return []
 
-        if ends_valid and valid_name:
-            resolved.add((name, transfer_name))
 
-    observers = rates.get("observers", [])
+def _transfer_errors(
+    name: str,
+    position: int,
+    transfer: Any,
+    by_constant: Dict[str, str],
+    scan: _RateScan,
+) -> None:
+    """Check one transfer of a rate module, recording it for the cross-module rules."""
+    label = f"{RATES_KEY}.transfers[{position}]"
+    if not isinstance(transfer, dict):
+        scan.refuse(name, f"{label} must be a mapping with keys {list(TRANSFER_KEYS)}")
+        return
+    transfer_name = transfer.get("name")
+    valid_name = isinstance(transfer_name, str) and bool(TRANSFER_NAME.fullmatch(transfer_name))
+    if valid_name:
+        label = f"{RATES_KEY}.transfers '{transfer_name}'"
+    else:
+        scan.refuse(name, f"{label} has name {transfer_name!r}; a transfer name is a C identifier")
+
+    unknown = [key for key in transfer if key not in TRANSFER_KEYS]
+    if unknown:
+        scan.refuse(
+            name, f"{label} has unknown key(s) {unknown}; allowed keys are {list(TRANSFER_KEYS)}"
+        )
+    if valid_name and not _claim_transfer_name(name, label, transfer, by_constant, scan):
+        return
+
+    end_errors = _end_errors(transfer, label, scan.galaxy_properties)
+    for message, dependency in end_errors:
+        scan.refuse(name, message, dependency)
+    slaved_errors = _slaved_to_errors(transfer, label)
+    for message in _record_errors(transfer, label) + slaved_errors:
+        scan.refuse(name, message)
+
+    if valid_name and not end_errors:
+        scan.resolved.add((name, transfer_name))
+        if "slaved_to" in transfer and not slaved_errors:
+            scan.slaved.append((name, transfer))
+
+
+def _observer_errors(name: str, observers: Any, scan: _RateScan) -> None:
+    """Check a rate module's observers against its own transfers and the property kinds."""
     if not isinstance(observers, list):
-        refuse(f"{RATES_KEY}.observers must be a list of {{property, transfer}} mappings")
-        observers = []
+        scan.refuse(
+            name, f"{RATES_KEY}.observers must be a list of {{property, transfer}} mappings"
+        )
+        return
+    declared = scan.names.get(name, [])
     for position, observer in enumerate(observers):
         label = f"{RATES_KEY}.observers[{position}]"
         if not isinstance(observer, dict):
-            refuse(f"{label} must be a mapping with keys {list(OBSERVER_KEYS)}")
+            scan.refuse(name, f"{label} must be a mapping with keys {list(OBSERVER_KEYS)}")
             continue
         observed = observer.get("transfer")
         prop = observer.get("property")
         label = f"{label} (transfer {observed!r}, property {prop!r})"
         unknown = [key for key in observer if key not in OBSERVER_KEYS]
         if unknown:
-            refuse(f"{label} has unknown key(s) {unknown}; allowed keys are {list(OBSERVER_KEYS)}")
-        if not isinstance(observed, str) or observed not in seen:
-            refuse(
+            scan.refuse(
+                name,
+                f"{label} has unknown key(s) {unknown}; allowed keys are {list(OBSERVER_KEYS)}",
+            )
+        if not isinstance(observed, str) or observed not in declared:
+            scan.refuse(
+                name,
                 f"{label} observes a transfer this module does not declare (declared: "
-                f"{sorted(seen)})",
+                f"{sorted(declared)})",
                 True,
             )
-        mapping = _reservoir_mapping(galaxy_properties, prop) if isinstance(prop, str) else None
+        mapping = _reservoir_mapping(scan.galaxy_properties, prop)
         if mapping is None or mapping.get("kind") != "observer":
             described = (
-                _describe_end(galaxy_properties, prop) if isinstance(prop, str) else repr(prop)
+                _describe_end(scan.galaxy_properties, prop) if isinstance(prop, str) else repr(prop)
             )
-            refuse(
+            scan.refuse(
+                name,
                 f"{label} accumulates into {described}; an observer's property is of reservoir "
                 "kind 'observer'",
-                isinstance(prop, str) and prop not in galaxy_properties,
+                isinstance(prop, str) and prop not in scan.galaxy_properties,
             )
 
-    return errors
+
+def _module_rate_errors(module: Dict[str, Any], scan: _RateScan) -> None:
+    """Check the rules decidable from one module's own metadata."""
+    name = str(module.get("name", "<unnamed>"))
+    rates = _rates_header(module, name, scan)
+    if rates is None:
+        return
+    scan.names.setdefault(name, [])
+
+    raw = rates.get("transfers")
+    transfers = raw if isinstance(raw, list) else []
+    if not transfers:
+        scan.refuse(name, f"{RATES_KEY}.transfers must be a non-empty list of transfers")
+    by_constant: Dict[str, str] = {}
+    for position, transfer in enumerate(transfers):
+        _transfer_errors(name, position, transfer, by_constant, scan)
+
+    _observer_errors(name, rates.get("observers", []), scan)
+
+
+def _slaved_master_edges(
+    scan: _RateScan,
+) -> Tuple[Dict[str, Set[str]], Dict[Tuple[str, str], List[Tuple[str, str]]]]:
+    """Resolve each slaved source's master; return the total dependencies they create.
+
+    Returns:
+        (edges, via): donor total -> recipient totals, and for each dependency the
+        (module, description) of the slaved sources that create it.
+    """
+    edges: Dict[str, Set[str]] = {}
+    via: Dict[Tuple[str, str], List[Tuple[str, str]]] = {}
+    gp = scan.galaxy_properties
+    for module_name, transfer in scan.slaved:
+        label = f"{RATES_KEY}.transfers '{transfer['name']}'"
+        target = transfer["slaved_to"]
+        master_key = tuple(SLAVED_TO.fullmatch(target).groups())
+        master = scan.declared.get(master_key)
+        if master is None:
+            scan.refuse(
+                module_name,
+                f"{label} is slaved to '{target}', which names no transfer declared by a rate "
+                "module",
+                True,
+            )
+            continue
+        if master_key not in scan.resolved:
+            continue  # The master's own refusal names its defect.
+        if master["from"] == EXTERNAL_END:
+            scan.refuse(
+                module_name,
+                f"{label} is slaved to '{target}', a source; a master is a transfer out of a "
+                "reservoir (slaved sources are one level deep)",
+            )
+            continue
+        donor_total = _total_of(gp, master["from"])
+        recipient_total = _total_of(gp, transfer["to"])
+        if donor_total == recipient_total:
+            scan.refuse(
+                module_name,
+                f"{label} is slaved to '{target}', whose donor '{master['from']}' is in total "
+                f"'{donor_total}', the recipient's total; a slaved source feeds a total other "
+                "than its master's donor's",
+            )
+            continue
+        edges.setdefault(donor_total, set()).add(recipient_total)
+        via.setdefault((donor_total, recipient_total), []).append(
+            (module_name, f"{module_name} {label} (slaved to {target})")
+        )
+    return edges, via
+
+
+def _add_tracer_edges(
+    galaxy_properties: Dict[str, Dict[str, Any]], edges: Dict[str, Set[str]]
+) -> None:
+    """Add each tracer total's dependency on its tracers' parents' totals."""
+    for name in galaxy_properties:
+        mapping = _reservoir_mapping(galaxy_properties, name)
+        if mapping is None or mapping.get("kind") != "tracer":
+            continue
+        parent_total = _total_of(galaxy_properties, mapping.get("parent"))
+        tracer_total = _total_of(galaxy_properties, name)
+        if parent_total and tracer_total:
+            edges.setdefault(parent_total, set()).add(tracer_total)
 
 
 def _cyclic_components(nodes: List[str], edges: Dict[str, Set[str]]) -> List[List[str]]:
@@ -655,106 +899,16 @@ def _cyclic_components(nodes: List[str], edges: Dict[str, Set[str]]) -> List[Lis
     return components
 
 
-def rate_metadata_errors(
-    modules: List[Dict[str, Any]], galaxy_properties: Dict[str, Dict[str, Any]]
-) -> List[RateMetadataError]:
-    """Return every refusal of the rates: declarations of a set of modules.
+def _cycle_errors(
+    edges: Dict[str, Set[str]],
+    via: Dict[Tuple[str, str], List[Tuple[str, str]]],
+    scan: _RateScan,
+) -> None:
+    """Refuse each cycle among totals, against every module whose slaved source is on it.
 
-    The registry generator and the metadata validator both report these, so the
-    two accept the same metadata. Every module's own rules are checked first; the
-    cross-module rules (a slaved source's master, and the order of the conserved
-    totals) then run over every module passed, which for generation is every
-    compiled module.
-
-    Rules: rates: needs process_rates and the reverse; rates: has no unknown key,
-    reads_central is a boolean, transfers is a non-empty list; a transfer has no
-    unknown key and a C-identifier name unique within its module; its from is a
-    reservoir or external and its to a reservoir, external, or a tracer when the
-    from is external, never both external; an internal transfer's reservoirs share
-    one total; to_record is self or central, never central with to: external;
-    slaved_to appears only on a source and names, as <module>.<transfer>, a transfer
-    out of a reservoir whose total differs from the recipient's; an observer names
-    a property of kind observer and a transfer of its own module. Finally a
-    slaved source makes its recipient's total depend on its master donor's total,
-    and a tracer total on its tracers' parents' totals; a cycle among totals is
-    refused, naming the totals and the slaved sources on it.
-
-    Args:
-        modules: Module metadata dicts (module_info.yaml contents).
-        galaxy_properties: Galaxy property metadata by name, each as its property
-            YAML declares it (the ``reservoir:`` mapping is read from it).
-
-    Returns:
-        The refusals, in module then rule order; empty when every declaration is valid.
+    Every participating module gets the refusal, so validating any one of them
+    alone reports the cycle.
     """
-    errors: List[RateMetadataError] = []
-    declared: Dict[Tuple[str, str], Dict[str, Any]] = {}
-    resolved: Set[Tuple[str, str]] = set()
-    slaved: List[Tuple[str, Dict[str, Any]]] = []
-
-    for module in modules:
-        errors.extend(_module_rate_errors(module, galaxy_properties, declared, resolved, slaved))
-
-    def total_of(prop: str) -> str:
-        return galaxy_properties[prop]["reservoir"]["total"]
-
-    # Dependencies between totals: donor total -> recipient total, with the slaved
-    # sources that create each one (tracer dependencies carry none).
-    edges: Dict[str, Set[str]] = {}
-    via: Dict[Tuple[str, str], List[Tuple[str, str]]] = {}
-    for module_name, transfer in slaved:
-        label = f"{RATES_KEY}.transfers '{transfer['name']}'"
-        master_module, master_name = SLAVED_TO.fullmatch(transfer["slaved_to"]).groups()
-        master = declared.get((master_module, master_name))
-        if master is None:
-            errors.append(
-                RateMetadataError(
-                    module_name,
-                    f"{label} is slaved to '{transfer['slaved_to']}', which names no transfer "
-                    "declared by a rate module",
-                    True,
-                )
-            )
-            continue
-        if (master_module, master_name) not in resolved:
-            continue  # The master's own refusal names its defect.
-        if master["from"] == EXTERNAL_END:
-            errors.append(
-                RateMetadataError(
-                    module_name,
-                    f"{label} is slaved to '{transfer['slaved_to']}', a source; a master is a "
-                    "transfer out of a reservoir (slaved sources are one level deep)",
-                )
-            )
-            continue
-        donor_total = total_of(master["from"])
-        recipient_total = total_of(transfer["to"])
-        if donor_total == recipient_total:
-            errors.append(
-                RateMetadataError(
-                    module_name,
-                    f"{label} is slaved to '{transfer['slaved_to']}', whose donor "
-                    f"'{master['from']}' is in total '{donor_total}', the recipient's total; a "
-                    "slaved source feeds a total other than its master's donor's",
-                )
-            )
-            continue
-        edges.setdefault(donor_total, set()).add(recipient_total)
-        via.setdefault((donor_total, recipient_total), []).append(
-            (
-                module_name,
-                f"{module_name} {RATES_KEY}.transfers '{transfer['name']}' (slaved to "
-                f"{transfer['slaved_to']})",
-            )
-        )
-
-    for prop in galaxy_properties.values():
-        mapping = prop.get("reservoir") if isinstance(prop, dict) else None
-        if isinstance(mapping, dict) and mapping.get("kind") == "tracer":
-            parent = _reservoir_mapping(galaxy_properties, mapping.get("parent"))
-            if parent and parent.get("total") and mapping.get("total"):
-                edges.setdefault(parent["total"], set()).add(mapping["total"])
-
     nodes = sorted(set(edges) | {total for targets in edges.values() for total in targets})
     for component in _cyclic_components(nodes, edges):
         members = set(component)
@@ -766,14 +920,122 @@ def rate_metadata_errors(
         )
         if not links:
             continue
-        errors.append(
-            RateMetadataError(
-                links[0][0],
-                f"{RATES_KEY}: conserved totals {component} depend on each other in a cycle "
-                f"through the slaved sources {'; '.join(text for _, text in links)}; a slaved "
-                "source makes its recipient's total depend on its master donor's total, and those "
-                "dependencies must not form a cycle",
+        message = (
+            f"{RATES_KEY}: conserved totals {component} depend on each other in a cycle through "
+            f"the slaved sources {'; '.join(text for _, text in links)}; a slaved source makes "
+            "its recipient's total depend on its master donor's total, and those dependencies "
+            "must not form a cycle"
+        )
+        for module_name in sorted({module_name for module_name, _ in links}):
+            scan.refuse(module_name, message)
+
+
+# A claim on a generated name: (C namespace, name) -> [(rate module or None, description)].
+# Ordinary identifiers ("id") and struct/enum/union tags ("tag") live in separate namespaces.
+_NameClaims = Dict[Tuple[str, str], List[Tuple[Optional[str], str]]]
+
+
+def _generated_name_claims(modules: List[Dict[str, Any]], scan: _RateScan) -> _NameClaims:
+    """Return every name the generator would emit per rate module, plus the names they must avoid.
+
+    Rate modules claim their enum tag, count macro and coefficient constants; the
+    core's reserved names and every module's event identifiers are claimed by no
+    rate module. Transfers already refused as case-only duplicates are not claimed.
+    """
+    claims: _NameClaims = {}
+
+    def claim(space: str, identifier: str, module: Optional[str], what: str) -> None:
+        claims.setdefault((space, identifier), []).append((module, what))
+
+    for name, transfer_names in sorted(scan.names.items()):
+        listed = f"{name} (transfers {transfer_names})"
+        claim("tag", rate_transfer_enum_type(name), name, f"the coefficient enum of {listed}")
+        claim("id", rate_transfer_count_macro(name), name, f"the transfer count of {listed}")
+        for transfer_name in transfer_names:
+            claim(
+                "id",
+                rate_coefficient_constant(name, transfer_name),
+                name,
+                f"{name} {RATES_KEY}.transfers '{transfer_name}'",
             )
+    for tag in RESERVED_RATE_TAGS:
+        claim("tag", tag, None, f"the core tag {tag}")
+    for identifier in RESERVED_RATE_IDENTIFIERS:
+        claim("id", identifier, None, f"the core identifier {identifier}")
+    for module in modules:
+        for identifier in event_identifiers(module):
+            claim("id", identifier, None, f"an event identifier of {module.get('name')}")
+    return claims
+
+
+def _identifier_collision_errors(modules: List[Dict[str, Any]], scan: _RateScan) -> None:
+    """Refuse rate modules whose generated names collide with any other generated or core name.
+
+    Checks, over every rate module, the coefficient constants, the count macros and
+    the enum tags the generator emits, against each other, against the core's own
+    names of those forms and against the event identifiers. Each rate module
+    involved gets one refusal listing its colliding names, so validating any one of
+    them alone reports the collision.
+    """
+    clashes: Dict[str, List[str]] = {}
+    for (space, identifier), claimants in sorted(_generated_name_claims(modules, scan).items()):
+        if len(claimants) < 2:
+            continue
+        described = " and ".join(what for _, what in claimants)
+        kind = "enum tag" if space == "tag" else "identifier"
+        for module_name in sorted({module for module, _ in claimants if module is not None}):
+            clashes.setdefault(module_name, []).append(f"{kind} {identifier} ({described})")
+
+    for module_name, entries in sorted(clashes.items()):
+        scan.refuse(
+            module_name,
+            f"{RATES_KEY}: generated names would collide: {'; '.join(entries)}; rename a module "
+            "or transfer so every generated name is distinct",
         )
 
-    return errors
+
+def rate_metadata_errors(
+    modules: List[Dict[str, Any]], galaxy_properties: Dict[str, Dict[str, Any]]
+) -> List[RateMetadataError]:
+    """Return every refusal of the rates: declarations of a set of modules.
+
+    The registry generator and the metadata validator both report these, so the
+    two accept the same metadata. Every module's own rules are checked first; the
+    cross-module rules (a slaved source's master, the order of the conserved
+    totals and collisions of generated names) then run over every module passed,
+    which for generation is every compiled module.
+
+    Rules: rates: needs process_rates and the reverse; rates: has no unknown key,
+    reads_central is a boolean, transfers is a non-empty list; a transfer has no
+    unknown key and a C-identifier name unique within its module, also when
+    upper-cased; its from is a reservoir or external and its to a reservoir,
+    external, or a tracer when the from is external, never both external; every
+    reservoir or tracer end names a total, and an internal transfer's reservoirs
+    share one; to_record is self or central, never central with to: external;
+    slaved_to appears only on a source and names, as <module>.<transfer>, a transfer
+    out of a reservoir whose total differs from the recipient's; an observer names
+    a property of kind observer and a transfer of its own module. A slaved source
+    makes its recipient's total depend on its master donor's total, and a tracer
+    total on its tracers' parents' totals; a cycle among totals is refused against
+    every module whose slaved source is on it, naming the totals. Finally no
+    generated name may collide with another, with a core name of the same form or
+    with an event identifier.
+
+    Args:
+        modules: Module metadata dicts (module_info.yaml contents).
+        galaxy_properties: Galaxy property metadata by name, each as its property
+            YAML declares it (the ``reservoir:`` mapping is read from it). Both tools
+            pass galaxy properties only.
+
+    Returns:
+        The refusals, in module then rule order; empty when every declaration is valid.
+    """
+    scan = _RateScan(galaxy_properties)
+    for module in modules:
+        _module_rate_errors(module, scan)
+
+    edges, via = _slaved_master_edges(scan)
+    _add_tracer_edges(galaxy_properties, edges)
+    _cycle_errors(edges, via, scan)
+    _identifier_collision_errors(modules, scan)
+    return scan.errors
