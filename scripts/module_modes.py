@@ -772,7 +772,7 @@ def _observer_errors(name: str, observers: Any, scan: _RateScan) -> None:
                 name,
                 f"{label} has unknown key(s) {unknown}; allowed keys are {list(OBSERVER_KEYS)}",
             )
-        if (name, observed) in scan.refused:
+        if isinstance(observed, str) and (name, observed) in scan.refused:
             pass  # The transfer's own refusal names its defect.
         elif not isinstance(observed, str) or observed not in declared:
             scan.refuse(

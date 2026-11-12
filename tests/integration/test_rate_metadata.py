@@ -349,6 +349,14 @@ def _references_to_refused_transfer(m, p):
     ] = "test_rate_formation.STAR_FORMATION"
 
 
+def _observer_transfer_list(m, p):
+    m["test_rate_formation"]["rates"]["observers"][0]["transfer"] = ["star_formation"]
+
+
+def _observer_transfer_mapping(m, p):
+    m["test_rate_formation"]["rates"]["observers"][0]["transfer"] = {"star_formation": 1}
+
+
 REFUSALS = [
     ("both ends external", _both_external, "test_rate_supply", "infall", "both ends 'external'", 1),
     (
@@ -633,6 +641,24 @@ REFUSALS = [
         "and rates.transfers 'star_formation' differ only in case",
         1,  # the duplicate itself; the observer and the slaved source add nothing
     ),
+    (
+        "observer transfer a list",
+        _observer_transfer_list,
+        "test_rate_formation",
+        "star_formation",
+        "(transfer ['star_formation'], property 'RateFixtureFormed') observes a transfer this "
+        "module does not declare",
+        1,
+    ),
+    (
+        "observer transfer a mapping",
+        _observer_transfer_mapping,
+        "test_rate_formation",
+        "star_formation",
+        "(transfer {'star_formation': 1}, property 'RateFixtureFormed') observes a transfer "
+        "this module does not declare",
+        1,
+    ),
 ]
 
 
@@ -704,6 +730,49 @@ def test_rate_refusals():
     for case, doctor, module, transfer, fragment, count in REFUSALS:
         assert_refused(case, doctor, module, transfer, fragment, count)
     print(f"  ✓ {len(REFUSALS)} refusals raised by both tools")
+
+
+# Every raw value the rates: rules read from module metadata, as (module, path) where a
+# path is a key sequence from the module's rates: mapping (integers index lists).
+RAW_RATE_FIELDS = [
+    ("test_rate_supply", ("reads_central",)),
+    ("test_rate_supply", ("transfers",)),
+    ("test_rate_supply", ("transfers", 2)),
+    ("test_rate_supply", ("transfers", 2, "name")),
+    ("test_rate_supply", ("transfers", 2, "from")),
+    ("test_rate_supply", ("transfers", 2, "to")),
+    ("test_rate_supply", ("transfers", 2, "to_record")),
+    ("test_rate_feedback", ("transfers", 1, "slaved_to")),
+    ("test_rate_formation", ("observers",)),
+    ("test_rate_formation", ("observers", 0)),
+    ("test_rate_formation", ("observers", 0, "property")),
+    ("test_rate_formation", ("observers", 0, "transfer")),
+]
+
+
+def test_container_values_refused_without_crashing():
+    """A list or mapping in any raw rates: field is refused by both tools, never raised.
+
+    Sweeps every field the rules read (RAW_RATE_FIELDS) with a list and a mapping
+    value, so a membership test or lookup on an unhashable YAML value cannot crash
+    either tool.
+    """
+    cases = 0
+    for module, path in RAW_RATE_FIELDS:
+        for value in (["star_formation"], {"star_formation": 1}):
+
+            def doctor(m, p, module=module, path=path, value=value):
+                target = m[module]["rates"]
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+
+            gen_errors, val_errors = run_both_tools(doctor)
+            where = f"{module} rates.{'.'.join(map(str, path))} = {value!r}"
+            assert gen_errors, f"{where}: the generator accepted it"
+            assert val_errors, f"{where}: validate_modules.py accepted it"
+            cases += 1
+    print(f"  ✓ {cases} container values refused by both tools without an exception")
 
 
 def test_unknown_keys_refused():
@@ -1024,6 +1093,7 @@ def main():
         [
             test_fixture_declarations_accepted,
             test_rate_refusals,
+            test_container_values_refused_without_crashing,
             test_unknown_keys_refused,
             test_validator_exit_codes,
             test_global_index_order,
