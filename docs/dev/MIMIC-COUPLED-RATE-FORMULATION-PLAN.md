@@ -2,7 +2,7 @@
 
 **Purpose:** State what the coupled rate formulation is, what Mimic's core must gain to run it, and what must be true before that work is accepted, in enough detail to derive a frozen implementation plan from.
 
-**Status:** Requirements brief; pathway step 7 and the next work on the road. Revised 2026-11-12 from the brief of 2026-08-18, against the code as it stands at v1.6 and against [`AGENTIC-SCIENCE-ARCHITECTURE.md`](AGENTIC-SCIENCE-ARCHITECTURE.md), which splits the work in two. This brief governs the first part. The earlier text is in git history (`56ed8484` and before).
+**Status:** Requirements brief; pathway step 7 and the next work on the road. Revised 2026-11-12 from the brief of 2026-08-18, against the code as it stands at v1.6 and against [`AGENTIC-SCIENCE-ARCHITECTURE.md`](AGENTIC-SCIENCE-ARCHITECTURE.md), which splits the work in two. This brief governs the first part. Revised again on 2026-11-12 after the implementation plan was derived from it: the owner's decisions are taken, and the plan is [`MIMIC-COUPLED-RATE-IMPLEMENTATION-PLAN.md`](MIMIC-COUPLED-RATE-IMPLEMENTATION-PLAN.md). The earlier text is in git history (`56ed8484` and before).
 
 **Scope:** The rate mode in Mimic's core: a new processing mode, the assembly of declared transfers, the integrator, the conservation ledger, their metadata and their tests. It is built from an ordinary implementation plan under the Project Manager and proven on a model-neutral fixture. Putting a real model on the mode is campaign work, described under [The Campaigns That Follow](#the-campaigns-that-follow), and no model package changes in this part.
 
@@ -73,19 +73,20 @@ The second property holds only if every rate is a pure function of the declared 
 
 "Source-limited" needs a precise form, because it is what makes negative reservoirs impossible without clamping.
 
-- **A transfer out of a reservoir inside the system is declared as a specific rate.** The module returns a non-negative coefficient `k(x, h, θ)` in units of inverse time, and the core forms the flux as `k` times the donor's content. A flux that scales with its donor vanishes as the donor empties.
-- **A source from outside the system is declared as an absolute rate.**
+- **A transfer out of a reservoir is declared as a specific rate,** whether its recipient is another reservoir or outside the system (a sink). The module returns a non-negative coefficient `k(x, h, θ)` in units of inverse time, and the core forms the flux as `k` times the donor's content. A flux that scales with its donor vanishes as the donor empties.
+- **Only a source from outside the system is declared as an absolute rate.** An absolute sink is refused.
 - **Fluxes are non-negative.** Flow in the reverse direction is a second transfer.
+- **A transfer between two reservoirs stays within one conserved total.** Movement between totals is a sink in one and a slaved source in the other, so each total's ledger can close.
 - **A law is continuous in the state and receives only the state, the forcing, the parameters and the time.** It never sees the solver's step or a substep index. The snapshot interval is legitimate forcing.
 - **A law has no side effects.** The integrator evaluates it repeatedly, out of chronological order, and at trial states it later rejects.
 
 This form does more than limit the source:
 
-- **The positivity bound is computable.** A forward Euler step keeps every reservoir non-negative when the step times the reservoir's total specific outflow is at most one, so the core knows the largest safe step before it takes it.
+- **The positivity bound is computable.** A forward Euler step keeps every reservoir non-negative when the step times the reservoir's total specific outflow is at most one. Because the outflow depends on the state, it changes between the stages of a step, so the core bounds the step before it takes it and verifies the bound at each stage; a stage that violates it is rejected.
 - **Tracers come free.** A companion reservoir (the metals in a gas reservoir) moves at the same `k` as its parent, so its flux is `k` times its own content and no division by a possibly empty parent is needed.
 - **An ill-posed law fails loudly.** A coefficient that grows without bound as its donor empties forces the step towards zero and trips the failure rule below, which is the intended outcome.
 
-What the form excludes is deliberate: a constant drain, `min(demand, available / dt)`, and any law that empties a reservoir in finite time. Each of today's caps becomes a law that satisfies the contract, which is physics work for the campaign and not for the core.
+What the form excludes is deliberate: a constant drain (it cannot be declared, since an absolute sink is refused), `min(demand, available / dt)`, and any law that empties a reservoir in finite time. Each of today's caps becomes a law that satisfies the contract, which is physics work for the campaign and not for the core.
 
 ### Negative state is a violation, not a value to repair
 
@@ -93,7 +94,7 @@ A committed negative reservoir is an invariant violation. The integrator reduces
 
 The rule needs a termination condition to be implementable:
 
-- **Negative means strictly below zero at any stage.**
+- **Negative means strictly below zero at any stage.** It is checked on every computed stage and on the committed state, before any law sees it.
 - **Retries and steps per segment are bounded** by declared budgets.
 - **A failure names its cause:** the component, the reservoir, the law and the time, with enough state written out to reproduce it. One halo in ten billion must not end a production run without a diagnosis.
 - **Nothing is committed from a failed segment.**
@@ -105,42 +106,42 @@ Genuine shared budgets that must be allocated, such as infall across a group, st
 The existing phase structure carries the hybrid system with one new rule.
 
 - **A phase is either a rate phase or a discrete phase.** A rate phase holds only rate modules and is integrated as one system. A discrete phase holds modules in the existing modes and runs in order, as today. A phase that mixes the two is refused at startup.
-- **At most one rate phase is configured.** Two would be split against each other in order, which is the artefact this work removes. The limit is lifted only on a demonstrated need.
+- **At most one rate phase is configured.** Two would be split against each other in order, which is the artefact this work removes. The limit is lifted only on a demonstrated need. A rate mode is also refused in `pre_timestep`, `post_timestep` and `post_snapshot`.
 - **A substep is a segment.** The integrator advances the rate phase across one segment, steps freely inside it and lands exactly on its end. Discrete phases run at segment boundaries. `SubSteps` and `TimestepScheme` keep their meaning and now set the cadence of jumps, per FoF group under the dynamic scheme.
 - **Convergence is two separate claims.** Inside a segment the error is controlled by the tolerance. Across segments the timing of jumps is first order in the segment count, and no tolerance removes that. Any stated convergence rate says which one it measures.
 - **Halo properties arrive as discontinuities at snapshot boundaries.** Integration stops and restarts there. Whether forcing is also interpolated within an interval is a scientific choice for a model, not for the core.
 
-One point is open and must be settled by the implementation plan: **rows in one FoF group can have different elapsed times.** Each row carries its own `dT`, the published `sage16` evolves each object over its own `dT / num_substeps`, and mixed `dT` within a group is tested today (`tests/unit/test_unit_mixed_dt_parity.c`). A coupled component needs one rule for this. The candidates are a common span for every row, or each row advancing on its own clock with a transfer's amount computed once, on the donor's clock, so that it still conserves.
+**Rows in one FoF group can have different elapsed times, and each advances on its own clock** (the owner's decision 3). Each row carries its own `dT`, the published `sage16` evolves each object over its own `dT / num_substeps`, and mixed `dT` within a group is tested today (`models/sage16/modules/_tests/test_unit_mixed_dt_parity.c` and `models/sage26/modules/_tests/test_unit_mixed_dt_parity.c`). In the rate mode the rows of a component share one normalised segment time, running from the segment's start to its end, and each row covers its own elapsed time across it. Each transfer's amount is set on its donor's clock and applied to both ends, so a transfer between rows of different elapsed times still conserves. This is the continuous limit of what `sage16` does today.
 
 ### State kinds
 
-"A source and a destination" does not cover everything a real model declares. The published models need these kinds, and the property metadata must be able to say which a property is:
+"A source and a destination" does not cover everything a real model declares. The published models need these kinds. Property metadata declares reservoirs, tracer companions and observers; external sources, sinks and slaved sources are ends of declared transfers, not properties:
 
 | Kind | Meaning | In stage 1 |
 |---|---|---|
 | Reservoir | A conserved, non-negative quantity that transfers move | Yes |
 | Tracer companion | A quantity carried with a parent reservoir at the parent's specific rates (metals in gas) | Yes |
-| External source or sink | Where mass enters or leaves the system, integrated so that the ledger can account for it | Yes |
+| External source or sink | The end of a transfer outside the system: a source at an absolute rate, a sink at a specific rate out of a reservoir. Its amount is integrated as solver state for each segment so that the ledger can close | Yes |
 | Observer | The time integral of a declared flux, read out and never fed back (a star-formation rate, a history bin) | Yes |
-| Slaved source | A source proportional to another declared transfer's flux (metals yielded by star formation). Evaluation is ordered by dependency and a cycle is refused at startup | Yes |
+| Slaved source | An external source into a different conserved total, proportional to a named transfer's flux (metals yielded by star formation). One level deep: its master is a transfer out of a reservoir, never a source. It makes its recipient's total depend on its master's, and a dependency cycle among totals is refused | Yes |
 | Auxiliary state | Non-conserved state that evolves but is not a mass (a merger clock, an accumulated heating radius) | No: it stays in discrete phases |
 | Label | A discrete value that changes only at a jump or a snapshot boundary (a galaxy type, a keyed random regime draw) | Read as forcing |
 
 ### Integration domain
 
-A transfer's two ends are either on the same record or on a galaxy and its FoF central. Those are the only cross-record transfers the two classifications show. The domain is therefore decided at startup from the configured transfers: each galaxy alone when none crosses records, and the whole FoF group when any does.
+A transfer's two ends are either on the same record or on a galaxy and its FoF central. Those are the only cross-record transfers the two classifications show. The domain is therefore decided at startup from declared metadata: each galaxy alone when no configured transfer crosses records and no configured module declares that its laws read the central's state, and the whole FoF group otherwise. A law that has not declared it is given no view of the central, so a law in the per-galaxy domain cannot depend on another galaxy.
 
 For `sage16` it is the whole group in the common case, because satellites return gas and metals to their central. By-galaxy independence does not survive for that model, and the cost follows ([Costs and Risks](#costs-and-risks)). A general transfer graph with component discovery waits until a model declares an endpoint that needs it.
 
 ### The ledger
 
-Conservation is checked, not assumed. A Runge–Kutta scheme that applies one computed amount to both ends of every transfer preserves each conserved total to rounding, not exactly, and jumps and open systems are outside that argument altogether. The ledger is three things:
+Conservation is checked, not assumed. A Runge–Kutta scheme written in increment form, with one computed amount per transfer per stage combination applied to both of its ends, preserves each conserved total to rounding, not exactly, and jumps and open systems are outside that argument altogether. The ledger is three things:
 
 - **External sources and sinks are integrated** by the same scheme as the state, so their totals over a segment are known.
-- **Closure is asserted per component per segment:** the change in each conserved total equals the net external flow, within a tolerance that scales with the number of steps, the machine precision and the size of the total.
-- **Every discrete phase's net change to each conserved total is recorded,** and is either zero or declared by the module that caused it.
+- **Closure is asserted per component per segment:** the change in each conserved total equals the net external flow, within a tolerance that scales with the machine precision, the number of steps, the number of terms on each reservoir, and the size of the total and of the external throughput.
+- **Every discrete phase's net change to each conserved total is recorded,** and is either zero or declared by the module that caused it. The core attributes a change to the dispatch unit it measures around: one full-halo module's call with the event consumers it triggers, or a phase's by-galaxy pass, whose modules run galaxy by galaxy and cannot be separated without a sum per call.
 
-A tracer never exceeds its parent. That bound is checked as well, because not every integrator preserves it.
+A tracer above its parent beyond a rounding tolerance is a failure, and the bound is checked. Both schemes keep a tracer within its parent when every inflow to the tracer is matched by a parent inflow at least as large. Once a tracer has sources of its own, such as a slaved yield, the exact solution can pass the bound, so it is then a property of the model and not of the integrator: the failure means either an implementation error or a model whose tracer sources imply a concentration above one.
 
 ### The integrator
 
@@ -148,10 +149,10 @@ No external library is used. The build links only the maths library, libyaml, HD
 
 The integrator sits behind one internal interface: it is given a component's state, the means to evaluate the coefficients, a segment and the tolerances, and it returns the advanced state, a status and its step statistics.
 
-- **First, an explicit strong-stability-preserving Runge–Kutta pair with an embedded error estimate** (the three-stage third-order scheme with a second-order embedded estimate is the candidate). Every stage of such a scheme is a convex combination of forward Euler steps. With the rate-law contract its steps can be capped in advance, laws never see a negative state, tracer bounds hold, and reducing the step provably terminates. It needs no Jacobian.
-- **Second, behind the same interface, a linearly implicit first-order scheme with coefficients frozen at the start of the step.** Its matrix is diagonally dominant by construction, so it is positive and conservative at any step size and needs no pivoting. It is the fallback for a stiff component. It also removes the loud failure above, because it will integrate an ill-posed law without complaint, so it is never the default.
+- **First, an explicit strong-stability-preserving Runge–Kutta pair with an embedded error estimate:** the four-stage third-order scheme with a second-order embedded estimate, in place of the three-stage scheme, because it allows twice the positivity-limited step for one more evaluation and so costs a third less where positivity limits the step. Every stage of such a scheme is a convex combination of forward Euler steps. With the rate-law contract its step is bounded before it is taken and the bound is verified at each stage, every computed stage is checked non-negative before a law sees it, and a step that fails either check is rejected. With a margin below one on the stage-wise bound, reducing the step terminates whenever the coefficients are continuous at the step's start, and the budgets terminate it otherwise. It needs no Jacobian.
+- **Second, behind the same interface, a linearly implicit first-order scheme with coefficients frozen at the start of the step.** Its matrix is a column-diagonally-dominant M-matrix by construction; solved by elimination without subtraction and without pivoting, it is non-negative at any step size and conserves to rounding. It is the fallback for a stiff component. It also removes the loud failure above, because it will integrate an ill-posed law without complaint, so it is never the default.
 
-Unconditionally positive schemes of this kind are limited to first order, which is why no higher-order implicit method is proposed.
+Unconditionally positive linear methods are limited to first order, which is why no higher-order linear implicit method is proposed. Nonlinear Patankar-type schemes reach higher order, but they weight fluxes by ratios of stage values, which breaks the tracer property and needs a convention at an empty reservoir, so none is proposed for stage 1.
 
 The stiffness of the real models is not measured. A timescale estimate puts the product of the fastest specific rate and a snapshot interval between one and a hundred, which an explicit scheme handles; that is an estimate and not a measurement. So the core records what a measurement would have given: per run, the distribution of the fastest specific rate times the segment length, and of steps per segment. Campaign 4b reads the stiffness of the fork from its own output.
 
@@ -159,11 +160,11 @@ The stiffness of the real models is not measured. A timescale estimate puts the 
 
 The plan fixes the formula. The brief fixes its properties:
 
-- **Component-wise weights** with an absolute and a relative part, the absolute part non-zero so that an empty reservoir has a scale.
+- **Component-wise weights** with an absolute and a relative part, the absolute part non-zero so that an empty reservoir has a scale. Both tolerances are dimensionless, and the absolute part is scaled by the galaxy's own total, so the norm does not depend on the units of mass.
 - **A galaxy-local scale.** A dwarf in a cluster is not ignored because the cluster is large.
-- **A maximum norm,** so that a galaxy's accuracy does not depend on the size of its group.
+- **A maximum norm,** so that a galaxy's accuracy does not depend on the size of its group, and the norm does not depend on the order its terms are evaluated in.
 - **The tolerance is a local error target and is stated as one.** Accuracy is measured by rerunning at a tighter tolerance, not read off the setting.
-- **The step sequence is a pure function** of the state at the start of the segment, the forcing, the parameters, the segment and the tolerances. The integrator starts cold in every segment and carries nothing between segments or between groups.
+- **The step sequence is a pure function** of the state at the start of the segment, the forcing, the parameters, the segment and the tolerances. The integrator starts cold in every segment, at the cost of one extra law evaluation to choose the first step, and carries nothing between segments or between groups.
 
 ### Events and jumps
 
@@ -180,9 +181,9 @@ In stage 1 jumps fire at segment boundaries, in discrete phases, exactly as even
 
 A great deal has landed since this brief was first written. Each item below is a fact about the code and the requirement it places on the rate mode.
 
-**The mode machinery is a closed table, not an open set.** `src/core/processing_modes.c` holds the single C table of modes, with a static assertion that every enumerator has an entry, and `scripts/module_modes.py` holds its Python counterpart, which is an input to the generation hash. FoF phases refuse a mode of any other family, `struct PhasePlan` holds three fixed dispatch lists and `execute_phase()` makes three fixed passes. A rate mode is therefore explicit work in each of those places.
+**The mode machinery is a closed table, not an open set.** `src/core/processing_modes.c` holds the single C table of modes, with a static assertion that every enumerator has an entry, and `scripts/module_modes.py` holds its Python counterpart, which is an input to the generation hash. FoF phases refuse a mode of any other family, and `struct PhasePlan` holds three fixed dispatch lists. `execute_phase()` makes two passes, full-halo then by-galaxy, and per-event consumers run nested inside emission. A rate mode is therefore explicit work in each of those places. The builder of the phase plans does not check that its lists cover every entry of a phase, so a mode with no list would be dropped from dispatch silently; the rate work must close that gap.
 
-**A rate module needs its own callback family.** `process(ctx, halos, ngal)` mutates state and is frozen. A rate law must not mutate, so it gets a third family beside `MODULE_CALLBACK_FAMILY_FOF` and `MODULE_CALLBACK_FAMILY_SNAPSHOT`, with a callback whose signature takes read-only state. While a rate callback runs, `module_emit_event()` and `module_create_record()` refuse, as they already refuse outside their own callback kinds.
+**A rate module needs its own callback family.** `process(ctx, halos, ngal)` mutates state and is frozen. A rate law must not mutate, so it gets a third family beside `MODULE_CALLBACK_FAMILY_FOF` and `MODULE_CALLBACK_FAMILY_SNAPSHOT`, with a callback whose signature takes read-only state. While a rate callback runs, `module_emit_event()` and `module_create_record()` must refuse. `module_create_record()` already refuses any callback kind but full-halo, so it refuses a rate callback without change. `module_emit_event()` does not consult the callback kind, and when no phase dispatch is active it returns success and drops the event, so it needs an explicit refusal. `const` on the callback's row argument is shallow in C: a galaxy can still be written through the row's pointer. The law is therefore given a scratch copy holding the trial state, and the purity probe, not the signature, detects a law that writes.
 
 **The core cannot address a reservoir by index today.** Properties are generated as struct fields, and no table of galaxy properties is emitted. Reservoirs, their kinds and their conserved totals are therefore declared in property metadata, and the generator emits the table the assembler and the ledger read. Transfers are declared in `module_info.yaml` by reservoir name, so a transfer to an undeclared reservoir fails at startup.
 
@@ -190,13 +191,13 @@ A great deal has landed since this brief was first written. Each item below is a
 
 **Records are created only from full-halo callbacks and join the workspace when the callback returns.** The state vector is assembled from the workspace at the start of each segment and never held across a callback.
 
-**Both drivers call one function.** `process_halo_evolution()` (`src/core/halo_evolution.c`) serves the vertical and horizontal drivers, and neither MPI decomposition nor chunking ever splits a FoF group. An integrator that reads only the workspace and no run-level state inherits every identity gate.
+**Both drivers call one function.** `process_halo_evolution()` (`src/core/halo_evolution.c`) serves the vertical and horizontal drivers, and neither MPI decomposition nor chunking ever splits a FoF group. An integrator that reads no mutable run-level state and nothing driver-dependent (it reads the read-only configuration and the module parameters) inherits every identity gate.
 
-**Determinism has a rule already.** `docs/VISION.md` principle 4 requires identical output whatever driver or traversal order processed the data. For the rate mode that means the order of the state vector, the order in which inflows to one reservoir are summed, and the order in which the error norm is evaluated are all canonical: independent of the run file's order, of registration order and of the driver. The canonical key cannot be a created record's `UniqueGalaxyID`, which differs between drivers. Whether both drivers present a group's rows in the same order was not established for this brief, so the plan must not assume it.
+**Determinism has a rule already.** `docs/VISION.md` principle 4 requires identical output whatever driver or traversal order processed the data. For the rate mode that means the order of the state vector, the order in which inflows to one reservoir are summed, and the order in which the error norm is evaluated are all canonical: independent of the run file's order, of registration order and of the driver. The canonical key cannot be a created record's `UniqueGalaxyID`, which differs between drivers. Both drivers build each group's rows through one inheritance function, in FoF-chain then progenitor-chain order, so the order is the same by construction under the horizontal format's chain-order contract. No test compares it across drivers, and a row carries no driver-independent identity that covers created records. The plan therefore uses the workspace row index as the canonical key and adds a cross-driver test of in-group row order.
 
 **The snapshot scope is separate.** `docs/VISION.md` describes snapshot-wide rate callbacks as prospective. The rate mode here is FoF-scoped and is not that. A `post_snapshot` module that writes a reservoir does so outside the ledger, and the documentation says so.
 
-**Output provenance must cover the new settings.** HDF5 output records the enabled modules, the parameters and the event contracts. The integrator, its tolerances and budgets, and the declared transfers are recorded the same way. One existing constraint bears on this: the reference-identity gate requires a run's attribute names to match the reference commit's exactly, so new `RunProperties` attributes need the gate's named allowance, which [`MIMIC-BACKLOG.md`](MIMIC-BACKLOG.md) already describes for another attribute.
+**Output provenance must cover the new settings.** HDF5 output records the enabled modules, the parameters and the event contracts. The integrator, its tolerances and budgets, and the declared transfers are recorded the same way. The reference-identity gate requires a run's attribute names to match the reference commit's exactly, so the new attributes, datasets and rows are written only when a rate phase is configured, and every existing gate sees identical objects. The same gate also compares `metadata/output_schema.json` byte for byte, and that file's `source_md5` covers the property generator's own bytes as well as the property files, so any edit to the generator changes it in every run's output. The reservoir table is emitted by the generator, so the gates' shared comparison treats that hash as build provenance, as a standing rule (the owner's decision 4).
 
 **Infrastructure is tested on fixtures.** The model-neutral fixtures live under `src/module_system/` (`test_fixture`, `test_snapshot_fixture`, the event producers and consumers), are compiled only in test builds, and take their properties from `test_fixture/test_properties.yaml`. `test_snapshot_fixture` is the precedent for adding a mode. The rate fixture follows the same pattern, with `double` reservoir properties.
 
@@ -212,7 +213,7 @@ A great deal has landed since this brief was first written. Each item below is a
 | 4. One coherent processing model | **Amended.** The principle names three FoF dispatch modes and one additive snapshot scope, and says a further mode needs its own explicit contract. The rate mode is a fourth dispatch mode inside the same traversal, and its contract is written into the principle |
 | 5. Bounded memory | **Preserved, with a bound to meet.** Solver memory is linear in the component's state and its transfers, from one reused, tracked allocation |
 | 6. Format-agnostic I/O and provenance | **Extended.** The integrator, its tolerances and the declared transfers join the recorded provenance |
-| 7. Validation and fast failure | **Strengthened.** A mixed phase, an undeclared reservoir, a `float` reservoir, a dependency cycle and a negative coefficient fail at startup or at first use, and non-conservation becomes a detected violation |
+| 7. Validation and fast failure | **Strengthened.** A mixed phase, an undeclared reservoir, a `float` reservoir, an absolute sink, a slaved source whose master is not a transfer out of a reservoir and a negative coefficient fail at startup or at first use, and non-conservation becomes a detected violation |
 
 **The refinement to principle 2.** It states that scientific ordering remains explicit in configuration. Under this work jumps keep explicit configured ordering, because they do not commute, and rate terms within a rate phase become unordered, because ordering them was an artefact of sequential execution. `docs/VISION.md` changes when the implemented behaviour justifies it, so the edits to principles 2, 4 and 6 are part of the implementation plan's last slice and not made ahead of it.
 
@@ -226,7 +227,7 @@ A great deal has landed since this brief was first written. Each item below is a
 - **Published models are housed as published.** `sage16` and `sage26` are not converted in place. A published model's numerics are part of what was published, and reproducing it requires reproducing its splitting. The frozen modes are how any externally published model is imported and run faithfully. The rate mode is for forks and for models derived afresh.
 - **The event system is reused, not replaced.** Discrete phases keep the existing modes, `module_emit_event()` and the producer and consumer validation.
 - **Cross-format identity stays green** for every existing package on both drivers. This work adds a mode and must not perturb any model that does not use it.
-- **Bit-identity is claimed for one binary.** Compilers contract multiply-adds differently and the build sets no flag to stop them, so no claim crosses compilers or platforms.
+- **Bit-identity is claimed for one binary.** Compilers contract multiply-adds differently and the build sets no flag to stop them, so no claim crosses compilers or platforms. The plan does not add one: conservation is asserted to a rounding tolerance, not bitwise.
 
 ---
 
@@ -236,21 +237,21 @@ Two levels: integrator tests on hand-built components with no trees, and fixture
 
 | Problem | What it demonstrates | Accepted when |
 |---|---|---|
-| A linear chain, A to B to C | Order of convergence; error tracks tolerance | The measured fixed-step order is within 0.2 of the scheme's over at least three halvings, and error falls monotonically with tolerance |
+| A linear chain, A to B to C | Order of convergence; error tracks tolerance | Measured in the asymptotic window, the fixed-step order is within 0.2 of the scheme's over at least three halvings, and error falls monotonically with tolerance |
 | A closed three-cycle | A conserved total to rounding | Drift stays within the ledger's tolerance over a long integration |
-| Two sinks drawing on one source | Source limitation; order-independence | The two receive in the ratio of their rates; nothing goes negative when the rate times the interval is large; permuting the modules is bit-identical |
-| An external source, a reservoir and a sink | The ledger | The integrated source and sink match their closed forms, and closure holds to rounding |
-| A stiff reversible pair with a slow drain | Step control; the choice of scheme | The explicit scheme is correct with a step count near the stability prediction; the implicit scheme's step count does not depend on the fast rate |
-| A bimolecular reaction | Nonlinearity; a second invariant | The closed form is met, and the second invariant is exact under the explicit scheme with the implicit scheme's drift recorded |
+| Three sinks drawing on one source | Source limitation; order-independence | The three receive in the ratio of their rates; nothing goes negative when the rate times the interval is large; permuting the modules is bit-identical. Two sinks cannot show a missing canonical order, because two terms commute in IEEE arithmetic |
+| An external source, a reservoir and a sink | The ledger | The integrated source and sink match their closed forms, and closure holds within the ledger's tolerance |
+| A stiff reversible pair with a slow drain | Step control; the choice of scheme | The explicit scheme is correct with a step count that tracks the positivity prediction; from a start on the slow manifold, the implicit scheme's step count does not depend on the fast rate |
+| A bimolecular reaction | Nonlinearity; a second invariant | The closed form is met; the stoichiometric invariant A − B, which is linear, holds within the ledger's tolerance under the explicit scheme and drifts at first order under the implicit scheme |
 | A tracer with dilution and a slaved yield | Companions and cross-module dependence | The tracer stays between zero and its parent, the closed-form concentration is met, and an empty donor produces no undefined value |
 | A star: satellites feeding one central, at several sizes | Coupled groups; determinism; cost | Isolated groups are bit-identical; results are identical across drivers, task counts and chunk counts; time grows linearly with the number of galaxies |
-| A threshold law | Behaviour at a kink | The measured order stays near second, with a bounded number of rejected steps |
+| A threshold law | Behaviour at a kink | On a family whose crossing falls at a step's midpoint, the fixed-step order is near second; adaptively, the error stays proportional to the tolerance with a bounded number of rejected steps |
 | Two intervals with different rates, and a jump that removes a galaxy | Restart, a change of dimension, the jump ledger | The piecewise closed form is met |
-| A constant drain; an undefined or negative coefficient; an exhausted step budget | Loud failure | A non-zero exit that names the law, with nothing committed |
+| A coefficient that diverges as its donor empties; an undefined or negative coefficient; an exhausted step budget | Loud failure | A non-zero exit that names the law, with nothing committed. A constant drain is not a case: it cannot be declared, because an absolute sink is refused |
 
 Record creation in the middle of an interval, located events, cascades and a classic stiff benchmark can wait for a later increment.
 
-One probe belongs with the fixture because the order-independence gate cannot see it: **a purity check in test builds** that evaluates the laws twice in reversed order and requires bitwise-equal coefficients. Canonical sorting makes the permutation gate pass by construction, so it does not show that a law is pure.
+One probe belongs with the fixture because the order-independence gate cannot see it: **a purity check, switched on in the run file,** that evaluates the laws twice in reversed order, requires the coefficients to be equal as bit patterns, and checks that the state the laws were given was not written. Canonical sorting makes the permutation gate pass by construction, so it does not show that a law is pure.
 
 ---
 
@@ -268,24 +269,26 @@ Stage 1 is accepted when all of these hold.
 
 ---
 
-## Decisions for the Owner Before the Plan Is Frozen
+## Decisions Taken by the Owner (2026-11-12)
 
-1. **Whether the implicit scheme ships in stage 1.** Recommended: yes. A run-file key with one legal value is a mechanism for a need not yet shown, the stiff fixture proves nothing about the interface without a second scheme, and campaign 4b cannot cheaply reopen the core if the fork turns out stiff. The alternative is to ship the explicit scheme alone with no key, and add the second when the campaign's telemetry asks for it.
-2. **The names.** The mode's configuration string, the callback, and the run-file keys for the integrator and its tolerances. They become user-facing and are recorded in output.
+1. **The implicit scheme ships in stage 1,** as recommended. A run-file key with one legal value is a mechanism for a need not yet shown, the stiff fixture proves nothing about the interface without a second scheme, and campaign 4b cannot cheaply reopen the core if the fork turns out stiff. The explicit scheme is the default.
+2. **The names.** The mode's configuration string is `process_rates`, the callback `<module>_rates`, the run-file section for the integrator and its tolerances `modules.rate_integration`, the property metadata key `reservoir:` and the `module_info.yaml` key `rates:`. They are user-facing and are recorded in output.
+3. **Rows with different elapsed times advance on their own clock** in a shared normalised segment time, with each transfer's amount set on the donor's clock ([Phases, segments and time](#phases-segments-and-time)).
+4. **The property generator is edited, and the identity gates treat the schema's generator hash as build provenance.** The generator hashes its own bytes into every run's `output_schema.json`, which the reference-identity gate compared byte for byte, so any edit to the generator failed the gate whatever it changed. The fix is a standing rule in the gates' shared comparison, not an allowance for this work: two schemas may differ in that hash alone, and only when each side's value is the digest its own build generated. This was chosen over keeping the new generation out of the generator, as the robust long-term fix.
 
 ## Decisions for the Implementation Plan
 
-The plan settles these, each with a slice and an acceptance criterion:
+The plan settles each of these in its Design section and its slices, each with an acceptance criterion:
 
 1. The metadata keys that declare a reservoir, its kind, its parent and its conserved total, and the shape of the generated table.
 2. How a module declares a transfer, a source, an observer and a slaved source in `module_info.yaml`, and what the validator checks.
 3. The rate callback's signature and its context.
 4. The tolerance formula and its defaults, the step and retry budgets, and the diagnostic a failure writes.
 5. The canonical ordering key, proved independent of the driver.
-6. The rule for rows with different elapsed times in one component.
+6. The mechanics of the rule for rows with different elapsed times in one component (the rule itself is the owner's decision 3).
 7. The memory category, owner and free point of the solver's workspace.
 8. The linear solve for the implicit scheme, which must exploit the satellite-to-central structure and never form a dense matrix.
-9. How the new output attributes pass the reference-identity gate.
+9. How the new output attributes and the generator edit pass the reference-identity gate.
 
 ---
 
@@ -316,7 +319,7 @@ The classification documents were written to open this work and are not exhausti
 
 ## Costs and Risks
 
-- **Run time rises, and by how much is not measured.** The module pipeline is about 83% of a default `sage16` run on mini-Millennium. A three-stage scheme costs at least three evaluations per step, so keeping ten segments costs at least three times that share before any step is rejected. An estimate of two to five times the whole run at a loose tolerance is plausible and unmeasured. Against operator splitting of equal accuracy, which the 66% defect puts at hundreds of substeps, the coupled scheme should be several times cheaper. Stage 1 measures the fixture only.
+- **Run time rises, and by how much is not measured.** The module pipeline is about 83% of a default `sage16` run on mini-Millennium. The four-stage scheme costs four evaluations of the rate laws per step, plus one per segment to choose the first step, so with ten segments kept, each costs at least five evaluations where the split pipeline makes one pass, before any step is rejected. If an evaluation costs what a module pass costs today, that is about four times the whole run at the least, and more wherever a segment needs several steps: a transient reservoir costs about three steps per e-fold at a relative tolerance of 1e-3 and about six at 1e-4, while a quasi-steady one costs a step count set by its fastest rate. None of this is measured. Against operator splitting of equal accuracy, which the 66% defect puts at hundreds of substeps, the coupled scheme should be several times cheaper. Stage 1 measures the fixture only.
 - **A group steps at the pace of its stiffest member.** With the whole FoF group as one component, a cluster's thousands of satellites share one step sequence. Schemes that step members at different rates exist and are a later optimisation, not part of stage 1.
 - **Work and memory must be linear in the component.** A rich group has thousands of galaxies and tens of reservoirs each. A dense matrix at that size is tens of gigabytes and its factorisation is cubic, so no dense matrix is ever formed and no Jacobian is built by differences per step.
 - **The persistent memory term is precision, not solver stages.** The solver's workspace is a few copies of one group's state from a reused allocation. Storing a fork's reservoirs as `double` widens every galaxy in the pool, which matters at the scale of the largest measured run: the cut Shin-Uchuu's largest forest peaks at 70.96 GB for `sage16`, of which the galaxy pool is 22.9 GB.
@@ -338,7 +341,7 @@ A JAX or other differentiable backend was assessed and rejected for this purpose
 
 The target formulation coincides with two established formalisms, and the implementation plan should cite their results where they apply.
 
-- **Compartmental and production–destruction systems.** Declared conservative transfers between reservoirs are a compartmental system. Two standard results are used above: a Runge–Kutta scheme preserves linear invariants to rounding when each transfer's amount is applied to both ends, and the non-negative orthant is invariant when each reservoir's outflow is bounded by a multiple of its content. The specific-rate form is also the structure the positivity-preserving schemes of that literature are built on.
+- **Compartmental and production–destruction systems.** Declared conservative transfers between reservoirs are a compartmental system. Two standard results are used above: a Runge–Kutta scheme written in increment form preserves linear invariants to rounding when each transfer's amount is applied to both ends, and the non-negative orthant is invariant when each reservoir's outflow is bounded by a multiple of its content. The specific-rate form is also the structure the positivity-preserving schemes of that literature are built on.
 - **Hybrid dynamical systems.** Continuous flow with guard crossings and resets is a hybrid automaton. That field names the failure the earlier brief did not: an unbounded cascade of jumps in finite time. Stage 1 avoids it by construction, with one pass of the discrete phases per boundary, and a termination rule is owed when events are located.
 
 Two ideas were assessed and set aside, and the reasons stand:
@@ -351,3 +354,5 @@ Two ideas were assessed and set aside, and the reasons stand:
 ## How This Revision Was Produced
 
 The brief of 2026-08-18 was checked on 2026-11-12 by two independent reviews: one of every statement against the code and the other documents, and one of the numerical design. Their main citations were checked against the files. The stiffness estimate, the run-time estimate and the claim about rich groups are reviewer estimates and are marked as unmeasured where they appear. Nothing here was tested by building or running Mimic.
+
+It was revised again on 2026-11-12, alongside the derivation of the implementation plan, from eight read-only investigations of the code at v1.6 and a numerical design memo whose formulas and fixture criteria were checked in a reference implementation outside the repository. The owner's decisions were recorded, the numerical statements the memo found wrong or loose were corrected, and the facts about the core were rechecked against the files. Nothing was tested by building or running Mimic.
