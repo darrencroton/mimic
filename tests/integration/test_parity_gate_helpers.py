@@ -699,6 +699,16 @@ SCHEMA_PROVENANCE_CASES = [
         NO_DIGEST,
     ),
     (
+        "source_md5 on the baseline only, both digests known",
+        _schema("aaaa"),
+        _NO_KEY,
+        "aaaa",
+        "bbbb",
+        WRONG_DIGEST,
+    ),
+    ("a malformed side", _schema("aaaa"), '{"fields": [', "aaaa", "bbbb", CONTENT),
+    ("a non-object side", _schema("aaaa"), "[1, 2]", "aaaa", "bbbb", CONTENT),
+    (
         "a field removed",
         _schema("aaaa"),
         _schema("aaaa", fields=SCHEMA_FIELDS[:1]),

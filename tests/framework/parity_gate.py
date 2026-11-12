@@ -1604,10 +1604,11 @@ def schema_provenance_problem(
 
     ``source_md5`` is a digest of the generator and its inputs, not of the schema, so it moves
     whenever the generator's bytes do while the schema content stays put; the cross-format
-    identity test treats it as provenance in the same way. The parsed contents must otherwise be
-    equal (field order, descriptions, units and every other key included), and a side whose build
-    digest is unknown (``OutputRun.source_md5`` is None) or whose value differs from it is not
-    accepted.
+    identity test treats it as provenance in the same way: see ``SCHEMA_PROVENANCE_KEYS`` in
+    ``simulations/micro-uchuu-ascii-horizontal/_tests/scientific/test_cross_format_identity.py``.
+    The parsed contents must otherwise be equal (field order, descriptions, units and every
+    other key included), and a side whose build digest is unknown (``OutputRun.source_md5`` is
+    None) or whose value differs from it is not accepted.
     """
     try:
         before, after = json.loads(left), json.loads(right)
@@ -1669,7 +1670,8 @@ def compare_metadata_file(
         report.allow(f"{rel}: path prefix only")
     elif schema_problem is not None:
         report.error(
-            f"{rel}: differs beyond the path prefix and is not source_md5 provenance only: {schema_problem}"
+            f"{rel}: differs beyond the path prefix and is not source_md5 provenance only: "
+            f"{schema_problem}"
         )
     else:
         report.error(f"{rel}: content differs beyond the path prefix")
