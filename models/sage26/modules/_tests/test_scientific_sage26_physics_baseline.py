@@ -188,8 +188,30 @@ def _check_output_names(names_now, names_ref, fixture_names, snapshot):
     assert tuple(names_now) == expected, (
         f"{RED}snapshot {snapshot}: output property names differ from the baseline's followed "
         f"by the test fixtures' output fields {list(fixture_names)}.\n"
-        f"Only in current: {sorted(set(names_now) - set(expected))}\n"
-        f"Only in expected: {sorted(set(expected) - set(names_now))}{NC}"
+        f"{_name_difference(names_now, expected)}{NC}"
+    )
+
+
+def _name_difference(names_now, expected):
+    """Describe how two name lists differ: the set differences, or the first differing position.
+
+    When both lists hold the same names, the set differences are empty, so the
+    first position where the order differs is named instead.
+    """
+    only_now = sorted(set(names_now) - set(expected))
+    only_expected = sorted(set(expected) - set(names_now))
+    if only_now or only_expected:
+        return f"Only in current: {only_now}\nOnly in expected: {only_expected}"
+    names_now, expected = tuple(names_now), tuple(expected)
+    index = next(
+        (i for i, (now, want) in enumerate(zip(names_now, expected, strict=False)) if now != want),
+        min(len(names_now), len(expected)),
+    )
+    current = names_now[index] if index < len(names_now) else "<end of list>"
+    wanted = expected[index] if index < len(expected) else "<end of list>"
+    return (
+        f"Same names in a different order: first difference at position {index}, "
+        f"current {current!r}, expected {wanted!r}"
     )
 
 
@@ -302,7 +324,7 @@ def test_sage26_physics_baseline():
 
 
 def test_output_names_reject_doctored_production_fields():
-    """The name check fails when a production field is added, removed or renamed."""
+    """The name check fails when a production field is added, removed, renamed or moved."""
     baseline = BASELINE_DIR / OUTPUT_FILES[63]
     assert baseline.exists(), f"Committed baseline not found: {baseline}"
     names_ref = tuple(load_binary_halos(baseline)[0].dtype.names)
@@ -313,16 +335,32 @@ def test_output_names_reject_doctored_production_fields():
 
     middle = len(names_ref) // 2
     renamed = names_ref[:middle] + (names_ref[middle] + "Renamed",) + names_ref[middle + 1 :]
+    swapped = (
+        names_ref[: middle - 1]
+        + (names_ref[middle], names_ref[middle - 1])
+        + names_ref[middle + 1 :]
+    )
+    position = (
+        f"first difference at position {middle - 1}, current {names_ref[middle]!r}, "
+        f"expected {names_ref[middle - 1]!r}"
+    )
+    # (label, doctored current names, a fragment the failure message must hold)
     doctored = [
-        ("production field added", names_ref + ("DoctoredField",) + fixture),
-        ("production field removed", names_ref[:middle] + names_ref[middle + 1 :] + fixture),
-        ("production field renamed", renamed + fixture),
-        ("fixture fields missing", names_ref),
+        ("production field added", names_ref + ("DoctoredField",) + fixture, "DoctoredField"),
+        (
+            "production field removed",
+            names_ref[:middle] + names_ref[middle + 1 :] + fixture,
+            repr(names_ref[middle]),
+        ),
+        ("production field renamed", renamed + fixture, names_ref[middle] + "Renamed"),
+        ("production fields reordered", swapped + fixture, position),
+        ("fixture fields missing", names_ref, repr(fixture[0])),
     ]
-    for label, names_now in doctored:
+    for label, names_now, fragment in doctored:
         try:
             _check_output_names(names_now, names_ref, fixture, 63)
-        except AssertionError:
+        except AssertionError as exc:
+            assert fragment in str(exc), f"{label}: failure does not name {fragment}: {exc}"
             continue
         raise AssertionError(f"{label}: the name check accepted a doctored name list")
     print(f"  {len(doctored)} doctored name lists rejected; the true list accepted")

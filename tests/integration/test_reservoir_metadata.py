@@ -153,6 +153,32 @@ def _catalog_only_with_reservoir():
     return target["name"], lambda: normalize_catalog_contract([], catalog, reference_units)
 
 
+def _bad_total_names():
+    """(label, property, total, mapping) for each total name that is not identifier-like."""
+    rows = []
+    for label, total in [
+        ("with a trailing space", "mass "),
+        ("with an inner space", "gas mass"),
+        ("with a control character", "mass\x01"),
+        ("with a non-BMP character", "mass\U0001f600"),
+        ("starting with a digit", "2mass"),
+        ("with a hyphen", "gas-mass"),
+        ("ending in a newline", "mass\n"),
+    ]:
+        rows.append(
+            (f"{label} on a reservoir", "Cold", total, {"kind": "reservoir", "total": total})
+        )
+    rows.append(
+        (
+            "with a space on a tracer",
+            "HotMetals",
+            "metal mass",
+            {"kind": "tracer", "total": "metal mass", "parent": "Hot"},
+        )
+    )
+    return rows
+
+
 def _refusal_rows():
     """(label, property the message must name, message fragment, call) for each refusal."""
     core = _core_halo_property()
@@ -287,6 +313,15 @@ def _refusal_rows():
             "needs a non-empty string total",
             _validate(_with("Hot", _galaxy("Hot", {"kind": "reservoir"}))),
         ),
+        *[
+            (
+                f"a total name {label}",
+                property_name,
+                f"names total {total!r}",
+                _validate(_with(property_name, _galaxy(property_name, mapping))),
+            )
+            for label, property_name, total, mapping in _bad_total_names()
+        ],
         (
             "an observer with a total",
             "Formed",

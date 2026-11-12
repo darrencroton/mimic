@@ -31,6 +31,7 @@ Generates:
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -316,6 +317,9 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
 # reservoir or tracer belongs to, and the reservoir a tracer is carried by.
 RESERVOIR_KINDS = ("reservoir", "tracer", "observer")
 RESERVOIR_KEYS = ("kind", "total", "parent")
+# A total is named like an identifier: later metadata and messages refer to it by
+# name, and the generated header writes it as a C string literal.
+RESERVOIR_TOTAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def validate_reservoir_mapping(prop: Dict[str, Any]) -> None:
@@ -363,6 +367,12 @@ def validate_reservoir_mapping(prop: Dict[str, Any]) -> None:
             raise ValueError(
                 f"Property '{name}' is a {kind} and needs a non-empty string total: "
                 "naming its conserved total"
+            )
+        if not RESERVOIR_TOTAL_NAME.fullmatch(total):
+            raise ValueError(
+                f"Property '{name}' names total {total!r}; a total name must match "
+                "[A-Za-z_][A-Za-z0-9_]* (letters, digits and underscores, not starting "
+                "with a digit)"
             )
         if prop.get("init_repeat") is True:
             raise ValueError(
