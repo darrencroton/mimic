@@ -1596,11 +1596,11 @@ def compare_galaxies(base: OutputRun, other: OutputRun, report: Report) -> None:
 SCHEMA_PROVENANCE_LABEL = "metadata/output_schema.json: source_md5 build provenance only"
 
 
-def schema_differs_by_build_provenance_only(
+def schema_provenance_problem(
     left: bytes, right: bytes, base: OutputRun, other: OutputRun
-) -> bool:
-    """True when two ``output_schema.json`` texts differ only in ``source_md5``, each side's value
-    being the digest its own build generated.
+) -> str | None:
+    """None when two differing ``output_schema.json`` texts differ only in ``source_md5``, each
+    side's value being the digest its own build generated; otherwise the reasons they do not.
 
     ``source_md5`` is a digest of the generator and its inputs, not of the schema, so it moves
     whenever the generator's bytes do while the schema content stays put; the cross-format
@@ -1612,13 +1612,19 @@ def schema_differs_by_build_provenance_only(
     try:
         before, after = json.loads(left), json.loads(right)
     except ValueError:
-        return False
+        return "content differs beyond source_md5 (not valid JSON on a side)"
     if not isinstance(before, dict) or not isinstance(after, dict):
-        return False
-    for schema, run in ((before, base), (after, other)):
-        if run.source_md5 is None or schema.pop("source_md5", None) != run.source_md5:
-            return False
-    return json.dumps(before, sort_keys=True) == json.dumps(after, sort_keys=True)
+        return "content differs beyond source_md5 (not a JSON object on a side)"
+    problems = []
+    for label, schema, run in (("baseline", before, base), ("candidate", after, other)):
+        value = schema.pop("source_md5", None)
+        if run.source_md5 is None:
+            problems.append(f"the {label} has no known build digest")
+        elif value != run.source_md5:
+            problems.append(f"the {label}'s source_md5 is not its build digest")
+    if json.dumps(before, sort_keys=True) != json.dumps(after, sort_keys=True):
+        problems.append("content differs beyond source_md5")
+    return "; ".join(problems) or None
 
 
 def compare_metadata_file(
@@ -1634,7 +1640,7 @@ def compare_metadata_file(
     its own allowance or error) and return True, ahead of the identical-bytes, schema-provenance
     and path-prefix rules. A differing ``output_schema.json`` is permitted, for every caller whose
     hook leaves it alone, when it differs only in ``source_md5`` and each side's value is its own
-    build digest (``schema_differs_by_build_provenance_only``).
+    build digest (``schema_provenance_problem``).
     """
     left, right = (base.directory / rel).read_bytes(), (other.directory / rel).read_bytes()
     if rel == "metadata/version_info.json":
@@ -1648,11 +1654,12 @@ def compare_metadata_file(
         return
     if left == right:
         return
-    if rel == "metadata/output_schema.json" and schema_differs_by_build_provenance_only(
-        left, right, base, other
-    ):
-        report.allow(SCHEMA_PROVENANCE_LABEL)
-        return
+    schema_problem = None
+    if rel == "metadata/output_schema.json":
+        schema_problem = schema_provenance_problem(left, right, base, other)
+        if schema_problem is None:
+            report.allow(SCHEMA_PROVENANCE_LABEL)
+            return
     text_left, text_right = left.decode(errors="replace"), right.decode(errors="replace")
     if (
         base.embeds_prefix(text_left)
@@ -1660,6 +1667,10 @@ def compare_metadata_file(
         and base.normalized(text_left) == other.normalized(text_right)
     ):
         report.allow(f"{rel}: path prefix only")
+    elif schema_problem is not None:
+        report.error(
+            f"{rel}: differs beyond the path prefix and is not source_md5 provenance only: {schema_problem}"
+        )
     else:
         report.error(f"{rel}: content differs beyond the path prefix")
 
@@ -1674,7 +1685,9 @@ def compare_outputs(
 ) -> Report:
     """Compare a candidate run with the baseline; every failure is in ``Report.errors``.
 
-    With no hook, only the named provenance attributes and the path prefixes may differ.
+    With no hook, only the named provenance attributes, the path prefixes and a
+    ``metadata/output_schema.json`` that differs in ``source_md5`` alone (each side's value its own
+    build digest, see ``schema_provenance_problem``) may differ.
     ``check_shared`` sees the files both runs wrote, right after the file-set comparison.
     ``strict_galaxies`` also requires byte-equal ``Galaxies`` datasets (see
     ``compare_hdf5_file``).

@@ -626,11 +626,13 @@ def test_compare_outputs_checks_galaxy_bytes_created_rows_row_order_and_partitio
         assert any("file sets differ" in line for line in report.errors), report.errors
 
 
-def _schema_run(directory: Path, schema: dict, digest: str | None) -> OutputRun:
-    """A synthetic run carrying ``metadata/output_schema.json`` and the build digest ``digest``."""
+def _schema_run(directory: Path, schema: "dict | str", digest: str | None) -> OutputRun:
+    """A synthetic run carrying ``metadata/output_schema.json`` (a dict, written as JSON, or the
+    exact text given) and the build digest ``digest``."""
     run = _write_run(directory, GALAXY_ROWS)
     (directory / "metadata").mkdir()
-    (directory / "metadata" / "output_schema.json").write_text(json.dumps(schema, indent=2))
+    text = schema if isinstance(schema, str) else json.dumps(schema, indent=2)
+    (directory / "metadata" / "output_schema.json").write_text(text)
     return replace(run, source_md5=digest)
 
 
@@ -650,8 +652,16 @@ def _first_field(**changes) -> list:
     return [{**SCHEMA_FIELDS[0], **changes}, SCHEMA_FIELDS[1]]
 
 
-#: (case, baseline schema, candidate schema, baseline digest, candidate digest, accepted).
-#: Digests default to each schema's own ``source_md5``; "unknown" is a side with no digest.
+#: Fragments of the error each refusal names (the cause, not a path-prefix message).
+WRONG_DIGEST = "source_md5 is not its build digest"
+NO_DIGEST = "has no known build digest"
+CONTENT = "content differs beyond source_md5"
+
+_NO_KEY = {"binary_record_size": 8, "fields": SCHEMA_FIELDS}
+
+#: (case, baseline schema, candidate schema, baseline digest, candidate digest, problem): the
+#: digests are given explicitly ("unknown" is a side with no digest, ``OutputRun.source_md5`` None)
+#: and ``problem`` is None for an accepted pair, else the fragment the error must name.
 SCHEMA_PROVENANCE_CASES = [
     (
         "source_md5 only, each its own digest",
@@ -659,20 +669,42 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("bbbb"),
         "aaaa",
         "bbbb",
-        True,
+        None,
     ),
-    ("baseline value is not its digest", _schema("aaaa"), _schema("bbbb"), "cccc", "bbbb", False),
-    ("candidate value is not its digest", _schema("aaaa"), _schema("bbbb"), "aaaa", "cccc", False),
-    ("baseline digest unknown", _schema("aaaa"), _schema("bbbb"), "unknown", "bbbb", False),
-    ("candidate digest unknown", _schema("aaaa"), _schema("bbbb"), "aaaa", "unknown", False),
-    ("both digests unknown", _schema("aaaa"), _schema("bbbb"), "unknown", "unknown", False),
+    (
+        "baseline value is not its digest",
+        _schema("aaaa"),
+        _schema("bbbb"),
+        "cccc",
+        "bbbb",
+        WRONG_DIGEST,
+    ),
+    (
+        "candidate value is not its digest",
+        _schema("aaaa"),
+        _schema("bbbb"),
+        "aaaa",
+        "cccc",
+        WRONG_DIGEST,
+    ),
+    ("baseline digest unknown", _schema("aaaa"), _schema("bbbb"), "unknown", "bbbb", NO_DIGEST),
+    ("candidate digest unknown", _schema("aaaa"), _schema("bbbb"), "aaaa", "unknown", NO_DIGEST),
+    ("both digests unknown", _schema("aaaa"), _schema("bbbb"), "unknown", "unknown", NO_DIGEST),
+    (
+        "no source_md5 key, formatting differs, both digests unknown",
+        json.dumps(_NO_KEY, indent=2),
+        json.dumps(_NO_KEY),
+        "unknown",
+        "unknown",
+        NO_DIGEST,
+    ),
     (
         "a field removed",
         _schema("aaaa"),
         _schema("aaaa", fields=SCHEMA_FIELDS[:1]),
         "aaaa",
         "aaaa",
-        False,
+        CONTENT,
     ),
     (
         "a field added",
@@ -680,7 +712,7 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("aaaa", fields=SCHEMA_FIELDS + [{"name": "Rvir"}]),
         "aaaa",
         "aaaa",
-        False,
+        CONTENT,
     ),
     (
         "fields reordered",
@@ -688,7 +720,7 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("aaaa", fields=SCHEMA_FIELDS[::-1]),
         "aaaa",
         "aaaa",
-        False,
+        CONTENT,
     ),
     (
         "a description",
@@ -696,7 +728,7 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("aaaa", fields=_first_field(description="x")),
         "aaaa",
         "aaaa",
-        False,
+        CONTENT,
     ),
     (
         "a unit",
@@ -704,7 +736,7 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("aaaa", fields=_first_field(units="Msun")),
         "aaaa",
         "aaaa",
-        False,
+        CONTENT,
     ),
     (
         "binary_record_size",
@@ -712,7 +744,7 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("aaaa", binary_record_size=16),
         "aaaa",
         "aaaa",
-        False,
+        CONTENT,
     ),
     (
         "a field removed and source_md5",
@@ -720,7 +752,7 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("bbbb", fields=SCHEMA_FIELDS[:1]),
         "aaaa",
         "bbbb",
-        False,
+        CONTENT,
     ),
     (
         "a unit and source_md5",
@@ -728,7 +760,7 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("bbbb", fields=_first_field(units="Msun")),
         "aaaa",
         "bbbb",
-        False,
+        CONTENT,
     ),
     (
         "binary_record_size and source_md5",
@@ -736,7 +768,7 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("bbbb", binary_record_size=16),
         "aaaa",
         "bbbb",
-        False,
+        CONTENT,
     ),
     (
         "a key added and source_md5",
@@ -744,7 +776,7 @@ SCHEMA_PROVENANCE_CASES = [
         _schema("bbbb", extra=1),
         "aaaa",
         "bbbb",
-        False,
+        CONTENT,
     ),
 ]
 
@@ -752,10 +784,11 @@ SCHEMA_PROVENANCE_CASES = [
 def test_a_schema_differing_only_in_its_build_digest_is_provenance_not_a_difference():
     """With no ``metadata_delta`` hook, a differing ``output_schema.json`` is accepted under one
     fixed label only when it differs in ``source_md5`` alone and each side's value is its own
-    build digest; any other difference, a wrong digest or an unknown digest is an error."""
+    build digest; any other difference, a wrong digest or an unknown digest is an error that
+    names its cause."""
     with tempfile.TemporaryDirectory() as tmp:
         scratch = Path(tmp)
-        for number, (case, left, right, digest_left, digest_right, accepted) in enumerate(
+        for number, (case, left, right, digest_left, digest_right, problem) in enumerate(
             SCHEMA_PROVENANCE_CASES
         ):
             digests = [
@@ -764,13 +797,14 @@ def test_a_schema_differing_only_in_its_build_digest_is_provenance_not_a_differe
             base = _schema_run(scratch / f"base-{number}", left, digests[0])
             other = _schema_run(scratch / f"other-{number}", right, digests[1])
             report = compare_outputs(base, other)
-            if accepted:
+            if problem is None:
                 assert not report.errors, f"{case}: refused: {report.errors}"
                 assert report.permitted == [SCHEMA_PROVENANCE_LABEL], f"{case}: {report.permitted}"
             else:
-                assert any(
-                    "output_schema.json" in line for line in report.errors
-                ), f"{case}: accepted, errors {report.errors}"
+                assert (
+                    len(report.errors) == 1 and problem in report.errors[0]
+                ), f"{case}: expected one error naming {problem!r}, got {report.errors}"
+                assert "output_schema.json" in report.errors[0], f"{case}: {report.errors}"
                 assert SCHEMA_PROVENANCE_LABEL not in report.permitted, f"{case}: labelled"
 
 
