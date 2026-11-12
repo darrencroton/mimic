@@ -25,7 +25,12 @@ Test cases:
     package's vertical run file's, value for value and in order, so the baseline
     pins the pipeline the package ships and a run-file change fails here until the
     input and the baseline are refreshed with it
-  - test_sage_physics_baseline: the fresh run matches the committed baseline
+  - test_sage_physics_baseline: the fresh run matches the committed baseline; its
+    output field names are the baseline's followed by the test fixtures' output
+    fields (the tier runs a test build, which appends them; see
+    fixture_output_field_names in tests/framework/harness.py)
+  - test_output_names_reject_doctored_production_fields: that name check fails when
+    a production field is added, removed or renamed, shown on doctored name lists
   - test_physics_output_finite_and_in_range: the same fresh run (it is not repeated)
     holds no NaN or Inf and no value outside its declared range, sentinels
     excluded exactly as the core scientific tier does; properties with no declared
@@ -47,7 +52,9 @@ rounding of this kind and nothing a module could form: 1e-15 is 1e-5 Msun/h.
 
 If the baseline case fails after a DELIBERATE, validated science change, refresh
 the reference. If the run file changed, first copy its SubSteps and modules block
-into the input (models/sage16/modules/_tests/input/test_physics_binary.yaml). Then:
+into the input (models/sage16/modules/_tests/input/test_physics_binary.yaml).
+Capture it with an ordinary build (make), not a test build, which appends the test
+fixtures' output fields. Then:
     ./mimic models/sage16/modules/_tests/input/test_physics_binary.yaml
     cp tests/data/output/physics-binary/model_z0.000_0 \\
        models/sage16/modules/_tests/baseline/physics-binary/
@@ -86,6 +93,7 @@ from framework import (  # noqa: E402  (path set up above)
     run_mimic_fresh,
     run_test_suite,
 )
+from framework.harness import fixture_output_field_names  # noqa: E402
 
 INPUT = (
     REPO_ROOT / "models" / "sage16" / "modules" / "_tests" / "input" / "test_physics_binary.yaml"
@@ -142,6 +150,22 @@ def _ordered(node):
     return node
 
 
+def _check_output_names(names_now, names_ref, fixture_names):
+    """Assert the current output names are the baseline's followed by the fixture outputs.
+
+    A test build appends the test fixtures' output fields after every production
+    field, so any other difference (a production field added, removed, renamed or
+    moved) is a schema change the baseline does not cover.
+    """
+    expected = tuple(names_ref) + tuple(fixture_names)
+    assert tuple(names_now) == expected, (
+        f"{RED}Output property schema mismatch (expected the baseline's fields followed by "
+        f"the test fixtures' output fields {list(fixture_names)}).\n"
+        f"Only in current: {sorted(set(names_now) - set(expected))}\n"
+        f"Only in expected: {sorted(set(expected) - set(names_now))}{NC}"
+    )
+
+
 def test_input_matches_run_file():
     """The input's SubSteps and modules block equal the package run file's, in order."""
     assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
@@ -186,11 +210,7 @@ def test_sage_physics_baseline():
         f"baseline={meta_ref['TotHalos']}{NC}"
     )
 
-    assert halos_now.dtype.names == halos_ref.dtype.names, (
-        f"{RED}Output property schema mismatch.\n"
-        f"Only in current: {sorted(set(halos_now.dtype.names) - set(halos_ref.dtype.names))}\n"
-        f"Only in baseline: {sorted(set(halos_ref.dtype.names) - set(halos_now.dtype.names))}{NC}"
-    )
+    _check_output_names(halos_now.dtype.names, halos_ref.dtype.names, fixture_output_field_names())
 
     # Compare every property (core + baryonic) for every halo.
     passed, report = compare_halos_comprehensive(
@@ -211,6 +231,32 @@ def test_sage_physics_baseline():
         f"(see this file's docstring).{NC}"
     )
     print(f"{GREEN}  ✓ SAGE galaxy-physics output matches committed baseline{NC}")
+
+
+def test_output_names_reject_doctored_production_fields():
+    """The name check fails when a production field is added, removed or renamed."""
+    assert BASELINE.exists(), f"Committed baseline not found: {BASELINE}"
+    names_ref = tuple(load_binary_halos(BASELINE)[0].dtype.names)
+    fixture = fixture_output_field_names()
+    assert len(names_ref) >= 2 and fixture, "need production and fixture names to doctor"
+
+    _check_output_names(names_ref + fixture, names_ref, fixture)
+
+    middle = len(names_ref) // 2
+    renamed = names_ref[:middle] + (names_ref[middle] + "Renamed",) + names_ref[middle + 1 :]
+    doctored = [
+        ("production field added", names_ref + ("DoctoredField",) + fixture),
+        ("production field removed", names_ref[:middle] + names_ref[middle + 1 :] + fixture),
+        ("production field renamed", renamed + fixture),
+        ("fixture fields missing", names_ref),
+    ]
+    for label, names_now in doctored:
+        try:
+            _check_output_names(names_now, names_ref, fixture)
+        except AssertionError:
+            continue
+        raise AssertionError(f"{label}: the name check accepted a doctored name list")
+    print(f"  {len(doctored)} doctored name lists rejected; the true list accepted")
 
 
 def test_physics_output_finite_and_in_range():
@@ -246,6 +292,7 @@ def main():
         [
             test_input_matches_run_file,
             test_sage_physics_baseline,
+            test_output_names_reject_doctored_production_fields,
             test_physics_output_finite_and_in_range,
         ],
         "SAGE Full-Physics Baseline (test_scientific_sage_physics_baseline.py)",

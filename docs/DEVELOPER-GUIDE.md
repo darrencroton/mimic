@@ -1672,6 +1672,7 @@ Common optional fields:
 | `range` | Validation range used by tests (output properties only) |
 | `sentinels` | Values exempt from range checks and from output unit conversion / transforms (output properties only) |
 | `notes` | Free-text developer notes (provenance, core-policy descriptions); not parsed or enforced by the generator |
+| `reservoir` | (Galaxy properties only) mapping that enters the property in the generated reservoir table `src/include/generated/reservoir_table.h`. Keys: `kind` (`reservoir`, `tracer` or `observer`); `total`, the conserved total it belongs to (required for a reservoir or tracer, refused for an observer); `parent`, the reservoir that carries a tracer (required for a tracer, refused otherwise). The property must be a scalar `double`; a reservoir or tracer may not set `init_repeat: true`. Generation refuses an unknown key, the mapping on a halo or catalog property, a tracer whose parent is missing, is not a reservoir or shares its total, two tracers of one parent in one total, a total holding both reservoirs and tracers, and members of one total with different `units`. The table lists every entry in property YAML order with its `struct GalaxyData` offset, kind, parent index and total index, plus the total names; a build with no declaration generates counts of zero |
 
 ### ModuleContext Fields
 

@@ -32,14 +32,18 @@ Test cases:
   - test_input_matches_run_file: the input's SubSteps and modules block equal the run file's, so a
     deliberate run-file change fails here until the baseline is refreshed with it
   - test_sage26_physics_baseline: a fresh run of the input matches the committed baseline at
-    every output snapshot, and the baseline covers the default pipeline's physics
+    every output snapshot, and the baseline covers the default pipeline's physics; the output
+    field names are the baseline's followed by the test fixtures' output fields (the tier runs a
+    test build, which appends them; see fixture_output_field_names in tests/framework/harness.py)
+  - test_output_names_reject_doctored_production_fields: that name check fails when a
+    production field is added, removed or renamed, shown on doctored name lists
   - test_physics_output_finite_and_in_range: the same fresh run (it is not repeated) holds no
     NaN or Inf and no value outside its declared range, in any output property at any output
     snapshot; properties with no declared range are skipped with a printed notice. A violation
     is a finding about the physics or its metadata, to be explained, never absorbed by widening
     a range or exempting a property
 
-Run: make MODEL=sage26 SIMULATION=mini-millennium && \\
+Run: make MODEL=sage26 SIMULATION=mini-millennium TEST_BUILD=yes && \\
      MODEL=sage26 SIMULATION=mini-millennium \\
      python3 models/sage26/modules/_tests/test_scientific_sage26_physics_baseline.py
 
@@ -91,6 +95,7 @@ from framework import (  # noqa: E402  (path set up above)
     run_mimic_fresh,
     run_test_suite,
 )
+from framework.harness import fixture_output_field_names  # noqa: E402
 
 # The package pair the committed baseline belongs to
 BASELINE_MODEL = "sage26"
@@ -170,6 +175,22 @@ def _fresh_outputs():
         run_mimic_fresh(INPUT, CURRENT_DIR / OUTPUT_FILES[63])
         _fresh_run_done = True
     return {snapshot: CURRENT_DIR / name for snapshot, name in OUTPUT_FILES.items()}
+
+
+def _check_output_names(names_now, names_ref, fixture_names, snapshot):
+    """Assert one snapshot's output names are the baseline's followed by the fixture outputs.
+
+    A test build appends the test fixtures' output fields after every production
+    field, so any other difference (a production field added, removed, renamed or
+    moved) is a schema change the baseline does not cover.
+    """
+    expected = tuple(names_ref) + tuple(fixture_names)
+    assert tuple(names_now) == expected, (
+        f"{RED}snapshot {snapshot}: output property names differ from the baseline's followed "
+        f"by the test fixtures' output fields {list(fixture_names)}.\n"
+        f"Only in current: {sorted(set(names_now) - set(expected))}\n"
+        f"Only in expected: {sorted(set(expected) - set(names_now))}{NC}"
+    )
 
 
 def _typed(node):
@@ -255,12 +276,8 @@ def test_sage26_physics_baseline():
             f"{RED}snapshot {snapshot}: row count mismatch, current={meta_now['TotHalos']}, "
             f"baseline={meta_ref['TotHalos']}{NC}"
         )
-        names_now = halos_now.dtype.names
-        names_ref = halos_ref.dtype.names
-        assert names_now == names_ref, (
-            f"{RED}snapshot {snapshot}: output property names differ.\n"
-            f"Only in current: {sorted(set(names_now) - set(names_ref))}\n"
-            f"Only in baseline: {sorted(set(names_ref) - set(names_now))}{NC}"
+        _check_output_names(
+            halos_now.dtype.names, halos_ref.dtype.names, fixture_output_field_names(), snapshot
         )
 
         passed, report = compare_halos_comprehensive(
@@ -282,6 +299,33 @@ def test_sage26_physics_baseline():
         f"baseline (see this file's docstring).{NC}"
     )
     print(f"{GREEN}  ✓ sage26 galaxy-physics output matches the committed baseline{NC}")
+
+
+def test_output_names_reject_doctored_production_fields():
+    """The name check fails when a production field is added, removed or renamed."""
+    baseline = BASELINE_DIR / OUTPUT_FILES[63]
+    assert baseline.exists(), f"Committed baseline not found: {baseline}"
+    names_ref = tuple(load_binary_halos(baseline)[0].dtype.names)
+    fixture = fixture_output_field_names()
+    assert len(names_ref) >= 2 and fixture, "need production and fixture names to doctor"
+
+    _check_output_names(names_ref + fixture, names_ref, fixture, 63)
+
+    middle = len(names_ref) // 2
+    renamed = names_ref[:middle] + (names_ref[middle] + "Renamed",) + names_ref[middle + 1 :]
+    doctored = [
+        ("production field added", names_ref + ("DoctoredField",) + fixture),
+        ("production field removed", names_ref[:middle] + names_ref[middle + 1 :] + fixture),
+        ("production field renamed", renamed + fixture),
+        ("fixture fields missing", names_ref),
+    ]
+    for label, names_now in doctored:
+        try:
+            _check_output_names(names_now, names_ref, fixture, 63)
+        except AssertionError:
+            continue
+        raise AssertionError(f"{label}: the name check accepted a doctored name list")
+    print(f"  {len(doctored)} doctored name lists rejected; the true list accepted")
 
 
 def test_physics_output_finite_and_in_range():
@@ -323,6 +367,7 @@ def main():
         [
             test_input_matches_run_file,
             test_sage26_physics_baseline,
+            test_output_names_reject_doctored_production_fields,
             test_physics_output_finite_and_in_range,
         ],
         "sage26 Full-Physics Baseline (test_scientific_sage26_physics_baseline.py)",

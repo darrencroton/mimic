@@ -29,7 +29,12 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 # Single source of truth for Makefile DEFAULT_* parsing lives with the
 # generator scripts' discovery helpers.
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from discovery import makefile_default, package_is_horizontal, package_test_config
+from discovery import (
+    makefile_default,
+    module_system_dir,
+    package_is_horizontal,
+    package_test_config,
+)
 
 
 def compiled_model():
@@ -89,6 +94,28 @@ def default_simulation():
 def is_default_baseline_combo():
     """Whether the selected build matches the committed baseline package pair."""
     return compiled_model() == default_model() and compiled_simulation() == default_simulation()
+
+
+def fixture_output_field_names():
+    """Return the test fixtures' output field names, in declaration order.
+
+    The framework test fixtures' galaxy properties
+    (``src/module_system/test_fixture/test_properties.yaml``) are appended after
+    every model property in a test build, which is what every test tier runs, so a
+    test build's output schema is the production schema followed by these names in
+    this order. Read from the YAML itself rather than discovery's
+    ``test_property_files()``, which is empty unless ``MIMIC_TEST_BUILD`` is set in
+    the test's own environment.
+
+    Returns:
+        tuple[str, ...]: Names of the fixture properties declared ``output: true``.
+    """
+    path = module_system_dir() / "test_fixture" / "test_properties.yaml"
+    with open(path, encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    return tuple(
+        prop["name"] for prop in data.get("galaxy_properties", []) if prop.get("output") is True
+    )
 
 
 def not_applicable_to_non_default_baseline():
