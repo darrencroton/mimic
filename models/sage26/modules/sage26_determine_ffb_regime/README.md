@@ -39,6 +39,7 @@ Satellites and orphans are classified like centrals, and the CGM regime does not
 
 ## Tests
 
-- `_tests/test_unit_sage26_determine_ffb_regime.c`: no writes at `EnhancedStarFormationOn 0`, the classification of each `Type`, independence of the CGM regime, the inputs the result depends on (narrowed `Mvir`, current redshift, draw keyed on `MostBoundID` and the current snapshot), the tie through the seam, and every parameter refusal and misplacement.
-- `_tests/test_integration_sage26_determine_ffb_regime.py`: runs the module in Mimic and checks the no-op at `EnhancedStarFormationOn 0`, the written `FFBRegime` at 1, and that `init()` refusals and the cross-module guards reach the run's exit status.
+- `_tests/test_unit_sage26_determine_ffb_regime.c`: no writes at `EnhancedStarFormationOn 0`, the classification of each `Type`, independence of the CGM regime, the inputs the result depends on (narrowed `Mvir`, current redshift, draw keyed on `MostBoundID` and the current snapshot), the tie through the seam, and the misplacements.
+- `_tests/test_integration_sage26_determine_ffb_regime.py`: runs the module in Mimic and checks the no-op at `EnhancedStarFormationOn 0` and the written `FFBRegime` at 1.
 - The shared arithmetic is tested by `shared/_tests/test_unit_sage_ffb_regime.c`.
+- The parameter refusals and the placement checks are also covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c` and `../_tests/test_unit_sage_dependency_contracts.c`.

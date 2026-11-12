@@ -12,9 +12,6 @@
  * Software quality:
  * - test_module_lifecycle: registration, module_system_init with the module in pre_timestep,
  *   cleanup, no leaks
- * - test_enhanced_sf_missing_refused, test_enhanced_sf_values: the required
- *   EnhancedStarFormationOn: missing fails init naming it; 2, 3 and -1 are refused
- *   naming it; 0 and 1 are accepted
  * - test_placement_refused: a substep phase, post_timestep, twice in pre_timestep,
  *   process_by_galaxy, before sage26_prepare_infall_budget and before sage26_determine_regime are
  *   each refused, naming the module or the predecessor; after both, and alone, are accepted
@@ -22,15 +19,19 @@
  *   sage26_ffb_star_formation, a configuration without the transaction in a substep phase as
  *   process_by_galaxy (absent, or there as process_full_halo); at 0 it accepts both
  *
+ * The required EnhancedStarFormationOn and its refused values are in
+ * test_unit_sage26_parameter_refusals.c.
+ *
  * Every test that initialises the module configures sage26_ffb_star_formation by galaxy in a
  * substep phase, as the cross-module guard requires at EnhancedStarFormationOn 1.
  *
  * Behaviour:
  * - test_off_writes_nothing: EnhancedStarFormationOn 0 writes nothing and classifies no row
- * - test_types_classified_type3_kept: Types 0, 1 and 2 are classified (no Type restriction); a
+ * - test_empty_input_ignored: a NULL row array, no rows and a negative row count return 0 and
+ *   write nothing
+ * - test_types_classified_type3_kept: Types 0, 1 and 2 are classified (no Type restriction) with
+ *   the same fraction whatever the CGM Regime (-1, 0, 1: SAGE26 applies no regime restriction); a
  *   Type 3 row and a galaxy-less row keep a seeded FFBRegime; an input FFBRegime is overwritten
- * - test_cgm_regime_ignored: rows identical but for their CGM Regime (-1, 0, 1) get the same
- *   FFBRegime from the production draw
  * - test_reads_narrowed_mvir: the fraction is SAGE26's of the float Mvir, not the core's double
  * - test_reads_current_redshift: the fraction uses ctx->redshift, not the redshift of the row's
  *   stored snapshot
@@ -38,8 +39,6 @@
  *   UniqueGalaxyID or the row's stored SnapNum
  * - test_seam_tie: a deviate equal to the fraction gives 0, one ulp below gives 1 (the strict
  *   comparison)
- * - test_initial_boundary_row: a row in the initial-boundary state (stored SnapNum -1, dT 0) is
- *   classified without error
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -96,22 +95,6 @@ static double from_bits(const uint64_t bits) {
   double value;
   memcpy(&value, &bits, sizeof(value));
   return value;
-}
-
-/** @brief Bit pattern of a double, for exact comparisons */
-static uint64_t bits_of(const double v) {
-  uint64_t b;
-  memcpy(&b, &v, sizeof(b));
-  return b;
-}
-
-/** @brief Read all content from a FILE* into a static buffer (valid until the next call) */
-static const char *read_captured_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
 }
 
 /** @brief Set pre_timestep to the given entries, each process_full_halo */
@@ -305,40 +288,6 @@ int test_module_lifecycle(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_enhanced_sf_missing_refused
- * @brief   Init fails without EnhancedStarFormationOn, naming it: required, no default
- */
-int test_enhanced_sf_missing_refused(void) {
-  const char *log = "";
-  const int status = init_captured(NULL, NULL, &log);
-  printf("\n  without EnhancedStarFormationOn: init %d", status);
-  TEST_ASSERT(status != 0, "init must fail when EnhancedStarFormationOn is missing");
-  TEST_ASSERT(strstr(log, "EnhancedStarFormationOn") != NULL,
-              "the error must name EnhancedStarFormationOn");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_enhanced_sf_values
- * @brief   EnhancedStarFormationOn 2 (BK25, not supported), 3 and -1 are refused naming the
- *          parameter; 0 and 1 initialise
- */
-int test_enhanced_sf_values(void) {
-  const char *refused[] = {"2", "3", "-1"};
-  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
-    const char *log = "";
-    const int status = init_captured(refused[k], NULL, &log);
-    printf("\n  EnhancedStarFormationOn %s: init %d", refused[k], status);
-    TEST_ASSERT(status != 0, "init must refuse an unsupported EnhancedStarFormationOn");
-    TEST_ASSERT(strstr(log, "EnhancedStarFormationOn") != NULL,
-                "the error must name EnhancedStarFormationOn");
-  }
-  TEST_ASSERT(init_ok("0") == 0, "init must accept EnhancedStarFormationOn 0");
-  TEST_ASSERT(init_ok("1") == 0, "init must accept EnhancedStarFormationOn 1");
-  return TEST_PASS;
-}
-
 /* The placements, each arranged after init_captured() puts the module alone in pre_timestep */
 static void arrange_substep_only(void) {
   MimicConfig.num_pre_timestep = 0;
@@ -492,10 +441,46 @@ int test_off_writes_nothing(void) {
 }
 
 /**
+ * @test    test_empty_input_ignored
+ * @brief   A NULL row array, no rows and a negative row count return 0 and classify and write
+ *          nothing, even at EnhancedStarFormationOn 1 (the early return before any row is read)
+ */
+int test_empty_input_ignored(void) {
+  TEST_ASSERT(init_ok("1") == 0, "init must succeed");
+  struct Halo halo;
+  struct GalaxyData gal;
+  make_row(&halo, &gal, 0, (double)mvir_at_offset(7.0, 1.0), 61, 0);
+  const struct GalaxyData gal_before = gal;
+  const struct {
+    const char *label;
+    struct Halo *halos;
+    int ngal;
+  } inputs[] = {{"NULL rows", NULL, 1}, {"no rows", &halo, 0}, {"negative count", &halo, -1}};
+  for (size_t k = 0; k < sizeof(inputs) / sizeof(inputs[0]); k++) {
+    struct recording_seam s;
+    observe_only(&s);
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.params = &MimicConfig;
+    ctx.snapshot_number = 12;
+    ctx.redshift = 7.0;
+    const struct Sage26FfbSeam seam = {recording_deviate, recording_observe, &s};
+    sage26_determine_ffb_regime_set_test_seam(&seam);
+    const int status = sage26_determine_ffb_regime_process(&ctx, inputs[k].halos, inputs[k].ngal);
+    sage26_determine_ffb_regime_set_test_seam(NULL);
+    printf("\n  %s: status %d, rows classified %d", inputs[k].label, status, s.observed);
+    TEST_ASSERT(status == 0, "process must return 0");
+    TEST_ASSERT(s.observed == 0, "no row may be classified");
+    TEST_ASSERT(memcmp(&gal, &gal_before, sizeof(gal)) == 0, "nothing may be written");
+  }
+  return TEST_PASS;
+}
+
+/**
  * @test    test_types_classified_type3_kept
- * @brief   Types 0, 1 and 2 are each classified, with no Type restriction; Type 3 (SAGE26's
- *          mergeType > 0) and galaxy-less rows keep a seeded FFBRegime; an input FFBRegime is
- *          overwritten
+ * @brief   Types 0, 1 and 2 are each classified, with no Type restriction and, whatever their CGM
+ *          Regime (-1, 0, 1), with the same fraction; Type 3 (SAGE26's mergeType > 0) and
+ *          galaxy-less rows keep a seeded FFBRegime; an input FFBRegime is overwritten
  */
 int test_types_classified_type3_kept(void) {
   TEST_ASSERT(init_ok("1") == 0, "init must succeed");
@@ -507,6 +492,9 @@ int test_types_classified_type3_kept(void) {
   make_row(&halos[0], &gals[0], 0, (double)m, 10, 0); /* deviate below f -> 1 */
   make_row(&halos[1], &gals[1], 1, (double)m, 11, 0); /* satellite, deviate below f -> 1 */
   make_row(&halos[2], &gals[2], 2, (double)m, 12, 0); /* Type 2 with a mass, below f -> 1 */
+  for (int i = 0; i < 3; i++) {
+    gals[i].Regime = i - 1; /* SAGE26 applies no regime restriction: CGM Regime -1, 0, 1 */
+  }
   make_row(&halos[3], &gals[3], 2, 0.0, 13, 1);       /* orphan, Mvir 0: f 0 -> 0 */
   make_row(&halos[4], &gals[4], 3, (double)m, 14, 7); /* merged: skipped, keeps 7 */
   make_row(&halos[5], &gals[5], 0, (double)m, 15, 5); /* no galaxy: skipped */
@@ -524,48 +512,15 @@ int test_types_classified_type3_kept(void) {
   TEST_ASSERT(f > 0.0, "the chosen mass must have a positive fraction");
   TEST_ASSERT(gals[0].FFBRegime == 1 && gals[1].FFBRegime == 1 && gals[2].FFBRegime == 1,
               "Types 0, 1 and 2 with a positive fraction and a lower deviate must be FFB");
+  for (int i = 0; i < 3; i++) {
+    TEST_ASSERT(double_bits(s.trace[i].f_ffb) == double_bits(f),
+                "the fraction must be SAGE26's whatever the row's CGM Regime");
+  }
   TEST_ASSERT(gals[3].FFBRegime == 0, "an orphan with Mvir 0 must be overwritten with 0");
   TEST_ASSERT(gals[4].FFBRegime == 7 && gals[5].FFBRegime == 5,
               "the Type 3 and galaxy-less rows must keep their FFBRegime");
   TEST_ASSERT(s.observed == 4 && !s.observed_row[4] && !s.observed_row[5],
               "exactly the four rows that are not Type 3 and have a galaxy must be classified");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_cgm_regime_ignored
- * @brief   Rows that differ only in their CGM Regime (-1, 0 and 1) get the same FFBRegime from the
- *          production draw (SAGE26 applies no regime restriction)
- */
-int test_cgm_regime_ignored(void) {
-  TEST_ASSERT(init_ok("1") == 0, "init must succeed");
-  const double z = 7.0;
-  /* At snapshot 12 MostBoundID 4896973 draws ~0.4457; a mass 0.05 dex above the threshold has a
-   * fraction ~0.68 above it, and one 0.05 dex below ~0.32 below it */
-  const double draw = from_bits(DEVIATE_4896973_SNAP12);
-  const float m_hi = mvir_at_offset(z, 0.05);
-  const float m_lo = mvir_at_offset(z, -0.05);
-  const double f_hi = sage26_ffb_fraction(m_hi, z, TEST_HUBBLE_H);
-  const double f_lo = sage26_ffb_fraction(m_lo, z, TEST_HUBBLE_H);
-  TEST_ASSERT(draw < f_hi && !(draw < f_lo), "the two masses must straddle the draw");
-  const float masses[2] = {m_hi, m_lo};
-  const int expected[2] = {1, 0};
-  for (int k = 0; k < 2; k++) {
-    struct Halo halos[3];
-    struct GalaxyData gals[3];
-    const int regimes[3] = {-1, 0, 1};
-    for (int i = 0; i < 3; i++) {
-      make_row(&halos[i], &gals[i], 0, (double)masses[k], 4896973, 1 - expected[k]);
-      gals[i].Regime = regimes[i];
-    }
-    TEST_ASSERT(run_process(halos, 3, NULL, 12, z) == 0, "process must succeed");
-    printf("\n  f %.6g against the draw %.6g: FFBRegime %d %d %d for Regime -1, 0, 1",
-           k == 0 ? f_hi : f_lo, draw, gals[0].FFBRegime, gals[1].FFBRegime, gals[2].FFBRegime);
-    for (int i = 0; i < 3; i++) {
-      TEST_ASSERT(gals[i].FFBRegime == expected[k],
-                  "every CGM Regime must give the FFBRegime of the draw against the fraction");
-    }
-  }
   return TEST_PASS;
 }
 
@@ -594,9 +549,9 @@ int test_reads_narrowed_mvir(void) {
   TEST_ASSERT(run_process(halos, 1, &s, 12, z) == 0, "process must succeed");
   printf("\n  float fraction %a, module fraction %a, FFBRegime %d", f_float, s.trace[0].f_ffb,
          gals[0].FFBRegime);
-  TEST_ASSERT(bits_of(s.trace[0].mvir) == bits_of((double)m),
+  TEST_ASSERT(double_bits(s.trace[0].mvir) == double_bits((double)m),
               "the classifier must read the widened float Mvir");
-  TEST_ASSERT(bits_of(s.trace[0].f_ffb) == bits_of(f_float),
+  TEST_ASSERT(double_bits(s.trace[0].f_ffb) == double_bits(f_float),
               "the fraction must be SAGE26's of the float Mvir");
   TEST_ASSERT(gals[0].FFBRegime == 0, "a deviate equal to the float's fraction must give 0");
   return TEST_PASS;
@@ -630,8 +585,8 @@ int test_reads_current_redshift(void) {
   TEST_ASSERT(run_process(halos, 1, &s, 12, z_current) == 0, "process must succeed");
   printf("\n  fraction at z %g: %.17g (at the stored z %g: %.17g); FFBRegime %d", z_current,
          f_current, z_stored, f_stored, gals[0].FFBRegime);
-  TEST_ASSERT(bits_of(s.trace[0].redshift) == bits_of(z_current) &&
-                  bits_of(s.trace[0].f_ffb) == bits_of(f_current),
+  TEST_ASSERT(double_bits(s.trace[0].redshift) == double_bits(z_current) &&
+                  double_bits(s.trace[0].f_ffb) == double_bits(f_current),
               "the fraction must be at the current redshift");
   TEST_ASSERT(gals[0].FFBRegime == 0, "a deviate equal to the current fraction must give 0");
   return TEST_PASS;
@@ -665,7 +620,7 @@ int test_draw_keys(void) {
   TEST_ASSERT(run_process(halos, 1, &s, 0, z) == 0, "process must succeed");
   printf("\n  MostBoundID 0 / UniqueGalaxyID 1 at snapshot 0: draw %a, FFBRegime %d",
          s.trace[0].draw, gals[0].FFBRegime);
-  TEST_ASSERT(bits_of(s.trace[0].draw) == DEVIATE_ID0_SNAP0,
+  TEST_ASSERT(double_bits(s.trace[0].draw) == DEVIATE_ID0_SNAP0,
               "the draw must be halo_uniform of MostBoundID 0 at snapshot 0");
   TEST_ASSERT(gals[0].FFBRegime == 0, "MostBoundID's draw above the fraction must give 0");
 
@@ -681,7 +636,7 @@ int test_draw_keys(void) {
   TEST_ASSERT(run_process(halos, 1, &s, 12, z) == 0, "process must succeed");
   printf("\n  MostBoundID 4896973 at snapshot 12 (stored 11): draw %a, FFBRegime %d",
          s.trace[0].draw, gals[0].FFBRegime);
-  TEST_ASSERT(bits_of(s.trace[0].draw) == DEVIATE_4896973_SNAP12,
+  TEST_ASSERT(double_bits(s.trace[0].draw) == DEVIATE_4896973_SNAP12,
               "the draw must be halo_uniform at the current snapshot");
   TEST_ASSERT(gals[0].FFBRegime == 1, "the current snapshot's draw below the fraction must give 1");
   return TEST_PASS;
@@ -708,35 +663,11 @@ int test_seam_tie(void) {
     s.deviate_for_row[0] = deviates[d];
     TEST_ASSERT(run_process(halos, 1, &s, 12, z) == 0, "process must succeed");
     printf("\n  fraction %a, deviate %a -> FFBRegime %d", f, deviates[d], gals[0].FFBRegime);
-    TEST_ASSERT(bits_of(s.trace[0].deviate) == bits_of(deviates[d]),
+    TEST_ASSERT(double_bits(s.trace[0].deviate) == double_bits(deviates[d]),
                 "the seam's deviate must be the one compared");
     TEST_ASSERT(gals[0].FFBRegime == expected[d],
                 "FFBRegime must be 1 exactly when the deviate is below the fraction");
   }
-  return TEST_PASS;
-}
-
-/**
- * @test    test_initial_boundary_row
- * @brief   A row in the initial-boundary state (stored SnapNum -1, dT 0) is classified like any
- *          other: the classifier reads no snapshot-indexed table
- */
-int test_initial_boundary_row(void) {
-  TEST_ASSERT(init_ok("1") == 0, "init must succeed");
-  const double z = 7.0;
-  struct Halo halos[1];
-  struct GalaxyData gals[1];
-  make_row(&halos[0], &gals[0], 0, INFINITY, 51, 0); /* fraction exactly 1 */
-  halos[0].SnapNum = -1;
-  halos[0].dT = 0.0;
-  struct recording_seam s;
-  observe_only(&s);
-  s.deviate_for_row[0] = 0.5;
-  const int status = run_process(halos, 1, &s, 0, z);
-  printf("\n  SnapNum -1, dT 0: status %d, FFBRegime %d", status, gals[0].FFBRegime);
-  TEST_ASSERT(status == 0, "the initial-boundary row must be classified without error");
-  TEST_ASSERT(s.observed == 1 && s.trace[0].f_ffb == 1.0 && gals[0].FFBRegime == 1,
-              "the row must be classified (an infinite Mvir has fraction exactly 1)");
   return TEST_PASS;
 }
 
@@ -755,20 +686,17 @@ int main(void) {
 
   printf("\n%s--- Software Quality Tests ---%s\n", BLUE, NC);
   TEST_RUN(test_module_lifecycle);
-  TEST_RUN(test_enhanced_sf_missing_refused);
-  TEST_RUN(test_enhanced_sf_values);
   TEST_RUN(test_placement_refused);
   TEST_RUN(test_requires_transaction);
 
   printf("\n%s--- Classifier Tests ---%s\n", BLUE, NC);
   TEST_RUN(test_off_writes_nothing);
+  TEST_RUN(test_empty_input_ignored);
   TEST_RUN(test_types_classified_type3_kept);
-  TEST_RUN(test_cgm_regime_ignored);
   TEST_RUN(test_reads_narrowed_mvir);
   TEST_RUN(test_reads_current_redshift);
   TEST_RUN(test_draw_keys);
   TEST_RUN(test_seam_tie);
-  TEST_RUN(test_initial_boundary_row);
 
   TEST_SUMMARY();
   return TEST_RESULT();

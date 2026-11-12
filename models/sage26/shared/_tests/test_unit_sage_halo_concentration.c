@@ -15,16 +15,15 @@
  *     at its bound 1.0 and c_hi ends at SAGE26's inline value (the double just above 1)
  *   - test_jump: the last ratio below f(2.5546875) returns exactly 1.0, the next SAGE26's inline
  *     result, 2.5546875 or more
- *   - test_typical_ratio: Vmax / Vvir 1.5 gives SAGE26's inline return, ratio_sq and bracket
  *   - test_tie_at_visited_midpoint: a ratio_sq equal to f at the visited midpoint 7.21875 (the
  *     strict f_mid < ratio_sq moves c_hi) gives SAGE26's inline result
- *   - test_saturation: Vmax / Vvir 10 returns exactly 200 with c_hi at its bound 200
- *   - test_float_store_visible: the float store of a typical result is SAGE26's (float) of the
- *     inline double, and differs from the double
+ *   - test_typical_and_saturated_ratios: a table of Vmax / Vvir ratios, each equal to SAGE26's
+ *     inline loop bit for bit: 1.5 (typical), 10 (saturates at exactly 200, c_hi at its bound)
+ *     and a NaN Vmax (it passes the guards, so ratio_sq is NaN and the result is exactly 1.0)
  *   - test_dispatch_selects_by_type: Type 0 takes the current pair, 1, 2 and -1 the infall pair,
  *     each float widened exactly
  *   - test_get_halo_concentration: mode 0 returns 0 forming nothing; mode 3 inverts the selected
- *     pair (SAGE26's inline result); an unsupported mode returns NaN
+ *     pair (SAGE26's inline result); an unsupported mode (1, 2, -1 or 4) returns NaN
  *   - test_validator: 0 and 3 accepted; 1, 2, -1 and 4 refused naming ConcentrationOn
  */
 
@@ -111,27 +110,6 @@ static double helper(const double vmax_in, const double vvir_in,
   return mimic_sage_concentration_from_vmax_vvir(vmax_runtime, vvir_runtime, locals);
 }
 
-static uint64_t bits64(const double v) {
-  uint64_t b;
-  memcpy(&b, &v, sizeof(b));
-  return b;
-}
-
-static uint32_t bits32(const float v) {
-  uint32_t b;
-  memcpy(&b, &v, sizeof(b));
-  return b;
-}
-
-/** @brief Read all content from a FILE* into a static buffer (valid until the next call) */
-static const char *read_captured_log(FILE *fp) {
-  static char buf[4096];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
-
 /**
  * @brief Compare the helper with the inline loop bit for bit: return, final bracket, 60 steps
  * @return 0 when everything agrees; otherwise the number of disagreements (each printed)
@@ -146,10 +124,11 @@ static int differs_from_inline(const double vmax, const double vvir, const char 
          what, vmax, vvir, got, expected, l.c_lo, l.c_hi, r.c_lo, r.c_hi, l.iterations, r.steps,
          r.first_tie_step);
   int problems = 0;
-  problems += bits64(got) != bits64(expected);
+  problems += double_bits(got) != double_bits(expected);
   problems += l.iterations != 60 || r.steps != 60;
   problems += l.bracket_absent != 0;
-  problems += bits64(l.c_lo) != bits64(r.c_lo) || bits64(l.c_hi) != bits64(r.c_hi);
+  problems +=
+      double_bits(l.c_lo) != double_bits(r.c_lo) || double_bits(l.c_hi) != double_bits(r.c_hi);
   return problems;
 }
 
@@ -171,7 +150,7 @@ int test_velocity_guards(void) {
     struct MimicSageConcentrationLocals l;
     const double c = helper(pairs[k][0], pairs[k][1], &l);
     printf("\n  Vmax %g Vvir %g -> %a (guard %d)", pairs[k][0], pairs[k][1], c, l.guard_returned);
-    TEST_ASSERT(bits64(c) == bits64(0.0), "a non-positive velocity must return +0");
+    TEST_ASSERT(double_bits(c) == double_bits(0.0), "a non-positive velocity must return +0");
     TEST_ASSERT(l.guard_returned == 1 && l.below_one == -1, "the velocity guard must return");
     TEST_ASSERT(l.ratio_sq_absent == 1 && l.bracket_absent == 1 && l.iterations == 0,
                 "nothing must be formed after the guard");
@@ -187,7 +166,7 @@ int test_ratio_below_one(void) {
   struct MimicSageConcentrationLocals l;
   const double c = helper(180.0, 200.0, &l);
   printf("\n  Vmax 180 Vvir 200: %a, ratio_sq %.17g, below_one %d", c, l.ratio_sq, l.below_one);
-  TEST_ASSERT(bits64(c) == bits64(0.0), "a ratio below 1 must return +0");
+  TEST_ASSERT(double_bits(c) == double_bits(0.0), "a ratio below 1 must return +0");
   TEST_ASSERT(l.guard_returned == 0 && l.below_one == 1, "the ratio test must return");
   TEST_ASSERT(l.ratio_sq_absent == 0 && l.ratio_sq == (0.9 * 0.9),
               "ratio_sq must be (180 / 200) squared");
@@ -243,18 +222,6 @@ int test_jump(void) {
 }
 
 /**
- * @test    test_typical_ratio
- * @brief   Vmax / Vvir 1.5 (km/s velocities): SAGE26's inline return, ratio_sq and bracket
- */
-int test_typical_ratio(void) {
-  struct MimicSageConcentrationLocals l;
-  (void)helper(300.0, 200.0, &l);
-  TEST_ASSERT(l.ratio_sq == 2.25, "ratio_sq must be exactly 2.25");
-  TEST_ASSERT(differs_from_inline(300.0, 200.0, "ratio 1.5") == 0, INLINE_MESSAGE);
-  return TEST_PASS;
-}
-
-/**
  * @test    test_tie_at_visited_midpoint
  * @brief   ratio_sq equal to f at the visited midpoint 7.21875 (the inline loop reports the tie):
  *          the strict f_mid < ratio_sq moves c_hi, and the result is SAGE26's inline one
@@ -266,36 +233,41 @@ int test_tie_at_visited_midpoint(void) {
 }
 
 /**
- * @test    test_saturation
- * @brief   Vmax / Vvir 10 (ratio_sq 100, far beyond f(200) ~ 10.04): no upper rejection, c_lo
- *          rises every step, c_hi stays at its bound 200 and the return is exactly 200
+ * @test    test_typical_and_saturated_ratios
+ * @brief   Each ratio equals SAGE26's inline loop bit for bit; the rows with a literal result
+ *          also pin it
+ *
+ * Vmax / Vvir 1.5 is the typical path. Vmax / Vvir 10 (ratio_sq 100, far beyond f(200) ~ 10.04)
+ * has no upper rejection: c_lo rises every step, c_hi stays at its bound 200 and the return is
+ * exactly 200. A NaN Vmax passes both velocity guards (every comparison with NaN is false), so
+ * ratio_sq is NaN, f_mid < ratio_sq never holds and c_hi falls onto c_lo = 1: exactly 1.0.
  */
-int test_saturation(void) {
-  struct MimicSageConcentrationLocals l;
-  const double c = helper(2000.0, 200.0, &l);
-  printf("\n  Vmax / Vvir 10: %a, bracket [%a, %a]", c, l.c_lo, l.c_hi);
-  TEST_ASSERT(c == 200.0, "a ratio beyond f(200) must saturate at exactly 200");
-  TEST_ASSERT(l.c_hi == MIMIC_SAGE_CONCENTRATION_C_HI && l.c_hi == 200.0,
-              "c_hi must stay at its bound 200");
-  TEST_ASSERT(differs_from_inline(2000.0, 200.0, "saturation") == 0, INLINE_MESSAGE);
-  return TEST_PASS;
-}
-
-/**
- * @test    test_float_store_visible
- * @brief   The float store SAGE26's joining makes, (float) of the double, of a typical result:
- *          SAGE26's inline double narrowed, and not equal to it
- */
-int test_float_store_visible(void) {
-  struct inline_result r;
-  const double expected = sage26_inline_inversion(330.0, 200.0, &r);
-  const double got = helper(330.0, 200.0, NULL);
-  const float store = (float)got;
-  printf("\n  ratio 1.65: double %.17g, float store %.9g (0x%08x)", got, (double)store,
-         bits32(store));
-  TEST_ASSERT(bits32(store) == bits32((float)expected),
-              "the float store must be SAGE26's inline double narrowed");
-  TEST_ASSERT((double)store != expected, "the narrowing must be visible for this input");
+int test_typical_and_saturated_ratios(void) {
+  static const struct {
+    const char *name;
+    double vmax;
+    double vvir;
+    double ratio_sq;     /* the literal ratio_sq (NaN for a NaN ratio) */
+    double exact_return; /* the literal result, or 0 when only the inline loop gives it */
+  } rows[] = {
+      {"typical ratio 1.5", 300.0, 200.0, 2.25, 0.0},
+      {"ratio 10 saturates at 200", 2000.0, 200.0, 100.0, 200.0},
+      {"a NaN Vmax passes the guards and returns 1.0", NAN, 200.0, NAN, 1.0},
+  };
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    struct MimicSageConcentrationLocals l;
+    const double c = helper(rows[i].vmax, rows[i].vvir, &l);
+    printf("\n  %s: %.17g, bracket [%a, %a]", rows[i].name, c, l.c_lo, l.c_hi);
+    TEST_ASSERT(isnan(rows[i].ratio_sq) ? isnan(l.ratio_sq) : l.ratio_sq == rows[i].ratio_sq,
+                rows[i].name);
+    if (rows[i].exact_return != 0.0) {
+      TEST_ASSERT(c == rows[i].exact_return, rows[i].name);
+    }
+    if (rows[i].exact_return == MIMIC_SAGE_CONCENTRATION_C_HI) {
+      TEST_ASSERT(l.c_hi == MIMIC_SAGE_CONCENTRATION_C_HI, "a saturated c_hi stays at its bound");
+    }
+    TEST_ASSERT(differs_from_inline(rows[i].vmax, rows[i].vvir, rows[i].name) == 0, INLINE_MESSAGE);
+  }
   return TEST_PASS;
 }
 
@@ -340,24 +312,30 @@ int test_get_halo_concentration(void) {
 
   double c = mimic_sage_get_halo_concentration(0, 0, vmax, vvir, infall_vmax, infall_vvir, &l);
   printf("\n  mode 0: %a, selected %d", c, l.selected_infall);
-  TEST_ASSERT(bits64(c) == bits64(0.0) && l.selected_infall == -1 && l.pair_absent == 1,
+  TEST_ASSERT(double_bits(c) == double_bits(0.0) && l.selected_infall == -1 && l.pair_absent == 1,
               "mode 0 must return 0 with no pair selected");
   TEST_ASSERT(l.inversion.ratio_sq_absent == 1 && l.inversion.bracket_absent == 1,
               "mode 0 must form nothing");
 
   c = mimic_sage_get_halo_concentration(3, 0, vmax, vvir, infall_vmax, infall_vvir, &l);
   printf("\n  mode 3, Type 0: %.17g (inline %.17g)", c, current);
-  TEST_ASSERT(bits64(c) == bits64(current) && l.selected_infall == 0,
+  TEST_ASSERT(double_bits(c) == double_bits(current) && l.selected_infall == 0,
               "Type 0 must invert the current pair");
   c = mimic_sage_get_halo_concentration(3, 1, vmax, vvir, infall_vmax, infall_vvir, &l);
   printf("\n  mode 3, Type 1: %a", c);
-  TEST_ASSERT(bits64(c) == bits64(0.0) && l.selected_infall == 1 && l.inversion.below_one == 1,
+  TEST_ASSERT(double_bits(c) == double_bits(0.0) && l.selected_infall == 1 &&
+                  l.inversion.below_one == 1,
               "Type 1 must invert the infall pair (ratio below 1)");
   c = mimic_sage_get_halo_concentration(3, 1, infall_vmax, infall_vvir, vmax, vvir, &l);
-  TEST_ASSERT(bits64(c) == bits64(current), "Type 1 must invert the infall pair (ratio 1.5)");
+  TEST_ASSERT(double_bits(c) == double_bits(current),
+              "Type 1 must invert the infall pair (ratio 1.5)");
 
-  c = mimic_sage_get_halo_concentration(1, 0, vmax, vvir, infall_vmax, infall_vvir, &l);
-  TEST_ASSERT(isnan(c), "an unsupported mode must return NaN");
+  const int unsupported[4] = {1, 2, -1, 4};
+  for (int k = 0; k < 4; k++) {
+    c = mimic_sage_get_halo_concentration(unsupported[k], 0, vmax, vvir, infall_vmax, infall_vvir,
+                                          &l);
+    TEST_ASSERT(isnan(c), "an unsupported mode must return NaN");
+  }
   return TEST_PASS;
 }
 
@@ -404,10 +382,8 @@ int main(void) {
   TEST_RUN(test_ratio_below_one);
   TEST_RUN(test_ratio_exactly_one);
   TEST_RUN(test_jump);
-  TEST_RUN(test_typical_ratio);
   TEST_RUN(test_tie_at_visited_midpoint);
-  TEST_RUN(test_saturation);
-  TEST_RUN(test_float_store_visible);
+  TEST_RUN(test_typical_and_saturated_ratios);
 
   printf("\n%s--- The Dispatch and the Validator ---%s\n", BLUE, NC);
   TEST_RUN(test_dispatch_selects_by_type);

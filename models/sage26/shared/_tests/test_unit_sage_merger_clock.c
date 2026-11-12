@@ -7,11 +7,10 @@
  * Test cases:
  *   - test_same_halo: equal halo numbers return -1 with nothing formed
  *   - test_formula: the clock is MergerTimeFactor * 1.17 R^2 V / (ln(1 + Nm/Ns) G M)
- *   - test_particle_floor: satellite Len 9 returns -1, Len 10 a clock
- *   - test_invalid_mass: a non-positive satellite mass returns -1
- *   - test_zero_satellite_len: Len 0 forms an infinite Coulomb logarithm and the
- *     particle floor returns -1 (no extra guard)
- *   - test_zero_coulomb: a zero mother Len gives log1p(0) = 0 and -1
+ *   - test_guards: one table of the guard `SatelliteMass > 0 && coulomb > 0 && Len >= 10`:
+ *     Len 9 returns -1 and Len 10 a clock; a non-positive satellite mass, Len 0 (an infinite
+ *     Coulomb logarithm formed first, without a trap, then refused by the particle floor) and
+ *     a zero mother Len (log1p(0) = 0) each return -1 with the mother's velocity unformed
  *   - test_cap: a clock at or above 999 is capped to 998
  */
 
@@ -93,60 +92,46 @@ static int test_formula(void) {
   return TEST_PASS;
 }
 
-static int test_particle_floor(void) {
-  set_cosmology();
-  struct Halo sat, mother;
-  struct GalaxyData gal;
-  make_pair(&sat, &gal, &mother, 9, 9 * 0.086, 1000, 100.0);
-  TEST_ASSERT(mimic_sage_estimate_merging_time(&sat, &mother, REDSHIFT, 2.0, MimicConfig.G, NULL) ==
-                  -1.0,
-              "a satellite of 9 particles returns -1");
-  sat.Len = 10;
-  TEST_ASSERT(mimic_sage_estimate_merging_time(&sat, &mother, REDSHIFT, 2.0, MimicConfig.G, NULL) >
-                  0.0,
-              "a satellite of 10 particles gets a clock (>= 10)");
-  return TEST_PASS;
-}
-
-static int test_invalid_mass(void) {
-  set_cosmology();
-  struct Halo sat, mother;
-  struct GalaxyData gal;
-  struct MimicSageMergerClockTrace trace;
-  make_pair(&sat, &gal, &mother, 100, 0.0, 1000, 100.0);
-  gal.StellarMass = 0.0f;
-  gal.ColdGas = 0.0f;
-  TEST_ASSERT(
-      mimic_sage_estimate_merging_time(&sat, &mother, REDSHIFT, 2.0, MimicConfig.G, &trace) == -1.0,
-      "zero satellite mass returns -1");
-  TEST_ASSERT(trace.guard_passed == 0 && trace.mother_virial_velocity_absent == 1 &&
-                  trace.mergtime_pre_cap == -1.0 && trace.capped == 0,
-              "the guard fails before the mother's velocity is formed");
-  return TEST_PASS;
-}
-
-static int test_zero_satellite_len(void) {
-  set_cosmology();
-  struct Halo sat, mother;
-  struct GalaxyData gal;
-  struct MimicSageMergerClockTrace trace;
-  make_pair(&sat, &gal, &mother, 0, 1.0, 1000, 100.0);
-  TEST_ASSERT(
-      mimic_sage_estimate_merging_time(&sat, &mother, REDSHIFT, 2.0, MimicConfig.G, &trace) == -1.0,
-      "a satellite of 0 particles returns -1");
-  TEST_ASSERT(isinf(trace.coulomb) && trace.coulomb > 0.0,
-              "the Coulomb logarithm is formed first, +inf, without a trap");
-  return TEST_PASS;
-}
-
-static int test_zero_coulomb(void) {
-  set_cosmology();
-  struct Halo sat, mother;
-  struct GalaxyData gal;
-  make_pair(&sat, &gal, &mother, 100, 8.6, 0, 100.0);
-  TEST_ASSERT(mimic_sage_estimate_merging_time(&sat, &mother, REDSHIFT, 2.0, MimicConfig.G, NULL) ==
-                  -1.0,
-              "a zero Coulomb logarithm returns -1");
+static int test_guards(void) {
+  static const struct {
+    const char *name;
+    int sat_len;
+    double sat_mvir;
+    int zero_baryons; /* 1: the satellite's StellarMass and ColdGas are 0 */
+    int mother_len;
+    int forms_clock; /* 1: the guard passes; 0: the call returns -1 */
+  } rows[] = {
+      {"a satellite of 9 particles returns -1", 9, 9 * 0.086, 0, 1000, 0},
+      {"a satellite of 10 particles gets a clock", 10, 9 * 0.086, 0, 1000, 1},
+      {"zero satellite mass returns -1", 100, 0.0, 1, 1000, 0},
+      {"a satellite of 0 particles returns -1", 0, 1.0, 0, 1000, 0},
+      {"a zero mother Len gives a zero Coulomb logarithm and -1", 100, 8.6, 0, 0, 0},
+  };
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    set_cosmology();
+    struct Halo sat, mother;
+    struct GalaxyData gal;
+    struct MimicSageMergerClockTrace trace;
+    make_pair(&sat, &gal, &mother, rows[i].sat_len, rows[i].sat_mvir, rows[i].mother_len, 100.0);
+    if (rows[i].zero_baryons) {
+      gal.StellarMass = 0.0f;
+      gal.ColdGas = 0.0f;
+    }
+    const double t =
+        mimic_sage_estimate_merging_time(&sat, &mother, REDSHIFT, 2.0, MimicConfig.G, &trace);
+    if (rows[i].forms_clock) {
+      TEST_ASSERT(t > 0.0 && trace.guard_passed == 1, rows[i].name);
+    } else {
+      TEST_ASSERT(t == -1.0, rows[i].name);
+      TEST_ASSERT(trace.guard_passed == 0 && trace.mother_virial_velocity_absent == 1 &&
+                      trace.mergtime_pre_cap == -1.0 && trace.capped == 0,
+                  "a failed guard must leave the mother's velocity unformed");
+    }
+    if (rows[i].sat_len == 0) {
+      TEST_ASSERT(isinf(trace.coulomb) && trace.coulomb > 0.0,
+                  "the Coulomb logarithm is formed first, +inf, without a trap");
+    }
+  }
   return TEST_PASS;
 }
 
@@ -177,10 +162,7 @@ int main(void) {
 
   TEST_RUN(test_same_halo);
   TEST_RUN(test_formula);
-  TEST_RUN(test_particle_floor);
-  TEST_RUN(test_invalid_mass);
-  TEST_RUN(test_zero_satellite_len);
-  TEST_RUN(test_zero_coulomb);
+  TEST_RUN(test_guards);
   TEST_RUN(test_cap);
 
   TEST_SUMMARY();

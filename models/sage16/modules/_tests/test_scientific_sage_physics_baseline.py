@@ -1,25 +1,53 @@
 #!/usr/bin/env python3
 """
-SAGE full-physics galaxy-output baseline regression.
+SAGE full-physics galaxy-output baseline regression, and the validity of full-physics output.
 
 The repository-level baseline (tests/data/output/baseline/) is intentionally
 physics-free: it validates deterministic halo tracking and selected
 simulation/catalog fields, and is shared by every model package. It therefore
-cannot catch drift in galaxy-formation output.
+cannot catch drift in galaxy-formation output. The core scientific tier checks
+finite values and declared ranges, but on a run file whose module pipeline is
+empty.
 
-This model-owned test closes that gap for SAGE. It runs the complete SAGE
-physics pipeline (models/sage16/modules/_tests/input/test_physics_binary.yaml) and compares ALL
-output properties -- core halo tracking AND baryonic galaxy properties
-(StellarMass, ColdGas, BlackHoleMass, ...) -- against a committed reference
-captured from a known-good build. This is the safety net that proves
-behaviour-preserving refactors (e.g. the named substep phase pipeline) do not
-alter SAGE science output.
+This model-owned test closes both gaps for SAGE. It runs the complete SAGE
+physics pipeline (models/sage16/modules/_tests/input/test_physics_binary.yaml)
+once and:
+  - compares ALL output properties -- core halo tracking AND baryonic galaxy
+    properties (StellarMass, ColdGas, BlackHoleMass, ...) -- against a committed
+    reference captured from a known-good build. This is the safety net that proves
+    behaviour-preserving refactors (e.g. the named substep phase pipeline) do not
+    alter SAGE science output
+  - checks that the same output holds no NaN or Inf and no value outside the
+    `range:` its property metadata declares, for every output property
+
+Test cases:
+  - test_input_matches_run_file: the input's SubSteps and modules block equal the
+    package's vertical run file's, value for value and in order, so the baseline
+    pins the pipeline the package ships and a run-file change fails here until the
+    input and the baseline are refreshed with it
+  - test_sage_physics_baseline: the fresh run matches the committed baseline
+  - test_physics_output_finite_and_in_range: the same fresh run (it is not repeated)
+    holds no NaN or Inf and no value outside its declared range, sentinels
+    excluded exactly as the core scientific tier does; properties with no declared
+    range are skipped with a printed notice. A violation is a finding about the
+    physics or its metadata, to be explained, never absorbed by widening a range
+    or exempting a property
 
 Comparison: every common property for every halo, 1e-6 relative tolerance for
 floats, exact for integers (reusing the integration-tier comparator).
 
-If this test fails after a DELIBERATE, validated science change, refresh the
-reference:
+Range tolerance: declared ranges are inclusive and checked with an absolute slack
+of RANGE_ATOL (1e-15 in each property's own units). SAGE's single-precision
+reservoir updates subtract metallicity * mass from a metal reservoir, which can
+leave a rounding residue just below zero as the reservoir empties. Measured on
+this run: MetalsHotGas in 601 of 4195 rows at snapshot 63, the most negative
+-2.7e-21 (1e10 Msun/h), against a declared lower bound of 0; no other property is
+affected. The slack is set from that residue, a few orders above it, so it absorbs
+rounding of this kind and nothing a module could form: 1e-15 is 1e-5 Msun/h.
+
+If the baseline case fails after a DELIBERATE, validated science change, refresh
+the reference. If the run file changed, first copy its SubSteps and modules block
+into the input (models/sage16/modules/_tests/input/test_physics_binary.yaml). Then:
     ./mimic models/sage16/modules/_tests/input/test_physics_binary.yaml
     cp tests/data/output/physics-binary/model_z0.000_0 \\
        models/sage16/modules/_tests/baseline/physics-binary/
@@ -31,33 +59,33 @@ and document why in the commit message.
 import sys
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-sys.path.insert(0, str(REPO_ROOT / "tests" / "integration"))
 
-from framework import (
+from framework import (  # noqa: E402  (path set up above)
     BASELINE_ATOL_DEFAULT,
     BASELINE_RTOL_DEFAULT,
-    BLUE,
     GREEN,
     MIMIC_EXE,
     NC,
     RED,
-    TestNotApplicable,
+    VALIDATION_MANIFEST_PATH,
+    YELLOW,
     TestSkipped,
     baseline_rtol,
+    compare_halos_comprehensive,
     compiled_model,
+    find_validity_violations,
+    format_validity_finding,
     is_default_baseline_combo,
     load_binary_halos,
+    load_validation_manifest,
     not_applicable_to_non_default_baseline,
-    result_error,
-    result_fail,
-    result_na,
-    result_pass,
-    result_skip,
     run_mimic_fresh,
+    run_test_suite,
 )
-from test_output_formats import compare_halos_comprehensive
 
 INPUT = (
     REPO_ROOT / "models" / "sage16" / "modules" / "_tests" / "input" / "test_physics_binary.yaml"
@@ -74,11 +102,17 @@ BASELINE = (
     / "model_z0.000_0"
 )
 
+RUN_FILE = REPO_ROOT / "models" / "sage16" / "input" / "sage16_mini-millennium.yaml"
 
-def test_sage_physics_baseline():
-    """Current full-physics SAGE output matches the committed baryonic baseline."""
-    print("Testing SAGE full-physics galaxy-output baseline...")
+# Absolute slack on declared ranges; see "Range tolerance" in the module docstring
+RANGE_ATOL = 1e-15
 
+# Set once the input has been run in this process, so the cases share one fresh run
+_fresh_run_done = False
+
+
+def _require_runnable():
+    """Skip or mark not applicable unless this baseline's package pair is built and ready."""
     if compiled_model() != "sage16":
         raise TestSkipped(f"MODEL={compiled_model()}, this baseline is SAGE-specific")
     if not is_default_baseline_combo():
@@ -87,16 +121,62 @@ def test_sage_physics_baseline():
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
 
+
+def _fresh_output():
+    """Run the input once per process, always regenerating, and return the output path."""
+    global _fresh_run_done
+    if not _fresh_run_done:
+        assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
+        # Always regenerate so a stale file cannot satisfy a check.
+        run_mimic_fresh(INPUT, CURRENT)
+        _fresh_run_done = True
+    return CURRENT
+
+
+def _ordered(node):
+    """A YAML node with mapping order made significant, so phase and module order compare."""
+    if isinstance(node, dict):
+        return [(key, _ordered(value)) for key, value in node.items()]
+    if isinstance(node, list):
+        return [_ordered(value) for value in node]
+    return node
+
+
+def test_input_matches_run_file():
+    """The input's SubSteps and modules block equal the package run file's, in order."""
+    assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
+    assert RUN_FILE.exists(), f"Package run file not found: {RUN_FILE}"
+    with open(INPUT, encoding="utf-8") as handle:
+        test_input = yaml.safe_load(handle)
+    with open(RUN_FILE, encoding="utf-8") as handle:
+        run_file = yaml.safe_load(handle)
+
+    for key in ("SubSteps", "modules"):
+        assert key in test_input, f"input {INPUT.name} has no '{key}'"
+        assert _ordered(test_input[key]) == _ordered(run_file[key]), (
+            f"{RED}input '{key}' differs from {RUN_FILE.name}: refresh the input and the "
+            f"baseline together (see this file's docstring){NC}"
+        )
+    print(
+        f"  SubSteps={run_file['SubSteps']}; modules block equal "
+        f"({len(run_file['modules']['parameters'])} parameters, "
+        f"phases {list(run_file['modules']['phases'])})"
+    )
+
+
+def test_sage_physics_baseline():
+    """Current full-physics SAGE output matches the committed baryonic baseline."""
+    print("Testing SAGE full-physics galaxy-output baseline...")
+    _require_runnable()
+
     assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
     assert BASELINE.exists(), (
         f"{RED}Committed baseline not found: {BASELINE}\n"
         f"Generate it once and commit it (see this file's docstring).{NC}"
     )
 
-    # Always regenerate so a stale file cannot satisfy the comparison.
-    run_mimic_fresh(INPUT, CURRENT)
-
-    halos_now, meta_now = load_binary_halos(CURRENT)
+    current = _fresh_output()
+    halos_now, meta_now = load_binary_halos(current)
     halos_ref, meta_ref = load_binary_halos(BASELINE)
     print(f"  current:  {meta_now['TotHalos']} halos")
     print(f"  baseline: {meta_ref['TotHalos']} halos")
@@ -133,64 +213,43 @@ def test_sage_physics_baseline():
     print(f"{GREEN}  ✓ SAGE galaxy-physics output matches committed baseline{NC}")
 
 
-def main():
-    print(f"{BLUE}{'=' * 60}{NC}")
+def test_physics_output_finite_and_in_range():
+    """Fresh full-physics output has no NaN or Inf and no value outside its declared range."""
+    _require_runnable()
+    if not VALIDATION_MANIFEST_PATH.exists():
+        raise TestSkipped("validation manifest not found: run 'make generate'")
+    properties = load_validation_manifest().get("properties", {})
+
+    halos, meta = load_binary_halos(_fresh_output())
+    findings, skipped = find_validity_violations(halos, properties, range_atol=RANGE_ATOL)
     print(
-        f"{BLUE}Test Suite: SAGE Full-Physics Baseline (test_scientific_sage_physics_baseline.py){NC}"
+        f"  {meta['TotHalos']} halos, {len(halos.dtype.names) - len(skipped)} of "
+        f"{len(halos.dtype.names)} properties range-checked, {len(findings)} violation(s)"
     )
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
+    for field in skipped:
+        print(f"{YELLOW}  Skipping {field}: no range specified in metadata{NC}")
+    for finding in findings:
+        print(f"{RED}  ✗ {format_validity_finding(finding)}{NC}")
+
+    assert not findings, (
+        f"{len(findings)} non-finite or out-of-range finding(s) in SAGE full-physics output; "
+        f"explain each before changing a range or a module:\n"
+        + "\n".join(format_validity_finding(finding) for finding in findings)
+    )
+    print(f"{GREEN}  ✓ no NaN, Inf or out-of-range value in any output property{NC}")
+
+
+def main():
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
-
-    tests = [
-        test_sage_physics_baseline,
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-    not_applicable = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except TestNotApplicable as e:
-            result_na(test.__name__, str(e))
-            not_applicable += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    if not_applicable:
-        print(f"N/A:     {not_applicable}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped + not_applicable}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    return run_test_suite(
+        [
+            test_input_matches_run_file,
+            test_sage_physics_baseline,
+            test_physics_output_finite_and_in_range,
+        ],
+        "SAGE Full-Physics Baseline (test_scientific_sage_physics_baseline.py)",
+    )
 
 
 if __name__ == "__main__":

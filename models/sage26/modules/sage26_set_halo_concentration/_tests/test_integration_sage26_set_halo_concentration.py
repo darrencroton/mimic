@@ -3,17 +3,16 @@
 sage26_set_halo_concentration - Integration Test
 
 Validates: SAGE26's halo-concentration assignment at progenitor joining through real runs of
-mimic on the committed test trees: it loads and runs, writes nothing with ConcentrationOn 0,
-writes only its domain with ConcentrationOn 3, and refuses a missing required key and a
-misplacement at the executable's exit status.
+mimic on the committed test trees: it writes nothing with ConcentrationOn 0, writes only its
+domain with ConcentrationOn 3. The parameter refusals are in the C test
+test_unit_sage26_parameter_refusals.c.
 
 Every configuration sets every key its modules read, explicitly. The keys come from each configured
 module's module_info.yaml `parameters` list, which `make lint-parameters` holds to the code, with
 the vertical run file's values (models/sage26/input/sage26_mini-millennium.yaml). Runs use the run
 file's SubSteps (10) and write snapshots 63 and 16.
 
-Minimal pipeline (Loads and runs, Off, On; ConcentrationOn 3 for Loads and runs and On), in the
-run file's order:
+Minimal pipeline (Off, On; ConcentrationOn 3 for On), in the run file's order:
   pre_timestep:  sage26_set_halo_concentration
   post_timestep: sage26_record_transition_state
   - sage26_set_halo_concentration: the module under test. Of its reads, Type, Vvir, infallVmax
@@ -34,19 +33,8 @@ On writes its domain (the observable list):
   - Witness: at least one Type 0 row with Concentration > 0 at snapshot 63.
   - Exceptions: none. Concentration is the only property the module writes.
 
-Required-key refusal, isolated (a real run; mimic exits non-zero with "Required model parameter
-'ConcentrationOn' not found" and "Module 'sage26_set_halo_concentration' initialization failed",
-and no other module's initialization failure):
-  - ConcentrationOn. Configuration: the minimal pipeline, in which only this module reads the key
-    (asserted from the modules' parameters lists). Control: the same configuration with
-    ConcentrationOn 3 exits 0.
-
-Placement refusal: the module in a substep phase (galaxy_physics, process_full_halo) with
-sage26_record_transition_state in post_timestep, ConcentrationOn 3, every key present, is refused
-naming the module (check_placement: exactly one pre_timestep entry and none elsewhere).
-
-These run-level cases repeat, at the executable's exit status, refusals the module's C unit tests
-assert; they test no new behaviour.
+The module's placement refusals are asserted, with their diagnostics, by the unit tests; each
+configuration above runs once.
 
 Run (from the repository root, after `make MODEL=sage26 SIMULATION=mini-millennium`):
   MODEL=sage26 SIMULATION=mini-millennium python3 models/sage26/modules/\\
@@ -69,8 +57,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_tests"))
 from sage26_run_helpers import (  # noqa: E402
     PackageRuns,
     assert_runs,
-    configured_modules,
-    module_parameters,
     require_mimic,
     require_pair,
 )
@@ -94,10 +80,6 @@ MINIMAL = {
     "post_timestep": [(RECORDER, FH)],
 }
 MINIMAL_WITHOUT = {"post_timestep": [(RECORDER, FH)]}
-MISPLACED = {
-    "galaxy_physics": [(MODULE, FH)],
-    "post_timestep": [(RECORDER, FH)],
-}
 
 # ============================================================================
 # HELPERS
@@ -109,26 +91,11 @@ parameters_for = RUNS.parameters_for
 mimic_run = RUNS.mimic_run
 load_snapshot = RUNS.load_snapshot
 assert_outputs_identical = RUNS.assert_outputs_identical
-assert_refused = RUNS.assert_refused
 
 
 # ============================================================================
 # TEST CASES
 # ============================================================================
-
-
-def test_loads_and_runs():
-    """The minimal pipeline with ConcentrationOn 3 runs to completion, exit 0, no leak report."""
-    require_pair()
-    require_mimic()
-    with mimic_run(f"{MODULE}_loads", MINIMAL, parameters_for(MINIMAL)) as run:
-        returncode, stdout, stderr, output_dir = run
-        assert_runs(returncode, stdout, stderr)
-        assert "SAGE set halo concentration module initialized" in stdout, "no initialization log"
-        assert "SAGE set halo concentration module cleaned up" in stdout, "no cleanup log"
-        for snapshot in OUTPUT_FILES:
-            load_snapshot(output_dir, snapshot)
-    print(f"  exit status 0, no leak report, snapshots {list(OUTPUT_FILES)} written")
 
 
 def test_off_is_noop():
@@ -168,55 +135,8 @@ def test_on_writes_domain():
                 assert positive > 0, "witness: no Type 0 row with Concentration > 0 at 63"
 
 
-def test_required_key_concentrationon_refused():
-    """A missing ConcentrationOn is refused by this module alone; the control exits 0."""
-    require_pair()
-    require_mimic()
-    key = "ConcentrationOn"
-    readers = [name for name in configured_modules(MINIMAL) if key in module_parameters(name)]
-    assert readers == [MODULE], f"configured readers of {key}: {readers}"
-
-    with mimic_run(f"{MODULE}_key_control", MINIMAL, parameters_for(MINIMAL)) as run:
-        returncode, stdout, stderr, _ = run
-        assert_runs(returncode, stdout, stderr)
-        print(f"  control ({key} present): exit status {returncode}")
-
-    with mimic_run(f"{MODULE}_key_missing", MINIMAL, parameters_for(MINIMAL, omit=(key,))) as run:
-        returncode, stdout, stderr, _ = run
-        assert_refused(
-            returncode,
-            stdout,
-            stderr,
-            [
-                f"Required model parameter '{key}' not found",
-                f"Module '{MODULE}' initialization failed",
-            ],
-        )
-
-
-def test_placement_refused():
-    """An entry in a substep phase is refused, naming the module."""
-    require_pair()
-    require_mimic()
-    with mimic_run(f"{MODULE}_misplaced", MISPLACED, parameters_for(MISPLACED)) as run:
-        returncode, stdout, stderr, _ = run
-        assert_refused(
-            returncode,
-            stdout,
-            stderr,
-            [f"{MODULE} is configured in substep phase 'galaxy_physics'"],
-        )
-
-
 def main():
-    tests = [
-        test_loads_and_runs,
-        test_off_is_noop,
-        test_on_writes_domain,
-        test_required_key_concentrationon_refused,
-        test_placement_refused,
-    ]
-    return run_test_suite(tests, f"{MODULE} Integration Tests")
+    return run_test_suite([test_off_is_noop, test_on_writes_domain], f"{MODULE} Integration Tests")
 
 
 if __name__ == "__main__":

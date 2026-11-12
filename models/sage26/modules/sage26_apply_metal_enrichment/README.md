@@ -36,5 +36,5 @@ A fraction `f_Z = FracZleaveDisk * exp(-Mvir_central / 30)` of the new metals es
 
 ## Tests
 
-- `_tests/test_unit_sage26_apply_metal_enrichment.c`: registration and lifecycle, the ordering refusals, the yield split either side of the cold-gas threshold, `NewStellarMass` consumed, the `CGMrecipeOn` destinations and refusals, missing-galaxy and missing-central cases, and the skipped FFB row.
-- `_tests/test_integration_sage26_apply_metal_enrichment.py`: runs the module alone in `galaxy_physics` (no new stars, so no metals) and checks initialisation, cleanup, the logged parameters, no memory leak and the metal outputs.
+- `_tests/test_unit_sage26_apply_metal_enrichment.c`: the yield split either side of the cold-gas threshold, the zero-yield event, missing-galaxy and missing-central cases, the `CGMrecipeOn` destinations with `NewStellarMass` consumed, and the skipped FFB row.
+- The `CGMrecipeOn` refusals and the required order after `sage26_apply_star_formation_supernova` and `sage26_starburst_feedback` are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c` and `../_tests/test_unit_sage_dependency_contracts.c`.

@@ -4,9 +4,9 @@
  *
  * When satellites in a FOF group have different SnapNum values (and hence
  * different dT), each object must evolve with its own timestep. This test
- * constructs deterministic FOF fixtures where the central and satellites
- * have different dT values, then verifies that each module uses the
- * per-object dT rather than a single global value.
+ * constructs deterministic fixtures where the objects have different dT values and the module
+ * context carries yet another substep_dt, then verifies that each module uses the per-object dT
+ * rather than the context's value.
  *
  * SAGE parity rule: deltaT_p = Age[snap_of_p] - Age[current_halo_snap]
  * Per-substep dt for object p: deltaT_p / num_substeps
@@ -16,27 +16,23 @@
  *   - test_mixed_dt_merger_timestamp_source_time: Merger timestamp uses source-object time
  *
  *   INVALID DT TESTS (IMMEDIATE HANDLER):
- *   - test_invalid_nonboundary_merger_time_error: non-boundary dT<=0 fails fast
+ *   - test_invalid_nonboundary_merger_time_error: non-boundary dT<=0 fails fast, naming the halo
+ *     and its dT, and changes no galaxy
  *
- *   REINCORPORATION TESTS:
- *   - test_mixed_dt_reincorporation: Central uses its own dT for reincorporation rate
+ *   PER-OBJECT DT (REINCORPORATION, STAR FORMATION, COOLING, RADIO-MODE HEATING):
+ *   - test_mixed_dt_uses_object_dt: the module's result scales with the object's dT under one
+ *     fixed context dt, and does not change with the context's dt
+ *
+ *   REINCORPORATION BOUNDARY TESTS:
  *   - test_boundary_sentinel_reincorporation_noop: SnapNum<0,dT<=0 is a deterministic no-op
- *   - test_invalid_nonboundary_reincorporation_error: SnapNum>=0,dT<=0 fails fast
- *
- *   STAR FORMATION TESTS:
- *   - test_mixed_dt_star_formation: Different dT gives different stellar mass
- *
- *   COOLING TESTS:
- *   - test_mixed_dt_cooling_ignores_global: Cooling uses halo->dT, not ctx->substep_dt
- *   - test_mixed_dt_cooling_scales_with_dt: CoolingGas scales linearly with dT
- *
- *   RADIO MODE HEATING TESTS:
- *   - test_mixed_dt_radio_mode_ignores_global: AGN heating uses halo->dT, not ctx->substep_dt
- *
+ *   - test_invalid_nonboundary_reincorporation_error: SnapNum>=0,dT<=0 fails fast, naming the halo
+ *     and its dT, and changes no gas
  */
 
 #include "../../../tests/framework/test_framework.h"
+#include "../../../tests/framework/test_phase_config.h"
 #include "../core/module_interface.h"
+#include "../core/module_registry.h"
 #include "../include/types.h"
 #include "../include/globals.h"
 #include "../util/error.h"
@@ -49,6 +45,8 @@
 
 /* Shared sage26 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
+
+#define COUNT(array) (sizeof(array) / sizeof((array)[0]))
 
 /* External module interfaces */
 extern int sage26_reincorporation_init(void);
@@ -74,8 +72,6 @@ extern int sage26_resolve_mergers_and_disruption_init(void);
 extern int sage26_resolve_mergers_and_disruption_process(struct ModuleContext *ctx,
                                                          struct Halo *halos, int ngal);
 extern int sage26_resolve_mergers_and_disruption_cleanup(void);
-extern void sage26_resolve_mergers_and_disruption_set_action_hook(
-    void (*hook)(const char *action, int source_index, int target_index, double mass_ratio));
 
 /* ========================================================================== */
 /* HELPERS                                                                    */
@@ -110,6 +106,48 @@ static void free_galaxy(struct GalaxyData **gal) {
   }
 }
 
+/** @brief Set an existing run-file parameter to `value` (the fixture's value is replaced) */
+static void set_param(const char *name, const char *value) {
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, name) == 0) {
+      snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%s", value);
+    }
+  }
+}
+
+/**
+ * @brief Initialise the merger resolver on the package's test parameters (ThresholdSatDisruption
+ *        as given) with the merger clock configured in pre_timestep, as its init requires
+ *
+ * @return the init status
+ */
+static int init_resolver(const char *threshold_sat_disruption) {
+  reset_config();
+  set_test_model_parameters();
+  set_param("ThresholdSatDisruption", threshold_sat_disruption);
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+  test_pre_timestep_add("sage26_initialise_merger_clock", PROCESSING_MODE_FULL_HALO);
+  return sage26_resolve_mergers_and_disruption_init();
+}
+
+/** @brief Run a module's process() with its log captured into `log` */
+static int process_logged(int (*process)(struct ModuleContext *, struct Halo *, int),
+                          struct ModuleContext *ctx, struct Halo *halos, int ngal, char *log,
+                          size_t log_size) {
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int result = process(ctx, halos, ngal);
+  log[0] = '\0';
+  if (capture != NULL) {
+    set_log_output(old_out);
+    rewind(capture);
+    const size_t n = fread(log, 1, log_size - 1, capture);
+    log[n] = '\0';
+    fclose(capture);
+  }
+  return result;
+}
+
 /* ========================================================================== */
 /* MERGER TIME: MIXED-DT TIMESTAMP (IMMEDIATE HANDLER)                       */
 /* ========================================================================== */
@@ -127,14 +165,7 @@ static void free_galaxy(struct GalaxyData **gal) {
  */
 int test_mixed_dt_merger_timestamp_source_time(void) {
   init_memory_system(0);
-  reset_config();
-
-  snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
-  snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.3");
-  snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
-  snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "2.0");
-  MimicConfig.NumModelParams = 2;
-  sage26_resolve_mergers_and_disruption_init();
+  TEST_ASSERT(init_resolver("2.0") == 0, "the resolver must initialise");
 
   struct GalaxyData *central_gal = alloc_galaxy();
   central_gal->StellarMass = 10.0;
@@ -179,6 +210,7 @@ int test_mixed_dt_merger_timestamp_source_time(void) {
   free_galaxy(&central_gal);
   free_galaxy(&sat_gal);
   sage26_resolve_mergers_and_disruption_cleanup();
+  test_free_pre_timestep();
   check_memory_leaks();
 
   return TEST_PASS;
@@ -190,18 +222,12 @@ int test_mixed_dt_merger_timestamp_source_time(void) {
 
 /**
  * @test    test_invalid_nonboundary_merger_time_error
- * @brief   Immediate handler fails fast for non-boundary dT<=0
+ * @brief   Immediate handler fails fast for non-boundary dT<=0, names the halo and its dT, and
+ *          leaves both galaxies as they were
  */
 int test_invalid_nonboundary_merger_time_error(void) {
   init_memory_system(0);
-  reset_config();
-
-  snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
-  snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.3");
-  snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
-  snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "1.0");
-  MimicConfig.NumModelParams = 2;
-  sage26_resolve_mergers_and_disruption_init();
+  TEST_ASSERT(init_resolver("1.0") == 0, "the resolver must initialise");
 
   struct GalaxyData *cen_gal = alloc_galaxy();
   cen_gal->StellarMass = 10.0;
@@ -226,97 +252,245 @@ int test_invalid_nonboundary_merger_time_error(void) {
   struct ModuleContext ctx = create_context(0.2, 1);
   ctx.central_galaxy = &central;
   struct Halo halos[2] = {central, sat};
+  const struct GalaxyData central_before = *cen_gal;
+  const struct GalaxyData sat_before = *sat_gal;
 
-  const int result = sage26_resolve_mergers_and_disruption_process(&ctx, halos, 2);
+  char log[2048];
+  const int result = process_logged(sage26_resolve_mergers_and_disruption_process, &ctx, halos, 2,
+                                    log, sizeof(log));
   TEST_ASSERT(result != 0, "Immediate handler should fail for non-boundary dT<=0");
+  TEST_ASSERT(strstr(log, "Invalid merger-pass dt for halo 3 (SnapNum=63, dT=-1.000e+00") != NULL,
+              "The error must name the halo, its SnapNum and its dT");
+  TEST_ASSERT(memcmp(cen_gal, &central_before, sizeof(central_before)) == 0,
+              "The central's galaxy must be unchanged");
+  TEST_ASSERT(memcmp(sat_gal, &sat_before, sizeof(sat_before)) == 0,
+              "The satellite's galaxy, its merger clock included, must be unchanged");
 
   free_galaxy(&cen_gal);
   free_galaxy(&sat_gal);
   sage26_resolve_mergers_and_disruption_cleanup();
+  test_free_pre_timestep();
   check_memory_leaks();
 
   return TEST_PASS;
 }
 
 /* ========================================================================== */
-/* REINCORPORATION: CENTRAL USES ITS OWN DT                                 */
+/* PER-OBJECT DT: REINCORPORATION, STAR FORMATION, COOLING, RADIO-MODE HEATING */
 /* ========================================================================== */
 
 /**
- * @test    test_mixed_dt_reincorporation
- * @brief   Reincorporation rate uses the central's own dT, not global substep_dt
+ * @brief The mass the reincorporation module moves from the ejected reservoir for a central whose
+ *        halo dT is `object_dt`, under a module context whose substep dt is `context_dt`
  *
- * Two runs with the same central but different global ctx->substep_dt.
- * Since the module uses halos[0].dT, the result must be identical regardless
- * of what ctx->substep_dt is set to.
+ * @return 0 on success
  */
-int test_mixed_dt_reincorporation(void) {
-  init_memory_system(0);
+static int reincorporated_mass(const double object_dt, const double context_dt, double *response) {
   reset_config();
   set_test_model_parameters();
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
-  sage26_reincorporation_init();
+  if (sage26_reincorporation_init() != 0) {
+    return -1;
+  }
+  struct GalaxyData *gal = alloc_galaxy();
+  gal->EjectedGas = 10.0;
+  gal->MetalsEjectedGas = 0.2;
+  gal->HotGas = 5.0;
+  gal->MetalsHotGas = 0.1;
+  struct Halo halo = {0};
+  halo.Type = 0;
+  halo.Vvir = 500.0;
+  halo.Rvir = 0.2;
+  halo.SnapNum = 63;
+  halo.dT = object_dt;
+  halo.galaxy = gal;
+  struct ModuleContext ctx = create_context(context_dt, 1);
+  ctx.central_galaxy = &halo;
 
-  const float central_dT = 0.3;
+  const int status = sage26_reincorporation_process(&ctx, &halo, 1);
+  *response = 10.0 - gal->EjectedGas;
 
-  /* Run 1: ctx->substep_dt matches central dT (coincidental agreement) */
-  struct GalaxyData *gal1 = alloc_galaxy();
-  gal1->EjectedGas = 10.0;
-  gal1->MetalsEjectedGas = 0.2;
-  gal1->HotGas = 5.0;
-  gal1->MetalsHotGas = 0.1;
-  struct Halo halo1 = {0};
-  halo1.Type = 0;
-  halo1.Vvir = 500.0;
-  halo1.Rvir = 0.2;
-  halo1.SnapNum = 63;
-  halo1.dT = central_dT;
-  halo1.galaxy = gal1;
-
-  struct ModuleContext ctx1 = create_context(central_dT, 1);
-  ctx1.central_galaxy = &halo1;
-
-  sage26_reincorporation_process(&ctx1, &halo1, 1);
-  float ejected_run1 = gal1->EjectedGas;
-  float hot_run1 = gal1->HotGas;
-
-  /* Run 2: ctx->substep_dt is DIFFERENT (0.8), but central dT is the same (0.3) */
-  struct GalaxyData *gal2 = alloc_galaxy();
-  gal2->EjectedGas = 10.0;
-  gal2->MetalsEjectedGas = 0.2;
-  gal2->HotGas = 5.0;
-  gal2->MetalsHotGas = 0.1;
-  struct Halo halo2 = {0};
-  halo2.Type = 0;
-  halo2.Vvir = 500.0;
-  halo2.Rvir = 0.2;
-  halo2.SnapNum = 63;
-  halo2.dT = central_dT; /* Same central dT */
-  halo2.galaxy = gal2;
-
-  struct ModuleContext ctx2 = create_context(0.8, 1); /* Different global dt! */
-  ctx2.central_galaxy = &halo2;
-
-  sage26_reincorporation_process(&ctx2, &halo2, 1);
-  float ejected_run2 = gal2->EjectedGas;
-  float hot_run2 = gal2->HotGas;
-
-  /* Both runs must produce identical results (per-object dT, not global) */
-  TEST_ASSERT_DOUBLE_EQUAL(ejected_run1, ejected_run2, 1e-10,
-                           "Reincorporation must use central's dT, not ctx->substep_dt");
-  TEST_ASSERT_DOUBLE_EQUAL(hot_run1, hot_run2, 1e-10,
-                           "HotGas must match when central's dT is the same");
-
-  /* Sanity: some reincorporation actually happened */
-  TEST_ASSERT(ejected_run1 < 10.0, "Some gas should have been reincorporated");
-
-  free_galaxy(&gal1);
-  free_galaxy(&gal2);
+  free_galaxy(&gal);
   sage26_reincorporation_cleanup();
-  check_memory_leaks();
+  return status;
+}
 
+/** @brief The NewStellarMass the star-formation module forms; see reincorporated_mass() */
+static int new_stellar_mass(const double object_dt, const double context_dt, double *response) {
+  reset_config();
+  set_test_model_parameters();
+  /* The module's required SFprescription and H2 integration parameters, and the apply step its
+   * init requires */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
+  test_phase_add("galaxy_physics", "sage26_apply_star_formation_supernova",
+                 PROCESSING_MODE_BY_GALAXY);
+  const int init_status = sage26_calculate_star_formation_init();
+  test_free_substep_phases();
+  if (init_status != 0) {
+    return -1;
+  }
+  struct GalaxyData *gal = alloc_galaxy();
+  gal->ColdGas = 5.0;
+  gal->DiskScaleRadius = 0.01;
+  struct Halo halo = {0};
+  halo.Type = 0;
+  halo.Vvir = 200.0;
+  halo.SnapNum = 63;
+  halo.dT = object_dt;
+  halo.galaxy = gal;
+  struct ModuleContext ctx = create_context(context_dt, 1);
+  ctx.central_galaxy = &halo;
+
+  const int status = sage26_calculate_star_formation_process(&ctx, &halo, 1);
+  *response = gal->NewStellarMass;
+
+  free_galaxy(&gal);
+  sage26_calculate_star_formation_cleanup();
+  return status;
+}
+
+/** @brief The CoolingGas the cooling-budget module forms; see reincorporated_mass() */
+static int cooling_gas(const double object_dt, const double context_dt, double *response) {
+  reset_config();
+  /* Unit conversions needed by cooling_recipe() */
+  MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
+  MimicConfig.UnitTime_in_s = 3.08568e16;
+  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
+  if (sage26_calculate_cooling_budget_init() != 0) {
+    return -1;
+  }
+  struct GalaxyData *gal = alloc_galaxy();
+  gal->HotGas = 10.0;
+  gal->MetalsHotGas = 0.02; /* 0.2% metallicity */
+  struct Halo halo = {0};
+  halo.Type = 0;
+  halo.Vvir = 200.0;
+  halo.Rvir = 0.2;
+  halo.SnapNum = 63;
+  halo.dT = object_dt;
+  halo.galaxy = gal;
+  struct ModuleContext ctx = create_context(context_dt, 1);
+
+  const int status = sage26_calculate_cooling_budget_process(&ctx, &halo, 1);
+  *response = gal->CoolingGas;
+
+  free_galaxy(&gal);
+  sage26_calculate_cooling_budget_cleanup();
+  return status;
+}
+
+/**
+ * @brief The heating radius the radio mode forms, from the black-hole mass it accretes in the
+ *        substep (Rheat starts at 0 and the accreted mass is proportional to the dt used); see
+ *        reincorporated_mass()
+ */
+static int radio_heating_radius(const double object_dt, const double context_dt, double *response) {
+  reset_config();
+  /* Unit conversions and G needed by the Bondi rate */
+  MimicConfig.UnitMass_in_g = 1.989e43;
+  MimicConfig.UnitTime_in_s = 3.08568e16;
+  MimicConfig.UnitEnergy_in_cgs = 1.989e53;
+  MimicConfig.Hubble_h = 0.73;
+  MimicConfig.G = 43.0071;
+  /* AGNrecipe 2 (Bondi), the package accepts only 0 and 2 */
+  snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "RadioModeEfficiency");
+  snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.08");
+  snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "AGNrecipe");
+  snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "2");
+  MimicConfig.NumModelParams = 2;
+  if (sage26_radio_mode_heating_init() != 0) {
+    return -1;
+  }
+  struct GalaxyData *gal = alloc_galaxy();
+  gal->HotGas = 10.0;
+  gal->MetalsHotGas = 0.2;
+  gal->BlackHoleMass = 0.01;
+  gal->CoolingGas = 1.0;
+  gal->Rcool = 0.05;
+  gal->Rheat = 0.0;
+  /* A carried x small enough that neither the Eddington nor the heating cap binds, so the
+   * accreted mass is proportional to the dt the module uses */
+  gal->CoolingX = 1.0e-5;
+  struct Halo halo = {0};
+  halo.Type = 0;
+  halo.Mvir = 100.0;
+  halo.Vvir = 200.0;
+  halo.Rvir = 0.2;
+  halo.SnapNum = 63;
+  halo.dT = object_dt;
+  halo.galaxy = gal;
+  struct ModuleContext ctx = create_context(context_dt, 1);
+
+  const int status = sage26_radio_mode_heating_process(&ctx, &halo, 1);
+  *response = gal->Rheat;
+
+  free_galaxy(&gal);
+  sage26_radio_mode_heating_cleanup();
+  return status;
+}
+
+/**
+ * @test    test_mixed_dt_uses_object_dt
+ * @brief   Each module's result is proportional to its object's dT and independent of the
+ *          context's substep dt
+ *
+ * Two identical objects with dT = small and dT = large run under the same context dt (0.9, equal
+ * to neither): the ratio of their results is small/large only if the module takes its timestep
+ * from the object. A third run of the large object under a different context dt (0.2) gives the
+ * same result as under 0.9, so the context's value is not used. The dT values keep each result
+ * below the cap that would make it independent of dt (the ejected gas, the hot gas, the Eddington
+ * and heating limits).
+ */
+int test_mixed_dt_uses_object_dt(void) {
+  static const struct {
+    const char *name;
+    int (*response)(double object_dt, double context_dt, double *response);
+    double small_dt;
+    double large_dt;
+    double tolerance; /* on the ratio: the float rounding of the fields the response is read from */
+  } rows[] = {
+      {"reincorporation", reincorporated_mass, 1.0e-4, 3.0e-4, 1e-5},
+      {"star formation", new_stellar_mass, 0.1, 0.3, 1e-6},
+      {"cooling", cooling_gas, 1.0e-4, 3.0e-4, 1e-5},
+      {"radio-mode heating", radio_heating_radius, 0.1, 0.3, 1e-6},
+  };
+  const double fixed_context_dt = 0.9;
+  const double other_context_dt = 0.2;
+
+  for (size_t r = 0; r < COUNT(rows); r++) {
+    init_memory_system(0);
+    double small = 0.0;
+    double large = 0.0;
+    double large_other_context = 0.0;
+    int status = rows[r].response(rows[r].small_dt, fixed_context_dt, &small);
+    status |= rows[r].response(rows[r].large_dt, fixed_context_dt, &large);
+    status |= rows[r].response(rows[r].large_dt, other_context_dt, &large_other_context);
+    printf("\n  %s: small %.9g, large %.9g, large under another context dt %.9g", rows[r].name,
+           small, large, large_other_context);
+
+    char message[256];
+    snprintf(message, sizeof(message), "%s: the module must initialise and run", rows[r].name);
+    TEST_ASSERT(status == 0, message);
+    snprintf(message, sizeof(message), "%s: every response must be finite", rows[r].name);
+    TEST_ASSERT(isfinite(small) && isfinite(large) && isfinite(large_other_context), message);
+    snprintf(message, sizeof(message), "%s: both objects must respond (a zero is a cap or a no-op)",
+             rows[r].name);
+    TEST_ASSERT(small > 0.0 && large > 0.0, message);
+    snprintf(message, sizeof(message),
+             "%s: the result must scale with the object's dT under one context dt", rows[r].name);
+    TEST_ASSERT_DOUBLE_EQUAL(small / large, rows[r].small_dt / rows[r].large_dt, rows[r].tolerance,
+                             message);
+    snprintf(message, sizeof(message), "%s: the result must not depend on the context's dt",
+             rows[r].name);
+    TEST_ASSERT(large == large_other_context, message);
+    check_memory_leaks();
+  }
   return TEST_PASS;
 }
+
+/* ========================================================================== */
+/* REINCORPORATION: BOUNDARY AND INVALID DT                                  */
+/* ========================================================================== */
 
 /**
  * @test    test_boundary_sentinel_reincorporation_noop
@@ -365,14 +539,15 @@ int test_boundary_sentinel_reincorporation_noop(void) {
 
 /**
  * @test    test_invalid_nonboundary_reincorporation_error
- * @brief   Non-boundary dT<=0 in reincorporation fails fast
+ * @brief   Non-boundary dT<=0 in reincorporation fails fast, names the halo and its dT, and
+ *          leaves the ejected and hot gas as they were
  */
 int test_invalid_nonboundary_reincorporation_error(void) {
   init_memory_system(0);
   reset_config();
   set_test_model_parameters();
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
-  sage26_reincorporation_init();
+  TEST_ASSERT(sage26_reincorporation_init() == 0, "reincorporation must initialise");
 
   struct GalaxyData *gal = alloc_galaxy();
   gal->EjectedGas = 8.0;
@@ -391,381 +566,19 @@ int test_invalid_nonboundary_reincorporation_error(void) {
   struct ModuleContext ctx = create_context(0.2, 1);
   ctx.central_galaxy = &halo;
 
-  const int result = sage26_reincorporation_process(&ctx, &halo, 1);
+  char log[2048];
+  const int result =
+      process_logged(sage26_reincorporation_process, &ctx, &halo, 1, log, sizeof(log));
   TEST_ASSERT(result != 0, "Non-boundary dT<=0 should fail fast");
+  TEST_ASSERT(strstr(log, "Invalid reincorporation dt for halo 0 (SnapNum=63, dT=-1.000e+00") !=
+                  NULL,
+              "The error must name the halo, its SnapNum and its dT");
+  TEST_ASSERT(gal->EjectedGas == 8.0f && gal->MetalsEjectedGas == 0.16f && gal->HotGas == 2.0f &&
+                  gal->MetalsHotGas == 0.04f,
+              "The ejected and hot reservoirs must be unchanged");
 
   free_galaxy(&gal);
   sage26_reincorporation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/* ========================================================================== */
-/* STAR FORMATION: DIFFERENT DT GIVES DIFFERENT STELLAR MASS                 */
-/* ========================================================================== */
-
-/**
- * @test    test_mixed_dt_star_formation
- * @brief   Two identical halos with different dT produce different NewStellarMass
- *
- * Stars = SFR_efficiency * (ColdGas - ColdCrit) / t_dyn * dt
- * With identical halo properties but dT_A=0.1 and dT_B=0.3, the ratio
- * of NewStellarMass must be 0.1/0.3 = 1/3.
- */
-int test_mixed_dt_star_formation(void) {
-  init_memory_system(0);
-  reset_config();
-  set_test_model_parameters();
-  /* The SF module's required SFprescription and H2 integration parameters */
-  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
-  sage26_calculate_star_formation_init();
-
-  /* Halo A: dT = 0.1 */
-  struct GalaxyData *gal_a = alloc_galaxy();
-  gal_a->ColdGas = 5.0;
-  gal_a->DiskScaleRadius = 0.01;
-  struct Halo halo_a = {0};
-  halo_a.Type = 0;
-  halo_a.Vvir = 200.0;
-  halo_a.SnapNum = 63;
-  halo_a.dT = 0.1;
-  halo_a.galaxy = gal_a;
-
-  struct ModuleContext ctx_a = create_context(0.1, 1);
-  ctx_a.central_galaxy = &halo_a;
-
-  sage26_calculate_star_formation_process(&ctx_a, &halo_a, 1);
-  float stars_a = gal_a->NewStellarMass;
-
-  /* Halo B: identical properties but dT = 0.3 */
-  struct GalaxyData *gal_b = alloc_galaxy();
-  gal_b->ColdGas = 5.0;
-  gal_b->DiskScaleRadius = 0.01;
-  struct Halo halo_b = {0};
-  halo_b.Type = 0;
-  halo_b.Vvir = 200.0;
-  halo_b.SnapNum = 63;
-  halo_b.dT = 0.3;
-  halo_b.galaxy = gal_b;
-
-  struct ModuleContext ctx_b = create_context(0.3, 1);
-  ctx_b.central_galaxy = &halo_b;
-
-  sage26_calculate_star_formation_process(&ctx_b, &halo_b, 1);
-  float stars_b = gal_b->NewStellarMass;
-
-  /* Both must form stars (sanity) */
-  TEST_ASSERT(stars_a > 0.0, "Halo A should form stars");
-  TEST_ASSERT(stars_b > 0.0, "Halo B should form stars");
-
-  /* Stars scale linearly with dt → ratio must be dT_A/dT_B = 1/3 */
-  double ratio = stars_a / stars_b;
-  TEST_ASSERT_DOUBLE_EQUAL(ratio, 1.0 / 3.0, 1e-6,
-                           "NewStellarMass ratio must equal dT ratio (proves per-object dt)");
-
-  free_galaxy(&gal_a);
-  free_galaxy(&gal_b);
-  sage26_calculate_star_formation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_mixed_dt_star_formation_ignores_global
- * @brief   Star formation uses halo->dT, not ctx->substep_dt
- *
- * Same halo->dT but different ctx->substep_dt → identical result.
- */
-int test_mixed_dt_star_formation_ignores_global(void) {
-  init_memory_system(0);
-  reset_config();
-  set_test_model_parameters();
-  /* The SF module's required SFprescription and H2 integration parameters */
-  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_SF_MODULE);
-  sage26_calculate_star_formation_init();
-
-  const float halo_dT = 0.2;
-
-  /* Run 1: ctx->substep_dt = 0.2 (matches halo dT) */
-  struct GalaxyData *gal1 = alloc_galaxy();
-  gal1->ColdGas = 5.0;
-  gal1->DiskScaleRadius = 0.01;
-  struct Halo halo1 = {0};
-  halo1.Type = 0;
-  halo1.Vvir = 200.0;
-  halo1.SnapNum = 63;
-  halo1.dT = halo_dT;
-  halo1.galaxy = gal1;
-
-  struct ModuleContext ctx1 = create_context(0.2, 1);
-  sage26_calculate_star_formation_process(&ctx1, &halo1, 1);
-  float stars1 = gal1->NewStellarMass;
-
-  /* Run 2: ctx->substep_dt = 0.9 (different!), but halo->dT still 0.2 */
-  struct GalaxyData *gal2 = alloc_galaxy();
-  gal2->ColdGas = 5.0;
-  gal2->DiskScaleRadius = 0.01;
-  struct Halo halo2 = {0};
-  halo2.Type = 0;
-  halo2.Vvir = 200.0;
-  halo2.SnapNum = 63;
-  halo2.dT = halo_dT;
-  halo2.galaxy = gal2;
-
-  struct ModuleContext ctx2 = create_context(0.9, 1); /* Different global dt */
-  sage26_calculate_star_formation_process(&ctx2, &halo2, 1);
-  float stars2 = gal2->NewStellarMass;
-
-  /* Must be identical — module uses halo->dT, not ctx->substep_dt */
-  TEST_ASSERT_DOUBLE_EQUAL(stars1, stars2, 1e-10,
-                           "Star formation must use halo->dT, not ctx->substep_dt");
-  TEST_ASSERT(stars1 > 0.0, "Stars should have formed");
-
-  free_galaxy(&gal1);
-  free_galaxy(&gal2);
-  sage26_calculate_star_formation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/* ========================================================================== */
-/* COOLING: USES PER-OBJECT DT, NOT GLOBAL SUBSTEP_DT                       */
-/* ========================================================================== */
-
-/**
- * @test    test_mixed_dt_cooling_ignores_global
- * @brief   Cooling uses halo->dT, not ctx->substep_dt
- *
- * Same halo->dT but different ctx->substep_dt → identical CoolingGas.
- * If the code used ctx->substep_dt, the two runs would differ.
- */
-int test_mixed_dt_cooling_ignores_global(void) {
-  init_memory_system(0);
-  reset_config();
-
-  /* Unit conversions needed by cooling_recipe() */
-  MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
-  MimicConfig.UnitTime_in_s = 3.08568e16;
-
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
-  sage26_calculate_cooling_budget_init();
-
-  const float halo_dT = 0.2;
-
-  /* Run 1: ctx->substep_dt = 0.2 (matches halo dT) */
-  struct GalaxyData *gal1 = alloc_galaxy();
-  gal1->HotGas = 10.0;
-  gal1->MetalsHotGas = 0.02; /* 0.2% metallicity */
-  struct Halo halo1 = {0};
-  halo1.Type = 0;
-  halo1.Vvir = 200.0;
-  halo1.Rvir = 0.2;
-  halo1.SnapNum = 63;
-  halo1.dT = halo_dT;
-  halo1.galaxy = gal1;
-
-  struct ModuleContext ctx1 = create_context(0.2, 1);
-  sage26_calculate_cooling_budget_process(&ctx1, &halo1, 1);
-  float cooling1 = gal1->CoolingGas;
-
-  /* Run 2: ctx->substep_dt = 0.9 (different!), but halo->dT still 0.2 */
-  struct GalaxyData *gal2 = alloc_galaxy();
-  gal2->HotGas = 10.0;
-  gal2->MetalsHotGas = 0.02;
-  struct Halo halo2 = {0};
-  halo2.Type = 0;
-  halo2.Vvir = 200.0;
-  halo2.Rvir = 0.2;
-  halo2.SnapNum = 63;
-  halo2.dT = halo_dT;
-  halo2.galaxy = gal2;
-
-  struct ModuleContext ctx2 = create_context(0.9, 1); /* Different global dt */
-  sage26_calculate_cooling_budget_process(&ctx2, &halo2, 1);
-  float cooling2 = gal2->CoolingGas;
-
-  /* Must be identical — module uses halo->dT, not ctx->substep_dt */
-  TEST_ASSERT_DOUBLE_EQUAL(cooling1, cooling2, 1e-10,
-                           "Cooling must use halo->dT, not ctx->substep_dt");
-  TEST_ASSERT(cooling1 > 0.0, "Some cooling should have occurred");
-
-  free_galaxy(&gal1);
-  free_galaxy(&gal2);
-  sage26_calculate_cooling_budget_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_mixed_dt_cooling_scales_with_dt
- * @brief   Two identical halos with different dT produce different CoolingGas
- *
- * CoolingGas is proportional to dt. With dT_A=0.1 and dT_B=0.3,
- * the ratio of CoolingGas must be 1/3.
- */
-int test_mixed_dt_cooling_scales_with_dt(void) {
-  init_memory_system(0);
-  reset_config();
-
-  MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
-  MimicConfig.UnitTime_in_s = 3.08568e16;
-
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
-  sage26_calculate_cooling_budget_init();
-
-  /* Use very small dT values to stay well below HotGas cap.
-   * Cold accretion rate ~ HotGas/(Rvir/Vvir) * dt = 10/0.001 * dt = 10000*dt
-   * So dt must be << 0.001 to avoid capping at HotGas=10. */
-
-  /* Halo A: dT = 0.0001 → coolingGas ~ 1.0 (< HotGas=10) */
-  struct GalaxyData *gal_a = alloc_galaxy();
-  gal_a->HotGas = 10.0;
-  gal_a->MetalsHotGas = 0.02;
-  struct Halo halo_a = {0};
-  halo_a.Type = 0;
-  halo_a.Vvir = 200.0;
-  halo_a.Rvir = 0.2;
-  halo_a.SnapNum = 63;
-  halo_a.dT = 0.0001;
-  halo_a.galaxy = gal_a;
-
-  struct ModuleContext ctx_a = create_context(0.0001, 1);
-  sage26_calculate_cooling_budget_process(&ctx_a, &halo_a, 1);
-  float cooling_a = gal_a->CoolingGas;
-
-  /* Halo B: identical properties but dT = 0.0003 → coolingGas ~ 3.0 (< HotGas=10) */
-  struct GalaxyData *gal_b = alloc_galaxy();
-  gal_b->HotGas = 10.0;
-  gal_b->MetalsHotGas = 0.02;
-  struct Halo halo_b = {0};
-  halo_b.Type = 0;
-  halo_b.Vvir = 200.0;
-  halo_b.Rvir = 0.2;
-  halo_b.SnapNum = 63;
-  halo_b.dT = 0.0003;
-  halo_b.galaxy = gal_b;
-
-  struct ModuleContext ctx_b = create_context(0.0003, 1);
-  sage26_calculate_cooling_budget_process(&ctx_b, &halo_b, 1);
-  float cooling_b = gal_b->CoolingGas;
-
-  /* Both must cool (sanity) */
-  TEST_ASSERT(cooling_a > 0.0, "Halo A should cool");
-  TEST_ASSERT(cooling_b > 0.0, "Halo B should cool");
-
-  /* CoolingGas scales linearly with dt → ratio must be dT_A/dT_B = 1/3 */
-  double ratio = cooling_a / cooling_b;
-  TEST_ASSERT_DOUBLE_EQUAL(ratio, 1.0 / 3.0, 1e-5,
-                           "CoolingGas ratio must equal dT ratio (proves per-object dt)");
-
-  free_galaxy(&gal_a);
-  free_galaxy(&gal_b);
-  sage26_calculate_cooling_budget_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/* ========================================================================== */
-/* RADIO MODE HEATING: USES PER-OBJECT DT, NOT GLOBAL SUBSTEP_DT            */
-/* ========================================================================== */
-
-/**
- * @test    test_mixed_dt_radio_mode_ignores_global
- * @brief   Radio-mode AGN heating uses halo->dT, not ctx->substep_dt
- *
- * Same halo->dT but different ctx->substep_dt → identical BH accretion
- * and cooling suppression. If the code used ctx->substep_dt, results differ.
- */
-int test_mixed_dt_radio_mode_ignores_global(void) {
-  init_memory_system(0);
-  reset_config();
-
-  /* Unit conversions and G needed by the Bondi rate */
-  MimicConfig.UnitMass_in_g = 1.989e43;
-  MimicConfig.UnitTime_in_s = 3.08568e16;
-  MimicConfig.UnitEnergy_in_cgs = 1.989e53;
-  MimicConfig.Hubble_h = 0.73;
-  MimicConfig.G = 43.0071;
-
-  /* Set radio mode parameters: AGNrecipe 2 (Bondi), the package accepts only 0 and 2 */
-  snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "RadioModeEfficiency");
-  snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.08");
-  snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "AGNrecipe");
-  snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "2");
-  MimicConfig.NumModelParams = 2;
-
-  /* A carried x small enough that neither the Eddington nor the heating cap binds, so the
-   * accreted mass is proportional to the dt the module uses */
-  const double cooling_x = 1.0e-5;
-
-  sage26_radio_mode_heating_init();
-
-  const float halo_dT = 0.2;
-
-  /* Run 1: ctx->substep_dt = 0.2 (matches halo dT) */
-  struct GalaxyData *gal1 = alloc_galaxy();
-  gal1->HotGas = 10.0;
-  gal1->MetalsHotGas = 0.2;
-  gal1->BlackHoleMass = 0.01;
-  gal1->CoolingGas = 1.0;
-  gal1->Rcool = 0.05;
-  gal1->Rheat = 0.0;
-  gal1->CoolingX = cooling_x;
-  struct Halo halo1 = {0};
-  halo1.Type = 0;
-  halo1.Mvir = 100.0;
-  halo1.Vvir = 200.0;
-  halo1.Rvir = 0.2;
-  halo1.SnapNum = 63;
-  halo1.dT = halo_dT;
-  halo1.galaxy = gal1;
-
-  struct ModuleContext ctx1 = create_context(0.2, 1);
-  sage26_radio_mode_heating_process(&ctx1, &halo1, 1);
-  float bh1 = gal1->BlackHoleMass;
-  float hot1 = gal1->HotGas;
-  float cool1 = gal1->CoolingGas;
-
-  /* Run 2: ctx->substep_dt = 0.9 (different!), but halo->dT still 0.2 */
-  struct GalaxyData *gal2 = alloc_galaxy();
-  gal2->HotGas = 10.0;
-  gal2->MetalsHotGas = 0.2;
-  gal2->BlackHoleMass = 0.01;
-  gal2->CoolingGas = 1.0;
-  gal2->Rcool = 0.05;
-  gal2->Rheat = 0.0;
-  gal2->CoolingX = cooling_x;
-  struct Halo halo2 = {0};
-  halo2.Type = 0;
-  halo2.Mvir = 100.0;
-  halo2.Vvir = 200.0;
-  halo2.Rvir = 0.2;
-  halo2.SnapNum = 63;
-  halo2.dT = halo_dT;
-  halo2.galaxy = gal2;
-
-  struct ModuleContext ctx2 = create_context(0.9, 1); /* Different global dt */
-  sage26_radio_mode_heating_process(&ctx2, &halo2, 1);
-  float bh2 = gal2->BlackHoleMass;
-  float hot2 = gal2->HotGas;
-  float cool2 = gal2->CoolingGas;
-
-  /* Must be identical — module uses halo->dT, not ctx->substep_dt */
-  TEST_ASSERT_DOUBLE_EQUAL(bh1, bh2, 1e-10, "BH mass must use halo->dT, not ctx->substep_dt");
-  TEST_ASSERT_DOUBLE_EQUAL(hot1, hot2, 1e-10, "HotGas must match when halo->dT is the same");
-  TEST_ASSERT_DOUBLE_EQUAL(cool1, cool2, 1e-10, "CoolingGas must match when halo->dT is the same");
-
-  /* Sanity: AGN should have done something */
-  TEST_ASSERT(bh1 > 0.01 || cool1 < 1.0, "AGN should have accreted or suppressed cooling");
-
-  free_galaxy(&gal1);
-  free_galaxy(&gal2);
-  sage26_radio_mode_heating_cleanup();
   check_memory_leaks();
 
   return TEST_PASS;
@@ -788,21 +601,12 @@ int main(void) {
   TEST_RUN(test_mixed_dt_merger_timestamp_source_time);
   TEST_RUN(test_invalid_nonboundary_merger_time_error);
 
-  printf("\n%sREINCORPORATION TESTS:%s\n", BLUE, NC);
-  TEST_RUN(test_mixed_dt_reincorporation);
+  printf("\n%sPER-OBJECT DT TESTS:%s\n", BLUE, NC);
+  TEST_RUN(test_mixed_dt_uses_object_dt);
+
+  printf("\n%sREINCORPORATION BOUNDARY TESTS:%s\n", BLUE, NC);
   TEST_RUN(test_boundary_sentinel_reincorporation_noop);
   TEST_RUN(test_invalid_nonboundary_reincorporation_error);
-
-  printf("\n%sSTAR FORMATION TESTS:%s\n", BLUE, NC);
-  TEST_RUN(test_mixed_dt_star_formation);
-  TEST_RUN(test_mixed_dt_star_formation_ignores_global);
-
-  printf("\n%sCOOLING TESTS:%s\n", BLUE, NC);
-  TEST_RUN(test_mixed_dt_cooling_ignores_global);
-  TEST_RUN(test_mixed_dt_cooling_scales_with_dt);
-
-  printf("\n%sRADIO MODE HEATING TESTS:%s\n", BLUE, NC);
-  TEST_RUN(test_mixed_dt_radio_mode_ignores_global);
 
   TEST_SUMMARY();
   return TEST_RESULT();

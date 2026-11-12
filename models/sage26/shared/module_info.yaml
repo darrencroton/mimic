@@ -38,6 +38,9 @@ module:
       - _tests/test_unit_sage_halo_concentration.c
       - _tests/test_unit_sage_ffb_regime.c
       - _tests/test_unit_sage_ffb_shared_helpers.c
+      - _tests/test_unit_sage_cooling_physics.c
+      - _tests/test_unit_sage_bulge_size_physics.c
+      - _tests/test_unit_time_parity.c
 
     integration: []
     scientific: []

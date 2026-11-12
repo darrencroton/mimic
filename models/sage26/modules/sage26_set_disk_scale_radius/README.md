@@ -33,5 +33,5 @@ Immediately after, the bulge radii are synchronised (`shared/sage_bulge_size_phy
 ## Tests
 
 - `_tests/test_unit_sage26_set_disk_scale_radius.c`: the central's disk radius across spins and the fallback, satellites and empty rows left unchanged, and lifecycle.
-- `_tests/test_integration_sage26_set_disk_scale_radius.py`: the module alone in a full run, with range and `Rvir`-correlation checks on `DiskScaleRadius`.
-- The `BulgeSizeOn` refusals are covered at package level by `../_tests/test_unit_sage26_bulge_size_parameter.c`.
+- `_tests/test_integration_sage26_set_disk_scale_radius.py`: the module alone in a full run, checking `DiskScaleRadius` of real centrals against the closed form of the Mo, Mao & White formula.
+- The `BulgeSizeOn` refusals (a missing key and every unsupported value) are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`; `../_tests/test_unit_sage26_bulge_size_parameter.c` covers the module's refusal of mode 3 without the run configuration and the mode-0 helpers.

@@ -39,6 +39,7 @@ The deviate is the package's keyed draw (`shared/sage_keyed_draw.h`), a pure fun
 
 ## Tests
 
-- `_tests/test_unit_sage26_determine_regime.c`: no writes at `CGMrecipeOn 0`, the no-draw branch for zero and negative masses and the draw for a NaN one, deviates either side of and equal to the sigmoid value, every `Type`, the production keyed draw against reference deviates, and both parameters' refusals and the placement checks.
-- `_tests/test_integration_sage26_determine_regime.py`: runs the module in Mimic and checks the no-op at `CGMrecipeOn 0`, the written `Regime` at 1, and that `init()` refusals reach the run's exit status.
+- `_tests/test_unit_sage26_determine_regime.c`: no writes at `CGMrecipeOn 0`, the no-draw branch for zero and negative masses and the draw for a NaN one, deviates either side of and equal to the sigmoid value, every `Type`, and the production keyed draw against reference deviates.
+- `_tests/test_integration_sage26_determine_regime.py`: runs the module in Mimic and checks that it writes only `Regime` at `CGMrecipeOn 1` and that both regimes occur.
 - The keyed draw is tested by `shared/_tests/test_unit_sage_keyed_draw.c`.
+- The placement checks are covered at package level by `../_tests/test_unit_sage_dependency_contracts.c`, and the parameter refusals also by `../_tests/test_unit_sage26_parameter_refusals.c`.

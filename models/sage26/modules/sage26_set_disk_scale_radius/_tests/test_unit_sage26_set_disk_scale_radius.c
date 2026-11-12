@@ -2,31 +2,26 @@
  * @file    test_unit_sage26_set_disk_scale_radius.c
  * @brief   Unit tests for sage26_set_disk_scale_radius module
  *
- * Validates: Physics calculation logic, edge cases, parameter handling
+ * Validates: the disk radius formula and its guards, the Type 0 filter, the central's bulge
+ * radius synchronisation, and module placement
  *
- * This test validates the sage26_set_disk_scale_radius module physics:
- * - Disk radius calculation (Mo, Mao & White 1998 model)
- * - Spin parameter calculation (Bullock-style λ)
- * - Edge cases (zero spin, zero velocity, zero radius)
- * - Fallback logic (invalid virial properties)
- * - Type filtering (Type 0 processed, Type 1+ skipped/frozen for SAGE parity: SAGE26
- *   recomputes the radius only for the FoF central)
- * - Module lifecycle and memory safety
+ * The module sets DiskScaleRadius = (lambda / 1.414) * Rvir with the Bullock spin parameter
+ * lambda = |J| / (1.414 * Vvir * Rvir) (Mo, Mao & White 1998), which reduces to
+ * |J| / (1.414^2 * Vvir). Expected values are hand-computed literals of that closed form, not a
+ * copy of the module's arithmetic. SAGE parity: SAGE26 uses the truncated literal 1.414, so a
+ * full-precision sqrt(2) changes every row by 3e-4, which the 1e-6 relative tolerance (the float
+ * store's precision) detects.
  *
  * Test cases:
- *   - test_disk_radius_normal_halo: Normal disk radius calculation
- *   - test_disk_radius_high_spin: High spin parameter case
- *   - test_disk_radius_low_spin: Low spin parameter case
- *   - test_disk_radius_zero_spin: Zero spin components
- *   - test_disk_radius_zero_vvir: Zero virial velocity fallback
- *   - test_disk_radius_zero_rvir: Zero virial radius fallback
- *   - test_disk_radius_small_vvir_rvir: Tiny positive virial properties use the formula
- *   - test_disk_radius_type1_satellite_frozen: Type 1 satellite radius preserved
- *   - test_disk_radius_type2_skipped: Type 2 galaxy filtering
- *   - test_disk_radius_null_galaxy: Null pointer safety
- *   - test_disk_radius_multiple_galaxies: Array processing
- *   - test_module_initialization: Module lifecycle
- *   - test_memory_safety: No memory leaks
+ *   - test_disk_radius_formula: formula rows (normal, high and low spin, zero spin) and the
+ *     Vvir = 0, Rvir = 0 and tiny positive Vvir and Rvir guards
+ *   - test_disk_radius_type_filter: Types 1, 2 and 3 keep their radii (disk and bulge); in a
+ *     mixed array only the Type 0 halo is processed
+ *   - test_disk_radius_null_galaxy: a halo without a galaxy is skipped without ending the loop
+ *   - test_central_bulge_radius_sync: after the disk radius is set the central's bulge radii are
+ *     synchronised (BulgeSizeOn 0 zeroes them; BulgeSizeOn 3 recombines them reading the new
+ *     disk radius)
+ *   - test_module_initialization: module_system_init() accepts the module in pre_timestep
  *
  * @author  Mimic Development Team
  * @date    2025-12-18
@@ -51,6 +46,9 @@
  * own reset_config(), which adds the module's required BulgeSizeOn at 0 */
 #define SAGE_TEST_LOCAL_RESET_CONFIG
 #include "modules/_tests/sage_test_fixtures.h"
+
+/** @brief Relative tolerance on DiskScaleRadius: the float store is good to 6e-8 */
+#define RADIUS_RTOL 1e-6
 
 static void reset_config(void) {
   memset(&MimicConfig, 0, sizeof(MimicConfig));
@@ -116,418 +114,128 @@ static void setup_test_context(struct ModuleContext *ctx, double dt) {
   ctx->params = &MimicConfig;
 }
 
-/**
- * @brief   Calculate expected disk radius for validation
- *
- * Reproduces module logic for comparison.
- *
- * @param   spin_x      Spin x-component [km/s * Mpc/h]
- * @param   spin_y      Spin y-component [km/s * Mpc/h]
- * @param   spin_z      Spin z-component [km/s * Mpc/h]
- * @param   vvir        Virial velocity [km/s]
- * @param   rvir        Virial radius [Mpc/h]
- * @return  Expected disk scale radius [Mpc/h]
- */
-static float calculate_expected_disk_radius(float spin_x, float spin_y, float spin_z, float vvir,
-                                            float rvir) {
-  if (vvir > 0.0 && rvir > 0.0) {
-    /* SAGE26 get_disk_radius: float spin products and sum
-     * widened for the double sqrt, the truncated 1.414 literal, a positive-Vvir and
-     * positive-Rvir guard, and the double fallback 0.1 * Rvir. */
-    const double spin_mag = sqrt(spin_x * spin_x + spin_y * spin_y + spin_z * spin_z);
-    const double lambda = spin_mag / (1.414 * vvir * rvir);
-    return (float)((lambda / 1.414) * rvir);
-  } else {
-    return (float)(0.1 * rvir);
-  }
-}
-
 // ============================================================================
 // PHYSICS CALCULATION TESTS
 // ============================================================================
 
 /**
- * @test    test_disk_radius_normal_halo
- * @brief   Test disk radius calculation for normal halo with valid properties
+ * @test    test_disk_radius_formula
+ * @brief   DiskScaleRadius = |J| / (1.414^2 * Vvir) for Type 0, with the SAGE26 guards
  *
- * Expected: DiskScaleRadius = (λ / √2) * Rvir
- * Validates: Core physics calculation
+ * Expected: each row's literal. Vvir <= 0 or Rvir <= 0 takes the fallback 0.1 * Rvir (zero for
+ *           Rvir = 0); SAGE26 guards only on a positive value, so tiny positive Vvir and Rvir
+ *           still use the formula, with no epsilon threshold.
+ * Validates: Core physics calculation, the 1.414 literal, and the fallback guards
  */
-int test_disk_radius_normal_halo(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
+int test_disk_radius_formula(void) {
+  static const struct {
+    const char *label;
+    float spin[3]; /* km/s * Mpc/h */
+    float vvir;    /* km/s */
+    float rvir;    /* Mpc/h */
+    double expected;
+  } rows[] = {
+      {"normal halo", {100.0f, 150.0f, 200.0f}, 200.0f, 0.2f, 0.673348952275},
+      {"high spin", {3.0f, 4.0f, 0.0f}, 200.0f, 0.2f, 0.0125037761404},
+      {"low spin", {0.3f, 0.4f, 0.0f}, 200.0f, 0.2f, 0.00125037764385},
+      {"zero spin", {0.0f, 0.0f, 0.0f}, 200.0f, 0.2f, 0.0},
+      {"zero Vvir takes the 0.1 * Rvir fallback", {100.0f, 100.0f, 100.0f}, 0.0f, 0.2f, 0.02},
+      {"zero Rvir gives zero", {100.0f, 100.0f, 100.0f}, 200.0f, 0.0f, 0.0},
+      {"tiny positive Vvir and Rvir use the formula",
+       {100.0f, 100.0f, 100.0f},
+       1e-12f,
+       1e-12f,
+       8.66287025927e13},
+  };
 
-  int result = sage26_set_disk_scale_radius_init();
-  TEST_ASSERT(result == 0, "Module init should succeed");
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+    TEST_ASSERT(sage26_set_disk_scale_radius_init() == 0, "Module init should succeed");
 
-  /* Create test galaxy with typical properties */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const float spin_x = 100.0f; /* km/s * Mpc/h */
-  const float spin_y = 150.0f;
-  const float spin_z = 200.0f;
-  const float vvir = 200.0f; /* km/s */
-  const float rvir = 0.2f;   /* Mpc/h */
-  setup_test_galaxy(&halo, &gal, spin_x, spin_y, spin_z, vvir, rvir, 0);
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, rows[i].spin[0], rows[i].spin[1], rows[i].spin[2], rows[i].vvir,
+                      rows[i].rvir, 0);
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, 0.01);
 
-  /* Setup context */
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
+    /* ===== EXECUTE ===== */
+    int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
 
-  /* Calculate expected disk radius */
-  const float expected_rd = calculate_expected_disk_radius(spin_x, spin_y, spin_z, vvir, rvir);
+    /* ===== VALIDATE ===== */
+    char message[256];
+    snprintf(message, sizeof(message), "Process should succeed (%s)", rows[i].label);
+    TEST_ASSERT(result == 0, message);
+    snprintf(message, sizeof(message), "DiskScaleRadius must match the expected value (%s)",
+             rows[i].label);
+    TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, rows[i].expected,
+                             RADIUS_RTOL * rows[i].expected, message);
 
-  /* ===== EXECUTE ===== */
-  result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process function should succeed");
-  TEST_ASSERT(gal.DiskScaleRadius > 0.0f, "DiskScaleRadius should be positive");
-  TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, (double)expected_rd, 1e-6,
-                           "DiskScaleRadius should match expected value");
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
+    /* ===== CLEANUP ===== */
+    sage26_set_disk_scale_radius_cleanup();
+    check_memory_leaks();
+  }
 
   return TEST_PASS;
 }
 
 /**
- * @test    test_disk_radius_high_spin
- * @brief   Test disk radius calculation for high spin parameter (λ ~ 0.1)
+ * @test    test_disk_radius_type_filter
+ * @brief   SAGE parity: only the FoF central (Type 0) is recomputed
  *
- * Expected: Larger disk radius
- * Validates: High spin regime
+ * Expected: a Type 1, 2 or 3 halo keeps its inherited DiskScaleRadius (the -1 sentinel) and its
+ *           bulge radii; in an array with a Type 0 halo between a satellite and an orphan only
+ *           the Type 0 halo is processed
+ * Validates: Type filtering, the Type 1 freeze contract and the loop indexing
  */
-int test_disk_radius_high_spin(void) {
+int test_disk_radius_type_filter(void) {
+  static const struct {
+    int type;
+    const char *label;
+  } rows[] = {{1, "Type 1 satellite"}, {2, "Type 2 orphan"}, {3, "Type 3"}};
+  const float stale_bulge_radius = 0.5f; /* BulgeSizeOn 0 would zero it on a central */
+
   /* ===== SETUP ===== */
   init_memory_system(0);
   reset_config();
-
-  sage26_set_disk_scale_radius_init();
-
-  /* Create galaxy with high spin parameter
-   * λ = |J| / (√2 * Vvir * Rvir)
-   * For λ ~ 0.1: |J| ~ 0.1 * √2 * Vvir * Rvir
-   *              |J| ~ 0.1 * 1.414 * 200 * 0.2 ~ 5.66
-   */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const float spin_x = 3.0f;
-  const float spin_y = 4.0f;
-  const float spin_z = 0.0f; /* |J| = 5.0 */
-  const float vvir = 200.0f;
-  const float rvir = 0.2f;
-  setup_test_galaxy(&halo, &gal, spin_x, spin_y, spin_z, vvir, rvir, 0);
-
+  TEST_ASSERT(sage26_set_disk_scale_radius_init() == 0, "Module init should succeed");
   struct ModuleContext ctx;
   setup_test_context(&ctx, 0.01);
 
-  const float expected_rd = calculate_expected_disk_radius(spin_x, spin_y, spin_z, vvir, rvir);
-
-  /* ===== EXECUTE ===== */
-  sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(gal.DiskScaleRadius > 0.0f, "High spin should give positive radius");
-  TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, (double)expected_rd, 1e-6,
-                           "DiskScaleRadius should match expected value");
-
-  /* Disk radius should be reasonable fraction of Rvir (typically 0.01-0.1 * Rvir) */
-  TEST_ASSERT(gal.DiskScaleRadius < rvir, "Disk radius should be < Rvir");
-  TEST_ASSERT(gal.DiskScaleRadius > 0.001f * rvir, "Disk radius should be > 0.001*Rvir");
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_disk_radius_low_spin
- * @brief   Test disk radius calculation for low spin parameter (λ ~ 0.01)
- *
- * Expected: Smaller disk radius
- * Validates: Low spin regime
- */
-int test_disk_radius_low_spin(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  sage26_set_disk_scale_radius_init();
-
-  /* Create galaxy with low spin parameter */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const float spin_x = 0.3f;
-  const float spin_y = 0.4f;
-  const float spin_z = 0.0f; /* |J| = 0.5 (10x smaller than high spin) */
-  const float vvir = 200.0f;
-  const float rvir = 0.2f;
-  setup_test_galaxy(&halo, &gal, spin_x, spin_y, spin_z, vvir, rvir, 0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const float expected_rd = calculate_expected_disk_radius(spin_x, spin_y, spin_z, vvir, rvir);
-
-  /* ===== EXECUTE ===== */
-  sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(gal.DiskScaleRadius > 0.0f, "Low spin should still give positive radius");
-  TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, (double)expected_rd, 1e-6,
-                           "DiskScaleRadius should match expected value");
-
-  /* Low spin should give smaller radius than typical */
-  TEST_ASSERT(gal.DiskScaleRadius < 0.01f * rvir, "Low spin should give small radius");
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_disk_radius_zero_spin
- * @brief   Test disk radius when all spin components are zero
- *
- * Expected: DiskScaleRadius = 0 (λ = 0)
- * Validates: Zero spin handling
- */
-int test_disk_radius_zero_spin(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  sage26_set_disk_scale_radius_init();
-
-  /* Create galaxy with zero spin */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0.0f, 0.0f, 0.0f, 200.0f, 0.2f, 0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Should handle zero spin gracefully");
-  TEST_ASSERT(gal.DiskScaleRadius == 0.0f, "Zero spin should give zero disk radius");
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_disk_radius_zero_vvir
- * @brief   Test disk radius when Vvir is zero (edge case)
- *
- * Expected: Fallback → DiskScaleRadius = 0.1 * Rvir
- * Validates: Edge case fallback logic
- */
-int test_disk_radius_zero_vvir(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  sage26_set_disk_scale_radius_init();
-
-  /* Create galaxy with zero virial velocity */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const float rvir = 0.2f;
-  setup_test_galaxy(&halo, &gal, 100.0f, 100.0f, 100.0f, 0.0f, rvir, 0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const float expected_rd = (float)(0.1 * rvir); /* SAGE26 double fallback 0.1 * Rvir */
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Should handle zero Vvir gracefully");
-  TEST_ASSERT(halo.Vvir == 0.0f, "Vvir is zero");
-  TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, (double)expected_rd, 1e-6,
-                           "Should use fallback: 0.1 * Rvir");
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_disk_radius_zero_rvir
- * @brief   Test disk radius when Rvir is zero (edge case)
- *
- * Expected: Fallback → DiskScaleRadius = 0.0 (0.1 * 0 = 0)
- * Validates: Edge case fallback logic
- */
-int test_disk_radius_zero_rvir(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  sage26_set_disk_scale_radius_init();
-
-  /* Create galaxy with zero virial radius */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 100.0f, 100.0f, 100.0f, 200.0f, 0.0f, 0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const float expected_rd = 0.0f; /* Fallback: 0.1 * 0 = 0 */
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Should handle zero Rvir gracefully");
-  TEST_ASSERT(halo.Rvir == 0.0f, "Rvir is zero");
-  TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, (double)expected_rd, 1e-6,
-                           "Should give zero disk radius");
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_disk_radius_small_vvir_rvir
- * @brief   Test disk radius when Vvir and Rvir are tiny but positive
- *
- * Expected: SAGE26 guards only Vvir > 0 && Rvir > 0, so tiny
- *           positive virial properties use the Mo, Mao & White formula, not the
- *           0.1 * Rvir fallback
- * Validates: SAGE26's positive guard (no epsilon threshold)
- */
-int test_disk_radius_small_vvir_rvir(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  sage26_set_disk_scale_radius_init();
-
-  /* Create galaxy with very small virial properties */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const float vvir = 1e-12f; /* tiny but positive */
-  const float rvir = 1e-12f; /* tiny but positive */
-  setup_test_galaxy(&halo, &gal, 100.0f, 100.0f, 100.0f, vvir, rvir, 0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const float expected_rd = calculate_expected_disk_radius(100.0f, 100.0f, 100.0f, vvir, rvir);
-
-  /* ===== EXECUTE ===== */
-  sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(expected_rd > 0.1f * rvir, "The formula, not the fallback, applies here");
-  TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, (double)expected_rd,
-                           1e-6 * (double)expected_rd,
-                           "Tiny positive virial properties should use the disk formula");
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_disk_radius_type1_satellite_frozen
- * @brief   SAGE parity: Type 1 satellites keep their inherited disk radius
- *          (SAGE26 recomputes it only for the FoF central)
- *
- * Expected: DiskScaleRadius unchanged (sentinel value)
- * Validates: Type 1 satellite freeze contract
- */
-int test_disk_radius_type1_satellite_frozen(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  sage26_set_disk_scale_radius_init();
-
-  /* Create Type 1 satellite. SAGE updates only the FOF Type 0 central; a
-   * satellite keeps the radius it had when it last was central. */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 1);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const float initial_rd = gal.DiskScaleRadius; /* Should be -1.0 (sentinel) */
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(halo.Type == 1, "Type is 1");
-  TEST_ASSERT(gal.DiskScaleRadius == initial_rd,
-              "Type 1 satellite should keep its inherited DiskScaleRadius");
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_disk_radius_type2_skipped
- * @brief   Test that Type 2 (orphan) galaxies are skipped
- *
- * Expected: DiskScaleRadius unchanged (sentinel value)
- * Validates: Type filtering logic
- */
-int test_disk_radius_type2_skipped(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  sage26_set_disk_scale_radius_init();
-
-  /* Create Type 2 galaxy */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 2);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const float initial_rd = gal.DiskScaleRadius; /* Should be -1.0 (sentinel) */
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(halo.Type == 2, "Type is 2");
-  TEST_ASSERT(gal.DiskScaleRadius == initial_rd,
-              "Type 2 galaxy should not have DiskScaleRadius modified");
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, rows[i].type);
+    gal.BulgeRadius = stale_bulge_radius;
+
+    /* ===== EXECUTE ===== */
+    int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
+
+    /* ===== VALIDATE ===== */
+    char message[256];
+    snprintf(message, sizeof(message), "Process should succeed (%s)", rows[i].label);
+    TEST_ASSERT(result == 0, message);
+    snprintf(message, sizeof(message), "%s should keep its inherited DiskScaleRadius",
+             rows[i].label);
+    TEST_ASSERT(gal.DiskScaleRadius == -1.0f, message);
+    snprintf(message, sizeof(message), "%s should keep its bulge radius", rows[i].label);
+    TEST_ASSERT(gal.BulgeRadius == stale_bulge_radius, message);
+  }
+
+  /* Mixed array: the Type 0 halo sits between a satellite and an orphan */
+  struct Halo halos[3];
+  struct GalaxyData gals[3];
+  setup_test_galaxy(&halos[0], &gals[0], 300.0f, 400.0f, 0.0f, 200.0f, 0.2f, 1);
+  setup_test_galaxy(&halos[1], &gals[1], 100.0f, 150.0f, 200.0f, 200.0f, 0.2f, 0);
+  setup_test_galaxy(&halos[2], &gals[2], 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 2);
+  TEST_ASSERT(sage26_set_disk_scale_radius_process(&ctx, halos, 3) == 0,
+              "Process should succeed for the array");
+  TEST_ASSERT(gals[0].DiskScaleRadius == -1.0f, "The Type 1 halo before the central is unchanged");
+  TEST_ASSERT_DOUBLE_EQUAL((double)gals[1].DiskScaleRadius, 0.673348952275,
+                           RADIUS_RTOL * 0.673348952275, "The Type 0 halo should be processed");
+  TEST_ASSERT(gals[2].DiskScaleRadius == -1.0f, "The Type 2 halo after the central is unchanged");
 
   /* ===== CLEANUP ===== */
   sage26_set_disk_scale_radius_cleanup();
@@ -538,38 +246,36 @@ int test_disk_radius_type2_skipped(void) {
 
 /**
  * @test    test_disk_radius_null_galaxy
- * @brief   Test that null galaxy pointer is handled gracefully
+ * @brief   A halo without a galaxy is skipped and the rest of the array is still processed
  *
- * Expected: No crash, function returns successfully
- * Validates: Null pointer safety
+ * Expected: the galaxy-less Type 0 halo stays without a galaxy; the Type 0 halo after it receives
+ *           its disk radius
+ * Validates: Null pointer safety without ending the loop
  */
 int test_disk_radius_null_galaxy(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
   reset_config();
+  TEST_ASSERT(sage26_set_disk_scale_radius_init() == 0, "Module init should succeed");
 
-  sage26_set_disk_scale_radius_init();
-
-  /* Create halo with null galaxy pointer */
-  struct Halo halo;
-  memset(&halo, 0, sizeof(struct Halo));
-  halo.Type = 0;
-  halo.Spin[0] = 100.0f;
-  halo.Spin[1] = 100.0f;
-  halo.Spin[2] = 100.0f;
-  halo.Vvir = 200.0f;
-  halo.Rvir = 0.2f;
-  halo.galaxy = NULL; /* Null pointer */
+  struct Halo halos[2];
+  struct GalaxyData gal;
+  setup_test_galaxy(&halos[0], &gal, 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 0);
+  halos[0].galaxy = NULL;
+  setup_test_galaxy(&halos[1], &gal, 100.0f, 150.0f, 200.0f, 200.0f, 0.2f, 0);
 
   struct ModuleContext ctx;
   setup_test_context(&ctx, 0.01);
 
   /* ===== EXECUTE ===== */
-  int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
+  int result = sage26_set_disk_scale_radius_process(&ctx, halos, 2);
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Should handle null galaxy gracefully");
-  TEST_ASSERT(halo.galaxy == NULL, "Galaxy pointer is null");
+  TEST_ASSERT(halos[0].galaxy == NULL, "Galaxy pointer is null");
+  TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, 0.673348952275,
+                           RADIUS_RTOL * 0.673348952275,
+                           "The halo after the galaxy-less one should still be processed");
 
   /* ===== CLEANUP ===== */
   sage26_set_disk_scale_radius_cleanup();
@@ -579,58 +285,72 @@ int test_disk_radius_null_galaxy(void) {
 }
 
 /**
- * @test    test_disk_radius_multiple_galaxies
- * @brief   Test processing array of multiple galaxies
+ * @test    test_central_bulge_radius_sync
+ * @brief   The central's bulge radii are synchronised right after its disk radius is set
  *
- * Expected: Type 0 galaxy processed; Type 1/2 galaxies left unchanged
- * Validates: Array loop logic
+ * Expected: BulgeSizeOn 0 zeroes BulgeRadius, MergerBulgeRadius and InstabilityBulgeRadius.
+ *           BulgeSizeOn 3 with no merger bulge and a positive instability bulge mass but no
+ *           instability radius takes the instability radius 0.2 * DiskScaleRadius, which must be
+ *           the NEW disk radius (0.2 * 0.673348952275), zeroes the merger radius (its mass is
+ *           exactly zero), and sets BulgeRadius to the mass-weighted average, here the
+ *           instability radius alone.
+ * Validates: The synchronisation order (disk radius first) and both BulgeSizeOn modes
  */
-int test_disk_radius_multiple_galaxies(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
+int test_central_bulge_radius_sync(void) {
+  static const struct {
+    int bulge_size_on;
+    float initial_instability_radius;
+    double expected_instability_radius; /* BulgeRadius is the same: one channel has mass */
+  } rows[] = {
+      {0, 0.3f, 0.0}, {3, 0.0f, 0.134669790455}, /* 0.2 * 0.673348952275 */
+  };
 
-  sage26_set_disk_scale_radius_init();
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "%d", rows[i].bulge_size_on);
+    MimicConfig.Hubble_h = 0.73;
+    TEST_ASSERT(sage26_set_disk_scale_radius_init() == 0, "Module init should succeed");
 
-  /* Create array of 3 galaxies with different properties */
-  const int ngal = 3;
-  struct Halo halos[3];
-  struct GalaxyData gals[3];
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 100.0f, 150.0f, 200.0f, 200.0f, 0.2f, 0);
+    gal.MergerBulgeMass = 0.0f;
+    gal.InstabilityBulgeMass = 0.5f; /* 1e10 Msun/h */
+    gal.BulgeRadius = 0.5f;
+    gal.MergerBulgeRadius = 0.7f;
+    gal.InstabilityBulgeRadius = rows[i].initial_instability_radius;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, 0.01);
 
-  /* Galaxy 0: Normal */
-  setup_test_galaxy(&halos[0], &gals[0], 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 0);
+    /* ===== EXECUTE ===== */
+    int result = sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
 
-  /* Galaxy 1: Type 1 satellite (should be skipped/frozen) */
-  setup_test_galaxy(&halos[1], &gals[1], 300.0f, 400.0f, 0.0f, 200.0f, 0.2f, 1);
+    /* ===== VALIDATE ===== */
+    char message[256];
+    snprintf(message, sizeof(message), "Process should succeed (BulgeSizeOn %d)",
+             rows[i].bulge_size_on);
+    TEST_ASSERT(result == 0, message);
+    TEST_ASSERT_DOUBLE_EQUAL((double)gal.DiskScaleRadius, 0.673348952275,
+                             RADIUS_RTOL * 0.673348952275, "The disk radius should be set");
+    snprintf(message, sizeof(message), "MergerBulgeRadius must be zero (BulgeSizeOn %d)",
+             rows[i].bulge_size_on);
+    TEST_ASSERT(gal.MergerBulgeRadius == 0.0f, message);
+    snprintf(message, sizeof(message), "InstabilityBulgeRadius must match (BulgeSizeOn %d)",
+             rows[i].bulge_size_on);
+    TEST_ASSERT_DOUBLE_EQUAL((double)gal.InstabilityBulgeRadius,
+                             rows[i].expected_instability_radius,
+                             RADIUS_RTOL * rows[i].expected_instability_radius, message);
+    snprintf(message, sizeof(message), "BulgeRadius must match (BulgeSizeOn %d)",
+             rows[i].bulge_size_on);
+    TEST_ASSERT_DOUBLE_EQUAL((double)gal.BulgeRadius, rows[i].expected_instability_radius,
+                             RADIUS_RTOL * rows[i].expected_instability_radius, message);
 
-  /* Galaxy 2: Type 2 (should be skipped) */
-  setup_test_galaxy(&halos[2], &gals[2], 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 2);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  /* Calculate expected values */
-  const float expected_rd0 = calculate_expected_disk_radius(100.0f, 100.0f, 100.0f, 200.0f, 0.2f);
-  /* ===== EXECUTE ===== */
-  int result = sage26_set_disk_scale_radius_process(&ctx, halos, ngal);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed for array");
-
-  /* Galaxy 0: Should be processed */
-  TEST_ASSERT_DOUBLE_EQUAL((double)gals[0].DiskScaleRadius, (double)expected_rd0, 1e-6,
-                           "Galaxy 0 should have correct disk radius");
-
-  /* Galaxy 1: Should be skipped/frozen (Type 1) */
-  TEST_ASSERT(gals[1].DiskScaleRadius == -1.0f,
-              "Galaxy 1 (Type 1) should keep inherited disk radius");
-
-  /* Galaxy 2: Should be skipped (Type 2) */
-  TEST_ASSERT(gals[2].DiskScaleRadius == -1.0f, "Galaxy 2 (Type 2) should not be modified");
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
+    /* ===== CLEANUP ===== */
+    sage26_set_disk_scale_radius_cleanup();
+    check_memory_leaks();
+  }
 
   return TEST_PASS;
 }
@@ -677,41 +397,6 @@ int test_module_initialization(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during operation
- *
- * Expected: No memory leaks after init/process/cleanup cycle
- * Validates: Memory management
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  sage26_set_disk_scale_radius_init();
-
-  /* Process a galaxy */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  /* ===== EXECUTE ===== */
-  sage26_set_disk_scale_radius_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* check_memory_leaks() will catch any leaks */
-
-  /* ===== CLEANUP ===== */
-  sage26_set_disk_scale_radius_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
 // ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
@@ -731,22 +416,11 @@ int main(void) {
   /* Initialize error handling for tests */
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  /* Run physics calculation tests */
-  TEST_RUN(test_disk_radius_normal_halo);
-  TEST_RUN(test_disk_radius_high_spin);
-  TEST_RUN(test_disk_radius_low_spin);
-  TEST_RUN(test_disk_radius_zero_spin);
-  TEST_RUN(test_disk_radius_zero_vvir);
-  TEST_RUN(test_disk_radius_zero_rvir);
-  TEST_RUN(test_disk_radius_small_vvir_rvir);
-  TEST_RUN(test_disk_radius_type1_satellite_frozen);
-  TEST_RUN(test_disk_radius_type2_skipped);
+  TEST_RUN(test_disk_radius_formula);
+  TEST_RUN(test_disk_radius_type_filter);
   TEST_RUN(test_disk_radius_null_galaxy);
-  TEST_RUN(test_disk_radius_multiple_galaxies);
-
-  /* Run infrastructure tests */
+  TEST_RUN(test_central_bulge_radius_sync);
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_memory_safety);
 
   /* Print summary and return result */
   TEST_SUMMARY();

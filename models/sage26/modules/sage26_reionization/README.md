@@ -29,6 +29,6 @@ The reionization redshifts are fixed at 8.0 and 7.0 and are not parameters; conf
 
 ## Tests
 
-- `_tests/test_unit_sage26_reionization.c`: lifecycle, the parameter refusals, and the suppression's range and its dependence on mass and redshift on hand-built rows.
+- `_tests/test_unit_sage26_reionization.c`: lifecycle, the accepted `GlobalBaryonFraction` values reaching `HaloBaryonFraction`, and the suppression's range and its dependence on mass and redshift on hand-built rows.
 - `_tests/test_integration_sage26_reionization.py`: the module alone in a full run, with range and mass-trend checks on `HaloBaryonFraction`.
-- The misorder refusal is covered at package level by `../_tests/test_unit_sage_dependency_contracts.c`.
+- The `GlobalBaryonFraction` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`, and the misorder refusal by `../_tests/test_unit_sage_dependency_contracts.c`.

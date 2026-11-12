@@ -1,360 +1,123 @@
 #!/usr/bin/env python3
 """
-Integration tests for sage26_calculate_cooling_budget module
+sage26_calculate_cooling_budget - Integration Test
 
-Tests the sage26_calculate_cooling_budget module in a full pipeline context:
-- Module loads and initializes correctly
-- Integrates properly with sage26_prepare_infall_budget (provides hot gas source)
-- CoolingGas and Rcool properties are created and written to output
-- Output validation: CoolingGas and Rcool values are physically reasonable
-- Type 2 orphans are skipped correctly
-- Memory safety (no leaks)
+Validates: the hot-halo cooling diagnostics the budget module writes, on a pipeline that feeds it
+hot gas
 
-NOTE: This module's one runtime parameter is the required CGMrecipeOn, set to 0 (the CGM
-      recipe off) in every run below; the CoolFunctions path is hardcoded. AGN functionality is in
-      sage26_radio_mode_heating (different module).
+The budget module's cooling mass, cooling radius and return path are carried between modules and
+never written to output. What it does write to output are the diagnostics tcool, tff and
+RcoolToRvir, so this test reads those. One Mimic run of reionization, prepare_infall_budget,
+apply_infall and the budget module (CGMrecipeOn 0), with no apply_cooling, leaves the hot gas the
+budget saw in the output, so each galaxy's diagnostics can be tied to its HotGas.
 
-Phase: Phase 4.2 (SAGE Physics Module Implementation)
-Author: Mimic Development Team
-Date: 2025-11-13 (Updated 2025-12-18)
+Test cases:
+  - test_diagnostics_follow_hot_gas: tcool is positive exactly where a galaxy has hot gas and a
+    virial velocity, tff is sqrt(2) tcool, and RcoolToRvir is positive there
+  - test_tcool_unit_conversion_on_orphans: for Type 2 orphans (whose Rvir and Vvir never change)
+    tcool is Rvir / Vvir times SAGE26's mass-rate conversion factor
+
+NOTE: sage26_calculate_cooling_budget requires CGMrecipeOn, set to 0 (the CGM recipe off).
 """
 
-import os
-import shutil
 import sys
+from pathlib import Path
 
 import numpy as np
 
-# Add test framework to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../../../tests"))
+# Add tests directory to path to import framework
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+
 from framework import (
-    BLUE,
-    GREEN,
     MIMIC_EXE,
-    NC,
-    RED,
+    SharedRuns,
     TestSkipped,
-    harness,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
+    check_no_memory_leaks,
+    load_binary_halos,
+    run_test_suite,
 )
 
+RUNS = SharedRuns()
 
-class TestSageCoolingIntegration:
-    """Integration tests for sage26_calculate_cooling_budget module
+# Infall -> cooling budget only: nothing downstream removes the hot gas the budget saw
+BUDGET_CHAIN = {
+    "pre_timestep": [
+        ("sage26_reionization", "process_full_halo"),
+        ("sage26_prepare_infall_budget", "process_full_halo"),
+    ],
+    "galaxy_physics": [
+        ("sage26_apply_infall", "process_full_halo"),
+        ("sage26_calculate_cooling_budget", "process_by_galaxy"),
+    ],
+    "satellite_mergers": [],
+    "post_timestep": [],
+}
+BUDGET_PARAMS = {"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0}
 
-    Tests focus on integration and output validation:
-    - Module loading and initialization
-    - Pipeline integration (with sage26_prepare_infall_budget)
-    - Output validation (CoolingGas and Rcool properties)
-    - Physics constraints (values in valid ranges)
-    - Memory safety (no leaks)
+# SAGE26's tcool conversion: 1e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s with the
+# mini-millennium Hubble_h 0.73, SEC_PER_GIGAYEAR 3.155e16 and UnitTime_in_s 3.08568e19 (Mpc/h over
+# km/s); a mass-rate factor applied to a time, as SAGE26 does, so tcool is not a time in Gyr
+TCOOL_CONVERSION = 1.0e10 / 0.73 * 3.155e16 / 3.08568e19
 
-    NOTE: This module reads only the required CGMrecipeOn (0 here, the CGM recipe off).
-          CoolFunctions path is hardcoded in sage26_calculate_cooling_budget.c
+
+def budget_chain_galaxies():
+    """Run the budget chain once and return its z = 0 galaxies."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    run = RUNS.run("budget_chain", phase_config=BUDGET_CHAIN, model_params=BUDGET_PARAMS)
+    assert run.returncode == 0, f"Mimic should execute successfully\nStderr: {run.stderr}"
+    assert check_no_memory_leaks(run.stdout, run.stderr), "Should have no memory leaks"
+    halos, _metadata = load_binary_halos(run.output_dir / "model_z0.000_0")
+    assert len(halos) > 0, "Should have galaxies in output"
+    return halos
+
+
+def test_diagnostics_follow_hot_gas():
+    """The budget writes tcool, tff and RcoolToRvir for every galaxy that has hot gas.
+
+    The cooling recipe's outer guard needs HotGas > 0 and Vvir > 0: a galaxy that fails it has
+    tcool reset to 0. tff is sqrt(2) times tcool (the free-fall time of the same Rvir / Vvir), and
+    a galaxy that passes forms a cooling radius, so RcoolToRvir is positive.
     """
+    halos = budget_chain_galaxies()
+    passes_guard = (halos["HotGas"] > 0) & (halos["Vvir"] > 0)
+    print(f"  {int(np.sum(passes_guard))} / {len(halos)} galaxies pass the outer guard")
+    assert np.any(passes_guard), "Some galaxies should hold hot gas"
 
-    def test_module_loads(self):
-        """Test that sage26_calculate_cooling_budget module loads successfully"""
-        param_file, output_dir, temp_dir = harness.create_test_param_file(
-            output_name="sage26_calculate_cooling_budget_load",
-            phase_config={
-                "pre_timestep": [],
-                "galaxy_physics": [("sage26_calculate_cooling_budget", "process_by_galaxy")],
-                "satellite_mergers": [],
-                "post_timestep": [],
-            },
-            model_params={"CGMrecipeOn": 0},  # required (the CGM recipe off)
-        )
+    assert np.all(halos["tcool"][passes_guard] > 0), "tcool is positive where the guard passes"
+    assert np.all(halos["tcool"][~passes_guard] == 0), "tcool is reset to 0 where it fails"
 
-        returncode, stdout, stderr = harness.run_mimic(param_file)
+    ratio = halos["tff"][passes_guard] / halos["tcool"][passes_guard]
+    assert np.allclose(ratio, np.sqrt(2.0), rtol=1.0e-6), "tff should be sqrt(2) times tcool"
+    assert np.all(halos["RcoolToRvir"][passes_guard] > 0), "A cooling radius is formed"
 
-        assert returncode == 0, f"Mimic should run successfully\nStderr: {stderr}"
-        shutil.rmtree(temp_dir)
 
-    def test_infall_cooling_pipeline(self):
-        """Test sage26_prepare_infall_budget → sage26_calculate_cooling_budget pipeline integration"""
-        param_file, output_dir, temp_dir = harness.create_test_param_file(
-            output_name="infall_cooling_pipeline",
-            phase_config={
-                "pre_timestep": [("sage26_prepare_infall_budget", "process_full_halo")],
-                "galaxy_physics": [("sage26_calculate_cooling_budget", "process_by_galaxy")],
-                "satellite_mergers": [],
-                "post_timestep": [],
-            },
-            model_params={
-                "GlobalBaryonFraction": 0.17,
-                "CGMrecipeOn": 0,
-            },  # For sage26_prepare_infall_budget
-        )
+def test_tcool_unit_conversion_on_orphans():
+    """tcool is Rvir / Vvir times SAGE26's conversion factor.
 
-        returncode, stdout, stderr = harness.run_mimic(param_file)
+    A Type 2 orphan keeps the Rvir and Vvir its last halo had, so the output values are the ones
+    the budget used. A central's or satellite's output Rvir and Vvir need not equal the values
+    its last budget call read, so only orphans give an exact check.
+    """
+    halos = budget_chain_galaxies()
+    orphans = halos[(halos["Type"] == 2) & (halos["HotGas"] > 0) & (halos["Vvir"] > 0)]
+    print(f"  {len(orphans)} orphans with hot gas")
+    assert len(orphans) > 0, "Some orphans should hold hot gas"
 
-        assert returncode == 0, f"Pipeline should run successfully\nStderr: {stderr}"
-        # Check for no memory leaks
-        assert harness.check_no_memory_leaks(stdout, stderr), "Should have no memory leaks"
-        shutil.rmtree(temp_dir)
-
-    def test_memory_safety(self):
-        """Test that sage26_calculate_cooling_budget doesn't leak memory"""
-        param_file, output_dir, temp_dir = harness.create_test_param_file(
-            output_name="cooling_memory",
-            phase_config={
-                "pre_timestep": [("sage26_prepare_infall_budget", "process_full_halo")],
-                "galaxy_physics": [("sage26_calculate_cooling_budget", "process_by_galaxy")],
-                "satellite_mergers": [],
-                "post_timestep": [],
-            },
-            model_params={
-                "GlobalBaryonFraction": 0.17,
-                "CGMrecipeOn": 0,
-            },  # For sage26_prepare_infall_budget
-        )
-
-        returncode, stdout, stderr = harness.run_mimic(param_file)
-        assert returncode == 0, f"Execution should succeed\nStderr: {stderr}"
-        assert harness.check_no_memory_leaks(stdout, stderr), "Should have no memory leaks"
-        shutil.rmtree(temp_dir)
-
-    def test_execution_completes(self):
-        """Test that full pipeline execution completes without errors"""
-        param_file, output_dir, temp_dir = harness.create_test_param_file(
-            output_name="cooling_complete",
-            phase_config={
-                "pre_timestep": [("sage26_prepare_infall_budget", "process_full_halo")],
-                "galaxy_physics": [("sage26_calculate_cooling_budget", "process_by_galaxy")],
-                "satellite_mergers": [],
-                "post_timestep": [],
-            },
-            model_params={
-                "GlobalBaryonFraction": 0.17,
-                "CGMrecipeOn": 0,
-            },  # For sage26_prepare_infall_budget
-            first_file=0,
-            last_file=0,
-        )
-
-        returncode, stdout, stderr = harness.run_mimic(param_file)
-        assert returncode == 0, f"Pipeline should complete\nStderr: {stderr}"
-        shutil.rmtree(temp_dir)
-
-    def test_module_ordering_dependency(self):
-        """Test that module system handles ordering correctly
-
-        Correct order: infall (pre_timestep) → cooling (galaxy_physics)
-        Wrong order: cooling (pre_timestep) → infall (galaxy_physics)
-        Both should run without errors (though wrong order is ineffective)
-        """
-        # Correct order: infall then cooling
-        param_file_correct, output_dir1, temp_dir1 = harness.create_test_param_file(
-            output_name="cooling_order_correct",
-            phase_config={
-                "pre_timestep": [("sage26_prepare_infall_budget", "process_full_halo")],
-                "galaxy_physics": [("sage26_calculate_cooling_budget", "process_by_galaxy")],
-                "satellite_mergers": [],
-                "post_timestep": [],
-            },
-            model_params={
-                "GlobalBaryonFraction": 0.17,
-                "CGMrecipeOn": 0,
-            },  # For sage26_prepare_infall_budget
-        )
-
-        returncode_correct, stdout, stderr = harness.run_mimic(param_file_correct)
-        assert returncode_correct == 0, f"Correct order should work\nStderr: {stderr}"
-
-        # Wrong order: cooling then infall (still runs, but ineffective)
-        param_file_wrong, output_dir2, temp_dir2 = harness.create_test_param_file(
-            output_name="cooling_order_wrong",
-            phase_config={
-                "pre_timestep": [("sage26_calculate_cooling_budget", "process_by_galaxy")],
-                "galaxy_physics": [
-                    ("sage26_prepare_infall_budget", "process_full_halo")
-                ],  # Wrong order
-                "satellite_mergers": [],
-                "post_timestep": [],
-            },
-            model_params={
-                "GlobalBaryonFraction": 0.17,
-                "CGMrecipeOn": 0,
-            },  # For sage26_prepare_infall_budget
-        )
-
-        returncode_wrong, stdout, stderr = harness.run_mimic(param_file_wrong)
-        assert returncode_wrong == 0, f"Wrong order should still run\nStderr: {stderr}"
-        shutil.rmtree(temp_dir1)
-        shutil.rmtree(temp_dir2)
-
-    def test_output_file_created(self):
-        """Test that output files are created successfully
-
-        NOTE: CoolingGas and Rcool are working variables (output: false) and
-              are NOT written to output files. This is correct by design.
-              We only check that the module runs and creates output.
-        """
-        import h5py
-
-        param_file, output_dir, temp_dir = harness.create_test_param_file(
-            output_name="cooling_output_check",
-            phase_config={
-                "pre_timestep": [("sage26_prepare_infall_budget", "process_full_halo")],
-                "galaxy_physics": [("sage26_calculate_cooling_budget", "process_by_galaxy")],
-                "satellite_mergers": [],
-                "post_timestep": [],
-            },
-            model_params={
-                "GlobalBaryonFraction": 0.17,
-                "CGMrecipeOn": 0,
-            },  # For sage26_prepare_infall_budget
-            output_format="hdf5",
-            first_file=0,
-            last_file=0,
-        )
-
-        returncode, stdout, stderr = harness.run_mimic(param_file)
-        assert returncode == 0, f"Execution should succeed\nStderr: {stderr}"
-
-        # Check HDF5 output exists
-        from pathlib import Path
-
-        output_dir_path = Path(output_dir)
-        output_files = list(output_dir_path.glob("**/model_*.hdf5"))
-        assert len(output_files) > 0, f"HDF5 output files should exist in {output_dir_path}"
-
-        # Verify output file is valid and has expected structure
-        with h5py.File(output_files[0], "r") as f:
-            # Find a snapshot group
-            snap_groups = [k for k in f.keys() if k.startswith("Snap")]
-            assert len(snap_groups) > 0, "Should have at least one snapshot"
-
-            snap = snap_groups[-1]
-            assert "Galaxies" in f[snap], f"Galaxies dataset should exist in {snap}"
-
-            halos = f[snap]["Galaxies"][:]
-            assert len(halos) > 0, "Should have at least one halo in output"
-
-            print(f"✓ Output file created with {len(halos)} halos")
-
-        shutil.rmtree(temp_dir)
-
-    def test_downstream_effects(self):
-        """Test that sage26_calculate_cooling_budget produces expected downstream effects
-
-        Since CoolingGas/Rcool are working variables, we verify that the
-        module execution produces the expected effects on HotGas properties.
-        """
-        import h5py
-
-        param_file, output_dir, temp_dir = harness.create_test_param_file(
-            output_name="cooling_downstream_check",
-            phase_config={
-                "pre_timestep": [("sage26_prepare_infall_budget", "process_full_halo")],
-                "galaxy_physics": [("sage26_calculate_cooling_budget", "process_by_galaxy")],
-                "satellite_mergers": [],
-                "post_timestep": [],
-            },
-            model_params={
-                "GlobalBaryonFraction": 0.17,
-                "CGMrecipeOn": 0,
-            },  # For sage26_prepare_infall_budget
-            output_format="hdf5",
-            first_file=0,
-            last_file=0,
-        )
-
-        returncode, stdout, stderr = harness.run_mimic(param_file)
-        assert returncode == 0, f"Execution should succeed\nStderr: {stderr}"
-
-        # Load output
-        from pathlib import Path
-
-        output_dir_path = Path(output_dir)
-        output_files = list(output_dir_path.glob("**/model_*.hdf5"))
-        assert len(output_files) > 0, f"HDF5 output files should exist"
-
-        with h5py.File(output_files[0], "r") as f:
-            snap_groups = [k for k in f.keys() if k.startswith("Snap")]
-            snap = snap_groups[-1]
-            halos = f[snap]["Galaxies"][:]
-
-            hot_gas = halos["HotGas"]
-
-            # Verify hot gas properties are valid
-            # 1. HotGas should be non-negative
-            assert np.all(hot_gas >= 0), f"HotGas should be non-negative, found min={hot_gas.min()}"
-
-            # 2. HotGas should be finite (no NaN or inf)
-            assert np.all(
-                np.isfinite(hot_gas)
-            ), f"HotGas should be finite, found {np.sum(~np.isfinite(hot_gas))} invalid values"
-
-            # 3. Verify execution completed successfully
-            # NOTE: sage26_calculate_cooling_budget only CALCULATES cooling, doesn't transfer it
-            #       The actual transfer happens in sage26_apply_cooling (not tested here)
-            #       So we just verify the module ran without corrupting data
-
-            print(f"✓ HotGas range: [{hot_gas.min():.6f}, {hot_gas.max():.6f}]")
-            print(f"✓ All {len(halos)} halos have valid HotGas values")
-            print(f"✓ Module execution completed without corrupting data")
-
-        shutil.rmtree(temp_dir)
+    expected = orphans["Rvir"] / orphans["Vvir"] * TCOOL_CONVERSION
+    assert np.allclose(orphans["tcool"], expected, rtol=1.0e-5), "tcool = Rvir / Vvir * factor"
 
 
 def main():
-    """Run all integration tests"""
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: sage26_calculate_cooling_budget Integration Tests{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    test_class = TestSageCoolingIntegration()
-    test_names = sorted(name for name in dir(test_class) if name.startswith("test_"))
-
-    if not MIMIC_EXE.exists():
-        for name in test_names:
-            result_skip(name, "Mimic not built")
-        return 0
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test_name in test_names:
-        try:
-            test_method = getattr(test_class, test_name)
-            test_method()
-            result_pass(test_name)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test_name, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test_name, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test_name, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run the sage26_calculate_cooling_budget integration tests."""
+    try:
+        return run_test_suite(
+            [test_diagnostics_follow_hot_gas, test_tcool_unit_conversion_on_orphans],
+            "sage26_calculate_cooling_budget Integration Tests",
+        )
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

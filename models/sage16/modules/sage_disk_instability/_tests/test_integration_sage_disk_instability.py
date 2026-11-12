@@ -1,459 +1,123 @@
 #!/usr/bin/env python3
 """
-SAGE Disk Instability Module - Integration Test
+sage_disk_instability - Integration Test
 
-Validates: Module lifecycle, configuration, pipeline integration, and high-level physics
+Validates the disk instability module through one real Mimic run on the committed test trees, in a
+pipeline that supplies the disks an instability needs.
 
-This test validates software quality and high-level physics aspects:
-- Module loads and initializes correctly
-- Parameters can be configured via YAML files
-- Module executes without errors or memory leaks
-- BulgeMass property exists in output (trigger flags are internal only)
-- Module operates correctly in isolation (no crashes, handles zero-mass galaxies)
-- Parameter sensitivity (StarFormingDiskFactor affects results)
-
-IMPORTANT: UnstableDiskGasFraction is an internal trigger flag (output: false)
-used for communication with downstream modules within the same timestep.
-It is NOT in output files and should not be tested here.
+The supply pipeline: infall supplies the hot gas, cooling the
+cold gas, and the star-formation chain the stellar disk; sage_disk_instability then moves the
+stars of unstable disks to the bulge. Disk instability alone would act on empty galaxies and write
+zeros, so no case runs it that way. The run is configured once and shared by the cases.
 
 Test cases:
-  - test_module_loads: Module registration and initialization
-  - test_output_properties_exist: BulgeMass property in output
-  - test_parameters_configurable: StarFormingDiskFactor parameter configuration
-  - test_property_values_physical: BulgeMass values are physical
-  - test_handles_zero_mass_galaxies: Module handles galaxies with no disk gracefully
-  - test_parameter_sensitivity: StarFormingDiskFactor affects Mcrit calculation
-  - test_memory_safety: No memory leaks
-  - test_execution_completes: Full pipeline completion
+  - test_property_values_physical: unstable disks occur (some rows hold a bulge), every row's
+    BulgeMass and MetalsBulgeMass are non-negative and at most the stellar totals, and the run
+    reports no memory leak
 
-Author: Mimic Development Team
-Date: 2025-12-23
+UnstableDiskGasFraction is an internal hand-off to the downstream modules (not an output
+property), so the instability's gas branch is asserted in the C unit tests.
+
+Run (from the repository root, after `make MODEL=sage16 SIMULATION=mini-millennium`):
+  MODEL=sage16 SIMULATION=mini-millennium python3 \\
+    models/sage16/modules/sage_disk_instability/_tests/test_integration_sage_disk_instability.py
 """
 
-import shutil
 import sys
 from pathlib import Path
 
-# Add tests directory to path to import framework
-REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "tests"))
+import numpy as np
 
-from framework import (
-    BLUE,
-    GREEN,
+REPO_ROOT = Path(__file__).resolve().parents[5]
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+from framework import (  # noqa: E402
     MIMIC_EXE,
-    NC,
-    RED,
+    SharedRuns,
     TestSkipped,
-    create_test_param_file,
+    check_no_memory_leaks,
     load_binary_halos,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
+    run_test_suite,
 )
 
+RUNS = SharedRuns()
 
-def test_module_loads():
-    """
-    Test that sage_disk_instability module loads and initializes successfully
-
-    Expected: Module initialization succeeds without errors
-    Validates: Module registration, initialization, and cleanup lifecycle
-    Note: sage_disk_instability runs in galaxy_physics (process_by_galaxy mode)
-    """
-    print("Testing module load and initialization...")
-
-    # ===== SETUP =====
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_disk_instability_load",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"StarFormingDiskFactor": 3.0},
-    )
-
-    # ===== EXECUTE =====
-    returncode, stdout, stderr = run_mimic(param_file)
-
-    # ===== VALIDATE =====
-    assert (
-        returncode == 0
-    ), f"Mimic should execute successfully with sage_disk_instability\nStderr: {stderr}"
-
-    # Check initialization log message
-    assert (
-        "SAGE disk instability module initialized" in stdout
-    ), "sage_disk_instability should log initialization message"
-
-    # Cleanup
-    shutil.rmtree(temp_dir)
-
-    print("  ✓ Module loads and initializes successfully")
+# The gas supply and the star-formation chain, then the disk instability and the metal yield that
+# gives the stars, and so the bulge, their metals
+SUPPLY_PHASES = {
+    "pre_timestep": [
+        ("sage_set_disk_scale_radius", "process_full_halo"),
+        ("sage_reionization", "process_full_halo"),
+        ("sage_prepare_infall_budget", "process_full_halo"),
+    ],
+    "galaxy_physics": [
+        ("sage_apply_infall", "process_full_halo"),
+        ("sage_calculate_cooling_budget", "process_by_galaxy"),
+        ("sage_apply_cooling", "process_by_galaxy"),
+        ("sage_calculate_star_formation", "process_by_galaxy"),
+        ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+        ("sage_apply_star_formation_supernova", "process_by_galaxy"),
+        ("sage_disk_instability", "process_by_galaxy"),
+        ("sage_apply_metal_enrichment", "process_by_galaxy"),
+    ],
+    "satellite_mergers": [],
+    "post_timestep": [],
+}
+SUPPLY_PARAMS = {
+    "StarFormingDiskFactor": 3.0,
+    "GlobalBaryonFraction": 0.17,
+    "SfrEfficiency": 0.02,
+    "FeedbackReheatingEpsilon": 3.0,
+    "FeedbackEjectionEfficiency": 0.3,
+    "RecycleFraction": 0.43,
+    "Yield": 0.025,
+    "FracZleaveDisk": 0.0,
+}
 
 
-def test_output_properties_exist():
-    """
-    Test that BulgeMass property appears in output
-
-    Expected: BulgeMass in output (trigger flag is internal only, not in output)
-    Validates: Module output properties
-    Note: UnstableDiskGasFraction has output: false
-    """
-    print("Testing output properties...")
-
-    # ===== SETUP =====
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_disk_instability_output",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"StarFormingDiskFactor": 3.0},
-    )
-
-    # ===== EXECUTE =====
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, "Mimic execution should succeed"
-
-    # ===== VALIDATE =====
-    output_file = output_dir / "model_z0.000_0"
-    assert output_file.exists(), "Output file should exist"
-
-    # Load and check halos
-    halos, metadata = load_binary_halos(output_file)
-    assert len(halos) > 0, "Should have halos in output"
-
-    # Check output properties exist
-    assert "BulgeMass" in halos.dtype.names, "BulgeMass property should exist in output"
-    assert "MetalsBulgeMass" in halos.dtype.names, "MetalsBulgeMass property should exist in output"
-
-    # Trigger flags should NOT be in output (they're internal, output: false)
-    # This is correct behavior - they're for inter-module communication only
-
-    # Cleanup
-    shutil.rmtree(temp_dir)
-
-    print("  ✓ Output properties exist")
-    print(f"  Found {len(halos)} halos")
-
-
-def test_parameters_configurable():
-    """
-    Test that sage_disk_instability uses StarFormingDiskFactor model parameter
-
-    Expected: Custom StarFormingDiskFactor value is read from model_parameters
-    Validates: Model parameter reading and usage
-    """
-    print("Testing parameter configuration...")
-
-    # ===== SETUP =====
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_disk_instability_params",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"StarFormingDiskFactor": 5.0},  # Custom value
-    )
-
-    # ===== EXECUTE =====
-    returncode, stdout, stderr = run_mimic(param_file)
-
-    # ===== VALIDATE =====
-    assert returncode == 0, "Execution with custom parameters should succeed"
-
-    # Verify parameter was read (check log output)
-    assert "StarFormingDiskFactor = 5.00" in stdout, "Custom StarFormingDiskFactor should be logged"
-
-    # Cleanup
-    shutil.rmtree(temp_dir)
-
-    print("  ✓ Parameters are configurable")
+def supply_run():
+    """Run (once) and return the supply pipeline, asserting a clean exit."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    run = RUNS.run("supply", phase_config=SUPPLY_PHASES, model_params=SUPPLY_PARAMS)
+    assert run.returncode == 0, f"Mimic should execute successfully\nSTDERR: {run.stderr}"
+    return run
 
 
 def test_property_values_physical():
+    """Unstable disks occur, the bulge never exceeds the stellar totals, and nothing leaks.
+
+    The module clamps the bulge to the stellar total after the transfer (BulgeMass and
+    MetalsBulgeMass each at most StellarMass and MetalsStellarMass), so the bounds are exact and
+    carry no rounding allowance. The run's own leak report is clean.
     """
-    Test that BulgeMass values are physical
+    run = supply_run()
+    assert check_no_memory_leaks(run.stdout, run.stderr), "Should not have memory leaks"
+    halos, _metadata = load_binary_halos(run.output_dir / "model_z0.000_0")
+    assert len(halos) > 0, "Should have output halos"
 
-    Expected: 0 <= BulgeMass <= StellarMass for all halos
-    Validates: Property values are within physical bounds
-    """
-    print("Testing property values are physical...")
+    bulge = np.asarray(halos["BulgeMass"], dtype=np.float32)
+    metals_bulge = np.asarray(halos["MetalsBulgeMass"], dtype=np.float32)
+    print(f"  {int(np.sum(bulge > 0))} of {len(halos)} rows hold a bulge")
+    assert np.sum(bulge > 0) > 0, "unstable disks should move stars to the bulge on some rows"
+    assert np.sum(metals_bulge > 0) > 0, "the moved stars should carry metals to the bulge"
 
-    # ===== SETUP =====
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_disk_instability_physical",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"StarFormingDiskFactor": 3.0},
-    )
-
-    # ===== EXECUTE =====
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, "Execution should succeed"
-
-    # ===== VALIDATE =====
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Check BulgeMass is physical (0 <= BulgeMass <= StellarMass)
-    assert (halos["BulgeMass"] >= 0).all(), "BulgeMass should be >= 0"
+    assert (bulge >= 0).all(), "BulgeMass should be >= 0"
+    assert (bulge <= halos["StellarMass"]).all(), "BulgeMass should not exceed StellarMass"
+    assert (metals_bulge >= 0).all(), "MetalsBulgeMass should be >= 0"
     assert (
-        halos["BulgeMass"] <= halos["StellarMass"] + 1e-6
-    ).all(), "BulgeMass should be <= StellarMass (with small tolerance for rounding)"
-
-    # Check MetalsBulgeMass is physical
-    assert (halos["MetalsBulgeMass"] >= 0).all(), "MetalsBulgeMass should be >= 0"
-    assert (
-        halos["MetalsBulgeMass"] <= halos["MetalsStellarMass"] + 1e-6
-    ).all(), "MetalsBulgeMass should be <= MetalsStellarMass"
-
-    # Cleanup
-    shutil.rmtree(temp_dir)
-
-    print("  ✓ Property values are physical")
-
-
-def test_handles_zero_mass_galaxies():
-    """
-    Test that module handles galaxies with zero disk mass gracefully
-
-    Expected: No crashes, BulgeMass remains valid for zero-disk galaxies
-    Validates: Edge case handling
-    Note: Test trees may have galaxies with zero ColdGas and zero stellar disk
-    """
-    print("Testing zero-mass galaxy handling...")
-
-    # ===== SETUP =====
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_disk_instability_zeromass",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"StarFormingDiskFactor": 3.0},
-    )
-
-    # ===== EXECUTE =====
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, "Execution should succeed even with zero-mass galaxies"
-
-    # ===== VALIDATE =====
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Module should handle all galaxies without crashing
-    # Zero-disk galaxies should have BulgeMass unchanged (or remain valid)
-    assert (halos["BulgeMass"] >= 0).all(), "BulgeMass should remain non-negative for all galaxies"
-
-    # Cleanup
-    shutil.rmtree(temp_dir)
-
-    print("  ✓ Zero-mass galaxies handled correctly")
-
-
-def test_parameter_sensitivity():
-    """
-    Test that changing StarFormingDiskFactor affects the critical mass calculation
-
-    Expected: Different parameter values should be accepted and logged
-    Validates: Parameter sensitivity
-    Note: With test data (likely zero initial mass), we can't test physics impact,
-          but we can verify parameter changes are accepted
-    """
-    print("Testing parameter sensitivity...")
-
-    # Test with low disk factor
-    param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
-        output_name="sage_disk_instability_low",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"StarFormingDiskFactor": 1.0},
-    )
-
-    returncode_low, stdout_low, stderr_low = run_mimic(param_file_low)
-    assert returncode_low == 0, "Low parameter value should work"
-    assert "StarFormingDiskFactor = 1.00" in stdout_low, "Low parameter value should be logged"
-
-    shutil.rmtree(temp_dir_low)
-
-    # Test with high disk factor
-    param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
-        output_name="sage_disk_instability_high",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"StarFormingDiskFactor": 10.0},
-    )
-
-    returncode_high, stdout_high, stderr_high = run_mimic(param_file_high)
-    assert returncode_high == 0, "High parameter value should work"
-    assert "StarFormingDiskFactor = 10.00" in stdout_high, "High parameter value should be logged"
-
-    shutil.rmtree(temp_dir_high)
-
-    print("  ✓ Parameter sensitivity validated")
-
-
-def test_memory_safety():
-    """
-    Test that sage_disk_instability doesn't leak memory
-
-    Expected: No memory leak messages in output
-    Validates: Proper memory management in module
-    """
-    print("Testing memory safety...")
-
-    # ===== SETUP =====
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_disk_instability_memory",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"StarFormingDiskFactor": 3.0},
-    )
-
-    # ===== EXECUTE =====
-    returncode, stdout, stderr = run_mimic(param_file)
-
-    # ===== VALIDATE =====
-    assert returncode == 0, "Execution should succeed"
-    assert "Memory leak detected" not in stdout, "Should not have memory leaks"
-    assert "Memory leak detected" not in stderr, "Should not have memory leaks in stderr"
-
-    # Cleanup
-    shutil.rmtree(temp_dir)
-
-    print("  ✓ No memory leaks detected")
-
-
-def test_execution_completes():
-    """
-    Test that full pipeline execution completes without errors
-
-    Expected: Initialization, processing, and cleanup all succeed
-    Validates: Complete module lifecycle
-    """
-    print("Testing full pipeline completion...")
-
-    # ===== SETUP =====
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_disk_instability_complete",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"StarFormingDiskFactor": 3.0},
-        first_file=0,
-        last_file=0,
-    )
-
-    # ===== EXECUTE =====
-    returncode, stdout, stderr = run_mimic(param_file)
-
-    # ===== VALIDATE =====
-    assert returncode == 0, "Pipeline should complete successfully"
-    assert "SAGE disk instability module initialized" in stdout, "Module initialization message"
-    assert "SAGE disk instability module cleaned up" in stdout, "Module cleanup message"
-
-    # Cleanup
-    shutil.rmtree(temp_dir)
-
-    print("  ✓ Full pipeline completes")
+        metals_bulge <= halos["MetalsStellarMass"]
+    ).all(), "MetalsBulgeMass should not exceed MetalsStellarMass"
 
 
 def main():
-    """
-    Main test runner
-
-    Executes all test cases and reports results.
-    Can be run directly or via pytest.
-    """
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: SAGE Disk Instability Integration Tests{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-
-    tests = [
-        test_module_loads,
-        test_output_properties_exist,
-        test_parameters_configurable,
-        test_property_values_physical,
-        test_handles_zero_mass_galaxies,
-        test_parameter_sensitivity,
-        test_memory_safety,
-        test_execution_completes,
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    try:
+        return run_test_suite(
+            [test_property_values_physical],
+            "sage_disk_instability Integration Tests",
+        )
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

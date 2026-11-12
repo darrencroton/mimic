@@ -2,47 +2,37 @@
  * @file    test_unit_sage26_apply_star_formation_supernova.c
  * @brief   Unit tests for sage26_apply_star_formation_supernova module
  *
- * Validates: Physics update logic, gas transfers, metal enrichment, conservation, edge cases
+ * Validates: the commit of one substep's star formation and supernova feedback to the forming
+ * galaxy and its FoF central, the disk star-formation history, the CGMrecipeOn routing and the
+ * feedback-free-burst bypass
  *
- * This test validates the sage26_apply_star_formation_supernova module physics:
- * - Star formation updates (gas depletion, stellar mass growth, recycling)
- * - Supernova reheating (cold→hot transfer to central)
- * - Supernova ejection (hot→ejected transfer from central, limiting)
- * - Metal enrichment (yield production, FracZleaveDisk scaling)
- * - Temporary property cleanup (NewStellarMass, etc. zeroed after processing)
- * - Conservation laws (mass, metals)
- * - Edge cases (zero stars, zero gas, ejection exceeds hot gas)
- * - Module lifecycle and memory safety
+ * The module hands a substep's NewStellarMass, SupernovaReheatedMass and SupernovaEjectedMass to
+ * SAGE26's two shared commits (shared/sage_sf_feedback_physics.h), so the tests pin the module's
+ * own contract: what it caps, samples, routes and leaves for sage26_apply_metal_enrichment, and
+ * the float rounding and hydrogen caps of the commits it calls.
  *
  * Test cases:
- *   - test_module_initialization: Module lifecycle
- *   - test_memory_safety: No memory leaks
- *   - test_star_formation_with_recycling: Gas depletion and stellar mass growth
- *   - test_star_formation_metal_transfer: Metal conservation during SF
- *   - test_star_formation_rate_accumulation: SFR calculation
- *   - test_reheating_gas_transfer: Cold→hot transfer to central
- *   - test_reheating_metal_transfer: Metals move with reheated gas
- *   - test_reheating_outflow_rate: Undivided outflow accumulation (SAGE26 OutflowRate)
- *   - test_ejection_gas_transfer: Hot→ejected transfer from central
- *   - test_ejection_limiting: Ejection capped at available hot gas
- *   - test_ejection_metal_transfer: Metals move with ejected gas
- *   - test_metal_yield_production: New metals from yield
- *   - test_metal_disk_vs_halo_split: FracZleaveDisk scaling
- *   - test_metal_enrichment_zero_cold_gas: All metals to hot halo when ColdGas=0
- *   - test_zero_stars_no_updates: A zero event leaves positive reservoirs unchanged
- *   - test_zero_event_caps_negative_hot_metals: A zero event still runs the metal cap
+ *   - test_module_initialization: the module initialises and cleans up in its valid placement
+ *   - test_commit_table: one table of substeps with exact literal expectations (RecycleFraction
+ *     0.25, so a swapped R and 1 - R differ): star formation with recycling and the metal
+ *     transfer at the cold-gas metallicity, the reheated gas and metals into the central's hot
+ *     pair at the post-star-formation metallicity, the ejection capped after the reheating and
+ *     its metals at the central's metallicity after the reheating, the reheated mass clamped to
+ *     the remaining cold gas, the cold-gas cap without the supernova calculator (stars above and
+ *     at zero cold gas), the StarFormationRate guard on a non-positive interval, and
+ *     SupernovaOutflowRate accumulating the undivided mass. Every row also asserts that the
+ *     forming galaxy's own hot and ejected pairs and the central's other reservoirs are
+ *     untouched, that NewStellarMass is left for the enrichment module, that the consumed
+ *     transport fields are zeroed, and that baryons and metals are conserved
+ *   - test_zero_event_caps_negative_hot_metals: a zero event still runs the metal cap, and moves
+ *     nothing else
  *   - test_sf_commit_fused_rounding: the shared SF commit rounds as SAGE26's fused build
- *   - test_sf_commit_hydrogen_caps: SFprescription 1's post-SF H2/H1 caps
- *   - test_feedback_commit_hydrogen_caps: SFprescription 1's post-reheating H2/H1 caps on the
- *     reheated galaxy only
- *   - test_ejection_exceeds_hot_gas: Ejection limited to HotGas
- *   - test_satellite_reheats_to_central: Satellites reheat to central's hot halo
- *   - test_temporary_properties_reset: Cleanup after processing
- *   - test_mass_conservation: Total baryons unchanged
- *   - test_metal_conservation: Total metals conserved with yield production
- *   - test_disk_history_sampled_every_call: SfrDisk[bin] += stars / dt and the cold-gas
- *     samples on every call over a 13-substep snapshot, zero-star calls included
- *   - test_disk_history_zero_stars: a zero-star call still assigns the gas samples
+ *   - test_commit_hydrogen_caps: SFprescription 1's H2gas and H1gas caps after the star-formation
+ *     commit and after the feedback commit's reheating debit (each independently and strictly at
+ *     max_h of the cold gas left, never their sum, the feedback's on the reheated galaxy only),
+ *     and no cap at SFprescription 0
+ *   - test_disk_history_sampled_every_call: SfrDisk[bin] += stars / dt and the cold-gas samples on
+ *     every call over a 13-substep snapshot, zero-star calls included
  *   - test_disk_history_without_central: the Mimic-only no-central path still samples
  *   - test_disk_history_initial_boundary: no interval (snapshot-zero birth) samples nothing
  *   - test_cgm_feedback_destination: CGMrecipeOn 1 against 0 on the same input: the feedback into
@@ -50,14 +40,16 @@
  *     ejection cap and the metal cap binding and not, the unselected pair and the satellite's own
  *     pairs unchanged; the satellite's Regime is always the other value (the commit routes by the
  *     FoF central's regime)
- *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
  *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
  *     bytewise unchanged, its history included, also in an interval the time guard refuses (the
  *     bypass precedes the history sample and the guard); the same row with FFBRegime 0 is sampled
  *     and committed, its reheated gas to the central
  *
+ * The CGMrecipeOn refusals of the module are asserted, with diagnostics, by
+ * test_unit_sage26_parameter_refusals.c.
+ *
  * @author  Mimic Development Team
- * @date    2025-12-18 (Refactored for comprehensive physics validation)
+ * @date    2025-12-18
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -82,24 +74,11 @@
 /* Shared sage26 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
 
-/* Module parameters (set by setup helpers) */
-static double test_recycle_fraction = 0.43;
-static double test_yield = 0.025;
-static double test_frac_z_leave_disk = 0.0;
-
 /* Module functions (extern declarations for direct testing) */
 extern int sage26_apply_star_formation_supernova_init(void);
 extern int sage26_apply_star_formation_supernova_process(struct ModuleContext *ctx,
                                                          struct Halo *halos, int ngal);
 extern int sage26_apply_star_formation_supernova_cleanup(void);
-
-/* Downstream metal-yield module (SAGE ordering parity: the disk-SF yield is
- * applied after the disk-instability chain by sage26_apply_metal_enrichment;
- * pipeline tests below run both modules in sequence) */
-extern int sage26_apply_metal_enrichment_init(void);
-extern int sage26_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo *halos,
-                                                 int ngal);
-extern int sage26_apply_metal_enrichment_cleanup(void);
 
 // ============================================================================
 // TEST FIXTURES AND HELPERS
@@ -108,32 +87,19 @@ extern int sage26_apply_metal_enrichment_cleanup(void);
 /**
  * @brief   Setup module parameters for testing
  *
+ * Sets RecycleFraction plus the module's required SFprescription (0) and CGMrecipeOn (0).
+ *
  * @param   recycle     RecycleFraction [0,1]
- * @param   yield       Metal yield [0,1]
- * @param   frac_z      FracZleaveDisk [0,1]
  */
-static void setup_test_parameters(double recycle, double yield, double frac_z) {
+static void setup_test_parameters(double recycle) {
   /* Set model parameters in MimicConfig */
-  int idx = 0;
+  snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "RecycleFraction");
+  snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "%.6f", recycle);
+  MimicConfig.NumModelParams = 1;
 
-  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "RecycleFraction");
-  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", recycle);
-
-  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "Yield");
-  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", yield);
-
-  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "FracZleaveDisk");
-  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", frac_z);
-
-  MimicConfig.NumModelParams = idx;
-  /* The module's required SFprescription */
+  /* The module's required SFprescription and CGMrecipeOn */
   add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
-
-  /* Update test variables */
-  test_recycle_fraction = recycle;
-  test_yield = yield;
-  test_frac_z_leave_disk = frac_z;
 }
 
 /**
@@ -249,830 +215,6 @@ int test_module_initialization(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during normal operation
- *
- * Expected: No memory leaks after init, cleanup cycle
- * Validates: Memory management in module
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-
-  test_phase_add("galaxy_physics", "sage26_apply_star_formation_supernova",
-                 PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-  /* the module's required SFprescription */
-  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_APPLY_MODULE);
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
-
-  /* ===== EXECUTE ===== */
-  int result = module_system_init();
-  TEST_ASSERT(result == 0, "Module initialization should succeed");
-
-  /* ===== VALIDATE ===== */
-  /* Module initialized successfully without memory leaks */
-
-  /* ===== CLEANUP ===== */
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// STAR FORMATION UPDATE TESTS
-// ============================================================================
-
-/**
- * @test    test_star_formation_with_recycling
- * @brief   Test star formation updates with recycling fraction
- *
- * Physics: ColdGas -= (1 - RecycleFraction) * NewStellarMass
- *          StellarMass += (1 - RecycleFraction) * NewStellarMass
- *
- * Expected: Gas depletion and stellar mass growth respect recycling fraction
- * Validates: Recycling fraction correctly applied
- */
-int test_star_formation_with_recycling(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0); /* RecycleFraction=0.43, no yield */
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  /* Setup central */
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0,
-                  20.0,               /* ColdGas, HotGas, EjectedGas, StellarMass */
-                  0.0, 0.0, 0.0, 0.0, /* Metals */
-                  0.0, 0.0, 0.0); /* NewStellarMass, SupernovaReheatedMass, SupernovaEjectedMass */
-
-  /* Setup test galaxy: 10 ColdGas, form 1.0 new stars */
-  double initial_cold = 10.0;
-  double initial_stellar = 20.0;
-  double new_stars = 1.0;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, initial_cold, 50.0, 0.0, initial_stellar,
-                  0.0, 0.0, 0.0, 0.0, new_stars, 0.0, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Expected: Gas consumed = (1 - RecycleFraction) * stars = (1 - 0.43) * 1.0 = 0.57 */
-  double expected_gas_consumed = (1.0 - test_recycle_fraction) * new_stars;
-  double expected_cold = initial_cold - expected_gas_consumed;
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.ColdGas, expected_cold, 1e-6,
-                           "ColdGas should decrease by (1 - RecycleFraction) * NewStellarMass");
-
-  /* Expected: Stellar mass gain = (1 - RecycleFraction) * stars = 0.57 */
-  double expected_stellar = initial_stellar + expected_gas_consumed;
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.StellarMass, expected_stellar, 1e-6,
-                           "StellarMass should increase by (1 - RecycleFraction) * NewStellarMass");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_star_formation_metal_transfer
- * @brief   Test that metals move from cold gas to stellar mass during star formation
- *
- * Physics: MetalsColdGas -= metallicity * (1 - RecycleFraction) * NewStellarMass
- *          MetalsStellarMass += metallicity * (1 - RecycleFraction) * NewStellarMass
- *
- * Expected: Metals conserved (transferred, not destroyed)
- * Validates: Metal conservation during star formation
- */
-int test_star_formation_metal_transfer(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0,
-                  0.0, 0.0, 0.0, 0.0, 0.0);
-
-  /* Setup with metallicity = 0.02 (solar) */
-  double initial_cold = 10.0;
-  double initial_metals_cold = 0.2; /* Z = 0.2/10.0 = 0.02 */
-  double initial_metals_stellar = 0.3;
-  double new_stars = 1.0;
-  double metallicity = initial_metals_cold / initial_cold;
-
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, initial_cold, 50.0, 0.0, 20.0,
-                  initial_metals_cold, 0.0, 0.0, initial_metals_stellar, new_stars, 0.0, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Expected metal transfer */
-  double metal_transferred = metallicity * (1.0 - test_recycle_fraction) * new_stars;
-  double expected_metals_cold = initial_metals_cold - metal_transferred;
-  double expected_metals_stellar = initial_metals_stellar + metal_transferred;
-
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.MetalsColdGas, expected_metals_cold, 1e-6,
-                           "MetalsColdGas should decrease");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.MetalsStellarMass, expected_metals_stellar, 1e-6,
-                           "MetalsStellarMass should increase by same amount");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_star_formation_rate_accumulation
- * @brief   Test that StarFormationRate is calculated correctly
- *
- * Physics: StarFormationRate += NewStellarMass / dT
- *
- * Expected: SFR in code units (1e10 Msun/h) / (978 Gyr/h)
- * Validates: SFR accumulation
- */
-int test_star_formation_rate_accumulation(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0,
-                  0.0, 0.0, 0.0, 0.0, 0.0);
-
-  double dt = 0.1;        /* 978 Gyr/h */
-  double new_stars = 1.0; /* 1e10 Msun/h */
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, dt, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0, 0.0, 0.0,
-                  new_stars, 0.0, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, dt);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Expected SFR = stars / dt = 1.0 / 0.1 = 10.0 */
-  double expected_sfr = new_stars / dt;
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.StarFormationRate, expected_sfr, 1e-6,
-                           "StarFormationRate should equal NewStellarMass / dT");
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// SUPERNOVA REHEATING TESTS
-// ============================================================================
-
-/**
- * @test    test_reheating_gas_transfer
- * @brief   Test that reheating transfers gas from galaxy's cold to central's hot
- *
- * Physics: Galaxy's ColdGas -= SupernovaReheatedMass
- *          Central's HotGas += SupernovaReheatedMass
- *
- * Expected: Gas moved from galaxy to central (satellites too)
- * Validates: Reheating gas transfer logic
- */
-int test_reheating_gas_transfer(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  /* Setup central */
-  double central_hot_initial = 50.0;
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, central_hot_initial, 0.0,
-                  20.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-
-  /* Setup test galaxy: 10 ColdGas, form 1.0 stars, reheat 0.5 */
-  double initial_cold = 10.0;
-  double new_stars = 1.0;
-  double reheated_mass = 0.5;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, initial_cold, 50.0, 0.0, 20.0, 0.0, 0.0,
-                  0.0, 0.0, new_stars, reheated_mass, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Galaxy's cold gas should decrease by reheated mass (plus SF depletion) */
-  double sf_depletion = (1.0 - test_recycle_fraction) * new_stars;
-  double expected_cold = initial_cold - sf_depletion - reheated_mass;
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.ColdGas, expected_cold, 1e-6,
-                           "Galaxy ColdGas should decrease by SF + reheating");
-
-  /* Central's hot gas should increase by reheated mass */
-  double expected_central_hot = central_hot_initial + reheated_mass;
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.HotGas, expected_central_hot, 1e-6,
-                           "Central HotGas should increase by reheated mass");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_reheating_metal_transfer
- * @brief   Test that metals move with reheated gas
- *
- * Physics: Metals transferred at galaxy's cold gas metallicity
- *
- * Expected: Metals conserved during reheating transfer
- * Validates: Metal transfer during reheating
- */
-int test_reheating_metal_transfer(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  double central_metals_hot_initial = 0.5;
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0,
-                  central_metals_hot_initial, 0.0, 0.0, 0.0, 0.0, 0.0);
-
-  /* Setup with metallicity = 0.02 */
-  double initial_cold = 10.0;
-  double initial_metals_cold = 0.2; /* Z = 0.02 */
-  double new_stars = 1.0;
-  double reheated_mass = 0.5;
-  double metallicity_before_sf = initial_metals_cold / initial_cold;
-
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, initial_cold, 50.0, 0.0, 20.0,
-                  initial_metals_cold, 0.0, 0.0, 0.0, new_stars, reheated_mass, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Metallicity is recomputed after SF, so we need to calculate it */
-  double sf_gas_consumed = (1.0 - test_recycle_fraction) * new_stars;
-  double sf_metals_consumed = metallicity_before_sf * sf_gas_consumed;
-  double cold_gas_after_sf = initial_cold - sf_gas_consumed;
-  double metals_cold_after_sf = initial_metals_cold - sf_metals_consumed;
-  double metallicity_after_sf =
-      (cold_gas_after_sf > 0) ? (metals_cold_after_sf / cold_gas_after_sf) : 0.0;
-
-  /* Expected metal transfer during reheating */
-  double metal_transferred_reheat = metallicity_after_sf * reheated_mass;
-  double expected_metals_cold = metals_cold_after_sf - metal_transferred_reheat;
-  double expected_central_metals_hot = central_metals_hot_initial + metal_transferred_reheat;
-
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.MetalsColdGas, expected_metals_cold, 1e-6,
-                           "Galaxy MetalsColdGas should decrease by reheated amount");
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.MetalsHotGas, expected_central_metals_hot, 1e-6,
-                           "Central MetalsHotGas should increase by same amount");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_reheating_outflow_rate
- * @brief   Test that SupernovaOutflowRate accumulates the undivided reheated mass
- *
- * Physics: SupernovaOutflowRate += reheated mass, a float accumulation of SAGE26's
- * OutflowRate. The division by the interval happens once per halo in
- * sage26_finalize_cooling_heating.
- *
- * Expected: the reheated mass itself, in code mass units
- * Validates: Outflow accumulation
- */
-int test_reheating_outflow_rate(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0,
-                  0.0, 0.0, 0.0, 0.0, 0.0);
-
-  double dt = 0.1;            /* 978 Gyr/h */
-  double reheated_mass = 0.5; /* 1e10 Msun/h */
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, dt, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0, 0.0, 0.0,
-                  1.0, reheated_mass, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, dt);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Expected: the undivided reheated mass, narrowed to the float accumulator */
-  const float expected_outflow = (float)(0.0 + reheated_mass);
-  TEST_ASSERT(test_galaxy.SupernovaOutflowRate == expected_outflow,
-              "SupernovaOutflowRate should equal the undivided SupernovaReheatedMass");
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// SUPERNOVA EJECTION TESTS
-// ============================================================================
-
-/**
- * @test    test_ejection_gas_transfer
- * @brief   Test that ejection transfers gas from central's hot to central's ejected
- *
- * Physics: Central's HotGas -= SupernovaEjectedMass
- *          Central's EjectedGas += SupernovaEjectedMass
- *
- * Expected: Gas moved within central halo
- * Validates: Ejection gas transfer logic
- */
-int test_ejection_gas_transfer(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  /* Setup central with plenty of hot gas */
-  double central_hot_initial = 50.0;
-  double central_ejected_initial = 5.0;
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, central_hot_initial,
-                  central_ejected_initial, 20.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-
-  /* Galaxy forms stars, reheats, and ejects */
-  double new_stars = 1.0;
-  double reheated_mass = 0.5;
-  double ejected_mass = 0.3;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0, 0.0,
-                  0.0, new_stars, reheated_mass, ejected_mass);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Central's hot gas: gain from reheating, lose to ejection */
-  double expected_central_hot = central_hot_initial + reheated_mass - ejected_mass;
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.HotGas, expected_central_hot, 1e-6,
-                           "Central HotGas should gain from reheating and lose to ejection");
-
-  /* Central's ejected gas should increase */
-  double expected_central_ejected = central_ejected_initial + ejected_mass;
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.EjectedGas, expected_central_ejected, 1e-6,
-                           "Central EjectedGas should increase by ejected mass");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_ejection_limiting
- * @brief   Test that ejection is limited to available hot gas
- *
- * Physics: If SupernovaEjectedMass > Central's HotGas, ejection = HotGas
- *
- * Expected: Ejection capped at available hot gas
- * Validates: Ejection limiting logic
- */
-int test_ejection_limiting(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  /* Setup central with limited hot gas (less than requested ejection) */
-  double central_hot_initial = 0.2; /* Only 0.2 available */
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, central_hot_initial, 0.0,
-                  20.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-
-  /* Galaxy wants to eject 0.5, but central only has 0.2 */
-  double requested_ejection = 0.5;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0, 0.0,
-                  0.0, 1.0, 0.0, requested_ejection);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Central's hot gas should be completely depleted */
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.HotGas, 0.0, 1e-6,
-                           "Central HotGas should be zero (all ejected)");
-
-  /* Central's ejected gas should increase by only what was available */
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.EjectedGas, central_hot_initial, 1e-6,
-                           "Ejection should be limited to available HotGas");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_ejection_metal_transfer
- * @brief   Test that metals move with ejected gas
- *
- * Physics: Metals transferred at central's hot gas metallicity
- *
- * Expected: Metals conserved during ejection transfer
- * Validates: Metal transfer during ejection
- */
-int test_ejection_metal_transfer(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  /* Setup central with hot gas metallicity = 0.01 */
-  double central_hot_initial = 50.0;
-  double central_metals_hot_initial = 0.5; /* Z = 0.5/50 = 0.01 */
-  double central_metals_ejected_initial = 0.1;
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, central_hot_initial, 5.0,
-                  20.0, 0.0, central_metals_hot_initial, central_metals_ejected_initial, 0.0, 0.0,
-                  0.0, 0.0);
-
-  double ejected_mass = 0.3;
-  double metallicity_hot = central_metals_hot_initial / central_hot_initial;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0, 0.0,
-                  0.0, 1.0, 0.0, ejected_mass);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Expected metal transfer */
-  double metal_transferred = metallicity_hot * ejected_mass;
-  double expected_metals_hot = central_metals_hot_initial - metal_transferred;
-  double expected_metals_ejected = central_metals_ejected_initial + metal_transferred;
-
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.MetalsHotGas, expected_metals_hot, 1e-6,
-                           "Central MetalsHotGas should decrease");
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.MetalsEjectedGas, expected_metals_ejected, 1e-6,
-                           "Central MetalsEjectedGas should increase by same amount");
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// METAL ENRICHMENT TESTS
-// ============================================================================
-
-/**
- * @test    test_metal_yield_production
- * @brief   Test that new metals are produced from stellar yields
- *
- * Physics: Total metals increase by Yield * NewStellarMass
- *
- * Expected: New metals created (not conserved - stellar nucleosynthesis)
- * Validates: Metal yield production
- */
-int test_metal_yield_production(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.025, 0.0); /* Yield = 0.025 */
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-  TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0,
-              "Metal enrichment module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0,
-                  0.0, 0.0, 0.0, 0.0, 0.0);
-
-  /* Galaxy with plenty of cold gas and forms 1.0 new stars */
-  double initial_metals_cold = 0.2;
-  double initial_metals_hot = 0.5;
-  double new_stars = 1.0;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0,
-                  initial_metals_cold, initial_metals_hot, 0.0, 0.0, new_stars, 0.0, 0.0);
-
-  /* Calculate total metals before */
-  double total_metals_before = initial_metals_cold + initial_metals_hot;
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  /* Run the full SF/SN apply -> metal enrichment pipeline (SAGE ordering) */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-  TEST_ASSERT(result == 0, "Module process should succeed");
-  result = sage26_apply_metal_enrichment_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
-
-  /* Calculate total metals after (all reservoirs) */
-  double total_metals_after = test_galaxy.MetalsColdGas + test_galaxy.MetalsHotGas +
-                              test_galaxy.MetalsEjectedGas + test_galaxy.MetalsStellarMass;
-
-  /* Expected new metals = Yield * NewStellarMass = 0.025 * 1.0 = 0.025 */
-  double expected_new_metals = test_yield * new_stars;
-  double expected_total_metals = total_metals_before + expected_new_metals;
-
-  TEST_ASSERT_DOUBLE_EQUAL(total_metals_after, expected_total_metals, 1e-6,
-                           "Total metals should increase by Yield * NewStellarMass");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_metal_disk_vs_halo_split
- * @brief   Test that metal enrichment splits between disk and hot halo
- *
- * Physics: FracZleaveDiskVal = FracZleaveDisk * exp(-Mvir/30)
- *          Disk gets: Yield * (1 - FracZleaveDiskVal) * NewStellarMass
- *          Halo gets: Yield * FracZleaveDiskVal * NewStellarMass
- *
- * Expected: Low mass halos retain more metals in disk
- * Validates: FracZleaveDisk scaling with halo mass
- */
-int test_metal_disk_vs_halo_split(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.025, 0.5); /* Yield=0.025, FracZleaveDisk=0.5 */
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-  TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0,
-              "Metal enrichment module initialization should succeed");
-
-  struct Halo test_halo;
-  struct GalaxyData test_galaxy;
-
-  /* Setup test galaxy as a central (processes itself) */
-  double mvir = 100.0; /* 10^12 Msun/h */
-  double initial_metals_cold = 0.2;
-  double initial_metals_hot = 0.5;
-  double new_stars = 1.0;
-  setup_test_halo(&test_halo, &test_galaxy, 0, mvir, 0.1, 10.0, 50.0, 0.0, 20.0,
-                  initial_metals_cold, initial_metals_hot, 0.0, 0.0, new_stars, 0.0, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &test_halo, 0.1); /* Central points to itself */
-
-  /* Store initial metals */
-  double metals_cold_initial = initial_metals_cold;
-  double metals_hot_initial = initial_metals_hot;
-
-  /* ===== EXECUTE ===== */
-  /* Run the full SF/SN apply -> metal enrichment pipeline (SAGE ordering) */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-  TEST_ASSERT(result == 0, "Module process should succeed");
-  result = sage26_apply_metal_enrichment_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
-
-  /* Calculate expected split */
-  double frac_z_leave_disk_val = test_frac_z_leave_disk * exp(-1.0 * mvir / 30.0);
-  double metals_to_disk = test_yield * (1.0 - frac_z_leave_disk_val) * new_stars;
-  double metals_to_halo = test_yield * frac_z_leave_disk_val * new_stars;
-
-  /* Account for SF metal transfer and yield production */
-  double metallicity_before_sf = metals_cold_initial / 10.0;
-  double metals_from_sf_transfer =
-      metallicity_before_sf * (1.0 - test_recycle_fraction) * new_stars;
-  double expected_metals_cold = metals_cold_initial - metals_from_sf_transfer + metals_to_disk;
-  double expected_metals_hot = metals_hot_initial + metals_to_halo;
-
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.MetalsColdGas, expected_metals_cold, 1e-5,
-                           "MetalsColdGas should include yield production to disk");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.MetalsHotGas, expected_metals_hot, 1e-5,
-                           "MetalsHotGas should include yield production to halo");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_metal_enrichment_zero_cold_gas
- * @brief   Test metal enrichment when ColdGas = 0 (all metals go to hot halo)
- *
- * Physics: If ColdGas <= EPSILON_SMALL, all new metals go to central's hot halo
- *
- * Expected: All yield metals added to hot halo
- * Validates: Zero cold gas edge case
- */
-int test_metal_enrichment_zero_cold_gas(void) {
-  /* ===== SETUP ===== */
-  /* RecycleFraction 0: with no calculator configured the apply step caps stars at ColdGas, so a
-   * recycling fraction above zero always leaves RecycleFraction * ColdGas behind; only R = 0 lets
-   * star formation exhaust the cold gas without exceeding it. */
-  setup_test_parameters(0.0, 0.025, 0.5);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-  TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0,
-              "Metal enrichment module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  double initial_central_metals_hot = 0.5;
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0,
-                  initial_central_metals_hot, 0.0, 0.0, 0.0, 0.0, 0.0);
-
-  /* Galaxy with exactly enough cold gas for SF, will have ~0 after depletion */
-  double new_stars = 1.0;
-  double gas_consumed = (1.0 - test_recycle_fraction) * new_stars;
-  double initial_cold = gas_consumed; /* Exactly consumed by SF */
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, initial_cold, 50.0, 0.0, 20.0, 0.0, 0.0,
-                  0.0, 0.0, new_stars, 0.0, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  /* Run the full SF/SN apply -> metal enrichment pipeline (SAGE ordering) */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-  TEST_ASSERT(result == 0, "Module process should succeed");
-  result = sage26_apply_metal_enrichment_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
-
-  /* All yield metals should go to central's hot halo */
-  double expected_new_metals = test_yield * new_stars;
-  double expected_central_metals_hot = initial_central_metals_hot + expected_new_metals;
-
-  TEST_ASSERT(test_galaxy.ColdGas < 1e-6, "ColdGas should be ~0 after SF consumption");
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.MetalsHotGas, expected_central_metals_hot, 1e-6,
-                           "All yield metals should go to central's hot halo when ColdGas=0");
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// EDGE CASE TESTS
-// ============================================================================
-
-/**
- * @test    test_zero_stars_no_updates
- * @brief   Test that a zero event leaves positive reservoirs unchanged
- *
- * SAGE26 commits star formation and feedback on every call, also with zero masses, so the
- * apply step runs both commits; with zero masses and non-negative reservoirs nothing moves.
- *
- * Expected: All properties unchanged except temporary properties zeroed
- * Validates: The zero-mass commit path
- */
-int test_zero_stars_no_updates(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.025, 0.0);
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 5.0, 20.0, 0.0, 0.5,
-                  0.1, 0.0, 0.0, 0.0, 0.0);
-
-  /* Galaxy with zero star formation */
-  double initial_cold = 10.0;
-  double initial_hot = 50.0;
-  double initial_ejected = 5.0;
-  double initial_stellar = 20.0;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, initial_cold, initial_hot,
-                  initial_ejected, initial_stellar, 0.2, 0.5, 0.1, 0.3, 0.0, 0.0,
-                  0.0); /* NewStellarMass = 0 */
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* All properties should be unchanged */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.ColdGas, initial_cold, 1e-6, "ColdGas should be unchanged");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.HotGas, initial_hot, 1e-6, "HotGas should be unchanged");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.EjectedGas, initial_ejected, 1e-6,
-                           "EjectedGas should be unchanged");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.StellarMass, initial_stellar, 1e-6,
-                           "StellarMass should be unchanged");
-
-  /* Temporary properties should be zeroed */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, 0.0, 1e-6,
-                           "NewStellarMass should be zeroed");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaReheatedMass, 0.0, 1e-6,
-                           "SupernovaReheatedMass should be zeroed");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, 0.0, 1e-6,
-                           "SupernovaEjectedMass should be zeroed");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_event_caps_negative_hot_metals
- * @brief   A zero event still runs update_from_feedback's metal cap
- *
- * SAGE26 calls update_from_feedback on every substep, also with no stars. With zero ejected
- * mass the metal transfer metallicityHot * 0 = 0 exceeds a negative MetalsHotGas, so the cap
- * moves the negative hot metals into the ejected reservoir and leaves MetalsHotGas at zero.
- * A module that returned early on zero stars would not.
- */
-int test_zero_event_caps_negative_hot_metals(void) {
-  setup_test_parameters(0.43, 0.025, 0.0);
-  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0,
-              "Module initialization should succeed");
-
-  struct Halo test_halo;
-  struct GalaxyData test_galaxy;
-  const double negative_hot_metals = -1.0e-9;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 5.0, 20.0, 0.2,
-                  negative_hot_metals, 0.1, 0.3, 0.0, 0.0, 0.0);
-  const float ejected_metals_before = test_galaxy.MetalsEjectedGas;
-  const float hot_metals_before = test_galaxy.MetalsHotGas;
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &test_halo, 0.1);
-
-  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1) == 0,
-              "Module process should succeed");
-  TEST_ASSERT(test_galaxy.MetalsHotGas == 0.0f,
-              "the zero event's capped transfer empties the negative hot metals");
-  TEST_ASSERT(test_galaxy.MetalsEjectedGas == (float)(ejected_metals_before + hot_metals_before),
-              "the negative hot metals move into the ejected reservoir");
-  TEST_ASSERT(test_galaxy.HotGas == 50.0f && test_galaxy.ColdGas == 10.0f,
-              "no gas moves in a zero event");
-  return TEST_PASS;
-}
-
-/** @brief A float from its IEEE-754 bit pattern */
-static float f32_from_bits(const uint32_t bits) {
-  float value;
-  memcpy(&value, &bits, sizeof(value));
-  return value;
-}
-
 /** @brief A double from its IEEE-754 bit pattern */
 static double f64_from_bits(const uint64_t bits) {
   double value;
@@ -1159,13 +301,9 @@ int test_sf_commit_fused_rounding(void) {
 // Invariants of the two hydrogen caps SAGE26 runs for a prescription that tracks H2:
 // update_from_star_formation's after its four reservoir stores and update_from_feedback's after
 // the cold-gas and metal debits. Each bound is the float
-// max_h = (ColdGas > 0.0f) ? ColdGas * 0.74 : 0.0f of the cold gas the commit leaves, formed here
-// as the commit forms it (one double product, narrowed).
-
-/** @brief The float hydrogen bound of a cold-gas reservoir, as both commits form it */
-static float hydrogen_bound(const float cold_gas) {
-  return (float)((cold_gas > 0.0f) ? cold_gas * 0.74 : 0.0f);
-}
+// max_h = (ColdGas > 0.0f) ? ColdGas * 0.74 : 0.0f of the cold gas the commit leaves, a double
+// product narrowed to float. The rows hold every float as a literal that round-trips (nine
+// significant digits), the neighbours of a bound being its adjacent floats.
 
 /** @brief A star-formation commit of a galaxy with the given cold gas, H2gas and H1gas */
 static void commit_star_formation(struct GalaxyData *gal, const float cold_gas, const float h2,
@@ -1177,65 +315,6 @@ static void commit_star_formation(struct GalaxyData *gal, const float cold_gas, 
   gal->H2gas = h2;
   gal->H1gas = h1;
   mimic_sage_update_from_star_formation(gal, stars, 0.0, 0.43, sf_prescription, caps);
-}
-
-/**
- * @test    test_sf_commit_hydrogen_caps
- * @brief   update_from_star_formation at SFprescription 1 caps H2gas and H1gas independently and
- *          strictly at max_h of the cold gas it leaves, never their sum
- */
-int test_sf_commit_hydrogen_caps(void) {
-  struct GalaxyData gal;
-  struct MimicSageHydrogenCapLocals caps;
-  const float bound = hydrogen_bound(1.0f); /* a zero-star event leaves ColdGas 1.0 */
-  const float above = nextafterf(bound, INFINITY);
-  const float below = nextafterf(bound, 0.0f);
-
-  /* H2 above (capped to the bound), H1 at the bound (unchanged) */
-  commit_star_formation(&gal, 1.0f, above, bound, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
-  TEST_ASSERT(caps.tracks_h2 == 1 && caps.max_h == bound, "the bound is max_h of the cold gas");
-  TEST_ASSERT(gal.H2gas == bound && caps.h2_cap_binds == 1, "H2gas above the bound is capped");
-  TEST_ASSERT(gal.H1gas == bound && caps.h1_cap_binds == 0, "H1gas at the bound is unchanged");
-
-  /* H2 at the bound (unchanged), H1 above (capped) */
-  commit_star_formation(&gal, 1.0f, bound, above, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
-  TEST_ASSERT(gal.H2gas == bound && caps.h2_cap_binds == 0, "H2gas at the bound is unchanged");
-  TEST_ASSERT(gal.H1gas == bound && caps.h1_cap_binds == 1, "H1gas above the bound is capped");
-
-  /* Both below the bound (unchanged) */
-  commit_star_formation(&gal, 1.0f, below, below, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
-  TEST_ASSERT(gal.H2gas == below && gal.H1gas == below, "H2gas and H1gas below are unchanged");
-
-  /* Both below, their sum above: the caps never act on the sum */
-  commit_star_formation(&gal, 1.0f, 0.5f, 0.5f, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
-  TEST_ASSERT(0.5f + 0.5f > bound, "the sum is above the bound");
-  TEST_ASSERT(gal.H2gas == 0.5f && gal.H1gas == 0.5f, "the caps never act on the sum");
-
-  /* The bound is the cold gas the stars leave, not the cold gas before them */
-  commit_star_formation(&gal, 2.0f, 1.4f, 0.1f, 0.5, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
-  TEST_ASSERT(gal.ColdGas < 2.0f, "the stars deplete the cold gas");
-  TEST_ASSERT(caps.max_h == hydrogen_bound(gal.ColdGas), "the bound uses the remaining cold gas");
-  TEST_ASSERT(1.4f < hydrogen_bound(2.0f) && gal.H2gas == hydrogen_bound(gal.ColdGas),
-              "H2gas within the hydrogen before SF is capped to the hydrogen after it");
-  TEST_ASSERT(gal.H1gas == 0.1f, "H1gas below the remaining hydrogen is unchanged");
-
-  /* No cold gas: the bound is +0.0 */
-  commit_star_formation(&gal, 0.0f, 0.1f, 0.2f, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
-  TEST_ASSERT(caps.max_h == 0.0f && !signbit(caps.max_h), "with no cold gas the bound is +0.0");
-  TEST_ASSERT(gal.H2gas == 0.0f && !signbit(gal.H2gas), "H2gas is capped to +0.0");
-  TEST_ASSERT(gal.H1gas == 0.0f && !signbit(gal.H1gas), "H1gas is capped to +0.0");
-
-  /* The caps are strict: a -0.0 H2gas or H1gas at a +0.0 bound is kept as -0.0 */
-  commit_star_formation(&gal, 0.0f, -0.0f, -0.0f, 0.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &caps);
-  TEST_ASSERT(gal.H2gas == 0.0f && signbit(gal.H2gas), "a -0.0 H2gas at a +0.0 bound is kept");
-  TEST_ASSERT(gal.H1gas == 0.0f && signbit(gal.H1gas), "a -0.0 H1gas at a +0.0 bound is kept");
-
-  /* SFprescription 0: no cap, H2gas and H1gas not written */
-  commit_star_formation(&gal, 1.0f, 5.0f, 6.0f, 0.5, MIMIC_SAGE_SF_PRESCRIPTION_CROTON, &caps);
-  TEST_ASSERT(caps.tracks_h2 == 0, "SFprescription 0 does not track H2");
-  TEST_ASSERT(gal.H2gas == 5.0f && gal.H1gas == 6.0f,
-              "at SFprescription 0 the commit writes neither H2gas nor H1gas");
-  return TEST_PASS;
 }
 
 /** @brief A feedback commit of a galaxy (reheating into a separate central) */
@@ -1256,322 +335,416 @@ static void commit_feedback(struct GalaxyData *gal, struct GalaxyData *central,
                                   MIMIC_SAGE_CGM_RECIPE_OFF, locals);
 }
 
-/**
- * @test    test_feedback_commit_hydrogen_caps
- * @brief   update_from_feedback at SFprescription 1 caps the reheated galaxy's H2gas and H1gas
- *          independently and strictly at max_h of its cold gas after the debit, never their sum,
- *          and never the central's
- */
-int test_feedback_commit_hydrogen_caps(void) {
-  struct GalaxyData gal;
-  struct GalaxyData central;
-  struct MimicSageFeedbackLocals locals;
-  const float bound = hydrogen_bound(0.75f); /* 1.0 - 0.25 reheated, exact in float */
-  const float above = nextafterf(bound, INFINITY);
-  const float below = nextafterf(bound, 0.0f);
-
-  /* H2 above (capped), H1 at the bound (unchanged); the central untouched */
-  commit_feedback(&gal, &central, 1.0f, above, bound, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_BR06,
-                  &locals);
-  TEST_ASSERT(gal.ColdGas == 0.75f, "the reheated gas leaves the cold gas");
-  TEST_ASSERT(locals.hydrogen_caps.max_h == bound, "the bound is max_h of the debited cold gas");
-  TEST_ASSERT(gal.H2gas == bound && locals.hydrogen_caps.h2_cap_binds == 1,
-              "H2gas above the bound is capped");
-  TEST_ASSERT(gal.H1gas == bound && locals.hydrogen_caps.h1_cap_binds == 0,
-              "H1gas at the bound is unchanged");
-  TEST_ASSERT(central.HotGas == 10.25f, "the reheated gas reaches the central's hot gas");
-  TEST_ASSERT(central.H2gas == 50.0f && central.H1gas == 60.0f,
-              "the cap acts on the reheated galaxy only, not the central");
-
-  /* H2 at the bound (unchanged), H1 above (capped) */
-  commit_feedback(&gal, &central, 1.0f, bound, above, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_BR06,
-                  &locals);
-  TEST_ASSERT(gal.H2gas == bound && locals.hydrogen_caps.h2_cap_binds == 0,
-              "H2gas at the bound is unchanged");
-  TEST_ASSERT(gal.H1gas == bound && locals.hydrogen_caps.h1_cap_binds == 1,
-              "H1gas above the bound is capped");
-
-  /* Both below (unchanged) */
-  commit_feedback(&gal, &central, 1.0f, below, below, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_BR06,
-                  &locals);
-  TEST_ASSERT(gal.H2gas == below && gal.H1gas == below, "H2gas and H1gas below are unchanged");
-
-  /* Both below, their sum above: the caps never act on the sum */
-  commit_feedback(&gal, &central, 1.0f, 0.4f, 0.4f, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &locals);
-  TEST_ASSERT(0.4f + 0.4f > bound, "the sum is above the bound");
-  TEST_ASSERT(gal.H2gas == 0.4f && gal.H1gas == 0.4f, "the caps never act on the sum");
-
-  /* All the cold gas reheated (the clamp): the bound is +0.0 */
-  commit_feedback(&gal, &central, 0.5f, 0.1f, 0.2f, 1.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06, &locals);
-  TEST_ASSERT(gal.ColdGas == 0.0f, "the clamped reheating empties the cold gas");
-  TEST_ASSERT(locals.hydrogen_caps.max_h == 0.0f && !signbit(locals.hydrogen_caps.max_h),
-              "with no cold gas the bound is +0.0");
-  TEST_ASSERT(gal.H2gas == 0.0f && !signbit(gal.H2gas), "H2gas is capped to +0.0");
-  TEST_ASSERT(gal.H1gas == 0.0f && !signbit(gal.H1gas), "H1gas is capped to +0.0");
-  TEST_ASSERT(central.H2gas == 50.0f && central.H1gas == 60.0f,
-              "the central's H2gas and H1gas are untouched");
-
-  /* The caps are strict: a -0.0 H2gas or H1gas at a +0.0 bound is kept as -0.0 */
-  commit_feedback(&gal, &central, 0.5f, -0.0f, -0.0f, 1.0, MIMIC_SAGE_SF_PRESCRIPTION_BR06,
-                  &locals);
-  TEST_ASSERT(gal.H2gas == 0.0f && signbit(gal.H2gas), "a -0.0 H2gas at a +0.0 bound is kept");
-  TEST_ASSERT(gal.H1gas == 0.0f && signbit(gal.H1gas), "a -0.0 H1gas at a +0.0 bound is kept");
-
-  /* SFprescription 0: no cap, H2gas and H1gas not written */
-  commit_feedback(&gal, &central, 1.0f, 5.0f, 6.0f, 0.25, MIMIC_SAGE_SF_PRESCRIPTION_CROTON,
-                  &locals);
-  TEST_ASSERT(locals.hydrogen_caps.tracks_h2 == 0, "SFprescription 0 does not track H2");
-  TEST_ASSERT(gal.H2gas == 5.0f && gal.H1gas == 6.0f,
-              "at SFprescription 0 the commit writes neither H2gas nor H1gas");
-  return TEST_PASS;
+/** @brief Whether two floats have the same bit pattern (so -0.0 and +0.0 differ); reports if not */
+static int expect_bits(const char *row, const char *field, const float actual,
+                       const float expected) {
+  if (f32_bits(actual) == f32_bits(expected)) {
+    return 1;
+  }
+  printf("\n  row %s: %s = %.9g (0x%08x), expected %.9g (0x%08x)", row, field, (double)actual,
+         f32_bits(actual), (double)expected, f32_bits(expected));
+  return 0;
 }
 
 /**
- * @test    test_satellite_reheats_to_central
- * @brief   Test that satellites reheat gas to central's hot halo (not their own)
+ * @test    test_commit_hydrogen_caps
+ * @brief   Both shared commits, at SFprescription 1, cap H2gas and H1gas independently and
+ *          strictly at max_h of the cold gas they leave, never their sum
  *
- * Physics: Satellites are stripped, so reheated gas goes to central
- *
- * Expected: Satellite's cold gas decreases, central's hot gas increases
- * Validates: Satellite vs central behavior
+ * Row kinds: a commit of stars (0) or of reheated mass (1); the bound is 0.74 * 1.0 after a
+ * zero-star event, 0.74 * 0.75 after reheating 0.25 from 1.0, 0.74 * 1.715 after 0.5 stars from
+ * 2.0 (R 0.43); H2gas and H1gas above, at and below the bound, together above it, with no cold
+ * gas (the bound +0.0), at -0.0 (kept: the caps are strict); the feedback commit leaves the
+ * central's H2gas and H1gas alone and credits its hot gas; SFprescription 0 writes neither.
  */
-int test_satellite_reheats_to_central(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
+int test_commit_hydrogen_caps(void) {
+  static const struct {
+    const char *name;
+    int feedback;        /* 0: update_from_star_formation, 1: update_from_feedback */
+    int sf_prescription; /* SFprescription */
+    float cold, h2, h1;  /* the forming galaxy before the commit */
+    double amount;       /* stars formed (0) or reheated mass (1) */
+    float x_cold;        /* the cold gas after the commit */
+    float x_h2, x_h1;    /* H2gas and H1gas after the commit */
+    float x_max_h;       /* the bound (read only when SFprescription 1) */
+    int x_h2_binds, x_h1_binds;
+  } rows[] = {
+      /* star formation, stars 0: the bound is 0.74 * 1.0 = 0.74000001 */
+      {"sf H2 above", 0, 1, 1.0f, 0.740000069f, 0.74000001f, 0.0, 1.0f, 0.74000001f, 0.74000001f,
+       0.74000001f, 1, 0},
+      {"sf H1 above", 0, 1, 1.0f, 0.74000001f, 0.740000069f, 0.0, 1.0f, 0.74000001f, 0.74000001f,
+       0.74000001f, 0, 1},
+      {"sf both below", 0, 1, 1.0f, 0.73999995f, 0.73999995f, 0.0, 1.0f, 0.73999995f, 0.73999995f,
+       0.74000001f, 0, 0},
+      {"sf sum above", 0, 1, 1.0f, 0.5f, 0.5f, 0.0, 1.0f, 0.5f, 0.5f, 0.74000001f, 0, 0},
+      /* the bound uses the cold gas the stars leave (2.0 - 0.57 * 0.5 = 1.715, bound 1.2691):
+       * H2gas 1.4 is within the hydrogen before the stars (1.48) and above it after */
+      {"sf bound after stars", 0, 1, 2.0f, 1.39999998f, 0.100000001f, 0.5, 1.71500003f, 1.26910007f,
+       0.100000001f, 1.26910007f, 1, 0},
+      {"sf no cold gas", 0, 1, 0.0f, 0.100000001f, 0.200000003f, 0.0, 0.0f, 0.0f, 0.0f, 0.0f, 1, 1},
+      {"sf negative zero kept", 0, 1, 0.0f, -0.0f, -0.0f, 0.0, 0.0f, -0.0f, -0.0f, 0.0f, 0, 0},
+      {"sf prescription 0", 0, 0, 1.0f, 5.0f, 6.0f, 0.5, 0.714999974f, 5.0f, 6.0f, 0.0f, 0, 0},
+      /* feedback, reheating 0.25 from 1.0: the bound is 0.74 * 0.75 = 0.555000007 */
+      {"fb H2 above", 1, 1, 1.0f, 0.555000067f, 0.555000007f, 0.25, 0.75f, 0.555000007f,
+       0.555000007f, 0.555000007f, 1, 0},
+      {"fb H1 above", 1, 1, 1.0f, 0.555000007f, 0.555000067f, 0.25, 0.75f, 0.555000007f,
+       0.555000007f, 0.555000007f, 0, 1},
+      {"fb both below", 1, 1, 1.0f, 0.554999948f, 0.554999948f, 0.25, 0.75f, 0.554999948f,
+       0.554999948f, 0.555000007f, 0, 0},
+      {"fb sum above", 1, 1, 1.0f, 0.400000006f, 0.400000006f, 0.25, 0.75f, 0.400000006f,
+       0.400000006f, 0.555000007f, 0, 0},
+      /* the reheated mass clamps to the cold gas: all of it leaves, the bound is +0.0 */
+      {"fb all reheated", 1, 1, 0.5f, 0.100000001f, 0.200000003f, 1.0, 0.0f, 0.0f, 0.0f, 0.0f, 1,
+       1},
+      {"fb negative zero kept", 1, 1, 0.5f, -0.0f, -0.0f, 1.0, 0.0f, -0.0f, -0.0f, 0.0f, 0, 0},
+      {"fb prescription 0", 1, 0, 1.0f, 5.0f, 6.0f, 0.25, 0.75f, 5.0f, 6.0f, 0.0f, 0, 0},
+  };
 
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+  int ok = 1;
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+    const char *name = rows[r].name;
+    struct GalaxyData gal;
+    struct GalaxyData central;
+    struct MimicSageHydrogenCapLocals caps;
+    if (rows[r].feedback) {
+      struct MimicSageFeedbackLocals locals;
+      commit_feedback(&gal, &central, rows[r].cold, rows[r].h2, rows[r].h1, rows[r].amount,
+                      rows[r].sf_prescription, &locals);
+      caps = locals.hydrogen_caps;
+      /* The reheated gas reaches the central's hot gas; the cap never acts on the central */
+      ok &= expect_bits(name, "central HotGas", central.HotGas,
+                        10.0f + (rows[r].cold - rows[r].x_cold));
+      ok &= expect_bits(name, "central H2gas", central.H2gas, 50.0f);
+      ok &= expect_bits(name, "central H1gas", central.H1gas, 60.0f);
+    } else {
+      commit_star_formation(&gal, rows[r].cold, rows[r].h2, rows[r].h1, rows[r].amount,
+                            rows[r].sf_prescription, &caps);
+    }
+    ok &= expect_bits(name, "ColdGas", gal.ColdGas, rows[r].x_cold);
+    ok &= expect_bits(name, "H2gas", gal.H2gas, rows[r].x_h2);
+    ok &= expect_bits(name, "H1gas", gal.H1gas, rows[r].x_h1);
 
-  struct Halo satellite_halo, central_halo;
-  struct GalaxyData satellite_galaxy, central_galaxy;
-
-  /* Setup central */
-  double central_hot_initial = 50.0;
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, central_hot_initial, 0.0,
-                  20.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-
-  /* Setup satellite (Type=1) */
-  double satellite_cold_initial = 5.0;
-  double satellite_hot_initial =
-      10.0; /* Satellite has own hot gas, but reheating goes to central */
-  double new_stars = 0.5;
-  double reheated_mass = 0.3;
-  setup_test_halo(&satellite_halo, &satellite_galaxy, 1, 20.0, 0.1, /* Type=1 (satellite) */
-                  satellite_cold_initial, satellite_hot_initial, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0,
-                  new_stars, reheated_mass, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &satellite_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Satellite's cold gas should decrease */
-  double sf_depletion = (1.0 - test_recycle_fraction) * new_stars;
-  double expected_satellite_cold = satellite_cold_initial - sf_depletion - reheated_mass;
-  TEST_ASSERT_DOUBLE_EQUAL(satellite_galaxy.ColdGas, expected_satellite_cold, 1e-6,
-                           "Satellite ColdGas should decrease by SF + reheating");
-
-  /* Satellite's hot gas should be unchanged (reheating goes to central) */
-  TEST_ASSERT_DOUBLE_EQUAL(satellite_galaxy.HotGas, satellite_hot_initial, 1e-6,
-                           "Satellite HotGas should be unchanged");
-
-  /* Central's hot gas should increase */
-  double expected_central_hot = central_hot_initial + reheated_mass;
-  TEST_ASSERT_DOUBLE_EQUAL(central_galaxy.HotGas, expected_central_hot, 1e-6,
-                           "Central HotGas should increase by satellite's reheated mass");
-
+    const int tracks_h2 = rows[r].sf_prescription == MIMIC_SAGE_SF_PRESCRIPTION_BR06;
+    if (caps.tracks_h2 != tracks_h2) {
+      printf("\n  row %s: tracks_h2 = %d, expected %d", name, caps.tracks_h2, tracks_h2);
+      ok = 0;
+    }
+    if (tracks_h2) {
+      ok &= expect_bits(name, "max_h", caps.max_h, rows[r].x_max_h);
+      if (caps.h2_cap_binds != rows[r].x_h2_binds || caps.h1_cap_binds != rows[r].x_h1_binds) {
+        printf("\n  row %s: caps bind %d/%d (H2/H1), expected %d/%d", name, caps.h2_cap_binds,
+               caps.h1_cap_binds, rows[r].x_h2_binds, rows[r].x_h1_binds);
+        ok = 0;
+      }
+    }
+  }
+  TEST_ASSERT(ok, "every commit must cap H2gas and H1gas strictly, each at its own max_h");
   return TEST_PASS;
 }
 
 // ============================================================================
-// CLEANUP AND CONSERVATION TESTS
+// THE COMMIT TABLE
 // ============================================================================
+//
+// One forming galaxy and one separate FoF central, one substep (SubSteps 1, so the substep's dt is
+// the row's dT), no supernova calculator configured (so the cold-gas cap is live), CGMrecipeOn 0
+// and SFprescription 0. Every value is a float: the inputs and expectations that are binary
+// fractions are exact, the rest are the nine-digit literals of the floats they round to.
+// RecycleFraction is 0.25, so the locked fraction 1 - R = 0.75 is not the recycled one.
+
+/** @brief Whether two floats are equal; reports the row and field if not */
+static int expect_float(const char *row, const char *field, const float actual,
+                        const float expected) {
+  if (actual == expected) {
+    return 1;
+  }
+  printf("\n  row %s: %s = %.9g, expected %.9g", row, field, (double)actual, (double)expected);
+  return 0;
+}
 
 /**
- * @test    test_temporary_properties_reset
- * @brief   Test that temporary properties are zeroed after processing
+ * @test    test_commit_table
+ * @brief   The apply step's commit of one substep, row by row, on exact literals
  *
- * Physics: NewStellarMass, SupernovaReheatedMass, SupernovaEjectedMass must be zeroed
+ * Physics per row: stars lock (1 - R) * stars of cold gas, at the cold gas's metallicity, into
+ * the galaxy's stars; the reheated mass (clamped to the cold gas left) moves from the galaxy's
+ * cold gas to the central's hot gas at the post-star-formation metallicity; the ejected mass
+ * (capped at the central's hot gas after the reheating) moves from the central's hot gas to its
+ * ejected gas at the central's metallicity after the reheating; SupernovaOutflowRate gains the
+ * undivided reheated mass; StarFormationRate gains stars / dT when dT is positive. Without the
+ * supernova calculator the apply step caps stars at the cold gas (zero for none). NewStellarMass
+ * is left, the reheated and ejected masses are zeroed.
  *
- * Expected: All temporary properties = 0 after processing
- * Validates: Cleanup logic prevents accumulation across timesteps
+ * The "metals after star formation" row is the one a stale pre-star-formation metallicity
+ * would get wrong: the cold gas 2.0 holds 0.1f metals, the stars take 0.5 * 0.75 of it, and the
+ * metallicity the reheating uses is the ratio of the floats left, which differs from the
+ * pre-star-formation ratio by one float rounding that shows in the credited metals.
  */
-int test_temporary_properties_reset(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0);
+int test_commit_table(void) {
+  static const struct {
+    const char *name;
+    double recycle, dt;
+    int initial_interval; /* SnapNum -1: the substep has no positive dt */
+    /* the forming galaxy */
+    float cold, hot, ejected, stellar;
+    float metals_cold, metals_hot, metals_ejected, metals_stellar;
+    float outflow; /* SupernovaOutflowRate before the call */
+    /* NewStellarMass, SupernovaReheatedMass and SupernovaEjectedMass */
+    double stars, reheated, ejected_mass;
+    /* the FoF central */
+    float c_hot, c_ejected, c_metals_hot, c_metals_ejected;
+    /* the forming galaxy after the call (hot, ejected and their metals unchanged) */
+    float x_cold, x_stellar, x_metals_cold, x_metals_stellar;
+    float x_sfr, x_outflow, x_new_stars;
+    /* the central after the call */
+    float x_c_hot, x_c_ejected, x_c_metals_hot, x_c_metals_ejected;
+  } rows[] = {
+      /* stars 1.0 lock 0.75 at Z 0.125 (1.25 / 10); SFR 1.0 / 0.5 */
+      {.name = "star formation",
+       .recycle = 0.25,
+       .dt = 0.5,
+       .cold = 10.0f,
+       .hot = 50.0f,
+       .stellar = 20.0f,
+       .metals_cold = 1.25f,
+       .metals_stellar = 0.25f,
+       .stars = 1.0,
+       .x_cold = 9.25f,
+       .x_stellar = 20.75f,
+       .x_metals_cold = 1.15625f,
+       .x_metals_stellar = 0.34375f,
+       .x_sfr = 2.0f,
+       .x_new_stars = 1.0f},
+      /* stars as above; reheat 1.0 at the post-star-formation Z 0.125 into the central's hot gas
+       * (7 -> 8, metals 1.75 + 0.125 = 1.875, Z 0.234375, not the pre-reheating 0.25), then eject
+       * 0.5 at that Z: 0.1171875 of metals */
+      {.name = "reheat then eject",
+       .recycle = 0.25,
+       .dt = 0.5,
+       .cold = 5.0f,
+       .metals_cold = 0.625f,
+       .stars = 1.0,
+       .reheated = 1.0,
+       .ejected_mass = 0.5,
+       .c_hot = 7.0f,
+       .c_ejected = 1.0f,
+       .c_metals_hot = 1.75f,
+       .c_metals_ejected = 0.125f,
+       .x_cold = 3.25f,
+       .x_stellar = 0.75f,
+       .x_metals_cold = 0.40625f,
+       .x_metals_stellar = 0.09375f,
+       .x_sfr = 2.0f,
+       .x_outflow = 1.0f,
+       .x_new_stars = 1.0f,
+       .x_c_hot = 7.5f,
+       .x_c_ejected = 1.5f,
+       .x_c_metals_hot = 1.7578125f,
+       .x_c_metals_ejected = 0.2421875f},
+      /* the metals credited at the metallicity of the floats left after the stars (see above),
+       * and a seeded outflow rate that accumulates: 0.3f + 0.5 */
+      {.name = "metals after star formation",
+       .recycle = 0.25,
+       .dt = 0.5,
+       .cold = 2.0f,
+       .metals_cold = 0.1f,
+       .outflow = 0.3f,
+       .stars = 0.5,
+       .reheated = 0.5,
+       .x_cold = 1.125f,
+       .x_stellar = 0.375f,
+       .x_metals_cold = 0.0562500022f,
+       .x_metals_stellar = 0.0187500007f,
+       .x_sfr = 1.0f,
+       .x_outflow = 0.800000012f,
+       .x_new_stars = 0.5f,
+       .x_c_hot = 0.5f,
+       .x_c_metals_hot = 0.0250000022f},
+      /* no stars; the central's hot gas 0.5 plus the reheated 0.5 is 1.0, which caps the 5.0 of
+       * ejection (capped before the reheating it would be 0.5); all its metals go with it */
+      {.name = "ejection capped after reheating",
+       .recycle = 0.25,
+       .dt = 0.5,
+       .cold = 4.0f,
+       .metals_cold = 0.5f,
+       .reheated = 0.5,
+       .ejected_mass = 5.0,
+       .c_hot = 0.5f,
+       .c_metals_hot = 0.0625f,
+       .x_cold = 3.5f,
+       .x_metals_cold = 0.4375f,
+       .x_outflow = 0.5f,
+       .x_c_ejected = 1.0f,
+       .x_c_metals_ejected = 0.125f},
+      /* the cold gas left after the stars is 1.25: the 2.0 reheated is clamped to it, so the
+       * galaxy is emptied and the central gains 1.25 and its metals, not 2.0 */
+      {.name = "reheating clamped to the cold gas",
+       .recycle = 0.25,
+       .dt = 0.5,
+       .cold = 2.0f,
+       .metals_cold = 0.25f,
+       .stars = 1.0,
+       .reheated = 2.0,
+       .c_hot = 10.0f,
+       .x_stellar = 0.75f,
+       .x_metals_stellar = 0.09375f,
+       .x_sfr = 2.0f,
+       .x_outflow = 1.25f,
+       .x_new_stars = 1.0f,
+       .x_c_hot = 11.25f,
+       .x_c_metals_hot = 0.15625f},
+      /* stars 2.0 exceed the cold gas 0.5: capped at it and written back */
+      {.name = "stars capped at the cold gas",
+       .recycle = 0.25,
+       .dt = 0.5,
+       .cold = 0.5f,
+       .stellar = 20.0f,
+       .metals_cold = 0.0625f,
+       .stars = 2.0,
+       .x_cold = 0.125f,
+       .x_stellar = 20.375f,
+       .x_metals_cold = 0.015625f,
+       .x_metals_stellar = 0.046875f,
+       .x_sfr = 1.0f,
+       .x_new_stars = 0.5f},
+      /* no cold gas: the cap is zero (not a negative or the stars), so nothing is formed */
+      {.name = "stars capped at no cold gas", .recycle = 0.25, .dt = 0.5, .stars = 1.0},
+      /* a substep with no positive dt (SnapNum -1) is not an error; the stars still form but no
+       * rate is accumulated (a rate of 1.0 / -1.0 would be -1) */
+      {.name = "no positive interval",
+       .recycle = 0.25,
+       .dt = -1.0,
+       .initial_interval = 1,
+       .cold = 10.0f,
+       .stars = 1.0,
+       .x_cold = 9.25f,
+       .x_stellar = 0.75f,
+       .x_new_stars = 1.0f},
+  };
 
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-  TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0,
-              "Metal enrichment module initialization should succeed");
+  int ok = 1;
+  init_memory_system(0);
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+    const char *name = rows[r].name;
+    reset_config();
+    setup_test_parameters(rows[r].recycle);
+    TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "init should succeed");
 
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
+    struct Halo central_halo, halo;
+    struct GalaxyData central, gal;
+    setup_test_halo(&central_halo, &central, 0, 100.0, rows[r].dt, 0.0, rows[r].c_hot,
+                    rows[r].c_ejected, 0.0, 0.0, rows[r].c_metals_hot, rows[r].c_metals_ejected,
+                    0.0, 0.0, 0.0, 0.0);
+    setup_test_halo(&halo, &gal, 0, 100.0, rows[r].dt, rows[r].cold, rows[r].hot, rows[r].ejected,
+                    rows[r].stellar, rows[r].metals_cold, rows[r].metals_hot,
+                    rows[r].metals_ejected, rows[r].metals_stellar, rows[r].stars, rows[r].reheated,
+                    rows[r].ejected_mass);
+    gal.SupernovaOutflowRate = rows[r].outflow;
+    if (rows[r].initial_interval) {
+      halo.SnapNum = -1;
+    }
+    struct ModuleContext ctx;
+    setup_module_context(&ctx, &central_halo, rows[r].dt);
 
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0,
-                  0.0, 0.0, 0.0, 0.0, 0.0);
+    const double baryons_before = (double)gal.ColdGas + gal.HotGas + gal.EjectedGas +
+                                  gal.StellarMass + central.ColdGas + central.HotGas +
+                                  central.EjectedGas + central.StellarMass;
+    const double metals_before = (double)gal.MetalsColdGas + gal.MetalsHotGas +
+                                 gal.MetalsEjectedGas + gal.MetalsStellarMass +
+                                 central.MetalsColdGas + central.MetalsHotGas +
+                                 central.MetalsEjectedGas + central.MetalsStellarMass;
+    const float hot = gal.HotGas, ejected = gal.EjectedGas, metals_hot = gal.MetalsHotGas,
+                metals_ejected = gal.MetalsEjectedGas;
 
-  /* Galaxy with non-zero temporary properties */
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 0.0, 20.0, 0.0, 0.0, 0.0,
-                  0.0, 1.0, 0.5, 0.3); /* Non-zero temporary values */
+    const int status = sage26_apply_star_formation_supernova_process(&ctx, &halo, 1);
+    if (status != 0) {
+      printf("\n  row %s: process returned %d", name, status);
+      ok = 0;
+    }
 
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
+    /* the forming galaxy */
+    ok &= expect_float(name, "ColdGas", gal.ColdGas, rows[r].x_cold);
+    ok &= expect_float(name, "StellarMass", gal.StellarMass, rows[r].x_stellar);
+    ok &= expect_float(name, "MetalsColdGas", gal.MetalsColdGas, rows[r].x_metals_cold);
+    ok &= expect_float(name, "MetalsStellarMass", gal.MetalsStellarMass, rows[r].x_metals_stellar);
+    ok &= expect_float(name, "StarFormationRate", gal.StarFormationRate, rows[r].x_sfr);
+    ok &= expect_float(name, "SupernovaOutflowRate", gal.SupernovaOutflowRate, rows[r].x_outflow);
+    ok &= expect_float(name, "HotGas (own pair untouched)", gal.HotGas, hot);
+    ok &= expect_float(name, "EjectedGas (own pair untouched)", gal.EjectedGas, ejected);
+    ok &= expect_float(name, "MetalsHotGas (own pair untouched)", gal.MetalsHotGas, metals_hot);
+    ok &= expect_float(name, "MetalsEjectedGas (own pair untouched)", gal.MetalsEjectedGas,
+                       metals_ejected);
+    /* the transport fields: stars kept for the enrichment module, the feedback consumed */
+    ok &= expect_float(name, "NewStellarMass (kept)", gal.NewStellarMass, rows[r].x_new_stars);
+    ok &= expect_float(name, "SupernovaReheatedMass (zeroed)", gal.SupernovaReheatedMass, 0.0f);
+    ok &= expect_float(name, "SupernovaEjectedMass (zeroed)", gal.SupernovaEjectedMass, 0.0f);
 
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
+    /* the central, whose cold gas, stars and own transport fields are not the destination */
+    ok &= expect_float(name, "central HotGas", central.HotGas, rows[r].x_c_hot);
+    ok &= expect_float(name, "central EjectedGas", central.EjectedGas, rows[r].x_c_ejected);
+    ok &= expect_float(name, "central MetalsHotGas", central.MetalsHotGas, rows[r].x_c_metals_hot);
+    ok &= expect_float(name, "central MetalsEjectedGas", central.MetalsEjectedGas,
+                       rows[r].x_c_metals_ejected);
+    ok &= expect_float(name, "central ColdGas", central.ColdGas, 0.0f);
+    ok &= expect_float(name, "central StellarMass", central.StellarMass, 0.0f);
 
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* SN transport properties are consumed by the apply step; NewStellarMass is
-   * intentionally preserved for sage26_apply_metal_enrichment (SAGE ordering) */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, 1.0, 1e-6,
-                           "NewStellarMass should be preserved for the enrichment module");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaReheatedMass, 0.0, 1e-6,
-                           "SupernovaReheatedMass should be zeroed after processing");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, 0.0, 1e-6,
-                           "SupernovaEjectedMass should be zeroed after processing");
-
-  /* The enrichment module consumes NewStellarMass */
-  result = sage26_apply_metal_enrichment_process(&ctx, &test_halo, 1);
-  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, 0.0, 1e-6,
-                           "NewStellarMass should be zeroed after metal enrichment");
-
+    /* the baryons and the metals only move between reservoirs */
+    const double baryons_after = (double)gal.ColdGas + gal.HotGas + gal.EjectedGas +
+                                 gal.StellarMass + central.ColdGas + central.HotGas +
+                                 central.EjectedGas + central.StellarMass;
+    const double metals_after = (double)gal.MetalsColdGas + gal.MetalsHotGas +
+                                gal.MetalsEjectedGas + gal.MetalsStellarMass +
+                                central.MetalsColdGas + central.MetalsHotGas +
+                                central.MetalsEjectedGas + central.MetalsStellarMass;
+    if (fabs(baryons_after - baryons_before) > 1e-5 || fabs(metals_after - metals_before) > 1e-5) {
+      printf("\n  row %s: baryons %.9g -> %.9g, metals %.9g -> %.9g", name, baryons_before,
+             baryons_after, metals_before, metals_after);
+      ok = 0;
+    }
+    sage26_apply_star_formation_supernova_cleanup();
+  }
+  check_memory_leaks();
+  TEST_ASSERT(ok, "every substep must commit exactly its row's literals");
   return TEST_PASS;
 }
 
 /**
- * @test    test_mass_conservation
- * @brief   Test that total baryonic mass is conserved (excluding yield production)
+ * @test    test_zero_event_caps_negative_hot_metals
+ * @brief   A zero event still runs update_from_feedback's metal cap, and moves nothing else
  *
- * Physics: (ColdGas + HotGas + EjectedGas + StellarMass)_after =
- *          (ColdGas + HotGas + EjectedGas + StellarMass)_before
- *
- * Expected: Total baryons unchanged (recycling preserves mass)
- * Validates: Mass conservation
+ * SAGE26 calls update_from_feedback on every substep, also with no stars. With zero ejected
+ * mass the metal transfer metallicityHot * 0 = 0 exceeds a negative MetalsHotGas, so the cap
+ * moves the negative hot metals into the ejected reservoir and leaves MetalsHotGas at zero.
+ * A module that returned early on zero stars would not. Every other reservoir keeps its value and
+ * the consumed transport fields stay zero.
  */
-int test_mass_conservation(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.0, 0.0); /* Yield=0 to test pure conservation */
+int test_zero_event_caps_negative_hot_metals(void) {
+  setup_test_parameters(0.43);
+  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0,
+              "Module initialization should succeed");
 
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  /* Setup central */
-  double central_cold_initial = 10.0;
-  double central_hot_initial = 50.0;
-  double central_ejected_initial = 5.0;
-  double central_stellar_initial = 20.0;
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, central_cold_initial,
-                  central_hot_initial, central_ejected_initial, central_stellar_initial, 0.0, 0.0,
-                  0.0, 0.0, 0.0, 0.0, 0.0);
-
-  /* Setup test galaxy */
-  double galaxy_cold_initial = 10.0;
-  double galaxy_hot_initial = 50.0;
-  double galaxy_ejected_initial = 5.0;
-  double galaxy_stellar_initial = 20.0;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, galaxy_cold_initial, galaxy_hot_initial,
-                  galaxy_ejected_initial, galaxy_stellar_initial, 0.0, 0.0, 0.0, 0.0, 1.0, 0.5,
-                  0.3);
-
-  /* Calculate total baryons before (galaxy + central since transfers happen) */
-  double total_before =
-      (galaxy_cold_initial + galaxy_hot_initial + galaxy_ejected_initial + galaxy_stellar_initial) +
-      (central_cold_initial + central_hot_initial + central_ejected_initial +
-       central_stellar_initial);
+  struct Halo test_halo;
+  struct GalaxyData test_galaxy;
+  const double negative_hot_metals = -1.0e-9;
+  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 5.0, 20.0, 0.2,
+                  negative_hot_metals, 0.1, 0.3, 0.0, 0.0, 0.0);
+  const float ejected_metals_before = test_galaxy.MetalsEjectedGas;
+  const float hot_metals_before = test_galaxy.MetalsHotGas;
 
   struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
+  setup_module_context(&ctx, &test_halo, 0.1);
 
-  /* ===== EXECUTE ===== */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Calculate total baryons after */
-  double total_after = (test_galaxy.ColdGas + test_galaxy.HotGas + test_galaxy.EjectedGas +
-                        test_galaxy.StellarMass) +
-                       (central_galaxy.ColdGas + central_galaxy.HotGas + central_galaxy.EjectedGas +
-                        central_galaxy.StellarMass);
-
-  TEST_ASSERT_DOUBLE_EQUAL(total_after, total_before, 1e-5,
-                           "Total baryonic mass should be conserved");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_metal_conservation
- * @brief   Test that total metals are conserved (except for new yield production)
- *
- * Physics: Total_metals_after = Total_metals_before + Yield * NewStellarMass
- *
- * Expected: Metals conserved with yield production accounted for
- * Validates: Metal conservation with stellar nucleosynthesis
- */
-int test_metal_conservation(void) {
-  /* ===== SETUP ===== */
-  setup_test_parameters(0.43, 0.025, 0.0); /* Yield=0.025 */
-
-  int init_result = sage26_apply_star_formation_supernova_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-  TEST_ASSERT(sage26_apply_metal_enrichment_init() == 0,
-              "Metal enrichment module initialization should succeed");
-
-  struct Halo test_halo, central_halo;
-  struct GalaxyData test_galaxy, central_galaxy;
-
-  /* Setup central */
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 5.0, 20.0, 0.1, 0.5,
-                  0.05, 0.3, 0.0, 0.0, 0.0);
-
-  /* Setup test galaxy */
-  double new_stars = 1.0;
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 0.1, 10.0, 50.0, 5.0, 20.0, 0.2, 0.5, 0.1,
-                  0.4, new_stars, 0.5, 0.3);
-
-  /* Calculate total metals before (all reservoirs, galaxy + central) */
-  double total_metals_before = (test_galaxy.MetalsColdGas + test_galaxy.MetalsHotGas +
-                                test_galaxy.MetalsEjectedGas + test_galaxy.MetalsStellarMass) +
-                               (central_galaxy.MetalsColdGas + central_galaxy.MetalsHotGas +
-                                central_galaxy.MetalsEjectedGas + central_galaxy.MetalsStellarMass);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.1);
-
-  /* ===== EXECUTE ===== */
-  /* Run the full SF/SN apply -> metal enrichment pipeline (SAGE ordering) */
-  int result = sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
-  TEST_ASSERT(result == 0, "Module process should succeed");
-  result = sage26_apply_metal_enrichment_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
-
-  /* Calculate total metals after */
-  double total_metals_after = (test_galaxy.MetalsColdGas + test_galaxy.MetalsHotGas +
-                               test_galaxy.MetalsEjectedGas + test_galaxy.MetalsStellarMass) +
-                              (central_galaxy.MetalsColdGas + central_galaxy.MetalsHotGas +
-                               central_galaxy.MetalsEjectedGas + central_galaxy.MetalsStellarMass);
-
-  /* Expected new metals from yield */
-  double expected_new_metals = test_yield * new_stars;
-  double expected_total_metals = total_metals_before + expected_new_metals;
-
-  TEST_ASSERT_DOUBLE_EQUAL(total_metals_after, expected_total_metals, 1e-5,
-                           "Total metals should equal initial + yield production");
-
+  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &test_halo, 1) == 0,
+              "Module process should succeed");
+  TEST_ASSERT(test_galaxy.MetalsHotGas == 0.0f,
+              "the zero event's capped transfer empties the negative hot metals");
+  TEST_ASSERT(test_galaxy.MetalsEjectedGas == (float)(ejected_metals_before + hot_metals_before),
+              "the negative hot metals move into the ejected reservoir");
+  TEST_ASSERT(test_galaxy.HotGas == 50.0f && test_galaxy.ColdGas == 10.0f &&
+                  test_galaxy.EjectedGas == 5.0f && test_galaxy.StellarMass == 20.0f,
+              "no gas or stars move in a zero event");
+  TEST_ASSERT(test_galaxy.SupernovaReheatedMass == 0.0f && test_galaxy.SupernovaEjectedMass == 0.0f,
+              "the transport fields stay zero");
   return TEST_PASS;
 }
 
@@ -1599,7 +772,7 @@ static float history(struct GalaxyData *gal, const enum MimicSageSfrHistory h, c
  */
 int test_disk_history_sampled_every_call(void) {
   reset_config();
-  setup_test_parameters(0.43, 0.025, 0.0);
+  setup_test_parameters(0.43);
   TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "init should succeed");
 
   struct Halo halo;
@@ -1641,50 +814,12 @@ int test_disk_history_sampled_every_call(void) {
 }
 
 /**
- * @test    test_disk_history_zero_stars
- * @brief   A zero-star call adds 0 to the rate and still assigns both gas samples
- */
-int test_disk_history_zero_stars(void) {
-  reset_config();
-  setup_test_parameters(0.43, 0.025, 0.0);
-  TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "init should succeed");
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_halo(&halo, &gal, 0, 100.0, 0.1, 3.0, 50.0, 5.0, 20.0, 0.06, 0.5, 0.1, 0.3, 0.0, 0.0,
-                  0.0);
-  *mimic_sage_sfr_history(&gal, MIMIC_SFR_HISTORY_DISK, 4) = 7.0f;
-  *mimic_sage_sfr_history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS, 4) = 99.0f;
-  *mimic_sage_sfr_history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS_METALS, 4) = 98.0f;
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &halo, 0.01);
-  ctx.num_substeps = 10;
-  ctx.substep_number = 4;
-
-  TEST_ASSERT(sage26_apply_star_formation_supernova_process(&ctx, &halo, 1) == 0,
-              "process should succeed");
-  TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK, 4) == 7.0f, "zero stars add nothing");
-  TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS, 4) == 3.0f,
-              "the cold gas is sampled on a zero-star call");
-  TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS_METALS, 4) == 0.06f,
-              "the cold metals are sampled on a zero-star call");
-  for (int k = 0; k < MIMIC_SAGE_SFR_STEPS; k++) {
-    if (k != 4) {
-      TEST_ASSERT(history(&gal, MIMIC_SFR_HISTORY_DISK_COLD_GAS, k) == 0.0f,
-                  "only the substep's bin is sampled");
-    }
-  }
-  sage26_apply_star_formation_supernova_cleanup();
-  return TEST_PASS;
-}
-
-/**
  * @test    test_disk_history_without_central
  * @brief   With no FoF central (a Mimic-only path) the history is sampled, nothing committed
  */
 int test_disk_history_without_central(void) {
   reset_config();
-  setup_test_parameters(0.43, 0.025, 0.0);
+  setup_test_parameters(0.43);
   TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "init should succeed");
 
   struct Halo halo;
@@ -1713,7 +848,7 @@ int test_disk_history_without_central(void) {
  */
 int test_disk_history_initial_boundary(void) {
   reset_config();
-  setup_test_parameters(0.43, 0.025, 0.0);
+  setup_test_parameters(0.43);
   TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "init should succeed");
 
   struct Halo halo;
@@ -1764,46 +899,11 @@ int test_disk_history_initial_boundary(void) {
 //     edge state (negative metals arise from float cancellation, as test_zero_event_caps_negative_
 //     hot_metals uses for the hot pair).
 
-/** @brief Set the parameter list's CGMrecipeOn to `value`, or remove it for NULL */
-static void cgm_set_cgm_recipe_on(const char *value) {
-  int n = 0;
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, "CGMrecipeOn") != 0) {
-      MimicConfig.ModelParams[n++] = MimicConfig.ModelParams[i];
-    }
-  }
-  if (value != NULL) {
-    snprintf(MimicConfig.ModelParams[n].param_name, MAX_STRING_LEN, "%s", "CGMrecipeOn");
-    snprintf(MimicConfig.ModelParams[n].value, MAX_STRING_LEN, "%s", value);
-    n++;
-  }
-  MimicConfig.NumModelParams = n;
-}
-
-/** @brief Read a captured log stream into a static buffer (valid until the next call) */
-static const char *cgm_read_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
-
-/** @brief Initialise the module with CGMrecipeOn `value` (NULL: missing), capturing the log */
-static int cgm_init(const char *value, const char **log) {
-  setup_test_parameters(0.5, 0.0, 0.0);
-  cgm_set_cgm_recipe_on(value);
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = sage26_apply_star_formation_supernova_init();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    *log = cgm_read_log(capture);
-    fclose(capture);
-  } else {
-    *log = "";
-  }
-  return status;
+/** @brief Initialise the module with CGMrecipeOn `value` */
+static int cgm_init(const char *value) {
+  setup_test_parameters(0.5);
+  set_test_cgm_recipe_on(value);
+  return sage26_apply_star_formation_supernova_init();
 }
 
 /**
@@ -1829,8 +929,7 @@ int test_cgm_feedback_destination(void) {
   init_memory_system(0);
   for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
     for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
-      const char *log = "";
-      TEST_ASSERT(cgm_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+      TEST_ASSERT(cgm_init(runs[r].cgm) == 0, "init must accept CGMrecipeOn 0 and 1");
 
       struct Halo central_halo, satellite_halo;
       struct GalaxyData central, satellite;
@@ -1881,24 +980,6 @@ int test_cgm_feedback_destination(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
- *          a refusal naming the parameter
- */
-int test_cgm_recipe_on_refused(void) {
-  const char *log = "";
-  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
-  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
-  return TEST_PASS;
-}
-
 // ============================================================================
 // FEEDBACK-FREE-BURST BYPASS
 // ============================================================================
@@ -1918,7 +999,7 @@ int test_cgm_recipe_on_refused(void) {
  */
 int test_ffb_row_bypassed(void) {
   reset_config();
-  setup_test_parameters(0.43, 0.0, 0.0);
+  setup_test_parameters(0.43);
   TEST_ASSERT(sage26_apply_star_formation_supernova_init() == 0, "Module init should succeed");
 
   struct Halo central, row;
@@ -1988,50 +1069,22 @@ int main(void) {
   /* Initialize error handling for tests */
   initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
 
-  /* Run software quality tests */
+  /* Module lifecycle */
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_memory_safety);
 
-  /* Run star formation update tests */
-  TEST_RUN(test_star_formation_with_recycling);
-  TEST_RUN(test_star_formation_metal_transfer);
-  TEST_RUN(test_star_formation_rate_accumulation);
-
-  /* Run supernova reheating tests */
-  TEST_RUN(test_reheating_gas_transfer);
-  TEST_RUN(test_reheating_metal_transfer);
-  TEST_RUN(test_reheating_outflow_rate);
-
-  /* Run supernova ejection tests */
-  TEST_RUN(test_ejection_gas_transfer);
-  TEST_RUN(test_ejection_limiting);
-  TEST_RUN(test_ejection_metal_transfer);
-
-  /* Run metal enrichment tests */
-  TEST_RUN(test_metal_yield_production);
-  TEST_RUN(test_metal_disk_vs_halo_split);
-  TEST_RUN(test_metal_enrichment_zero_cold_gas);
-
-  /* Run edge case tests */
-  TEST_RUN(test_zero_stars_no_updates);
+  /* The commits: the apply step's table, the zero event, the shared commits' own contracts */
+  TEST_RUN(test_commit_table);
   TEST_RUN(test_zero_event_caps_negative_hot_metals);
   TEST_RUN(test_sf_commit_fused_rounding);
-  TEST_RUN(test_sf_commit_hydrogen_caps);
-  TEST_RUN(test_feedback_commit_hydrogen_caps);
-  TEST_RUN(test_satellite_reheats_to_central);
-
-  /* Run cleanup and conservation tests */
-  TEST_RUN(test_temporary_properties_reset);
-  TEST_RUN(test_mass_conservation);
-  TEST_RUN(test_metal_conservation);
+  TEST_RUN(test_commit_hydrogen_caps);
 
   /* Run disk star-formation history sampling tests */
   TEST_RUN(test_disk_history_sampled_every_call);
-  TEST_RUN(test_disk_history_zero_stars);
   TEST_RUN(test_disk_history_without_central);
   TEST_RUN(test_disk_history_initial_boundary);
+
+  /* CGMrecipeOn routing */
   TEST_RUN(test_cgm_feedback_destination);
-  TEST_RUN(test_cgm_recipe_on_refused);
 
   /* The feedback-free-burst bypass */
   TEST_RUN(test_ffb_row_bypassed);

@@ -9,7 +9,8 @@
  * Test cases:
  *   - test_history_elements_distinct: the sixty (history, bin) pairs name sixty distinct
  *     float members; anything else is NULL
- *   - test_step_bin_map: SAGE26's bin for 7, 10, 11, 13 and 30 substeps, and invalid input
+ *   - test_step_bin_map_and_divisors: SAGE26's bin for 7, 10, 11, 13 and 30 substeps, and
+ *     invalid input; the averaging divisors for SubstepsUsed -1, 0, 3, 10 and 13
  *   - test_disk_sampling_operators: rate +=, gas samples = (the last substep of a bin wins)
  *   - test_bulge_sampling_operators: rate, gas and metals all +=
  *   - test_rate_rounds_once: the rate is the float element plus the double quotient,
@@ -67,10 +68,12 @@ int test_history_elements_distinct(void) {
 }
 
 /**
- * @test    test_step_bin_map
- * @brief   (step * STEPS) / N capped at STEPS - 1, for N below, at and above STEPS
+ * @test    test_step_bin_map_and_divisors
+ * @brief   (step * STEPS) / N capped at STEPS - 1, for N below, at and above STEPS; the rate
+ *          divisor is SubstepsUsed (STEPS when it is not positive) and the metallicity divisor
+ *          is that capped at STEPS
  */
-int test_step_bin_map(void) {
+int test_step_bin_map_and_divisors(void) {
   const struct {
     int n;
     int bins[30];
@@ -91,6 +94,20 @@ int test_step_bin_map(void) {
   TEST_ASSERT(mimic_sage_sfr_step_bin(-1, 10) == -1, "a negative substep is invalid");
   TEST_ASSERT(mimic_sage_sfr_step_bin(10, 10) == -1, "a substep past the count is invalid");
   TEST_ASSERT(mimic_sage_sfr_step_bin(0, 0) == -1, "no substeps is invalid");
+
+  /* A galaxy that used no substep (SubstepsUsed <= 0) averages over the full STEPS bins */
+  static const struct {
+    int substeps_used;
+    int rate;
+    int metallicity;
+  } divisors[] = {{-1, 10, 10}, {0, 10, 10}, {3, 3, 3}, {10, 10, 10}, {13, 13, 10}};
+  for (size_t i = 0; i < sizeof(divisors) / sizeof(divisors[0]); i++) {
+    TEST_ASSERT(mimic_sage_sfr_rate_divisor(divisors[i].substeps_used) == divisors[i].rate,
+                "the rate divisor is SubstepsUsed, or STEPS when it is not positive");
+    TEST_ASSERT(mimic_sage_sfr_metallicity_divisor(divisors[i].substeps_used) ==
+                    divisors[i].metallicity,
+                "the metallicity divisor is the rate divisor capped at STEPS");
+  }
   return TEST_PASS;
 }
 
@@ -198,7 +215,7 @@ int main(void) {
   printf("============================================================\n");
 
   TEST_RUN(test_history_elements_distinct);
-  TEST_RUN(test_step_bin_map);
+  TEST_RUN(test_step_bin_map_and_divisors);
   TEST_RUN(test_disk_sampling_operators);
   TEST_RUN(test_bulge_sampling_operators);
   TEST_RUN(test_rate_rounds_once);

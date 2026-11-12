@@ -2,34 +2,29 @@
  * @file    test_unit_sage26_calculate_star_formation.c
  * @brief   Unit tests for sage26_calculate_star_formation module
  *
- * Validates: Physics calculation logic, edge cases, parameter handling
- *
- * This test validates the sage26_calculate_star_formation module physics:
- * - Star formation calculation (Kennicutt-Schmidt with critical threshold)
- * - Critical threshold logic (above/below/at threshold)
- * - Edge cases (zero radius, zero velocity, negative values)
- * - Parameter sensitivity (efficiency affects results)
- * - Module lifecycle and memory safety
+ * Validates: the star-formation laws of SFprescription 0 (Croton, critical-mass threshold) and 1
+ * (BR06 molecular gas), the H I block, and the module's guards.
  *
  * Test cases:
- *   - test_sf_calculation_above_threshold: Normal star formation
- *   - test_sf_calculation_below_threshold: No SF when below threshold
- *   - test_sf_calculation_at_threshold: Boundary condition
- *   - test_sf_calculation_zero_radius: Edge case handling
- *   - test_sf_calculation_zero_velocity: Edge case handling
- *   - test_sf_parameter_sensitivity: Efficiency changes results
- *   - test_br06_vvir_nonpositive: SFprescription 1, own Vvir <= 0 gives H2gas 0 and no stars
- *   - test_br06_disk_radius_nonpositive: SFprescription 1, DiskScaleRadius <= 0 likewise
+ *   - test_sf_calculation_above_threshold: the Croton law against a hand-coded formula at two
+ *     efficiencies (exact values, so the efficiency scaling is pinned), and the H I block with an
+ *     inherited H2gas
+ *   - test_sf_calculation_below_threshold: no stars below the critical mass; H2gas left as it was
+ *   - test_sf_calculation_at_threshold: the comparison at the critical mass is strict (just below
+ *     and at it form no stars, one float step above does), on a threshold the float represents
+ *     exactly
+ *   - test_sf_calculation_zero_radius: zero DiskScaleRadius forms no stars
+ *   - test_sf_calculation_zero_velocity: zero Vvir forms no stars
+ *   - test_br06_guards: SFprescription 1, own Vvir <= 0 or DiskScaleRadius <= 0 gives H2gas 0 and
+ *     no stars, H2DepletionTime_Gyr untouched
  *   - test_br06_coldgas_zero_clears_stale_h2: SFprescription 1, the cap clears a stale H2gas
- *   - test_br06_h2_within_hydrogen_and_sf_law: SFprescription 1, H2gas <= ColdGas * 0.74, the
- *     H2 star-formation law, H2DepletionTime_Gyr unchanged
- *   - test_br06_no_critical_mass_threshold: SFprescription 1 forms stars below the Croton
- *     critical mass
- *   - test_module_initialization: Module lifecycle
- *   - test_memory_safety: No memory leaks
+ *   - test_br06_h2_cap_sf_law_and_hi_block: SFprescription 1, H2gas strictly below
+ *     ColdGas * 0.74, the H2 star-formation law, the H I block against SAGE26's expression, and
+ *     stars below the Croton critical mass
+ *   - test_module_initialization: the module system initialises the SF and apply pipeline
  *   - test_ffb_row_bypassed: a row whose FFBRegime is 1 leaves itself and its FoF central
  *     bytewise unchanged, also in a state the time guard refuses (the bypass precedes it); the
- *     same row with FFBRegime 0 forms SAGE26's sfr_croton06 stars, written inline
+ *     same row with FFBRegime 0 forms SAGE26's sfr_croton06 stars and H I, written inline
  *
  * @author  Mimic Development Team
  * @date    2025-12-18
@@ -171,64 +166,121 @@ static void setup_test_context(struct ModuleContext *ctx, double dt) {
   ctx->params = &MimicConfig;
 }
 
+/* Hubble_h of the tests that read it through ctx->params (Millennium's) */
+#define TEST_HUBBLE_H 0.73
+
+/**
+ * @brief   SAGE26's H I block written out: the neutral hydrogen of the cold disk
+ *
+ * atomicH = ColdGas * 0.74 - H2gas (one fused multiply-add, as SAGE26's build evaluates it),
+ * floored at 0. The cold gas beyond the radius where an exponential gas disk's surface density
+ * falls to 0.5 Msun/pc^2 is ionised: f_ion = (1 + ln(Sigma0 / 0.5)) * 0.5 / Sigma0 with Sigma0 =
+ * M / (2 pi r_s^2) in Msun/pc^2, clamped to [0, 1] (1 when Sigma0 <= 0.5, 0 for no gas, no
+ * disk or no Hubble_h). H1gas = atomicH * (1 - f_ion).
+ *
+ * @param   cold_gas    ColdGas [1e10 Msun/h]
+ * @param   h2gas       H2gas [1e10 Msun/h]
+ * @param   disk_radius DiskScaleRadius [Mpc/h]
+ * @param   h           Hubble_h
+ * @return  The expected H1gas
+ */
+static double expected_h1gas(float cold_gas, float h2gas, float disk_radius, double h) {
+  double atomic = fma((double)cold_gas, 0.74, -(double)h2gas);
+  if (atomic < 0.0) {
+    atomic = 0.0;
+  }
+  double f_ion = 0.0;
+  if (cold_gas > 0.0f && disk_radius > 0.0f && h > 0.0) {
+    const double mgas = (double)cold_gas * 1.0e10 / h;
+    const double rs_pc = (double)disk_radius * 1.0e6 / h;
+    const double sigma0 = mgas / (2.0 * M_PI * rs_pc * rs_pc);
+    if (sigma0 <= 0.5) {
+      f_ion = 1.0;
+    } else {
+      f_ion = (1.0 + log(sigma0 / 0.5)) * 0.5 / sigma0;
+      f_ion = fmin(fmax(f_ion, 0.0), 1.0);
+    }
+  }
+  return atomic * (1.0 - f_ion);
+}
+
+/**
+ * @brief   Whether a float H1gas matches its expectation to 1e-6 relative (the float store of a
+ *          logarithmic expression); an expectation of exactly 0 must be matched exactly
+ */
+static int h1gas_matches(float got, double expected) {
+  return fabs((double)got - expected) <= 1e-6 * fabs(expected);
+}
+
 // ============================================================================
 // PHYSICS CALCULATION TESTS
 // ============================================================================
 
 /**
  * @test    test_sf_calculation_above_threshold
- * @brief   Test star formation when ColdGas is above critical threshold
+ * @brief   The Croton law above the critical cold mass at two efficiencies, and the H I block
  *
- * Expected: NewStellarMass > 0, follows SF equation
- * Validates: Core physics calculation
+ * Physics: strdot = SfrEfficiency * (ColdGas - cold_crit) / tdyn with cold_crit = 0.19 * Vvir *
+ * reff (Kauffmann 1996) and tdyn = reff / Vvir, stars = strdot * dt. The hand-coded expectation
+ * uses literal constants; two efficiencies pin the linear scaling in SfrEfficiency. SFprescription
+ * 0 leaves an inherited H2gas as it is and computes H1gas from it.
  */
 int test_sf_calculation_above_threshold(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
+  static const double efficiencies[] = {0.02, 0.05};
+  for (size_t i = 0; i < sizeof(efficiencies) / sizeof(efficiencies[0]); i++) {
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+    MimicConfig.Hubble_h = TEST_HUBBLE_H;
 
-  /* Initialize module parameters */
-  const double efficiency = 0.02;
-  const double disk_factor = 3.0;
-  setup_test_parameters(efficiency, disk_factor);
+    const double efficiency = efficiencies[i];
+    const double disk_factor = 3.0;
+    setup_test_parameters(efficiency, disk_factor);
 
-  int result = sage26_calculate_star_formation_init();
-  TEST_ASSERT(result == 0, "Module init should succeed");
+    int result = sage26_calculate_star_formation_init();
+    TEST_ASSERT(result == 0, "Module init should succeed");
 
-  /* Create test galaxy with ColdGas above threshold */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double cold_gas = 10.0;    /* 10^11 Msun/h */
-  const double disk_radius = 0.05; /* 50 kpc/h */
-  const double vvir = 200.0;       /* 200 km/s */
-  setup_test_galaxy(&halo, &gal, cold_gas, disk_radius, vvir);
+    /* Create test galaxy with ColdGas above threshold */
+    struct Halo halo;
+    struct GalaxyData gal;
+    const double cold_gas = 10.0;    /* 10^11 Msun/h */
+    const double disk_radius = 0.05; /* 50 kpc/h */
+    const double vvir = 200.0;       /* 200 km/s */
+    setup_test_galaxy(&halo, &gal, cold_gas, disk_radius, vvir);
+    gal.H2gas = 0.25f; /* inherited: SFprescription 0 does not write it */
 
-  /* Setup context */
-  struct ModuleContext ctx;
-  const double dt = 0.01; /* 10 Myr/h */
-  setup_test_context(&ctx, dt);
+    /* Setup context */
+    struct ModuleContext ctx;
+    const double dt = 0.01; /* 10 Myr/h */
+    setup_test_context(&ctx, dt);
 
-  /* Calculate expected values (reproduce module logic) */
-  const double reff = disk_factor * disk_radius;
-  const double tdyn = reff / vvir;
-  const double cold_crit = 0.19 * vvir * reff;
-  const double expected_strdot =
-      (cold_gas > cold_crit && tdyn > 0.0) ? efficiency * (cold_gas - cold_crit) / tdyn : 0.0;
-  const double expected_stars = expected_strdot * dt;
+    /* Calculate expected values (reproduce module logic) */
+    const double reff = disk_factor * disk_radius;
+    const double tdyn = reff / vvir;
+    const double cold_crit = 0.19 * vvir * reff;
+    const double expected_strdot =
+        (cold_gas > cold_crit && tdyn > 0.0) ? efficiency * (cold_gas - cold_crit) / tdyn : 0.0;
+    const double expected_stars = expected_strdot * dt;
 
-  /* ===== EXECUTE ===== */
-  result = sage26_calculate_star_formation_process(&ctx, &halo, 1);
+    /* ===== EXECUTE ===== */
+    result = sage26_calculate_star_formation_process(&ctx, &halo, 1);
 
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process function should succeed");
-  TEST_ASSERT(gal.ColdGas > cold_crit, "ColdGas should be above threshold");
-  TEST_ASSERT(gal.NewStellarMass > 0.0, "NewStellarMass should be positive");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.NewStellarMass, expected_stars, 1e-6,
-                           "NewStellarMass should match expected value");
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Process function should succeed");
+    TEST_ASSERT(gal.ColdGas > cold_crit, "ColdGas should be above threshold");
+    TEST_ASSERT(gal.NewStellarMass > 0.0, "NewStellarMass should be positive");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.NewStellarMass, expected_stars, 1e-6,
+                             "NewStellarMass should match expected value");
+    TEST_ASSERT(gal.H2gas == 0.25f, "SFprescription 0 leaves H2gas as it was");
+    TEST_ASSERT(h1gas_matches(gal.H1gas, expected_h1gas(gal.ColdGas, 0.25f, gal.DiskScaleRadius,
+                                                        TEST_HUBBLE_H)),
+                "H1gas follows the H I block from the cold gas and the inherited H2gas");
+    TEST_ASSERT(gal.H1gas > 0.0f, "the H I block leaves neutral gas in this disk");
 
-  /* ===== CLEANUP ===== */
-  sage26_calculate_star_formation_cleanup();
-  check_memory_leaks();
+    /* ===== CLEANUP ===== */
+    sage26_calculate_star_formation_cleanup();
+    check_memory_leaks();
+  }
 
   return TEST_PASS;
 }
@@ -237,13 +289,15 @@ int test_sf_calculation_above_threshold(void) {
  * @test    test_sf_calculation_below_threshold
  * @brief   Test star formation when ColdGas is below critical threshold
  *
- * Expected: NewStellarMass = 0 (no star formation)
+ * Expected: NewStellarMass = 0 (no star formation), H2gas left as it was, and the H I block
+ * still computed (it runs on every ordinary call)
  * Validates: Critical threshold logic
  */
 int test_sf_calculation_below_threshold(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
   reset_config();
+  MimicConfig.Hubble_h = TEST_HUBBLE_H;
 
   const double efficiency = 0.02;
   const double disk_factor = 3.0;
@@ -258,6 +312,7 @@ int test_sf_calculation_below_threshold(void) {
   const double disk_radius = 0.05; /* 50 kpc/h */
   const double vvir = 200.0;       /* 200 km/s */
   setup_test_galaxy(&halo, &gal, cold_gas, disk_radius, vvir);
+  gal.H2gas = 0.05f; /* inherited: SFprescription 0 does not write it */
 
   struct ModuleContext ctx;
   setup_test_context(&ctx, 0.01);
@@ -272,6 +327,10 @@ int test_sf_calculation_below_threshold(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(gal.ColdGas < cold_crit, "ColdGas should be below threshold");
   TEST_ASSERT(gal.NewStellarMass == 0.0, "NewStellarMass should be zero below threshold");
+  TEST_ASSERT(gal.H2gas == 0.05f, "The Croton law leaves H2gas as it was");
+  TEST_ASSERT(h1gas_matches(gal.H1gas,
+                            expected_h1gas(gal.ColdGas, 0.05f, gal.DiskScaleRadius, TEST_HUBBLE_H)),
+              "the H I block runs although no stars form");
 
   /* ===== CLEANUP ===== */
   sage26_calculate_star_formation_cleanup();
@@ -282,10 +341,13 @@ int test_sf_calculation_below_threshold(void) {
 
 /**
  * @test    test_sf_calculation_at_threshold
- * @brief   Test star formation when ColdGas is exactly at critical threshold
+ * @brief   The comparison at the critical cold mass is strict: ColdGas > cold_crit forms stars
  *
- * Expected: NewStellarMass = 0 (boundary condition)
- * Validates: Boundary condition handling
+ * Vvir 100 km/s, DiskScaleRadius 0.125 and StarFormingDiskFactor 3 give reff = 0.375 and, since
+ * 0.19 * 100 is exactly 19 in double, cold_crit = 7.125 exactly: a threshold the float ColdGas
+ * represents. A galaxy one float step below it and one exactly at it form no stars; one float
+ * step above forms the Croton law's stars for that excess, so a `>=` comparison fails the "at"
+ * row and a `>` that drops the excess fails the "above" row.
  */
 int test_sf_calculation_at_threshold(void) {
   /* ===== SETUP ===== */
@@ -296,28 +358,47 @@ int test_sf_calculation_at_threshold(void) {
   const double disk_factor = 3.0;
   setup_test_parameters(efficiency, disk_factor);
 
-  sage26_calculate_star_formation_init();
+  TEST_ASSERT(sage26_calculate_star_formation_init() == 0, "Module init should succeed");
 
-  /* Setup galaxy parameters */
-  const double disk_radius = 0.05; /* 50 kpc/h */
-  const double vvir = 200.0;       /* 200 km/s */
+  const double vvir = 100.0;
+  const double disk_radius = 0.125;
+  const double dt = 0.01;
   const double reff = disk_factor * disk_radius;
-  const double cold_crit = 0.19 * vvir * reff;
+  const float cold_crit = 7.125f;
+  TEST_ASSERT(0.19 * vvir * reff == (double)cold_crit,
+              "the threshold is exactly representable as a float");
 
-  /* Set ColdGas exactly at threshold */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, cold_crit, disk_radius, vvir);
+  const struct {
+    const char *where;
+    float cold_gas;
+  } rows[] = {
+      {"one float step below", nextafterf(cold_crit, 0.0f)},
+      {"at", cold_crit},
+      {"one float step above", nextafterf(cold_crit, 100.0f)},
+  };
+  const double excess = (double)rows[2].cold_gas - (double)cold_crit;
+  TEST_ASSERT(excess > 0.0 && (double)rows[0].cold_gas < (double)cold_crit,
+              "the rows straddle the threshold");
+  const double expected_above = efficiency * excess / (reff / vvir) * dt;
 
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
+  /* ===== EXECUTE AND VALIDATE ===== */
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, rows[i].cold_gas, disk_radius, vvir);
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, dt);
 
-  /* ===== EXECUTE ===== */
-  sage26_calculate_star_formation_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, cold_crit, 1e-6, "ColdGas should be at threshold");
-  TEST_ASSERT(gal.NewStellarMass == 0.0, "NewStellarMass should be zero at threshold");
+    TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &halo, 1) == 0,
+                "Process function should succeed");
+    printf("\n  %s: NewStellarMass %.17g", rows[i].where, gal.NewStellarMass);
+    if (i < 2) {
+      TEST_ASSERT(gal.NewStellarMass == 0.0, "No stars form at or below the critical mass");
+    } else {
+      TEST_ASSERT(fabs(gal.NewStellarMass - expected_above) <= 1e-9 * expected_above,
+                  "One float step above the critical mass forms stars for that excess");
+    }
+  }
 
   /* ===== CLEANUP ===== */
   sage26_calculate_star_formation_cleanup();
@@ -330,7 +411,7 @@ int test_sf_calculation_at_threshold(void) {
  * @test    test_sf_calculation_zero_radius
  * @brief   Test star formation when DiskScaleRadius is zero
  *
- * Expected: NewStellarMass = 0 (handles edge case gracefully)
+ * Expected: NewStellarMass = 0 (the tdyn > 0 guard)
  * Validates: Division by zero protection
  */
 int test_sf_calculation_zero_radius(void) {
@@ -357,7 +438,6 @@ int test_sf_calculation_zero_radius(void) {
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Should handle zero radius gracefully");
-  TEST_ASSERT(gal.DiskScaleRadius == 0.0, "DiskScaleRadius is zero");
   TEST_ASSERT(gal.NewStellarMass == 0.0, "NewStellarMass should be zero with zero radius");
 
   /* ===== CLEANUP ===== */
@@ -371,7 +451,7 @@ int test_sf_calculation_zero_radius(void) {
  * @test    test_sf_calculation_zero_velocity
  * @brief   Test star formation when Vvir is zero
  *
- * Expected: NewStellarMass = 0 (handles edge case gracefully)
+ * Expected: NewStellarMass = 0 (the Vvir > 0 guard)
  * Validates: Division by zero protection
  */
 int test_sf_calculation_zero_velocity(void) {
@@ -398,66 +478,10 @@ int test_sf_calculation_zero_velocity(void) {
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Should handle zero velocity gracefully");
-  TEST_ASSERT(halo.Vvir == 0.0, "Vvir is zero");
   TEST_ASSERT(gal.NewStellarMass == 0.0, "NewStellarMass should be zero with zero velocity");
 
   /* ===== CLEANUP ===== */
   sage26_calculate_star_formation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_sf_parameter_sensitivity
- * @brief   Test that changing SfrEfficiency changes star formation
- *
- * Expected: Higher efficiency → more stars
- * Validates: Parameter sensitivity
- */
-int test_sf_parameter_sensitivity(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Test with low efficiency */
-  reset_config();
-  setup_test_parameters(0.01, 3.0);
-  sage26_calculate_star_formation_init();
-
-  struct Halo halo1;
-  struct GalaxyData gal1;
-  setup_test_galaxy(&halo1, &gal1, 10.0, 0.05, 200.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  sage26_calculate_star_formation_process(&ctx, &halo1, 1);
-  const double stars_low_eff = gal1.NewStellarMass;
-  sage26_calculate_star_formation_cleanup();
-
-  /* Test with high efficiency */
-  reset_config();
-  setup_test_parameters(0.05, 3.0); /* 5x higher efficiency */
-  sage26_calculate_star_formation_init();
-
-  struct Halo halo2;
-  struct GalaxyData gal2;
-  setup_test_galaxy(&halo2, &gal2, 10.0, 0.05, 200.0); /* Same galaxy */
-
-  sage26_calculate_star_formation_process(&ctx, &halo2, 1);
-  const double stars_high_eff = gal2.NewStellarMass;
-  sage26_calculate_star_formation_cleanup();
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(stars_low_eff > 0.0, "Low efficiency should produce stars");
-  TEST_ASSERT(stars_high_eff > 0.0, "High efficiency should produce stars");
-  TEST_ASSERT(stars_high_eff > stars_low_eff, "Higher efficiency should produce more stars");
-
-  /* Should scale approximately linearly (5x efficiency → ~5x stars) */
-  const double ratio = stars_high_eff / stars_low_eff;
-  TEST_ASSERT(ratio > 4.5 && ratio < 5.5, "Stars should scale linearly with efficiency");
-
-  /* ===== CLEANUP ===== */
   check_memory_leaks();
 
   return TEST_PASS;
@@ -512,52 +536,35 @@ static void setup_br06_galaxy(struct Halo *halo, struct GalaxyData *gal, double 
 }
 
 /**
- * @test    test_br06_vvir_nonpositive
- * @brief   A non-positive own Vvir sets H2gas to 0 and forms no stars
+ * @test    test_br06_guards
+ * @brief   A non-positive own Vvir, or a non-positive disk scale radius (rs_pc <= 0), sets H2gas
+ *          to 0 and forms no stars; H2DepletionTime_Gyr is not written
  */
-int test_br06_vvir_nonpositive(void) {
-  static const double vvirs[] = {0.0, -50.0};
-  for (size_t i = 0; i < sizeof(vvirs) / sizeof(vvirs[0]); i++) {
+int test_br06_guards(void) {
+  static const struct {
+    const char *name;
+    double disk_radius; /* Mpc/h */
+    double vvir;        /* km/s */
+  } rows[] = {
+      {"own Vvir 0", 0.003, 0.0},
+      {"own Vvir negative", 0.003, -50.0},
+      {"DiskScaleRadius 0", 0.0, 200.0},
+      {"DiskScaleRadius negative", -0.003, 200.0},
+  };
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    printf("\n  row: %s", rows[i].name);
     TEST_ASSERT(init_br06_module(0.02) == 0, "Module init at SFprescription 1 should succeed");
 
     struct Halo halo;
     struct GalaxyData gal;
-    setup_br06_galaxy(&halo, &gal, 1.0, 0.003, vvirs[i], 0.05f);
+    setup_br06_galaxy(&halo, &gal, 1.0, rows[i].disk_radius, rows[i].vvir, 0.05f);
     struct ModuleContext ctx;
     setup_test_context(&ctx, 0.01);
 
     TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &halo, 1) == 0,
                 "Process function should succeed");
-    TEST_ASSERT(gal.H2gas == 0.0f, "A non-positive own Vvir sets H2gas to 0");
-    TEST_ASSERT(gal.NewStellarMass == 0.0, "A non-positive own Vvir forms no stars");
-    TEST_ASSERT(gal.H2DepletionTime_Gyr == BR06_TEST_DEPLETION_TIME,
-                "H2DepletionTime_Gyr is not written");
-
-    sage26_calculate_star_formation_cleanup();
-    check_memory_leaks();
-  }
-  return TEST_PASS;
-}
-
-/**
- * @test    test_br06_disk_radius_nonpositive
- * @brief   A non-positive disk scale radius (rs_pc <= 0) sets H2gas to 0 and forms no stars
- */
-int test_br06_disk_radius_nonpositive(void) {
-  static const double radii[] = {0.0, -0.003};
-  for (size_t i = 0; i < sizeof(radii) / sizeof(radii[0]); i++) {
-    TEST_ASSERT(init_br06_module(0.02) == 0, "Module init at SFprescription 1 should succeed");
-
-    struct Halo halo;
-    struct GalaxyData gal;
-    setup_br06_galaxy(&halo, &gal, 1.0, radii[i], 200.0, 0.05f);
-    struct ModuleContext ctx;
-    setup_test_context(&ctx, 0.01);
-
-    TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &halo, 1) == 0,
-                "Process function should succeed");
-    TEST_ASSERT(gal.H2gas == 0.0f, "A non-positive disk scale radius sets H2gas to 0");
-    TEST_ASSERT(gal.NewStellarMass == 0.0, "A non-positive disk scale radius forms no stars");
+    TEST_ASSERT(gal.H2gas == 0.0f, "The guard sets H2gas to 0");
+    TEST_ASSERT(gal.NewStellarMass == 0.0, "The guard forms no stars");
     TEST_ASSERT(gal.H2DepletionTime_Gyr == BR06_TEST_DEPLETION_TIME,
                 "H2DepletionTime_Gyr is not written");
 
@@ -594,36 +601,51 @@ int test_br06_coldgas_zero_clears_stale_h2(void) {
 }
 
 /**
- * @test    test_br06_h2_within_hydrogen_and_sf_law
- * @brief   After process() H2gas is positive and at most the double ColdGas * 0.74, stars follow
- *          strdot = SfrEfficiency * H2gas / tdyn, and H2DepletionTime_Gyr is unchanged
+ * @test    test_br06_h2_cap_sf_law_and_hi_block
+ * @brief   For disks from gas-poor to gas-dense: H2gas is positive and strictly below
+ *          ColdGas * 0.74; stars follow strdot = SfrEfficiency * H2gas / tdyn; H1gas follows
+ *          SAGE26's H I block written out in the test (including the regime where the whole disk
+ *          is ionised and H1gas is 0); H2DepletionTime_Gyr is unchanged
+ *
+ * With the supported radial parameters (25 bins out to 5 r_s) the integrated H2 never exceeds
+ * 0.74 of the cold gas for a positive ColdGas: the disk beyond 5 r_s (4%) is not integrated and
+ * the molecular fraction is below 1, so even the densest row here reaches 96% of the cap. The
+ * ColdGas * 0.74 cap therefore binds only when the integration returns early with a stale H2gas
+ * (test_br06_coldgas_zero_clears_stale_h2).
  *
  * The expected stellar mass repeats the module's double operations in SAGE26's order (products
- * and quotients only, which no compiler contracts), so the comparison is exact.
+ * and quotients only, which no compiler contracts), so the comparison is exact. The row marked
+ * below_croton_mass lies below the Croton critical mass, where SFprescription 1 still forms stars
+ * from its H2 (there is no critical-mass threshold).
  */
-int test_br06_h2_within_hydrogen_and_sf_law(void) {
+int test_br06_h2_cap_sf_law_and_hi_block(void) {
   static const struct {
     double cold_gas;    /* 1e10 Msun/h */
     double disk_radius; /* Mpc/h */
-  } cases[] = {{0.01, 0.002}, {0.2, 0.003}, {1.0, 0.003}, {10.0, 0.005}, {5.0, 0.001}};
+    int below_croton_mass;
+  } rows[] = {{0.01, 0.002, 0}, {0.2, 0.003, 1},  {1.0, 0.003, 0}, {10.0, 0.005, 0},
+              {5.0, 0.001, 0},  {5.0, 0.0002, 0}, {0.001, 0.01, 0}};
   const double efficiency = 0.02;
   const double vvir = 200.0;
+  int hi_rows = 0;
 
-  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
     TEST_ASSERT(init_br06_module(efficiency) == 0,
                 "Module init at SFprescription 1 should succeed");
 
     struct Halo halo;
     struct GalaxyData gal;
-    setup_br06_galaxy(&halo, &gal, cases[i].cold_gas, cases[i].disk_radius, vvir, 0.0f);
+    setup_br06_galaxy(&halo, &gal, rows[i].cold_gas, rows[i].disk_radius, vvir, 0.0f);
     struct ModuleContext ctx;
     setup_test_context(&ctx, 0.01);
 
     TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &halo, 1) == 0,
                 "Process function should succeed");
+    const double cap = (double)gal.ColdGas * 0.74;
+    printf("\n  row %zu: ColdGas %g H2gas %.9g (cap %.9g) H1gas %.9g stars %.9g", i,
+           (double)gal.ColdGas, (double)gal.H2gas, cap, (double)gal.H1gas, gal.NewStellarMass);
     TEST_ASSERT(gal.H2gas > 0.0f, "A gas-rich disk has molecular gas");
-    TEST_ASSERT((double)gal.H2gas <= (double)gal.ColdGas * 0.74,
-                "H2gas never exceeds the hydrogen of the cold gas");
+    TEST_ASSERT((double)gal.H2gas < cap, "H2gas stays below the hydrogen of the cold gas");
     TEST_ASSERT(gal.H2DepletionTime_Gyr == BR06_TEST_DEPLETION_TIME,
                 "H2DepletionTime_Gyr is not written");
 
@@ -634,52 +656,20 @@ int test_br06_h2_within_hydrogen_and_sf_law(void) {
     TEST_ASSERT(gal.NewStellarMass == expected_stars,
                 "Stars form at SfrEfficiency * H2gas / tdyn over the substep");
 
+    const double expected_h1 =
+        expected_h1gas(gal.ColdGas, gal.H2gas, gal.DiskScaleRadius, TEST_HUBBLE_H);
+    TEST_ASSERT(h1gas_matches(gal.H1gas, expected_h1),
+                "H1gas follows the H I block from the cold gas and the new H2gas");
+    hi_rows += expected_h1 > 0.0;
+
+    if (rows[i].below_croton_mass) {
+      TEST_ASSERT(gal.ColdGas < 0.19 * vvir * reff, "The disk is below the Croton critical mass");
+    }
+
     sage26_calculate_star_formation_cleanup();
     check_memory_leaks();
   }
-  return TEST_PASS;
-}
-
-/**
- * @test    test_br06_no_critical_mass_threshold
- * @brief   SFprescription 1 has no Croton critical mass: a disk below it still forms stars from
- *          its H2, where SFprescription 0 forms none
- */
-int test_br06_no_critical_mass_threshold(void) {
-  const double cold_gas = 0.2;
-  const double disk_radius = 0.003;
-  const double vvir = 200.0;
-  const double cold_crit = 0.19 * vvir * (3.0 * disk_radius);
-
-  /* SFprescription 1 */
-  TEST_ASSERT(init_br06_module(0.02) == 0, "Module init at SFprescription 1 should succeed");
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_br06_galaxy(&halo, &gal, cold_gas, disk_radius, vvir, 0.0f);
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-  TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &halo, 1) == 0,
-              "Process function should succeed");
-  TEST_ASSERT(gal.ColdGas < cold_crit, "The disk is below the Croton critical mass");
-  TEST_ASSERT(gal.H2gas > 0.0f, "The disk has molecular gas");
-  TEST_ASSERT(gal.NewStellarMass > 0.0, "BR06 forms stars below the Croton critical mass");
-  sage26_calculate_star_formation_cleanup();
-  check_memory_leaks();
-
-  /* SFprescription 0, the same disk */
-  init_memory_system(0);
-  reset_config();
-  MimicConfig.Hubble_h = BR06_TEST_HUBBLE_H;
-  setup_test_parameters(0.02, 3.0);
-  TEST_ASSERT(sage26_calculate_star_formation_init() == 0,
-              "Module init at SFprescription 0 should succeed");
-  setup_br06_galaxy(&halo, &gal, cold_gas, disk_radius, vvir, 0.05f);
-  TEST_ASSERT(sage26_calculate_star_formation_process(&ctx, &halo, 1) == 0,
-              "Process function should succeed");
-  TEST_ASSERT(gal.NewStellarMass == 0.0, "The Croton law forms no stars below its critical mass");
-  TEST_ASSERT(gal.H2gas == 0.05f, "SFprescription 0 leaves H2gas as it was");
-  sage26_calculate_star_formation_cleanup();
-  check_memory_leaks();
+  TEST_ASSERT(hi_rows >= 5, "the H I block leaves neutral gas in most rows");
   return TEST_PASS;
 }
 
@@ -689,10 +679,10 @@ int test_br06_no_critical_mass_threshold(void) {
 
 /**
  * @test    test_module_initialization
- * @brief   Test module initialization and cleanup lifecycle
+ * @brief   The module system initialises the SF and apply pipeline, and cleans it up without leaks
  *
- * Expected: Module init and cleanup succeed without errors
- * Validates: Module lifecycle management
+ * The apply step is initialised with it (the SF module requires it to follow), so this is also the
+ * unit tier's run of the apply step's init() in an SF-only pipeline.
  */
 int test_module_initialization(void) {
   /* ===== SETUP ===== */
@@ -729,42 +719,6 @@ int test_module_initialization(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during operation
- *
- * Expected: No memory leaks after init/process/cleanup cycle
- * Validates: Memory management
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.02, 3.0);
-  sage26_calculate_star_formation_init();
-
-  /* Process a galaxy */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 10.0, 0.05, 200.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  /* ===== EXECUTE ===== */
-  sage26_calculate_star_formation_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* check_memory_leaks() will catch any leaks */
-
-  /* ===== CLEANUP ===== */
-  sage26_calculate_star_formation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
 // ============================================================================
 // FEEDBACK-FREE-BURST BYPASS
 // ============================================================================
@@ -784,6 +738,7 @@ int test_memory_safety(void) {
 int test_ffb_row_bypassed(void) {
   init_memory_system(0);
   reset_config();
+  MimicConfig.Hubble_h = TEST_HUBBLE_H;
   const double efficiency = 0.02;
   setup_test_parameters(efficiency, 3.0);
   TEST_ASSERT(sage26_calculate_star_formation_init() == 0, "Module init should succeed");
@@ -840,7 +795,11 @@ int test_ffb_row_bypassed(void) {
          expected_stars);
   TEST_ASSERT(fabs(gal.NewStellarMass - expected_stars) <= 1e-12 * expected_stars,
               "FFBRegime 0: the row forms SAGE26's stars");
-  TEST_ASSERT(gal.H1gas != row_in.H1gas, "FFBRegime 0: the H I block runs");
+  TEST_ASSERT(
+      h1gas_matches(gal.H1gas, expected_h1gas(row_in.ColdGas, row_in.H2gas, row_in.DiskScaleRadius,
+                                              ctx.params->Hubble_h)),
+      "FFBRegime 0: the H I block runs, from the cold gas and the inherited H2gas");
+  TEST_ASSERT(gal.H1gas != row_in.H1gas, "FFBRegime 0: the H I block overwrites the seed");
   TEST_ASSERT(gal.FFBRegime == 0, "FFBRegime is not written");
 
   sage26_calculate_star_formation_cleanup();
@@ -873,18 +832,14 @@ int main(void) {
   TEST_RUN(test_sf_calculation_at_threshold);
   TEST_RUN(test_sf_calculation_zero_radius);
   TEST_RUN(test_sf_calculation_zero_velocity);
-  TEST_RUN(test_sf_parameter_sensitivity);
 
   /* Run SFprescription 1 (BR06) tests */
-  TEST_RUN(test_br06_vvir_nonpositive);
-  TEST_RUN(test_br06_disk_radius_nonpositive);
+  TEST_RUN(test_br06_guards);
   TEST_RUN(test_br06_coldgas_zero_clears_stale_h2);
-  TEST_RUN(test_br06_h2_within_hydrogen_and_sf_law);
-  TEST_RUN(test_br06_no_critical_mass_threshold);
+  TEST_RUN(test_br06_h2_cap_sf_law_and_hi_block);
 
   /* Run infrastructure tests */
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_memory_safety);
 
   /* The feedback-free-burst bypass */
   TEST_RUN(test_ffb_row_bypassed);

@@ -131,6 +131,8 @@ static int test_fail_marked __attribute__((unused)) = 0;
  * @def     TEST_ASSERT_DOUBLE_EQUAL
  * @brief   Assert that two doubles are equal within tolerance
  *
+ * Fails unless |a - b| <= tol, so a NaN on either side fails.
+ *
  * @param   a       First value
  * @param   b       Second value
  * @param   tol     Tolerance (absolute)
@@ -138,7 +140,7 @@ static int test_fail_marked __attribute__((unused)) = 0;
  */
 #define TEST_ASSERT_DOUBLE_EQUAL(a, b, tol, msg)                                                   \
   do {                                                                                             \
-    if (fabs((a) - (b)) > (tol)) {                                                                 \
+    if (!(fabs((a) - (b)) <= (tol))) {                                                             \
       TEST_MARKER_FAIL(__func__, msg);                                                             \
       fprintf(stderr, "✗ FAIL: %s\n", msg);                                                        \
       fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                  \

@@ -31,10 +31,11 @@ Measured on mini-Millennium against the original SAGE code (`sage-home/sage-mode
 - `model_properties.yaml`: sage16 galaxy/model property metadata. Edit this when adding, removing, or changing model-owned galaxy properties, then run `make MODEL=sage16 generate`.
 - `input/`: User-facing run parameter YAML files for all supported simulations: mini-Millennium, full Millennium, micro-Uchuu (L-Halo binary, HDF5 forests, ASCII), mini-Uchuu, and full Uchuu.
 - `modules/`: Runtime physics modules. Each production module has its own directory containing C source, `module_info.yaml`, README, and `_tests/` where applicable.
-- `modules/_tests/`: Shared cross-module tests for processing contracts and parity checks.
+- `modules/_tests/`: Shared cross-module tests: module dependency and parameter contracts at initialisation, processing modes, per-object timestep parity, the full-physics regression baseline and the comparator self-test (see its README).
 - `shared/`: Model-local helper headers (physics kernels, parity helpers, shared constants). These are not framework APIs; copy or reimplement them in another model package if needed. Event contracts are generated from each module's `module_info.yaml`.
 - `plots/figures/`: Model-specific diagnostic plot implementations for `mimic-plot.py`.
 - `plots/profiles/`: Plot profile YAML files, including mini-Millennium defaults used by the shipped run.
+- `plots/tests/`: The plotting tests: the figure registry contract and every registered figure rendered from a synthetic catalogue; they are registered through `modules/_tests/module_info.yaml`.
 - `tools/compare_sage_mimic.py`: Galaxy-by-galaxy comparison of `sage16` HDF5 output against original SAGE HDF5 output (matching, per-property bit-identical and within-tolerance fractions, relative-difference quantiles, JSON report).
 
 ## Runtime Pipeline
@@ -42,7 +43,7 @@ Measured on mini-Millennium against the original SAGE code (`sage-home/sage-mode
 The shipped run configuration lives at `models/sage16/input/sage16_mini-millennium.yaml`. It builds the pipeline as:
 
 - `pre_timestep`: reionization, infall budget preparation, disk scale setup, merger-clock initialization.
-- `galaxy_physics`: gas supply, reincorporation, satellite stripping, cooling, AGN radio-mode heating, star formation, supernova feedback, disk instability, quasar mode, and starburst feedback.
+- `galaxy_physics`: gas supply, reincorporation, satellite stripping, cooling, AGN radio-mode heating, star formation, supernova feedback, disk instability, quasar mode, starburst feedback, and the disk star-formation metal yield.
 - `satellite_mergers`: merger/disruption resolution plus event-driven quasar and starburst consumers.
 - `post_timestep`: empty in the default configuration.
 

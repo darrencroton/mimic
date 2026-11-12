@@ -1,33 +1,25 @@
 /**
  * @file    test_unit_sage_reionization.c
- * @brief   Comprehensive unit tests for sage_reionization module
+ * @brief   Unit tests for sage_reionization module
  *
- * Validates: Module lifecycle, physics calculation, memory safety, edge cases, parameter validation
+ * Validates: GlobalBaryonFraction use, the exact reionization modifier in every
+ * redshift branch, per-halo mass use, and the Mvir = 0 and Type 3 edge cases
  *
- * This test validates both software engineering and physics aspects:
- * - Module registration and initialization
- * - Parameter reading and validation (including invalid values)
- * - Memory allocation and cleanup (no leaks)
- * - Property setting patterns
- * - Physics calculation (reionization suppression)
- * - Edge cases (zero mass, very small/large mass, different Types)
- * - Redshift dependence
+ * The modifier is the Gnedin (2000) suppression 1 / (1 + 0.26 M_c / Mvir)^3 with the filtering
+ * mass of Kravtsov et al. (2004) Appendix B. Expected values are hand-computed literals from an
+ * independent evaluation of those published formulas (HaloBaryonFraction for
+ * GlobalBaryonFraction 0.17, Omega 0.25, OmegaLambda 0.75, Hubble 100, G 43007.1), so a wrong
+ * coefficient, power or branch changes a row.
  *
  * Test cases:
- *   - test_module_registration: Module registers correctly
- *   - test_module_initialization: Module init/cleanup lifecycle
- *   - test_parameter_reading: Module parameters read from config
- *   - test_invalid_parameter_fails: Invalid parameters rejected
- *   - test_memory_safety: No memory leaks during operation
- *   - test_property_access: HaloBaryonFraction property access
- *   - test_physics_calculation_type0: Physics for Type 0 centrals
- *   - test_physics_calculation_type1_satellite: Physics for Type 1 satellites
- *   - test_zero_mass_halos: Zero mass halos handled correctly
- *   - test_very_small_mass_halos: Very small mass halos
- *   - test_very_large_mass_halos: Very large mass minimal suppression
- *   - test_mass_dependence: Low-mass more suppressed than high-mass
- *   - test_redshift_dependence: Suppression varies with redshift
- *   - test_type3_halos_skipped: Type 3 halos are skipped
+ *   - test_global_baryon_fraction_scales_output: GlobalBaryonFraction 1.0 and 0.20 are accepted and
+ *     scale HaloBaryonFraction
+ *   - test_reionization_modifier_table: exact HaloBaryonFraction across mass, the three
+ *     f_of_a redshift branches (z <= 7, 7 < z < 8, z >= 8) and the characteristic-mass branch
+ *   - test_physics_calculation_type1_satellite: each Type 0, 1 and 2 halo uses its own Mvir, and
+ *     the value is recomputed on every call
+ *   - test_zero_mass_halos: Mvir = 0 gives exactly 0
+ *   - test_type3_halos_skipped: Type 3 halos are left untouched
  *
  */
 
@@ -41,40 +33,57 @@
 #include "util/memory.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
 
-/* Test fixture: Initialize module for physics tests */
-static void setup_module_for_physics_test(double global_baryon_frac) {
+extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
+
+/** @brief Fixture cosmology and the GlobalBaryonFraction every literal below assumes */
+#define FIXTURE_GLOBAL_BARYON_FRACTION 0.17
+#define FIXTURE_CODE_G 43007.1
+
+/** @brief Relative tolerance on HaloBaryonFraction: the float store is good to 6e-8 */
+#define MODIFIER_RTOL 1e-6
+
+/** @brief HaloBaryonFraction for GlobalBaryonFraction 1 at z = 0, Mvir = 100: 0.974958096077 */
+#define MODIFIER_Z0_MVIR100 0.974958096077
+
+/**
+ * @brief Configure the module for GlobalBaryonFraction `global_baryon_frac` without initialising
+ *
+ * Sets the fixture cosmology and a one-module pre_timestep pipeline, as a run file would.
+ */
+static void configure_module(double global_baryon_frac) {
   reset_config();
   init_memory_system(0);
   ensure_modules_registered();
 
-  /* Set up cosmology configuration */
   MimicConfig.Omega = 0.25;
   MimicConfig.OmegaLambda = 0.75;
   MimicConfig.Hubble_h = 0.73;
   MimicConfig.Hubble = 100.0; /* H0 in code units (km/s per Mpc/h) */
-  MimicConfig.G = 43007.1;    /* G in code units */
+  MimicConfig.G = FIXTURE_CODE_G;
 
-  /* Configure sage_reionization module in pre_timestep phase */
   MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
   MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
   MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
   MimicConfig.num_pre_timestep = 1;
   MimicConfig.SubSteps = 1;
 
-  /* Set test parameters */
   set_test_model_parameters();
-  /* Override GlobalBaryonFraction */
-  snprintf(MimicConfig.ModelParams[0].value, sizeof(MimicConfig.ModelParams[0].value), "%.6f",
-           global_baryon_frac);
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, "GlobalBaryonFraction") == 0) {
+      snprintf(MimicConfig.ModelParams[i].value, sizeof(MimicConfig.ModelParams[i].value), "%.6f",
+               global_baryon_frac);
+    }
+  }
+}
 
-  /* Initialize module system */
+/* Test fixture: Initialize module for physics tests */
+static void setup_module_for_physics_test(double global_baryon_frac) {
+  configure_module(global_baryon_frac);
   int result = module_system_init();
   if (result != 0) {
     ERROR_LOG("Module system initialization failed in test fixture");
@@ -100,153 +109,43 @@ static struct Halo create_test_halo(int type, float mvir) {
 }
 
 /**
- * @test    test_module_registration
- * @brief   Test that sage_reionization module registers correctly
+ * @test    test_global_baryon_fraction_scales_output
+ * @brief   The accepted GlobalBaryonFraction is the one used
  *
- * Expected: Module registration succeeds without errors
- * Validates: sage_reionization_register() works, module appears in registry
+ * Expected: 1.0 (the inclusive upper bound) and 0.20 initialise, and the halo then receives
+ *           GlobalBaryonFraction times the z = 0, Mvir = 100 modifier. The refused values are
+ *           covered by test_unit_sage_parameter_refusals.c
+ * Validates: The loaded value reaches HaloBaryonFraction
  */
-int test_module_registration(void) {
-  /* ===== SETUP ===== */
-  reset_config();
+int test_global_baryon_fraction_scales_output(void) {
+  static const double values[] = {1.0, 0.20};
 
-  /* ===== EXECUTE ===== */
-  ensure_modules_registered();
-
-  /* ===== VALIDATE ===== */
-  /* If we got here without crashing, registration succeeded */
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_module_initialization
- * @brief   Test module initialization and cleanup lifecycle
- *
- * Expected: Module init and cleanup succeed without errors or leaks
- * Validates: Module lifecycle management
- */
-int test_module_initialization(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* Set up minimal cosmology configuration */
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-  MimicConfig.Hubble = 100.0; /* H0 in code units (km/s per Mpc/h) */
-
-  /* Configure sage_reionization module */
-  MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-  MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
-  MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-  MimicConfig.num_pre_timestep = 1;
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  /* ===== EXECUTE ===== */
-  int result = module_system_init();
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module system initialization should succeed");
-
-  /* ===== CLEANUP ===== */
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_parameter_reading
- * @brief   Test that module reads GlobalBaryonFraction parameter
- *
- * Expected: Module reads GlobalBaryonFraction parameter successfully
- * Validates: Parameter reading and validation
- */
-int test_parameter_reading(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* Set up configuration */
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-  MimicConfig.Hubble = 100.0; /* H0 in code units (km/s per Mpc/h) */
-
-  /* Configure sage_reionization with custom GlobalBaryonFraction */
-  MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-  MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
-  MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-  MimicConfig.num_pre_timestep = 1;
-  MimicConfig.SubSteps = 1;
-
-  /* Set all required parameters, then override specific one for testing */
-  set_test_model_parameters();
-  strcpy(MimicConfig.ModelParams[0].value, "0.20"); /* GlobalBaryonFraction custom value */
-
-  /* ===== EXECUTE ===== */
-  int result = module_system_init();
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module should initialize with custom parameter");
-
-  /* ===== CLEANUP ===== */
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_invalid_parameter_fails
- * @brief   Test that module rejects invalid GlobalBaryonFraction values
- *
- * Expected: Module init fails with invalid parameters
- * Validates: Parameter validation (valid range: (0, 1] - exclusive lower, inclusive upper)
- * Note: 1.0 is VALID (inclusive upper bound), so only test 0.0, negative, and >1.0
- */
-int test_invalid_parameter_fails(void) {
-  /* Test cases: values that should fail (0, 1] means 0 < value <= 1.0) */
-  double invalid_values[] = {0.0, -0.1, 1.5};
-  int num_cases = 3;
-
-  for (int i = 0; i < num_cases; i++) {
+  for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
     /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
-
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
-    MimicConfig.Hubble = 100.0; /* H0 in code units (km/s per Mpc/h) */
-
-    MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
-    MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.num_pre_timestep = 1;
-    MimicConfig.SubSteps = 1;
-
-    set_test_model_parameters();
-    snprintf(MimicConfig.ModelParams[0].value, sizeof(MimicConfig.ModelParams[0].value), "%.6f",
-             invalid_values[i]);
+    configure_module(values[i]);
+    char message[256];
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
 
     /* ===== VALIDATE ===== */
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg),
-             "Module should fail with invalid GlobalBaryonFraction=%.2f", invalid_values[i]);
-    TEST_ASSERT(result != 0, error_msg);
+    snprintf(message, sizeof(message), "GlobalBaryonFraction=%.2f must initialise", values[i]);
+    TEST_ASSERT(result == 0, message);
+
+    struct Halo halo = create_test_halo(0, 100.0f);
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.params = &MimicConfig;
+    TEST_ASSERT(sage_reionization_process(&ctx, &halo, 1) == 0, "Process should succeed");
+    const double expected = values[i] * MODIFIER_Z0_MVIR100;
+    snprintf(message, sizeof(message), "GlobalBaryonFraction=%.2f must scale HaloBaryonFraction",
+             values[i]);
+    TEST_ASSERT_DOUBLE_EQUAL((double)halo.galaxy->HaloBaryonFraction, expected,
+                             MODIFIER_RTOL * expected, message);
 
     /* ===== CLEANUP ===== */
-    /* Note: module_system_cleanup() not called since init failed */
+    free_test_halo(&halo);
+    module_system_cleanup();
     check_memory_leaks();
   }
 
@@ -254,119 +153,63 @@ int test_invalid_parameter_fails(void) {
 }
 
 /**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during normal operation
+ * @test    test_reionization_modifier_table
+ * @brief   HaloBaryonFraction equals GlobalBaryonFraction times the exact modifier
  *
- * Expected: No memory leaks after init, process, cleanup cycle
- * Validates: Memory management in module
+ * Expected: each row's literal, to the float store's precision. The rows cover the mass
+ *           dependence (Mvir 0.1 to 1e5), the redshift branch of f_of_a (a >= a_r for z = 0 and
+ *           2, the middle branch a_0 < a < a_r at z = 7.5, a <= a_0 at z = 8 and 9) and a code G
+ *           small enough that the characteristic mass exceeds the filtering mass.
+ * Validates: Every coefficient and power of the Gnedin / Kravtsov et al. formulas
  */
-int test_memory_safety(void) {
+int test_reionization_modifier_table(void) {
+  static const struct {
+    const char *label;
+    double redshift;
+    float mvir;    /* 1e10 Msun/h */
+    double code_g; /* G in code units; 0 keeps the fixture value */
+    double expected;
+  } rows[] = {
+      {"z=0 Mvir=100", 0.0, 100.0f, 0.0, 0.165742876333},
+      {"z=0 Mvir=1e5", 0.0, 1e5f, 0.0, 0.169995670465},
+      {"z=0 Mvir=1", 0.0, 1.0f, 0.0, 0.0268954287933},
+      {"z=2 Mvir=0.1", 2.0, 0.1f, 0.0, 0.00172958909714},
+      {"z=2 Mvir=1", 2.0, 1.0f, 0.0, 0.0673595341801},
+      {"z=2 Mvir=10", 2.0, 10.0f, 0.0, 0.152820435688},
+      {"z=2 Mvir=100", 2.0, 100.0f, 0.0, 0.168169615948},
+      {"z=7.5 Mvir=1 (a_0 < a < a_r)", 7.5, 1.0f, 0.0, 0.167167050417},
+      {"z=8 Mvir=1 (a = a_0)", 8.0, 1.0f, 0.0, 0.168234390935},
+      {"z=9 Mvir=1 (a < a_0)", 9.0, 1.0f, 0.0, 0.169413239258},
+      {"z=2 Mvir=100 G=1e-3 (characteristic mass)", 2.0, 100.0f, 1e-3, 0.000880109185195},
+  };
+
   /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
+  setup_module_for_physics_test(FIXTURE_GLOBAL_BARYON_FRACTION);
 
-  /* Create test halo */
-  struct Halo test_halo = create_test_halo(0, 100.0);
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    struct Halo halo = create_test_halo(0, rows[i].mvir);
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.redshift = rows[i].redshift;
+    ctx.params = &MimicConfig;
+    MimicConfig.G = rows[i].code_g > 0.0 ? rows[i].code_g : FIXTURE_CODE_G;
 
-  /* Create module context */
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.time = 13.6;
-  ctx.snapshot_number = 63;
-  ctx.substep_dt = 0.1;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
+    /* ===== EXECUTE ===== */
+    int result = sage_reionization_process(&ctx, &halo, 1);
 
-  /* ===== EXECUTE ===== */
-  /* Get module from registry and call process */
-  extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_reionization_process(&ctx, &test_halo, 1);
+    /* ===== VALIDATE ===== */
+    char message[256];
+    snprintf(message, sizeof(message), "Process should succeed (%s)", rows[i].label);
+    TEST_ASSERT(result == 0, message);
+    snprintf(message, sizeof(message), "HaloBaryonFraction must match the exact value (%s)",
+             rows[i].label);
+    TEST_ASSERT_DOUBLE_EQUAL((double)halo.galaxy->HaloBaryonFraction, rows[i].expected,
+                             MODIFIER_RTOL * rows[i].expected, message);
 
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
+    free_test_halo(&halo);
+  }
 
   /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_property_access
- * @brief   Test that module can safely access HaloBaryonFraction property
- *
- * Expected: Property access doesn't crash, handles values correctly
- * Validates: Property access patterns in module
- */
-int test_property_access(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Create test galaxy */
-  struct GalaxyData test_galaxy;
-  memset(&test_galaxy, 0, sizeof(test_galaxy));
-
-  /* ===== VALIDATE ===== */
-  /* Test that HaloBaryonFraction property can be accessed */
-  TEST_ASSERT(test_galaxy.HaloBaryonFraction == 0.0f,
-              "Zero-initialized galaxy should have HaloBaryonFraction=0");
-
-  /* Test property can be set */
-  test_galaxy.HaloBaryonFraction = 0.17f;
-  TEST_ASSERT(test_galaxy.HaloBaryonFraction == 0.17f,
-              "HaloBaryonFraction should be readable/writable");
-
-  /* Test with reionization-suppressed value */
-  test_galaxy.HaloBaryonFraction = 0.085f; /* 50% suppression */
-  TEST_ASSERT(test_galaxy.HaloBaryonFraction > 0.0f && test_galaxy.HaloBaryonFraction <= 0.17f,
-              "HaloBaryonFraction should be in physical range");
-
-  /* ===== CLEANUP ===== */
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_physics_calculation_type0
- * @brief   Test physics calculation for Type 0 central halos
- *
- * Expected: HaloBaryonFraction = GlobalBaryonFraction × reionization_modifier
- * Validates: Correct physics calculation for centrals
- */
-int test_physics_calculation_type0(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  /* Create Type 0 central with moderate mass */
-  struct Halo test_halo = create_test_halo(0, 100.0); /* 1e12 Msun/h */
-
-  /* Create module context at z=0 */
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_reionization_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction > 0.0f,
-              "Type 0 halo should have HaloBaryonFraction > 0");
-  TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction <= 0.17f,
-              "HaloBaryonFraction should be <= GlobalBaryonFraction");
-
-  /* For massive halo at z=0, suppression should be minimal */
-  TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction > 0.15f,
-              "Massive halo at z=0 should have minimal suppression (> 0.15)");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
   module_system_cleanup();
   check_memory_leaks();
 
@@ -375,64 +218,44 @@ int test_physics_calculation_type0(void) {
 
 /**
  * @test    test_physics_calculation_type1_satellite
- * @brief   Test physics calculation for Type 1 satellite halos
+ * @brief   Centrals, satellites and orphans each use their own Mvir, recomputed on every call
  *
- * Expected: HaloBaryonFraction = GlobalBaryonFraction × f_reion(satellite_Mvir, z)
- * Validates: Per-satellite reionization suppression (SAGE parity fix)
- * SAGE parity: strip_from_satellite() calls do_reionization(gal,...) per satellite
- * using the satellite's own Mvir (model_infall.c:97), so each satellite must
- * receive its own suppression modifier, not the central's.
+ * Expected: One process call over a Type 0 (Mvir 100), a Type 1 (Mvir 0.5) and a Type 2
+ *           (Mvir 10) halo at z = 2 gives each the modifier of its own mass, with the central
+ *           named as ctx->central_galaxy; a second call over stale values restores them
+ * Validates: SAGE parity: strip_from_satellite() calls do_reionization(gal, ...) on the
+ *            satellite itself, reading the satellite's own Mvir, so a satellite receives its own
+ *            suppression modifier, not the central's
  */
 int test_physics_calculation_type1_satellite(void) {
   /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
+  setup_module_for_physics_test(FIXTURE_GLOBAL_BARYON_FRACTION);
 
-  /* Create Type 1 satellite with moderate mass */
-  struct Halo test_halo = create_test_halo(1, 50.0); /* 5e11 Msun/h */
+  struct Halo halos[3] = {create_test_halo(0, 100.0f), create_test_halo(1, 0.5f),
+                          create_test_halo(2, 10.0f)};
+  const double expected[3] = {0.168169615948, 0.0332351752924, 0.152820435688};
 
   struct ModuleContext ctx;
   memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_reionization_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction > 0.0f,
-              "Type 1 satellite should have HaloBaryonFraction > 0");
-  TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction <= 0.17f,
-              "Type 1 satellite HaloBaryonFraction should be <= GlobalBaryonFraction");
-
-  /* Verify that repeated calls update the value (not preserve it) */
-  float first_value = test_halo.galaxy->HaloBaryonFraction;
-  test_halo.galaxy->HaloBaryonFraction = 0.10f; /* Manually set to a different value */
-  result = sage_reionization_process(&ctx, &test_halo, 1);
-  TEST_ASSERT(fabs(test_halo.galaxy->HaloBaryonFraction - first_value) < 1e-5f,
-              "Type 1 satellite HaloBaryonFraction should be recomputed each call");
-
-  /* Verify low-mass satellite gets stronger suppression than high-mass at z=2 */
-  struct Halo low_mass_sat = create_test_halo(1, 0.5);   /* 5e9 Msun/h */
-  struct Halo high_mass_sat = create_test_halo(1, 50.0); /* 5e11 Msun/h */
-
   ctx.redshift = 2.0;
+  ctx.params = &MimicConfig;
+  ctx.central_galaxy = &halos[0];
 
-  ctx.central_galaxy = &low_mass_sat;
-  sage_reionization_process(&ctx, &low_mass_sat, 1);
-
-  ctx.central_galaxy = &high_mass_sat;
-  sage_reionization_process(&ctx, &high_mass_sat, 1);
-
-  TEST_ASSERT(low_mass_sat.galaxy->HaloBaryonFraction < high_mass_sat.galaxy->HaloBaryonFraction,
-              "Low-mass satellite should be more suppressed than high-mass satellite");
+  /* ===== EXECUTE AND VALIDATE ===== */
+  for (int pass = 0; pass < 2; pass++) {
+    TEST_ASSERT(sage_reionization_process(&ctx, halos, 3) == 0, "Process should succeed");
+    for (int i = 0; i < 3; i++) {
+      TEST_ASSERT_DOUBLE_EQUAL((double)halos[i].galaxy->HaloBaryonFraction, expected[i],
+                               MODIFIER_RTOL * expected[i],
+                               "Each halo should receive the modifier of its own Mvir");
+      halos[i].galaxy->HaloBaryonFraction = 0.10f; /* a stale value the next call must replace */
+    }
+  }
 
   /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  free_test_halo(&low_mass_sat);
-  free_test_halo(&high_mass_sat);
+  for (int i = 0; i < 3; i++) {
+    free_test_halo(&halos[i]);
+  }
   module_system_cleanup();
   check_memory_leaks();
 
@@ -448,7 +271,7 @@ int test_physics_calculation_type1_satellite(void) {
  */
 int test_zero_mass_halos(void) {
   /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
+  setup_module_for_physics_test(FIXTURE_GLOBAL_BARYON_FRACTION);
 
   /* Create halo with zero mass */
   struct Halo test_halo = create_test_halo(0, 0.0);
@@ -460,7 +283,6 @@ int test_zero_mass_halos(void) {
   ctx.central_galaxy = &test_halo;
 
   /* ===== EXECUTE ===== */
-  extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
   int result = sage_reionization_process(&ctx, &test_halo, 1);
 
   /* ===== VALIDATE ===== */
@@ -477,223 +299,6 @@ int test_zero_mass_halos(void) {
 }
 
 /**
- * @test    test_very_small_mass_halos
- * @brief   Test that very small mass halos have strong suppression after reionization
- *
- * Expected: HaloBaryonFraction << GlobalBaryonFraction for low-mass halos
- * Validates: Strong suppression for small halos after reionization
- * Physics: At z=2 (after reionization at z=7), low-mass halos should be strongly suppressed
- *          Code has z0=8 (UV background on), zr=7 (full reionization)
- *          Filtering mass ~ 1e8-1e9 Msun/h, so test with 1e6 Msun/h for strong suppression
- */
-int test_very_small_mass_halos(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  /* Create very low-mass halo (1e6 Msun/h = 0.1 in code units) */
-  struct Halo test_halo = create_test_halo(0, 0.1);
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 2.0; /* After reionization (zr=7) for maximum suppression effect */
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_reionization_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction > 0.0f,
-              "Small halo should have HaloBaryonFraction > 0");
-
-  /* Low-mass halo should be strongly suppressed (< 50% of GlobalBaryonFraction) */
-  float actual = test_halo.galaxy->HaloBaryonFraction;
-  float suppression_fraction = actual / 0.17f;
-
-  /* Print diagnostic info */
-  printf("  Mvir=%.2e (1e9 Msun/h) at z=2.0: HaloBaryonFraction=%.4f (%.1f%% of "
-         "GlobalBaryonFraction)\n",
-         test_halo.Mvir, actual, suppression_fraction * 100.0f);
-
-  /* After reionization, low-mass halos should have significant suppression */
-  TEST_ASSERT(suppression_fraction < 0.5f, "Small halo (1e9 Msun/h) at z=2 should have strong "
-                                           "suppression (< 50% of GlobalBaryonFraction)");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_very_large_mass_halos
- * @brief   Test that very large mass halos have minimal suppression
- *
- * Expected: HaloBaryonFraction ≈ GlobalBaryonFraction for massive halos
- * Validates: Minimal suppression for large halos
- */
-int test_very_large_mass_halos(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  /* Create very massive halo (1e15 Msun/h = 100000 in code units) */
-  struct Halo test_halo = create_test_halo(0, 100000.0);
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_reionization_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction > 0.16f,
-              "Massive halo should have minimal suppression (> 0.16)");
-  TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction <= 0.17f,
-              "HaloBaryonFraction should never exceed GlobalBaryonFraction");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_mass_dependence
- * @brief   Test that low-mass halos are more suppressed than high-mass halos
- *
- * Expected: HaloBaryonFraction increases with Mvir
- * Validates: Correct mass-dependence of suppression
- */
-int test_mass_dependence(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  /* Create halos with different masses */
-  struct Halo low_mass = create_test_halo(0, 1.0);    /* 1e11 Msun/h */
-  struct Halo mid_mass = create_test_halo(0, 10.0);   /* 1e12 Msun/h */
-  struct Halo high_mass = create_test_halo(0, 100.0); /* 1e13 Msun/h */
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 2.0; /* Moderate redshift */
-  ctx.params = &MimicConfig;
-
-  /* ===== EXECUTE ===== */
-  extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
-
-  ctx.central_galaxy = &low_mass;
-  sage_reionization_process(&ctx, &low_mass, 1);
-
-  ctx.central_galaxy = &mid_mass;
-  sage_reionization_process(&ctx, &mid_mass, 1);
-
-  ctx.central_galaxy = &high_mass;
-  sage_reionization_process(&ctx, &high_mass, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(low_mass.galaxy->HaloBaryonFraction < mid_mass.galaxy->HaloBaryonFraction,
-              "Low-mass halo should be more suppressed than mid-mass");
-  TEST_ASSERT(mid_mass.galaxy->HaloBaryonFraction < high_mass.galaxy->HaloBaryonFraction,
-              "Mid-mass halo should be more suppressed than high-mass");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&low_mass);
-  free_test_halo(&mid_mass);
-  free_test_halo(&high_mass);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_redshift_dependence
- * @brief   Test that suppression varies with redshift for low-mass halos
- *
- * Expected: For LOW-MASS halos, values should vary with redshift
- * Validates: Redshift-dependence of reionization (filtering mass evolution)
- * Physics: Filtering mass evolves with redshift, affecting suppression
- */
-int test_redshift_dependence(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  /* Create LOW-MASS halos at different redshifts to see redshift effect */
-  struct Halo halo_z0 = create_test_halo(0, 1.0); /* 1e11 Msun/h at z=0 */
-  struct Halo halo_z2 = create_test_halo(0, 1.0); /* 1e11 Msun/h at z=2 */
-  struct Halo halo_z8 = create_test_halo(0, 1.0); /* 1e11 Msun/h at z=8 */
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-
-  /* ===== EXECUTE ===== */
-  extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
-
-  ctx.redshift = 0.0;
-  ctx.central_galaxy = &halo_z0;
-  sage_reionization_process(&ctx, &halo_z0, 1);
-
-  ctx.redshift = 2.0;
-  ctx.central_galaxy = &halo_z2;
-  sage_reionization_process(&ctx, &halo_z2, 1);
-
-  ctx.redshift = 8.0;
-  ctx.central_galaxy = &halo_z8;
-  sage_reionization_process(&ctx, &halo_z8, 1);
-
-  /* ===== VALIDATE ===== */
-  /* All values should be physical */
-  TEST_ASSERT(halo_z0.galaxy->HaloBaryonFraction > 0.0f &&
-                  halo_z0.galaxy->HaloBaryonFraction <= 0.17f,
-              "z=0 HaloBaryonFraction should be physical");
-  TEST_ASSERT(halo_z2.galaxy->HaloBaryonFraction > 0.0f &&
-                  halo_z2.galaxy->HaloBaryonFraction <= 0.17f,
-              "z=2 HaloBaryonFraction should be physical");
-  TEST_ASSERT(halo_z8.galaxy->HaloBaryonFraction > 0.0f &&
-                  halo_z8.galaxy->HaloBaryonFraction <= 0.17f,
-              "z=8 HaloBaryonFraction should be physical");
-
-  /* Print diagnostic info to understand redshift dependence */
-  float frac_z0 = halo_z0.galaxy->HaloBaryonFraction;
-  float frac_z2 = halo_z2.galaxy->HaloBaryonFraction;
-  float frac_z8 = halo_z8.galaxy->HaloBaryonFraction;
-
-  printf("  Redshift dependence for Mvir=%.2e:\n", halo_z0.Mvir);
-  printf("    z=0.0: HaloBaryonFraction = %.4f (%.1f%% of GlobalBaryonFraction)\n", frac_z0,
-         frac_z0 / 0.17f * 100.0f);
-  printf("    z=2.0: HaloBaryonFraction = %.4f (%.1f%% of GlobalBaryonFraction)\n", frac_z2,
-         frac_z2 / 0.17f * 100.0f);
-  printf("    z=8.0: HaloBaryonFraction = %.4f (%.1f%% of GlobalBaryonFraction)\n", frac_z8,
-         frac_z8 / 0.17f * 100.0f);
-
-  /* For low-mass halos, values should differ across redshifts (redshift-dependence exists) */
-  /* We verify that NOT all values are identical (would indicate no redshift dependence) */
-  int all_identical = (frac_z0 == frac_z2) && (frac_z2 == frac_z8);
-  TEST_ASSERT(!all_identical, "HaloBaryonFraction should vary with redshift (not all identical)");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&halo_z0);
-  free_test_halo(&halo_z2);
-  free_test_halo(&halo_z8);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_type3_halos_skipped
  * @brief   Test that Type 3 halos are skipped
  *
@@ -702,7 +307,7 @@ int test_redshift_dependence(void) {
  */
 int test_type3_halos_skipped(void) {
   /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
+  setup_module_for_physics_test(FIXTURE_GLOBAL_BARYON_FRACTION);
 
   /* Create Type 3 halo */
   struct Halo test_halo = create_test_halo(3, 50.0);
@@ -714,7 +319,6 @@ int test_type3_halos_skipped(void) {
   ctx.central_galaxy = &test_halo;
 
   /* ===== EXECUTE ===== */
-  extern int sage_reionization_process(struct ModuleContext *, struct Halo *, int);
   int result = sage_reionization_process(&ctx, &test_halo, 1);
 
   /* ===== VALIDATE ===== */
@@ -734,36 +338,22 @@ int test_type3_halos_skipped(void) {
 /**
  * @brief   Main test runner
  *
- * Executes all sage_reionization comprehensive tests and reports results.
+ * Executes all sage_reionization unit tests and reports results.
  */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
-  printf("Test Suite: sage_reionization Module (Comprehensive)\n");
+  printf("Test Suite: sage_reionization Module\n");
   printf("============================================================\n");
   printf("%s", NC);
 
   /* Initialize error handling for tests */
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  /* Run software quality tests */
-  printf("\n%s=== Software Quality Tests ===%s\n", BLUE, NC);
-  TEST_RUN(test_module_registration);
-  TEST_RUN(test_module_initialization);
-  TEST_RUN(test_parameter_reading);
-  TEST_RUN(test_invalid_parameter_fails);
-  TEST_RUN(test_memory_safety);
-  TEST_RUN(test_property_access);
-
-  /* Run physics tests */
-  printf("\n%s=== Physics Calculation Tests ===%s\n", BLUE, NC);
-  TEST_RUN(test_physics_calculation_type0);
+  TEST_RUN(test_global_baryon_fraction_scales_output);
+  TEST_RUN(test_reionization_modifier_table);
   TEST_RUN(test_physics_calculation_type1_satellite);
   TEST_RUN(test_zero_mass_halos);
-  TEST_RUN(test_very_small_mass_halos);
-  TEST_RUN(test_very_large_mass_halos);
-  TEST_RUN(test_mass_dependence);
-  TEST_RUN(test_redshift_dependence);
   TEST_RUN(test_type3_halos_skipped);
 
   /* Print summary and return result */

@@ -145,7 +145,9 @@ tests/
 ├── framework/          # Shared test utilities (harness, markers, runner, data loader,
 │                       #   comparison helpers, C/Python test templates, and framework headers;
 │                       #   parity_gate.py and schema_conformance.py carry the horizontal
-│                       #   packages' parity gates and schema-conformance tests)
+│                       #   packages' parity gates and schema-conformance tests;
+│                       #   plot_checks.py and plot_derivations.py carry the model
+│                       #   packages' figure tests)
 ├── data/               # Shared mini simulation data, output fixtures, baselines
 └── generated/          # Auto-generated test metadata
 ```

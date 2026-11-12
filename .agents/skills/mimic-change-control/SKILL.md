@@ -44,7 +44,7 @@ Classify by what the change touches. Run gates in the order listed; each column'
 | Plotting | `plot/mimic-plot/`, `models/<m>/plots/` | plot tests under `plot/mimic-plot/tests/` → run `mimic-plot` on real output → see the `mimic-plots-and-analysis` skill |
 | Docs only | `*.md`, `docs/` | `make check-docs` → no hard-wrapped prose → `make check-format` (harmless, CI runs it anyway) |
 | Generated output | any `*/generated/*`, `tests/generated/` | never edited directly — regenerate via `make generate` and commit alongside the metadata change that produced it |
-| Baselines | `tests/data/output/baseline/`, `models/sage16/modules/_tests/baseline/` | only via documented regeneration procedures (non-negotiable F), never hand-edited, justification in the commit message |
+| Baselines | `tests/data/output/baseline/`, `models/sage16/modules/_tests/baseline/`, `models/sage26/modules/_tests/baseline/` | only via documented regeneration procedures (non-negotiable F), never hand-edited, justification in the commit message |
 
 Core, property-metadata and simulation-package changes usually also fall in the Converter class. Every class additionally passes through the pre-commit checklist (section 3). Long-running tiers (unit and integration, up to ~3 min each with large output) should be delegated to a subagent that captures a log and returns a pass/fail summary; scientific is fast (~30 s). Capture pattern:
 
@@ -143,7 +143,7 @@ Job `test` (Build and Test), default selectors, steps in order:
 7. `make tests-bench` (not part of `make tests`)
 8. `make tests-unit`
 9. `make tests-integration`
-10. `make tests-scientific` with `MIMIC_BASELINE_RTOL=1e-3` — the physics baseline was generated on macOS and Linux libm/compiler reproduces it only to ~7e-4 relative, so CI relaxes the gate above that measured noise floor; the strict 1e-6 default still applies locally, and diffs in (1e-6, 1e-3] surface as warnings.
+10. `make tests-scientific` with `MIMIC_BASELINE_RTOL=1e-3` — the physics baselines are generated on macOS and Linux libm/compiler reproduces them only approximately (up to 5.5e-4 relative for sage26; up to 6.8e-4 for the sage16 baseline before its 2026-11-12 regeneration, exactly for the regenerated one in an Ubuntu 24.04 gcc 13.3 container), so CI relaxes the gate above the measured noise floor; the strict 1e-6 default still applies locally, and diffs in (1e-6, 1e-3] surface as warnings.
 
 Job `horizontal-v3` (45 min timeout), needs no real dataset:
 

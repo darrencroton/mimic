@@ -35,9 +35,15 @@ module:
     unit:
       - test_unit_mixed_dt_parity.c
       - test_unit_sage_dependency_contracts.c
+      - test_unit_sage_parameter_refusals.c
 
     integration:
       - test_integration_processing_mode_contracts.py
     scientific:
       - test_scientific_sage_physics_baseline.py
       - test_scientific_compare_sage_mimic.py
+      # The package's plotting tests (models/sage16/plots/tests/, owned there): figure registry
+      # and every registered figure on a seeded synthetic catalogue, no Mimic run; registered
+      # here because the plots directory has no module_info.yaml of its own
+      - ../../plots/tests/test_sage16_plot_registry.py
+      - ../../plots/tests/test_sage16_figures.py

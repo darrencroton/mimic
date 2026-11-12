@@ -24,10 +24,11 @@
  * - test_ffb_feedback_renorm_second_guard: cold gas -1, stars 0, an invalid scaling: the first
  *   guard holds and the second (stars + reheated > 0) does not, so nothing is scaled
  * H I block (SAGE26's calculate_h1gas and ionized_gas_fraction):
- * - test_hi_general_and_writes_only_h1: the ionisation cut's general expression; only H1gas written
- * - test_hi_paths: a disk below the cut (f_ion 1), non-positive inputs (f_ion 0), H2 above the
- *   cold hydrogen (atomicH floored at 0)
- * - test_hi_ffb_zero_h2: with H2gas +0 the block equals the plain multiply ColdGas * 0.74
+ * - test_hi_paths: a table of cold gas, H2 and radius rows, each H1gas equal to SAGE26's
+ *   expression written here and nothing but H1gas written: the ionisation cut's general
+ *   expression (0 < f_ion < 1), a disk below the cut (f_ion 1), a non-positive radius (f_ion 0),
+ *   H2 above the cold hydrogen (atomicH floored at +0), and the FFB path's H2gas +0, where the
+ *   block is the plain multiply ColdGas * 0.74
  * Disk yield:
  * - test_yield_above_floor_routing: the retained metals to the cold gas, the escaping metals to the
  *   central's selected metals by CGMrecipeOn and the CENTRAL's Regime, with retained and escaping
@@ -284,51 +285,47 @@ static struct GalaxyData hi_galaxy(const float cold, const float h2, const float
   return g;
 }
 
-static int test_hi_general_and_writes_only_h1(void) {
-  /* ColdGas 1 (so ColdGas * 0.74 is exact), H2 0.25, r_s 0.004 Mpc/h */
-  struct GalaxyData g = hi_galaxy(1.0f, 0.25f, 0.004f);
-  struct GalaxyData before = g;
-  mimic_sage_calculate_h1gas(&g, 0.73);
-  const double atomicH = 1.0 * 0.74 - 0.25;
-  const double f_ion = expected_f_ion(1.0, (double)0.004f * 1.0, 0.73);
-  TEST_ASSERT(f_ion > 0.0 && f_ion < 1.0, "the general expression (0 < f_ion < 1)");
-  TEST_ASSERT(same_f32(g.H1gas, (float)(atomicH * (1.0 - f_ion))),
-              "H1gas = atomicH * (1 - f_ion) narrowed to float");
-  before.H1gas = g.H1gas;
-  TEST_ASSERT(memcmp(&before, &g, sizeof(g)) == 0, "only H1gas is written");
-  return TEST_PASS;
-}
+/** What a row's expected ionised fraction must be (the oracle is checked, not only used) */
+enum f_ion_class { F_ION_ANY, F_ION_ZERO, F_ION_PARTIAL, F_ION_ONE };
 
 static int test_hi_paths(void) {
-  /* A disk entirely below the cut: tiny gas, large radius, f_ion 1, H1 0 */
-  struct GalaxyData g = hi_galaxy(1.0e-6f, 0.0f, 1.0f);
-  mimic_sage_calculate_h1gas(&g, 0.73);
-  TEST_ASSERT(expected_f_ion(1.0e-6f, 1.0f, 0.73) == 1.0 && same_f32(g.H1gas, 0.0f),
-              "sigma0 <= 0.5: fully ionised, H1gas 0");
-  /* A non-positive radius: f_ion 0, H1 = atomicH = 0.5 * 0.74 - 0.125 = 0.245 */
-  g = hi_galaxy(0.5f, 0.125f, 0.0f);
-  mimic_sage_calculate_h1gas(&g, 0.73);
-  TEST_ASSERT(same_f32(g.H1gas, (float)(0.5 * 0.74 - 0.125)), "r_s 0: f_ion 0, H1gas the atomic H");
-  /* H2 above the cold hydrogen: atomicH floored at 0 */
-  g = hi_galaxy(1.0f, 0.875f, 0.004f);
-  mimic_sage_calculate_h1gas(&g, 0.73);
-  TEST_ASSERT(same_f32(g.H1gas, 0.0f) && !signbit(g.H1gas), "atomicH < 0 floored at +0");
-  return TEST_PASS;
-}
-
-static int test_hi_ffb_zero_h2(void) {
-  /* SAGE parity: on the FFB path H2gas is +0 and the block is the plain multiply */
-  const float colds[4] = {0.3f, 1.7f, 12.345f, 3.0e-7f};
-  for (int k = 0; k < 4; k++) {
-    struct GalaxyData g = hi_galaxy(colds[k], 0.0f, 0.004f);
+  static const struct {
+    const char *name;
+    float cold, h2, rs;
+    enum f_ion_class f_ion_class;
+  } rows[] = {
+      /* ColdGas 1 (so ColdGas * 0.74 is exact), H2 0.25, r_s 0.004 Mpc/h */
+      {"the general expression", 1.0f, 0.25f, 0.004f, F_ION_PARTIAL},
+      /* A disk entirely below the cut: tiny gas, large radius */
+      {"sigma0 <= 0.5: fully ionised, H1gas 0", 1.0e-6f, 0.0f, 1.0f, F_ION_ONE},
+      /* A non-positive radius: f_ion 0, H1 = atomicH = 0.5 * 0.74 - 0.125 */
+      {"r_s 0: f_ion 0, H1gas the atomic H", 0.5f, 0.125f, 0.0f, F_ION_ZERO},
+      /* H2 above the cold hydrogen: atomicH floored at 0 */
+      {"atomicH < 0 floored at +0", 1.0f, 0.875f, 0.004f, F_ION_ANY},
+      /* SAGE parity: on the FFB path H2gas is +0 and the block is the plain multiply */
+      {"H2gas +0, ColdGas 0.3", 0.3f, 0.0f, 0.004f, F_ION_ANY},
+      {"H2gas +0, ColdGas 1.7", 1.7f, 0.0f, 0.004f, F_ION_ANY},
+      {"H2gas +0, ColdGas 12.345", 12.345f, 0.0f, 0.004f, F_ION_ANY},
+      {"H2gas +0, ColdGas 3e-7", 3.0e-7f, 0.0f, 0.004f, F_ION_ANY},
+  };
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    struct GalaxyData g = hi_galaxy(rows[i].cold, rows[i].h2, rows[i].rs);
+    struct GalaxyData before = g;
     mimic_sage_calculate_h1gas(&g, 0.73);
-    double atomicH = (double)colds[k] * 0.74;
+
+    double atomicH = (double)rows[i].cold * 0.74 - (double)rows[i].h2;
     if (atomicH < 0.0) {
       atomicH = 0.0;
     }
-    const double f_ion = expected_f_ion(colds[k], (double)0.004f, 0.73);
-    TEST_ASSERT(same_f32(g.H1gas, (float)(atomicH * (1.0 - f_ion))),
-                "H2gas +0: H1gas from the plain multiply ColdGas * 0.74");
+    const double f_ion = expected_f_ion((double)rows[i].cold, (double)rows[i].rs, 0.73);
+    TEST_ASSERT(rows[i].f_ion_class != F_ION_ZERO || f_ion == 0.0, rows[i].name);
+    TEST_ASSERT(rows[i].f_ion_class != F_ION_ONE || f_ion == 1.0, rows[i].name);
+    TEST_ASSERT(rows[i].f_ion_class != F_ION_PARTIAL || (f_ion > 0.0 && f_ion < 1.0), rows[i].name);
+    TEST_ASSERT(same_f32(g.H1gas, (float)(atomicH * (1.0 - f_ion))), rows[i].name);
+    TEST_ASSERT(!signbit(g.H1gas), "an empty H I reservoir is +0, never -0");
+
+    before.H1gas = g.H1gas;
+    TEST_ASSERT(memcmp(&before, &g, sizeof(g)) == 0, "only H1gas is written");
   }
   return TEST_PASS;
 }
@@ -445,9 +442,7 @@ int main(void) {
   TEST_RUN(test_ffb_feedback_invalid_redshift);
   TEST_RUN(test_ffb_feedback_renormalised);
   TEST_RUN(test_ffb_feedback_renorm_second_guard);
-  TEST_RUN(test_hi_general_and_writes_only_h1);
   TEST_RUN(test_hi_paths);
-  TEST_RUN(test_hi_ffb_zero_h2);
   TEST_RUN(test_yield_above_floor_routing);
   TEST_RUN(test_yield_below_floor);
   TEST_RUN(test_yield_fused_retained);

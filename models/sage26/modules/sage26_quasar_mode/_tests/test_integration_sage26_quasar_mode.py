@@ -1,30 +1,41 @@
 #!/usr/bin/env python3
 """
-SAGE Quasar Mode AGN Module - Integration Test
+sage26_quasar_mode - Integration Test
 
-Validates: Module pipeline integration, quasar-mode physics, parameter sensitivity
+Validates: the module's black-hole growth and quasar wind through real runs of mimic on the
+committed test trees, on a pipeline that supplies the gas the module acts on.
 
-This test validates the sage26_quasar_mode module integration:
-- Module loads and executes correctly in full pipeline
-- Black hole growth from disk instability and mergers
-- Quasar-mode wind ejection physics
-- Mass and metallicity conservation
-- Parameter sensitivity (growth rate and efficiency)
-- Memory safety and performance
+A pipeline with the disk instability and the module alone gives an all-zero output (nothing creates
+gas or stars), where a finite or sign check cannot fail. Every run here therefore uses GAS_PHASES:
+the infall, cooling, star-formation and supernova chain builds the stellar disk and cold gas that
+a disk instability needs, then sage26_disk_instability writes the trigger and sage26_quasar_mode
+grows the black hole from it. The merger channel (process_per_event) is exercised through the real
+merger producer in sage26_resolve_mergers_and_disruption/_tests/
+test_integration_sage26_merger_event_consumers.py.
+
+The test cases share three runs of GAS_PHASES (SFprescription 0, CGMrecipeOn 0, AGNrecipe 2),
+which differ in one parameter each:
+  gas_mid      BlackHoleGrowthRate 0.01, QuasarModeEfficiency 0.001
+  gas_growth   BlackHoleGrowthRate 0.02, QuasarModeEfficiency 0.001
+  gas_wind     BlackHoleGrowthRate 0.01, QuasarModeEfficiency 0.01
 
 Test cases:
-  - test_module_pipeline_integration: Full pipeline execution and output validation
-  - test_quasar_physics_correctness: Physics correctness and reasonableness checks
-  - test_disk_instability_trigger: Module responds to disk instability
-  - test_merger_trigger: Module responds to mergers
-  - test_parameter_sensitivity: Parameter variations affect results
-  - test_memory_and_performance: Memory leaks and performance baseline
+  - test_quasar_physics_correctness: on gas_mid, the fields are finite, non-negative and
+    non-trivial; the disk instability drives quasar accretion; black holes stay far below the halo
+    mass and quasar accretion never exceeds the black-hole mass; the run exits 0 and its own leak
+    report is clean
+  - test_parameter_sensitivity: a higher BlackHoleGrowthRate grows more black-hole mass and a
+    higher QuasarModeEfficiency ejects more gas and leaves less black-hole mass, each against
+    gas_mid
+
+Run (from the repository root, after `make MODEL=sage26 SIMULATION=mini-millennium`):
+  MODEL=sage26 SIMULATION=mini-millennium python3 models/sage26/modules/sage26_quasar_mode/\\
+_tests/test_integration_sage26_quasar_mode.py
 
 Author: Mimic Development Team
 Date: 2025-12-23
 """
 
-import shutil
 import sys
 from pathlib import Path
 
@@ -34,163 +45,18 @@ import numpy as np
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
-    BLUE,
-    GREEN,
     MIMIC_EXE,
-    NC,
-    RED,
+    SharedRuns,
     TestSkipped,
     check_no_memory_leaks,
-    create_test_param_file,
     load_binary_halos,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
+    run_test_suite,
 )
 
-
-def test_module_pipeline_integration():
-    """Test that module integrates correctly into full pipeline
-
-    Validates:
-    - Module loads and initializes
-    - Pipeline executes without errors
-    - Output file is created with expected properties
-    - Quasar-mode related fields exist and have valid data
-    """
-    print(f"\n{BLUE}TEST: Module pipeline integration{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="quasar_integration",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                # Disk instability sets UnstableDiskGasFraction trigger
-                ("sage26_disk_instability", "process_by_galaxy"),
-                # Quasar mode processes the trigger
-                ("sage26_quasar_mode", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": 0.01,
-            "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "AGNrecipe": 2,  # required: 0 or 2
-            # Disk instability module parameters (required dependency)
-            "fStabInstability": 0.5,
-            "StarFormingDiskFactor": 3.0,
-        },
-    )
-
-    # Execute Mimic
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    # Validate output file exists
-    output_file = output_dir / "model_z0.000_0"
-    assert output_file.exists(), "Output file should exist"
-    assert output_file.stat().st_size > 0, "Output file should have content"
-
-    # Load and validate output data
-    halos, metadata = load_binary_halos(output_file)
-    assert len(halos) > 0, "Should have output halos"
-
-    # Check quasar-mode related fields exist
-    assert "BlackHoleMass" in halos.dtype.names, "Output should have BlackHoleMass field"
-    assert (
-        "QuasarModeBHaccretionMass" in halos.dtype.names
-    ), "Output should have QuasarModeBHaccretionMass field"
-    assert "ColdGas" in halos.dtype.names, "Output should have ColdGas field"
-    assert "EjectedGas" in halos.dtype.names, "Output should have EjectedGas field"
-
-    # Basic validation: no NaNs or Infs
-    bh_mass = halos["BlackHoleMass"]
-    quasar_accretion = halos["QuasarModeBHaccretionMass"]
-    cold_gas = halos["ColdGas"]
-    ejected_gas = halos["EjectedGas"]
-
-    assert not np.any(np.isnan(bh_mass)), "BlackHoleMass should not have NaN values"
-    assert not np.any(np.isinf(bh_mass)), "BlackHoleMass should not have Inf values"
-    assert np.all(bh_mass >= 0.0), "BlackHoleMass should be non-negative"
-
-    assert not np.any(np.isnan(quasar_accretion)), "QuasarModeBHaccretionMass should not have NaN"
-    assert not np.any(np.isinf(quasar_accretion)), "QuasarModeBHaccretionMass should not have Inf"
-    assert np.all(quasar_accretion >= 0.0), "QuasarModeBHaccretionMass should be non-negative"
-
-    assert not np.any(np.isnan(cold_gas)), "ColdGas should not have NaN values"
-    assert not np.any(np.isinf(cold_gas)), "ColdGas should not have Inf values"
-    assert np.all(cold_gas >= 0.0), "ColdGas should be non-negative"
-
-    assert not np.any(np.isnan(ejected_gas)), "EjectedGas should not have NaN values"
-    assert not np.any(np.isinf(ejected_gas)), "EjectedGas should not have Inf values"
-    assert np.all(ejected_gas >= 0.0), "EjectedGas should be non-negative"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Module pipeline integration successful{NC}")
-
-
-def test_quasar_physics_correctness():
-    """Test that quasar-mode physics is physically reasonable
-
-    Validates, on GAS_PHASES (the gas supply and star-formation chain that build the stellar disk
-    and cold gas a disk instability needs, then the instability and this module):
-    - Massive halos host black holes, and no black hole exceeds 10% of its halo's mass
-    - Quasar accretion does not exceed the black-hole mass
-    - Cold gas and ejected gas are non-negative
-    """
-    print(f"\n{BLUE}TEST: Quasar-mode physics correctness{NC}")
-
-    halos = run_gas_pipeline("quasar_physics", 0.01, 0.001)
-
-    bh_mass = halos["BlackHoleMass"]
-    quasar_accretion = halos["QuasarModeBHaccretionMass"]
-    cold_gas = halos["ColdGas"]
-    ejected_gas = halos["EjectedGas"]
-    mvir = halos["Mvir"]
-
-    # Physics validation 1: BH masses should be reasonable
-    total_bh_mass = np.sum(bh_mass)
-    print(f"  Total black hole mass: {total_bh_mass:.2e} [1e10 Msun/h]")
-    assert total_bh_mass >= 0.0, "Total BH mass should be non-negative"
-
-    # Physics validation 2: BH mass should be much smaller than halo mass
-    # Typical M_BH/M_halo ~ 10^-3 to 10^-5
-    massive_halos = mvir > 10.0
-    assert np.any(bh_mass[massive_halos] > 0.0), "massive halos should host black holes"
-    bh_fraction = bh_mass[massive_halos] / mvir[massive_halos]
-    max_bh_fraction = np.max(bh_fraction)
-    assert (
-        max_bh_fraction < 0.1
-    ), f"BH mass should be < 10% of halo mass (unreasonably high: {max_bh_fraction:.4f})"
-    print(f"  Mean BH mass fraction in massive halos: {np.mean(bh_fraction):.4e}")
-
-    # Physics validation 3: Quasar accretion should be <= BH mass
-    # (BH mass can come from other sources like mergers)
-    assert np.all(
-        quasar_accretion <= bh_mass + 1e-6
-    ), "Quasar accretion should not exceed total BH mass"
-
-    # Physics validation 4: Cold gas should be reasonable
-    total_cold_gas = np.sum(cold_gas)
-    print(f"  Total cold gas: {total_cold_gas:.2e} [1e10 Msun/h]")
-    assert total_cold_gas >= 0.0, "Total cold gas should be non-negative"
-
-    # Physics validation 5: Ejected gas tracks wind ejection
-    total_ejected = np.sum(ejected_gas)
-    print(f"  Total ejected gas: {total_ejected:.2e} [1e10 Msun/h]")
-    assert total_ejected >= 0.0, "Total ejected gas should be non-negative"
-
-    print(f"{GREEN}✓ Quasar-mode physics is physically reasonable{NC}")
-
+RUNS = SharedRuns()
 
 # The gas supply and star-formation chain that build the stellar disk and cold gas a disk
-# instability needs, before the instability and the module (as test_quasar_physics_correctness)
+# instability needs, then the instability and the module
 GAS_PHASES = {
     "pre_timestep": [
         ("sage26_set_disk_scale_radius", "process_full_halo"),
@@ -213,251 +79,128 @@ GAS_PHASES = {
 }
 
 
-def run_gas_pipeline(output_name, black_hole_growth_rate, quasar_mode_efficiency):
-    """Run GAS_PHASES with the two quasar parameters (SFprescription 0); return the z = 0 halos."""
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name=output_name,
-        phase_config=GAS_PHASES,
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": black_hole_growth_rate,
-            "QuasarModeEfficiency": quasar_mode_efficiency,
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,
-            "fStabInstability": 0.5,
-            "StarFormingDiskFactor": 3.0,
-            "GlobalBaryonFraction": 0.17,
-            "AGNrecipe": 2,
-            "RadioModeEfficiency": 0.08,
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,
-            "RecycleFraction": 0.43,
-        },
-    )
-    try:
-        returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-        halos, _metadata = load_binary_halos(output_dir / "model_z0.000_0")
-    finally:
-        shutil.rmtree(temp_dir)
-    return halos
+def gas_params(black_hole_growth_rate, quasar_mode_efficiency):
+    """Model parameters of GAS_PHASES with the two quasar parameters (SFprescription 0)."""
+    return {
+        "BulgeSizeOn": 0,
+        "BlackHoleGrowthRate": black_hole_growth_rate,
+        "QuasarModeEfficiency": quasar_mode_efficiency,
+        "SFprescription": 0,
+        "CGMrecipeOn": 0,
+        "StarFormingDiskFactor": 3.0,
+        "GlobalBaryonFraction": 0.17,
+        "AGNrecipe": 2,
+        "RadioModeEfficiency": 0.08,
+        "H2RadialIntegrationOn": 1,
+        "H2RadialNBins": 25,
+        "H2RadialRMaxFactor": 5.0,
+        "SfrEfficiency": 0.02,
+        "FeedbackReheatingEpsilon": 3.0,
+        "FeedbackEjectionEfficiency": 0.3,
+        "FIREmodeOn": 0,
+        "RecycleFraction": 0.43,
+    }
 
 
-def test_disk_instability_trigger():
-    """Test module responds to disk instability trigger
+GAS_MID = gas_params(0.01, 0.001)
+GAS_GROWTH = gas_params(0.02, 0.001)
+GAS_WIND = gas_params(0.01, 0.01)
 
-    Validates, on a pipeline that supplies the disk an instability needs (GAS_PHASES):
-    - Quasar mode processes the trigger: some rows accrete in quasar mode at z = 0
-    - Black holes grow in those galaxies: each accreting row holds a black hole
+
+def gas_run(name, model_params):
+    """Return the named GAS_PHASES run (made once) and its z = 0 halos."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    run = RUNS.run(name, phase_config=GAS_PHASES, model_params=model_params)
+    assert run.returncode == 0, f"Mimic should execute successfully\nSTDERR: {run.stderr}"
+    halos, _metadata = load_binary_halos(run.output_dir / "model_z0.000_0")
+    return run, halos
+
+
+def test_quasar_physics_correctness():
+    """On the supplied-gas pipeline the module grows black holes from the disk instability.
+
+    Asserts, on gas_mid:
+    - BlackHoleMass, QuasarModeBHaccretionMass, ColdGas and EjectedGas are finite and
+      non-negative, and each is non-zero somewhere, so the checks run on real values
+    - Some rows accrete in quasar mode (the instability's trigger reached the module), and every
+      accreting row holds a black hole
+    - Black holes in massive halos stay below 1e-3 of the halo mass, the upper end of the
+      observed M_BH / M_halo relation; a growth rate or Vvir suppression that is off by orders of
+      magnitude exceeds it (the largest value here is about 5e-5)
+    - Quasar accretion never exceeds the black-hole mass it is part of
+    - The run exits 0 and its own leak report is clean
     """
-    print(f"\n{BLUE}TEST: Disk instability trigger{NC}")
+    run, halos = gas_run("gas_mid", GAS_MID)
+    assert check_no_memory_leaks(run.stdout, run.stderr), "Should not have memory leaks"
 
-    halos = run_gas_pipeline("quasar_disk_trigger", 0.01, 0.001)
+    for name in ("BlackHoleMass", "QuasarModeBHaccretionMass", "ColdGas", "EjectedGas"):
+        values = halos[name]
+        assert np.all(np.isfinite(values)), f"{name} should be finite"
+        assert np.all(values >= 0.0), f"{name} should be non-negative"
+        assert np.any(values > 0.0), f"{name} should be non-zero somewhere"
+
+    bh_mass = halos["BlackHoleMass"]
     quasar_accretion = halos["QuasarModeBHaccretionMass"]
-    accreting = quasar_accretion > 0
-    print(f"  Quasar accretion on {int(np.sum(accreting))} rows: {np.sum(quasar_accretion):.2e}")
-    assert np.all(quasar_accretion >= 0.0), "Quasar accretion should be non-negative"
-    assert np.sum(accreting) > 0, "some unstable disks should accrete in quasar mode"
+
+    accreting = quasar_accretion > 0.0
+    assert np.any(accreting), "some unstable disks should accrete in quasar mode"
+    assert np.all(bh_mass[accreting] > 0.0), "a row that accreted in quasar mode holds a black hole"
+
+    massive = halos["Mvir"] > 10.0
+    assert np.any(bh_mass[massive] > 0.0), "massive halos should host black holes"
+    max_fraction = np.max(bh_mass[massive] / halos["Mvir"][massive])
+    assert max_fraction < 1e-3, f"M_BH / M_halo should stay below 1e-3 (largest {max_fraction:.2e})"
+
+    # The accretion is added to the black hole, so it cannot exceed the mass; both are float stores
+    # (1.2e-7 relative), so a relative 1e-6 bound absorbs the stores' rounding at any mass scale
     assert np.all(
-        halos["BlackHoleMass"][accreting] > 0
-    ), "a row that accreted in quasar mode should hold a black hole"
-
-    print(f"{GREEN}✓ Disk instability trigger validated{NC}")
-
-
-def test_merger_trigger():
-    """Test module responds to merger trigger
-
-    Validates:
-    - Mergers set IsMerging and MergerMassRatio
-    - Quasar mode processes merger trigger
-    - Black holes grow during mergers
-    """
-    print(f"\n{BLUE}TEST: Merger trigger{NC}")
-
-    # Note: This test requires upstream merger modules to set triggers
-    # For standalone testing, we validate that the module can process
-    # galaxies even without triggers (should do nothing)
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="quasar_merger_trigger",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_quasar_mode", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": 0.01,
-            "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "AGNrecipe": 2,  # required: 0 or 2
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Without merger modules, quasar accretion should be zero
-    # (no triggers set)
-    quasar_accretion = halos["QuasarModeBHaccretionMass"]
-    total_quasar_accretion = np.sum(quasar_accretion)
-    print(f"  Total quasar accretion (no triggers): {total_quasar_accretion:.2e}")
-    # Should be zero without triggers
-    assert total_quasar_accretion < 1e-10, "Quasar accretion should be zero without triggers"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Merger trigger validated (no triggers = no accretion){NC}")
+        quasar_accretion <= bh_mass * (1.0 + 1e-6)
+    ), "Quasar accretion should not exceed the black-hole mass"
 
 
 def test_parameter_sensitivity():
-    """Test that changing parameters changes results
+    """BlackHoleGrowthRate and QuasarModeEfficiency each move the output in the physical direction.
 
-    Validates, on GAS_PHASES, where the instability grows black holes and drives winds:
-    - A higher BlackHoleGrowthRate grows more total black-hole mass. The z = 0
-      QuasarModeBHaccretionMass is the last snapshot's accretion only and is not monotonic in the
-      rate, so it is not the measure
-    - A higher QuasarModeEfficiency ejects more gas
-    - Both measures are positive, so neither comparison holds on zeros
+    Each comparison is against gas_mid, on totals that are positive (a rate of 0.01 and an
+    efficiency of 0.001). The z = 0 QuasarModeBHaccretionMass is the last snapshot's accretion
+    only and is not monotonic in the rate, so the total BlackHoleMass is the growth measure.
+    - Twice the growth rate grows more black-hole mass
+    - Ten times the efficiency drives more cold gas out (more EjectedGas) and so grows less
+      black-hole mass
     """
-    print(f"\n{BLUE}TEST: Parameter sensitivity{NC}")
+    _run, mid = gas_run("gas_mid", GAS_MID)
+    _run, fast = gas_run("gas_growth", GAS_GROWTH)
+    _run, windy = gas_run("gas_wind", GAS_WIND)
 
-    low_growth = np.sum(run_gas_pipeline("quasar_low_growth", 0.005, 0.001)["BlackHoleMass"])
-    high_growth = np.sum(run_gas_pipeline("quasar_high_growth", 0.02, 0.001)["BlackHoleMass"])
-    print(f"  Total BlackHoleMass: {low_growth:.3e} (rate 0.005), {high_growth:.3e} (rate 0.02)")
-    assert low_growth > 0, "black holes should grow at the lower rate"
-    assert high_growth > low_growth, "a higher growth rate should grow more black-hole mass"
+    mid_bh = np.sum(mid["BlackHoleMass"])
+    assert mid_bh > 0, "black holes should grow at the reference rate"
+    fast_bh = np.sum(fast["BlackHoleMass"])
+    assert (
+        fast_bh > mid_bh
+    ), f"a higher growth rate should grow more black-hole mass ({fast_bh:.4g} vs {mid_bh:.4g})"
 
-    low_eff = np.sum(run_gas_pipeline("quasar_low_eff", 0.01, 0.0001)["EjectedGas"])
-    high_eff = np.sum(run_gas_pipeline("quasar_high_eff", 0.01, 0.01)["EjectedGas"])
-    print(f"  Total EjectedGas: {low_eff:.3e} (efficiency 1e-4), {high_eff:.3e} (efficiency 1e-2)")
-    assert low_eff > 0, "gas should be ejected at the lower efficiency"
-    assert high_eff > low_eff, "a higher quasar-mode efficiency should eject more gas"
-
-    print(f"{GREEN}✓ Parameter sensitivity validated{NC}")
-
-
-def test_memory_and_performance():
-    """Test memory safety and establish performance baseline
-
-    Validates:
-    - No memory leaks during execution
-    - Execution completes in reasonable time
-    """
-    print(f"\n{BLUE}TEST: Memory safety and performance{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="quasar_memory",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_disk_instability", "process_by_galaxy"),
-                ("sage26_quasar_mode", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "BulgeSizeOn": 0,
-            "BlackHoleGrowthRate": 0.01,
-            "QuasarModeEfficiency": 0.001,
-            "SFprescription": 0,  # the module's required SFprescription
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "AGNrecipe": 2,  # required: 0 or 2
-            "fStabInstability": 0.5,
-            "StarFormingDiskFactor": 3.0,
-        },
-    )
-
-    # Execute and time
-    import time
-
-    start_time = time.time()
-    returncode, stdout, stderr = run_mimic(param_file)
-    elapsed_time = time.time() - start_time
-
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    # Check for memory leaks
-    assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
-
-    # Performance baseline (should complete in < 30 seconds for test data)
-    print(f"  Execution time: {elapsed_time:.2f}s")
-    assert elapsed_time < 30.0, f"Execution too slow: {elapsed_time:.2f}s (expected < 30s)"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Memory safety and performance validated{NC}")
+    mid_ejected = np.sum(mid["EjectedGas"])
+    assert mid_ejected > 0, "gas should be ejected at the reference efficiency"
+    windy_ejected = np.sum(windy["EjectedGas"])
+    assert (
+        windy_ejected > mid_ejected
+    ), f"a higher efficiency should eject more gas ({windy_ejected:.4g} vs {mid_ejected:.4g})"
+    windy_bh = np.sum(windy["BlackHoleMass"])
+    assert (
+        windy_bh < mid_bh
+    ), f"a higher efficiency should leave less black-hole mass ({windy_bh:.4g} vs {mid_bh:.4g})"
 
 
 def main():
-    """Main test runner"""
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: {Path(__file__).name}{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
     tests = [
-        test_module_pipeline_integration,
         test_quasar_physics_correctness,
-        test_disk_instability_trigger,
-        test_merger_trigger,
         test_parameter_sensitivity,
-        test_memory_and_performance,
     ]
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    try:
+        return run_test_suite(tests, "sage26_quasar_mode Integration Tests")
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

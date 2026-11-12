@@ -1,35 +1,22 @@
 /**
  * @file    test_unit_sage_apply_cooling.c
- * @brief   Software quality unit tests for sage_apply_cooling module
+ * @brief   Unit tests for sage_apply_cooling module
  *
- * Validates: Module lifecycle, memory safety, error handling, cooling physics
- *
- * This test validates software engineering aspects of the sage_apply_cooling module:
- * - Module registration and initialization
- * - Memory allocation and cleanup (no leaks)
- * - Null pointer safety
- * - Property access patterns
- * - Cooling gas transfer (partial and complete)
- * - Metallicity preservation during gas transfer
- * - Cooling energy tracking
- * - Edge cases (Type 2 orphans, zero cooling, NULL galaxy, invalid ngal)
+ * Validates: the cooling transfer from the hot to the cold reservoir with its metals, the cooling
+ * energy it accumulates (0.5 m Vvir^2 / dT, none for a non-positive dT), and the edge cases
+ * (Type 2 orphans, zero mass, NULL galaxy, invalid ngal).
  *
  * Test cases:
- *   - test_module_registration: Module registers correctly
- *   - test_module_initialization: Module init/cleanup lifecycle
- *   - test_memory_safety: No memory leaks during operation
- *   - test_property_access: Galaxy property access works correctly
- *   - test_physics_partial_cooling: Partial hot gas cooling (coolingGas < HotGas)
- *   - test_physics_complete_depletion: Complete hot gas depletion (coolingGas >= HotGas)
- *   - test_physics_metallicity_preservation: Metallicity preserved during transfer
- *   - test_physics_cooling_energy_tracking: Cooling energy calculated correctly
- *   - test_zero_cooling: Edge case with zero CoolingGas
+ *   - test_module_initialization: the module initialises with its predecessor placed and leaks
+ *     nothing
+ *   - test_physics_cooling_transfer: partial cooling (hot and cold metallicity differ or agree),
+ *     complete depletion and the coolingGas == HotGas boundary, gas and metals
+ *   - test_physics_cooling_energy_tracking: Cooling accumulates 0.5 m Vvir^2 / dT, and a
+ *     non-positive dT (a newly formed halo) adds none while the gas still moves
+ *   - test_zero_cooling: zero CoolingGas moves no gas and adds no Cooling
  *   - test_type2_orphan_cools: Type 2 orphans cool their own hot gas (SAGE parity)
  *   - test_null_galaxy: NULL galaxy handled gracefully
  *   - test_invalid_ngal: Error when ngal != 1
- *
- * @author  Mimic Development Team
- * @date    2025-12-18
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -43,27 +30,13 @@
 #include "util/memory.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
 
 /* External module interface for direct testing */
-extern int sage_apply_cooling_init(void);
 extern int sage_apply_cooling_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
-extern int sage_apply_cooling_cleanup(void);
-
-/* Test fixtures for physics tests */
-
-/**
- * @brief Initialize sage_apply_cooling module for physics testing
- *
- * Sets up minimal module state without full module system.
- * Module has no init-time parameters to configure.
- */
-static void setup_module_for_physics_test(void) { sage_apply_cooling_init(); }
 
 /**
  * @brief Create a test halo with galaxy for physics tests
@@ -91,31 +64,10 @@ static struct Halo create_test_halo(int type, float mvir, float vvir) {
 }
 
 /**
- * @test    test_module_registration
- * @brief   Test that sage_apply_cooling module registers correctly
- *
- * Expected: Module registration succeeds without errors
- * Validates: sage_apply_cooling_register() works, module appears in registry
- */
-int test_module_registration(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-
-  /* ===== EXECUTE ===== */
-  ensure_modules_registered();
-
-  /* ===== VALIDATE ===== */
-  /* If we got here without crashing, registration succeeded */
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_module_initialization
- * @brief   Test module initialization and cleanup lifecycle
+ * @brief   The module initialises with sage_calculate_cooling_budget placed before it
  *
- * Expected: Module init and cleanup succeed without errors or leaks
- * Validates: Module lifecycle management
+ * Expected: module_system_init succeeds for that placement, and init and cleanup leak nothing
  */
 int test_module_initialization(void) {
   /* ===== SETUP ===== */
@@ -148,258 +100,81 @@ int test_module_initialization(void) {
 }
 
 /**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during normal operation
+ * @test    test_physics_cooling_transfer
+ * @brief   The cooled mass moves from the hot to the cold reservoir, metals with it
  *
- * Expected: No memory leaks after init, process, cleanup cycle
- * Validates: Memory management in module
+ * Expected: below the hot reservoir the mass moves at the hot gas's metallicity (so a hot Z that
+ * differs from the cold Z shows which reservoir's Z is used); at or above it the whole hot
+ * reservoir moves, metals included, and the hot metals are exactly zero. The coolingGas == HotGas
+ * row pins the strict comparison: only the whole-reservoir branch zeroes the hot metals exactly,
+ * where the partial branch leaves a rounding residue of about 1e-17.
+ * Values are hand-computed from the inputs; the 0.001 tolerance covers the float reservoirs.
  */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  reset_config();
+int test_physics_cooling_transfer(void) {
+  static const struct {
+    const char *what;
+    float hot, metals_hot, cold, metals_cold, cooling_gas;
+    double exp_hot, exp_metals_hot, exp_cold, exp_metals_cold;
+  } rows[] = {
+      /* Z_hot = Z_cold = 0.02: 10 - 3, 0.14 = 7 * 0.02, 0.1 + 3 * 0.02 */
+      {"partial cooling, equal metallicities", 10.0f, 0.2f, 5.0f, 0.1f, 3.0f, 7.0, 0.14, 8.0, 0.16},
+      /* Z_hot = 0.05, Z_cold = 0.02: 0.75 = 15 * 0.05 stays hot, 0.2 + 5 * 0.05 goes cold */
+      {"partial cooling, hot Z above cold Z", 20.0f, 1.0f, 10.0f, 0.2f, 5.0f, 15.0, 0.75, 15.0,
+       0.45},
+      /* coolingGas 10 exceeds HotGas 5: all 5 moves, with its 0.1 metals; 0.06 + 0.1 */
+      {"complete depletion", 5.0f, 0.1f, 3.0f, 0.06f, 10.0f, 0.0, 0.0, 8.0, 0.16},
+      /* coolingGas == HotGas 7: the whole-reservoir branch, hot metals exactly 0. The partial
+       * branch would leave 0.11f - (0.11f / 7.0f) * 7.0 = about 1e-17 of metals (with or without a
+       * fused multiply-add), so only the strict comparison empties them */
+      {"coolingGas equal to HotGas", 7.0f, 0.11f, 2.0f, 0.04f, 7.0f, 0.0, 0.0, 9.0, 0.15},
+  };
+
   init_memory_system(0);
-  ensure_modules_registered();
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    struct Halo test_halo = create_test_halo(0, 100.0, 160.0);
+    test_halo.galaxy->HotGas = rows[k].hot;
+    test_halo.galaxy->MetalsHotGas = rows[k].metals_hot;
+    test_halo.galaxy->ColdGas = rows[k].cold;
+    test_halo.galaxy->MetalsColdGas = rows[k].metals_cold;
+    test_halo.galaxy->CoolingGas = rows[k].cooling_gas;
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
 
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
+    TEST_ASSERT(sage_apply_cooling_process(&ctx, &test_halo, 1) == 0,
+                "Module processing should succeed");
+    printf("\n  %s: hot %g / %g, cold %g / %g", rows[k].what, (double)test_halo.galaxy->HotGas,
+           (double)test_halo.galaxy->MetalsHotGas, (double)test_halo.galaxy->ColdGas,
+           (double)test_halo.galaxy->MetalsColdGas);
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, rows[k].exp_hot, 0.001,
+                             "HotGas loses the cooled mass");
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->ColdGas, rows[k].exp_cold, 0.001,
+                             "ColdGas gains the cooled mass");
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsHotGas, rows[k].exp_metals_hot, 0.001,
+                             "MetalsHotGas keeps the hot metallicity");
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsColdGas, rows[k].exp_metals_cold, 0.001,
+                             "MetalsColdGas gains the cooled mass at the hot metallicity");
+    if (rows[k].cooling_gas >= rows[k].hot) {
+      TEST_ASSERT(test_halo.galaxy->HotGas == 0.0f && test_halo.galaxy->MetalsHotGas == 0.0f,
+                  "a whole-reservoir transfer empties the hot gas and its metals exactly");
+    }
+    free_test_halo(&test_halo);
+  }
 
-  /* Configure required predecessor: sage_calculate_cooling_budget before sage_apply_cooling */
-  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  /* ===== EXECUTE ===== */
-  int result = module_system_init();
-  TEST_ASSERT(result == 0, "Module initialization should succeed");
-
-  /* ===== VALIDATE ===== */
-  /* Module initialized successfully without memory leaks */
-
-  /* ===== CLEANUP ===== */
-  module_system_cleanup();
   check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_property_access
- * @brief   Test that module can safely access galaxy properties
- *
- * Expected: Property access doesn't crash, handles zero/null gracefully
- * Validates: Property access patterns in module
- */
-int test_property_access(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Create test halo and galaxy */
-  struct Halo test_halo;
-  memset(&test_halo, 0, sizeof(test_halo));
-
-  struct GalaxyData test_galaxy;
-  memset(&test_galaxy, 0, sizeof(test_galaxy));
-
-  /* Set some realistic values */
-  test_halo.Mvir = 100.0; /* 10^12 Msun/h */
-  test_halo.Vvir = 160.0; /* km/s */
-  test_halo.Type = 0;     /* Central */
-  test_halo.SnapNum = 63;
-  test_halo.dT = 100.0;
-  test_halo.galaxy = &test_galaxy;
-
-  test_galaxy.CoolingGas = 2.0;
-  test_galaxy.HotGas = 15.0;
-  test_galaxy.MetalsHotGas = 0.3;
-  test_galaxy.ColdGas = 5.0;
-  test_galaxy.MetalsColdGas = 0.1;
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(test_halo.galaxy != NULL, "Galaxy pointer should be accessible");
-  TEST_ASSERT(test_galaxy.CoolingGas >= 0.0, "CoolingGas should be non-negative");
-  TEST_ASSERT(test_galaxy.HotGas >= 0.0, "HotGas should be non-negative");
-  TEST_ASSERT(test_galaxy.ColdGas >= 0.0, "ColdGas should be non-negative");
-
-  /* Test with zero values (edge case) */
-  struct GalaxyData zero_galaxy;
-  memset(&zero_galaxy, 0, sizeof(zero_galaxy));
-  TEST_ASSERT(zero_galaxy.HotGas == 0.0, "Zero-initialized galaxy should have HotGas=0");
-  TEST_ASSERT(zero_galaxy.CoolingGas == 0.0, "Zero-initialized galaxy should have CoolingGas=0");
-
-  /* ===== CLEANUP ===== */
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_physics_partial_cooling
- * @brief   Test partial hot gas cooling (coolingGas < HotGas)
- *
- * Expected: CoolingGas transferred from hot to cold, metallicity preserved
- * Validates: Partial cooling transfer logic
- */
-int test_physics_partial_cooling(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  setup_module_for_physics_test();
-
-  struct Halo test_halo = create_test_halo(0, 100.0, 160.0); /* Type 0 central */
-
-  /* Initial state: HotGas=10.0, Metals=0.2 (Z=0.02), ColdGas=5.0, Metals=0.1 (Z=0.02) */
-  test_halo.galaxy->HotGas = 10.0f;
-  test_halo.galaxy->MetalsHotGas = 0.2f;
-  test_halo.galaxy->ColdGas = 5.0f;
-  test_halo.galaxy->MetalsColdGas = 0.1f;
-  test_halo.galaxy->CoolingGas = 3.0f; /* Cool 3.0 out of 10.0 */
-
-  /* Create module context */
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-
-  /* ===== EXECUTE ===== */
-  int result = sage_apply_cooling_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module processing should succeed");
-
-  /* HotGas should be reduced: 10.0 - 3.0 = 7.0 */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, 7.0, 0.001,
-                           "HotGas should be 10.0 - 3.0 = 7.0");
-
-  /* ColdGas should increase: 5.0 + 3.0 = 8.0 */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->ColdGas, 8.0, 0.001,
-                           "ColdGas should be 5.0 + 3.0 = 8.0");
-
-  /* Hot metallicity preserved: 7.0 * 0.02 = 0.14 */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsHotGas, 0.14, 0.001,
-                           "MetalsHotGas should be 7.0 * 0.02 = 0.14");
-
-  /* Cold metallicity: (0.1 + 3.0*0.02) = 0.16 */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsColdGas, 0.16, 0.001,
-                           "MetalsColdGas should be 0.1 + 0.06 = 0.16");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  sage_apply_cooling_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_physics_complete_depletion
- * @brief   Test complete hot gas depletion (coolingGas >= HotGas)
- *
- * Expected: All HotGas transferred to ColdGas
- * Validates: Complete depletion logic
- */
-int test_physics_complete_depletion(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  setup_module_for_physics_test();
-
-  struct Halo test_halo = create_test_halo(0, 100.0, 160.0);
-
-  /* Initial state */
-  test_halo.galaxy->HotGas = 5.0f;
-  test_halo.galaxy->MetalsHotGas = 0.1f; /* Z = 0.02 */
-  test_halo.galaxy->ColdGas = 3.0f;
-  test_halo.galaxy->MetalsColdGas = 0.06f;
-  test_halo.galaxy->CoolingGas = 10.0f; /* Exceeds available HotGas */
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-
-  /* ===== EXECUTE ===== */
-  int result = sage_apply_cooling_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module processing should succeed");
-
-  /* HotGas should be depleted */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, 0.0, 0.001,
-                           "HotGas should be depleted to 0.0");
-
-  /* ColdGas should have all hot gas: 3.0 + 5.0 = 8.0 */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->ColdGas, 8.0, 0.001,
-                           "ColdGas should be 3.0 + 5.0 = 8.0");
-
-  /* Hot metals should be depleted */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsHotGas, 0.0, 0.001,
-                           "MetalsHotGas should be 0.0");
-
-  /* Cold metals: 0.06 + 0.1 = 0.16 */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsColdGas, 0.16, 0.001,
-                           "MetalsColdGas should be 0.06 + 0.1 = 0.16");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  sage_apply_cooling_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_physics_metallicity_preservation
- * @brief   Test that metallicity is preserved during gas transfer
- *
- * Expected: Metallicity ratio preserved in both reservoirs
- * Validates: Correct metallicity handling
- */
-int test_physics_metallicity_preservation(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  setup_module_for_physics_test();
-
-  struct Halo test_halo = create_test_halo(0, 100.0, 160.0);
-
-  /* Initial state with higher metallicity (Z=0.05) */
-  test_halo.galaxy->HotGas = 20.0f;
-  test_halo.galaxy->MetalsHotGas = 1.0f; /* Z = 0.05 */
-  test_halo.galaxy->ColdGas = 10.0f;
-  test_halo.galaxy->MetalsColdGas = 0.2f; /* Z = 0.02 */
-  test_halo.galaxy->CoolingGas = 5.0f;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-
-  /* ===== EXECUTE ===== */
-  int result = sage_apply_cooling_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module processing should succeed");
-
-  /* Check hot reservoir metallicity preserved: Z_hot = 0.75 / 15.0 = 0.05 */
-  double z_hot = test_halo.galaxy->MetalsHotGas / test_halo.galaxy->HotGas;
-  TEST_ASSERT_DOUBLE_EQUAL(z_hot, 0.05, 0.0001, "Hot gas metallicity should be preserved at 0.05");
-
-  /* Check cold reservoir received correct metals: 0.2 + 5.0*0.05 = 0.45 */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsColdGas, 0.45, 0.001,
-                           "Cold metals should be 0.2 + 0.25 = 0.45");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  sage_apply_cooling_cleanup();
-  check_memory_leaks();
-
   return TEST_PASS;
 }
 
 /**
  * @test    test_physics_cooling_energy_tracking
- * @brief   Test that cooling energy is tracked correctly
+ * @brief   Cooling accumulates the cooling energy 0.5 m Vvir^2 / dT, and only for a positive dT
  *
- * Expected: Cooling property tracks energy: E = 0.5 * m * v^2 / dt
- * Validates: Cooling energy calculation
+ * Expected: 3.0 cooled at Vvir 160 over dT 100 adds 0.5 * 3 * 160^2 / 100 = 384; a second call
+ * of mass 1.0 accumulates 128 more; with dT -1 (the sentinel of a halo with no progenitor) the
+ * gas still moves but no energy is added. Every value is exact in double precision.
  */
 int test_physics_cooling_energy_tracking(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
 
   struct Halo test_halo = create_test_halo(0, 100.0, 160.0);
   test_halo.dT = 100.0; /* Time interval in Myr */
@@ -414,20 +189,32 @@ int test_physics_cooling_energy_tracking(void) {
   struct ModuleContext ctx;
   memset(&ctx, 0, sizeof(ctx));
 
-  /* ===== EXECUTE ===== */
-  int result = sage_apply_cooling_process(&ctx, &test_halo, 1);
+  /* ===== EXECUTE AND VALIDATE ===== */
+  TEST_ASSERT(sage_apply_cooling_process(&ctx, &test_halo, 1) == 0,
+              "Module processing should succeed");
+  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->Cooling, 384.0, 1e-9,
+                           "Cooling should be 0.5 * 3.0 * 160^2 / 100 = 384");
 
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module processing should succeed");
+  /* A second call accumulates onto the first */
+  test_halo.galaxy->CoolingGas = 1.0;
+  TEST_ASSERT(sage_apply_cooling_process(&ctx, &test_halo, 1) == 0,
+              "Module processing should succeed");
+  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->Cooling, 384.0 + 128.0, 1e-9,
+                           "Cooling should accumulate over calls");
 
-  /* Expected cooling energy: 0.5 * 3.0 * 160^2 / 100.0 = 384.0 */
-  double expected_cooling = 0.5 * 3.0 * 160.0 * 160.0 / 100.0;
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->Cooling, expected_cooling, 0.1,
-                           "Cooling energy should match expected value");
+  /* A non-positive dT adds no energy, but the gas still cools */
+  const float cold_before = test_halo.galaxy->ColdGas;
+  test_halo.dT = -1.0;
+  test_halo.galaxy->CoolingGas = 2.0;
+  TEST_ASSERT(sage_apply_cooling_process(&ctx, &test_halo, 1) == 0,
+              "Module processing should succeed");
+  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->Cooling, 384.0 + 128.0, 1e-9,
+                           "A non-positive dT adds no Cooling energy");
+  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->ColdGas, cold_before + 2.0, 0.001,
+                           "The gas still moves to the cold reservoir");
 
   /* ===== CLEANUP ===== */
   free_test_halo(&test_halo);
-  sage_apply_cooling_cleanup();
   check_memory_leaks();
 
   return TEST_PASS;
@@ -437,13 +224,12 @@ int test_physics_cooling_energy_tracking(void) {
  * @test    test_zero_cooling
  * @brief   Test edge case with zero CoolingGas
  *
- * Expected: No changes to gas reservoirs
+ * Expected: No changes to the gas reservoirs, their metals or Cooling
  * Validates: Zero cooling handling
  */
 int test_zero_cooling(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
 
   struct Halo test_halo = create_test_halo(0, 100.0, 160.0);
 
@@ -453,6 +239,7 @@ int test_zero_cooling(void) {
   test_halo.galaxy->ColdGas = 5.0f;
   test_halo.galaxy->MetalsColdGas = 0.1f;
   test_halo.galaxy->CoolingGas = 0.0f; /* Zero cooling */
+  test_halo.galaxy->Cooling = -55.0;
 
   struct ModuleContext ctx;
   memset(&ctx, 0, sizeof(ctx));
@@ -464,10 +251,12 @@ int test_zero_cooling(void) {
   TEST_ASSERT(result == 0, "Module processing should succeed");
   TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, 10.0, 0.001, "HotGas should be unchanged");
   TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->ColdGas, 5.0, 0.001, "ColdGas should be unchanged");
+  TEST_ASSERT(test_halo.galaxy->MetalsHotGas == 0.2f && test_halo.galaxy->MetalsColdGas == 0.1f,
+              "Metals should be unchanged");
+  TEST_ASSERT(test_halo.galaxy->Cooling == -55.0, "Zero mass should add no Cooling energy");
 
   /* ===== CLEANUP ===== */
   free_test_halo(&test_halo);
-  sage_apply_cooling_cleanup();
   check_memory_leaks();
 
   return TEST_PASS;
@@ -484,7 +273,6 @@ int test_zero_cooling(void) {
 int test_type2_orphan_cools(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
 
   struct Halo orphan = create_test_halo(2, 0.0, 0.0); /* Type 2 orphan */
   orphan.galaxy->HotGas = 5.0f;
@@ -508,7 +296,6 @@ int test_type2_orphan_cools(void) {
 
   /* ===== CLEANUP ===== */
   free_test_halo(&orphan);
-  sage_apply_cooling_cleanup();
   check_memory_leaks();
 
   return TEST_PASS;
@@ -524,7 +311,6 @@ int test_type2_orphan_cools(void) {
 int test_null_galaxy(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
 
   struct Halo test_halo;
   memset(&test_halo, 0, sizeof(test_halo));
@@ -541,7 +327,6 @@ int test_null_galaxy(void) {
   TEST_ASSERT(result == 0, "Module should handle NULL galaxy gracefully");
 
   /* ===== CLEANUP ===== */
-  sage_apply_cooling_cleanup();
   check_memory_leaks();
 
   return TEST_PASS;
@@ -557,7 +342,6 @@ int test_null_galaxy(void) {
 int test_invalid_ngal(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
-  setup_module_for_physics_test();
 
   struct Halo halos[2];
   halos[0] = create_test_halo(0, 100.0, 160.0);
@@ -575,7 +359,6 @@ int test_invalid_ngal(void) {
   /* ===== CLEANUP ===== */
   free_test_halo(&halos[0]);
   free_test_halo(&halos[1]);
-  sage_apply_cooling_cleanup();
   check_memory_leaks();
 
   return TEST_PASS;
@@ -584,7 +367,7 @@ int test_invalid_ngal(void) {
 /**
  * @brief   Main test runner
  *
- * Executes all sage_apply_cooling software quality tests and reports results.
+ * Executes all sage_apply_cooling unit tests and reports results.
  */
 int main(void) {
   printf("%s", BLUE);
@@ -597,13 +380,8 @@ int main(void) {
   initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
 
   /* Run all test cases */
-  TEST_RUN(test_module_registration);
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_memory_safety);
-  TEST_RUN(test_property_access);
-  TEST_RUN(test_physics_partial_cooling);
-  TEST_RUN(test_physics_complete_depletion);
-  TEST_RUN(test_physics_metallicity_preservation);
+  TEST_RUN(test_physics_cooling_transfer);
   TEST_RUN(test_physics_cooling_energy_tracking);
   TEST_RUN(test_zero_cooling);
   TEST_RUN(test_type2_orphan_cools);

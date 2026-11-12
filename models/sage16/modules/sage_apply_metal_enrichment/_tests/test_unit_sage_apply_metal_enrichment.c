@@ -5,32 +5,27 @@
  * Validates the instantaneous-recycling disk-SF metal yield in isolation using
  * minimal mocks. The module runs process_by_galaxy (one galaxy at a time, ngal=1)
  * and ejects metals into the FOF central supplied through ctx->central_galaxy, so
- * physics tests process a satellite (&halos[1], 1) with a distinct central.
+ * physics tests process a satellite (&halos[1], 1) with a distinct central. Its ordering
+ * refusals (after the SF/SN apply step and after starburst) are in
+ * models/sage16/modules/_tests/test_unit_sage_dependency_contracts.c.
  *
  * Test cases:
- *   - test_module_registration: module registers without error
- *   - test_init_valid: init/cleanup lifecycle succeeds with valid parameters
- *   - test_init_rejects_sf_after: init fails when the SF/SN apply step is ordered after it
- *   - test_init_rejects_starburst_after: init fails when starburst is ordered after it
- *   - test_physics_cold_gas_above_threshold: yield split between disk and ejected reservoirs
- *   - test_physics_cold_gas_below_threshold: full yield ejected to the central hot halo
- *   - test_consumes_new_stellar_mass: NewStellarMass is zeroed after application
+ *   - test_physics_cold_gas_above_threshold: yield split between disk and ejected reservoirs by
+ *     the Krumholz & Dekel factor of a non-zero FracZleaveDisk, and NewStellarMass is consumed
+ *   - test_physics_cold_gas_threshold_branches: the retained or all-metals branch by ColdGas
+ *     against the 1e-8 threshold, with ColdGas 0, at the boundary and just above it
  *   - test_zero_new_stellar_mass: no metals added when there are no new stars
- *   - test_null_galaxy: NULL galaxy handled gracefully
- *   - test_null_central: missing FOF central handled gracefully
- *   - test_invalid_ngal: error when ngal != 1
+ *   - test_invalid_inputs: a NULL galaxy, a missing FOF central and ngal != 1 leave the state
+ *     unchanged, the last with an error
  */
 
 #include <math.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "../../../../tests/framework/test_framework.h"
-#include "../../../../tests/framework/test_phase_config.h"
 
 #include "core/module_interface.h"
-#include "core/module_registry.h"
 #include "include/globals.h"
 #include "include/types.h"
 #include "shared/sage_constants.h"
@@ -70,76 +65,6 @@ static struct Halo create_test_halo(int type, double mvir, struct GalaxyData *ga
 }
 
 /**
- * @test    test_module_registration
- * @brief   Module registers correctly
- */
-int test_module_registration(void) {
-  reset_config();
-  ensure_modules_registered();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_init_valid
- * @brief   init/cleanup lifecycle succeeds with valid parameters and no predecessors
- */
-int test_init_valid(void) {
-  reset_config();
-  init_memory_system(0);
-  set_test_model_parameters();
-
-  /* No SF/SN or starburst modules configured, so the ordering checks are skipped. */
-  TEST_ASSERT(sage_apply_metal_enrichment_init() == 0, "init should succeed with valid parameters");
-
-  sage_apply_metal_enrichment_cleanup();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_init_rejects_sf_after
- * @brief   init fails when sage_apply_star_formation_supernova is ordered after this module
- */
-int test_init_rejects_sf_after(void) {
-  reset_config();
-  init_memory_system(0);
-  set_test_model_parameters();
-
-  /* Wrong order: the SF/SN apply step must precede the yield. */
-  test_phase_add("galaxy_physics", "sage_apply_metal_enrichment", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova",
-                 PROCESSING_MODE_BY_GALAXY);
-
-  TEST_ASSERT(sage_apply_metal_enrichment_init() == -1,
-              "init should reject SF/SN apply step ordered after the yield");
-
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_init_rejects_starburst_after
- * @brief   init fails when sage_starburst_feedback is ordered after this module
- */
-int test_init_rejects_starburst_after(void) {
-  reset_config();
-  init_memory_system(0);
-  set_test_model_parameters();
-
-  /* Wrong order: SAGE adds the disk yield after the disk-instability starburst. */
-  test_phase_add("galaxy_physics", "sage_apply_metal_enrichment", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_starburst_feedback", PROCESSING_MODE_BY_GALAXY);
-
-  TEST_ASSERT(sage_apply_metal_enrichment_init() == -1,
-              "init should reject starburst ordered after the yield");
-
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
  * @test    test_physics_cold_gas_above_threshold
  * @brief   Above the cold-gas threshold the yield splits between disk cold gas and the
  *          central hot halo, scaled by the Krumholz & Dekel ejection factor.
@@ -167,7 +92,7 @@ int test_physics_cold_gas_above_threshold(void) {
   ctx.central_galaxy = &halos[0];
 
   const double stars = 2.0;
-  const double frac_z_leave = TEST_FRAC_Z_LEAVE_DISK * exp(-30.0 / SAGE_METAL_EJECTION_MVIR_SCALE);
+  const double frac_z_leave = TEST_FRAC_Z_LEAVE_DISK * exp(-1.0); /* Mvir 30 over the scale 30 */
   const double expected_cold = TEST_YIELD * (1.0 - frac_z_leave) * stars;
   const double expected_hot = TEST_YIELD * frac_z_leave * stars;
 
@@ -178,76 +103,63 @@ int test_physics_cold_gas_above_threshold(void) {
               "disk metals should receive the retained yield");
   TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->MetalsHotGas, expected_hot, 1e-6),
               "central hot metals should receive the ejected yield");
+  TEST_ASSERT(halos[1].galaxy->NewStellarMass == 0.0,
+              "NewStellarMass is the per-substep transport field and must be consumed");
   check_memory_leaks();
   return TEST_PASS;
 }
 
 /**
- * @test    test_physics_cold_gas_below_threshold
- * @brief   At/below the cold-gas threshold the full yield is ejected to the central hot halo.
+ * @test    test_physics_cold_gas_threshold_branches
+ * @brief   ColdGas above 1e-8 keeps part of the yield in the disk and sends the rest to the
+ *          central hot halo; at or below it the whole yield goes to the central hot halo
+ *
+ * The central's Mvir is 0, so the Krumholz & Dekel factor is exactly FracZleaveDisk (0.3);
+ * 2 stars at Yield 0.03 give 0.06 of metals, of which 0.042 stay in the disk when the cold gas is
+ * above the threshold. float(1e-8) is 9.99999994e-9, below the double threshold 1e-8, so it is the
+ * all-metals branch; the next float, 1.00000008e-8, is above it. The metals fields are float32,
+ * hence the 1e-6 tolerance, far below the 0.018 that separates the branches.
  */
-int test_physics_cold_gas_below_threshold(void) {
+int test_physics_cold_gas_threshold_branches(void) {
+  const struct {
+    const char *name;
+    float cold_gas;
+    double disk_metals; /* the satellite's MetalsColdGas after the call */
+    double hot_metals;  /* the central's MetalsHotGas after the call */
+  } rows[] = {
+      {"ColdGas 0", 0.0f, 0.0, 0.06},
+      {"ColdGas at the 1e-8 threshold", 1.0e-8f, 0.0, 0.06},
+      {"ColdGas just above the 1e-8 threshold", 1.00000008e-8f, 0.042, 0.018},
+  };
+  int ok = 1;
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
   TEST_ASSERT(sage_apply_metal_enrichment_init() == 0, "init should succeed");
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    struct ModuleContext ctx = create_test_context();
+    struct GalaxyData cen_gal, sat_gal;
+    memset(&cen_gal, 0, sizeof(cen_gal));
+    memset(&sat_gal, 0, sizeof(sat_gal));
+    sat_gal.ColdGas = rows[k].cold_gas;
+    sat_gal.NewStellarMass = 2.0;
+    struct Halo halos[2] = {create_test_halo(0, 0.0, &cen_gal),
+                            create_test_halo(1, 10.0, &sat_gal)};
+    ctx.central_galaxy = &halos[0];
 
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal;
-  memset(&cen_gal, 0, sizeof(cen_gal));
-  struct Halo central = create_test_halo(0, 30.0, &cen_gal);
+    const int status = sage_apply_metal_enrichment_process(&ctx, &halos[1], 1);
 
-  struct GalaxyData sat_gal;
-  memset(&sat_gal, 0, sizeof(sat_gal));
-  sat_gal.ColdGas = 0.0; /* at/below SAGE_COLD_GAS_YIELD_THRESHOLD */
-  sat_gal.NewStellarMass = 2.0;
-  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
-
-  struct Halo halos[2] = {central, satellite};
-  ctx.central_galaxy = &halos[0];
-
-  const double expected_hot = TEST_YIELD * 2.0;
-
-  int result = sage_apply_metal_enrichment_process(&ctx, &halos[1], 1);
-
-  TEST_ASSERT(result == 0, "process should succeed");
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->MetalsColdGas, 0.0, 1e-9),
-              "disk metals should be untouched below the cold-gas threshold");
-  TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->MetalsHotGas, expected_hot, 1e-6),
-              "central hot metals should receive the full yield");
+    if (status != 0 || !FLOAT_EQ(sat_gal.MetalsColdGas, rows[k].disk_metals, 1e-6) ||
+        !FLOAT_EQ(cen_gal.MetalsHotGas, rows[k].hot_metals, 1e-6)) {
+      printf("\n  row '%s': status %d, disk metals %.9g (expected %.9g), central hot metals %.9g "
+             "(expected %.9g)",
+             rows[k].name, status, (double)sat_gal.MetalsColdGas, rows[k].disk_metals,
+             (double)cen_gal.MetalsHotGas, rows[k].hot_metals);
+      ok = 0;
+    }
+  }
   check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_consumes_new_stellar_mass
- * @brief   NewStellarMass is the per-substep transport field and must be zeroed after use.
- */
-int test_consumes_new_stellar_mass(void) {
-  reset_config();
-  init_memory_system(0);
-  set_test_model_parameters();
-  TEST_ASSERT(sage_apply_metal_enrichment_init() == 0, "init should succeed");
-
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData cen_gal;
-  memset(&cen_gal, 0, sizeof(cen_gal));
-  struct Halo central = create_test_halo(0, 30.0, &cen_gal);
-
-  struct GalaxyData sat_gal;
-  memset(&sat_gal, 0, sizeof(sat_gal));
-  sat_gal.ColdGas = 5.0;
-  sat_gal.NewStellarMass = 2.0;
-  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
-
-  struct Halo halos[2] = {central, satellite};
-  ctx.central_galaxy = &halos[0];
-
-  sage_apply_metal_enrichment_process(&ctx, &halos[1], 1);
-
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->NewStellarMass, 0.0, 1e-12),
-              "NewStellarMass should be consumed (zeroed)");
-  check_memory_leaks();
+  TEST_ASSERT(ok, "the yield must split by the ColdGas threshold in every row");
   return TEST_PASS;
 }
 
@@ -285,74 +197,56 @@ int test_zero_new_stellar_mass(void) {
 }
 
 /**
- * @test    test_null_galaxy
- * @brief   A halo with no galaxy is a no-op.
+ * @test    test_invalid_inputs
+ * @brief   A halo with no galaxy and a missing FOF central are no-ops that leave every field
+ *          unchanged, and process_by_galaxy's ngal != 1 is an error that does the same
+ *
+ * The missing-central row keeps NewStellarMass unconsumed: the module returns before consuming
+ * it, so no yield is lost or applied.
  */
-int test_null_galaxy(void) {
+int test_invalid_inputs(void) {
   reset_config();
   init_memory_system(0);
   set_test_model_parameters();
-  sage_apply_metal_enrichment_init();
+  TEST_ASSERT(sage_apply_metal_enrichment_init() == 0, "init should succeed");
 
   struct ModuleContext ctx = create_test_context();
   struct GalaxyData cen_gal;
   memset(&cen_gal, 0, sizeof(cen_gal));
   struct Halo central = create_test_halo(0, 30.0, &cen_gal);
+  struct GalaxyData central_in;
+  memcpy(&central_in, &cen_gal, sizeof(cen_gal));
+
+  /* No galaxy on the processed halo */
   struct Halo galaxyless = create_test_halo(1, 10.0, NULL);
-
   ctx.central_galaxy = &central;
-  int result = sage_apply_metal_enrichment_process(&ctx, &galaxyless, 1);
+  TEST_ASSERT(sage_apply_metal_enrichment_process(&ctx, &galaxyless, 1) == 0,
+              "NULL galaxy should be a graceful no-op");
+  TEST_ASSERT(memcmp(&cen_gal, &central_in, sizeof(cen_gal)) == 0,
+              "NULL galaxy: the central is unchanged");
 
-  TEST_ASSERT(result == 0, "NULL galaxy should be a graceful no-op");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_null_central
- * @brief   A missing FOF central (no ejection destination) is a no-op.
- */
-int test_null_central(void) {
-  reset_config();
-  init_memory_system(0);
-  set_test_model_parameters();
-  sage_apply_metal_enrichment_init();
-
-  struct ModuleContext ctx = create_test_context();
+  /* No FOF central */
   struct GalaxyData sat_gal;
   memset(&sat_gal, 0, sizeof(sat_gal));
   sat_gal.ColdGas = 5.0;
   sat_gal.NewStellarMass = 2.0;
   struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
-
+  struct GalaxyData sat_in;
+  memcpy(&sat_in, &sat_gal, sizeof(sat_gal));
   ctx.central_galaxy = NULL;
-  int result = sage_apply_metal_enrichment_process(&ctx, &satellite, 1);
+  TEST_ASSERT(sage_apply_metal_enrichment_process(&ctx, &satellite, 1) == 0,
+              "missing central should be a graceful no-op");
+  TEST_ASSERT(memcmp(&sat_gal, &sat_in, sizeof(sat_gal)) == 0,
+              "missing central: every field of the row is unchanged, NewStellarMass included");
 
-  TEST_ASSERT(result == 0, "missing central should be a graceful no-op");
-  TEST_ASSERT(FLOAT_EQ(satellite.galaxy->MetalsColdGas, 0.0, 1e-9),
-              "no metals applied without an ejection destination");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_invalid_ngal
- * @brief   process_by_galaxy expects ngal=1; anything else is an error.
- */
-int test_invalid_ngal(void) {
-  reset_config();
-  init_memory_system(0);
-  set_test_model_parameters();
-  sage_apply_metal_enrichment_init();
-
-  struct ModuleContext ctx = create_test_context();
-  struct GalaxyData gal;
-  memset(&gal, 0, sizeof(gal));
-  struct Halo halo = create_test_halo(0, 30.0, &gal);
-  ctx.central_galaxy = &halo;
-
-  TEST_ASSERT(sage_apply_metal_enrichment_process(&ctx, &halo, 2) == -1,
+  /* ngal != 1 */
+  struct Halo pair[2] = {create_test_halo(1, 10.0, &sat_gal), create_test_halo(0, 30.0, &cen_gal)};
+  ctx.central_galaxy = &pair[1];
+  TEST_ASSERT(sage_apply_metal_enrichment_process(&ctx, pair, 2) == -1,
               "ngal != 1 should return an error");
+  TEST_ASSERT(memcmp(&sat_gal, &sat_in, sizeof(sat_gal)) == 0 &&
+                  memcmp(&cen_gal, &central_in, sizeof(cen_gal)) == 0,
+              "ngal != 1: no galaxy is changed");
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -366,17 +260,10 @@ int main(void) {
 
   initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
 
-  TEST_RUN(test_module_registration);
-  TEST_RUN(test_init_valid);
-  TEST_RUN(test_init_rejects_sf_after);
-  TEST_RUN(test_init_rejects_starburst_after);
   TEST_RUN(test_physics_cold_gas_above_threshold);
-  TEST_RUN(test_physics_cold_gas_below_threshold);
-  TEST_RUN(test_consumes_new_stellar_mass);
+  TEST_RUN(test_physics_cold_gas_threshold_branches);
   TEST_RUN(test_zero_new_stellar_mass);
-  TEST_RUN(test_null_galaxy);
-  TEST_RUN(test_null_central);
-  TEST_RUN(test_invalid_ngal);
+  TEST_RUN(test_invalid_inputs);
 
   TEST_SUMMARY();
   return TEST_RESULT();

@@ -57,7 +57,7 @@ Other simulations, compilers and platforms are not measured against SAGE26.
 - `model_properties.yaml`: the package's galaxy property metadata: reservoirs, transport properties, SAGE26's diagnostics and outputs. Edit it when the galaxy state changes, then run `make MODEL=sage26 SIMULATION=<name> generate`.
 - `input/`: a run file for every supported simulation package, under both drivers: mini-Millennium, full Millennium, micro-Uchuu (L-Halo binary, HDF5 forests and ASCII trees), mini-Uchuu, full Uchuu and Shin-Uchuu. Every file configures the same pipeline and parameters.
 - `modules/`: the 26 runtime modules. Each has its own directory with C source, `module_info.yaml`, README and `_tests/` with its unit and integration tests.
-- `modules/_tests/`: the package's shared tests (processing-mode and dependency contracts, parameter refusals, mixed-interval timesteps), the shared test fixture header, the full-physics baseline input and its committed reference output.
+- `modules/_tests/`: the package's shared tests (processing-mode and dependency contracts, the central parameter-refusal and placement tables, mixed-interval timesteps), the shared test fixture header, and the full-physics baseline input with its committed reference output.
 - `shared/`: model-local helper headers (SAGE26's physics kernels, the keyed draw, constants), described in [`shared/README.md`](shared/README.md), with their unit tests in `shared/_tests/`. They are not framework APIs.
 - `plots/figures/`: the package's diagnostic figures for `mimic-plot.py`, and `plots/profiles/` the plot profiles (`default.yaml`).
 - `LICENSE-SAGE26`: SAGE26's MIT licence (see [Licence and Attribution](#licence-and-attribution)).
@@ -223,7 +223,7 @@ make MODEL=sage26 SIMULATION=mini-millennium tests-integration
 make MODEL=sage26 SIMULATION=mini-millennium tests-scientific
 ```
 
-The scientific tier compares a run of the complete pipeline on the committed test trees with the package's baseline under `modules/_tests/baseline/`; it belongs to the `mini-millennium` pair and reports not-applicable elsewhere. Model tests register in the default tiers only for the simulations in `FULL_MODEL_TEST_SIMULATIONS` (`scripts/discovery.py`); the horizontal packages' guard is the cross-format identity gate of `simulations/mini-millennium-horizontal/`, which runs `sage26` as one of its models.
+The scientific tier compares a run of the complete pipeline on the committed test trees with the package's baseline under `modules/_tests/baseline/`, and checks that the fresh output holds only finite values inside the ranges its property metadata declares; it belongs to the `mini-millennium` pair and reports not-applicable elsewhere. Model tests register in the default tiers only for the simulations in `FULL_MODEL_TEST_SIMULATIONS` (`scripts/discovery.py`); the horizontal packages' guard is the cross-format identity gate of `simulations/mini-millennium-horizontal/`, which runs `sage26` as one of its models.
 
 ## Extending sage26
 

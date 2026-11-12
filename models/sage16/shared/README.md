@@ -4,7 +4,7 @@ This directory contains helper APIs that are local to the SAGE model package. Th
 
 If another model needs similar behavior, copy or reimplement the helper in that model package and reconcile the property names, units, parameters, and tests there.
 
-Utility tests are registered in `shared/module_info.yaml`.
+Utility tests are registered in `shared/module_info.yaml`: `_tests/test_unit_metallicity.c` (`mimic_get_metallicity`) and `_tests/test_unit_time_parity.c` (`mimic_object_substep_dt` and `mimic_object_substep_time`, the status each input maps to).
 
 ## Available Helpers
 

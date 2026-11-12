@@ -37,5 +37,6 @@ Both are required with no default; a missing key or a value outside the accepted
 
 ## Tests
 
-- `_tests/test_unit_sage26_radio_mode_heating.c`: suppression, the Eddington cap, the `Rheat` ratchet and `Heating` accumulation, the off and empty cases, the parameter checks, and the `CGMrecipeOn 1` AGN helpers.
-- `_tests/test_integration_sage26_radio_mode_heating.py`: the module in a full run with `sage26_calculate_cooling_budget`, with physical-range and efficiency-monotonicity checks on the output.
+- `_tests/test_unit_sage26_radio_mode_heating.c`: suppression, the Eddington cap, the `Rheat` ratchet and `Heating` accumulation, the off and empty cases, and the `CGMrecipeOn 1` AGN helpers.
+- `_tests/test_integration_sage26_radio_mode_heating.py`: the module in a full run behind a pipeline that supplies gas, with a clean run, finiteness and range checks on the output and checks that `AGNrecipe 0` heats nothing and that `RadioModeEfficiency` changes `Heating` and `BlackHoleMass`.
+- The `AGNrecipe` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

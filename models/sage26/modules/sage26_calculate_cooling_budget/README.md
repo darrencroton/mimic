@@ -40,5 +40,6 @@ The transport properties are not output and reset once per snapshot. `tcool` and
 
 ## Tests
 
-- `_tests/test_unit_sage26_calculate_cooling_budget.c`: the cooling tables (loading and interpolation in temperature and metallicity, out-of-range inputs), registration and lifecycle, the carried state on each return path, the shared `CGMrecipeOn 1` cooling helpers, and the module's `CGMrecipeOn` handling and refusals.
-- `_tests/test_integration_sage26_calculate_cooling_budget.py`: `CGMrecipeOn 0` runs with the module alone, after the infall budget and in `pre_timestep`, checking that each succeeds, writes HDF5 output, leaks no memory and leaves `HotGas` finite and non-negative.
+- `_tests/test_unit_sage26_calculate_cooling_budget.c`: the cooling tables (loading and interpolation in temperature and metallicity, out-of-range inputs), registration and lifecycle, the carried state on each return path, the hot-halo cooling branches, and the `CGMrecipeOn 1` no-cooling transport. The shared `CGMrecipeOn 1` cooling helpers are tested in `../../shared/_tests/test_unit_sage_cooling_physics.c`.
+- `_tests/test_integration_sage26_calculate_cooling_budget.py`: a `CGMrecipeOn 0` run of the budget behind the infall chain, checking that `tcool` is positive exactly where a galaxy has hot gas and a virial velocity, that `tff` is `sqrt(2) tcool`, and the `tcool` unit conversion on orphans.
+- The `CGMrecipeOn` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

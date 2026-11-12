@@ -7,9 +7,20 @@ sage26_resolve_mergers_and_disruption -> module_emit_event() -> process_per_even
 the written merger timestamps (SAGE26's lookback times times UnitTime_in_Megayears, the
 never-merged -1 included), and the bound SAGE26's arithmetic puts on the merger
 transaction's bulge writes.
+
+Test cases:
+  - test_quasar_consumer_receives_merger_events: removing the quasar consumer removes
+    merger-driven black-hole growth (base run against the no-quasar run)
+  - test_starburst_consumer_receives_merger_events: removing the burst consumer removes
+    merger-driven bulge growth and burst star formation (base run against the no-burst run)
+  - test_merger_bulge_bound: BulgeMass <= StellarMass exactly on the bound run
+  - test_written_merger_timestamps: the written timestamps on the bound run are float(t * factor)
+    for a substep midpoint lookback time t
+
+Each of the four configurations (base, no quasar, no burst, bound) runs once and is shared
+between the cases that read it.
 """
 
-import shutil
 import sys
 from pathlib import Path
 
@@ -23,19 +34,11 @@ REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
-    BLUE,
-    GREEN,
     MIMIC_EXE,
-    NC,
-    RED,
+    SharedRuns,
     TestSkipped,
-    create_test_param_file,
     load_binary_halos,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
+    run_test_suite,
 )
 
 MERGER_MODEL_PARAMS = {
@@ -88,40 +91,35 @@ GALAXY_PHYSICS_MODULES = [
 ]
 
 
-def build_phase_config(
-    merger_mode="process_full_halo", enable_phase2_quasar=True, enable_phase2_starburst=True
-):
+def build_phase_config(quasar_consumer=True, starburst_consumer=True, galaxy_physics=None):
     """Build the smallest deterministic pipeline that exercises merger events."""
-    satellite_mergers = [("sage26_resolve_mergers_and_disruption", merger_mode)]
-    if enable_phase2_quasar:
+    satellite_mergers = [("sage26_resolve_mergers_and_disruption", "process_full_halo")]
+    if quasar_consumer:
         satellite_mergers.append(("sage26_quasar_mode", "process_per_event"))
-    if enable_phase2_starburst:
+    if starburst_consumer:
         satellite_mergers.append(("sage26_starburst_feedback", "process_per_event"))
 
     return {
         "pre_timestep": PRE_TIMESTEP_PHASE,
-        "galaxy_physics": GALAXY_PHYSICS_MODULES,
+        "galaxy_physics": GALAXY_PHYSICS_MODULES if galaxy_physics is None else galaxy_physics,
         "satellite_mergers": satellite_mergers,
         "post_timestep": [],
     }
 
 
-def run_merger_pipeline(
-    output_name,
-    merger_mode="process_full_halo",
-    enable_phase2_quasar=True,
-    enable_phase2_starburst=True,
-):
-    """Execute the immediate-merger pipeline on the standard test dataset."""
-    return create_test_param_file(
-        output_name=output_name,
-        phase_config=build_phase_config(
-            merger_mode=merger_mode,
-            enable_phase2_quasar=enable_phase2_quasar,
-            enable_phase2_starburst=enable_phase2_starburst,
-        ),
-        model_params=MERGER_MODEL_PARAMS,
-    )
+RUNS = SharedRuns()
+
+
+def merger_run(name, phase_config):
+    """Return the shared run `name` of MERGER_MODEL_PARAMS, asserting it succeeded
+
+    Skips the calling case when Mimic is not built.
+    """
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    run = RUNS.run(name, phase_config=phase_config, model_params=MERGER_MODEL_PARAMS)
+    assert run.returncode == 0, f"the {name} pipeline should succeed\nSTDERR: {run.stderr}"
+    return run
 
 
 def load_output_halos(output_dir):
@@ -164,6 +162,14 @@ BOUND_GALAXY_PHYSICS_MODULES = [
     if module[0]
     not in ("sage26_disk_instability", "sage26_quasar_mode", "sage26_starburst_feedback")
 ]
+
+# The four run configurations, one launch each
+BASE_PHASES = build_phase_config()
+NO_QUASAR_PHASES = build_phase_config(quasar_consumer=False)
+NO_STARBURST_PHASES = build_phase_config(starburst_consumer=False)
+BOUND_PHASES = build_phase_config(
+    starburst_consumer=False, galaxy_physics=BOUND_GALAXY_PHYSICS_MODULES
+)
 
 # SAGE26's never-merged timestamp, -1
 NEVER_MERGED = -1.0
@@ -223,15 +229,6 @@ def substep_event_times(param_file):
     return np.array(sorted(times)), substeps
 
 
-def run_bound_pipeline(output_name):
-    """Run the merger-bound pipeline; returns (param_file, output_dir, temp_dir)"""
-    phase_config = build_phase_config(enable_phase2_starburst=False)
-    phase_config["galaxy_physics"] = BOUND_GALAXY_PHYSICS_MODULES
-    return create_test_param_file(
-        output_name=output_name, phase_config=phase_config, model_params=MERGER_MODEL_PARAMS
-    )
-
-
 def merger_bulge_bound_holds(stellar, bulge):
     """SAGE26's arithmetic bound on the merger transaction's bulge writes: bulge <= stellar
 
@@ -266,165 +263,103 @@ def merger_bulge_bound_holds(stellar, bulge):
     return bulge <= stellar
 
 
-def test_invalid_processing_mode_rejected():
-    """Immediate merger handler must reject non-full-halo configuration at startup."""
-    param_file, output_dir, temp_dir = run_merger_pipeline(
-        output_name="merger_event_invalid_mode",
-        merger_mode="process_by_galaxy",
-    )
-
-    try:
-        returncode, stdout, stderr = run_mimic(param_file)
-        combined_output = stdout + stderr
-
-        assert returncode != 0, "Invalid processing mode should fail startup"
-        assert "does not support processing mode 'process_by_galaxy'" in combined_output
-        assert "Supported modes: process_full_halo" in combined_output
-    finally:
-        shutil.rmtree(temp_dir)
-
-
 def test_quasar_consumer_receives_merger_events():
     """Disabling the satellite_mergers quasar consumer must remove merger-driven BH growth."""
-    base_param_file, base_output_dir, base_temp_dir = run_merger_pipeline(
-        output_name="merger_event_quasar_base"
+    base = merger_run("merger_event_base", BASE_PHASES)
+    no_quasar = merger_run("merger_event_no_quasar", NO_QUASAR_PHASES)
+    base_halos = load_output_halos(base.output_dir)
+    no_quasar_halos = load_output_halos(no_quasar.output_dir)
+
+    common_ids, base_bh, no_quasar_bh = common_merger_field_values(
+        base_halos, no_quasar_halos, "BlackHoleMass"
     )
-    no_quasar_param_file, no_quasar_output_dir, no_quasar_temp_dir = run_merger_pipeline(
-        output_name="merger_event_quasar_disabled",
-        enable_phase2_quasar=False,
+    assert len(common_ids) >= 100, "Test dataset should produce merger remnants"
+
+    _, base_accretion, no_quasar_accretion = common_merger_field_values(
+        base_halos, no_quasar_halos, "QuasarModeBHaccretionMass"
     )
 
-    try:
-        returncode, stdout, stderr = run_mimic(base_param_file)
-        assert returncode == 0, f"Baseline merger pipeline should succeed\nSTDERR: {stderr}"
+    bh_delta = float(np.sum(base_bh - no_quasar_bh))
+    accretion_delta = float(np.sum(base_accretion - no_quasar_accretion))
 
-        returncode, stdout, stderr = run_mimic(no_quasar_param_file)
-        assert returncode == 0, (
-            "Comparison pipeline without satellite_mergers quasar consumer should succeed\n"
-            f"STDERR: {stderr}"
-        )
-
-        base_halos = load_output_halos(base_output_dir)
-        no_quasar_halos = load_output_halos(no_quasar_output_dir)
-
-        common_ids, base_bh, no_quasar_bh = common_merger_field_values(
-            base_halos, no_quasar_halos, "BlackHoleMass"
-        )
-        assert len(common_ids) >= 100, "Test dataset should produce merger remnants"
-
-        _, base_accretion, no_quasar_accretion = common_merger_field_values(
-            base_halos, no_quasar_halos, "QuasarModeBHaccretionMass"
-        )
-
-        bh_delta = float(np.sum(base_bh - no_quasar_bh))
-        accretion_delta = float(np.sum(base_accretion - no_quasar_accretion))
-
-        # ~0.05 M_sun/h total BH mass added across merger remnants in the test snapshot
-        assert (
-            bh_delta > 0.05
-        ), "satellite_mergers quasar consumer should increase remnant BH mass via merger events"
-        # ~0.002 M_sun/h total accretion recorded across merger remnants
-        assert (
-            accretion_delta > 0.002
-        ), "satellite_mergers quasar consumer should record merger-driven BH accretion"
-    finally:
-        shutil.rmtree(base_temp_dir)
-        shutil.rmtree(no_quasar_temp_dir)
+    # ~0.05 M_sun/h total BH mass added across merger remnants in the test snapshot
+    assert (
+        bh_delta > 0.05
+    ), "satellite_mergers quasar consumer should increase remnant BH mass via merger events"
+    # ~0.002 M_sun/h total accretion recorded across merger remnants
+    assert (
+        accretion_delta > 0.002
+    ), "satellite_mergers quasar consumer should record merger-driven BH accretion"
 
 
 def test_starburst_consumer_receives_merger_events():
     """Disabling the satellite_mergers starburst consumer must remove merger-driven bulge growth."""
-    base_param_file, base_output_dir, base_temp_dir = run_merger_pipeline(
-        output_name="merger_event_starburst_base"
+    base = merger_run("merger_event_base", BASE_PHASES)
+    no_starburst = merger_run("merger_event_no_starburst", NO_STARBURST_PHASES)
+    base_halos = load_output_halos(base.output_dir)
+    no_starburst_halos = load_output_halos(no_starburst.output_dir)
+
+    common_ids, base_bulge, no_starburst_bulge = common_merger_field_values(
+        base_halos, no_starburst_halos, "BulgeMass"
     )
-    no_starburst_param_file, no_starburst_output_dir, no_starburst_temp_dir = run_merger_pipeline(
-        output_name="merger_event_starburst_disabled",
-        enable_phase2_starburst=False,
+    assert len(common_ids) >= 100, "Test dataset should produce merger remnants"
+
+    _, base_stellar, no_starburst_stellar = common_merger_field_values(
+        base_halos, no_starburst_halos, "StellarMass"
+    )
+    _, base_cold_gas, no_starburst_cold_gas = common_merger_field_values(
+        base_halos, no_starburst_halos, "ColdGas"
     )
 
-    try:
-        returncode, stdout, stderr = run_mimic(base_param_file)
-        assert returncode == 0, f"Baseline merger pipeline should succeed\nSTDERR: {stderr}"
+    bulge_delta = float(np.sum(base_bulge - no_starburst_bulge))
+    stellar_delta = float(np.sum(base_stellar - no_starburst_stellar))
+    cold_gas_delta = float(np.sum(base_cold_gas - no_starburst_cold_gas))
 
-        returncode, stdout, stderr = run_mimic(no_starburst_param_file)
-        assert returncode == 0, (
-            "Comparison pipeline without satellite_mergers starburst consumer should succeed\n"
-            f"STDERR: {stderr}"
-        )
-
-        base_halos = load_output_halos(base_output_dir)
-        no_starburst_halos = load_output_halos(no_starburst_output_dir)
-
-        common_ids, base_bulge, no_starburst_bulge = common_merger_field_values(
-            base_halos, no_starburst_halos, "BulgeMass"
-        )
-        assert len(common_ids) >= 100, "Test dataset should produce merger remnants"
-
-        _, base_stellar, no_starburst_stellar = common_merger_field_values(
-            base_halos, no_starburst_halos, "StellarMass"
-        )
-        _, base_cold_gas, no_starburst_cold_gas = common_merger_field_values(
-            base_halos, no_starburst_halos, "ColdGas"
-        )
-
-        bulge_delta = float(np.sum(base_bulge - no_starburst_bulge))
-        stellar_delta = float(np.sum(base_stellar - no_starburst_stellar))
-        cold_gas_delta = float(np.sum(base_cold_gas - no_starburst_cold_gas))
-
-        # ~9 M_sun/h total bulge mass added across merger remnants in the test snapshot
-        assert (
-            bulge_delta > 5.0
-        ), "satellite_mergers starburst consumer should increase merger-remnant bulge mass"
-        # ~6.5 M_sun/h net stellar mass increase from burst star formation
-        assert (
-            stellar_delta > 5.0
-        ), "satellite_mergers starburst consumer should form additional stars in merger remnants"
-        # The burst net-consumes a few M_sun/h of cold gas. SAGE parity: the merger quasar
-        # wind (grow_black_hole -> quasar_mode_wind) fires before the starburst in SAGE26's
-        # deal_with_galaxy_merger and ejects some cold gas first, so the net cold-gas
-        # reduction attributable to the burst is a few M_sun/h (~-4.7 here).
-        assert (
-            cold_gas_delta < -3.0
-        ), "satellite_mergers starburst consumer should net-consume cold gas in merger remnants"
-    finally:
-        shutil.rmtree(base_temp_dir)
-        shutil.rmtree(no_starburst_temp_dir)
+    # ~9 M_sun/h total bulge mass added across merger remnants in the test snapshot
+    assert (
+        bulge_delta > 5.0
+    ), "satellite_mergers starburst consumer should increase merger-remnant bulge mass"
+    # ~6.5 M_sun/h net stellar mass increase from burst star formation
+    assert (
+        stellar_delta > 5.0
+    ), "satellite_mergers starburst consumer should form additional stars in merger remnants"
+    # The burst net-consumes a few M_sun/h of cold gas. SAGE parity: the merger quasar
+    # wind (grow_black_hole -> quasar_mode_wind) fires before the starburst in SAGE26's
+    # deal_with_galaxy_merger and ejects some cold gas first, so the net cold-gas
+    # reduction attributable to the burst is a few M_sun/h (~-4.7 here).
+    assert (
+        cold_gas_delta < -3.0
+    ), "satellite_mergers starburst consumer should net-consume cold gas in merger remnants"
 
 
 def test_merger_bulge_bound():
     """The merger transaction's bulge writes keep BulgeMass <= StellarMass exactly
 
-    Runs the merger-bound pipeline (see merger_bulge_bound_holds), which reaches the
-    merger transaction's bulge writes (every merger, and major mergers), and requires both bounds on every row, with major and minor mergers present
-    and the bound attained.
+    Runs the merger-bound pipeline (see merger_bulge_bound_holds), which reaches the merger
+    transaction's bulge writes (every merger, and major mergers), and requires both bounds on
+    every row, with major and minor mergers present and the bound attained.
     """
-    param_file, output_dir, temp_dir = run_bound_pipeline("merger_bulge_bound")
-    try:
-        returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Merger-bound pipeline should succeed\nSTDERR: {stderr}"
-        halos = load_output_halos(output_dir)
+    halos = load_output_halos(merger_run("merger_bound", BOUND_PHASES).output_dir)
 
-        never = np.float32(np.float32(NEVER_MERGED) * unit_time_in_megayears())
-        major = halos["TimeOfLastMajorMerger"] != never
-        minor = halos["TimeOfLastMinorMerger"] != never
-        assert np.count_nonzero(major) >= 10, "the pipeline should reach major mergers"
-        assert np.count_nonzero(minor) >= 10, "the pipeline should reach minor mergers"
+    never = np.float32(np.float32(NEVER_MERGED) * unit_time_in_megayears())
+    major = halos["TimeOfLastMajorMerger"] != never
+    minor = halos["TimeOfLastMinorMerger"] != never
+    assert np.count_nonzero(major) >= 10, "the pipeline should reach major mergers"
+    assert np.count_nonzero(minor) >= 10, "the pipeline should reach minor mergers"
 
-        stellar_ok = merger_bulge_bound_holds(halos["StellarMass"], halos["BulgeMass"])
-        metals_ok = merger_bulge_bound_holds(halos["MetalsStellarMass"], halos["MetalsBulgeMass"])
-        attained = (halos["BulgeMass"] == halos["StellarMass"]) & (halos["StellarMass"] > 0)
-        print(
-            f"  rows {len(halos)}, with a major merger {np.count_nonzero(major)}, with a minor "
-            f"merger {np.count_nonzero(minor)}; BulgeMass <= StellarMass violated "
-            f"{np.count_nonzero(~stellar_ok)}, MetalsBulgeMass <= MetalsStellarMass violated "
-            f"{np.count_nonzero(~metals_ok)}; bound attained (BulgeMass == StellarMass > 0) "
-            f"{np.count_nonzero(attained)}"
-        )
-        assert stellar_ok.all(), "BulgeMass must not exceed StellarMass"
-        assert metals_ok.all(), "MetalsBulgeMass must not exceed MetalsStellarMass"
-        assert np.count_nonzero(attained) >= 1, "major mergers should attain the bound"
-    finally:
-        shutil.rmtree(temp_dir)
+    stellar_ok = merger_bulge_bound_holds(halos["StellarMass"], halos["BulgeMass"])
+    metals_ok = merger_bulge_bound_holds(halos["MetalsStellarMass"], halos["MetalsBulgeMass"])
+    attained = (halos["BulgeMass"] == halos["StellarMass"]) & (halos["StellarMass"] > 0)
+    print(
+        f"  rows {len(halos)}, with a major merger {np.count_nonzero(major)}, with a minor "
+        f"merger {np.count_nonzero(minor)}; BulgeMass <= StellarMass violated "
+        f"{np.count_nonzero(~stellar_ok)}, MetalsBulgeMass <= MetalsStellarMass violated "
+        f"{np.count_nonzero(~metals_ok)}; bound attained (BulgeMass == StellarMass > 0) "
+        f"{np.count_nonzero(attained)}"
+    )
+    assert stellar_ok.all(), "BulgeMass must not exceed StellarMass"
+    assert metals_ok.all(), "MetalsBulgeMass must not exceed MetalsStellarMass"
+    assert np.count_nonzero(attained) >= 1, "major mergers should attain the bound"
 
 
 def test_written_merger_timestamps():
@@ -433,118 +368,68 @@ def test_written_merger_timestamps():
     A galaxy that never had a merger of a kind is written as float(-1 * factor); a merged
     one as float(t * factor) for its float lookback time t, a substep midpoint event time.
     """
-    param_file, output_dir, temp_dir = run_bound_pipeline("merger_timestamps")
-    try:
-        returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Merger pipeline should succeed\nSTDERR: {stderr}"
-        halos = load_output_halos(output_dir)
-        factor = unit_time_in_megayears()
-        never = np.float32(np.float64(np.float32(NEVER_MERGED)) * factor)
-        event_times, substeps = substep_event_times(param_file)
+    run = merger_run("merger_bound", BOUND_PHASES)
+    halos = load_output_halos(run.output_dir)
+    factor = unit_time_in_megayears()
+    never = np.float32(np.float64(np.float32(NEVER_MERGED)) * factor)
+    # create_test_param_file writes the run file beside its output directory, named after it
+    event_times, substeps = substep_event_times(run.output_dir.with_suffix(".yaml"))
+    print(
+        f"  UnitTime_in_Megayears = {factor!r} ({float(factor).hex()}); never merged "
+        f"written as {never!r} ({hex(never.view(np.uint32))})"
+    )
+
+    for field in ("TimeOfLastMajorMerger", "TimeOfLastMinorMerger"):
+        written = np.asarray(halos[field], dtype=np.float32)
+        never_rows = written == never
+        merged = written[~never_rows]
+        assert np.count_nonzero(never_rows) >= 1, f"{field}: some galaxy never merged"
+        assert len(merged) >= 10, f"{field}: the pipeline should reach mergers"
+        assert np.all(written[never_rows].view(np.uint32) == never.view(np.uint32))
+
+        # Each merged value is float(t * factor) for a float lookback time t: the
+        # float nearest written / factor, or a neighbour, reproduces it exactly
+        lookback = np.float32(merged.astype(np.float64) / factor)
+        candidates = [
+            lookback,
+            np.nextafter(lookback, np.float32(np.inf)),
+            np.nextafter(lookback, np.float32(-np.inf)),
+        ]
+        reproduced = np.zeros(len(merged), dtype=bool)
+        t = np.full(len(merged), np.nan)
+        for c in candidates:
+            hit = np.float32(c.astype(np.float64) * factor) == merged
+            t = np.where(hit & ~reproduced, c.astype(np.float64), t)
+            reproduced |= hit
+        assert reproduced.all(), f"{field}: a written value is not float(t * factor)"
+
+        # And t is a substep midpoint lookback time of the run
+        nearest = np.searchsorted(event_times, t)
+        lo = event_times[np.clip(nearest - 1, 0, len(event_times) - 1)]
+        hi = event_times[np.clip(nearest, 0, len(event_times) - 1)]
+        distance = np.minimum(np.abs(t - lo), np.abs(t - hi)) / t
         print(
-            f"  UnitTime_in_Megayears = {factor!r} ({float(factor).hex()}); never merged "
-            f"written as {never!r} ({hex(never.view(np.uint32))})"
+            f"  {field}: never merged {np.count_nonzero(never_rows)}, merged "
+            f"{len(merged)} with lookback t in [{t.min():.6g}, {t.max():.6g}] code units, "
+            f"written [{merged.min():.6g}, {merged.max():.6g}] Myr, largest relative "
+            f"distance to a substep midpoint ({substeps} substeps) {distance.max():.2e}"
         )
-
-        for field in ("TimeOfLastMajorMerger", "TimeOfLastMinorMerger"):
-            written = np.asarray(halos[field], dtype=np.float32)
-            never_rows = written == never
-            merged = written[~never_rows]
-            assert np.count_nonzero(never_rows) >= 1, f"{field}: some galaxy never merged"
-            assert len(merged) >= 10, f"{field}: the pipeline should reach mergers"
-            assert np.all(written[never_rows].view(np.uint32) == never.view(np.uint32))
-
-            # Each merged value is float(t * factor) for a float lookback time t: the
-            # float nearest written / factor, or a neighbour, reproduces it exactly
-            lookback = np.float32(merged.astype(np.float64) / factor)
-            candidates = [
-                lookback,
-                np.nextafter(lookback, np.float32(np.inf)),
-                np.nextafter(lookback, np.float32(-np.inf)),
-            ]
-            reproduced = np.zeros(len(merged), dtype=bool)
-            t = np.full(len(merged), np.nan)
-            for c in candidates:
-                hit = np.float32(c.astype(np.float64) * factor) == merged
-                t = np.where(hit & ~reproduced, c.astype(np.float64), t)
-                reproduced |= hit
-            assert reproduced.all(), f"{field}: a written value is not float(t * factor)"
-
-            # And t is a substep midpoint lookback time of the run
-            nearest = np.searchsorted(event_times, t)
-            lo = event_times[np.clip(nearest - 1, 0, len(event_times) - 1)]
-            hi = event_times[np.clip(nearest, 0, len(event_times) - 1)]
-            distance = np.minimum(np.abs(t - lo), np.abs(t - hi)) / t
-            print(
-                f"  {field}: never merged {np.count_nonzero(never_rows)}, merged "
-                f"{len(merged)} with lookback t in [{t.min():.6g}, {t.max():.6g}] code units, "
-                f"written [{merged.min():.6g}, {merged.max():.6g}] Myr, largest relative "
-                f"distance to a substep midpoint ({substeps} substeps) {distance.max():.2e}"
-            )
-            assert np.all(t > 0), f"{field}: a merged lookback time must be positive"
-            assert distance.max() < 1e-5, f"{field}: t is not a substep midpoint event time"
-    finally:
-        shutil.rmtree(temp_dir)
+        assert np.all(t > 0), f"{field}: a merged lookback time must be positive"
+        assert distance.max() < 1e-5, f"{field}: t is not a substep midpoint event time"
 
 
 def main():
     """Run the immediate merger event integration suite."""
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: {Path(__file__).name}{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
     tests = [
-        test_invalid_processing_mode_rejected,
         test_quasar_consumer_receives_merger_events,
         test_starburst_consumer_receives_merger_events,
         test_merger_bulge_bound,
         test_written_merger_timestamps,
     ]
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    try:
+        return run_test_suite(tests, Path(__file__).name)
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

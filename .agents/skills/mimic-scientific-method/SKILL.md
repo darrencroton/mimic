@@ -51,7 +51,7 @@ A tolerance is a claim about the noise floor; derive it, don't pick it to pass.
 |---|---|---|
 | Same code, same machine, deterministic path | bit-identical (rtol 0) | Nothing legitimate varies |
 | Committed baseline, same platform | rtol 1e-6, atol 1e-10 | Float storage ULP accumulation (framework defaults) |
-| Same baseline across platforms (macOS↔Linux) | rtol 1e-3 | Measured libm divergence ~7e-4 on the sage16 baseline — this is why CI sets `MIMIC_BASELINE_RTOL=1e-3`; it was measured, not chosen |
+| Same baseline across platforms (macOS↔Linux) | rtol 1e-3 | Measured libm divergence up to 5.5e-4 on the sage26 baseline (and 6.8e-4 on the sage16 baseline before its 2026-11-12 regeneration) — this is why CI sets `MIMIC_BASELINE_RTOL=1e-3`; it was measured, not chosen |
 | Exact conservation laws | ~1e-10 | Arithmetic roundoff only |
 | Approximate physical relations | ~1e-2 | Model discreteness (substeps, thresholds) |
 | Literature/observation comparison | ~0.5 (dex-scale) | Systematic uncertainty dominates |

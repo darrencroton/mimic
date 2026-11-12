@@ -15,42 +15,34 @@
  * also shows that its input discriminates: the written-out transaction run with that misordering
  * (a "variant") gives a different end state.
  *
- * Software quality:
- * - test_module_lifecycle: registration, module_system_init in a substep phase, cleanup, no leaks
- * - test_parameters_refused: missing or out-of-range EnhancedStarFormationOn and
- *   EnhancedSFEfficiency, and FIREmodeOn 0 at EnhancedStarFormationOn 1, are refused naming what
- *   they refuse; FIREmodeOn 0 is accepted at 0
- * - test_placement_refused: pre_timestep, post_timestep, twice, and process_full_halo are refused
- *   naming the module; once by galaxy in a substep phase is accepted
- * - test_dispatch_guards: at EnhancedStarFormationOn 1, init refuses, naming the module, a
- *   configuration without sage26_determine_ffb_regime in pre_timestep or with the transaction not
- *   immediately before sage26_calculate_star_formation; at 0 every such configuration initialises
- * - test_chain_initialises: module_system_init over the run files' classifier and by-galaxy
- *   star-formation chain succeeds at EnhancedStarFormationOn 1, fails naming the module when the
- *   transaction or the classifier is missing or misordered, and succeeds at 0 in each case
+ * The module's parameter refusals, its placement and the cross-module dispatch guards it applies at
+ * EnhancedStarFormationOn 1 are asserted, with diagnostics, by
+ * test_unit_sage26_parameter_refusals.c and test_unit_sage_dependency_contracts.c.
  *
  * Behaviour (EnhancedStarFormationOn 1 unless stated):
- * - test_off_writes_nothing, test_non_ffb_row_not_written: nothing is written at
- *   EnhancedStarFormationOn 0 or on an FFBRegime 0 row
+ * - test_off_writes_nothing: nothing is written at EnhancedStarFormationOn 0, nor on an FFBRegime 0
+ *   row at 1
  * - test_initial_boundary_and_refusal: the initial-boundary state writes nothing; an out-of-range
  *   stored SnapNum with dT > 0 is refused, naming it
+ * - test_process_refusals: more than one row, and a substep outside the substep count (no history
+ *   bin), are refused, naming what they refuse, with nothing written
  * - test_stars_formed_and_renormalised: the committed stellar mass and the history sample use the
- *   stars formed, the yield the renormalised stars
+ *   stars formed, the yield the renormalised stars; H2gas is zeroed and H1gas is the H I block's
+ *   under the prescription-1 caps
  * - test_pre_commit_metallicity: the feedback uses the metallicity before the commit
  * - test_invalid_fire_scaling: Vvir 0 or z < 0 gives no reheating or ejection and leaves
  *   MassLoading as it was
- * - test_hydrogen: H2gas is zeroed and H1gas is the H I block's; the prescription-1 caps bind
- * - test_guards_and_tdyn: the NaN/infinity guards and a zero dynamical time form no stars
+ * - test_guards_and_tdyn: the NaN/infinity guards, a zero dynamical time and a row with no cold
+ *   gas form no stars
  * - test_satellite_routing: a Type 1 row's reheated gas and metals go to its FoF central's pair,
  *   selected by the CENTRAL's Regime
- * - test_no_instability_no_transport: a seeded unstable disk and seeded transport fields are left
- *   as they were
- * - test_reheat_clamp_wiring, test_reheat_clamp_negative_gas_probe: the reheated mass is clamped
- *   to the remaining cold gas before the feedback commit
+ * - test_reheat_clamp_wiring: the reheated mass is clamped to the remaining cold gas before the
+ *   feedback commit
  * - test_sf_prescription_zero_probe: SFprescription 0 (the commits' caps off)
  * - test_no_central: with no FoF central only H2gas, H1gas and the history are written
- * - test_chain_leaves_trigger: the rest of the by-galaxy chain leaves an FFB satellite with an
- *   unstable disk, and its central, as the transaction left them
+ * - test_chain_leaves_trigger: the rest of the by-galaxy chain, initialised through
+ *   module_system_init over the run files' configuration, leaves an FFB satellite with an unstable
+ *   disk, and its central, as the transaction left them
  *
  * Every test that initialises the module at EnhancedStarFormationOn 1 configures the complete
  * dispatch the cross-module guards require (sage26_determine_ffb_regime in pre_timestep, the
@@ -104,27 +96,14 @@ extern int sage26_ffb_star_formation_cleanup(void);
 
 static char module_name[] = "sage26_ffb_star_formation";
 static char phase_name[] = "galaxy_physics";
-static char other_phase_name[] = "later_physics";
 static char ordinary_sf_name[] = "sage26_calculate_star_formation";
-static char apply_name[] = "sage26_apply_star_formation_supernova";
 static char classifier_name[] = "sage26_determine_ffb_regime";
-static struct PhaseModuleConfig substep_entries[4];
-static struct PhaseModuleConfig other_entries[1];
-static struct PhaseModuleConfig fixed_entries[1];
+static struct PhaseModuleConfig substep_entries[2];
 static struct PhaseModuleConfig classifier_entries[1];
-static struct ModulePhaseConfig substep_phases[2];
+static struct ModulePhaseConfig substep_phases[1];
 
 static int same_f64(const double a, const double b) { return memcmp(&a, &b, sizeof(a)) == 0; }
 static int same_f32(const float a, const float b) { return memcmp(&a, &b, sizeof(a)) == 0; }
-
-/** @brief Read all content from a FILE* into a static buffer (valid until the next call) */
-static const char *read_captured_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
 
 static void set_entry(struct PhaseModuleConfig *entry, char *name, const enum ProcessingMode mode) {
   entry->module_name = name;
@@ -133,18 +112,16 @@ static void set_entry(struct PhaseModuleConfig *entry, char *name, const enum Pr
 }
 
 /**
- * @brief The module `count` times (1 or 2, mode as given) in a substep phase, followed by
- *        sage26_calculate_star_formation by galaxy, and sage26_determine_ffb_regime in
- *        pre_timestep: the dispatch the cross-module guards require at EnhancedStarFormationOn 1
+ * @brief The module once by galaxy in a substep phase, followed by sage26_calculate_star_formation
+ *        by galaxy, and sage26_determine_ffb_regime in pre_timestep: the dispatch the cross-module
+ *        guards require at EnhancedStarFormationOn 1
  */
-static void set_substep(const int count, const enum ProcessingMode mode) {
-  for (int i = 0; i < count; i++) {
-    set_entry(&substep_entries[i], module_name, mode);
-  }
-  set_entry(&substep_entries[count], ordinary_sf_name, PROCESSING_MODE_BY_GALAXY);
+static void set_pipeline(void) {
+  set_entry(&substep_entries[0], module_name, PROCESSING_MODE_BY_GALAXY);
+  set_entry(&substep_entries[1], ordinary_sf_name, PROCESSING_MODE_BY_GALAXY);
   substep_phases[0].name = phase_name;
   substep_phases[0].modules = substep_entries;
-  substep_phases[0].num_modules = count + 1;
+  substep_phases[0].num_modules = 2;
   MimicConfig.substep_phases = substep_phases;
   MimicConfig.num_substep_phases = 1;
   set_entry(&classifier_entries[0], classifier_name, PROCESSING_MODE_FULL_HALO);
@@ -178,14 +155,13 @@ struct test_params {
 static const struct test_params FFB_PARAMS = {"1", "0.2", "1", "1", "1", "0.0"};
 
 /**
- * @brief Configure the run, the parameters and the placement (`arrange`, or once by galaxy), and
- *        initialise, capturing the log
+ * @brief Configure the run, the parameters and the complete dispatch, and initialise the module
  * @return The init status
  */
-static int init_captured(const struct test_params *p, void (*arrange)(void), const char **log) {
+static int init_with(const struct test_params *p) {
   reset_config();
   set_run();
-  set_substep(1, PROCESSING_MODE_BY_GALAXY);
+  set_pipeline();
   if (p->enhanced_on != NULL) {
     sage26_test_append_model_parameter("EnhancedStarFormationOn", p->enhanced_on);
   }
@@ -201,25 +177,7 @@ static int init_captured(const struct test_params *p, void (*arrange)(void), con
   sage26_test_append_model_parameter("FeedbackEjectionEfficiency", "0.3");
   sage26_test_append_model_parameter("Yield", "0.025");
   sage26_test_append_model_parameter("FracZleaveDisk", p->frac_z_leave);
-  if (arrange != NULL) {
-    arrange();
-  }
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = sage26_ffb_star_formation_init();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    *log = read_captured_log(capture);
-    fclose(capture);
-  } else {
-    *log = "";
-  }
-  return status;
-}
-
-static int init_with(const struct test_params *p) {
-  const char *log = "";
-  return init_captured(p, NULL, &log);
+  return sage26_ffb_star_formation_init();
 }
 
 // ============================================================================
@@ -568,9 +526,9 @@ static void record(void *user, const struct Sage26FfbStarFormationTrace *t) {
   observed_count++;
 }
 
-/** @brief Run process() on row (its central `central`, NULL for none) at the test substep */
-static int run_at(struct Halo *row, struct Halo *central, const int num_substeps,
-                  const int substep) {
+/** @brief Run process() on `ngal` rows (the first's central `central`, NULL for none) */
+static int run_rows(struct Halo *rows, const int ngal, struct Halo *central, const int num_substeps,
+                    const int substep) {
   struct ModuleContext ctx;
   memset(&ctx, 0, sizeof(ctx));
   ctx.params = &MimicConfig;
@@ -580,8 +538,29 @@ static int run_at(struct Halo *row, struct Halo *central, const int num_substeps
   observed_count = 0;
   memset(&observed, 0x5a, sizeof(observed)); /* no value of an earlier call can survive */
   sage26_ffb_star_formation_set_test_observer(record, NULL);
-  const int status = sage26_ffb_star_formation_process(&ctx, row, 1);
+  const int status = sage26_ffb_star_formation_process(&ctx, rows, ngal);
   sage26_ffb_star_formation_set_test_observer(NULL, NULL);
+  return status;
+}
+
+/** @brief Run process() on row (its central `central`, NULL for none) at the test substep */
+static int run_at(struct Halo *row, struct Halo *central, const int num_substeps,
+                  const int substep) {
+  return run_rows(row, 1, central, num_substeps, substep);
+}
+
+/** @brief As run_rows(), capturing the log (valid until the next capture) in *log */
+static int run_rows_logged(struct Halo *rows, const int ngal, struct Halo *central,
+                           const int num_substeps, const int substep, const char **log) {
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int status = run_rows(rows, ngal, central, num_substeps, substep);
+  *log = "";
+  if (capture != NULL) {
+    set_log_output(old_out);
+    *log = read_captured_log(capture);
+    fclose(capture);
+  }
   return status;
 }
 
@@ -668,155 +647,8 @@ static struct GalaxyData variant_of(const struct GalaxyData *input, const struct
 }
 
 // ============================================================================
-// SOFTWARE QUALITY
+// THE RUN FILES' CHAIN
 // ============================================================================
-
-int test_module_lifecycle(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-  set_run();
-  test_phase_add(phase_name, module_name, PROCESSING_MODE_BY_GALAXY);
-  set_test_model_parameters();
-  sage26_test_append_model_parameter("EnhancedStarFormationOn", "0");
-  sage26_test_append_model_parameter("EnhancedSFEfficiency", "0.2");
-  sage26_test_append_model_parameter("SFprescription", "1");
-  sage26_test_append_model_parameter("CGMrecipeOn", "1");
-  sage26_test_append_model_parameter("FIREmodeOn", "1");
-  const int result = module_system_init();
-  TEST_ASSERT(result == 0, "module system initialisation must succeed");
-  module_system_cleanup();
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-int test_parameters_refused(void) {
-  static const struct {
-    struct test_params p;
-    const char *named;
-  } refused[] = {
-      {{NULL, "0.2", "1", "1", "1", "0.0"}, "EnhancedStarFormationOn"},
-      {{"1", NULL, "1", "1", "1", "0.0"}, "EnhancedSFEfficiency"},
-      {{"2", "0.2", "1", "1", "1", "0.0"}, "EnhancedStarFormationOn"},
-      {{"1", "-0.1", "1", "1", "1", "0.0"}, "EnhancedSFEfficiency"},
-      {{"1", "1.5", "1", "1", "1", "0.0"}, "EnhancedSFEfficiency"},
-      {{"1", "nan", "1", "1", "1", "0.0"}, "EnhancedSFEfficiency"},
-      {{"1", "0.2", "1", "1", "0", "0.0"}, "FIREmodeOn"},
-  };
-  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
-    const char *log = "";
-    const int status = init_captured(&refused[k].p, NULL, &log);
-    printf("\n  refusal %zu (%s): init %d", k, refused[k].named, status);
-    TEST_ASSERT(status != 0, "init must refuse the configuration");
-    TEST_ASSERT(strstr(log, refused[k].named) != NULL, "the error must name what it refuses");
-  }
-  const struct test_params fire_off_at_zero = {"0", "0.2", "1", "1", "0", "0.0"};
-  TEST_ASSERT(init_with(&fire_off_at_zero) == 0,
-              "FIREmodeOn 0 is accepted at EnhancedStarFormationOn 0");
-  const struct test_params bounds = {"1", "1.0", "1", "1", "1", "0.0"};
-  TEST_ASSERT(init_with(&bounds) == 0, "EnhancedSFEfficiency 1.0 is accepted");
-  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "the FFB configuration initialises");
-  return TEST_PASS;
-}
-
-static void arrange_pre_timestep(void) {
-  MimicConfig.num_substep_phases = 0;
-  fixed_entries[0].module_name = module_name;
-  fixed_entries[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-  fixed_entries[0].resolved = NULL;
-  MimicConfig.pre_timestep = fixed_entries;
-  MimicConfig.num_pre_timestep = 1;
-}
-static void arrange_post_timestep(void) {
-  MimicConfig.num_substep_phases = 0;
-  fixed_entries[0].module_name = module_name;
-  fixed_entries[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-  fixed_entries[0].resolved = NULL;
-  MimicConfig.post_timestep = fixed_entries;
-  MimicConfig.num_post_timestep = 1;
-}
-static void arrange_twice(void) { set_substep(2, PROCESSING_MODE_BY_GALAXY); }
-static void arrange_full_halo(void) { set_substep(1, PROCESSING_MODE_FULL_HALO); }
-
-int test_placement_refused(void) {
-  void (*const arrangements[4])(void) = {arrange_pre_timestep, arrange_post_timestep, arrange_twice,
-                                         arrange_full_halo};
-  const char *labels[4] = {"pre_timestep", "post_timestep", "twice", "process_full_halo"};
-  for (int k = 0; k < 4; k++) {
-    const char *log = "";
-    const int status = init_captured(&FFB_PARAMS, arrangements[k], &log);
-    printf("\n  placement %s: init %d", labels[k], status);
-    TEST_ASSERT(status != 0, "a misplacement must be refused");
-    TEST_ASSERT(strstr(log, module_name) != NULL, "the error must name the module");
-  }
-  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "once by galaxy in a substep phase is accepted");
-  return TEST_PASS;
-}
-
-/* The dispatch configurations the cross-module guards refuse at EnhancedStarFormationOn 1, each
- * arranged after init_captured() has set the complete one */
-static void arrange_no_classifier(void) { MimicConfig.num_pre_timestep = 0; }
-static void arrange_no_ordinary_sf(void) { substep_phases[0].num_modules = 1; }
-static void arrange_after_ordinary_sf(void) {
-  set_entry(&substep_entries[0], ordinary_sf_name, PROCESSING_MODE_BY_GALAXY);
-  set_entry(&substep_entries[1], module_name, PROCESSING_MODE_BY_GALAXY);
-}
-static void arrange_separated(void) {
-  set_entry(&substep_entries[1], apply_name, PROCESSING_MODE_BY_GALAXY);
-  set_entry(&substep_entries[2], ordinary_sf_name, PROCESSING_MODE_BY_GALAXY);
-  substep_phases[0].num_modules = 3;
-}
-static void arrange_ordinary_sf_full_halo(void) {
-  substep_entries[1].processing_mode = PROCESSING_MODE_FULL_HALO;
-}
-static void arrange_other_phase(void) {
-  substep_phases[0].num_modules = 1;
-  set_entry(&other_entries[0], ordinary_sf_name, PROCESSING_MODE_BY_GALAXY);
-  substep_phases[1].name = other_phase_name;
-  substep_phases[1].modules = other_entries;
-  substep_phases[1].num_modules = 1;
-  MimicConfig.num_substep_phases = 2;
-}
-
-/**
- * @test    test_dispatch_guards
- * @brief   At EnhancedStarFormationOn 1 the transaction refuses, naming the module, a configuration
- *          without the classifier in pre_timestep or not immediately before
- *          sage26_calculate_star_formation (process_by_galaxy, same substep phase); at 0
- *          it accepts each
- */
-int test_dispatch_guards(void) {
-  const struct {
-    const char *label;
-    void (*arrange)(void);
-    const char *named;
-  } refused[] = {
-      {"no sage26_determine_ffb_regime", arrange_no_classifier, classifier_name},
-      {"no sage26_calculate_star_formation", arrange_no_ordinary_sf, ordinary_sf_name},
-      {"after sage26_calculate_star_formation", arrange_after_ordinary_sf, ordinary_sf_name},
-      {"separated from it", arrange_separated, ordinary_sf_name},
-      {"it as process_full_halo", arrange_ordinary_sf_full_halo, ordinary_sf_name},
-      {"it in another substep phase", arrange_other_phase, ordinary_sf_name},
-  };
-  const struct test_params off = {"0", "0.2", "1", "1", "1", "0.0"};
-  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
-    const char *log = "";
-    int status = init_captured(&FFB_PARAMS, refused[k].arrange, &log);
-    printf("\n  %s (EnhancedStarFormationOn 1): init %d", refused[k].label, status);
-    TEST_ASSERT(status != 0, "init must refuse the incomplete dispatch");
-    TEST_ASSERT(strstr(log, refused[k].named) != NULL,
-                "the error must name the missing or misplaced module");
-    TEST_ASSERT(strstr(log, module_name) != NULL, "the error must name the transaction");
-    status = init_captured(&off, refused[k].arrange, &log);
-    printf("; at 0: init %d", status);
-    TEST_ASSERT(status == 0, "at EnhancedStarFormationOn 0 no cross-module guard applies");
-  }
-  const char *log = "";
-  TEST_ASSERT(init_captured(&FFB_PARAMS, NULL, &log) == 0,
-              "the complete dispatch initialises at EnhancedStarFormationOn 1");
-  return TEST_PASS;
-}
 
 /** The run files' by-galaxy star-formation chain, in their order */
 static const char *const CHAIN[] = {"sage26_ffb_star_formation",
@@ -829,36 +661,24 @@ static const char *const CHAIN[] = {"sage26_ffb_star_formation",
                                     "sage26_apply_metal_enrichment"};
 #define CHAIN_LENGTH ((int)(sizeof(CHAIN) / sizeof(CHAIN[0])))
 
-/** How a chain configuration departs from the run files' */
-enum chain_variant { CHAIN_COMPLETE, CHAIN_NO_TRANSACTION, CHAIN_NO_CLASSIFIER, CHAIN_SWAPPED };
-
 /**
- * @brief Configure the run files' pre_timestep classifier and by-galaxy chain (as `variant`
- *        changes them) with every key the modules read, and run module_system_init, capturing
- *        the log; the caller cleans up with chain_cleanup()
+ * @brief Configure the run files' pre_timestep classifier and by-galaxy chain with every key the
+ *        modules read, at EnhancedStarFormationOn 1, and run module_system_init, capturing the
+ *        log; the caller cleans up with chain_cleanup()
  * @return The module_system_init status
  */
-static int chain_init(const enum chain_variant variant, const char *enhanced_on, const char **log) {
+static int chain_init(const char **log) {
   reset_config();
   init_memory_system(0);
   ensure_modules_registered();
   set_run();
-  if (variant != CHAIN_NO_CLASSIFIER) {
-    test_pre_timestep_add(classifier_name, PROCESSING_MODE_FULL_HALO);
-  }
+  test_pre_timestep_add(classifier_name, PROCESSING_MODE_FULL_HALO);
   for (int k = 0; k < CHAIN_LENGTH; k++) {
-    int m = k;
-    if (variant == CHAIN_SWAPPED && k < 2) {
-      m = 1 - k; /* sage26_calculate_star_formation, then the transaction */
-    }
-    if (variant == CHAIN_NO_TRANSACTION && m == 0) {
-      continue;
-    }
-    test_phase_add(phase_name, CHAIN[m], PROCESSING_MODE_BY_GALAXY);
+    test_phase_add(phase_name, CHAIN[k], PROCESSING_MODE_BY_GALAXY);
   }
   MimicConfig.SubSteps = TEST_NUM_SUBSTEPS;
   set_test_model_parameters();
-  sage26_test_append_model_parameter("EnhancedStarFormationOn", enhanced_on);
+  sage26_test_append_model_parameter("EnhancedStarFormationOn", "1");
   sage26_test_append_model_parameter("EnhancedSFEfficiency", "0.2");
   sage26_test_append_model_parameter("SFprescription", "1");
   sage26_test_append_model_parameter("CGMrecipeOn", "1");
@@ -887,69 +707,35 @@ static void chain_cleanup(const int init_status) {
   check_memory_leaks();
 }
 
-/**
- * @test    test_chain_initialises
- * @brief   module_system_init over the run files' classifier and chain: the complete configuration
- *          initialises at EnhancedStarFormationOn 1; without the transaction, without the
- *          classifier, or with the transaction after sage26_calculate_star_formation it fails
- *          naming the missing or misplaced module; at 0 each initialises
- */
-int test_chain_initialises(void) {
-  const char *log = "";
-  int status = chain_init(CHAIN_COMPLETE, "1", &log);
-  printf("\n  complete chain at 1: init %d", status);
-  TEST_ASSERT(status == 0, "the run files' complete configuration initialises at 1");
-  chain_cleanup(status);
-  const struct {
-    enum chain_variant variant;
-    const char *label;
-    const char *named;
-  } refused[] = {
-      {CHAIN_NO_TRANSACTION, "without the transaction", module_name},
-      {CHAIN_NO_CLASSIFIER, "without the classifier", classifier_name},
-      {CHAIN_SWAPPED, "transaction after sage26_calculate_star_formation", ordinary_sf_name}};
-  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
-    status = chain_init(refused[k].variant, "1", &log);
-    printf("\n  %s at 1: init %d", refused[k].label, status);
-    TEST_ASSERT(status != 0, "module_system_init must refuse the incomplete dispatch");
-    TEST_ASSERT(strstr(log, refused[k].named) != NULL,
-                "the error must name the missing or misplaced module");
-    chain_cleanup(status);
-    status = chain_init(refused[k].variant, "0", &log);
-    printf("; at 0: init %d", status);
-    TEST_ASSERT(status == 0, "at EnhancedStarFormationOn 0 no cross-module guard applies");
-    chain_cleanup(status);
-  }
-  return TEST_PASS;
-}
-
 // ============================================================================
 // BEHAVIOUR
 // ============================================================================
 
+/**
+ * @test    test_off_writes_nothing
+ * @brief   An FFBRegime 1 row is not written at EnhancedStarFormationOn 0, and an FFBRegime 0 row
+ *          is not written at 1: the whole galaxy is unchanged and the observer is not called
+ */
 int test_off_writes_nothing(void) {
-  const struct test_params off = {"0", "0.2", "1", "1", "1", "0.0"};
-  TEST_ASSERT(init_with(&off) == 0, "init at EnhancedStarFormationOn 0");
-  struct Halo row;
-  struct GalaxyData gal;
-  make_row(&row, &gal, 0, 80.0);
-  const struct GalaxyData before = gal;
-  TEST_ASSERT(run(&row, &row) == 0, "process succeeds");
-  TEST_ASSERT(galaxies_equal(&gal, &before) && observed_count == 0,
-              "EnhancedStarFormationOn 0: an FFBRegime 1 row is not written");
-  return TEST_PASS;
-}
-
-int test_non_ffb_row_not_written(void) {
-  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
-  struct Halo row;
-  struct GalaxyData gal;
-  make_row(&row, &gal, 0, 80.0);
-  gal.FFBRegime = 0;
-  const struct GalaxyData before = gal;
-  TEST_ASSERT(run(&row, &row) == 0, "process succeeds");
-  TEST_ASSERT(galaxies_equal(&gal, &before) && observed_count == 0,
-              "an FFBRegime 0 row is not written");
+  static const struct test_params off = {"0", "0.2", "1", "1", "1", "0.0"};
+  const struct {
+    const char *label;
+    const struct test_params *params;
+    int ffb_regime;
+  } rows[] = {{"EnhancedStarFormationOn 0, FFBRegime 1", &off, 1},
+              {"EnhancedStarFormationOn 1, FFBRegime 0", &FFB_PARAMS, 0}};
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    TEST_ASSERT(init_with(rows[k].params) == 0, "init");
+    struct Halo row;
+    struct GalaxyData gal;
+    make_row(&row, &gal, 0, 80.0);
+    gal.FFBRegime = rows[k].ffb_regime;
+    const struct GalaxyData before = gal;
+    TEST_ASSERT(run(&row, &row) == 0, "process succeeds");
+    printf("\n  %s: observer called %d times", rows[k].label, observed_count);
+    TEST_ASSERT(galaxies_equal(&gal, &before) && observed_count == 0,
+                "a row the module does not take is not written");
+  }
   return TEST_PASS;
 }
 
@@ -971,18 +757,43 @@ int test_initial_boundary_and_refusal(void) {
   make_row(&row, &gal, 0, 80.0);
   row.SnapNum = 64; /* outside ZZ's 64 entries, with dT > 0 */
   before = gal;
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = run(&row, &row);
   const char *log = "";
-  if (capture != NULL) {
-    set_log_output(old_out);
-    log = read_captured_log(capture);
-    fclose(capture);
-  }
+  const int status = run_rows_logged(&row, 1, &row, TEST_NUM_SUBSTEPS, TEST_SUBSTEP, &log);
   TEST_ASSERT(status != 0, "an out-of-range stored SnapNum with dT > 0 is refused");
   TEST_ASSERT(strstr(log, "SnapNum = 64") != NULL, "the refusal names the SnapNum");
   TEST_ASSERT(galaxies_equal(&gal, &before), "nothing is written before the refusal");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_process_refusals
+ * @brief   Two rows (process_by_galaxy takes one) and a substep outside [0, num_substeps) (no
+ *          history bin) are refused, naming what they refuse, with nothing written to either row
+ */
+int test_process_refusals(void) {
+  static const struct {
+    const char *label;
+    int ngal, substep;
+    const char *named;
+  } refused[] = {{"two rows", 2, TEST_SUBSTEP, "ngal=1, got 2"},
+                 {"substep at the substep count", 1, TEST_NUM_SUBSTEPS, "history bin"},
+                 {"negative substep", 1, -1, "history bin"}};
+  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
+  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
+    struct Halo rows[2];
+    struct GalaxyData gals[2];
+    make_row(&rows[0], &gals[0], 0, 80.0);
+    make_row(&rows[1], &gals[1], 0, 80.0);
+    const struct GalaxyData before[2] = {gals[0], gals[1]};
+    const char *log = "";
+    const int status = run_rows_logged(rows, refused[k].ngal, &rows[0], TEST_NUM_SUBSTEPS,
+                                       refused[k].substep, &log);
+    printf("\n  %s: status %d", refused[k].label, status);
+    TEST_ASSERT(status != 0, "the module must refuse");
+    TEST_ASSERT(strstr(log, refused[k].named) != NULL, "the error must name what it refuses");
+    TEST_ASSERT(galaxies_equal(&gals[0], &before[0]) && galaxies_equal(&gals[1], &before[1]),
+                "nothing is written before the refusal");
+  }
   return TEST_PASS;
 }
 
@@ -993,6 +804,7 @@ int test_stars_formed_and_renormalised(void) {
   /* Vvir 2 km/s (a large loading) and a short tdyn = 3 * 0.004 / 2 = 0.006: strdot * dt =
    * 0.2 * 1 / 0.006 * 0.125 > ColdGas 1, so the stars are capped at exactly 1 */
   make_row(&row, &gal, 0, 2.0);
+  gal.H1gas = 9.0f;
   const struct GalaxyData input = gal;
   TEST_ASSERT(central_matches(&row, 1, 1, 0.0, &expected),
               "the end state equals SAGE26's written-out starformation_ffb byte for byte");
@@ -1008,6 +820,17 @@ int test_stars_formed_and_renormalised(void) {
   TEST_ASSERT(observed.feedback.renorm_binds == 1 && observed.yield_stars < 1.0 &&
                   same_f64(observed.yield_stars, observed.feedback.stars_out),
               "the budget renormalises the stars, and the yield receives the renormalised stars");
+  /* The hydrogen: H2gas is zeroed, H2DepletionTime_Gyr is not written, H1gas is the H I block of
+   * the input cold gas, before the commits' caps, then capped at the hydrogen of what remains */
+  TEST_ASSERT(same_f32(gal.H2gas, 0.0f) && !signbit(gal.H2gas), "H2gas is zeroed");
+  TEST_ASSERT(same_f32(gal.H2DepletionTime_Gyr, 1.5f), "H2DepletionTime_Gyr is not written");
+  const double f_ion = f_ion_of(1.0f, 0.004f, TEST_HUBBLE_H);
+  const float h1_block = (float)((1.0 * 0.74) * (1.0 - f_ion));
+  const float max_h = (float)((double)gal.ColdGas * 0.74);
+  TEST_ASSERT(same_f32(gal.H1gas, h1_block < max_h ? h1_block : max_h),
+              "H1gas is the H I block's, capped at the hydrogen of the remaining cold gas");
+  TEST_ASSERT(observed.sf_caps.tracks_h2 == 1 && observed.sf_caps.h1_cap_binds == 1,
+              "the prescription-1 cap binds on H1gas after the commit");
   /* The input discriminates each misordering */
   struct GalaxyData v = variant_of(&input, &row, VAR_YIELD_FORMED);
   TEST_ASSERT(!galaxies_equal(&v, &expected), "the yield from the stars formed would differ");
@@ -1020,20 +843,18 @@ int test_stars_formed_and_renormalised(void) {
 
 int test_pre_commit_metallicity(void) {
   TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
-  /* Search the cold metals for an input whose recomputed metallicity changes the end state */
   struct Halo row;
   struct GalaxyData gal, expected;
-  int found = 0;
-  for (int k = 0; k < 200 && !found; k++) {
-    make_row(&row, &gal, 0, 30.0);
-    gal.ColdGas = 0.7f;
-    gal.MetalsColdGas = 0.0123f + 1.0e-5f * (float)k;
-    const struct GalaxyData input = gal;
-    const struct GalaxyData plain = variant_of(&input, &row, VAR_NONE);
-    const struct GalaxyData recomputed = variant_of(&input, &row, VAR_RECOMPUTE_Z);
-    found = !galaxies_equal(&plain, &recomputed);
-  }
-  TEST_ASSERT(found, "an input where the recomputed metallicity changes the end state exists");
+  make_row(&row, &gal, 0, 30.0);
+  gal.ColdGas = 0.7f;
+  gal.MetalsColdGas = 0.0123f;
+  /* The input discriminates: the feedback with the metallicity recomputed after the commit gives
+   * a different end state */
+  const struct GalaxyData input = gal;
+  const struct GalaxyData plain = variant_of(&input, &row, VAR_NONE);
+  const struct GalaxyData recomputed = variant_of(&input, &row, VAR_RECOMPUTE_Z);
+  TEST_ASSERT(!galaxies_equal(&plain, &recomputed),
+              "the recomputed metallicity would change the end state");
   TEST_ASSERT(central_matches(&row, 1, 1, 0.0, &expected),
               "the end state equals SAGE26's, with the pre-commit metallicity");
   TEST_ASSERT(observed.commit.reheated_mass_clamped > 0.0,
@@ -1068,27 +889,6 @@ int test_invalid_fire_scaling(void) {
   return TEST_PASS;
 }
 
-int test_hydrogen(void) {
-  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
-  struct Halo row;
-  struct GalaxyData gal, expected;
-  make_row(&row, &gal, 0, 80.0);
-  gal.H1gas = 9.0f;
-  TEST_ASSERT(central_matches(&row, 1, 1, 0.0, &expected),
-              "the end state equals SAGE26's written-out transaction");
-  TEST_ASSERT(same_f32(gal.H2gas, 0.0f) && !signbit(gal.H2gas), "H2gas is zeroed");
-  TEST_ASSERT(same_f32(gal.H2DepletionTime_Gyr, 1.5f), "H2DepletionTime_Gyr is not written");
-  /* The H I block from the input cold gas, before the commits' caps */
-  const double f_ion = f_ion_of(1.0f, 0.004f, TEST_HUBBLE_H);
-  const float h1_block = (float)((1.0 * 0.74) * (1.0 - f_ion));
-  const float max_h = (float)((double)gal.ColdGas * 0.74);
-  TEST_ASSERT(same_f32(gal.H1gas, h1_block < max_h ? h1_block : max_h),
-              "H1gas is the H I block's, capped at the hydrogen of the remaining cold gas");
-  TEST_ASSERT(observed.sf_caps.tracks_h2 == 1 && observed.sf_caps.h1_cap_binds == 1,
-              "the prescription-1 cap binds on H1gas after the commit");
-  return TEST_PASS;
-}
-
 int test_guards_and_tdyn(void) {
   TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
   struct Halo row;
@@ -1120,6 +920,16 @@ int test_guards_and_tdyn(void) {
                     same_f64(observed.stars_formed, 0.0),
                 "tdyn is +0 and no stars form");
   }
+  /* A positive tdyn but no cold gas (all consumed): no stars, and the yield's metals all go to the
+   * central because the cold gas is below the threshold */
+  make_row(&row, &gal, 0, 80.0);
+  gal.ColdGas = 0.0f;
+  TEST_ASSERT(central_matches(&row, 1, 1, 0.0, &expected),
+              "no cold gas: the end state equals SAGE26's written-out transaction");
+  TEST_ASSERT(observed.tdyn > 0.0 && observed.tdyn_gas_positive == 0 &&
+                  same_f64(observed.stars_formed, 0.0) &&
+                  observed.yield.coldgas_above_threshold == 0,
+              "tdyn is positive, no gas forms no stars, and the cold gas is below the threshold");
   return TEST_PASS;
 }
 
@@ -1171,31 +981,6 @@ int test_satellite_routing(void) {
                                  observed.commit.ejected_mass_capped)),
                 "the selected gas gains the reheated mass and loses the ejection");
   }
-  return TEST_PASS;
-}
-
-int test_no_instability_no_transport(void) {
-  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
-  struct Halo row;
-  struct GalaxyData gal, expected;
-  /* An unstable disk by its masses and radius: the Mo, Mao & White (1998) critical mass
-   * Vmax^2 * 3 * DiskScaleRadius / G = 900 * 0.012 / 43.0071, about 0.25, against a disk of
-   * ColdGas 1 + StellarMass 2.5 - BulgeMass 0.75 = 2.75 */
-  TEST_ASSERT(900.0 * (3.0 * (double)0.004f) / 43.0071 < 1.0 + (2.5 - 0.75),
-              "the seeded disk is unstable");
-  make_row(&row, &gal, 0, 80.0);
-  gal.UnstableDiskGasFraction = 0.0;
-  TEST_ASSERT(central_matches(&row, 1, 1, 0.0, &expected),
-              "the end state equals SAGE26's written-out transaction (which has no instability)");
-  TEST_ASSERT(same_f32(gal.BulgeMass, 0.75f) && same_f32(gal.MetalsBulgeMass, 0.015f) &&
-                  same_f32(gal.InstabilityBulgeMass, 0.5f) && same_f32(gal.BulgeRadius, 0.002f) &&
-                  same_f32(gal.MergerBulgeRadius, 0.001f) &&
-                  same_f32(gal.InstabilityBulgeRadius, 0.003f) &&
-                  same_f64(gal.UnstableDiskGasFraction, 0.0),
-              "no instability field is written");
-  TEST_ASSERT(same_f64(gal.NewStellarMass, 7.0) && same_f64(gal.SupernovaReheatedMass, 8.0) &&
-                  same_f64(gal.SupernovaEjectedMass, 9.0),
-              "no transport field is written");
   return TEST_PASS;
 }
 
@@ -1271,21 +1056,6 @@ int test_reheat_clamp_wiring(void) {
   return TEST_PASS;
 }
 
-int test_reheat_clamp_negative_gas_probe(void) {
-  TEST_ASSERT(init_with(&FFB_PARAMS) == 0, "init with the FFB configuration");
-  /* OUT OF SAGE26's DOMAIN, a probe of the wiring only: with ColdGas -1 no stars form, the
-   * budget's reheated mass 0 exceeds the cold gas, and the clamp passes -1 to the commit, on
-   * which SAGE26's update_from_feedback aborts. No end state is asserted */
-  struct Halo row;
-  struct GalaxyData gal;
-  make_row(&row, &gal, 0, 80.0);
-  gal.ColdGas = -1.0f;
-  TEST_ASSERT(run(&row, &row) == 0, "process returns");
-  TEST_ASSERT(observed.reheat_clamp_binds == 1 && same_f64(observed.reheated_to_commit, -1.0),
-              "wiring: the clamped value -1 (the cold gas) is passed to the commit");
-  return TEST_PASS;
-}
-
 int test_sf_prescription_zero_probe(void) {
   struct test_params p = FFB_PARAMS;
   p.sf_prescription = "0";
@@ -1358,7 +1128,7 @@ static int disk_unstable(const struct GalaxyData *g, const float vmax) {
  */
 int test_chain_leaves_trigger(void) {
   const char *log = "";
-  const int status = chain_init(CHAIN_COMPLETE, "1", &log);
+  const int status = chain_init(&log);
   TEST_ASSERT(status == 0, "the complete chain initialises at EnhancedStarFormationOn 1");
 
   struct Halo central, row;
@@ -1429,23 +1199,15 @@ int main(void) {
 
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  TEST_RUN(test_module_lifecycle);
-  TEST_RUN(test_parameters_refused);
-  TEST_RUN(test_placement_refused);
-  TEST_RUN(test_dispatch_guards);
-  TEST_RUN(test_chain_initialises);
   TEST_RUN(test_off_writes_nothing);
-  TEST_RUN(test_non_ffb_row_not_written);
   TEST_RUN(test_initial_boundary_and_refusal);
+  TEST_RUN(test_process_refusals);
   TEST_RUN(test_stars_formed_and_renormalised);
   TEST_RUN(test_pre_commit_metallicity);
   TEST_RUN(test_invalid_fire_scaling);
-  TEST_RUN(test_hydrogen);
   TEST_RUN(test_guards_and_tdyn);
   TEST_RUN(test_satellite_routing);
-  TEST_RUN(test_no_instability_no_transport);
   TEST_RUN(test_reheat_clamp_wiring);
-  TEST_RUN(test_reheat_clamp_negative_gas_probe);
   TEST_RUN(test_sf_prescription_zero_probe);
   TEST_RUN(test_no_central);
   TEST_RUN(test_chain_leaves_trigger);

@@ -24,7 +24,7 @@ module:
 
   tests:
     unit: _tests/test_unit_sage26_apply_metal_enrichment.c
-    integration: _tests/test_integration_sage26_apply_metal_enrichment.py
+    integration: []
     scientific: []
 
   docs:

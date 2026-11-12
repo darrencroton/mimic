@@ -47,5 +47,6 @@ All are required with no default; a missing key or a value outside the accepted 
 
 ## Tests
 
-- `_tests/test_unit_sage26_starburst_feedback.c`: the hydrogen refresh, the FIRE budget and its wiring on every burst path, the CGM routing of feedback, yield and recheck wind, `AGNrecipe 0` in the recheck, and the parameter refusals.
-- `_tests/test_integration_sage26_starburst_feedback.py`: the module as `process_by_galaxy` in full runs, alone and in a fuller chain, with range, bulge-bound and parameter-monotonicity checks on the output.
+- `_tests/test_unit_sage26_starburst_feedback.c`: the hydrogen refresh, the FIRE budget and its wiring on every burst path, the CGM routing of feedback, yield and recheck wind, and `AGNrecipe 0` in the recheck.
+- `_tests/test_integration_sage26_starburst_feedback.py`: the module as `process_by_galaxy` in a pipeline that supplies cold gas, checking that galaxies burst, that bursting rows carry stars, bulge, instability-channel bulge and outflow, that the bulge stays within rounding of the stellar mass, and that every reservoir is finite and non-negative.
+- The `AGNrecipe`, `FIREmodeOn` and `CGMrecipeOn` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

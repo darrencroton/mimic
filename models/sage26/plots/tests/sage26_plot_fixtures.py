@@ -15,31 +15,38 @@ rcool / Rvir; positions inside the 62.5 Mpc/h box.
 Fields no figure selects on are left at zero.
 """
 
+import sys
 from pathlib import Path
 
 import numpy as np
-import yaml
-from numpy.lib import recfunctions
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tests"))
 
-CORE_PROPERTIES = REPO_ROOT / "src" / "core" / "core_properties.yaml"
-MODEL_PROPERTIES = REPO_ROOT / "models" / "sage26" / "model_properties.yaml"
-HALO_PROPERTIES = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
+from framework import plot_checks as checks  # noqa: E402
+
+__all__ = [
+    "HALO_PROPERTIES",
+    "HORIZONTAL_HALO_PROPERTIES",
+    "HUBBLE_H",
+    "VOLUME",
+    "build_catalogue",
+    "build_evolution_input",
+    "property_files",
+    "record_dtype",
+    "run_parameters",
+    "snapshot_metadata",
+]
+
+# The simulation these tests run on: mini-Millennium
+SIMULATION_DIR = checks.REPO_ROOT / "simulations" / "mini-millennium"
+HALO_PROPERTIES = SIMULATION_DIR / "halo_properties.yaml"
 HORIZONTAL_HALO_PROPERTIES = (
-    REPO_ROOT / "simulations" / "mini-millennium-horizontal" / "halo_properties.yaml"
+    checks.REPO_ROOT / "simulations" / "mini-millennium-horizontal" / "halo_properties.yaml"
 )
-A_LIST = REPO_ROOT / "simulations" / "mini-millennium" / "mini-millennium.a_list"
+A_LIST = SIMULATION_DIR / "mini-millennium.a_list"
 
-# (file, top-level key) of each property file, in the order the record is laid out
-PROPERTY_FILES = (
-    (CORE_PROPERTIES, "halo_properties"),
-    (HALO_PROPERTIES, "halo_properties"),
-    (MODEL_PROPERTIES, "galaxy_properties"),
-)
-
-# The eight snapshots the mini-Millennium run files write (`snapshot_list` in models/sage26/input),
-# in the order the run file lists them.
+# The eight snapshots the run files write (`snapshot_list` in models/sage26/input), in the order
+# the run files list them
 RUN_SNAPSHOTS = (63, 37, 32, 27, 23, 20, 18, 16)
 
 HUBBLE_H = 0.73  # simulations/mini-millennium/simulation_info.yaml
@@ -51,38 +58,20 @@ VOLUME = BOX_SIZE**3  # (Mpc/h)^3
 # Mini-Millennium particle mass in 1e10 Msun/h (0.0860657), used for the Len column
 PARTICLE_MASS = 0.0860657
 
-_DTYPES = {
-    "int": np.int32,
-    "long long": np.int64,
-    "float": np.float32,
-    "double": np.float64,
-    "vec3_float": (np.float32, (3,)),
-    "vec3_double": (np.float64, (3,)),
-}
 
-
-def output_property_declarations(paths_and_keys=PROPERTY_FILES):
-    """Return {name: type string} for every ``output: true`` property of the given files."""
-    declared = {}
-    for path, key in paths_and_keys:
-        with open(path) as handle:
-            entries = yaml.safe_load(handle)[key]
-        for entry in entries:
-            if entry.get("output") is True:
-                declared[entry["name"]] = entry["type"]
-    return declared
+def property_files():
+    """Return the (file, key) pairs declaring the output properties of the record."""
+    return checks.package_property_files("sage26", HALO_PROPERTIES)
 
 
 def record_dtype():
     """Return the numpy dtype of the full synthetic record."""
-    declared = output_property_declarations()
-    return np.dtype([(name, _DTYPES[ptype]) for name, ptype in declared.items()])
+    return checks.record_dtype_of(property_files())
 
 
-def run_redshifts():
-    """Return {snapshot: redshift} for RUN_SNAPSHOTS, from the simulation's scale-factor list."""
-    scale_factors = [float(line) for line in A_LIST.read_text().split()]
-    return {snap: 1.0 / scale_factors[snap] - 1.0 for snap in RUN_SNAPSHOTS}
+def snapshot_metadata(redshift=0.0, ngals=0):
+    """Return the metadata dict the plotting engine passes to a figure for one snapshot."""
+    return checks.snapshot_metadata(HUBBLE_H, BOX_SIZE, redshift, ngals)
 
 
 def _log10_to_code_mass(log_mass_msun):
@@ -256,40 +245,9 @@ def run_parameters():
     }
 
 
-def snapshot_metadata(redshift=0.0, ngals=0):
-    """Return the metadata dict the plotting engine passes to a figure for one snapshot."""
-    return {
-        "hubble_h": HUBBLE_H,
-        "box_size": BOX_SIZE,
-        "volume": VOLUME,
-        "ntrees": 0,
-        "ngals": ngals,
-        "good_files": 1,
-        "schema_units": {},
-        "redshift": redshift,
-    }
-
-
 def build_evolution_input(fields, seed=20261107):
-    """Return the ``snapshots`` argument of an evolution figure.
-
-    The engine reads only the fields an evolution figure lists in ``EVOLUTION_PLOT_FIELDS`` for
-    each written snapshot and passes ``{snapshot: (galaxies, volume, metadata)}`` with the snapshots
-    in increasing redshift, as the redshift mapper orders them. This builds that input for the eight
-    snapshots of RUN_SNAPSHOTS, each with only ``fields``.
-
-    Args:
-        fields: Field names the record holds (the figure's ``EVOLUTION_PLOT_FIELDS`` entry).
-        seed: Seed of the generator; each snapshot derives its own from it.
-    """
-    redshifts = run_redshifts()
-    snapshots = {}
-    for index, snap in enumerate(sorted(RUN_SNAPSHOTS, key=lambda s: redshifts[s])):
-        full = build_catalogue(seed + index, epoch=redshifts[snap])
-        galaxies = recfunctions.repack_fields(full[list(fields)]).view(np.recarray)
-        snapshots[snap] = (
-            galaxies,
-            VOLUME,
-            snapshot_metadata(redshifts[snap], len(galaxies)),
-        )
-    return snapshots
+    """Return the ``snapshots`` argument of an evolution figure holding only ``fields``."""
+    redshifts = checks.scale_factor_redshifts(A_LIST, RUN_SNAPSHOTS)
+    return checks.evolution_input(
+        build_catalogue, fields, redshifts, VOLUME, snapshot_metadata, seed
+    )

@@ -9,19 +9,26 @@
  * ctx->central_galaxy. Tests therefore call process with the single satellite halo
  * (&halos[1], 1) and the central supplied through ctx->central_galaxy.
  *
- * Validates:
- *   - Stripping calculation logic
- *   - Mass and metal conservation
- *   - Metallicity preservation
- *   - Edge cases (zero gas, boundary conditions, type filtering)
- *   - Substep distribution
- *   - The num_substeps-dependent stripped-fraction formula (inherited SAGE behavior,
- *     see test_stripped_fraction_follows_geometric_formula)
+ * Test cases:
+ *   - test_no_stripping_when_below_threshold: a satellite under its baryon allowance neither
+ *     loses nor gives gas or metals
+ *   - test_stripped_fraction_follows_geometric_formula: the num_substeps-dependent stripped
+ *     fraction (inherited SAGE behaviour) at N = 1, 8, 10 (one substep) and the substep cap,
+ *     with the satellite's loss equal to the central's gain
+ *   - test_metal_conservation_all_regimes: in every clamp regime, including the Z > 1 capped
+ *     ones, the satellite loses and the central gains exactly the gas and metals the strip
+ *     demand, the gas clamp and the metallicity cap allow
+ *   - test_zero_hot_gas_no_stripping: no gas or metals move, and none turn non-finite, when the
+ *     satellite has no hot gas but a positive demand
+ *   - test_unstripped_types_skipped: a Type 0, 2 or 3 row is not stripped
+ *   - test_null_galaxy_handling: a NULL satellite galaxy, NULL context, NULL central or central
+ *     without a galaxy return 0 and move nothing; ngal != 1 is an error
+ *   - test_halo_baryon_fraction_fallback: a satellite HaloBaryonFraction that is not positive
+ *     (-1 or 0) falls back to GlobalBaryonFraction; a positive one is the satellite's own
  */
 
 #include <math.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "../../../../tests/framework/test_framework.h"
@@ -111,107 +118,8 @@ static int test_no_stripping_when_below_threshold(void) {
               "Satellite HotGas should be unchanged (below threshold)");
   TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
               "Central HotGas should be unchanged");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_stripping_when_above_threshold
- * @brief   Satellites above baryon fraction threshold should be stripped
- */
-static int test_stripping_when_above_threshold(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(10);
-  struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  /* Mvir=10, baryon_frac=0.17 → allowed=1.7; actual=5.0 → excess=3.3; per substep=0.33 */
-  struct GalaxyData sat_gal = create_test_galaxy(5.0, 0.1, 0.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-  float initial_sat_hot = sat_gal.HotGas;
-  float initial_cen_hot = cen_gal.HotGas;
-
-  int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
-
-  double baryon_frac = 0.17;
-  double total_baryons = 5.0;
-  double allowed = baryon_frac * 10.0;
-  double excess = total_baryons - allowed;
-  double stripped_per_substep = excess / 10.0;
-
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT(halos[1].galaxy->HotGas < initial_sat_hot, "Satellite HotGas should decrease");
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, initial_sat_hot - stripped_per_substep, 0.01),
-              "Satellite should lose correct amount");
-  TEST_ASSERT(halos[0].galaxy->HotGas > initial_cen_hot, "Central HotGas should increase");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_mass_conservation
- * @brief   Stripped mass from satellite equals mass gained by central
- */
-static int test_mass_conservation(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(1);
-  struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-  float initial_sat_hot = sat_gal.HotGas;
-  float initial_cen_hot = cen_gal.HotGas;
-  float initial_total = initial_sat_hot + initial_cen_hot;
-
-  sage_satellite_stripping_process(&ctx, &halos[1], 1);
-
-  float final_total = halos[1].galaxy->HotGas + halos[0].galaxy->HotGas;
-  float sat_lost = initial_sat_hot - halos[1].galaxy->HotGas;
-  float cen_gained = halos[0].galaxy->HotGas - initial_cen_hot;
-
-  TEST_ASSERT(FLOAT_EQ(final_total, initial_total, 1e-4), "Total mass should be conserved");
-  TEST_ASSERT(FLOAT_EQ(sat_lost, cen_gained, 1e-4),
-              "Satellite mass lost should equal central mass gained");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_mass_conservation_max_dynamic_substeps
- * @brief   Repeated stripping at the dynamic substep cap conserves mass
- */
-static int test_mass_conservation_max_dynamic_substeps(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(DEFAULT_MAX_DYNAMIC_SUBSTEPS);
-  struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-  const double initial_sat_hot = sat_gal.HotGas;
-  const double initial_cen_hot = cen_gal.HotGas;
-  const double initial_total = initial_sat_hot + initial_cen_hot;
-
-  for (int i = 0; i < DEFAULT_MAX_DYNAMIC_SUBSTEPS; i++) {
-    ctx.substep_number = i;
-    int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
-    TEST_ASSERT(result == 0, "Process should succeed for each dynamic substep");
-  }
-
-  const double final_total = (double)halos[1].galaxy->HotGas + (double)halos[0].galaxy->HotGas;
-  const double sat_lost = initial_sat_hot - (double)halos[1].galaxy->HotGas;
-  const double cen_gained = (double)halos[0].galaxy->HotGas - initial_cen_hot;
-  const double mass_tol = fmax(1e-4, fabs(initial_total) * 2e-6);
-  const double transfer_tol = fmax(1e-4, fabs(initial_sat_hot) * 2e-5);
-
-  TEST_ASSERT_DOUBLE_EQUAL(final_total, initial_total, mass_tol,
-                           "Total mass should be conserved at max dynamic substeps");
-  TEST_ASSERT_DOUBLE_EQUAL(sat_lost, cen_gained, transfer_tol,
-                           "Satellite mass lost should equal central mass gained");
+  TEST_ASSERT(halos[1].galaxy->MetalsHotGas == 0.02f, "Satellite metals should be unchanged");
+  TEST_ASSERT(halos[0].galaxy->MetalsHotGas == 2.0f, "Central metals should be unchanged");
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -220,96 +128,70 @@ static int test_mass_conservation_max_dynamic_substeps(void) {
  * @test    test_stripped_fraction_follows_geometric_formula
  * @brief   Pins the inherited (not Mimic-introduced) 1-(1-1/N)^N stripped-fraction formula
  *
- * See the SAGE parity comment in sage_satellite_stripping.c for why this formula is
- * expected, not a bug. Guards against a future refactor silently changing it.
+ * SAGE divides the recomputed excess by the substep count every substep
+ * which gives this formula; it is expected, not a bug.
+ * Guards against a future refactor silently changing it.
+ *
+ * The satellite (Mvir 10, HaloBaryonFraction 0.17, hot gas 5.0) has excess 3.3 over its allowed
+ * 1.7. After N substeps of N calls the excess has decayed by (1-1/N)^N; the satellite's loss
+ * is the central's gain throughout.
  */
 static int test_stripped_fraction_follows_geometric_formula(void) {
   init_memory_system(0);
 
-  /* N=1: strips the entire excess in a single step. */
-  {
-    struct ModuleContext ctx = create_test_context(1);
+  static const struct {
+    int substeps;
+    int calls;
+    double sat_hot;
+    const char *what;
+  } rows[] = {
+      /* N=1 strips the entire excess down to the target: 1.7 */
+      {1, 1, 1.7, "N=1 strips the full excess"},
+      /* N=8: HotGas = 1.7 + 3.3 * (1-1/8)^8 = 2.833909422159195 */
+      {8, 8, 2.833909422159195, "N=8 follows the geometric decay"},
+      /* one call of N=10 strips a tenth of the excess: 5.0 - 0.33 */
+      {10, 1, 4.67, "one substep of N=10 strips a tenth of the excess"},
+      /* the dynamic-substep cap: 1.7 + 3.3 * (1-1/200)^200 = 2.9109608116963512 */
+      {DEFAULT_MAX_DYNAMIC_SUBSTEPS, DEFAULT_MAX_DYNAMIC_SUBSTEPS, 2.9109608116963512,
+       "the substep cap follows the geometric decay"},
+  };
+
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    struct ModuleContext ctx = create_test_context(rows[k].substeps);
     struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
     struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-    /* Mvir=10, baryon_frac=0.17 -> allowed=1.7; HotGas=5.0 -> excess=3.3 */
     struct GalaxyData sat_gal = create_test_galaxy(5.0, 0.0, 0.0, 0.0);
     struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
     ctx.central_galaxy = &central;
-    struct Halo halos[2] = {central, satellite};
+    char msg[160];
 
-    int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
-    TEST_ASSERT(result == 0, "Process should succeed at N=1");
-    TEST_ASSERT_DOUBLE_EQUAL((double)halos[1].galaxy->HotGas, 1.7, 1e-4,
-                             "N=1 should strip the full excess down to the baryon-fraction target");
-  }
-
-  /* N=8: excess decays by a factor (1-1/8) each substep, so after 8 substeps
-   * HotGas = allowed + excess0*(1-1/8)^8 = 1.7 + 3.3*0.343609... = 2.833909... */
-  {
-    struct ModuleContext ctx = create_test_context(8);
-    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
-    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-    struct GalaxyData sat_gal = create_test_galaxy(5.0, 0.0, 0.0, 0.0);
-    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
-    ctx.central_galaxy = &central;
-    struct Halo halos[2] = {central, satellite};
-
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < rows[k].calls; i++) {
       ctx.substep_number = i;
-      int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
-      TEST_ASSERT(result == 0, "Process should succeed for each of 8 substeps");
+      TEST_ASSERT(sage_satellite_stripping_process(&ctx, &satellite, 1) == 0,
+                  "Process should succeed");
     }
 
-    TEST_ASSERT_DOUBLE_EQUAL((double)halos[1].galaxy->HotGas, 2.833909422159195, 5e-4,
-                             "N=8 should match the geometric-decay prediction, not full stripping");
+    snprintf(msg, sizeof(msg), "%s (HotGas %.7g)", rows[k].what, (double)sat_gal.HotGas);
+    TEST_ASSERT(FLOAT_EQ((double)sat_gal.HotGas, rows[k].sat_hot, 1e-4), msg);
+    snprintf(msg, sizeof(msg), "N=%d: the satellite's loss is the central's gain",
+             rows[k].substeps);
+    TEST_ASSERT(FLOAT_EQ(5.0 - (double)sat_gal.HotGas, (double)cen_gal.HotGas - 100.0, 1e-4), msg);
   }
 
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_metal_conservation
- * @brief   Stripped metals from satellite equals metals gained by central
- */
-static int test_metal_conservation(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(1);
-  struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-  float initial_sat_metals = sat_gal.MetalsHotGas;
-  float initial_cen_metals = cen_gal.MetalsHotGas;
-  float initial_total_metals = initial_sat_metals + initial_cen_metals;
-
-  sage_satellite_stripping_process(&ctx, &halos[1], 1);
-
-  float final_total_metals = halos[1].galaxy->MetalsHotGas + halos[0].galaxy->MetalsHotGas;
-  float sat_metals_lost = initial_sat_metals - halos[1].galaxy->MetalsHotGas;
-  float cen_metals_gained = halos[0].galaxy->MetalsHotGas - initial_cen_metals;
-
-  TEST_ASSERT(FLOAT_EQ(final_total_metals, initial_total_metals, 1e-5),
-              "Total metals should be conserved");
-  TEST_ASSERT(FLOAT_EQ(sat_metals_lost, cen_metals_gained, 1e-5),
-              "Satellite metals lost should equal central metals gained");
   check_memory_leaks();
   return TEST_PASS;
 }
 
 /**
  * @test    test_metal_conservation_all_regimes
- * @brief   Satellite metal loss must equal central metal gain in every clamp
- *          regime, including constructed unphysical M > G states where the
+ * @brief   The satellite loses, and the central gains, the same literal gas and metals in
+ *          every clamp regime, including constructed unphysical M > G states where the
  *          metallicity cap (Z = 1) is active.
  *
- * Regression guard for the inherited SAGE metal-destruction bug (fixed
- * 2026-06-16). The pre-fix code credited the central with clamped-gas *
- * metallicity, destroying metals in the two capped-Z rows below; the fix
- * credits the central with the same strippedMetals debited from the satellite,
- * conserving metals everywhere.
+ * The central is credited with exactly the strippedMetals debited from the satellite, so metals
+ * are conserved in every regime. Stock SAGE credits the clamped gas times the metallicity,
+ * which destroys metals in the two capped-Z rows below; Mimic's sage16 package deliberately
+ * conserves them, so the two sides must both equal min(s * Z, M).
  */
 static int test_metal_conservation_all_regimes(void) {
   /* Each row drives a distinct branch of the stripping transfer. With
@@ -323,15 +205,17 @@ static int test_metal_conservation_all_regimes(void) {
     float stellar;
     double bf;
     double mvir;
+    double gas_moved;    /* min(s, G) */
+    double metals_moved; /* min(s * Z, M) */
   } cases[] = {
-      {"no-clamp", 10.0f, 0.2f, 0.0f, 0.5, 10.0},
-      {"gas-clamp normal-Z", 10.0f, 0.2f, 20.0f, 0.5, 20.0},
-      {"cap both-clamps", 2.0f, 3.0f, 10.0f, 0.2, 10.0},
-      {"cap gas-clamp-only", 2.0f, 10.0f, 5.0f, 0.2, 10.0},
+      {"no-clamp", 10.0f, 0.2f, 0.0f, 0.5, 10.0, 5.0, 0.1},
+      {"gas-clamp normal-Z", 10.0f, 0.2f, 20.0f, 0.5, 20.0, 10.0, 0.2},
+      {"cap both-clamps", 2.0f, 3.0f, 10.0f, 0.2, 10.0, 2.0, 3.0},
+      {"cap gas-clamp-only", 2.0f, 10.0f, 5.0f, 0.2, 10.0, 2.0, 5.0},
   };
 
+  init_memory_system(0);
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-    init_memory_system(0);
     struct ModuleContext ctx = create_test_context(1);
     struct GalaxyData cen_gal = create_test_galaxy(100.0f, 2.0f, 50.0f, 20.0f);
     struct Halo central = create_test_halo(0, 100.0, &cen_gal);
@@ -341,47 +225,30 @@ static int test_metal_conservation_all_regimes(void) {
     struct Halo satellite = create_test_halo(1, cases[i].mvir, &sat_gal);
     ctx.central_galaxy = &central;
     struct Halo halos[2] = {central, satellite};
+    float sat_gas_before = sat_gal.HotGas;
     float sat_metals_before = sat_gal.MetalsHotGas;
+    float cen_gas_before = cen_gal.HotGas;
     float cen_metals_before = cen_gal.MetalsHotGas;
+    char msg[200];
 
     int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
     TEST_ASSERT(result == 0, "Process should succeed");
 
-    float sat_lost = sat_metals_before - halos[1].galaxy->MetalsHotGas;
-    float cen_gained = halos[0].galaxy->MetalsHotGas - cen_metals_before;
+    const double gas_lost = sat_gas_before - halos[1].galaxy->HotGas;
+    const double gas_gained = halos[0].galaxy->HotGas - cen_gas_before;
+    const double metals_lost = sat_metals_before - halos[1].galaxy->MetalsHotGas;
+    const double metals_gained = halos[0].galaxy->MetalsHotGas - cen_metals_before;
 
-    if (!FLOAT_EQ(sat_lost, cen_gained, 1e-4)) {
-      printf("FAIL: metals not conserved in regime '%s' (lost=%.6f, gained=%.6f)\n", cases[i].label,
-             sat_lost, cen_gained);
-      return TEST_FAIL;
-    }
-  }
-
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_metallicity_preservation
- * @brief   Metallicity should be preserved during stripping
- */
-static int test_metallicity_preservation(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(1);
-  struct GalaxyData cen_gal = create_test_galaxy(100.0, 1.0, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  struct GalaxyData sat_gal = create_test_galaxy(10.0, 0.3, 0.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
-  float initial_sat_Z = sat_gal.MetalsHotGas / sat_gal.HotGas;
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-
-  sage_satellite_stripping_process(&ctx, &halos[1], 1);
-
-  if (halos[1].galaxy->HotGas > 0.0) {
-    float final_sat_Z = halos[1].galaxy->MetalsHotGas / halos[1].galaxy->HotGas;
-    TEST_ASSERT(FLOAT_EQ(final_sat_Z, initial_sat_Z, 1e-4),
-                "Satellite metallicity should be preserved");
+    snprintf(msg, sizeof(msg),
+             "regime '%s': gas lost/gained %.6f/%.6f (expected %.6f), metals lost/gained "
+             "%.6f/%.6f (expected %.6f)",
+             cases[i].label, gas_lost, gas_gained, cases[i].gas_moved, metals_lost, metals_gained,
+             cases[i].metals_moved);
+    TEST_ASSERT(FLOAT_EQ(gas_lost, cases[i].gas_moved, 1e-4) &&
+                    FLOAT_EQ(gas_gained, cases[i].gas_moved, 1e-4) &&
+                    FLOAT_EQ(metals_lost, cases[i].metals_moved, 1e-4) &&
+                    FLOAT_EQ(metals_gained, cases[i].metals_moved, 1e-4),
+                msg);
   }
 
   check_memory_leaks();
@@ -390,7 +257,11 @@ static int test_metallicity_preservation(void) {
 
 /**
  * @test    test_zero_hot_gas_no_stripping
- * @brief   Satellites with zero hot gas should not be stripped
+ * @brief   Satellites with zero hot gas lose nothing, and nothing turns non-finite
+ *
+ * The demand here is positive (stellar mass and cold gas exceed the allowance), so a
+ * division by the satellite's zero hot gas would show as a non-finite metal value on either
+ * galaxy.
  */
 static int test_zero_hot_gas_no_stripping(void) {
   init_memory_system(0);
@@ -408,165 +279,170 @@ static int test_zero_hot_gas_no_stripping(void) {
   TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, 0.0, 1e-6), "Satellite HotGas should remain zero");
   TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
               "Central should not gain gas (satellite has none to strip)");
+  TEST_ASSERT(halos[1].galaxy->MetalsHotGas == 0.0f, "Satellite metals should remain zero");
+  TEST_ASSERT(halos[0].galaxy->MetalsHotGas == 2.0f, "Central metals should be unchanged");
+  TEST_ASSERT(isfinite(halos[0].galaxy->HotGas) && isfinite(halos[0].galaxy->MetalsHotGas) &&
+                  isfinite(halos[1].galaxy->HotGas) && isfinite(halos[1].galaxy->MetalsHotGas),
+              "No gas or metal value should turn non-finite");
   check_memory_leaks();
   return TEST_PASS;
 }
 
 /**
- * @test    test_clamping_to_available_gas
- * @brief   Cannot strip more gas than satellite has available
+ * @test    test_unstripped_types_skipped
+ * @brief   Only a Type 1 satellite is stripped: a Type 0, 2 (orphan) or 3 (ejected) row is not
  */
-static int test_clamping_to_available_gas(void) {
+static int test_unstripped_types_skipped(void) {
+  static const struct {
+    int type;
+    const char *what;
+  } rows[] = {
+      {0, "a Type 0 row should not be stripped"},
+      {2, "a Type 2 orphan should not be stripped"},
+      {3, "a Type 3 ejected galaxy should not be stripped"},
+  };
+
   init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(1);
-  struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  /* Mvir=100 → allowed=17; stellar=50 + hot=2 = 52 → excess=35; strip clamped to 2.0 */
-  struct GalaxyData sat_gal = create_test_galaxy(2.0, 0.04, 50.0, 0.0);
-  struct Halo satellite = create_test_halo(1, 100.0, &sat_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-  float initial_sat_hot = sat_gal.HotGas;
-  float initial_cen_hot = cen_gal.HotGas;
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    struct ModuleContext ctx = create_test_context(1);
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+    /* Mvir=10 allows 1.7: a Type 1 row with 10.0 hot gas would be stripped */
+    struct GalaxyData other_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
+    struct Halo other = create_test_halo(rows[k].type, 10.0, &other_gal);
+    ctx.central_galaxy = &central;
 
-  sage_satellite_stripping_process(&ctx, &halos[1], 1);
+    TEST_ASSERT(sage_satellite_stripping_process(&ctx, &other, 1) == 0, "Process should succeed");
 
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, 0.0, 1e-6),
-              "Satellite should be stripped to zero (clamped)");
-  TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot + initial_sat_hot, 1e-4),
-              "Central should gain all available satellite hot gas");
-  check_memory_leaks();
-  return TEST_PASS;
-}
+    TEST_ASSERT(other_gal.HotGas == 10.0f && other_gal.MetalsHotGas == 0.2f, rows[k].what);
+    TEST_ASSERT(cen_gal.HotGas == 100.0f && cen_gal.MetalsHotGas == 2.0f,
+                "The central should not gain gas or metals");
+  }
 
-/**
- * @test    test_type_2_orphans_skipped
- * @brief   Type 2 orphans should not be processed
- */
-static int test_type_2_orphans_skipped(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(1);
-  struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  struct GalaxyData orphan_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
-  struct Halo orphan = create_test_halo(2, 10.0, &orphan_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, orphan};
-  float initial_orphan_hot = orphan_gal.HotGas;
-  float initial_cen_hot = cen_gal.HotGas;
-
-  sage_satellite_stripping_process(&ctx, &halos[1], 1);
-
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, initial_orphan_hot, 1e-6),
-              "Type 2 orphan should not be stripped");
-  TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
-              "Central should not gain gas from orphan");
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_type_3_ejected_skipped
- * @brief   Type 3 ejected galaxies should not be processed
- */
-static int test_type_3_ejected_skipped(void) {
-  init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(1);
-  struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  struct GalaxyData ejected_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
-  struct Halo ejected = create_test_halo(3, 10.0, &ejected_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, ejected};
-  float initial_ejected_hot = ejected_gal.HotGas;
-  float initial_cen_hot = cen_gal.HotGas;
-
-  sage_satellite_stripping_process(&ctx, &halos[1], 1);
-
-  TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, initial_ejected_hot, 1e-6),
-              "Type 3 ejected galaxy should not be stripped");
-  TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
-              "Central should not gain gas from ejected galaxy");
   check_memory_leaks();
   return TEST_PASS;
 }
 
 /**
  * @test    test_null_galaxy_handling
- * @brief   NULL galaxy pointers should be handled safely
+ * @brief   Missing state returns 0 and moves nothing; ngal != 1 is an error
+ *
+ * A Type 1 satellite holding 5.0 hot gas (allowance 1.7) would be stripped if the module did
+ * not return early on: a NULL satellite galaxy, a NULL context, a NULL central pointer or a
+ * central without a galaxy. process_by_galaxy requires ngal == 1, anything else is an error.
  */
 static int test_null_galaxy_handling(void) {
   init_memory_system(0);
   struct ModuleContext ctx = create_test_context(1);
   struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
   struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  struct Halo satellite = create_test_halo(1, 10.0, NULL);
+  struct Halo central_without_galaxy = create_test_halo(0, 100.0, NULL);
+  struct GalaxyData sat_gal = create_test_galaxy(5.0, 0.1, 0.0, 0.0);
+  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+  struct Halo satellite_without_galaxy = create_test_halo(1, 10.0, NULL);
+
   ctx.central_galaxy = &central;
-  struct Halo halos[2] = {central, satellite};
-  float initial_cen_hot = cen_gal.HotGas;
+  TEST_ASSERT(sage_satellite_stripping_process(&ctx, &satellite_without_galaxy, 1) == 0,
+              "Should handle NULL galaxy gracefully");
+  TEST_ASSERT(cen_gal.HotGas == 100.0f, "Central should not change when satellite has NULL galaxy");
 
-  int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
+  TEST_ASSERT(sage_satellite_stripping_process(NULL, &satellite, 1) == 0,
+              "Should handle a NULL context");
+  ctx.central_galaxy = NULL;
+  TEST_ASSERT(sage_satellite_stripping_process(&ctx, &satellite, 1) == 0,
+              "Should handle a NULL central");
+  ctx.central_galaxy = &central_without_galaxy;
+  TEST_ASSERT(sage_satellite_stripping_process(&ctx, &satellite, 1) == 0,
+              "Should handle a central without a galaxy");
+  TEST_ASSERT(sat_gal.HotGas == 5.0f && sat_gal.MetalsHotGas == 0.1f,
+              "Without a central to give to, the satellite should keep its gas");
+  TEST_ASSERT(cen_gal.HotGas == 100.0f && cen_gal.MetalsHotGas == 2.0f,
+              "The central should be unchanged");
 
-  TEST_ASSERT(result == 0, "Should handle NULL galaxy gracefully");
-  TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
-              "Central should not change when satellite has NULL galaxy");
+  ctx.central_galaxy = &central;
+  struct Halo pair[2] = {satellite, satellite};
+  FILE *capture = tmpfile();
+  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+  const int two = sage_satellite_stripping_process(&ctx, pair, 2);
+  const int none = sage_satellite_stripping_process(&ctx, pair, 0);
+  if (capture != NULL) {
+    set_log_output(old_out);
+    fclose(capture);
+  }
+  TEST_ASSERT(two != 0 && none != 0, "ngal != 1 should be an error");
+  TEST_ASSERT(sat_gal.HotGas == 5.0f && cen_gal.HotGas == 100.0f,
+              "An ngal != 1 call should move nothing");
+
   check_memory_leaks();
   return TEST_PASS;
+}
+
+/** @brief Append one model parameter to the mock run configuration */
+static void append_param(const char *name, const char *value) {
+  const int idx = MimicConfig.NumModelParams;
+  snprintf(MimicConfig.ModelParams[idx].param_name, sizeof(MimicConfig.ModelParams[idx].param_name),
+           "%s", name);
+  snprintf(MimicConfig.ModelParams[idx].value, sizeof(MimicConfig.ModelParams[idx].value), "%s",
+           value);
+  MimicConfig.NumModelParams = idx + 1;
 }
 
 /**
- * @test    test_multiple_satellites
- * @brief   Multiple satellites should all be processed correctly
+ * @test    test_halo_baryon_fraction_fallback
+ * @brief   A HaloBaryonFraction that is not positive falls back to GlobalBaryonFraction
+ *
+ * sage_reionization sets the satellite's own fraction; an unset one (-1) or a zero uses
+ * GlobalBaryonFraction, here 0.3. The satellite (Mvir 10, hot gas 5.0, one substep) is stripped
+ * to its allowance: 3.0 under the global 0.3 and 1.7 under its own positive 0.17.
  */
-static int test_multiple_satellites(void) {
+static int test_halo_baryon_fraction_fallback(void) {
+  static const struct {
+    double halo_baryon_fraction;
+    double sat_hot;
+    const char *what;
+  } rows[] = {
+      {-1.0, 3.0, "an unset (-1) fraction should fall back to GlobalBaryonFraction"},
+      {0.0, 3.0, "a zero fraction should fall back to GlobalBaryonFraction"},
+      {0.17, 1.7, "a positive fraction should be the satellite's own"},
+  };
+
+  setup_mock_config();
+  append_param("GlobalBaryonFraction", "0.3");
+  TEST_ASSERT(sage_satellite_stripping_init() == 0, "init should succeed");
+
   init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(1);
-  struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
-  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
-  struct GalaxyData sat1_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
-  struct Halo sat1 = create_test_halo(1, 10.0, &sat1_gal);
-  struct GalaxyData sat2_gal = create_test_galaxy(8.0, 0.16, 0.0, 0.0);
-  struct Halo sat2 = create_test_halo(1, 10.0, &sat2_gal);
-  ctx.central_galaxy = &central;
-  struct Halo halos[3] = {central, sat1, sat2};
-  float initial_cen_hot = cen_gal.HotGas;
-  float initial_sat1_hot = sat1_gal.HotGas;
-  float initial_sat2_hot = sat2_gal.HotGas;
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    struct ModuleContext ctx = create_test_context(1);
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+    struct GalaxyData sat_gal = create_test_galaxy(5.0, 0.1, 0.0, 0.0);
+    sat_gal.HaloBaryonFraction = rows[k].halo_baryon_fraction;
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+    ctx.central_galaxy = &central;
 
-  /* by-galaxy contract — the galaxy-major loop calls the module once per satellite */
-  sage_satellite_stripping_process(&ctx, &halos[1], 1);
-  sage_satellite_stripping_process(&ctx, &halos[2], 1);
+    TEST_ASSERT(sage_satellite_stripping_process(&ctx, &satellite, 1) == 0,
+                "Process should succeed");
 
-  TEST_ASSERT(halos[0].galaxy->HotGas > initial_cen_hot,
-              "Central should gain gas from both satellites");
-  TEST_ASSERT(halos[1].galaxy->HotGas < initial_sat1_hot, "Satellite 1 should lose gas");
-  TEST_ASSERT(halos[2].galaxy->HotGas < initial_sat2_hot, "Satellite 2 should lose gas");
+    TEST_ASSERT(FLOAT_EQ((double)sat_gal.HotGas, rows[k].sat_hot, 1e-5), rows[k].what);
+    TEST_ASSERT(FLOAT_EQ((double)cen_gal.HotGas, 100.0 + (5.0 - rows[k].sat_hot), 1e-5),
+                "The central should gain what the satellite lost");
+  }
+
   check_memory_leaks();
   return TEST_PASS;
 }
-
-// ============================================================================
-// MAIN TEST RUNNER
-// ============================================================================
 
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
   setup_mock_config();
 
   TEST_RUN(test_no_stripping_when_below_threshold);
-  TEST_RUN(test_stripping_when_above_threshold);
-  TEST_RUN(test_mass_conservation);
-  TEST_RUN(test_mass_conservation_max_dynamic_substeps);
   TEST_RUN(test_stripped_fraction_follows_geometric_formula);
-  TEST_RUN(test_metal_conservation);
   TEST_RUN(test_metal_conservation_all_regimes);
-  TEST_RUN(test_metallicity_preservation);
   TEST_RUN(test_zero_hot_gas_no_stripping);
-  TEST_RUN(test_clamping_to_available_gas);
-  TEST_RUN(test_type_2_orphans_skipped);
-  TEST_RUN(test_type_3_ejected_skipped);
+  TEST_RUN(test_unstripped_types_skipped);
   TEST_RUN(test_null_galaxy_handling);
-  TEST_RUN(test_multiple_satellites);
+  TEST_RUN(test_halo_baryon_fraction_fallback);
 
   TEST_SUMMARY();
   return TEST_RESULT();

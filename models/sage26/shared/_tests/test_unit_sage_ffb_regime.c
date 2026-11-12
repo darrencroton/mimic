@@ -18,8 +18,8 @@
  * - test_fraction_guards: each guard gives exactly 0 on its own: Mvir +0, -0, negative and -inf,
  *   a threshold of 0 (z 1e54), and Mvir +0 against a NaN threshold (z -2); a NaN Mvir passes the
  *   guards (NaN), an infinite one gives exactly 1
- * - test_fraction_half: Mvir equal to the threshold gives exactly 0.5
- * - test_fraction_inline: the fraction across the sigmoid equals SAGE26's expression written here
+ * - test_fraction_inline: the fraction across the sigmoid equals SAGE26's expression written
+ *   here, and Mvir equal to the threshold gives exactly 0.5 (at three redshifts)
  * - test_validator: EnhancedStarFormationOn 0 and 1 are accepted; 2, 3 and -1 refused, naming it
  */
 
@@ -34,18 +34,11 @@
 
 #include "shared/sage_ffb_regime.h"
 
-/* Test framework counters (each test translation unit owns its own) */
-static int passed = 0;
-static int failed = 0;
+/* Shared sage26 test fixture boilerplate (counters, config reset, log capture) */
+#include "modules/_tests/sage_test_fixtures.h"
 
 /* Hubble_h of SAGE26's default configuration */
 #define TEST_HUBBLE_H 0.73
-
-static uint64_t bits_of(const double v) {
-  uint64_t b;
-  memcpy(&b, &v, sizeof(b));
-  return b;
-}
 
 #if defined(__GNUC__) || defined(__clang__)
 #define FFB_TEST_NOINLINE __attribute__((noinline))
@@ -117,10 +110,11 @@ int test_draw_vectors(void) {
     const uint64_t bits = mimic_sage_ffb_halo_uniform_bits(vectors[k].id, vectors[k].snap);
     const double deviate = mimic_sage_ffb_halo_uniform(vectors[k].id, vectors[k].snap);
     printf("\n  (%lld, %d): bits 0x%016llx, deviate 0x%016llx", vectors[k].id, vectors[k].snap,
-           (unsigned long long)bits, (unsigned long long)bits_of(deviate));
+           (unsigned long long)bits, (unsigned long long)double_bits(deviate));
     TEST_ASSERT(bits == vectors[k].bits, "the hashed bits must equal the frozen vector");
-    TEST_ASSERT(bits_of(deviate) == vectors[k].deviate, "the deviate must equal the frozen vector");
-    TEST_ASSERT(bits_of(mimic_sage_ffb_uniform_from_bits(bits)) == vectors[k].deviate,
+    TEST_ASSERT(double_bits(deviate) == vectors[k].deviate,
+                "the deviate must equal the frozen vector");
+    TEST_ASSERT(double_bits(mimic_sage_ffb_uniform_from_bits(bits)) == vectors[k].deviate,
                 "the deviate from the bits must equal the composed draw");
   }
   return TEST_PASS;
@@ -155,9 +149,9 @@ int test_threshold_inline(void) {
     struct MimicSageFfbThresholdLocals l;
     const double got = mimic_sage_ffb_threshold_mass(redshifts[k], TEST_HUBBLE_H, &l);
     printf("\n  z %g: threshold %.17g (SAGE26's expression %.17g)", redshifts[k], got, expected);
-    TEST_ASSERT(bits_of(got) == bits_of(expected), "the threshold must be SAGE26's");
-    TEST_ASSERT(bits_of(l.z_norm) == bits_of(z_norm), "z_norm must be (1 + z) / 10");
-    TEST_ASSERT(bits_of(l.log_Mvir_ffb_code) == bits_of(log_code),
+    TEST_ASSERT(double_bits(got) == double_bits(expected), "the threshold must be SAGE26's");
+    TEST_ASSERT(double_bits(l.z_norm) == double_bits(z_norm), "z_norm must be (1 + z) / 10");
+    TEST_ASSERT(double_bits(l.log_Mvir_ffb_code) == double_bits(log_code),
                 "log_Mvir_ffb_code must be SAGE26's fused log term");
   }
   struct MimicSageFfbThresholdLocals l;
@@ -190,7 +184,7 @@ int test_fraction_guards(void) {
     const double f = mimic_sage_ffb_fraction(guarded[k].mvir, guarded[k].z, TEST_HUBBLE_H, &l);
     printf("\n  %s: fraction %a, threshold %g, guard %d", guarded[k].label, f, l.Mvir_ffb,
            l.guard_returned);
-    TEST_ASSERT(bits_of(f) == bits_of(0.0), "a guarded fraction must be exactly +0");
+    TEST_ASSERT(double_bits(f) == double_bits(0.0), "a guarded fraction must be exactly +0");
     TEST_ASSERT(l.guard_returned == 1 && isnan(l.x), "the guard must return before x");
   }
   struct MimicSageFfbFractionLocals l;
@@ -208,26 +202,9 @@ int test_fraction_guards(void) {
 }
 
 /**
- * @test    test_fraction_half
- * @brief   Mvir equal to the threshold: log10(1) / 0.15 = 0, so the fraction is exactly 0.5
- */
-int test_fraction_half(void) {
-  const double redshifts[] = {7.0, 9.0, 12.5};
-  for (size_t k = 0; k < sizeof(redshifts) / sizeof(redshifts[0]); k++) {
-    double z_norm, log_code;
-    const double threshold = sage26_threshold(redshifts[k], TEST_HUBBLE_H, &z_norm, &log_code);
-    struct MimicSageFfbFractionLocals l;
-    const double f = mimic_sage_ffb_fraction(threshold, redshifts[k], TEST_HUBBLE_H, &l);
-    printf("\n  z %g: Mvir = threshold %.17g -> fraction %a, x %a", redshifts[k], threshold, f,
-           l.x);
-    TEST_ASSERT(l.x == 0.0 && f == 0.5, "Mvir equal to the threshold must give exactly 0.5");
-  }
-  return TEST_PASS;
-}
-
-/**
  * @test    test_fraction_inline
- * @brief   The fraction across the sigmoid equals SAGE26's expression written here
+ * @brief   The fraction across the sigmoid equals SAGE26's expression written here; Mvir equal
+ *          to the threshold gives log10(1) / 0.15 = 0, so exactly 0.5
  */
 int test_fraction_inline(void) {
   const double z = 7.0;
@@ -241,19 +218,23 @@ int test_fraction_inline(void) {
     const double f = mimic_sage_ffb_fraction(mvir, z, TEST_HUBBLE_H, &l);
     printf("\n  Mvir %.9g (threshold x %g): fraction %.17g (SAGE26's expression %.17g)", mvir,
            factors[k], f, expected);
-    TEST_ASSERT(bits_of(f) == bits_of(expected), "the fraction must be SAGE26's");
-    TEST_ASSERT(bits_of(l.Mvir_ffb) == bits_of(threshold), "the threshold must be SAGE26's");
+    TEST_ASSERT(double_bits(f) == double_bits(expected), "the fraction must be SAGE26's");
+    TEST_ASSERT(double_bits(l.Mvir_ffb) == double_bits(threshold),
+                "the threshold must be SAGE26's");
+  }
+
+  const double redshifts[] = {7.0, 9.0, 12.5};
+  for (size_t k = 0; k < sizeof(redshifts) / sizeof(redshifts[0]); k++) {
+    double half_z_norm, half_log_code;
+    const double half_threshold =
+        sage26_threshold(redshifts[k], TEST_HUBBLE_H, &half_z_norm, &half_log_code);
+    struct MimicSageFfbFractionLocals l;
+    const double f = mimic_sage_ffb_fraction(half_threshold, redshifts[k], TEST_HUBBLE_H, &l);
+    printf("\n  z %g: Mvir = threshold %.17g -> fraction %a, x %a", redshifts[k], half_threshold, f,
+           l.x);
+    TEST_ASSERT(l.x == 0.0 && f == 0.5, "Mvir equal to the threshold must give exactly 0.5");
   }
   return TEST_PASS;
-}
-
-/** @brief Read all content from a FILE* into a static buffer (valid until the next call) */
-static const char *read_captured_log(FILE *fp) {
-  static char buf[4096];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
 }
 
 /**
@@ -295,7 +276,6 @@ int main(void) {
   TEST_RUN(test_deviate_endpoints);
   TEST_RUN(test_threshold_inline);
   TEST_RUN(test_fraction_guards);
-  TEST_RUN(test_fraction_half);
   TEST_RUN(test_fraction_inline);
   TEST_RUN(test_validator);
 

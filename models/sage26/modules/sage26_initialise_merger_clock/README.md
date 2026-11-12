@@ -39,5 +39,6 @@ The clock is SAGE26's `estimate_merging_time`, the Binney & Tremaine (1987) dyna
 
 ## Tests
 
-- `_tests/test_unit_sage26_initialise_merger_clock.c`: the placement checks, `MergerTimeFactor`, and each joining transition on hand-built workspaces.
-- `_tests/test_integration_sage26_initialise_merger_clock.py`: the module in a full run, its placement refusals and the parameter.
+- `_tests/test_unit_sage26_initialise_merger_clock.c`: `MergerTimeFactor`, and each joining transition on hand-built workspaces.
+- `_tests/test_integration_sage26_initialise_merger_clock.py`: the module in a full run beside `sage26_record_transition_state`, checking a clean run and the `TimeOfInfall` every satellite holds from joining.
+- The `MergerTimeFactor` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`, and the placement checks by `../_tests/test_unit_sage_dependency_contracts.c`.

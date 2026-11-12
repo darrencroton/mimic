@@ -2,14 +2,28 @@
  * @file    test_unit_sage26_merger_ordering_parity.c
  * @brief   Immediate-order parity fixtures for SAGE merger/disruption ordering
  *
- * These tests exercise the dedicated immediate-order parity handler against the live SAGE ordering
- * contract documented in the module README, and the merger transaction's refusal of BulgeSizeOn 3
- * without the core parameters. The CGMrecipeOn 1 tests check, with exact literal expectations, that
- * a disruption deposits the satellite's gas in the PASSED recipient's selected pair, chosen by that
- * recipient's Regime with CGMrecipeOn 1 and its hot pair otherwise, for an orphan whose
- * recipient is not the FoF central (test_cgm_disruption_to_passed_recipient), and the
- * CGMrecipeOn refusal (test_cgm_recipe_on_refused).
+ * These tests run the resolver's process() against SAGE26's in-pass ordering documented in the
+ * module README: each satellite's target is mutated before the next row is considered, and a
+ * target consumed earlier in the pass is redirected once through its own central.
+ *
+ * Test cases:
+ *   - test_shared_target_immediate_trace: a disruption then a merger onto the same FoF central,
+ *     in row order, with the merger's major/minor label
+ *   - test_consumed_target_redirect_trace: an orphan whose Type 1 target merged earlier in the
+ *     pass is redirected to that target's central, where the redirected merger is major (the
+ *     receiving galaxy ends with 2.4 of stars, all bulge)
+ *   - test_mode3_merge_refuses_missing_core_parameters: with BulgeSizeOn 3 the merger
+ *     transaction refuses a context without the core parameters before changing anything
+ *   - test_cgm_disruption_to_passed_recipient: a disruption deposits the satellite's gas in the
+ *     PASSED recipient's selected pair, chosen by that recipient's Regime with CGMrecipeOn 1 and
+ *     its hot pair otherwise, for an orphan whose recipient is not the FoF central
+ *
+ * The CGMrecipeOn refusals of the module are asserted, with diagnostics, by
+ * test_unit_sage26_parameter_refusals.c.
  */
+
+/* The merger tests configure units and cosmology in their own reset_config() */
+#define SAGE_TEST_LOCAL_RESET_CONFIG
 
 #include "../../../../tests/framework/parity_trace.h"
 #include "../../../../tests/framework/test_framework.h"
@@ -20,14 +34,12 @@
 #include "util/error.h"
 #include "util/memory.h"
 
+#include "modules/_tests/sage_test_fixtures.h"
 #include "modules/sage26_resolve_mergers_and_disruption/sage_merger_ops.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-
-static int passed = 0;
-static int failed = 0;
 
 extern int sage26_resolve_mergers_and_disruption_init(void);
 extern int sage26_resolve_mergers_and_disruption_process(struct ModuleContext *ctx,
@@ -324,37 +336,10 @@ int test_consumed_target_redirect_trace(void) {
   parity_failure =
       trace_matches_contract("Consumed-target redirect fixture should match SAGE one-hop redirect",
                              &expected_trace, &actual_trace);
-
-  cleanup_parity_modules();
-  check_memory_leaks();
-
-  return parity_failure ? TEST_FAIL : TEST_PASS;
-}
-
-int test_consumed_target_redirect_changes_major_minor_state(void) {
-  struct ModuleContext ctx;
-  struct Halo halos[4];
-  struct GalaxyData galaxies[4];
-  const double expected_target2_stellar = 2.4;
-  const double expected_target2_bulge = 2.4;
-  int parity_failure = 0;
-
-  printf("  Testing: consumed target redirect changes major/minor outcome...\n");
-
-  init_memory_system(0);
-  reset_config();
-  setup_model_parameters(TEST_THRESHOLD_DISRUPTION, TEST_THRESHOLD_MAJOR);
-  TEST_ASSERT(init_parity_modules() == 0, "Parity module should initialize for state fixture");
-
-  setup_consumed_target_fixture(&ctx, halos, galaxies);
-
-  TEST_ASSERT(sage26_resolve_mergers_and_disruption_process(&ctx, halos, 4) == 0,
-              "Immediate parity module should succeed");
-  TEST_ASSERT(halos[3].Type == 3, "Type 2 orphan should be consumed in the immediate merge");
-
-  parity_failure = state_matches_contract(
-      "SAGE redirect should deliver a major merger remnant to halo 2", expected_target2_stellar,
-      expected_target2_bulge, halos[2].galaxy, halos[0].galaxy);
+  /* The redirected merger is major: halo 2's 1.2 of stars gain the orphan's 1.2, all bulge */
+  parity_failure |=
+      state_matches_contract("SAGE redirect should deliver a major merger remnant to halo 2", 2.4,
+                             2.4, halos[2].galaxy, halos[0].galaxy);
 
   cleanup_parity_modules();
   check_memory_leaks();
@@ -436,47 +421,12 @@ int test_mode3_merge_refuses_missing_core_parameters(void) {
 // exactly to 0.875 / 0.109375; both of the recipient's pairs start at 1 / 0.125, so its selected
 // pair ends at 1.875 / 0.234375.
 
-/** @brief Read a captured log stream into a static buffer (valid until the next call) */
-static const char *cgm_read_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
-
-/** @brief Set the parameter list's CGMrecipeOn to `value`, or remove it for NULL */
-static void cgm_set_cgm_recipe_on(const char *value) {
-  int n = 0;
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, "CGMrecipeOn") != 0) {
-      MimicConfig.ModelParams[n++] = MimicConfig.ModelParams[i];
-    }
-  }
-  if (value != NULL) {
-    snprintf(MimicConfig.ModelParams[n].param_name, MAX_STRING_LEN, "%s", "CGMrecipeOn");
-    snprintf(MimicConfig.ModelParams[n].value, MAX_STRING_LEN, "%s", value);
-    n++;
-  }
-  MimicConfig.NumModelParams = n;
-}
-
-/** @brief Initialise the resolver (clock in pre_timestep) with CGMrecipeOn `cgm`, NULL missing */
-static int cgm_init(const char *cgm, const char **log) {
+/** @brief Initialise the resolver (clock in pre_timestep) with CGMrecipeOn `cgm` */
+static int cgm_init(const char *cgm) {
   reset_config();
   setup_model_parameters(TEST_THRESHOLD_DISRUPTION, TEST_THRESHOLD_MAJOR);
-  cgm_set_cgm_recipe_on(cgm);
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = init_parity_modules();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    *log = cgm_read_log(capture);
-    fclose(capture);
-  } else {
-    *log = "";
-  }
-  return status;
+  set_test_cgm_recipe_on(cgm);
+  return init_parity_modules();
 }
 
 /**
@@ -493,8 +443,7 @@ int test_cgm_disruption_to_passed_recipient(void) {
   int ok = 1;
   init_memory_system(0);
   for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
-    const char *log = "";
-    TEST_ASSERT(cgm_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+    TEST_ASSERT(cgm_init(runs[r].cgm) == 0, "init must accept CGMrecipeOn 0 and 1");
     struct ModuleContext ctx;
     struct Halo halos[3];
     struct GalaxyData galaxies[3];
@@ -550,29 +499,6 @@ int test_cgm_disruption_to_passed_recipient(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
- *          a refusal naming the parameter
- */
-int test_cgm_recipe_on_refused(void) {
-  const char *log = "";
-  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  cleanup_parity_modules();
-  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  cleanup_parity_modules();
-  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  cleanup_parity_modules();
-  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
-  cleanup_parity_modules();
-  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
-  cleanup_parity_modules();
-  return TEST_PASS;
-}
-
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
@@ -584,10 +510,8 @@ int main(void) {
 
   TEST_RUN(test_shared_target_immediate_trace);
   TEST_RUN(test_consumed_target_redirect_trace);
-  TEST_RUN(test_consumed_target_redirect_changes_major_minor_state);
   TEST_RUN(test_mode3_merge_refuses_missing_core_parameters);
   TEST_RUN(test_cgm_disruption_to_passed_recipient);
-  TEST_RUN(test_cgm_recipe_on_refused);
 
   TEST_SUMMARY();
   return TEST_RESULT();

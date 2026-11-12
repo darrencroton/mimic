@@ -100,14 +100,13 @@ class PackageRuns:
     def mimic_run(self, name, phases, params):
         """Run mimic on a generated run file; yield (returncode, stdout, stderr, output_dir)."""
         param_file, output_dir, temp_dir = create_test_param_file(
-            output_name=name, phase_config=phases, model_params=params, substeps=self.substeps
+            output_name=name,
+            phase_config=phases,
+            model_params=params,
+            substeps=self.substeps,
+            snapshot_list=list(self.output_files),
         )
         try:
-            with open(param_file, encoding="utf-8") as handle:
-                config = yaml.safe_load(handle)
-            config["output"]["snapshot_list"] = list(self.output_files)
-            with open(param_file, "w", encoding="utf-8") as handle:
-                yaml.safe_dump(config, handle, sort_keys=False)
             returncode, stdout, stderr = run_mimic(param_file)
             yield returncode, stdout, stderr, output_dir
         finally:

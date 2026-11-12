@@ -1,170 +1,59 @@
 #!/usr/bin/env python3
 """
-Shared integration tests for processing-mode contract validation.
+Shared integration test for the processing-mode contract of the sage16 modules.
 
-These checks ensure startup rejects unsupported mode/module combinations for
-representative modules from each runtime contract group.
+Startup must reject a processing mode a module does not support, naming the modes it does. The
+core owns that mechanism and tests it with fixture modules (tests/integration/test_processing_modes.py);
+this file runs it once on a sage16 module that declares two modes, so the ``Supported modes:`` text
+the package's own ``module_info.yaml`` produces for a multi-mode module is checked.
+
+Test cases:
+    - test_dual_mode_module_rejects_process_full_halo: sage_quasar_mode, which supports
+      process_by_galaxy and process_per_event, is refused as process_full_halo at startup
 """
 
-import shutil
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import (
-    BLUE,
-    GREEN,
-    MIMIC_EXE,
-    NC,
-    RED,
-    TestSkipped,
-    create_test_param_file,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
-)
+from framework import MIMIC_EXE, SharedRuns, TestSkipped, run_test_suite
 
-
-def assert_invalid_mode_rejected(output_name, phase_config, expected_mode, expected_supported):
-    """Run Mimic and assert startup rejects an unsupported processing mode."""
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name=output_name,
-        phase_config=phase_config,
-    )
-
-    try:
-        returncode, stdout, stderr = run_mimic(param_file)
-        combined_output = stdout + stderr
-
-        assert returncode != 0, "Invalid processing mode should fail startup"
-        assert f"does not support processing mode '{expected_mode}'" in combined_output
-        assert f"Supported modes: {expected_supported}" in combined_output
-    finally:
-        shutil.rmtree(temp_dir)
-
-
-def test_full_halo_only_module_rejects_process_by_galaxy():
-    assert_invalid_mode_rejected(
-        output_name="mode_contract_full_halo_rejects_by_galaxy",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_apply_infall", "process_by_galaxy")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        expected_mode="process_by_galaxy",
-        expected_supported="process_full_halo",
-    )
-
-
-def test_by_galaxy_only_module_rejects_process_full_halo():
-    assert_invalid_mode_rejected(
-        output_name="mode_contract_by_galaxy_rejects_full_halo",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_apply_cooling", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        expected_mode="process_full_halo",
-        expected_supported="process_by_galaxy",
-    )
+RUNS = SharedRuns()
 
 
 def test_dual_mode_module_rejects_process_full_halo():
-    assert_invalid_mode_rejected(
-        output_name="mode_contract_dual_rejects_full_halo",
+    """sage_quasar_mode as process_full_halo fails startup, listing both supported modes."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+
+    run = RUNS.run(
+        "mode_contract_dual_rejects_full_halo",
         phase_config={
             "pre_timestep": [],
             "galaxy_physics": [("sage_quasar_mode", "process_full_halo")],
             "satellite_mergers": [],
             "post_timestep": [],
         },
-        expected_mode="process_full_halo",
-        expected_supported="process_by_galaxy, process_per_event",
     )
+    combined_output = run.stdout + run.stderr
 
-
-def test_full_halo_only_module_rejects_process_per_event():
-    # process_per_event is the historically highest-risk invalid mode: it was
-    # the specific mode that triggered the original merger-pathway bug, and
-    # it was absent from the rejection matrix until this test was added.
-    assert_invalid_mode_rejected(
-        output_name="mode_contract_full_halo_rejects_per_event",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage_apply_infall", "process_per_event")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        expected_mode="process_per_event",
-        expected_supported="process_full_halo",
-    )
+    assert run.returncode != 0, "Invalid processing mode should fail startup"
+    assert "does not support processing mode 'process_full_halo'" in combined_output
+    assert "Supported modes: process_by_galaxy, process_per_event" in combined_output
 
 
 def main():
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(
-        f"{BLUE}Test Suite: Processing Mode Contracts (test_integration_processing_mode_contracts.py){NC}"
-    )
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    tests = [
-        test_full_halo_only_module_rejects_process_by_galaxy,
-        test_by_galaxy_only_module_rejects_process_full_halo,
-        test_dual_mode_module_rejects_process_full_halo,
-        test_full_halo_only_module_rejects_process_per_event,
-    ]
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    try:
+        return run_test_suite(
+            [test_dual_mode_module_rejects_process_full_halo],
+            "Processing Mode Contracts (test_integration_processing_mode_contracts.py)",
+        )
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

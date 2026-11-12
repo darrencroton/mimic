@@ -41,5 +41,6 @@ Every parameter is required with no default; a missing key or a value outside it
 
 ## Tests
 
-- `_tests/test_unit_sage26_quasar_mode.c`: the growth and wind arithmetic, the hydrogen cap, the CGM-or-hot wind selection, `AGNrecipe 0` in both channels, and the parameter refusals.
+- `_tests/test_unit_sage26_quasar_mode.c`: the growth and wind arithmetic, the hydrogen cap, the CGM-or-hot wind selection, and `AGNrecipe 0` in both channels.
 - `_tests/test_integration_sage26_quasar_mode.py`: the module as `process_by_galaxy` in a full run, with physical-range and parameter-monotonicity checks on the output.
+- The `CGMrecipeOn` and `AGNrecipe` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

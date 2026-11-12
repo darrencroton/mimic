@@ -22,6 +22,7 @@
 #ifndef SAGE_TEST_FIXTURES_H
 #define SAGE_TEST_FIXTURES_H
 
+#include <stdio.h>
 #include <string.h>
 
 #include "core/module_registry.h"
@@ -85,6 +86,16 @@ static inline void set_test_model_parameters(void) {
     strncpy(MimicConfig.ModelParams[i].value, params[i].value, MAX_STRING_LEN - 1);
   }
   MimicConfig.NumModelParams = n;
+}
+
+/* Test fixture: read everything written to a captured log (rewound FILE*, as opened by tmpfile()
+ * and handed to set_log_output()) into a static buffer, valid until the next call */
+static inline const char *read_captured_log(FILE *fp) {
+  static char buf[16384];
+  rewind(fp);
+  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+  buf[n] = '\0';
+  return buf;
 }
 
 /* Test fixture: free the galaxy attached to a locally-built test halo */

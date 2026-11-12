@@ -50,5 +50,6 @@ Both commits run on every substep a galaxy takes the ordinary chain, also when n
 
 ## Tests
 
-- `_tests/test_unit_sage26_apply_star_formation_supernova.c`: the transfers and their edge cases (the zero event included), the disk history sampling over a multi-substep snapshot, the `CGMrecipeOn` feedback destinations with the ejection and metal caps, the parameter refusals, the skipped FFB row and the lifecycle.
-- `_tests/test_integration_sage26_apply_star_formation_supernova.py`: runs the star-formation chain and checks finite, non-negative reservoirs, plausible metallicities and star-formation rates, the response to `RecycleFraction` and `Yield`, and no memory leak; a second run without the supernova calculator checks that the cold-gas cap leaves no reservoir negative.
+- `_tests/test_unit_sage26_apply_star_formation_supernova.c`: the transfers and their edge cases (the zero event included), the disk history sampling over a multi-substep snapshot, the `CGMrecipeOn` feedback destinations with the ejection and metal caps, the skipped FFB row and the lifecycle.
+- `_tests/test_integration_sage26_apply_star_formation_supernova.py`: a run that supplies cold gas through the star-formation chain, checking that stars and metals are bounded by what was formed, that every reservoir is populated, finite and non-negative, and that a galaxy without cold gas forms no stars; a second run without the supernova calculator checks that the cold-gas cap leaves no reservoir negative.
+- The `CGMrecipeOn` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

@@ -152,7 +152,7 @@ modules:
     ReIncorporationFactor: 0.19         # Scales Vcrit = 354.53 km/s
 
     # Cooling & AGN Feedback
-    AGNrecipe: 2                        # AGN feedback mode (0=off, 1=empirical, 2=Bondi, 3=cold cloud)
+    AGNrecipe: 2                        # AGN feedback mode: 2 = Bondi-Hoyle radio-mode accretion; 0 = off; 1 and 3 not supported
     RadioModeEfficiency: 0.08           # Radio-mode AGN feedback efficiency
 
     # Black Hole Growth

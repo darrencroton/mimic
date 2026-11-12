@@ -37,5 +37,6 @@ The output rule is applied once per snapshot to every galaxy row, rather than at
 
 ## Tests
 
-- `_tests/test_unit_sage26_record_transition_state.c`: the placement checks, the recorded `Type` and output rule, and every joining transition across two snapshots with `sage26_initialise_merger_clock`.
-- `_tests/test_integration_sage26_record_transition_state.py`: the placement refusal, and the infall values of galaxies followed across consecutive snapshots of full runs, with and without the merger phase.
+- `_tests/test_unit_sage26_record_transition_state.c`: the recorded `Type` and output rule, and every joining transition across two snapshots with `sage26_initialise_merger_clock`.
+- `_tests/test_integration_sage26_record_transition_state.py`: the infall values of galaxies followed across consecutive snapshots of full runs, with and without the merger phase.
+- The placement checks are covered at package level by `../_tests/test_unit_sage_dependency_contracts.c`.

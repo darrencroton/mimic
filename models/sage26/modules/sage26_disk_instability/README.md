@@ -46,5 +46,6 @@ The arithmetic lives in `shared/sage_disk_instability_physics.h`, which the burs
 
 ## Tests
 
-- `_tests/test_unit_sage26_disk_instability.c`: registration and lifecycle, the parameter refusals, stable disks (below and at the threshold, zero disk mass) transferring nothing, unstable disks transferring stars and metals, zero `Vmax` and disk radius, the absence of a transfer cap and bulge clamp, the factor's effect on stability, and the skipped FFB row.
-- `_tests/test_integration_sage26_disk_instability.py`: runs the module alone at `BulgeSizeOn 0` with several `StarFormingDiskFactor` values and checks the bulge outputs are non-negative and at most one float above the stellar totals, the run completes and nothing leaks.
+- `_tests/test_unit_sage26_disk_instability.c`: registration and lifecycle, stable disks (below and at the threshold, zero disk mass) transferring nothing, unstable disks transferring stars and metals, zero `Vmax` and disk radius, the absence of a transfer cap and bulge clamp, the factor's effect on stability, and the skipped FFB row.
+- `_tests/test_integration_sage26_disk_instability.py`: runs the module behind a pipeline that supplies disks, checking that unstable disks occur, that the bulge outputs are non-negative and at most one float above the stellar totals, and that nothing leaks.
+- The `StarFormingDiskFactor` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

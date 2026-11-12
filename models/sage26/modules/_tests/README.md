@@ -25,13 +25,14 @@ Retired tests belong in `archive/src-modules/_archive/`.
 The shared tests of this package, registered in `module_info.yaml`:
 
 - `test_unit_mixed_dt_parity.c`: per-object timesteps in a FoF whose galaxies hold different `dT`.
-- `test_unit_sage_dependency_contracts.c`: the placement and partner checks of the modules' `init()`, one pipeline per case.
-- `test_unit_sage26_bulge_size_parameter.c` and `test_unit_sage26_sf_prescription_parameters.c`: the accepted values of `BulgeSizeOn` and of the star-formation prescription parameters in every module that reads them.
+- `test_unit_sage_dependency_contracts.c`: the placement and partner checks of the modules' `init()`, one pipeline per table row, each refusal asserted with the refusing module and the wording of the check.
+- `test_unit_sage26_parameter_refusals.c`: the run-file parameter refusals of every module that reads parameters (missing keys, unsupported values, out-of-range numbers), one table row per change to the complete default configuration, plus the accepted values that must still initialise.
+- `test_unit_sage26_bulge_size_parameter.c` and `test_unit_sage26_sf_prescription_parameters.c`: what `BulgeSizeOn` and the supported `SFprescription` values select (the mode-0 size helpers and the disk-radius module's mode-3 requirement; whether the hydrogen caps track H2); their refusals are in the parameter-refusal table.
 - `test_integration_processing_mode_contracts.py`: startup rejects a module configured in a processing mode it does not support.
-- `test_scientific_sage26_physics_baseline.py`: the package's full-physics regression baseline (`input/test_physics_binary.yaml` against `baseline/physics-binary/`), run under `MODEL=sage26 SIMULATION=mini-millennium`.
+- `test_scientific_sage26_physics_baseline.py`: the package's full-physics regression baseline under `MODEL=sage26 SIMULATION=mini-millennium` (`input/test_physics_binary.yaml` against `baseline/physics-binary/`), the input's agreement with the run file, and that the fresh output holds only finite values inside the declared property ranges.
 - The package's plotting tests under `models/sage26/plots/tests/` are registered here in the scientific tier because the plots directory has no registry of its own.
 
-`sage_test_fixtures.h` is the standard fixture of the package's C unit tests, and `sage26_run_helpers.py` holds the shared machinery of the integration tests that drive real runs.
+`sage_test_fixtures.h` is the standard fixture of the package's C unit tests (including the full-physics run file's parameter table that the parameter-refusal and dependency-contract tests share), and `sage26_run_helpers.py` holds the shared machinery of the integration tests that drive real runs.
 
 ---
 
@@ -146,49 +147,34 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import (
-    BLUE, NC, MIMIC_EXE, TestNotApplicable, TestSkipped,
-    result_error, result_fail, result_na, result_pass, result_skip,
-)
+from framework import MIMIC_EXE, SharedRuns, TestSkipped, run_test_suite
+
+# One Mimic run per distinct configuration, shared by the cases that assert on it
+RUNS = SharedRuns()
+
+# PHASES: the module pipeline; PARAMS: every parameter the configured modules read
+PHASES = {"galaxy_physics": [("my_module", "process_by_galaxy")]}
+PARAMS = {"Param1Name": 1.0}
 
 
 def test_my_module_behavior():
-    """Test description — what contract is being verified."""
+    """Test description: what contract is being verified."""
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
-    # ... setup, run Mimic, assert on output ...
+    run = RUNS.run("my_module", phase_config=PHASES, model_params=PARAMS, snapshot_list=[63])
+    assert run.returncode == 0, run.stderr
+    # ... load run.output_dir and assert on the output ...
 
 
 def main():
-    tests = [test_my_module_behavior]
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    passed = failed = 0
-    for test in tests:
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-        except TestNotApplicable as e:
-            result_na(test.__name__, str(e))
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    return 0 if failed == 0 else 1
+    try:
+        return run_test_suite([test_my_module_behavior], "My module integration tests")
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
 ```
 
 See `tests/framework/python_integration_test_template.py` for the complete framework template.

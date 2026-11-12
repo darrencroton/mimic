@@ -1,10 +1,27 @@
 /**
  * @file    test_unit_sage_dependency_contracts.c
- * @brief   SAGE module dependency-contract unit tests
+ * @brief   Placement and partner contracts of the sage16 modules at initialisation
  *
- * These tests are SAGE-owned because they name SAGE production modules and
- * validate SAGE package dependency and warning contracts. Core module-system
- * tests use framework fixtures in tests/unit/ instead.
+ * Each module's init() checks the pipeline around it: partners that must be configured, the order
+ * in which modules must run, and where a module may be placed. This file is the single home of
+ * those checks for the package. One table row configures a pipeline, initialises it, and asserts
+ *
+ *   - a refusal: module_system_init() fails, the log says that the intended module refused
+ *     ("Module '<name>' initialization failed") and contains wording unique to the intended check,
+ *     which names the missing or misplaced partner. A refusal for any other reason (a missing
+ *     parameter, a changed phase, another module's check) fails the row;
+ *   - a warning: initialisation succeeds and the log carries the warning;
+ *   - acceptance: initialisation succeeds, showing a guard does not over-refuse.
+ *
+ * Every row runs on the package's full parameter set. Three checks cannot be reached through
+ * module_system_init(): reionization's own ordering guard is always forestalled by the module it
+ * names, and the per-event producer checks of the quasar and starburst modules are forestalled by
+ * the core's event-contract validation, which refuses the same configuration first. Those rows run
+ * the module's init() directly, and one row asserts the core's refusal. Parameter refusals live in
+ * test_unit_sage_parameter_refusals.c.
+ *
+ * Test cases:
+ *   - test_dependency_contracts: the table of rows
  */
 
 #include "framework/test_framework.h"
@@ -18,724 +35,320 @@
 #include "util/memory.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
-/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+/* Shared sage16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
 
-/* ============================================================================
- * DEPENDENCY ENFORCEMENT TESTS (§7 of SAGE-MODULE-REVIEW.md)
- * ============================================================================
- *
- * Each test verifies one constraint from the §7 dependency table.
- *
- * Naming convention:
- *   test_dep_<module>_<condition>_<error|warn>
- *
- * ERROR tests assert module_system_init() returns non-zero.
- * WARNING tests assert module_system_init() returns zero AND verify the
- * warning text was actually emitted via set_log_output() capture.
- */
+extern int sage_reionization_init(void);
+extern int sage_quasar_mode_init(void);
+extern int sage_starburst_feedback_init(void);
 
-/**
- * @brief Read all content from a FILE* into a static buffer.
- *
- * Rewinds fp before reading.  The returned pointer is valid until the next
- * call to this function.  Truncates silently at 8191 bytes (ample for
- * warning log lines).
- */
-static const char *read_captured_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
+#define COUNT(array) (sizeof(array) / sizeof((array)[0]))
 
-/**
- * @test    test_dep_apply_infall_missing_prepare_error
- * @brief   sage_apply_infall requires sage_prepare_infall_budget in pre_timestep (ERROR)
- */
-int test_dep_apply_infall_missing_prepare_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
+#define MAX_ENTRIES 8
 
-  /* Only sage_apply_infall in galaxy_physics; pre_timestep is empty */
-  test_phase_add("galaxy_physics", "sage_apply_infall", PROCESSING_MODE_FULL_HALO);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
+/** @brief One pipeline entry: the phase it sits in, the module and its processing mode */
+struct entry {
+  const char *phase;
+  const char *module;
+  enum ProcessingMode mode;
+};
 
-  int result = module_system_init();
-  TEST_ASSERT(result != 0, "sage_apply_infall without sage_prepare_infall_budget must fail init");
+#define PRE_TIMESTEP "pre_timestep"
+#define SUBSTEP_PHASE "galaxy_physics"
+#define OTHER_PHASE "satellite_mergers"
 
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
+#define PRE(module) {PRE_TIMESTEP, module, PROCESSING_MODE_FULL_HALO}
+#define GAL(module) {SUBSTEP_PHASE, module, PROCESSING_MODE_BY_GALAXY}
+#define GAL_FH(module) {SUBSTEP_PHASE, module, PROCESSING_MODE_FULL_HALO}
+#define GAL_EV(module) {SUBSTEP_PHASE, module, PROCESSING_MODE_PER_EVENT}
+#define OTHER_FH(module) {OTHER_PHASE, module, PROCESSING_MODE_FULL_HALO}
+#define OTHER_EV(module) {OTHER_PHASE, module, PROCESSING_MODE_PER_EVENT}
+#define OTHER_BG(module) {OTHER_PHASE, module, PROCESSING_MODE_BY_GALAXY}
 
-/**
- * @test    test_dep_prepare_infall_reionization_wrong_order_error
- * @brief   sage_reionization must precede sage_prepare_infall_budget in pre_timestep (ERROR)
- */
-int test_dep_prepare_infall_reionization_wrong_order_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
+enum outcome { REFUSED, WARNS, ACCEPTED };
 
-  /* Wrong order: infall would read HaloBaryonFraction before reionization writes it. */
-  test_pre_timestep_add("sage_prepare_infall_budget", PROCESSING_MODE_FULL_HALO);
-  test_pre_timestep_add("sage_reionization", PROCESSING_MODE_FULL_HALO);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
+/** @brief One row: a pipeline, the parameters it changes, and the expected outcome */
+struct dependency_case {
+  const char *name;
+  struct entry pipeline[MAX_ENTRIES + 1]; /* ends at the first entry without a module */
+  enum outcome outcome;
+  const char *refuser;      /* REFUSED: the module whose check fires */
+  const char *needle;       /* REFUSED or WARNS: wording the log must contain */
+  int (*direct_init)(void); /* when set, call this init() instead of module_system_init() */
+};
 
-  FILE *capture = tmpfile();
-  FILE *old_out = set_log_output(capture);
-  int result = module_system_init();
-  set_log_output(old_out);
-  const char *log = read_captured_log(capture);
+/* The run-file parameters of the full-physics run file (models/sage16/modules/_tests/input) */
+static const struct {
+  const char *name;
+  const char *value;
+} DEFAULTS[] = {
+    {"GlobalBaryonFraction", "0.17"},
+    {"SfrEfficiency", "0.05"},
+    {"StarFormingDiskFactor", "3.0"},
+    {"FeedbackReheatingEpsilon", "3.0"},
+    {"FeedbackEjectionEfficiency", "0.3"},
+    {"ReIncorporationFactor", "0.15"},
+    {"AGNrecipe", "2"},
+    {"RadioModeEfficiency", "0.08"},
+    {"BlackHoleGrowthRate", "0.015"},
+    {"QuasarModeEfficiency", "0.005"},
+    {"RecycleFraction", "0.43"},
+    {"Yield", "0.025"},
+    {"FracZleaveDisk", "0.0"},
+    {"ThresholdMajorMerger", "0.3"},
+    {"ThresholdSatDisruption", "1.0"},
+};
 
-  TEST_ASSERT(result != 0, "sage_prepare_infall_budget before sage_reionization must fail init");
-  TEST_ASSERT(strstr(log, "sage_reionization") != NULL,
-              "ERROR should name the required reionization predecessor");
-  TEST_ASSERT(strstr(log, "HaloBaryonFraction") != NULL,
-              "ERROR should explain the HaloBaryonFraction dependency");
+static const struct dependency_case CASES[] = {
+    /* Infall budget and reionization */
+    {.name = "apply_infall without prepare_infall_budget",
+     .pipeline = {GAL_FH("sage_apply_infall")},
+     .outcome = REFUSED,
+     .refuser = "sage_apply_infall",
+     .needle = "requires sage_prepare_infall_budget in pre_timestep"},
+    {.name = "prepare_infall_budget before reionization",
+     .pipeline = {PRE("sage_prepare_infall_budget"), PRE("sage_reionization")},
+     .outcome = REFUSED,
+     .refuser = "sage_prepare_infall_budget",
+     .needle = "requires sage_reionization to run earlier in pre_timestep"},
+    {.name = "reionization after prepare_infall_budget (its own guard)",
+     .pipeline = {PRE("sage_prepare_infall_budget"), PRE("sage_reionization")},
+     .outcome = REFUSED,
+     .needle = "sage_reionization must run before sage_prepare_infall_budget",
+     .direct_init = sage_reionization_init},
 
-  fclose(capture);
-  if (result == 0) {
-    module_system_cleanup();
-  }
+    /* Cooling */
+    {.name = "apply_cooling before calculate_cooling_budget",
+     .pipeline = {GAL("sage_apply_cooling"), GAL("sage_calculate_cooling_budget")},
+     .outcome = REFUSED,
+     .refuser = "sage_apply_cooling",
+     .needle = "requires sage_calculate_cooling_budget to precede it"},
+    {.name = "radio_mode_heating before calculate_cooling_budget",
+     .pipeline = {GAL("sage_radio_mode_heating"), GAL("sage_calculate_cooling_budget"),
+                  GAL("sage_apply_cooling")},
+     .outcome = REFUSED,
+     .refuser = "sage_radio_mode_heating",
+     .needle = "requires sage_calculate_cooling_budget to precede it"},
+    {.name = "radio_mode_heating after apply_cooling",
+     .pipeline = {GAL("sage_calculate_cooling_budget"), GAL("sage_apply_cooling"),
+                  GAL("sage_radio_mode_heating")},
+     .outcome = REFUSED,
+     .refuser = "sage_radio_mode_heating",
+     .needle = "must precede sage_apply_cooling"},
+    {.name = "radio_mode_heating second entry in a phase without the budget",
+     .pipeline = {GAL("sage_calculate_cooling_budget"), GAL("sage_radio_mode_heating"),
+                  GAL("sage_apply_cooling"), OTHER_BG("sage_radio_mode_heating")},
+     .outcome = REFUSED,
+     .refuser = "sage_radio_mode_heating",
+     .needle = "to precede it in substep phase 'satellite_mergers'"},
+    {.name = "radio_mode_heating alone",
+     .pipeline = {GAL("sage_radio_mode_heating")},
+     .outcome = ACCEPTED},
+    /* Star formation and supernova feedback */
+    {.name = "calculate_supernova_feedback before calculate_star_formation",
+     .pipeline = {GAL("sage_calculate_supernova_feedback"), GAL("sage_calculate_star_formation"),
+                  GAL("sage_apply_star_formation_supernova")},
+     .outcome = REFUSED,
+     .refuser = "sage_calculate_supernova_feedback",
+     .needle = "requires sage_calculate_star_formation to precede it"},
+    {.name = "apply_star_formation_supernova before calculate_star_formation",
+     .pipeline = {GAL("sage_apply_star_formation_supernova"), GAL("sage_calculate_star_formation")},
+     .outcome = REFUSED,
+     .refuser = "sage_apply_star_formation_supernova",
+     .needle = "requires sage_calculate_star_formation to precede it"},
+    {.name = "apply_star_formation_supernova before calculate_supernova_feedback",
+     .pipeline = {GAL("sage_apply_star_formation_supernova"),
+                  GAL("sage_calculate_supernova_feedback")},
+     .outcome = REFUSED,
+     .refuser = "sage_apply_star_formation_supernova",
+     .needle = "requires sage_calculate_supernova_feedback to precede it"},
+    {.name = "calculate_star_formation without apply_star_formation_supernova",
+     .pipeline = {GAL("sage_calculate_star_formation")},
+     .outcome = REFUSED,
+     .refuser = "sage_calculate_star_formation",
+     .needle = "requires sage_apply_star_formation_supernova in the pipeline"},
+    {.name = "calculate_supernova_feedback without apply_star_formation_supernova",
+     .pipeline = {GAL("sage_calculate_supernova_feedback")},
+     .outcome = REFUSED,
+     .refuser = "sage_calculate_supernova_feedback",
+     .needle = "requires sage_apply_star_formation_supernova in the pipeline"},
+    {.name = "apply_star_formation_supernova alone",
+     .pipeline = {GAL("sage_apply_star_formation_supernova")},
+     .outcome = WARNS,
+     .needle = "neither sage_calculate_star_formation nor sage_calculate_supernova_feedback "
+               "is configured"},
+    {.name = "apply_star_formation_supernova without apply_metal_enrichment",
+     .pipeline = {GAL("sage_calculate_star_formation"), GAL("sage_apply_star_formation_supernova")},
+     .outcome = WARNS,
+     .needle = "sage_apply_metal_enrichment is not configured"},
+    {.name = "apply_metal_enrichment before apply_star_formation_supernova",
+     .pipeline = {GAL("sage_calculate_star_formation"), GAL("sage_apply_metal_enrichment"),
+                  GAL("sage_apply_star_formation_supernova")},
+     .outcome = REFUSED,
+     .refuser = "sage_apply_metal_enrichment",
+     .needle = "requires sage_apply_star_formation_supernova to precede it"},
+    {.name = "apply_metal_enrichment before starburst_feedback",
+     .pipeline = {GAL("sage_apply_metal_enrichment"), GAL("sage_starburst_feedback")},
+     .outcome = REFUSED,
+     .refuser = "sage_apply_metal_enrichment",
+     .needle = "must run after sage_starburst_feedback"},
+
+    /* Mergers, quasar mode, starburst and disk instability */
+    {.name = "quasar_mode per event without a merger producer (the module's own guard)",
+     .pipeline = {OTHER_EV("sage_quasar_mode")},
+     .outcome = REFUSED,
+     .needle = "sage_quasar_mode (process_per_event) requires "
+               "sage_resolve_mergers_and_disruption as process_full_halo",
+     .direct_init = sage_quasar_mode_init},
+    {.name = "starburst_feedback per event without a merger producer (the module's own guard)",
+     .pipeline = {OTHER_EV("sage_starburst_feedback")},
+     .outcome = REFUSED,
+     .needle = "sage_starburst_feedback (process_per_event) requires "
+               "sage_resolve_mergers_and_disruption as process_full_halo",
+     .direct_init = sage_starburst_feedback_init},
+    {.name = "per-event consumers without a merger producer (the event contract)",
+     .pipeline = {OTHER_EV("sage_quasar_mode"), OTHER_EV("sage_starburst_feedback")},
+     .outcome = REFUSED,
+     .needle = "subscribes to producer 'sage_resolve_mergers_and_disruption'"},
+    {.name = "starburst_feedback by galaxy without disk_instability",
+     .pipeline = {GAL("sage_starburst_feedback")},
+     .outcome = WARNS,
+     .needle = "sage_disk_instability does not precede it"},
+    {.name = "starburst_feedback with disk_instability but no quasar_mode consumer",
+     .pipeline = {PRE("sage_initialise_merger_clock"), GAL("sage_disk_instability"),
+                  OTHER_FH("sage_resolve_mergers_and_disruption"),
+                  OTHER_EV("sage_starburst_feedback")},
+     .outcome = WARNS,
+     .needle = "sage_quasar_mode is absent as process_per_event"},
+    {.name = "disk_instability after quasar_mode",
+     .pipeline = {GAL("sage_quasar_mode"), GAL("sage_disk_instability")},
+     .outcome = REFUSED,
+     .refuser = "sage_disk_instability",
+     .needle = "must precede sage_quasar_mode (process_by_galaxy)"},
+    {.name = "disk_instability with quasar_mode only in another phase",
+     .pipeline = {GAL("sage_disk_instability"), OTHER_BG("sage_quasar_mode")},
+     .outcome = REFUSED,
+     .refuser = "sage_disk_instability",
+     .needle = "must precede sage_quasar_mode (process_by_galaxy)"},
+    {.name = "disk_instability before a by-galaxy quasar_mode beside its per-event entry",
+     .pipeline = {PRE("sage_initialise_merger_clock"),
+                  GAL_FH("sage_resolve_mergers_and_disruption"), GAL_EV("sage_quasar_mode"),
+                  GAL("sage_disk_instability"), GAL("sage_quasar_mode")},
+     .outcome = ACCEPTED},
+    {.name = "resolve_mergers_and_disruption without initialise_merger_clock",
+     .pipeline = {OTHER_FH("sage_resolve_mergers_and_disruption")},
+     .outcome = REFUSED,
+     .refuser = "sage_resolve_mergers_and_disruption",
+     .needle = "requires sage_initialise_merger_clock in pre_timestep"},
+    {.name = "resolve_mergers_and_disruption before initialise_merger_clock",
+     .pipeline = {PRE("sage_resolve_mergers_and_disruption"), PRE("sage_initialise_merger_clock")},
+     .outcome = REFUSED,
+     .refuser = "sage_resolve_mergers_and_disruption",
+     .needle = "requires sage_initialise_merger_clock to precede it in pre_timestep"},
+    {.name = "initialise_merger_clock before resolve_mergers_and_disruption in pre_timestep",
+     .pipeline = {PRE("sage_initialise_merger_clock"), PRE("sage_resolve_mergers_and_disruption")},
+     .outcome = ACCEPTED},
+};
+
+/** @brief Free the phase arrays of a pipeline whose init() never reached cleanup */
+static void free_pipeline(void) {
   test_free_pre_timestep();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_apply_cooling_wrong_order_error
- * @brief   sage_apply_cooling requires sage_calculate_cooling_budget to precede it (ERROR)
- */
-int test_dep_apply_cooling_wrong_order_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* sage_apply_cooling before sage_calculate_cooling_budget — wrong order */
-  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0,
-              "sage_apply_cooling before sage_calculate_cooling_budget must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
   test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
 }
 
-/**
- * @test    test_dep_supernova_wrong_order_error
- * @brief   sage_calculate_supernova_feedback requires sage_calculate_star_formation to precede it
- * (ERROR)
- *
- * Triggers when both are configured but in wrong order (SN before SF).
- */
-int test_dep_supernova_wrong_order_error(void) {
+/** @brief Configure a row: the default parameters, the units and the row's pipeline */
+static void configure(const struct dependency_case *row) {
   reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* SN before SF — wrong order; apply step also present after both */
-  test_phase_add("galaxy_physics", "sage_calculate_supernova_feedback", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_calculate_star_formation", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova",
-                 PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(
-      result != 0,
-      "sage_calculate_supernova_feedback before sage_calculate_star_formation must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
+  for (size_t i = 0; i < COUNT(DEFAULTS); i++) {
+    snprintf(MimicConfig.ModelParams[i].param_name, MAX_STRING_LEN, "%s", DEFAULTS[i].name);
+    snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%s", DEFAULTS[i].value);
   }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_apply_sfn_wrong_order_error
- * @brief   sage_apply_star_formation_supernova must follow SF/SN modules (ERROR)
- *
- * Triggers when apply step precedes SF in same phase.
- */
-int test_dep_apply_sfn_wrong_order_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* apply step before SF — wrong order */
-  test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova",
-                 PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_calculate_star_formation", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.NumModelParams = (int)COUNT(DEFAULTS);
   MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0, "sage_apply_sfn before sage_calculate_star_formation must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
+  MimicConfig.Hubble_h = 0.73;
+  MimicConfig.UnitLength_in_cm = 3.08568e24;
+  MimicConfig.UnitMass_in_g = 1.989e43;
+  MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
+  MimicConfig.UnitTime_in_s = MimicConfig.UnitLength_in_cm / MimicConfig.UnitVelocity_in_cm_per_s;
+  MimicConfig.UnitEnergy_in_cgs = MimicConfig.UnitMass_in_g * MimicConfig.UnitLength_in_cm *
+                                  MimicConfig.UnitLength_in_cm /
+                                  (MimicConfig.UnitTime_in_s * MimicConfig.UnitTime_in_s);
+  for (const struct entry *e = row->pipeline; e->module != NULL; e++) {
+    if (strcmp(e->phase, PRE_TIMESTEP) == 0) {
+      test_pre_timestep_add(e->module, e->mode);
+    } else {
+      test_phase_add(e->phase, e->module, e->mode);
+    }
   }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
 }
 
 /**
- * @test    test_dep_quasar_per_event_missing_producer_error
- * @brief   sage_quasar_mode process_per_event requires merger event producer (ERROR)
+ * @test    test_dependency_contracts
+ * @brief   Every row's pipeline is refused by the intended module naming the intended partner,
+ *          warns with the intended text, or initialises, as the table states
  */
-int test_dep_quasar_per_event_missing_producer_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
+int test_dependency_contracts(void) {
+  for (size_t r = 0; r < COUNT(CASES); r++) {
+    const struct dependency_case *row = &CASES[r];
+    configure(row);
 
-  /* quasar_mode as per_event with no merger event producer in satellite_mergers */
-  test_phase_add("satellite_mergers", "sage_quasar_mode", PROCESSING_MODE_PER_EVENT);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
+    FILE *capture = tmpfile();
+    TEST_ASSERT(capture != NULL, "a log capture file must open");
+    FILE *old_out = set_log_output(capture);
+    const int status = row->direct_init != NULL ? row->direct_init() : module_system_init();
+    set_log_output(old_out);
+    char log[16384];
+    snprintf(log, sizeof(log), "%s", read_captured_log(capture));
+    fclose(capture);
 
-  int result = module_system_init();
-  TEST_ASSERT(result != 0, "sage_quasar_mode per_event without merger producer must fail init");
+    if (row->direct_init != NULL) {
+      free_pipeline();
+    } else {
+      module_system_cleanup();
+    }
+    check_memory_leaks();
 
-  if (result == 0) {
-    module_system_cleanup();
+    char message[256];
+    char refuser[160] = "";
+    if (row->refuser != NULL) {
+      snprintf(refuser, sizeof(refuser), "Module '%s' initialization failed", row->refuser);
+    }
+    printf("\n  %s: init %d", row->name, status);
+    if (row->outcome == REFUSED) {
+      snprintf(message, sizeof(message), "%s: init must fail", row->name);
+      TEST_ASSERT(status != 0, message);
+      if (row->refuser != NULL) {
+        snprintf(message, sizeof(message), "%s: the intended module must refuse", row->name);
+        TEST_ASSERT(strstr(log, refuser) != NULL, message);
+      }
+      snprintf(message, sizeof(message), "%s: the error must name the intended check", row->name);
+      TEST_ASSERT(strstr(log, row->needle) != NULL, message);
+    } else {
+      snprintf(message, sizeof(message), "%s: init must succeed", row->name);
+      TEST_ASSERT(status == 0, message);
+      if (row->outcome == WARNS) {
+        snprintf(message, sizeof(message), "%s: the warning must be logged", row->name);
+        TEST_ASSERT(strstr(log, row->needle) != NULL, message);
+      }
+    }
   }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_starburst_per_event_missing_producer_error
- * @brief   sage_starburst_feedback process_per_event requires merger event producer (ERROR)
- */
-int test_dep_starburst_per_event_missing_producer_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* starburst_feedback as per_event with no merger event producer in satellite_mergers */
-  test_phase_add("satellite_mergers", "sage_starburst_feedback", PROCESSING_MODE_PER_EVENT);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0,
-              "sage_starburst_feedback per_event without merger producer must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_sf_missing_apply_error
- * @brief   sage_calculate_star_formation without sage_apply_star_formation_supernova must fail
- * (ERROR)
- *
- * NewStellarMass would be computed each substep but never committed.
- */
-int test_dep_sf_missing_apply_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* SF alone — no apply step anywhere */
-  test_phase_add("galaxy_physics", "sage_calculate_star_formation", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0, "sage_calculate_star_formation without apply step must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_sn_missing_apply_error
- * @brief   sage_calculate_supernova_feedback without sage_apply_star_formation_supernova must fail
- * (ERROR)
- *
- * SupernovaReheatedMass and SupernovaEjectedMass would be computed but never committed.
- */
-int test_dep_sn_missing_apply_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* SN alone — no apply step anywhere */
-  test_phase_add("galaxy_physics", "sage_calculate_supernova_feedback", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0, "sage_calculate_supernova_feedback without apply step must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_apply_sfn_warns_no_prescriptions
- * @brief   sage_apply_star_formation_supernova alone emits WARNING but succeeds (WARNING)
- */
-int test_dep_apply_sfn_warns_no_prescriptions(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* apply step alone — no SF or SN configured anywhere */
-  test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova",
-                 PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  FILE *capture = tmpfile();
-  FILE *old_out = set_log_output(capture);
-  int result = module_system_init();
-  set_log_output(old_out);
-  const char *log = read_captured_log(capture);
-
-  TEST_ASSERT(result == 0, "sage_apply_sfn alone should warn but not fail init");
-  TEST_ASSERT(strstr(log, "sage_apply_star_formation_supernova") != NULL,
-              "WARNING about missing SF/SN prescriptions must be logged");
-
-  fclose(capture);
-  module_system_cleanup();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_resolve_mergers_errors_no_clock
- * @brief   sage_resolve_mergers_and_disruption without sage_initialise_merger_clock fails (ERROR)
- *
- * Without sage_initialise_merger_clock in pre_timestep, satellites arrive with the
- * sentinel MergTime (999.0) and the module would crash mid-run. Init must catch this.
- */
-int test_dep_resolve_mergers_errors_no_clock(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* sage_resolve_mergers_and_disruption in satellite_mergers; no sage_initialise_merger_clock */
-  test_phase_add("satellite_mergers", "sage_resolve_mergers_and_disruption",
-                 PROCESSING_MODE_FULL_HALO);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  FILE *capture = tmpfile();
-  FILE *old_out = set_log_output(capture);
-  int result = module_system_init();
-  set_log_output(old_out);
-  const char *log = read_captured_log(capture);
-
-  TEST_ASSERT(result != 0,
-              "sage_resolve_mergers without sage_initialise_merger_clock must fail init");
-  TEST_ASSERT(strstr(log, "sage_initialise_merger_clock") != NULL,
-              "ERROR about missing merger clock must be logged");
-
-  fclose(capture);
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_starburst_warns_no_disk_instability
- * @brief   sage_starburst_feedback by_galaxy without disk_instability emits WARNING (WARNING)
- */
-int test_dep_starburst_warns_no_disk_instability(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* starburst_feedback as by_galaxy without sage_disk_instability before it */
-  test_phase_add("galaxy_physics", "sage_starburst_feedback", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  FILE *capture = tmpfile();
-  FILE *old_out = set_log_output(capture);
-  int result = module_system_init();
-  set_log_output(old_out);
-  const char *log = read_captured_log(capture);
-
-  TEST_ASSERT(
-      result == 0,
-      "sage_starburst_feedback by_galaxy without disk_instability should warn but not fail");
-  TEST_ASSERT(strstr(log, "sage_disk_instability") != NULL,
-              "WARNING about missing disk instability trigger must be logged");
-
-  fclose(capture);
-  module_system_cleanup();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_starburst_warns_no_quasar_mode
- * @brief   sage_starburst_feedback: disk_instability in galaxy_physics but quasar_mode absent
- *          from satellite_mergers emits WARNING (WARNING) — §7 table, last row
- *
- * Scenario: starburst_feedback as process_per_event (valid merger consumer),
- * sage_disk_instability present in galaxy_physics (enables post-merger disk instability
- * recheck), but sage_quasar_mode absent from satellite_mergers (quasar wind silently skipped).
- */
-int test_dep_starburst_warns_no_quasar_mode(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  /* pre_timestep: merger clock required by sage_resolve_mergers_and_disruption */
-  test_pre_timestep_add("sage_initialise_merger_clock", PROCESSING_MODE_FULL_HALO);
-
-  /* galaxy_physics: disk instability trigger writer */
-  test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
-
-  /* satellite_mergers: merger producer + starburst consumer; no quasar_mode */
-  test_phase_add("satellite_mergers", "sage_resolve_mergers_and_disruption",
-                 PROCESSING_MODE_FULL_HALO);
-  test_phase_add("satellite_mergers", "sage_starburst_feedback", PROCESSING_MODE_PER_EVENT);
-
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  FILE *capture = tmpfile();
-  FILE *old_out = set_log_output(capture);
-  int result = module_system_init();
-  set_log_output(old_out);
-  const char *log = read_captured_log(capture);
-
-  TEST_ASSERT(result == 0,
-              "starburst with disk instability but no quasar_mode should warn but not fail");
-  TEST_ASSERT(strstr(log, "sage_quasar_mode") != NULL,
-              "WARNING about missing quasar_mode in satellite_mergers must be logged");
-
-  fclose(capture);
-  module_system_cleanup();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * Main test runner
- */
-/**
- * @test    test_dep_radio_before_budget_error
- * @brief   sage_radio_mode_heating placed before sage_calculate_cooling_budget is refused (ERROR)
- */
-int test_dep_radio_before_budget_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0,
-              "sage_radio_mode_heating before sage_calculate_cooling_budget must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_radio_after_apply_error
- * @brief   sage_radio_mode_heating placed after sage_apply_cooling is refused (ERROR)
- */
-int test_dep_radio_after_apply_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0, "sage_radio_mode_heating after sage_apply_cooling must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_radio_second_phase_entry_error
- * @brief   a valid budget-radio-apply chain plus a second sage_radio_mode_heating entry alone in
- * another phase is refused (ERROR): every phase holding the module is checked
- */
-int test_dep_radio_second_phase_entry_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("satellite_mergers", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0, "a second sage_radio_mode_heating entry without its partners in its own "
-                           "phase must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_radio_alone_accepted
- * @brief   sage_radio_mode_heating with neither partner configured initialises (the guards apply
- * only when a partner is configured)
- */
-int test_dep_radio_alone_accepted(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result == 0, "sage_radio_mode_heating alone must initialise");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_disk_instability_after_quasar_error
- * @brief   sage_disk_instability placed after the by-galaxy sage_quasar_mode entry is refused
- * (ERROR)
- */
-int test_dep_disk_instability_after_quasar_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  test_phase_add("galaxy_physics", "sage_quasar_mode", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0, "sage_disk_instability after sage_quasar_mode must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_radio_chain_accepted
- * @brief   budget, radio heating, apply cooling in order initialise (the positive control for the
- * radio refusals)
- */
-int test_dep_radio_chain_accepted(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result == 0, "budget, radio, apply in order must initialise");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_disk_instability_before_quasar_accepted
- * @brief   disk instability before the by-galaxy quasar entry initialises (the positive control for
- * the refusal)
- */
-int test_dep_disk_instability_before_quasar_accepted(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_quasar_mode", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result == 0, "disk instability before quasar must initialise");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_disk_instability_merged_phase_accepted
- * @brief   one phase holding the merger producer, the quasar module's per-event entry, disk
- *          instability and the quasar module's by-galaxy entry, in that order, initialises:
- *          the guard compares by-galaxy entries and ignores the per-event entry
- */
-int test_dep_disk_instability_merged_phase_accepted(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  test_pre_timestep_add("sage_initialise_merger_clock", PROCESSING_MODE_FULL_HALO);
-  test_phase_add("galaxy_physics", "sage_resolve_mergers_and_disruption",
-                 PROCESSING_MODE_FULL_HALO);
-  test_phase_add("galaxy_physics", "sage_quasar_mode", PROCESSING_MODE_PER_EVENT);
-  test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_quasar_mode", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result == 0, "the merged phase with disk instability before the by-galaxy quasar "
-                           "entry must initialise");
-
-  if (result == 0) {
-    module_system_cleanup();
-  } else {
-    test_free_pre_timestep();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_dep_disk_instability_quasar_other_phase_error
- * @brief   disk instability in one phase with the by-galaxy quasar entry only in another is
- *          refused (ERROR): the entry must follow in the same phase
- */
-int test_dep_disk_instability_quasar_other_phase_error(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("satellite_mergers", "sage_quasar_mode", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  int result = module_system_init();
-  TEST_ASSERT(result != 0, "a by-galaxy quasar entry in another phase must fail init");
-
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  test_free_substep_phases();
-  check_memory_leaks();
   return TEST_PASS;
 }
 
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
-  printf("Test Suite: SAGE Dependency Contracts\n");
+  printf("Test Suite: SAGE dependency and placement contracts\n");
   printf("============================================================\n");
   printf("%s\n", NC);
 
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
   init_memory_system(0);
+  ensure_modules_registered();
 
-  TEST_RUN(test_dep_apply_infall_missing_prepare_error);
-  TEST_RUN(test_dep_prepare_infall_reionization_wrong_order_error);
-  TEST_RUN(test_dep_apply_cooling_wrong_order_error);
-  TEST_RUN(test_dep_supernova_wrong_order_error);
-  TEST_RUN(test_dep_apply_sfn_wrong_order_error);
-  TEST_RUN(test_dep_quasar_per_event_missing_producer_error);
-  TEST_RUN(test_dep_starburst_per_event_missing_producer_error);
-  TEST_RUN(test_dep_sf_missing_apply_error);
-  TEST_RUN(test_dep_sn_missing_apply_error);
-  TEST_RUN(test_dep_apply_sfn_warns_no_prescriptions);
-  TEST_RUN(test_dep_resolve_mergers_errors_no_clock);
-  TEST_RUN(test_dep_starburst_warns_no_disk_instability);
-  TEST_RUN(test_dep_starburst_warns_no_quasar_mode);
-  TEST_RUN(test_dep_radio_before_budget_error);
-  TEST_RUN(test_dep_radio_after_apply_error);
-  TEST_RUN(test_dep_radio_second_phase_entry_error);
-  TEST_RUN(test_dep_radio_alone_accepted);
-  TEST_RUN(test_dep_disk_instability_after_quasar_error);
-  TEST_RUN(test_dep_radio_chain_accepted);
-  TEST_RUN(test_dep_disk_instability_before_quasar_accepted);
-  TEST_RUN(test_dep_disk_instability_merged_phase_accepted);
-  TEST_RUN(test_dep_disk_instability_quasar_other_phase_error);
+  TEST_RUN(test_dependency_contracts);
 
   TEST_SUMMARY();
   return TEST_RESULT();

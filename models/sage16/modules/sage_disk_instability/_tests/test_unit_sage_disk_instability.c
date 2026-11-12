@@ -2,40 +2,28 @@
  * @file    test_unit_sage_disk_instability.c
  * @brief   Comprehensive unit tests for sage_disk_instability module
  *
- * Validates: Module lifecycle, physics calculation, edge cases, parameter validation
+ * Validates: module initialisation, the disk stability criterion and the transfer it drives, the
+ * guards, and the clamps of the bulge to the stellar totals
  *
- * This test validates both software engineering and physics aspects:
- * - Module registration and initialization
- * - Parameter reading and validation (StarFormingDiskFactor)
- * - Memory allocation and cleanup (no leaks)
- * - Disk stability criterion (Mo, Mao & White 1998)
- * - Stellar mass transfer to bulge with metallicity preservation
- * - Trigger flag setting for downstream modules
- * - Edge cases (zero mass, zero radius, safety constraints)
+ * - Disk stability criterion (Efstathiou; Mo, Mao & White 1998): Mcrit = Vmax^2 (factor * radius)
+ *   / G capped at the disk mass
+ * - Stellar mass transfer to the bulge with metallicity preservation, and the unstable gas
+ *   fraction handed to the downstream modules
+ * - Edge cases (zero or negative disk mass, zero Vmax, zero radius) and the clamps of the bulge
+ *   and its metals to the stellar totals
  *
  * Test cases:
- *   - test_module_registration: Module registers correctly
- *   - test_module_initialization: Module init/cleanup lifecycle
- *   - test_parameter_reading: StarFormingDiskFactor parameter
- *   - test_invalid_parameter_fails: Invalid parameters rejected
- *   - test_memory_safety: No memory leaks during operation
- *   - test_process_by_galaxy_mode: ngal=1 requirement
- *   - test_stable_disk_no_transfer: Stable disk physics
- *   - test_stable_disk_at_threshold: Boundary condition
- *   - test_zero_diskmass: Zero disk mass handling
- *   - test_unstable_disk_stars_transfer: Unstable disk bulge formation
- *   - test_unstable_disk_metallicity_preserved: Metal conservation
- *   - test_unstable_disk_gas_only: Gas-only disk
- *   - test_unstable_disk_stars_only: Stars-only disk (triggers NOT set)
- *   - test_zero_vmax: Zero virial velocity
- *   - test_zero_disk_radius: Zero disk radius
- *   - test_full_disk_transfer_clamps_to_available_mass: Full disk transfer boundary
- *   - test_bulge_exceeds_stellar_mass: Safety constraint
- *   - test_metals_bulge_exceeds_stellar_metals: Metal safety constraint
- *   - test_disk_factor_sensitivity: Parameter affects results
+ *   - test_module_initialization: module_system_init accepts the module's placement
+ *   - test_process_by_galaxy_mode: ngal != 1 is refused
+ *   - test_stable_disk_no_transfer: a table of disks that are stable or empty, each left
+ *     bytewise unchanged
+ *   - test_unstable_disk_transfer: a table of unstable disks, each asserting the stars moved,
+ *     their metals and the unstable gas fraction
+ *   - test_full_disk_transfer_clamps_to_available_mass: a full-disk transfer leaves the bulge and
+ *     its metals at the stellar totals
+ *   - test_transfer_clamps_to_stellar_totals: float bit patterns whose unclamped sum rounds above
+ *     the stellar total, for the stars and for the metals, are clamped to it
  *
- * @author  Mimic Development Team
- * @date    2025-12-23
  */
 
 #include "../../tests/framework/test_framework.h"
@@ -49,9 +37,10 @@
 #include "util/memory.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
+#include <stdint.h>
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
@@ -121,26 +110,6 @@ static struct Halo create_test_halo(float vmax, float cold_gas, float stellar_ma
 }
 
 /**
- * @test    test_module_registration
- * @brief   Test that sage_disk_instability module registers correctly
- *
- * Expected: Module registration succeeds without errors
- * Validates: sage_disk_instability_register() works, module appears in registry
- */
-int test_module_registration(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-
-  /* ===== EXECUTE ===== */
-  ensure_modules_registered();
-
-  /* ===== VALIDATE ===== */
-  /* If we got here without crashing, registration succeeded */
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_module_initialization
  * @brief   Test module initialization and cleanup lifecycle
  *
@@ -172,125 +141,6 @@ int test_module_initialization(void) {
   TEST_ASSERT(result == 0, "Module system initialization should succeed");
 
   /* ===== CLEANUP ===== */
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_parameter_reading
- * @brief   Test that module reads StarFormingDiskFactor parameter
- *
- * Expected: Module reads StarFormingDiskFactor parameter successfully
- * Validates: Parameter reading and validation
- */
-int test_parameter_reading(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-  MimicConfig.G = 43007.1;
-
-  test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-
-  setup_test_parameters(5.0); /* Custom value */
-
-  /* ===== EXECUTE ===== */
-  int result = module_system_init();
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module should initialize with custom parameter");
-
-  /* ===== CLEANUP ===== */
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_invalid_parameter_fails
- * @brief   Test that module rejects invalid StarFormingDiskFactor values
- *
- * Expected: Module init fails with invalid parameters
- * Validates: Parameter validation (valid range: [0, 10.0])
- */
-int test_invalid_parameter_fails(void) {
-  /* Test cases: values that should fail */
-  double invalid_values[] = {-1.0, 15.0};
-  int num_cases = 2;
-
-  for (int i = 0; i < num_cases; i++) {
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
-
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
-    MimicConfig.G = 43007.1;
-
-    test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
-    MimicConfig.SubSteps = 1;
-
-    setup_test_parameters(invalid_values[i]);
-
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
-
-    /* ===== VALIDATE ===== */
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg),
-             "Module should fail with invalid StarFormingDiskFactor=%.2f", invalid_values[i]);
-    TEST_ASSERT(result != 0, error_msg);
-
-    /* ===== CLEANUP ===== */
-    /* Note: module_system_cleanup() not called since init failed */
-    check_memory_leaks();
-  }
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during normal operation
- *
- * Expected: No memory leaks after init, process, cleanup cycle
- * Validates: Memory management in module
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(3.0);
-
-  /* Create test halo */
-  struct Halo test_halo = create_test_halo(200.0, 5.0, 10.0, 2.0, 0.03);
-
-  /* Create module context */
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.time = 13.6;
-  ctx.snapshot_number = 63;
-  ctx.substep_dt = 0.1;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  int result = sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
   module_system_cleanup();
   check_memory_leaks();
 
@@ -335,375 +185,138 @@ int test_process_by_galaxy_mode(void) {
   return TEST_PASS;
 }
 
+/** @brief Fails the case naming the table row and the quantity that missed */
+#define ROW_ASSERT(cond, row, what)                                                                \
+  do {                                                                                             \
+    char row_msg[160];                                                                             \
+    snprintf(row_msg, sizeof(row_msg), "row '%s': %s", (row)->name, (what));                       \
+    TEST_ASSERT(cond, row_msg);                                                                    \
+  } while (0)
+
+/** @brief A central with one disk and, for the unstable table, what the module must make of it */
+struct disk_row {
+  const char *name;
+  double disk_factor; /**< StarFormingDiskFactor */
+  float vmax;
+  float cold_gas;
+  float stellar_mass;
+  float bulge_mass;
+  float disk_radius;
+  double stars;        /**< expected stars moved to the bulge */
+  double gas_fraction; /**< expected UnstableDiskGasFraction */
+};
+
 /**
  * @test    test_stable_disk_no_transfer
- * @brief   Test that stable disks (diskmass < Mcrit) don't transfer stars
+ * @brief   A disk whose critical mass reaches its mass, or that has no mass, is left untouched
  *
- * Expected: BulgeMass unchanged, trigger flags = 0
- * Validates: Stability criterion
- * Physics: Mcrit = Vmax² × (factor × radius) / G
- *          With Vmax=700, radius=0.5, factor=3.0: Mcrit = 17.09 > 13 (STABLE)
+ * Expected: every field of the galaxy is unchanged (no stars move, no metals move,
+ *           UnstableDiskGasFraction stays 0)
+ * Validates: the stability criterion Mcrit = Vmax^2 (factor * radius) / G capped at the disk mass
+ *            (Mo, Mao & White 1998), and the disk-mass guard
+ * Physics: diskmass = ColdGas + (StellarMass - BulgeMass); at G = 43007.1 the first two rows have
+ *          Mcrit 17.09 and 13.01 against a disk of 13, the others a disk of 0 and of -1
  */
 int test_stable_disk_no_transfer(void) {
-  /* ===== SETUP ===== */
-  const double disk_factor = 3.0;
-  setup_module_for_physics_test(disk_factor);
+  static const struct disk_row rows[] = {
+      {"mcrit_above_disk", 3.0, 700.0f, 5.0f, 10.0f, 2.0f, 0.5f, 0.0, 0.0},
+      {"mcrit_just_above_disk", 3.0, 500.0f, 5.0f, 10.0f, 2.0f, 0.746029828f, 0.0, 0.0},
+      {"zero_disk_mass", 3.0, 200.0f, 0.0f, 10.0f, 10.0f, 0.03f, 0.0, 0.0},
+      {"negative_disk_mass", 3.0, 200.0f, 1.0f, 8.0f, 10.0f, 0.03f, 0.0, 0.0},
+  };
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const struct disk_row *r = &rows[k];
+    setup_module_for_physics_test(r->disk_factor);
+    struct Halo test_halo =
+        create_test_halo(r->vmax, r->cold_gas, r->stellar_mass, r->bulge_mass, r->disk_radius);
+    struct GalaxyData before;
+    memcpy(&before, test_halo.galaxy, sizeof(before));
 
-  /* Create stable disk: Mcrit > diskmass
-   * diskmass = 5 + (10 - 2) = 13
-   * Mcrit = 700² × (3.0 × 0.5) / 43007.1 = 17.09 > 13 → STABLE
-   */
-  struct Halo test_halo = create_test_halo(700.0, 5.0, 10.0, 2.0, 0.5);
-  const float initial_bulge = test_halo.galaxy->BulgeMass;
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.params = &MimicConfig;
+    ctx.central_galaxy = &test_halo;
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
+    ROW_ASSERT(sage_disk_instability_process(&ctx, &test_halo, 1) == 0, r, "process succeeds");
+    ROW_ASSERT(memcmp(test_halo.galaxy, &before, sizeof(before)) == 0, r,
+               "a stable or empty disk leaves every field unchanged");
 
-  /* ===== EXECUTE ===== */
-  int result = sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->BulgeMass, initial_bulge, 1e-6,
-                           "Stable disk should not transfer stars to bulge");
-  TEST_ASSERT(test_halo.galaxy->UnstableDiskGasFraction == 0.0f,
-              "Stable disk should have UnstableDiskGasFraction = 0");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
+    free_test_halo(&test_halo);
+    module_system_cleanup();
+  }
   check_memory_leaks();
-
   return TEST_PASS;
 }
 
 /**
- * @test    test_stable_disk_at_threshold
- * @brief   Test boundary condition where calculated Mcrit >= diskmass (stable)
+ * @test    test_unstable_disk_transfer
+ * @brief   The stars an unstable disk moves to the bulge, their metals and the unstable gas
+ *          fraction handed on
  *
- * Expected: No star transfer (Mcrit capped to diskmass, unstable_mass = 0)
- * Validates: Mcrit capping logic at stability threshold
- * Physics: Mcrit slightly exceeds diskmass → capped → unstable_mass = 0
+ * Expected: with diskmass = ColdGas + (StellarMass - BulgeMass), gas fraction f = ColdGas /
+ *           diskmass and Mcrit = Vmax^2 (factor * radius) / G (G = 43007.1) capped at diskmass:
+ *           stars moved = (1 - f)(diskmass - Mcrit), UnstableDiskGasFraction = f (diskmass -
+ *           Mcrit) / ColdGas when positive, and the bulge metals gain the disk's metallicity
+ *           times the stars moved. The literals are those formulas, hand-evaluated.
+ * Validates: the transfer, the gas branch, Mcrit 0 (Vmax 0 or radius 0 moves the whole disk), the
+ *            dependence on StarFormingDiskFactor, and a disk just on the unstable side of the cap
+ *            (the transfer is also capped at the disk's stars, which these rows do not reach)
  */
-int test_stable_disk_at_threshold(void) {
-  /* ===== SETUP ===== */
-  const double disk_factor = 3.0;
-  setup_module_for_physics_test(disk_factor);
+int test_unstable_disk_transfer(void) {
+  static const struct disk_row rows[] = {
+      /* diskmass 13, Mcrit 0.0837071 */
+      {"stars_and_gas", 3.0, 200.0f, 5.0f, 10.0f, 2.0f, 0.03f, 7.948487934, 0.9935609918},
+      /* a gas-only disk (StellarMass = BulgeMass): no stars move, the gas fraction is
+       * 1 - Mcrit / ColdGas */
+      {"gas_only", 3.0, 200.0f, 10.0f, 2.0f, 2.0f, 0.03f, 0.0, 0.9916292893},
+      /* a stars-only disk: the stars move and there is no gas to hand on */
+      {"stars_only", 3.0, 200.0f, 0.0f, 10.0f, 2.0f, 0.03f, 7.916292893, 0.0},
+      /* Mcrit 0: the whole stellar disk (8) moves and all the gas is unstable */
+      {"zero_vmax", 3.0, 0.0f, 5.0f, 10.0f, 2.0f, 0.03f, 8.0, 1.0},
+      {"zero_disk_radius", 3.0, 200.0f, 5.0f, 10.0f, 2.0f, 0.0f, 8.0, 1.0},
+      /* the factor scales Mcrit: 0.0279024 at 1.0 and 0.279024 at 10.0 (3.0 is the first row) */
+      {"factor_1", 1.0, 200.0f, 5.0f, 10.0f, 2.0f, 0.03f, 7.982829311, 0.9978536639},
+      {"factor_10", 10.0, 200.0f, 5.0f, 10.0f, 2.0f, 0.03f, 7.828293114, 0.9785366392},
+      /* Mcrit 12.9903 just below the disk's 13: only (8 / 13)(0.0097033) moves */
+      {"mcrit_just_below_disk", 3.0, 500.0f, 5.0f, 10.0f, 2.0f, 0.7449f, 0.005971234004,
+       0.0007464042506},
+  };
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const struct disk_row *r = &rows[k];
+    setup_module_for_physics_test(r->disk_factor);
+    struct Halo test_halo =
+        create_test_halo(r->vmax, r->cold_gas, r->stellar_mass, r->bulge_mass, r->disk_radius);
+    struct GalaxyData *gal = test_halo.galaxy;
+    const double bulge0 = gal->BulgeMass, metals_bulge0 = gal->MetalsBulgeMass;
+    /* the stellar disk's metallicity, from the fixture's float metals (no disk stars, no stars to
+     * move) */
+    const double disk_stars = (double)gal->StellarMass - (double)gal->BulgeMass;
+    const double metallicity =
+        disk_stars > 0.0
+            ? ((double)gal->MetalsStellarMass - (double)gal->MetalsBulgeMass) / disk_stars
+            : 0.0;
 
-  /* Create disk at threshold for robust testing:
-   * diskmass = 13.0 (ColdGas=5.0, disk_stars=8.0)
-   * Calculate radius for Vmax=500 to give calculated Mcrit = 13.01 (slightly > diskmass):
-   * radius = (13.01 × 43007.1) / (500² × 3.0) = 0.746029828
-   * Module caps Mcrit to diskmass, so unstable_mass = diskmass - min(Mcrit, diskmass) = 0
-   */
-  struct Halo test_halo = create_test_halo(500.0, 5.0, 10.0, 2.0, 0.746029828);
-  const float initial_bulge = test_halo.galaxy->BulgeMass;
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.params = &MimicConfig;
+    ctx.central_galaxy = &test_halo;
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
+    ROW_ASSERT(sage_disk_instability_process(&ctx, &test_halo, 1) == 0, r, "process succeeds");
+    /* the bulge fields are floats: a tolerance of a few float steps of the result */
+    ROW_ASSERT(fabs(gal->BulgeMass - (bulge0 + r->stars)) <=
+                   2.0 * FLT_EPSILON * (bulge0 + r->stars),
+               r, "BulgeMass gains the stars moved");
+    const double metals_expected = metals_bulge0 + metallicity * r->stars;
+    ROW_ASSERT(fabs(gal->MetalsBulgeMass - metals_expected) <= 4.0 * FLT_EPSILON * metals_expected,
+               r, "MetalsBulgeMass gains the disk metallicity times the stars moved");
+    ROW_ASSERT(fabs(gal->UnstableDiskGasFraction - r->gas_fraction) <=
+                   2.0 * FLT_EPSILON * r->gas_fraction,
+               r, "UnstableDiskGasFraction");
 
-  /* ===== EXECUTE ===== */
-  sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->BulgeMass, initial_bulge, 1e-4,
-                           "Disk at threshold (Mcrit capped) should not transfer stars");
-  TEST_ASSERT(test_halo.galaxy->UnstableDiskGasFraction == 0.0f,
-              "At threshold: UnstableDiskGasFraction = 0");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
+    free_test_halo(&test_halo);
+    module_system_cleanup();
+  }
   check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_diskmass
- * @brief   Test handling of zero disk mass
- *
- * Expected: Trigger flags = 0, no changes
- * Validates: Edge case handling
- */
-int test_zero_diskmass(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(3.0);
-
-  /* Create galaxy with zero disk: ColdGas=0, StellarMass=BulgeMass */
-  struct Halo test_halo = create_test_halo(200.0, 0.0, 10.0, 10.0, 0.03);
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  int result = sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Zero diskmass should be handled gracefully");
-  TEST_ASSERT(test_halo.galaxy->UnstableDiskGasFraction == 0.0f,
-              "Zero diskmass: UnstableDiskGasFraction = 0");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_unstable_disk_stars_transfer
- * @brief   Test that unstable disks transfer stars to bulge
- *
- * Expected: BulgeMass increases by unstable_stars
- * Validates: Core physics calculation
- * Physics: With Vmax=200, radius=0.03, Mcrit = 0.084 << 13 (UNSTABLE)
- */
-int test_unstable_disk_stars_transfer(void) {
-  /* ===== SETUP ===== */
-  const double disk_factor = 3.0;
-  setup_module_for_physics_test(disk_factor);
-
-  /* Create unstable disk: diskmass > Mcrit
-   * diskmass = 5 + (10 - 2) = 13
-   * Mcrit = 200² × (3.0 × 0.03) / 43007.1 = 0.084 << 13 → UNSTABLE
-   */
-  struct Halo test_halo = create_test_halo(200.0, 5.0, 10.0, 2.0, 0.03);
-  const float initial_bulge = test_halo.galaxy->BulgeMass;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(test_halo.galaxy->BulgeMass > initial_bulge,
-              "Unstable disk should transfer stars to bulge");
-
-  /* Verify physics calculation matches expectations */
-  const double diskmass = 13.0;
-  const double Mcrit = 0.084; /* Pre-calculated */
-  const double star_fraction = 8.0 / 13.0;
-  const double expected_unstable_stars = star_fraction * (diskmass - Mcrit);
-  const double expected_bulge = initial_bulge + expected_unstable_stars;
-
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->BulgeMass, expected_bulge, 0.01,
-                           "BulgeMass should match expected value");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_unstable_disk_metallicity_preserved
- * @brief   Test that metallicity is preserved when transferring stars to bulge
- *
- * Expected: MetalsBulgeMass increases by Z × unstable_stars
- * Validates: Metal mass conservation
- */
-int test_unstable_disk_metallicity_preserved(void) {
-  /* ===== SETUP ===== */
-  const double disk_factor = 3.0;
-  setup_module_for_physics_test(disk_factor);
-
-  /* Create unstable disk with non-zero metallicity */
-  struct Halo test_halo = create_test_halo(200.0, 5.0, 10.0, 2.0, 0.03);
-  const float initial_metals_bulge = test_halo.galaxy->MetalsBulgeMass;
-  const float initial_bulge = test_halo.galaxy->BulgeMass;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  const float transferred_stars = test_halo.galaxy->BulgeMass - initial_bulge;
-  TEST_ASSERT(transferred_stars > 0.0f, "Stars should be transferred");
-
-  /* Check metallicity preservation (2% metallicity) */
-  const float expected_metals = initial_metals_bulge + 0.02f * transferred_stars;
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsBulgeMass, expected_metals, 0.001,
-                           "Metallicity should be preserved in bulge transfer");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_unstable_disk_gas_only
- * @brief   Test unstable disk with only gas (no stellar disk)
- *
- * Expected: Only gas unstable, triggers set appropriately
- * Validates: Gas-only disk edge case
- */
-int test_unstable_disk_gas_only(void) {
-  /* ===== SETUP ===== */
-  const double disk_factor = 3.0;
-  setup_module_for_physics_test(disk_factor);
-
-  /* Create gas-only disk: StellarMass = BulgeMass (no stellar disk) */
-  struct Halo test_halo = create_test_halo(200.0, 10.0, 2.0, 2.0, 0.03);
-  const float initial_bulge = test_halo.galaxy->BulgeMass;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* Gas-only disk: no stars to transfer */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->BulgeMass, initial_bulge, 1e-6,
-                           "Gas-only disk should not transfer stars");
-  TEST_ASSERT(test_halo.galaxy->UnstableDiskGasFraction > 0.0f,
-              "Gas-only unstable disk should set gas trigger flag");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_unstable_disk_stars_only
- * @brief   Test unstable disk with only stars (no gas)
- *
- * Expected: Stars transferred, trigger flags = 0 (only set if unstable_gas > 0)
- * Validates: Stars-only disk behavior
- * Note: Module only sets triggers if unstable_gas > 0 (line 111)
- */
-int test_unstable_disk_stars_only(void) {
-  /* ===== SETUP ===== */
-  const double disk_factor = 3.0;
-  setup_module_for_physics_test(disk_factor);
-
-  /* Create stars-only disk: ColdGas = 0 */
-  struct Halo test_halo = create_test_halo(200.0, 0.0, 10.0, 2.0, 0.03);
-  const float initial_bulge = test_halo.galaxy->BulgeMass;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(test_halo.galaxy->BulgeMass > initial_bulge,
-              "Stars-only unstable disk should transfer stars");
-
-  /* Trigger flag is ONLY set if unstable_gas > 0 (see line 111) */
-  TEST_ASSERT(test_halo.galaxy->UnstableDiskGasFraction == 0.0f,
-              "Stars-only disk should have gas trigger flag = 0 (no gas)");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_vmax
- * @brief   Test handling of zero virial velocity
- *
- * Expected: Mcrit = 0, all disk mass becomes unstable
- * Validates: Division by zero protection
- */
-int test_zero_vmax(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(3.0);
-
-  /* Create galaxy with Vmax = 0 → Mcrit = 0 → all unstable */
-  struct Halo test_halo = create_test_halo(0.0, 5.0, 10.0, 2.0, 0.03);
-  const float initial_bulge = test_halo.galaxy->BulgeMass;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  int result = sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Zero Vmax should be handled gracefully");
-
-  /* Vmax=0 → Mcrit=0 → entire stellar disk unstable */
-  const float disk_stars = 10.0f - 2.0f; /* StellarMass - BulgeMass */
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->BulgeMass, initial_bulge + disk_stars, 0.01,
-                           "Zero Vmax: all stellar disk should transfer to bulge");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_disk_radius
- * @brief   Test handling of zero disk scale radius
- *
- * Expected: Mcrit = 0, all disk mass becomes unstable
- * Validates: Edge case handling
- */
-int test_zero_disk_radius(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(3.0);
-
-  /* Create galaxy with DiskScaleRadius = 0 → Mcrit = 0 */
-  struct Halo test_halo = create_test_halo(200.0, 5.0, 10.0, 2.0, 0.0);
-  const float initial_bulge = test_halo.galaxy->BulgeMass;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  int result = sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Zero DiskScaleRadius should be handled gracefully");
-
-  const float disk_stars = 10.0f - 2.0f;
-  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->BulgeMass, initial_bulge + disk_stars, 0.01,
-                           "Zero radius: all stellar disk should transfer to bulge");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
   return TEST_PASS;
 }
 
@@ -749,124 +362,99 @@ int test_full_disk_transfer_clamps_to_available_mass(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_bulge_exceeds_stellar_mass
- * @brief   Test that safety constraint prevents BulgeMass > StellarMass
+/* ---------------------------------------------------------------------------
+ * The clamps of the bulge to the stellar totals
  *
- * Expected: BulgeMass capped at StellarMass, warning logged
- * Validates: Safety constraint enforcement
- */
-int test_bulge_exceeds_stellar_mass(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(3.0);
+ * The transfer adds the double unstable stars into the float BulgeMass, and the metals into the
+ * float MetalsBulgeMass, so a full-disk transfer can leave either one float rounding above its
+ * total; SAGE16 then clamps the bulge to the total (the overshoot is within the warning
+ * tolerance, so nothing is logged). With Vmax = 0 (Mcrit = 0) and ColdGas = 0 the whole float disk
+ * difference is transferred. The inputs below are float bit patterns for which the unclamped
+ * float sum is one float above the total, for the stars in the first two rows and for the
+ * metals in the third.
+ * --------------------------------------------------------------------------- */
 
-  /* Create scenario where calculation might produce BulgeMass > StellarMass */
-  struct Halo test_halo = create_test_halo(200.0, 5.0, 10.0, 9.9, 0.01);
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(test_halo.galaxy->BulgeMass <= test_halo.galaxy->StellarMass + 1e-6,
-              "BulgeMass should never exceed StellarMass (safety constraint)");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
+static float f32_from_bits(const uint32_t bits) {
+  float value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
 }
 
-/**
- * @test    test_metals_bulge_exceeds_stellar_metals
- * @brief   Test that safety constraint prevents MetalsBulgeMass > MetalsStellarMass
- *
- * Expected: MetalsBulgeMass capped at MetalsStellarMass, warning logged
- * Validates: Metal mass safety constraint
- */
-int test_metals_bulge_exceeds_stellar_metals(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(3.0);
-
-  /* Create scenario where calculation might produce MetalsBulgeMass > MetalsStellarMass */
-  struct Halo test_halo = create_test_halo(200.0, 5.0, 10.0, 9.9, 0.01);
-  test_halo.galaxy->MetalsStellarMass = 0.2f;
-  test_halo.galaxy->MetalsBulgeMass = 0.198f;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  sage_disk_instability_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(test_halo.galaxy->MetalsBulgeMass <= test_halo.galaxy->MetalsStellarMass + 1e-6,
-              "MetalsBulgeMass should never exceed MetalsStellarMass (safety constraint)");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
+static uint32_t f32_bits(const float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
 }
 
+/** @brief A full-disk transfer's inputs (float bit patterns) and the total that is clamped */
+struct clamp_row {
+  const char *name;
+  uint32_t stellar_mass;
+  uint32_t bulge_mass;
+  uint32_t metals_stellar_mass;
+  uint32_t metals_bulge_mass;
+  int clamps_stars;  /**< the unclamped BulgeMass would exceed StellarMass */
+  int clamps_metals; /**< the unclamped MetalsBulgeMass would exceed MetalsStellarMass */
+};
+
 /**
- * @test    test_disk_factor_sensitivity
- * @brief   Test that changing StarFormingDiskFactor affects stability
+ * @test    test_transfer_clamps_to_stellar_totals
+ * @brief   A full-disk transfer whose float sum rounds above the stellar total is clamped to it
  *
- * Expected: Higher disk_factor → higher Mcrit → more stability
- * Validates: Parameter sensitivity
+ * Expected: BulgeMass is bit for bit StellarMass, and MetalsBulgeMass bit for bit
+ *           MetalsStellarMass, where the unclamped float sum exceeds the total (the first two
+ *           rows for the stars, the third for the metals)
+ * Validates: the clamp of the bulge and of the bulge metals to the stellar totals
  */
-int test_disk_factor_sensitivity(void) {
-  /* ===== TEST LOW DISK FACTOR ===== */
-  setup_module_for_physics_test(1.0); /* Low factor → low Mcrit → unstable */
+int test_transfer_clamps_to_stellar_totals(void) {
+  static const struct clamp_row rows[] = {
+      {"bulge_rounds_above_stellar_mass", 0x423aed91u /* 46.7320 */, 0x412b39deu /* 10.7016 */,
+       0x3ee721fau /* 0.451431 */, 0x3ec7b2dcu /* 0.390036 */, 1, 0},
+      {"bulge_rounds_above_stellar_mass_2", 0x4222b53fu /* 40.6770 */, 0x4102d136u /* 8.17607 */,
+       0x3dc644fau /* 0.0968112 */, 0x3cb27148u /* 0.0217903 */, 1, 0},
+      {"metals_round_above_stellar_metals", 0x42079893u /* 33.8990 */, 0x419b649du /* 19.4241 */,
+       0x3eb9b657u /* 0.362719 */, 0x3db5ff7eu /* 0.0888662 */, 0, 1},
+  };
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const struct clamp_row *r = &rows[k];
+    setup_module_for_physics_test(3.0);
+    const float stellar = f32_from_bits(r->stellar_mass), bulge = f32_from_bits(r->bulge_mass);
+    struct Halo test_halo = create_test_halo(0.0f, 0.0f, stellar, bulge, 0.01f);
+    struct GalaxyData *gal = test_halo.galaxy;
+    gal->MetalsStellarMass = f32_from_bits(r->metals_stellar_mass);
+    gal->MetalsBulgeMass = f32_from_bits(r->metals_bulge_mass);
 
-  struct Halo test_halo_low = create_test_halo(200.0, 5.0, 10.0, 2.0, 0.03);
-  const float initial_bulge_low = test_halo_low.galaxy->BulgeMass;
+    /* the row's premise: adding the disk (a float difference) into the float bulge overshoots */
+    const float unclamped_bulge = (float)((double)bulge + (double)(stellar - bulge));
+    ROW_ASSERT((unclamped_bulge > stellar) == (r->clamps_stars != 0), r,
+               "the unclamped float bulge overshoots the stellar mass exactly where the row says");
+    /* and the same for the metals: the disk metals (a float difference) at the disk's metallicity
+     */
+    const float metals_stellar = gal->MetalsStellarMass, metals_bulge = gal->MetalsBulgeMass;
+    const double disk_metals = metals_stellar - metals_bulge;
+    const double moved_metals =
+        (disk_metals / (double)(stellar - bulge)) * (double)(stellar - bulge);
+    const float unclamped_metals =
+        (float)((double)metals_bulge + (moved_metals > disk_metals ? disk_metals : moved_metals));
+    ROW_ASSERT((unclamped_metals > metals_stellar) == (r->clamps_metals != 0), r,
+               "the unclamped float bulge metals overshoot exactly where the row says");
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo_low;
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.params = &MimicConfig;
+    ctx.central_galaxy = &test_halo;
 
-  sage_disk_instability_process(&ctx, &test_halo_low, 1);
-  const float bulge_low = test_halo_low.galaxy->BulgeMass;
-  const float transferred_low = bulge_low - initial_bulge_low;
+    ROW_ASSERT(sage_disk_instability_process(&ctx, &test_halo, 1) == 0, r, "process succeeds");
+    ROW_ASSERT(f32_bits(gal->BulgeMass) == r->stellar_mass, r,
+               "the whole disk moves and the bulge equals StellarMass bit for bit");
+    ROW_ASSERT(f32_bits(gal->MetalsBulgeMass) == r->metals_stellar_mass, r,
+               "the bulge metals equal MetalsStellarMass bit for bit");
+    ROW_ASSERT(gal->UnstableDiskGasFraction == 0.0, r, "No cold gas: no unstable gas");
 
-  free_test_halo(&test_halo_low);
-  module_system_cleanup();
-
-  /* ===== TEST HIGH DISK FACTOR ===== */
-  setup_module_for_physics_test(10.0); /* High factor → high Mcrit → stable */
-
-  struct Halo test_halo_high = create_test_halo(200.0, 5.0, 10.0, 2.0, 0.03);
-  const float initial_bulge_high = test_halo_high.galaxy->BulgeMass;
-
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo_high;
-
-  sage_disk_instability_process(&ctx, &test_halo_high, 1);
-  const float bulge_high = test_halo_high.galaxy->BulgeMass;
-  const float transferred_high = bulge_high - initial_bulge_high;
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(transferred_low > transferred_high,
-              "Lower disk_factor should produce more instability (more star transfer)");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo_high);
-  module_system_cleanup();
+    free_test_halo(&test_halo);
+    module_system_cleanup();
+  }
   check_memory_leaks();
-
   return TEST_PASS;
 }
 
@@ -885,39 +473,12 @@ int main(void) {
   /* Initialize error handling for tests */
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  /* Run software quality tests */
-  printf("\n%s=== Software Quality Tests ===%s\n", BLUE, NC);
-  TEST_RUN(test_module_registration);
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_parameter_reading);
-  TEST_RUN(test_invalid_parameter_fails);
-  TEST_RUN(test_memory_safety);
   TEST_RUN(test_process_by_galaxy_mode);
-
-  /* Run physics tests - stable disks */
-  printf("\n%s=== Physics Tests: Stable Disks ===%s\n", BLUE, NC);
   TEST_RUN(test_stable_disk_no_transfer);
-  TEST_RUN(test_stable_disk_at_threshold);
-  TEST_RUN(test_zero_diskmass);
-
-  /* Run physics tests - unstable disks */
-  printf("\n%s=== Physics Tests: Unstable Disks ===%s\n", BLUE, NC);
-  TEST_RUN(test_unstable_disk_stars_transfer);
-  TEST_RUN(test_unstable_disk_metallicity_preserved);
-  TEST_RUN(test_unstable_disk_gas_only);
-  TEST_RUN(test_unstable_disk_stars_only);
-
-  /* Run edge case tests */
-  printf("\n%s=== Edge Case Tests ===%s\n", BLUE, NC);
-  TEST_RUN(test_zero_vmax);
-  TEST_RUN(test_zero_disk_radius);
+  TEST_RUN(test_unstable_disk_transfer);
   TEST_RUN(test_full_disk_transfer_clamps_to_available_mass);
-  TEST_RUN(test_bulge_exceeds_stellar_mass);
-  TEST_RUN(test_metals_bulge_exceeds_stellar_metals);
-
-  /* Run parameter sensitivity tests */
-  printf("\n%s=== Parameter Sensitivity Tests ===%s\n", BLUE, NC);
-  TEST_RUN(test_disk_factor_sensitivity);
+  TEST_RUN(test_transfer_clamps_to_stellar_totals);
 
   /* Print summary and return result */
   TEST_SUMMARY();

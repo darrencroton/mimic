@@ -33,5 +33,6 @@ During the substeps, `sage26_apply_cooling` and `sage26_radio_mode_heating` (or,
 
 ## Tests
 
-- `_tests/test_unit_sage26_finalize_cooling_heating.c`: the normalisation and the no-interval path, the placement check, and the writer conversion against SAGE26's expression written inline on both paths, including a never-assigned rate.
+- `_tests/test_unit_sage26_finalize_cooling_heating.c`: the normalisation and the no-interval path, and the writer conversion against SAGE26's expression written inline on both paths, including a never-assigned rate.
 - `_tests/test_integration_sage26_finalize_cooling_heating.py`: checks that the module initialises in `post_timestep` and that, in a `CGMrecipeOn 0` cooling run, adding it changes only `Cooling` and `Heating`, leaving zero energies zero and raising every positive one.
+- The placement checks are covered at package level by `../_tests/test_unit_sage_dependency_contracts.c`.

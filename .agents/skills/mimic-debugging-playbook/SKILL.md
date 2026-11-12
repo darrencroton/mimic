@@ -133,7 +133,7 @@ See the `mimic-plots-and-analysis` skill for the figure contract and profile sta
 | Symptom | Likely cause | First command |
 |---|---|---|
 | Scientific baseline test fails locally | Real physics change, OR stale baseline, OR precision change with un-chased local copies (trap a) | rerun with the exact failing tolerance printed; then `git log` on touched physics files |
-| Passes locally (macOS), fails in CI (Linux) or vice versa | Tolerance story: local default rtol 1e-6 / atol 1e-10; CI runs `MIMIC_BASELINE_RTOL=1e-3` because the baseline was generated on macOS and Linux libm differs by up to ~7e-4 | compare against both tolerances before declaring a regression |
+| Passes locally (macOS), fails in CI (Linux) or vice versa | Tolerance story: local default rtol 1e-6 / atol 1e-10; CI runs `MIMIC_BASELINE_RTOL=1e-3` because the baselines are generated on macOS and Linux libm differs by up to ~6e-4 | compare against both tolerances before declaring a regression |
 | Need a looser/tighter comparison to bisect | `MIMIC_BASELINE_RTOL` env override on the scientific tier | `MIMIC_BASELINE_RTOL=1e-3 make tests-scientific summary` |
 
 Numbers before claims: never declare "regression" or "fixed" from eyeballing plots — quote the measured per-property deltas and tolerance. See the `mimic-scientific-method` skill.

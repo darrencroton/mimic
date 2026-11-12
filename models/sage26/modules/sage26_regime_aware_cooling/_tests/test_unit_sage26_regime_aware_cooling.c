@@ -11,7 +11,8 @@
  *   - test_mdot_reset_and_rate_overwrite: the raw mdot rates reset and CoolingRate overwritten on
  *     a call that cools nothing
  *   - test_stream_rates_stored_raw: the streams' float stores reach mdot_cool_raw and
- *     mdot_stream_raw
+ *     mdot_stream_raw, with the stream fraction cut off (Mvir above the shock mass) and with the
+ *     logistic fraction of a halo below it
  *   - test_hot_agn_before_cgm_cooling: the hot AGN's heating radius is what the CGM AGN reads
  *   - test_cgm_applied_before_hot: CGM then hot application, each capped
  *   - test_hot_apply_fresh_cap: the hot application is capped to the post-AGN HotGas
@@ -22,10 +23,9 @@
  *   - test_diagnostics_reset_survival_restoration: every diagnostic path
  *   - test_initial_boundary_matches_classic: no positive interval: what the classic trio writes
  *   - test_refusal_with_positive_interval: a stored SnapNum outside ZZ is refused
- *   - test_parameter_refusals: CGMrecipeOn and MShockMsun
- *   - test_agn_recipe_1_refused: AGNrecipe 1 (SAGE26's empirical rate, not supported) is refused
- *   - test_agn_recipe_3_refused: AGNrecipe 3 (SAGE26's cold cloud rate, not supported) is refused
- *   - test_guard_*: the CGMrecipeOn 1 configuration guard of this module and the budget
+ *
+ * The module's parameter refusals and its CGMrecipeOn 1 placement guard are asserted, with
+ * diagnostics, by test_unit_sage26_parameter_refusals.c and test_unit_sage_dependency_contracts.c.
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -164,6 +164,25 @@ static double expected_hot_rcool(const float hot, const float zhot, const float 
   return sqrt(rho0 / rho_rcool);
 }
 
+/**
+ * @brief SAGE26's stream fraction for a float Mvir at z = 0, inline
+ *
+ * The Millennium clustering mass at z = 0 is the table's first entry, log10 M_* = 12.8964 (Msun),
+ * in 1e10 Msun/h; the shock mass is MShockMsun 6.0e11; f = 1 / (1 + 10^(log10(ratio) / 0.15)) with
+ * ratio = (3 M_* / Mvir)^(2/3) (Mvir / M_shock)^(4/3), switched off for a halo above the shock mass
+ * once 3 M_* reaches it.
+ */
+static double expected_f_stream(const float mvir) {
+  const double mshock = 6.0e11 * T_HUBBLE / 1.0e10;
+  const double fmstar = 3.0 * (pow(10.0, 12.8964) * T_HUBBLE / 1.0e10);
+  const double mass_ratio = mvir / mshock;
+  if (fmstar >= mshock && mass_ratio > 1.0) {
+    return 0.0;
+  }
+  const double ratio = pow(fmstar / mvir, 2.0 / 3.0) * pow(mass_ratio, 4.0 / 3.0);
+  return 1.0 / (1.0 + pow(10.0, log10(ratio) / 0.15));
+}
+
 /** @brief The CGM recipe's tcool and tff diagnostics, inline */
 static void expected_cgm_diagnostics(const float cgm, const float zcgm, const float mvir,
                                      const float rvir, const float vvir, float *tcool_out,
@@ -186,24 +205,18 @@ static void expected_cgm_diagnostics(const float cgm, const float zcgm, const fl
 
 /** @brief The transaction's model parameters (all four keys it reads) */
 static void set_transaction_parameters(const char *cgm_recipe_on, const char *mshock) {
-  if (cgm_recipe_on != NULL) {
-    sage26_test_append_model_parameter("CGMrecipeOn", cgm_recipe_on);
-  }
-  if (mshock != NULL) {
-    sage26_test_append_model_parameter("MShockMsun", mshock);
-  }
+  sage26_test_append_model_parameter("CGMrecipeOn", cgm_recipe_on);
+  sage26_test_append_model_parameter("MShockMsun", mshock);
   sage26_test_append_model_parameter("AGNrecipe", "0");
   sage26_test_append_model_parameter("RadioModeEfficiency", "0.08");
 }
 
 /** @brief The run files' cooling phase: the classic trio, then the transaction */
-static void add_run_file_cooling_phase(const int with_transaction) {
+static void add_run_file_cooling_phase(void) {
   test_phase_add("galaxy_physics", "sage26_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
   test_phase_add("galaxy_physics", "sage26_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
   test_phase_add("galaxy_physics", "sage26_apply_cooling", PROCESSING_MODE_BY_GALAXY);
-  if (with_transaction) {
-    test_phase_add("galaxy_physics", "sage26_regime_aware_cooling", PROCESSING_MODE_BY_GALAXY);
-  }
+  test_phase_add("galaxy_physics", "sage26_regime_aware_cooling", PROCESSING_MODE_BY_GALAXY);
 }
 
 /** @brief A module context for one galaxy with ten substeps */
@@ -276,34 +289,49 @@ int test_mdot_reset_and_rate_overwrite(void) {
 
 /**
  * @test    test_stream_rates_stored_raw
- * @brief   The hot recipe's float stores reach the raw state
+ * @brief   The hot recipe's float stores reach the raw state, with and without the stream cutoff
  *
- * Expected: with the cutoff (Mvir 100 above M_shock = 6e11 * 0.73 / 1e10 = 43.8, z = 0, so
- * 3 M_*(0) >> M_shock) f_stream is exactly 0, so mdot_stream_raw is 0 and mdot_cool_raw is
- * SAGE26's float hot_halo_cooling / dt with rcool written inline.
+ * Expected, at z = 0 (stored SnapNum 40) and M_shock = 6e11 * 0.73 / 1e10 = 43.8: for Mvir 100,
+ * above M_shock with 3 M_* >> M_shock, f_stream is exactly 0, so mdot_stream_raw is 0 and
+ * mdot_cool_raw is SAGE26's float hot_halo_cooling / dt; for Mvir 1, below M_shock, f_stream is the
+ * logistic 0.6158 (checked against a hand calculation) and both rates are the float stores of the
+ * stream and hot-halo cooling, with rcool and f_stream written inline.
  */
 int test_stream_rates_stored_raw(void) {
-  TEST_ASSERT(load_tables() == 0, "cooling tables load");
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_galaxy(&halo, &gal, 1);
-  gal.CGMgas = 0.0f;
-  gal.MetalsCGMgas = 0.0f;
-  const double dt = 1.0e-5;
-  TEST_ASSERT(sage26_regime_aware_cooling_run(&halo, &MimicConfig, &AGN_OFF, dt, NULL) == 0,
-              "the transaction succeeds");
+  static const struct {
+    float mvir;
+    double f_stream_hand; /* the hand-calculated fraction; the cutoff row is exactly 0 */
+  } rows[] = {
+      {100.0f, 0.0},
+      {1.0f, 0.6158},
+  };
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+    char row[128];
+    snprintf(row, sizeof(row), "row %zu (Mvir %g)", r, (double)rows[r].mvir);
+    TEST_ASSERT(load_tables() == 0, "cooling tables load");
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_galaxy(&halo, &gal, 1);
+    halo.Mvir = rows[r].mvir;
+    gal.CGMgas = 0.0f;
+    gal.MetalsCGMgas = 0.0f;
+    const double dt = 1.0e-5;
+    TEST_ASSERT(sage26_regime_aware_cooling_run(&halo, &MimicConfig, &AGN_OFF, dt, NULL) == 0,
+                "the transaction succeeds");
 
-  const float hot = 10.0f, zhot = 0.2f, rvir = 0.2f, vvir = 150.0f;
-  const double tcool = rvir / vvir;
-  const double rcool = expected_hot_rcool(hot, zhot, rvir, vvir);
-  const double f_stream = 0.0;
-  const double cold_stream_cooling = f_stream * hot / tcool * dt;
-  const double hot_halo_cooling = (1.0 - f_stream) * (hot / rvir) * (rcool / (2.0 * tcool)) * dt;
-  TEST_ASSERT(gal.mdot_cool_raw == (float)(hot_halo_cooling / dt), "mdot_cool_raw");
-  TEST_ASSERT(gal.mdot_stream_raw == (float)(cold_stream_cooling / dt) &&
-                  gal.mdot_stream_raw == 0.0f,
-              "mdot_stream_raw");
-  sage26_calculate_cooling_budget_cleanup();
+    const float hot = 10.0f, zhot = 0.2f, rvir = 0.2f, vvir = 150.0f;
+    const double tcool = rvir / vvir;
+    const double rcool = expected_hot_rcool(hot, zhot, rvir, vvir);
+    const double f_stream = expected_f_stream(rows[r].mvir);
+    TEST_ASSERT(r == 0 ? f_stream == 0.0 : fabs(f_stream - rows[r].f_stream_hand) < 1.0e-4,
+                row); /* the inline f_stream must match the hand value */
+    const double cold_stream_cooling = f_stream * hot / tcool * dt;
+    const double hot_halo_cooling = (1.0 - f_stream) * (hot / rvir) * (rcool / (2.0 * tcool)) * dt;
+    TEST_ASSERT(gal.mdot_cool_raw == (float)(hot_halo_cooling / dt), row);
+    TEST_ASSERT(gal.mdot_stream_raw == (float)(cold_stream_cooling / dt), row);
+    TEST_ASSERT((gal.mdot_stream_raw == 0.0f) == (r == 0), row); /* zero exactly when cut off */
+    sage26_calculate_cooling_budget_cleanup();
+  }
   return TEST_PASS;
 }
 
@@ -691,7 +719,7 @@ int test_diagnostics_reset_survival_restoration(void) {
 }
 
 // ============================================================================
-// THE MODULE: BOUNDARY, REFUSALS AND THE CONFIGURATION GUARD
+// THE MODULE: BOUNDARY AND REFUSAL
 // ============================================================================
 
 /** @brief Initialise the budget, radio and transaction with CGMrecipeOn 1 (the run's phases) */
@@ -700,7 +728,7 @@ static int init_cgm_on_modules(void) {
   init_memory_system(0);
   ensure_modules_registered();
   test_pre_timestep_add("sage26_determine_regime", PROCESSING_MODE_FULL_HALO);
-  add_run_file_cooling_phase(1);
+  add_run_file_cooling_phase();
   set_transaction_parameters("1", "6.0e11");
   int status = sage26_calculate_cooling_budget_init();
   status |= sage26_radio_mode_heating_init();
@@ -797,198 +825,6 @@ int test_refusal_with_positive_interval(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_parameter_refusals
- * @brief   CGMrecipeOn and MShockMsun are required and validated
- *
- * Expected: init() fails without CGMrecipeOn, with CGMrecipeOn 2, without MShockMsun, and with
- * MShockMsun 0, -1, nan or inf; it succeeds with CGMrecipeOn 0 and MShockMsun 6.0e11.
- */
-int test_parameter_refusals(void) {
-  reset_config();
-  set_transaction_parameters(NULL, "6.0e11");
-  TEST_ASSERT(sage26_regime_aware_cooling_init() != 0, "a missing CGMrecipeOn is refused");
-  reset_config();
-  set_transaction_parameters("2", "6.0e11");
-  TEST_ASSERT(sage26_regime_aware_cooling_init() != 0, "CGMrecipeOn 2 is refused");
-  reset_config();
-  set_transaction_parameters("0", NULL);
-  TEST_ASSERT(sage26_regime_aware_cooling_init() != 0, "a missing MShockMsun is refused");
-  const char *const bad[] = {"0", "-1.0", "nan", "inf"};
-  for (size_t k = 0; k < sizeof(bad) / sizeof(bad[0]); k++) {
-    reset_config();
-    set_transaction_parameters("0", bad[k]);
-    TEST_ASSERT(sage26_regime_aware_cooling_init() != 0, "a non-positive or non-finite MShockMsun");
-  }
-  reset_config();
-  set_transaction_parameters("0", "6.0e11");
-  TEST_ASSERT(sage26_regime_aware_cooling_init() == 0, "the run files' values are accepted");
-  sage26_regime_aware_cooling_cleanup();
-  return TEST_PASS;
-}
-
-/**
- * @brief Initialise the transaction with AGNrecipe `recipe` and the run files' other values,
- *        capturing its log
- *
- * @param recipe   The AGNrecipe to load
- * @param log_out  Receives the captured log
- * @param log_len  Its size
- * @return The init status
- */
-static int init_with_agn_recipe(const char *recipe, char *log_out, const size_t log_len) {
-  reset_config();
-  sage26_test_append_model_parameter("AGNrecipe", recipe); /* before the default 0 below */
-  set_transaction_parameters("0", "6.0e11");
-  FILE *capture = tmpfile();
-  FILE *old_out = set_log_output(capture);
-  const int status = sage26_regime_aware_cooling_init();
-  set_log_output(old_out);
-  rewind(capture);
-  const size_t n = fread(log_out, 1, log_len - 1, capture);
-  log_out[n] = '\0';
-  fclose(capture);
-  return status;
-}
-
-/**
- * @test    test_agn_recipe_1_refused
- * @brief   AGNrecipe 1, SAGE26's empirical rate, is not supported: init fails with an error
- *          naming the parameter, and AGNrecipe 2 initialises
- */
-int test_agn_recipe_1_refused(void) {
-  static char log[8192];
-  TEST_ASSERT(init_with_agn_recipe("1", log, sizeof(log)) != 0, "AGNrecipe 1 is refused");
-  TEST_ASSERT(strstr(log, "AGNrecipe") != NULL, "the error names AGNrecipe");
-  sage26_regime_aware_cooling_cleanup();
-  TEST_ASSERT(init_with_agn_recipe("2", log, sizeof(log)) == 0, "AGNrecipe 2 is accepted");
-  sage26_regime_aware_cooling_cleanup();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_agn_recipe_3_refused
- * @brief   AGNrecipe 3, SAGE26's cold cloud rate, is not supported: init fails with an error
- *          naming the parameter, and AGNrecipe 0 initialises
- */
-int test_agn_recipe_3_refused(void) {
-  static char log[8192];
-  TEST_ASSERT(init_with_agn_recipe("3", log, sizeof(log)) != 0, "AGNrecipe 3 is refused");
-  TEST_ASSERT(strstr(log, "AGNrecipe") != NULL, "the error names AGNrecipe");
-  sage26_regime_aware_cooling_cleanup();
-  TEST_ASSERT(init_with_agn_recipe("0", log, sizeof(log)) == 0, "AGNrecipe 0 is accepted");
-  sage26_regime_aware_cooling_cleanup();
-  return TEST_PASS;
-}
-
-/**
- * @brief Run module_system_init() on a phase configuration, capturing the log
- *
- * @param cgm_on           CGMrecipeOn
- * @param with_classifier  sage26_determine_regime in pre_timestep
- * @param layout           0 no transaction, 1 the run files' order, 2 the transaction before apply
- * @param log_out          Receives the captured log (static buffer)
- * @return module_system_init()'s result
- */
-static int init_configuration(const int cgm_on, const int with_classifier, const int layout,
-                              char *log_out, const size_t log_len) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-  MimicConfig.SubSteps = 1;
-  if (with_classifier) {
-    test_pre_timestep_add("sage26_determine_regime", PROCESSING_MODE_FULL_HALO);
-  }
-  if (layout == 2) {
-    test_phase_add("galaxy_physics", "sage26_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
-    test_phase_add("galaxy_physics", "sage26_radio_mode_heating", PROCESSING_MODE_BY_GALAXY);
-    test_phase_add("galaxy_physics", "sage26_regime_aware_cooling", PROCESSING_MODE_BY_GALAXY);
-    test_phase_add("galaxy_physics", "sage26_apply_cooling", PROCESSING_MODE_BY_GALAXY);
-  } else {
-    add_run_file_cooling_phase(layout == 1);
-  }
-  set_test_model_parameters();
-  sage26_test_append_model_parameter("CGMrecipeOn", cgm_on ? "1" : "0");
-  sage26_test_append_model_parameter("MShockMsun", "6.0e11");
-
-  FILE *capture = tmpfile();
-  FILE *old_out = set_log_output(capture);
-  const int result = module_system_init();
-  set_log_output(old_out);
-  rewind(capture);
-  const size_t n = fread(log_out, 1, log_len - 1, capture);
-  log_out[n] = '\0';
-  fclose(capture);
-  if (result == 0) {
-    module_system_cleanup();
-  }
-  free_phases();
-  check_memory_leaks();
-  return result;
-}
-
-/**
- * @test    test_guard_missing_transaction
- * @brief   CGMrecipeOn 1 without sage26_regime_aware_cooling: the budget refuses, naming it
- */
-int test_guard_missing_transaction(void) {
-  static char log[8192];
-  TEST_ASSERT(init_configuration(1, 1, 0, log, sizeof(log)) != 0, "initialisation fails");
-  TEST_ASSERT(strstr(log, "requires sage26_regime_aware_cooling") != NULL,
-              "the missing transaction is named");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_guard_missing_classifier
- * @brief   CGMrecipeOn 1 without sage26_determine_regime: the budget refuses, naming it
- */
-int test_guard_missing_classifier(void) {
-  static char log[8192];
-  TEST_ASSERT(init_configuration(1, 0, 1, log, sizeof(log)) != 0, "initialisation fails");
-  TEST_ASSERT(strstr(log, "requires sage26_determine_regime") != NULL,
-              "the missing classifier is named");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_guard_misplaced_transaction
- * @brief   CGMrecipeOn 1 with the transaction before sage26_apply_cooling: it refuses
- */
-int test_guard_misplaced_transaction(void) {
-  static char log[8192];
-  TEST_ASSERT(init_configuration(1, 1, 2, log, sizeof(log)) != 0, "initialisation fails");
-  TEST_ASSERT(strstr(log, "must run immediately after sage26_apply_cooling") != NULL,
-              "the misplacement is named");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_guard_complete_configuration
- * @brief   CGMrecipeOn 1 with the classifier and the run files' cooling phase initialises
- */
-int test_guard_complete_configuration(void) {
-  static char log[8192];
-  TEST_ASSERT(init_configuration(1, 1, 1, log, sizeof(log)) == 0, "initialisation succeeds");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_guard_inactive_with_cgm_off
- * @brief   With CGMrecipeOn 0 none of the checks applies
- *
- * Expected: the run files' configuration initialises with and without the transaction, and so
- * do the misplaced transaction and a configuration without the classifier.
- */
-int test_guard_inactive_with_cgm_off(void) {
-  static char log[8192];
-  TEST_ASSERT(init_configuration(0, 1, 1, log, sizeof(log)) == 0, "with the transaction");
-  TEST_ASSERT(init_configuration(0, 1, 0, log, sizeof(log)) == 0, "without the transaction");
-  TEST_ASSERT(init_configuration(0, 1, 2, log, sizeof(log)) == 0, "the transaction misplaced");
-  TEST_ASSERT(init_configuration(0, 0, 1, log, sizeof(log)) == 0, "without the classifier");
-  return TEST_PASS;
-}
-
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -1010,14 +846,6 @@ int main(void) {
   TEST_RUN(test_diagnostics_reset_survival_restoration);
   TEST_RUN(test_initial_boundary_matches_classic);
   TEST_RUN(test_refusal_with_positive_interval);
-  TEST_RUN(test_parameter_refusals);
-  TEST_RUN(test_agn_recipe_1_refused);
-  TEST_RUN(test_agn_recipe_3_refused);
-  TEST_RUN(test_guard_missing_transaction);
-  TEST_RUN(test_guard_missing_classifier);
-  TEST_RUN(test_guard_misplaced_transaction);
-  TEST_RUN(test_guard_complete_configuration);
-  TEST_RUN(test_guard_inactive_with_cgm_off);
 
   TEST_SUMMARY();
   return TEST_RESULT();

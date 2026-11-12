@@ -2,7 +2,7 @@
 """
 sage26_finalize_sfr_histories - Integration Test
 
-Validates: module lifecycle in post_timestep and its effect on a real run
+Validates: the module's effect on a real run, in post_timestep of the physics pipeline.
 
 Disk star formation samples the per-substep history SfrDisk[bin] += stars / dt on
 every call, and the finaliser averages the bins into SfrDisk, SfrBulge, SfrDiskZ and
@@ -12,8 +12,10 @@ its interval, which the package's StarFormationRate diagnostic also holds (it ad
 stars / dT per substep); the two are formed in different float orders, so they agree
 to float rounding, not bit for bit.
 
+Each distinct configuration is run once and shared between the cases: the pipeline with the
+finaliser at 10 substeps, the same without it, and the pipeline with the finaliser at 13.
+
 Test cases:
-  - test_module_loads: module registers and initialises in post_timestep
   - test_only_sfr_outputs_change: with and without the finaliser, every field but the
     four averages is identical, and without it the four stay zero
   - test_disk_average_matches_formed_mass: SfrDisk equals StarFormationRate to float
@@ -22,29 +24,25 @@ Test cases:
     SfrBulgeZ are zero without bursts, and SfrDiskZ is a metallicity in [0, 1]
 """
 
-import shutil
 import sys
 from pathlib import Path
+
+import numpy as np
 
 # Add tests directory to path to import framework
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (  # noqa: E402
-    BLUE,
-    GREEN,
     MIMIC_EXE,
-    NC,
-    RED,
+    SharedRuns,
     TestSkipped,
-    create_test_param_file,
+    check_no_memory_leaks,
     load_binary_halos,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
+    run_test_suite,
 )
+
+RUNS = SharedRuns()
 
 SFR_OUTPUTS = ("SfrDisk", "SfrBulge", "SfrDiskZ", "SfrBulgeZ")
 
@@ -71,6 +69,15 @@ GALAXY_PHYSICS = [
     ("sage26_apply_metal_enrichment", "process_by_galaxy"),
 ]
 
+# The pipeline with the finaliser, and the same without it
+WITH_FINALISER = {
+    "pre_timestep": PRE_TIMESTEP,
+    "galaxy_physics": GALAXY_PHYSICS,
+    "satellite_mergers": [],
+    "post_timestep": [("sage26_finalize_sfr_histories", "process_full_halo")],
+}
+WITHOUT_FINALISER = {**WITH_FINALISER, "post_timestep": []}
+
 MODEL_PARAMS = {
     "GlobalBaryonFraction": 0.17,
     "AGNrecipe": 2,
@@ -93,40 +100,22 @@ MODEL_PARAMS = {
 }
 
 
-def _run(output_name, with_finaliser, substeps=None):
-    post = [("sage26_finalize_sfr_histories", "process_full_halo")] if with_finaliser else []
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name=output_name,
-        phase_config={
-            "pre_timestep": PRE_TIMESTEP,
-            "galaxy_physics": GALAXY_PHYSICS,
-            "satellite_mergers": [],
-            "post_timestep": post,
-        },
+def _run(with_finaliser, substeps):
+    """The shared run of the pipeline, with or without the finaliser, at the substep count."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    name = f"sage26_finalize_sfr_{'with' if with_finaliser else 'without'}_{substeps}"
+    run = RUNS.run(
+        name,
+        phase_config=WITH_FINALISER if with_finaliser else WITHOUT_FINALISER,
         model_params=MODEL_PARAMS,
         substeps=substeps,
     )
-    returncode, stdout, stderr = run_mimic(param_file)
-    return returncode, stdout, stderr, output_dir, temp_dir
-
-
-def test_module_loads():
-    """
-    The module registers and initialises when placed in post_timestep
-
-    Expected: the run succeeds and logs the module's initialisation
-    """
-    print("Testing module load and initialization...")
-
-    returncode, stdout, stderr, _, temp_dir = _run("sage26_finalize_sfr_load", True)
-
-    assert returncode == 0, f"Mimic should run with the finaliser\nStderr: {stderr}"
-    assert (
-        "SAGE finalize SFR histories module initialized" in stdout
-    ), "sage26_finalize_sfr_histories should log its initialisation"
-
-    shutil.rmtree(temp_dir)
-    print("  ✓ Module loads and initializes successfully")
+    assert run.returncode == 0, f"{name} should succeed\nStderr: {run.stderr}"
+    assert check_no_memory_leaks(run.stdout, run.stderr), f"{name} reported a memory leak"
+    galaxies, _ = load_binary_halos(run.output_dir / "model_z0.000_0")
+    assert len(galaxies) > 0, f"{name} should write galaxies"
+    return galaxies
 
 
 def test_only_sfr_outputs_change():
@@ -137,19 +126,10 @@ def test_only_sfr_outputs_change():
     bit-identical; without the finaliser the four are zero; with it SfrDisk is
     positive somewhere.
     """
-    import numpy as np
+    raw = _run(False, 10)
+    fin = _run(True, 10)
 
-    print("Testing that only the four SFR averages change...")
-
-    rc_raw, _, err_raw, out_raw, tmp_raw = _run("sage26_finalize_sfr_raw", False)
-    rc_fin, _, err_fin, out_fin, tmp_fin = _run("sage26_finalize_sfr_avg", True)
-    assert rc_raw == 0, f"run without the finaliser should succeed\nStderr: {err_raw}"
-    assert rc_fin == 0, f"run with the finaliser should succeed\nStderr: {err_fin}"
-
-    raw, _ = load_binary_halos(out_raw / "model_z0.000_0")
-    fin, _ = load_binary_halos(out_fin / "model_z0.000_0")
-
-    assert len(raw) == len(fin) and len(raw) > 0, "both runs should write the same rows"
+    assert len(raw) == len(fin), "both runs should write the same rows"
     assert raw.dtype == fin.dtype, "both runs should write the same fields"
 
     for field in raw.dtype.names:
@@ -160,11 +140,9 @@ def test_only_sfr_outputs_change():
 
     for field in SFR_OUTPUTS:
         assert np.all(raw[field] == 0), f"without the finaliser {field} should stay zero"
-    assert np.sum(fin["SfrDisk"] > 0) > 0, "some galaxies should form disk stars"
-
-    shutil.rmtree(tmp_raw)
-    shutil.rmtree(tmp_fin)
-    print(f"  ✓ Only the four averages change ({int(np.sum(fin['SfrDisk'] > 0))} forming)")
+    forming = int(np.sum(fin["SfrDisk"] > 0))
+    assert forming > 0, "some galaxies should form disk stars"
+    print(f"  only the four averages change ({forming} forming)")
 
 
 def test_disk_average_matches_formed_mass():
@@ -181,15 +159,8 @@ def test_disk_average_matches_formed_mass():
     SfrBulge and SfrBulgeZ are zero; SfrDiskZ lies in [0, 1] (a disk forming from
     metal-free gas has SfrDiskZ 0).
     """
-    import numpy as np
-
-    print("Testing the disk average against the formed mass...")
-
     for substeps in (10, 13):
-        rc, _, err, out, tmp = _run(f"sage26_finalize_sfr_steps{substeps}", True, substeps)
-        assert rc == 0, f"run with {substeps} substeps should succeed\nStderr: {err}"
-        gal, _ = load_binary_halos(out / "model_z0.000_0")
-        assert len(gal) > 0, "the run should write galaxies"
+        gal = _run(True, substeps)
 
         sfr = gal["StarFormationRate"].astype(np.float64)
         disk = gal["SfrDisk"].astype(np.float64)
@@ -216,70 +187,17 @@ def test_disk_average_matches_formed_mass():
             f"max relative difference {worst:.2e} on {int(np.sum(reset))} Type 0/1 rows; "
             f"{kept} of {int(np.sum(orphan))} orphan rows carry earlier snapshots' rates"
         )
-        shutil.rmtree(tmp)
-
-    print("  ✓ SfrDisk is the mean disk rate at 10 and 13 substeps")
 
 
 def main():
-    """
-    Main test runner
-
-    Executes all test cases and reports results.
-    """
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: sage26_finalize_sfr_histories Integration Tests{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-
-    tests = [
-        test_module_loads,
-        test_only_sfr_outputs_change,
-        test_disk_average_matches_formed_mass,
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    try:
+        return run_test_suite(
+            [test_only_sfr_outputs_change, test_disk_average_matches_formed_mass],
+            "sage26_finalize_sfr_histories Integration Tests",
+        )
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

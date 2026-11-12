@@ -2,32 +2,30 @@
  * @file    test_unit_sage26_finalize_cooling_heating.c
  * @brief   Unit tests for sage26_finalize_cooling_heating
  *
- * Validates: module lifecycle, the once-per-FoF normalisation of Cooling and
- * Heating by the first galaxy's interval (as SAGE26's model builder does), and
- * the package's boundary handling: merged (Type 3) rows and rows without a galaxy
- * are skipped, and a first galaxy without a positive interval zeroes the energies.
+ * Validates: the once-per-FoF normalisation of Cooling, Heating and SupernovaOutflowRate by the
+ * first galaxy's interval (as SAGE26's model builder does), the package's boundary handling
+ * (merged (Type 3) rows and rows without a galaxy are skipped, and a first galaxy without a
+ * positive interval zeroes the three energies) and the written mdot rates.
  *
  * Test cases:
- *   - test_module_initialization: module init/cleanup lifecycle through the module system
- *   - test_placement_enforced: init() rejects a substep-phase, pre_timestep, missing or
- *     duplicated post_timestep entry (it must normalise once, after the substeps)
- *   - test_normalises_by_first_galaxy_interval: every live galaxy uses the first row's dT
+ *   - test_normalises_by_first_galaxy_interval: every live galaxy's Cooling, Heating and
+ *     SupernovaOutflowRate use the first row's dT; the cooling diagnostics are not changed
  *   - test_merged_galaxies_untouched: Type 3 rows keep their energies
  *   - test_first_galaxy_merged_sets_interval: a merged first galaxy still sets deltaT
  *   - test_rows_without_galaxy_skipped: NULL-galaxy rows are skipped, also as the first row
- *   - test_no_positive_interval_zeroes: first galaxy dT <= 0 zeroes live galaxies' energies
- *   - test_diagnostics_untouched: tcool, tff, RcoolToRvir, CoolingRate are not changed
+ *   - test_no_positive_interval_zeroes: a first galaxy dT of -1, 0 or NaN zeroes live galaxies'
+ *     Cooling, Heating and SupernovaOutflowRate
  *   - test_empty_input: NULL halos or ngal 0 is a no-op
  *   - test_mdot_writer_conversion: the output mdot rates are SAGE26's writer expression of the
- *     raw rates, left to right, for every live galaxy
- *   - test_mdot_on_nonpositive_interval: the conversion also runs where the first galaxy has no
- *     positive interval, and a never-assigned (zero) raw rate is written as 0
+ *     raw rates, left to right, for every live galaxy, with a positive first-row interval and
+ *     with none (where a never-assigned, zero raw rate is written as 0)
+ *
+ * The module's placement (once, in post_timestep) is refused, with diagnostics, by
+ * test_unit_sage_dependency_contracts.c.
  */
 
 #include "../../../../tests/framework/test_framework.h"
-#include "../../../../tests/framework/test_phase_config.h"
 #include "core/module_interface.h"
-#include "core/module_registry.h"
 #include "include/globals.h"
 #include "include/proto.h"
 #include "include/types.h"
@@ -52,33 +50,6 @@ static struct GalaxyData galaxies[NROWS];
 static struct Halo halos[NROWS];
 static struct ModuleContext ctx;
 
-/**
- * @brief Append one entry to MimicConfig.post_timestep
- *
- * Allocated as tests/framework/test_phase_config.h allocates the other phases
- * (mymalloc_cat array, strdup name), so module_system_cleanup() frees it.
- */
-static void test_post_timestep_add(const char *module_name, enum ProcessingMode mode) {
-  if (MimicConfig.post_timestep == NULL) {
-    MimicConfig.post_timestep =
-        mymalloc_cat(TEST_PHASE_MODULE_CAP * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.num_post_timestep = 0;
-  }
-  const int i = MimicConfig.num_post_timestep++;
-  MimicConfig.post_timestep[i].module_name = strdup(module_name);
-  MimicConfig.post_timestep[i].processing_mode = mode;
-  MimicConfig.post_timestep[i].resolved = NULL;
-}
-
-/** @brief Fresh configuration with the memory system and modules registered */
-static void fresh_config(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-}
-
 /** @brief NROWS rows: Type 0 central then Type 1 satellites, each with its own dT and energies */
 static void setup_rows(void) {
   memset(galaxies, 0, sizeof(galaxies));
@@ -93,74 +64,23 @@ static void setup_rows(void) {
     halos[i].dT = 0.25 + 0.25 * i; /* differs per row: only row 0's may be used */
     galaxies[i].Cooling = 3.0 * (i + 1);
     galaxies[i].Heating = 1.5 * (i + 1);
+    galaxies[i].SupernovaOutflowRate = 2.5f * (float)(i + 1);
   }
 }
 
 /**
- * @test    test_module_initialization
- * @brief   The module initialises and cleans up through the module system in post_timestep
- */
-int test_module_initialization(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-  test_post_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
-
-  const int result = module_system_init();
-  TEST_ASSERT(result == 0, "module system initialization should succeed");
-
-  module_system_cleanup();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_placement_enforced
- * @brief   The module must run exactly once in post_timestep as process_full_halo
- *
- * In a substep phase it would multiply by 1/dT once per substep; in pre_timestep
- * before the energies accumulate; twice in post_timestep it would normalise twice.
- */
-int test_placement_enforced(void) {
-  /* In a substep phase (as well as post_timestep) */
-  fresh_config();
-  test_post_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
-  test_phase_add("galaxy_physics", "sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
-  TEST_ASSERT(module_system_init() != 0, "a substep-phase entry is rejected");
-  module_system_cleanup();
-  check_memory_leaks();
-
-  /* In pre_timestep (as well as post_timestep) */
-  fresh_config();
-  test_post_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
-  test_pre_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
-  TEST_ASSERT(module_system_init() != 0, "a pre_timestep entry is rejected");
-  module_system_cleanup();
-  check_memory_leaks();
-
-  /* Twice in post_timestep */
-  fresh_config();
-  test_post_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
-  test_post_timestep_add("sage26_finalize_cooling_heating", PROCESSING_MODE_FULL_HALO);
-  TEST_ASSERT(module_system_init() != 0, "a second post_timestep entry is rejected");
-  module_system_cleanup();
-  check_memory_leaks();
-
-  /* Not configured at all: a direct init() finds no post_timestep entry */
-  reset_config();
-  TEST_ASSERT(sage26_finalize_cooling_heating_init() != 0,
-              "init fails without a post_timestep entry");
-  return TEST_PASS;
-}
-
-/**
  * @test    test_normalises_by_first_galaxy_interval
- * @brief   Cooling and Heating of every live galaxy are multiplied by 1.0 / (first row's dT)
+ * @brief   Cooling, Heating and SupernovaOutflowRate of every live galaxy are multiplied by
+ *          1.0 / (first row's dT); the cooling diagnostics are not normalised
  */
 int test_normalises_by_first_galaxy_interval(void) {
   setup_rows();
+  for (int i = 0; i < NROWS; i++) {
+    galaxies[i].tcool = -11.0f;
+    galaxies[i].tff = -22.0f;
+    galaxies[i].RcoolToRvir = -33.0f;
+    galaxies[i].CoolingRate = -44.0f;
+  }
   const double inv_deltaT = 1.0 / halos[0].dT;
 
   TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, NROWS) == 0,
@@ -170,10 +90,17 @@ int test_normalises_by_first_galaxy_interval(void) {
     double expected_heating = 1.5 * (i + 1);
     expected_cooling *= inv_deltaT;
     expected_heating *= inv_deltaT;
+    /* The rate is a float: 2.5 * (i + 1) times 4 (row 0's dT is 0.25) is exact */
+    const float expected_supernova = 10.0f * (float)(i + 1);
     TEST_ASSERT(galaxies[i].Cooling == expected_cooling,
                 "Cooling must be the sum times 1.0/deltaT of the first galaxy, exactly");
     TEST_ASSERT(galaxies[i].Heating == expected_heating,
                 "Heating must be the sum times 1.0/deltaT of the first galaxy, exactly");
+    TEST_ASSERT(galaxies[i].SupernovaOutflowRate == expected_supernova,
+                "SupernovaOutflowRate must be the sum times 1.0/deltaT of the first galaxy");
+    TEST_ASSERT(galaxies[i].tcool == -11.0f && galaxies[i].tff == -22.0f &&
+                    galaxies[i].RcoolToRvir == -33.0f && galaxies[i].CoolingRate == -44.0f,
+                "diagnostics must be unchanged");
   }
   return TEST_PASS;
 }
@@ -190,6 +117,8 @@ int test_merged_galaxies_untouched(void) {
               "process should succeed");
   TEST_ASSERT(galaxies[2].Cooling == 9.0, "merged galaxy's Cooling must be unchanged");
   TEST_ASSERT(galaxies[2].Heating == 4.5, "merged galaxy's Heating must be unchanged");
+  TEST_ASSERT(galaxies[2].SupernovaOutflowRate == 7.5f,
+              "merged galaxy's SupernovaOutflowRate must be unchanged");
   TEST_ASSERT(galaxies[1].Cooling == 6.0 * (1.0 / halos[0].dT), "live galaxy is normalised");
   return TEST_PASS;
 }
@@ -236,43 +165,27 @@ int test_rows_without_galaxy_skipped(void) {
 
 /**
  * @test    test_no_positive_interval_zeroes
- * @brief   Where the first galaxy has no positive interval (dT = -1 at birth), the
- *          live galaxies' energies are set to 0; merged rows are left alone
+ * @brief   Where the first galaxy has no positive interval (dT = -1 at birth, 0 or NaN), the live
+ *          galaxies' Cooling, Heating and SupernovaOutflowRate are set to 0, not scaled by an
+ *          infinite or NaN 1/dT; merged rows are left alone
  */
 int test_no_positive_interval_zeroes(void) {
-  setup_rows();
-  halos[0].dT = -1.0;
-  halos[3].Type = 3;
+  const double first_dT[3] = {-1.0, 0.0, NAN};
+  for (int r = 0; r < 3; r++) {
+    setup_rows();
+    halos[0].dT = first_dT[r];
+    halos[3].Type = 3;
 
-  TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, NROWS) == 0,
-              "process should succeed");
-  for (int i = 0; i < 3; i++) {
-    TEST_ASSERT(galaxies[i].Cooling == 0.0 && galaxies[i].Heating == 0.0,
-                "live galaxies' energies are zeroed without a positive interval");
-  }
-  TEST_ASSERT(galaxies[3].Cooling == 12.0, "merged galaxy is left alone");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_diagnostics_untouched
- * @brief   The cooling diagnostics are not normalised
- */
-int test_diagnostics_untouched(void) {
-  setup_rows();
-  for (int i = 0; i < NROWS; i++) {
-    galaxies[i].tcool = -11.0f;
-    galaxies[i].tff = -22.0f;
-    galaxies[i].RcoolToRvir = -33.0f;
-    galaxies[i].CoolingRate = -44.0f;
-  }
-
-  TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, NROWS) == 0,
-              "process should succeed");
-  for (int i = 0; i < NROWS; i++) {
-    TEST_ASSERT(galaxies[i].tcool == -11.0f && galaxies[i].tff == -22.0f &&
-                    galaxies[i].RcoolToRvir == -33.0f && galaxies[i].CoolingRate == -44.0f,
-                "diagnostics must be unchanged");
+    TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, NROWS) == 0,
+                "process should succeed");
+    for (int i = 0; i < 3; i++) {
+      TEST_ASSERT(galaxies[i].Cooling == 0.0 && galaxies[i].Heating == 0.0 &&
+                      galaxies[i].SupernovaOutflowRate == 0.0f,
+                  "live galaxies' energies are zeroed without a positive interval");
+    }
+    TEST_ASSERT(galaxies[3].Cooling == 12.0 && galaxies[3].Heating == 6.0 &&
+                    galaxies[3].SupernovaOutflowRate == 10.0f,
+                "merged galaxy is left alone");
   }
   return TEST_PASS;
 }
@@ -285,20 +198,17 @@ int test_empty_input(void) {
   setup_rows();
   TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, NULL, 0) == 0, "NULL halos is a no-op");
   TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, 0) == 0, "ngal 0 is a no-op");
-  TEST_ASSERT(galaxies[0].Cooling == 3.0, "nothing is changed");
+  for (int i = 0; i < NROWS; i++) {
+    TEST_ASSERT(galaxies[i].Cooling == 3.0 * (i + 1) && galaxies[i].Heating == 1.5 * (i + 1) &&
+                    galaxies[i].SupernovaOutflowRate == 2.5f * (float)(i + 1),
+                "ngal 0 must leave every row's energies unchanged");
+  }
   return TEST_PASS;
 }
 
 // ============================================================================
 // THE WRITTEN MDOT RATES
 // ============================================================================
-
-/** @brief A float from its IEEE-754 bit pattern */
-static float float_from_bits(const uint32_t bits) {
-  float value;
-  memcpy(&value, &bits, sizeof(value));
-  return value;
-}
 
 /** @brief A double the compiler cannot constant-fold (the expectation is evaluated at run time) */
 static double opaque_double(const double value) {
@@ -338,8 +248,8 @@ static void setup_mdot_rows(void) {
     galaxies[i].mdot_cool = -77.0f;
     galaxies[i].mdot_stream = -88.0f;
   }
-  galaxies[0].mdot_cool_raw = float_from_bits(T_RAW_COOL_BITS);
-  galaxies[0].mdot_stream_raw = float_from_bits(T_RAW_STREAM_BITS);
+  galaxies[0].mdot_cool_raw = f32_from_bits(T_RAW_COOL_BITS);
+  galaxies[0].mdot_stream_raw = f32_from_bits(T_RAW_STREAM_BITS);
   galaxies[1].mdot_cool_raw = 0.0f; /* never assigned: SAGE26's creation value */
   galaxies[1].mdot_stream_raw = 0.0f;
   galaxies[2].mdot_cool_raw = 3.0f;
@@ -351,57 +261,55 @@ static void setup_mdot_rows(void) {
 
 /**
  * @test    test_mdot_writer_conversion
- * @brief   mdot_cool and mdot_stream are SAGE26's writer conversion of the raw float rates
+ * @brief   mdot_cool and mdot_stream are SAGE26's writer conversion of the raw float rates, with
+ *          a positive first-row interval and on the branch where there is none
  *
  * Expected: every live galaxy's outputs equal raw * UnitMass_in_g / UnitTime_in_s *
  * SEC_PER_YEAR / SOLAR_MASS evaluated left to right and narrowed (SAGE26's writer, with
- * 3.155e7 and 1.989e33); for row 0 that differs from the regrouped
- * constant factor; a zero raw rate is written 0; the merged row keeps its stale outputs.
+ * 3.155e7 and 1.989e33); for row 0 that differs from the regrouped constant factor; a zero raw
+ * rate is written 0 over the stale output; the merged row keeps its stale outputs. With the first
+ * row's dT -1 the energies are zeroed and the conversion still runs.
  */
 int test_mdot_writer_conversion(void) {
-  setup_mdot_rows();
-  TEST_ASSERT(writer_value(float_from_bits(T_RAW_COOL_BITS)) !=
-                      grouped_value(float_from_bits(T_RAW_COOL_BITS)) &&
-                  writer_value(float_from_bits(T_RAW_STREAM_BITS)) !=
-                      grouped_value(float_from_bits(T_RAW_STREAM_BITS)),
+  TEST_ASSERT(writer_value(f32_from_bits(T_RAW_COOL_BITS)) !=
+                      grouped_value(f32_from_bits(T_RAW_COOL_BITS)) &&
+                  writer_value(f32_from_bits(T_RAW_STREAM_BITS)) !=
+                      grouped_value(f32_from_bits(T_RAW_STREAM_BITS)),
               "precondition: the regrouped conversion rounds differently on row 0");
-  TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, NROWS) == 0,
-              "process should succeed");
-  for (int i = 0; i < 3; i++) {
-    TEST_ASSERT(galaxies[i].mdot_cool == writer_value(galaxies[i].mdot_cool_raw) &&
-                    galaxies[i].mdot_stream == writer_value(galaxies[i].mdot_stream_raw),
-                "a live galaxy's outputs are the writer conversion of its raw rates");
-  }
-  TEST_ASSERT(galaxies[1].mdot_cool == 0.0f && galaxies[1].mdot_stream == 0.0f,
-              "a never-assigned rate is written 0");
-  TEST_ASSERT(galaxies[3].mdot_cool == -77.0f && galaxies[3].mdot_stream == -88.0f,
-              "a merged galaxy is not finalised");
-  return TEST_PASS;
-}
 
-/**
- * @test    test_mdot_on_nonpositive_interval
- * @brief   The conversion runs on the branch where the first galaxy has no positive interval
- *
- * Expected: with the first row's dT -1 (the energies zeroed) every live galaxy's outputs are
- * still the writer conversion of its raw rates, the zero raw rate is written 0 over the stale
- * output, and the merged row keeps its stale outputs.
- */
-int test_mdot_on_nonpositive_interval(void) {
-  setup_mdot_rows();
-  halos[0].dT = -1.0;
-  TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, NROWS) == 0,
-              "process should succeed");
-  TEST_ASSERT(galaxies[0].Cooling == 0.0, "precondition: the non-positive-interval branch ran");
-  for (int i = 0; i < 3; i++) {
-    TEST_ASSERT(galaxies[i].mdot_cool == writer_value(galaxies[i].mdot_cool_raw) &&
-                    galaxies[i].mdot_stream == writer_value(galaxies[i].mdot_stream_raw),
-                "a live galaxy's outputs are written on this branch too");
+  static const struct {
+    double first_dT; /* row 0's dT; the setup's own 0.25 is positive */
+    double expected_cooling_row0;
+  } rows[] = {
+      {0.25, 12.0}, /* positive interval: the energies are normalised (3.0 / 0.25) */
+      {-1.0, 0.0},  /* no positive interval: the energies are zeroed */
+  };
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+    char msg[160];
+    setup_mdot_rows();
+    halos[0].dT = rows[r].first_dT;
+    snprintf(msg, sizeof(msg), "row %zu (first dT %g): process should succeed", r,
+             rows[r].first_dT);
+    TEST_ASSERT(sage26_finalize_cooling_heating_process(&ctx, halos, NROWS) == 0, msg);
+    snprintf(msg, sizeof(msg), "row %zu (first dT %g): precondition: the expected branch ran", r,
+             rows[r].first_dT);
+    TEST_ASSERT(galaxies[0].Cooling == rows[r].expected_cooling_row0, msg);
+    for (int i = 0; i < 3; i++) {
+      snprintf(msg, sizeof(msg),
+               "row %zu (first dT %g): galaxy %d's outputs are the writer conversion of its raw "
+               "rates",
+               r, rows[r].first_dT, i);
+      TEST_ASSERT(galaxies[i].mdot_cool == writer_value(galaxies[i].mdot_cool_raw) &&
+                      galaxies[i].mdot_stream == writer_value(galaxies[i].mdot_stream_raw),
+                  msg);
+    }
+    snprintf(msg, sizeof(msg), "row %zu (first dT %g): a never-assigned rate is written 0", r,
+             rows[r].first_dT);
+    TEST_ASSERT(galaxies[1].mdot_cool == 0.0f && galaxies[1].mdot_stream == 0.0f, msg);
+    snprintf(msg, sizeof(msg), "row %zu (first dT %g): a merged galaxy is not finalised", r,
+             rows[r].first_dT);
+    TEST_ASSERT(galaxies[3].mdot_cool == -77.0f && galaxies[3].mdot_stream == -88.0f, msg);
   }
-  TEST_ASSERT(galaxies[1].mdot_cool == 0.0f && galaxies[1].mdot_stream == 0.0f,
-              "a never-assigned rate is written 0 over the stale output");
-  TEST_ASSERT(galaxies[3].mdot_cool == -77.0f && galaxies[3].mdot_stream == -88.0f,
-              "a merged galaxy is not finalised");
   return TEST_PASS;
 }
 
@@ -414,17 +322,13 @@ int main(void) {
 
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  TEST_RUN(test_module_initialization);
-  TEST_RUN(test_placement_enforced);
   TEST_RUN(test_normalises_by_first_galaxy_interval);
   TEST_RUN(test_merged_galaxies_untouched);
   TEST_RUN(test_first_galaxy_merged_sets_interval);
   TEST_RUN(test_rows_without_galaxy_skipped);
   TEST_RUN(test_no_positive_interval_zeroes);
-  TEST_RUN(test_diagnostics_untouched);
   TEST_RUN(test_empty_input);
   TEST_RUN(test_mdot_writer_conversion);
-  TEST_RUN(test_mdot_on_nonpositive_interval);
 
   TEST_SUMMARY();
   return TEST_RESULT();

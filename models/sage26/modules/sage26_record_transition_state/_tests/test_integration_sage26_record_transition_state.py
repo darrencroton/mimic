@@ -2,9 +2,9 @@
 """
 sage26_record_transition_state - Integration Test
 
-Validates: the module's placement, and on a real run over consecutive snapshots the
-progenitor-joining transitions it hands to sage26_initialise_merger_clock and the
-infall outputs it writes.
+Validates: on a real run over consecutive snapshots, the progenitor-joining transitions the
+module hands to sage26_initialise_merger_clock and the infall outputs it writes. Its
+placement refusals are asserted, with their diagnostics, by the unit tests.
 
 SAGE26 decides a galaxy's infall values from its Type before progenitor joining: a Type 0
 that becomes a Type 1 records its previous Mvir, Vvir and Vmax, its StellarMass and the
@@ -20,15 +20,12 @@ orphan transitions 0 -> 2, 1 -> 2 and 2 -> 2. MergTime is not written; the clock
 are asserted by the merger clock's unit tests.
 
 Test cases:
-  - test_module_loads: the module initialises as the last post_timestep entry
-  - test_placement_rejected: a run with the module in pre_timestep fails at startup
   - test_consecutive_snapshot_transitions: the package pipeline (snapshots 30 to 63);
     each written transition carries SAGE26's infall values, every Type 0 row 0
   - test_orphan_transitions_without_merger_pass: the pipeline without its merger pass
     (snapshots 0 to 63); the orphan transitions too, with TimeOfInfall's rule
 """
 
-import shutil
 import sys
 from pathlib import Path
 
@@ -39,20 +36,9 @@ import yaml
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import (  # noqa: E402
-    BLUE,
-    GREEN,
-    MIMIC_EXE,
-    NC,
-    RED,
-    TestSkipped,
-    create_test_param_file,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
-)
+from framework import MIMIC_EXE, SharedRuns, TestSkipped, run_test_suite  # noqa: E402
+
+RUNS = SharedRuns()
 
 RUN_FILE = REPO_ROOT / "models" / "sage26" / "input" / "sage26_mini-millennium.yaml"
 FIRST_SNAPSHOT = 30
@@ -75,15 +61,6 @@ def _run_file_pipeline():
     return phase_config, dict(modules.get("parameters") or {})
 
 
-def _write_snapshots(param_file, snapshots):
-    """Set the generated run file's output snapshot list."""
-    with open(param_file, "r") as f:
-        config = yaml.safe_load(f)
-    config["output"]["snapshot_list"] = list(snapshots)
-    with open(param_file, "w") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-
 def _load_snapshots(output_dir):
     """Every written snapshot's galaxies, concatenated over the output files."""
     import h5py
@@ -100,51 +77,6 @@ def _load_snapshots(output_dir):
                 snap = int(group[len("Snap") :])
                 snapshots.setdefault(snap, []).append(f[group]["Galaxies"][:])
     return {snap: np.concatenate(parts) for snap, parts in snapshots.items()}
-
-
-def test_module_loads():
-    """The module initialises as the last post_timestep entry of the package pipeline."""
-    print("Testing module load and initialization...")
-
-    phase_config, params = _run_file_pipeline()
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage26_record_transition_state_load",
-        phase_config=phase_config,
-        model_params=params,
-        output_format="hdf5",
-    )
-    try:
-        returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic should run the package pipeline\nStderr: {stderr}"
-        assert (
-            "SAGE record transition state module initialized" in stdout
-        ), "sage26_record_transition_state should log its initialisation"
-    finally:
-        shutil.rmtree(temp_dir)
-    print("  ✓ Module loads and initializes successfully")
-
-
-def test_placement_rejected():
-    """A run with the module in pre_timestep fails at startup with the placement error."""
-    print("Testing the placement check...")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage26_record_transition_state_placement",
-        phase_config={
-            "pre_timestep": [("sage26_record_transition_state", "process_full_halo")],
-            "post_timestep": [],
-        },
-        model_params={},
-        output_format="hdf5",
-    )
-    try:
-        returncode, stdout, stderr = run_mimic(param_file)
-        combined = stdout + stderr
-        assert returncode != 0, "a pre_timestep placement should fail at startup"
-        assert "modules.pre_timestep" in combined, "the error should name the placement"
-    finally:
-        shutil.rmtree(temp_dir)
-    print("  ✓ A pre_timestep placement is rejected")
 
 
 def _check_transitions(snapshots, first, last):
@@ -250,24 +182,21 @@ def _check_transitions(snapshots, first, last):
 
 def _run_and_load(output_name, phase_config, params, first):
     """Run the given pipeline writing every snapshot from first to 63, and load them."""
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name=output_name,
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    run = RUNS.run(
+        output_name,
         phase_config=phase_config,
         model_params=params,
         output_format="hdf5",
+        snapshot_list=list(range(first, LAST_SNAPSHOT + 1)),
     )
-    try:
-        _write_snapshots(param_file, range(first, LAST_SNAPSHOT + 1))
-        returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic should run the pipeline\nStderr: {stderr}"
-        snapshots = _load_snapshots(output_dir)
-        assert sorted(snapshots) == list(
-            range(first, LAST_SNAPSHOT + 1)
-        ), f"every snapshot should be written, got {sorted(snapshots)}"
-    except BaseException:
-        shutil.rmtree(temp_dir)  # the caller removes it only on success
-        raise
-    return snapshots, temp_dir
+    assert run.returncode == 0, f"Mimic should run the pipeline\nStderr: {run.stderr}"
+    snapshots = _load_snapshots(run.output_dir)
+    assert sorted(snapshots) == list(
+        range(first, LAST_SNAPSHOT + 1)
+    ), f"every snapshot should be written, got {sorted(snapshots)}"
+    return snapshots
 
 
 def test_consecutive_snapshot_transitions():
@@ -281,18 +210,15 @@ def test_consecutive_snapshot_transitions():
     print("Testing infall values across consecutive snapshots (package pipeline)...")
 
     phase_config, params = _run_file_pipeline()
-    snapshots, temp_dir = _run_and_load(
+    snapshots = _run_and_load(
         "sage26_record_transition_state_snapshots", phase_config, params, FIRST_SNAPSHOT
     )
-    try:
-        counts, checked = _check_transitions(snapshots, FIRST_SNAPSHOT, LAST_SNAPSHOT)
-        for case in ("0->0", "0->1", "1->1", "1->0"):
-            assert counts[case] > 0, f"the run should contain the transition {case}"
-        assert checked["0->1 infallVvir"] > 0, "some 0->1 halos should have grown"
-        print(f"  transitions followed: {counts}")
-        print(f"  conditional checks applied to: {checked}")
-    finally:
-        shutil.rmtree(temp_dir)
+    counts, checked = _check_transitions(snapshots, FIRST_SNAPSHOT, LAST_SNAPSHOT)
+    for case in ("0->0", "0->1", "1->1", "1->0"):
+        assert counts[case] > 0, f"the run should contain the transition {case}"
+    assert checked["0->1 infallVvir"] > 0, "some 0->1 halos should have grown"
+    print(f"  transitions followed: {counts}")
+    print(f"  conditional checks applied to: {checked}")
     print("  ✓ Every written transition carries SAGE26's infall values")
 
 
@@ -317,81 +243,29 @@ def test_orphan_transitions_without_merger_pass():
         assert all(
             name != "sage26_resolve_mergers_and_disruption" for name, _ in mods
         ), "the merger pass should be left out"
-    snapshots, temp_dir = _run_and_load(
-        "sage26_record_transition_state_orphans", phase_config, params, 0
-    )
-    try:
-        counts, checked = _check_transitions(snapshots, 0, LAST_SNAPSHOT)
-        for case in ("0->1", "1->1", "1->0", "0->2", "1->2", "2->2"):
-            assert counts[case] > 0, f"the run should contain the transition {case}"
-        assert counts["2->0"] == 0 and counts["2->1"] == 0, "an orphan never regains a subhalo"
-        assert (
-            checked["0->2 earlier TimeOfInfall"] > 0
-        ), "some 0->2 galaxy should carry an earlier infall's TimeOfInfall"
-        written_type2 = sum(int(np.sum(g["Type"] == 2)) for g in snapshots.values())
-        print(f"  transitions followed: {counts}; Type 2 rows written: {written_type2}")
-        print(f"  conditional checks applied to: {checked}")
-    finally:
-        shutil.rmtree(temp_dir)
+    snapshots = _run_and_load("sage26_record_transition_state_orphans", phase_config, params, 0)
+    counts, checked = _check_transitions(snapshots, 0, LAST_SNAPSHOT)
+    for case in ("0->1", "1->1", "1->0", "0->2", "1->2", "2->2"):
+        assert counts[case] > 0, f"the run should contain the transition {case}"
+    assert counts["2->0"] == 0 and counts["2->1"] == 0, "an orphan never regains a subhalo"
+    assert (
+        checked["0->2 earlier TimeOfInfall"] > 0
+    ), "some 0->2 galaxy should carry an earlier infall's TimeOfInfall"
+    written_type2 = sum(int(np.sum(g["Type"] == 2)) for g in snapshots.values())
+    print(f"  transitions followed: {counts}; Type 2 rows written: {written_type2}")
+    print(f"  conditional checks applied to: {checked}")
     print("  ✓ Every orphan transition carries SAGE26's infall values")
 
 
 def main():
-    """Run all integration test cases with structured result markers."""
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: sage26_record_transition_state Integration Tests{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-
-    tests = [
-        test_module_loads,
-        test_placement_rejected,
-        test_consecutive_snapshot_transitions,
-        test_orphan_transitions_without_merger_pass,
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    try:
+        return run_test_suite(
+            [test_consecutive_snapshot_transitions, test_orphan_transitions_without_merger_pass],
+            "sage26_record_transition_state Integration Tests",
+        )
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

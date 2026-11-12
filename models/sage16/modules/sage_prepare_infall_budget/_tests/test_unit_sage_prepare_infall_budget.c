@@ -1,32 +1,24 @@
 /**
  * @file    test_unit_sage_prepare_infall_budget.c
- * @brief   Comprehensive unit tests for sage_prepare_infall_budget module
+ * @brief   Unit tests for the sage_prepare_infall_budget module
  *
- * Validates: Module lifecycle, physics calculation, memory safety, edge cases, parameter validation
- *
- * This test validates both software engineering and physics aspects:
- * - Module registration and initialization
- * - Parameter reading and validation (including invalid values)
- * - Memory allocation and cleanup (no leaks)
- * - Physics calculation (infall budget, consolidation)
- * - Edge cases (zero mass, no satellites, orphans)
- * - Consolidation logic (satellite ejected gas, ICS, orphan hot gas)
+ * Validates SAGE's infall_recipe: the budget HaloBaryonFraction * Mvir minus every baryon of the
+ * FoF group, the satellites' surrender of ejected gas and ICS to the central, the central's
+ * consolidation clamps, and the fallback of an unset HaloBaryonFraction to GlobalBaryonFraction.
  *
  * Test cases:
- *   - test_module_registration: Module registers correctly
- *   - test_module_initialization: Module init/cleanup lifecycle
- *   - test_parameter_reading: Module parameters read from config
- *   - test_invalid_parameter_fails: Invalid parameters rejected
- *   - test_memory_safety: No memory leaks during operation
- *   - test_property_access: Galaxy property access works correctly
- *   - test_physics_calculation_basic: Basic infall calculation
- *   - test_satellite_ejected_consolidation: Central gets satellite ejected gas
- *   - test_satellite_ics_consolidation: Central gets satellite ICS
- *   - test_orphan_hot_gas_retained: Type 2 orphan keeps its hot gas (SAGE parity)
- *   - test_zero_mass_halo: Mvir=0 handled correctly
- *   - test_no_satellites: Single central works
- *   - test_multiple_satellites: Multiple satellites consolidated
+ *   - test_module_initialization: a pipeline with the module in pre_timestep initialises
+ *   - test_halo_baryon_fraction_sentinel_falls_back_to_global: an unset (-1) HaloBaryonFraction
+ *     becomes GlobalBaryonFraction, a set one (reionization's) is kept
+ *   - test_physics_calculation_basic: the budget sums all six baryon terms of a central, exactly
+ *   - test_orphan_hot_gas_retained: a Type 2 orphan keeps its hot gas (SAGE parity)
+ *   - test_multiple_satellites: ejected gas, ICS and their metals pool into the central,
+ *     satellites are zeroed, the budget counts the pool
+ *   - test_central_consolidation_clamps: the ejected and ICS clamps of the central
+ *   - test_null_central_galaxy_is_an_error: a Type 0 row without galaxy data is an error
  *
+ * Process cases initialise the module directly with the parameters they need and build their
+ * groups with create_test_halo(); the group's central is always row 0.
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -39,42 +31,40 @@
 #include "util/memory.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
 
-/* Test fixture: Initialize module for physics tests */
-static void setup_module_for_physics_test(double global_baryon_frac) {
+extern int sage_prepare_infall_budget_init(void);
+extern int sage_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
+
+/**
+ * @brief Initialise the module directly with GlobalBaryonFraction `gbf`
+ * @return init()'s status, 0 on success
+ */
+static int init_with(const char *gbf) {
   reset_config();
+  strncpy(MimicConfig.ModelParams[0].param_name, "GlobalBaryonFraction", MAX_STRING_LEN - 1);
+  strncpy(MimicConfig.ModelParams[0].value, gbf, MAX_STRING_LEN - 1);
+  MimicConfig.NumModelParams = 1;
+  return sage_prepare_infall_budget_init();
+}
+
+/** @brief Initialise for a physics case: memory system up, GlobalBaryonFraction `gbf` */
+static int setup_module_for_physics_test(const char *gbf) {
   init_memory_system(0);
-  ensure_modules_registered();
+  return init_with(gbf);
+}
 
-  /* Set up cosmology configuration */
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-
-  /* Configure sage_prepare_infall_budget module in pre_timestep phase */
-  MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-  MimicConfig.pre_timestep[0].module_name = strdup("sage_prepare_infall_budget");
-  MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-  MimicConfig.num_pre_timestep = 1;
-  MimicConfig.SubSteps = 1;
-
-  /* Set test parameters */
-  set_test_model_parameters();
-  /* Override GlobalBaryonFraction */
-  snprintf(MimicConfig.ModelParams[0].value, sizeof(MimicConfig.ModelParams[0].value), "%.6f",
-           global_baryon_frac);
-
-  /* Initialize module system */
-  int result = module_system_init();
-  if (result != 0) {
-    ERROR_LOG("Module system initialization failed in test fixture");
-  }
+/** @brief Run the module over `ngal` halos whose central is row 0 */
+static int run_process(struct Halo *halos, const int ngal) {
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.params = &MimicConfig;
+  ctx.num_substeps = 1;
+  ctx.central_galaxy = &halos[0];
+  return sage_prepare_infall_budget_process(&ctx, halos, ngal);
 }
 
 /* Test fixture: Create test halo with specified properties */
@@ -93,26 +83,6 @@ static struct Halo create_test_halo(int type, float mvir) {
   halo.galaxy->HaloBaryonFraction = -1.0f; /* Sentinel for uninitialized */
 
   return halo;
-}
-
-/**
- * @test    test_module_registration
- * @brief   Test that sage_prepare_infall_budget module registers correctly
- *
- * Expected: Module registration succeeds without errors
- * Validates: sage_prepare_infall_budget_register() works
- */
-int test_module_registration(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-
-  /* ===== EXECUTE ===== */
-  ensure_modules_registered();
-
-  /* ===== VALIDATE ===== */
-  /* If we got here without crashing, registration succeeded */
-
-  return TEST_PASS;
 }
 
 /**
@@ -155,88 +125,44 @@ int test_module_initialization(void) {
 }
 
 /**
- * @test    test_parameter_reading
- * @brief   Test that module reads GlobalBaryonFraction parameter
+ * @test    test_halo_baryon_fraction_sentinel_falls_back_to_global
+ * @brief   An unset HaloBaryonFraction (the -1 sentinel, no sage_reionization in the pipeline)
+ *          becomes GlobalBaryonFraction, while a value already set is kept
  *
- * Expected: Module reads GlobalBaryonFraction parameter successfully
- * Validates: Parameter reading and validation
+ * GlobalBaryonFraction 0.25, a central of Mvir 64 holding 1.0 of stellar mass: the budget is
+ * fraction * 64 - 1.0. The zero row pins the sentinel test as exactly -1: a set fraction of 0 is
+ * kept, not replaced.
  */
-int test_parameter_reading(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
+int test_halo_baryon_fraction_sentinel_falls_back_to_global(void) {
+  static const struct {
+    double preset;
+    double fraction;
+    double budget;
+  } rows[] = {
+      {-1.0, 0.25, 15.0},
+      {0.5, 0.5, 31.0},
+      {0.0, 0.0, -1.0},
+  };
 
-  /* Set up configuration */
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-
-  /* Configure with custom GlobalBaryonFraction */
-  MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-  MimicConfig.pre_timestep[0].module_name = strdup("sage_prepare_infall_budget");
-  MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-  MimicConfig.num_pre_timestep = 1;
-  MimicConfig.SubSteps = 1;
-
-  set_test_model_parameters();
-  strcpy(MimicConfig.ModelParams[0].value, "0.20");
-
-  /* ===== EXECUTE ===== */
-  int result = module_system_init();
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module should initialize with custom parameter");
-
-  /* ===== CLEANUP ===== */
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_invalid_parameter_fails
- * @brief   Test that module rejects invalid GlobalBaryonFraction values
- *
- * Expected: Module init fails with invalid parameters
- * Validates: Parameter validation (valid range: (0, 1] - exclusive lower, inclusive upper)
- */
-int test_invalid_parameter_fails(void) {
-  /* Test cases: values that should fail (0, 1] means 0 < value <= 1.0) */
-  double invalid_values[] = {0.0, -0.1, 1.5};
-  int num_cases = 3;
-
-  for (int i = 0; i < num_cases; i++) {
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    char msg[96];
     /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
-
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
-
-    MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.pre_timestep[0].module_name = strdup("sage_prepare_infall_budget");
-    MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.num_pre_timestep = 1;
-    MimicConfig.SubSteps = 1;
-
-    set_test_model_parameters();
-    snprintf(MimicConfig.ModelParams[0].value, sizeof(MimicConfig.ModelParams[0].value), "%.6f",
-             invalid_values[i]);
+    TEST_ASSERT(setup_module_for_physics_test("0.25") == 0, "init must succeed");
+    struct Halo central = create_test_halo(0, 64.0f);
+    central.galaxy->HaloBaryonFraction = rows[i].preset;
+    central.galaxy->StellarMass = 1.0f;
 
     /* ===== EXECUTE ===== */
-    int result = module_system_init();
+    TEST_ASSERT(run_process(&central, 1) == 0, "process must succeed");
 
     /* ===== VALIDATE ===== */
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg),
-             "Module should fail with invalid GlobalBaryonFraction=%.2f", invalid_values[i]);
-    TEST_ASSERT(result != 0, error_msg);
+    snprintf(msg, sizeof(msg), "HaloBaryonFraction after a preset of %g", rows[i].preset);
+    TEST_ASSERT(central.galaxy->HaloBaryonFraction == rows[i].fraction, msg);
+    snprintf(msg, sizeof(msg), "budget after a preset of %g", rows[i].preset);
+    TEST_ASSERT(central.galaxy->InfallingGas == rows[i].budget, msg);
 
     /* ===== CLEANUP ===== */
+    free_test_halo(&central);
     check_memory_leaks();
   }
 
@@ -244,243 +170,35 @@ int test_invalid_parameter_fails(void) {
 }
 
 /**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during normal operation
- *
- * Expected: No memory leaks after init, process, cleanup cycle
- * Validates: Memory management in module
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  /* Create test halo */
-  struct Halo test_halo = create_test_halo(0, 100.0);
-  test_halo.galaxy->HaloBaryonFraction = 0.17f;
-
-  /* Create module context */
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &test_halo;
-
-  /* ===== EXECUTE ===== */
-  extern int sage_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_prepare_infall_budget_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&test_halo);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_property_access
- * @brief   Test that module can safely access galaxy properties
- *
- * Expected: Property access doesn't crash, handles zero/null gracefully
- * Validates: Property access patterns in module
- */
-int test_property_access(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Create test halo and galaxy */
-  struct Halo test_halo;
-  memset(&test_halo, 0, sizeof(test_halo));
-
-  struct GalaxyData test_galaxy;
-  memset(&test_galaxy, 0, sizeof(test_galaxy));
-
-  test_halo.Mvir = 100.0;
-  test_halo.Type = 0;
-  test_halo.galaxy = &test_galaxy;
-
-  test_galaxy.StellarMass = 10.0;
-  test_galaxy.ColdGas = 5.0;
-  test_galaxy.HotGas = 15.0;
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(test_halo.galaxy != NULL, "Galaxy pointer should be accessible");
-  TEST_ASSERT(test_galaxy.StellarMass >= 0.0, "StellarMass should be non-negative");
-  TEST_ASSERT(test_galaxy.HotGas >= 0.0, "HotGas should be non-negative");
-
-  /* ===== CLEANUP ===== */
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_physics_calculation_basic
- * @brief   Test basic infall calculation for central galaxy
+ * @brief   The budget of a lone central sums all six baryon terms
  *
- * Expected: InfallingGas = HaloBaryonFraction × Mvir - existing_baryons
- * Validates: Correct physics calculation
+ * HaloBaryonFraction 0.25 at Mvir 64 allows 16; the central holds stellar 8, cold 4, hot 2.5,
+ * ejected 1.25, ICS 0.5 and black hole 0.0625, 16.3125 in all. Every input is a binary fraction,
+ * so the budget is the exact literal -0.3125: a dropped or doubled term, or a float narrowing of
+ * the sum, changes it.
  */
 int test_physics_calculation_basic(void) {
   /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
+  TEST_ASSERT(setup_module_for_physics_test("0.17") == 0, "init must succeed");
 
-  /* Create central with known baryon content */
-  struct Halo central = create_test_halo(0, 100.0); /* 1e12 Msun/h */
-  central.galaxy->HaloBaryonFraction = 0.17f;
-  central.galaxy->StellarMass = 5.0f;
-  central.galaxy->ColdGas = 3.0f;
-  central.galaxy->HotGas = 8.0f;
-  central.galaxy->EjectedGas = 1.0f;
+  struct Halo central = create_test_halo(0, 64.0f);
+  central.galaxy->HaloBaryonFraction = 0.25;
+  central.galaxy->StellarMass = 8.0f;
+  central.galaxy->ColdGas = 4.0f;
+  central.galaxy->HotGas = 2.5f;
+  central.galaxy->EjectedGas = 1.25f;
   central.galaxy->ICS = 0.5f;
-  central.galaxy->BlackHoleMass = 0.1f;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &central;
+  central.galaxy->BlackHoleMass = 0.0625f;
 
   /* ===== EXECUTE ===== */
-  extern int sage_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_prepare_infall_budget_process(&ctx, &central, 1);
+  TEST_ASSERT(run_process(&central, 1) == 0, "Process should succeed");
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-
-  /* Expected: 0.17 × 100.0 - (5.0 + 3.0 + 8.0 + 1.0 + 0.5 + 0.1) = 17.0 - 17.6 = -0.6 */
-  double expected_infall = 0.17 * 100.0 - (5.0 + 3.0 + 8.0 + 1.0 + 0.5 + 0.1);
-
-  printf("  Basic infall: Mvir=%.1f, HaloBaryonFrac=%.2f, InfallingGas=%.2f (expected %.2f)\n",
-         central.Mvir, central.galaxy->HaloBaryonFraction, central.galaxy->InfallingGas,
-         expected_infall);
-
-  TEST_ASSERT_DOUBLE_EQUAL(central.galaxy->InfallingGas, expected_infall, 0.01,
-                           "InfallingGas should match expected value");
+  TEST_ASSERT(central.galaxy->InfallingGas == -0.3125, "InfallingGas must be 16 - 16.3125");
 
   /* ===== CLEANUP ===== */
   free_test_halo(&central);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_satellite_ejected_consolidation
- * @brief   Test that satellite ejected gas is consolidated to central
- *
- * Expected: Central gets all ejected gas, satellites have zero
- * Validates: Consolidation logic with metallicity preservation
- */
-int test_satellite_ejected_consolidation(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  /* Create central and satellite */
-  struct Halo halos[2];
-  halos[0] = create_test_halo(0, 100.0); /* Central */
-  halos[1] = create_test_halo(1, 20.0);  /* Satellite */
-
-  halos[0].galaxy->HaloBaryonFraction = 0.17f;
-  halos[0].galaxy->EjectedGas = 1.0f;
-  halos[0].galaxy->MetalsEjectedGas = 0.02f;
-
-  halos[1].galaxy->HaloBaryonFraction = 0.17f;
-  halos[1].galaxy->EjectedGas = 2.0f;
-  halos[1].galaxy->MetalsEjectedGas = 0.04f;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &halos[0];
-
-  /* ===== EXECUTE ===== */
-  extern int sage_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_prepare_infall_budget_process(&ctx, halos, 2);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-
-  /* Central should have all ejected gas (1.0 + 2.0 = 3.0) */
-  TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->EjectedGas, 3.0, 0.01,
-                           "Central should have all ejected gas");
-  TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->MetalsEjectedGas, 0.06, 0.01,
-                           "Central should have all ejected metals");
-
-  /* Satellite should have zero ejected gas */
-  TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->EjectedGas, 0.0, 0.01,
-                           "Satellite should have zero ejected gas");
-  TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->MetalsEjectedGas, 0.0, 0.01,
-                           "Satellite should have zero ejected metals");
-
-  printf("  ✓ Satellite ejected gas consolidated: Central EjectedGas=%.2f (expected 3.0)\n",
-         halos[0].galaxy->EjectedGas);
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&halos[0]);
-  free_test_halo(&halos[1]);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_satellite_ics_consolidation
- * @brief   Test that satellite ICS is consolidated to central
- *
- * Expected: Central gets all ICS, satellites have zero
- * Validates: ICS consolidation with metallicity
- */
-int test_satellite_ics_consolidation(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  /* Create central and satellite */
-  struct Halo halos[2];
-  halos[0] = create_test_halo(0, 100.0);
-  halos[1] = create_test_halo(1, 20.0);
-
-  halos[0].galaxy->HaloBaryonFraction = 0.17f;
-  halos[0].galaxy->ICS = 0.5f;
-  halos[0].galaxy->MetalsICS = 0.01f;
-
-  halos[1].galaxy->HaloBaryonFraction = 0.17f;
-  halos[1].galaxy->ICS = 1.5f;
-  halos[1].galaxy->MetalsICS = 0.03f;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &halos[0];
-
-  /* ===== EXECUTE ===== */
-  extern int sage_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_prepare_infall_budget_process(&ctx, halos, 2);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-
-  /* Central should have all ICS (0.5 + 1.5 = 2.0) */
-  TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->ICS, 2.0, 0.01, "Central should have all ICS");
-  TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->MetalsICS, 0.04, 0.01,
-                           "Central should have all ICS metals");
-
-  /* Satellite should have zero ICS */
-  TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->ICS, 0.0, 0.01, "Satellite should have zero ICS");
-
-  printf("  ✓ Satellite ICS consolidated: Central ICS=%.2f (expected 2.0)\n", halos[0].galaxy->ICS);
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&halos[0]);
-  free_test_halo(&halos[1]);
-  module_system_cleanup();
   check_memory_leaks();
 
   return TEST_PASS;
@@ -489,14 +207,14 @@ int test_satellite_ics_consolidation(void) {
 /**
  * @test    test_orphan_hot_gas_retained
  * @brief   SAGE parity: Type 2 orphan hot gas is NOT consolidated to the
- *          central. SAGE infall_recipe consolidates only ejected gas + ICS;
- *          orphans keep their hot gas and cool it themselves until merging.
+ *          central. SAGE infall_recipe consolidates only satellites' ejected gas and ICS,
+ *          never their hot gas. Orphans keep their hot gas and cool it themselves until merging.
  *
  * Expected: Central keeps only its own hot gas; orphan retains its hot gas.
  */
 int test_orphan_hot_gas_retained(void) {
   /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
+  TEST_ASSERT(setup_module_for_physics_test("0.17") == 0, "init must succeed");
 
   /* Create central and Type 2 orphan */
   struct Halo halos[2];
@@ -511,22 +229,13 @@ int test_orphan_hot_gas_retained(void) {
   halos[1].galaxy->HotGas = 3.0f;
   halos[1].galaxy->MetalsHotGas = 0.06f;
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &halos[0];
-
   /* ===== EXECUTE ===== */
-  extern int sage_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_prepare_infall_budget_process(&ctx, halos, 2);
+  TEST_ASSERT(run_process(halos, 2) == 0, "Process should succeed");
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
-
   /* SAGE parity: hot gas is NOT consolidated. The central keeps only its own
    * hot gas, and the Type 2 orphan retains its hot gas (it cools it itself
-   * until it merges). SAGE infall_recipe consolidates only ejected gas + ICS. */
+   * until it merges). */
   TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->HotGas, 5.0, 0.01,
                            "Central keeps only its own hot gas");
   TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->MetalsHotGas, 0.1, 0.01,
@@ -536,98 +245,9 @@ int test_orphan_hot_gas_retained(void) {
   TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->MetalsHotGas, 0.06, 0.01,
                            "Type 2 orphan retains its hot gas metals");
 
-  printf("  ✓ Orphan hot gas retained: Central HotGas=%.2f, Orphan HotGas=%.2f\n",
-         halos[0].galaxy->HotGas, halos[1].galaxy->HotGas);
-
   /* ===== CLEANUP ===== */
   free_test_halo(&halos[0]);
   free_test_halo(&halos[1]);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_mass_halo
- * @brief   Test that zero-mass halos are handled correctly
- *
- * Expected: Process succeeds, InfallingGas calculated (likely negative)
- * Validates: Edge case handling
- */
-int test_zero_mass_halo(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  struct Halo central = create_test_halo(0, 0.0); /* Zero mass */
-  central.galaxy->HaloBaryonFraction = 0.17f;
-  central.galaxy->StellarMass = 1.0f; /* Still has baryons */
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &central;
-
-  /* ===== EXECUTE ===== */
-  extern int sage_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_prepare_infall_budget_process(&ctx, &central, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed with zero mass");
-
-  /* Expected: 0.17 × 0.0 - 1.0 = -1.0 (mass loss) */
-  TEST_ASSERT(central.galaxy->InfallingGas < 0.0, "Zero-mass halo should have negative infall");
-
-  printf("  ✓ Zero-mass halo: InfallingGas=%.2f (expected negative)\n",
-         central.galaxy->InfallingGas);
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&central);
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_no_satellites
- * @brief   Test that single central (no satellites) works correctly
- *
- * Expected: Infall calculated correctly, no consolidation
- * Validates: Single halo case
- */
-int test_no_satellites(void) {
-  /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
-
-  struct Halo central = create_test_halo(0, 100.0);
-  central.galaxy->HaloBaryonFraction = 0.17f;
-  central.galaxy->StellarMass = 5.0f;
-  central.galaxy->HotGas = 10.0f;
-
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &central;
-
-  /* ===== EXECUTE ===== */
-  extern int sage_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_prepare_infall_budget_process(&ctx, &central, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed with single halo");
-
-  /* Expected: 0.17 × 100.0 - 15.0 = 2.0 */
-  TEST_ASSERT_DOUBLE_EQUAL(central.galaxy->InfallingGas, 2.0, 0.01,
-                           "Single halo infall should be correct");
-
-  printf("  ✓ Single central: InfallingGas=%.2f (expected 2.0)\n", central.galaxy->InfallingGas);
-
-  /* ===== CLEANUP ===== */
-  free_test_halo(&central);
-  module_system_cleanup();
   check_memory_leaks();
 
   return TEST_PASS;
@@ -635,108 +255,155 @@ int test_no_satellites(void) {
 
 /**
  * @test    test_multiple_satellites
- * @brief   Test that multiple satellites are correctly consolidated
+ * @brief   Satellites surrender their ejected gas and ICS, with the metals, to the central
  *
- * Expected: Central gets all satellite reservoirs
- * Validates: Multi-satellite consolidation
+ * A central (ejected 1.0 / 0.125 metals, ICS 0.5 / 0.0625) and three satellites i = 1..3 (ejected
+ * i / 0.125 i, ICS 0.5 i / 0.0625 i) pool into the central: ejected 7.0 / 0.875, ICS 3.5 / 0.4375,
+ * and each satellite is left with none. The budget 0.25 * 128 - (7.0 + 3.5) is 21.5. Every value is
+ * a binary fraction, so all are exact literals.
  */
 int test_multiple_satellites(void) {
   /* ===== SETUP ===== */
-  setup_module_for_physics_test(0.17);
+  TEST_ASSERT(setup_module_for_physics_test("0.17") == 0, "init must succeed");
 
-  /* Create central and 3 satellites */
   struct Halo halos[4];
-  halos[0] = create_test_halo(0, 100.0); /* Central */
-  halos[1] = create_test_halo(1, 20.0);  /* Satellite 1 */
-  halos[2] = create_test_halo(1, 15.0);  /* Satellite 2 */
-  halos[3] = create_test_halo(1, 10.0);  /* Satellite 3 */
-
-  /* Central has some reservoirs */
-  halos[0].galaxy->HaloBaryonFraction = 0.17f;
-  halos[0].galaxy->EjectedGas = 1.0f;
-  halos[0].galaxy->ICS = 0.5f;
-
-  /* Satellites have ejected gas and ICS */
+  halos[0] = create_test_halo(0, 128.0f); /* Central */
   for (int i = 1; i < 4; i++) {
-    halos[i].galaxy->HaloBaryonFraction = 0.17f;
-    halos[i].galaxy->EjectedGas = (float)i; /* 1.0, 2.0, 3.0 */
-    halos[i].galaxy->ICS = (float)i * 0.5f; /* 0.5, 1.0, 1.5 */
+    halos[i] = create_test_halo(1, 10.0f);
   }
 
-  struct ModuleContext ctx;
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.redshift = 0.0;
-  ctx.params = &MimicConfig;
-  ctx.central_galaxy = &halos[0];
+  struct GalaxyData *c = halos[0].galaxy;
+  c->HaloBaryonFraction = 0.25;
+  c->EjectedGas = 1.0f;
+  c->MetalsEjectedGas = 0.125f;
+  c->ICS = 0.5f;
+  c->MetalsICS = 0.0625f;
+
+  for (int i = 1; i < 4; i++) {
+    struct GalaxyData *s = halos[i].galaxy;
+    s->EjectedGas = (float)i; /* 1.0, 2.0, 3.0 */
+    s->MetalsEjectedGas = 0.125f * (float)i;
+    s->ICS = 0.5f * (float)i; /* 0.5, 1.0, 1.5 */
+    s->MetalsICS = 0.0625f * (float)i;
+  }
 
   /* ===== EXECUTE ===== */
-  extern int sage_prepare_infall_budget_process(struct ModuleContext *, struct Halo *, int);
-  int result = sage_prepare_infall_budget_process(&ctx, halos, 4);
+  TEST_ASSERT(run_process(halos, 4) == 0, "Process should succeed");
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process should succeed");
+  TEST_ASSERT(c->EjectedGas == 7.0f && c->MetalsEjectedGas == 0.875f,
+              "the central must hold all ejected gas and its metals");
+  TEST_ASSERT(c->ICS == 3.5f && c->MetalsICS == 0.4375f,
+              "the central must hold all ICS and its metals");
+  TEST_ASSERT(c->InfallingGas == 21.5, "the budget counts the pooled ejected gas and ICS");
 
-  /* Central should have all ejected: 1.0 + 1.0 + 2.0 + 3.0 = 7.0 */
-  TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->EjectedGas, 7.0, 0.01,
-                           "Central should have all ejected gas from satellites");
-
-  /* Central should have all ICS: 0.5 + 0.5 + 1.0 + 1.5 = 3.5 */
-  TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->ICS, 3.5, 0.01,
-                           "Central should have all ICS from satellites");
-
-  /* All satellites should have zero */
   for (int i = 1; i < 4; i++) {
-    TEST_ASSERT_DOUBLE_EQUAL(halos[i].galaxy->EjectedGas, 0.0, 0.01,
-                             "Satellites should have zero ejected gas");
-    TEST_ASSERT_DOUBLE_EQUAL(halos[i].galaxy->ICS, 0.0, 0.01, "Satellites should have zero ICS");
+    const struct GalaxyData *s = halos[i].galaxy;
+    TEST_ASSERT(s->EjectedGas == 0.0f && s->MetalsEjectedGas == 0.0f,
+                "a satellite must be left without ejected gas");
+    TEST_ASSERT(s->ICS == 0.0f && s->MetalsICS == 0.0f, "a satellite must be left without ICS");
   }
-
-  printf("  ✓ Multiple satellites consolidated: EjectedGas=%.2f, ICS=%.2f\n",
-         halos[0].galaxy->EjectedGas, halos[0].galaxy->ICS);
 
   /* ===== CLEANUP ===== */
   for (int i = 0; i < 4; i++) {
     free_test_halo(&halos[i]);
   }
-  module_system_cleanup();
   check_memory_leaks();
 
   return TEST_PASS;
 }
 
 /**
+ * @test    test_central_consolidation_clamps
+ * @brief   The central's ejected and ICS reservoirs are clamped: a negative mass is cleared with
+ *          its metals, otherwise negative metals are floored and metals above the mass capped
+ *
+ * Each row loads the same (mass, metals) pair into both reservoirs of a lone central and expects
+ * the clamped pair in each.
+ */
+int test_central_consolidation_clamps(void) {
+  static const struct {
+    float mass, metals;
+    float mass_out, metals_out;
+  } rows[] = {
+      {2.0f, 0.25f, 2.0f, 0.25f}, /* within bounds: unchanged */
+      {1.0f, 2.0f, 1.0f, 1.0f},   /* metals above mass: capped */
+      {-0.5f, 0.25f, 0.0f, 0.0f}, /* negative mass: cleared with its metals */
+      {1.0f, -0.25f, 1.0f, 0.0f}, /* negative metals: floored */
+  };
+
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    char msg[96];
+    TEST_ASSERT(setup_module_for_physics_test("0.17") == 0, "init must succeed");
+    struct Halo central = create_test_halo(0, 64.0f);
+    struct GalaxyData *gal = central.galaxy;
+    gal->HaloBaryonFraction = 0.25;
+    gal->EjectedGas = gal->ICS = rows[i].mass;
+    gal->MetalsEjectedGas = gal->MetalsICS = rows[i].metals;
+
+    TEST_ASSERT(run_process(&central, 1) == 0, "process must succeed");
+
+    snprintf(msg, sizeof(msg), "ejected pair of row %zu (%g, %g)", i, (double)rows[i].mass,
+             (double)rows[i].metals);
+    TEST_ASSERT(gal->EjectedGas == rows[i].mass_out && gal->MetalsEjectedGas == rows[i].metals_out,
+                msg);
+    snprintf(msg, sizeof(msg), "ICS pair of row %zu (%g, %g)", i, (double)rows[i].mass,
+             (double)rows[i].metals);
+    TEST_ASSERT(gal->ICS == rows[i].mass_out && gal->MetalsICS == rows[i].metals_out, msg);
+
+    free_test_halo(&central);
+    check_memory_leaks();
+  }
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_null_central_galaxy_is_an_error
+ * @brief   A Type 0 row with no galaxy data fails with -1 instead of being skipped
+ */
+int test_null_central_galaxy_is_an_error(void) {
+  TEST_ASSERT(setup_module_for_physics_test("0.17") == 0, "init must succeed");
+
+  struct Halo central;
+  memset(&central, 0, sizeof(central));
+  central.Type = 0;
+  central.Mvir = 100.0;
+  central.galaxy = NULL;
+
+  TEST_ASSERT(run_process(&central, 1) == -1, "a central without galaxy data must be an error");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  *
- * Executes all sage_prepare_infall_budget comprehensive tests and reports results.
+ * Executes all sage_prepare_infall_budget unit tests and reports results.
  */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
-  printf("Test Suite: sage_prepare_infall_budget Module (Comprehensive)\n");
+  printf("Test Suite: sage_prepare_infall_budget Module\n");
   printf("============================================================\n");
   printf("%s", NC);
 
   /* Initialize error handling for tests */
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  /* Run software quality tests */
-  printf("\n%s=== Software Quality Tests ===%s\n", BLUE, NC);
-  TEST_RUN(test_module_registration);
+  /* Lifecycle and parameters */
+  printf("\n%s=== Initialisation Tests ===%s\n", BLUE, NC);
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_parameter_reading);
-  TEST_RUN(test_invalid_parameter_fails);
-  TEST_RUN(test_memory_safety);
-  TEST_RUN(test_property_access);
+  TEST_RUN(test_halo_baryon_fraction_sentinel_falls_back_to_global);
 
   /* Run physics tests */
   printf("\n%s=== Physics Calculation Tests ===%s\n", BLUE, NC);
   TEST_RUN(test_physics_calculation_basic);
-  TEST_RUN(test_satellite_ejected_consolidation);
-  TEST_RUN(test_satellite_ics_consolidation);
   TEST_RUN(test_orphan_hot_gas_retained);
-  TEST_RUN(test_zero_mass_halo);
-  TEST_RUN(test_no_satellites);
   TEST_RUN(test_multiple_satellites);
+  TEST_RUN(test_central_consolidation_clamps);
+  TEST_RUN(test_null_central_galaxy_is_an_error);
 
   /* Print summary and return result */
   TEST_SUMMARY();

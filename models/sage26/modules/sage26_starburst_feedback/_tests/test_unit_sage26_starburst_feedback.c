@@ -2,55 +2,40 @@
  * @file    test_unit_sage26_starburst_feedback.c
  * @brief   Unit tests for sage26_starburst_feedback module
  *
- * Validates: Collisional starburst physics, merger/disk triggers, feedback, edge cases
+ * Validates: the collisional starburst through the module's two channels (the disk-instability
+ * burst, process_by_galaxy; the merger burst and its post-minor-merger recheck,
+ * process_per_event), its feedback and yield arithmetic, the guards on bad state, and the
+ * bulge star-formation history, FIRE, hydrogen and CGM routing wiring.
  *
- * This test validates the sage26_starburst_feedback module physics:
- * - Disk instability trigger (mode=1, eburst = efficiency)
- * - By-galaxy path ignores merger flags (merger channel uses process_per_event)
- * - Per-event merger trigger support via ctx->active_event
- * - Star formation and bulge growth
- * - Feedback reheating and ejection
- * - Mass and metallicity conservation
- * - Metal distribution (major vs minor mergers)
- * - Cold gas balance constraint
- * - Edge cases (zero values, NULL galaxies, triggers)
- * - Parameter sensitivity
+ * Expected values are hand-computed from SAGE26's expressions (or written inline in the test
+ * with SAGE26's operand order), never obtained by calling the module's own helpers. Reservoirs
+ * are floats, so exact-arithmetic expectations are compared with close_to(): within 1e-6 of the
+ * expected value's magnitude, or an absolute 1e-6 where that magnitude is below 1; bit-pattern
+ * comparisons are exact.
  *
  * Test cases:
- *   - test_disk_instability_starburst: Disk instability trigger physics
- *   - test_merger_starburst: Merger-only trigger is ignored in this module
- *   - test_both_triggers: Disk trigger processed while merger trigger preserved
- *   - test_per_event_merger_starburst: Merger event triggers starburst physics
- *   - test_per_event_minor_merger_rechecks_disk_instability: Minor mergers run
- *     same-step post-starburst disk instability follow-up when configured
- *   - test_per_event_recheck_respects_phase2_quasar_configuration: Same-step
- *     follow-up skips BH growth when the quasar event consumer is absent
- *   - test_per_event_recheck_agn_recipe_off: with the quasar event consumer configured, the
- *     follow-up grows no black hole at AGNrecipe 0 and grows it at AGNrecipe 2
- *   - test_agn_recipe_refused: with the recheck and the quasar consumer configured, AGNrecipe 1
- *     is refused by the package's validator
+ *   - test_disk_instability_starburst: a disk-instability burst of four galaxies (feedback
+ *     renormalised, ejection positive, the minor-burst yield branch, a metal-rich galaxy):
+ *     every reservoir against a hand-computed value, mass and metal conservation, bulge growth
+ *     equal to stellar growth through the instability channel, the trigger left untouched
+ *   - test_burst_rates_use_full_interval: the burst's StarFormationRate divides by the host's
+ *     full snapshot interval for both channels, independent of the substep count and of the
+ *     merger event's dt; the outflow is the undivided reheated mass
+ *   - test_merger_burst_bulge_channel: the merger burst credits MergerBulgeMass for a major
+ *     merger or a spheroid-dominated target and InstabilityBulgeMass for a minor merger onto a
+ *     disk-dominated target
+ *   - test_per_event_recheck_black_hole_gating: the post-minor-merger recheck grows the black
+ *     hole only with the quasar consumer configured, AGNrecipe 2 and a ratio strictly below
+ *     ThresholdMajorMerger
  *   - test_per_event_zero_ratio_bursts: a zero-ratio merger still bursts and samples the bulge
- * history
- *   - test_major_vs_minor_merger: Merger-only major/minor triggers are both ignored
- *   - test_mass_conservation: Total mass conserved
- *   - test_metallicity_preservation: Metallicity preserved
- *   - test_bulge_formation: Stars added to bulge
- *   - test_ejection_calculation: Energy-driven ejection
- *   - test_cold_gas_balance: (stars + reheated) <= ColdGas
- *   - test_zero_cold_gas: No starburst with zero cold gas
- *   - test_zero_efficiency: No starburst with zero triggers
- *   - test_no_triggers: No processing without triggers
- *   - test_null_galaxy: NULL galaxy handled
- *   - test_null_central_galaxy: NULL central handled
- *   - test_triggers_preserved: Trigger lifecycle owned by clear modules
- *   - test_invalid_ngal: Error when ngal != 1
- *   - test_zero_vvir: Ejection = 0 when Vvir = 0
- *   - test_insufficient_cold_gas: Balancing works
- *   - test_parameter_sensitivity_reheating: Reheating parameter
- *   - test_parameter_sensitivity_ejection: Ejection parameter
- *   - test_parameter_sensitivity_yield: Yield parameter
- *   - test_module_initialization: Module lifecycle
- *   - test_memory_safety: No memory leaks
+ *     history
+ *   - test_process_guards: process() on bad state (ngal != 1, NULL host or central galaxy, a
+ *     non-positive event dt, invalid history bins, invalid and sentinel timesteps) returns the
+ *     right status and writes nothing
+ *   - test_no_burst_leaves_state: no trigger, or a trigger with no cold gas, leaves the galaxy
+ *     bit for bit unchanged
+ *   - test_zero_vvir: a burst on a zero-Vvir host forms stars and ejects nothing
+ *   - test_module_initialization: module_system_init accepts the module's placement
  *   - test_instability_burst_samples_bulge_history: the disk-instability burst samples
  *     SfrBulge[bin] += stars / dt with the galaxy's substep dt, and accumulates the gas
  *   - test_merger_burst_samples_with_event_dt: the merger burst samples at the substep's
@@ -59,47 +44,44 @@
  *     samples the same bin with the same dt
  *   - test_consecutive_bursts_bulge_excess_grows: three consecutive instability bursts
  *     leave BulgeMass two floats above StellarMass, bit for bit as SAGE26's own routine
- *     does; pins the limit of the integration tests' bulge bound
+ *     does; pins the limit of the integration test's bulge bound
  *   - test_hydrogen_refresh_module_wiring: initialised with SFprescription 1 the module wires the
  *     prescription into the burst (the commits' caps and the hydrogen refresh run), and with
  *     SFprescription 0 it does not
- *   - test_hydrogen_refresh_invariants: the refresh overwrites
- *     a stale H1gas with the atomic remainder, caps H2gas only against the double budget,
- *     floors a negative remainder to 0, keeps a -0.0 H2gas and runs for a zero-star burst
+ *   - test_hydrogen_refresh_invariants: the refresh overwrites a stale H1gas with the atomic
+ *     remainder, caps H2gas only against the double budget, floors a negative remainder to 0,
+ *     keeps a -0.0 H2gas and runs for a zero-star burst
  *   - test_hydrogen_cap_recheck_growth: the post-minor-merger recheck's black-hole growth
  *     receives the burst's SFprescription (its hydrogen-cap locals)
- *
  *   - test_fire_burst_budget_independent: FIREmodeOn 1: the burst's FIRE budget against
- *     SAGE26's expressions written in the test, across the
- *     scaling's guards, floor and slopes and both caps, MassLoading left unwritten
+ *     SAGE26's expressions written in the test, across the scaling's guards, floor and slopes
+ *     and both caps, MassLoading left unwritten
  *   - test_fire_burst_on_versus_off: the same burst with FIREmodeOn 1 and 0 (the fixed-epsilon
- *     budget), neither writing MassLoading
- *   - test_fire_burst_wiring_direct: the burst reads its host's float Vvir and stored SnapNum
- *     (and that snapshot's redshift), not its FoF central's
- *   - test_fire_burst_wiring_merger_event: the merger channel bursts the target with its own
- *     values (process_per_event)
- *   - test_fire_burst_wiring_instability_channel: the instability channel bursts the satellite
- *     with its own values (process_by_galaxy)
+ *     budget), neither writing MassLoading; the burst reads its host's float Vvir, stored
+ *     SnapNum and that snapshot's redshift, not its FoF central's
+ *   - test_fire_burst_wiring_by_channel: each module channel (the merger burst, the instability
+ *     burst) bursts its host with the host's own Vvir and stored SnapNum
  *   - test_fire_burst_wiring_recheck: the post-minor-merger recheck's own burst takes the FIRE
  *     branch with the host's values
- *   - test_fire_mode_refused: FIREmodeOn is required: missing or 2 or -1 refused, naming it
  *   - test_fire_burst_snapnum_refused: a stored SnapNum of -1 or the table size is
  *     refused through a burst, naming it and the table size, and the burst writes nothing
  *   - test_cgm_burst_module_channels: CGMrecipeOn 1 against 0 on the same input, through the
- *     module's two channels (the instability burst, process_by_galaxy; the merger burst,
- *     process_per_event): the feedback and the escaping yield reach the FoF central's CGM pair
- *     (its Regime 0) or hot pair (Regime 1, or CGMrecipeOn 0); the burst host holds the other
- *     Regime; the unselected pair and the host's own pairs unchanged
+ *     module's two channels: the feedback and the escaping yield reach the FoF central's CGM
+ *     pair (its Regime 0) or hot pair (Regime 1, or CGMrecipeOn 0); the burst host holds the
+ *     other Regime; the unselected pair and the host's own pairs unchanged
  *   - test_cgm_burst_recheck_sites: the post-minor-merger recheck's own sites: its quasar wind
  *     selects by the burst HOST's Regime, its nested burst's feedback and yield by the FoF
  *     central's, as do the outer burst's
- *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
  *   - test_ffb_target_merger_continuation: a minor merger on a feedback-free-burst
  *     target (FFBRegime 1) grows its black hole (the quasar consumer), bursts and runs the
  *     post-merger instability recheck exactly as on the same target with FFBRegime 0: the two end
  *     states are bytewise equal but for FFBRegime, which each target keeps; the recheck is shown
- *     to act (without it the end state differs), so the comparison discriminates a recheck that
- *     skipped FFB targets
+ *     to act (bulge, black hole, accretion and cold gas differ from the run without it) and to
+ *     conserve the baryons of the target and its central
+ *
+ * The module's AGNrecipe, FIREmodeOn and CGMrecipeOn refusals are asserted, with diagnostics, by
+ * test_unit_sage26_parameter_refusals.c.
+ *
  * In the three hydrogen tests the remainder is formed with C's correctly rounded fma, as the
  * shared helper forms it. In the FIRE tests each expectation is SAGE26's expression written in
  * the test with its operand order and literal constants (sb_fire_expected), or the fixture's
@@ -188,6 +170,9 @@ static void reset_config(void) {
 /**
  * @brief   Setup test galaxy with specified properties
  *
+ * The stellar and bulge metals carry the cold gas's metallicity (zero for a galaxy with no
+ * cold gas).
+ *
  * @param   halo            Halo structure to initialize
  * @param   gal             Galaxy structure to initialize
  * @param   type            Halo type (0=central, 1=satellite, 2=orphan)
@@ -213,12 +198,13 @@ static void setup_test_galaxy(struct Halo *halo, struct GalaxyData *gal, int typ
   halo->dT = 0.1; /* Time interval for rate calculations */
   halo->galaxy = gal;
 
+  const double metallicity = cold_gas > 0.0 ? metals_cold / cold_gas : 0.0;
   gal->ColdGas = (float)cold_gas;
   gal->MetalsColdGas = (float)metals_cold;
   gal->StellarMass = (float)stellar_mass;
-  gal->MetalsStellarMass = (float)(metals_cold / cold_gas * stellar_mass);
+  gal->MetalsStellarMass = (float)(metallicity * stellar_mass);
   gal->BulgeMass = (float)bulge_mass;
-  gal->MetalsBulgeMass = (float)(metals_cold / cold_gas * bulge_mass);
+  gal->MetalsBulgeMass = (float)(metallicity * bulge_mass);
   gal->HotGas = (float)hot_gas;
   gal->MetalsHotGas = (float)metals_hot;
   gal->EjectedGas = 0.0;
@@ -296,18 +282,6 @@ static void set_agn_recipe(const char *value) {
   }
 }
 
-static void setup_runtime_phase_config(int enable_disk_instability, int enable_phase2_quasar) {
-  if (enable_disk_instability) {
-    test_phase_add("galaxy_physics", "sage26_disk_instability", PROCESSING_MODE_BY_GALAXY);
-  }
-
-  if (enable_phase2_quasar) {
-    test_phase_add("satellite_mergers", "sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
-  }
-}
-
-static void teardown_runtime_phase_config(void) { test_free_substep_phases(); }
-
 /**
  * @brief   Create minimal module context for testing
  *
@@ -330,772 +304,500 @@ static void setup_test_context(struct ModuleContext *ctx, struct Halo *central_h
   MimicConfig.Hubble_h = 0.73;
 }
 
+/**
+ * @brief Assert `cond`, naming the table row that failed in the failure message
+ */
+#define ROW_ASSERT(cond, row, what)                                                                \
+  do {                                                                                             \
+    char row_msg[192];                                                                             \
+    snprintf(row_msg, sizeof(row_msg), "%s: %s", (row), (what));                                   \
+    TEST_ASSERT((cond), row_msg);                                                                  \
+  } while (0)
+
+/**
+ * @brief Whether a float reservoir equals its exact-arithmetic expectation
+ *
+ * The module narrows every reservoir to float (one part in 1.7e7), so a hand-computed expectation
+ * is matched to one part in 1e6 of its value, and to 1e-6 absolute for a value below 1.
+ */
+static int close_to(const double actual, const double expected) {
+  return fabs(actual - expected) <= 1e-6 * fmax(1.0, fabs(expected));
+}
+
+/** @brief A merger event from SAGE26's resolver with the given mass ratio and substep dt */
+static struct ModuleEvent merger_event(const double mass_ratio, const double dt) {
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 2,
+                              .target_index = 1,
+                              .value0 = mass_ratio,
+                              .value1 = dt};
+  return event;
+}
+
+/** @brief Set or replace a model parameter's value; NULL removes it */
+static void set_model_param(const char *name, const char *value) {
+  int n = MimicConfig.NumModelParams;
+  for (int i = 0; i < n; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, name) == 0) {
+      if (value == NULL) {
+        MimicConfig.ModelParams[i] = MimicConfig.ModelParams[n - 1];
+        MimicConfig.NumModelParams = n - 1;
+      } else {
+        snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%s", value);
+      }
+      return;
+    }
+  }
+  if (value != NULL) {
+    sage26_test_append_model_parameter(name, value);
+  }
+}
+
 // ============================================================================
-// PHYSICS CALCULATION TESTS
+// BULGE STAR-FORMATION HISTORY ACCESS
+// ============================================================================
+
+/** @brief Element (history, bin) of a galaxy */
+static float bulge_history(struct GalaxyData *gal, const enum MimicSageSfrHistory h,
+                           const int bin) {
+  return *mimic_sage_sfr_history(gal, h, bin);
+}
+
+/** @brief Whether every element of the three bulge histories outside `bin` is zero */
+static int bulge_history_zero_outside(struct GalaxyData *gal, const int bin) {
+  const enum MimicSageSfrHistory bulge[] = {MIMIC_SFR_HISTORY_BULGE,
+                                            MIMIC_SFR_HISTORY_BULGE_COLD_GAS,
+                                            MIMIC_SFR_HISTORY_BULGE_COLD_GAS_METALS};
+  for (int h = 0; h < 3; h++) {
+    for (int k = 0; k < MIMIC_SAGE_SFR_STEPS; k++) {
+      if (k != bin && bulge_history(gal, bulge[h], k) != 0.0f) {
+        return 0;
+      }
+    }
+  }
+  return 1;
+}
+
+// ============================================================================
+// THE MINOR MERGER SCENARIO
+// ============================================================================
+
+/**
+ * What one minor-merger run configures: which consumers sit in the pipeline (the module reads
+ * the pipeline at init to decide whether the post-merger recheck and its black-hole growth are
+ * enabled) and the merger event it processes.
+ */
+struct minor_merger {
+  int disk_instability;   /**< sage26_disk_instability by galaxy: the post-merger recheck */
+  int quasar;             /**< sage26_quasar_mode per event: the recheck grows the black hole */
+  int quasar_consumer;    /**< also run the quasar module's own merger event, before the burst */
+  const char *agn_recipe; /**< AGNrecipe of the quasar parameters, NULL for the default 2 */
+  double ratio;           /**< the event's mass ratio (value0) */
+  double event_dt;        /**< the event's substep dt (value1) */
+  int ffb_regime;         /**< the target's FFBRegime */
+  int num_substeps;       /**< the context's substep count */
+  int substep_number;     /**< the context's substep */
+};
+
+/** The default scenario: no consumers, a ratio of 0.2 (below ThresholdMajorMerger 0.3), one substep
+ */
+static const struct minor_merger MINOR_MERGER_DEFAULT = {
+    .ratio = 0.2, .event_dt = 0.1, .num_substeps = 1};
+
+/** The merger target's input state: a satellite whose disk is stable */
+#define MINOR_TARGET_COLD 8.0
+#define MINOR_TARGET_STELLAR 5.0
+#define MINOR_TARGET_HOT 5.0
+#define MINOR_TARGET_BLACK_HOLE 0.05
+#define MINOR_CENTRAL_HOT 40.0
+
+/**
+ * @brief Run one merger event through sage26_starburst_feedback on a satellite target (cold gas
+ *        8, stellar mass 5, hot gas 5, black hole 0.05) and its FoF central (hot gas 40)
+ *
+ * The module is initialised with the pipeline `cfg` describes and configured with
+ * FeedbackReheatingEpsilon 1, no ejection, FracZleaveDisk 0 and ThresholdMajorMerger 0.3; the run
+ * allocates through the caller's memory system.
+ *
+ * @param cfg          The scenario
+ * @param target_out   Receives the target's end state
+ * @param central_out  Receives the central's end state, may be NULL
+ * @return 0 on success; non-zero if an init or a process call failed
+ */
+static int run_minor_merger(const struct minor_merger *cfg, struct GalaxyData *target_out,
+                            struct GalaxyData *central_out) {
+  reset_config();
+  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
+  if (cfg->disk_instability || cfg->quasar) {
+    setup_post_merger_recheck_parameters(cfg->quasar);
+    if (cfg->agn_recipe != NULL) {
+      set_agn_recipe(cfg->agn_recipe);
+    }
+  }
+  if (cfg->disk_instability) {
+    test_phase_add("galaxy_physics", "sage26_disk_instability", PROCESSING_MODE_BY_GALAXY);
+  }
+  if (cfg->quasar_consumer) {
+    test_phase_add("satellite_mergers", "sage26_resolve_mergers_and_disruption",
+                   PROCESSING_MODE_FULL_HALO);
+  }
+  if (cfg->quasar) {
+    test_phase_add("satellite_mergers", "sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
+  }
+  if (cfg->quasar_consumer) {
+    test_phase_add("satellite_mergers", "sage26_starburst_feedback", PROCESSING_MODE_PER_EVENT);
+  }
+  MimicConfig.G = 43007.1;
+  int status = (cfg->quasar_consumer && sage26_quasar_mode_init() != 0) ||
+               sage26_starburst_feedback_init() != 0;
+
+  struct Halo central, target;
+  struct GalaxyData central_gal, target_gal;
+  setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, MINOR_CENTRAL_HOT,
+                    0.8);
+  setup_test_galaxy(&target, &target_gal, 1, 30.0, 140.0, MINOR_TARGET_COLD, 0.16,
+                    MINOR_TARGET_STELLAR, 1.0, MINOR_TARGET_HOT, 0.1);
+  target.Vmax = 120.0;
+  target_gal.DiskScaleRadius = 5.0;
+  target_gal.BlackHoleMass = MINOR_TARGET_BLACK_HOLE;
+  target_gal.FFBRegime = cfg->ffb_regime;
+
+  struct ModuleContext ctx;
+  setup_test_context(&ctx, &central);
+  ctx.num_substeps = cfg->num_substeps;
+  ctx.substep_number = cfg->substep_number;
+  struct ModuleEvent event = merger_event(cfg->ratio, cfg->event_dt);
+  ctx.active_event = &event;
+  if (status == 0 && cfg->quasar_consumer) {
+    status = sage26_quasar_mode_process(&ctx, &target, 1) != 0;
+  }
+  if (status == 0) {
+    status = sage26_starburst_feedback_process(&ctx, &target, 1) != 0;
+  }
+  *target_out = target_gal;
+  if (central_out != NULL) {
+    *central_out = central_gal;
+  }
+
+  sage26_starburst_feedback_cleanup();
+  if (cfg->quasar_consumer) {
+    sage26_quasar_mode_cleanup();
+  }
+  test_free_substep_phases();
+  return status;
+}
+
+// ============================================================================
+// BURST ARITHMETIC, RATES AND BULGE CHANNEL
 // ============================================================================
 
 /**
  * @test    test_disk_instability_starburst
- * @brief   Test starburst from disk instability trigger
+ * @brief   A disk-instability burst (mode 1: eburst is the unstable fraction itself) of a central
+ *          with ColdGas 10, Mvir 100, StellarMass 5, BulgeMass 1, HotGas 50 and MetalsHotGas 1,
+ *          at FeedbackReheatingEpsilon 3, FeedbackEjectionEfficiency 0.5, RecycleFraction 0.43,
+ *          Yield 0.03, FracZleaveDisk 0.5 and ThresholdMajorMerger 0.3
  *
- * Expected: Stars form, cold gas decreases, bulge increases
- * Validates: Disk instability trigger physics (mode=1, eburst = efficiency)
+ * Every expectation is worked by hand from SAGE26's recipe. With a trigger of 0.5, stars would be
+ * 5 and the reheated mass 15, more than the 10 of cold gas, so both scale by 10 / 20: stars 2.5,
+ * reheated 7.5. The cold gas, the stellar mass and the bulge lose or gain 0.57 * 2.5 = 1.425 (the
+ * recycled fraction stays in the cold gas), the reheated gas goes to the central's hot gas with
+ * the cold gas's metallicity, and a burst whose fraction is not below ThresholdMajorMerger sends
+ * all of its yield, 0.03 * stars of metals, to the hot gas. A SAGE26 energy product
+ * EtaSN * EnergySN of 251382.604 (in the test's units) makes the ejection
+ * (0.5 * 251382.6 / Vvir^2 - 3) * stars, negative and so floored to 0 at Vvir 300.
+ * Rows:
+ *   - Vvir 300, trigger 0.5: renormalised, no ejection
+ *   - Vvir 100, trigger 0.5: the ejection (0.5 * 251382.6 / 1e4 - 3) * 2.5 = 23.9228 leaves the
+ *     central's hot gas with its metallicity 1.15 / 57.5
+ *   - Vvir 300, trigger 0.2: below the threshold, stars 2 and reheated 6 need no renormalisation,
+ *     and the yield takes the minor branch: FracZleaveDisk * exp(-Mvir / 30) = 0.0178371 of it
+ *     escapes to the hot gas and the rest enriches the cold gas
+ *   - Vvir 300, trigger 0.3, Z = 0.05: the metals scale with the cold gas's metallicity
+ *
+ * Each row must also conserve mass and metals, grow the bulge by what the stellar mass gains,
+ * credit the instability channel only and leave the trigger untouched.
  */
 int test_disk_instability_starburst(void) {
-  /* ===== SETUP ===== */
+  const struct {
+    const char *name;
+    double vvir;
+    double metals_cold; /* input */
+    double trigger;
+    double cold, metals_cold_out, stellar, metals_stellar, bulge, metals_bulge, hot, metals_hot,
+        ejected, metals_ejected, outflow, sfr, instability_bulge; /* expected end state */
+  } rows[] = {
+      {"Vvir 300, renormalised, no ejection", 300.0, 0.2, 0.5, 1.075, 0.0215, 6.425, 0.1285, 2.425,
+       0.0485, 57.5, 1.225, 0.0, 0.0, 7.5, 25.0, 1.425},
+      {"Vvir 100, ejection", 100.0, 0.2, 0.5, 1.075, 0.0215, 6.425, 0.1285, 2.425, 0.0485,
+       33.57717446, 0.746543489, 23.92282554, 0.478456511, 7.5, 25.0, 1.425},
+      {"trigger 0.2, minor yield branch", 300.0, 0.2, 0.2, 2.86, 0.11612978, 6.14, 0.1228, 2.14,
+       0.0428, 56.0, 1.12107022, 0.0, 0.0, 6.0, 20.0, 1.14},
+      {"Z 0.05, trigger 0.3", 300.0, 0.5, 0.3, 1.075, 0.05375, 6.425, 0.32125, 2.425, 0.12125, 57.5,
+       1.45, 0.0, 0.0, 7.5, 25.0, 1.425},
+  };
+
   init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-
-  int result = sage26_starburst_feedback_init();
-  TEST_ASSERT(result == 0, "Module init should succeed");
-
-  /* Create central galaxy with cold gas */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double cold_gas = 10.0;
-  const double metals_cold = 0.2; /* Z = 0.02 */
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, cold_gas, metals_cold, 5.0, 1.0, 50.0, 1.0);
-
-  /* Set disk instability trigger */
-  gal.UnstableDiskGasFraction = 0.5; /* 50% efficiency */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_cold = gal.ColdGas;
-  const double initial_stellar = gal.StellarMass;
-  const double initial_bulge = gal.BulgeMass;
-
-  /* ===== EXECUTE ===== */
-  result = sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process function should succeed");
-
-  /* Cold gas should decrease */
-  TEST_ASSERT(gal.ColdGas < initial_cold, "Cold gas should decrease from starburst");
-
-  /* Stellar mass should increase */
-  TEST_ASSERT(gal.StellarMass > initial_stellar, "Stellar mass should increase from starburst");
-
-  /* Bulge mass should increase (starbursts form spheroids) */
-  TEST_ASSERT(gal.BulgeMass > initial_bulge, "Bulge mass should increase from starburst");
-
-  /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
-                           "Disk-instability trigger should remain unchanged");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_disk_instability_uses_full_interval_for_rates
- * @brief   SAGE parity: disk-instability burst rates normalize by the full
- *          snapshot interval (halo->dT), like the normal disk-SF channel, so the
- *          reported rate is the snapshot-mean and is INVARIANT to num_substeps.
- *          SAGE output averages per-substep SfrBulge[step] by STEPS, giving the
- *          same snapshot mean regardless of substep count.
- *
- * Expected: With identical physics and num_substeps changing from 1 to 2,
- * StarFormationRate and SupernovaOutflowRate are unchanged (ratio = 1.0). The
- * outflow is the undivided reheated mass (SAGE26's OutflowRate, normalised once per
- * halo by sage26_finalize_cooling_heating), so it involves no interval at all.
- */
-int test_disk_instability_uses_full_interval_for_rates(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo1;
-  struct GalaxyData gal1;
-  setup_test_galaxy(&halo1, &gal1, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  halo1.dT = 0.2f;
-  gal1.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx1;
-  setup_test_context(&ctx1, &halo1);
-  ctx1.num_substeps = 1;
-
-  int result = sage26_starburst_feedback_process(&ctx1, &halo1, 1);
-  TEST_ASSERT(result == 0, "First disk-instability processing should succeed");
-  const double sfr1 = gal1.StarFormationRate;
-  const double outflow1 = gal1.SupernovaOutflowRate;
-
-  struct Halo halo2;
-  struct GalaxyData gal2;
-  setup_test_galaxy(&halo2, &gal2, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  halo2.dT = 0.2f;
-  gal2.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx2;
-  setup_test_context(&ctx2, &halo2);
-  ctx2.num_substeps = 2; /* Same halo dT, half per-substep dt */
-
-  result = sage26_starburst_feedback_process(&ctx2, &halo2, 1);
-  TEST_ASSERT(result == 0, "Second disk-instability processing should succeed");
-  const double sfr2 = gal2.StarFormationRate;
-  const double outflow2 = gal2.SupernovaOutflowRate;
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(sfr1 > 0.0 && sfr2 > 0.0, "Both runs should produce positive star formation rate");
-  TEST_ASSERT(outflow1 > 0.0 && outflow2 > 0.0, "Both runs should produce positive outflow rate");
-  TEST_ASSERT_DOUBLE_EQUAL(sfr2 / sfr1, 1.0, 1e-4,
-                           "Disk-instability SFR uses full interval — invariant to num_substeps");
-  TEST_ASSERT_DOUBLE_EQUAL(
-      outflow2 / outflow1, 1.0, 1e-4,
-      "Disk-instability outflow is the undivided reheated mass — invariant to num_substeps");
-  TEST_ASSERT_DOUBLE_EQUAL(gal2.StellarMass, gal1.StellarMass, 1e-6,
-                           "Mass transfer should be timestep-invariant");
-  TEST_ASSERT_DOUBLE_EQUAL(gal2.ColdGas, gal1.ColdGas, 1e-6,
-                           "Cold-gas evolution should be timestep-invariant");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_merger_starburst
- * @brief   Test merger-only trigger is ignored in collisional_starburst
- *
- * Expected: No star formation change (merger channel handled in merge module)
- * Validates: Channel separation between galaxy_physics and satellite_mergers
- */
-int test_merger_starburst(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-
-  /* Set merger trigger */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_stellar = gal.StellarMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-10,
-                           "Stellar mass should be unchanged for merger-only trigger");
-
-  /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_both_triggers
- * @brief   Test disk trigger processed while merger trigger is ignored
- *
- * Expected: Disk-instability starburst occurs; merger trigger remains unchanged
- * Validates: Disk-only behavior in galaxy_physics module
- */
-int test_both_triggers(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-
-  /* Set both triggers */
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_stellar = gal.StellarMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(gal.StellarMass > initial_stellar,
-              "Stellar mass should increase from disk-instability starburst");
-
-  /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
-                           "Disk trigger should remain unchanged");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_per_event_merger_starburst
- * @brief   Test merger event triggers starburst in process_per_event path
- *
- * Expected: Stellar and bulge mass increase, cold gas decreases
- * Validates: process_per_event merger channel behavior
- */
-int test_per_event_merger_starburst(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                              .source_index = 1,
-                              .target_index = 0,
-                              .value0 = 0.3,
-                              .value1 = 0.1};
-  ctx.active_event = &event;
-
-  const double initial_stellar = gal.StellarMass;
-  const double initial_bulge = gal.BulgeMass;
-  const double initial_cold = gal.ColdGas;
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Per-event merger processing should succeed");
-  TEST_ASSERT(gal.StellarMass > initial_stellar, "Stellar mass should increase from merger event");
-  TEST_ASSERT(gal.BulgeMass > initial_bulge, "Bulge mass should increase from merger event");
-  TEST_ASSERT(gal.ColdGas < initial_cold, "Cold gas should decrease from merger event");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_per_event_merger_uses_fof_central_feedback_destination
- * @brief   Per-event merger channel deposits reheated/ejected gas to FOF central
- *
- * Expected: Event target forms stars, but feedback destination is ctx->central_galaxy
- * Validates: SAGE parity for merger_centralgal vs centralgal roles (the burst host
- *            and the FoF central of SAGE26's merger burst)
- */
-int test_per_event_merger_uses_fof_central_feedback_destination(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  /* Zero ejection to isolate reheating destination behavior. */
-  setup_test_parameters(3.0, 0.0, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo fof_central_halo;
-  struct GalaxyData fof_central_gal;
-  setup_test_galaxy(&fof_central_halo, &fof_central_gal, 0, 120.0, 260.0, 4.0, 0.08, 6.0, 1.5, 40.0,
-                    0.8);
-
-  struct Halo event_target_halo;
-  struct GalaxyData event_target_gal;
-  setup_test_galaxy(&event_target_halo, &event_target_gal, 1, 25.0, 180.0, 8.0, 0.16, 2.0, 0.5, 5.0,
-                    0.1);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &fof_central_halo);
-
-  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                              .source_index = 2,
-                              .target_index = 1,
-                              .value0 = 0.3,
-                              .value1 = 0.1};
-  ctx.active_event = &event;
-
-  const double initial_fof_hot = fof_central_halo.galaxy->HotGas;
-  const double initial_target_hot = event_target_halo.galaxy->HotGas;
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_starburst_feedback_process(&ctx, &event_target_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Per-event merger processing should succeed");
-  TEST_ASSERT(fof_central_halo.galaxy->HotGas > initial_fof_hot,
-              "Reheated gas should be deposited to FOF central hot gas");
-  TEST_ASSERT_DOUBLE_EQUAL(event_target_halo.galaxy->HotGas, initial_target_hot, 1e-8,
-                           "Event target hot gas should not receive reheated gas directly");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_per_event_merger_uses_target_full_interval_for_rates
- * @brief   SAGE parity: the per-event merger burst normalizes rates by the
- *          target galaxy's FULL snapshot interval (event_halo->dT), like the
- *          normal SF channel — NOT the per-substep event payload dt
- *          (event->value1). So the reported rate scales as 1/dT_target and is
- *          independent of event->value1. (SAGE output averages SfrBulge[step]
- *          by STEPS, giving the snapshot mean total_burst_stars/dT.) The outflow is
- *          SAGE26's undivided OutflowRate += reheated mass (shared feedback commit),
- *          normalised once per halo
- *          by sage26_finalize_cooling_heating, so it depends on neither interval.
- *
- * Expected: SFR ratio follows the inverse of the target full interval; the outflows
- *           are equal.
- */
-int test_per_event_merger_uses_target_full_interval_for_rates(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo central1;
-  struct GalaxyData central_gal1;
-  setup_test_galaxy(&central1, &central_gal1, 0, 120.0, 260.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
-  central1.dT = 0.05f;
-
-  struct Halo target1;
-  struct GalaxyData target_gal1;
-  setup_test_galaxy(&target1, &target_gal1, 1, 25.0, 180.0, 8.0, 0.16, 2.0, 0.5, 5.0, 0.1);
-  target1.dT = 0.9f;
-
-  struct ModuleContext ctx1;
-  setup_test_context(&ctx1, &central1);
-  struct ModuleEvent event1 = {.producer_module_id =
-                                   MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                               .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                               .source_index = 2,
-                               .target_index = 1,
-                               .value0 = 0.3,
-                               .value1 = 0.1};
-  ctx1.active_event = &event1;
-
-  int result = sage26_starburst_feedback_process(&ctx1, &target1, 1);
-  TEST_ASSERT(result == 0, "First per-event merger processing should succeed");
-  const double sfr1 = target1.galaxy->StarFormationRate;
-  const double outflow1 = target1.galaxy->SupernovaOutflowRate;
-
-  struct Halo central2;
-  struct GalaxyData central_gal2;
-  setup_test_galaxy(&central2, &central_gal2, 0, 120.0, 260.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
-  central2.dT = 0.8f;
-
-  struct Halo target2;
-  struct GalaxyData target_gal2;
-  setup_test_galaxy(&target2, &target_gal2, 1, 25.0, 180.0, 8.0, 0.16, 2.0, 0.5, 5.0, 0.1);
-  target2.dT = 0.2f;
-
-  struct ModuleContext ctx2;
-  setup_test_context(&ctx2, &central2);
-  struct ModuleEvent event2 = {.producer_module_id =
-                                   MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                               .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                               .source_index = 2,
-                               .target_index = 1,
-                               .value0 = 0.3,
-                               .value1 = 0.2};
-  ctx2.active_event = &event2;
-
-  result = sage26_starburst_feedback_process(&ctx2, &target2, 1);
-  TEST_ASSERT(result == 0, "Second per-event merger processing should succeed");
-  const double sfr2 = target2.galaxy->StarFormationRate;
-  const double outflow2 = target2.galaxy->SupernovaOutflowRate;
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(sfr1 > 0.0 && sfr2 > 0.0, "Both runs should produce positive star formation rate");
-  TEST_ASSERT(outflow1 > 0.0 && outflow2 > 0.0, "Both runs should produce positive outflow rate");
-  /* Rate scales as 1/dT_target (uses event_halo->dT), independent of the
-   * event payload dt. target1.dT=0.9, target2.dT=0.2 -> sfr1/sfr2 = 0.2/0.9. */
-  const double expected_ratio = (double)target2.dT / (double)target1.dT;
-  TEST_ASSERT_DOUBLE_EQUAL(sfr1 / sfr2, expected_ratio, 1e-4,
-                           "Merger-burst SFR scales with inverse target full interval (halo->dT)");
-  TEST_ASSERT(outflow1 == outflow2,
-              "Merger-burst outflow is the undivided reheated mass, independent of any interval");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_per_event_minor_merger_rechecks_disk_instability
- * @brief   Minor merger event applies same-step disk-instability follow-up
- *
- * SAGE parity (check_disk_instability): the follow-up
- * (a) transfers unstable disk stars to the bulge (BulgeMass grows; this is a
- * disk->bulge redistribution that does NOT change total StellarMass), and
- * (b) for the unstable gas, calls grow_black_hole — which itself drives a
- * quasar_mode_wind (grow_black_hole -> quasar_mode_wind) —
- * and then collisional_starburst. Because the quasar wind
- * can eject the cold gas before that burst, additional NEW stars are not
- * guaranteed; the robust observables of the recheck are bulge growth, BH growth,
- * and cold-gas consumption/ejection.
- */
-int test_per_event_minor_merger_rechecks_disk_instability(void) {
-  init_memory_system(0);
-
-  reset_config();
-  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
-  setup_runtime_phase_config(0, 0);
-  MimicConfig.G = 43007.1;
-  int result = sage26_starburst_feedback_init();
-  TEST_ASSERT(result == 0, "Baseline init should succeed");
-
-  struct Halo base_central;
-  struct GalaxyData base_central_gal;
-  setup_test_galaxy(&base_central, &base_central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0,
-                    0.8);
-
-  struct Halo base_target;
-  struct GalaxyData base_target_gal;
-  setup_test_galaxy(&base_target, &base_target_gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
-  base_target.Vmax = 120.0;
-  base_target.galaxy->DiskScaleRadius = 5.0;
-  base_target.galaxy->BlackHoleMass = 0.05;
-
-  struct ModuleContext base_ctx;
-  setup_test_context(&base_ctx, &base_central);
-  struct ModuleEvent base_event = {.producer_module_id =
-                                       MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                                   .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                                   .source_index = 2,
-                                   .target_index = 1,
-                                   .value0 = 0.2,
-                                   .value1 = 0.1};
-  base_ctx.active_event = &base_event;
-
-  result = sage26_starburst_feedback_process(&base_ctx, &base_target, 1);
-  TEST_ASSERT(result == 0, "Baseline per-event merger processing should succeed");
-
-  const double baseline_bulge = base_target.galaxy->BulgeMass;
-  const double baseline_stellar = base_target.galaxy->StellarMass;
-  const double baseline_cold_gas = base_target.galaxy->ColdGas;
-  const double baseline_bh = base_target.galaxy->BlackHoleMass;
-  const double baseline_bh_accretion = base_target.galaxy->QuasarModeBHaccretionMass;
-
-  sage26_starburst_feedback_cleanup();
-  teardown_runtime_phase_config();
-
-  reset_config();
-  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
-  setup_post_merger_recheck_parameters(1);
-  setup_runtime_phase_config(1, 1);
-  MimicConfig.G = 43007.1;
-  result = sage26_starburst_feedback_init();
-  TEST_ASSERT(result == 0, "Follow-up init should succeed");
-
-  struct Halo follow_central;
-  struct GalaxyData follow_central_gal;
-  setup_test_galaxy(&follow_central, &follow_central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5,
-                    40.0, 0.8);
-
-  struct Halo follow_target;
-  struct GalaxyData follow_target_gal;
-  setup_test_galaxy(&follow_target, &follow_target_gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0,
-                    0.1);
-  follow_target.Vmax = 120.0;
-  follow_target.galaxy->DiskScaleRadius = 5.0;
-  follow_target.galaxy->BlackHoleMass = 0.05;
-
-  struct ModuleContext follow_ctx;
-  setup_test_context(&follow_ctx, &follow_central);
-  struct ModuleEvent follow_event = {.producer_module_id =
-                                         MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                                     .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                                     .source_index = 2,
-                                     .target_index = 1,
-                                     .value0 = 0.2,
-                                     .value1 = 0.1};
-  follow_ctx.active_event = &follow_event;
-
-  /* Capture combined baryon total across target + central before the call.
-   * Conservation: ColdGas + StellarMass + HotGas + EjectedGas + BlackHoleMass
-   * must hold across both galaxies (feedback reheating moves cold→hot→ejected
-   * within this closed system; BH growth moves ColdGas→BlackHoleMass). */
-  const double pre_target_total = follow_target.galaxy->ColdGas +
-                                  follow_target.galaxy->StellarMass + follow_target.galaxy->HotGas +
-                                  follow_target.galaxy->EjectedGas +
-                                  follow_target.galaxy->BlackHoleMass;
-  const double pre_central_total =
-      follow_central.galaxy->HotGas + follow_central.galaxy->EjectedGas;
-  const double pre_combined = pre_target_total + pre_central_total;
-
-  result = sage26_starburst_feedback_process(&follow_ctx, &follow_target, 1);
-  TEST_ASSERT(result == 0, "Follow-up per-event merger processing should succeed");
-
-  const double post_target_total = follow_target.galaxy->ColdGas +
-                                   follow_target.galaxy->StellarMass +
-                                   follow_target.galaxy->HotGas + follow_target.galaxy->EjectedGas +
-                                   follow_target.galaxy->BlackHoleMass;
-  const double post_central_total =
-      follow_central.galaxy->HotGas + follow_central.galaxy->EjectedGas;
-  TEST_ASSERT_DOUBLE_EQUAL(
-      post_target_total + post_central_total, pre_combined, 1e-4,
-      "Total baryons (target+central) must be conserved across post-merger follow-up");
-
-  TEST_ASSERT(follow_target.galaxy->BulgeMass > baseline_bulge,
-              "Disk-instability follow-up should add extra bulge growth (disk->bulge transfer)");
-  /* SAGE parity: total StellarMass need not increase — the quasar wind from the
-   * disk-instability BH growth can eject the cold gas before the burst, so no
-   * new stars form. It must not DECREASE. */
-  TEST_ASSERT(follow_target.galaxy->StellarMass >= baseline_stellar,
-              "Disk-instability follow-up must not reduce stellar mass");
-  TEST_ASSERT(follow_target.galaxy->ColdGas < baseline_cold_gas,
-              "Disk-instability follow-up should consume/eject more cold gas");
-  TEST_ASSERT(
-      follow_target.galaxy->BlackHoleMass > baseline_bh,
-      "Disk-instability follow-up should grow the black hole when quasar consumer is enabled");
-  TEST_ASSERT(follow_target.galaxy->QuasarModeBHaccretionMass > baseline_bh_accretion,
-              "Disk-instability follow-up should record extra BH accretion");
-
-  sage26_starburst_feedback_cleanup();
-  teardown_runtime_phase_config();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_per_event_recheck_respects_phase2_quasar_configuration
- * @brief   Post-merger recheck skips BH growth if quasar event consumer is absent
- *
- * Expected: The disk-instability starburst still runs, but BH growth is gated
- * by whether sage26_quasar_mode is configured for satellite_mergers process_per_event.
- */
-int test_per_event_recheck_respects_phase2_quasar_configuration(void) {
-  init_memory_system(0);
-
-  reset_config();
-  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
-  setup_post_merger_recheck_parameters(0);
-  setup_runtime_phase_config(1, 0);
-  MimicConfig.G = 43007.1;
-  int result = sage26_starburst_feedback_init();
-  TEST_ASSERT(result == 0, "Init without satellite_mergers quasar should succeed");
-
-  struct Halo no_quasar_central;
-  struct GalaxyData no_quasar_central_gal;
-  setup_test_galaxy(&no_quasar_central, &no_quasar_central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0,
-                    1.5, 40.0, 0.8);
-
-  struct Halo no_quasar_target;
-  struct GalaxyData no_quasar_target_gal;
-  setup_test_galaxy(&no_quasar_target, &no_quasar_target_gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0,
-                    5.0, 0.1);
-  no_quasar_target.Vmax = 120.0;
-  no_quasar_target.galaxy->DiskScaleRadius = 5.0;
-  no_quasar_target.galaxy->BlackHoleMass = 0.05;
-
-  struct ModuleContext no_quasar_ctx;
-  setup_test_context(&no_quasar_ctx, &no_quasar_central);
-  struct ModuleEvent no_quasar_event = {
-      .producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-      .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-      .source_index = 2,
-      .target_index = 1,
-      .value0 = 0.2,
-      .value1 = 0.1};
-  no_quasar_ctx.active_event = &no_quasar_event;
-
-  result = sage26_starburst_feedback_process(&no_quasar_ctx, &no_quasar_target, 1);
-  TEST_ASSERT(result == 0, "No-quasar follow-up should succeed");
-
-  const double no_quasar_bh = no_quasar_target.galaxy->BlackHoleMass;
-  const double no_quasar_bh_accretion = no_quasar_target.galaxy->QuasarModeBHaccretionMass;
-  TEST_ASSERT_DOUBLE_EQUAL(
-      no_quasar_bh, 0.05, 1e-6,
-      "BH mass should remain unchanged when the satellite_mergers quasar consumer is disabled");
-  TEST_ASSERT_DOUBLE_EQUAL(
-      no_quasar_bh_accretion, 0.0, 1e-6,
-      "BH accretion should remain zero without the satellite_mergers quasar consumer");
-
-  sage26_starburst_feedback_cleanup();
-  teardown_runtime_phase_config();
-
-  reset_config();
-  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
-  setup_post_merger_recheck_parameters(1);
-  setup_runtime_phase_config(1, 1);
-  MimicConfig.G = 43007.1;
-  result = sage26_starburst_feedback_init();
-  TEST_ASSERT(result == 0, "Init with satellite_mergers quasar should succeed");
-
-  struct Halo with_quasar_central;
-  struct GalaxyData with_quasar_central_gal;
-  setup_test_galaxy(&with_quasar_central, &with_quasar_central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0,
-                    1.5, 40.0, 0.8);
-
-  struct Halo with_quasar_target;
-  struct GalaxyData with_quasar_target_gal;
-  setup_test_galaxy(&with_quasar_target, &with_quasar_target_gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0,
-                    1.0, 5.0, 0.1);
-  with_quasar_target.Vmax = 120.0;
-  with_quasar_target.galaxy->DiskScaleRadius = 5.0;
-  with_quasar_target.galaxy->BlackHoleMass = 0.05;
-
-  struct ModuleContext with_quasar_ctx;
-  setup_test_context(&with_quasar_ctx, &with_quasar_central);
-  struct ModuleEvent with_quasar_event = {
-      .producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-      .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-      .source_index = 2,
-      .target_index = 1,
-      .value0 = 0.2,
-      .value1 = 0.1};
-  with_quasar_ctx.active_event = &with_quasar_event;
-
-  result = sage26_starburst_feedback_process(&with_quasar_ctx, &with_quasar_target, 1);
-  TEST_ASSERT(result == 0, "Quasar-enabled follow-up should succeed");
-  TEST_ASSERT(
-      with_quasar_target.galaxy->BlackHoleMass > no_quasar_bh,
-      "BH growth should only occur when the satellite_mergers quasar consumer is configured");
-  TEST_ASSERT(with_quasar_target.galaxy->QuasarModeBHaccretionMass > no_quasar_bh_accretion,
-              "BH accretion tracking should only increase with the quasar event consumer");
-
-  sage26_starburst_feedback_cleanup();
-  teardown_runtime_phase_config();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @brief Run the post-minor-merger recheck with the quasar event consumer configured at
- *        AGNrecipe `agn_recipe`, returning the target's end state (init status in *status)
- */
-static void run_recheck_with_quasar(const char *agn_recipe, struct GalaxyData *target_out,
-                                    int *status) {
-  reset_config();
-  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
-  setup_post_merger_recheck_parameters(1);
-  set_agn_recipe(agn_recipe);
-  setup_runtime_phase_config(1, 1);
-  MimicConfig.G = 43007.1;
-  *status = sage26_starburst_feedback_init();
-
-  struct Halo central;
-  struct GalaxyData central_gal;
-  setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
-  struct Halo target;
-  struct GalaxyData target_gal;
-  setup_test_galaxy(&target, &target_gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
-  target.Vmax = 120.0;
-  target.galaxy->DiskScaleRadius = 5.0;
-  target.galaxy->BlackHoleMass = 0.05;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &central);
-  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                              .source_index = 2,
-                              .target_index = 1,
-                              .value0 = 0.2,
-                              .value1 = 0.1};
-  ctx.active_event = &event;
-  if (*status == 0) {
-    *status = sage26_starburst_feedback_process(&ctx, &target, 1);
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const char *name = rows[k].name;
+    reset_config();
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    ROW_ASSERT(sage26_starburst_feedback_init() == 0, name, "Module init should succeed");
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, rows[k].vvir, 10.0, rows[k].metals_cold, 5.0, 1.0,
+                      50.0, 1.0);
+    gal.UnstableDiskGasFraction = rows[k].trigger;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &halo);
+
+    const double mass_before = gal.ColdGas + gal.StellarMass + gal.HotGas + gal.EjectedGas;
+    const double metals_before = gal.MetalsColdGas + gal.MetalsStellarMass + gal.MetalsHotGas;
+    const double stellar_before = gal.StellarMass;
+    const double bulge_before = gal.BulgeMass;
+
+    ROW_ASSERT(sage26_starburst_feedback_process(&ctx, &halo, 1) == 0, name,
+               "Process function should succeed");
+
+    ROW_ASSERT(close_to(gal.ColdGas, rows[k].cold), name, "ColdGas");
+    ROW_ASSERT(close_to(gal.MetalsColdGas, rows[k].metals_cold_out), name, "MetalsColdGas");
+    ROW_ASSERT(close_to(gal.StellarMass, rows[k].stellar), name, "StellarMass");
+    ROW_ASSERT(close_to(gal.MetalsStellarMass, rows[k].metals_stellar), name, "MetalsStellarMass");
+    ROW_ASSERT(close_to(gal.BulgeMass, rows[k].bulge), name, "BulgeMass");
+    ROW_ASSERT(close_to(gal.MetalsBulgeMass, rows[k].metals_bulge), name, "MetalsBulgeMass");
+    ROW_ASSERT(close_to(gal.HotGas, rows[k].hot), name, "HotGas");
+    ROW_ASSERT(close_to(gal.MetalsHotGas, rows[k].metals_hot), name, "MetalsHotGas");
+    ROW_ASSERT(close_to(gal.EjectedGas, rows[k].ejected), name, "EjectedGas");
+    ROW_ASSERT(close_to(gal.MetalsEjectedGas, rows[k].metals_ejected), name, "MetalsEjectedGas");
+    ROW_ASSERT(close_to(gal.SupernovaOutflowRate, rows[k].outflow), name,
+               "SupernovaOutflowRate is the undivided reheated mass");
+    ROW_ASSERT(close_to(gal.StarFormationRate, rows[k].sfr), name,
+               "StarFormationRate is stars / dT");
+    ROW_ASSERT(close_to(gal.InstabilityBulgeMass, rows[k].instability_bulge), name,
+               "InstabilityBulgeMass");
+    ROW_ASSERT(gal.MergerBulgeMass == 0.0f, name,
+               "A disk-instability burst credits no merger bulge");
+
+    /* Conservation, independently of the expected end state */
+    ROW_ASSERT(close_to(gal.ColdGas + gal.StellarMass + gal.HotGas + gal.EjectedGas, mass_before),
+               name, "Total mass should be conserved");
+    ROW_ASSERT(close_to(gal.MetalsColdGas + gal.MetalsStellarMass + gal.MetalsHotGas +
+                            gal.MetalsEjectedGas,
+                        metals_before + 0.03 * (gal.StellarMass - stellar_before) / 0.57),
+               name, "Metals should be conserved apart from the yield of the stars formed");
+    ROW_ASSERT(fabs((gal.BulgeMass - bulge_before) - (gal.StellarMass - stellar_before)) <= 1e-6,
+               name, "Bulge growth should equal stellar mass growth");
+
+    /* Trigger lifecycle is owned by the instability modules, not the burst */
+    ROW_ASSERT(gal.UnstableDiskGasFraction == rows[k].trigger, name,
+               "Disk-instability trigger should remain unchanged");
+
+    sage26_starburst_feedback_cleanup();
   }
-  *target_out = target_gal;
-
-  sage26_starburst_feedback_cleanup();
-  teardown_runtime_phase_config();
-}
-
-/**
- * @test    test_per_event_recheck_agn_recipe_off
- * @brief   AGNrecipe 0: the post-minor-merger recheck grows no black hole, as SAGE26's
- *          AGNrecipeOn 0 skips grow_black_hole in check_disk_instability
- *
- * Expected: with sage26_disk_instability and the quasar event consumer configured, the same minor
- * merger leaves BlackHoleMass at 0.05 and QuasarModeBHaccretionMass at 0 with AGNrecipe 0, while
- * the recheck's burst still forms stars; with AGNrecipe 2 the black hole grows.
- */
-int test_per_event_recheck_agn_recipe_off(void) {
-  init_memory_system(0);
-  int status = -1;
-
-  struct GalaxyData off;
-  run_recheck_with_quasar("0", &off, &status);
-  TEST_ASSERT(status == 0, "init and process with AGNrecipe 0 succeed");
-  TEST_ASSERT_DOUBLE_EQUAL(off.BlackHoleMass, 0.05, 1e-6,
-                           "AGNrecipe 0: the recheck grows no black hole");
-  TEST_ASSERT_DOUBLE_EQUAL(off.QuasarModeBHaccretionMass, 0.0, 1e-6,
-                           "AGNrecipe 0: the recheck records no accretion");
-  TEST_ASSERT(off.StellarMass > 5.0f, "AGNrecipe 0: the merger's and recheck's bursts form stars");
-
-  struct GalaxyData on;
-  run_recheck_with_quasar("2", &on, &status);
-  TEST_ASSERT(status == 0, "init and process with AGNrecipe 2 succeed");
-  TEST_ASSERT(on.BlackHoleMass > off.BlackHoleMass,
-              "AGNrecipe 2: the recheck grows the black hole");
-  TEST_ASSERT(on.QuasarModeBHaccretionMass > 0.0f, "AGNrecipe 2: the recheck records accretion");
-
   check_memory_leaks();
   return TEST_PASS;
 }
 
 /**
- * @test    test_agn_recipe_refused
- * @brief   With the recheck and the quasar event consumer configured, the module loads AGNrecipe
- *          through the package's validator (shared/sage_agn_recipe.h), which refuses 1
+ * @brief One burst of the given channel, returning the host's end state
+ *
+ * The instability channel bursts a central whose UnstableDiskGasFraction is 0.5 over a halo
+ * interval `host_dt` of `num_substeps` substeps. The merger channel bursts a satellite target
+ * (halo interval `host_dt`) onto its central (halo interval `central_dt`) with an event of ratio
+ * 0.3 and substep dt `event_dt`.
  */
-int test_agn_recipe_refused(void) {
-  init_memory_system(0);
+static void run_rate_burst(const int merger, const double host_dt, const int num_substeps,
+                           const double event_dt, const double central_dt,
+                           struct GalaxyData *host_out) {
   reset_config();
-  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
-  setup_post_merger_recheck_parameters(1);
-  set_agn_recipe("1");
-  setup_runtime_phase_config(1, 1);
-  MimicConfig.G = 43007.1;
-  static char log[8192];
-  FILE *capture = tmpfile();
-  FILE *old_out = set_log_output(capture);
-  const int status = sage26_starburst_feedback_init();
-  set_log_output(old_out);
-  rewind(capture);
-  const size_t n = fread(log, 1, sizeof(log) - 1, capture);
-  log[n] = '\0';
-  fclose(capture);
-  TEST_ASSERT(status != 0, "init must refuse AGNrecipe 1");
-  TEST_ASSERT(strstr(log, "AGNrecipe") != NULL, "the refusal must name AGNrecipe");
+  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+  sage26_starburst_feedback_init();
+  struct Halo central, host;
+  struct GalaxyData central_gal, host_gal;
+  struct ModuleContext ctx;
+  struct ModuleEvent event = merger_event(0.3, event_dt);
+  if (merger) {
+    setup_test_galaxy(&central, &central_gal, 0, 120.0, 260.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+    central.dT = central_dt;
+    setup_test_galaxy(&host, &host_gal, 1, 25.0, 180.0, 8.0, 0.16, 2.0, 0.5, 5.0, 0.1);
+    setup_test_context(&ctx, &central);
+    ctx.active_event = &event;
+  } else {
+    setup_test_galaxy(&host, &host_gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+    host_gal.UnstableDiskGasFraction = 0.5;
+    setup_test_context(&ctx, &host);
+  }
+  host.dT = host_dt;
+  ctx.num_substeps = num_substeps;
+  sage26_starburst_feedback_process(&ctx, &host, 1);
+  *host_out = host_gal;
   sage26_starburst_feedback_cleanup();
-  teardown_runtime_phase_config();
+}
+
+/**
+ * @test    test_burst_rates_use_full_interval
+ * @brief   SAGE parity: both channels' bursts normalise StarFormationRate by the host's FULL
+ *          snapshot interval (halo->dT), like the normal disk star-formation channel, so the
+ *          reported rate is the snapshot mean: stars / dT, invariant to the substep count and
+ *          independent of the merger event's substep dt (value1)
+ *
+ * The outflow is SAGE26's undivided OutflowRate += reheated mass (normalised once per halo by
+ * sage26_finalize_cooling_heating), so it involves no interval at all: it is bit-identical
+ * between two runs that differ only in their intervals.
+ *
+ * Rows: the instability burst (stars 2.5, reheated 7.5 after the renormalisation) at dT 0.2 with
+ * one substep and with two; the merger burst of ratio 0.3 on a target with ColdGas 8 (stars
+ * 0.56 * 0.3^0.7 * 8, reheated 3 * stars, no renormalisation) with target dT 0.9, event dt 0.1
+ * against target dT 0.2, event dt 0.2 (and different central intervals).
+ */
+int test_burst_rates_use_full_interval(void) {
+  const double merger_stars = 0.56 * pow(0.3, 0.7) * 8.0;
+  const struct {
+    const char *name;
+    int merger;
+    double stars, reheated;
+    /* the two runs: host dT, substeps, event dt, central dT */
+    double dt_a, event_dt_a, central_dt_a, dt_b, event_dt_b, central_dt_b;
+    int substeps_a, substeps_b;
+  } rows[] = {
+      {"instability burst, 1 substep against 2", 0, 2.5, 7.5, 0.2, 0.0, 0.0, 0.2, 0.0, 0.0, 1, 2},
+      {"merger burst, target dT 0.9 against 0.2", 1, merger_stars, 3.0 * merger_stars, 0.9, 0.1,
+       0.05, 0.2, 0.2, 0.8, 1, 1},
+  };
+
+  init_memory_system(0);
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const char *name = rows[k].name;
+    struct GalaxyData a, b;
+    run_rate_burst(rows[k].merger, rows[k].dt_a, rows[k].substeps_a, rows[k].event_dt_a,
+                   rows[k].central_dt_a, &a);
+    run_rate_burst(rows[k].merger, rows[k].dt_b, rows[k].substeps_b, rows[k].event_dt_b,
+                   rows[k].central_dt_b, &b);
+
+    ROW_ASSERT(close_to(a.StarFormationRate, rows[k].stars / rows[k].dt_a), name,
+               "StarFormationRate is stars / the full interval (first run)");
+    ROW_ASSERT(close_to(b.StarFormationRate, rows[k].stars / rows[k].dt_b), name,
+               "StarFormationRate is stars / the full interval (second run)");
+    ROW_ASSERT(close_to(a.SupernovaOutflowRate, rows[k].reheated), name,
+               "The outflow is the reheated mass");
+    ROW_ASSERT(a.SupernovaOutflowRate == b.SupernovaOutflowRate, name,
+               "The outflow is the undivided reheated mass, independent of any interval");
+    ROW_ASSERT(a.StellarMass == b.StellarMass && a.ColdGas == b.ColdGas, name,
+               "The masses are independent of the intervals");
+  }
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_merger_burst_bulge_channel
+ * @brief   SAGE parity: the merger burst credits the locked stars to MergerBulgeMass for a major
+ *          merger (ratio above ThresholdMajorMerger) or a spheroid-dominated target, and to
+ *          InstabilityBulgeMass for a minor merger onto a disk-dominated target, the morphology
+ *          the resolver carried with the event in MergerDiskDominated
+ *
+ * One credited channel gets (1 - RecycleFraction) of the burst's stars, 0.57 * 0.56 * ratio^0.7 *
+ * ColdGas 10 (no renormalisation at FeedbackReheatingEpsilon 1); the other stays exactly 0. A
+ * ratio equal to the threshold is not major.
+ */
+int test_merger_burst_bulge_channel(void) {
+  const struct {
+    const char *name;
+    double ratio;
+    int disk_dominated;
+    int merger_channel;
+  } rows[] = {
+      {"major merger, disk-dominated target", 0.5, 1, 1},
+      {"major merger, spheroid-dominated target", 0.5, 0, 1},
+      {"minor merger, disk-dominated target", 0.2, 1, 0},
+      {"minor merger, spheroid-dominated target", 0.2, 0, 1},
+      {"ratio at the threshold, disk-dominated target", 0.3, 1, 0},
+  };
+
+  init_memory_system(0);
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const char *name = rows[k].name;
+    reset_config();
+    setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.5, 0.3);
+    sage26_starburst_feedback_init();
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+    gal.MergerDiskDominated = rows[k].disk_dominated;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &halo);
+    struct ModuleEvent event = merger_event(rows[k].ratio, 0.1);
+    ctx.active_event = &event;
+
+    ROW_ASSERT(sage26_starburst_feedback_process(&ctx, &halo, 1) == 0, name,
+               "The merger burst should succeed");
+    const double locked = (1.0 - 0.43) * 0.56 * pow(rows[k].ratio, 0.7) * 10.0;
+    const float credited = rows[k].merger_channel ? gal.MergerBulgeMass : gal.InstabilityBulgeMass;
+    const float other = rows[k].merger_channel ? gal.InstabilityBulgeMass : gal.MergerBulgeMass;
+    ROW_ASSERT(close_to(credited, locked), name, "The selected channel gets the locked stars");
+    ROW_ASSERT(other == 0.0f, name, "The other channel gets nothing");
+    ROW_ASSERT(close_to(gal.BulgeMass, 1.0 + locked), name, "BulgeMass gets the locked stars");
+    sage26_starburst_feedback_cleanup();
+  }
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+// ============================================================================
+// THE POST-MINOR-MERGER RECHECK
+// ============================================================================
+
+/**
+ * @test    test_per_event_recheck_black_hole_gating
+ * @brief   The post-minor-merger disk-instability recheck grows the black hole only when the
+ *          quasar event consumer is configured, AGNrecipe is 2 (SAGE26's AGNrecipeOn 0 skips
+ *          grow_black_hole in check_disk_instability) and the merger is minor (a ratio strictly
+ *          below ThresholdMajorMerger: a major merger, and a ratio equal to the threshold, run no
+ *          recheck)
+ *
+ * The scenario is a minor-merger target of black hole 0.05 with sage26_disk_instability
+ * configured; the merger burst forms stars in every row, grown black hole or not.
+ */
+int test_per_event_recheck_black_hole_gating(void) {
+  const struct {
+    const char *name;
+    int quasar;
+    const char *agn_recipe;
+    double ratio;
+    int grows;
+  } rows[] = {
+      {"no quasar event consumer", 0, "2", 0.2, 0},
+      {"quasar consumer, AGNrecipe 0", 1, "0", 0.2, 0},
+      {"quasar consumer, AGNrecipe 2", 1, "2", 0.2, 1},
+      {"major merger runs no recheck", 1, "2", 0.5, 0},
+      {"ratio at the threshold runs no recheck", 1, "2", 0.3, 0},
+  };
+
+  init_memory_system(0);
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const char *name = rows[k].name;
+    struct minor_merger cfg = MINOR_MERGER_DEFAULT;
+    cfg.disk_instability = 1;
+    cfg.quasar = rows[k].quasar;
+    cfg.agn_recipe = rows[k].agn_recipe;
+    cfg.ratio = rows[k].ratio;
+    struct GalaxyData target;
+    ROW_ASSERT(run_minor_merger(&cfg, &target, NULL) == 0, name, "init and process succeed");
+    ROW_ASSERT(target.StellarMass > (float)MINOR_TARGET_STELLAR, name,
+               "The merger burst forms stars");
+    if (rows[k].grows) {
+      ROW_ASSERT(target.BlackHoleMass > (float)MINOR_TARGET_BLACK_HOLE, name,
+                 "The recheck grows the black hole");
+      ROW_ASSERT(target.QuasarModeBHaccretionMass > 0.0f, name, "The recheck records accretion");
+    } else {
+      ROW_ASSERT(fabs(target.BlackHoleMass - MINOR_TARGET_BLACK_HOLE) <= 1e-6, name,
+                 "The black hole is unchanged");
+      ROW_ASSERT(target.QuasarModeBHaccretionMass == 0.0f, name, "No accretion is recorded");
+    }
+  }
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -1168,624 +870,157 @@ int test_per_event_zero_ratio_bursts(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_disk_instability_invalid_nonboundary_dt_errors
- * @brief   Invalid non-boundary dT must fail fast in disk-instability path
- *
- * Expected: SnapNum >= 0 with dT <= 0 returns error.
- */
-int test_disk_instability_invalid_nonboundary_dt_errors(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  halo.SnapNum = 63;
-  halo.dT = -1.0f;
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-  ctx.num_substeps = 1;
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == -1, "Non-boundary dT <= 0 must fail with error");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
+// ============================================================================
+// GUARDS ON BAD STATE
+// ============================================================================
 
 /**
- * @test    test_disk_instability_boundary_sentinel_dt_noop
- * @brief   Boundary sentinel dT is a no-op for first-snapshot objects
+ * @test    test_process_guards
+ * @brief   process() on bad state returns the right status and writes nothing: an ngal other than 1
+ *          (-1), a NULL host or FoF-central galaxy (a silent 0), a merger event whose substep dt
+ *          (value1) is not positive (-1), a substep outside the history's bins (-1), an invalid
+ *          non-boundary dT (-1) and the boundary sentinel dT (a 0 no-op)
  *
- * Expected: SnapNum < 0 with dT <= 0 returns success with no property changes.
+ * Every row runs a satellite host with ColdGas 10 and a trigger of 0.5 (or a merger event of ratio
+ * 0.3) beside its central; each error row must log its own message, which tells the guards that
+ * return the same status apart, and the galaxies it was handed must come back bit for bit
+ * unchanged.
  */
-int test_disk_instability_boundary_sentinel_dt_noop(void) {
-  /* ===== SETUP ===== */
+int test_process_guards(void) {
+  const struct {
+    const char *name;
+    int event;           /* process_per_event (a merger event is active), else process_by_galaxy */
+    int ngal;            /* the ngal argument */
+    int null_host;       /* the host has no galaxy */
+    int null_central;    /* the FoF central has no galaxy */
+    int snapnum;         /* the host's stored SnapNum */
+    double dt;           /* the host's dT */
+    double event_dt;     /* the event's substep dt (value1) */
+    int substep_number;  /* the context's substep, of one */
+    int expected;        /* process()'s status */
+    const char *message; /* the error the guard logs, NULL for a silent return */
+  } rows[] = {
+      {"by-galaxy: ngal 2", 0, 2, 0, 0, 63, 0.1, 0.0, 0, -1, "expects ngal=1"},
+      {"by-galaxy: NULL host galaxy", 0, 1, 1, 0, 63, 0.1, 0.0, 0, 0, NULL},
+      {"by-galaxy: NULL central galaxy", 0, 1, 0, 1, 63, 0.1, 0.0, 0, 0, NULL},
+      {"by-galaxy: invalid non-boundary dT", 0, 1, 0, 0, 63, -1.0, 0.0, 0, -1,
+       "Invalid disk-instability dt"},
+      {"by-galaxy: boundary sentinel dT", 0, 1, 0, 0, -1, -1.0, 0.0, 0, 0, NULL},
+      {"by-galaxy: substep outside the history", 0, 1, 0, 0, 63, 0.1, 0.0, 1, -1,
+       "Invalid disk-instability SFR history bin"},
+      {"event: ngal 2", 1, 2, 0, 0, 63, 0.1, 0.1, 0, -1, "(process_per_event) expects ngal=1"},
+      {"event: NULL host galaxy", 1, 1, 1, 0, 63, 0.1, 0.1, 0, 0, NULL},
+      {"event: NULL central galaxy", 1, 1, 0, 1, 63, 0.1, 0.1, 0, 0, NULL},
+      {"event: zero substep dt", 1, 1, 0, 0, 63, 0.1, 0.0, 0, -1, "missing valid source dt"},
+      {"event: negative substep dt", 1, 1, 0, 0, 63, 0.1, -0.1, 0, -1, "missing valid source dt"},
+      {"event: substep outside the history", 1, 1, 0, 0, 63, 0.1, 0.1, 1, -1,
+       "Invalid merger SFR history bin"},
+  };
+
   init_memory_system(0);
-  reset_config();
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const char *name = rows[k].name;
+    reset_config();
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    sage26_starburst_feedback_init();
 
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
+    struct Halo central, halos[2];
+    struct GalaxyData central_gal, gals[2];
+    setup_test_galaxy(&central, &central_gal, 0, 120.0, 260.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+    setup_test_galaxy(&halos[0], &gals[0], 1, 50.0, 200.0, 10.0, 0.2, 2.0, 0.5, 10.0, 0.2);
+    setup_test_galaxy(&halos[1], &gals[1], 1, 50.0, 200.0, 5.0, 0.1, 2.0, 0.5, 10.0, 0.2);
+    halos[0].SnapNum = rows[k].snapnum;
+    halos[0].dT = rows[k].dt;
+    gals[0].UnstableDiskGasFraction = 0.5;
+    if (rows[k].null_host) {
+      halos[0].galaxy = NULL;
+    }
+    if (rows[k].null_central) {
+      central.galaxy = NULL;
+    }
+    const struct GalaxyData host_before = gals[0], second_before = gals[1],
+                            central_before = central_gal;
 
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  halo.SnapNum = -1;
-  halo.dT = -1.0f;
-  gal.UnstableDiskGasFraction = 0.5;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &central);
+    ctx.substep_number = rows[k].substep_number;
+    struct ModuleEvent event = merger_event(0.3, rows[k].event_dt);
+    if (rows[k].event) {
+      ctx.active_event = &event;
+    }
 
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-  ctx.num_substeps = 1;
-
-  const double initial_stellar = gal.StellarMass;
-  const double initial_cold = gal.ColdGas;
-  const double initial_sfr = gal.StarFormationRate;
-  const double initial_outflow = gal.SupernovaOutflowRate;
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Boundary sentinel dT should be a no-op success");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-12,
-                           "Stellar mass should remain unchanged on boundary skip");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
-                           "Cold gas should remain unchanged on boundary skip");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.StarFormationRate, initial_sfr, 1e-12,
-                           "SFR should remain unchanged on boundary skip");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.SupernovaOutflowRate, initial_outflow, 1e-12,
-                           "Outflow rate should remain unchanged on boundary skip");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_major_vs_minor_merger
- * @brief   Test merger-only major/minor triggers are both ignored
- *
- * Expected: No stellar mass growth from merger-only triggers
- * Validates: Merger channel is not consumed in galaxy_physics starburst module
- */
-int test_major_vs_minor_merger(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3); /* threshold = 0.3 */
-  sage26_starburst_feedback_init();
-
-  struct ModuleContext ctx;
-
-  /* Test 1: Minor merger trigger only (ratio < threshold) */
-  struct Halo halo_minor;
-  struct GalaxyData gal_minor;
-  setup_test_galaxy(&halo_minor, &gal_minor, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-
-  setup_test_context(&ctx, &halo_minor);
-
-  sage26_starburst_feedback_process(&ctx, &halo_minor, 1);
-
-  /* Test 2: Major merger trigger only (ratio > threshold) */
-  struct Halo halo_major;
-  struct GalaxyData gal_major;
-  setup_test_galaxy(&halo_major, &gal_major, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-
-  setup_test_context(&ctx, &halo_major);
-
-  sage26_starburst_feedback_process(&ctx, &halo_major, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal_minor.StellarMass, 5.0, 1e-10,
-                           "Minor merger-only trigger should be ignored");
-  TEST_ASSERT_DOUBLE_EQUAL(gal_major.StellarMass, 5.0, 1e-10,
-                           "Major merger-only trigger should be ignored");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_mass_conservation
- * @brief   Test total mass conserved during starburst
- *
- * Expected: Total mass (cold + stellar + hot + ejected) conserved
- * Validates: Mass conservation
- */
-int test_mass_conservation(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_total = gal.ColdGas + gal.StellarMass + gal.HotGas + gal.EjectedGas;
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  const double final_total = gal.ColdGas + gal.StellarMass + gal.HotGas + gal.EjectedGas;
-  TEST_ASSERT_DOUBLE_EQUAL(final_total, initial_total, 1e-4, "Total mass should be conserved");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_metallicity_preservation
- * @brief   Test metallicity preserved during starburst
- *
- * Expected: Cold gas metallicity unchanged (metals tracked correctly)
- * Validates: Metallicity handling
- */
-int test_metallicity_preservation(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double cold_gas = 10.0;
-  const double metals_cold = 0.5; /* Z = 0.05 */
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, cold_gas, metals_cold, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.3; /* Modest efficiency to leave gas */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_metallicity = metals_cold / cold_gas;
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* Metallicity should be approximately preserved (may change due to yield) */
-  if (gal.ColdGas > 0.1) {
-    const double final_metallicity = gal.MetalsColdGas / gal.ColdGas;
-    /* Allow for metal enrichment from yield */
-    TEST_ASSERT(final_metallicity >= initial_metallicity * 0.9,
-                "Cold gas metallicity should be approximately preserved");
+    FILE *capture = tmpfile();
+    FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
+    const int result = sage26_starburst_feedback_process(&ctx, halos, rows[k].ngal);
+    const char *log = "";
+    if (capture != NULL) {
+      set_log_output(old_out);
+      log = read_captured_log(capture);
+    }
+    ROW_ASSERT(result == rows[k].expected, name, "process() returns the guard's status");
+    ROW_ASSERT(rows[k].message == NULL || strstr(log, rows[k].message) != NULL, name,
+               "The error names its own guard");
+    ROW_ASSERT(memcmp(&host_before, &gals[0], sizeof(host_before)) == 0 &&
+                   memcmp(&second_before, &gals[1], sizeof(second_before)) == 0 &&
+                   memcmp(&central_before, &central_gal, sizeof(central_before)) == 0,
+               name, "The guard writes nothing");
+    if (capture != NULL) {
+      fclose(capture);
+    }
+    sage26_starburst_feedback_cleanup();
   }
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
   check_memory_leaks();
-
   return TEST_PASS;
 }
 
 /**
- * @test    test_bulge_formation
- * @brief   Test stars added to bulge mass (not disk)
+ * @test    test_no_burst_leaves_state
+ * @brief   A galaxy with no trigger, and one with a trigger but no cold gas, come out of
+ *          process() bit for bit unchanged (no star formation, no feedback, no yield, no bulge
+ *          history sample), with finite metals
  *
- * Expected: BulgeMass increases proportional to stellar mass increase
- * Validates: Bulge formation (unique to starbursts)
+ * The zero-cold-gas galaxy still passes the burst's early guards, so every assignment of the
+ * burst runs on zero masses: the metals of a galaxy with no cold gas must stay 0, not become
+ * 0 / 0.
  */
-int test_bulge_formation(void) {
-  /* ===== SETUP ===== */
+int test_no_burst_leaves_state(void) {
+  const struct {
+    const char *name;
+    double cold_gas;
+    double metals_cold;
+    double trigger;
+  } rows[] = {
+      {"no trigger", 10.0, 0.2, 0.0},
+      {"a trigger with no cold gas", 0.0, 0.0, 0.5},
+  };
+
   init_memory_system(0);
-  reset_config();
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const char *name = rows[k].name;
+    reset_config();
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    sage26_starburst_feedback_init();
 
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, rows[k].cold_gas, rows[k].metals_cold, 5.0, 1.0,
+                      50.0, 1.0);
+    gal.UnstableDiskGasFraction = rows[k].trigger;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &halo);
+    const struct GalaxyData before = gal;
 
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.5;
+    ROW_ASSERT(sage26_starburst_feedback_process(&ctx, &halo, 1) == 0, name,
+               "Process function should succeed");
+    ROW_ASSERT(memcmp(&before, &gal, sizeof(before)) == 0, name, "The galaxy is unchanged");
+    ROW_ASSERT(bulge_history_zero_outside(&gal, -1), name, "No bulge history bin is sampled");
+    ROW_ASSERT(isfinite(gal.MetalsStellarMass) && isfinite(gal.MetalsBulgeMass) &&
+                   isfinite(gal.MetalsHotGas) && isfinite(gal.MetalsEjectedGas),
+               name, "The metals stay finite");
 
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_stellar = gal.StellarMass;
-  const double initial_bulge = gal.BulgeMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  const double stellar_growth = gal.StellarMass - initial_stellar;
-  const double bulge_growth = gal.BulgeMass - initial_bulge;
-
-  /* Bulge should grow by same amount as stellar mass (starbursts form spheroids) */
-  TEST_ASSERT_DOUBLE_EQUAL(bulge_growth, stellar_growth, 1e-6,
-                           "Bulge growth should equal stellar mass growth");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
+    sage26_starburst_feedback_cleanup();
+  }
   check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_ejection_calculation
- * @brief   Test energy-driven ejection calculation
- *
- * Expected: Ejected gas calculated from energy balance
- * Validates: Ejection physics
- */
-int test_ejection_calculation(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_hot = gal.HotGas;
-  const double initial_cold = gal.ColdGas;
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* Feedback should transfer gas: cold decreases, hot increases or ejection occurs */
-  const int cold_consumed = (gal.ColdGas < initial_cold);
-  const int hot_increased = (gal.HotGas > initial_hot) || (gal.EjectedGas > 0.0);
-  TEST_ASSERT(cold_consumed, "Cold gas should be consumed by star formation");
-  TEST_ASSERT(hot_increased, "Feedback should heat or eject gas");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_cold_gas_balance
- * @brief   Test (stars + reheated) <= ColdGas constraint enforced
- *
- * Expected: Balancing reduces stars and reheated when insufficient gas
- * Validates: Cold gas balance constraint
- */
-int test_cold_gas_balance(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  /* High reheating to trigger balance */
-  setup_test_parameters(10.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  /* Low cold gas, high efficiency */
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 1.0, 0.02, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.9;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* Cold gas should not go negative */
-  TEST_ASSERT(gal.ColdGas >= -1e-6, "Cold gas should not be negative");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// EDGE CASE TESTS
-// ============================================================================
-
-/**
- * @test    test_zero_cold_gas
- * @brief   Test no starburst when ColdGas = 0
- *
- * Expected: Stellar mass unchanged
- * Validates: Zero cold gas handling
- */
-int test_zero_cold_gas(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 0.0, 0.0, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_stellar = gal.StellarMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-10,
-                           "Stellar mass should not change with zero cold gas");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_efficiency
- * @brief   Test no starburst when efficiency = 0
- *
- * Expected: Stellar mass unchanged
- * Validates: Zero efficiency handling
- */
-int test_zero_efficiency(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.0; /* Zero efficiency */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_stellar = gal.StellarMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-10,
-                           "Stellar mass should not change with zero efficiency");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_no_triggers
- * @brief   Test no processing when triggers = 0
- *
- * Expected: All properties unchanged
- * Validates: Trigger requirement
- */
-int test_no_triggers(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  /* No triggers set */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  const double initial_stellar = gal.StellarMass;
-  const double initial_cold = gal.ColdGas;
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-10,
-                           "Stellar mass unchanged without triggers");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-10, "Cold gas unchanged without triggers");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_null_galaxy
- * @brief   Test NULL galaxy handled gracefully
- *
- * Expected: Function returns success
- * Validates: NULL pointer safety
- */
-int test_null_galaxy(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  memset(&halo, 0, sizeof(halo));
-  halo.Type = 0;
-  halo.galaxy = NULL;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Should handle NULL galaxy gracefully");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_null_central_galaxy
- * @brief   Test NULL central galaxy handled gracefully
- *
- * Expected: Function returns success without crash
- * Validates: NULL central pointer safety
- */
-int test_null_central_galaxy(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo satellite;
-  struct GalaxyData sat_gal;
-  setup_test_galaxy(&satellite, &sat_gal, 1, 50.0, 200.0, 5.0, 0.1, 2.0, 0.5, 10.0, 0.2);
-
-  /* Create central with NULL galaxy */
-  struct Halo central;
-  memset(&central, 0, sizeof(central));
-  central.Type = 0;
-  central.galaxy = NULL;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &central);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_starburst_feedback_process(&ctx, &satellite, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Should handle NULL central galaxy gracefully");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_triggers_preserved
- * @brief   Test triggers preserved after processing
- *
- * Expected: Trigger flags remain unchanged after processing
- * Validates: Trigger lifecycle ownership by dedicated clear modules
- */
-int test_triggers_preserved(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
-                           "UnstableDiskGasFraction should remain unchanged");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_invalid_ngal
- * @brief   Test error when ngal != 1
- *
- * Expected: Function returns error
- * Validates: process_by_galaxy mode enforcement
- */
-int test_invalid_ngal(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halos[2];
-  struct GalaxyData gals[2];
-  setup_test_galaxy(&halos[0], &gals[0], 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  setup_test_galaxy(&halos[1], &gals[1], 1, 50.0, 200.0, 5.0, 0.1, 2.0, 0.5, 10.0, 0.2);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halos[0]);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_starburst_feedback_process(&ctx, halos, 2);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result != 0, "Should return error when ngal != 1");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
   return TEST_PASS;
 }
 
@@ -1824,247 +1059,6 @@ int test_zero_vvir(void) {
 
   /* No ejection when Vvir = 0 */
   TEST_ASSERT_DOUBLE_EQUAL(gal.EjectedGas, initial_ejected, 1e-10, "No ejection when Vvir = 0");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_insufficient_cold_gas
- * @brief   Test balancing works when (stars + reheated) > ColdGas
- *
- * Expected: Stars and reheated scaled down to fit available gas
- * Validates: Balancing constraint
- */
-int test_insufficient_cold_gas(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  /* Very high reheating to trigger balancing */
-  setup_test_parameters(15.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 1.0, 0.02, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.9; /* High efficiency */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* Should not crash and cold gas should not go negative */
-  TEST_ASSERT(gal.ColdGas >= -1e-6, "Cold gas should not be negative");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// PARAMETER SENSITIVITY TESTS
-// ============================================================================
-
-/**
- * @test    test_parameter_sensitivity_reheating
- * @brief   Test FeedbackReheatingEpsilon parameter affects reheating
- *
- * Expected: Higher epsilon produces more reheating (before ejection)
- * Validates: Parameter loading and physics
- *
- * Strategy: Use conditions where balancing and ejection don't dominate:
- * - Low star formation efficiency (eburst = 0.1) to avoid balancing
- * - Large ColdGas to avoid running out
- * - Measure cold gas decrease (proxy for reheating since cold gas consumed by both SF and
- * reheating)
- */
-int test_parameter_sensitivity_reheating(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Test with low reheating epsilon */
-  reset_config();
-  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.5, 0.3); /* Zero ejection to isolate reheating */
-  sage26_starburst_feedback_init();
-
-  struct Halo halo_low;
-  struct GalaxyData gal_low;
-  /* Large cold gas, low efficiency to avoid balancing */
-  setup_test_galaxy(&halo_low, &gal_low, 0, 100.0, 300.0, 100.0, 2.0, 5.0, 1.0, 50.0, 1.0);
-  gal_low.UnstableDiskGasFraction = 0.1; /* Low efficiency */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo_low);
-
-  const double initial_cold_low = gal_low.ColdGas;
-  sage26_starburst_feedback_process(&ctx, &halo_low, 1);
-  const double cold_consumed_low = initial_cold_low - gal_low.ColdGas;
-
-  sage26_starburst_feedback_cleanup();
-
-  /* Test with high reheating epsilon */
-  reset_config();
-  setup_test_parameters(3.0, 0.0, 0.43, 0.03, 0.5, 0.3); /* Zero ejection to isolate reheating */
-  sage26_starburst_feedback_init();
-
-  struct Halo halo_high;
-  struct GalaxyData gal_high;
-  setup_test_galaxy(&halo_high, &gal_high, 0, 100.0, 300.0, 100.0, 2.0, 5.0, 1.0, 50.0, 1.0);
-  gal_high.UnstableDiskGasFraction = 0.1; /* Same efficiency */
-
-  setup_test_context(&ctx, &halo_high);
-
-  const double initial_cold_high = gal_high.ColdGas;
-  sage26_starburst_feedback_process(&ctx, &halo_high, 1);
-  const double cold_consumed_high = initial_cold_high - gal_high.ColdGas;
-
-  /* ===== VALIDATE ===== */
-  /* Cold gas consumed = (1-recycle)*stars + reheated
-   * With same eburst: stars_low ≈ stars_high
-   * reheated_low = 1.0 * stars, reheated_high = 3.0 * stars
-   * So cold_consumed_high should be > cold_consumed_low */
-  TEST_ASSERT(cold_consumed_high > cold_consumed_low,
-              "Higher reheating epsilon should consume more cold gas");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_parameter_sensitivity_ejection
- * @brief   Test FeedbackEjectionEfficiency parameter affects ejection
- *
- * Expected: Parameter affects ejection when energetically favorable
- * Validates: Parameter loading and physics
- *
- * Strategy: Use low Vvir and modest reheating to ensure ejection occurs
- * ejection = (efficiency * constant / Vvir^2 - reheating_epsilon) * stars
- * With low Vvir, the first term dominates, making ejection positive
- */
-int test_parameter_sensitivity_ejection(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Test 1: Verify ejection can be zero with low efficiency */
-  reset_config();
-  setup_test_parameters(0.5, 0.1, 0.43, 0.03, 0.5, 0.3); /* Low reheating and ejection */
-  sage26_starburst_feedback_init();
-
-  struct Halo halo_low;
-  struct GalaxyData gal_low;
-  /* Low Vvir to make ejection energetically favorable */
-  setup_test_galaxy(&halo_low, &gal_low, 0, 10.0, 100.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal_low.UnstableDiskGasFraction = 0.3;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo_low);
-
-  sage26_starburst_feedback_process(&ctx, &halo_low, 1);
-
-  /* Verify basic correctness */
-  TEST_ASSERT(gal_low.EjectedGas >= -1e-10, "Ejected gas should not be significantly negative");
-  TEST_ASSERT(gal_low.HotGas >= -1e-10, "Hot gas should not be significantly negative");
-  TEST_ASSERT(gal_low.ColdGas >= -1e-10, "Cold gas should not be significantly negative");
-
-  sage26_starburst_feedback_cleanup();
-
-  /* Test 2: Higher ejection efficiency */
-  reset_config();
-  setup_test_parameters(0.5, 1.0, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo_high;
-  struct GalaxyData gal_high;
-  setup_test_galaxy(&halo_high, &gal_high, 0, 10.0, 100.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal_high.UnstableDiskGasFraction = 0.3;
-
-  setup_test_context(&ctx, &halo_high);
-
-  sage26_starburst_feedback_process(&ctx, &halo_high, 1);
-
-  /* ===== VALIDATE ===== */
-  /* Verify both tests executed without significant negative values */
-  TEST_ASSERT(gal_high.EjectedGas >= -1e-10, "Ejected gas should not be significantly negative");
-  TEST_ASSERT(gal_high.HotGas >= -1e-10, "Hot gas should not be significantly negative");
-
-  /* Basic sanity: parameters were loaded and module executed */
-  const int module_executed = (gal_low.StellarMass > 0.0) || (gal_high.StellarMass > 0.0);
-  TEST_ASSERT(module_executed, "Module should have executed and formed stars");
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_parameter_sensitivity_yield
- * @brief   Test Yield parameter affects metal enrichment
- *
- * Expected: Higher yield produces more metals
- * Validates: Parameter loading and metal physics
- */
-int test_parameter_sensitivity_yield(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Test with low yield */
-  reset_config();
-  setup_test_parameters(3.0, 0.5, 0.43, 0.01, 0.5, 0.3); /* Low yield */
-  sage26_starburst_feedback_init();
-
-  struct Halo halo_low;
-  struct GalaxyData gal_low;
-  setup_test_galaxy(&halo_low, &gal_low, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal_low.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo_low);
-
-  const double initial_metals_total_low = gal_low.MetalsColdGas + gal_low.MetalsHotGas;
-  sage26_starburst_feedback_process(&ctx, &halo_low, 1);
-  const double final_metals_total_low =
-      gal_low.MetalsColdGas + gal_low.MetalsHotGas + gal_low.MetalsStellarMass;
-  const double metals_produced_low = final_metals_total_low - initial_metals_total_low;
-
-  sage26_starburst_feedback_cleanup();
-
-  /* Test with high yield */
-  reset_config();
-  setup_test_parameters(3.0, 0.5, 0.43, 0.05, 0.5, 0.3); /* 5x higher */
-  sage26_starburst_feedback_init();
-
-  struct Halo halo_high;
-  struct GalaxyData gal_high;
-  setup_test_galaxy(&halo_high, &gal_high, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal_high.UnstableDiskGasFraction = 0.5;
-
-  setup_test_context(&ctx, &halo_high);
-
-  const double initial_metals_total_high = gal_high.MetalsColdGas + gal_high.MetalsHotGas;
-  sage26_starburst_feedback_process(&ctx, &halo_high, 1);
-  const double final_metals_total_high =
-      gal_high.MetalsColdGas + gal_high.MetalsHotGas + gal_high.MetalsStellarMass;
-  const double metals_produced_high = final_metals_total_high - initial_metals_total_high;
-
-  /* ===== VALIDATE ===== */
-  /* Verify parameter is loaded and metal enrichment occurs */
-  /* Note: Metal change is complex (consumption + enrichment from yield) */
-  const int metals_changed = (metals_produced_low != 0.0) || (metals_produced_high != 0.0);
-  TEST_ASSERT(metals_changed, "Yield parameter should be loaded and metal enrichment should occur");
 
   /* ===== CLEANUP ===== */
   sage26_starburst_feedback_cleanup();
@@ -2131,66 +1125,9 @@ int test_module_initialization(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_memory_safety
- * @brief   Test module doesn't leak memory during operation
- *
- * Expected: No memory leaks after init/process/cleanup cycle
- * Validates: Memory management
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
-  sage26_starburst_feedback_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &halo);
-
-  /* ===== EXECUTE ===== */
-  sage26_starburst_feedback_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* check_memory_leaks() will catch any leaks */
-
-  /* ===== CLEANUP ===== */
-  sage26_starburst_feedback_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
 // ============================================================================
 // BULGE STAR-FORMATION HISTORY SAMPLING
 // ============================================================================
-
-/** @brief Element (history, bin) of a galaxy */
-static float bulge_history(struct GalaxyData *gal, const enum MimicSageSfrHistory h,
-                           const int bin) {
-  return *mimic_sage_sfr_history(gal, h, bin);
-}
-
-/** @brief Whether every element of the three bulge histories outside `bin` is zero */
-static int bulge_history_zero_outside(struct GalaxyData *gal, const int bin) {
-  const enum MimicSageSfrHistory bulge[] = {MIMIC_SFR_HISTORY_BULGE,
-                                            MIMIC_SFR_HISTORY_BULGE_COLD_GAS,
-                                            MIMIC_SFR_HISTORY_BULGE_COLD_GAS_METALS};
-  for (int h = 0; h < 3; h++) {
-    for (int k = 0; k < MIMIC_SAGE_SFR_STEPS; k++) {
-      if (k != bin && bulge_history(gal, bulge[h], k) != 0.0f) {
-        return 0;
-      }
-    }
-  }
-  return 1;
-}
 
 /**
  * @test    test_instability_burst_samples_bulge_history
@@ -2335,60 +1272,26 @@ int test_merger_burst_samples_with_event_dt(void) {
 }
 
 /**
- * @brief Run a minor merger whose post-merger instability recheck bursts (as
- *        test_per_event_minor_merger_rechecks_disk_instability), substep 4 of 10
- */
-static int run_recheck_burst(const int recheck, const double event_dt, struct GalaxyData *gal_out) {
-  reset_config();
-  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
-  if (recheck) {
-    setup_post_merger_recheck_parameters(0);
-  }
-  setup_runtime_phase_config(recheck, 0);
-  MimicConfig.G = 43007.1;
-  if (sage26_starburst_feedback_init() != 0) {
-    return -1;
-  }
-  static struct Halo central, target;
-  static struct GalaxyData central_gal;
-  setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
-  setup_test_galaxy(&target, gal_out, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
-  target.Vmax = 120.0;
-  gal_out->DiskScaleRadius = 5.0;
-  gal_out->BlackHoleMass = 0.05;
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &central);
-  ctx.num_substeps = 10;
-  ctx.substep_number = 4;
-  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                              .source_index = 2,
-                              .target_index = 1,
-                              .value0 = 0.2,
-                              .value1 = event_dt};
-  ctx.active_event = &event;
-  const int result = sage26_starburst_feedback_process(&ctx, &target, 1);
-  sage26_starburst_feedback_cleanup();
-  teardown_runtime_phase_config();
-  return result;
-}
-
-/**
  * @test    test_post_merger_recheck_samples_with_event_dt
  * @brief   The post-merger instability burst samples the merger's bin with the merger's
  *          dt, as SAGE26's deal_with_galaxy_merger passes its dt and step to
  *          check_disk_instability and on to the burst
  *
- * With the recheck the bin holds two bursts: more rate and more sampled gas than the
- * merger burst alone. Halving the event dt doubles the bin's rate exactly, so both
- * bursts divide by it.
+ * A minor merger (the scenario of run_minor_merger, substep 4 of 10) with the recheck bursts
+ * twice: the bin holds more rate and more sampled gas than the merger burst alone. Halving the
+ * event dt doubles the bin's rate exactly, so both bursts divide by it.
  */
 int test_post_merger_recheck_samples_with_event_dt(void) {
   init_memory_system(0);
+  struct minor_merger cfg = MINOR_MERGER_DEFAULT;
+  cfg.num_substeps = 10;
+  cfg.substep_number = 4;
   struct GalaxyData merger_only, recheck, recheck_half;
-  TEST_ASSERT(run_recheck_burst(0, 0.1, &merger_only) == 0, "merger-only run should succeed");
-  TEST_ASSERT(run_recheck_burst(1, 0.1, &recheck) == 0, "recheck run should succeed");
-  TEST_ASSERT(run_recheck_burst(1, 0.05, &recheck_half) == 0, "recheck run should succeed");
+  TEST_ASSERT(run_minor_merger(&cfg, &merger_only, NULL) == 0, "merger-only run should succeed");
+  cfg.disk_instability = 1;
+  TEST_ASSERT(run_minor_merger(&cfg, &recheck, NULL) == 0, "recheck run should succeed");
+  cfg.event_dt = 0.05;
+  TEST_ASSERT(run_minor_merger(&cfg, &recheck_half, NULL) == 0, "recheck run should succeed");
 
   TEST_ASSERT(bulge_history(&recheck, MIMIC_SFR_HISTORY_BULGE, 4) >
                   bulge_history(&merger_only, MIMIC_SFR_HISTORY_BULGE, 4),
@@ -2404,11 +1307,6 @@ int test_post_merger_recheck_samples_with_event_dt(void) {
   check_memory_leaks();
   return TEST_PASS;
 }
-
-// ============================================================================
-// MAIN TEST RUNNER
-
-// ============================================================================
 
 /**
  * @test    test_consecutive_bursts_bulge_excess_grows
@@ -2481,8 +1379,6 @@ int test_consecutive_bursts_bulge_excess_grows(void) {
     uint32_t bulge_bits;
     memcpy(&stellar_bits, &gal.StellarMass, sizeof(stellar_bits));
     memcpy(&bulge_bits, &gal.BulgeMass, sizeof(bulge_bits));
-    printf("\n  burst %d: StellarMass 0x%08x BulgeMass 0x%08x", k + 1, (unsigned)stellar_bits,
-           (unsigned)bulge_bits);
     TEST_ASSERT(stellar_bits == expected_stellar[k],
                 "StellarMass must match SAGE26's own routine bit for bit");
     TEST_ASSERT(bulge_bits == expected_bulge[k],
@@ -2490,15 +1386,9 @@ int test_consecutive_bursts_bulge_excess_grows(void) {
   }
   TEST_ASSERT(gal.BulgeMass > nextafterf(gal.StellarMass, INFINITY),
               "three bursts leave BulgeMass two floats above StellarMass");
-  printf(" ");
   return TEST_PASS;
 }
 
-/**
- * @brief   Main test runner
- *
- * Executes all sage26_starburst_feedback unit tests and reports results.
- */
 /**
  * @brief The refresh's expected H1gas for a galaxy's final ColdGas and H2gas
  */
@@ -2709,13 +1599,7 @@ int test_hydrogen_cap_recheck_growth(void) {
 #define FIRE_TEST_EJ 0.3
 #define FIRE_TEST_ETA_SN 68493150.684931502
 #define FIRE_TEST_ENERGY_SN 0.0036701860231271991
-
-/** @brief Bit pattern of a double, for exact comparisons */
-static uint64_t sb_fire_bits(const double v) {
-  uint64_t b;
-  memcpy(&b, &v, sizeof(b));
-  return b;
-}
+#define FIRE_TEST_ESN (FIRE_TEST_ETA_SN * FIRE_TEST_ENERGY_SN)
 
 /** @brief SAGE26's budget of one burst, written in the test (see sb_fire_expected) */
 struct sb_fire_budget {
@@ -2737,9 +1621,11 @@ struct sb_fire_budget {
  * @param z         The redshift of the host's stored snapshot
  * @param stars_in  The stars before the renormalisation (eburst * gas, floored)
  * @param gas       The burst gas
+ * @param esn       The product EtaSNcode * EnergySNcode the budget reads
  */
 static struct sb_fire_budget sb_fire_expected(const float vvir, const double z,
-                                              const double stars_in, const double gas) {
+                                              const double stars_in, const double gas,
+                                              const double esn) {
   struct sb_fire_budget r;
   double fire_scaling = 0.0;
   const double vc_fire = vvir;
@@ -2751,7 +1637,7 @@ static struct sb_fire_budget sb_fire_expected(const float vvir, const double z,
   }
   double eta = FIRE_TEST_EPS * fire_scaling;
   if (vc_fire > 0.0) {
-    const double eta_max = 2.0 * (FIRE_TEST_ETA_SN * FIRE_TEST_ENERGY_SN) / (vc_fire * vc_fire);
+    const double eta_max = 2.0 * esn / (vc_fire * vc_fire);
     if (eta > eta_max) {
       eta = eta_max;
     }
@@ -2769,7 +1655,7 @@ static struct sb_fire_budget sb_fire_expected(const float vvir, const double z,
     if (coupling > 2.0) {
       coupling = 2.0;
     }
-    const double E_FB = coupling * 0.5 * stars * (FIRE_TEST_ETA_SN * FIRE_TEST_ENERGY_SN);
+    const double E_FB = coupling * 0.5 * stars * esn;
     const double E_lift = 0.5 * reheated * vc_fire * vc_fire;
     ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc_fire * vc_fire) : 0.0;
   }
@@ -2867,17 +1753,17 @@ int test_fire_burst_budget_independent(void) {
     struct MimicSageStarburstLocals b;
     const int status = mimic_apply_collisional_starburst(0.1, &host, &host, 1, 0, 0.0, 0.0, 0, 0.01,
                                                          &ctx, &params, &b);
-    const struct sb_fire_budget e =
-        sb_fire_expected(cases[k].vvir, cases[k].z, 0.1 * (double)1.0f, (double)1.0f);
+    const struct sb_fire_budget e = sb_fire_expected(cases[k].vvir, cases[k].z, 0.1 * (double)1.0f,
+                                                     (double)1.0f, FIRE_TEST_ESN);
     printf("\n  Vvir %.9g z %.4g: scaling %.17g reheated %.17g ejected %.17g", cases[k].vvir,
            cases[k].z, b.fire.l.scaling, b.reheated_mass, b.ejected_mass);
     TEST_ASSERT(status == 0, "the burst must run");
     TEST_ASSERT(b.fire.fire_mode == 1 && b.fire.snapnum == 40, "the FIRE branch, SnapNum 40");
-    TEST_ASSERT(sb_fire_bits(b.fire.l.scaling) == sb_fire_bits(e.scaling),
+    TEST_ASSERT(double_bits(b.fire.l.scaling) == double_bits(e.scaling),
                 "the FIRE scaling must equal SAGE26's expression");
-    TEST_ASSERT(sb_fire_bits(b.stars) == sb_fire_bits(e.stars) &&
-                    sb_fire_bits(b.reheated_mass) == sb_fire_bits(e.reheated) &&
-                    sb_fire_bits(b.ejected_mass) == sb_fire_bits(e.ejected),
+    TEST_ASSERT(double_bits(b.stars) == double_bits(e.stars) &&
+                    double_bits(b.reheated_mass) == double_bits(e.reheated) &&
+                    double_bits(b.ejected_mass) == double_bits(e.ejected),
                 "stars, reheated and ejected mass must equal SAGE26's expressions bit for bit");
     TEST_ASSERT(gal.MassLoading == 7.25f, "a burst must not write MassLoading");
   }
@@ -2889,6 +1775,11 @@ int test_fire_burst_budget_independent(void) {
  * @brief   The same burst with FIREmodeOn 1 and 0: 1 is the inline FIRE budget, 0 the
  *          fixed-epsilon one (the float Vvir squared in float); neither
  *          writes MassLoading
+ *
+ * The host (Vvir 80 at stored SnapNum 40) and its FoF central (Vvir 300 at SnapNum 50) differ in
+ * both, and the FIRE budget must be the host's: the record of the burst names the host's
+ * SnapNum, float Vvir and that snapshot's redshift ZZ[40], and the central's budget would
+ * differ.
  */
 int test_fire_burst_on_versus_off(void) {
   reset_config();
@@ -2911,10 +1802,18 @@ int test_fire_burst_on_versus_off(void) {
                 "no burst writes MassLoading, in either mode");
     const double stars = 0.1 * (double)1.0f;
     if (fire) {
-      const struct sb_fire_budget e = sb_fire_expected(80.0f, MimicConfig.ZZ[40], stars, 1.0);
-      TEST_ASSERT(sb_fire_bits(b.reheated_mass) == sb_fire_bits(e.reheated) &&
-                      sb_fire_bits(b.ejected_mass) == sb_fire_bits(e.ejected),
+      const struct sb_fire_budget e =
+          sb_fire_expected(80.0f, MimicConfig.ZZ[40], stars, 1.0, FIRE_TEST_ESN);
+      TEST_ASSERT(double_bits(b.reheated_mass) == double_bits(e.reheated) &&
+                      double_bits(b.ejected_mass) == double_bits(e.ejected),
                   "FIREmodeOn 1: SAGE26's FIRE budget with the host's values");
+      TEST_ASSERT(b.fire.fire_mode == 1 && b.fire.snapnum == 40 && b.fire.vvir == (double)80.0f,
+                  "the burst read its host's SnapNum and Vvir");
+      TEST_ASSERT(double_bits(b.fire.l.redshift) == double_bits(MimicConfig.ZZ[40]),
+                  "the burst read ZZ[40], its host's stored snapshot");
+      const struct sb_fire_budget central_e =
+          sb_fire_expected(300.0f, MimicConfig.ZZ[50], stars, 1.0, FIRE_TEST_ESN);
+      TEST_ASSERT(e.reheated != central_e.reheated, "the central's budget would differ");
     } else {
       const float v = 80.0f;
       const double e_reheated = FIRE_TEST_EPS * stars;
@@ -2926,99 +1825,28 @@ int test_fire_burst_on_versus_off(void) {
       }
       TEST_ASSERT(b.fire.fire_mode == 0 && b.fire.snapnum == -1 && isnan(b.fire.l.scaling),
                   "FIREmodeOn 0 forms no FIRE value");
-      TEST_ASSERT(sb_fire_bits(b.reheated_mass) == sb_fire_bits(e_reheated) &&
-                      sb_fire_bits(b.ejected_mass) == sb_fire_bits(e_ejected),
+      TEST_ASSERT(double_bits(b.reheated_mass) == double_bits(e_reheated) &&
+                      double_bits(b.ejected_mass) == double_bits(e_ejected),
                   "FIREmodeOn 0: the fixed-epsilon budget");
     }
   }
-  printf("\n  reheated %.17g (0) / %.17g (1), ejected %.17g / %.17g", reheated[0], reheated[1],
-         ejected[0], ejected[1]);
   TEST_ASSERT(reheated[0] != reheated[1] && ejected[0] != ejected[1],
               "the two modes must differ on this input");
   return TEST_PASS;
 }
 
 /**
- * @test    test_fire_burst_wiring_direct
- * @brief   The burst reads its HOST's float Vvir and stored SnapNum, not the FoF central's
- *          host Vvir 80 at SnapNum 40, central 300 at 50
- */
-int test_fire_burst_wiring_direct(void) {
-  reset_config();
-  sb_fire_redshift_table();
-  struct Halo host, central;
-  struct GalaxyData host_gal, central_gal;
-  sb_fire_pair(&host, &host_gal, &central, &central_gal);
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &central);
-  const struct MimicStarburstParams params = sb_fire_params(MIMIC_SAGE_FIRE_MODE_ON, 0);
-  struct MimicSageStarburstLocals b;
-  TEST_ASSERT(mimic_apply_collisional_starburst(0.1, &host, &central, 1, 0, 0.0, 0.0, 0, 0.01, &ctx,
-                                                &params, &b) == 0,
-              "the burst must run");
-  TEST_ASSERT(b.fire.fire_mode == 1 && b.fire.snapnum == 40 && b.fire.vvir == (double)80.0f,
-              "the burst read its host's SnapNum and Vvir");
-  TEST_ASSERT(sb_fire_bits(b.fire.l.redshift) == sb_fire_bits(MimicConfig.ZZ[40]),
-              "the burst read ZZ[40], its host's stored snapshot");
-  const struct sb_fire_budget host_e = sb_fire_expected(80.0f, MimicConfig.ZZ[40], 0.1, 1.0);
-  const struct sb_fire_budget central_e = sb_fire_expected(300.0f, MimicConfig.ZZ[50], 0.1, 1.0);
-  TEST_ASSERT(sb_fire_bits(b.reheated_mass) == sb_fire_bits(host_e.reheated),
-              "the reheated mass is the host's budget");
-  TEST_ASSERT(host_e.reheated != central_e.reheated, "the central's budget would differ");
-  return TEST_PASS;
-}
-
-/** @brief Set or replace a model parameter's value; NULL removes it */
-static void sb_fire_set_param(const char *name, const char *value) {
-  int n = MimicConfig.NumModelParams;
-  for (int i = 0; i < n; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, name) == 0) {
-      if (value == NULL) {
-        MimicConfig.ModelParams[i] = MimicConfig.ModelParams[n - 1];
-        MimicConfig.NumModelParams = n - 1;
-      } else {
-        snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%s", value);
-      }
-      return;
-    }
-  }
-  if (value != NULL) {
-    sage26_test_append_model_parameter(name, value);
-  }
-}
-
-/** @brief Read a captured log into a static buffer (valid until the next call) */
-static const char *sb_fire_read_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
-
-/**
  * @brief Initialise the module with the FIRE tests' burst parameters and FIREmodeOn `value`
- *        (NULL: the key missing), capturing the log
  * @return The init status
  */
-static int sb_fire_init(const char *value, const char **log) {
+static int sb_fire_init(const char *value) {
   init_memory_system(0);
   reset_config();
   setup_test_parameters(FIRE_TEST_EPS, FIRE_TEST_EJ, 0.43, 0.025, 0.0, 0.3);
-  sb_fire_set_param("FIREmodeOn", value);
+  set_model_param("FIREmodeOn", value);
   sb_fire_redshift_table();
   MimicConfig.G = 43.00707785642063;
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = sage26_starburst_feedback_init();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    *log = sb_fire_read_log(capture);
-    fclose(capture);
-  } else {
-    *log = "";
-  }
-  return status;
+  return sage26_starburst_feedback_init();
 }
 
 /** @brief The module's own EtaSNcode * EnergySNcode budget, for the module-level expectations */
@@ -3028,120 +1856,51 @@ static double sb_fire_module_esn(void) {
 }
 
 /**
- * @brief SAGE26's burst budget at the module's own SN constants (the module derives them from the
- *        run's units): sb_fire_expected's expressions with that
- *        product, which is all the budget reads of them
+ * @test    test_fire_burst_wiring_by_channel
+ * @brief   Each module channel bursts its host with the host's own Vvir and stored SnapNum, not
+ *          the FoF central's: the merger channel (process_per_event) the target, the instability
+ *          channel (process_by_galaxy) the satellite. The host's SupernovaOutflowRate holds its
+ *          FIRE reheated mass and the central's EjectedGas the ejection, as SAGE26's budget for
+ *          the host
  */
-static struct sb_fire_budget sb_fire_module_expected(const float vvir, const double z,
-                                                     const double stars_in, const double gas) {
-  const double esn = sb_fire_module_esn();
-  struct sb_fire_budget r;
-  double fire_scaling = 0.0;
-  const double vc_fire = vvir;
-  if (vc_fire > 0.0 && z >= 0.0) {
-    const double vc_floored = (vc_fire < 1.0) ? 1.0 : vc_fire;
-    const double v_term =
-        (vc_floored < 60.0) ? pow(vc_floored / 60.0, -3.2) : 1.0 / (vc_floored / 60.0);
-    fire_scaling = pow(1.0 + z, 1.25) * v_term;
-  }
-  double eta = FIRE_TEST_EPS * fire_scaling;
-  if (vc_fire > 0.0) {
-    const double eta_max = 2.0 * esn / (vc_fire * vc_fire);
-    if (eta > eta_max) {
-      eta = eta_max;
-    }
-  }
-  double stars = stars_in;
-  double reheated = eta * stars;
-  if ((stars + reheated) > gas) {
-    const double fac = gas / (stars + reheated);
-    stars *= fac;
-    reheated *= fac;
-  }
-  double ejected = 0.0;
-  if (vc_fire > 0.0) {
-    double coupling = FIRE_TEST_EJ * fire_scaling;
-    if (coupling > 2.0) {
-      coupling = 2.0;
-    }
-    const double E_FB = coupling * 0.5 * stars * esn;
-    const double E_lift = 0.5 * reheated * vc_fire * vc_fire;
-    ejected = (E_FB > E_lift) ? (E_FB - E_lift) / (0.5 * vc_fire * vc_fire) : 0.0;
-  }
-  r.scaling = fire_scaling;
-  r.eta = eta;
-  r.stars = stars;
-  r.reheated = reheated;
-  r.ejected = ejected < 0.0 ? 0.0 : ejected;
-  return r;
-}
+int test_fire_burst_wiring_by_channel(void) {
+  const struct {
+    const char *name;
+    int event;
+  } rows[] = {{"merger channel", 1}, {"instability channel", 0}};
 
-/**
- * @test    test_fire_burst_wiring_merger_event
- * @brief   The merger channel (process_per_event) bursts the TARGET with its own Vvir and stored
- *          SnapNum, not the FoF central's: the target's SupernovaOutflowRate holds its reheated
- *          mass and the central's EjectedGas the ejection, as SAGE26's budget for the target
- */
-int test_fire_burst_wiring_merger_event(void) {
-  const char *log = "";
-  TEST_ASSERT(sb_fire_init("1", &log) == 0, "init must succeed with FIREmodeOn 1");
-  struct Halo target, central;
-  struct GalaxyData target_gal, central_gal;
-  sb_fire_pair(&target, &target_gal, &central, &central_gal);
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &central);
-  ctx.num_substeps = 10;
-  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                              .source_index = 2,
-                              .target_index = 1,
-                              .value0 = 0.2,
-                              .value1 = 0.01};
-  ctx.active_event = &event;
-  TEST_ASSERT(sage26_starburst_feedback_process(&ctx, &target, 1) == 0, "the merger bursts");
-  const double eburst = 0.56 * pow(0.2, 0.7);
-  const struct sb_fire_budget e =
-      sb_fire_module_expected(80.0f, MimicConfig.ZZ[40], eburst * (double)1.0f, (double)1.0f);
-  const struct sb_fire_budget c =
-      sb_fire_module_expected(300.0f, MimicConfig.ZZ[50], eburst * (double)1.0f, (double)1.0f);
-  printf("\n  target outflow %.9g (expected %.9g), central ejected %.9g (expected %.9g)",
-         target_gal.SupernovaOutflowRate, (float)e.reheated, central_gal.EjectedGas,
-         (float)e.ejected);
-  TEST_ASSERT(target_gal.SupernovaOutflowRate == (float)e.reheated,
-              "the target's outflow is its own FIRE reheated mass");
-  TEST_ASSERT(central_gal.EjectedGas == (float)e.ejected,
-              "the central's ejected gas is the target's FIRE ejection");
-  TEST_ASSERT((float)c.reheated != (float)e.reheated, "the central's values would differ");
-  TEST_ASSERT(target_gal.MassLoading == 7.25f && central_gal.MassLoading == 3.5f,
-              "the merger burst writes no MassLoading");
-  sage26_starburst_feedback_cleanup();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_fire_burst_wiring_instability_channel
- * @brief   The instability channel (process_by_galaxy) bursts the satellite with its own Vvir and
- *          stored SnapNum, not its FoF central's
- */
-int test_fire_burst_wiring_instability_channel(void) {
-  const char *log = "";
-  TEST_ASSERT(sb_fire_init("1", &log) == 0, "init must succeed with FIREmodeOn 1");
-  struct Halo host, central;
-  struct GalaxyData host_gal, central_gal;
-  sb_fire_pair(&host, &host_gal, &central, &central_gal);
-  host_gal.UnstableDiskGasFraction = 0.1;
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &central);
-  ctx.num_substeps = 10;
-  TEST_ASSERT(sage26_starburst_feedback_process(&ctx, &host, 1) == 0, "the instability bursts");
-  const struct sb_fire_budget e =
-      sb_fire_module_expected(80.0f, MimicConfig.ZZ[40], 0.1 * (double)1.0f, (double)1.0f);
-  TEST_ASSERT(host_gal.SupernovaOutflowRate == (float)e.reheated,
-              "the satellite's outflow is its own FIRE reheated mass");
-  TEST_ASSERT(central_gal.EjectedGas == (float)e.ejected,
-              "the central's ejected gas is the satellite's FIRE ejection");
-  TEST_ASSERT(host_gal.MassLoading == 7.25f, "the instability burst writes no MassLoading");
-  sage26_starburst_feedback_cleanup();
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const char *name = rows[k].name;
+    ROW_ASSERT(sb_fire_init("1") == 0, name, "init must succeed with FIREmodeOn 1");
+    struct Halo host, central;
+    struct GalaxyData host_gal, central_gal;
+    sb_fire_pair(&host, &host_gal, &central, &central_gal);
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &central);
+    ctx.num_substeps = 10;
+    struct ModuleEvent event = merger_event(0.2, 0.01);
+    double eburst;
+    if (rows[k].event) {
+      ctx.active_event = &event;
+      eburst = 0.56 * pow(0.2, 0.7);
+    } else {
+      host_gal.UnstableDiskGasFraction = 0.1;
+      eburst = 0.1;
+    }
+    ROW_ASSERT(sage26_starburst_feedback_process(&ctx, &host, 1) == 0, name, "the channel bursts");
+    const struct sb_fire_budget e = sb_fire_expected(
+        80.0f, MimicConfig.ZZ[40], eburst * (double)1.0f, (double)1.0f, sb_fire_module_esn());
+    const struct sb_fire_budget c = sb_fire_expected(
+        300.0f, MimicConfig.ZZ[50], eburst * (double)1.0f, (double)1.0f, sb_fire_module_esn());
+    ROW_ASSERT(host_gal.SupernovaOutflowRate == (float)e.reheated, name,
+               "the host's outflow is its own FIRE reheated mass");
+    ROW_ASSERT(central_gal.EjectedGas == (float)e.ejected, name,
+               "the central's ejected gas is the host's FIRE ejection");
+    ROW_ASSERT((float)c.reheated != (float)e.reheated, name, "the central's values would differ");
+    ROW_ASSERT(host_gal.MassLoading == 7.25f && central_gal.MassLoading == 3.5f, name,
+               "the burst writes no MassLoading");
+    sage26_starburst_feedback_cleanup();
+  }
   return TEST_PASS;
 }
 
@@ -3176,38 +1935,12 @@ int test_fire_burst_wiring_recheck(void) {
   TEST_ASSERT(b.recheck_fire.fire_mode == 1 && b.recheck_fire.snapnum == 40 &&
                   b.recheck_fire.vvir == (double)140.0f,
               "the recheck's burst took the FIRE branch with the host's SnapNum and Vvir");
-  TEST_ASSERT(sb_fire_bits(b.recheck_fire.l.redshift) == sb_fire_bits(MimicConfig.ZZ[40]),
+  TEST_ASSERT(double_bits(b.recheck_fire.l.redshift) == double_bits(MimicConfig.ZZ[40]),
               "the recheck's burst read ZZ[40], the host's stored snapshot");
-  const struct sb_fire_budget e = sb_fire_expected(140.0f, MimicConfig.ZZ[40], 0.0, 0.0);
-  TEST_ASSERT(sb_fire_bits(b.recheck_fire.l.scaling) == sb_fire_bits(e.scaling),
+  const struct sb_fire_budget e =
+      sb_fire_expected(140.0f, MimicConfig.ZZ[40], 0.0, 0.0, FIRE_TEST_ESN);
+  TEST_ASSERT(double_bits(b.recheck_fire.l.scaling) == double_bits(e.scaling),
               "the recheck burst's scaling is SAGE26's for the host");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_fire_mode_refused
- * @brief   sage26_starburst_feedback's FIREmodeOn: a missing key fails initialisation and 2 and -1
- *          are refused, each naming the parameter; 0 and 1 initialise
- */
-int test_fire_mode_refused(void) {
-  const char *log = "";
-  int status = sb_fire_init(NULL, &log);
-  printf("\n  without FIREmodeOn: init %d", status);
-  TEST_ASSERT(status != 0 && strstr(log, "FIREmodeOn") != NULL,
-              "a missing FIREmodeOn must fail initialisation, naming it");
-  const char *refused[] = {"2", "-1"};
-  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
-    status = sb_fire_init(refused[k], &log);
-    printf("\n  FIREmodeOn %s: init %d", refused[k], status);
-    TEST_ASSERT(status != 0 && strstr(log, "FIREmodeOn") != NULL,
-                "an unsupported FIREmodeOn must be refused, naming it");
-  }
-  const char *accepted[] = {"0", "1"};
-  for (size_t k = 0; k < sizeof(accepted) / sizeof(accepted[0]); k++) {
-    status = sb_fire_init(accepted[k], &log);
-    TEST_ASSERT(status == 0, "FIREmodeOn 0 and 1 initialise");
-    sage26_starburst_feedback_cleanup();
-  }
   return TEST_PASS;
 }
 
@@ -3237,7 +1970,7 @@ int test_fire_burst_snapnum_refused(void) {
     const char *log = "";
     if (capture != NULL) {
       set_log_output(old_out);
-      log = sb_fire_read_log(capture);
+      log = read_captured_log(capture);
       fclose(capture);
     }
     printf("\n  SnapNum %d: status %d", refused[k], status);
@@ -3253,8 +1986,7 @@ int test_fire_burst_snapnum_refused(void) {
                 "FIREmodeOn 0 reads no redshift and bursts");
   }
 
-  const char *log = "";
-  TEST_ASSERT(sb_fire_init("1", &log) == 0, "init must succeed with FIREmodeOn 1");
+  TEST_ASSERT(sb_fire_init("1") == 0, "init must succeed with FIREmodeOn 1");
   struct Halo target, central;
   struct GalaxyData target_gal, central_gal;
   sb_fire_pair(&target, &target_gal, &central, &central_gal);
@@ -3308,23 +2040,13 @@ static __attribute__((noinline)) double cgm_merger_burst_stars(double mass_ratio
   return 0.56 * pow(ratio, 0.7) * cold_gas;
 }
 
-/** @brief Initialise with the exact-burst parameters and CGMrecipeOn `cgm` (NULL: missing) */
-static int cgm_init(const char *cgm, const char **log) {
+/** @brief Initialise with the exact-burst parameters and CGMrecipeOn `cgm` */
+static int cgm_init(const char *cgm) {
   init_memory_system(0);
   reset_config();
   setup_test_parameters(1.0, 0.0, 0.5, 0.5, 1.0, 0.3);
-  sb_fire_set_param("CGMrecipeOn", cgm);
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = sage26_starburst_feedback_init();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    *log = sb_fire_read_log(capture);
-    fclose(capture);
-  } else {
-    *log = "";
-  }
-  return status;
+  set_model_param("CGMrecipeOn", cgm);
+  return sage26_starburst_feedback_init();
 }
 
 /**
@@ -3339,11 +2061,13 @@ int test_cgm_burst_module_channels(void) {
     int to_cgm;
   } runs[] = {{"1", 0, 1}, {"1", 1, 0}, {"0", 0, 0}, {"0", 1, 0}};
   const double merger_stars = cgm_merger_burst_stars(0.5);
-  int ok = 1;
   for (int channel = 0; channel < 2; channel++) { /* 0 the instability, 1 the merger event */
     for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
-      const char *log = "";
-      TEST_ASSERT(cgm_init(runs[r].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+      char name[96];
+      snprintf(name, sizeof(name), "%s, CGMrecipeOn %s, central Regime %d",
+               channel == 0 ? "instability burst" : "merger burst", runs[r].cgm,
+               runs[r].central_regime);
+      ROW_ASSERT(cgm_init(runs[r].cgm) == 0, name, "init must accept CGMrecipeOn 0 and 1");
       struct Halo host, central;
       struct GalaxyData host_gal, central_gal;
       setup_test_galaxy(&central, &central_gal, 0, 0.0, 200.0, 3.0, 0.0, 4.0, 1.0, 2.0, 0.25);
@@ -3358,19 +2082,14 @@ int test_cgm_burst_module_channels(void) {
       host_gal.Regime = 1 - runs[r].central_regime;
       struct ModuleContext ctx;
       setup_test_context(&ctx, &central);
-      struct ModuleEvent event = {.producer_module_id =
-                                      MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                                  .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                                  .source_index = 2,
-                                  .target_index = 1,
-                                  .value0 = 0.5,
-                                  .value1 = 0.01};
+      struct ModuleEvent event = merger_event(0.5, 0.01);
       if (channel == 1) {
         ctx.active_event = &event;
       } else {
         host_gal.UnstableDiskGasFraction = 0.25;
       }
-      const int status = sage26_starburst_feedback_process(&ctx, &host, 1);
+      ROW_ASSERT(sage26_starburst_feedback_process(&ctx, &host, 1) == 0, name,
+                 "the burst must succeed");
 
       const float gas_out = channel == 0 ? 2.25f : (float)(2.0 + merger_stars);
       const float metals_out = channel == 0 ? 0.375f : (float)(0.25 + 0.5 * merger_stars);
@@ -3380,28 +2099,23 @@ int test_cgm_burst_module_channels(void) {
       const float *oth_gas = runs[r].to_cgm ? &central_gal.HotGas : &central_gal.CGMgas;
       const float *oth_metals =
           runs[r].to_cgm ? &central_gal.MetalsHotGas : &central_gal.MetalsCGMgas;
-      const int central_ok = *sel_gas == gas_out && *sel_metals == metals_out && *oth_gas == 2.0f &&
-                             *oth_metals == 0.25f && central_gal.EjectedGas == 0.0f &&
-                             central_gal.ColdGas == 3.0f;
-      const int host_ok =
-          host_gal.HotGas == 5.0f && host_gal.MetalsHotGas == 0.5f && host_gal.CGMgas == 5.0f &&
-          host_gal.MetalsCGMgas == 0.5f && host_gal.EjectedGas == 0.0f &&
-          (channel == 1 || (host_gal.ColdGas == 0.625f && host_gal.MetalsColdGas == 0.0f &&
-                            host_gal.SupernovaOutflowRate == 0.25f));
-      if (status != 0 || !central_ok || !host_ok) {
-        printf("\n  channel %d, CGMrecipeOn %s, central Regime %d: status %d, central hot "
-               "%.9g/%.9g, CGM %.9g/%.9g (expected selected %.9g/%.9g), host cold %.9g",
-               channel, runs[r].cgm, runs[r].central_regime, status, (double)central_gal.HotGas,
-               (double)central_gal.MetalsHotGas, (double)central_gal.CGMgas,
-               (double)central_gal.MetalsCGMgas, (double)gas_out, (double)metals_out,
-               (double)host_gal.ColdGas);
-        ok = 0;
-      }
+      ROW_ASSERT(*sel_gas == gas_out && *sel_metals == metals_out, name,
+                 "the central's selected pair receives the feedback and the yield");
+      ROW_ASSERT(*oth_gas == 2.0f && *oth_metals == 0.25f, name,
+                 "the central's unselected pair is unchanged");
+      ROW_ASSERT(central_gal.EjectedGas == 0.0f && central_gal.ColdGas == 3.0f, name,
+                 "the central's ejected and cold gas are unchanged");
+      ROW_ASSERT(host_gal.HotGas == 5.0f && host_gal.MetalsHotGas == 0.5f &&
+                     host_gal.CGMgas == 5.0f && host_gal.MetalsCGMgas == 0.5f &&
+                     host_gal.EjectedGas == 0.0f,
+                 name, "the host's own pairs and ejected gas are unchanged");
+      ROW_ASSERT(channel == 1 || (host_gal.ColdGas == 0.625f && host_gal.MetalsColdGas == 0.0f &&
+                                  host_gal.SupernovaOutflowRate == 0.25f),
+                 name, "the instability burst leaves the host's cold gas and outflow as worked");
       sage26_starburst_feedback_cleanup();
     }
   }
   check_memory_leaks();
-  TEST_ASSERT(ok, "each burst channel must route its feedback and yield by the central's Regime");
   return TEST_PASS;
 }
 
@@ -3423,8 +2137,10 @@ int test_cgm_burst_recheck_sites(void) {
     int central_regime;
     int host_regime;
   } runs[] = {{1, 0, 1}, {1, 1, 0}, {0, 0, 1}, {0, 1, 0}};
-  int ok = 1;
   for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
+    char name[96];
+    snprintf(name, sizeof(name), "CGMrecipeOn %d, central Regime %d, host Regime %d", runs[r].cgm,
+             runs[r].central_regime, runs[r].host_regime);
     static struct Halo central, host;
     static struct GalaxyData central_gal, gal;
     setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
@@ -3459,58 +2175,33 @@ int test_cgm_burst_recheck_sites(void) {
         .cgm_recipe_on = runs[r].cgm,
     };
     struct MimicSageStarburstLocals b;
-    const int status = mimic_apply_collisional_starburst(0.2, &host, &central, 0, 1, 0.0, 0.0, 0,
-                                                         0.01, &ctx, &params, &b);
+    ROW_ASSERT(mimic_apply_collisional_starburst(0.2, &host, &central, 0, 1, 0.0, 0.0, 0, 0.01,
+                                                 &ctx, &params, &b) == 0,
+               name, "the burst must run");
     const int central_cgm = runs[r].cgm == 1 && runs[r].central_regime == 0;
     const int host_cgm = runs[r].cgm == 1 && runs[r].host_regime == 0;
-    const int ran = b.instability_recheck_ran == 1 && b.recheck_wind.reservoir_cgm != -1 &&
-                    b.recheck_feedback_reservoir_cgm != -1 && b.recheck_yield_reservoir_cgm != -1;
-    const int sites_ok =
-        b.feedback.reservoir_cgm == central_cgm && b.yield_reservoir_cgm == central_cgm &&
-        b.recheck_feedback_reservoir_cgm == central_cgm &&
-        b.recheck_yield_reservoir_cgm == central_cgm && b.recheck_wind.reservoir_cgm == host_cgm &&
-        isnan(host_cgm ? b.recheck_wind.hot_gas_energy : b.recheck_wind.cgm_gas_energy);
+    ROW_ASSERT(b.instability_recheck_ran == 1 && b.recheck_wind.reservoir_cgm != -1 &&
+                   b.recheck_feedback_reservoir_cgm != -1 && b.recheck_yield_reservoir_cgm != -1,
+               name, "the recheck must run its wind and its nested burst");
+    ROW_ASSERT(b.feedback.reservoir_cgm == central_cgm && b.yield_reservoir_cgm == central_cgm,
+               name, "the outer burst routes by the central's Regime");
+    ROW_ASSERT(b.recheck_feedback_reservoir_cgm == central_cgm &&
+                   b.recheck_yield_reservoir_cgm == central_cgm,
+               name, "the nested burst routes by the central's Regime");
+    ROW_ASSERT(b.recheck_wind.reservoir_cgm == host_cgm &&
+                   isnan(host_cgm ? b.recheck_wind.hot_gas_energy : b.recheck_wind.cgm_gas_energy),
+               name, "the recheck's wind routes by the host's Regime");
     const float central_unselected_gas = central_cgm ? central_gal.HotGas : central_gal.CGMgas;
     const float central_unselected_metals =
         central_cgm ? central_gal.MetalsHotGas : central_gal.MetalsCGMgas;
     const float host_unselected_gas = host_cgm ? gal.HotGas : gal.CGMgas;
     const float host_unselected_metals = host_cgm ? gal.MetalsHotGas : gal.MetalsCGMgas;
     /* both of the host's pairs entered as 5 / 0.1, both of the central's as 40 / 0.8 */
-    const int unselected_ok = central_unselected_gas == 40.0f &&
-                              central_unselected_metals == 0.8f && host_unselected_gas == 5.0f &&
-                              host_unselected_metals == 0.1f;
-    if (status != 0 || !ran || !sites_ok || !unselected_ok) {
-      printf("\n  CGMrecipeOn %d, central Regime %d, host Regime %d: status %d, ran %d, feedback "
-             "%d, yield %d, recheck feedback %d, recheck yield %d, recheck wind %d, central "
-             "unselected %.9g/%.9g, host unselected %.9g/%.9g",
-             runs[r].cgm, runs[r].central_regime, runs[r].host_regime, status, ran,
-             b.feedback.reservoir_cgm, b.yield_reservoir_cgm, b.recheck_feedback_reservoir_cgm,
-             b.recheck_yield_reservoir_cgm, b.recheck_wind.reservoir_cgm,
-             (double)central_unselected_gas, (double)central_unselected_metals,
-             (double)host_unselected_gas, (double)host_unselected_metals);
-      ok = 0;
-    }
+    ROW_ASSERT(central_unselected_gas == 40.0f && central_unselected_metals == 0.8f, name,
+               "the central's unselected pair is unchanged");
+    ROW_ASSERT(host_unselected_gas == 5.0f && host_unselected_metals == 0.1f, name,
+               "the host's pair its wind does not select is unchanged");
   }
-  TEST_ASSERT(ok, "the recheck's wind must route by the host, every burst site by the central");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
- *          a refusal naming the parameter
- */
-int test_cgm_recipe_on_refused(void) {
-  const char *log = "";
-  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
-  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
-  sage26_starburst_feedback_cleanup();
   return TEST_PASS;
 }
 
@@ -3519,68 +2210,29 @@ int test_cgm_recipe_on_refused(void) {
 // ============================================================================
 
 /**
- * @brief Run one minor merger (ratio 0.2, below ThresholdMajorMerger 0.3) on a target with the
- *        given FFBRegime through both merger consumers, sage26_quasar_mode then
- *        sage26_starburst_feedback, with the post-merger recheck
- *        configured or not (sage26_disk_instability by galaxy, SAGE26's DiskInstabilityOn), and
- *        return the target's and the central's end states
- */
-static int run_ffb_target_merger(const int ffb_regime, const int recheck,
-                                 struct GalaxyData *target_out, struct GalaxyData *central_out) {
-  init_memory_system(0);
-  reset_config();
-  setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
-  setup_post_merger_recheck_parameters(1);
-  if (recheck) {
-    test_phase_add("galaxy_physics", "sage26_disk_instability", PROCESSING_MODE_BY_GALAXY);
-  }
-  test_phase_add("satellite_mergers", "sage26_resolve_mergers_and_disruption",
-                 PROCESSING_MODE_FULL_HALO);
-  test_phase_add("satellite_mergers", "sage26_quasar_mode", PROCESSING_MODE_PER_EVENT);
-  test_phase_add("satellite_mergers", "sage26_starburst_feedback", PROCESSING_MODE_PER_EVENT);
-  MimicConfig.G = 43007.1;
-  int status = sage26_quasar_mode_init() != 0 || sage26_starburst_feedback_init() != 0;
-
-  struct Halo central, target;
-  struct GalaxyData central_gal, target_gal;
-  setup_test_galaxy(&central, &central_gal, 0, 120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
-  setup_test_galaxy(&target, &target_gal, 1, 30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
-  target.Vmax = 120.0;
-  target_gal.DiskScaleRadius = 5.0;
-  target_gal.BlackHoleMass = 0.05;
-  target_gal.FFBRegime = ffb_regime;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, &central);
-  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                              .source_index = 2,
-                              .target_index = 1,
-                              .value0 = 0.2,
-                              .value1 = 0.1};
-  ctx.active_event = &event;
-  status |= sage26_quasar_mode_process(&ctx, &target, 1) != 0;
-  status |= sage26_starburst_feedback_process(&ctx, &target, 1) != 0;
-  memcpy(target_out, &target_gal, sizeof(target_gal));
-  memcpy(central_out, &central_gal, sizeof(central_gal));
-
-  sage26_starburst_feedback_cleanup();
-  sage26_quasar_mode_cleanup();
-  test_free_substep_phases();
-  return status;
-}
-
-/**
  * @test    test_ffb_target_merger_continuation
  * @brief   A merger on an FFB target bursts, grows its black hole and runs the post-merger recheck
  *          as on an ordinary target: SAGE26's merger routines do not read FFBRegime
  *          and only the FFB disk call skips the instability
+ *
+ * Both merger consumers run, sage26_quasar_mode then sage26_starburst_feedback, on a minor merger
+ * (the scenario of run_minor_merger) with the recheck configured. The recheck is shown to act
+ * against the same FFB target without it (more bulge, more black hole and accretion, less cold
+ * gas, no fewer stars), and the baryons of the target and its central (cold and hot gas,
+ * ejected gas, stars and black hole) are conserved across the whole merger.
  */
 int test_ffb_target_merger_continuation(void) {
+  init_memory_system(0);
+  struct minor_merger cfg = MINOR_MERGER_DEFAULT;
+  cfg.disk_instability = 1;
+  cfg.quasar = 1;
+  cfg.quasar_consumer = 1;
+  cfg.ffb_regime = 1;
   struct GalaxyData ffb_target, ffb_central, normal_target, normal_central;
-  TEST_ASSERT(run_ffb_target_merger(1, 1, &ffb_target, &ffb_central) == 0,
+  TEST_ASSERT(run_minor_merger(&cfg, &ffb_target, &ffb_central) == 0,
               "the merger on the FFB target runs");
-  TEST_ASSERT(run_ffb_target_merger(0, 1, &normal_target, &normal_central) == 0,
+  cfg.ffb_regime = 0;
+  TEST_ASSERT(run_minor_merger(&cfg, &normal_target, &normal_central) == 0,
               "the merger on the ordinary target runs");
   TEST_ASSERT(ffb_target.FFBRegime == 1, "the FFB target keeps FFBRegime 1");
   TEST_ASSERT(normal_target.FFBRegime == 0, "the ordinary target keeps FFBRegime 0");
@@ -3593,22 +2245,36 @@ int test_ffb_target_merger_continuation(void) {
               "the central's end state is the same for both targets");
 
   /* The merger acted: the burst formed stars, the black hole grew */
-  printf("\n  FFB target: StellarMass 5 -> %.9g, BulgeMass 1 -> %.9g, BlackHoleMass 0.05 -> %.9g",
-         (double)ffb_target.StellarMass, (double)ffb_target.BulgeMass,
-         (double)ffb_target.BlackHoleMass);
-  TEST_ASSERT(ffb_target.StellarMass > 5.0f, "the burst formed stars on the FFB target");
-  TEST_ASSERT(ffb_target.BlackHoleMass > 0.05f, "the black hole grew on the FFB target");
+  TEST_ASSERT(ffb_target.StellarMass > (float)MINOR_TARGET_STELLAR,
+              "the burst formed stars on the FFB target");
+  TEST_ASSERT(ffb_target.BlackHoleMass > (float)MINOR_TARGET_BLACK_HOLE,
+              "the black hole grew on the FFB target");
+
+  /* The baryons of the closed target-and-central system are conserved */
+  const double before = MINOR_TARGET_COLD + MINOR_TARGET_STELLAR + MINOR_TARGET_HOT +
+                        MINOR_TARGET_BLACK_HOLE + MINOR_CENTRAL_HOT;
+  const double after = ffb_target.ColdGas + ffb_target.StellarMass + ffb_target.HotGas +
+                       ffb_target.EjectedGas + ffb_target.BlackHoleMass + ffb_central.HotGas +
+                       ffb_central.EjectedGas;
+  TEST_ASSERT_DOUBLE_EQUAL(after, before, 1e-4,
+                           "Total baryons (target+central) must be conserved across the merger");
 
   /* The recheck acted: without it the FFB target's end state differs */
-  struct GalaxyData no_recheck_target, no_recheck_central;
-  TEST_ASSERT(run_ffb_target_merger(1, 0, &no_recheck_target, &no_recheck_central) == 0,
+  cfg.ffb_regime = 1;
+  cfg.disk_instability = 0;
+  struct GalaxyData no_recheck_target;
+  TEST_ASSERT(run_minor_merger(&cfg, &no_recheck_target, NULL) == 0,
               "the merger without the recheck runs");
-  printf("\n  without the recheck: BulgeMass %.9g, BlackHoleMass %.9g",
-         (double)no_recheck_target.BulgeMass, (double)no_recheck_target.BlackHoleMass);
   TEST_ASSERT(ffb_target.BulgeMass > no_recheck_target.BulgeMass,
               "the recheck's stellar transfer ran on the FFB target");
   TEST_ASSERT(ffb_target.BlackHoleMass > no_recheck_target.BlackHoleMass,
               "the recheck's black-hole growth ran on the FFB target");
+  TEST_ASSERT(ffb_target.QuasarModeBHaccretionMass > no_recheck_target.QuasarModeBHaccretionMass,
+              "the recheck records extra black-hole accretion");
+  TEST_ASSERT(ffb_target.ColdGas < no_recheck_target.ColdGas,
+              "the recheck consumes or ejects more cold gas");
+  TEST_ASSERT(ffb_target.StellarMass >= no_recheck_target.StellarMass,
+              "the recheck does not reduce the stellar mass");
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -3623,65 +2289,44 @@ int main(void) {
   /* Initialize error handling for tests */
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  /* Run physics calculation tests */
+  /* The disk-instability burst */
   TEST_RUN(test_disk_instability_starburst);
-  TEST_RUN(test_disk_instability_uses_full_interval_for_rates);
-  TEST_RUN(test_merger_starburst);
-  TEST_RUN(test_both_triggers);
-  TEST_RUN(test_per_event_merger_starburst);
-  TEST_RUN(test_per_event_merger_uses_fof_central_feedback_destination);
-  TEST_RUN(test_per_event_merger_uses_target_full_interval_for_rates);
-  TEST_RUN(test_per_event_minor_merger_rechecks_disk_instability);
-  TEST_RUN(test_per_event_recheck_respects_phase2_quasar_configuration);
-  TEST_RUN(test_per_event_recheck_agn_recipe_off);
-  TEST_RUN(test_agn_recipe_refused);
+  TEST_RUN(test_burst_rates_use_full_interval);
+  TEST_RUN(test_merger_burst_bulge_channel);
+
+  /* The post-minor-merger recheck */
+  TEST_RUN(test_per_event_recheck_black_hole_gating);
   TEST_RUN(test_per_event_zero_ratio_bursts);
-  TEST_RUN(test_major_vs_minor_merger);
-  TEST_RUN(test_mass_conservation);
-  TEST_RUN(test_metallicity_preservation);
-  TEST_RUN(test_bulge_formation);
-  TEST_RUN(test_ejection_calculation);
-  TEST_RUN(test_cold_gas_balance);
 
-  /* Run edge case tests */
-  TEST_RUN(test_zero_cold_gas);
-  TEST_RUN(test_zero_efficiency);
-  TEST_RUN(test_no_triggers);
-  TEST_RUN(test_null_galaxy);
-  TEST_RUN(test_null_central_galaxy);
-  TEST_RUN(test_triggers_preserved);
-  TEST_RUN(test_invalid_ngal);
-  TEST_RUN(test_disk_instability_invalid_nonboundary_dt_errors);
-  TEST_RUN(test_disk_instability_boundary_sentinel_dt_noop);
+  /* Guards on bad state */
+  TEST_RUN(test_process_guards);
+  TEST_RUN(test_no_burst_leaves_state);
   TEST_RUN(test_zero_vvir);
-  TEST_RUN(test_insufficient_cold_gas);
-
-  /* Run parameter sensitivity tests */
-  TEST_RUN(test_parameter_sensitivity_reheating);
-  TEST_RUN(test_parameter_sensitivity_ejection);
-  TEST_RUN(test_parameter_sensitivity_yield);
-
-  /* Run infrastructure tests */
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_memory_safety);
+
+  /* Bulge star-formation history */
   TEST_RUN(test_instability_burst_samples_bulge_history);
   TEST_RUN(test_merger_burst_samples_with_event_dt);
   TEST_RUN(test_post_merger_recheck_samples_with_event_dt);
   TEST_RUN(test_consecutive_bursts_bulge_excess_grows);
+
+  /* Hydrogen */
   TEST_RUN(test_hydrogen_refresh_module_wiring);
   TEST_RUN(test_hydrogen_refresh_invariants);
   TEST_RUN(test_hydrogen_cap_recheck_growth);
+
+  /* FIRE */
   TEST_RUN(test_fire_burst_budget_independent);
   TEST_RUN(test_fire_burst_on_versus_off);
-  TEST_RUN(test_fire_burst_wiring_direct);
-  TEST_RUN(test_fire_burst_wiring_merger_event);
-  TEST_RUN(test_fire_burst_wiring_instability_channel);
+  TEST_RUN(test_fire_burst_wiring_by_channel);
   TEST_RUN(test_fire_burst_wiring_recheck);
-  TEST_RUN(test_fire_mode_refused);
   TEST_RUN(test_fire_burst_snapnum_refused);
+
+  /* CGM routing */
   TEST_RUN(test_cgm_burst_module_channels);
   TEST_RUN(test_cgm_burst_recheck_sites);
-  TEST_RUN(test_cgm_recipe_on_refused);
+
+  /* Feedback-free-burst targets */
   TEST_RUN(test_ffb_target_merger_continuation);
 
   /* Print summary and return result */

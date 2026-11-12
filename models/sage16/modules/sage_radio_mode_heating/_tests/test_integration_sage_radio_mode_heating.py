@@ -1,466 +1,194 @@
 #!/usr/bin/env python3
 """
-SAGE Radio Mode Heating Module - Integration Test
+sage_radio_mode_heating - Integration Test
 
-Validates: Module pipeline integration, AGN physics correctness, parameter sensitivity
+Validates the radio-mode AGN module through real Mimic runs on the committed test trees.
 
-This test validates the sage_radio_mode_heating module integration:
-- Module loads and executes correctly in full pipeline
-- AGN feedback suppresses cooling appropriately
-- Black hole mass increases via accretion
-- Hot gas is consumed by BH accretion
-- Parameter sensitivity (efficiency and recipe mode)
-- Memory safety and performance
+One pipeline, the gas pipeline: infall, cooling, the star-formation chain and the disk
+instability's quasar-mode growth (which seeds the black holes the radio mode heats with) around the
+radio mode. It is run at RadioModeEfficiency 0.08 with the Bondi recipe, with the radio mode off
+(AGNrecipe 0) and at the higher efficiency 0.20, each configured once and shared between the cases.
 
 Test cases:
-  - test_module_pipeline_integration: Full pipeline execution and output validation
-  - test_agn_physics_correctness: Physics correctness and reasonableness checks
-  - test_parameter_sensitivity: Efficiency and recipe parameters affect results
-  - test_memory_and_performance: Memory leaks and performance baseline
+  - test_agn_physics_correctness: on the Bondi run the outputs are finite and non-negative, black
+    holes exist in massive halos, centrals hold hot gas below their halo mass, radio-mode heating
+    acts on some galaxies, and the run leaves no memory leak
+  - test_parameter_sensitivity: AGNrecipe 0 heats no row and seeds no black hole; the two
+    efficiencies heat some rows and give different Heating and BlackHoleMass
 
-Author: Mimic Development Team
-Date: 2025-12-18
+Run (from the repository root, after `make MODEL=sage16 SIMULATION=mini-millennium`):
+  MODEL=sage16 SIMULATION=mini-millennium python3 \\
+    models/sage16/modules/sage_radio_mode_heating/_tests/test_integration_sage_radio_mode_heating.py
 """
 
-import shutil
 import sys
 from pathlib import Path
 
 import numpy as np
 
-# Repository root and paths
-REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import (
-    BLUE,
-    GREEN,
+from framework import (  # noqa: E402
     MIMIC_EXE,
-    NC,
-    RED,
+    SharedRuns,
     TestSkipped,
     check_no_memory_leaks,
-    create_test_param_file,
     load_binary_halos,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
+    run_test_suite,
 )
 
+RUNS = SharedRuns()
 
-def test_module_pipeline_integration():
-    """Test that module integrates correctly into full pipeline
+# The gas supply, the star-formation chain and the disk instability's quasar-mode growth, which
+# seeds the black holes the radio mode heats with
+GAS_PHASES = {
+    "pre_timestep": [
+        ("sage_set_disk_scale_radius", "process_full_halo"),
+        ("sage_reionization", "process_full_halo"),
+        ("sage_prepare_infall_budget", "process_full_halo"),
+    ],
+    "galaxy_physics": [
+        ("sage_apply_infall", "process_full_halo"),
+        ("sage_calculate_cooling_budget", "process_by_galaxy"),
+        ("sage_radio_mode_heating", "process_by_galaxy"),
+        ("sage_apply_cooling", "process_by_galaxy"),
+        ("sage_calculate_star_formation", "process_by_galaxy"),
+        ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+        ("sage_apply_star_formation_supernova", "process_by_galaxy"),
+        ("sage_disk_instability", "process_by_galaxy"),
+        ("sage_quasar_mode", "process_by_galaxy"),
+    ],
+    "satellite_mergers": [],
+    "post_timestep": [],
+}
 
-    Validates:
-    - Module loads and initializes
-    - Pipeline executes without errors
-    - Output file is created with expected properties
-    - AGN-related fields exist and have valid data
-    """
-    print(f"\n{BLUE}TEST: Module pipeline integration{NC}")
 
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="agn_integration",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage_calculate_cooling_budget", "process_by_galaxy"),
-                ("sage_radio_mode_heating", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "RadioModeEfficiency": 0.08,
-            "AGNrecipe": 1,
-            # Cooling module parameters (required dependency)
-            "CoolingRecipe": 1,
-            "CoolingEfficiency": 1.0,
-            "ReincorporationFactor": 1.0,
-        },
-    )
+def gas_params(radio_mode_efficiency, agn_recipe):
+    """The gas pipeline's parameters with the two radio-mode parameters."""
+    return {
+        "RadioModeEfficiency": radio_mode_efficiency,
+        "AGNrecipe": agn_recipe,
+        "GlobalBaryonFraction": 0.17,
+        "SfrEfficiency": 0.02,
+        "StarFormingDiskFactor": 3.0,
+        "FeedbackReheatingEpsilon": 3.0,
+        "FeedbackEjectionEfficiency": 0.3,
+        "RecycleFraction": 0.43,
+        "BlackHoleGrowthRate": 0.01,
+        "QuasarModeEfficiency": 0.001,
+    }
 
-    # Execute Mimic
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
 
-    # Validate output file exists
-    output_file = output_dir / "model_z0.000_0"
-    assert output_file.exists(), "Output file should exist"
-    assert output_file.stat().st_size > 0, "Output file should have content"
+GAS_BONDI = ("gas_bondi", GAS_PHASES, gas_params(0.08, 2))
+GAS_OFF = ("gas_off", GAS_PHASES, gas_params(0.08, 0))
+GAS_HIGH_EFFICIENCY = ("gas_high_efficiency", GAS_PHASES, gas_params(0.20, 2))
 
-    # Load and validate output data
-    halos, metadata = load_binary_halos(output_file)
+
+def run_configuration(name, phases, params):
+    """Run (once) and return the named configuration, asserting a clean exit."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    run = RUNS.run(name, phase_config=phases, model_params=params)
+    assert run.returncode == 0, f"Mimic should execute successfully\nSTDERR: {run.stderr}"
+    return run
+
+
+def load_z0_halos(configuration):
+    """The z = 0 output rows of a configuration."""
+    run = run_configuration(*configuration)
+    halos, _metadata = load_binary_halos(run.output_dir / "model_z0.000_0")
     assert len(halos) > 0, "Should have output halos"
-
-    # Check AGN-related fields exist
-    assert "BlackHoleMass" in halos.dtype.names, "Output should have BlackHoleMass field"
-    assert "HotGas" in halos.dtype.names, "Output should have HotGas field"
-    assert "Heating" in halos.dtype.names, "Output should have Heating field"
-
-    # Basic validation: no NaNs or Infs
-    bh_mass = halos["BlackHoleMass"]
-    hot_gas = halos["HotGas"]
-    heating = halos["Heating"]
-
-    assert not np.any(np.isnan(bh_mass)), "BlackHoleMass should not have NaN values"
-    assert not np.any(np.isinf(bh_mass)), "BlackHoleMass should not have Inf values"
-    assert np.all(bh_mass >= 0.0), "BlackHoleMass should be non-negative"
-
-    assert not np.any(np.isnan(hot_gas)), "HotGas should not have NaN values"
-    assert not np.any(np.isinf(hot_gas)), "HotGas should not have Inf values"
-    assert np.all(hot_gas >= 0.0), "HotGas should be non-negative"
-
-    assert not np.any(np.isnan(heating)), "Heating should not have NaN values"
-    assert not np.any(np.isinf(heating)), "Heating should not have Inf values"
-    assert np.all(heating >= 0.0), "Heating should be non-negative"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Module pipeline integration successful{NC}")
+    return halos
 
 
 def test_agn_physics_correctness():
-    """Test that AGN physics is physically reasonable
+    """AGN physics is physically reasonable on the gas pipeline.
 
     Validates:
-    - Black holes grow over time (via accretion)
-    - Hot gas decreases when BH accretes
-    - Cooling is suppressed by AGN feedback
-    - Mass conservation: accreted mass comes from hot gas
-    - AGN is more active in massive halos
+    - the black hole, hot gas and Heating outputs are finite and non-negative
+    - black holes exist in massive halos and are a small fraction of the halo mass
+    - centrals hold hot gas, bounded by the halo mass
+    - radio-mode heating acts on some galaxies
+    - the run leaves no memory leak
+
+    The radio-mode rate is proportional to the black hole mass and acts only on cooling hot gas, so
+    the pipeline supplies both: infall and cooling give the hot and cold gas, the star-formation
+    chain the stellar disk, and the disk instability's quasar-mode growth seeds the black holes.
+
+    The hot gas bound applies to centrals: a central's hot gas is part of its FoF group's baryons,
+    which the infall budget sets to HaloBaryonFraction * Mvir (sage_prepare_infall_budget), far
+    below Mvir. A satellite keeps the hot gas it held as a central while its subhalo's Mvir is
+    stripped (only sage_satellite_stripping, not in this pipeline, removes it), so its hot gas
+    can exceed its current Mvir and is not bounded by it.
     """
-    print(f"\n{BLUE}TEST: AGN physics correctness{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="agn_physics",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage_calculate_cooling_budget", "process_by_galaxy"),
-                ("sage_radio_mode_heating", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "RadioModeEfficiency": 0.08,
-            "AGNrecipe": 1,
-            # Cooling module parameters
-            "CoolingRecipe": 1,
-            "CoolingEfficiency": 1.0,
-            "ReincorporationFactor": 1.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    # Load output
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
+    halos = load_z0_halos(GAS_BONDI)
+    run = run_configuration(*GAS_BONDI)
+    assert check_no_memory_leaks(run.stdout, run.stderr), "Should not have memory leaks"
 
     bh_mass = halos["BlackHoleMass"]
     hot_gas = halos["HotGas"]
     heating = halos["Heating"]
     mvir = halos["Mvir"]
 
-    # Physics validation 1: Some black holes should exist
-    # (They might not grow much in one timestep, but should be present)
-    total_bh_mass = np.sum(bh_mass)
-    print(f"  Total black hole mass: {total_bh_mass:.2e} [1e10 Msun/h]")
-    assert total_bh_mass >= 0.0, "Total BH mass should be non-negative"
+    for name, values in (("BlackHoleMass", bh_mass), ("HotGas", hot_gas), ("Heating", heating)):
+        assert np.all(np.isfinite(values)), f"{name} should be finite"
+        assert np.all(values >= 0.0), f"{name} should be non-negative"
 
-    # Physics validation 2: BH mass should be much smaller than halo mass
-    # Typical M_BH/M_halo ~ 10^-3 to 10^-5
+    # Typical M_BH / M_halo is 1e-3 to 1e-5; the largest value on this run is about 5e-5
     bh_in_massive_halos = (mvir > 10.0) & (bh_mass > 0)
-    if np.sum(bh_in_massive_halos) > 0:
-        bh_fraction = bh_mass[bh_in_massive_halos] / mvir[bh_in_massive_halos]
-        assert np.all(bh_fraction < 0.1), "BH mass should be < 10% of halo mass (unreasonably high)"
-        print(f"  BH mass fraction in massive halos: {np.mean(bh_fraction):.4e}")
+    assert np.sum(bh_in_massive_halos) > 0, "massive halos should host black holes"
+    bh_fraction = bh_mass[bh_in_massive_halos] / mvir[bh_in_massive_halos]
+    assert np.all(
+        bh_fraction < 1e-3
+    ), "BH mass should be < 1e-3 of the halo mass (run maximum 5e-5)"
+    print(f"  BH mass fraction in massive halos: {np.mean(bh_fraction):.4e}")
 
-    # Physics validation 3: Hot gas should be reasonable fraction of halo mass
-    hot_gas_fraction = hot_gas / mvir
-    hot_gas_in_halos = mvir > 1.0
-    if np.sum(hot_gas_in_halos) > 0:
-        assert np.all(
-            hot_gas_fraction[hot_gas_in_halos] <= 1.0
-        ), "Hot gas cannot exceed total halo mass"
-        print(f"  Mean hot gas fraction: {np.mean(hot_gas_fraction[hot_gas_in_halos]):.4f}")
+    centrals = (mvir > 1.0) & (halos["Type"] == 0)
+    assert np.sum(centrals & (hot_gas > 0)) > 0, "some centrals should hold hot gas"
+    assert np.all(hot_gas[centrals] / mvir[centrals] <= 1.0), "Hot gas cannot exceed the halo mass"
 
-    # Physics validation 4: Heating should be tracking AGN energy injection
-    total_heating = np.sum(heating)
-    print(f"  Total AGN heating: {total_heating:.2e}")
-    assert total_heating >= 0.0, "Total heating should be non-negative"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ AGN physics is physically reasonable{NC}")
+    assert np.sum(heating > 0) > 0, "radio-mode heating should act on some galaxies"
 
 
 def test_parameter_sensitivity():
-    """Test that changing parameters changes results
+    """The radio-mode parameters act on the gas pipeline.
 
     Validates:
-    - Higher RadioModeEfficiency increases AGN suppression
-    - Different AGN recipes produce different results
-    - AGNrecipe=0 disables AGN (no BH growth)
+    - AGNrecipe 0 turns the radio mode off: no row is heated and, as in SAGE, the quasar-mode
+      growth seeds no black hole
+    - RadioModeEfficiency is read and acts: 0.08 and 0.20 both heat some rows and give different
+      Heating and BlackHoleMass. No direction is asserted: the radio mode's feedback on the cooling
+      that feeds it and the quasar-mode growth makes the z = 0 totals non-monotonic
     """
-    print(f"\n{BLUE}TEST: Parameter sensitivity{NC}")
+    off = load_z0_halos(GAS_OFF)
+    middle = load_z0_halos(GAS_BONDI)
+    high = load_z0_halos(GAS_HIGH_EFFICIENCY)
 
-    # Run 1: AGN off (recipe = 0)
-    param_file_off, output_dir_off, temp_dir_off = create_test_param_file(
-        output_name="agn_off",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage_calculate_cooling_budget", "process_by_galaxy"),
-                ("sage_radio_mode_heating", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "RadioModeEfficiency": 0.08,
-            "AGNrecipe": 0,  # AGN disabled
-            "CoolingRecipe": 1,
-            "CoolingEfficiency": 1.0,
-            "ReincorporationFactor": 1.0,
-        },
-    )
+    for name, halos in (("off", off), ("0.08", middle), ("0.20", high)):
+        print(
+            f"  {name}: BlackHoleMass {np.sum(halos['BlackHoleMass']):.3e}, "
+            f"Heating {np.sum(halos['Heating']):.3e} on {int(np.sum(halos['Heating'] > 0))} rows"
+        )
 
-    returncode, stdout, stderr = run_mimic(param_file_off)
-    assert returncode == 0, f"AGN off run should succeed\nSTDERR: {stderr}"
-
-    output_file_off = output_dir_off / "model_z0.000_0"
-    halos_off, _ = load_binary_halos(output_file_off)
-    bh_mass_off = halos_off["BlackHoleMass"]
-    total_bh_off = np.sum(bh_mass_off)
-    print(f"  Total BH mass (AGN off): {total_bh_off:.2e}")
-
-    # Run 2: Low efficiency empirical mode
-    param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
-        output_name="agn_low_eff",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage_calculate_cooling_budget", "process_by_galaxy"),
-                ("sage_radio_mode_heating", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "RadioModeEfficiency": 0.02,  # Low efficiency
-            "AGNrecipe": 1,
-            "CoolingRecipe": 1,
-            "CoolingEfficiency": 1.0,
-            "ReincorporationFactor": 1.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file_low)
-    assert returncode == 0, f"Low efficiency run should succeed\nSTDERR: {stderr}"
-
-    output_file_low = output_dir_low / "model_z0.000_0"
-    halos_low, _ = load_binary_halos(output_file_low)
-    bh_mass_low = halos_low["BlackHoleMass"]
-    heating_low = halos_low["Heating"]
-    total_bh_low = np.sum(bh_mass_low)
-    total_heating_low = np.sum(heating_low)
-    print(f"  Total BH mass (low eff): {total_bh_low:.2e}")
-    print(f"  Total heating (low eff): {total_heating_low:.2e}")
-
-    # Run 3: High efficiency empirical mode
-    param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
-        output_name="agn_high_eff",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage_calculate_cooling_budget", "process_by_galaxy"),
-                ("sage_radio_mode_heating", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "RadioModeEfficiency": 0.20,  # High efficiency (10x low)
-            "AGNrecipe": 1,
-            "CoolingRecipe": 1,
-            "CoolingEfficiency": 1.0,
-            "ReincorporationFactor": 1.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file_high)
-    assert returncode == 0, f"High efficiency run should succeed\nSTDERR: {stderr}"
-
-    output_file_high = output_dir_high / "model_z0.000_0"
-    halos_high, _ = load_binary_halos(output_file_high)
-    bh_mass_high = halos_high["BlackHoleMass"]
-    heating_high = halos_high["Heating"]
-    total_bh_high = np.sum(bh_mass_high)
-    total_heating_high = np.sum(heating_high)
-    print(f"  Total BH mass (high eff): {total_bh_high:.2e}")
-    print(f"  Total heating (high eff): {total_heating_high:.2e}")
-
-    # Run 4: Cold cloud mode
-    param_file_cloud, output_dir_cloud, temp_dir_cloud = create_test_param_file(
-        output_name="agn_cold_cloud",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage_calculate_cooling_budget", "process_by_galaxy"),
-                ("sage_radio_mode_heating", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "RadioModeEfficiency": 0.08,
-            "AGNrecipe": 3,  # Cold cloud mode
-            "CoolingRecipe": 1,
-            "CoolingEfficiency": 1.0,
-            "ReincorporationFactor": 1.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file_cloud)
-    assert returncode == 0, f"Cold cloud run should succeed\nSTDERR: {stderr}"
-
-    output_file_cloud = output_dir_cloud / "model_z0.000_0"
-    halos_cloud, _ = load_binary_halos(output_file_cloud)
-    bh_mass_cloud = halos_cloud["BlackHoleMass"]
-    total_bh_cloud = np.sum(bh_mass_cloud)
-    print(f"  Total BH mass (cold cloud): {total_bh_cloud:.2e}")
-
-    # Validate parameter sensitivity
-    # Test 1: Higher efficiency should produce more BH growth (or equal if Eddington-limited)
-    assert (
-        total_bh_high >= total_bh_low
-    ), "Higher efficiency should produce at least as much BH growth"
-
-    # Test 2: Different recipes should produce different results (generally)
-    # Note: Results may be similar if physics is similar, so we just check they're valid
-    assert total_bh_cloud >= 0.0, "Cold cloud mode should produce valid results"
-
-    # Test 3: Higher efficiency should produce more heating
-    assert total_heating_high >= total_heating_low, "Higher efficiency should produce more heating"
-
-    # Cleanup
-    shutil.rmtree(temp_dir_off)
-    shutil.rmtree(temp_dir_low)
-    shutil.rmtree(temp_dir_high)
-    shutil.rmtree(temp_dir_cloud)
-
-    print(f"{GREEN}✓ Parameter sensitivity validated{NC}")
-
-
-def test_memory_and_performance():
-    """Test memory safety and establish performance baseline
-
-    Validates:
-    - No memory leaks during execution
-    - Execution completes in reasonable time
-    """
-    print(f"\n{BLUE}TEST: Memory safety and performance{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="agn_memory",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage_calculate_cooling_budget", "process_by_galaxy"),
-                ("sage_radio_mode_heating", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "RadioModeEfficiency": 0.08,
-            "AGNrecipe": 1,
-            "CoolingRecipe": 1,
-            "CoolingEfficiency": 1.0,
-            "ReincorporationFactor": 1.0,
-        },
-    )
-
-    # Execute and time
-    import time
-
-    start_time = time.time()
-    returncode, stdout, stderr = run_mimic(param_file)
-    elapsed_time = time.time() - start_time
-
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    # Check for memory leaks
-    assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
-
-    # Performance baseline (should complete in < 30 seconds for test data)
-    print(f"  Execution time: {elapsed_time:.2f}s")
-    assert elapsed_time < 30.0, f"Execution too slow: {elapsed_time:.2f}s (expected < 30s)"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Memory safety and performance validated{NC}")
+    assert np.all(off["Heating"] == 0.0), "AGNrecipe 0 should heat no row"
+    assert np.all(off["BlackHoleMass"] == 0.0), "AGNrecipe 0 should seed no black hole"
+    assert np.sum(middle["Heating"]) > 0, "the efficiency 0.08 should heat some rows"
+    assert np.sum(high["Heating"]) > 0, "the efficiency 0.20 should heat some rows"
+    for field in ("Heating", "BlackHoleMass"):
+        assert not np.array_equal(
+            middle[field], high[field]
+        ), f"RadioModeEfficiency should change {field}"
 
 
 def main():
-    """Main test runner"""
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: {Path(__file__).name}{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    tests = [
-        test_module_pipeline_integration,
-        test_agn_physics_correctness,
-        test_parameter_sensitivity,
-        test_memory_and_performance,
-    ]
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    try:
+        return run_test_suite(
+            [test_agn_physics_correctness, test_parameter_sensitivity],
+            "sage_radio_mode_heating Integration Tests",
+        )
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

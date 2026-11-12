@@ -2,8 +2,16 @@
  * @file    test_unit_sage_merger_ordering_parity.c
  * @brief   Immediate-order parity fixtures for SAGE merger/disruption ordering
  *
- * These tests exercise the dedicated immediate-order parity handler against the
- * live SAGE ordering contract documented in the module README.
+ * These tests run the resolver's process() against SAGE's in-pass ordering documented in the
+ * module README: each satellite's target is mutated before the next row is considered, and a
+ * target consumed earlier in the pass is redirected once through its own central.
+ *
+ * Test cases:
+ *   - test_shared_target_immediate_trace: a disruption then a merger onto the same FoF central,
+ *     in row order, with the merger's major/minor label
+ *   - test_consumed_target_redirect_trace: an orphan whose Type 1 target merged earlier in the
+ *     pass is redirected to that target's central, where the redirected merger is major (the
+ *     receiving galaxy ends with 2.4 of stars, all bulge)
  */
 
 #include "../../../../tests/framework/parity_trace.h"
@@ -305,37 +313,10 @@ int test_consumed_target_redirect_trace(void) {
   parity_failure =
       trace_matches_contract("Consumed-target redirect fixture should match SAGE one-hop redirect",
                              &expected_trace, &actual_trace);
-
-  cleanup_parity_modules();
-  check_memory_leaks();
-
-  return parity_failure ? TEST_FAIL : TEST_PASS;
-}
-
-int test_consumed_target_redirect_changes_major_minor_state(void) {
-  struct ModuleContext ctx;
-  struct Halo halos[4];
-  struct GalaxyData galaxies[4];
-  const double expected_target2_stellar = 2.4;
-  const double expected_target2_bulge = 2.4;
-  int parity_failure = 0;
-
-  printf("  Testing: consumed target redirect changes major/minor outcome...\n");
-
-  init_memory_system(0);
-  reset_config();
-  setup_model_parameters(TEST_THRESHOLD_DISRUPTION, TEST_THRESHOLD_MAJOR);
-  TEST_ASSERT(init_parity_modules() == 0, "Parity module should initialize for state fixture");
-
-  setup_consumed_target_fixture(&ctx, halos, galaxies);
-
-  TEST_ASSERT(sage_resolve_mergers_and_disruption_process(&ctx, halos, 4) == 0,
-              "Immediate parity module should succeed");
-  TEST_ASSERT(halos[3].Type == 3, "Type 2 orphan should be consumed in the immediate merge");
-
-  parity_failure = state_matches_contract(
-      "SAGE redirect should deliver a major merger remnant to halo 2", expected_target2_stellar,
-      expected_target2_bulge, halos[2].galaxy, halos[0].galaxy);
+  /* The redirected merger is major: halo 2's 1.2 of stars gain the orphan's 1.2, all bulge */
+  parity_failure |=
+      state_matches_contract("SAGE redirect should deliver a major merger remnant to halo 2", 2.4,
+                             2.4, halos[2].galaxy, halos[0].galaxy);
 
   cleanup_parity_modules();
   check_memory_leaks();
@@ -354,7 +335,6 @@ int main(void) {
 
   TEST_RUN(test_shared_target_immediate_trace);
   TEST_RUN(test_consumed_target_redirect_trace);
-  TEST_RUN(test_consumed_target_redirect_changes_major_minor_state);
 
   TEST_SUMMARY();
   return TEST_RESULT();

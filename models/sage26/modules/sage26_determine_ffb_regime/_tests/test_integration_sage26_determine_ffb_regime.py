@@ -3,10 +3,10 @@
 sage26_determine_ffb_regime - Integration Test
 
 Validates: SAGE26's feedback-free-burst classifier through real runs of mimic on the committed
-test trees: it loads and runs, writes nothing with EnhancedStarFormationOn 0, writes only its
-domain with EnhancedStarFormationOn 1, and refuses a missing required key, a misplacement and,
-at EnhancedStarFormationOn 1, a configuration without the FFB transaction, at the executable's
-exit status.
+test trees: it writes nothing with EnhancedStarFormationOn 0 and writes only its domain with
+EnhancedStarFormationOn 1. The parameter refusals are in the C test
+test_unit_sage26_parameter_refusals.c; the placement and cross-module refusals are in the C tests
+of the module and test_unit_sage_dependency_contracts.c.
 
 Every configuration sets every key its modules read, explicitly. The keys come from each configured
 module's module_info.yaml `parameters` list, which `make lint-parameters` holds to the code,
@@ -15,8 +15,7 @@ CGMrecipeOn, set to 0 because no CGM module is configured, so the star-formation
 classic hot-gas routing. Runs use the run file's SubSteps (10) and write snapshots
 63 and 16 (the FFB snapshot S).
 
-Minimal pipeline (Loads and runs, Off, On; EnhancedStarFormationOn 1 for Loads and runs and On),
-in the run file's order:
+Minimal pipeline (Off, On; EnhancedStarFormationOn 1 for On), in the run file's order:
   pre_timestep:   sage26_determine_ffb_regime
   galaxy_physics: sage26_ffb_star_formation, sage26_calculate_star_formation,
                   sage26_apply_star_formation_supernova
@@ -37,27 +36,8 @@ On writes its domain (the observable list):
   - Witness: at least one row with FFBRegime 1 at snapshot S = 16.
   - Exceptions: none. FFBRegime is the only property the module writes.
 
-Required-key refusal, isolated (a real run; mimic exits non-zero with "Required model parameter
-'EnhancedStarFormationOn' not found" and "Module 'sage26_determine_ffb_regime' initialization
-failed", and no other module's initialization failure):
-  - EnhancedStarFormationOn. Configuration: the classifier alone in pre_timestep, with
-    sage26_ffb_star_formation (the key's other reader) not configured; the classifier fails reading
-    the key before any cross-module guard applies (asserted from the modules' parameters lists).
-    Control: the same configuration with EnhancedStarFormationOn 0 exits 0. At 1 the classifier
-    alone is refused by its cross-module guard, which is the next case's subject.
-
-Placement refusal: with EnhancedStarFormationOn 0 (so no cross-module guard applies), the
-classifier in a substep phase (galaxy_physics, process_full_halo), every key present, is refused
-naming the module (check_placement).
-
-Cross-module guard, at EnhancedStarFormationOn 1: the classifier configured and
-sage26_ffb_star_formation absent is refused by the classifier, naming sage26_ffb_star_formation.
-This configuration breaks only that guard. The transaction's two guards (adjacency to
-sage26_calculate_star_formation, and the classifier's presence) are each exercised by
-sage26_ffb_star_formation's integration test, beside the guard they test.
-
-These run-level cases repeat, at the executable's exit status, refusals the module's C unit tests
-assert; they test no new behaviour.
+Runs: the file launches three, one per distinct configuration (Off with the module, Off without
+it, On).
 
 Run (from the repository root, after `make MODEL=sage26 SIMULATION=mini-millennium`):
   MODEL=sage26 SIMULATION=mini-millennium python3 models/sage26/modules/\\
@@ -80,8 +60,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_tests"))
 from sage26_run_helpers import (  # noqa: E402
     PackageRuns,
     assert_runs,
-    configured_modules,
-    module_parameters,
     require_mimic,
     require_pair,
 )
@@ -127,8 +105,6 @@ MINIMAL = {
     "galaxy_physics": STAR_FORMATION,
 }
 MINIMAL_WITHOUT = {"galaxy_physics": STAR_FORMATION}
-CLASSIFIER_ALONE = {"pre_timestep": [(MODULE, FH)]}
-MISPLACED = {"galaxy_physics": [(MODULE, FH)]}
 
 # ============================================================================
 # HELPERS
@@ -140,26 +116,11 @@ parameters_for = RUNS.parameters_for
 mimic_run = RUNS.mimic_run
 load_snapshot = RUNS.load_snapshot
 assert_outputs_identical = RUNS.assert_outputs_identical
-assert_refused = RUNS.assert_refused
 
 
 # ============================================================================
 # TEST CASES
 # ============================================================================
-
-
-def test_loads_and_runs():
-    """The minimal pipeline at EnhancedStarFormationOn 1 runs to completion, exit 0, no leak."""
-    require_pair()
-    require_mimic()
-    with mimic_run(f"{MODULE}_loads", MINIMAL, parameters_for(MINIMAL)) as run:
-        returncode, stdout, stderr, output_dir = run
-        assert_runs(returncode, stdout, stderr)
-        assert "SAGE determine FFB regime module initialized" in stdout, "no initialization log"
-        assert "SAGE determine FFB regime module cleaned up" in stdout, "no cleanup log"
-        for snapshot in OUTPUT_FILES:
-            load_snapshot(output_dir, snapshot)
-    print(f"  exit status 0, no leak report, snapshots {list(OUTPUT_FILES)} written")
 
 
 def test_off_is_noop():
@@ -194,77 +155,8 @@ def test_on_writes_domain():
                 assert ffb > 0, f"witness: no FFBRegime 1 row at snapshot {FFB_SNAPSHOT}"
 
 
-def test_required_key_enhancedstarformationon_refused():
-    """A missing EnhancedStarFormationOn is refused by this module alone; the control exits 0."""
-    require_pair()
-    require_mimic()
-    key = "EnhancedStarFormationOn"
-    configured = configured_modules(CLASSIFIER_ALONE)
-    readers = [name for name in configured if key in module_parameters(name)]
-    assert readers == [MODULE], f"configured readers of {key}: {readers}"
-    assert TRANSACTION not in configured
-
-    params = parameters_for(CLASSIFIER_ALONE, {key: 0})
-    with mimic_run(f"{MODULE}_key_control", CLASSIFIER_ALONE, params) as run:
-        returncode, stdout, stderr, _ = run
-        assert_runs(returncode, stdout, stderr)
-        print(f"  control ({key} present, 0): exit status {returncode}")
-
-    params = parameters_for(CLASSIFIER_ALONE, omit=(key,))
-    with mimic_run(f"{MODULE}_key_missing", CLASSIFIER_ALONE, params) as run:
-        returncode, stdout, stderr, _ = run
-        assert_refused(
-            returncode,
-            stdout,
-            stderr,
-            [
-                f"Required model parameter '{key}' not found",
-                f"Module '{MODULE}' initialization failed",
-            ],
-        )
-
-
-def test_placement_refused():
-    """At EnhancedStarFormationOn 0, an entry in a substep phase is refused, naming the module."""
-    require_pair()
-    require_mimic()
-    params = parameters_for(MISPLACED, {"EnhancedStarFormationOn": 0})
-    with mimic_run(f"{MODULE}_misplaced", MISPLACED, params) as run:
-        returncode, stdout, stderr, _ = run
-        assert_refused(
-            returncode,
-            stdout,
-            stderr,
-            [f"{MODULE} is configured in substep phase 'galaxy_physics'"],
-        )
-
-
-def test_transaction_required_refused():
-    """At EnhancedStarFormationOn 1 the classifier alone is refused, naming the transaction."""
-    require_pair()
-    require_mimic()
-    params = parameters_for(CLASSIFIER_ALONE)
-    assert params["EnhancedStarFormationOn"] == 1
-    with mimic_run(f"{MODULE}_no_transaction", CLASSIFIER_ALONE, params) as run:
-        returncode, stdout, stderr, _ = run
-        assert_refused(
-            returncode,
-            stdout,
-            stderr,
-            [f"{MODULE} requires {TRANSACTION} in a substep phase"],
-        )
-
-
 def main():
-    tests = [
-        test_loads_and_runs,
-        test_off_is_noop,
-        test_on_writes_domain,
-        test_required_key_enhancedstarformationon_refused,
-        test_placement_refused,
-        test_transaction_required_refused,
-    ]
-    return run_test_suite(tests, f"{MODULE} Integration Tests")
+    return run_test_suite([test_off_is_noop, test_on_writes_domain], f"{MODULE} Integration Tests")
 
 
 if __name__ == "__main__":

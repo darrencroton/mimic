@@ -9,24 +9,19 @@
  * comparison), never by calling the module's helpers.
  *
  * Software quality:
- * - test_module_lifecycle: registration, module_system_init with the module in pre_timestep,
- *   cleanup, no leaks
- * - test_cgm_recipe_on_missing_refused, test_cgm_recipe_on_values: the required CGMrecipeOn:
- *   missing fails init; 2, -1 and 3 are refused naming it; 0, 1 accepted
- * - test_mshock_missing_refused, test_mshock_values: the required MShockMsun: missing fails init;
- *   0, negative, inf and nan are refused naming it; 6.0e11 accepted
- * - test_placement_refused: outside pre_timestep, twice, or after the infall budget is refused
+ * - test_module_lifecycle: module_system_init accepts the module in pre_timestep, cleanup, no leaks
+ *
+ * The module's parameter refusals are in test_unit_sage26_parameter_refusals.c, its placement
+ * refusals in test_unit_sage_dependency_contracts.c.
  *
  * Behaviour:
  * - test_cgm_recipe_off_writes_nothing: CGMrecipeOn 0 writes nothing and requests no deviate
  * - test_mvir_zero_and_negative_no_deviate: Mvir +0, -0 and negative give Regime 0, no deviate
  * - test_mvir_nan_requests_deviate: a NaN Mvir requests a deviate and gives Regime 0
- * - test_ratio_above_at_below: mass ratios 2, ~1 and 1/2 against the deviates one step below,
- *   equal to and one step above SAGE26's sigmoid value (expected Regime 1, 0, 0)
- * - test_ratio_one_tie: the exact mass ratio 1 (hot_fraction 0.5) with the deviates below, equal
- *   to (the tie: Regime 0) and above 0.5
- * - test_initial_boundary_row: a row in the initial-boundary state (stored SnapNum -1, dT 0) is
- *   classified without error
+ * - test_ratio_above_at_below: mass ratios 2, ~1 and 1/2, the exact ratio 1 (Hubble_h 0.5: the
+ *   tie) and a row in the initial-boundary state (stored SnapNum -1, dT 0), each against the
+ *   deviates one step below, equal to and one step above SAGE26's sigmoid value (expected Regime
+ *   1, 0, 0)
  * - test_every_type_and_skipped_rows: Types 0, 1 and 2 are classified in row order; Type 3 and
  *   galaxy-less rows are skipped, keeping their Regime; no previous regime is reused
  * - test_production_keyed_draw: without a seam, the production keyed draw of the row's
@@ -67,32 +62,18 @@ extern int sage26_determine_regime_cleanup(void);
 // FIXTURES
 // ============================================================================
 
-/* The module's pre_timestep entry, and the infall budget's for the ordering test */
+/* The module's pre_timestep entry */
 static char regime_name[] = "sage26_determine_regime";
-static char budget_name[] = "sage26_prepare_infall_budget";
-static struct PhaseModuleConfig pre_timestep_entries[3];
-static struct PhaseModuleConfig post_timestep_entries[1];
-
-/** @brief Read all content from a FILE* into a static buffer (valid until the next call) */
-static const char *read_captured_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
+static struct PhaseModuleConfig pre_timestep_entries[1];
 
 /**
- * @brief Configure and initialise the module, capturing the log
+ * @brief Configure the module's run: pre_timestep entry and the two required parameters, MShockMsun
+ *        at the run files' 6.0e11
  *
- * @param cgm       CGMrecipeOn's run-file text, or NULL for a missing key
- * @param mshock    MShockMsun's run-file text, or NULL for a missing key
+ * @param cgm       CGMrecipeOn's run-file text
  * @param hubble_h  The run's Hubble_h
- * @param log       Receives the captured log
- * @return The init status
  */
-static int init_captured(const char *cgm, const char *mshock, const double hubble_h,
-                         const char **log) {
+static void configure(const char *cgm, const double hubble_h) {
   reset_config();
   MimicConfig.Hubble_h = hubble_h;
   pre_timestep_entries[0].module_name = regime_name;
@@ -100,29 +81,14 @@ static int init_captured(const char *cgm, const char *mshock, const double hubbl
   pre_timestep_entries[0].resolved = NULL;
   MimicConfig.pre_timestep = pre_timestep_entries;
   MimicConfig.num_pre_timestep = 1;
-  if (cgm != NULL) {
-    sage26_test_append_model_parameter("CGMrecipeOn", cgm);
-  }
-  if (mshock != NULL) {
-    sage26_test_append_model_parameter("MShockMsun", mshock);
-  }
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = sage26_determine_regime_init();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    *log = read_captured_log(capture);
-    fclose(capture);
-  } else {
-    *log = "";
-  }
-  return status;
+  sage26_test_append_model_parameter("CGMrecipeOn", cgm);
+  sage26_test_append_model_parameter("MShockMsun", "6.0e11");
 }
 
-/** @brief init_captured() with the run files' MShockMsun for the given CGMrecipeOn */
+/** @brief Configure the run for the given CGMrecipeOn and initialise the module */
 static int init_ok(const char *cgm, const double hubble_h) {
-  const char *log = "";
-  return init_captured(cgm, "6.0e11", hubble_h, &log);
+  configure(cgm, hubble_h);
+  return sage26_determine_regime_init();
 }
 
 /** What the seam saw: deviates to hand out per row, and the requests and rows it was told of */
@@ -183,13 +149,6 @@ static int run_with_seam(struct Halo *halos, const int ngal, struct recording_se
   return status;
 }
 
-/** @brief Bit pattern of a double, for exact comparisons */
-static uint64_t bits_of(const double v) {
-  uint64_t b;
-  memcpy(&b, &v, sizeof(b));
-  return b;
-}
-
 /**
  * @brief SAGE26's sigmoid for a float Mvir, written as SAGE26 writes it
  *
@@ -233,8 +192,8 @@ static SAGE26_REGIME_TEST_NOINLINE double sage26_hot_fraction(const float mvir_i
 
 /**
  * @test    test_module_lifecycle
- * @brief   The module registers, initialises through module_system_init in pre_timestep with
- *          CGMrecipeOn 0 (SAGE26's default), MShockMsun 6.0e11, cleans up, no leaks
+ * @brief   module_system_init accepts the module in pre_timestep with CGMrecipeOn 0 (SAGE26's
+ *          default) and MShockMsun 6.0e11; cleanup leaves no leaks
  */
 int test_module_lifecycle(void) {
   reset_config();
@@ -251,117 +210,6 @@ int test_module_lifecycle(void) {
 
   module_system_cleanup();
   check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_cgm_recipe_on_missing_refused
- * @brief   Init fails without CGMrecipeOn, naming it: a required parameter with no default
- */
-int test_cgm_recipe_on_missing_refused(void) {
-  const char *log = "";
-  const int status = init_captured(NULL, "6.0e11", TEST_HUBBLE_H, &log);
-  printf("\n  without CGMrecipeOn: init %d", status);
-  TEST_ASSERT(status != 0, "init must fail when CGMrecipeOn is missing");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the error must name CGMrecipeOn");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_cgm_recipe_on_values
- * @brief   CGMrecipeOn 2, -1 and 3 are refused, naming the parameter; 0 and 1 initialise
- */
-int test_cgm_recipe_on_values(void) {
-  const char *refused[] = {"2", "-1", "3"};
-  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
-    const char *log = "";
-    const int status = init_captured(refused[k], "6.0e11", TEST_HUBBLE_H, &log);
-    printf("\n  CGMrecipeOn %s: init %d", refused[k], status);
-    TEST_ASSERT(status != 0, "init must refuse an unsupported CGMrecipeOn");
-    TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the error must name CGMrecipeOn");
-  }
-  const char *accepted[] = {"0", "1"};
-  for (size_t k = 0; k < sizeof(accepted) / sizeof(accepted[0]); k++) {
-    const char *log = "";
-    const int status = init_captured(accepted[k], "6.0e11", TEST_HUBBLE_H, &log);
-    printf("\n  CGMrecipeOn %s: init %d", accepted[k], status);
-    TEST_ASSERT(status == 0, "init must accept CGMrecipeOn 0 and 1");
-  }
-  return TEST_PASS;
-}
-
-/**
- * @test    test_mshock_missing_refused
- * @brief   Init fails without MShockMsun, naming it: a required parameter with no default
- */
-int test_mshock_missing_refused(void) {
-  const char *log = "";
-  const int status = init_captured("1", NULL, TEST_HUBBLE_H, &log);
-  printf("\n  without MShockMsun: init %d", status);
-  TEST_ASSERT(status != 0, "init must fail when MShockMsun is missing");
-  TEST_ASSERT(strstr(log, "MShockMsun") != NULL, "the error must name MShockMsun");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_mshock_values
- * @brief   MShockMsun 0, -0, negative, inf, -inf and nan are refused, naming the parameter;
- *          6.0e11 initialises (with CGMrecipeOn 0 and 1)
- */
-int test_mshock_values(void) {
-  const char *refused[] = {"0", "-0.0", "-6.0e11", "inf", "-inf", "nan"};
-  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
-    for (int cgm = 0; cgm <= 1; cgm++) {
-      const char *log = "";
-      const int status = init_captured(cgm ? "1" : "0", refused[k], TEST_HUBBLE_H, &log);
-      printf("\n  MShockMsun %s (CGMrecipeOn %d): init %d", refused[k], cgm, status);
-      TEST_ASSERT(status != 0, "init must refuse a non-positive or non-finite MShockMsun");
-      TEST_ASSERT(strstr(log, "MShockMsun") != NULL, "the error must name MShockMsun");
-    }
-  }
-  TEST_ASSERT(init_ok("0", TEST_HUBBLE_H) == 0, "MShockMsun 6.0e11 must initialise (CGM off)");
-  TEST_ASSERT(init_ok("1", TEST_HUBBLE_H) == 0, "MShockMsun 6.0e11 must initialise (CGM on)");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_placement_refused
- * @brief   The module must be configured once, in pre_timestep, before the infall budget
- */
-int test_placement_refused(void) {
-  const char *log = "";
-
-  /* Not in pre_timestep at all */
-  TEST_ASSERT(init_captured("1", "6.0e11", TEST_HUBBLE_H, &log) == 0, "baseline must initialise");
-  MimicConfig.num_pre_timestep = 0;
-  TEST_ASSERT(sage26_determine_regime_init() != 0, "init must refuse a missing pre_timestep entry");
-
-  /* Twice in pre_timestep */
-  TEST_ASSERT(init_captured("1", "6.0e11", TEST_HUBBLE_H, &log) == 0, "baseline must initialise");
-  pre_timestep_entries[1] = pre_timestep_entries[0];
-  MimicConfig.num_pre_timestep = 2;
-  TEST_ASSERT(sage26_determine_regime_init() != 0, "init must refuse two pre_timestep entries");
-
-  /* Also in post_timestep */
-  TEST_ASSERT(init_captured("1", "6.0e11", TEST_HUBBLE_H, &log) == 0, "baseline must initialise");
-  post_timestep_entries[0] = pre_timestep_entries[0];
-  MimicConfig.post_timestep = post_timestep_entries;
-  MimicConfig.num_post_timestep = 1;
-  TEST_ASSERT(sage26_determine_regime_init() != 0, "init must refuse a post_timestep entry");
-  MimicConfig.post_timestep = NULL;
-  MimicConfig.num_post_timestep = 0;
-
-  /* After the infall budget, then before it */
-  TEST_ASSERT(init_captured("1", "6.0e11", TEST_HUBBLE_H, &log) == 0, "baseline must initialise");
-  pre_timestep_entries[1] = pre_timestep_entries[0];
-  pre_timestep_entries[0].module_name = budget_name;
-  MimicConfig.num_pre_timestep = 2;
-  TEST_ASSERT(sage26_determine_regime_init() != 0,
-              "init must refuse running after sage26_prepare_infall_budget");
-  pre_timestep_entries[0].module_name = regime_name;
-  pre_timestep_entries[1].module_name = budget_name;
-  TEST_ASSERT(sage26_determine_regime_init() == 0,
-              "init must accept running before sage26_prepare_infall_budget");
   return TEST_PASS;
 }
 
@@ -456,92 +304,73 @@ int test_mvir_nan_requests_deviate(void) {
 
 /**
  * @test    test_ratio_above_at_below
- * @brief   Mass ratios 2, the float nearest 1 and 1/2, each against the deviate one step below,
- *          equal to and one step above SAGE26's sigmoid value: Regime 1, 0 and 0 (the comparison
- *          is a strict u < hot_fraction)
+ * @brief   Rows of mass ratio 2, the float nearest 1 and 1/2, the exact ratio 1 (Hubble_h 0.5) and
+ *          a row in the initial-boundary state (stored SnapNum -1, dT 0), each against the deviate
+ *          one step below, equal to and one step above SAGE26's sigmoid value: Regime 1, 0 and 0
+ *          (the comparison is a strict u < hot_fraction)
  */
 int test_ratio_above_at_below(void) {
-  /* 87.6, 43.8 and 21.9 against Mshock = 6e11 * 0.73 / 1e10 = 43.8 */
-  const float mvir[3] = {87.6f, 43.8f, 21.9f};
+  /* Mshock = 6e11 * h / 1e10: 43.8 at h 0.73 and exactly 30 at h 0.5. The exact_tie row has the
+   * ratio exactly 1 (Mvir 30), x exactly 0 and hot_fraction exactly 0.5: the tie u == hot_fraction
+   * that no rand() value reaches */
+  static const struct {
+    float mvir;
+    double hubble_h;
+    int snap_num; /* the row's stored SnapNum; the classifier reads neither it nor dT */
+    double dT;
+    int snapshot; /* ctx->snapshot_number */
+    int exact_tie;
+  } rows[] = {
+      {87.6f, TEST_HUBBLE_H, 62, 100.0, 63, 0}, /* ratio 2 */
+      {43.8f, TEST_HUBBLE_H, 62, 100.0, 63, 0}, /* ratio ~1 */
+      {21.9f, TEST_HUBBLE_H, 62, 100.0, 63, 0}, /* ratio 1/2 */
+      {30.0f, 0.5, 62, 100.0, 63, 1},           /* ratio exactly 1 */
+      {87.6f, TEST_HUBBLE_H, -1, 0.0, 0, 0},    /* initial-boundary state, ratio 2 */
+  };
   const double direction[3] = {0.0, NAN, 1.0}; /* NAN: the deviate equal to hot_fraction */
   const int expected_regime[3] = {1, 0, 0};
 
-  for (int r = 0; r < 3; r++) {
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
     double expected_mshock = 0.0;
     const double p =
-        sage26_hot_fraction(mvir[r], TEST_MSHOCK_MSUN, TEST_HUBBLE_H, &expected_mshock);
+        sage26_hot_fraction(rows[r].mvir, TEST_MSHOCK_MSUN, rows[r].hubble_h, &expected_mshock);
     for (int d = 0; d < 3; d++) {
-      TEST_ASSERT(init_ok("1", TEST_HUBBLE_H) == 0, "init must succeed");
+      char msg[160];
+      TEST_ASSERT(init_ok("1", rows[r].hubble_h) == 0, "init must succeed");
       struct Halo halos[1];
       struct GalaxyData gals[1];
-      make_row(&halos[0], &gals[0], 0, (double)mvir[r], 41, -1);
+      make_row(&halos[0], &gals[0], 0, (double)rows[r].mvir, 41, -1);
+      halos[0].SnapNum = rows[r].snap_num;
+      halos[0].dT = rows[r].dT;
       struct recording_seam s;
       memset(&s, 0, sizeof(s));
       s.deviate_for_row[0] = isnan(direction[d]) ? p : nextafter(p, direction[d]);
-      TEST_ASSERT(run_with_seam(halos, 1, &s, 63) == 0, "process must succeed");
-      printf("\n  Mvir %.9g: hot_fraction %.17g, deviate %.17g -> Regime %d", (double)mvir[r], p,
-             s.deviate_for_row[0], gals[0].Regime);
-      TEST_ASSERT(s.requests == 1, "a positive Mvir must request one deviate");
-      TEST_ASSERT(bits_of(s.trace[0].mshock) == bits_of(expected_mshock),
-                  "Mshock must be MShockMsun * Hubble_h / 1.0e10");
-      TEST_ASSERT(bits_of(s.trace[0].hot_fraction) == bits_of(p),
-                  "hot_fraction must be SAGE26's sigmoid");
-      TEST_ASSERT(gals[0].Regime == expected_regime[d],
-                  "Regime must be 1 exactly when the deviate is below hot_fraction");
+      snprintf(msg, sizeof(msg), "row %zu, deviate %d: process must succeed", r, d);
+      TEST_ASSERT(run_with_seam(halos, 1, &s, rows[r].snapshot) == 0, msg);
+      printf("\n  Mvir %.9g (h %.2f): hot_fraction %.17g, deviate %.17g -> Regime %d",
+             (double)rows[r].mvir, rows[r].hubble_h, p, s.deviate_for_row[0], gals[0].Regime);
+      snprintf(msg, sizeof(msg), "row %zu, deviate %d: a positive Mvir must request one deviate", r,
+               d);
+      TEST_ASSERT(s.requests == 1, msg);
+      snprintf(msg, sizeof(msg), "row %zu, deviate %d: Mshock must be MShockMsun * Hubble_h / 1e10",
+               r, d);
+      TEST_ASSERT(double_bits(s.trace[0].mshock) == double_bits(expected_mshock), msg);
+      snprintf(msg, sizeof(msg), "row %zu, deviate %d: hot_fraction must be SAGE26's sigmoid", r,
+               d);
+      TEST_ASSERT(double_bits(s.trace[0].hot_fraction) == double_bits(p), msg);
+      if (rows[r].exact_tie) {
+        TEST_ASSERT(s.trace[0].mshock == 30.0 && s.trace[0].mass_ratio == 1.0,
+                    "the tie row: Mshock must be 30 and the ratio exactly 1");
+        TEST_ASSERT(s.trace[0].x == 0.0 && s.trace[0].hot_fraction == 0.5,
+                    "the tie row: x must be 0 and hot_fraction exactly 0.5");
+      }
+      snprintf(msg, sizeof(msg),
+               "row %zu, deviate %d: Regime must be 1 exactly when the deviate is below "
+               "hot_fraction",
+               r, d);
+      TEST_ASSERT(gals[0].Regime == expected_regime[d], msg);
     }
   }
-  return TEST_PASS;
-}
-
-/**
- * @test    test_ratio_one_tie
- * @brief   Mass ratio exactly 1 (Hubble_h 0.5, Mshock 30, Mvir 30): hot_fraction is exactly 0.5,
- *          and the deviate 0.5 itself gives Regime 0 (the tie no rand() value reaches)
- */
-int test_ratio_one_tie(void) {
-  const double deviates[3] = {nextafter(0.5, 0.0), 0.5, nextafter(0.5, 1.0)};
-  const int expected_regime[3] = {1, 0, 0};
-  for (int d = 0; d < 3; d++) {
-    TEST_ASSERT(init_ok("1", 0.5) == 0, "init must succeed");
-    struct Halo halos[1];
-    struct GalaxyData gals[1];
-    make_row(&halos[0], &gals[0], 0, 30.0, 51, -1);
-    struct recording_seam s;
-    memset(&s, 0, sizeof(s));
-    s.deviate_for_row[0] = deviates[d];
-    TEST_ASSERT(run_with_seam(halos, 1, &s, 63) == 0, "process must succeed");
-    printf("\n  ratio 1: hot_fraction %a, deviate %a -> Regime %d", s.trace[0].hot_fraction,
-           deviates[d], gals[0].Regime);
-    TEST_ASSERT(s.trace[0].mshock == 30.0 && s.trace[0].mass_ratio == 1.0,
-                "Mshock must be 30 and the ratio exactly 1");
-    TEST_ASSERT(s.trace[0].x == 0.0 && s.trace[0].hot_fraction == 0.5,
-                "x must be 0 and hot_fraction exactly 0.5");
-    TEST_ASSERT(gals[0].Regime == expected_regime[d],
-                "the tie u == hot_fraction must give Regime 0, a smaller deviate Regime 1");
-  }
-  return TEST_PASS;
-}
-
-/**
- * @test    test_initial_boundary_row
- * @brief   A row in the package's initial-boundary state (stored SnapNum -1, dT 0) is
- *          classified like any other: the classifier reads no snapshot-indexed table
- */
-int test_initial_boundary_row(void) {
-  TEST_ASSERT(init_ok("1", TEST_HUBBLE_H) == 0, "init must succeed");
-  struct Halo halos[1];
-  struct GalaxyData gals[1];
-  make_row(&halos[0], &gals[0], 0, 87.6, 61, -1);
-  halos[0].SnapNum = -1;
-  halos[0].dT = 0.0;
-  const double p = sage26_hot_fraction(87.6f, TEST_MSHOCK_MSUN, TEST_HUBBLE_H, NULL);
-  struct recording_seam s;
-  memset(&s, 0, sizeof(s));
-  s.deviate_for_row[0] = nextafter(p, 0.0);
-  const int status = run_with_seam(halos, 1, &s, 0);
-  printf("\n  SnapNum -1, dT 0: status %d, Regime %d", status, gals[0].Regime);
-  TEST_ASSERT(status == 0, "the initial-boundary row must be classified without error");
-  TEST_ASSERT(s.requests == 1 && gals[0].Regime == 1, "the row must be classified");
   return TEST_PASS;
 }
 
@@ -644,19 +473,12 @@ int main(void) {
 
   printf("\n%s--- Software Quality Tests ---%s\n", BLUE, NC);
   TEST_RUN(test_module_lifecycle);
-  TEST_RUN(test_cgm_recipe_on_missing_refused);
-  TEST_RUN(test_cgm_recipe_on_values);
-  TEST_RUN(test_mshock_missing_refused);
-  TEST_RUN(test_mshock_values);
-  TEST_RUN(test_placement_refused);
 
   printf("\n%s--- Classifier Tests ---%s\n", BLUE, NC);
   TEST_RUN(test_cgm_recipe_off_writes_nothing);
   TEST_RUN(test_mvir_zero_and_negative_no_deviate);
   TEST_RUN(test_mvir_nan_requests_deviate);
   TEST_RUN(test_ratio_above_at_below);
-  TEST_RUN(test_ratio_one_tie);
-  TEST_RUN(test_initial_boundary_row);
   TEST_RUN(test_every_type_and_skipped_rows);
   TEST_RUN(test_production_keyed_draw);
 

@@ -22,6 +22,18 @@ Broad model-level fixtures belong beside the owning model tests, typically in
 generated under `build/generated/test_inputs/`.
 Retired tests belong in `archive/src-modules/_archive/`.
 
+The shared tests of this package, registered in `module_info.yaml`:
+
+- `test_unit_mixed_dt_parity.c`: per-object timesteps in a FoF whose galaxies hold different `dT`.
+- `test_unit_sage_dependency_contracts.c`: the placement and partner checks of the modules' `init()`, one pipeline per row.
+- `test_unit_sage_parameter_refusals.c`: the parameter refusals of every module that reads a run-file parameter, one table row per missing key or out-of-range value, each refused by the first reader in the full-physics pipeline and by every listed module's own `init()`; a second table holds the accepted edge values.
+- `test_integration_processing_mode_contracts.py`: startup rejects a module configured in a processing mode it does not support.
+- `test_scientific_sage_physics_baseline.py`: the package's full-physics regression baseline (`input/test_physics_binary.yaml` against `baseline/physics-binary/`), run under `MODEL=sage16 SIMULATION=mini-millennium`. It checks that the input's `SubSteps` and modules block equal the shipped run file's (`test_input_matches_run_file`), that the fresh run matches the baseline, and that the same run holds no NaN or Inf and no value outside its declared ranges.
+- `test_scientific_compare_sage_mimic.py`: the self-test of the SAGE-versus-sage16 comparator in `models/sage16/tools/`.
+- The package's plotting tests under `models/sage16/plots/tests/` are registered here in the scientific tier because the plots directory has no registry of its own.
+
+`sage_test_fixtures.h` is the standard fixture of the package's C unit tests. The unit tests of the helpers in `models/sage16/shared/` (`metallicity.h` and `time_parity.h`, the per-object substep timestep and midpoint time) live in `models/sage16/shared/_tests/` and are registered in `models/sage16/shared/module_info.yaml`.
+
 ---
 
 ## Adding a Test

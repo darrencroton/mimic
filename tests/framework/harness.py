@@ -10,9 +10,11 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+from collections import namedtuple
 from pathlib import Path
 
 import yaml
@@ -338,6 +340,71 @@ def run_mimic_fresh(param_file, expected_output=None, cwd=None, extra_args=None)
     return returncode, stdout, stderr
 
 
+#: One finished Mimic run: its exit status, captured output and output directory.
+MimicRun = namedtuple("MimicRun", "returncode stdout stderr output_dir")
+
+
+class SharedRuns:
+    """
+    Run each named Mimic configuration once and share the result between test cases.
+
+    A test file whose cases assert different things about the same configuration
+    declares one instance at module level and asks it for the run by name. The
+    first request runs Mimic; later requests return the same result. Asking for a
+    name again with a different configuration is an error, so two cases cannot
+    share a run by accident.
+
+    Usage:
+        RUNS = SharedRuns()
+
+        def test_cold_gas_forms():
+            run = RUNS.run("cooling_chain", phase_config=CHAIN, model_params=PARAMS)
+            assert run.returncode == 0, run.stderr
+            halos, _metadata = load_binary_halos(run.output_dir / "model_z0.000_0")
+
+        def main():
+            try:
+                return run_test_suite([test_cold_gas_forms], "My module")
+            finally:
+                RUNS.cleanup()
+    """
+
+    def __init__(self):
+        self._runs = {}
+        self._temp_dirs = []
+
+    def run(self, name, **config):
+        """
+        Return the run called `name`, executing it on first request.
+
+        Args:
+            name (str): Name of the configuration, also its output directory name
+            **config: Keyword arguments of create_test_param_file()
+
+        Returns:
+            MimicRun: (returncode, stdout, stderr, output_dir)
+        """
+        if name in self._runs:
+            cached_config, result = self._runs[name]
+            if cached_config != config:
+                raise ValueError(f"run '{name}' was already made with a different configuration")
+            return result
+
+        param_file, output_dir, temp_dir = create_test_param_file(output_name=name, **config)
+        self._temp_dirs.append(temp_dir)
+        returncode, stdout, stderr = run_mimic(param_file)
+        result = MimicRun(returncode, stdout, stderr, output_dir)
+        self._runs[name] = (config, result)
+        return result
+
+    def cleanup(self):
+        """Remove every run's temporary directory."""
+        for temp_dir in self._temp_dirs:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        self._runs.clear()
+        self._temp_dirs.clear()
+
+
 def resolve_sim_config_path(sim_config_path, param_file):
     """
     Resolve a ``simulation.config`` path identically across harness code paths.
@@ -497,6 +564,7 @@ def create_test_param_file(
     timestep_scheme=None,
     min_dynamic_substeps=None,
     max_dynamic_substeps=None,
+    snapshot_list=None,
 ):
     """
     Create a test YAML parameter file with multi-phase module configuration
@@ -537,6 +605,7 @@ def create_test_param_file(
         timestep_scheme (str, optional): TimestepScheme override (default: value from ref file)
         min_dynamic_substeps (int, optional): MinDynamicSubsteps override (emitted only when given)
         max_dynamic_substeps (int, optional): MaxDynamicSubsteps override (default: from ref file)
+        snapshot_list (list[int], optional): Output snapshots (default: the ref file's list)
 
     Returns:
         tuple: (param_file_path, output_dir_path, temp_dir_path)
@@ -593,6 +662,8 @@ def create_test_param_file(
     config["output"]["output_directory"] = str(output_dir)
     if output_format is not None:
         config["output"]["output_format"] = output_format  # Override format if specified
+    if snapshot_list is not None:
+        config["output"]["snapshot_list"] = [int(snapshot) for snapshot in snapshot_list]
 
     sim_config_path = resolve_sim_config_path(config["simulation"]["config"], ref_param_file)
     with open(sim_config_path, "r") as f:

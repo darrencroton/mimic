@@ -2,24 +2,18 @@
  * @file    test_unit_sage_calculate_star_formation.c
  * @brief   Unit tests for sage_calculate_star_formation module
  *
- * Validates: Physics calculation logic, edge cases, parameter handling
- *
- * This test validates the sage_calculate_star_formation module physics:
- * - Star formation calculation (Kennicutt-Schmidt with critical threshold)
- * - Critical threshold logic (above/below/at threshold)
- * - Edge cases (zero radius, zero velocity, negative values)
- * - Parameter sensitivity (efficiency affects results)
- * - Module lifecycle and memory safety
+ * Validates: the Croton star-formation law (critical-mass threshold) and the module's guards.
  *
  * Test cases:
- *   - test_sf_calculation_above_threshold: Normal star formation
- *   - test_sf_calculation_below_threshold: No SF when below threshold
- *   - test_sf_calculation_at_threshold: Boundary condition
- *   - test_sf_calculation_zero_radius: Edge case handling
- *   - test_sf_calculation_zero_velocity: Edge case handling
- *   - test_sf_parameter_sensitivity: Efficiency changes results
- *   - test_module_initialization: Module lifecycle
- *   - test_memory_safety: No memory leaks
+ *   - test_sf_calculation_above_threshold: the law against a hand-coded formula at two
+ *     efficiencies (exact values, so the efficiency scaling is pinned)
+ *   - test_sf_calculation_below_threshold: no stars below the critical mass
+ *   - test_sf_calculation_at_threshold: the comparison at the critical mass is strict (just below
+ *     and at it form no stars, one float step above does), on a threshold the float represents
+ *     exactly
+ *   - test_sf_calculation_zero_radius: zero DiskScaleRadius forms no stars
+ *   - test_sf_calculation_zero_velocity: zero Vvir forms no stars
+ *   - test_module_initialization: the module system initialises the SF and apply pipeline
  *
  * @author  Mimic Development Team
  * @date    2025-12-18
@@ -36,7 +30,6 @@
 #include "util/memory.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
@@ -147,58 +140,61 @@ static void setup_test_context(struct ModuleContext *ctx, double dt) {
 
 /**
  * @test    test_sf_calculation_above_threshold
- * @brief   Test star formation when ColdGas is above critical threshold
+ * @brief   The Croton law above the critical cold mass at two efficiencies
  *
- * Expected: NewStellarMass > 0, follows SF equation
- * Validates: Core physics calculation
+ * Physics: strdot = SfrEfficiency * (ColdGas - cold_crit) / tdyn with cold_crit = 0.19 * Vvir *
+ * reff (Kauffmann 1996) and tdyn = reff / Vvir, stars = strdot * dt. The hand-coded expectation
+ * uses literal constants; two efficiencies pin the linear scaling in SfrEfficiency.
  */
 int test_sf_calculation_above_threshold(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
+  static const double efficiencies[] = {0.02, 0.05};
+  for (size_t i = 0; i < sizeof(efficiencies) / sizeof(efficiencies[0]); i++) {
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
 
-  /* Initialize module parameters */
-  const double efficiency = 0.02;
-  const double disk_factor = 3.0;
-  setup_test_parameters(efficiency, disk_factor);
+    const double efficiency = efficiencies[i];
+    const double disk_factor = 3.0;
+    setup_test_parameters(efficiency, disk_factor);
 
-  int result = sage_calculate_star_formation_init();
-  TEST_ASSERT(result == 0, "Module init should succeed");
+    int result = sage_calculate_star_formation_init();
+    TEST_ASSERT(result == 0, "Module init should succeed");
 
-  /* Create test galaxy with ColdGas above threshold */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double cold_gas = 10.0;    /* 10^11 Msun/h */
-  const double disk_radius = 0.05; /* 50 kpc/h */
-  const double vvir = 200.0;       /* 200 km/s */
-  setup_test_galaxy(&halo, &gal, cold_gas, disk_radius, vvir);
+    /* Create test galaxy with ColdGas above threshold */
+    struct Halo halo;
+    struct GalaxyData gal;
+    const double cold_gas = 10.0;    /* 10^11 Msun/h */
+    const double disk_radius = 0.05; /* 50 kpc/h */
+    const double vvir = 200.0;       /* 200 km/s */
+    setup_test_galaxy(&halo, &gal, cold_gas, disk_radius, vvir);
 
-  /* Setup context */
-  struct ModuleContext ctx;
-  const double dt = 0.01; /* 10 Myr/h */
-  setup_test_context(&ctx, dt);
+    /* Setup context */
+    struct ModuleContext ctx;
+    const double dt = 0.01; /* 10 Myr/h */
+    setup_test_context(&ctx, dt);
 
-  /* Calculate expected values (reproduce module logic) */
-  const double reff = disk_factor * disk_radius;
-  const double tdyn = reff / vvir;
-  const double cold_crit = 0.19 * vvir * reff;
-  const double expected_strdot =
-      (cold_gas > cold_crit && tdyn > 0.0) ? efficiency * (cold_gas - cold_crit) / tdyn : 0.0;
-  const double expected_stars = expected_strdot * dt;
+    /* Calculate expected values (reproduce module logic) */
+    const double reff = disk_factor * disk_radius;
+    const double tdyn = reff / vvir;
+    const double cold_crit = 0.19 * vvir * reff;
+    const double expected_strdot =
+        (cold_gas > cold_crit && tdyn > 0.0) ? efficiency * (cold_gas - cold_crit) / tdyn : 0.0;
+    const double expected_stars = expected_strdot * dt;
 
-  /* ===== EXECUTE ===== */
-  result = sage_calculate_star_formation_process(&ctx, &halo, 1);
+    /* ===== EXECUTE ===== */
+    result = sage_calculate_star_formation_process(&ctx, &halo, 1);
 
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process function should succeed");
-  TEST_ASSERT(gal.ColdGas > cold_crit, "ColdGas should be above threshold");
-  TEST_ASSERT(gal.NewStellarMass > 0.0, "NewStellarMass should be positive");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.NewStellarMass, expected_stars, 1e-6,
-                           "NewStellarMass should match expected value");
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Process function should succeed");
+    TEST_ASSERT(gal.ColdGas > cold_crit, "ColdGas should be above threshold");
+    TEST_ASSERT(gal.NewStellarMass > 0.0, "NewStellarMass should be positive");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.NewStellarMass, expected_stars, 1e-6,
+                             "NewStellarMass should match expected value");
 
-  /* ===== CLEANUP ===== */
-  sage_calculate_star_formation_cleanup();
-  check_memory_leaks();
+    /* ===== CLEANUP ===== */
+    sage_calculate_star_formation_cleanup();
+    check_memory_leaks();
+  }
 
   return TEST_PASS;
 }
@@ -252,10 +248,13 @@ int test_sf_calculation_below_threshold(void) {
 
 /**
  * @test    test_sf_calculation_at_threshold
- * @brief   Test star formation when ColdGas is exactly at critical threshold
+ * @brief   The comparison at the critical cold mass is strict: ColdGas > cold_crit forms stars
  *
- * Expected: NewStellarMass = 0 (boundary condition)
- * Validates: Boundary condition handling
+ * Vvir 100 km/s, DiskScaleRadius 0.125 and StarFormingDiskFactor 3 give reff = 0.375 and, since
+ * 0.19 * 100 is exactly 19 in double, cold_crit = 7.125 exactly: a threshold the float ColdGas
+ * represents. A galaxy one float step below it and one exactly at it form no stars; one float
+ * step above forms the Croton law's stars for that excess, so a `>=` comparison fails the "at"
+ * row and a `>` that drops the excess fails the "above" row.
  */
 int test_sf_calculation_at_threshold(void) {
   /* ===== SETUP ===== */
@@ -266,28 +265,47 @@ int test_sf_calculation_at_threshold(void) {
   const double disk_factor = 3.0;
   setup_test_parameters(efficiency, disk_factor);
 
-  sage_calculate_star_formation_init();
+  TEST_ASSERT(sage_calculate_star_formation_init() == 0, "Module init should succeed");
 
-  /* Setup galaxy parameters */
-  const double disk_radius = 0.05; /* 50 kpc/h */
-  const double vvir = 200.0;       /* 200 km/s */
+  const double vvir = 100.0;
+  const double disk_radius = 0.125;
+  const double dt = 0.01;
   const double reff = disk_factor * disk_radius;
-  const double cold_crit = 0.19 * vvir * reff;
+  const float cold_crit = 7.125f;
+  TEST_ASSERT(0.19 * vvir * reff == (double)cold_crit,
+              "the threshold is exactly representable as a float");
 
-  /* Set ColdGas exactly at threshold */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, cold_crit, disk_radius, vvir);
+  const struct {
+    const char *where;
+    float cold_gas;
+  } rows[] = {
+      {"one float step below", nextafterf(cold_crit, 0.0f)},
+      {"at", cold_crit},
+      {"one float step above", nextafterf(cold_crit, 100.0f)},
+  };
+  const double excess = (double)rows[2].cold_gas - (double)cold_crit;
+  TEST_ASSERT(excess > 0.0 && (double)rows[0].cold_gas < (double)cold_crit,
+              "the rows straddle the threshold");
+  const double expected_above = efficiency * excess / (reff / vvir) * dt;
 
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
+  /* ===== EXECUTE AND VALIDATE ===== */
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, rows[i].cold_gas, disk_radius, vvir);
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, dt);
 
-  /* ===== EXECUTE ===== */
-  sage_calculate_star_formation_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, cold_crit, 1e-6, "ColdGas should be at threshold");
-  TEST_ASSERT(gal.NewStellarMass == 0.0, "NewStellarMass should be zero at threshold");
+    TEST_ASSERT(sage_calculate_star_formation_process(&ctx, &halo, 1) == 0,
+                "Process function should succeed");
+    printf("\n  %s: NewStellarMass %.17g", rows[i].where, gal.NewStellarMass);
+    if (i < 2) {
+      TEST_ASSERT(gal.NewStellarMass == 0.0, "No stars form at or below the critical mass");
+    } else {
+      TEST_ASSERT(fabs(gal.NewStellarMass - expected_above) <= 1e-9 * expected_above,
+                  "One float step above the critical mass forms stars for that excess");
+    }
+  }
 
   /* ===== CLEANUP ===== */
   sage_calculate_star_formation_cleanup();
@@ -300,7 +318,7 @@ int test_sf_calculation_at_threshold(void) {
  * @test    test_sf_calculation_zero_radius
  * @brief   Test star formation when DiskScaleRadius is zero
  *
- * Expected: NewStellarMass = 0 (handles edge case gracefully)
+ * Expected: NewStellarMass = 0 (the tdyn > 0 guard)
  * Validates: Division by zero protection
  */
 int test_sf_calculation_zero_radius(void) {
@@ -327,7 +345,6 @@ int test_sf_calculation_zero_radius(void) {
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Should handle zero radius gracefully");
-  TEST_ASSERT(gal.DiskScaleRadius == 0.0, "DiskScaleRadius is zero");
   TEST_ASSERT(gal.NewStellarMass == 0.0, "NewStellarMass should be zero with zero radius");
 
   /* ===== CLEANUP ===== */
@@ -341,8 +358,9 @@ int test_sf_calculation_zero_radius(void) {
  * @test    test_sf_calculation_zero_velocity
  * @brief   Test star formation when Vvir is zero
  *
- * Expected: NewStellarMass = 0 (handles edge case gracefully)
- * Validates: Division by zero protection
+ * Expected: NewStellarMass = 0: the dynamical time reff / Vvir is +inf, so the star formation
+ * rate is exactly 0 through IEEE division, not NaN
+ * Validates: Zero velocity gives zero stars
  */
 int test_sf_calculation_zero_velocity(void) {
   /* ===== SETUP ===== */
@@ -368,66 +386,10 @@ int test_sf_calculation_zero_velocity(void) {
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Should handle zero velocity gracefully");
-  TEST_ASSERT(halo.Vvir == 0.0, "Vvir is zero");
   TEST_ASSERT(gal.NewStellarMass == 0.0, "NewStellarMass should be zero with zero velocity");
 
   /* ===== CLEANUP ===== */
   sage_calculate_star_formation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_sf_parameter_sensitivity
- * @brief   Test that changing SfrEfficiency changes star formation
- *
- * Expected: Higher efficiency → more stars
- * Validates: Parameter sensitivity
- */
-int test_sf_parameter_sensitivity(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Test with low efficiency */
-  reset_config();
-  setup_test_parameters(0.01, 3.0);
-  sage_calculate_star_formation_init();
-
-  struct Halo halo1;
-  struct GalaxyData gal1;
-  setup_test_galaxy(&halo1, &gal1, 10.0, 0.05, 200.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  sage_calculate_star_formation_process(&ctx, &halo1, 1);
-  const double stars_low_eff = gal1.NewStellarMass;
-  sage_calculate_star_formation_cleanup();
-
-  /* Test with high efficiency */
-  reset_config();
-  setup_test_parameters(0.05, 3.0); /* 5x higher efficiency */
-  sage_calculate_star_formation_init();
-
-  struct Halo halo2;
-  struct GalaxyData gal2;
-  setup_test_galaxy(&halo2, &gal2, 10.0, 0.05, 200.0); /* Same galaxy */
-
-  sage_calculate_star_formation_process(&ctx, &halo2, 1);
-  const double stars_high_eff = gal2.NewStellarMass;
-  sage_calculate_star_formation_cleanup();
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(stars_low_eff > 0.0, "Low efficiency should produce stars");
-  TEST_ASSERT(stars_high_eff > 0.0, "High efficiency should produce stars");
-  TEST_ASSERT(stars_high_eff > stars_low_eff, "Higher efficiency should produce more stars");
-
-  /* Should scale approximately linearly (5x efficiency → ~5x stars) */
-  const double ratio = stars_high_eff / stars_low_eff;
-  TEST_ASSERT(ratio > 4.5 && ratio < 5.5, "Stars should scale linearly with efficiency");
-
-  /* ===== CLEANUP ===== */
   check_memory_leaks();
 
   return TEST_PASS;
@@ -439,10 +401,9 @@ int test_sf_parameter_sensitivity(void) {
 
 /**
  * @test    test_module_initialization
- * @brief   Test module initialization and cleanup lifecycle
+ * @brief   The module system initialises the SF and apply pipeline, and cleans it up without leaks
  *
- * Expected: Module init and cleanup succeed without errors
- * Validates: Module lifecycle management
+ * The apply step is initialised with it (the SF module requires it to follow).
  */
 int test_module_initialization(void) {
   /* ===== SETUP ===== */
@@ -476,42 +437,6 @@ int test_module_initialization(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during operation
- *
- * Expected: No memory leaks after init/process/cleanup cycle
- * Validates: Memory management
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.02, 3.0);
-  sage_calculate_star_formation_init();
-
-  /* Process a galaxy */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 10.0, 0.05, 200.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  /* ===== EXECUTE ===== */
-  sage_calculate_star_formation_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* check_memory_leaks() will catch any leaks */
-
-  /* ===== CLEANUP ===== */
-  sage_calculate_star_formation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
 // ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
@@ -537,11 +462,9 @@ int main(void) {
   TEST_RUN(test_sf_calculation_at_threshold);
   TEST_RUN(test_sf_calculation_zero_radius);
   TEST_RUN(test_sf_calculation_zero_velocity);
-  TEST_RUN(test_sf_parameter_sensitivity);
 
   /* Run infrastructure tests */
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_memory_safety);
 
   /* Print summary and return result */
   TEST_SUMMARY();

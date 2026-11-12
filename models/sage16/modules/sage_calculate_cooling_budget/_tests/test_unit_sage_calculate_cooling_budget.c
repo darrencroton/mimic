@@ -2,22 +2,18 @@
  * @file    test_unit_sage_calculate_cooling_budget.c
  * @brief   Unit tests for sage_calculate_cooling_budget module
  *
- * Validates: Module lifecycle, cooling tables, interpolation, memory safety.
- * Core cooling physics (cooling_recipe) is tested indirectly via the process function in
- * integration tests. Physics validation against SAGE is handled in scientific tests.
+ * Validates: the cooling function tables, the module lifecycle and the cooling budget process()
+ * writes (the hot-halo and rapid cooling branches and the HotGas cap).
  *
  * Test cases:
  *   Suite 1: Cooling Tables
- *     - test_cooling_tables_loading: All 8 metallicity tables load from disk
- *     - test_temperature_interpolation: Temperature interpolation accuracy
- *     - test_metallicity_interpolation: 2D metallicity-dependent interpolation
- *     - test_primordial_gas_cooling: Zero-metallicity gas handled correctly
- *     - test_super_solar_metallicity: Clamping to maximum table at high Z
- *     - test_extreme_temperatures: Bounds enforcement outside table range
+ *     - test_cooling_function_interpolation: bracket interpolation in logT and logZ against table
+ *       literals, the low-end clamps and the linear extrapolation above logT 8.5
+ *     - test_super_solar_metallicity: logZ above the last table clamps to the maximum table
  *
- *   Suite 2: Module Integration
- *     - test_module_registration: Module registers successfully
- *     - test_memory_safety: No memory leaks after init/cleanup cycle
+ *   Suite 2: Module
+ *     - test_module_initialization: the module initialises, cleans up and leaks nothing
+ *     - test_hot_cooling_branches: the hot-halo and rapid cooling masses and the HotGas cap
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -32,154 +28,67 @@
 #include "util/memory.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
+#include "module_system/physical_constants.h"
+
+extern int sage_calculate_cooling_budget_init(void);
+extern int sage_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Halo *halos,
+                                                 int ngal);
+extern int sage_calculate_cooling_budget_cleanup(void);
+
+// ============================================================================
+// SUITE 1: COOLING TABLES
+// ============================================================================
+
+/** log10(Z_SUN) with Z_SUN = 0.02: the table's metallicity axis is [Fe/H] plus this */
+#define TEST_LOG_ZSUN (-1.6989700043360187)
 
 /**
- * @test    test_module_registration
- * @brief   Test that sage_cooling module registers correctly
+ * @test    test_cooling_function_interpolation
+ * @brief   The cooling function interpolates the Sutherland & Dopita tables linearly in logT and
+ *          logZ, clamps the low ends and extrapolates above logT 8.5
  *
- * Expected: Module registration succeeds without errors
- * Validates: sage_cooling_register() works, module appears in registry
+ * Expected: each row is the bracketing table entries (stripped_*.cie column 6 at logT 5.50, 5.55,
+ * 4.00, 5.90, 5.95, 8.45 and 8.50, read from the files and held as the floats the loader stores)
+ * combined linearly, then 10^x. The metallicity nodes are [Fe/H] -1.0, -0.5, 0 and +0.5 plus
+ * log10(Z_sun). A logT above 8.5 continues along the last interval: the high-T row is 0.2 dex above
+ * the value a clamp at logT 8.5 would give. The relative tolerance 1e-9 covers only the order of
+ * the floating-point operations.
  */
-int test_module_registration(void) {
-  ensure_modules_registered();
+int test_cooling_function_interpolation(void) {
+  static const struct {
+    const char *what;
+    double logT;
+    double logZ;
+    double expected_log10_lambda;
+  } rows[] = {
+      {"grid node in T and Z", 5.5, TEST_LOG_ZSUN, (double)-21.35f},
+      {"between nodes in T", 5.525, TEST_LOG_ZSUN, 0.5 * ((double)-21.35f + (double)-21.55f)},
+      {"between nodes in Z", 5.5, TEST_LOG_ZSUN - 0.75, 0.5 * ((double)-21.84f + (double)-21.60f)},
+      {"solar Z at logT log10(35.9 * 150^2), the cooling budget's Vvir 150 row", 5.907276966689682,
+       TEST_LOG_ZSUN, (double)-21.93f + 0.14553933379362505 * ((double)-21.95f - (double)-21.93f)},
+      {"between nodes in T and Z", 5.525, TEST_LOG_ZSUN - 0.75,
+       0.5 *
+           (0.5 * ((double)-21.84f + (double)-22.03f) + 0.5 * ((double)-21.60f + (double)-21.79f))},
+      {"below the lowest Z: the primordial table", 5.5, -10.0, (double)-23.13f},
+      {"below the lowest T: clamped to logT 4.0", 3.0, TEST_LOG_ZSUN, (double)-23.06f},
+      {"above the highest T: extrapolated along the last interval", 9.0, TEST_LOG_ZSUN,
+       (double)-22.40f + 11.0 * ((double)-22.38f - (double)-22.40f)},
+  };
 
-  /* Check module is registered by trying to enable it */
-  reset_config();
-  test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  /* Should fail if module not registered */
-  int result = module_system_init();
-
-  /* Clean up */
-  if (result == 0) {
-    module_system_cleanup();
+  TEST_ASSERT(cooling_tables_init(MIMIC_COMPILED_MODEL_PATH
+                                  "/modules/sage_calculate_cooling_budget/CoolFunctions") == 0,
+              "the cooling tables must load");
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const double expected = pow(10.0, rows[k].expected_log10_lambda);
+    const double lambda = get_metaldependent_cooling_rate(rows[k].logT, rows[k].logZ);
+    printf("\n  %s: lambda %.6e, expected %.6e", rows[k].what, lambda, expected);
+    TEST_ASSERT(fabs(lambda / expected - 1.0) < 1.0e-9, rows[k].what);
   }
-
-  TEST_ASSERT(result == 0, "sage_cooling module should register successfully");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_cooling_tables_loading
- * @brief   Test that cooling function tables load correctly
- *
- * Expected: All 8 metallicity tables load successfully
- * Validates: cooling_tables_init() succeeds, files exist in module directory
- */
-int test_cooling_tables_loading(void) {
-  /* Test loading from module directory */
-  const char *cool_dir =
-      MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
-
-  int result = cooling_tables_init(cool_dir);
-
-  TEST_ASSERT(result == 0, "Cooling tables should load successfully from module directory");
-
-  /* Clean up */
-  cooling_tables_cleanup();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_temperature_interpolation
- * @brief   Test temperature interpolation accuracy
- *
- * Expected: Interpolation between table points is accurate
- * Validates: get_metaldependent_cooling_rate() temperature interpolation
- */
-int test_temperature_interpolation(void) {
-  const char *cool_dir =
-      MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
-
-  int result = cooling_tables_init(cool_dir);
-  TEST_ASSERT(result == 0, "Tables must load for interpolation test");
-
-  /* Test interpolation at solar metallicity (logZ = log10(0.02) = -1.699)
-   * Test temperature T = 10^5 K (logT = 5.0) */
-  double logT = 5.0;
-  double logZ = log10(0.02); /* Solar metallicity */
-
-  double lambda = get_metaldependent_cooling_rate(logT, logZ);
-
-  /* Lambda should be positive and reasonable (order of magnitude 10^-22 to 10^-20) */
-  TEST_ASSERT(lambda > 0.0, "Cooling rate must be positive");
-  TEST_ASSERT(lambda < 1e-18, "Cooling rate should be reasonable magnitude");
-  TEST_ASSERT(lambda > 1e-26, "Cooling rate should not be too small");
-
-  cooling_tables_cleanup();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_metallicity_interpolation
- * @brief   Test 2D metallicity-dependent interpolation
- *
- * Expected: Cooling rate varies smoothly with metallicity
- * Validates: get_metaldependent_cooling_rate() 2D interpolation
- */
-int test_metallicity_interpolation(void) {
-  const char *cool_dir =
-      MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
-
-  int result = cooling_tables_init(cool_dir);
-  TEST_ASSERT(result == 0, "Tables must load for interpolation test");
-
-  /* Test at fixed temperature, varying metallicity */
-  double logT = 5.5; /* T = 10^5.5 K */
-
-  /* Get cooling rates at different metallicities */
-  double lambda_primordial = get_metaldependent_cooling_rate(logT, -10.0);       /* Very low Z */
-  double lambda_subsolar = get_metaldependent_cooling_rate(logT, log10(0.002));  /* 0.1 solar */
-  double lambda_solar = get_metaldependent_cooling_rate(logT, log10(0.02));      /* solar */
-  double lambda_supersolar = get_metaldependent_cooling_rate(logT, log10(0.04)); /* 2 solar */
-
-  /* All should be positive */
-  TEST_ASSERT(lambda_primordial > 0.0, "Primordial cooling rate must be positive");
-  TEST_ASSERT(lambda_subsolar > 0.0, "Sub-solar cooling rate must be positive");
-  TEST_ASSERT(lambda_solar > 0.0, "Solar cooling rate must be positive");
-  TEST_ASSERT(lambda_supersolar > 0.0, "Super-solar cooling rate must be positive");
-
-  /* Metallicity should increase cooling rate (more metal lines) */
-  TEST_ASSERT(lambda_solar > lambda_primordial,
-              "Solar metallicity should cool faster than primordial");
-
-  cooling_tables_cleanup();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_primordial_gas_cooling
- * @brief   Test cooling of zero-metallicity gas
- *
- * Expected: Primordial cooling handled correctly (no metals, only H/He)
- * Validates: Edge case handling for logZ → -infinity
- */
-int test_primordial_gas_cooling(void) {
-  const char *cool_dir =
-      MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
-
-  int result = cooling_tables_init(cool_dir);
-  TEST_ASSERT(result == 0, "Tables must load for primordial test");
-
-  /* Test primordial gas (Z = 0, logZ → -infinity) */
-  double logT = 4.5;   /* T = 10^4.5 K */
-  double logZ = -10.0; /* Effectively zero metallicity */
-
-  double lambda = get_metaldependent_cooling_rate(logT, logZ);
-
-  /* Should use primordial table (table 0) */
-  TEST_ASSERT(lambda > 0.0, "Primordial cooling must be positive");
-  TEST_ASSERT(isfinite(lambda), "Primordial cooling must be finite");
-
   cooling_tables_cleanup();
   return TEST_PASS;
 }
@@ -219,50 +128,17 @@ int test_super_solar_metallicity(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_extreme_temperatures
- * @brief   Test cooling at extreme temperatures
- *
- * Expected: Handles T < 10^4 K and T > 10^8.5 K correctly
- * Validates: Temperature bounds enforcement
- */
-int test_extreme_temperatures(void) {
-  const char *cool_dir =
-      MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
-
-  int result = cooling_tables_init(cool_dir);
-  TEST_ASSERT(result == 0, "Tables must load for temperature test");
-
-  double logZ = log10(0.02); /* Solar metallicity */
-
-  /* Test very low temperature (below table range) */
-  double logT_low = 3.0; /* T = 10^3 K, below minimum */
-  double lambda_low = get_metaldependent_cooling_rate(logT_low, logZ);
-
-  /* Should clamp to minimum temperature */
-  TEST_ASSERT(lambda_low > 0.0, "Low-T cooling must be positive");
-  TEST_ASSERT(isfinite(lambda_low), "Low-T cooling must be finite");
-
-  /* Test very high temperature (above table range) */
-  double logT_high = 9.0; /* T = 10^9 K, above maximum */
-  double lambda_high = get_metaldependent_cooling_rate(logT_high, logZ);
-
-  /* Should clamp to maximum temperature */
-  TEST_ASSERT(lambda_high > 0.0, "High-T cooling must be positive");
-  TEST_ASSERT(isfinite(lambda_high), "High-T cooling must be finite");
-
-  cooling_tables_cleanup();
-  return TEST_PASS;
-}
+// ============================================================================
+// SUITE 2: MODULE
+// ============================================================================
 
 /**
- * @test    test_memory_safety
- * @brief   Test for memory leaks during module operation
+ * @test    test_module_initialization
+ * @brief   The module initialises in a galaxy_physics phase and cleans up
  *
- * Expected: No memory leaks after init/cleanup cycle
- * Validates: Proper memory management in cooling tables
+ * Expected: module_system_init succeeds (the tables load), and init and cleanup leak nothing
  */
-int test_memory_safety(void) {
+int test_module_initialization(void) {
   ensure_modules_registered();
 
   /* Initialize module */
@@ -272,7 +148,7 @@ int test_memory_safety(void) {
   set_test_model_parameters();
 
   int result = module_system_init();
-  TEST_ASSERT(result == 0, "Module init must succeed for memory test");
+  TEST_ASSERT(result == 0, "Module system initialization should succeed");
 
   /* Clean up */
   module_system_cleanup();
@@ -284,31 +160,102 @@ int test_memory_safety(void) {
 }
 
 /**
+ * @test    test_hot_cooling_branches
+ * @brief   The cooling mass: the hot-halo (static) and rapid branches and the HotGas cap
+ *
+ * Expected: with SAGE's chain written inline (tcool = Rvir / Vvir, T = 35.9 Vvir^2, x,
+ * rho_rcool = x / tcool * 0.885, rho0 = HotGas / (4 pi Rvir), rcool), a galaxy with rcool <= Rvir
+ * is carried (HotGas / Rvir) * (rcool / (2 tcool)) * dt, one with rcool > Rvir
+ * HotGas / tcool * dt (the two differ by a factor 2 at rcool = Rvir, SAGE parity), and a mass
+ * above HotGas is carried as exactly HotGas. dt is dT / num_substeps. Each row names the branch
+ * and cap it must reach, checked against the inline rcool, so an input change cannot silently
+ * move a row to another branch. The cooling function lambda comes from the module's tables.
+ */
+int test_hot_cooling_branches(void) {
+  static const struct {
+    const char *what;
+    float hot_gas;
+    double dT;
+    int rapid;
+    int capped;
+  } rows[] = {
+      {"hot-halo branch: rcool inside Rvir", 1.0f, 0.002, 0, 0},
+      {"rapid branch: rcool beyond Rvir", 50.0f, 0.002, 1, 0},
+      {"rapid branch, mass above HotGas: capped to HotGas", 50.0f, 0.1, 1, 1},
+  };
+
+  reset_config();
+  TEST_ASSERT(sage_calculate_cooling_budget_init() == 0, "module init must succeed");
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    struct Halo halo;
+    struct GalaxyData gal;
+    struct ModuleContext ctx;
+    memset(&halo, 0, sizeof(halo));
+    memset(&gal, 0, sizeof(gal));
+    memset(&ctx, 0, sizeof(ctx));
+    MimicConfig.UnitTime_in_s = 3.08568e19;
+    MimicConfig.UnitDensity_in_cgs = 6.7698980144406312e-31;
+    ctx.params = &MimicConfig;
+    ctx.num_substeps = 10;
+    halo.galaxy = &gal;
+    halo.Type = 0;
+    halo.SnapNum = 40;
+    halo.dT = rows[k].dT;
+    halo.Mvir = 100.0;
+    halo.Rvir = 0.2;
+    halo.Vvir = 150.0;
+    gal.HotGas = rows[k].hot_gas;
+    gal.MetalsHotGas = 0.02f * rows[k].hot_gas; /* Z = 0.02 */
+    gal.CoolingGas = -7.0;
+    TEST_ASSERT(sage_calculate_cooling_budget_process(&ctx, &halo, 1) == 0, "process succeeds");
+
+    /* SAGE's chain, inline; the reservoirs are floats */
+    const double rvir = 0.2, vvir = 150.0;
+    const float hot = rows[k].hot_gas;
+    const double dt = rows[k].dT / 10.0;
+    const double tcool = rvir / vvir;
+    const double temp = 35.9 * vvir * vvir;
+    const double logZ = log10(gal.MetalsHotGas / hot);
+    const double lambda = get_metaldependent_cooling_rate(log10(temp), logZ);
+    double x = PROTONMASS * BOLTZMANN * temp / lambda;
+    x /= (MimicConfig.UnitDensity_in_cgs * MimicConfig.UnitTime_in_s);
+    const double rho_rcool = x / tcool * 0.885;
+    const double rho0 = hot / (4.0 * M_PI * rvir);
+    const double rcool = sqrt(rho0 / rho_rcool);
+    double expected =
+        (rcool > rvir) ? hot / (rvir / vvir) * dt : (hot / rvir) * (rcool / (2.0 * tcool)) * dt;
+    const int capped = expected > hot;
+    if (capped) {
+      expected = hot;
+    }
+
+    printf("\n  %s: rcool / Rvir %.4f, mass %.6e of HotGas %g", rows[k].what, rcool / rvir,
+           gal.CoolingGas, (double)hot);
+    TEST_ASSERT((rcool > rvir) == rows[k].rapid, "the row reaches the branch it names");
+    TEST_ASSERT(capped == rows[k].capped, "the row reaches the cap state it names");
+    TEST_ASSERT(gal.Rcool == rcool, "the uncapped cooling radius is carried");
+    TEST_ASSERT(gal.CoolingLambda == lambda, "the cooling function is carried");
+    TEST_ASSERT(gal.CoolingGas == expected, rows[k].what);
+  }
+  sage_calculate_cooling_budget_cleanup();
+  return TEST_PASS;
+}
+
+/**
  * @brief Main test runner — executes all sage_calculate_cooling_budget unit tests
  */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
-  printf("Test Suite: sage_calculate_cooling Module\n");
+  printf("Test Suite: sage_calculate_cooling_budget Module\n");
   printf("============================================================\n");
   printf("%s", NC);
   printf("\n");
-  printf("Suite 1: Cooling Tables (helper functions)\n");
-  printf("------------------------------------------------------------\n");
 
-  TEST_RUN(test_cooling_tables_loading);
-  TEST_RUN(test_temperature_interpolation);
-  TEST_RUN(test_metallicity_interpolation);
-  TEST_RUN(test_primordial_gas_cooling);
+  TEST_RUN(test_cooling_function_interpolation);
   TEST_RUN(test_super_solar_metallicity);
-  TEST_RUN(test_extreme_temperatures);
-
-  printf("\n");
-  printf("Suite 2: Module Integration\n");
-  printf("------------------------------------------------------------\n");
-
-  TEST_RUN(test_module_registration);
-  TEST_RUN(test_memory_safety);
+  TEST_RUN(test_module_initialization);
+  TEST_RUN(test_hot_cooling_branches);
 
   /* Print summary and return result */
   TEST_SUMMARY();

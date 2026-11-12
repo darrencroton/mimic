@@ -9,26 +9,23 @@
  * expectation is a literal.
  *
  * Software quality:
- * - test_module_lifecycle: registration, module_system_init in pre_timestep with ConcentrationOn
- *   0 (which needs no recorder), cleanup, no leaks
- * - test_concentration_on_missing_refused: a missing ConcentrationOn fails init, naming it
- * - test_concentration_on_values: 1, 2 and 7 are refused naming ConcentrationOn; 0 and 3 accepted
- * - test_placement_refused: a substep-phase entry, a post_timestep entry, two pre_timestep
- *   entries, a process_by_galaxy entry and no entry are each refused, naming the module
- * - test_recorder_required_at_3: ConcentrationOn 3 without sage26_record_transition_state in
- *   post_timestep is refused, naming the recorder; at 0 the check does not apply
+ * - test_module_lifecycle: module_system_init in pre_timestep with ConcentrationOn 0 (which needs
+ *   no recorder), cleanup, no leaks
+ *
+ * The module's parameter refusals are in test_unit_sage26_parameter_refusals.c; its placement and
+ * the recorder it requires at ConcentrationOn 3 are refused, with diagnostics, by
+ * test_unit_sage_dependency_contracts.c.
  *
  * Behaviour (ConcentrationOn 3 unless stated):
  * - test_current_and_infall_pairs: a new Type 0 with PreviousType 0 takes the current pair and
- *   with PreviousType 1 the infall pair; each row's pairs give different results
- * - test_kept_rows: a new Type 0 with PreviousType -1 or 2, and every new Type 1 or 2 whatever its
- *   PreviousType, keep a seeded non-zero Concentration
+ *   with PreviousType 1 the infall pair; each row's pairs give different results; a previous
+ *   central whose current ratio is below 1 is overwritten with 0
+ * - test_kept_rows: a new Type 0 with PreviousType -1, 2 or 3, and every new Type 1 or 2 whatever
+ *   its PreviousType, keep a seeded non-zero Concentration; so does a row without a galaxy, and
+ *   an empty or NULL workspace writes nothing
  * - test_float_store: the stored float is SAGE26's (float) of the double, a visible rounding, with
  *   each core double velocity narrowed to SAGE26's float first
- * - test_ratio_cases: a central whose ratio is below 1 is overwritten with 0, one at ratio 1 gets
- *   exactly 1.0, one beyond f(200) exactly 200
  * - test_off_writes_nothing: with ConcentrationOn 0 no row changes
- * - test_empty_and_null_rows: an empty FoF and rows without a galaxy
  *
  * Joining compositions (ConcentrationOn 3): the core's inheritance service
  * (inherit_descendant_halos, src/core/inheritance.c) joins one progenitor into its descendant,
@@ -40,7 +37,6 @@
  *   its infall pair; its current pair's result differs
  * - test_join_type0_to_0_updated_current_pair: a central whose halo grew takes the updated pair
  *   (the halo's Vmax and the new Vvir); its pre-join pair's result differs
- * - test_join_type0_to_1_keeps: a central that becomes a satellite keeps its value
  */
 
 #include <math.h>
@@ -79,26 +75,14 @@ extern int sage26_set_halo_concentration_cleanup(void);
 static char module_name[] = MODULE_NAME;
 static char recorder_name[] = RECORDER_NAME;
 static char clock_name[] = "sage26_initialise_merger_clock";
-static char phase_name[] = "galaxy_physics";
-static struct PhaseModuleConfig pre_timestep_entries[3];
-static struct PhaseModuleConfig post_timestep_entries[2];
-static struct PhaseModuleConfig substep_entries[1];
-static struct ModulePhaseConfig substep_phase[1];
-
-/** @brief Read all content from a FILE* into a static buffer (valid until the next call) */
-static const char *read_captured_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
+static struct PhaseModuleConfig pre_timestep_entries[2];
+static struct PhaseModuleConfig post_timestep_entries[1];
 
 /**
  * @brief Configure the shipped placement: the clock and the module in pre_timestep, the recorder
  *        in post_timestep (each process_full_halo), and the parameter's run-file text
  *
- * @param concentration_on  ConcentrationOn's run-file text, or NULL for a missing key
+ * @param concentration_on  ConcentrationOn's run-file text
  */
 static void configure(const char *concentration_on) {
   reset_config();
@@ -111,31 +95,13 @@ static void configure(const char *concentration_on) {
       (struct PhaseModuleConfig){recorder_name, PROCESSING_MODE_FULL_HALO, NULL};
   MimicConfig.post_timestep = post_timestep_entries;
   MimicConfig.num_post_timestep = 1;
-  if (concentration_on != NULL) {
-    sage26_test_append_model_parameter("ConcentrationOn", concentration_on);
-  }
-}
-
-/** @brief Run init() on the current configuration, capturing the log */
-static int init_captured(const char **log) {
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = sage26_set_halo_concentration_init();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    *log = read_captured_log(capture);
-    fclose(capture);
-  } else {
-    *log = "";
-  }
-  return status;
+  sage26_test_append_model_parameter("ConcentrationOn", concentration_on);
 }
 
 /** @brief Configure the shipped placement with the given ConcentrationOn and initialise */
 static int init_ok(const char *concentration_on) {
-  const char *log = "";
   configure(concentration_on);
-  return init_captured(&log);
+  return sage26_set_halo_concentration_init();
 }
 
 /**
@@ -236,132 +202,6 @@ int test_module_lifecycle(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_concentration_on_missing_refused
- * @brief   Init fails without ConcentrationOn, naming it: required, with no default
- */
-int test_concentration_on_missing_refused(void) {
-  const char *log = "";
-  configure(NULL);
-  const int status = init_captured(&log);
-  printf("\n  without ConcentrationOn: init %d", status);
-  TEST_ASSERT(status != 0, "init must fail when ConcentrationOn is missing");
-  TEST_ASSERT(strstr(log, "ConcentrationOn") != NULL, "the error must name ConcentrationOn");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_concentration_on_values
- * @brief   ConcentrationOn 1, 2 (not supported) and 7 are refused naming it; 0 and 3 initialise
- */
-int test_concentration_on_values(void) {
-  const char *refused[] = {"1", "2", "7"};
-  for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
-    const char *log = "";
-    configure(refused[k]);
-    const int status = init_captured(&log);
-    printf("\n  ConcentrationOn %s: init %d", refused[k], status);
-    TEST_ASSERT(status != 0, "init must refuse an unsupported ConcentrationOn");
-    TEST_ASSERT(strstr(log, "ConcentrationOn") != NULL, "the error must name ConcentrationOn");
-  }
-  TEST_ASSERT(init_ok("0") == 0, "init must accept ConcentrationOn 0");
-  TEST_ASSERT(init_ok("3") == 0, "init must accept ConcentrationOn 3");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_placement_refused
- * @brief   Only exactly one pre_timestep process_full_halo entry, and no other entry, initialises;
- *          each misplacement is refused naming the module (at ConcentrationOn 0 and 3)
- */
-int test_placement_refused(void) {
-  const char *values[2] = {"0", "3"};
-  for (int v = 0; v < 2; v++) {
-    const char *log = "";
-
-    /* A substep-phase entry as well */
-    configure(values[v]);
-    substep_entries[0] = (struct PhaseModuleConfig){module_name, PROCESSING_MODE_FULL_HALO, NULL};
-    substep_phase[0] = (struct ModulePhaseConfig){phase_name, substep_entries, 1};
-    MimicConfig.substep_phases = substep_phase;
-    MimicConfig.num_substep_phases = 1;
-    int status = init_captured(&log);
-    printf("\n  ConcentrationOn %s, substep-phase entry: init %d", values[v], status);
-    TEST_ASSERT(status != 0, "init must refuse a substep-phase entry");
-    TEST_ASSERT(strstr(log, MODULE_NAME) != NULL, "the error must name the module");
-    MimicConfig.substep_phases = NULL;
-    MimicConfig.num_substep_phases = 0;
-
-    /* A post_timestep entry as well */
-    configure(values[v]);
-    post_timestep_entries[1] =
-        (struct PhaseModuleConfig){module_name, PROCESSING_MODE_FULL_HALO, NULL};
-    MimicConfig.num_post_timestep = 2;
-    status = init_captured(&log);
-    printf("\n  ConcentrationOn %s, post_timestep entry: init %d", values[v], status);
-    TEST_ASSERT(status != 0, "init must refuse a post_timestep entry");
-    TEST_ASSERT(strstr(log, MODULE_NAME) != NULL, "the error must name the module");
-
-    /* Twice in pre_timestep */
-    configure(values[v]);
-    pre_timestep_entries[2] =
-        (struct PhaseModuleConfig){module_name, PROCESSING_MODE_FULL_HALO, NULL};
-    MimicConfig.num_pre_timestep = 3;
-    status = init_captured(&log);
-    printf("\n  ConcentrationOn %s, two pre_timestep entries: init %d", values[v], status);
-    TEST_ASSERT(status != 0, "init must refuse two pre_timestep entries");
-    TEST_ASSERT(strstr(log, MODULE_NAME) != NULL, "the error must name the module");
-
-    /* process_by_galaxy in pre_timestep */
-    configure(values[v]);
-    pre_timestep_entries[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    status = init_captured(&log);
-    printf("\n  ConcentrationOn %s, process_by_galaxy: init %d", values[v], status);
-    TEST_ASSERT(status != 0, "init must refuse a process_by_galaxy entry");
-    TEST_ASSERT(strstr(log, MODULE_NAME) != NULL, "the error must name the module");
-
-    /* No pre_timestep entry */
-    configure(values[v]);
-    MimicConfig.num_pre_timestep = 1;
-    status = init_captured(&log);
-    printf("\n  ConcentrationOn %s, no pre_timestep entry: init %d", values[v], status);
-    TEST_ASSERT(status != 0, "init must refuse a missing pre_timestep entry");
-    TEST_ASSERT(strstr(log, MODULE_NAME) != NULL, "the error must name the module");
-  }
-  return TEST_PASS;
-}
-
-/**
- * @test    test_recorder_required_at_3
- * @brief   ConcentrationOn 3 without sage26_record_transition_state in post_timestep is refused,
- *          naming the recorder; ConcentrationOn 0 without it initialises
- */
-int test_recorder_required_at_3(void) {
-  const char *log = "";
-  configure("3");
-  MimicConfig.post_timestep = NULL;
-  MimicConfig.num_post_timestep = 0;
-  int status = init_captured(&log);
-  printf("\n  ConcentrationOn 3 without the recorder: init %d", status);
-  TEST_ASSERT(status != 0, "init must refuse ConcentrationOn 3 without the recorder");
-  TEST_ASSERT(strstr(log, RECORDER_NAME) != NULL, "the error must name the recorder");
-
-  configure("3");
-  post_timestep_entries[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-  status = init_captured(&log);
-  printf("\n  ConcentrationOn 3, recorder not process_full_halo: init %d", status);
-  TEST_ASSERT(status != 0, "init must refuse a recorder that is not process_full_halo");
-  TEST_ASSERT(strstr(log, RECORDER_NAME) != NULL, "the error must name the recorder");
-
-  configure("0");
-  MimicConfig.post_timestep = NULL;
-  MimicConfig.num_post_timestep = 0;
-  status = init_captured(&log);
-  printf("\n  ConcentrationOn 0 without the recorder: init %d", status);
-  TEST_ASSERT(status == 0, "at ConcentrationOn 0 the recorder check must not apply");
-  return TEST_PASS;
-}
-
 // ============================================================================
 // BEHAVIOURAL TESTS
 // ============================================================================
@@ -370,30 +210,36 @@ int test_recorder_required_at_3(void) {
  * @test    test_current_and_infall_pairs
  * @brief   New Type 0 rows: PreviousType 0 takes the current pair, PreviousType 1 the infall pair
  *          (SAGE26 selects the pair at the Type before joining). The other pair of each row
- *          would give a different result (ratio below 1, so 0)
+ *          would give a different result (ratio below 1, so 0). A previous central whose own
+ *          ratio is below 1 is overwritten with 0: the earlier value is not kept
  */
 int test_current_and_infall_pairs(void) {
   TEST_ASSERT(init_ok("3") == 0, "init must succeed");
-  struct Halo halos[2];
-  struct GalaxyData gals[2];
+  struct Halo halos[3];
+  struct GalaxyData gals[3];
   /* previous central: current 300/200 (ratio 1.5), infall 100/200 (ratio 0.25 -> 0) */
   make_row(&halos[0], &gals[0], 0, 0, 300.0, 200.0, 100.0, 200.0);
   /* returning satellite: current 100/200 (-> 0), infall 330/200 (ratio 1.65) */
   make_row(&halos[1], &gals[1], 0, 1, 100.0, 200.0, 330.0, 200.0);
+  /* previous central, current 180/200 (ratio 0.81 -> 0); the infall pair would give a value */
+  make_row(&halos[2], &gals[2], 0, 0, 180.0, 200.0, 330.0, 200.0);
   struct ModuleContext ctx = make_context();
-  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, halos, 2) == 0, "process must succeed");
+  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, halos, 3) == 0, "process must succeed");
 
   const float expected0 = (float)sage26_inline_concentration(300.0f, 200.0f);
   const float expected1 = (float)sage26_inline_concentration(330.0f, 200.0f);
-  printf("\n  PreviousType 0: %.9g (expected %.9g); PreviousType 1: %.9g (expected %.9g)",
+  printf("\n  PreviousType 0: %.9g (expected %.9g); PreviousType 1: %.9g (expected %.9g); "
+         "ratio below 1: %.9g",
          (double)gals[0].Concentration, (double)expected0, (double)gals[1].Concentration,
-         (double)expected1);
+         (double)expected1, (double)gals[2].Concentration);
   TEST_ASSERT(expected0 > 1.0f && expected1 > 1.0f && expected0 != expected1,
               "the chosen pairs must give distinct non-trivial concentrations");
   TEST_ASSERT(bits32(gals[0].Concentration) == bits32(expected0),
               "a previous central must take its current Vmax/Vvir");
   TEST_ASSERT(bits32(gals[1].Concentration) == bits32(expected1),
               "a returning satellite must take its infall Vmax/Vvir");
+  TEST_ASSERT(bits32(gals[2].Concentration) == bits32(0.0f),
+              "a ratio below 1 must overwrite the earlier value with +0");
   sage26_set_halo_concentration_cleanup();
   return TEST_PASS;
 }
@@ -401,27 +247,45 @@ int test_current_and_infall_pairs(void) {
 /**
  * @test    test_kept_rows
  * @brief   Rows the joining branch does not reach keep a seeded non-zero Concentration: a new
- *          Type 0 created this snapshot (PreviousType -1) or formerly a Type 2, and every new
- *          Type 1 or 2 (satellites keep their last central value). Every row holds valid pairs,
- *          so any write would be visible
+ *          Type 0 created this snapshot (PreviousType -1) or formerly a Type 2 or 3, and every
+ *          new Type 1 or 2 (satellites keep their last central value). Every row holds valid
+ *          pairs, so any write would be visible. A row without a galaxy is skipped and an empty
+ *          or NULL workspace writes nothing, though the same row is assigned when it is passed
  */
 int test_kept_rows(void) {
   TEST_ASSERT(init_ok("3") == 0, "init must succeed");
-  const int new_type[8] = {0, 0, 1, 1, 1, 2, 2, 2};
-  const int prev_type[8] = {-1, 2, 0, 1, -1, 0, 1, 2};
-  struct Halo halos[8];
-  struct GalaxyData gals[8];
-  for (int i = 0; i < 8; i++) {
+  const int new_type[9] = {0, 0, 0, 1, 1, 1, 2, 2, 2};
+  const int prev_type[9] = {-1, 2, 3, 0, 1, -1, 0, 1, 2};
+  struct Halo halos[9];
+  struct GalaxyData gals[9];
+  for (int i = 0; i < 9; i++) {
     make_row(&halos[i], &gals[i], new_type[i], prev_type[i], 300.0, 200.0, 330.0, 200.0);
   }
   struct ModuleContext ctx = make_context();
-  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, halos, 8) == 0, "process must succeed");
-  for (int i = 0; i < 8; i++) {
+  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, halos, 9) == 0, "process must succeed");
+  for (int i = 0; i < 9; i++) {
     printf("\n  new Type %d, PreviousType %d: Concentration %.9g", new_type[i], prev_type[i],
            (double)gals[i].Concentration);
     TEST_ASSERT(bits32(gals[i].Concentration) == bits32(SEED_CONCENTRATION),
                 "a row the joining branch does not reach must keep its Concentration");
   }
+
+  /* A previous central that would be assigned: untouched by an empty workspace, skipped
+   * without its galaxy, assigned when passed with it */
+  struct Halo halo;
+  struct GalaxyData gal;
+  make_row(&halo, &gal, 0, 0, 300.0, 200.0, 330.0, 200.0);
+  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, NULL, 0) == 0, "NULL must succeed");
+  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, &halo, 0) == 0, "ngal 0 must succeed");
+  TEST_ASSERT(bits32(gal.Concentration) == bits32(SEED_CONCENTRATION), "ngal 0 must write nothing");
+  halo.galaxy = NULL;
+  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, &halo, 1) == 0, "process must succeed");
+  TEST_ASSERT(bits32(gal.Concentration) == bits32(SEED_CONCENTRATION),
+              "a galaxy-less row must be skipped");
+  halo.galaxy = &gal;
+  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, &halo, 1) == 0, "process must succeed");
+  TEST_ASSERT(bits32(gal.Concentration) != bits32(SEED_CONCENTRATION),
+              "the same row must be assigned when passed");
   sage26_set_halo_concentration_cleanup();
   return TEST_PASS;
 }
@@ -459,31 +323,6 @@ int test_float_store(void) {
 }
 
 /**
- * @test    test_ratio_cases
- * @brief   A previous central whose ratio is below 1 is overwritten with 0 (a non-zero earlier
- *          value is not kept); one at ratio exactly 1 gets exactly 1.0; one beyond f(200) exactly
- *          200 (literal expectations)
- */
-int test_ratio_cases(void) {
-  TEST_ASSERT(init_ok("3") == 0, "init must succeed");
-  struct Halo halos[3];
-  struct GalaxyData gals[3];
-  make_row(&halos[0], &gals[0], 0, 0, 180.0, 200.0, 330.0, 200.0);
-  make_row(&halos[1], &gals[1], 0, 0, 200.0, 200.0, 330.0, 200.0);
-  make_row(&halos[2], &gals[2], 0, 1, 1.0, 1.0, 2000.0, 200.0);
-  struct ModuleContext ctx = make_context();
-  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, halos, 3) == 0, "process must succeed");
-  printf("\n  ratio 0.81: %a; ratio 1: %a; ratio 100: %a", (double)gals[0].Concentration,
-         (double)gals[1].Concentration, (double)gals[2].Concentration);
-  TEST_ASSERT(bits32(gals[0].Concentration) == bits32(0.0f),
-              "a ratio below 1 must overwrite the earlier value with +0");
-  TEST_ASSERT(gals[1].Concentration == 1.0f, "ratio exactly 1 must give exactly 1.0");
-  TEST_ASSERT(gals[2].Concentration == 200.0f, "a ratio beyond f(200) must saturate at 200");
-  sage26_set_halo_concentration_cleanup();
-  return TEST_PASS;
-}
-
-/**
  * @test    test_off_writes_nothing
  * @brief   With ConcentrationOn 0 no row is written, whatever its Type, PreviousType and pairs
  *          (SAGE26 makes no call)
@@ -509,28 +348,6 @@ int test_off_writes_nothing(void) {
               "ConcentrationOn 0 must write no galaxy");
   TEST_ASSERT(memcmp(halos, halos_before, sizeof(halos)) == 0,
               "ConcentrationOn 0 must leave the rows unchanged");
-  sage26_set_halo_concentration_cleanup();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_empty_and_null_rows
- * @brief   An empty FoF and a NULL workspace succeed; a row without a galaxy is skipped
- */
-int test_empty_and_null_rows(void) {
-  TEST_ASSERT(init_ok("3") == 0, "init must succeed");
-  struct ModuleContext ctx = make_context();
-  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, NULL, 0) == 0, "NULL must succeed");
-  struct Halo halos[2];
-  struct GalaxyData gals[2];
-  make_row(&halos[0], &gals[0], 0, 0, 300.0, 200.0, 330.0, 200.0);
-  make_row(&halos[1], &gals[1], 0, 0, 300.0, 200.0, 330.0, 200.0);
-  halos[0].galaxy = NULL;
-  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, halos, 0) == 0, "ngal 0 must succeed");
-  TEST_ASSERT(gals[1].Concentration == SEED_CONCENTRATION, "ngal 0 must write nothing");
-  TEST_ASSERT(sage26_set_halo_concentration_process(&ctx, halos, 2) == 0, "process must succeed");
-  TEST_ASSERT(gals[0].Concentration == SEED_CONCENTRATION, "a galaxy-less row must be skipped");
-  TEST_ASSERT(gals[1].Concentration != SEED_CONCENTRATION, "the galaxy row must be assigned");
   sage26_set_halo_concentration_cleanup();
   return TEST_PASS;
 }
@@ -653,35 +470,6 @@ int test_join_type0_to_0_updated_current_pair(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_join_type0_to_1_keeps
- * @brief   A central whose halo becomes a subhalo (Type 0 -> 1) makes no call and keeps its
- *          value; it holds valid current and infall pairs, so any write would be visible
- */
-int test_join_type0_to_1_keeps(void) {
-  TEST_ASSERT(init_ok("3") == 0, "init must succeed");
-  struct GalaxyPool *pool = galaxy_pool_create(4);
-  struct Halo source;
-  struct GalaxyData source_gal;
-  make_progenitor(&source, &source_gal, 0, 50.0, 170.0, 150.0, -1.0, -1.0);
-  const struct InheritanceDescendant d = make_descendant(40.0, 140.0, 160.0f, 0);
-  struct Halo workspace[2];
-  const int end = join_then_process(pool, workspace, &d, &source);
-  TEST_ASSERT(end == 1, "the join must keep one row, and process must succeed");
-
-  printf("\n  Type 0 -> 1: Type %d, Concentration %.9g, infall pair %.9g/%.9g", workspace[0].Type,
-         (double)workspace[0].galaxy->Concentration, workspace[0].infallVmax,
-         workspace[0].infallVvir);
-  TEST_ASSERT(workspace[0].Type == 1 && workspace[0].infallVmax == 170.0 &&
-                  workspace[0].infallVvir == 150.0,
-              "the joined row must be a satellite with its infall pair recorded");
-  TEST_ASSERT(bits32(workspace[0].galaxy->Concentration) == bits32(SEED_CONCENTRATION),
-              "a central that becomes a satellite must keep its Concentration");
-  galaxy_pool_destroy(pool);
-  sage26_set_halo_concentration_cleanup();
-  return TEST_PASS;
-}
-
 // ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
@@ -697,23 +485,16 @@ int main(void) {
 
   printf("\n%s--- Software Quality Tests ---%s\n", BLUE, NC);
   TEST_RUN(test_module_lifecycle);
-  TEST_RUN(test_concentration_on_missing_refused);
-  TEST_RUN(test_concentration_on_values);
-  TEST_RUN(test_placement_refused);
-  TEST_RUN(test_recorder_required_at_3);
 
   printf("\n%s--- Assignment Tests ---%s\n", BLUE, NC);
   TEST_RUN(test_current_and_infall_pairs);
   TEST_RUN(test_kept_rows);
   TEST_RUN(test_float_store);
-  TEST_RUN(test_ratio_cases);
   TEST_RUN(test_off_writes_nothing);
-  TEST_RUN(test_empty_and_null_rows);
 
   printf("\n%s--- Joining Composition Tests ---%s\n", BLUE, NC);
   TEST_RUN(test_join_type1_to_0_infall_pair);
   TEST_RUN(test_join_type0_to_0_updated_current_pair);
-  TEST_RUN(test_join_type0_to_1_keeps);
 
   TEST_SUMMARY();
   return TEST_RESULT();

@@ -1,63 +1,47 @@
 #!/usr/bin/env python3
 """
-SAGE Apply Star Formation Supernova Module - Integration Test
+SAGE26 Apply Star Formation Supernova Module - Integration Test
 
-Validates: End-to-end physics correctness, conservation laws, parameter sensitivity
+Validates: the apply step's commit on real galaxies, through the whole chain that feeds and
+follows it
 
-This test validates the sage26_apply_star_formation_supernova module integration on a pipeline
-that supplies cold gas (as sage26_calculate_star_formation's integration test does): the disk scale
-radius, reionization, infall and cooling (with radio-mode heating) feed the disk, then the
-star-formation chain and the metal yield (sage26_apply_metal_enrichment, which reads Yield and
-FracZleaveDisk). Every physics case requires its subject (star formation, ejection, metals) to be
-present, so none can pass on an empty disk.
-- Full pipeline (calculate SF → calculate SN → update SF/SN → metal yield)
-- Mass and metal conservation across pipeline
-- Gas transfer physics (cold→hot→ejected)
-- Metal enrichment (yield production, FracZleaveDisk)
-- Parameter sensitivity (RecycleFraction, Yield, FracZleaveDisk)
-- Edge cases (zero gas, satellites vs centrals)
-- Memory safety and performance
+Two runs are launched. The first is a pipeline that supplies cold gas (as
+sage26_calculate_star_formation's integration test does): the disk scale radius, reionization,
+infall and cooling (with radio-mode heating) feed the disk, then the star-formation chain and the
+metal yield (sage26_apply_metal_enrichment, which reads Yield and FracZleaveDisk). Its assertions
+require the subject (star formation, ejection, metals) to be present, so none can pass on an empty
+disk. The second is the run files' pipeline without sage26_calculate_supernova_feedback, where the
+apply step's own cold-gas cap is the only thing between star formation and a negative reservoir.
 
 Test cases:
-  - test_full_pipeline_conservation: Mass and metal conservation in full pipeline
-  - test_gas_transfer_physics: Gas transfers actually occur
-  - test_metal_enrichment: Yield production and distribution
-  - test_parameter_sensitivity: Parameters affect results correctly
-  - test_edge_cases: Zero gas, satellites behavior
-  - test_memory_and_performance: Memory leaks and performance
+  - test_full_pipeline_conservation: on the supplied pipeline, stars and metals are bounded by what
+    was formed (retained stars at most StellarMass, metals at most the yield budget), every
+    reservoir is populated, finite and non-negative, and a galaxy without cold gas forms no stars
   - test_cold_gas_cap_without_supernova_calculator: no negative reservoir or outflow rate without
     the SN calculator
 
 Author: Mimic Development Team
-Date: 2025-12-18 (Refactored for comprehensive physics validation)
+Date: 2025-12-18
 """
 
-import shutil
 import sys
 from pathlib import Path
 
 import numpy as np
-import yaml
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
-    BLUE,
-    GREEN,
     MIMIC_EXE,
-    NC,
-    RED,
+    SharedRuns,
     TestSkipped,
     check_no_memory_leaks,
-    create_test_param_file,
     load_binary_halos,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
+    run_test_suite,
 )
+
+RUNS = SharedRuns()
 
 # The gas supply before the SF chain: without the disk scale radius no disk forms stars, and
 # without infall and cooling the disk holds no cold gas. The metal yield follows the apply step.
@@ -81,537 +65,30 @@ PHASES = {
     "post_timestep": [],
 }
 
-# The gas supply's keys (SFprescription 0)
-SUPPLY_PARAMS = {
+# Every key the configured modules read (SFprescription 0, the CGM recipe off, the fixed-epsilon
+# feedback)
+PIPELINE_PARAMS = {
+    # The gas supply
     "GlobalBaryonFraction": 0.17,
     "AGNrecipe": 2,
     "RadioModeEfficiency": 0.08,
     "BulgeSizeOn": 0,
+    "CGMrecipeOn": 0,
+    # Star formation
+    "SFprescription": 0,
+    "H2RadialIntegrationOn": 1,
+    "H2RadialNBins": 25,
+    "H2RadialRMaxFactor": 5.0,
+    "SfrEfficiency": 0.02,
+    "StarFormingDiskFactor": 3.0,
+    # Feedback, recycling and yield
+    "FeedbackReheatingEpsilon": 3.0,
+    "FeedbackEjectionEfficiency": 0.3,
+    "FIREmodeOn": 0,
+    "RecycleFraction": 0.43,
+    "Yield": 0.025,
+    "FracZleaveDisk": 0.0,
 }
-
-
-def test_full_pipeline_conservation():
-    """Test mass and metal conservation in the full pipeline
-
-    Validates:
-    - Total baryonic mass conserved (gas + stars)
-    - Total metals conserved with yield production: the yield is the pipeline's only metal source
-      (infall adds no metals), Yield times the stars formed, while StellarMass grows by
-      (1 - RecycleFraction) times the stars formed and nothing removes stars (no merger or
-      disruption module, so no galaxy is discarded, src/core/inheritance.c). Metals only move
-      between reservoirs or leave with negative infall, so the box's metals are at most
-      Yield / (1 - RecycleFraction) times its StellarMass
-    - Every reservoir holds gas or stars on some rows, with non-negative metallicity. No upper
-      bound on a reservoir's metallicity is asserted: a disk whose star formation and reheating
-      use up its cold gas keeps R * stars of gas but gains Yield * stars of metals, so its
-      metallicity rises by Yield / R per such event (0.058 here) and can exceed 0.1
-      (ColdGas reaches 0.13 on the test trees)
-    - Temporary properties zeroed after processing
-    - Full pipeline execution successful
-    """
-    print(f"\n{BLUE}TEST: Full pipeline conservation{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="update_sf_conservation",
-        phase_config=PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Conservation check: Mass (gas + stars should be reasonable)
-    # Note: We can't check absolute conservation without initial conditions,
-    # but we can check that values are physically reasonable
-    total_baryons = halos["ColdGas"] + halos["HotGas"] + halos["EjectedGas"] + halos["StellarMass"]
-    assert np.all(total_baryons >= 0), "Total baryonic mass should be non-negative"
-    assert np.all(np.isfinite(total_baryons)), "Total baryonic mass should be finite"
-
-    # Check metals are non-negative and finite
-    total_metals = (
-        halos["MetalsColdGas"]
-        + halos["MetalsHotGas"]
-        + halos["MetalsEjectedGas"]
-        + halos["MetalsStellarMass"]
-    )
-    assert np.all(total_metals >= 0), "Total metals should be non-negative"
-    assert np.all(np.isfinite(total_metals)), "Total metals should be finite"
-
-    # The yield budget: the box's metals are at most Yield / (1 - RecycleFraction) * StellarMass
-    total_stellar = float(np.sum(halos["StellarMass"], dtype=np.float64))
-    total_metal_mass = float(np.sum(total_metals, dtype=np.float64))
-    yield_budget = 0.025 / (1.0 - 0.43) * total_stellar  # this case's Yield and RecycleFraction
-    print(f"  Total metals {total_metal_mass:.4e} of the yield budget {yield_budget:.4e}")
-    assert total_metal_mass > 0.0, "the yield should produce metals"
-    assert total_metal_mass <= yield_budget * (
-        1.0 + 1e-5
-    ), "the metals should not exceed the yield budget"
-
-    # Every reservoir is populated, with non-negative metallicity
-    for component in ["ColdGas", "HotGas", "EjectedGas", "StellarMass"]:
-        mass = halos[component]
-        metals = halos[f"Metals{component}"]
-        non_zero = mass > 1e-6
-        assert np.sum(non_zero) > 0, f"some rows should hold {component}"
-        metallicity = np.where(non_zero, metals / np.where(non_zero, mass, 1.0), 0.0)
-        assert np.all(
-            metallicity[non_zero] >= 0.0
-        ), f"{component} metallicity should be non-negative"
-
-    # Print ranges if we have data
-    if np.sum(total_baryons > 0) > 0:
-        print(
-            f"  Total baryons range: {np.min(total_baryons[total_baryons>0]):.2e} to {np.max(total_baryons):.2e}"
-        )
-    if np.sum(total_metals > 0) > 0:
-        print(
-            f"  Total metals range: {np.min(total_metals[total_metals>0]):.2e} to {np.max(total_metals):.2e}"
-        )
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Full pipeline conservation validated{NC}")
-
-
-def test_gas_transfer_physics():
-    """Test that gas transfers actually occur in pipeline
-
-    Validates:
-    - Star formation depletes cold gas
-    - Stellar mass increases
-    - Hot gas increases (from reheating)
-    - Ejected gas increases (from ejection, the pipeline's only source of ejected gas)
-    - StarFormationRate > 0 for star-forming galaxies, which exist
-    - The stars formed over the snapshot, net of recycling, are held by the galaxy: feedback moves
-      gas only and no merger or disruption module removes stars, so (1 - RecycleFraction) times
-      the stars formed is at most StellarMass. StarFormationRate (Msun/yr) times dT (Myr) is the
-      stars formed in 10^6 Msun, so a factor 10^-4 gives the code's 10^10 Msun (the writer
-      conversions of both fields, model_properties.yaml and src/core/core_properties.yaml). This
-      replaces a bound on StarFormationRate / ColdGas, a ratio of Msun/yr to 10^10 Msun/h that
-      was never a contract
-    """
-    print(f"\n{BLUE}TEST: Gas transfer physics{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="update_sf_gas_transfers",
-        phase_config=PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Check star-forming galaxies
-    star_forming = halos["StarFormationRate"] > 0
-    num_sf = np.sum(star_forming)
-
-    assert num_sf > 0, "some galaxies should form stars (the pipeline supplies cold gas)"
-    print(f"  Found {num_sf} star-forming galaxies")
-
-    # Star-forming galaxies should have stellar mass
-    assert np.all(
-        halos["StellarMass"][star_forming] > 0
-    ), "Star-forming galaxies should have stellar mass"
-
-    print(
-        f"  Cold gas range: {np.min(halos['ColdGas'][star_forming]):.2e} to "
-        + f"{np.max(halos['ColdGas'][star_forming]):.2e}"
-    )
-    print(
-        f"  Stellar mass range: {np.min(halos['StellarMass'][star_forming]):.2e} to "
-        + f"{np.max(halos['StellarMass'][star_forming]):.2e}"
-    )
-
-    # The stars formed this snapshot, net of recycling, are at most the galaxy's StellarMass
-    sfr_sf = halos["StarFormationRate"][star_forming].astype(np.float64)
-    formed = sfr_sf * halos["dT"][star_forming].astype(np.float64) * 1e-4
-    retained = (1.0 - 0.43) * formed  # this case's RecycleFraction
-    stellar_mass = halos["StellarMass"][star_forming].astype(np.float64)
-    # 1e-5 relative: float stores; a galaxy whose stars all formed this snapshot is at equality
-    excess = retained > stellar_mass * (1.0 + 1e-5)
-    assert not np.any(excess), (
-        f"{int(np.sum(excess))} rows formed more stars this snapshot than they hold "
-        f"(largest ratio {np.max(retained / stellar_mass):.6f})"
-    )
-
-    # Check that gas exists in different phases
-    has_cold = np.sum(halos["ColdGas"] > 1e-6)
-    has_hot = np.sum(halos["HotGas"] > 1e-6)
-    has_ejected = np.sum(halos["EjectedGas"] > 1e-6)
-    has_stars = np.sum(halos["StellarMass"] > 1e-6)
-
-    print(f"  Galaxies with ColdGas: {has_cold}")
-    print(f"  Galaxies with HotGas: {has_hot}")
-    print(f"  Galaxies with EjectedGas: {has_ejected}")
-    print(f"  Galaxies with StellarMass: {has_stars}")
-
-    assert has_cold > 0, "some galaxies should hold cold gas"
-    assert has_hot > 0, "some galaxies should hold hot gas"
-    assert has_ejected > 0, "supernova ejection should leave ejected gas"
-    assert has_stars > 0, "some galaxies should hold stars"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Gas transfer physics validated{NC}")
-
-
-def test_metal_enrichment():
-    """Test metal enrichment from stellar yields
-
-    Validates:
-    - Metals are produced (yield > 0)
-    - Total metals increase in pipeline
-    - Metallicities are physically reasonable
-    - Metal distribution between disk and halo
-    """
-    print(f"\n{BLUE}TEST: Metal enrichment{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="update_sf_metals",
-        phase_config=PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.03,  # Higher yield for testing
-            "FracZleaveDisk": 0.5,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Check that metals exist
-    total_metals = (
-        halos["MetalsColdGas"]
-        + halos["MetalsHotGas"]
-        + halos["MetalsEjectedGas"]
-        + halos["MetalsStellarMass"]
-    )
-
-    has_metals = total_metals > 1e-10
-    num_with_metals = np.sum(has_metals)
-
-    print(f"  Galaxies with metals: {num_with_metals} / {len(halos)}")
-
-    assert num_with_metals > 0, "the yield should enrich some galaxies"
-    metal_range = total_metals[has_metals]
-    print(f"  Total metals range: {np.min(metal_range):.2e} to {np.max(metal_range):.2e}")
-
-    # No per-galaxy metallicity bound: a reservoir's metallicity has no upper bound (the docstring
-    # above); the derived check is the box-level yield budget in test_full_pipeline_conservation
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Metal enrichment validated{NC}")
-
-
-def test_parameter_sensitivity():
-    """Test that parameters affect results correctly
-
-    Validates:
-    - RecycleFraction affects stellar mass fraction
-    - Yield affects metal production
-    - FracZleaveDisk affects metal distribution
-
-    Tests parameter effects by comparing two runs with different values.
-    """
-    print(f"\n{BLUE}TEST: Parameter sensitivity{NC}")
-
-    # Run 1: Low recycling, low yield
-    param_file1, output_dir1, temp_dir1 = create_test_param_file(
-        output_name="update_sf_params_low",
-        phase_config=PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.3,  # Lower recycling
-            "Yield": 0.015,  # Lower yield
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode1, stdout1, stderr1 = run_mimic(param_file1)
-    assert returncode1 == 0, f"Run 1 should execute successfully\nSTDERR: {stderr1}"
-
-    output_file1 = output_dir1 / "model_z0.000_0"
-    halos1, metadata1 = load_binary_halos(output_file1)
-
-    # Run 2: High recycling, high yield
-    param_file2, output_dir2, temp_dir2 = create_test_param_file(
-        output_name="update_sf_params_high",
-        phase_config=PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.5,  # Higher recycling
-            "Yield": 0.035,  # Higher yield
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode2, stdout2, stderr2 = run_mimic(param_file2)
-    assert returncode2 == 0, f"Run 2 should execute successfully\nSTDERR: {stderr2}"
-
-    output_file2 = output_dir2 / "model_z0.000_0"
-    halos2, metadata2 = load_binary_halos(output_file2)
-
-    # Compare results
-    # Higher RecycleFraction should mean less stellar mass per SF event
-    # (more gas returned, less locked into stars)
-    total_stellar1 = np.sum(halos1["StellarMass"])
-    total_stellar2 = np.sum(halos2["StellarMass"])
-
-    print(f"  Total stellar mass (low recycle): {total_stellar1:.2e}")
-    print(f"  Total stellar mass (high recycle): {total_stellar2:.2e}")
-
-    # Note: This comparison is tricky because RecycleFraction affects multiple things
-    # We just check that values are different and reasonable
-    assert total_stellar1 > 0 and total_stellar2 > 0, "both runs should form stars"
-    ratio = total_stellar2 / total_stellar1
-    print(f"  Stellar mass ratio (high/low recycle): {ratio:.3f}")
-    # Higher recycling typically means less stars locked up
-    # But this depends on SF efficiency too, so we just check values are different
-    assert ratio != 1.0, "Different RecycleFraction should affect results"
-
-    # Higher Yield should mean more metals
-    total_metals1 = np.sum(
-        halos1["MetalsColdGas"]
-        + halos1["MetalsHotGas"]
-        + halos1["MetalsEjectedGas"]
-        + halos1["MetalsStellarMass"]
-    )
-    total_metals2 = np.sum(
-        halos2["MetalsColdGas"]
-        + halos2["MetalsHotGas"]
-        + halos2["MetalsEjectedGas"]
-        + halos2["MetalsStellarMass"]
-    )
-
-    print(f"  Total metals (low yield): {total_metals1:.2e}")
-    print(f"  Total metals (high yield): {total_metals2:.2e}")
-
-    assert total_metals1 > 1e-10 and total_metals2 > 1e-10, "both runs should produce metals"
-    metal_ratio = total_metals2 / total_metals1
-    print(f"  Metal ratio (high/low yield): {metal_ratio:.3f}")
-    # Higher yield should produce more metals
-    assert metal_ratio > 1.0, "Higher Yield should produce more metals"
-
-    shutil.rmtree(temp_dir1)
-    shutil.rmtree(temp_dir2)
-    print(f"{GREEN}✓ Parameter sensitivity validated{NC}")
-
-
-def test_edge_cases():
-    """Test edge cases and boundary conditions
-
-    Validates:
-    - Galaxies with zero cold gas handled correctly
-    - Zero star formation handled correctly
-    - Satellites behave differently from centrals
-    - No NaNs or Infs in output
-    """
-    print(f"\n{BLUE}TEST: Edge cases{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="update_sf_edge_cases",
-        phase_config=PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Check for NaNs and Infs
-    for field in [
-        "ColdGas",
-        "HotGas",
-        "EjectedGas",
-        "StellarMass",
-        "MetalsColdGas",
-        "MetalsHotGas",
-        "MetalsEjectedGas",
-        "MetalsStellarMass",
-        "StarFormationRate",
-    ]:
-        assert not np.any(np.isnan(halos[field])), f"{field} should not have NaN values"
-        assert not np.any(np.isinf(halos[field])), f"{field} should not have Inf values"
-
-    # Check zero cold gas galaxies
-    zero_cold = halos["ColdGas"] < 1e-10
-    num_zero_cold = np.sum(zero_cold)
-
-    assert num_zero_cold > 0, "some galaxies should hold no cold gas"
-    assert np.sum(halos["StarFormationRate"] > 0) > 0, "some galaxies should form stars"
-    print(f"  Galaxies with zero cold gas: {num_zero_cold}")
-    # These should have zero SFR
-    assert np.all(
-        halos["StarFormationRate"][zero_cold] == 0.0
-    ), "Galaxies with no cold gas should have zero SFR"
-
-    # Check Type distribution (0=central, 1=satellite, 2=orphan)
-    type_counts = {}
-    for t in [0, 1, 2]:
-        count = np.sum(halos["Type"] == t)
-        type_counts[t] = count
-
-    print(f"  Type 0 (central): {type_counts.get(0, 0)}")
-    print(f"  Type 1 (satellite): {type_counts.get(1, 0)}")
-    print(f"  Type 2 (orphan): {type_counts.get(2, 0)}")
-
-    # Check all values are non-negative (except sentinels)
-    for field in [
-        "ColdGas",
-        "HotGas",
-        "EjectedGas",
-        "StellarMass",
-        "MetalsColdGas",
-        "MetalsHotGas",
-        "MetalsEjectedGas",
-        "MetalsStellarMass",
-    ]:
-        assert np.all(halos[field] >= 0.0), f"{field} should be non-negative"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Edge cases handled correctly{NC}")
-
-
-def test_memory_and_performance():
-    """Test memory safety and performance baseline
-
-    Validates:
-    - No memory leaks
-    - Execution completes successfully
-    - Output file size reasonable
-    """
-    print(f"\n{BLUE}TEST: Memory and performance{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="update_sf_memory",
-        phase_config=PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    # Check for memory leaks
-    assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
-
-    # Check output file
-    output_file = output_dir / "model_z0.000_0"
-    assert output_file.exists(), "Output file should exist"
-
-    file_size = output_file.stat().st_size
-    print(f"  Output file size: {file_size} bytes")
-    assert file_size > 0, "Output file should have content"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Memory and performance validated{NC}")
-
 
 # The run files' pipeline (models/sage26/input/sage26_mini-millennium.yaml) without
 # sage26_calculate_supernova_feedback. No other module needs dropping: nothing else requires the
@@ -687,6 +164,8 @@ RUN_FILE_PARAMS = {
     "BulgeSizeOn": 3,
 }
 
+# The run files' output snapshots, all written so that the cap is checked at every epoch
+SNAPSHOT_LIST = [63, 37, 32, 27, 23, 20, 18, 16]
 
 # The reservoirs and rate an uncapped star formation drives negative, through the feedback step
 NON_NEGATIVE_FIELDS = (
@@ -709,6 +188,116 @@ NON_NEGATIVE_FIELDS = (
 METALS_ROUNDING_FLOOR = -1.0e-12
 
 
+def require_mimic():
+    """Skip a case when Mimic is not built."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+
+
+def test_full_pipeline_conservation():
+    """The supplied pipeline forms stars and metals within what the yield and recycling allow
+
+    Validates, on one run of PHASES:
+    - Mimic runs to completion and reports no memory leak
+    - Every mass and metal reservoir, and StarFormationRate, is finite and non-negative
+    - The box's metals are positive and at most Yield / (1 - RecycleFraction) times its
+      StellarMass: the yield is the pipeline's only metal source (infall adds no metals), Yield
+      times the stars formed, while StellarMass grows by (1 - RecycleFraction) times the stars
+      formed and nothing removes stars (no merger or disruption module, so no galaxy is discarded,
+      src/core/inheritance.c). Metals only move between reservoirs or leave with negative infall.
+      This is an upper bound, not an exact budget: the pipeline's initial conditions are not
+      observable, so exact mass and metal conservation is asserted by the unit tier
+    - Every reservoir holds gas or stars on some rows, with non-negative metallicity. No upper
+      bound on a reservoir's metallicity is asserted: a disk whose star formation and reheating
+      use up its cold gas keeps R * stars of gas but gains Yield * stars of metals, so its
+      metallicity rises by Yield / R per such event (0.058 here) and can exceed 0.1
+      (ColdGas reaches 0.13 on the test trees)
+    - Star-forming galaxies exist and hold stars. The stars formed over the snapshot, net of
+      recycling, are held by the galaxy: feedback moves gas only and no merger or disruption
+      module removes stars, so (1 - RecycleFraction) times the stars formed is at most
+      StellarMass. StarFormationRate (Msun/yr) times dT (Myr) is the stars formed in 10^6 Msun, so
+      a factor 10^-4 gives the code's 10^10 Msun (the writer conversions of both fields,
+      model_properties.yaml and src/core/core_properties.yaml)
+    - Galaxies without cold gas exist, and have a zero StarFormationRate
+    """
+    require_mimic()
+    run = RUNS.run("supplied_pipeline", phase_config=PHASES, model_params=PIPELINE_PARAMS)
+    assert run.returncode == 0, f"Mimic should execute successfully\nSTDERR: {run.stderr}"
+    assert check_no_memory_leaks(run.stdout, run.stderr), "Should not have memory leaks"
+    halos, _metadata = load_binary_halos(run.output_dir / "model_z0.000_0")
+
+    # Finite and non-negative reservoirs and rate
+    for field in [
+        "ColdGas",
+        "HotGas",
+        "EjectedGas",
+        "StellarMass",
+        "MetalsColdGas",
+        "MetalsHotGas",
+        "MetalsEjectedGas",
+        "MetalsStellarMass",
+        "StarFormationRate",
+    ]:
+        assert np.all(np.isfinite(halos[field])), f"{field} should be finite"
+        assert np.all(halos[field] >= 0.0), f"{field} should be non-negative"
+
+    # The yield budget: the box's metals are at most Yield / (1 - RecycleFraction) * StellarMass
+    total_metals = (
+        halos["MetalsColdGas"]
+        + halos["MetalsHotGas"]
+        + halos["MetalsEjectedGas"]
+        + halos["MetalsStellarMass"]
+    )
+    total_stellar = float(np.sum(halos["StellarMass"], dtype=np.float64))
+    total_metal_mass = float(np.sum(total_metals, dtype=np.float64))
+    yield_budget = 0.025 / (1.0 - 0.43) * total_stellar  # this run's Yield and RecycleFraction
+    print(f"  Total metals {total_metal_mass:.4e} of the yield budget {yield_budget:.4e}")
+    assert total_metal_mass > 0.0, "the yield should produce metals"
+    assert total_metal_mass <= yield_budget * (
+        1.0 + 1e-5
+    ), "the metals should not exceed the yield budget"
+
+    # Every reservoir is populated, with non-negative metallicity
+    for component in ["ColdGas", "HotGas", "EjectedGas", "StellarMass"]:
+        mass = halos[component]
+        metals = halos[f"Metals{component}"]
+        non_zero = mass > 1e-6
+        assert np.sum(non_zero) > 0, f"some rows should hold {component}"
+        metallicity = np.where(non_zero, metals / np.where(non_zero, mass, 1.0), 0.0)
+        assert np.all(
+            metallicity[non_zero] >= 0.0
+        ), f"{component} metallicity should be non-negative"
+
+    # Star-forming galaxies exist, hold stars, and hold at least the stars they formed net of
+    # recycling
+    star_forming = halos["StarFormationRate"] > 0
+    print(f"  Found {np.sum(star_forming)} star-forming galaxies")
+    assert (
+        np.sum(star_forming) > 0
+    ), "some galaxies should form stars (the pipeline supplies cold gas)"
+    assert np.all(
+        halos["StellarMass"][star_forming] > 0
+    ), "Star-forming galaxies should have stellar mass"
+    sfr_sf = halos["StarFormationRate"][star_forming].astype(np.float64)
+    formed = sfr_sf * halos["dT"][star_forming].astype(np.float64) * 1e-4
+    retained = (1.0 - 0.43) * formed  # this run's RecycleFraction
+    stellar_mass = halos["StellarMass"][star_forming].astype(np.float64)
+    # 1e-5 relative: float stores; a galaxy whose stars all formed this snapshot is at equality
+    excess = retained > stellar_mass * (1.0 + 1e-5)
+    assert not np.any(excess), (
+        f"{int(np.sum(excess))} rows formed more stars this snapshot than they hold "
+        f"(largest ratio {np.max(retained / stellar_mass):.6f})"
+    )
+
+    # A galaxy with no cold gas forms no stars
+    zero_cold = halos["ColdGas"] < 1e-10
+    print(f"  Galaxies with zero cold gas: {np.sum(zero_cold)}")
+    assert np.sum(zero_cold) > 0, "some galaxies should hold no cold gas"
+    assert np.all(
+        halos["StarFormationRate"][zero_cold] == 0.0
+    ), "Galaxies with no cold gas should have zero SFR"
+
+
 def test_cold_gas_cap_without_supernova_calculator():
     """Test that star formation is capped at the cold gas when the SN calculator is left out
 
@@ -726,31 +315,24 @@ def test_cold_gas_cap_without_supernova_calculator():
     outflow rate rather than in ColdGas. The apply step therefore caps NewStellarMass at ColdGas.
 
     Pipeline: NO_CALCULATOR_PHASES, the run files' phases minus the calculator, at the run files'
-    parameters, writing the run files' eight snapshots.
+    parameters, writing the run files' eight snapshots (SNAPSHOT_LIST).
 
     The three metal fields are held to METALS_ROUNDING_FLOOR rather than 0 (the floor's comment).
     """
-    print(f"\n{BLUE}TEST: Cold-gas cap without the supernova calculator{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="update_sf_no_sn_cap",
+    require_mimic()
+    run = RUNS.run(
+        "no_calculator_cap",
         phase_config=NO_CALCULATOR_PHASES,
         model_params=RUN_FILE_PARAMS,
         substeps=1,
+        snapshot_list=SNAPSHOT_LIST,
     )
+    assert run.returncode == 0, f"Mimic should execute successfully\nSTDERR: {run.stderr}"
 
-    # Write several snapshots (the generated run file writes only the last one)
-    with open(param_file, "r") as f:
-        config = yaml.safe_load(f)
-    config["output"]["snapshot_list"] = [63, 37, 32, 27, 23, 20, 18, 16]
-    with open(param_file, "w") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_files = sorted(output_dir.glob("model_z*_0"))
-    assert len(output_files) == 8, f"Expected eight snapshot outputs, found {len(output_files)}"
+    output_files = sorted(run.output_dir.glob("model_z*_0"))
+    assert len(output_files) == len(
+        SNAPSHOT_LIST
+    ), f"Expected {len(SNAPSHOT_LIST)} snapshot outputs, found {len(output_files)}"
 
     minima = {field: np.inf for field in NON_NEGATIVE_FIELDS}
     negative_rows = {field: 0 for field in NON_NEGATIVE_FIELDS}
@@ -777,70 +359,19 @@ def test_cold_gas_cap_without_supernova_calculator():
         "formation must be capped at the cold gas"
     )
 
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Cold-gas cap without the supernova calculator validated{NC}")
-
 
 def main():
-    """Main test runner"""
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: {Path(__file__).name}{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    tests = [
-        test_full_pipeline_conservation,
-        test_gas_transfer_physics,
-        test_metal_enrichment,
-        test_parameter_sensitivity,
-        test_edge_cases,
-        test_memory_and_performance,
-        test_cold_gas_cap_without_supernova_calculator,
-    ]
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    try:
+        return run_test_suite(
+            [
+                test_full_pipeline_conservation,
+                test_cold_gas_cap_without_supernova_calculator,
+            ],
+            "SAGE26 Apply Star Formation Supernova Integration Tests",
+        )
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

@@ -41,5 +41,6 @@ All four are required with no default and are validated whatever `CGMrecipeOn` h
 
 ## Tests
 
-- `_tests/test_unit_sage26_regime_aware_cooling.c`: each branch of the transaction, the application order and caps, the diagnostic paths, the initial boundary, the parameter refusals, and the placement guard of this module and the budget.
-- `_tests/test_integration_sage26_regime_aware_cooling.py`: the no-op with `CGMrecipeOn 0`, the module's writes with `CGMrecipeOn 1`, and the `init()` refusals reaching the run's exit status.
+- `_tests/test_unit_sage26_regime_aware_cooling.c`: each branch of the transaction, the application order and caps, the diagnostic paths, and the initial boundary.
+- `_tests/test_integration_sage26_regime_aware_cooling.py`: runs the module in Mimic and checks the no-op with `CGMrecipeOn 0`; its `CGMrecipeOn 1` output on the run file's full pipeline is covered by the physics baseline, `../_tests/test_scientific_sage26_physics_baseline.py`.
+- The parameter refusals and the placement guard of this module and the budget are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c` and `../_tests/test_unit_sage_dependency_contracts.c`.

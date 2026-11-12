@@ -41,6 +41,7 @@ Every row whose new `Type` is not 0 keeps its value, so a satellite carries its 
 
 ## Tests
 
-- `_tests/test_unit_sage26_set_halo_concentration.c`: the velocity-pair selection by `PreviousType`, the kept cases, the ratio edge cases, `ConcentrationOn 0`, the refusals, and joining compositions through the core's inheritance.
-- `_tests/test_integration_sage26_set_halo_concentration.py`: the no-op with `ConcentrationOn 0`, the writes with 3, and the `init()` refusals reaching the run's exit status.
+- `_tests/test_unit_sage26_set_halo_concentration.c`: the velocity-pair selection by `PreviousType`, the kept cases, the ratio edge cases, `ConcentrationOn 0`, and joining compositions through the core's inheritance.
+- `_tests/test_integration_sage26_set_halo_concentration.py`: the no-op with `ConcentrationOn 0` and the writes with 3.
 - The inversion helpers are tested by `../../shared/_tests/test_unit_sage_halo_concentration.c`.
+- The placement and recorder checks are covered at package level by `../_tests/test_unit_sage_dependency_contracts.c`, and the parameter refusals also by `../_tests/test_unit_sage26_parameter_refusals.c`.

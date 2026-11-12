@@ -35,5 +35,6 @@ This implements SAGE26's `add_infall_to_hot`, called each substep with `Infallin
 
 ## Tests
 
-- `_tests/test_unit_sage26_apply_infall.c`: registration and lifecycle, positive, negative and zero infall over one to the maximum number of substeps (with a total independent of the substep count), each case at `CGMrecipeOn 1` in both regimes and at `CGMrecipeOn 0`, a workspace with no central, and the parameter's refusals.
-- `_tests/test_integration_sage26_apply_infall.py`: a `CGMrecipeOn 0` run with reionization and the infall budget, checking initialisation, no memory leak, and finite, non-negative hot, ejected and metal masses.
+- `_tests/test_unit_sage26_apply_infall.c`: registration and lifecycle, positive, negative and zero infall over one to the maximum number of substeps (with a total independent of the substep count), each case at `CGMrecipeOn 1` in both regimes and at `CGMrecipeOn 0`, and a workspace with no central.
+- `_tests/test_integration_sage26_apply_infall.py`: a `CGMrecipeOn 0` infall-only run (reionization, the budget, the application) at the default and at a non-default substep count, checking that every FoF group's baryons reach `HaloBaryonFraction * Mvir`, that centrals a negative budget exhausted hold no hot or ejected gas, and that nothing leaks.
+- The `CGMrecipeOn` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

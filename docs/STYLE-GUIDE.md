@@ -238,6 +238,10 @@ Tests are part of the style contract because they define how failures are surfac
 - Every test case should emit a structured `MIMIC_RESULT:` marker through the framework.
 - C unit tests commonly follow `SETUP`, `EXECUTE`, `VALIDATE`, `CLEANUP` comment sections; use that structure when it improves scanability.
 - Test names should describe behavior, not implementation details.
+- Every test case should assert an outcome that a plausible defect would change. A case that asserts nothing, only that a call returned, only a log string, or only that an output field exists does not earn its place when another case already runs the same code.
+- Expected values should come from a hand-computed literal or an expression written independently in the test, not from the helper the code under test calls.
+- When several cases share a fixture and differ in one or two inputs, write one table-driven case with a row per input and a failure message that names the row.
+- An integration test should run each distinct configuration once (`SharedRuns` in `tests/framework`) and make all its assertions about that run. A case that asserts on a galaxy property should first show the property is non-zero in some rows: a pipeline with no gas supply writes zeros, on which a sign or bound check cannot fail.
 - Use `TEST_SKIP_WITH` or `TestSkipped` for a test that applies to the selected pair but cannot run (missing library, data or fixture), and `TEST_NA_WITH` or `TestNotApplicable` for one that does not apply to the pair at all; NA is for deterministic selection mismatches only, never for a missing environment.
 - Keep module-owned tests near the module; keep cross-module pipeline behavior in the model package `_tests/` or top-level `tests/` as appropriate.
 - Capture long test output to logs under `archive/test-logs/` when running manually.

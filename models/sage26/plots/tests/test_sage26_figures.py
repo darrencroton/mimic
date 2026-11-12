@@ -2,46 +2,43 @@
 """
 sage26 registered figures, rendered from a synthetic catalogue (models/sage26/plots/figures/).
 
-Validates: each registered figure renders a non-empty PNG named by its registry file stem and
-           returns no skip message; at least one artist tagged gid="model" holds a finite data
-           point; the figure's data axes and colour-bar axes carry exactly the labels and titles
-           of its source; every field the figure reads unconditionally is in its PLOT_REQUIREMENTS
-           entry (and, for an evolution figure, every field it reads
-           is in its EVOLUTION_PLOT_FIELDS entry) and a figure called without one of its
-           optional fields does not raise; the baryon-fraction reservoir helper returns the
-           seven reservoirs with the total equal to their sum; baryon_fraction draws a "CGM"
-           curve, mass_reservoir_scatter a "CGM gas" series and gas_mass_function the "Model - H2
-           Gas" and "Model - HI Gas" lines, each tagged gid="model" (the twelve SAGE26 z = 0
-           figures, bulge_to_total to disk_radius_vs_stellar_mass, get the same cases, a Cap
-           case for each sampled figure, a unit case for each helper, and both the colour-bar
-           and the no-colour-bar labels of tcool_vs_mvir; the fourteen evolution figures,
-           rcool_to_rvir_above_mshock to ffb_fraction_cut_down (thirteen figures that follow
-           SAGE26's history plotting script and the cut-down version of its paper figure 23c), get
-           the same cases, a window case and a legend case where the figure has one, the
-           snapshot-selection helper's cases (inclusive z-range ends, empty bins, nearest snapshot
-           and its tie, order independence), a unit case for every helper, and cases pinning each
-           bin constant, threshold, legend text and conversion)
-Tolerance: none for labels, stems, field sets, caps and the reservoir helper (the helper's
-           literals are dyadic, so the sums are exact); the CGM curve is compared with the total
-           curve by a plain inequality; helper unit cases compare with a relative tolerance of
-           1e-12 (decimal literals) or exactly (dyadic literals), and the smoothed-histogram
-           peak with an absolute tolerance of 2e-3
+Validates: the generic cases of tests/framework/plot_checks.py for every registered figure: it
+           renders a non-empty PNG and returns no skip message; at least one artist tagged
+           gid="model" holds a finite data point; every field it reads unconditionally is in its
+           PLOT_REQUIREMENTS entry (and, for an evolution figure, in its EVOLUTION_PLOT_FIELDS
+           entry) and it runs without any one of its optional fields
+           the derivation cases of sage26_plot_derivations.py: a hand-built catalogue per figure
+           whose plotted points are known literals (mass-function normalisation, the red/blue
+           split, the SFR and stellar-mass densities, the Sb/c selection, the metallicity
+           conversion; the CGM curve of baryon_fraction, the CGM series of
+           mass_reservoir_scatter, the H2 and H I lines of gas_mass_function, and the selection
+           and unit conversion of mass_loading_vs_vvir, stellar_vs_halo_mass_by_regime,
+           sfr_vs_halo_accretion_rate, tcool_vs_mvir and cgm_fraction_vs_mvir)
+           the labels where they carry a unit or a convention that differs from SAGE26's; the
+           colour bar of tcool_vs_mvir; the run parameters the rcool figure reads; the sampling cap
+           of each sampled figure; a unit case for each figure-local helper and for the shared
+           binning helpers; the bin, threshold and window constants a figure holds only inline;
+           the snapshot-selection helpers (inclusive z-range ends, empty bins, nearest snapshot,
+           its tie, order independence); and end-to-end wiring cases for the evolution figures,
+           each a one-snapshot catalogue whose plotted point is a hand-derived literal
+Tolerance: none for field sets, caps, selections and the reservoir helper (its literals are
+           dyadic, so the sums are exact); plotted points of the derivation cases to a relative
+           1e-5 (float32 input); helper unit cases to a relative 1e-12 (decimal literals) or
+           exactly (dyadic literals); the smoothed-histogram peak to an absolute 2e-3; the cosmic
+           age to 5e-4 (4e-3 where the helper's trapezoid error of 0.31 percent is the limit)
 
-Every expectation is a literal transcribed from the figure's source text or from SAGE26's plotting
-scripts (no label is computed from the code under test). Figures render with MPLBACKEND=Agg into a
+Every expectation is a literal written from the figure's source text or from SAGE26's plotting
+scripts, never computed from the code under test. Figures render with MPLBACKEND=Agg into a
 temporary directory under $TMPDIR, removed at the end. It needs no Mimic run.
 
 Run: mimic_venv/bin/python models/sage26/plots/tests/test_sage26_figures.py
 """
 
 import contextlib
-import importlib
 import io
 import math
 import os
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 # Set before Matplotlib is imported (the figure package imports it)
@@ -49,307 +46,46 @@ os.environ["MPLBACKEND"] = "Agg"
 
 import matplotlib.pyplot as plt
 import numpy as np
-from numpy.lib import recfunctions
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[3]
-MIMIC_PLOT_DIR = REPO_ROOT / "plot" / "mimic-plot"
-sys.path.insert(0, str(MIMIC_PLOT_DIR))
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(HERE))
 
-from framework import run_test_suite
-from sage26_plot_fixtures import (
-    HUBBLE_H,
-    VOLUME,
-    build_catalogue,
-    build_evolution_input,
-    record_dtype,
-    run_parameters,
-    snapshot_metadata,
-)
+import sage26_plot_fixtures as fixtures
+from framework.plot_checks import PlotHarness, model_lines, tagged_model_artists
+from framework.plot_derivations import derivation_cases
+from sage26_plot_derivations import DERIVATIONS, INTEGER_FIELDS
+from sage26_plot_fixtures import HUBBLE_H, build_catalogue, build_evolution_input
+
+HARNESS = PlotHarness("sage26", fixtures, model_gid=True)
 
 
-def load_figure_package(model):
-    """Import models/<model>/plots/figures as `figures`, replacing any earlier package."""
-    for name in [m for m in sys.modules if m == "figures" or m.startswith("figures.")]:
-        del sys.modules[name]
-    plots_dir = str(REPO_ROOT / "models" / model / "plots")
-    sys.path.insert(0, plots_dir)
-    try:
-        return importlib.import_module("figures")
-    finally:
-        sys.path.remove(plots_dir)
+def close(got, expected, rel=1e-12):
+    """Assert two arrays agree to a relative tolerance."""
+    got = np.asarray(got, dtype=float)
+    expected = np.asarray(expected, dtype=float)
+    assert got.shape == expected.shape, f"shape {got.shape}, expected {expected.shape}"
+    assert np.allclose(got, expected, rtol=rel, atol=0.0), f"{got.tolist()} != {expected.tolist()}"
 
 
-FIGURES = load_figure_package("sage26")
-
-# Registry name -> File stem, for every registered figure
-SNAPSHOT_STEMS = {
-    "halo_mass_function": "HaloMassFunction",
-    "halo_occupation": "HaloOccupation",
-    "spin_distribution": "SpinDistribution",
-    "velocity_distribution": "VelocityDistribution",
-    "spatial_distribution": "SpatialDistribution",
-    "stellar_mass_function": "StellarMassFunction",
-    "cold_gas_function": "ColdGasFunction",
-    "baryon_fraction": "BaryonFraction",
-    "baryonic_mass_function": "BaryonicMassFunction",
-    "gas_mass_function": "GasMassFunction",
-    "baryonic_tully_fisher": "BaryonicTullyFisher",
-    "specific_sfr": "SpecificSFR",
-    "black_hole_bulge_relation": "BlackHoleBulgeRelation",
-    "gas_fraction": "GasFraction",
-    "metallicity": "Metallicity",
-    "bulge_mass_fraction": "BulgeMassFraction",
-    "quiescent_fraction": "QuiescentFraction",
-    "mass_reservoir_scatter": "MassReservoirScatter",
-    "bulge_to_total": "BulgeToTotal",
-    "spatial_distribution_3d_box": "SpatialDistribution3D_Box",
-    "star_formation_rate": "StarFormationRate",
-    "mass_loading_vs_vvir": "mass_loading_vs_vvir",
-    "stellar_vs_halo_mass_by_regime": "stellar_vs_halo_mass_by_regime",
-    "specific_star_formation_rate": "specific_star_formation_rate",
-    "concentration_vs_mvir": "concentration_vs_mvir",
-    "sfr_vs_halo_accretion_rate": "sfr_vs_halo_accretion_rate",
-    "tcool_vs_mvir": "tcool_vs_mvir",
-    "cgm_fraction_vs_mvir": "cgm_fraction_vs_mvir",
-    "ejection_efficiency_vs_vvir": "ejection_efficiency_vs_vvir",
-    "disk_radius_vs_stellar_mass": "disk_radius_vs_stellar_mass",
-}
-EVOLUTION_STEMS = {
-    "hmf_evolution": "HaloMassFunction_Evolution",
-    "smf_evolution": "StellarMassFunction_Evolution",
-    "sfr_density_evolution": "SFR_Density_Evolution",
-    "stellar_mass_density_evolution": "Stellar_Mass_Density_Evolution",
-    "rcool_to_rvir_above_mshock": "RcoolToRvir_above_Mshock",
-    "sfr_evolution": "SFR_evolution",
-    "stellar_mass_halo_mass_relation": "StellarMassHaloMassRelation",
-    "black_hole_mass_function": "BlackHoleMassFunction",
-    "quenched_fraction_evolution": "QuenchedFraction.StellarMassFunctionEvolution",
-    "concentration_evolution": "ConcentrationEvolution",
-    "metallicity_evolution": "MetallicityEvolution",
-    "h2_fraction_evolution": "H2FractionEvolution",
-    "star_formation_efficiency": "StarFormationEfficiency",
-    "central_satellite_counts": "CentralSatelliteCounts",
-    "central_satellite_fraction": "CentralSatelliteFraction",
-    "central_satellite_fraction_massive_quiescent": "CentralSatelliteFraction_MassiveQuiescent",
-    "quenched_central_satellite_counts": "QuenchedCentralSatelliteCounts",
-    "ffb_fraction_cut_down": "FFB_Fraction_Li24_cut_down",
-}
-FILE_STEMS = {**SNAPSHOT_STEMS, **EVOLUTION_STEMS}
-
-# Axis strings of the general diagnostic figures, transcribed from their source.
-# The shared ones are the returns of the get_*_label() helpers of figures/__init__.py.
-MASS_FUNCTION = r"$\phi$ [Mpc$^{-3}$ dex$^{-1}$]"
-HALO_MASS = r"log$_{10}$ M$_{\rm halo}$ [M$_{\odot}$]"
-STELLAR_MASS = r"log$_{10}$ M$_{*}$ [M$_{\odot}$]"
-BARYONIC_MASS = r"log$_{10}$ M$_{\rm bar}$ [M$_{\odot}$]"
-VMAX = r"log$_{10}$ V$_{\rm max}$ [km/s]"
-REDSHIFT = r"redshift"
+def f32(values):
+    """Return the values as a float32 array, the type of the output's float fields."""
+    return np.asarray(values, dtype=np.float32)
 
 
-def panel(x_label, y_label, title="", z_label=""):
-    """Return the expected labels of one data axes (no side titles; a z label for a 3-D axes)."""
-    return {
-        "x": x_label,
-        "y": y_label,
-        "z": z_label,
-        "title": title,
-        "title_left": "",
-        "title_right": "",
-    }
-
-
-# name -> list of expected data axes in creation order. The general diagnostic figures (the first
-# eighteen snapshot figures and the first four evolution figures, in registry order) have no title
-# and no colour bar; the labels of the other figures are SAGE26's Python string literals.
-DATA_AXES = {
-    "halo_mass_function": [panel(HALO_MASS, MASS_FUNCTION)],
-    "halo_occupation": [panel(HALO_MASS, r"Mean occupation number $\langle N \rangle$")],
-    "spin_distribution": [panel(r"Spin Parameter", r"Number")],
-    "velocity_distribution": [panel(r"Velocity / H$_0$ [Mpc]", r"Box Normalised Count")],
-    # plt.subplots(2, 2): three drawn panels, then the fourth, hidden by set_visible(False)
-    "spatial_distribution": [
-        panel(r"X [h$^{-1}$ Mpc]", r"Y [h$^{-1}$ Mpc]"),
-        panel(r"X [h$^{-1}$ Mpc]", r"Z [h$^{-1}$ Mpc]"),
-        panel(r"Y [h$^{-1}$ Mpc]", r"Z [h$^{-1}$ Mpc]"),
-        panel("", ""),
-    ],
-    "stellar_mass_function": [panel(STELLAR_MASS, MASS_FUNCTION)],
-    "cold_gas_function": [panel(r"log$_{10}$ M$_{\rm cold~gas}$ [M$_{\odot}$]", MASS_FUNCTION)],
-    "baryon_fraction": [
-        panel(r"Central log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$]", r"Baryon Fraction")
-    ],
-    "baryonic_mass_function": [panel(BARYONIC_MASS, MASS_FUNCTION)],
-    "gas_mass_function": [panel(r"log$_{10}$ M$_{\rm X}$ [M$_{\odot}$]", MASS_FUNCTION)],
-    "baryonic_tully_fisher": [panel(VMAX, BARYONIC_MASS)],
-    "specific_sfr": [panel(STELLAR_MASS, r"log$_{10}$ sSFR [yr$^{-1}$]")],
-    "black_hole_bulge_relation": [
-        panel(
-            r"log$_{10}$ M$_{\rm bulge}$ [M$_{\odot}$]",
-            r"log$_{10}$ M$_{\rm BH}$ [M$_{\odot}$]",
-        )
-    ],
-    "gas_fraction": [panel(STELLAR_MASS, r"Cold Mass / (Cold+Stellar Mass)")],
-    "metallicity": [panel(STELLAR_MASS, r"12 + log$_{10}$[O/H]")],
-    "bulge_mass_fraction": [panel(STELLAR_MASS, r"Stellar Mass Fraction")],
-    "quiescent_fraction": [panel(STELLAR_MASS, r"Quiescent Fraction")],
-    # Changed from the source: the masses are plotted as log10 Msun (mass_to_msun), so the x label
-    # drops the h^-1 and the y label states the log and the unit
-    "mass_reservoir_scatter": [
-        panel(
-            r"log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$]",
-            r"log$_{10}$ M$_{\rm reservoir}$ [M$_{\odot}$]",
-        )
-    ],
-    # no title
-    "bulge_to_total": [
-        panel(
-            r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$",
-            r"$M_{\mathrm{bulge}} / M_{\mathrm{stars}}$",
-        )
-    ],
-    # no title
-    "spatial_distribution_3d_box": [panel("X (Mpc/h)", "Y (Mpc/h)", z_label="Z (Mpc/h)")],
-    # no title
-    "star_formation_rate": [
-        panel(
-            r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$",
-            r"$\log_{10} \mathrm{SFR}\ (M_{\odot}\ \mathrm{yr^{-1}})$",
-        )
-    ],
-    # no title
-    "mass_loading_vs_vvir": [
-        panel(
-            r"$\log_{10} V_{\mathrm{vir}}\ (\mathrm{km/s})$",
-            r"$\eta_{\mathrm{reheat}} = \dot{M}_{\mathrm{reheat}} / \dot{M}_{\star}$",
-        )
-    ],
-    # no title
-    "stellar_vs_halo_mass_by_regime": [
-        panel(
-            r"$\log_{10} M_{\mathrm{vir}}\ (M_{\odot})$",
-            r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$",
-        )
-    ],
-    # no title
-    "specific_star_formation_rate": [
-        panel(
-            r"$\log_{10} M_{\mathrm{stars}}\ (M_{\odot})$",
-            r"$\log_{10} \mathrm{sSFR}\ (\mathrm{yr^{-1}})$",
-        )
-    ],
-    # Two panels sharing y; the right panel has no y label
-    "concentration_vs_mvir": [
-        panel(
-            r"$\log_{10} M_{\rm vir}\ [M_{\odot}]$",
-            r"Concentration $c$",
-            "Centrals \u2014 z = 0.00",
-        ),
-        panel(r"$\log_{10} M_{\rm vir}\ [M_{\odot}]$", "", "Satellites \u2014 z = 0.00"),
-    ],
-    "sfr_vs_halo_accretion_rate": [
-        panel(
-            r"$\log_{10}\ \dot{M}_{\rm acc}\ (M_{\odot}\ \mathrm{yr}^{-1})$",
-            r"$\log_{10}\ \mathrm{SFR}\ (M_{\odot}\ \mathrm{yr}^{-1})$",
-            "Centrals \u2014 z = 0.00",
-        )
-    ],
-    # no title
-    "tcool_vs_mvir": [
-        panel(
-            r"$\log_{10} M_{\rm vir}\ (M_{\odot})$",
-            r"$\mathrm{Cooling\ rate}\ (M_{\odot}\ \mathrm{Gyr}^{-1})$",
-        )
-    ],
-    # no title
-    "cgm_fraction_vs_mvir": [
-        panel(r"$\log_{10} M_{\rm vir}\ (M_{\odot})$", r"$\mathrm{CGM\ Fraction}$")
-    ],
-    # no title
-    "ejection_efficiency_vs_vvir": [
-        panel(r"$\log_{10} V_{\rm vir}\ (\mathrm{km/s})$", r"$\mathrm{Ejection\ Efficiency}$")
-    ],
-    # no title
-    "disk_radius_vs_stellar_mass": [
-        panel(r"$R_{\rm vir}\ (\mathrm{kpc}/h)$", r"$R_{\rm e,disk}\ (\mathrm{kpc}/h)$")
-    ],
-    "hmf_evolution": [panel(HALO_MASS, MASS_FUNCTION)],
-    "smf_evolution": [panel(STELLAR_MASS, MASS_FUNCTION)],
-    "sfr_density_evolution": [
-        panel(REDSHIFT, r"log$_{10}$ SFR density [M$_{\odot}$ yr$^{-1}$ Mpc$^{-3}$]")
-    ],
-    "stellar_mass_density_evolution": [
-        panel(REDSHIFT, r"log$_{10}$ $\rho_{*}$ [M$_{\odot}$ Mpc$^{-3}$]")
-    ],
-    # The history figures: SAGE26's Python string literals (none draws a label
-    # SAGE26 does not; an empty string where SAGE26 sets none)
-    "rcool_to_rvir_above_mshock": [
-        panel(
-            r"$r_{\rm cool}\,/\,R_{\rm vir}$",
-            "PDF",
-            r"$M_{\rm vir} > M_{\rm shock}\ (6\times10^{11}\,M_\odot)$ haloes",
-        )
-    ],
-    "sfr_evolution": [
-        panel(r"$\log_{10} M_* [M_\odot]$", r"$\log_{{10}}\mathrm{{SFR}}\ [M_\odot/yr]$")
-    ],
-    "stellar_mass_halo_mass_relation": [
-        panel(r"$\log_{10} M_{\rm vir}$ [$M_\odot$]", r"$\log_{10} M_*$ [$M_\odot$]")
-    ],
-    "black_hole_mass_function": [
-        panel(r"$\log_{10} M_{\rm BH} [M_\odot]$", r"$\phi$ [Mpc$^{-3}$ dex$^{-1}$]")
-    ],
-    "quenched_fraction_evolution": [panel(r"$\log_{10} M_* [M_\odot]$", "Quenched Fraction")],
-    "concentration_evolution": [panel(r"Redshift $z$", r"Concentration $c$")],
-    "metallicity_evolution": [panel(r"$\log_{10} M_* [M_\odot]$", r"$\log_{10} Z$")],
-    "h2_fraction_evolution": [
-        panel(
-            r"$\log_{10} M_* [M_\odot]$",
-            r"$f_{\rm H_2} = M_{\rm H_2}\,/\,(M_{\rm cold} \times 0.74)$",
-        )
-    ],
-    "star_formation_efficiency": [
-        panel(r"Cosmic time [Gyr]", r"$\varepsilon_* = M_* \,/\, (f_b \cdot M_{\rm vir})$")
-    ],
-    "central_satellite_counts": [panel("", "Average Count")],  # no x label
-    "central_satellite_fraction": [panel(r"Redshift $z$", "Fraction")],
-    "central_satellite_fraction_massive_quiescent": [
-        panel(r"Redshift $z$", "Fraction (top 10% $M_*$, sSFR $< 0.2/t_{\\rm H}$)")
-    ],
-    "quenched_central_satellite_counts": [panel("", "Average Count")],  # no x label
-    # the title is the cut-down figure's own
-    "ffb_fraction_cut_down": [
-        panel(
-            r"$z$",
-            "FFB fraction",
-            "Cut-down version of SAGE26 paper plot 23c: 8 output snapshots, no MBK25 run",
-        ),
-        panel(r"$\log_{10}(1+z)$", ""),
-    ],
-}
-# name -> expected colour-bar labels in creation order. Only three figures draw one: the
-# concentration figure's and the accretion-rate figure's stellar mass, and the cooling-rate figure's
-# virial temperature, which the synthetic catalogue's satellites (Regime -1, outside 0 and 1) bring.
-COLORBAR_LABELS = {name: [] for name in FILE_STEMS}
-COLORBAR_LABELS["concentration_vs_mvir"] = [r"$\log_{10} M_{\star}\ [M_{\odot}]$"]
-COLORBAR_LABELS["sfr_vs_halo_accretion_rate"] = [r"$\log_{10} M_{\star}\ [M_{\odot}]$"]
-COLORBAR_LABELS["tcool_vs_mvir"] = [r"$T_{\rm vir}$ (K)"]
-
-TMP_ROOT = None  # created by main(), removed at its end
-
-
-# --------------------------------------------------------------------------------------
-# Reading a captured figure
-# --------------------------------------------------------------------------------------
 def is_colorbar_axes(ax):
     """True when Matplotlib's colour-bar reference is set on the axes."""
     return getattr(ax, "_colorbar", None) is not None
 
 
+def data_axes(fig):
+    """Return the data axes of a figure (colour-bar axes left out), in creation order."""
+    return [ax for ax in fig.axes if not is_colorbar_axes(ax)]
+
+
 def axes_labels(ax):
-    """Return the label dictionary of one axes (same keys as panel())."""
+    """Return the labels of one axes: x, y, z (3-D only), title, left and right title."""
     return {
         "x": ax.get_xlabel(),
         "y": ax.get_ylabel(),
@@ -362,345 +98,13 @@ def axes_labels(ax):
 
 def describe_figure(fig):
     """Return (data-axes label dicts, colour-bar labels), each in creation order."""
-    data = [axes_labels(ax) for ax in fig.axes if not is_colorbar_axes(ax)]
+    data = [axes_labels(ax) for ax in data_axes(fig)]
     bars = [ax.get_ylabel() or ax.get_xlabel() for ax in fig.axes if is_colorbar_axes(ax)]
     return data, bars
 
 
-def finite_points(artist):
-    """Count the finite data points an artist holds (0 for an artist this does not know)."""
-    from matplotlib.collections import PathCollection, PolyCollection, QuadMesh
-    from matplotlib.contour import ContourSet
-    from matplotlib.lines import Line2D
-    from matplotlib.patches import Polygon, Rectangle, StepPatch
-
-    if isinstance(artist, StepPatch):
-        # A stairs step: its finite values (a NaN step is not drawn)
-        values = np.asarray(artist.get_data().values, dtype=float)
-        return int(np.count_nonzero(np.isfinite(values)))
-    if isinstance(artist, Polygon):
-        # A step histogram's outline: its finite vertices
-        xy = np.asarray(artist.get_xy(), dtype=float)
-        return int(np.count_nonzero(np.isfinite(xy).all(axis=1))) if len(xy) else 0
-    if isinstance(artist, Line2D):
-        xy = np.asarray(artist.get_xydata(), dtype=float)
-        return int(np.count_nonzero(np.isfinite(xy).all(axis=1))) if len(xy) else 0
-    if isinstance(artist, QuadMesh):
-        values = np.ma.filled(np.ma.asarray(artist.get_array()), 0.0)
-        return int(np.count_nonzero(np.isfinite(values) & (values != 0)))
-    if isinstance(artist, PolyCollection):
-        count = 0
-        for path in artist.get_paths():
-            if len(path.vertices):
-                count += int(np.count_nonzero(np.isfinite(path.vertices).all(axis=1)))
-        return count
-    if isinstance(artist, ContourSet):
-        # A filled or line contour set holds one path per level; count its finite vertices
-        count = 0
-        for path in artist.get_paths():
-            if len(path.vertices):
-                count += int(np.count_nonzero(np.isfinite(path.vertices).all(axis=1)))
-        return count
-    if isinstance(artist, PathCollection) and hasattr(artist, "_offsets3d"):
-        # A 3-D scatter keeps its points in x, y, z arrays
-        xyz = np.array(
-            [np.ma.filled(np.ma.asarray(a, dtype=float), np.nan) for a in artist._offsets3d]
-        )
-        return int(np.count_nonzero(np.isfinite(xyz).all(axis=0))) if xyz.size else 0
-    if isinstance(artist, PathCollection):
-        offsets = np.ma.filled(np.ma.asarray(artist.get_offsets(), dtype=float), np.nan)
-        return int(np.count_nonzero(np.isfinite(offsets).all(axis=1))) if len(offsets) else 0
-    if isinstance(artist, Rectangle):
-        return int(artist.get_height() != 0 and np.isfinite(artist.get_height()))
-    return 0
-
-
-def model_artists(fig):
-    """Return [(artist, finite_points)] for every artist tagged gid="model" in a figure."""
-    found = []
-    for ax in fig.axes:
-        for artist in ax.get_children():
-            if artist.get_gid() == "model":
-                found.append((artist, finite_points(artist)))
-    return found
-
-
 # --------------------------------------------------------------------------------------
-# Running a figure
-# --------------------------------------------------------------------------------------
-class Run:
-    """The outcome of one figure call: its return value and the figure it drew."""
-
-    def __init__(self, path, skip, fig):
-        self.path = path
-        self.skip = skip
-        self.fig = fig
-
-
-def figure_module(name):
-    """Return the module that defines a registered figure's plot() function."""
-    return sys.modules[FIGURES.PLOT_FUNCS[name].__module__]
-
-
-def evolution_fields(name):
-    """The fields the engine reads for an evolution figure (its EVOLUTION_PLOT_FIELDS entry)."""
-    return list(FIGURES.EVOLUTION_PLOT_FIELDS[name])
-
-
-def call_figure(name, galaxies, label, capture=True, params=None):
-    """Call a registered figure on the given input; return a Run.
-
-    ``params`` replaces the fixture's run parameters when given.
-
-    ``galaxies`` is the snapshot record for a snapshot figure, or the ``snapshots`` mapping for
-    an evolution figure. save_and_close_figure is wrapped inside the module the figure calls it
-    from, so the figure is recorded before it is closed; the engine is not changed.
-    """
-    module = figure_module(name)
-    captured = {}
-    original = module.save_and_close_figure
-
-    def capturing_save(fig, *args, **kwargs):
-        captured["fig"] = fig
-        return original(fig, *args, **kwargs)
-
-    out_dir = os.path.join(TMP_ROOT, label)
-    kwargs = {
-        "params": params if params is not None else run_parameters(),
-        "output_dir": out_dir,
-        "output_format": ".png",
-        "verbose": False,
-    }
-    if name in EVOLUTION_STEMS:
-        kwargs["snapshots"] = galaxies
-    else:
-        kwargs.update(galaxies=galaxies, volume=VOLUME, metadata=snapshot_metadata())
-    module.save_and_close_figure = capturing_save if capture else original
-    try:
-        path, skip = FIGURES.PLOT_FUNCS[name](**kwargs)
-    finally:
-        module.save_and_close_figure = original
-        plt.close("all")
-    return Run(path, skip, captured.get("fig"))
-
-
-_CACHE = {}
-
-
-def render(name):
-    """Render a registered figure once from the synthetic input and cache the Run."""
-    if name not in _CACHE:
-        if name in EVOLUTION_STEMS:
-            galaxies = build_evolution_input(evolution_fields(name))
-        else:
-            galaxies = build_catalogue()
-        _CACHE[name] = call_figure(name, galaxies, name)
-    return _CACHE[name]
-
-
-# --------------------------------------------------------------------------------------
-# Recording every field a figure reads
-# --------------------------------------------------------------------------------------
-class RecordingRow:
-    """One galaxy of a recording catalogue; logs each field read by attribute or item access."""
-
-    def __init__(self, row, reads):
-        self._row = row
-        self._reads = reads
-
-    def __getattr__(self, name):
-        if name in self._row.dtype.names:
-            self._reads.add(name)
-        return getattr(self._row, name)
-
-    def __getitem__(self, key):
-        if isinstance(key, str) and key in self._row.dtype.names:
-            self._reads.add(key)
-        return self._row[key]
-
-
-class RecordingCatalogue:
-    """A galaxy record that logs every field read by attribute or item access."""
-
-    def __init__(self, record, reads):
-        self._record = record
-        self._reads = reads
-
-    def __len__(self):
-        return len(self._record)
-
-    def __iter__(self):
-        for row in self._record:
-            yield RecordingRow(row, self._reads)
-
-    def __getattr__(self, name):
-        if name in self._record.dtype.names:
-            self._reads.add(name)
-        return getattr(self._record, name)
-
-    def __getitem__(self, key):
-        if isinstance(key, str):
-            if key in self._record.dtype.names:
-                self._reads.add(key)
-            return self._record[key]
-        sub = self._record[key]
-        if isinstance(sub, np.ndarray) and sub.dtype.names:
-            return RecordingCatalogue(sub, self._reads)
-        if isinstance(sub, np.void):
-            return RecordingRow(sub, self._reads)
-        return sub
-
-
-def drop_field(record, field):
-    """Return the record without one field."""
-    return recfunctions.drop_fields(record, [field], usemask=False, asrecarray=True)
-
-
-def full_input(name):
-    """Return the input carrying every output property, for a snapshot or an evolution figure."""
-    if name in EVOLUTION_STEMS:
-        return build_evolution_input(record_dtype().names)
-    return build_catalogue()
-
-
-def wrap_input(name, data, reads):
-    """Wrap a figure's input so every field read is logged into ``reads``."""
-    if name in EVOLUTION_STEMS:
-        return {
-            snap: (RecordingCatalogue(galaxies, reads), volume, metadata)
-            for snap, (galaxies, volume, metadata) in data.items()
-        }
-    return RecordingCatalogue(data, reads)
-
-
-def record_reads(name):
-    """Run a figure once on a recording catalogue.
-
-    Returns (reads, calls): every field read, and the (required_fields, optional_fields) of each
-    check_required_fields call as the figure module made it. The wrapped check unwraps the
-    catalogue, so the check's own look at the field names is not a read.
-    """
-    module = figure_module(name)
-    original = module.check_required_fields
-    reads, calls = set(), []
-
-    def recording_check(galaxies, required_fields, optional_fields=None, plot_name="Plot"):
-        calls.append((list(required_fields), list(optional_fields or [])))
-        record = getattr(galaxies, "_record", galaxies)
-        return original(record, required_fields, optional_fields, plot_name)
-
-    module.check_required_fields = recording_check
-    try:
-        call_figure(name, wrap_input(name, full_input(name), reads), name + "-reads", False)
-    finally:
-        module.check_required_fields = original
-    return reads, calls
-
-
-# --------------------------------------------------------------------------------------
-# Cases, one set per registered figure
-# --------------------------------------------------------------------------------------
-def make_renders(name):
-    def case():
-        run = render(name)
-        assert run.skip is None, f"{name} returned a skip message: {run.skip}"
-        assert run.path, f"{name} returned no path"
-        path = Path(run.path)
-        assert path.is_file(), f"{name}: no file at {path}"
-        assert path.stat().st_size > 0, f"{name}: empty file {path}"
-        with open(path, "rb") as handle:
-            assert handle.read(8) == b"\x89PNG\r\n\x1a\n", f"{name}: {path} is not a PNG"
-
-    case.__name__ = f"test_renders__{name}"
-    return case
-
-
-def make_file_stem(name):
-    def case():
-        run = render(name)
-        assert run.path, f"{name} returned no path"
-        assert Path(run.path).suffix == ".png", f"{name}: suffix of {run.path}"
-        assert (
-            Path(run.path).stem == FILE_STEMS[name]
-        ), f"{name}: stem {Path(run.path).stem!r}, expected {FILE_STEMS[name]!r}"
-
-    case.__name__ = f"test_file_stem__{name}"
-    return case
-
-
-def make_model_content(name):
-    def case():
-        run = render(name)
-        assert run.fig is not None, f"{name}: no figure was captured"
-        found = model_artists(run.fig)
-        assert found, f"{name}: no artist is tagged gid='model'"
-        assert any(
-            points > 0 for _, points in found
-        ), f"{name}: {len(found)} model artist(s), none holds a finite data point"
-
-    case.__name__ = f"test_model_content__{name}"
-    return case
-
-
-def make_labels(name):
-    def case():
-        run = render(name)
-        assert run.fig is not None, f"{name}: no figure was captured"
-        data, bars = describe_figure(run.fig)
-        assert (
-            data == DATA_AXES[name]
-        ), f"{name}: data axes labels {data}, expected {DATA_AXES[name]}"
-        assert bars == COLORBAR_LABELS[name], f"{name}: colour-bar labels {bars}"
-
-    case.__name__ = f"test_labels__{name}"
-    return case
-
-
-def make_requirements(name):
-    def case():
-        reads, calls = record_reads(name)
-        assert reads, f"{name}: the recording run read no field"
-        required, optional = set(), set()
-        for required_fields, optional_fields in calls:
-            required |= set(required_fields)
-            optional |= set(optional_fields)
-        mandatory = reads - optional
-        registered = set(FIGURES.PLOT_REQUIREMENTS[name])
-        # A mandatory field belongs in the entry whether its absence makes the figure raise or
-        # return a skip: the engine skips a figure whose entry names an absent field.
-        assert mandatory <= registered, (
-            f"{name}: reads {sorted(mandatory - registered)} unconditionally, "
-            f"not in PLOT_REQUIREMENTS {sorted(registered)}"
-        )
-        assert required <= registered, (
-            f"{name}: passes required_fields {sorted(required - registered)} "
-            f"not in PLOT_REQUIREMENTS {sorted(registered)}"
-        )
-        if name in EVOLUTION_STEMS:
-            listed = set(FIGURES.EVOLUTION_PLOT_FIELDS[name])
-            assert reads <= listed, (
-                f"{name}: reads {sorted(reads - listed)} not in EVOLUTION_PLOT_FIELDS "
-                f"{sorted(listed)}"
-            )
-        for field in sorted(optional):
-            data = full_input(name)
-            if name in EVOLUTION_STEMS:
-                data = {snap: (drop_field(g, field), v, m) for snap, (g, v, m) in data.items()}
-            else:
-                data = drop_field(data, field)
-            try:
-                call_figure(name, data, f"{name}-without-{field}", False)
-            except Exception as exc:
-                raise AssertionError(
-                    f"{name}: raised {type(exc).__name__} without optional field {field}: {exc}"
-                ) from exc
-
-    case.__name__ = f"test_requirements__{name}"
-    return case
-
-
-# --------------------------------------------------------------------------------------
-# Reservoir helper and added series
+# Reservoir helper
 # --------------------------------------------------------------------------------------
 def test_reservoir_helper_returns_seven_reservoirs_and_their_exact_sum():
     """baryon_reservoirs() on literal arrays: seven reservoirs, CGMgas among them, exact total.
@@ -711,7 +115,7 @@ def test_reservoir_helper_returns_seven_reservoirs_and_their_exact_sum():
     CGMgas (1, 8), EjectedGas (2, 0), ICS (0, 1), BlackHoleMass (0, 1); dividing by Mvir (8, 16)
     gives the literals below.
     """
-    helper = figure_module("baryon_fraction").baryon_reservoirs
+    helper = HARNESS.figure_module("baryon_fraction").baryon_reservoirs
     galaxies = {
         "StellarMass": np.array([1, 1, 2, 2, 4], dtype=np.float32),
         "ColdGas": np.array([2, 2, 1, 1, 2], dtype=np.float32),
@@ -732,14 +136,13 @@ def test_reservoir_helper_returns_seven_reservoirs_and_their_exact_sum():
         "bh": [0.0, 0.0625],
         "baryons": [2.125, 1.375],
     }
-    got = helper(
-        galaxies,
-        optional,
-        group_of_galaxy=np.array([0, 0, 1, 1, 1]),
-        n_groups=2,
-        central_group=np.array([0, 1]),
-        central_mvir=np.array([8.0, 16.0]),
-    )
+    groups = {
+        "group_of_galaxy": np.array([0, 0, 1, 1, 1]),
+        "n_groups": 2,
+        "central_group": np.array([0, 1]),
+        "central_mvir": np.array([8.0, 16.0]),
+    }
+    got = helper(galaxies, optional, **groups)
     assert set(got) == set(expected), f"reservoirs {sorted(got)}, expected {sorted(expected)}"
     for key, values in expected.items():
         assert got[key].tolist() == values, f"{key}: {got[key].tolist()}, expected {values}"
@@ -747,159 +150,85 @@ def test_reservoir_helper_returns_seven_reservoirs_and_their_exact_sum():
     assert np.array_equal(got["baryons"], total), "the total is not the sum of the reservoirs"
 
     # A reservoir the run does not write contributes zeros and is left out of the total
-    without_cgm = helper(
-        galaxies,
-        {**optional, "CGMgas": False},
-        group_of_galaxy=np.array([0, 0, 1, 1, 1]),
-        n_groups=2,
-        central_group=np.array([0, 1]),
-        central_mvir=np.array([8.0, 16.0]),
-    )
+    without_cgm = helper(galaxies, {**optional, "CGMgas": False}, **groups)
     assert without_cgm["cgm"].tolist() == [0.0, 0.0]
     assert without_cgm["baryons"].tolist() == [2.0, 0.875]
 
 
-def series(name, label):
-    """Return the model artists of a rendered figure carrying a legend label."""
-    run = render(name)
-    assert run.fig is not None, f"{name}: no figure was captured"
-    return [artist for artist, _ in model_artists(run.fig) if artist.get_label() == label]
-
-
-def test_added_series__baryon_fraction_draws_a_cgm_curve():
-    """The CGM mean curve (SAGE26's label 'Circumgalactic Medium')."""
-    cgm = series("baryon_fraction", "CGM")
-    total = series("baryon_fraction", "TOTAL")
-    assert len(cgm) == 1, f"{len(cgm)} model artists labelled 'CGM'"
-    assert len(total) == 1, f"{len(total)} model artists labelled 'TOTAL'"
-    y_cgm, y_total = cgm[0].get_ydata(), total[0].get_ydata()
-    assert len(y_cgm) == len(y_total) > 0 and np.all(y_cgm > 0), "CGM curve is empty or not > 0"
-    # The total sums every reservoir, so it lies above any one of them
-    assert np.all(y_total > y_cgm), "the total curve is not above the CGM curve"
-
-
-def test_added_series__mass_reservoir_scatter_draws_a_cgm_gas_series():
-    """The CGM gas series (SAGE26's label 'CGM gas')."""
-    cgm = series("mass_reservoir_scatter", "CGM gas")
-    assert len(cgm) == 1, f"{len(cgm)} model artists labelled 'CGM gas'"
-    assert finite_points(cgm[0]) > 0, "the CGM gas series holds no finite point"
-
-
-def test_added_series__gas_mass_function_draws_the_h2_line():
-    """The model H2 mass function (SAGE26's 'Model - H2 Gas')."""
-    h2 = series("gas_mass_function", "Model - H2 Gas")
-    assert len(h2) == 1, f"{len(h2)} model artists labelled 'Model - H2 Gas'"
-    assert finite_points(h2[0]) > 0, "the H2 line holds no finite point"
-
-
-def test_added_series__gas_mass_function_draws_the_hi_line():
-    """The model H I mass function (SAGE26's 'Model - HI Gas')."""
-    h1 = series("gas_mass_function", "Model - HI Gas")
-    assert len(h1) == 1, f"{len(h1)} model artists labelled 'Model - HI Gas'"
-    assert finite_points(h1[0]) > 0, "the H I line holds no finite point"
-
-
-def test_colourbar_axes_are_identified_and_not_counted_as_data_axes():
-    """describe_figure() lists a colour bar apart from the data axes, with its own label."""
-    fig, ax = plt.subplots()
-    ax.set_xlabel("data x")
-    ax.set_ylabel("data y")
-    image = ax.imshow(np.arange(4.0).reshape(2, 2))
-    fig.colorbar(image, label="bar label")
-    try:
-        data, bars = describe_figure(fig)
-    finally:
-        plt.close(fig)
-    assert [axes["x"] for axes in data] == ["data x"], f"data axes: {data}"
-    assert bars == ["bar label"], f"colour-bar labels: {bars}"
-
-
 # --------------------------------------------------------------------------------------
-# tcool_vs_mvir colour bar: present only with a regime outside {0, 1}
+# Labels that carry a unit or a convention, and the colour bar of tcool_vs_mvir
 # --------------------------------------------------------------------------------------
-TCOOL_PANEL = panel(
-    r"$\log_{10} M_{\rm vir}\ (M_{\odot})$",
-    r"$\mathrm{Cooling\ rate}\ (M_{\odot}\ \mathrm{Gyr}^{-1})$",
-)
+def test_labels__units_and_conventions_that_differ_from_sage26():
+    """Three labels state something a reader acts on.
 
-
-def render_tcool_with_regimes(regimes_outside):
-    """Render tcool_vs_mvir and return (data-axes labels, colour-bar labels).
-
-    ``regimes_outside`` True keeps the synthetic catalogue's satellites at Regime -1 (outside 0
-    and 1); False sets every such Regime to 0, so every row is of regime 0 or 1.
+    mass_reservoir_scatter plots masses in Msun (mass_to_msun), so its x label drops SAGE26's
+    h^-1 and its y label names the log and the unit; the figures that carry a redshift in the
+    title (concentration_vs_mvir per panel, sfr_vs_halo_accretion_rate) show the snapshot's z.
     """
+    axes = describe_figure(HARNESS.render("mass_reservoir_scatter").fig)[0]
+    assert [a["x"] for a in axes] == [r"log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$]"], axes
+    assert [a["y"] for a in axes] == [r"log$_{10}$ M$_{\rm reservoir}$ [M$_{\odot}$]"], axes
+    titles = [a["title"] for a in describe_figure(HARNESS.render("concentration_vs_mvir").fig)[0]]
+    assert titles == ["Centrals — z = 0.00", "Satellites — z = 0.00"], titles
+    axes = describe_figure(HARNESS.render("sfr_vs_halo_accretion_rate").fig)[0]
+    assert [a["title"] for a in axes] == ["Centrals — z = 0.00"], axes
+
+
+def test_labels__tcool_vs_mvir_with_only_regimes_0_and_1_has_no_colour_bar():
+    """As in SAGE26: with only regimes 0 and 1 there is no colour bar (the default catalogue's
+    satellites, of regime -1, bring the T_vir colour bar; see the derivation case)."""
     catalogue = build_catalogue()
-    if regimes_outside:
-        selected = (catalogue.CoolingRate > 0.0) & (catalogue.Mvir > 0.0) & (catalogue.Rvir > 0.0)
-        assert np.any(selected & ~np.isin(catalogue.Regime, (0, 1))), "no unclassified row"
-    else:
-        catalogue.Regime = np.where(np.isin(catalogue.Regime, (0, 1)), catalogue.Regime, 0)
-        assert np.all(np.isin(catalogue.Regime, (0, 1))), "a Regime outside 0 and 1 remains"
-    run = call_figure("tcool_vs_mvir", catalogue, f"tcool-{regimes_outside}")
+    catalogue.Regime = np.where(np.isin(catalogue.Regime, (0, 1)), catalogue.Regime, 0)
+    assert np.all(np.isin(catalogue.Regime, (0, 1))), "a Regime outside 0 and 1 remains"
+    run = HARNESS.call_figure("tcool_vs_mvir", catalogue, "tcool-no-unclassified")
     assert run.skip is None and run.fig is not None, f"tcool_vs_mvir skipped: {run.skip}"
-    return describe_figure(run.fig)
+    data, bars = describe_figure(run.fig)
+    assert bars == [], f"colour-bar labels {bars}"
+    assert len(data) == 1, f"{len(data)} data axes"
 
 
-def test_labels__tcool_vs_mvir_with_a_regime_outside_0_and_1_has_the_colour_bar():
-    """As in SAGE26: the unclassified rows bring the T_vir colour bar."""
-    data, bars = render_tcool_with_regimes(True)
-    assert data == [TCOOL_PANEL], f"data axes {data}"
-    assert bars == [r"$T_{\rm vir}$ (K)"], f"colour-bar labels {bars}"
+# --------------------------------------------------------------------------------------
+# Run parameters the rcool figure reads from the run file
+# --------------------------------------------------------------------------------------
+def rcool_run_with_mshock(mshock, label):
+    """Run rcool_to_rvir_above_mshock on one snapshot of three haloes of 1.37e12 Msun.
 
-
-def test_run_parameters__rcool_title_uses_the_runs_mshock_msun():
-    """rcool_to_rvir_above_mshock reads MShockMsun from the run: a non-default value appears in
-    the title, so a misspelled key could not silently fall back to SAGE26's literal."""
-    params = run_parameters()
-    params["EnabledModules"]["parameters"]["MShockMsun"] = 1.0e12
-    run = call_figure(
-        "rcool_to_rvir_above_mshock",
-        build_evolution_input(evolution_fields("rcool_to_rvir_above_mshock")),
-        "rcool-mshock-1e12",
-        params=params,
+    Mvir 100 and 60 (1e10 Msun/h at h = 0.73) are 1.37e11 x 10 = 1.37e12 and 8.22e11 Msun; their
+    ratios are 0.5, 1.5 and 1.5. ``mshock`` is the run's MShockMsun, or None to leave it out.
+    """
+    params = fixtures.run_parameters()
+    if mshock is None:
+        del params["EnabledModules"]["parameters"]["MShockMsun"]
+    else:
+        params["EnabledModules"]["parameters"]["MShockMsun"] = mshock
+    spec = {63: (0.0, {"Mvir": f32([100, 100, 60]), "RcoolToRvir": f32([0.5, 1.5, 1.5])})}
+    run = HARNESS.call_figure(
+        "rcool_to_rvir_above_mshock", HARNESS.hand_built(spec), label, params=params
     )
     assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
-    titles = [
-        t
-        for d in describe_figure(run.fig)[0]
-        for t in (d["title"], d["title_left"], d["title_right"])
-    ]
-    assert any(
-        "10^{12}" in t for t in titles
-    ), f"the title should carry the run's 1e12 shock mass: {titles}"
+    ax = data_axes(run.fig)[0]
+    return ax.get_title(), [t.get_text() for t in ax.get_legend().get_texts()]
+
+
+def test_run_parameters__rcool_title_and_selection_use_the_runs_mshock_msun():
+    """MShockMsun of 1e12 is in the title and in the selection, so a misspelled key could not
+    silently fall back to SAGE26's 6e11: the haloes of 1.37e12 and 8.22e11 Msun give N = 3
+    above 6e11 but N = 2 above 1e12 (one of two above ratio 1)."""
+    title, legend = rcool_run_with_mshock(1.0e12, "rcool-mshock-1e12")
+    assert "10^{12}" in title, f"the title should carry the run's 1e12 shock mass: {title}"
+    assert legend == ["z = 0.0  (N=2, f$_{>1}$=0.50)"], f"legend {legend}"
+    title, legend = rcool_run_with_mshock(6.0e11, "rcool-mshock-6e11")
+    assert legend == ["z = 0.0  (N=3, f$_{>1}$=0.67)"], f"legend {legend}"
 
 
 def test_run_parameters__missing_key_warns_and_uses_the_fallback():
     """Without MShockMsun in the run the figure warns and uses SAGE26's 6e11."""
-    params = run_parameters()
-    del params["EnabledModules"]["parameters"]["MShockMsun"]
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        run = call_figure(
-            "rcool_to_rvir_above_mshock",
-            build_evolution_input(evolution_fields("rcool_to_rvir_above_mshock")),
-            "rcool-mshock-missing",
-            params=params,
-        )
-    assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
+        title, _ = rcool_run_with_mshock(None, "rcool-mshock-missing")
     out = buffer.getvalue()
     assert "WARNING" in out and "MShockMsun" in out, f"no fallback warning: {out!r}"
-    titles = [
-        t
-        for d in describe_figure(run.fig)[0]
-        for t in (d["title"], d["title_left"], d["title_right"])
-    ]
-    assert any(
-        "10^{11}" in t for t in titles
-    ), f"the title should carry the 6e11 fallback: {titles}"
-
-
-def test_labels__tcool_vs_mvir_with_only_regimes_0_and_1_has_no_colour_bar():
-    """As in SAGE26: with only regimes 0 and 1 there is no colour bar."""
-    data, bars = render_tcool_with_regimes(False)
-    assert data == [TCOOL_PANEL], f"data axes {data}"
-    assert bars == [], f"colour-bar labels {bars}"
+    assert "10^{11}" in title, f"the title should carry the 6e11 fallback: {title}"
 
 
 # --------------------------------------------------------------------------------------
@@ -926,76 +255,117 @@ SAMPLERS = {
 }
 
 
-def make_cap(name):
-    def case():
-        module = figure_module(name)
-        assert module.DILUTE == CAPS[name], f"{name}: DILUTE {module.DILUTE}, expected {CAPS[name]}"
+def test_cap__sampled_figures_hold_their_literal_cap_and_sample_to_it():
+    """Each sampled figure's DILUTE is SAGE26's literal, and with the cap lowered to 40 the
+    figure's sampler is asked for 40 of more candidates (twice for the two panels of
+    concentration_vs_mvir) and returns 40; a plain scatter then plots exactly 40 points."""
+    for name, cap in CAPS.items():
+        module = HARNESS.figure_module(name)
+        assert module.DILUTE == cap, f"{name}: DILUTE {module.DILUTE}, expected {cap}"
 
         sampler = SAMPLERS.get(name, "draw_sample")
         original_cap, original_sample = module.DILUTE, getattr(module, sampler)
         drawn = []
 
-        def recording_sample(candidates, rng, dilute):
-            sample = original_sample(candidates, rng, dilute)
+        def recording_sample(candidates, rng, dilute, original=original_sample, drawn=drawn):
+            sample = original(candidates, rng, dilute)
             drawn.append((len(candidates), len(sample)))
             return sample
 
         module.DILUTE = LOWERED_CAP
         setattr(module, sampler, recording_sample)
         try:
-            run = call_figure(name, build_catalogue(), f"{name}-lowered-cap")
+            run = HARNESS.call_figure(name, build_catalogue(), f"{name}-lowered-cap")
         finally:
             module.DILUTE = original_cap
             setattr(module, sampler, original_sample)
         assert run.skip is None, f"{name}: skipped with the lowered cap: {run.skip}"
-        # concentration_vs_mvir samples each of its two panels; every other figure samples once
         expected_calls = 2 if name == "concentration_vs_mvir" else 1
         assert len(drawn) == expected_calls, f"{name}: {len(drawn)} sampling calls: {drawn}"
         for candidates, size in drawn:
             assert candidates > LOWERED_CAP, f"{name}: only {candidates} candidates"
             assert size == LOWERED_CAP, f"{name}: sample of {size}, expected {LOWERED_CAP}"
-        # A plain scatter whose every drawn point is plotted also holds the lowered number
         if name in ("star_formation_rate", "mass_loading_vs_vvir", "spatial_distribution_3d_box"):
-            plotted = [points for _, points in model_artists(run.fig) if points]
+            plotted = [points for _, points in tagged_model_artists(run.fig) if points]
             assert plotted == [LOWERED_CAP], f"{name}: plotted points {plotted}"
 
-    case.__name__ = f"test_cap__{name}"
-    return case
-
 
 # --------------------------------------------------------------------------------------
-# Unit cases of the helpers the new figures add. Each expectation is a literal written from
-# SAGE26's expression, not computed by the helper.
+# Unit cases of the helpers the figures add. Each expectation is a literal written from SAGE26's
+# expression, not computed by the helper.
 # --------------------------------------------------------------------------------------
-def close(got, expected, rel=1e-12):
-    """Assert two arrays agree to a relative tolerance."""
-    got = np.asarray(got, dtype=float)
-    expected = np.asarray(expected, dtype=float)
-    assert got.shape == expected.shape, f"shape {got.shape}, expected {expected.shape}"
-    assert np.allclose(got, expected, rtol=rel, atol=0.0), f"{got.tolist()} != {expected.tolist()}"
+# (figure, helper, arguments, expected): the one-expression helpers, each pinning the quantity a
+# figure plots or the order of its arguments
+ONE_LINERS = [
+    # BulgeMass / StellarMass, MergerBulgeMass / StellarMass, InstabilityBulgeMass / StellarMass
+    (
+        "bulge_to_total",
+        "bulge_to_total_ratios",
+        (np.array([4.0, 8.0]), np.array([1.0, 4.0]), np.array([2.0, 1.0]), np.array([3.0, 2.0])),
+        [[0.25, 0.5], [0.5, 0.125], [0.75, 0.25]],
+    ),
+    # SfrDisk + SfrBulge
+    (
+        "star_formation_rate",
+        "total_sfr",
+        (np.array([1.5, 0.25]), np.array([0.5, 2.0])),
+        [2.0, 2.25],
+    ),
+    # MdotCool + MdotStream
+    (
+        "sfr_vs_halo_accretion_rate",
+        "halo_accretion_rate",
+        (np.array([1.5, 0.0]), np.array([0.5, 2.0])),
+        [2.0, 2.0],
+    ),
+    # 35.9 * Vvir**2: Vvir 10 and 100 km/s give 3590 and 359000 K
+    ("tcool_vs_mvir", "virial_temperature", (np.array([10.0, 100.0]),), [3590.0, 359000.0]),
+    # np.log10(CGMgas / Mvir) * 0.17 (SAGE26's scaling of the logarithm, kept as written): CGMgas
+    # 1 over Mvir 10 and 100 is -1 and -2, so -0.17 and -0.34
+    (
+        "cgm_fraction_vs_mvir",
+        "cgm_fraction",
+        (np.array([1.0, 1.0]), np.array([10.0, 100.0])),
+        [-0.17, -0.34],
+    ),
+    # DiskRadius * 1e3 * 1.68: 0.01 and 0.002 Mpc/h give 16.8 and 3.36 kpc/h
+    (
+        "disk_radius_vs_stellar_mass",
+        "effective_disk_radius",
+        (np.array([0.01, 0.002]),),
+        [16.8, 3.36],
+    ),
+    # Rvir * 1e3: 0.25 and 0.5 Mpc/h give 250 and 500 kpc/h
+    ("disk_radius_vs_stellar_mass", "virial_radius_kpc", (np.array([0.25, 0.5]),), [250.0, 500.0]),
+    # np.sum(types == 0) and np.sum(types >= 1): orphans (Type 2) are satellites
+    (
+        "central_satellite_counts",
+        "count_centrals_and_satellites",
+        (np.array([0, 0, 1, 2, 3]),),
+        [2, 3],
+    ),
+]
 
 
-def test_unit__bulge_to_total_ratios():
-    """As in SAGE26: BulgeMass / StellarMass, MergerBulgeMass / StellarMass, InstabilityBulgeMass
-    / StellarMass."""
-    helper = figure_module("bulge_to_total").bulge_to_total_ratios
-    stellar = np.array([4.0, 8.0])
-    btot, merger, instab = helper(
-        stellar, np.array([1.0, 4.0]), np.array([2.0, 1.0]), np.array([3.0, 2.0])
-    )
-    assert btot.tolist() == [0.25, 0.5], f"B/T {btot.tolist()}"
-    assert merger.tolist() == [0.5, 0.125], f"merger {merger.tolist()}"
-    assert instab.tolist() == [0.75, 0.25], f"instability {instab.tolist()}"
+def test_unit__one_expression_helpers():
+    """Each one-expression helper returns the literal of SAGE26's expression (see ONE_LINERS)."""
+    for figure, helper, arguments, expected in ONE_LINERS:
+        got = getattr(HARNESS.figure_module(figure), helper)(*arguments)
+        try:
+            close(got, expected)
+        except AssertionError as error:
+            raise AssertionError(f"{figure}.{helper}: {error}") from None
 
 
 def test_unit__bulge_to_total_bins():
-    """As in SAGE26: 0.25 dex bins from 8.5, a bin needs 5 galaxies.
+    """As in SAGE26: 0.25 dex bins from 8.5 to 12.5, a bin needs 5 galaxies.
 
     Bin 0 (8.5 to 8.75) holds 4 galaxies, so it is not summarised; bin 1 (8.75 to 9.0) holds
     exactly 5 B/T of 0.1 to 0.5, whose median is 0.3 and whose 16th and 84th percentiles (linear
-    interpolation at 0.64 and 3.36 of 4 intervals) are 0.164 and 0.436.
+    interpolation at 0.64 and 3.36 of 4 intervals) are 0.164 and 0.436. One galaxy in the first
+    bin and five in the last (12.25 to 12.5, centre 12.375) summarise only the sixteenth bin.
     """
-    helper = figure_module("bulge_to_total").bulge_to_total_bins
+    helper = HARNESS.figure_module("bulge_to_total").bulge_to_total_bins
     mass = np.array([8.6, 8.6, 8.7, 8.7] + [8.8, 8.8, 8.9, 8.9, 8.95])
     btot = np.array([0.9, 0.9, 0.9, 0.9] + [0.1, 0.2, 0.3, 0.4, 0.5])
     merger = np.array([0.0] * 4 + [0.1, 0.1, 0.1, 0.1, 0.1])
@@ -1013,40 +383,17 @@ def test_unit__bulge_to_total_bins():
     close(merger_mean[1], 0.1)
     close(instab_mean[1], 0.25)
     assert np.all(np.isnan(med[2:])), "an empty bin is summarised"
-
-
-def test_unit__box_edges():
-    """SAGE26 for BoxSize 2: the bottom square, the top square, then the four verticals, each
-    edge [start corner, end corner]."""
-    edges = figure_module("spatial_distribution_3d_box").box_edges(2.0)
-    expected = [
-        [[0, 0, 0], [2, 0, 0]],
-        [[2, 0, 0], [2, 2, 0]],
-        [[2, 2, 0], [0, 2, 0]],
-        [[0, 2, 0], [0, 0, 0]],
-        [[0, 0, 2], [2, 0, 2]],
-        [[2, 0, 2], [2, 2, 2]],
-        [[2, 2, 2], [0, 2, 2]],
-        [[0, 2, 2], [0, 0, 2]],
-        [[0, 0, 0], [0, 0, 2]],
-        [[2, 0, 0], [2, 0, 2]],
-        [[2, 2, 0], [2, 2, 2]],
-        [[0, 2, 0], [0, 2, 2]],
-    ]
-    assert np.asarray(edges).tolist() == expected, f"edges {np.asarray(edges).tolist()}"
-
-
-def test_unit__total_sfr():
-    """As in SAGE26: SfrDisk[w2] + SfrBulge[w2]."""
-    helper = figure_module("star_formation_rate").total_sfr
-    got = helper(np.array([1.5, 0.25]), np.array([0.5, 2.0]))
-    assert got.tolist() == [2.0, 2.25], f"total {got.tolist()}"
+    mass = np.array([8.6] + [12.3, 12.35, 12.4, 12.4, 12.45])
+    ratio = np.full(6, 0.5)
+    centres, med, *_ = helper(mass, ratio, ratio, ratio)
+    close(centres[[0, -1]], [8.625, 12.375])
+    assert np.isfinite(med).tolist() == [False] * 15 + [True], f"summarised bins {med.tolist()}"
 
 
 def test_unit__log_specific_sfr():
     """As in SAGE26: log10((SfrDisk + SfrBulge) / StellarMass), -99 where the stellar mass is not
     above zero. Rates 2, 0, 4, 4 over masses 4, 0, 16, 0 give log10 0.5, -99, log10 0.25, -99."""
-    helper = figure_module("specific_star_formation_rate").log_specific_sfr
+    helper = HARNESS.figure_module("specific_star_formation_rate").log_specific_sfr
     got = helper(
         np.array([1.0, 0.0, 3.0, 3.0]),
         np.array([1.0, 0.0, 1.0, 1.0]),
@@ -1061,9 +408,10 @@ def test_unit__smoothed_histogram():
     The cell is Gaussian-smoothed with sigma 1.5 cells, so the peak is 10 / (2 pi 1.5^2) =
     0.7074 (the kernel is cut at 4 sigma) and the total stays 10. Rows above the clip line are
     zeroed: clipping above -11 removes every cell of a population at -10, clipping below -11
-    keeps all of it. The grid is np.linspace(8.0, 12.2, 100) by np.linspace(-13, -8, 100), 99 cells each way.
+    keeps all of it. The grid is np.linspace(8.0, 12.2, 100) by np.linspace(-13, -8, 100), 99
+    cells each way.
     """
-    helper = figure_module("specific_star_formation_rate").smoothed_histogram
+    helper = HARNESS.figure_module("specific_star_formation_rate").smoothed_histogram
     x = np.full(10, 10.0)
     y = np.full(10, -10.0)
     h, x_centers, y_centers = helper(x, y)
@@ -1088,30 +436,10 @@ def test_unit__sigma_levels():
     """As in SAGE26: the cells 60, 20, 10, 5, 3, 1, 1 (and zeros) sum to 100, so the cumulative
     fractions are .60 .80 .90 .95 .98 .99 1.0; the first at or above 0.997 is the last cell (1),
     at or above 0.95 the fourth (5), at or above 0.68 the second (20)."""
-    helper = figure_module("specific_star_formation_rate").sigma_levels
+    helper = HARNESS.figure_module("specific_star_formation_rate").sigma_levels
     cells = np.array([[1.0, 60.0, 0.0], [5.0, 0.0, 20.0], [10.0, 3.0, 1.0]])
     assert helper(cells) == [1.0, 5.0, 20.0], f"levels {helper(cells)}"
     assert helper(np.zeros((3, 3))) is None, "an empty histogram has levels"
-
-
-def test_unit__halo_accretion_rate():
-    """As in SAGE26: MdotCool + MdotStream."""
-    helper = figure_module("sfr_vs_halo_accretion_rate").halo_accretion_rate
-    got = helper(np.array([1.5, 0.0]), np.array([0.5, 2.0]))
-    assert got.tolist() == [2.0, 2.0], f"rate {got.tolist()}"
-
-
-def test_unit__virial_temperature():
-    """As in SAGE26: 35.9 * Vvir**2; Vvir 10 and 100 km/s give 3590 and 359000 K."""
-    helper = figure_module("tcool_vs_mvir").virial_temperature
-    close(helper(np.array([10.0, 100.0])), [3590.0, 359000.0])
-
-
-def test_unit__cgm_fraction():
-    """As in SAGE26: np.log10(CGMgas / Mvir) * 0.17; CGMgas 1 over Mvir 10 and 100 is log10 0.1 =
-    -1 and log10 0.01 = -2, so -0.17 and -0.34."""
-    helper = figure_module("cgm_fraction_vs_mvir").cgm_fraction
-    close(helper(np.array([1.0, 1.0]), np.array([10.0, 100.0])), [-0.17, -0.34])
 
 
 def test_unit__ejection_efficiency():
@@ -1124,7 +452,7 @@ def test_unit__ejection_efficiency():
     251001 = 150600.6, E_lift = 0.5 * 11.6 * 1e4 = 58000, eject = 92600.6 / 5000 = 18.52012,
     efficiency 9.26006.
     """
-    helper = figure_module("ejection_efficiency_vs_vvir").ejection_efficiency
+    helper = HARNESS.figure_module("ejection_efficiency_vs_vvir").ejection_efficiency
     got = helper(
         np.array([2.9, 2.9, 5.8]),
         np.array([0.25, 0.25, 1.0]),
@@ -1134,73 +462,13 @@ def test_unit__ejection_efficiency():
     close(got, [4.63003, 0.0, 9.26006], rel=1e-9)
 
 
-def binned_median_and_std_case(name):
-    """Values 1, 3 in bin 1 (1.0-1.1), 2, 4, 9 in bin 2 (1.1-1.2) and one beyond the last edge."""
-    helper = figure_module(name).binned_median_and_std
-    x = np.array([1.05, 1.05, 1.15, 1.15, 1.15, 1.35])
-    values = np.array([1.0, 3.0, 2.0, 4.0, 9.0, 7.0])
-    medians, stds = helper(x, values, np.array([1.0, 1.1, 1.2, 1.3]))
-    # bins 1 to 3: np.median 2, 4 and none; np.std (population) 1, sqrt(26 / 3) and none
-    assert len(medians) == 3 and len(stds) == 3, f"{len(medians)} medians, {len(stds)} stds"
-    assert medians[:2] == [2.0, 4.0], f"medians {medians}"
-    assert np.isnan(medians[2]) and np.isnan(stds[2]), "an empty bin has a median"
-    close(stds[:2], [1.0, math.sqrt(26.0 / 3.0)])
-
-
-def test_unit__ejection_binned_median_and_std():
-    """As in SAGE26 (np.digitize, np.median, np.std per bin)."""
-    binned_median_and_std_case("ejection_efficiency_vs_vvir")
-
-
-def test_unit__disk_radius_binned_median_and_std():
-    """As in SAGE26 (np.digitize, np.median, np.std per bin)."""
-    binned_median_and_std_case("disk_radius_vs_stellar_mass")
-
-
-def test_unit__effective_disk_radius():
-    """As in SAGE26: DiskRadius * 1.0e3 * 1.68; 0.01 and 0.002 Mpc/h give 16.8 and 3.36 kpc/h."""
-    helper = figure_module("disk_radius_vs_stellar_mass").effective_disk_radius
-    close(helper(np.array([0.01, 0.002])), [16.8, 3.36])
-
-
-def test_unit__virial_radius_kpc():
-    """As in SAGE26: Rvir * 1.0e3; 0.25 and 0.5 Mpc/h give 250 and 500 kpc/h."""
-    helper = figure_module("disk_radius_vs_stellar_mass").virial_radius_kpc
-    assert helper(np.array([0.25, 0.5])).tolist() == [250.0, 500.0]
-
-
-def test_unit__moffett_imf_shift_is_zero():
-    """As in SAGE26: imf_shift('chabrier') with whichimf 1 is 0.00 - 0.00."""
-    assert figure_module("bulge_to_total").MOFFETT_IMF_SHIFT_DEX == 0.0
-
-
 # --------------------------------------------------------------------------------------
-# Bin and threshold cases: the constants a new figure builds its bins and its selections from.
-# Each expectation is a literal written from SAGE26, not read back from the figure; a
-# figure-level case shows a constant that the figure holds only inline.
+# Bin, threshold and window constants the figures hold only inline
 # --------------------------------------------------------------------------------------
-def test_bins__bulge_to_total_constants():
-    """As in SAGE26: np.arange(8.5, 12.5 + 0.25, 0.25), so 17 edges from 8.5 to 12.5 and 16
-    centres from 8.625 to 12.375; a bin of fewer than 5 galaxies is skipped."""
-    module = figure_module("bulge_to_total")
-    assert module.BIN_START == 8.5, f"BIN_START {module.BIN_START}"
-    assert module.BIN_STOP == 12.5, f"BIN_STOP {module.BIN_STOP}"
-    assert module.BIN_WIDTH == 0.25, f"BIN_WIDTH {module.BIN_WIDTH}"
-    assert module.MIN_GALAXIES_PER_BIN == 5, f"MIN_GALAXIES_PER_BIN {module.MIN_GALAXIES_PER_BIN}"
-    # One galaxy in the first bin and five in the last: the last (12.25 to 12.5, centre 12.375)
-    # is the only one summarised, and it is the sixteenth centre
-    mass = np.array([8.6] + [12.3, 12.35, 12.4, 12.4, 12.45])
-    ratio = np.full(6, 0.5)
-    centres, med, _, _, _, _ = module.bulge_to_total_bins(mass, ratio, ratio, ratio)
-    assert len(centres) == 16, f"{len(centres)} bin centres"
-    close(centres[[0, -1]], [8.625, 12.375])
-    assert np.isfinite(med).tolist() == [False] * 15 + [True], f"summarised bins {med.tolist()}"
-
-
 def test_bins__specific_star_formation_rate_constants():
     """As in SAGE26: np.linspace(8.0, 12.2, 100) and np.linspace(-13, -8, 100); sSFRcut = -11.0
     (drawn as the dashed line); -99 for a galaxy with no stellar mass."""
-    module = figure_module("specific_star_formation_rate")
+    module = HARNESS.figure_module("specific_star_formation_rate")
     assert len(module.X_BINS) == 100, f"{len(module.X_BINS)} x edges"
     close([module.X_BINS[0], module.X_BINS[-1]], [8.0, 12.2])
     close(module.X_BINS[1] - module.X_BINS[0], 4.2 / 99)
@@ -1211,7 +479,7 @@ def test_bins__specific_star_formation_rate_constants():
     assert module.NO_SSFR == -99.0, f"NO_SSFR {module.NO_SSFR}"
     cut_lines = [
         line
-        for ax in render("specific_star_formation_rate").fig.axes
+        for ax in HARNESS.render("specific_star_formation_rate").fig.axes
         for line in ax.lines
         if line.get_label() == "sSFR cut = -11.0"
     ]
@@ -1222,19 +490,41 @@ def test_bins__specific_star_formation_rate_constants():
 def test_bins__ejection_efficiency_edges():
     """As in SAGE26: np.arange(1.0, 3.0, 0.1), 20 edges from 1.0 to 2.9 and 19 centres 1.05,
     1.15, ... 2.85, which the median line is drawn at."""
-    module = figure_module("ejection_efficiency_vs_vvir")
+    module = HARNESS.figure_module("ejection_efficiency_vs_vvir")
     assert len(module.BIN_EDGES) == 20, f"{len(module.BIN_EDGES)} edges"
     close([module.BIN_EDGES[0], module.BIN_EDGES[-1]], [1.0, 2.9])
     close(module.BIN_EDGES[1] - module.BIN_EDGES[0], 0.1)
     lines = [
         artist
-        for artist, _ in model_artists(render("ejection_efficiency_vs_vvir").fig)
+        for artist, _ in tagged_model_artists(HARNESS.render("ejection_efficiency_vs_vvir").fig)
         if artist.get_label() == "Median ± 1σ"
     ]
     assert len(lines) == 1, f"{len(lines)} median lines"
     centres = lines[0].get_xdata()
     assert len(centres) == 19, f"{len(centres)} median-line points"
     close(centres[[0, 1, -1]], [1.05, 1.15, 2.85])
+
+
+def catalogue_with_stellar_masses(masses_msun):
+    """Return the synthetic catalogue whose first galaxies hold the given stellar masses (Msun).
+
+    Every galaxy after them has no stellar mass, so no mass cut passes it. The first galaxies
+    also satisfy every other cut of the figures that test a mass threshold (a halo, a virial
+    radius, a disk radius, a star formation rate, a concentration), and alternate between
+    Type 0 and Type 1.
+    """
+    catalogue = build_catalogue()
+    k = len(masses_msun)
+    catalogue.StellarMass[:] = 0.0
+    catalogue.StellarMass[:k] = np.asarray(masses_msun, dtype=float) * HUBBLE_H / 1.0e10
+    catalogue.Mvir[:k] = 1.0
+    catalogue.Rvir[:k] = 0.2 + 0.01 * np.arange(k)
+    catalogue.DiskScaleRadius[:k] = 0.01
+    catalogue.SfrDisk[:k] = 1.0
+    catalogue.SfrBulge[:k] = 0.0
+    catalogue.Concentration[:k] = 10.0
+    catalogue.Type[:k] = np.arange(k) % 2
+    return catalogue
 
 
 def test_bins__disk_radius_edges():
@@ -1247,15 +537,15 @@ def test_bins__disk_radius_edges():
     2 = 100 (1 + r) = 200.83091 and the last, between the edges 300 / r and 300, is 150 (1 + 1 / r)
     = 298.76390; successive centres are in the ratio r. The median line is drawn at those centres.
     """
-    module = figure_module("disk_radius_vs_stellar_mass")
+    module = HARNESS.figure_module("disk_radius_vs_stellar_mass")
     assert module.N_BIN_EDGES == 50, f"N_BIN_EDGES {module.N_BIN_EDGES}"
     catalogue = catalogue_with_stellar_masses(np.full(11, 1.0e10))
     assert np.allclose(catalogue.Rvir[:11], 0.2 + 0.01 * np.arange(11)), "fixture Rvir changed"
-    run = call_figure("disk_radius_vs_stellar_mass", catalogue, "disk-bins")
+    run = HARNESS.call_figure("disk_radius_vs_stellar_mass", catalogue, "disk-bins")
     assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
     lines = [
         a
-        for a, _ in model_artists(run.fig)
+        for a, _ in tagged_model_artists(run.fig)
         if a.get_label() == "Median ± 1σ (matching Somerville+18 selection)"
     ]
     assert len(lines) == 1, f"{len(lines)} median lines"
@@ -1274,7 +564,7 @@ def contour_sets_by_side(fig, cut):
     from matplotlib.contour import ContourSet
 
     above = below = 0
-    for artist, points in model_artists(fig):
+    for artist, points in tagged_model_artists(fig):
         if not isinstance(artist, ContourSet) or points == 0:
             continue
         y = np.concatenate([np.asarray(path.vertices)[:, 1] for path in artist.get_paths()])
@@ -1317,7 +607,9 @@ def test_threshold__specific_star_formation_rate_population_minimum_is_10():
         (10, 9, True, False),
     ]:
         catalogue = population_catalogue(n_star_forming, n_quiescent)
-        run = call_figure("specific_star_formation_rate", catalogue, f"ssfr-{n_star_forming}")
+        run = HARNESS.call_figure(
+            "specific_star_formation_rate", catalogue, f"ssfr-{n_star_forming}"
+        )
         assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
         above, below = contour_sets_by_side(run.fig, -11.0)
         case = f"{n_star_forming} star-forming, {n_quiescent} quiescent"
@@ -1330,146 +622,37 @@ def scatter_points(fig):
     from matplotlib.collections import PathCollection
 
     return sum(
-        points for artist, points in model_artists(fig) if isinstance(artist, PathCollection)
+        points for artist, points in tagged_model_artists(fig) if isinstance(artist, PathCollection)
     )
 
 
-def catalogue_with_stellar_masses(masses_msun):
-    """Return the synthetic catalogue whose first galaxies hold the given stellar masses (Msun).
-
-    Every galaxy after them has no stellar mass, so no mass cut passes it. The first galaxies
-    also satisfy every other cut of the figures that test a mass threshold (a halo, a virial
-    radius, a disk radius, a star formation rate, a concentration), and alternate between
-    Type 0 and Type 1.
-    """
-    catalogue = build_catalogue()
-    k = len(masses_msun)
-    catalogue.StellarMass[:] = 0.0
-    catalogue.StellarMass[:k] = np.asarray(masses_msun, dtype=float) * HUBBLE_H / 1.0e10
-    catalogue.Mvir[:k] = 1.0
-    catalogue.Rvir[:k] = 0.2 + 0.01 * np.arange(k)
-    catalogue.DiskScaleRadius[:k] = 0.01
-    catalogue.SfrDisk[:k] = 1.0
-    catalogue.SfrBulge[:k] = 0.0
-    catalogue.Concentration[:k] = 10.0
-    catalogue.Type[:k] = np.arange(k) % 2
-    return catalogue
-
-
-def stellar_mass_cut_case(name, cut_msun):
-    """Render a figure with six galaxies below and six above a cut and return its scatter points.
-
-    The six below hold 0.99, 0.5, 0.2, 0.1, 0.01 and 0.001 of the cut; the six above hold 1.01,
-    2, 5, 10, 100 and 1000 times it.
-    """
-    below = cut_msun * np.array([0.99, 0.5, 0.2, 0.1, 0.01, 0.001])
-    above = cut_msun * np.array([1.01, 2.0, 5.0, 10.0, 100.0, 1000.0])
-    run = call_figure(name, catalogue_with_stellar_masses(np.concatenate([below, above])), name)
-    assert run.skip is None and run.fig is not None, f"{name}: skipped: {run.skip}"
-    return scatter_points(run.fig)
-
-
-def test_threshold__spatial_distribution_3d_box_cut_is_1e9_msun():
-    """As in SAGE26: only galaxies of a stellar mass above 1e9 Msun are drawn."""
-    points = stellar_mass_cut_case("spatial_distribution_3d_box", 1.0e9)
-    assert points == 6, f"{points} points drawn, expected the 6 above 1e9 Msun"
-
-
-def test_threshold__star_formation_rate_cut_is_0_01_msun():
-    """As in SAGE26: only galaxies of a stellar mass above 0.01 Msun are drawn."""
-    points = stellar_mass_cut_case("star_formation_rate", 0.01)
-    assert points == 6, f"{points} points drawn, expected the 6 above 0.01 Msun"
-
-
-def test_threshold__concentration_vs_mvir_cut_is_1e8_msun():
-    """As in SAGE26: only galaxies of a stellar mass above 1e8 Msun are drawn, over the two
-    panels together."""
-    points = stellar_mass_cut_case("concentration_vs_mvir", 1.0e8)
-    assert points == 6, f"{points} points drawn, expected the 6 above 1e8 Msun"
-
-
-def test_threshold__disk_radius_window_is_9_3_to_11_3():
-    """As in SAGE26: only galaxies with 9.3 < log10(M*/Msun) < 11.3 are drawn.
-
-    Three galaxies at each of log M* 9.29, 9.31, 11.29 and 11.31: the 9.31 and 11.29 are inside
-    the window, the 9.29 and 11.31 outside.
-    """
-    log_masses = [9.29, 9.31, 11.29, 11.31] * 3
-    catalogue = catalogue_with_stellar_masses(10.0 ** np.array(log_masses))
-    run = call_figure("disk_radius_vs_stellar_mass", catalogue, "disk-window")
-    assert run.skip is None and run.fig is not None, f"skipped: {run.skip}"
-    points = scatter_points(run.fig)
-    assert points == 6, f"{points} points drawn, expected the 6 inside the window"
-
-
-# --------------------------------------------------------------------------------------
-# Legend cases: the text of every legend entry of a new figure
-# --------------------------------------------------------------------------------------
-def legend_texts(name):
-    """Return the sorted legend texts of a rendered figure (every axes together)."""
-    fig = render(name).fig
-    assert fig is not None, f"{name}: no figure was captured"
-    return sorted(
-        t.get_text() for ax in fig.axes if ax.get_legend() for t in ax.get_legend().get_texts()
+def cut_masses(cut_msun):
+    """Six stellar masses below a cut (0.99 to 0.001 of it) and six above (1.01 to 1000 times)."""
+    return cut_msun * np.array(
+        [0.99, 0.5, 0.2, 0.1, 0.01, 0.001, 1.01, 2.0, 5.0, 10.0, 100.0, 1000.0]
     )
 
 
-def legend_case(name, where, expected):
-    """Assert a figure's legend holds exactly the SAGE26 texts ``expected`` (order aside)."""
-    got = legend_texts(name)
-    assert got == sorted(expected), f"{name} legend {got}, SAGE26 {where}: {sorted(expected)}"
+# (figure, stellar masses in Msun, points drawn): six masses below and six above each cut
+MASS_CUTS = [
+    ("spatial_distribution_3d_box", cut_masses(1.0e9), 6),  # more than 1e9 Msun
+    ("star_formation_rate", cut_masses(0.01), 6),  # more than 0.01 Msun
+    ("concentration_vs_mvir", cut_masses(1.0e8), 6),  # more than 1e8 Msun, over both panels
+    # 9.3 < log10(M*/Msun) < 11.3: three galaxies at each of 9.29, 9.31, 11.29 and 11.31, of
+    # which the 9.31 and 11.29 are inside
+    ("disk_radius_vs_stellar_mass", 10.0 ** np.array([9.29, 9.31, 11.29, 11.31] * 3), 6),
+]
 
 
-def test_legend__bulge_to_total():
-    """The legend lists the model and observation entries SAGE26 labels."""
-    legend_case(
-        "bulge_to_total",
-        "legend",
-        [
-            "Model 16-84th percentile",
-            "Model median",
-            "Mean merger-driven",
-            "Mean instability-driven",
-            "Moffett et al. (2016)",
-        ],
-    )
-
-
-def test_legend__stellar_vs_halo_mass_by_regime():
-    """The legend lists the two regimes SAGE26 labels."""
-    legend_case("stellar_vs_halo_mass_by_regime", "legend", ["CGM Regime", "Hot Regime"])
-
-
-def test_legend__specific_star_formation_rate():
-    """As in SAGE26 (sSFRcut -11.0); the contour labels reach no legend entry."""
-    legend_case("specific_star_formation_rate", "legend", ["sSFR cut = -11.0"])
-
-
-def test_legend__sfr_vs_halo_accretion_rate():
-    """The legend lists the line of star formation rate equal to accretion rate."""
-    legend_case("sfr_vs_halo_accretion_rate", "legend", ["SFR = accretion rate"])
-
-
-def test_legend__tcool_vs_mvir():
-    """The legend lists the three regime labels SAGE26 gives."""
-    legend_case("tcool_vs_mvir", "legend", ["CGM regime", "Hot regime", "Unclassified"])
-
-
-def test_legend__ejection_efficiency_vs_vvir_has_none():
-    """SAGE26 labels the median line but calls no legend there, so the figure draws none."""
-    assert legend_texts("ejection_efficiency_vs_vvir") == [], "the figure draws a legend"
-
-
-def test_legend__disk_radius_vs_stellar_mass():
-    """The legend lists the median and the Somerville et al. entries SAGE26 labels."""
-    legend_case(
-        "disk_radius_vs_stellar_mass",
-        "legend",
-        [
-            "Median ± 1σ (matching Somerville+18 selection)",
-            r"Somerville+18 SRHR (9.3 < $\log M_\star$ < 11.3)",
-        ],
-    )
+def test_threshold__stellar_mass_cuts_and_windows_of_the_scatter_figures():
+    """As in SAGE26: only galaxies above each figure's stellar-mass cut (or inside the disk-radius
+    window) are drawn. The masses are in Msun and the catalogue stores x h / 1e10, so a figure
+    that dropped the conversion would draw a different number of points."""
+    for name, masses, expected in MASS_CUTS:
+        run = HARNESS.call_figure(name, catalogue_with_stellar_masses(masses), name + "-cut")
+        assert run.skip is None and run.fig is not None, f"{name}: skipped: {run.skip}"
+        points = scatter_points(run.fig)
+        assert points == expected, f"{name}: {points} points drawn, expected {expected}"
 
 
 # --------------------------------------------------------------------------------------
@@ -1477,7 +660,7 @@ def test_legend__disk_radius_vs_stellar_mass():
 # --------------------------------------------------------------------------------------
 # The eight snapshots the mini-Millennium run files write and their redshifts, z = 1 / a - 1 with
 # `a` the scale factors of simulations/mini-millennium/mini-millennium.a_list (line n + 1 of the
-# file holds snapshot n).
+# file holds snapshot n). Written out, as a second reading of the a_list.
 RUN_REDSHIFTS = {
     63: 1 / 1.000000 - 1,
     37: 1 / 0.419161 - 1,
@@ -1512,18 +695,6 @@ SAGE26_Z_BINS = [
     (10.0, 12.0),
 ]
 
-# Legend text of the redshift bins the eight snapshots populate (bins 3, 5, 7, 8, 9, 10 and 11:
-# snapshots 37, 32, 27, 23, 20, 18 and 16), written from the bins above and RUN_REDSHIFTS
-POPULATED_BIN_LABELS = [
-    "1.1 < z < 1.5",
-    "2.0 < z < 2.5",
-    "3.0 < z < 3.5",
-    "3.5 < z < 4.5",
-    "4.5 < z < 5.5",
-    "5.5 < z < 6.5",
-    "6.5 < z < 7.5",
-]
-
 
 def selection_module():
     """Return figures/_snapshot_selection.py, imported by the figure modules."""
@@ -1536,20 +707,26 @@ def snapshots_with_redshifts(redshift_by_snapshot, order=None):
     return {snap: (None, 0.0, {"redshift": redshift_by_snapshot[snap]}) for snap in order}
 
 
-def test_selection__z_bins_are_the_fifteen_of_sage26():
-    """As in SAGE26: the fifteen redshift bins."""
-    assert selection_module().Z_BINS == SAGE26_Z_BINS, f"Z_BINS {selection_module().Z_BINS}"
-
-
 def test_selection__z_range_includes_both_ends():
     """As in SAGE26: `z_min <= z <= z_max`. Snapshot 11 sits at z = 1.5, which is z_max of the
     bin (1.1, 1.5) and z_min of (1.5, 2.0); snapshot 10 sits at z_min = 1.0 and snapshot 12 at
-    z_max = 2.0."""
+    z_max = 2.0.
+
+    The eight written snapshots fall in the fifteen bins: 37 (z = 1.386) alone in (1.1, 1.5), 32
+    in (2.0, 2.5), 27 in (3.0, 3.5), 23 in (3.5, 4.5), 20 in (4.5, 5.5), 18 in (5.5, 6.5), 16 in
+    (6.5, 7.5) and snapshot 63 (z = 0) in none.
+    """
     helper = selection_module().snapshots_in_z_range
     snapshots = snapshots_with_redshifts({10: 1.0, 11: 1.5, 12: 2.0})
     assert helper(snapshots, 1.1, 1.5) == [11], "z_max not inclusive"
     assert helper(snapshots, 1.5, 2.0) == [11, 12], "z_min or z_max not inclusive"
     assert helper(snapshots, 1.0, 1.4) == [10], "z_min not inclusive"
+
+    snapshots = snapshots_with_redshifts(RUN_REDSHIFTS, ENGINE_ORDER)
+    expected = {3: [37], 5: [32], 7: [27], 8: [23], 9: [20], 10: [18], 11: [16]}
+    for index, (z_min, z_max) in enumerate(SAGE26_Z_BINS):
+        got = helper(snapshots, z_min, z_max)
+        assert got == expected.get(index, []), f"bin {index} ({z_min}, {z_max}): {got}"
 
 
 def test_selection__empty_bin_returns_no_snapshot():
@@ -1563,34 +740,12 @@ def test_selection__empty_bin_returns_no_snapshot():
     assert module.all_snapshots({}) == [], "all of no snapshot"
 
 
-def test_selection__eight_snapshots_fall_in_the_literal_bins():
-    """The eight written snapshots in the fifteen bins: 37 (z = 1.386) alone in (1.1, 1.5), 32 in
-    (2.0, 2.5), 27 in (3.0, 3.5), 23 in (3.5, 4.5), 20 in (4.5, 5.5), 18 in (5.5, 6.5), 16 in
-    (6.5, 7.5) and snapshot 63 (z = 0) in none."""
-    helper = selection_module().snapshots_in_z_range
-    snapshots = snapshots_with_redshifts(RUN_REDSHIFTS, ENGINE_ORDER)
-    expected = {3: [37], 5: [32], 7: [27], 8: [23], 9: [20], 10: [18], 11: [16]}
-    for index, (z_min, z_max) in enumerate(SAGE26_Z_BINS):
-        got = helper(snapshots, z_min, z_max)
-        assert got == expected.get(index, []), f"bin {index} ({z_min}, {z_max}): {got}"
-    in_any = [s for z_min, z_max in SAGE26_Z_BINS for s in helper(snapshots, z_min, z_max)]
-    assert 63 not in in_any, "snapshot 63 (z = 0) is in a bin"
-
-
 def test_selection__nearest_snapshot_for_the_targets_of_the_plan():
     """SAGE26's target redshifts (0, 2, 6) and (0.1, 1, 2, 4, 6, 8) on the written snapshots:
     0 -> 63, 2 -> 32, 6 -> 18; 0.1 -> 63, 1.0 -> 37, 2.0 -> 32, 4.0 -> 23, 6.0 -> 18, 8.0 -> 16."""
     helper = selection_module().nearest_snapshot
     snapshots = snapshots_with_redshifts(RUN_REDSHIFTS, ENGINE_ORDER)
-    expected = {
-        0.0: 63,
-        2.0: 32,
-        6.0: 18,
-        0.1: 63,
-        1.0: 37,
-        4.0: 23,
-        8.0: 16,
-    }
+    expected = {0.0: 63, 2.0: 32, 6.0: 18, 0.1: 63, 1.0: 37, 4.0: 23, 8.0: 16}
     for target, snap in expected.items():
         assert helper(snapshots, target) == snap, f"target {target}: {helper(snapshots, target)}"
 
@@ -1598,18 +753,17 @@ def test_selection__nearest_snapshot_for_the_targets_of_the_plan():
 def test_selection__nearest_tie_returns_the_lower_snapshot_number():
     """As in SAGE26: `np.argmin` returns the first minimum in snapshot-number order. Snapshots 10
     (z = 1.0) and 20 (z = 3.0) are both 1.0 from the target 2.0; the lower number wins whichever
-    order they are supplied in."""
-    helper = selection_module().nearest_snapshot
+    order they are supplied in.
+
+    The same eight snapshots in the engine's increasing-redshift order, a decreasing-redshift and
+    a fixed shuffled order give identical results from all three helpers: snapshot numbers in
+    increasing order.
+    """
+    module = selection_module()
     for order in ([10, 20], [20, 10]):
         snapshots = snapshots_with_redshifts({10: 1.0, 20: 3.0}, order)
-        assert helper(snapshots, 2.0) == 10, f"tie in order {order}: {helper(snapshots, 2.0)}"
-
-
-def test_selection__results_do_not_depend_on_the_order_snapshots_are_supplied_in():
-    """The same snapshots in increasing-redshift (the engine's), decreasing-redshift and a fixed
-    shuffled order give identical results from all three helpers: snapshot numbers in increasing
-    order."""
-    module = selection_module()
+        got = module.nearest_snapshot(snapshots, 2.0)
+        assert got == 10, f"tie in order {order}: {got}"
     for order in (ENGINE_ORDER, DECREASING_ORDER, SHUFFLED_ORDER):
         snapshots = snapshots_with_redshifts(RUN_REDSHIFTS, order)
         assert module.snapshots_in_z_range(snapshots, 2.0, 3.5) == [27, 32], f"range, {order}"
@@ -1620,46 +774,6 @@ def test_selection__results_do_not_depend_on_the_order_snapshots_are_supplied_in
 # --------------------------------------------------------------------------------------
 # Figure-level cases on small hand-built catalogues
 # --------------------------------------------------------------------------------------
-def hand_built(spec):
-    """Return the ``snapshots`` argument of an evolution figure from a literal specification.
-
-    ``spec`` maps a snapshot number to (redshift, {field: values}); the snapshots are ordered by
-    increasing redshift, as the engine orders them.
-    """
-    snapshots = {}
-    for snap, (redshift, arrays) in sorted(spec.items(), key=lambda item: item[1][0]):
-        n = len(next(iter(arrays.values())))
-        record = np.zeros(n, dtype=[(name, np.asarray(v).dtype) for name, v in arrays.items()])
-        record = record.view(np.recarray)
-        for name, values in arrays.items():
-            record[name] = values
-        snapshots[snap] = (record, VOLUME, snapshot_metadata(redshift, n))
-    return snapshots
-
-
-def run_hand_built(name, spec, label):
-    """Call an evolution figure on a hand-built input and return its Run."""
-    run = call_figure(name, hand_built(spec), label)
-    assert run.skip is None, f"{name} returned a skip message: {run.skip}"
-    assert run.fig is not None, f"{name}: no figure was captured"
-    return run
-
-
-def f32(values):
-    """Return the values as a float32 array, the type of the output's float fields."""
-    return np.asarray(values, dtype=np.float32)
-
-
-def model_lines(fig):
-    """Return the Line2D artists tagged gid="model", in drawing order."""
-    from matplotlib.lines import Line2D
-
-    return [a for a, _ in model_artists(fig) if isinstance(a, Line2D)]
-
-
-def data_axes(fig):
-    """Return the data axes of a figure (colour-bar axes left out), in creation order."""
-    return [ax for ax in fig.axes if not is_colorbar_axes(ax)]
 
 
 def test_unit__arange_constants_of_the_new_bins():
@@ -1668,7 +782,7 @@ def test_unit__arange_constants_of_the_new_bins():
     np.arange stops short of its stop when the
     width does not divide the range exactly, so the counts and last edges are the literals NumPy
     returns for those arguments (read once, written here)."""
-    figures = {name: figure_module(name) for name in FILE_STEMS}
+    figures = {name: HARNESS.figure_module(name) for name in HARNESS.evolution_names}
     cases = [
         (figures["rcool_to_rvir_above_mshock"].RATIO_BINS, 44, 0.0, 2.15),
         (figures["sfr_evolution"].mass_bins_for(0), 53, 7.2, 12.4),
@@ -1694,7 +808,7 @@ def test_unit__arange_constants_of_the_new_bins():
 def test_unit__rcool_helpers():
     """As in SAGE26: `(Mvir > Mshock_Msun) & (rcool_ratio >= 0.0)`, `np.mean(r > 1.0)` and
     `np.mean(r >= 1.0)`, and `np.clip` to the first and last bin edge (0.0 and 2.15)."""
-    module = figure_module("rcool_to_rvir_above_mshock")
+    module = HARNESS.figure_module("rcool_to_rvir_above_mshock")
     assert module.MSHOCK_MSUN == 6.0e11, f"Mshock {module.MSHOCK_MSUN}"
     assert module.TARGET_REDSHIFTS == [0.0, 2.0, 6.0], f"targets {module.TARGET_REDSHIFTS}"
     mvir = np.array([5.0e11, 6.0e11, 7.0e11, 8.0e11])
@@ -1728,7 +842,7 @@ def test_legend__rcool_to_rvir_above_mshock():
             {"Mvir": f32([100, 100, 43.9, 43.7]), "RcoolToRvir": f32([1.0, 1.0, 0.5, 3.0])},
         ),
     }
-    run = run_hand_built("rcool_to_rvir_above_mshock", spec, "rcool-legend")
+    run = HARNESS.run_hand_built("rcool_to_rvir_above_mshock", spec, "rcool-legend")
     texts = sorted(t.get_text() for t in data_axes(run.fig)[0].get_legend().get_texts())
     expected = [
         "z = 0.0  (N=3, f$_{>1}$=0.67)",
@@ -1738,13 +852,69 @@ def test_legend__rcool_to_rvir_above_mshock():
     assert texts == sorted(expected), f"legend {texts}, SAGE26 gives {sorted(expected)}"
 
 
+def legend_texts(name):
+    """Return the sorted legend texts of a rendered figure (every axes together)."""
+    fig = HARNESS.render(name).fig
+    assert fig is not None, f"{name}: no figure was captured"
+    return sorted(
+        t.get_text() for ax in fig.axes if ax.get_legend() for t in ax.get_legend().get_texts()
+    )
+
+
+# Legend text that names data: the redshift bins the eight snapshots populate (bins 3, 5, 7, 8, 9,
+# 10 and 11: snapshots 37, 32, 27, 23, 20, 18 and 16, written from SAGE26_Z_BINS and
+# RUN_REDSHIFTS) for the binned figures, and the redshift of each snapshot drawn for the black-hole
+# mass function (`z = {actual_z:.1f} (SAGE)`: 63 -> 0.0, 37 -> 1.4, 32 -> 2.1, 23 -> 4.2, 18 -> 6.2,
+# 16 -> 7.3) with `z = {target_z:.1f} (Obs)` for the six targets
+POPULATED_BIN_LABELS = [
+    "1.1 < z < 1.5",
+    "2.0 < z < 2.5",
+    "3.0 < z < 3.5",
+    "3.5 < z < 4.5",
+    "4.5 < z < 5.5",
+    "5.5 < z < 6.5",
+    "6.5 < z < 7.5",
+]
+DATA_LEGENDS = [
+    ("sfr_evolution", POPULATED_BIN_LABELS),
+    (
+        "black_hole_mass_function",
+        [f"z = {z} (SAGE)" for z in ("0.0", "1.4", "2.1", "4.2", "6.2", "7.3")]
+        + [f"z = {z} (Obs)" for z in ("0.1", "1.0", "2.0", "4.0", "6.0", "8.0")],
+    ),
+]
+
+
+def test_legend__entries_that_name_the_redshifts_drawn():
+    """A binned evolution figure labels the redshift bins the written snapshots populate, and the
+    black-hole mass function the redshift of each snapshot drawn and of each observation."""
+    for name, expected in DATA_LEGENDS:
+        got = legend_texts(name)
+        assert got == sorted(expected), f"{name} legend {got}, SAGE26 {sorted(expected)}"
+
+
 # ---- sfr_evolution, quenched_fraction_evolution, metallicity_evolution, h2_fraction_evolution:
 # the helpers they share the form of ----
-def binned_case(module):
-    """Assert ``binned_mean_and_std`` on literal values: masses 8.05, 8.07 and 8.35 over the bins
-    8.0, 8.1, 8.2, 8.3, 8.4 hold the values 1, 3 and 5; the first bin has mean 2 and standard
-    deviation 1 (`np.std` of 1 and 3), the last mean 5 and standard deviation 0, and the empty
-    middle bins are NaN."""
+def test_unit__sfr_evolution_helpers():
+    """As in SAGE26 (`(M > 0.0) & (sfr_total > 0.0)`, and `(M > 0.0) & (metals > 0.0)` for
+    metallicity_evolution), and the binning helpers the history figures share (_binning.py).
+
+    Masses 8.05, 8.07 and 8.35 over the bins 8.0, 8.1, 8.2, 8.3, 8.4 hold the values 1, 3 and 5:
+    the first bin has mean 2 and standard deviation 1 (`np.std` of 1 and 3), the last mean 5 and
+    standard deviation 0, and the empty middle bins are NaN. The stack [[1, nan], [3, nan]] has
+    the mean over snapshots 2 in the first bin (`np.nanmean`), its error `np.nanstd([1, 3]) /
+    np.sqrt(2)` = 1 / 1.41421356, and the empty second bin is not valid. Values 1, 3 in the bin
+    1.0-1.1, 2, 4, 9 in 1.1-1.2 and one beyond the last edge have the medians 2, 4 and none and
+    the population standard deviations 1, sqrt(26 / 3) and none.
+    """
+    module = HARNESS.figure_module("sfr_evolution")
+    got = module.select_star_forming(np.array([1.0, 0.0, 2.0, 3.0]), np.array([1.0, 1.0, 0.0, 2.0]))
+    assert got.tolist() == [0, 3], f"selection {got.tolist()}"
+    got = HARNESS.figure_module("metallicity_evolution").select_with_metals(
+        np.array([1.0, 0.0, 2.0, 3.0]), np.array([1.0, 1.0, 0.0, 2.0])
+    )
+    assert got.tolist() == [0, 3], f"metals selection {got.tolist()}"
+
     bins = np.array([8.0, 8.1, 8.2, 8.3, 8.4])
     means, stds = module.binned_mean_and_std(
         np.array([8.05, 8.07, 8.35]), np.array([1.0, 3.0, 5.0]), bins
@@ -1754,40 +924,27 @@ def binned_case(module):
     close(stds[[0, 3]], [1.0, 0.0])
     assert np.isnan(stds).tolist() == [False, True, True, False], f"stds {stds.tolist()}"
 
-
-def mean_and_error_case(module):
-    """Assert ``mean_and_error`` on the stack [[1, nan], [3, nan]]: the mean over snapshots is 2
-    in the first bin (`np.nanmean`), its error `np.nanstd([1, 3]) / np.sqrt(2)` = 1 / 1.41421356,
-    and the empty second bin is not valid."""
     mean, err, valid = module.mean_and_error(np.array([[1.0, np.nan], [3.0, np.nan]]))
     close(mean[:1], [2.0])
     close(err[:1], [0.7071067811865476])
     assert valid.tolist() == [True, False], f"valid {valid.tolist()}"
 
-
-def test_unit__sfr_evolution_helpers():
-    """As in SAGE26 (`(M > 0.0) & (sfr_total > 0.0)`)."""
-    module = figure_module("sfr_evolution")
-    got = module.select_star_forming(np.array([1.0, 0.0, 2.0, 3.0]), np.array([1.0, 1.0, 0.0, 2.0]))
-    assert got.tolist() == [0, 3], f"selection {got.tolist()}"
-    binned_case(module)
-    mean_and_error_case(module)
-
-
-def test_unit__metallicity_evolution_helpers():
-    """As in SAGE26 (`(M > 0.0) & (metals > 0.0)`)."""
-    module = figure_module("metallicity_evolution")
-    got = module.select_with_metals(np.array([1.0, 0.0, 2.0, 3.0]), np.array([1.0, 1.0, 0.0, 2.0]))
-    assert got.tolist() == [0, 3], f"selection {got.tolist()}"
-    binned_case(module)
-    mean_and_error_case(module)
+    medians, stds = HARNESS.figure_module("ejection_efficiency_vs_vvir").binned_median_and_std(
+        np.array([1.05, 1.05, 1.15, 1.15, 1.15, 1.35]),
+        np.array([1.0, 3.0, 2.0, 4.0, 9.0, 7.0]),
+        np.array([1.0, 1.1, 1.2, 1.3]),
+    )
+    assert len(medians) == 3 and len(stds) == 3, f"{len(medians)} medians, {len(stds)} stds"
+    assert medians[:2] == [2.0, 4.0], f"medians {medians}"
+    assert np.isnan(medians[2]) and np.isnan(stds[2]), "an empty bin has a median"
+    close(stds[:2], [1.0, math.sqrt(26.0 / 3.0)])
 
 
 def test_unit__h2_fraction_evolution_helpers():
     """As in SAGE26: the hydrogen fraction 0.74, `(mstar > 0.0) & (cold > 0.0)` and `np.clip(h2 /
     (cold * 0.74), 0.0, 1.0)`. H2 of 0.37, 0.9 and 0.0 over cold gas 1.0 give 0.5, 1 (0.9 / 0.74
     = 1.216 is clipped) and 0."""
-    module = figure_module("h2_fraction_evolution")
+    module = HARNESS.figure_module("h2_fraction_evolution")
     assert module.HYDROGEN_MASS_FRAC == 0.74, f"hydrogen fraction {module.HYDROGEN_MASS_FRAC}"
     got = module.select_with_cold_gas(
         np.array([1.0, 0.0, 2.0, 3.0]), np.array([1.0, 1.0, 0.0, 2.0])
@@ -1797,8 +954,6 @@ def test_unit__h2_fraction_evolution_helpers():
         module.molecular_fraction(np.array([0.37, 0.9, 0.0]), np.array([1.0, 1.0, 1.0])),
         [0.5, 1.0, 0.0],
     )
-    binned_case(module)
-    mean_and_error_case(module)
 
 
 def test_unit__stellar_mass_halo_mass_relation_helpers():
@@ -1806,7 +961,7 @@ def test_unit__stellar_mass_halo_mass_relation_helpers():
     log10 halo-mass bin. Halo masses 10.05, 10.07 and 10.35 over the bins 10.0, 10.1,
     10.2, 10.3, 10.4 hold stellar masses 10, 30 and 50: the first bin has mean 20, the last 50,
     the middle bins NaN."""
-    module = figure_module("stellar_mass_halo_mass_relation")
+    module = HARNESS.figure_module("stellar_mass_halo_mass_relation")
     got = module.select_with_halo(np.array([1.0, 0.0, 2.0, 3.0]), np.array([1.0, 1.0, 0.0, 2.0]))
     assert got.tolist() == [0, 3], f"selection {got.tolist()}"
     bins = np.array([10.0, 10.1, 10.2, 10.3, 10.4])
@@ -1815,22 +970,6 @@ def test_unit__stellar_mass_halo_mass_relation_helpers():
     )
     assert np.isnan(means).tolist() == [False, True, True, False], f"means {means.tolist()}"
     close(means[[0, 3]], [20.0, 50.0])
-    mean_and_error_case(module)
-
-
-def test_unit__stellar_mass_halo_mass_relation_line_styles():
-    """As in SAGE26: `['-', ':', '--', '-.'] * 4`."""
-    module = figure_module("stellar_mass_halo_mass_relation")
-    expected = ["-", ":", "--", "-."] * 4
-    assert module.LINE_STYLES == expected, f"line styles {module.LINE_STYLES}"
-
-
-def test_figure__stellar_mass_halo_mass_relation_line_styles_follow_the_bin_index():
-    """SAGE26 draws bin i with `line_styles[i]`; the populated bins are 3, 5, 7, 8, 9, 10 and 11,
-    whose styles are '-.', ':', '-.', '-', ':', '--', '-.' (the cycle of `line_styles`)."""
-    lines = model_lines(render("stellar_mass_halo_mass_relation").fig)
-    got = [line.get_linestyle() for line in lines]
-    assert got == ["-.", ":", "-.", "-", ":", "--", "-."], f"line styles {got}"
 
 
 # ---- quenched_fraction_evolution ----
@@ -1842,7 +981,7 @@ def test_unit__quenched_fraction_helpers():
     False, True, True and selected True, True, False, True: the first bin holds two selected
     galaxies of which one is quenched (0.5), the second one selected quenched galaxy (1.0), and
     the third bin none (NaN)."""
-    module = figure_module("quenched_fraction_evolution")
+    module = HARNESS.figure_module("quenched_fraction_evolution")
     assert module.SSFR_CUT == -11.0, f"sSFRcut {module.SSFR_CUT}"
     got = module.is_quenched(np.array([0.09, 0.11]), np.array([1.0e10, 1.0e10]))
     assert got.tolist() == [True, False], f"quenched {got.tolist()}"
@@ -1875,7 +1014,7 @@ def test_figure__quenched_fraction_orphans_are_in_neither_curve():
             },
         )
     }
-    run = run_hand_built("quenched_fraction_evolution", spec, "quenched-orphans")
+    run = HARNESS.run_hand_built("quenched_fraction_evolution", spec, "quenched-orphans")
     lines = model_lines(run.fig)
     assert len(lines) == 2, f"{len(lines)} model lines"
     central, satellite = lines
@@ -1887,20 +1026,19 @@ def test_figure__quenched_fraction_orphans_are_in_neither_curve():
 
 # ---- concentration_evolution ----
 def test_unit__concentration_statistics():
-    """As in SAGE26 (the four mass bins, their legend text and colours):
-    `(conc > 0) & (mvir >= mlo) & (mvir < mhi)`; with at least 5 galaxies the median and the 16th
-    and 84th percentiles, else NaN. Concentrations 1 to 5 give the median 3 and, by linear
-    interpolation at 0.64 and 3.36 of 4 intervals, 1.64 and 4.36; four give NaN; a concentration
-    of 0 and a halo exactly at the upper edge are not counted, one exactly at the lower edge is
-    (the last case below: five counted with it, four without)."""
-    module = figure_module("concentration_evolution")
-    assert module.MASS_BINS == [
-        (1e10, 1e11, r"$10^{10} - 10^{11}$"),
-        (1e11, 1e12, r"$10^{11} - 10^{12}$"),
-        (1e12, 1e13, r"$10^{12} - 10^{13}$"),
-        (1e13, 1e15, r"$10^{13} - 10^{15}$"),
+    """As in SAGE26 (the four mass bins): `(conc > 0) & (mvir >= mlo) & (mvir < mhi)`; with at
+    least 5 galaxies the median and the 16th and 84th percentiles, else NaN. Concentrations 1 to
+    5 give the median 3 and, by linear interpolation at 0.64 and 3.36 of 4 intervals, 1.64 and
+    4.36; four give NaN; a concentration of 0 and a halo exactly at the upper edge are not
+    counted, one exactly at the lower edge is (the last case below: five counted with it, four
+    without)."""
+    module = HARNESS.figure_module("concentration_evolution")
+    assert [bounds[:2] for bounds in module.MASS_BINS] == [
+        (1e10, 1e11),
+        (1e11, 1e12),
+        (1e12, 1e13),
+        (1e13, 1e15),
     ], f"mass bins {module.MASS_BINS}"
-    assert module.COLORS == ["dodgerblue", "forestgreen", "darkorange", "firebrick"], "colours"
     assert module.MIN_GALAXIES == 5, f"minimum {module.MIN_GALAXIES}"
     median, low, high = module.concentration_statistics(
         np.array([1.0, 2.0, 3.0, 4.0, 5.0]), np.full(5, 5.0e10), 1e10, 1e11
@@ -1932,7 +1070,7 @@ def test_unit__star_formation_efficiency_helpers():
     masses 17, 34, 51, 68, 85 over halo masses of 100 give 1, 2, 3, 4, 5: median 3, percentiles
     1.64 and 4.36 (linear interpolation at 0.64 and 3.36 of 4 intervals); four galaxies give
     none."""
-    module = figure_module("star_formation_efficiency")
+    module = HARNESS.figure_module("star_formation_efficiency")
     assert module.F_BARYON == 0.17, f"f_b {module.F_BARYON}"
     assert module.MIN_CENTRALS == 5, f"minimum {module.MIN_CENTRALS}"
     got = module.select_centrals(
@@ -1949,45 +1087,40 @@ def test_unit__star_formation_efficiency_helpers():
 def test_unit__age_of_the_universe():
     """As in SAGE26: (9.778 / h) x the integral of dz / ((1 + z) E(z)) from z to 1000 (trapezoid
     rule on 10000 points). For a flat universe with Omega_lambda = 1 (E = 1) the integral is
-    ln(1001 / (1 + z)), so with h = 0.5 the age at z = 0 is 19.556 x ln(1001) = 135.07 and at z =
-    1 is 19.556 x ln(1001 / 2) = 121.52. For Omega_m = 1 (E = (1 + z)^1.5) the integral is 2/3 x
-    ((1 + z)^-1.5 - 1001^-1.5), so with h = 1 the age at z = 0 is 6.5187 x (1 - 1001^-1.5) =
-    6.5185 and at z = 3 is 6.5187 x (4^-1.5 - 1001^-1.5) = 0.81481. The trapezoid error on the
-    steepest integrand (0.1 steps) is below 0.3%, so the comparison is to 1%."""
-    helper = figure_module("star_formation_efficiency").z_to_age_gyr
-    de_sitter = [helper(0.0, 0.0, 1.0, 0.5), helper(1.0, 0.0, 1.0, 0.5)]
-    close(de_sitter, [135.07, 121.52], rel=1e-2)
-    einstein_de_sitter = [helper(0.0, 1.0, 0.0, 1.0), helper(3.0, 1.0, 0.0, 1.0)]
-    close(einstein_de_sitter, [6.5185, 0.81481], rel=1e-2)
+    ln(1001 / (1 + z)), so with h = 0.5 the age at z = 0 is 19.556 x ln(1001) = 135.1076 and at
+    z = 1 is 19.556 x ln(1001 / 2) = 121.5524. For Omega_m = 1 (E = (1 + z)^1.5) the integral is
+    2/3 x ((1 + z)^-1.5 - 1001^-1.5), so with h = 1 the age at z = 0 is 6.5187 x (1 - 1001^-1.5) =
+    6.51846 and at z = 3 is 6.5187 x (4^-1.5 - 1001^-1.5) = 0.814628.
+
+    The trapezoid error is 1e-4 to 2e-4 for three of these, compared to 5e-4, so a 0.1 percent
+    error in 9.778 fails. At z = 0 in the Einstein-de Sitter case the integrand is steepest and
+    the quadrature is 0.31 percent high, so that row is compared to 4e-3.
+    """
+    helper = HARNESS.figure_module("star_formation_efficiency").z_to_age_gyr
+    rows = [
+        ((0.0, 0.0, 1.0, 0.5), 135.1076, 5e-4),
+        ((1.0, 0.0, 1.0, 0.5), 121.5524, 5e-4),
+        ((0.0, 1.0, 0.0, 1.0), 6.51846, 4e-3),
+        ((3.0, 1.0, 0.0, 1.0), 0.814628, 5e-4),
+    ]
+    for args, expected, rel in rows:
+        close(helper(*args), expected, rel=rel)
 
 
 # ---- central_satellite_counts and quenched_central_satellite_counts ----
-def test_unit__central_satellite_counts_helper():
-    """As in SAGE26: `np.sum(types == 0)` and `np.sum(types >= 1)` (orphans, Type 2, are
-    satellites). Types 0, 0, 1, 2, 3 hold 2 centrals and 3 satellites."""
-    module = figure_module("central_satellite_counts")
-    got = module.count_centrals_and_satellites(np.array([0, 0, 1, 2, 3]))
-    assert [int(v) for v in got] == [2, 3], f"counts {got}"
-
-
 def test_unit__quenched_counts_helper():
     """As in SAGE26 (sSFRcut -11.0): `sfr / M < 10.0**sSFRcut`, with `(types == 0) &
     quenched` and `(types >= 1) & quenched`. Five galaxies of 1e10 Msun with Types 0, 0, 1, 2, 1
     and rates 0.09, 0.11, 0.05, 0.01, 0.2: the quenched are the first, third and fourth, so one
     central and two satellites; a galaxy with no stellar mass is never quenched (its rate is
     infinite or NaN)."""
-    module = figure_module("quenched_central_satellite_counts")
+    module = HARNESS.figure_module("quenched_central_satellite_counts")
     assert module.SSFR_CUT == -11.0, f"sSFRcut {module.SSFR_CUT}"
     stellar = np.array([1.0e10] * 5 + [0.0, 0.0])
     sfr = np.array([0.09, 0.11, 0.05, 0.01, 0.2, 1.0, 0.0])
     types = np.array([0, 0, 1, 2, 1, 0, 1])
     got = module.count_quenched(types, sfr, stellar)
     assert [int(v) for v in got] == [1, 2], f"counts {got}"
-
-
-def tick_labels(ax):
-    """Return the text of the x tick labels."""
-    return [t.get_text() for t in ax.get_xticklabels()]
 
 
 COUNT_TICKS = [
@@ -2009,29 +1142,21 @@ COUNT_TICKS = [
 ]
 
 
-def counts_figure_case(name, where):
-    """The tick labels, rotation, windows and absent legend of a counts figure."""
-    fig = render(name).fig
-    ax = data_axes(fig)[0]
-    assert tick_labels(ax) == COUNT_TICKS, f"{name} ticks {tick_labels(ax)}, SAGE26 {where}"
-    rotations = {t.get_rotation() for t in ax.get_xticklabels()}
-    assert rotations == {45.0}, f"{name} rotation {rotations}"
-    assert ax.get_legend() is None, f"{name} draws a legend, SAGE26 has none"
-    close(ax.get_xlim(), [-0.5, 14.5])
-    heights = [artist.get_height() for artist, _ in model_artists(fig)]
-    # Upper limit: 1.1 x the autoscaled top, matplotlib's default 5% margin above the tallest
-    # bar, so 1.155 x the tallest bar
-    close([ax.get_ylim()[0], ax.get_ylim()[1] / max(heights)], [0.0, 1.155], rel=1e-9)
-
-
-def test_figure__central_satellite_counts_ticks_windows_and_no_legend():
-    """The tick labels, windows and absent legend of the counts figure."""
-    counts_figure_case("central_satellite_counts", "tick labels")
-
-
-def test_figure__quenched_central_satellite_counts_ticks_windows_and_no_legend():
-    """The tick labels, windows and absent legend of the quenched counts figure."""
-    counts_figure_case("quenched_central_satellite_counts", "tick labels")
+def test_figure__counts_figures_label_the_redshift_bins_and_draw_no_legend():
+    """The two counts figures label SAGE26's fifteen redshift bins at 45 degrees on a window of
+    -0.5 to 14.5, draw no legend, and set the top limit 1.155 x the tallest bar (matplotlib's 5
+    percent margin above 1.1 x the autoscaled top)."""
+    for name in ("central_satellite_counts", "quenched_central_satellite_counts"):
+        fig = HARNESS.render(name).fig
+        ax = data_axes(fig)[0]
+        ticks = [t.get_text() for t in ax.get_xticklabels()]
+        assert ticks == COUNT_TICKS, f"{name} ticks {ticks}"
+        rotations = {t.get_rotation() for t in ax.get_xticklabels()}
+        assert rotations == {45.0}, f"{name} rotation {rotations}"
+        assert ax.get_legend() is None, f"{name} draws a legend, SAGE26 has none"
+        close(ax.get_xlim(), [-0.5, 14.5])
+        heights = [artist.get_height() for artist, _ in tagged_model_artists(fig)]
+        close([ax.get_ylim()[0], ax.get_ylim()[1] / max(heights)], [0.0, 1.155], rel=1e-9)
 
 
 def test_figure__central_satellite_counts_bars_are_the_mean_counts():
@@ -2039,10 +1164,10 @@ def test_figure__central_satellite_counts_bars_are_the_mean_counts():
     count at i + 0.15, both of width 0.3. Snapshot 37 (z = 1.39, bin 3) holds Types 0, 0, 1, 2,
     1: 2 centrals and 3 satellites (the orphan counts as one)."""
     spec = {37: (RUN_REDSHIFTS[37], {"Type": np.array([0, 0, 1, 2, 1], dtype=np.int32)})}
-    run = run_hand_built("central_satellite_counts", spec, "counts-bars")
+    run = HARNESS.run_hand_built("central_satellite_counts", spec, "counts-bars")
     bars = sorted(
         (a.get_x() + a.get_width() / 2, a.get_height(), a.get_width())
-        for a, _ in model_artists(run.fig)
+        for a, _ in tagged_model_artists(run.fig)
     )
     close([b[0] for b in bars], [2.85, 3.15])
     close([b[1] for b in bars], [2.0, 3.0])
@@ -2053,7 +1178,7 @@ def test_figure__central_satellite_counts_bars_are_the_mean_counts():
 def test_unit__central_satellite_fractions_helper():
     """As in SAGE26: `n_cen / n_total` and `n_sat / n_total` with `types >= 1` for satellites.
     Types 0, 0, 1, 2 give 0.5 and 0.5; Types 0, 1, 1, 1 give 0.25 and 0.75."""
-    helper = figure_module("central_satellite_fraction").central_and_satellite_fractions
+    helper = HARNESS.figure_module("central_satellite_fraction").central_and_satellite_fractions
     close(helper(np.array([0, 0, 1, 2])), [0.5, 0.5])
     close(helper(np.array([0, 1, 1, 1])), [0.25, 0.75])
 
@@ -2066,7 +1191,7 @@ def test_figure__central_satellite_fraction_window_ends_at_the_largest_redshift(
         37: (RUN_REDSHIFTS[37], {"Type": np.array([0, 1], dtype=np.int32)}),
         32: (RUN_REDSHIFTS[32], {"Type": np.array([0, 0, 0, 1], dtype=np.int32)}),
     }
-    run = run_hand_built("central_satellite_fraction", spec, "fraction-window")
+    run = HARNESS.run_hand_built("central_satellite_fraction", spec, "fraction-window")
     ax = data_axes(run.fig)[0]
     close(ax.get_xlim(), [0.0, 2.0700273232431767])
     close(ax.get_ylim(), [0.0, 1.05])
@@ -2081,7 +1206,7 @@ def test_unit__ssfr_threshold():
     """As in SAGE26: `0.2 * E_z / ((9.778 / h) * 1e9)` with E_z = sqrt(Om (1 + z)^3 + OL). For Om
     = 1, OL = 0, h = 1: at z = 0, E = 1 and 0.2 / 9.778e9; at z = 3, E = 8 and 1.6 / 9.778e9. For
     Om = 0, OL = 1, h = 0.5: E = 1 and 0.2 / (19.556e9)."""
-    helper = figure_module("central_satellite_fraction_massive_quiescent").ssfr_threshold
+    helper = HARNESS.figure_module("central_satellite_fraction_massive_quiescent").ssfr_threshold
     close([helper(0.0, 1.0, 0.0, 1.0), helper(3.0, 1.0, 0.0, 1.0)], [0.2 / 9.778e9, 1.6 / 9.778e9])
     close([helper(2.0, 0.0, 1.0, 0.5)], [0.2 / 19.556e9])
 
@@ -2094,7 +1219,7 @@ def test_unit__massive_quiescent_counts():
     orphan (a satellite): counts (1, 0, 1). A snapshot with 9 galaxies of positive mass is
     skipped (fewer than 10), as is one with no quiescent galaxy among the most massive; a galaxy
     with no mass is left out of the percentile."""
-    module = figure_module("central_satellite_fraction_massive_quiescent")
+    module = HARNESS.figure_module("central_satellite_fraction_massive_quiescent")
     assert module.MIN_GALAXIES == 10, f"minimum {module.MIN_GALAXIES}"
     assert module.MASS_PERCENTILE == 90, f"percentile {module.MASS_PERCENTILE}"
     mass = np.arange(1.0, 21.0)
@@ -2125,11 +1250,11 @@ def test_figure__cosmology_missing_from_the_run_is_a_skip_with_a_message():
     """Omega, OmegaLambda and Hubble_h come from the engine's run parameters; without them the
     two figures that need the cosmology return a message, not an error."""
     for name in ("star_formation_efficiency", "central_satellite_fraction_massive_quiescent"):
-        snapshots = build_evolution_input(evolution_fields(name))
-        path, skip = FIGURES.PLOT_FUNCS[name](
+        snapshots = build_evolution_input(HARNESS.evolution_fields(name))
+        path, skip = HARNESS.figures.PLOT_FUNCS[name](
             snapshots=snapshots,
             params={},
-            output_dir=os.path.join(TMP_ROOT, name + "-no-cosmology"),
+            output_dir=HARNESS.output_dir(name + "-no-cosmology"),
             output_format=".png",
             verbose=False,
         )
@@ -2143,8 +1268,8 @@ def test_unit__ffb_fraction_helper():
     NaN with no such row. Rows with Len 19, 20, 25, 100 and
     FFBRegime 1, 1, 0, 1: the Len 19 row is left out, so 1 of 3 (the Len 20 and Len 100 rows are
     FFB). With every Len below 20 the fraction is NaN, not 0."""
-    helper = figure_module("ffb_fraction_cut_down").ffb_fraction
-    assert figure_module("ffb_fraction_cut_down").MIN_PARTICLES == 20, "MIN_PARTICLES"
+    helper = HARNESS.figure_module("ffb_fraction_cut_down").ffb_fraction
+    assert HARNESS.figure_module("ffb_fraction_cut_down").MIN_PARTICLES == 20, "MIN_PARTICLES"
     ffb = np.array([1, 1, 0, 1])
     length = np.array([19, 20, 25, 100])
     close([helper(ffb, length)], [2.0 / 3.0])
@@ -2160,7 +1285,7 @@ def test_unit__ffb_step_edges_for_the_written_snapshots():
     midpoints 6.7345, 5.7428, 4.7341, 3.6199, 2.5652, 1.7279, 0.6929 and 0.0 (midpoints of the
     redshifts 1/a - 1 of the a_list scale factors), whatever order the snapshots are supplied in;
     a snapshot above z = 15 is not drawn."""
-    helper = figure_module("ffb_fraction_cut_down").step_edges
+    helper = HARNESS.figure_module("ffb_fraction_cut_down").step_edges
     z = RUN_REDSHIFTS
     expected = [
         15.0,
@@ -2187,8 +1312,8 @@ def test_unit__ffb_step_edges_for_the_written_snapshots():
 def test_figure__ffb_fraction_step_values_and_axes():
     """Snapshots 63 and 16 with Len 30, 30, 30, 10 and FFBRegime 1, 0, 0, 1 (the unresolved row
     is left out: 1 of 3 = 0.333) and Len 30, 30 and FFBRegime 0, 0 (zero, which the log axis does
-    not show). The step is drawn in log10(1 + z) from 0 to log10(16) with the bottom ticks 0, 1,
-    2, 3, 5, 7, 10, 15 and the top ticks 0.0 to 1.2."""
+    not show). The step is drawn in log10(1 + z) from 0 to log10(16) on a log y axis, with the
+    edges at 15, half the redshift of snapshot 16, and 0."""
     spec = {
         63: (
             0.0,
@@ -2205,66 +1330,16 @@ def test_figure__ffb_fraction_step_values_and_axes():
             },
         ),
     }
-    run = run_hand_built("ffb_fraction_cut_down", spec, "ffb-step")
-    steps = [artist for artist, _ in model_artists(run.fig)]
+    run = HARNESS.run_hand_built("ffb_fraction_cut_down", spec, "ffb-step")
+    steps = [artist for artist, _ in tagged_model_artists(run.fig)]
     assert len(steps) == 1, f"{len(steps)} model artists"
     values, edges = steps[0].get_data().values, steps[0].get_data().edges
     # In increasing snapshot number: snapshot 16 (0), then 63 (1/3)
     close(values, [0.0, 1.0 / 3.0])
-    z16 = RUN_REDSHIFTS[16]
-    close(edges, np.log10(1 + np.array([15.0, z16 / 2.0, 0.0])))
-    main, top = data_axes(run.fig)
+    close(edges, np.log10(1 + np.array([15.0, RUN_REDSHIFTS[16] / 2.0, 0.0])))
+    main, _ = data_axes(run.fig)
     close(main.get_xlim(), [0.0, math.log10(16.0)])
-    close(main.get_xticks(), [math.log10(1 + zt) for zt in (0, 1, 2, 3, 5, 7, 10, 15)])
-    assert [t.get_text() for t in main.get_xticklabels()] == [
-        "0",
-        "1",
-        "2",
-        "3",
-        "5",
-        "7",
-        "10",
-        "15",
-    ], "bottom tick labels"
-    close(top.get_xticks(), [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2])
-    assert [t.get_text() for t in top.get_xticklabels()] == [
-        "0",
-        "0.2",
-        "0.4",
-        "0.6",
-        "0.8",
-        "1",
-        "1.2",
-    ], "top tick labels"
     assert main.get_yscale() == "log", "y scale"
-
-
-# ---- axis windows, scales and legends of the new evolution figures ----
-# name -> (x window, y window, y scale); None where SAGE26 sets no window. Written from SAGE26's
-# plotting script.
-WINDOWS = {
-    "sfr_evolution": ((8.0, 12.2), (-4.0, 3.0), "linear"),
-    "stellar_mass_halo_mass_relation": ((10.0, 15.0), (7.0, 12.0), "linear"),
-    "black_hole_mass_function": ((6.0, 11.0), (1e-5, 1e-1), "log"),
-    "quenched_fraction_evolution": ((8.0, 12.5), (0.0, 0.8), "linear"),
-    "concentration_evolution": ((0.0, 15.0), (0.0, 30.0), "linear"),
-    "h2_fraction_evolution": ((7.2, 12.0), (0.0, 1.05), "linear"),
-    "central_satellite_fraction": (None, (0.0, 1.05), "linear"),
-    "central_satellite_fraction_massive_quiescent": (None, (0.0, 1.05), "linear"),
-}
-
-
-def make_window(name):
-    def case():
-        ax = data_axes(render(name).fig)[0]
-        x_window, y_window, scale = WINDOWS[name]
-        if x_window is not None:
-            close(ax.get_xlim(), x_window)
-        close(ax.get_ylim(), y_window)
-        assert ax.get_yscale() == scale, f"{name}: y scale {ax.get_yscale()}, expected {scale}"
-
-    case.__name__ = f"test_window__{name}"
-    return case
 
 
 def test_window__star_formation_efficiency_runs_from_the_age_today_down_to_0_3_gyr():
@@ -2272,92 +1347,12 @@ def test_window__star_formation_efficiency_runs_from_the_age_today_down_to_0_3_g
     axis), y from 1e-6 to 1.0. For Omega_m = 0.25, Omega_lambda = 0.75, h = 0.73 the age today is
     (9.778 / 0.73) x 2 / (3 sqrt(0.75)) x asinh(sqrt(0.75 / 0.25)) = 13.394 x 1.0139 = 13.58 Gyr
     (the closed form of flat LCDM; the integral to z = 1000 is 0.003 Gyr short)."""
-    ax = data_axes(render("star_formation_efficiency").fig)[0]
+    ax = data_axes(HARNESS.render("star_formation_efficiency").fig)[0]
     xlim = ax.get_xlim()
     close([xlim[0]], [13.58], rel=2e-3)
     close([xlim[1]], [0.3])
     close(ax.get_ylim(), [1e-6, 1.0])
     assert ax.get_yscale() == "log", f"y scale {ax.get_yscale()}"
-
-
-# name -> sorted legend texts the figure draws on the synthetic run (bins 3, 5, 7, 8, 9, 10, 11)
-# or None when SAGE26 draws no legend
-BIN_LEGEND_FIGURES = [
-    ("sfr_evolution", "legend"),
-    ("stellar_mass_halo_mass_relation", "legend"),
-    ("quenched_fraction_evolution", "legend"),
-    ("metallicity_evolution", "legend"),
-    ("h2_fraction_evolution", "legend"),
-]
-
-
-def make_bin_legend(name, where):
-    def case():
-        legend_case(name, where, POPULATED_BIN_LABELS)
-
-    case.__name__ = f"test_legend__{name}"
-    return case
-
-
-def test_legend__black_hole_mass_function():
-    """As in SAGE26 (`z = {actual_z:.1f} (SAGE)`, the redshift of the snapshot drawn: 63 -> 0.0,
-    37 -> 1.4, 32 -> 2.1, 23 -> 4.2, 18 -> 6.2, 16 -> 7.3) and `z = {target_z:.1f} (Obs)`
-    for the six targets."""
-    legend_case(
-        "black_hole_mass_function",
-        "legend",
-        [
-            "z = 0.0 (SAGE)",
-            "z = 1.4 (SAGE)",
-            "z = 2.1 (SAGE)",
-            "z = 4.2 (SAGE)",
-            "z = 6.2 (SAGE)",
-            "z = 7.3 (SAGE)",
-            "z = 0.1 (Obs)",
-            "z = 1.0 (Obs)",
-            "z = 2.0 (Obs)",
-            "z = 4.0 (Obs)",
-            "z = 6.0 (Obs)",
-            "z = 8.0 (Obs)",
-        ],
-    )
-
-
-def test_legend__concentration_evolution():
-    """As in SAGE26 (`label + r' $M_\\odot$'`)."""
-    legend_case(
-        "concentration_evolution",
-        "legend",
-        [
-            r"$10^{10} - 10^{11}$ $M_\odot$",
-            r"$10^{11} - 10^{12}$ $M_\odot$",
-            r"$10^{12} - 10^{13}$ $M_\odot$",
-            r"$10^{13} - 10^{15}$ $M_\odot$",
-        ],
-    )
-
-
-def test_legend__central_satellite_fractions():
-    """As in SAGE26: 'Centrals' and 'Satellites'."""
-    for name in ("central_satellite_fraction", "central_satellite_fraction_massive_quiescent"):
-        legend_case(name, "legend", ["Centrals", "Satellites"])
-
-
-def test_legend__figures_without_a_legend():
-    """SAGE26 draws no legend in the sections of star_formation_efficiency,
-    central_satellite_counts (commented out) and quenched_central_satellite_counts (commented
-    out)."""
-    for name in (
-        "star_formation_efficiency",
-        "central_satellite_counts",
-        "quenched_central_satellite_counts",
-    ):
-        assert legend_texts(name) == [], f"{name} draws a legend"
-
-
-def test_legend__ffb_fraction_cut_down():
-    """As in SAGE26 (label 'FFB')."""
-    legend_case("ffb_fraction_cut_down", "legend", ["FFB"])
 
 
 # ---- metallicity_evolution: the SAGE26 plotting defect mirrored as written ----
@@ -2372,7 +1367,7 @@ def test_figure__metallicity_evolution_draws_the_raw_metal_mass():
             {"StellarMass": f32([1.0, 1.0]), "MetalsStellarMass": f32([0.01, 0.01])},
         )
     }
-    run = run_hand_built("metallicity_evolution", spec, "metallicity-raw")
+    run = HARNESS.run_hand_built("metallicity_evolution", spec, "metallicity-raw")
     (line,) = model_lines(run.fig)
     close(line.get_xdata(), [10.15])
     close(line.get_ydata(), [-2.0], rel=1e-6)
@@ -2385,7 +1380,7 @@ def test_unit__black_hole_mass_function_helper():
     only galaxies with `M > 0` count. Black holes of 10^6.05 (twice) and 10^6.15 Msun and one of
     no mass, in a volume of 100 Mpc^3: 2 / (100 x 0.1) = 0.2 in the bin centred 6.05 and 1 / 10 =
     0.1 in the one centred 6.15; with no black hole the helper gives nothing."""
-    module = figure_module("black_hole_mass_function")
+    module = HARNESS.figure_module("black_hole_mass_function")
     assert module.TARGET_REDSHIFTS == [0.1, 1.0, 2.0, 4.0, 6.0, 8.0], "targets"
     masses = np.array([10**6.05, 10**6.05, 10**6.15, 0.0])
     centers, phi, valid = module.mass_function(masses, 100.0)
@@ -2399,7 +1394,7 @@ def test_unit__black_hole_mass_function_helper():
 def test_unit__black_hole_mass_function_observations_have_the_shape_of_the_files():
     """SAGE26's fig4_bhmf_z{0.1,1.0,2.0,4.0,6.0,8.0}.txt data files hold 66 rows each of 4
     columns (log10 Mbh, best, 16th, 84th percentile), which the inline arrays reproduce."""
-    module = figure_module("black_hole_mass_function")
+    module = HARNESS.figure_module("black_hole_mass_function")
     assert sorted(module.OBS_TRINITY) == [0.1, 1.0, 2.0, 4.0, 6.0, 8.0], "redshifts"
     for z, obs in module.OBS_TRINITY.items():
         assert obs.shape == (66, 4), f"z = {z}: shape {obs.shape}"
@@ -2422,7 +1417,7 @@ def test_figure__sfr_evolution_converts_mass_and_adds_the_two_rates():
             {"StellarMass": f32([1.0]), "SfrDisk": f32([1.0]), "SfrBulge": f32([1.0])},
         )
     }
-    (line,) = model_lines(run_hand_built("sfr_evolution", spec, "wiring-sfr").fig)
+    (line,) = model_lines(HARNESS.run_hand_built("sfr_evolution", spec, "wiring-sfr").fig)
     close(line.get_xdata(), [10.15])
     close(line.get_ydata(), [0.30103], rel=1e-5)
 
@@ -2435,7 +1430,7 @@ def test_figure__stellar_mass_halo_mass_relation_converts_both_masses():
         37: (RUN_REDSHIFTS[37], {"StellarMass": f32([1.0]), "Mvir": f32([10.0])}),
     }
     (line,) = model_lines(
-        run_hand_built("stellar_mass_halo_mass_relation", spec, "wiring-smhm").fig
+        HARNESS.run_hand_built("stellar_mass_halo_mass_relation", spec, "wiring-smhm").fig
     )
     close(line.get_xdata(), [11.15])
     close(line.get_ydata(), [LOG_UNIT_MASS], rel=1e-6)
@@ -2450,7 +1445,7 @@ def test_figure__h2_fraction_evolution_converts_the_three_masses():
             {"StellarMass": f32([1.0]), "ColdGas": f32([1.0]), "H2gas": f32([0.37])},
         )
     }
-    (line,) = model_lines(run_hand_built("h2_fraction_evolution", spec, "wiring-h2").fig)
+    (line,) = model_lines(HARNESS.run_hand_built("h2_fraction_evolution", spec, "wiring-h2").fig)
     close(line.get_xdata(), [10.15])
     close(line.get_ydata(), [0.5], rel=1e-6)
 
@@ -2466,7 +1461,7 @@ def test_figure__concentration_evolution_converts_the_halo_mass_and_is_drawn_at_
             {"Mvir": f32([8.0] * 5), "Concentration": f32([1, 2, 3, 4, 5])},
         )
     }
-    run = run_hand_built("concentration_evolution", spec, "wiring-concentration")
+    run = HARNESS.run_hand_built("concentration_evolution", spec, "wiring-concentration")
     (line,) = model_lines(run.fig)
     assert line.get_label() == r"$10^{11} - 10^{12}$ $M_\odot$", f"label {line.get_label()}"
     close(line.get_xdata(), [0.0])
@@ -2482,7 +1477,7 @@ def test_figure__black_hole_mass_function_converts_mass_and_volume():
     the figure holds one model line."""
     code_mass = 10**6.55 * 0.73 / 1.0e10
     spec = {63: (0.0, {"BlackHoleMass": f32([code_mass, code_mass])})}
-    lines = model_lines(run_hand_built("black_hole_mass_function", spec, "wiring-bhmf").fig)
+    lines = model_lines(HARNESS.run_hand_built("black_hole_mass_function", spec, "wiring-bhmf").fig)
     assert len(lines) == 1, f"{len(lines)} model lines"
     close(lines[0].get_xdata(), [6.55])
     close(lines[0].get_ydata(), [3.187e-5], rel=1e-3)
@@ -2503,7 +1498,9 @@ def test_figure__star_formation_efficiency_converts_masses_and_ages_the_snapshot
             },
         )
     }
-    line = model_lines(run_hand_built("star_formation_efficiency", spec, "wiring-sfe").fig)[0]
+    line = model_lines(HARNESS.run_hand_built("star_formation_efficiency", spec, "wiring-sfe").fig)[
+        0
+    ]
     close(line.get_ydata(), [0.58824], rel=1e-4)
     close(line.get_xdata(), [4.68], rel=1e-2)
 
@@ -2524,9 +1521,9 @@ def test_figure__quenched_counts_convert_the_mass_and_add_the_two_rates():
             },
         )
     }
-    run = run_hand_built("quenched_central_satellite_counts", spec, "wiring-qcounts")
+    run = HARNESS.run_hand_built("quenched_central_satellite_counts", spec, "wiring-qcounts")
     bars = sorted(
-        (a.get_x() + a.get_width() / 2, a.get_height()) for a, _ in model_artists(run.fig)
+        (a.get_x() + a.get_width() / 2, a.get_height()) for a, _ in tagged_model_artists(run.fig)
     )
     close([b[0] for b in bars], [2.85, 3.15])
     close([b[1] for b in bars], [1.0, 0.0])
@@ -2546,56 +1543,62 @@ def test_figure__massive_quiescent_converts_the_mass_and_uses_the_run_cosmology(
         "Type": np.array([0] * 7 + [1] * 3, dtype=np.int32),
     }
     spec = {63: (0.0, galaxies), 37: (RUN_REDSHIFTS[37], galaxies)}
-    run = run_hand_built("central_satellite_fraction_massive_quiescent", spec, "wiring-mq")
+    run = HARNESS.run_hand_built("central_satellite_fraction_massive_quiescent", spec, "wiring-mq")
     centrals, satellites = model_lines(run.fig)
     close(centrals.get_xdata(), [0.0, RUN_REDSHIFTS[37]])
     close(centrals.get_ydata(), [0.7, 0.7])
     close(satellites.get_ydata(), [0.3, 0.3])
 
 
-BIN_CASES = [
-    test_bins__bulge_to_total_constants,
+CASES = [
+    test_reservoir_helper_returns_seven_reservoirs_and_their_exact_sum,
+    test_labels__units_and_conventions_that_differ_from_sage26,
+    test_labels__tcool_vs_mvir_with_only_regimes_0_and_1_has_no_colour_bar,
+    test_run_parameters__rcool_title_and_selection_use_the_runs_mshock_msun,
+    test_run_parameters__missing_key_warns_and_uses_the_fallback,
+    test_cap__sampled_figures_hold_their_literal_cap_and_sample_to_it,
+    test_unit__one_expression_helpers,
+    test_unit__bulge_to_total_bins,
+    test_unit__log_specific_sfr,
+    test_unit__smoothed_histogram,
+    test_unit__sigma_levels,
+    test_unit__ejection_efficiency,
     test_bins__specific_star_formation_rate_constants,
     test_bins__ejection_efficiency_edges,
     test_bins__disk_radius_edges,
     test_threshold__specific_star_formation_rate_population_minimum_is_10,
-    test_threshold__spatial_distribution_3d_box_cut_is_1e9_msun,
-    test_threshold__star_formation_rate_cut_is_0_01_msun,
-    test_threshold__concentration_vs_mvir_cut_is_1e8_msun,
-    test_threshold__disk_radius_window_is_9_3_to_11_3,
-    test_legend__bulge_to_total,
-    test_legend__stellar_vs_halo_mass_by_regime,
-    test_legend__specific_star_formation_rate,
-    test_legend__sfr_vs_halo_accretion_rate,
-    test_legend__tcool_vs_mvir,
-    test_legend__ejection_efficiency_vs_vvir_has_none,
-    test_legend__disk_radius_vs_stellar_mass,
-    test_selection__z_bins_are_the_fifteen_of_sage26,
+    test_threshold__stellar_mass_cuts_and_windows_of_the_scatter_figures,
     test_selection__z_range_includes_both_ends,
     test_selection__empty_bin_returns_no_snapshot,
-    test_selection__eight_snapshots_fall_in_the_literal_bins,
     test_selection__nearest_snapshot_for_the_targets_of_the_plan,
     test_selection__nearest_tie_returns_the_lower_snapshot_number,
-    test_selection__results_do_not_depend_on_the_order_snapshots_are_supplied_in,
     test_unit__arange_constants_of_the_new_bins,
+    test_unit__rcool_helpers,
     test_legend__rcool_to_rvir_above_mshock,
+    test_legend__entries_that_name_the_redshifts_drawn,
     test_unit__sfr_evolution_helpers,
-    test_unit__stellar_mass_halo_mass_relation_line_styles,
-    test_figure__stellar_mass_halo_mass_relation_line_styles_follow_the_bin_index,
+    test_unit__h2_fraction_evolution_helpers,
+    test_unit__stellar_mass_halo_mass_relation_helpers,
+    test_unit__quenched_fraction_helpers,
     test_figure__quenched_fraction_orphans_are_in_neither_curve,
-    test_figure__central_satellite_counts_ticks_windows_and_no_legend,
-    test_figure__quenched_central_satellite_counts_ticks_windows_and_no_legend,
+    test_unit__concentration_statistics,
+    test_unit__star_formation_efficiency_helpers,
+    test_unit__age_of_the_universe,
+    test_unit__quenched_counts_helper,
+    test_figure__counts_figures_label_the_redshift_bins_and_draw_no_legend,
     test_figure__central_satellite_counts_bars_are_the_mean_counts,
+    test_unit__central_satellite_fractions_helper,
     test_figure__central_satellite_fraction_window_ends_at_the_largest_redshift,
+    test_unit__ssfr_threshold,
+    test_unit__massive_quiescent_counts,
     test_figure__cosmology_missing_from_the_run_is_a_skip_with_a_message,
+    test_unit__ffb_fraction_helper,
+    test_unit__ffb_step_edges_for_the_written_snapshots,
     test_figure__ffb_fraction_step_values_and_axes,
     test_window__star_formation_efficiency_runs_from_the_age_today_down_to_0_3_gyr,
-    test_legend__black_hole_mass_function,
-    test_legend__concentration_evolution,
-    test_legend__central_satellite_fractions,
-    test_legend__figures_without_a_legend,
-    test_legend__ffb_fraction_cut_down,
     test_figure__metallicity_evolution_draws_the_raw_metal_mass,
+    test_unit__black_hole_mass_function_helper,
+    test_unit__black_hole_mass_function_observations_have_the_shape_of_the_files,
     test_figure__sfr_evolution_converts_mass_and_adds_the_two_rates,
     test_figure__stellar_mass_halo_mass_relation_converts_both_masses,
     test_figure__h2_fraction_evolution_converts_the_three_masses,
@@ -2607,85 +1610,12 @@ BIN_CASES = [
 ]
 
 
-UNIT_CASES = [
-    test_unit__bulge_to_total_ratios,
-    test_unit__bulge_to_total_bins,
-    test_unit__box_edges,
-    test_unit__total_sfr,
-    test_unit__log_specific_sfr,
-    test_unit__smoothed_histogram,
-    test_unit__sigma_levels,
-    test_unit__halo_accretion_rate,
-    test_unit__virial_temperature,
-    test_unit__cgm_fraction,
-    test_unit__ejection_efficiency,
-    test_unit__ejection_binned_median_and_std,
-    test_unit__disk_radius_binned_median_and_std,
-    test_unit__effective_disk_radius,
-    test_unit__virial_radius_kpc,
-    test_unit__moffett_imf_shift_is_zero,
-    test_unit__rcool_helpers,
-    test_unit__metallicity_evolution_helpers,
-    test_unit__h2_fraction_evolution_helpers,
-    test_unit__stellar_mass_halo_mass_relation_helpers,
-    test_unit__quenched_fraction_helpers,
-    test_unit__concentration_statistics,
-    test_unit__star_formation_efficiency_helpers,
-    test_unit__age_of_the_universe,
-    test_unit__central_satellite_counts_helper,
-    test_unit__quenched_counts_helper,
-    test_unit__central_satellite_fractions_helper,
-    test_unit__ssfr_threshold,
-    test_unit__massive_quiescent_counts,
-    test_unit__ffb_fraction_helper,
-    test_unit__ffb_step_edges_for_the_written_snapshots,
-    test_unit__black_hole_mass_function_helper,
-    test_unit__black_hole_mass_function_observations_have_the_shape_of_the_files,
-]
-
-
-def build_cases():
-    """Return every case: five per registered figure, the helper and added-series cases, the
-    tcool colour-bar cases, a Cap case per sampled figure, a window case per windowed history
-    figure, a legend case per redshift-binned figure, a unit case per new helper, and the
-    selection, bin, threshold and legend cases of the new figures."""
-    cases = []
-    for name in FILE_STEMS:
-        cases += [
-            make_renders(name),
-            make_file_stem(name),
-            make_model_content(name),
-            make_labels(name),
-            make_requirements(name),
-        ]
-    cases += [
-        test_reservoir_helper_returns_seven_reservoirs_and_their_exact_sum,
-        test_added_series__baryon_fraction_draws_a_cgm_curve,
-        test_added_series__mass_reservoir_scatter_draws_a_cgm_gas_series,
-        test_added_series__gas_mass_function_draws_the_h2_line,
-        test_added_series__gas_mass_function_draws_the_hi_line,
-        test_colourbar_axes_are_identified_and_not_counted_as_data_axes,
-        test_labels__tcool_vs_mvir_with_a_regime_outside_0_and_1_has_the_colour_bar,
-        test_labels__tcool_vs_mvir_with_only_regimes_0_and_1_has_no_colour_bar,
-        test_run_parameters__rcool_title_uses_the_runs_mshock_msun,
-        test_run_parameters__missing_key_warns_and_uses_the_fallback,
-    ]
-    cases += [make_cap(name) for name in CAPS]
-    cases += [make_window(name) for name in WINDOWS]
-    cases += [make_bin_legend(name, lines) for name, lines in BIN_LEGEND_FIGURES]
-    cases += UNIT_CASES
-    cases += BIN_CASES
-    return cases
-
-
 def main():
-    """Run this file's tests via the shared framework runner, in a temporary directory."""
-    global TMP_ROOT
-    TMP_ROOT = tempfile.mkdtemp(prefix="sage26-figures-test-")
-    try:
-        return run_test_suite(build_cases(), "sage26 figures (test_sage26_figures.py)")
-    finally:
-        shutil.rmtree(TMP_ROOT, ignore_errors=True)
+    """Run the shared cases, the derivation cases and this file's cases in a temporary directory."""
+    cases = (
+        HARNESS.registry_cases() + derivation_cases(HARNESS, DERIVATIONS, INTEGER_FIELDS) + CASES
+    )
+    return HARNESS.run(cases, "sage26 figures (test_sage26_figures.py)")
 
 
 if __name__ == "__main__":

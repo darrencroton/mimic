@@ -44,5 +44,7 @@ All four are required with no default; a missing key or a value outside the acce
 
 ## Tests
 
-- `_tests/test_unit_sage26_merger_ordering_parity.c`: the pass's immediate ordering and one-hop redirect, the `BulgeSizeOn 3` refusal without core parameters, the disruption's reservoir selection, and the parameter refusals.
-- `_tests/test_integration_sage26_merger_event_consumers.py`: the startup refusal of the wrong mode, the merger event chain end to end, the written timestamps and the merger bulge bounds.
+- `_tests/test_unit_sage26_resolve_mergers.c`: the pass's end state on a central and one satellite: the eligibility gate and aborts, the major/minor split and the merger transaction's transfers, and the `BulgeSizeOn 3` remnant radii.
+- `_tests/test_unit_sage26_merger_ordering_parity.c`: the pass's immediate ordering and one-hop redirect, the `BulgeSizeOn 3` refusal without core parameters, and the disruption's reservoir selection.
+- `_tests/test_integration_sage26_merger_event_consumers.py`: the merger event chain end to end (removing either consumer removes its growth), the written timestamps and the merger bulge bounds.
+- The `CGMrecipeOn` refusals and the order required of the clock and the event consumers are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c` and `../_tests/test_unit_sage_dependency_contracts.c`.

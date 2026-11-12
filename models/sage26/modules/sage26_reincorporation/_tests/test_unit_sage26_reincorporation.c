@@ -1,47 +1,34 @@
 /**
  * @file    test_unit_sage26_reincorporation.c
- * @brief   Comprehensive unit tests for sage26_reincorporation module
+ * @brief   Unit tests for sage26_reincorporation module
  *
- * Validates: Module lifecycle, physics calculations, edge cases, error handling
- *
- * This test validates the sage26_reincorporation module:
- * - Module registration and initialization
- * - Parameter reading and validation
- * - Memory allocation and cleanup (no leaks)
- * - Reincorporation physics calculation
- * - Central-only constraint
- * - Velocity threshold (Vvir > Vcrit)
- * - Mass capping (reincorporated ≤ EjectedGas)
- * - Metallicity preservation during transfer
- * - Zero ejected gas edge case
- * - NULL pointer safety
- * - Negative value prevention
+ * Validates: module placement, the reincorporation rate, the central-only constraint, the
+ * transfer's conservation and metallicity, edge cases, error handling and the CGMrecipeOn routing
  *
  * Test cases:
- *   LIFECYCLE TESTS:
- *   - test_module_registration: Module registers correctly
- *   - test_module_initialization: Module init/cleanup lifecycle
- *   - test_parameter_reading: Module parameters read from config
- *   - test_memory_safety: No memory leaks during operation
+ *   LIFECYCLE:
+ *   - test_module_initialization: the module initialises, and cleans up without leaks, in a
+ *     valid placement
  *
- *   PHYSICS TESTS:
- *   - test_physics_basic_reincorporation: Standard reincorporation calculation
- *   - test_physics_central_only: Only Type 0 centrals reincorporate
- *   - test_physics_full_halo_nonzero_central_index: Full-halo dispatch uses the true FOF central
- *   - test_physics_velocity_threshold: Vvir > Vcrit requirement
- *   - test_physics_mass_capping: Reincorporated limited to available EjectedGas
- *   - test_physics_metallicity_preservation: Metallicity conserved in transfer
- *   - test_physics_zero_ejected_gas: No reincorporation when EjectedGas = 0
- *   - test_physics_mass_conservation: Total mass conserved in transfer
- *   - test_physics_substep_integration: Reincorporation works over multiple substeps
+ *   PHYSICS:
+ *   - test_physics_reincorporation_rate: the reincorporated mass against an independently written
+ *     expression for a table of (Vvir, ReIncorporationFactor set by name, dT, substeps, ejected
+ *     gas) rows: above, below and at the critical velocity, the factor scaling it up and down,
+ *     a zero factor, the per-substep dt, and the cap at the ejected gas
+ *   - test_physics_central_only: only Type 0 centrals reincorporate
+ *   - test_physics_full_halo_nonzero_central_index: full-halo dispatch uses the true FOF central
+ *   - test_physics_metallicity_preservation: gas and metals move at the ejected metallicity, and
+ *     total gas and metals are conserved
+ *   - test_physics_zero_ejected_gas: no reincorporation when EjectedGas = 0
  *
- *   ERROR HANDLING TESTS:
- *   - test_null_galaxy_safety: Handles NULL galaxy gracefully
- *   - test_negative_prevention: Catches negative reincorporation values
+ *   ERROR HANDLING:
+ *   - test_null_galaxy_safety: a central with a NULL galaxy returns -1
  *
- * CGMrecipeOn 1 against 0:
+ *   CGMrecipeOn 1 against 0:
  *   - test_cgm_reincorporation_destination: the destination by CGMrecipeOn and the central's Regime
- *   - test_cgm_recipe_on_refused: CGMrecipeOn missing or not 0/1 refused, naming it
+ *
+ * The CGMrecipeOn refusals of the module are asserted, with diagnostics, by
+ * test_unit_sage26_parameter_refusals.c.
  *
  * @author  Mimic Development Team
  * @date    2025-12-18
@@ -75,15 +62,13 @@ extern int sage26_reincorporation_cleanup(void);
 /**
  * @brief Initialize sage26_reincorporation module for physics testing
  *
- * Sets up module with ReIncorporationFactor = 1.0 (standard SAGE value)
+ * Sets up module with ReIncorporationFactor = 1.0 (standard SAGE value, from
+ * set_test_model_parameters), so Vcrit = 354.53 km/s
  */
 static void setup_module_for_physics_test(void) {
   reset_config();
   set_test_model_parameters();
   add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
-
-  /* ReIncorporationFactor = 1.0 is default in test_stubs.c */
-  /* This gives Vcrit = 354.53 km/s */
 
   sage26_reincorporation_init();
 }
@@ -136,18 +121,8 @@ static struct ModuleContext create_test_context(double dt) {
 /* ========================================================================== */
 
 /**
- * @test    test_module_registration
- * @brief   Test that sage26_reincorporation module registers correctly
- */
-int test_module_registration(void) {
-  reset_config();
-  ensure_modules_registered();
-  return TEST_PASS;
-}
-
-/**
  * @test    test_module_initialization
- * @brief   Test module initialization and cleanup lifecycle
+ * @brief   The module initialises and cleans up without leaks in a valid placement
  */
 int test_module_initialization(void) {
   reset_config();
@@ -172,112 +147,105 @@ int test_module_initialization(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_parameter_reading
- * @brief   Test that module reads parameters from configuration correctly
- */
-int test_parameter_reading(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-
-  test_phase_add("galaxy_physics", "sage26_reincorporation", PROCESSING_MODE_FULL_HALO);
-  MimicConfig.SubSteps = 1;
-
-  set_test_model_parameters();
-  add_test_cgm_recipe_parameter();                  /* CGMrecipeOn: 0, required */
-  strcpy(MimicConfig.ModelParams[14].value, "0.5"); /* ReIncorporationFactor custom value */
-
-  int result = module_system_init();
-  TEST_ASSERT(result == 0, "Module initialization with custom parameters should succeed");
-
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_memory_safety
- * @brief   Test that module has no memory leaks during operation
- */
-int test_memory_safety(void) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-
-  test_phase_add("galaxy_physics", "sage26_reincorporation", PROCESSING_MODE_FULL_HALO);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-  add_test_cgm_recipe_parameter(); /* CGMrecipeOn: 0, required */
-
-  int result = module_system_init();
-  TEST_ASSERT(result == 0, "Module initialization should succeed");
-
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
 /* ========================================================================== */
 /* PHYSICS TESTS                                                             */
 /* ========================================================================== */
 
 /**
- * @test    test_physics_basic_reincorporation
- * @brief   Test standard reincorporation calculation
+ * @brief Initialise the module with ReIncorporationFactor `factor` and CGMrecipeOn 0
  *
- * Physics: reincorporated = (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir) * dt
- * With ReIncorporationFactor = 1.0, Vcrit = 354.53 km/s
+ * Both parameters are set by name on a cleared configuration, so the value the module reads is
+ * the one the caller passed.
  */
-int test_physics_basic_reincorporation(void) {
+static int init_with_factor(const char *factor) {
+  reset_config();
+  sage26_test_append_model_parameter("ReIncorporationFactor", factor);
+  sage26_test_append_model_parameter("CGMrecipeOn", "0");
+  return sage26_reincorporation_init();
+}
+
+/**
+ * @test    test_physics_reincorporation_rate
+ * @brief   The reincorporated mass equals (Vvir/Vcrit - 1) * EjectedGas / (Rvir/Vvir) * dt, capped
+ *          at EjectedGas, with Vcrit = 354.53 km/s * ReIncorporationFactor, and zero for a halo
+ *          not above Vcrit
+ *
+ * Each row sets ReIncorporationFactor by name, gives a central an ejected reservoir of metallicity
+ * 0.03 and an empty hot halo, and runs one substep. The expected mass is written out here from
+ * the formula, with the float Vvir and Rvir the module reads and dt = dT / num_substeps. Hot gas
+ * starts empty, so what it gains is the reincorporated mass. The reservoirs are float32, so the
+ * tolerance is 1e-6 of the reservoir the value is stored in; a wrong rate, critical velocity or
+ * dt moves the result by far more. The small dT keeps the rate below the cap except in the
+ * capped row. A row not above Vcrit must leave every reservoir bit for bit.
+ */
+int test_physics_reincorporation_rate(void) {
+  const struct {
+    const char *name;
+    float vvir;         /* km/s */
+    float rvir;         /* Mpc/h */
+    const char *factor; /* ReIncorporationFactor */
+    double dT;          /* the halo's timestep */
+    int num_substeps;
+    float ejected; /* EjectedGas */
+    int acts;      /* Vvir above Vcrit, so gas returns */
+  } rows[] = {
+      {"above Vcrit", 500.0f, 0.2f, "1.0", 1e-4, 1, 10.0f, 1},
+      {"below Vcrit", 300.0f, 0.2f, "1.0", 1e-4, 1, 10.0f, 0},
+      {"float Vvir 354.53 is below the double Vcrit", 354.53f, 0.2f, "1.0", 1e-4, 1, 10.0f, 0},
+      {"factor 0.5 lowers Vcrit below Vvir 300", 300.0f, 0.2f, "0.5", 1e-4, 1, 10.0f, 1},
+      {"factor 2 raises Vcrit above Vvir 500", 500.0f, 0.2f, "2.0", 1e-4, 1, 10.0f, 0},
+      {"factor 0 gives no critical velocity", 500.0f, 0.2f, "0.0", 1e-4, 1, 10.0f, 0},
+      {"dt is dT over 5 substeps", 500.0f, 0.2f, "1.0", 1e-4, 5, 10.0f, 1},
+      {"capped at the ejected gas", 800.0f, 0.3f, "1.0", 1.0, 1, 0.5f, 1},
+  };
+  const double ejected_metallicity = 0.03;
+  int ok = 1;
   init_memory_system(0);
-  setup_module_for_physics_test();
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    TEST_ASSERT(init_with_factor(rows[k].factor) == 0, "init must accept the row's factor");
 
-  /* Create massive central halo (Vvir > Vcrit = 354.53 km/s) */
-  struct Halo halo = create_test_halo(0, 500.0, 0.2);
-  halo.galaxy->EjectedGas = 10.0;      /* 1e11 Msun/h */
-  halo.galaxy->MetalsEjectedGas = 0.2; /* 2e9 Msun/h (2% metallicity) */
-  halo.galaxy->HotGas = 5.0;
-  halo.galaxy->MetalsHotGas = 0.1;
+    struct Halo halo = create_test_halo(0, rows[k].vvir, rows[k].rvir);
+    halo.dT = rows[k].dT;
+    struct GalaxyData *g = halo.galaxy;
+    g->EjectedGas = rows[k].ejected;
+    g->MetalsEjectedGas = (float)(ejected_metallicity * rows[k].ejected);
+    struct ModuleContext ctx = create_test_context(0.1);
+    ctx.num_substeps = rows[k].num_substeps;
+    ctx.central_galaxy = &halo;
+    const double ejected_in = g->EjectedGas;
+    const double metals_in = g->MetalsEjectedGas;
 
-  struct ModuleContext ctx = create_test_context(0.1); /* dt = 0.1 Gyr/h */
-  ctx.central_galaxy = &halo;                          /* Point to itself (it's a central) */
+    const int status = sage26_reincorporation_process(&ctx, &halo, 1);
 
-  /* Store initial values */
-  double initial_ejected = halo.galaxy->EjectedGas;
-  double initial_hot = halo.galaxy->HotGas;
-
-  /* Execute */
-  int result = sage26_reincorporation_process(&ctx, &halo, 1);
-  TEST_ASSERT(result == 0, "Reincorporation should succeed");
-
-  /* Validate: Mass should transfer from ejected to hot */
-  TEST_ASSERT(halo.galaxy->EjectedGas < initial_ejected, "EjectedGas should decrease");
-  TEST_ASSERT(halo.galaxy->HotGas > initial_hot, "HotGas should increase");
-
-  /* Validate: Mass conservation */
-  double transferred = initial_ejected - halo.galaxy->EjectedGas;
-  double received = halo.galaxy->HotGas - initial_hot;
-  TEST_ASSERT_DOUBLE_EQUAL(transferred, received, 1e-6, "Mass should be conserved");
-
-  /* Validate: Positive transfer */
-  TEST_ASSERT(transferred > 0.0, "Some mass should be reincorporated");
-
-  /* Cleanup */
-  free_test_halo(&halo);
-  sage26_reincorporation_cleanup();
+    double mass = 0.0;
+    if (rows[k].acts) {
+      const double vcrit = 354.53 * strtod(rows[k].factor, NULL);
+      const double dt = rows[k].dT / rows[k].num_substeps;
+      mass = (rows[k].vvir / vcrit - 1.0) * ejected_in / (double)(rows[k].rvir / rows[k].vvir) * dt;
+      if (mass > ejected_in) {
+        mass = ejected_in;
+      }
+    }
+    const double metallicity = metals_in / ejected_in;
+    const int moved_ok =
+        fabs(g->HotGas - mass) <= 1e-6 * mass &&
+        fabs(g->MetalsHotGas - metallicity * mass) <= 1e-6 * metallicity * mass &&
+        fabs(g->EjectedGas - (ejected_in - mass)) <= 1e-6 * ejected_in &&
+        fabs(g->MetalsEjectedGas - (metals_in - metallicity * mass)) <= 1e-6 * metals_in;
+    const int unchanged_ok = g->HotGas == 0.0f && g->MetalsHotGas == 0.0f &&
+                             g->EjectedGas == (float)ejected_in &&
+                             g->MetalsEjectedGas == (float)metals_in;
+    if (status != 0 || !(rows[k].acts ? moved_ok : unchanged_ok)) {
+      printf("\n  row '%s': status %d, hot %.9g (expected %.9g), ejected %.9g (expected %.9g)",
+             rows[k].name, status, (double)g->HotGas, mass, (double)g->EjectedGas,
+             ejected_in - mass);
+      ok = 0;
+    }
+    free_test_halo(&halo);
+    sage26_reincorporation_cleanup();
+  }
   check_memory_leaks();
-
+  TEST_ASSERT(ok, "the reincorporated mass must match the formula in every row");
   return TEST_PASS;
 }
 
@@ -386,130 +354,18 @@ int test_physics_full_halo_nonzero_central_index(void) {
 }
 
 /**
- * @test    test_physics_velocity_threshold
- * @brief   Test that reincorporation only occurs when Vvir > Vcrit
- *
- * With ReIncorporationFactor = 1.0, Vcrit = 354.53 km/s
- */
-int test_physics_velocity_threshold(void) {
-  init_memory_system(0);
-  setup_module_for_physics_test();
-
-  /* Test halo below threshold (Vvir < Vcrit) */
-  struct Halo low_vvir = create_test_halo(0, 300.0, 0.2); /* Below 354.53 */
-  low_vvir.galaxy->EjectedGas = 10.0;
-  low_vvir.galaxy->MetalsEjectedGas = 0.2;
-  low_vvir.galaxy->HotGas = 5.0;
-  low_vvir.galaxy->MetalsHotGas = 0.1;
-
-  struct ModuleContext ctx = create_test_context(0.1);
-  ctx.central_galaxy = &low_vvir;
-
-  double initial_ejected = low_vvir.galaxy->EjectedGas;
-  double initial_hot = low_vvir.galaxy->HotGas;
-
-  /* Execute */
-  int result = sage26_reincorporation_process(&ctx, &low_vvir, 1);
-  TEST_ASSERT(result == 0, "Process should succeed");
-
-  /* Validate: No reincorporation should occur */
-  TEST_ASSERT_DOUBLE_EQUAL(low_vvir.galaxy->EjectedGas, initial_ejected, 1e-10,
-                           "EjectedGas should not change when Vvir < Vcrit");
-  TEST_ASSERT_DOUBLE_EQUAL(low_vvir.galaxy->HotGas, initial_hot, 1e-10,
-                           "HotGas should not change when Vvir < Vcrit");
-
-  /* Test halo at threshold (Vvir = Vcrit) */
-  struct Halo at_threshold = create_test_halo(0, 354.53, 0.2);
-  at_threshold.galaxy->EjectedGas = 10.0;
-  at_threshold.galaxy->HotGas = 5.0;
-  ctx.central_galaxy = &at_threshold;
-
-  initial_ejected = at_threshold.galaxy->EjectedGas;
-  initial_hot = at_threshold.galaxy->HotGas;
-
-  result = sage26_reincorporation_process(&ctx, &at_threshold, 1);
-  TEST_ASSERT(result == 0, "Process should succeed");
-
-  /* Validate: Minimal reincorporation at Vcrit (near-zero from floating point effects) */
-  double change = initial_ejected - at_threshold.galaxy->EjectedGas;
-  TEST_ASSERT(change < 1e-3, "Very little reincorporation should occur near Vcrit threshold");
-
-  /* Test halo above threshold (Vvir > Vcrit) */
-  struct Halo high_vvir = create_test_halo(0, 500.0, 0.2);
-  high_vvir.galaxy->EjectedGas = 10.0;
-  high_vvir.galaxy->HotGas = 5.0;
-  ctx.central_galaxy = &high_vvir;
-
-  initial_ejected = high_vvir.galaxy->EjectedGas;
-
-  result = sage26_reincorporation_process(&ctx, &high_vvir, 1);
-  TEST_ASSERT(result == 0, "Process should succeed");
-
-  /* Validate: Reincorporation should occur */
-  TEST_ASSERT(high_vvir.galaxy->EjectedGas < initial_ejected,
-              "EjectedGas should decrease when Vvir > Vcrit");
-
-  /* Cleanup */
-  free_test_halo(&low_vvir);
-  free_test_halo(&at_threshold);
-  free_test_halo(&high_vvir);
-  sage26_reincorporation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_physics_mass_capping
- * @brief   Test that reincorporated mass is capped to available EjectedGas
- */
-int test_physics_mass_capping(void) {
-  init_memory_system(0);
-  setup_module_for_physics_test();
-
-  /* Create very massive halo with small ejected reservoir */
-  struct Halo halo = create_test_halo(0, 800.0, 0.3); /* Very high Vvir */
-  halo.dT = 1.0;                                      /* Override default: large dt for this test */
-  halo.galaxy->EjectedGas = 0.5;                      /* Small reservoir */
-  halo.galaxy->MetalsEjectedGas = 0.01;
-  halo.galaxy->HotGas = 5.0;
-  halo.galaxy->MetalsHotGas = 0.1;
-
-  struct ModuleContext ctx = create_test_context(1.0); /* Large dt */
-  ctx.central_galaxy = &halo;
-
-  /* Execute */
-  int result = sage26_reincorporation_process(&ctx, &halo, 1);
-  TEST_ASSERT(result == 0, "Process should succeed");
-
-  /* Validate: All ejected gas should be reincorporated (capped) */
-  TEST_ASSERT_DOUBLE_EQUAL(halo.galaxy->EjectedGas, 0.0, 1e-10,
-                           "EjectedGas should be completely depleted");
-  TEST_ASSERT_DOUBLE_EQUAL(halo.galaxy->MetalsEjectedGas, 0.0, 1e-10,
-                           "MetalsEjectedGas should be completely depleted");
-
-  /* Validate: Positive values (no negative mass) */
-  TEST_ASSERT(halo.galaxy->EjectedGas >= 0.0, "EjectedGas should not be negative");
-  TEST_ASSERT(halo.galaxy->HotGas > 0.0, "HotGas should increase");
-
-  /* Cleanup */
-  free_test_halo(&halo);
-  sage26_reincorporation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_physics_metallicity_preservation
- * @brief   Test that metallicity is preserved during gas transfer
+ * @brief   Test that gas moves from the ejected to the hot reservoir at the ejected metallicity,
+ *          conserving total gas and total metals
  */
 int test_physics_metallicity_preservation(void) {
   init_memory_system(0);
   setup_module_for_physics_test();
 
-  /* Create halo with specific metallicity in ejected gas */
+  /* Create halo with specific metallicity in ejected gas. The timestep is small enough that the
+   * rate stays below the cap, so only part of the ejected gas moves. */
   struct Halo halo = create_test_halo(0, 500.0, 0.2);
+  halo.dT = 1e-4;
   halo.galaxy->EjectedGas = 10.0;      /* 1e11 Msun/h */
   halo.galaxy->MetalsEjectedGas = 0.3; /* 3e9 Msun/h → Z = 0.03 */
   halo.galaxy->HotGas = 5.0;
@@ -535,6 +391,10 @@ int test_physics_metallicity_preservation(void) {
   double mass_transferred = initial_ejected - halo.galaxy->EjectedGas;
   double metals_transferred = initial_metals_ejected - halo.galaxy->MetalsEjectedGas;
   double expected_metals_transferred = Z_ejected * mass_transferred;
+
+  /* Validate: gas moved from the ejected to the hot reservoir */
+  TEST_ASSERT(mass_transferred > 0.0, "Some mass should be reincorporated");
+  TEST_ASSERT(halo.galaxy->HotGas > initial_hot, "HotGas should increase");
 
   /* Validate: Metallicity preserved in transfer */
   TEST_ASSERT_DOUBLE_EQUAL(metals_transferred, expected_metals_transferred, 1e-6,
@@ -596,93 +456,6 @@ int test_physics_zero_ejected_gas(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_physics_mass_conservation
- * @brief   Test that total mass is strictly conserved
- */
-int test_physics_mass_conservation(void) {
-  init_memory_system(0);
-  setup_module_for_physics_test();
-
-  struct Halo halo = create_test_halo(0, 500.0, 0.2);
-  halo.galaxy->EjectedGas = 10.0;
-  halo.galaxy->MetalsEjectedGas = 0.2;
-  halo.galaxy->HotGas = 5.0;
-  halo.galaxy->MetalsHotGas = 0.1;
-
-  struct ModuleContext ctx = create_test_context(0.1);
-  ctx.central_galaxy = &halo;
-
-  /* Calculate totals before */
-  double total_mass_before = halo.galaxy->EjectedGas + halo.galaxy->HotGas;
-  double total_metals_before = halo.galaxy->MetalsEjectedGas + halo.galaxy->MetalsHotGas;
-
-  /* Execute */
-  int result = sage26_reincorporation_process(&ctx, &halo, 1);
-  TEST_ASSERT(result == 0, "Process should succeed");
-
-  /* Calculate totals after */
-  double total_mass_after = halo.galaxy->EjectedGas + halo.galaxy->HotGas;
-  double total_metals_after = halo.galaxy->MetalsEjectedGas + halo.galaxy->MetalsHotGas;
-
-  /* Validate: Perfect conservation */
-  TEST_ASSERT_DOUBLE_EQUAL(total_mass_before, total_mass_after, 1e-10,
-                           "Total mass must be strictly conserved");
-  TEST_ASSERT_DOUBLE_EQUAL(total_metals_before, total_metals_after, 1e-10,
-                           "Total metals must be strictly conserved");
-
-  /* Cleanup */
-  free_test_halo(&halo);
-  sage26_reincorporation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_physics_substep_integration
- * @brief   Test that reincorporation works correctly over multiple substeps
- */
-int test_physics_substep_integration(void) {
-  init_memory_system(0);
-  setup_module_for_physics_test();
-
-  struct Halo halo = create_test_halo(0, 500.0, 0.2);
-  halo.galaxy->EjectedGas = 10.0;
-  halo.galaxy->MetalsEjectedGas = 0.2;
-  halo.galaxy->HotGas = 5.0;
-  halo.galaxy->MetalsHotGas = 0.1;
-
-  double total_mass_before = halo.galaxy->EjectedGas + halo.galaxy->HotGas;
-
-  /* Run 5 substeps */
-  for (int substep = 0; substep < 5; substep++) {
-    struct ModuleContext ctx = create_test_context(0.02); /* 5 × 0.02 = 0.1 total */
-    ctx.substep_number = substep;
-    ctx.num_substeps = 5;
-    ctx.central_galaxy = &halo;
-
-    int result = sage26_reincorporation_process(&ctx, &halo, 1);
-    TEST_ASSERT(result == 0, "Each substep should succeed");
-  }
-
-  /* Validate: Mass should have been reincorporated */
-  TEST_ASSERT(halo.galaxy->EjectedGas < 10.0, "Some EjectedGas should be reincorporated");
-  TEST_ASSERT(halo.galaxy->HotGas > 5.0, "HotGas should increase");
-
-  /* Validate: Total mass conserved over all substeps */
-  double total_mass_after = halo.galaxy->EjectedGas + halo.galaxy->HotGas;
-  TEST_ASSERT_DOUBLE_EQUAL(total_mass_before, total_mass_after, 1e-6,
-                           "Mass conservation must hold across substeps");
-
-  /* Cleanup */
-  free_test_halo(&halo);
-  sage26_reincorporation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
 /* ========================================================================== */
 /* ERROR HANDLING TESTS                                                      */
 /* ========================================================================== */
@@ -717,53 +490,6 @@ int test_null_galaxy_safety(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_negative_prevention
- * @brief   Test that negative reincorporation values are caught
- *
- * This is a defensive test - the module should never produce negative
- * reincorporation, but if it does, it should be caught and reported.
- */
-int test_negative_prevention(void) {
-  init_memory_system(0);
-  setup_module_for_physics_test();
-
-  /* Normal case - should never produce negative values */
-  struct Halo halo = create_test_halo(0, 500.0, 0.2);
-  halo.galaxy->EjectedGas = 10.0;
-  halo.galaxy->MetalsEjectedGas = 0.2;
-  halo.galaxy->HotGas = 5.0;
-  halo.galaxy->MetalsHotGas = 0.1;
-
-  struct ModuleContext ctx = create_test_context(0.1);
-  ctx.central_galaxy = &halo;
-
-  int result = sage26_reincorporation_process(&ctx, &halo, 1);
-  TEST_ASSERT(result == 0, "Normal case should succeed");
-
-  /* Validate: No (meaningfully) negative masses. SAGE parity note: the
-   * double-precision metallicity times a float reservoir can leave metal
-   * fields ULP-negative after full drainage (~-1e-9); SAGE26's debit does the
-   * same and its get_metallicity treats negative metals as zero downstream. */
-  TEST_ASSERT(halo.galaxy->EjectedGas >= 0.0, "EjectedGas must not be negative");
-  TEST_ASSERT(halo.galaxy->HotGas >= 0.0, "HotGas must not be negative");
-  TEST_ASSERT(halo.galaxy->MetalsEjectedGas >= -1e-6f,
-              "MetalsEjectedGas must not be more than ULP-negative");
-  TEST_ASSERT(halo.galaxy->MetalsHotGas >= -1e-6f,
-              "MetalsHotGas must not be more than ULP-negative");
-
-  /* Cleanup */
-  free_test_halo(&halo);
-  sage26_reincorporation_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/* ========================================================================== */
-/* MAIN TEST RUNNER                                                          */
-/* ========================================================================== */
-
 // ============================================================================
 // CGMrecipeOn 1 AGAINST 0
 // ============================================================================
@@ -776,33 +502,12 @@ int test_negative_prevention(void) {
 // after, is a short binary fraction, so each expectation is an exact literal; Vvir, Rvir and dT
 // (0.3 is not one) only make the cap bind and never reach a reservoir.
 
-/** @brief Read a captured log stream into a static buffer (valid until the next call) */
-static const char *cgm_read_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
-
-/** @brief Initialise with ReIncorporationFactor 1.0 and CGMrecipeOn `cgm` (NULL: missing) */
-static int cgm_init(const char *cgm, const char **log) {
+/** @brief Initialise with ReIncorporationFactor 1.0 and CGMrecipeOn `cgm` */
+static int cgm_init(const char *cgm) {
   reset_config();
   sage26_test_append_model_parameter("ReIncorporationFactor", "1.0");
-  if (cgm != NULL) {
-    sage26_test_append_model_parameter("CGMrecipeOn", cgm);
-  }
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = sage26_reincorporation_init();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    *log = cgm_read_log(capture);
-    fclose(capture);
-  } else {
-    *log = "";
-  }
-  return status;
+  sage26_test_append_model_parameter("CGMrecipeOn", cgm);
+  return sage26_reincorporation_init();
 }
 
 /**
@@ -820,8 +525,7 @@ int test_cgm_reincorporation_destination(void) {
   int ok = 1;
   init_memory_system(0);
   for (size_t k = 0; k < sizeof(runs) / sizeof(runs[0]); k++) {
-    const char *log = "";
-    TEST_ASSERT(cgm_init(runs[k].cgm, &log) == 0, "init must accept CGMrecipeOn 0 and 1");
+    TEST_ASSERT(cgm_init(runs[k].cgm) == 0, "init must accept CGMrecipeOn 0 and 1");
     struct Halo halo = create_test_halo(0, 800.0, 0.3);
     halo.dT = 1.0;
     struct GalaxyData *g = halo.galaxy;
@@ -858,24 +562,6 @@ int test_cgm_reincorporation_destination(void) {
 }
 
 /**
- * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
- *          a refusal naming the parameter
- */
-int test_cgm_recipe_on_refused(void) {
-  const char *log = "";
-  TEST_ASSERT(cgm_init(NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init("2", &log) != 0, "init must refuse CGMrecipeOn 2");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init("-1", &log) != 0, "init must refuse CGMrecipeOn -1");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init("1", &log) == 0, "init must accept CGMrecipeOn 1");
-  TEST_ASSERT(cgm_init("0", &log) == 0, "init must accept CGMrecipeOn 0");
-  return TEST_PASS;
-}
-
-/**
  * @brief   Main test runner
  *
  * Executes all sage26_reincorporation tests and reports results.
@@ -892,32 +578,23 @@ int main(void) {
 
   /* Run lifecycle tests */
   printf("\n%sLIFECYCLE TESTS:%s\n", BLUE, NC);
-  TEST_RUN(test_module_registration);
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_parameter_reading);
-  TEST_RUN(test_memory_safety);
 
   /* Run physics tests */
   printf("\n%sPHYSICS TESTS:%s\n", BLUE, NC);
-  TEST_RUN(test_physics_basic_reincorporation);
+  TEST_RUN(test_physics_reincorporation_rate);
   TEST_RUN(test_physics_central_only);
   TEST_RUN(test_physics_full_halo_nonzero_central_index);
-  TEST_RUN(test_physics_velocity_threshold);
-  TEST_RUN(test_physics_mass_capping);
   TEST_RUN(test_physics_metallicity_preservation);
   TEST_RUN(test_physics_zero_ejected_gas);
-  TEST_RUN(test_physics_mass_conservation);
-  TEST_RUN(test_physics_substep_integration);
 
   /* Run error handling tests */
   printf("\n%sERROR HANDLING TESTS:%s\n", BLUE, NC);
   TEST_RUN(test_null_galaxy_safety);
-  TEST_RUN(test_negative_prevention);
 
   /* CGMrecipeOn 1 against 0 */
   printf("\n%sCGM REGIME ROUTING TESTS:%s\n", BLUE, NC);
   TEST_RUN(test_cgm_reincorporation_destination);
-  TEST_RUN(test_cgm_recipe_on_refused);
 
   /* Print summary and return result */
   TEST_SUMMARY();

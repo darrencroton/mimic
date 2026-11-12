@@ -48,4 +48,4 @@ A missing key, or a value outside the accepted ones (also when `SFprescription` 
 ## Tests
 
 - `_tests/test_unit_sage26_calculate_star_formation.c`: the Croton law above, at and below the critical mass, zero disk radius and `Vvir`, the efficiency's effect, the BR06 branch (guards, stale `H2gas` cleared, `H2gas` within the hydrogen budget, no threshold), lifecycle and memory safety, and the skipped FFB row.
-- `_tests/test_integration_sage26_calculate_star_formation.py`: runs the module with the apply step at `SFprescription 0` and checks a finite, non-negative and plausible `StarFormationRate`, no star formation without cold gas, the response to `SfrEfficiency`, no memory leak and the run time.
+- `_tests/test_integration_sage26_calculate_star_formation.py`: runs the module with the apply step at `SFprescription 0` behind a pipeline that supplies cold gas, checking no memory leak, a finite, non-negative `StarFormationRate` that is positive on some rows, the stars formed bounded by the stellar mass, and no star formation without cold gas.

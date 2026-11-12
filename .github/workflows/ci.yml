@@ -67,9 +67,11 @@ jobs:
         make tests-integration
 
     - name: Run scientific tests
-      # The SAGE galaxy-physics baseline is generated on macOS; Linux libm/compiler
-      # reproduces it only to ~7e-4 relative (real noise floor measured 6.8e-4).
-      # Relax the gate above that floor for this cross-platform run. The strict
+      # The SAGE galaxy-physics baseline is generated on macOS, so this cross-platform
+      # run uses the relaxed gate. The baseline regenerated on 2026-11-12 reproduced
+      # exactly in an Ubuntu 24.04 container (gcc 13.3, arm64 and emulated x86_64);
+      # its predecessor differed by up to 6.8e-4 relative. The gate is not tightened
+      # on a container measurement alone, and stays where the sage26 job's is. The strict
       # 1e-6 default still applies locally, and diffs in (1e-6, 1e-3] are reported
       # as warnings. The absolute floor (atol) is fixed in the comparator.
       env:

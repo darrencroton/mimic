@@ -37,5 +37,6 @@ The histories carry over between snapshots. `sage26_initialise_merger_clock` zer
 
 ## Tests
 
-- `_tests/test_unit_sage26_finalize_sfr_histories.c`: the placement check, the refusal without `sage26_initialise_merger_clock`, `SubstepsUsed` on every row, and the averaging and its divisors on hand-checkable values.
+- `_tests/test_unit_sage26_finalize_sfr_histories.c`: `SubstepsUsed` on every row, and the averaging and its divisors on hand-checkable values.
 - `_tests/test_integration_sage26_finalize_sfr_histories.py`: checks on a real run that only the four averages change, and that `SfrDisk` equals the `StarFormationRate` diagnostic to float rounding at 10 and 13 substeps.
+- The placement refusals (including a `process_by_galaxy` entry) and the refusal without `sage26_initialise_merger_clock` are covered at package level by `../_tests/test_unit_sage_dependency_contracts.c`.

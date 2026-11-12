@@ -35,6 +35,7 @@ module:
     unit:
       - test_unit_mixed_dt_parity.c
       - test_unit_sage_dependency_contracts.c
+      - test_unit_sage26_parameter_refusals.c
       - test_unit_sage26_bulge_size_parameter.c
       - test_unit_sage26_sf_prescription_parameters.c
 

@@ -40,5 +40,6 @@ A missing key or a value outside the accepted range fails initialisation naming 
 
 ## Tests
 
-- `_tests/test_unit_sage26_satellite_stripping.c`: the stripping threshold, the `1 - (1 - 1/N)^N` fraction, mass conservation, the asymmetric metal transfer, the four regime source/destination combinations, and the parameter refusals.
-- `_tests/test_integration_sage26_satellite_stripping.py`: the module alone in a full run, with output type, finiteness and range checks.
+- `_tests/test_unit_sage26_satellite_stripping.c`: the stripping threshold, the `1 - (1 - 1/N)^N` fraction, mass conservation, the asymmetric metal transfer, and the four regime source/destination combinations.
+- `_tests/test_integration_sage26_satellite_stripping.py`: the infall pipeline run without and with the module, checking that satellites and orphans hold less hot gas, centrals more, and the total hot gas is conserved to within the infall budget's rebalancing.
+- The `CGMrecipeOn` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

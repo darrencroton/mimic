@@ -1,552 +1,164 @@
 #!/usr/bin/env python3
 """
-SAGE Reincorporation Module - Integration Test
+SAGE26 Reincorporation Module - Integration Test
 
-Validates: Module lifecycle, configuration, pipeline integration, and physics accuracy
+Validates sage26_reincorporation in a supply pipeline on the committed mini-millennium trees.
 
-This test validates the sage26_reincorporation module:
-- Module loads and initializes correctly
-- Parameters can be configured via YAML files
-- Module executes without errors or memory leaks
-- Module works in multi-module pipelines
-- Physics constraints are respected (centrals only, Vvir > Vcrit)
-- Mass conservation (EjectedGas → HotGas transfer)
-- Metallicity bounds after transfer
-- Calculation accuracy on real merger tree data
+Ejected gas comes only from supernova ejection, so reincorporation has nothing to move unless the
+pipeline forms stars first: cooling (with radio-mode heating) feeds the disk, the star-formation
+chain ejects gas and sage26_apply_metal_enrichment enriches it. The same pipeline is run with and
+without the module, so the comparison isolates what it does.
 
 Test cases:
-  LIFECYCLE TESTS:
-  - test_module_loads: Module registration and initialization
-  - test_parameters_configurable: Parameter reading and validation
-  - test_memory_safety: No memory leaks
-  - test_execution_completes: Full pipeline completion
-  - test_multi_module_pipeline: Integration with sage26_prepare_infall_budget
-
-  PHYSICS VALIDATION TESTS:
-  - test_physics_mass_conservation: EjectedGas decreases, HotGas increases by same amount
-  - test_physics_metallicity_bounds: metallicities stay within [0, 1] after transfer
-  - test_physics_central_only: Only Type 0 halos reincorporate
-  - test_physics_velocity_threshold: Only high-Vvir halos reincorporate
-  - test_physics_output_properties: Properties written to output correctly
+  - test_reincorporation_moves_ejected_gas_to_hot_gas: with the module the ejected gas and its
+    metals fall and the hot gas and its metals rise in total, while the total baryon mass is
+    unchanged
 
 Author: Mimic Development Team
 Date: 2025-12-18
 """
 
-import shutil
 import sys
 from pathlib import Path
 
 import numpy as np
 
-# Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
-    BLUE,
-    GREEN,
     MIMIC_EXE,
-    NC,
-    RED,
+    SharedRuns,
     TestSkipped,
     check_no_memory_leaks,
-    create_test_param_file,
     load_binary_halos,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
+    run_test_suite,
 )
 
-# ========================================================================
-# LIFECYCLE TESTS
-# ========================================================================
+RUNS = SharedRuns()
+
+# The supply pipeline: the infall and, with the module under test, reincorporation, then cooling,
+# the star-formation chain (SFprescription 0) and the metal yield
+PRE_TIMESTEP = [
+    ("sage26_set_disk_scale_radius", "process_full_halo"),
+    ("sage26_reionization", "process_full_halo"),
+    ("sage26_prepare_infall_budget", "process_full_halo"),
+]
+INFALL = [("sage26_apply_infall", "process_full_halo")]
+REINCORPORATION = [("sage26_reincorporation", "process_full_halo")]
+COOLING_AND_STARS = [
+    ("sage26_calculate_cooling_budget", "process_by_galaxy"),
+    ("sage26_radio_mode_heating", "process_by_galaxy"),
+    ("sage26_apply_cooling", "process_by_galaxy"),
+    ("sage26_calculate_star_formation", "process_by_galaxy"),
+    ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
+    ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
+    ("sage26_apply_metal_enrichment", "process_by_galaxy"),
+]
 
 
-def test_module_loads():
-    """Test that sage26_reincorporation module loads and initializes"""
-    print(f"\n{BLUE}TEST: Module loads and initializes{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_load",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_reincorporation", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    assert output_file.exists(), "Output file should exist"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Module loads and initializes successfully{NC}")
+def pipeline(galaxy_physics):
+    """The run file's phases around a galaxy_physics list."""
+    return {
+        "pre_timestep": PRE_TIMESTEP,
+        "galaxy_physics": galaxy_physics,
+        "satellite_mergers": [],
+        "post_timestep": [],
+    }
 
 
-def test_parameters_configurable():
-    """Test that module parameters can be configured via YAML"""
-    print(f"\n{BLUE}TEST: Module parameters are configurable{NC}")
+WITHOUT_REINCORPORATION = pipeline(INFALL + COOLING_AND_STARS)
+WITH_REINCORPORATION = pipeline(INFALL + REINCORPORATION + COOLING_AND_STARS)
 
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_params",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_reincorporation", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"ReIncorporationFactor": 0.5, "CGMrecipeOn": 0},  # Custom value
-    )
+PARAMS_WITHOUT_REINCORPORATION = {
+    "GlobalBaryonFraction": 0.17,
+    "CGMrecipeOn": 0,
+    "AGNrecipe": 2,
+    "RadioModeEfficiency": 0.08,
+    "BulgeSizeOn": 0,
+    "SFprescription": 0,
+    "H2RadialIntegrationOn": 1,
+    "H2RadialNBins": 25,
+    "H2RadialRMaxFactor": 5.0,
+    "SfrEfficiency": 0.02,
+    "StarFormingDiskFactor": 3.0,
+    "FeedbackReheatingEpsilon": 3.0,
+    "FeedbackEjectionEfficiency": 0.3,
+    "FIREmodeOn": 0,
+    "RecycleFraction": 0.43,
+    "Yield": 0.025,
+    "FracZleaveDisk": 0.0,
+}
+PARAMS_WITH_REINCORPORATION = {**PARAMS_WITHOUT_REINCORPORATION, "ReIncorporationFactor": 1.0}
 
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute with custom parameters\nSTDERR: {stderr}"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Module parameters are configurable{NC}")
-
-
-def test_memory_safety():
-    """Test that module doesn't leak memory"""
-    print(f"\n{BLUE}TEST: No memory leaks{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_memory",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_reincorporation", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ No memory leaks detected{NC}")
+# Baryon reservoirs whose total the run conserves
+BARYON_FIELDS = ["ColdGas", "HotGas", "EjectedGas", "StellarMass", "BlackHoleMass", "ICS", "CGMgas"]
 
 
-def test_execution_completes():
-    """Test that full pipeline execution completes successfully"""
-    print(f"\n{BLUE}TEST: Full pipeline execution completes{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_complete",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_reincorporation", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Pipeline should complete successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    assert output_file.exists(), "Output file should exist"
-    assert output_file.stat().st_size > 0, "Output file should have content"
-
-    halos, metadata = load_binary_halos(output_file)
-    assert len(halos) > 0, "Should have output halos"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Full pipeline execution completes{NC}")
+def _snapshot(name, phase_config, model_params):
+    """Run (once) a configuration and return its z=0 galaxies."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    run = RUNS.run(name, phase_config=phase_config, model_params=model_params)
+    assert run.returncode == 0, f"Mimic should execute successfully\nSTDERR: {run.stderr}"
+    assert check_no_memory_leaks(run.stdout, run.stderr), "Should not have memory leaks"
+    halos, _metadata = load_binary_halos(run.output_dir / "model_z0.000_0")
+    return halos
 
 
-def test_multi_module_pipeline():
-    """Test that sage26_reincorporation works with other modules"""
-    print(f"\n{BLUE}TEST: Multi-module pipeline integration{NC}")
-
-    # Test with sage26_prepare_infall_budget to have realistic setup
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_pipeline",
-        phase_config={
-            "pre_timestep": [("sage26_prepare_infall_budget", "process_full_halo")],
-            "galaxy_physics": [("sage26_reincorporation", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Multi-module pipeline should succeed\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Both modules' properties should exist
-    assert "HotGas" in halos.dtype.names, "Should have HotGas from reincorporation"
-    assert "EjectedGas" in halos.dtype.names, "Should have EjectedGas from reincorporation"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Multi-module pipeline integration works{NC}")
+def _total(halos, field):
+    return float(np.sum(halos[field], dtype=np.float64))
 
 
-# ========================================================================
-# PHYSICS VALIDATION TESTS
-# ========================================================================
+def test_reincorporation_moves_ejected_gas_to_hot_gas():
+    """Reincorporation returns ejected gas and its metals to the hot halo, conserving baryons.
 
-
-def test_physics_mass_conservation():
-    """Test that mass is conserved during reincorporation (EjectedGas → HotGas)"""
-    print(f"\n{BLUE}TEST: Mass conservation during reincorporation{NC}")
-
-    # Run with reincorporation enabled
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_mass_conservation",
-        phase_config={
-            "pre_timestep": [
-                ("sage26_reionization", "process_full_halo"),
-                ("sage26_prepare_infall_budget", "process_full_halo"),
-            ],
-            "galaxy_physics": [
-                ("sage26_apply_infall", "process_full_halo"),
-                ("sage26_reincorporation", "process_full_halo"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Filter for centrals with ejected gas
-    centrals = halos[halos["Type"] == 0]
-    has_gas = centrals[(centrals["EjectedGas"] > 0) | (centrals["HotGas"] > 0)]
-
-    assert len(has_gas) > 0, "Should have centrals with gas reservoirs"
-
-    # Check that EjectedGas + HotGas values are reasonable (non-negative)
-    assert np.all(has_gas["EjectedGas"] >= 0), "EjectedGas should be non-negative"
-    assert np.all(has_gas["HotGas"] >= 0), "HotGas should be non-negative"
-
-    # Check that metals are also non-negative
-    assert np.all(has_gas["MetalsEjectedGas"] >= 0), "MetalsEjectedGas should be non-negative"
-    assert np.all(has_gas["MetalsHotGas"] >= 0), "MetalsHotGas should be non-negative"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Mass conservation validated{NC}")
-
-
-def test_physics_metallicity_bounds():
-    """Test that metallicities stay physical after gas transfer
-
-    Ejected gas comes only from supernova ejection and metals only from the star-formation yield,
-    so the pipeline adds them after the infall: cooling (with radio-mode heating) feeds the disk,
-    the star-formation chain ejects gas and sage26_apply_metal_enrichment enriches it. Centrals
-    with enriched ejected gas, and among them some with hot gas, must exist.
+    Both runs form stars and eject gas, so the without-module run holds ejected gas to be
+    reincorporated. Only a halo with Vvir above 354.53 km/s reincorporates, so the change is a
+    fraction of the ejected total, but it must be there, in the right direction, and it must not
+    create or destroy baryons. Cooling and star formation downstream see the extra hot gas, which
+    is why the baryon total, not the individual reservoirs, is the conserved quantity.
     """
-    print(f"\n{BLUE}TEST: Metallicity bounds after transfer{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_metallicity",
-        phase_config={
-            "pre_timestep": [
-                ("sage26_set_disk_scale_radius", "process_full_halo"),
-                ("sage26_reionization", "process_full_halo"),
-                ("sage26_prepare_infall_budget", "process_full_halo"),
-            ],
-            "galaxy_physics": [
-                ("sage26_apply_infall", "process_full_halo"),
-                ("sage26_reincorporation", "process_full_halo"),
-                ("sage26_calculate_cooling_budget", "process_by_galaxy"),
-                ("sage26_radio_mode_heating", "process_by_galaxy"),
-                ("sage26_apply_cooling", "process_by_galaxy"),
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-                ("sage26_apply_metal_enrichment", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "GlobalBaryonFraction": 0.17,
-            "ReIncorporationFactor": 1.0,
-            "CGMrecipeOn": 0,
-            # Cooling, the star-formation chain (SFprescription 0) and the metal yield
-            "AGNrecipe": 2,
-            "RadioModeEfficiency": 0.08,
-            "BulgeSizeOn": 0,
-            "SFprescription": 0,
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
+    without = _snapshot(
+        "reincorporation_absent", WITHOUT_REINCORPORATION, PARAMS_WITHOUT_REINCORPORATION
     )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Filter for centrals with both gas and metals
-    centrals = halos[halos["Type"] == 0]
-    with_metals = centrals[(centrals["EjectedGas"] > 0) & (centrals["MetalsEjectedGas"] > 0)]
-
-    assert len(with_metals) > 0, "some centrals should hold enriched ejected gas"
-    # Check that metallicity (Z = Metals/Gas) is physical
-    Z_ejected = with_metals["MetalsEjectedGas"] / with_metals["EjectedGas"]
-    assert np.all(
-        (Z_ejected >= 0) & (Z_ejected <= 1.0)
-    ), "Ejected metallicity should be in physical range [0,1]"
-
-    # Check hot gas metallicity is also physical
-    with_hot = with_metals[with_metals["HotGas"] > 0]
-    assert len(with_hot) > 0, "some of them should hold hot gas"
-    Z_hot = with_hot["MetalsHotGas"] / with_hot["HotGas"]
-    assert np.all(
-        (Z_hot >= 0) & (Z_hot <= 1.0)
-    ), "Hot gas metallicity should be in physical range [0,1]"
-    print(f"  {len(with_metals)} centrals with enriched ejected gas, {len(with_hot)} with hot gas")
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Metallicity bounds validated{NC}")
-
-
-def test_physics_central_only():
-    """Test that only Type 0 centrals show reincorporation effects"""
-    print(f"\n{BLUE}TEST: Reincorporation only affects centrals{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_central_only",
-        phase_config={
-            "pre_timestep": [
-                ("sage26_reionization", "process_full_halo"),
-                ("sage26_prepare_infall_budget", "process_full_halo"),
-            ],
-            "galaxy_physics": [
-                ("sage26_apply_infall", "process_full_halo"),
-                ("sage26_reincorporation", "process_full_halo"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
+    with_module = _snapshot(
+        "reincorporation_present", WITH_REINCORPORATION, PARAMS_WITH_REINCORPORATION
     )
+    assert len(with_module) == len(without), "the two runs must write the same galaxies"
 
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
+    ejected_without = _total(without, "EjectedGas")
+    assert ejected_without > 0.0, "the supply pipeline must leave ejected gas to reincorporate"
+    assert np.count_nonzero(without["MetalsEjectedGas"]) > 0, "the ejected gas must be enriched"
 
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
+    ejected_with = _total(with_module, "EjectedGas")
+    hot_without, hot_with = _total(without, "HotGas"), _total(with_module, "HotGas")
+    print(f"  ejected gas {ejected_without:.4f} -> {ejected_with:.4f}")
+    print(f"  hot gas {hot_without:.4f} -> {hot_with:.4f}")
+    assert ejected_with < ejected_without, "reincorporation should lower the ejected gas"
+    assert hot_with > hot_without, "reincorporation should raise the hot gas"
+    assert _total(with_module, "MetalsEjectedGas") < _total(
+        without, "MetalsEjectedGas"
+    ), "reincorporation should lower the ejected metals"
+    assert _total(with_module, "MetalsHotGas") > _total(
+        without, "MetalsHotGas"
+    ), "reincorporation should raise the hot metals"
 
-    # Get Type statistics
-    centrals = halos[halos["Type"] == 0]
-    satellites = halos[halos["Type"] == 1]
-    orphans = halos[halos["Type"] == 2]
-
-    # Satellites and orphans should not have modified their properties via reincorporation
-    # (They might have gas from infall, but not from reincorporation)
-    # This is validated by checking the module only processes Type 0 in C code
-
-    # Just verify all types exist and have valid properties
-    if len(satellites) > 0:
-        assert np.all(satellites["EjectedGas"] >= 0), "Satellite EjectedGas should be valid"
-    if len(orphans) > 0:
-        assert np.all(orphans["EjectedGas"] >= 0), "Orphan EjectedGas should be valid"
-
-    assert len(centrals) > 0, "Should have central galaxies"
-    assert np.all(centrals["Type"] == 0), "All centrals should have Type 0"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Central-only constraint validated{NC}")
-
-
-def test_physics_velocity_threshold():
-    """Test that only high-Vvir halos show reincorporation"""
-    print(f"\n{BLUE}TEST: Velocity threshold (Vvir > Vcrit) respected{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_velocity_threshold",
-        phase_config={
-            "pre_timestep": [
-                ("sage26_reionization", "process_full_halo"),
-                ("sage26_prepare_infall_budget", "process_full_halo"),
-            ],
-            "galaxy_physics": [
-                ("sage26_apply_infall", "process_full_halo"),
-                ("sage26_reincorporation", "process_full_halo"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            "GlobalBaryonFraction": 0.17,
-            "ReIncorporationFactor": 1.0,  # Vcrit = 354.53 km/s (SAGE26),
-            "CGMrecipeOn": 0,  # required by the infall modules (the CGM recipe off)
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Filter centrals by velocity
-    centrals = halos[halos["Type"] == 0]
-
-    # Vcrit = 354.53 km/s with ReIncorporationFactor = 1.0
-    Vcrit = 354.53
-
-    low_vvir = centrals[centrals["Vvir"] < Vcrit]
-    high_vvir = centrals[centrals["Vvir"] > Vcrit]
-
-    # Both groups should have valid properties
-    if len(low_vvir) > 0:
-        assert np.all(low_vvir["EjectedGas"] >= 0), "Low-Vvir halos should have valid EjectedGas"
-        assert np.all(low_vvir["HotGas"] >= 0), "Low-Vvir halos should have valid HotGas"
-
-    if len(high_vvir) > 0:
-        assert np.all(high_vvir["EjectedGas"] >= 0), "High-Vvir halos should have valid EjectedGas"
-        assert np.all(high_vvir["HotGas"] >= 0), "High-Vvir halos should have valid HotGas"
-
-    # In a run with both infall and reincorporation, high-Vvir halos should generally
-    # have gas moving from ejected to hot. This is a statistical expectation.
-    # We can't test individual halos without a baseline, but we can check validity
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Velocity threshold respected{NC}")
-
-
-def test_physics_output_properties():
-    """Test that all reincorporation properties are written to output correctly"""
-    print(f"\n{BLUE}TEST: Output properties are correct{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="reinc_properties",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [("sage26_reincorporation", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={"ReIncorporationFactor": 1.0, "CGMrecipeOn": 0},
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Check that all required properties exist
-    required_properties = [
-        "EjectedGas",
-        "HotGas",
-        "MetalsEjectedGas",
-        "MetalsHotGas",
-        "Type",
-        "Vvir",
-    ]
-    for prop in required_properties:
-        assert prop in halos.dtype.names, f"Output should have {prop} field"
-
-    # Check that values are valid
-    assert np.all(halos["EjectedGas"] >= 0), "EjectedGas should be non-negative"
-    assert np.all(halos["HotGas"] >= 0), "HotGas should be non-negative"
-    assert np.all(halos["MetalsEjectedGas"] >= 0), "MetalsEjectedGas should be non-negative"
-    assert np.all(halos["MetalsHotGas"] >= 0), "MetalsHotGas should be non-negative"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Output properties are correct{NC}")
-
-
-# ========================================================================
-# MAIN TEST RUNNER
-# ========================================================================
+    baryons_without = sum(_total(without, field) for field in BARYON_FIELDS)
+    baryons_with = sum(_total(with_module, field) for field in BARYON_FIELDS)
+    assert np.isclose(
+        baryons_with, baryons_without, rtol=1e-6, atol=0.0
+    ), f"baryons must be conserved: {baryons_without:.6f} without, {baryons_with:.6f} with"
 
 
 def main():
-    """Main test runner"""
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: {Path(__file__).name}{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    tests = [
-        test_module_loads,
-        test_parameters_configurable,
-        test_memory_safety,
-        test_execution_completes,
-        test_multi_module_pipeline,
-        test_physics_mass_conservation,
-        test_physics_metallicity_bounds,
-        test_physics_central_only,
-        test_physics_velocity_threshold,
-        test_physics_output_properties,
-    ]
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    try:
+        return run_test_suite(
+            [test_reincorporation_moves_ejected_gas_to_hot_gas],
+            "sage26_reincorporation Integration (test_integration_sage26_reincorporation.py)",
+        )
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

@@ -1400,6 +1400,30 @@ Use the Python virtual environment when tests need plotting or scientific Python
 source mimic_venv/bin/activate
 ```
 
+An integration test runs each distinct configuration once and makes all its assertions about that run. Declare `RUNS = SharedRuns()` (`tests/framework`) at module level and ask it for the run by name; the first request runs Mimic and later requests return the same result, and `create_test_param_file()`'s arguments (`phase_config`, `model_params`, `substeps`, `snapshot_list` and the rest) pass straight through:
+
+```python
+RUNS = SharedRuns()
+
+def test_cold_gas_forms():
+    run = RUNS.run("cooling_chain", phase_config=CHAIN, model_params=PARAMS)
+    assert run.returncode == 0, run.stderr
+    halos, _metadata = load_binary_halos(run.output_dir / "model_z0.000_0")
+    ...
+
+def main():
+    try:
+        return run_test_suite([test_cold_gas_forms], "My module")
+    finally:
+        RUNS.cleanup()
+```
+
+A module that acts on gas or stars needs a pipeline that supplies them (reionization, the infall budget, infall, cooling and star formation, as its physics requires). A module run alone writes zeros in every baryon reservoir, and a sign or bound check on zeros cannot fail, so assert that the field under test is non-zero in some rows before asserting a relation on it.
+
+Each full-physics package keeps a committed baseline under `models/<model>/modules/_tests/baseline/` and a scientific test that reruns its input and compares every property of every row. The same test checks that the input's `SubSteps` and modules block equal the package run file's, so the baseline pins the pipeline the package ships, and that the fresh output holds no non-finite value and no value outside the `range:` its property metadata declares (`find_validity_violations()` in `tests/framework`). The core scientific tier makes the finite-value and range checks too, but on a run with an empty module pipeline, so a model's galaxy properties are checked only by its own baseline test.
+
+A package's figures are tested without a Mimic run through `tests/framework/plot_checks.py` and `plot_derivations.py`, which name no model, figure or property. The package's test files under `models/<model>/plots/tests/` bind its figure registry and a small synthetic catalogue to the generic cases (every registered figure renders, and its declared requirements match the fields it reads) and supply the package's own derivation rows: for each figure whose plotted quantity is derived, a hand-built catalogue and the points the figure must plot from it.
+
 ### Tests on Horizontal Packages
 
 The generic tiers run on every simulation package, and the run files they use are generated for the selected package's declared processing order: `scripts/generate_test_inputs.py` reads `input.processing_order` from the package's `simulation_info.yaml` and its `_tests/input/test_simulation.yaml` (`package_processing_order()` in `scripts/discovery.py`, which stops if the two disagree), never from the package's name. A vertical package gets the binary and HDF5 run files it always had; a horizontal package gets HDF5-only run files with no input file range, because a horizontal run cannot write binary output and its reader takes its file set from the snapshot list. The generated `manifest.json` records the processing order, the run files written and, when the tier cannot run, a `skip_reason`.

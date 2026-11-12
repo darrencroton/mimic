@@ -33,4 +33,4 @@ None. `Hubble_h` and `UnitTime_in_s` are core-owned.
 ## Tests
 
 - `_tests/test_unit_sage26_apply_cooling.c`: registration and initialisation behind the budget, the partial and complete transfers and the metallicity they preserve, the `Cooling` and `CoolingRate` updates on each return path, and the no-interval, zero-mass and orphan cases.
-- `_tests/test_integration_sage26_apply_cooling.py`: a `CGMrecipeOn 0` run with infall and the cooling budget, checking that it leaks no memory and that the reservoirs, their metallicities and `Cooling` are finite and physical.
+- `_tests/test_integration_sage26_apply_cooling.py`: a `CGMrecipeOn 0` run of the classic cooling chain (reionization, the infall budget and application, the cooling budget, cooling), checking that centrals gain cold gas while hot gas remains in others, and that a galaxy has a `Cooling` energy or `CoolingRate` exactly where it has cold gas.

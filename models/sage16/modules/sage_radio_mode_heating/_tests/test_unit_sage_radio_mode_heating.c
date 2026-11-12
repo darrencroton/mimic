@@ -2,34 +2,23 @@
  * @file    test_unit_sage_radio_mode_heating.c
  * @brief   Unit tests for sage_radio_mode_heating module
  *
- * Validates: AGN physics, cooling suppression, accretion modes, edge cases
+ * Validates: the radio-mode AGN call under each accretion recipe, its caps and guards
  *
- * This test validates the sage_radio_mode_heating module physics:
- * - AGN accretion calculations (empirical and cold cloud modes)
- * - Eddington rate limiting
- * - Cooling suppression based on heating radius
- * - Black hole growth and hot gas consumption
- * - Heating radius evolution
- * - Edge cases (zero values, orphan galaxies, AGN off)
- * - Parameter sensitivity
+ * Expected values are hand-derived literals or SAGE's expressions written inline, never a call of
+ * the code under test.
  *
  * Test cases:
- *   - test_empirical_agn_rate_calculation: Empirical accretion mode physics
- *   - test_cold_cloud_agn_rate_above_threshold: Cold cloud mode when triggered
- *   - test_cold_cloud_agn_rate_below_threshold: No accretion below threshold
- *   - test_eddington_limit: Accretion limited by Eddington rate
- *   - test_agn_suppresses_cooling: CoolingGas reduced by AGN
- *   - test_cooling_suppression_by_rheat: Rheat/Rcool suppression logic
- *   - test_heating_radius_update: Rheat increases with AGN heating
- *   - test_heating_energy_tracking: Heating accumulator tracks energy
- *   - test_agn_off_no_changes: No changes when AGN disabled
- *   - test_zero_cooling_gas: No AGN when no cooling
- *   - test_zero_hot_gas: No accretion without hot gas
- *   - test_zero_black_hole_mass: Edge case handling
- *   - test_orphan_galaxy_processed: Type 2 galaxies processed like centrals (SAGE parity)
- *   - test_parameter_sensitivity_efficiency: RadioModeEfficiency affects results
- *   - test_module_initialization: Module lifecycle
- *   - test_memory_safety: No memory leaks
+ *   - test_cold_cloud_agn_rate_below_threshold: no accretion when the black hole is below the cold
+ *     cloud threshold
+ *   - test_eddington_limit: the accretion is the Eddington rate times dt when the empirical rate
+ *     exceeds it
+ *   - test_radio_accretion_rows: a table over the empirical, Bondi and cold cloud rates where no
+ *     cap binds, the heating and reservoir caps, the hot-gas metals debit, the Rheat suppression
+ *     (partial, complete, held ratchet), the efficiency, AGNrecipe 0 and the zero cooling, hot gas
+ *     and black hole guards, each asserting the black hole, hot pair, cooling mass, Rheat and
+ *     Heating
+ *   - test_orphan_galaxy_processed: Type 2 galaxies are processed like centrals (SAGE parity)
+ *   - test_module_initialization: module_system_init accepts the module's placement
  *
  */
 
@@ -44,9 +33,9 @@
 #include "util/memory.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
@@ -141,6 +130,8 @@ static void setup_test_context(struct ModuleContext *ctx, double dt) {
   MimicConfig.UnitTime_in_s = 3.08568e16;   /* ~1 Gyr/h */
   MimicConfig.UnitEnergy_in_cgs = 1.989e53; /* Energy units */
   MimicConfig.Hubble_h = 0.73;
+  MimicConfig.G = 43.0071;                       /* the Bondi rate's G */
+  MimicConfig.UnitDensity_in_cgs = 6.769911e-22; /* the Bondi rate's x */
 }
 
 // ============================================================================
@@ -148,134 +139,11 @@ static void setup_test_context(struct ModuleContext *ctx, double dt) {
 // ============================================================================
 
 /**
- * @test    test_empirical_agn_rate_calculation
- * @brief   Test empirical AGN accretion rate calculation
- *
- * Expected: AGN rate scales with BH mass, Vvir^3, and hot gas fraction
- * Validates: Core empirical accretion physics
- */
-int test_empirical_agn_rate_calculation(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  const double efficiency = 0.08;
-  setup_test_parameters(efficiency, 1); /* Empirical mode */
-
-  int result = sage_radio_mode_heating_init();
-  TEST_ASSERT(result == 0, "Module init should succeed");
-
-  /* Create test galaxy with typical massive galaxy properties */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double mvir = 100.0;           /* 10^12 Msun/h */
-  const double vvir = 200.0;           /* 200 km/s */
-  const double rvir = 0.2;             /* 200 kpc/h */
-  const double hot_gas = 10.0;         /* 10^11 Msun/h */
-  const double black_hole_mass = 0.01; /* 10^8 Msun/h (normalized value) */
-  const double cooling_gas = 1.0;      /* Some cooling occurring */
-  const double rcool = 0.05;           /* 50 kpc/h */
-  const double rheat = 0.0;            /* No prior heating */
-
-  setup_test_galaxy(&halo, &gal, mvir, vvir, rvir, hot_gas, black_hole_mass, cooling_gas, rcool,
-                    rheat);
-
-  /* Setup context */
-  struct ModuleContext ctx;
-  const double dt = 0.01; /* 10 Myr/h */
-  setup_test_context(&ctx, dt);
-
-  /* Store initial values */
-  const double initial_bh_mass = gal.BlackHoleMass;
-  const double initial_hot_gas = gal.HotGas;
-
-  /* ===== EXECUTE ===== */
-  result = sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Process function should succeed");
-
-  /* AGN should have some effect (either BH growth or cooling suppression or both) */
-  const int bh_grew = (gal.BlackHoleMass > initial_bh_mass);
-  const int cooling_suppressed = (gal.CoolingGas < cooling_gas);
-  TEST_ASSERT(bh_grew || cooling_suppressed,
-              "AGN should have some effect (BH growth or cooling suppression)");
-
-  /* If BH accreted, validate mass conservation */
-  if (gal.BlackHoleMass > initial_bh_mass) {
-    TEST_ASSERT(gal.HotGas < initial_hot_gas, "Hot gas should decrease if BH accreted");
-    const double accreted_mass = gal.BlackHoleMass - initial_bh_mass;
-    const double consumed_hot_gas = initial_hot_gas - gal.HotGas;
-    TEST_ASSERT_DOUBLE_EQUAL(accreted_mass, consumed_hot_gas, 1e-6,
-                             "Accreted mass should equal consumed hot gas");
-  }
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_cold_cloud_agn_rate_above_threshold
- * @brief   Test cold cloud AGN accretion when BH mass above threshold
- *
- * Expected: AGN accretion = 0.01% of cooling rate
- * Validates: Cold cloud mode physics when triggered
- */
-int test_cold_cloud_agn_rate_above_threshold(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.08, 3); /* Cold cloud mode */
-  sage_radio_mode_heating_init();
-
-  /* Setup galaxy where BH is above cold cloud threshold */
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double mvir = 100.0;
-  const double vvir = 200.0;
-  const double rvir = 0.2;
-  const double rcool = 0.05;
-  const double hot_gas = 10.0;
-  const double cooling_gas = 1.0;
-
-  /* Calculate threshold: M_BH > 10^-4 * M_vir * (R_cool/R_vir)^3 */
-  const double threshold = 0.0001 * mvir * pow(rcool / rvir, 3.0);
-  const double black_hole_mass = threshold * 2.0; /* Well above threshold */
-
-  setup_test_galaxy(&halo, &gal, mvir, vvir, rvir, hot_gas, black_hole_mass, cooling_gas, rcool,
-                    0.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const double initial_bh_mass = gal.BlackHoleMass;
-
-  /* ===== EXECUTE ===== */
-  sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* AGN should have some effect when above threshold */
-  const int bh_grew = (gal.BlackHoleMass > initial_bh_mass);
-  const int cooling_suppressed = (gal.CoolingGas < cooling_gas);
-  TEST_ASSERT(bh_grew || cooling_suppressed, "AGN should have some effect when BH above threshold");
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_cold_cloud_agn_rate_below_threshold
  * @brief   Test cold cloud AGN accretion when BH mass below threshold
  *
- * Expected: No AGN accretion, but cooling still suppressed by Rheat
- * Validates: Cold cloud threshold logic
+ * Expected: No AGN accretion: the black hole stays as it was
+ * Validates: Cold cloud threshold logic (BH > 1e-4 Mvir (Rcool / Rvir)^3 triggers it)
  */
 int test_cold_cloud_agn_rate_below_threshold(void) {
   /* ===== SETUP ===== */
@@ -344,7 +212,9 @@ int test_eddington_limit(void) {
   const double hot_gas = 10.0;
   const double cooling_gas = 10.0; /* Very high cooling */
 
-  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, hot_gas, black_hole_mass, cooling_gas, 0.05,
+  /* Vvir 400: the empirical rate (8 times that at 200 km/s, 7.8e-3) is 2.5 times the Eddington
+   * rate (3.1e-3), and the heating (3.4 of the cooling mass 10) does not cap the accretion */
+  setup_test_galaxy(&halo, &gal, 100.0, 400.0, 0.2, hot_gas, black_hole_mass, cooling_gas, 0.05,
                     0.0);
 
   struct ModuleContext ctx;
@@ -366,6 +236,9 @@ int test_eddington_limit(void) {
   const double accreted = gal.BlackHoleMass - initial_bh_mass;
   TEST_ASSERT(accreted > 0.0, "Some accretion should occur");
   TEST_ASSERT(accreted <= max_accretion * 1.01, "Accretion should be Eddington-limited");
+  /* 1e-5 relative: the float BlackHoleMass store */
+  TEST_ASSERT_DOUBLE_EQUAL(accreted, max_accretion, 1e-5 * max_accretion,
+                           "Accretion should equal the Eddington rate times dt");
 
   /* ===== CLEANUP ===== */
   sage_radio_mode_heating_cleanup();
@@ -374,187 +247,169 @@ int test_eddington_limit(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_agn_suppresses_cooling
- * @brief   Test that AGN heating suppresses cooling
- *
- * Expected: CoolingGas reduced after AGN heating or BH grows
- * Validates: Cooling suppression mechanism
- */
-int test_agn_suppresses_cooling(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
+// ============================================================================
+// THE ACCRETION, HEATING AND GUARD TABLE
+// ============================================================================
 
-  setup_test_parameters(0.08, 1);
-  sage_radio_mode_heating_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double initial_cooling = 1.0;
-
-  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 10.0, 0.01, initial_cooling, 0.05, 0.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const double initial_bh_mass = gal.BlackHoleMass;
-
-  /* ===== EXECUTE ===== */
-  sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(gal.CoolingGas >= 0.0, "CoolingGas should remain non-negative");
-
-  /* AGN should have some effect */
-  const int bh_grew = (gal.BlackHoleMass > initial_bh_mass);
-  const int cooling_changed = (gal.CoolingGas != initial_cooling);
-  TEST_ASSERT(bh_grew || cooling_changed,
-              "AGN should have some effect (BH growth or cooling change)");
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
+/** @brief Fails the case naming the table row and the quantity that missed */
+#define ROW_ASSERT(cond, row, what)                                                                \
+  do {                                                                                             \
+    char row_msg[160];                                                                             \
+    snprintf(row_msg, sizeof(row_msg), "row '%s': %s", (row)->name, (what));                       \
+    TEST_ASSERT(cond, row_msg);                                                                    \
+  } while (0)
 
 /**
- * @test    test_cooling_suppression_by_rheat
- * @brief   Test cooling suppression based on Rheat/Rcool ratio
+ * @brief One radio-mode call and the galaxy it must leave
  *
- * Expected: Complete suppression when Rheat >= Rcool, partial when Rheat < Rcool
- * Validates: Heating radius suppression logic
+ * The substep is dt = 0.01 (also the halo's dT), Rcool is 0.05, and the hot gas carries a
+ * metallicity of 0.02. The expectations are hand-derived literals or expressions of SAGE's chain:
+ * the accretion rate of the recipe (below), the Eddington cap, the cap at the hot gas, the heating
+ * coefficient (1.34e5 / Vvir)^2 (448900 at Vvir 200), the cap of the heating to the suppressed
+ * cooling mass, the suppression (1 - Rheat / Rcool) CoolingGas, the Rheat ratchet
+ * (AGNheating / suppressed) Rcool and Heating += 0.5 AGNheating Vvir^2 / dT.
+ *
+ * The rates, with the test's units (UnitMass 1.989e43 g, UnitTime 3.08568e16 s, so a unit
+ * conversion of 10.22465):
+ *   empirical (1): eff / 10.22465 (BH / 0.01) (Vvir / 200)^3 ((HotGas / Mvir) / 0.1), without the
+ *                  hot fraction when Mvir is 0
+ *   Bondi (2):     (2.5 pi G)(0.375 * 0.6 x) BH eff, x = proton mass k_B (35.9 Vvir^2) / Lambda
+ *                  / (UnitDensity UnitTime), with G 43.0071 and UnitDensity 6.769911e-22
+ *   cold cloud (3): 1e-4 CoolingGas / dt when BH > 1e-4 Mvir (Rcool / Rvir)^3 (Mvir 100, Rcool
+ *                  0.05, Rvir 0.2 give a threshold of 1.5625e-4), else 0
  */
-int test_cooling_suppression_by_rheat(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.08, 1);
-  sage_radio_mode_heating_init();
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  /* Test 1: Rheat >= Rcool → complete suppression */
-  struct Halo halo1;
-  struct GalaxyData gal1;
-  const double rcool = 0.05;
-  const double rheat_high = 0.06; /* rheat > rcool */
-
-  setup_test_galaxy(&halo1, &gal1, 100.0, 200.0, 0.2, 10.0, 0.01, 1.0, rcool, rheat_high);
-
-  sage_radio_mode_heating_process(&ctx, &halo1, 1);
-
-  TEST_ASSERT_DOUBLE_EQUAL(gal1.CoolingGas, 0.0, 1e-10,
-                           "CoolingGas should be zero when Rheat > Rcool");
-
-  /* Test 2: Rheat < Rcool → partial suppression */
-  struct Halo halo2;
-  struct GalaxyData gal2;
-  const double rheat_low = 0.025; /* rheat = 0.5 * rcool */
-  const double initial_cooling = 1.0;
-
-  setup_test_galaxy(&halo2, &gal2, 100.0, 200.0, 0.2, 10.0, 0.01, initial_cooling, rcool,
-                    rheat_low);
-
-  sage_radio_mode_heating_process(&ctx, &halo2, 1);
-
-  /* Expected: CoolingGas = (1 - rheat/rcool) * initial_cooling */
-  const double expected_cooling_after_rheat = (1.0 - rheat_low / rcool) * initial_cooling;
-  /* After Rheat suppression, AGN will further suppress it */
-  TEST_ASSERT(gal2.CoolingGas <= expected_cooling_after_rheat,
-              "CoolingGas should be suppressed when Rheat < Rcool");
-  TEST_ASSERT(gal2.CoolingGas >= 0.0, "CoolingGas should be non-negative");
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
+struct accretion_row {
+  const char *name;
+  /* the call */
+  int recipe;        /**< AGNrecipe */
+  double efficiency; /**< RadioModeEfficiency */
+  double mvir;
+  double vvir; /**< Vvir [km/s] */
+  double hot_gas;
+  double black_hole_mass;
+  double cooling_gas;
+  double rheat;
+  double lambda; /**< the carried cooling function (Bondi only) */
+  /* the galaxy afterwards */
+  double accreted;      /**< black hole growth, and the hot gas and its metals drawn */
+  double cooling_after; /**< CoolingGas */
+  double rheat_after;
+  double heating_after; /**< Heating, divided by dT */
+};
 
 /**
- * @test    test_heating_radius_update
- * @brief   Test that heating radius increases with AGN heating
+ * @test    test_radio_accretion_rows
+ * @brief   The three accretion recipes, the caps, the ratchet, Heating, the metals debit, the
+ *          Rheat suppression and the guards, one row per input, each asserted against the whole
+ *          galaxy
  *
- * Expected: Rheat increases when AGN heats gas
- * Validates: Heating radius evolution
+ * Validates: the Bondi, empirical and cold cloud rates at values where no cap binds (so the rate
+ *            is observed), and each cap and guard where it does
  */
-int test_heating_radius_update(void) {
-  /* ===== SETUP ===== */
+int test_radio_accretion_rows(void) {
+  static const struct accretion_row rows[] = {
+      /* Empirical rate 7.8242e-5 with a black hole of 1e-4 (far below the Eddington rate), so
+       * accreted = 7.8242e-7 and AGNheating = 448900 accreted = 0.35123, below the cooling mass
+       * 1.0; Rheat ratchets to 0.35123 / 1.0 * 0.05 */
+      {"empirical_below_caps", 1, 0.08, 100.0, 200.0, 10.0, 1.0e-4, 1.0, 0.0, 0.0, 7.824228012e-7,
+       1.0, 0.0175614804, 702459.1909},
+      /* The rate goes as Vvir^3 (1.5^3 = 3.375 times) and the heating coefficient as Vvir^-2 */
+      {"empirical_vvir_300", 1, 0.08, 100.0, 300.0, 10.0, 1.0e-4, 1.0, 0.0, 0.0, 2.640676954e-6,
+       1.0, 0.0263422206, 2370799.769},
+      /* Half the hot fraction halves the rate */
+      {"empirical_half_hot_fraction", 1, 0.08, 100.0, 200.0, 5.0, 1.0e-4, 1.0, 0.0, 0.0,
+       3.912114006e-7, 1.0, 0.008780740201, 351229.5954},
+      /* Mvir 0 drops the hot fraction: the rate of the first row at half its hot gas */
+      {"empirical_mvir_zero", 1, 0.08, 0.0, 200.0, 5.0, 1.0e-4, 1.0, 0.0, 0.0, 7.824228012e-7, 1.0,
+       0.0175614804, 702459.1909},
+      /* The heating cap: a black hole of 0.01 would heat 1.0 and more than the cooling mass 1.0,
+       * so accreted falls to 1.0 / 448900, the heating to 1.0 and Rheat to Rcool */
+      {"empirical_heating_cap", 1, 0.08, 100.0, 200.0, 10.0, 0.01, 1.0, 0.0, 0.0, 1.0 / 448900.0,
+       1.0, 0.05, 2000000.0},
+      /* Bondi at Lambda 1e-26: x = 1.58e-3 and a rate of 9.6512e-5 */
+      {"bondi_below_caps", 2, 0.08, 100.0, 200.0, 10.0, 0.01, 1.0, 0.0, 1.0e-26, 9.651239478e-7,
+       1.0, 0.02166220732, 866488.2803},
+      /* Cold cloud above the threshold, at Vvir 2000 so that the heating (0.4489 of the cooling
+       * mass) is not capped: accreted = 1e-4 CoolingGas whatever dt */
+      {"cold_cloud_above", 3, 0.08, 100.0, 2000.0, 10.0, 0.01, 1.0, 0.0, 0.0, 1.0e-4, 1.0,
+       0.02244500071, 89780000.0},
+      /* The reservoir cap: only 5e-5 of hot gas against 1e-4 of accretion, so the hot gas and
+       * its metals are emptied */
+      {"cold_cloud_reservoir_cap", 3, 0.08, 100.0, 2000.0, 5.0e-5, 0.01, 1.0, 0.0, 0.0,
+       4.999999874e-5, 1.0, 0.01122249942, 44889998.87},
+      /* The metals debit: 1e-3 of accretion from hot gas at metallicity 0.02 lowers
+       * MetalsHotGas by 2e-5 (a float step at 0.2 is 1.5e-8) */
+      {"metals_debit", 3, 0.08, 100.0, 2000.0, 10.0, 0.01, 10.0, 0.0, 0.0, 1.0e-3, 10.0,
+       0.02244500071, 897800000.0},
+      /* Rheat 0.01 suppresses the mass to 0.8 and the ratchet (0.35123 / 0.8 * 0.05) raises Rheat
+       * past 0.01; Rheat 0.025 halves the mass; with a mass of 100 suppressed to 50 the ratchet
+       * value is below the Rheat held, which stays */
+      {"rheat_raised", 1, 0.08, 100.0, 200.0, 10.0, 1.0e-4, 1.0, 0.01, 0.0, 7.824228012e-7, 0.8,
+       0.0219518505, 702459.1909},
+      {"rheat_half", 1, 0.08, 100.0, 200.0, 10.0, 1.0e-4, 1.0, 0.025, 0.0, 7.824228012e-7, 0.5,
+       0.03512296081, 702459.1909},
+      {"rheat_held", 1, 0.08, 100.0, 200.0, 10.0, 1.0e-4, 100.0, 0.025, 0.0, 7.824228012e-7, 50.0,
+       0.025, 702459.1909},
+      /* Rheat at and above Rcool suppresses the cooling mass completely: nothing is left to
+       * heat, so the heating cap leaves no accretion */
+      {"rheat_equals_rcool", 1, 0.08, 100.0, 200.0, 10.0, 1.0e-4, 1.0, 0.05, 0.0, 0.0, 0.0, 0.05,
+       0.0},
+      {"rheat_above_rcool", 1, 0.08, 100.0, 200.0, 10.0, 1.0e-4, 1.0, 0.06, 0.0, 0.0, 0.0, 0.06,
+       0.0},
+      /* The accretion is linear in the efficiency (the 0.08 rows above are the middle) */
+      {"efficiency_half", 1, 0.04, 100.0, 200.0, 10.0, 1.0e-4, 1.0, 0.0, 0.0, 3.912114006e-7, 1.0,
+       0.008780740201, 351229.5954},
+      {"efficiency_double", 1, 0.16, 100.0, 200.0, 10.0, 1.0e-4, 1.0, 0.0, 0.0, 1.564845602e-6, 1.0,
+       0.03512296081, 1404918.382},
+      {"efficiency_zero", 1, 0.0, 100.0, 200.0, 10.0, 1.0e-4, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0},
+      /* AGNrecipe 0 returns before touching anything: the mass is not suppressed (0.6 would be
+       * the suppressed value at Rheat 0.02), Rheat stays and nothing accretes */
+      {"agn_off", 0, 0.08, 100.0, 200.0, 10.0, 1.0e-4, 1.0, 0.02, 0.0, 0.0, 1.0, 0.02, 0.0},
+      /* The guards: no cooling mass leaves the galaxy as it was; no hot gas or no black hole
+       * accretes nothing, but the mass is still suppressed (1 - 0.02 / 0.05 = 0.6) and Rheat is
+       * not ratcheted */
+      {"zero_cooling", 1, 0.08, 100.0, 200.0, 10.0, 1.0e-4, 0.0, 0.02, 0.0, 0.0, 0.0, 0.02, 0.0},
+      {"zero_hot_gas", 1, 0.08, 100.0, 200.0, 0.0, 1.0e-4, 1.0, 0.02, 0.0, 0.0, 0.6, 0.02, 0.0},
+      {"zero_black_hole", 1, 0.08, 100.0, 200.0, 10.0, 0.0, 1.0, 0.02, 0.0, 0.0, 0.6, 0.02, 0.0},
+  };
+
   init_memory_system(0);
-  reset_config();
+  for (size_t k = 0; k < sizeof(rows) / sizeof(rows[0]); k++) {
+    const struct accretion_row *r = &rows[k];
+    reset_config();
+    setup_test_parameters(r->efficiency, r->recipe);
+    TEST_ASSERT(sage_radio_mode_heating_init() == 0, "init must accept the row's parameters");
 
-  setup_test_parameters(0.08, 1);
-  sage_radio_mode_heating_init();
+    struct Halo halo;
+    struct GalaxyData gal;
+    struct ModuleContext ctx;
+    setup_test_galaxy(&halo, &gal, r->mvir, r->vvir, 0.2, r->hot_gas, r->black_hole_mass,
+                      r->cooling_gas, 0.05, r->rheat);
+    gal.CoolingLambda = r->lambda;
+    setup_test_context(&ctx, 0.01);
 
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double initial_rheat = 0.01; /* Small initial heating radius */
+    const double hot0 = gal.HotGas, metals0 = gal.MetalsHotGas, bh0 = gal.BlackHoleMass;
+    ROW_ASSERT(sage_radio_mode_heating_process(&ctx, &halo, 1) == 0, r, "process succeeds");
 
-  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 10.0, 0.01, 1.0, 0.05, initial_rheat);
+    /* The reservoirs are floats: a tolerance of two float steps of the value the row starts from */
+    const double acc = r->accreted;
+    const double hot_expected = hot0 - acc;
+    const double metals_expected = hot0 > 0.0 ? metals0 - (metals0 / hot0) * acc : metals0;
+    ROW_ASSERT(fabs((gal.BlackHoleMass - bh0) - acc) <= 2.0 * FLT_EPSILON * (bh0 + acc), r,
+               "black hole growth");
+    ROW_ASSERT(fabs(gal.HotGas - hot_expected) <= 2.0 * FLT_EPSILON * hot0, r, "hot gas drawn");
+    ROW_ASSERT(fabs(gal.MetalsHotGas - metals_expected) <= 2.0 * FLT_EPSILON * metals0, r,
+               "hot gas metals drawn at its metallicity");
+    ROW_ASSERT(fabs(gal.CoolingGas - r->cooling_after) <= 2.0 * FLT_EPSILON * r->cooling_after, r,
+               "cooling mass");
+    ROW_ASSERT(fabs(gal.Rheat - r->rheat_after) <= 2.0 * FLT_EPSILON * r->rheat_after, r,
+               "heating radius");
+    ROW_ASSERT(fabs(gal.Heating - r->heating_after) <= 1.0e-6 * r->heating_after, r,
+               "Heating energy");
 
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  /* ===== EXECUTE ===== */
-  sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(gal.Rheat >= initial_rheat, "Rheat should not decrease");
-  /* Rheat should increase if AGN heating occurred */
-  if (gal.BlackHoleMass > 0.01) { /* If accretion occurred */
-    /* Rheat may increase, or stay the same if heating is small */
-    TEST_ASSERT(gal.Rheat <= gal.Rcool * 1.1, "Rheat should not exceed Rcool by large margin");
+    sage_radio_mode_heating_cleanup();
   }
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
   check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_heating_energy_tracking
- * @brief   Test that Heating accumulator tracks AGN heating energy
- *
- * Expected: Heating > 0 when AGN active
- * Validates: Energy tracking mechanism
- */
-int test_heating_energy_tracking(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.08, 1);
-  sage_radio_mode_heating_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-
-  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 10.0, 0.01, 1.0, 0.05, 0.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  TEST_ASSERT_DOUBLE_EQUAL(gal.Heating, 0.0, 1e-10, "Initial Heating should be zero");
-
-  /* ===== EXECUTE ===== */
-  sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* Heating should be positive if AGN was active and suppressed cooling */
-  if (gal.BlackHoleMass > 0.01 && gal.CoolingGas < 1.0) {
-    TEST_ASSERT(gal.Heating >= 0.0, "Heating should be non-negative");
-  }
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
   return TEST_PASS;
 }
 
@@ -563,178 +418,13 @@ int test_heating_energy_tracking(void) {
 // ============================================================================
 
 /**
- * @test    test_agn_off_no_changes
- * @brief   Test that no changes occur when AGN is disabled
- *
- * Expected: All galaxy properties unchanged
- * Validates: AGNrecipe = 0 disables AGN
- */
-int test_agn_off_no_changes(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.08, 0); /* AGN off */
-  sage_radio_mode_heating_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double initial_cooling = 1.0;
-
-  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 10.0, 0.01, initial_cooling, 0.05, 0.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const double initial_bh_mass = gal.BlackHoleMass;
-  const double initial_hot_gas = gal.HotGas;
-
-  /* ===== EXECUTE ===== */
-  sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh_mass, 1e-10,
-                           "BH mass should not change when AGN off");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.HotGas, initial_hot_gas, 1e-10,
-                           "Hot gas should not change when AGN off");
-  /* Note: CoolingGas may still be suppressed by Rheat even with AGN off */
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_cooling_gas
- * @brief   Test that no AGN accretion occurs when cooling is zero
- *
- * Expected: No changes to BH or hot gas
- * Validates: Early exit when CoolingGas = 0
- */
-int test_zero_cooling_gas(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.08, 1);
-  sage_radio_mode_heating_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-
-  /* CoolingGas = 0 */
-  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 10.0, 0.01, 0.0, 0.05, 0.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const double initial_bh_mass = gal.BlackHoleMass;
-  const double initial_hot_gas = gal.HotGas;
-
-  /* ===== EXECUTE ===== */
-  sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh_mass, 1e-10,
-                           "BH mass should not change when no cooling");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.HotGas, initial_hot_gas, 1e-10,
-                           "Hot gas should not change when no cooling");
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_hot_gas
- * @brief   Test behavior when HotGas is zero
- *
- * Expected: No accretion (nothing to accrete from)
- * Validates: Edge case handling
- */
-int test_zero_hot_gas(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.08, 1);
-  sage_radio_mode_heating_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-
-  /* HotGas = 0 */
-  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 0.0, 0.01, 1.0, 0.05, 0.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  const double initial_bh_mass = gal.BlackHoleMass;
-
-  /* ===== EXECUTE ===== */
-  sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh_mass, 1e-10,
-                           "BH mass should not change when no hot gas");
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_black_hole_mass
- * @brief   Test behavior when black hole mass is zero
- *
- * Expected: Handles gracefully (may or may not accrete depending on mode)
- * Validates: Edge case handling
- */
-int test_zero_black_hole_mass(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.08, 1);
-  sage_radio_mode_heating_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-
-  /* BlackHoleMass = 0 */
-  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 10.0, 0.0, 1.0, 0.05, 0.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  /* ===== EXECUTE ===== */
-  int result = sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Should handle zero BH mass gracefully");
-  TEST_ASSERT(gal.BlackHoleMass >= 0.0, "BH mass should remain non-negative");
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_orphan_galaxy_processed
  * @brief   SAGE parity: orphan galaxies (Type 2) are processed like any other
  *          galaxy — SAGE calls do_AGN_heating from cooling_recipe for every
  *          non-merged galaxy. With AGN on, hot gas, and a black hole present,
  *          the orphan's BH accretes (grows) and its hot gas is consumed.
  *
- * Validates: Type 2 galaxies are no longer skipped.
+ * Validates: Type 2 galaxies are processed, not skipped.
  */
 int test_orphan_galaxy_processed(void) {
   /* ===== SETUP ===== */
@@ -769,55 +459,6 @@ int test_orphan_galaxy_processed(void) {
 
   /* ===== CLEANUP ===== */
   sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// PARAMETER SENSITIVITY TESTS
-// ============================================================================
-
-/**
- * @test    test_parameter_sensitivity_efficiency
- * @brief   Test that changing RadioModeEfficiency parameter is respected
- *
- * Expected: Module loads different efficiency values correctly
- * Validates: Parameter loading and validation
- */
-int test_parameter_sensitivity_efficiency(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Test with low efficiency */
-  reset_config();
-  setup_test_parameters(0.02, 1);
-  int result_low = sage_radio_mode_heating_init();
-  TEST_ASSERT(result_low == 0, "Module should initialize with low efficiency");
-  sage_radio_mode_heating_cleanup();
-
-  /* Test with high efficiency */
-  reset_config();
-  setup_test_parameters(0.80, 1);
-  int result_high = sage_radio_mode_heating_init();
-  TEST_ASSERT(result_high == 0, "Module should initialize with high efficiency");
-  sage_radio_mode_heating_cleanup();
-
-  /* Test with maximum efficiency */
-  reset_config();
-  setup_test_parameters(1.0, 1);
-  int result_max = sage_radio_mode_heating_init();
-  TEST_ASSERT(result_max == 0, "Module should initialize with maximum efficiency");
-  sage_radio_mode_heating_cleanup();
-
-  /* Test with minimum efficiency */
-  reset_config();
-  setup_test_parameters(0.0, 1);
-  int result_min = sage_radio_mode_heating_init();
-  TEST_ASSERT(result_min == 0, "Module should initialize with minimum efficiency");
-  sage_radio_mode_heating_cleanup();
-
-  /* ===== CLEANUP ===== */
   check_memory_leaks();
 
   return TEST_PASS;
@@ -869,46 +510,6 @@ int test_module_initialization(void) {
 }
 
 /**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during operation
- *
- * Expected: No memory leaks after init/process/cleanup cycle
- * Validates: Memory management
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.08, 1);
-  sage_radio_mode_heating_init();
-
-  /* Process a galaxy */
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 100.0, 200.0, 0.2, 10.0, 0.01, 1.0, 0.05, 0.0);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx, 0.01);
-
-  /* ===== EXECUTE ===== */
-  sage_radio_mode_heating_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* check_memory_leaks() will catch any leaks */
-
-  /* ===== CLEANUP ===== */
-  sage_radio_mode_heating_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// MAIN TEST RUNNER
-// ============================================================================
-
-/**
  * @brief   Main test runner
  *
  * Executes all sage_radio_mode_heating unit tests and reports results.
@@ -924,28 +525,15 @@ int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
   /* Run physics calculation tests */
-  TEST_RUN(test_empirical_agn_rate_calculation);
-  TEST_RUN(test_cold_cloud_agn_rate_above_threshold);
   TEST_RUN(test_cold_cloud_agn_rate_below_threshold);
   TEST_RUN(test_eddington_limit);
-  TEST_RUN(test_agn_suppresses_cooling);
-  TEST_RUN(test_cooling_suppression_by_rheat);
-  TEST_RUN(test_heating_radius_update);
-  TEST_RUN(test_heating_energy_tracking);
+  TEST_RUN(test_radio_accretion_rows);
 
   /* Run edge case tests */
-  TEST_RUN(test_agn_off_no_changes);
-  TEST_RUN(test_zero_cooling_gas);
-  TEST_RUN(test_zero_hot_gas);
-  TEST_RUN(test_zero_black_hole_mass);
   TEST_RUN(test_orphan_galaxy_processed);
-
-  /* Run parameter sensitivity tests */
-  TEST_RUN(test_parameter_sensitivity_efficiency);
 
   /* Run infrastructure tests */
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_memory_safety);
 
   /* Print summary and return result */
   TEST_SUMMARY();

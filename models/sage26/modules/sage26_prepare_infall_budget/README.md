@@ -40,5 +40,6 @@ Prepares the baryon infall budget for each FoF system, following SAGE26's `infal
 
 ## Tests
 
-- `_tests/test_unit_sage26_prepare_infall_budget.c`: registration and lifecycle, the parameter refusals, the budget and satellite pooling, and both `CGMrecipeOn` settings.
-- `_tests/test_integration_sage26_prepare_infall_budget.py`: the module in a full run with `sage26_reionization`, and alongside `sage26_satellite_stripping` and `sage26_apply_infall`.
+- `_tests/test_unit_sage26_prepare_infall_budget.c`: registration and lifecycle, the budget and satellite pooling, and both `CGMrecipeOn` settings.
+- `_tests/test_integration_sage26_prepare_infall_budget.py`: the module without reionization in a full run, checking that `GlobalBaryonFraction` reaches every central's `HaloBaryonFraction`.
+- The `GlobalBaryonFraction` and `CGMrecipeOn` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

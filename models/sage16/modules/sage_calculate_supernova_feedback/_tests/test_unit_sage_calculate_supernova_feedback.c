@@ -4,18 +4,18 @@
  *
  * Validates: Physics calculations, renormalization, edge cases, parameter handling
  *
- * This test suite validates both software quality and physics correctness:
- *
  * Software quality tests:
- * - Module registration and initialization
- * - Parameter reading and validation (FeedbackReheatingEpsilon, FeedbackEjectionEfficiency)
- * - Memory safety (no leaks)
+ * - test_module_initialization: the module system initialises the SN calculator and the apply
+ *   step
  *
  * Physics tests:
- * - Reheating calculation (proportional to stars formed)
- * - Ejection calculation (energy-based, depends on central Vvir)
- * - Renormalization (scales stars and reheating when exceeding ColdGas)
- * - Edge cases (zero stars, zero Vvir, negative ejection clamping)
+ * - test_fixed_epsilon_budgets: reheating (epsilon * stars), no renormalisation with ample cold
+ *   gas, and ejection from the FoF central's Vvir for a standard galaxy, epsilon 0, no stars, a
+ *   very high central Vvir (negative ejection floored at 0) and a central Vvir of 0 (ejection
+ *   skipped, reheating still applied)
+ * - test_renormalization_triggered: stars and reheating scaled together when they exceed ColdGas
+ * - test_ejection_calculation: a satellite ejects according to the central's Vvir, not its own
+ * - test_null_galaxy_pointer: a NULL galaxy is returned from early
  *
  * Reference: Croton et al. (2006, 2016) - SAGE model
  *
@@ -35,9 +35,7 @@
 #include "module_system/physical_constants.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 /* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
 #include "modules/_tests/sage_test_fixtures.h"
@@ -175,31 +173,11 @@ extern int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx, 
 // ============================================================================
 
 /**
- * @test    test_module_registration
- * @brief   Test that sage_calculate_supernova_feedback module registers correctly
- *
- * Expected: Module registration succeeds without errors
- * Validates: generated registry includes sage_calculate_supernova_feedback
- */
-int test_module_registration(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-
-  /* ===== EXECUTE ===== */
-  ensure_modules_registered();
-
-  /* ===== VALIDATE ===== */
-  /* If we got here without crashing, registration succeeded */
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_module_initialization
- * @brief   Test module initialization and cleanup lifecycle
+ * @brief   The module system initialises the SN calculator and the apply step, and cleans up
+ *          without leaks
  *
- * Expected: Module init and cleanup succeed without errors or leaks
- * Validates: Module lifecycle management
+ * The apply step is initialised with the calculator (it requires the calculator to precede it).
  */
 int test_module_initialization(void) {
   /* ===== SETUP ===== */
@@ -233,137 +211,114 @@ int test_module_initialization(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_parameter_reading
- * @brief   Test that module parameters are read correctly from configuration
- *
- * Expected: Module reads FeedbackReheatingEpsilon and FeedbackEjectionEfficiency successfully
- * Validates: Parameter reading infrastructure works
- */
-int test_parameter_reading(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-
-  /* SN requires sage_apply_star_formation_supernova in the pipeline */
-  test_phase_add("galaxy_physics", "sage_calculate_supernova_feedback", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova",
-                 PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  /* ===== EXECUTE ===== */
-  int result = module_system_init();
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module should initialize with parameters");
-
-  /* ===== CLEANUP ===== */
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during normal operation
- *
- * Expected: No memory leaks after init, cleanup cycle
- * Validates: Memory management in module
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-
-  /* SN requires sage_apply_star_formation_supernova in the pipeline */
-  test_phase_add("galaxy_physics", "sage_calculate_supernova_feedback", PROCESSING_MODE_BY_GALAXY);
-  test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova",
-                 PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-  set_test_model_parameters();
-
-  /* ===== EXECUTE ===== */
-  int result = module_system_init();
-  TEST_ASSERT(result == 0, "Module initialization should succeed");
-
-  /* ===== VALIDATE ===== */
-  /* Module initialized successfully without memory leaks */
-
-  /* ===== CLEANUP ===== */
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
 // ============================================================================
 // PHYSICS CALCULATION TESTS
 // ============================================================================
 
 /**
- * @test    test_basic_reheating_calculation
- * @brief   Test basic reheating mass calculation
- *
- * Physics: reheated_mass = FeedbackReheatingEpsilon * NewStellarMass
- *
- * Expected: Reheated mass proportional to stars formed
- * Validates: Basic feedback calculation (no renormalization)
+ * @brief   Overwrite the value of a model parameter set by set_test_model_parameters()
  */
-int test_basic_reheating_calculation(void) {
-  /* ===== SETUP ===== */
+static void set_test_parameter_value(const char *name, double value) {
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, name) == 0) {
+      snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%.17g", value);
+      return;
+    }
+  }
+}
+
+/**
+ * @brief   Initialise the module with the given FeedbackReheatingEpsilon and
+ *          FeedbackEjectionEfficiency
+ *
+ * @return  The module's init result
+ */
+static int init_feedback_module(double epsilon, double eta) {
   init_test_constants();
-  set_test_model_parameters(); /* Set model parameters for module init */
+  set_test_model_parameters();
+  set_test_parameter_value("FeedbackReheatingEpsilon", epsilon);
+  set_test_parameter_value("FeedbackEjectionEfficiency", eta);
+  return sage_calculate_supernova_feedback_init();
+}
 
-  /* Initialize module to set up physics constants */
-  int init_result = sage_calculate_supernova_feedback_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+/**
+ * @brief   SAGE's ejected mass, written out
+ *
+ * ejected = (eta * (EtaSNcode * EnergySNcode) / Vvir^2 - epsilon) * stars, floored at 0, where
+ * Vvir is the FoF central's virial velocity (the potential every member ejects into), and a
+ * non-positive central Vvir ejects nothing.
+ *
+ * @param   epsilon         FeedbackReheatingEpsilon
+ * @param   eta             FeedbackEjectionEfficiency
+ * @param   central_vvir    The FoF central's Vvir [km/s]
+ * @param   stars           Stars formed [1e10 Msun/h]
+ * @return  The expected ejected mass [1e10 Msun/h]
+ */
+static double expected_ejection(double epsilon, double eta, double central_vvir, double stars) {
+  if (!(central_vvir > 0.0)) {
+    return 0.0;
+  }
+  const double ejected =
+      (eta * (eta_sn_code_test * energy_sn_code_test) / (central_vvir * central_vvir) - epsilon) *
+      stars;
+  return ejected < 0.0 ? 0.0 : ejected;
+}
 
-  struct Halo test_halo;
-  struct GalaxyData test_galaxy;
-  struct Halo central_halo; /* For context */
-  struct GalaxyData central_galaxy;
+/**
+ * @test    test_fixed_epsilon_budgets
+ * @brief   With ample cold gas: reheated mass is epsilon * stars, stars are not renormalised, and
+ *          ejected mass follows the central-Vvir formula (floored at 0)
+ *
+ * Rows: a standard galaxy, epsilon 0 (no reheating, ejection of the full energy term), no stars
+ * (nothing reheated or ejected), a very high central Vvir (the energy term falls below epsilon,
+ * so the negative ejection is floored at 0), and a central Vvir of 0 (reheating still occurs,
+ * ejection is skipped). `ejects` states whether the row's expected ejection is positive, so a row
+ * cannot drift into vacuity.
+ */
+int test_fixed_epsilon_budgets(void) {
+  static const struct {
+    const char *name;
+    double epsilon;
+    double eta;
+    double central_vvir;
+    double stars;
+    int ejects;
+  } rows[] = {
+      {"standard galaxy", 3.0, 0.3, 150.0, 1.0, 1},
+      {"epsilon 0", 0.0, 0.3, 150.0, 1.0, 1},
+      {"no stars", 3.0, 0.3, 150.0, 0.0, 0},
+      {"negative ejection floored", 3.0, 0.3, 1000.0, 1.0, 0},
+      {"central Vvir 0", 3.0, 0.3, 0.0, 1.0, 0},
+  };
+  const double cold_gas = 100.0; /* far more than stars + reheating needs */
 
-  /* Setup central (needed for context) */
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 150.0, 100.0, 0.0);
+  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    printf("\n  row: %s", rows[i].name);
+    TEST_ASSERT(init_feedback_module(rows[i].epsilon, rows[i].eta) == 0,
+                "Module initialization should succeed");
 
-  /* Setup test galaxy: plenty of cold gas, small star formation */
-  double new_stars = 1.0;  /* 1e10 Msun/h */
-  double cold_gas = 100.0; /* 1e11 Msun/h - way more than needed */
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 150.0, cold_gas, new_stars);
+    struct Halo test_halo, central_halo;
+    struct GalaxyData test_galaxy, central_galaxy;
+    setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, rows[i].central_vvir, cold_gas, 0.0);
+    /* A satellite whose own Vvir (100 km/s) the ejection must not use */
+    setup_test_halo(&test_halo, &test_galaxy, 1, 10.0, 100.0, cold_gas, rows[i].stars);
+    struct ModuleContext ctx;
+    setup_module_context(&ctx, &central_halo, 0.01);
 
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.01);
+    TEST_ASSERT(sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1) == 0,
+                "Module process should succeed");
 
-  /* ===== EXECUTE ===== */
-  int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Expected reheated mass: epsilon * stars */
-  double expected_reheated = test_epsilon * new_stars; /* 3.0 * 1.0 = 3.0 */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaReheatedMass, expected_reheated, 1e-6,
-                           "Reheated mass should equal epsilon * stars");
-
-  /* Star formation should NOT be renormalized (plenty of gas) */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, new_stars, 1e-6,
-                           "NewStellarMass should not change when gas is sufficient");
-
-  /* Ejected mass should be non-negative */
-  TEST_ASSERT(test_galaxy.SupernovaEjectedMass >= 0.0, "Ejected mass should be non-negative");
-
+    TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaReheatedMass, rows[i].epsilon * rows[i].stars,
+                             1e-12, "Reheated mass should equal epsilon * stars");
+    TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, rows[i].stars, 1e-12,
+                             "NewStellarMass should not change when gas is sufficient");
+    const double expected_ejected =
+        expected_ejection(rows[i].epsilon, rows[i].eta, rows[i].central_vvir, rows[i].stars);
+    TEST_ASSERT(rows[i].ejects ? expected_ejected > 0.0 : expected_ejected == 0.0,
+                "the row is as constructed");
+    TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, expected_ejected, 1e-10,
+                             "Ejected mass should match the central-Vvir formula");
+  }
   return TEST_PASS;
 }
 
@@ -428,59 +383,13 @@ int test_renormalization_triggered(void) {
 }
 
 /**
- * @test    test_renormalization_boundary
- * @brief   Test boundary case: stars + reheating = ColdGas exactly
- *
- * Expected: No renormalization needed (or scale factor = 1.0)
- * Validates: Boundary condition handling
- */
-int test_renormalization_boundary(void) {
-  /* ===== SETUP ===== */
-  init_test_constants();
-  set_test_model_parameters();
-
-  int init_result = sage_calculate_supernova_feedback_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo;
-  struct GalaxyData test_galaxy;
-  struct Halo central_halo;
-  struct GalaxyData central_galaxy;
-
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 150.0, 100.0, 0.0);
-
-  /* Setup: Exactly enough cold gas */
-  double new_stars = 1.0;                              /* 1e10 Msun/h */
-  double expected_reheated = test_epsilon * new_stars; /* 3.0 */
-  double cold_gas = new_stars + expected_reheated;     /* 4.0 */
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 150.0, cold_gas, new_stars);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.01);
-
-  /* ===== EXECUTE ===== */
-  int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* No renormalization should occur (or scale factor = 1.0) */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, new_stars, 1e-6,
-                           "NewStellarMass should not change at boundary");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaReheatedMass, expected_reheated, 1e-6,
-                           "Reheated mass should equal epsilon * stars");
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_ejection_calculation
- * @brief   Test ejection mass calculation based on central Vvir
+ * @brief   Ejection mass of a satellite is set by the central's Vvir, not its own
  *
- * Physics: ejected = (eta * EnergySN / Vvir^2 - epsilon) * stars
- *
- * Expected: Ejection depends on central's Vvir (energy required to escape)
- * Validates: Ejection formula and central galaxy access
+ * Physics: ejected = (eta * EnergySN / Vvir^2 - epsilon) * stars, with the FoF central's Vvir
+ * (100 km/s: an energy term of 7.5 against epsilon 3, so 4.5 stars-worth ejected). The
+ * satellite's own Vvir (200 km/s) would give an energy term of 1.9, below epsilon, and no
+ * ejection at all, so using the wrong Vvir fails.
  */
 int test_ejection_calculation(void) {
   /* ===== SETUP ===== */
@@ -495,13 +404,14 @@ int test_ejection_calculation(void) {
   struct Halo central_halo;
   struct GalaxyData central_galaxy;
 
-  /* Setup central with known Vvir */
-  double central_vvir = 200.0; /* km/s */
+  /* Setup central with the Vvir the ejection must use */
+  const double central_vvir = 100.0; /* km/s */
   setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, central_vvir, 100.0, 0.0);
 
-  /* Setup test galaxy */
-  double new_stars = 1.0;
-  setup_test_halo(&test_halo, &test_galaxy, 1, 10.0, 100.0, 100.0, new_stars);
+  /* Setup test galaxy: a satellite with a deeper potential of its own */
+  const double new_stars = 1.0;
+  const double own_vvir = 200.0; /* km/s */
+  setup_test_halo(&test_halo, &test_galaxy, 1, 10.0, own_vvir, 100.0, new_stars);
 
   struct ModuleContext ctx;
   setup_module_context(&ctx, &central_halo, 0.01);
@@ -512,65 +422,13 @@ int test_ejection_calculation(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Module process should succeed");
 
-  /* Calculate expected ejection */
-  double energy_term =
-      test_eta * (eta_sn_code_test * energy_sn_code_test) / (central_vvir * central_vvir);
-  double expected_ejected = (energy_term - test_epsilon) * new_stars;
-
-  /* Ejection can be negative (clamped to zero) */
-  if (expected_ejected < 0.0) {
-    expected_ejected = 0.0;
-  }
-
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, expected_ejected, 1e-4,
-                           "Ejected mass should match formula");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_negative_ejection_clamped
- * @brief   Test that negative ejection is clamped to zero
- *
- * Physics: When energy term < epsilon, ejection would be negative
- *
- * Expected: Ejected mass clamped to 0.0
- * Validates: Non-negative constraint enforcement
- */
-int test_negative_ejection_clamped(void) {
-  /* ===== SETUP ===== */
-  init_test_constants();
-  set_test_model_parameters();
-
-  int init_result = sage_calculate_supernova_feedback_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo;
-  struct GalaxyData test_galaxy;
-  struct Halo central_halo;
-  struct GalaxyData central_galaxy;
-
-  /* Setup central with VERY HIGH Vvir (low escape probability) */
-  double central_vvir = 1000.0; /* km/s - very massive halo */
-  setup_test_halo(&central_halo, &central_galaxy, 0, 1000.0, central_vvir, 100.0, 0.0);
-
-  /* Setup test galaxy */
-  double new_stars = 1.0;
-  setup_test_halo(&test_halo, &test_galaxy, 1, 10.0, 100.0, 100.0, new_stars);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.01);
-
-  /* ===== EXECUTE ===== */
-  int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* With very high Vvir, energy_term will be very small, making ejection negative */
-  /* Module should clamp to zero */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, 0.0, 1e-9,
-                           "Negative ejection should be clamped to zero");
+  const double expected_ejected =
+      expected_ejection(test_epsilon, test_eta, central_vvir, new_stars);
+  TEST_ASSERT(expected_ejected > 0.0, "the central's potential ejects gas");
+  TEST_ASSERT(expected_ejection(test_epsilon, test_eta, own_vvir, new_stars) == 0.0,
+              "the satellite's own potential would eject none");
+  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, expected_ejected, 1e-10,
+                           "Ejected mass should match the central-Vvir formula");
 
   return TEST_PASS;
 }
@@ -578,96 +436,6 @@ int test_negative_ejection_clamped(void) {
 // ============================================================================
 // EDGE CASE TESTS
 // ============================================================================
-
-/**
- * @test    test_zero_stellar_mass
- * @brief   Test edge case: no star formation
- *
- * Expected: Zero feedback (no stars = no supernovae)
- * Validates: Handles zero input correctly
- */
-int test_zero_stellar_mass(void) {
-  /* ===== SETUP ===== */
-  init_test_constants();
-  set_test_model_parameters();
-
-  int init_result = sage_calculate_supernova_feedback_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo;
-  struct GalaxyData test_galaxy;
-  struct Halo central_halo;
-  struct GalaxyData central_galaxy;
-
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 150.0, 100.0, 0.0);
-
-  /* No star formation */
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 150.0, 100.0, 0.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.01);
-
-  /* ===== EXECUTE ===== */
-  int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
-
-  /* Zero stars should produce zero feedback */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaReheatedMass, 0.0, 1e-9,
-                           "Zero stars should produce zero reheating");
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, 0.0, 1e-9,
-                           "Zero stars should produce zero ejection");
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_vvir
- * @brief   Test edge case: central galaxy has zero Vvir
- *
- * Expected: Skip ejection calculation (or handle gracefully)
- * Validates: Division by zero protection
- */
-int test_zero_vvir(void) {
-  /* ===== SETUP ===== */
-  init_test_constants();
-  set_test_model_parameters();
-
-  int init_result = sage_calculate_supernova_feedback_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo;
-  struct GalaxyData test_galaxy;
-  struct Halo central_halo;
-  struct GalaxyData central_galaxy;
-
-  /* Central with Vvir = 0 (edge case) */
-  setup_test_halo(&central_halo, &central_galaxy, 0, 0.0, 0.0, 100.0, 0.0);
-
-  /* Test galaxy with star formation */
-  setup_test_halo(&test_halo, &test_galaxy, 1, 10.0, 100.0, 100.0, 1.0);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.01);
-
-  /* ===== EXECUTE ===== */
-  int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module should handle zero Vvir gracefully");
-
-  /* Module skips ejection calculation when Vvir == 0 */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, 0.0, 1e-9,
-                           "Zero Vvir should produce zero ejection");
-
-  /* Reheating should still occur (doesn't depend on Vvir) */
-  double expected_reheated = test_epsilon * test_galaxy.NewStellarMass;
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaReheatedMass, expected_reheated, 1e-6,
-                           "Reheating should occur even with zero Vvir");
-
-  return TEST_PASS;
-}
 
 /**
  * @test    test_null_galaxy_pointer
@@ -701,50 +469,6 @@ int test_null_galaxy_pointer(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_very_low_cold_gas
- * @brief   Test edge case: very low cold gas mass
- *
- * Expected: Renormalization produces very small stars and reheating
- * Validates: Numerical stability with small values
- */
-int test_very_low_cold_gas(void) {
-  /* ===== SETUP ===== */
-  init_test_constants();
-  set_test_model_parameters();
-
-  int init_result = sage_calculate_supernova_feedback_init();
-  TEST_ASSERT(init_result == 0, "Module initialization should succeed");
-
-  struct Halo test_halo;
-  struct GalaxyData test_galaxy;
-  struct Halo central_halo;
-  struct GalaxyData central_galaxy;
-
-  setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 150.0, 100.0, 0.0);
-
-  /* Very low cold gas, moderate star formation */
-  double new_stars = 1.0;
-  double cold_gas = 0.001; /* 1e7 Msun/h - very small */
-  setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 150.0, cold_gas, new_stars);
-
-  struct ModuleContext ctx;
-  setup_module_context(&ctx, &central_halo, 0.01);
-
-  /* ===== EXECUTE ===== */
-  int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module should handle very low cold gas");
-
-  /* Stars + reheating should be renormalized to cold_gas */
-  double total = test_galaxy.NewStellarMass + test_galaxy.SupernovaReheatedMass;
-  TEST_ASSERT(total <= cold_gas + 1e-9,
-              "Total should not exceed cold gas even for very small values");
-
-  return TEST_PASS;
-}
-
 // ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
@@ -766,25 +490,17 @@ int main(void) {
 
   /* Software quality tests */
   printf("\n%s--- Software Quality Tests ---%s\n", BLUE, NC);
-  TEST_RUN(test_module_registration);
   TEST_RUN(test_module_initialization);
-  TEST_RUN(test_parameter_reading);
-  TEST_RUN(test_memory_safety);
 
   /* Physics calculation tests */
   printf("\n%s--- Physics Calculation Tests ---%s\n", BLUE, NC);
-  TEST_RUN(test_basic_reheating_calculation);
+  TEST_RUN(test_fixed_epsilon_budgets);
   TEST_RUN(test_renormalization_triggered);
-  TEST_RUN(test_renormalization_boundary);
   TEST_RUN(test_ejection_calculation);
-  TEST_RUN(test_negative_ejection_clamped);
 
   /* Edge case tests */
   printf("\n%s--- Edge Case Tests ---%s\n", BLUE, NC);
-  TEST_RUN(test_zero_stellar_mass);
-  TEST_RUN(test_zero_vvir);
   TEST_RUN(test_null_galaxy_pointer);
-  TEST_RUN(test_very_low_cold_gas);
 
   /* Print summary and return result */
   TEST_SUMMARY();

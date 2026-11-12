@@ -49,6 +49,7 @@ In turn, with `EnhancedStarFormationOn 1`, `sage26_determine_ffb_regime`'s `init
 
 ## Tests
 
-- `_tests/test_unit_sage26_ffb_star_formation.c`: each case compares the galaxy and its central with SAGE26's transaction written out in the test, covering the stars and yield used, the pre-commit metallicity, the invalid FIRE scaling, the H I block, the guards, satellites routed by the central's regime, no instability, the no-op states, the redshift-table refusal, every parameter refusal and misplacement, and the rest of the chain writing nothing on an FFB galaxy.
-- `_tests/test_integration_sage26_ffb_star_formation.py`: runs the module in Mimic and checks the no-op at `EnhancedStarFormationOn 0`, the written domain at 1, and that `init()` refusals and the cross-module guards reach the run's exit status.
+- `_tests/test_unit_sage26_ffb_star_formation.c`: each case compares the galaxy and its central with SAGE26's transaction written out in the test, covering the stars and yield used, the pre-commit metallicity, the invalid FIRE scaling, the H I block, the guards, satellites routed by the central's regime, no instability, the no-op states, the redshift-table refusal, and the rest of the chain writing nothing on an FFB galaxy.
+- `_tests/test_integration_sage26_ffb_star_formation.py`: runs the module in Mimic and checks the no-op at `EnhancedStarFormationOn 0` and the written domain at 1.
 - The shared helpers are tested by `shared/_tests/test_unit_sage_ffb_shared_helpers.c`.
+- The parameter refusals, the placement checks and the cross-module dispatch guards are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c` and `../_tests/test_unit_sage_dependency_contracts.c`.

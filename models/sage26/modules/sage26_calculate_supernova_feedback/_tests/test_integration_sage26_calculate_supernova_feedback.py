@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
-SAGE Calculate Supernova Feedback Module - Integration Test
+SAGE26 Calculate Supernova Feedback Module - Integration Test
 
-Validates: Module lifecycle, configuration, pipeline integration, and physics correctness
+Validates: the module end to end, on a pipeline that supplies cold gas
 
-This test validates both software quality and physics correctness:
+The pipeline is the one sage26_calculate_star_formation's integration test uses: the disk scale
+radius, reionization, infall and cooling (with radio-mode heating) feed the disk before the
+star-formation chain, and sage26_finalize_cooling_heating turns the reheated mass accumulated in
+SupernovaOutflowRate into the rate it is written as (Msun/yr). Each case requires star formation
+to have happened, so none can pass on an empty disk. FIREmodeOn is 0 (the fixed-epsilon feedback)
+and SFprescription 0. Three Mimic runs, one per configuration:
 
-**Software Quality Tests**:
-- Module loads and initializes correctly
-- Parameters can be configured via YAML files
-- Module executes without errors or memory leaks
-- Module works in pipeline with sage26_calculate_star_formation
+  - the standard run (FeedbackReheatingEpsilon 3, FeedbackEjectionEfficiency 0.3)
+  - the same with FeedbackEjectionEfficiency 0, the control that shows ejection
+  - a high-efficiency run (epsilon 50, eta 10), where the renormalisation binds
 
-**Physics Validation Tests** run on a pipeline that supplies cold gas (as
-sage26_calculate_star_formation's integration test does): the disk scale radius, reionization,
-infall and cooling (with radio-mode heating) feed the disk before the star-formation chain, and
-sage26_finalize_cooling_heating turns the reheated mass accumulated in SupernovaOutflowRate into the
-rate it is written as (Msun/yr). Each requires star formation to have happened, so none can pass on
-an empty disk:
-- Feedback properties have physically reasonable values
-- Feedback is proportional to star formation
-- Mass conservation (implicit in renormalization)
-- Non-negative constraints enforced
-- Edge cases produce expected behavior
+Test cases:
+  - test_feedback_reasonable_magnitude: on every star-forming row the outflow rate is exactly
+    epsilon times the star formation rate (scaled by the rows' time intervals); no outflow without
+    star formation; the run is leak-free
+  - test_edge_case_very_high_efficiency: the same exact relation at epsilon 50, which holds only
+    if the renormalisation kept the reheated mass within the cold gas
+  - test_ejection_efficiency_sensitivity: FeedbackEjectionEfficiency 0.3 ejects gas into EjectedGas
+    on some rows and 0 ejects none
 
 Reference: Croton et al. (2006, 2016) - SAGE model
 
@@ -30,7 +30,6 @@ Author: Mimic Development Team
 Date: 2025-12-18 (Refactored for comprehensive physics validation)
 """
 
-import shutil
 import sys
 from pathlib import Path
 
@@ -40,25 +39,27 @@ import numpy as np
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
-    BLUE,
-    GREEN,
     MIMIC_EXE,
-    NC,
-    RED,
+    SharedRuns,
     TestSkipped,
     check_no_memory_leaks,
-    create_test_param_file,
     load_binary_halos,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_mimic,
+    run_test_suite,
 )
 
-# The physics tests' pipeline. Without the disk scale radius no disk forms stars, and without
-# infall and cooling the disk holds no cold gas, so neither star formation nor its feedback
-# happens. SupernovaOutflowRate accumulates the reheated mass undivided; only
+RUNS = SharedRuns()
+
+RECYCLE_FRACTION = 0.43
+
+# One substep per snapshot interval (the harness default, set explicitly because drained_rows()
+# below depends on it): StarFormationRate * dT is the stars formed over the whole interval, which
+# bounds the cold gas left only when the interval is a single substep. With more substeps a row
+# could be left with less cold gas than RecycleFraction times the interval's stars.
+SUBSTEPS = 1
+
+# The pipeline. Without the disk scale radius no disk forms stars, and without infall and cooling
+# the disk holds no cold gas, so neither star formation nor its feedback happens.
+# SupernovaOutflowRate accumulates the reheated mass undivided; only
 # sage26_finalize_cooling_heating divides it by the snapshot interval, making it the rate in
 # Msun/yr it is written as (model_properties.yaml).
 PHYSICS_PHASES = {
@@ -80,397 +81,49 @@ PHYSICS_PHASES = {
     "post_timestep": [("sage26_finalize_cooling_heating", "process_full_halo")],
 }
 
-# The gas supply's keys (SFprescription 0)
-SUPPLY_PARAMS = {
-    "GlobalBaryonFraction": 0.17,
-    "AGNrecipe": 2,
-    "RadioModeEfficiency": 0.08,
-    "BulgeSizeOn": 0,
-}
 
-# ============================================================================
-# SOFTWARE QUALITY TESTS
-# ============================================================================
+def feedback_params(epsilon, eta):
+    """Every key the pipeline reads, with the feedback's FeedbackReheatingEpsilon and eta."""
+    return {
+        # The gas supply (SFprescription 0)
+        "GlobalBaryonFraction": 0.17,
+        "AGNrecipe": 2,
+        "RadioModeEfficiency": 0.08,
+        "BulgeSizeOn": 0,
+        # Required by the SF module (SFprescription also by the apply step)
+        "SFprescription": 0,
+        "CGMrecipeOn": 0,  # required (the CGM recipe off)
+        "H2RadialIntegrationOn": 1,
+        "H2RadialNBins": 25,
+        "H2RadialRMaxFactor": 5.0,
+        "SfrEfficiency": 0.02,
+        "StarFormingDiskFactor": 3.0,
+        "FeedbackReheatingEpsilon": epsilon,
+        "FeedbackEjectionEfficiency": eta,
+        "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
+        "RecycleFraction": RECYCLE_FRACTION,
+    }
 
 
-def test_module_loads():
-    """Test that sage26_calculate_supernova_feedback module loads and initializes"""
-    print(f"\n{BLUE}TEST: Module loads and initializes{NC}")
+STANDARD = feedback_params(3.0, 0.3)
+NO_EJECTION = feedback_params(3.0, 0.0)
+HIGH_EFFICIENCY = feedback_params(50.0, 10.0)
 
-    # Need star formation first to provide NewStellarMass
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_load",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
 
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
+def run_z0(name, model_params):
+    """Run the pipeline once under `name`; return (halos at z = 0, stdout, stderr)."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    run = RUNS.run(name, phase_config=PHYSICS_PHASES, model_params=model_params, substeps=SUBSTEPS)
+    assert run.returncode == 0, f"Mimic should execute successfully\nSTDERR: {run.stderr}"
+    output_file = run.output_dir / "model_z0.000_0"
     assert output_file.exists(), "Output file should exist"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Module loads and initializes successfully{NC}")
-
-
-def test_output_properties_exist():
-    """Test that feedback properties appear in output"""
-    print(f"\n{BLUE}TEST: Feedback properties exist in output{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_properties",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Check that feedback field exists (SupernovaOutflowRate is the output property)
-    assert (
-        "SupernovaOutflowRate" in halos.dtype.names
-    ), "Output should have SupernovaOutflowRate field"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Feedback properties exist in output{NC}")
+    halos, _metadata = load_binary_halos(output_file)
+    return halos, run.stdout, run.stderr
 
 
-def test_parameters_configurable():
-    """Test that module parameters can be configured via YAML"""
-    print(f"\n{BLUE}TEST: Module parameters are configurable{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_params",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 5.0,  # Custom value
-            "FeedbackEjectionEfficiency": 0.8,  # Custom value
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute with custom parameters\nSTDERR: {stderr}"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Module parameters are configurable{NC}")
-
-
-def test_memory_safety():
-    """Test that module doesn't leak memory"""
-    print(f"\n{BLUE}TEST: No memory leaks{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_memory",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ No memory leaks detected{NC}")
-
-
-def test_execution_completes():
-    """Test that full pipeline execution completes successfully"""
-    print(f"\n{BLUE}TEST: Full pipeline execution completes{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_complete",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Pipeline should complete successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    assert output_file.exists(), "Output file should exist"
-    assert output_file.stat().st_size > 0, "Output file should have content"
-
-    halos, metadata = load_binary_halos(output_file)
-    assert len(halos) > 0, "Should have output halos"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Full pipeline execution completes{NC}")
-
-
-def test_pipeline_with_star_formation():
-    """Test that module integrates correctly with star formation module"""
-    print(f"\n{BLUE}TEST: Integration with star formation module{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_pipeline",
-        phase_config={
-            "pre_timestep": [],
-            "galaxy_physics": [
-                ("sage26_calculate_star_formation", "process_by_galaxy"),
-                ("sage26_calculate_supernova_feedback", "process_by_galaxy"),
-                ("sage26_apply_star_formation_supernova", "process_by_galaxy"),
-            ],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Pipeline should complete successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Both SF and feedback properties should exist
-    assert "StarFormationRate" in halos.dtype.names, "Should have StarFormationRate from SF module"
-    assert (
-        "SupernovaOutflowRate" in halos.dtype.names
-    ), "Should have SupernovaOutflowRate from feedback module"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Integration with star formation module works{NC}")
-
-
-# ============================================================================
-# PHYSICS VALIDATION TESTS
-# ============================================================================
-
-
-def test_feedback_values_nonnegative():
-    """Test that feedback values are non-negative"""
-    print(f"\n{BLUE}TEST: Feedback values are non-negative{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_nonnegative",
-        phase_config=PHYSICS_PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # SupernovaOutflowRate should be non-negative
-    snfb = halos["SupernovaOutflowRate"]
-    assert np.all(snfb >= 0.0), "SupernovaOutflowRate should be non-negative"
-
-    assert np.sum(snfb > 0.0) > 0, "star formation should drive some feedback"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Feedback values are non-negative{NC}")
-
-
-def test_feedback_proportional_to_sf():
-    """Test that feedback is proportional to star formation"""
-    print(f"\n{BLUE}TEST: Feedback proportional to star formation{NC}")
-
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_proportional",
-        phase_config=PHYSICS_PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    sfr = halos["StarFormationRate"]
-    snfb = halos["SupernovaOutflowRate"]
-
-    # Galaxies with star formation should have feedback
-    has_sf = sfr > 0.0
-    assert np.any(has_sf), "some galaxies should form stars (the pipeline supplies cold gas)"
-    # All star-forming galaxies should have feedback
-    assert np.all(snfb[has_sf] > 0.0), "Galaxies with star formation should have supernova feedback"
-    print(f"  Found {np.sum(has_sf)} star-forming galaxies with feedback")
-
-    # Galaxies without star formation should have zero feedback
-    no_sf = sfr == 0.0
-    assert np.any(no_sf), "some galaxies should form no stars"
-    assert np.all(
-        snfb[no_sf] == 0.0
-    ), "Galaxies without star formation should have zero supernova feedback"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Feedback is proportional to star formation{NC}")
-
-
-def test_feedback_reasonable_magnitude():
-    """Test that feedback values are physically reasonable
+def assert_outflow_relation(halos, epsilon):
+    """Assert the exact outflow relation on star-forming rows, and no outflow elsewhere.
 
     With FIREmodeOn 0 the reheated mass is FeedbackReheatingEpsilon times the stars formed, both
     scaled together when they exceed the cold gas (sage26_calculate_supernova_feedback), and the
@@ -483,46 +136,15 @@ def test_feedback_reasonable_magnitude():
 
     (both fields share the writer conversion to Msun/yr), and the ratio of the two rates is
     epsilon on a central and epsilon * dT(row) / dT(central) on a satellite carried from an older
-    snapshot. This replaces a bound on SupernovaOutflowRate / StarFormationRate taken without
-    sage26_finalize_cooling_heating, where SupernovaOutflowRate still held a mass, so the ratio
-    was not dimensionless.
+    snapshot. Were the renormalisation missing, a row whose stars and reheated mass exceed its
+    cold gas would have its reheated mass clamped by the apply step, and the relation would fail
+    there. Rows without star formation have no outflow.
     """
-    print(f"\n{BLUE}TEST: Feedback has reasonable magnitude{NC}")
+    sfr = halos["StarFormationRate"].astype(np.float64)
+    snfb = halos["SupernovaOutflowRate"].astype(np.float64)
+    assert np.all(np.isfinite(snfb)), "SupernovaOutflowRate should be finite"
+    assert np.all(snfb >= 0.0), "SupernovaOutflowRate should be non-negative"
 
-    # Use high efficiency to ensure we get feedback
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_magnitude",
-        phase_config=PHYSICS_PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 3.0,  # epsilon = 3
-            "FeedbackEjectionEfficiency": 0.3,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    sfr = halos["StarFormationRate"]
-    snfb = halos["SupernovaOutflowRate"]
-
-    # For star-forming galaxies, SupernovaOutflowRate * dT(central) = epsilon * SFR * dT(row)
-    epsilon = 3.0
     has_sf = sfr > 0.0
     assert np.any(has_sf), "some galaxies should form stars (the pipeline supplies cold gas)"
     dt = halos["dT"].astype(np.float64)
@@ -534,8 +156,8 @@ def test_feedback_reasonable_magnitude():
         central_ids[order][position] == halos["UniqueCentralGalaxyID"]
     ), "every row's FoF central should be written"
     central_dt = dt[centrals][order][position]
-    outflow = snfb[has_sf].astype(np.float64) * central_dt[has_sf]
-    expected = epsilon * sfr[has_sf].astype(np.float64) * dt[has_sf]
+    outflow = snfb[has_sf] * central_dt[has_sf]
+    expected = epsilon * sfr[has_sf] * dt[has_sf]
     # 1e-5 relative: both are float stores
     off = np.abs(outflow - expected) > 1e-5 * expected
     assert not np.any(off), (
@@ -543,259 +165,91 @@ def test_feedback_reasonable_magnitude():
         f"epsilon * StarFormationRate * dT (largest relative error "
         f"{np.max(np.abs(outflow / expected - 1.0)):.3e})"
     )
-    feedback_ratio = snfb[has_sf] / sfr[has_sf]
-    print(f"  Feedback ratio range: {np.min(feedback_ratio):.4f} - {np.max(feedback_ratio):.4f}")
+    print(f"  {int(np.sum(has_sf))} star-forming rows satisfy the relation at epsilon {epsilon}")
 
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Feedback has reasonable magnitude{NC}")
+    no_sf = ~has_sf
+    assert np.any(no_sf), "some galaxies should form no stars"
+    assert np.all(snfb[no_sf] == 0.0), "Galaxies without star formation should have no outflow"
 
 
-def test_edge_case_zero_efficiency():
-    """Test edge case: zero feedback efficiency"""
-    print(f"\n{BLUE}TEST: Edge case - zero feedback efficiency{NC}")
+def drained_rows(halos):
+    """Return the ratio of ColdGas to RecycleFraction times the stars formed, on star-forming rows.
 
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_zero_efficiency",
-        phase_config=PHYSICS_PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 0.0,  # Zero reheating
-            "FeedbackEjectionEfficiency": 0.0,  # Zero ejection
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
+    Star formation takes (1 - RecycleFraction) of the stars formed out of the cold gas and
+    feedback takes the reheated mass, so a row whose stars and reheated mass use up the cold gas
+    (the renormalisation binds, stars + reheated = cold gas) is left with exactly
+    RecycleFraction times the stars formed (the stars are in 10^6 Msun per Msun/yr and Myr, a
+    factor 10^-4 to the code's 10^10 Msun, as in sage26_calculate_star_formation's integration
+    test). At SUBSTEPS 1 a row cannot be left with less: without the renormalisation the apply
+    step would clamp the reheated mass at the cold gas left after star formation and the cold gas
+    would be 0.
+    """
+    sfr = halos["StarFormationRate"].astype(np.float64)
+    has_sf = sfr > 0.0
+    formed = sfr[has_sf] * halos["dT"].astype(np.float64)[has_sf] * 1e-4
+    return halos["ColdGas"].astype(np.float64)[has_sf] / (RECYCLE_FRACTION * formed)
 
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should handle zero efficiency\nSTDERR: {stderr}"
 
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
+def test_feedback_reasonable_magnitude():
+    """Feedback has the magnitude epsilon times the star formation rate, and the run is leak-free
 
-    assert np.any(halos["StarFormationRate"] > 0.0), "some galaxies should form stars"
-
-    # With FIREmodeOn 0 the reheated mass is FeedbackReheatingEpsilon times the stars formed, so
-    # at epsilon 0 it is exactly zero and the outflow rate it feeds is exactly zero
-    snfb = halos["SupernovaOutflowRate"]
-    assert np.all(
-        snfb == 0.0
-    ), f"zero efficiency must give zero outflow, got max={np.max(snfb):.3e}"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Edge case - zero feedback efficiency handled correctly{NC}")
+    At FeedbackReheatingEpsilon 3 the outflow rate satisfies the exact relation of
+    assert_outflow_relation on every star-forming row, and is zero on rows without star formation.
+    """
+    halos, stdout, stderr = run_z0("snfb_standard", STANDARD)
+    assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
+    assert_outflow_relation(halos, 3.0)
+    assert np.min(drained_rows(halos)) > 1.0 - 1e-4, "stars and reheating exceed the cold gas"
 
 
 def test_edge_case_very_high_efficiency():
-    """Test edge case: very high feedback efficiency"""
-    print(f"\n{BLUE}TEST: Edge case - very high feedback efficiency{NC}")
+    """The exact outflow relation holds at epsilon 50, where the renormalisation binds
 
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="snfb_high_efficiency",
-        phase_config=PHYSICS_PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 50.0,  # Very high reheating
-            "FeedbackEjectionEfficiency": 10.0,  # Very high ejection
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic should handle high efficiency\nSTDERR: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(output_file)
-
-    # Should still produce valid output
-    assert np.any(halos["StarFormationRate"] > 0.0), "some galaxies should form stars"
-    snfb = halos["SupernovaOutflowRate"]
-    assert np.all(snfb >= 0.0), "Feedback should be non-negative even with high efficiency"
-    assert np.all(np.isfinite(snfb)), "Feedback should be finite (no NaN/Inf)"
-
-    shutil.rmtree(temp_dir)
-    print(f"{GREEN}✓ Edge case - very high feedback efficiency handled correctly{NC}")
+    With epsilon 50 a galaxy's stars plus 50 times its stars exceed its cold gas almost
+    everywhere, so sage26_calculate_supernova_feedback rescales both. The relation of
+    assert_outflow_relation survives only because the rescaled budget fits in the cold gas, and
+    some rows are left with exactly the recycled stars as cold gas (drained_rows): their stars
+    and reheated mass used up the cold gas.
+    """
+    halos, _stdout, _stderr = run_z0("snfb_high_efficiency", HIGH_EFFICIENCY)
+    assert_outflow_relation(halos, 50.0)
+    left = drained_rows(halos)
+    assert np.min(left) > 1.0 - 1e-4, "stars and reheating exceed the cold gas"
+    drained = int(np.sum(np.abs(left - 1.0) < 1e-3))
+    assert drained > 0, "no row has its cold gas used up: the renormalisation never binds"
+    print(f"  {drained} rows have their cold gas used up by stars and reheating")
 
 
-def test_parameter_variation_effect():
-    """Test that changing parameters produces expected changes in output"""
-    print(f"\n{BLUE}TEST: Parameter variation effect{NC}")
+def test_ejection_efficiency_sensitivity():
+    """FeedbackEjectionEfficiency drives the gas that reaches EjectedGas
 
-    # Run 1: Low efficiency
-    param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
-        output_name="snfb_low_eff",
-        phase_config=PHYSICS_PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 1.0,  # Low
-            "FeedbackEjectionEfficiency": 0.1,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file_low)
-    assert returncode == 0, f"Low efficiency run should succeed\nSTDERR: {stderr}"
-
-    output_file_low = output_dir_low / "model_z0.000_0"
-    halos_low, _ = load_binary_halos(output_file_low)
-    snfb_low = halos_low["SupernovaOutflowRate"]
-
-    # Run 2: High efficiency
-    param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
-        output_name="snfb_high_eff",
-        phase_config=PHYSICS_PHASES,
-        model_params={
-            **SUPPLY_PARAMS,
-            # Required by the SF module (SFprescription also by the apply step)
-            "SFprescription": 0,
-            "CGMrecipeOn": 0,  # required (the CGM recipe off)
-            "H2RadialIntegrationOn": 1,
-            "H2RadialNBins": 25,
-            "H2RadialRMaxFactor": 5.0,
-            "SfrEfficiency": 0.02,
-            "StarFormingDiskFactor": 3.0,
-            "FeedbackReheatingEpsilon": 5.0,  # High
-            "FeedbackEjectionEfficiency": 0.5,
-            "FIREmodeOn": 0,  # required by the SN module (the fixed-epsilon feedback)
-            "RecycleFraction": 0.43,
-            "Yield": 0.025,
-            "FracZleaveDisk": 0.0,
-        },
-    )
-
-    returncode, stdout, stderr = run_mimic(param_file_high)
-    assert returncode == 0, f"High efficiency run should succeed\nSTDERR: {stderr}"
-
-    output_file_high = output_dir_high / "model_z0.000_0"
-    halos_high, _ = load_binary_halos(output_file_high)
-    snfb_high = halos_high["SupernovaOutflowRate"]
-
-    # Higher efficiency should produce higher feedback (on average)
-    # Compare mean feedback for star-forming galaxies
-    sfr_low = halos_low["StarFormationRate"]
-    sfr_high = halos_high["StarFormationRate"]
-
-    has_sf_low = sfr_low > 0.0
-    has_sf_high = sfr_high > 0.0
-
-    assert np.any(has_sf_low) and np.any(has_sf_high), "both runs should form stars"
-    mean_snfb_low = np.mean(snfb_low[has_sf_low])
-    mean_snfb_high = np.mean(snfb_high[has_sf_high])
-
-    # High efficiency should produce more feedback
-    assert mean_snfb_low > 0 and mean_snfb_high > 0, "both runs should drive feedback"
-    assert mean_snfb_high > mean_snfb_low, (
-        f"Higher efficiency should produce more feedback: "
-        f"low={mean_snfb_low:.3e}, high={mean_snfb_high:.3e}"
-    )
-    print(f"  Low efficiency mean: {mean_snfb_low:.3e}, High efficiency mean: {mean_snfb_high:.3e}")
-
-    shutil.rmtree(temp_dir_low)
-    shutil.rmtree(temp_dir_high)
-    print(f"{GREEN}✓ Parameter variation produces expected changes{NC}")
-
-
-# ============================================================================
-# MAIN TEST RUNNER
-# ============================================================================
+    Only sage26_calculate_supernova_feedback sends gas to EjectedGas in this pipeline, so with
+    FeedbackEjectionEfficiency 0 no row holds any, while at 0.3 ejection happens: the standard
+    run's EjectedGas is positive on some rows and none is negative.
+    """
+    standard, _stdout, _stderr = run_z0("snfb_standard", STANDARD)
+    control, _stdout, _stderr = run_z0("snfb_no_ejection", NO_EJECTION)
+    assert np.any(control["StarFormationRate"] > 0.0), "the control should form stars"
+    assert np.all(control["EjectedGas"] == 0.0), "eta 0 should eject no gas"
+    ejected = standard["EjectedGas"]
+    assert np.all(ejected >= 0.0), "EjectedGas should be non-negative"
+    assert np.any(ejected > 0.0), "eta 0.3 should eject gas on some rows"
+    print(f"  {int(np.sum(ejected > 0.0))} rows hold ejected gas at eta 0.3, none at eta 0")
 
 
 def main():
-    """Main test runner"""
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: {Path(__file__).name}{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    tests = [
-        test_module_loads,
-        test_output_properties_exist,
-        test_parameters_configurable,
-        test_memory_safety,
-        test_execution_completes,
-        test_pipeline_with_star_formation,
-        test_feedback_values_nonnegative,
-        test_feedback_proportional_to_sf,
-        test_feedback_reasonable_magnitude,
-        test_edge_case_zero_efficiency,
-        test_edge_case_very_high_efficiency,
-        test_parameter_variation_effect,
-    ]
-
-    if not MIMIC_EXE.exists():
-        for test in tests:
-            result_skip(test.__name__, "Mimic not built")
-        return 0
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    try:
+        return run_test_suite(
+            [
+                test_feedback_reasonable_magnitude,
+                test_edge_case_very_high_efficiency,
+                test_ejection_efficiency_sensitivity,
+            ],
+            "sage26_calculate_supernova_feedback",
+        )
+    finally:
+        RUNS.cleanup()
 
 
 if __name__ == "__main__":

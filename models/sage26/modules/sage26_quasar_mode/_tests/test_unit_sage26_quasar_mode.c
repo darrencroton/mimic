@@ -2,63 +2,46 @@
  * @file    test_unit_sage26_quasar_mode.c
  * @brief   Unit tests for sage26_quasar_mode module
  *
- * Validates: Quasar-mode AGN physics, BH growth, energy-driven winds, edge cases
+ * Validates: black-hole growth (Kauffmann & Haehnelt 2000), its guards and the quasar-mode wind of
+ * SAGE26's grow_black_hole, through both trigger channels (the disk instability's gas branch and
+ * the merger event).
  *
- * This test validates the sage26_quasar_mode module physics:
- * - Black hole growth from disk instability (Kauffmann & Haehnelt 2000)
- * - Vvir suppression at low masses (< 280 km/s)
- * - Mass conservation during accretion
- * - Metallicity preservation
- * - Quasar-mode wind ejection (cold and hot gas)
- * - Energy-driven wind physics
- * - Accretion mass tracking
- * - Edge cases (zero values, orphans, NULL galaxies, triggers)
- * - Parameter sensitivity
+ * Most cases run the module at SFprescription 0 and CGMrecipeOn 0. The tables are exact: every
+ * expected accretion is a literal computed by hand from BlackHoleGrowthRate * trigger /
+ * (1 + (280 / Vvir)^2) * ColdGas, never from the code under test.
  *
  * Test cases:
- *   - test_bh_growth_disk_instability: BH grows from disk instability
- *   - test_bh_growth_merger: By-galaxy path ignores merger flags
- *   - test_bh_growth_both_triggers: Disk trigger processed while merger trigger preserved
- *   - test_bh_growth_per_event_merger: Merger event processed in process_per_event mode
- *   - test_per_event_zero_ratio_accretes_nothing: a zero-ratio merger runs grow_black_hole
- *   - test_vvir_suppression: Low Vvir suppresses accretion
- *   - test_mass_conservation_accretion: Mass conserved
- *   - test_metallicity_preservation_accretion: Metallicity preserved
- *   - test_quasar_wind_cold_ejection: Cold gas ejection
- *   - test_quasar_wind_hot_ejection: Hot gas ejection
- *   - test_quasar_wind_no_ejection: No ejection when energy low
- *   - test_accretion_mass_tracking: QuasarModeBHaccretionMass tracks total
- *   - test_zero_cold_gas: No accretion with zero cold gas
- *   - test_zero_efficiency_factor: No accretion with zero efficiency
- *   - test_no_triggers: No processing without triggers
- *   - test_orphan_galaxy_skipped: Type 2 orphans skipped
- *   - test_null_galaxy: NULL galaxy handled
- *   - test_triggers_preserved: Trigger lifecycle owned by clear modules
- *   - test_invalid_ngal: Error when ngal != 1
- *   - test_parameter_sensitivity_growth_rate: Growth rate parameter
- *   - test_parameter_sensitivity_quasar_efficiency: Efficiency parameter
- *   - test_module_initialization: Module lifecycle
- *   - test_memory_safety: No memory leaks
+ *   - test_bh_growth_disk_instability: the instability channel grows the black hole by the exact
+ *     accretion; cold gas, cold metals (metallicity preserved), the accretion tracker and the
+ *     untouched trigger are asserted, and a wind too weak to eject leaves the other reservoirs
+ *   - test_accretion_formula: rows over Vvir (below, at and above 280 km/s), growth rate, the cap
+ *     at ColdGas (accretion above the cold gas) and a negative cold-metal reservoir floored at 0
+ *     after a real accretion, at QuasarModeEfficiency 0 so the wind leaves the rows alone
+ *   - test_per_event_zero_ratio_accretes_nothing: a zero-ratio merger runs grow_black_hole, which
+ *     still floors a negative MetalsColdGas
+ *   - test_no_triggers: a zero instability trigger does not run grow_black_hole (it leaves a
+ *     negative MetalsColdGas alone)
+ *   - test_process_guards: NULL galaxy, ngal != 1 (an error, state untouched) and ColdGas <= 0 (no
+ *     growth), for the instability channel and the merger event
  *   - test_hydrogen_cap_independent_strict: SFprescription 1 caps H2gas and H1gas each on its own,
  *     strictly, at the float 0.74 of the cold gas the accretion leaves
  *   - test_hydrogen_cap_off_prescription_zero: SFprescription 0 leaves H2gas and H1gas alone
  *   - test_hydrogen_cap_then_wind_no_refresh: the cap precedes the wind, which refreshes nothing
- *   - test_hydrogen_cap_module_wiring: the module passes its SFprescription 1 to the growth
- *   - test_hydrogen_cap_module_wiring_per_event: the merger channel passes it too
+ *   - test_hydrogen_cap_module_wiring: each channel passes the module's SFprescription to the
+ *     growth (0 leaves the hydrogen alone, 1 caps it)
  *   - test_cgm_wind_energy_tests: CGMrecipeOn 1 against 0 on the same input, through both channels
  *     (the instability and the merger event): the wind's cold test and its second test on the
  *     WIND HOST's CGM pair (host Regime 0) or hot pair (Regime 1, or CGMrecipeOn 0), ejecting both,
  *     only the cold gas (the original cold binding energy in the second test) or nothing; the FoF
  *     central always holds the other Regime and is untouched; the unselected pair unchanged
- *   - test_cgm_recipe_on_refused: CGMrecipeOn is required and only 0 or 1 accepted
- *   - test_agn_recipe_off_merger_event: AGNrecipe 0 grows no black hole after a merger
- *   - test_agn_recipe_off_disk_instability: AGNrecipe 0 grows no black hole in the instability's
- *     gas branch
- *   - test_agn_recipe_refused: the module loads AGNrecipe through the package's validator, which
- *     refuses 1
+ *   - test_agn_recipe_channels: AGNrecipe 0 grows no black hole in either channel, AGNrecipe 2
+ *     grows it by the exact accretion in the same setup
+ *   - test_module_initialization: module_system_init accepts the module in its by-galaxy phase
  *
- * The five hydrogen-cap tests assert the cap's invariants from the package's own float
- * arithmetic.
+ * The module's CGMrecipeOn and AGNrecipe refusals are asserted, with diagnostics, by
+ * test_unit_sage26_parameter_refusals.c.
+ *
+ * The hydrogen-cap cases assert the cap's invariants from the package's own float arithmetic.
  *
  * @author  Mimic Development Team
  * @date    2025-12-23
@@ -157,10 +140,10 @@ static void setup_test_parameters(double growth_rate, double quasar_efficiency) 
   sage26_test_append_model_parameter("AGNrecipe", "2"); /* required: 0 or 2 */
 }
 
-/** @brief Set the parameter list's AGNrecipe (setup_test_parameters adds it) to `value` */
-static void set_agn_recipe(const char *value) {
+/** @brief Set the parameter list's `name` (setup_test_parameters adds it) to `value` */
+static void set_model_parameter(const char *name, const char *value) {
   for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, "AGNrecipe") == 0) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, name) == 0) {
       snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%s", value);
     }
   }
@@ -186,49 +169,65 @@ static void setup_test_context(struct ModuleContext *ctx) {
   MimicConfig.Hubble_h = 0.73;
 }
 
+/** @brief A merger event of the given mass ratio, onto target 0 from source 1 */
+static struct ModuleEvent merger_event(const double ratio) {
+  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
+                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                              .source_index = 1,
+                              .target_index = 0,
+                              .value0 = ratio,
+                              .value1 = 0.0};
+  return event;
+}
+
+/** @brief Whether `got` is within `tol` of `want` */
+static int is_close(const double got, const double want, const double tol) {
+  return fabs(got - want) <= tol;
+}
+
 // ============================================================================
 // PHYSICS CALCULATION TESTS
 // ============================================================================
 
 /**
  * @test    test_bh_growth_disk_instability
- * @brief   Test BH growth from disk instability trigger
+ * @brief   The instability channel grows the black hole by the exact Kauffmann & Haehnelt
+ *          accretion and moves exactly that mass out of the cold gas
  *
- * Expected: BH mass increases, cold gas decreases, accretion tracked
- * Validates: Disk instability trigger physics
+ * Hand calculation: BlackHoleGrowthRate 0.01, trigger 0.5, Vvir 300, ColdGas 10 give
+ * 0.01 * 0.5 / (1 + (280 / 300)^2) * 10 = 0.02672209026128266. The cold metals fall by the
+ * metallicity (0.2 / 10 = 0.02) times that, 0.2 - 0.02 * 0.02672209026128266 =
+ * 0.19946555819477435, so the metallicity stays 0.02. The wind energy
+ * 0.001 * 0.1 * 0.0267 * (C / UnitVelocity)^2 is about 2.4e5, below the cold binding energy
+ * 0.5 * 9.97 * 300^2 of about 4.5e5, so nothing is ejected.
+ *
+ * The tolerances are the float storage of the reservoirs: about 1e-8 at the black-hole mass and
+ * tracker (0.01 to 0.04), 1e-6 at ColdGas (10) and 1e-7 at the cold metals (0.2).
+ *
+ * Expected: the exact accretion in BlackHoleMass, ColdGas, MetalsColdGas and the tracker; the
+ *           trigger unchanged
+ * Validates: Disk instability trigger physics, conservation, metallicity preservation, tracking
  */
 int test_bh_growth_disk_instability(void) {
   /* ===== SETUP ===== */
   init_memory_system(0);
   reset_config();
 
-  const double growth_rate = 0.01;
-  const double quasar_eff = 0.001;
-  setup_test_parameters(growth_rate, quasar_eff);
-
+  setup_test_parameters(0.01, 0.001);
   int result = sage26_quasar_mode_init();
   TEST_ASSERT(result == 0, "Module init should succeed");
 
-  /* Create massive central galaxy */
   struct Halo halo;
   struct GalaxyData gal;
-  const double mvir = 100.0; /* 10^12 Msun/h */
-  const double vvir = 300.0; /* Well above 280 km/s threshold */
-  const double cold_gas = 10.0;
-  const double metals_cold = 0.2; /* Z = 0.02 */
-  const double black_hole_mass = 0.01;
-
-  setup_test_galaxy(&halo, &gal, 0, mvir, vvir, cold_gas, metals_cold, 0.0, 0.0, black_hole_mass);
-
-  /* Set disk instability trigger */
-  gal.UnstableDiskGasFraction = 0.5; /* Disk instability efficiency */
+  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+  gal.UnstableDiskGasFraction = 0.5;
 
   struct ModuleContext ctx;
   setup_test_context(&ctx);
 
+  const double want_accrete = 0.02672209026128266;
   const double initial_bh_mass = gal.BlackHoleMass;
   const double initial_cold_gas = gal.ColdGas;
-  const double initial_accretion = gal.QuasarModeBHaccretionMass;
 
   /* ===== EXECUTE ===== */
   result = sage26_quasar_mode_process(&ctx, &halo, 1);
@@ -236,108 +235,20 @@ int test_bh_growth_disk_instability(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Process function should succeed");
 
-  /* BH should have grown */
-  TEST_ASSERT(gal.BlackHoleMass > initial_bh_mass, "BH mass should increase from disk instability");
-
-  /* Cold gas should decrease */
-  TEST_ASSERT(gal.ColdGas < initial_cold_gas, "Cold gas should decrease from BH accretion");
-
-  /* Mass conservation */
-  const double accreted = gal.BlackHoleMass - initial_bh_mass;
-  const double consumed = initial_cold_gas - gal.ColdGas;
-  TEST_ASSERT_DOUBLE_EQUAL(accreted, consumed, 1e-6,
-                           "Accreted mass should equal consumed cold gas");
-
-  /* Accretion tracking */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.QuasarModeBHaccretionMass - initial_accretion, accreted, 1e-6,
-                           "QuasarModeBHaccretionMass should track accretion");
-
-  /* Trigger lifecycle is owned by clear modules, not quasar_mode */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
-                           "Disk-instability trigger should remain unchanged");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_bh_growth_merger
- * @brief   Test merger trigger is ignored in quasar mode module
- *
- * Expected: BH mass unchanged (merger channel handled inline in merge module)
- * Validates: Channel separation between galaxy_physics and satellite_mergers trigger paths
- */
-int test_bh_growth_merger(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-
-  /* Set merger trigger */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_bh_mass = gal.BlackHoleMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh_mass, 1e-10,
-                           "BH mass should be unchanged when only merger trigger is set");
-
-  /* Trigger lifecycle is owned by clear modules, not quasar_mode */
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_bh_growth_both_triggers
- * @brief   Test BH growth when both triggers present
- *
- * Expected: Disk trigger is processed; merger trigger is preserved/ignored here
- * Validates: Disk-instability-only behavior in quasar module
- */
-int test_bh_growth_both_triggers(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-
-  /* Set both triggers */
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_bh_mass = gal.BlackHoleMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(gal.BlackHoleMass > initial_bh_mass,
-              "BH mass should increase from disk-instability trigger");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass - initial_bh_mass, want_accrete, 1e-8,
+                           "BlackHoleMass should grow by the Kauffmann & Haehnelt accretion");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, 10.0 - want_accrete, 1e-6,
+                           "ColdGas should fall by exactly the accretion");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass - initial_bh_mass, initial_cold_gas - gal.ColdGas,
+                           1e-6, "Accreted mass should equal consumed cold gas");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.QuasarModeBHaccretionMass, want_accrete, 1e-8,
+                           "QuasarModeBHaccretionMass should track the accretion");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.MetalsColdGas, 0.19946555819477435, 1e-7,
+                           "MetalsColdGas should fall by the cold metallicity times the accretion");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.MetalsColdGas / gal.ColdGas, 0.02, 1e-7,
+                           "The cold-gas metallicity should be preserved");
+  TEST_ASSERT(gal.EjectedGas == 0.0f && gal.HotGas == 0.0f,
+              "A wind below the cold binding energy ejects nothing");
 
   /* Trigger lifecycle is owned by clear modules, not quasar_mode */
   TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
@@ -351,50 +262,82 @@ int test_bh_growth_both_triggers(void) {
 }
 
 /**
- * @test    test_bh_growth_per_event_merger
- * @brief   Test BH growth from merger event in process_per_event path
+ * @test    test_accretion_formula
+ * @brief   The accretion BlackHoleGrowthRate * trigger / (1 + (280 / Vvir)^2) * ColdGas, its cap
+ *          at ColdGas and the cold-metal floor, row by row
  *
- * Expected: BH mass increases and cold gas decreases
- * Validates: process_per_event merger channel behavior
+ * QuasarModeEfficiency is 0, so the wind has no energy and ejects nothing: each row's ColdGas and
+ * MetalsColdGas come from the growth alone. Every accretion is a hand-computed literal (ColdGas
+ * 10, the rate and trigger shown):
+ *   Vvir 300:  0.01 * 0.5 / (1 + (280 / 300)^2) * 10 = 0.02672209026128266
+ *   Vvir 280:  0.01 * 0.5 / 2 * 10 = 0.025, exactly half of the unsuppressed rate
+ *   Vvir 100:  0.01 * 0.5 / (1 + 2.8^2) * 10 = 0.005656108597285069 (low Vvir suppresses)
+ *   Vvir 400:  0.01 * 0.5 / (1 + 0.7^2) * 10 = 0.03355704697986577
+ *   rate 0.005 and 0.02 at Vvir 300: half and twice the first row
+ *   cap:       0.5 * 4 / (1 + 0.28^2) * 10 = 18.5459940652819, above the ColdGas of 10, so the
+ *              accretion is the whole 10, the cold gas and cold metals reach 0
+ *   floor:     a cold-metal reservoir of -1e-9 (float cancellation) has metallicity 0, so the
+ *              debit leaves it negative and the floor sets it to exactly 0
+ * Cold metals fall by the cold metallicity 0.02 times the accretion: 0.2 * (1 - accretion / 10).
+ *
+ * The tolerances are the float storage of the reservoirs: 1e-5 relative at the accretion, 2e-6 at
+ * ColdGas (10) and 1e-7 at the cold metals (0.2).
+ *
+ * Expected: every row's accretion, ColdGas and MetalsColdGas, and nothing ejected
  */
-int test_bh_growth_per_event_merger(void) {
-  /* ===== SETUP ===== */
+int test_accretion_formula(void) {
+  const struct {
+    const char *name;
+    double rate, trigger, vvir;
+    float metals_cold;
+    double want_accrete, want_metals, metals_tol;
+  } rows[] = {
+      {"Vvir 300", 0.01, 0.5, 300.0, 0.2f, 0.02672209026128266, 0.19946555819477435, 1e-7},
+      {"Vvir 280", 0.01, 0.5, 280.0, 0.2f, 0.025, 0.1995, 1e-7},
+      {"Vvir 100", 0.01, 0.5, 100.0, 0.2f, 0.005656108597285069, 0.1998868778280543, 1e-7},
+      {"Vvir 400", 0.01, 0.5, 400.0, 0.2f, 0.03355704697986577, 0.19932885906040268, 1e-7},
+      {"rate 0.005", 0.005, 0.5, 300.0, 0.2f, 0.01336104513064133, 0.19973277909738718, 1e-7},
+      {"rate 0.02", 0.02, 0.5, 300.0, 0.2f, 0.05344418052256532, 0.19893111638954872, 1e-7},
+      {"cap at ColdGas", 0.5, 4.0, 1000.0, 0.2f, 10.0, 0.0, 1e-6},
+      {"metals floor", 0.01, 0.5, 300.0, -1.0e-9f, 0.02672209026128266, 0.0, 0.0},
+  };
+  int ok = 1;
   init_memory_system(0);
-  reset_config();
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+    reset_config();
+    setup_test_parameters(rows[r].rate, 0.0);
+    TEST_ASSERT(sage26_quasar_mode_init() == 0, "init must accept QuasarModeEfficiency 0");
 
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, rows[r].vvir, 10.0, rows[r].metals_cold, 0.0, 0.0,
+                      0.01);
+    gal.UnstableDiskGasFraction = rows[r].trigger;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+    const double initial_bh_mass = gal.BlackHoleMass;
 
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+    const int status = sage26_quasar_mode_process(&ctx, &halo, 1);
 
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                              .source_index = 1,
-                              .target_index = 0,
-                              .value0 = 0.3,
-                              .value1 = 0.0};
-  ctx.active_event = &event;
-
-  const double initial_bh = gal.BlackHoleMass;
-  const double initial_cold = gal.ColdGas;
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Per-event merger processing should succeed");
-  TEST_ASSERT(gal.BlackHoleMass > initial_bh, "BH mass should increase from merger event");
-  TEST_ASSERT(gal.ColdGas < initial_cold, "Cold gas should decrease from merger event");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
+    const double tol = 1e-5 * rows[r].want_accrete;
+    const int row_ok = status == 0 &&
+                       is_close(gal.QuasarModeBHaccretionMass, rows[r].want_accrete, tol) &&
+                       is_close(gal.BlackHoleMass - initial_bh_mass, rows[r].want_accrete, tol) &&
+                       is_close(gal.ColdGas, 10.0 - rows[r].want_accrete, 2e-6) &&
+                       is_close(gal.MetalsColdGas, rows[r].want_metals, rows[r].metals_tol) &&
+                       gal.EjectedGas == 0.0f;
+    if (!row_ok) {
+      printf("\n  %s: status %d, accretion %.9g (want %.9g), BlackHoleMass growth %.9g, ColdGas "
+             "%.9g, MetalsColdGas %.9g (want %.9g), EjectedGas %.9g",
+             rows[r].name, status, (double)gal.QuasarModeBHaccretionMass, rows[r].want_accrete,
+             gal.BlackHoleMass - initial_bh_mass, (double)gal.ColdGas, (double)gal.MetalsColdGas,
+             rows[r].want_metals, (double)gal.EjectedGas);
+      ok = 0;
+    }
+    sage26_quasar_mode_cleanup();
+  }
   check_memory_leaks();
-
+  TEST_ASSERT(ok, "each row's accretion, cold gas and cold metals must match its hand calculation");
   return TEST_PASS;
 }
 
@@ -461,406 +404,20 @@ int test_per_event_zero_ratio_accretes_nothing(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_vvir_suppression
- * @brief   Test that low Vvir suppresses BH accretion
- *
- * Expected: Less accretion at low Vvir (< 280 km/s)
- * Validates: Kauffmann & Haehnelt (2000) Vvir suppression
- */
-int test_vvir_suppression(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  /* Test 1: Low Vvir (100 km/s << 280 km/s) */
-  struct Halo halo_low;
-  struct GalaxyData gal_low;
-  setup_test_galaxy(&halo_low, &gal_low, 0, 10.0, 100.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal_low.UnstableDiskGasFraction = 0.5;
-
-  const double initial_bh_low = gal_low.BlackHoleMass;
-  sage26_quasar_mode_process(&ctx, &halo_low, 1);
-  const double accreted_low = gal_low.BlackHoleMass - initial_bh_low;
-
-  /* Test 2: High Vvir (400 km/s >> 280 km/s) */
-  struct Halo halo_high;
-  struct GalaxyData gal_high;
-  setup_test_galaxy(&halo_high, &gal_high, 0, 100.0, 400.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal_high.UnstableDiskGasFraction = 0.5;
-
-  const double initial_bh_high = gal_high.BlackHoleMass;
-  sage26_quasar_mode_process(&ctx, &halo_high, 1);
-  const double accreted_high = gal_high.BlackHoleMass - initial_bh_high;
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(accreted_high > accreted_low,
-              "High Vvir should produce more accretion than low Vvir");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_mass_conservation_accretion
- * @brief   Test mass conservation during BH accretion
- *
- * Expected: Mass from cold gas equals mass added to BH
- * Validates: Mass conservation
- */
-int test_mass_conservation_accretion(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_bh = gal.BlackHoleMass;
-  const double initial_cold = gal.ColdGas;
-  const double initial_total = initial_bh + initial_cold;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  const double final_total = gal.BlackHoleMass + gal.ColdGas;
-  TEST_ASSERT_DOUBLE_EQUAL(final_total, initial_total, 1e-6,
-                           "Total mass (BH + cold gas) should be conserved");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_metallicity_preservation_accretion
- * @brief   Test metallicity preservation during BH accretion
- *
- * Expected: Cold gas metallicity preserved after accretion
- * Validates: Metallicity handling
- */
-int test_metallicity_preservation_accretion(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double cold_gas = 10.0;
-  const double metals_cold = 0.5; /* Z = 0.05 */
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, cold_gas, metals_cold, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_metallicity = metals_cold / cold_gas;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  if (gal.ColdGas > 0.0) {
-    const double final_metallicity = gal.MetalsColdGas / gal.ColdGas;
-    TEST_ASSERT_DOUBLE_EQUAL(final_metallicity, initial_metallicity, 1e-6,
-                             "Cold gas metallicity should be preserved");
-  }
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_quasar_wind_cold_ejection
- * @brief   Test quasar wind ejects cold gas when energy sufficient
- *
- * Expected: Cold gas transferred to ejected reservoir
- * Validates: Energy-driven wind physics
- */
-int test_quasar_wind_cold_ejection(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  /* Use high efficiency to ensure wind */
-  setup_test_parameters(0.05, 1.0);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double cold_gas = 1.0; /* Small cold gas mass */
-  const double vvir = 100.0;   /* Low Vvir = low binding energy */
-  setup_test_galaxy(&halo, &gal, 0, 10.0, vvir, cold_gas, 0.02, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.8; /* High efficiency */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_ejected = gal.EjectedGas;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* Regression for the C_CGS / UnitVelocity_in_cm_per_s unit contract: with
-   * C_KM_S this fixture only accretes a small amount onto the BH and leaves
-   * EjectedGas unchanged. The corrected SAGE-energy wind ejects the remaining
-   * cold reservoir. */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, 0.0, 1e-6,
-                           "Sufficient quasar energy should eject all remaining cold gas");
-  TEST_ASSERT(gal.EjectedGas > initial_ejected + 0.9,
-              "Quasar wind should transfer cold gas to EjectedGas");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_quasar_wind_hot_ejection
- * @brief   Test quasar wind can eject both cold and hot gas
- *
- * Expected: Both cold and hot gas ejected when energy very high
- * Validates: Strong wind physics
- */
-int test_quasar_wind_hot_ejection(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  /* Very high efficiency to ensure strong wind */
-  setup_test_parameters(0.1, 1.0);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double cold_gas = 1.0;
-  const double hot_gas = 1.0;
-  const double vvir = 80.0; /* Very low Vvir */
-  setup_test_galaxy(&halo, &gal, 0, 5.0, vvir, cold_gas, 0.02, hot_gas, 0.02, 0.01);
-  gal.UnstableDiskGasFraction = 0.9;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_ejected = gal.EjectedGas;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, 0.0, 1e-6, "Strong quasar wind should eject all cold gas");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.HotGas, 0.0, 1e-6, "Strong quasar wind should eject all hot gas");
-  TEST_ASSERT(gal.EjectedGas > initial_ejected + cold_gas + 0.9 * hot_gas,
-              "Strong quasar wind should transfer cold and hot gas to EjectedGas");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_quasar_wind_no_ejection
- * @brief   Test no ejection when quasar energy below binding energy
- *
- * Expected: No gas ejected, only BH growth
- * Validates: Energy threshold logic
- */
-int test_quasar_wind_no_ejection(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  /* Low efficiency = low wind energy */
-  setup_test_parameters(0.001, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  const double cold_gas = 10.0;
-  const double vvir = 300.0; /* High Vvir = high binding energy */
-  setup_test_galaxy(&halo, &gal, 0, 100.0, vvir, cold_gas, 0.2, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.1; /* Low efficiency */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_ejected = gal.EjectedGas;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* Ejected gas should be unchanged (no wind) */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.EjectedGas, initial_ejected, 1e-6,
-                           "No ejection when energy below binding energy");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_accretion_mass_tracking
- * @brief   Test QuasarModeBHaccretionMass tracks total accretion
- *
- * Expected: Accumulator equals total BH growth
- * Validates: Accretion tracking
- */
-int test_accretion_mass_tracking(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_bh = gal.BlackHoleMass;
-  const double initial_tracker = gal.QuasarModeBHaccretionMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  const double bh_growth = gal.BlackHoleMass - initial_bh;
-  const double tracker_growth = gal.QuasarModeBHaccretionMass - initial_tracker;
-  TEST_ASSERT_DOUBLE_EQUAL(tracker_growth, bh_growth, 1e-6,
-                           "QuasarModeBHaccretionMass should track BH growth");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
 // ============================================================================
 // EDGE CASE TESTS
 // ============================================================================
 
 /**
- * @test    test_zero_cold_gas
- * @brief   Test no accretion when ColdGas = 0
- *
- * Expected: BH mass unchanged
- * Validates: Zero cold gas handling
- */
-int test_zero_cold_gas(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 0.0, 0.0, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_bh = gal.BlackHoleMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-10,
-                           "BH mass should not change when ColdGas = 0");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_zero_efficiency_factor
- * @brief   Test no accretion when efficiency factor = 0
- *
- * Expected: BH mass unchanged
- * Validates: Zero efficiency handling
- */
-int test_zero_efficiency_factor(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.0; /* Zero efficiency */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_bh = gal.BlackHoleMass;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-10,
-                           "BH mass should not change when efficiency = 0");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
  * @test    test_no_triggers
- * @brief   Test no processing when both triggers = 0
+ * @brief   A zero instability trigger does not run grow_black_hole
  *
- * Expected: All properties unchanged
+ * Unlike a zero-ratio merger event (test_per_event_zero_ratio_accretes_nothing), the by-galaxy
+ * path acts only on a positive UnstableDiskGasFraction. A negative MetalsColdGas, which
+ * grow_black_hole would floor at 0, tells a skipped call from a call that accretes nothing.
+ *
+ * Expected: BlackHoleMass, ColdGas, QuasarModeBHaccretionMass and the negative MetalsColdGas
+ *           unchanged
  * Validates: Trigger requirement
  */
 int test_no_triggers(void) {
@@ -874,99 +431,26 @@ int test_no_triggers(void) {
   struct Halo halo;
   struct GalaxyData gal;
   setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  /* No triggers set */
+  gal.MetalsColdGas = -1.0e-9f; /* a trigger of 0 (the setup's) must leave it negative */
 
   struct ModuleContext ctx;
   setup_test_context(&ctx);
 
   const double initial_bh = gal.BlackHoleMass;
   const double initial_cold = gal.ColdGas;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-10,
-                           "BH mass unchanged without triggers");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-10, "Cold gas unchanged without triggers");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_orphan_galaxy_skipped
- * @brief   Test Type 2 orphans are not processed
- *
- * Expected: No changes to galaxy properties
- * Validates: Orphan galaxy handling (module doesn't explicitly check Type,
- *            but orphans have no triggers set by upstream modules)
- */
-int test_orphan_galaxy_skipped(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 2, 0.0, 0.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  /* Orphans don't have triggers set by upstream modules */
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_bh = gal.BlackHoleMass;
-  const double initial_cold = gal.ColdGas;
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-10,
-                           "Orphan BH mass should not change");
-  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-10, "Orphan cold gas should not change");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_null_galaxy
- * @brief   Test NULL galaxy handled gracefully
- *
- * Expected: Function returns success
- * Validates: NULL pointer safety
- */
-int test_null_galaxy(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  memset(&halo, 0, sizeof(halo));
-  halo.Type = 0;
-  halo.galaxy = NULL;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
 
   /* ===== EXECUTE ===== */
   int result = sage26_quasar_mode_process(&ctx, &halo, 1);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Should handle NULL galaxy gracefully");
+  TEST_ASSERT(result == 0, "Process function should succeed without a trigger");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-10,
+                           "BH mass unchanged without triggers");
+  TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-10, "Cold gas unchanged without triggers");
+  TEST_ASSERT(gal.QuasarModeBHaccretionMass == 0.0f, "No accretion recorded without triggers");
+  TEST_ASSERT(
+      gal.MetalsColdGas == -1.0e-9f,
+      "grow_black_hole is not called without a trigger, so the cold metals are not floored");
 
   /* ===== CLEANUP ===== */
   sage26_quasar_mode_cleanup();
@@ -976,285 +460,77 @@ int test_null_galaxy(void) {
 }
 
 /**
- * @test    test_triggers_preserved
- * @brief   Test triggers are preserved after processing
+ * @test    test_process_guards
+ * @brief   The guards of both channels leave the galaxy untouched: a NULL galaxy, ngal != 1 (an
+ *          error) and ColdGas <= 0
  *
- * Expected: Trigger flags remain unchanged after processing
- * Validates: Trigger lifecycle ownership by dedicated clear modules
+ * Every row sets a positive trigger (0.5 on the instability, a ratio of 0.5 on the merger event)
+ * on a galaxy that would otherwise grow its black hole. Without a ColdGas guard a negative
+ * ColdGas would shrink the black hole, so those rows compare the whole GalaxyData byte for byte
+ * after the call, not just the black-hole mass.
+ *
+ * Expected: status 0 (guard returns) or an error (ngal != 1); the first galaxy and, for ngal 2,
+ *           the second are unchanged
+ * Validates: process_by_galaxy and process_per_event guards
  */
-int test_triggers_preserved(void) {
-  /* ===== SETUP ===== */
+int test_process_guards(void) {
+  const struct {
+    const char *name;
+    int per_event, ngal, null_galaxy;
+    float cold_gas;
+    int want_error;
+  } rows[] = {
+      {"by-galaxy, NULL galaxy", 0, 1, 1, 10.0f, 0},
+      {"per-event, NULL galaxy", 1, 1, 1, 10.0f, 0},
+      {"by-galaxy, ngal 2", 0, 2, 0, 10.0f, 1},
+      {"per-event, ngal 2", 1, 2, 0, 10.0f, 1},
+      {"by-galaxy, zero ColdGas", 0, 1, 0, 0.0f, 0},
+      {"by-galaxy, negative ColdGas", 0, 1, 0, -1.0f, 0},
+      {"per-event, zero ColdGas", 1, 1, 0, 0.0f, 0},
+      {"per-event, negative ColdGas", 1, 1, 0, -1.0f, 0},
+  };
+  int ok = 1;
   init_memory_system(0);
-  reset_config();
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+    reset_config();
+    setup_test_parameters(0.01, 0.001);
+    TEST_ASSERT(sage26_quasar_mode_init() == 0, "init must succeed");
 
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
+    struct Halo halos[2];
+    struct GalaxyData gals[2];
+    setup_test_galaxy(&halos[0], &gals[0], 0, 100.0, 300.0, rows[r].cold_gas, 0.2, 0.0, 0.0, 0.01);
+    setup_test_galaxy(&halos[1], &gals[1], 1, 50.0, 200.0, 5.0, 0.1, 0.0, 0.0, 0.005);
+    gals[0].UnstableDiskGasFraction = 0.5;
+    gals[1].UnstableDiskGasFraction = 0.5;
+    if (rows[r].null_galaxy) {
+      halos[0].galaxy = NULL;
+    }
 
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.5;
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+    struct ModuleEvent event = merger_event(0.5);
+    if (rows[r].per_event) {
+      ctx.active_event = &event;
+    }
 
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
+    struct GalaxyData before[2];
+    memcpy(before, gals, sizeof(gals));
+    const int status = sage26_quasar_mode_process(&ctx, halos, rows[r].ngal);
 
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
-                           "UnstableDiskGasFraction should remain unchanged");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
+    const int status_ok = rows[r].want_error ? status != 0 : status == 0;
+    const int untouched = memcmp(before, gals, sizeof(gals)) == 0;
+    if (!status_ok || !untouched) {
+      printf("\n  %s: status %d (error wanted: %d), galaxies untouched: %d", rows[r].name, status,
+             rows[r].want_error, untouched);
+      ok = 0;
+    }
+    sage26_quasar_mode_cleanup();
+  }
   check_memory_leaks();
-
+  TEST_ASSERT(ok, "each guard must return as wanted and leave the galaxies untouched");
   return TEST_PASS;
 }
 
-/**
- * @test    test_invalid_ngal
- * @brief   Test error when ngal != 1
- *
- * Expected: Function returns error
- * Validates: process_by_galaxy mode enforcement
- */
-int test_invalid_ngal(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halos[2];
-  struct GalaxyData gals[2];
-  setup_test_galaxy(&halos[0], &gals[0], 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  setup_test_galaxy(&halos[1], &gals[1], 1, 50.0, 200.0, 5.0, 0.1, 0.0, 0.0, 0.005);
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  /* ===== EXECUTE ===== */
-  int result = sage26_quasar_mode_process(&ctx, halos, 2);
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result != 0, "Should return error when ngal != 1");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// PARAMETER SENSITIVITY TESTS
-// ============================================================================
-
-/**
- * @test    test_parameter_sensitivity_growth_rate
- * @brief   Test BlackHoleGrowthRate parameter affects results
- *
- * Expected: Higher growth rate produces more BH accretion
- * Validates: Parameter loading and physics
- */
-int test_parameter_sensitivity_growth_rate(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Test with low growth rate */
-  reset_config();
-  setup_test_parameters(0.005, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo_low;
-  struct GalaxyData gal_low;
-  setup_test_galaxy(&halo_low, &gal_low, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal_low.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_bh_low = gal_low.BlackHoleMass;
-  sage26_quasar_mode_process(&ctx, &halo_low, 1);
-  const double accreted_low = gal_low.BlackHoleMass - initial_bh_low;
-
-  sage26_quasar_mode_cleanup();
-
-  /* Test with high growth rate */
-  reset_config();
-  setup_test_parameters(0.02, 0.001); /* 4x higher */
-  sage26_quasar_mode_init();
-
-  struct Halo halo_high;
-  struct GalaxyData gal_high;
-  setup_test_galaxy(&halo_high, &gal_high, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal_high.UnstableDiskGasFraction = 0.5;
-
-  const double initial_bh_high = gal_high.BlackHoleMass;
-  sage26_quasar_mode_process(&ctx, &halo_high, 1);
-  const double accreted_high = gal_high.BlackHoleMass - initial_bh_high;
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(accreted_high > accreted_low, "Higher growth rate should produce more accretion");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_parameter_sensitivity_quasar_efficiency
- * @brief   Test QuasarModeEfficiency parameter affects wind strength
- *
- * Expected: Higher efficiency produces stronger winds
- * Validates: Parameter loading and wind physics
- */
-int test_parameter_sensitivity_quasar_efficiency(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-
-  /* Test with low efficiency */
-  reset_config();
-  setup_test_parameters(0.05, 0.0001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo_low;
-  struct GalaxyData gal_low;
-  setup_test_galaxy(&halo_low, &gal_low, 0, 10.0, 100.0, 2.0, 0.04, 2.0, 0.04, 0.01);
-  gal_low.UnstableDiskGasFraction = 0.8;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  const double initial_ejected_low = gal_low.EjectedGas;
-  sage26_quasar_mode_process(&ctx, &halo_low, 1);
-  const double ejected_low = gal_low.EjectedGas - initial_ejected_low;
-
-  sage26_quasar_mode_cleanup();
-
-  /* Test with high efficiency */
-  reset_config();
-  setup_test_parameters(0.05, 1.0); /* Much higher */
-  sage26_quasar_mode_init();
-
-  struct Halo halo_high;
-  struct GalaxyData gal_high;
-  setup_test_galaxy(&halo_high, &gal_high, 0, 10.0, 100.0, 2.0, 0.04, 2.0, 0.04, 0.01);
-  gal_high.UnstableDiskGasFraction = 0.8;
-
-  const double initial_ejected_high = gal_high.EjectedGas;
-  sage26_quasar_mode_process(&ctx, &halo_high, 1);
-  const double ejected_high = gal_high.EjectedGas - initial_ejected_high;
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(ejected_high >= ejected_low,
-              "Higher efficiency should produce at least as much ejection");
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// MODULE INFRASTRUCTURE TESTS
-// ============================================================================
-
-/**
- * @test    test_module_initialization
- * @brief   Test module initialization and cleanup lifecycle
- *
- * Expected: Module init and cleanup succeed without errors
- * Validates: Module lifecycle management
- */
-int test_module_initialization(void) {
-  /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-
-  MimicConfig.Omega = 0.25;
-  MimicConfig.OmegaLambda = 0.75;
-  MimicConfig.Hubble_h = 0.73;
-
-  test_phase_add("galaxy_physics", "sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
-
-  /* Set required parameters */
-  int idx = 0;
-  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BlackHoleGrowthRate");
-  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.01");
-  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "QuasarModeEfficiency");
-  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.001");
-  MimicConfig.NumModelParams = idx;
-  /* The module's required SFprescription */
-  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
-  add_test_cgm_recipe_parameter();                      /* CGMrecipeOn: 0, required */
-  sage26_test_append_model_parameter("AGNrecipe", "2"); /* required: 0 or 2 */
-
-  /* ===== EXECUTE ===== */
-  int result = module_system_init();
-
-  /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module system initialization should succeed");
-
-  /* ===== CLEANUP ===== */
-  module_system_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-/**
- * @test    test_memory_safety
- * @brief   Test module doesn't leak memory during operation
- *
- * Expected: No memory leaks after init/process/cleanup cycle
- * Validates: Memory management
- */
-int test_memory_safety(void) {
-  /* ===== SETUP ===== */
-  init_memory_system(0);
-  reset_config();
-
-  setup_test_parameters(0.01, 0.001);
-  sage26_quasar_mode_init();
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.5;
-
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-
-  /* ===== EXECUTE ===== */
-  sage26_quasar_mode_process(&ctx, &halo, 1);
-
-  /* ===== VALIDATE ===== */
-  /* check_memory_leaks() will catch any leaks */
-
-  /* ===== CLEANUP ===== */
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-
-  return TEST_PASS;
-}
-
-// ============================================================================
-// MAIN TEST RUNNER
-// ============================================================================
-
-/**
- * @brief   Main test runner
- *
- * Executes all sage26_quasar_mode unit tests and reports results.
- */
 // ============================================================================
 // HYDROGEN CAP (SFprescription 1)
 // ============================================================================
@@ -1360,93 +636,75 @@ int test_hydrogen_cap_then_wind_no_refresh(void) {
 
 /**
  * @test    test_hydrogen_cap_module_wiring
- * @brief   Initialised with SFprescription 1, the module's disk-instability channel caps the
- *          hydrogen (the module passes its required parameter to the shared growth)
+ * @brief   Initialised with SFprescription 0 or 1, each channel (the instability and the merger
+ *          event) passes it on to the growth: 1 caps the hydrogen, 0 leaves it alone
+ *
+ * The growth (BlackHoleGrowthRate 0.01, trigger or ratio 0.5, Vvir 300, ColdGas 10) leaves
+ * ColdGas about 9.97, so the float bound is about 7.38. The instability row holds H2gas above it
+ * and H1gas below it (that one must be kept); the merger row holds both above it. A 0 passed
+ * to the growth in place of the module's SFprescription would leave the capped fields above the
+ * bound.
+ *
+ * Expected: SFprescription 1: each field above the bound is capped to it and a field below is
+ *           kept; SFprescription 0: both unchanged
+ * Validates: the SFprescription argument of both channels' calls
  */
 int test_hydrogen_cap_module_wiring(void) {
+  const struct {
+    const char *name;
+    int per_event, sf_prescription;
+    float h2, h1;
+    int h2_above_bound, h1_above_bound;
+  } rows[] = {
+      {"instability, SFprescription 1", 0, 1, 9.0f, 1.0f, 1, 0},
+      {"instability, SFprescription 0", 0, 0, 9.0f, 1.0f, 1, 0},
+      {"merger event, SFprescription 1", 1, 1, 7.5f, 7.6f, 1, 1},
+      {"merger event, SFprescription 0", 1, 0, 7.5f, 7.6f, 1, 1},
+  };
+  int ok = 1;
   init_memory_system(0);
-  reset_config();
-  setup_test_parameters(0.01, 0.001);
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, "SFprescription") == 0) {
-      snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "1");
-    }
-  }
-  TEST_ASSERT(sage26_quasar_mode_init() == 0, "init with SFprescription 1 succeeds");
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal.H2gas = 9.0f;
-  gal.H1gas = 1.0f;
-  gal.UnstableDiskGasFraction = 0.5;
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-  TEST_ASSERT(sage26_quasar_mode_process(&ctx, &halo, 1) == 0, "process succeeds");
-  const float bound = hydrogen_bound(gal.ColdGas);
-  TEST_ASSERT(gal.H2gas == bound, "H2gas above the bound is capped to it");
-  TEST_ASSERT(gal.H1gas == 1.0f, "H1gas below the bound is kept");
-
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_hydrogen_cap_module_wiring_per_event
- * @brief   Initialised with SFprescription 1, the module's merger channel (a merger event,
- *          process_per_event) caps the hydrogen: the per-event growth passes the module's
- *          required parameter on as the instability channel's does
- *
- * Expected: H2gas above the float bound is capped to it, H1gas above it is capped to it, and
- *           H1gas or H2gas below it is kept; with the same galaxy at SFprescription 0 both stay
- * Validates: the per-event call's SFprescription argument (a 0 there leaves both fields above
- *            the bound)
- */
-int test_hydrogen_cap_module_wiring_per_event(void) {
-  for (int sf_prescription = 0; sf_prescription <= 1; sf_prescription++) {
-    init_memory_system(0);
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
     reset_config();
     setup_test_parameters(0.01, 0.001);
-    for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-      if (strcmp(MimicConfig.ModelParams[i].param_name, "SFprescription") == 0) {
-        snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%d", sf_prescription);
-      }
-    }
+    char value[8];
+    snprintf(value, sizeof(value), "%d", rows[r].sf_prescription);
+    set_model_parameter("SFprescription", value);
     TEST_ASSERT(sage26_quasar_mode_init() == 0, "init with SFprescription 0 or 1 succeeds");
 
     struct Halo halo;
     struct GalaxyData gal;
     setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-    gal.H2gas = 7.5f;
-    gal.H1gas = 7.6f;
+    gal.H2gas = rows[r].h2;
+    gal.H1gas = rows[r].h1;
     struct ModuleContext ctx;
     setup_test_context(&ctx);
-    struct ModuleEvent event = {.producer_module_id =
-                                    MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                                .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                                .source_index = 1,
-                                .target_index = 0,
-                                .value0 = 0.5,
-                                .value1 = 0.0};
-    ctx.active_event = &event;
-    TEST_ASSERT(sage26_quasar_mode_process(&ctx, &halo, 1) == 0, "per-event process succeeds");
-    TEST_ASSERT(gal.ColdGas < 10.0f && gal.ColdGas > 0.0f,
-                "the merger accreted part of the cold gas and the wind kept the rest");
-
-    const float bound = hydrogen_bound(gal.ColdGas);
-    TEST_ASSERT(bound < 7.5f, "the bound lies below both fields' input values");
-    if (sf_prescription == 1) {
-      TEST_ASSERT(gal.H2gas == bound, "SFprescription 1: H2gas above the bound is capped to it");
-      TEST_ASSERT(gal.H1gas == bound, "SFprescription 1: H1gas above the bound is capped to it");
+    struct ModuleEvent event = merger_event(0.5);
+    if (rows[r].per_event) {
+      ctx.active_event = &event;
     } else {
-      TEST_ASSERT(gal.H2gas == 7.5f && gal.H1gas == 7.6f,
-                  "SFprescription 0: H2gas and H1gas are left alone");
+      gal.UnstableDiskGasFraction = 0.5;
     }
 
+    const int status = sage26_quasar_mode_process(&ctx, &halo, 1);
+
+    const float bound = hydrogen_bound(gal.ColdGas);
+    const int accreted = gal.ColdGas < 10.0f && gal.ColdGas > 0.0f;
+    const int binds_as_designed = (rows[r].h2 > bound) == rows[r].h2_above_bound &&
+                                  (rows[r].h1 > bound) == rows[r].h1_above_bound;
+    const float want_h2 = (rows[r].sf_prescription == 1 && rows[r].h2 > bound) ? bound : rows[r].h2;
+    const float want_h1 = (rows[r].sf_prescription == 1 && rows[r].h1 > bound) ? bound : rows[r].h1;
+    if (status != 0 || !accreted || !binds_as_designed || gal.H2gas != want_h2 ||
+        gal.H1gas != want_h1) {
+      printf("\n  %s: status %d, ColdGas %.9g, bound %.9g, H2gas %.9g (want %.9g), H1gas %.9g "
+             "(want %.9g)",
+             rows[r].name, status, (double)gal.ColdGas, (double)bound, (double)gal.H2gas,
+             (double)want_h2, (double)gal.H1gas, (double)want_h1);
+      ok = 0;
+    }
     sage26_quasar_mode_cleanup();
-    check_memory_leaks();
   }
+  check_memory_leaks();
+  TEST_ASSERT(ok, "each channel must pass its SFprescription to the hydrogen cap");
   return TEST_PASS;
 }
 
@@ -1492,47 +750,12 @@ static __attribute__((noinline)) double cgm_binding_energy(float gas, float vvir
   return 0.5 * g * v * v;
 }
 
-/** @brief Set the parameter list's CGMrecipeOn to `value`, or remove it for NULL */
-static void cgm_set_cgm_recipe_on(const char *value) {
-  int n = 0;
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, "CGMrecipeOn") != 0) {
-      MimicConfig.ModelParams[n++] = MimicConfig.ModelParams[i];
-    }
-  }
-  if (value != NULL) {
-    snprintf(MimicConfig.ModelParams[n].param_name, MAX_STRING_LEN, "%s", "CGMrecipeOn");
-    snprintf(MimicConfig.ModelParams[n].value, MAX_STRING_LEN, "%s", value);
-    n++;
-  }
-  MimicConfig.NumModelParams = n;
-}
-
-/** @brief Read a captured log stream into a static buffer (valid until the next call) */
-static const char *cgm_read_log(FILE *fp) {
-  static char buf[8192];
-  rewind(fp);
-  const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-  buf[n] = '\0';
-  return buf;
-}
-
-/** @brief Initialise with growth rate 0.5, `efficiency` and CGMrecipeOn `cgm` (NULL: missing) */
-static int cgm_init(const double efficiency, const char *cgm, const char **log) {
+/** @brief Initialise with growth rate 0.5, `efficiency` and CGMrecipeOn `cgm` */
+static int cgm_init(const double efficiency, const char *cgm) {
   reset_config();
   setup_test_parameters(0.5, efficiency);
-  cgm_set_cgm_recipe_on(cgm);
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = sage26_quasar_mode_init();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    *log = cgm_read_log(capture);
-    fclose(capture);
-  } else {
-    *log = "";
-  }
-  return status;
+  set_test_cgm_recipe_on(cgm);
+  return sage26_quasar_mode_init();
 }
 
 /**
@@ -1567,8 +790,7 @@ int test_cgm_wind_energy_tests(void) {
     }
     for (int channel = 0; channel < 2; channel++) { /* 0 the instability, 1 the merger event */
       for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
-        const char *log = "";
-        TEST_ASSERT(cgm_init(cases[c].efficiency, runs[r].cgm, &log) == 0,
+        TEST_ASSERT(cgm_init(cases[c].efficiency, runs[r].cgm) == 0,
                     "init must accept CGMrecipeOn 0 and 1");
         struct Halo host, central;
         struct GalaxyData host_gal, central_gal;
@@ -1640,140 +862,128 @@ int test_cgm_wind_energy_tests(void) {
 }
 
 /**
- * @test    test_cgm_recipe_on_refused
- * @brief   CGMrecipeOn is required (missing key fails init) and only 0 or 1 is accepted,
- *          a refusal naming the parameter
- */
-int test_cgm_recipe_on_refused(void) {
-  const char *log = "";
-  TEST_ASSERT(cgm_init(1.0e-3, NULL, &log) != 0, "init must fail when CGMrecipeOn is missing");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the missing-key error must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init(1.0e-3, "2", &log) != 0, "init must refuse CGMrecipeOn 2");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init(1.0e-3, "-1", &log) != 0, "init must refuse CGMrecipeOn -1");
-  TEST_ASSERT(strstr(log, "CGMrecipeOn") != NULL, "the refusal must name CGMrecipeOn");
-  TEST_ASSERT(cgm_init(1.0e-3, "1", &log) == 0, "init must accept CGMrecipeOn 1");
-  TEST_ASSERT(cgm_init(1.0e-3, "0", &log) == 0, "init must accept CGMrecipeOn 0");
-  return TEST_PASS;
-}
-
-/**
- * @test    test_agn_recipe_off_merger_event
- * @brief   AGNrecipe 0: a merger event grows no black hole, as SAGE26's AGNrecipeOn 0 skips
- *          grow_black_hole after the merger
+ * @test    test_agn_recipe_channels
+ * @brief   AGNrecipe 0 grows no black hole in either channel, as SAGE26's AGNrecipeOn 0 skips
+ *          grow_black_hole after a merger and in the instability's gas branch; AGNrecipe 2 grows
+ *          it by the exact accretion in the same setup
  *
- * Expected: success; BlackHoleMass, ColdGas, MetalsColdGas and QuasarModeBHaccretionMass
- *           unchanged for a merger that grows the black hole at AGNrecipe 2
- */
-int test_agn_recipe_off_merger_event(void) {
-  init_memory_system(0);
-  reset_config();
-  setup_test_parameters(0.01, 0.001);
-  set_agn_recipe("0");
-  TEST_ASSERT(sage26_quasar_mode_init() == 0, "init with AGNrecipe 0 succeeds");
-
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-  struct ModuleEvent event = {.producer_module_id = MODULE_ID_SAGE26_RESOLVE_MERGERS_AND_DISRUPTION,
-                              .event_id = SAGE26_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
-                              .source_index = 1,
-                              .target_index = 0,
-                              .value0 = 0.3, /* as test_bh_growth_per_event_merger, which grows */
-                              .value1 = 0.0};
-  ctx.active_event = &event;
-  const float initial_bh = gal.BlackHoleMass;
-  const float initial_cold = gal.ColdGas;
-  const float initial_metals = gal.MetalsColdGas;
-  const float initial_accretion = gal.QuasarModeBHaccretionMass;
-
-  TEST_ASSERT(sage26_quasar_mode_process(&ctx, &halo, 1) == 0, "process succeeds");
-  TEST_ASSERT(gal.BlackHoleMass == initial_bh, "AGNrecipe 0: the merger grows no black hole");
-  TEST_ASSERT(gal.ColdGas == initial_cold, "AGNrecipe 0: the merger takes no cold gas");
-  TEST_ASSERT(gal.MetalsColdGas == initial_metals, "AGNrecipe 0: the cold metals are unchanged");
-  TEST_ASSERT(gal.QuasarModeBHaccretionMass == initial_accretion,
-              "AGNrecipe 0: the merger records no accretion");
-
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_agn_recipe_off_disk_instability
- * @brief   AGNrecipe 0: the instability's gas branch grows no black hole, as SAGE26's
- *          AGNrecipeOn 0 skips grow_black_hole there
+ * Hand calculation (BlackHoleGrowthRate 0.01, Vvir 300, ColdGas 10): a merger ratio of 0.3 gives
+ * 0.01 * 0.3 / (1 + (280 / 300)^2) * 10 = 0.016033254156769594 and an instability trigger of 0.5
+ * gives 0.02672209026128266. The AGNrecipe 2 rows are the controls that the same input grows a
+ * black hole.
  *
- * Expected: success; BlackHoleMass, ColdGas, MetalsColdGas and QuasarModeBHaccretionMass
- *           unchanged for an instability trigger that grows the black hole at AGNrecipe 2
+ * Expected: AGNrecipe 0: success; BlackHoleMass, ColdGas, MetalsColdGas and
+ *           QuasarModeBHaccretionMass unchanged; AGNrecipe 2: the exact accretion
+ * Validates: the AGNrecipe gate of both channels
  */
-int test_agn_recipe_off_disk_instability(void) {
+int test_agn_recipe_channels(void) {
+  const struct {
+    const char *name;
+    const char *agn_recipe;
+    int per_event;
+    double want_accrete;
+  } rows[] = {
+      {"AGNrecipe 2, merger event", "2", 1, 0.016033254156769594},
+      {"AGNrecipe 0, merger event", "0", 1, 0.0},
+      {"AGNrecipe 2, disk instability", "2", 0, 0.02672209026128266},
+      {"AGNrecipe 0, disk instability", "0", 0, 0.0},
+  };
+  int ok = 1;
   init_memory_system(0);
-  reset_config();
-  setup_test_parameters(0.01, 0.001);
-  set_agn_recipe("0");
-  TEST_ASSERT(sage26_quasar_mode_init() == 0, "init with AGNrecipe 0 succeeds");
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+    reset_config();
+    setup_test_parameters(0.01, 0.001);
+    set_model_parameter("AGNrecipe", rows[r].agn_recipe);
+    TEST_ASSERT(sage26_quasar_mode_init() == 0, "init must accept AGNrecipe 0 and 2");
 
-  struct Halo halo;
-  struct GalaxyData gal;
-  setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
-  gal.UnstableDiskGasFraction = 0.5; /* as test_bh_growth_disk_instability, which grows */
-  struct ModuleContext ctx;
-  setup_test_context(&ctx);
-  const float initial_bh = gal.BlackHoleMass;
-  const float initial_cold = gal.ColdGas;
-  const float initial_metals = gal.MetalsColdGas;
-  const float initial_accretion = gal.QuasarModeBHaccretionMass;
-
-  TEST_ASSERT(sage26_quasar_mode_process(&ctx, &halo, 1) == 0, "process succeeds");
-  TEST_ASSERT(gal.BlackHoleMass == initial_bh, "AGNrecipe 0: the instability grows no black hole");
-  TEST_ASSERT(gal.ColdGas == initial_cold, "AGNrecipe 0: the instability takes no cold gas");
-  TEST_ASSERT(gal.MetalsColdGas == initial_metals, "AGNrecipe 0: the cold metals are unchanged");
-  TEST_ASSERT(gal.QuasarModeBHaccretionMass == initial_accretion,
-              "AGNrecipe 0: the instability records no accretion");
-
-  sage26_quasar_mode_cleanup();
-  check_memory_leaks();
-  return TEST_PASS;
-}
-
-/**
- * @test    test_agn_recipe_refused
- * @brief   The module loads AGNrecipe through the package's validator (shared/sage_agn_recipe.h):
- *          1 is refused with an error naming the parameter, and a missing key fails init
- */
-int test_agn_recipe_refused(void) {
-  init_memory_system(0);
-  const char *log = "";
-  reset_config();
-  setup_test_parameters(0.01, 0.001);
-  set_agn_recipe("1");
-  FILE *capture = tmpfile();
-  FILE *old_out = capture != NULL ? set_log_output(capture) : NULL;
-  const int status = sage26_quasar_mode_init();
-  if (capture != NULL) {
-    set_log_output(old_out);
-    log = cgm_read_log(capture);
-    fclose(capture);
-  }
-  TEST_ASSERT(status != 0, "init must refuse AGNrecipe 1");
-  TEST_ASSERT(strstr(log, "AGNrecipe") != NULL, "the refusal must name AGNrecipe");
-
-  reset_config();
-  setup_test_parameters(0.01, 0.001);
-  int n = 0;
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, "AGNrecipe") != 0) {
-      MimicConfig.ModelParams[n++] = MimicConfig.ModelParams[i];
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+    struct ModuleEvent event = merger_event(0.3);
+    if (rows[r].per_event) {
+      ctx.active_event = &event;
+    } else {
+      gal.UnstableDiskGasFraction = 0.5;
     }
-  }
-  MimicConfig.NumModelParams = n;
-  TEST_ASSERT(sage26_quasar_mode_init() != 0, "init must fail when AGNrecipe is missing");
+    const float initial_bh = gal.BlackHoleMass;
+    const float initial_cold = gal.ColdGas;
+    const float initial_metals = gal.MetalsColdGas;
 
-  sage26_quasar_mode_cleanup();
+    const int status = sage26_quasar_mode_process(&ctx, &halo, 1);
+
+    int row_ok = status == 0;
+    if (rows[r].want_accrete == 0.0) {
+      row_ok = row_ok && gal.BlackHoleMass == initial_bh && gal.ColdGas == initial_cold &&
+               gal.MetalsColdGas == initial_metals && gal.QuasarModeBHaccretionMass == 0.0f;
+    } else {
+      const double tol = 1e-5 * rows[r].want_accrete;
+      row_ok = row_ok && is_close(gal.QuasarModeBHaccretionMass, rows[r].want_accrete, tol) &&
+               is_close(gal.BlackHoleMass - initial_bh, rows[r].want_accrete, tol) &&
+               is_close(gal.ColdGas, initial_cold - rows[r].want_accrete, 2e-6);
+    }
+    if (!row_ok) {
+      printf("\n  %s: status %d, BlackHoleMass growth %.9g, ColdGas %.9g, MetalsColdGas %.9g, "
+             "tracker %.9g (accretion wanted %.9g)",
+             rows[r].name, status, (double)gal.BlackHoleMass - initial_bh, (double)gal.ColdGas,
+             (double)gal.MetalsColdGas, (double)gal.QuasarModeBHaccretionMass,
+             rows[r].want_accrete);
+      ok = 0;
+    }
+    sage26_quasar_mode_cleanup();
+  }
   check_memory_leaks();
+  TEST_ASSERT(ok, "AGNrecipe 0 must grow no black hole and AGNrecipe 2 must grow it exactly");
+  return TEST_PASS;
+}
+
+// ============================================================================
+// MODULE LIFECYCLE
+// ============================================================================
+
+/**
+ * @test    test_module_initialization
+ * @brief   Test module initialization and cleanup lifecycle
+ *
+ * Expected: Module init and cleanup succeed without errors
+ * Validates: Module lifecycle management
+ */
+int test_module_initialization(void) {
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  MimicConfig.Omega = 0.25;
+  MimicConfig.OmegaLambda = 0.75;
+  MimicConfig.Hubble_h = 0.73;
+
+  test_phase_add("galaxy_physics", "sage26_quasar_mode", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+
+  /* Set required parameters */
+  int idx = 0;
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BlackHoleGrowthRate");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.01");
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "QuasarModeEfficiency");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.001");
+  MimicConfig.NumModelParams = idx;
+  /* The module's required SFprescription */
+  add_test_sf_prescription_parameters(SAGE26_TEST_KEYS_QUASAR_MODULE);
+  add_test_cgm_recipe_parameter();                      /* CGMrecipeOn: 0, required */
+  sage26_test_append_model_parameter("AGNrecipe", "2"); /* required: 0 or 2 */
+
+  /* ===== EXECUTE ===== */
+  int result = module_system_init();
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(result == 0, "Module system initialization should succeed");
+
+  /* ===== CLEANUP ===== */
+  module_system_cleanup();
+  check_memory_leaks();
+
   return TEST_PASS;
 }
 
@@ -1787,46 +997,25 @@ int main(void) {
   /* Initialize error handling for tests */
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  /* Run physics calculation tests */
+  /* Growth physics and edge cases */
   TEST_RUN(test_bh_growth_disk_instability);
-  TEST_RUN(test_bh_growth_merger);
-  TEST_RUN(test_bh_growth_both_triggers);
-  TEST_RUN(test_bh_growth_per_event_merger);
+  TEST_RUN(test_accretion_formula);
   TEST_RUN(test_per_event_zero_ratio_accretes_nothing);
-  TEST_RUN(test_vvir_suppression);
-  TEST_RUN(test_mass_conservation_accretion);
-  TEST_RUN(test_metallicity_preservation_accretion);
-  TEST_RUN(test_quasar_wind_cold_ejection);
-  TEST_RUN(test_quasar_wind_hot_ejection);
-  TEST_RUN(test_quasar_wind_no_ejection);
-  TEST_RUN(test_accretion_mass_tracking);
-
-  /* Run edge case tests */
-  TEST_RUN(test_zero_cold_gas);
-  TEST_RUN(test_zero_efficiency_factor);
   TEST_RUN(test_no_triggers);
-  TEST_RUN(test_orphan_galaxy_skipped);
-  TEST_RUN(test_null_galaxy);
-  TEST_RUN(test_triggers_preserved);
-  TEST_RUN(test_invalid_ngal);
+  TEST_RUN(test_process_guards);
 
-  /* Run parameter sensitivity tests */
-  TEST_RUN(test_parameter_sensitivity_growth_rate);
-  TEST_RUN(test_parameter_sensitivity_quasar_efficiency);
-
-  /* Run infrastructure tests */
-  TEST_RUN(test_module_initialization);
-  TEST_RUN(test_memory_safety);
+  /* Hydrogen cap */
   TEST_RUN(test_hydrogen_cap_independent_strict);
   TEST_RUN(test_hydrogen_cap_off_prescription_zero);
   TEST_RUN(test_hydrogen_cap_then_wind_no_refresh);
   TEST_RUN(test_hydrogen_cap_module_wiring);
-  TEST_RUN(test_hydrogen_cap_module_wiring_per_event);
+
+  /* Wind pair selection and parameter refusals */
   TEST_RUN(test_cgm_wind_energy_tests);
-  TEST_RUN(test_cgm_recipe_on_refused);
-  TEST_RUN(test_agn_recipe_off_merger_event);
-  TEST_RUN(test_agn_recipe_off_disk_instability);
-  TEST_RUN(test_agn_recipe_refused);
+  TEST_RUN(test_agn_recipe_channels);
+
+  /* Module lifecycle */
+  TEST_RUN(test_module_initialization);
 
   /* Print summary and return result */
   TEST_SUMMARY();

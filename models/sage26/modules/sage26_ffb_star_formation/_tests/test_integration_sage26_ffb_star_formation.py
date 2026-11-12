@@ -3,11 +3,10 @@
 sage26_ffb_star_formation - Integration Test
 
 Validates: SAGE26's feedback-free-burst star-formation transaction through real runs of mimic on
-the committed test trees: it loads and runs, writes nothing with EnhancedStarFormationOn 0,
-writes only its domain on the FFBRegime 1 rows with EnhancedStarFormationOn 1, and refuses a
-missing required key, a misplacement and, at EnhancedStarFormationOn 1, a placement not
-immediately before sage26_calculate_star_formation and a configuration without the classifier, at
-the executable's exit status.
+the committed test trees: it writes nothing with EnhancedStarFormationOn 0, writes only its domain
+on the FFBRegime 1 rows with EnhancedStarFormationOn 1. The parameter refusals are in the C test
+test_unit_sage26_parameter_refusals.c; the placement and cross-module refusals are in the C tests
+of the module and test_unit_sage_dependency_contracts.c.
 
 Every configuration sets every key its modules read, explicitly. The keys come from each configured
 module's module_info.yaml `parameters` list, which `make lint-parameters` holds to the code,
@@ -16,8 +15,8 @@ CGMrecipeOn, set to 0 because no CGM module is configured, so infall, cooling an
 classic hot-gas routing. Runs use the run file's SubSteps (10) and write snapshots
 63 and 16 (the FFB snapshot S).
 
-Minimal pipeline (Loads and runs, Off, On; EnhancedStarFormationOn 1 for Loads and runs and On),
-in the run file's order:
+Minimal pipeline (Off, On; EnhancedStarFormationOn 1 for On), in the run file's
+order:
   pre_timestep:   sage26_set_disk_scale_radius, sage26_prepare_infall_budget,
                   sage26_determine_ffb_regime
   galaxy_physics: sage26_apply_infall, sage26_calculate_cooling_budget, sage26_apply_cooling,
@@ -58,31 +57,8 @@ On writes its domain (the observable list), with EnhancedStarFormationOn 1:
     formed, the pre-star-formation metallicity, the renormalised stars, the reheated and ejected
     masses) are locals of the call and never output.
 
-Required-key refusal, isolated (a real run; mimic exits non-zero with "Required model parameter
-'EnhancedSFEfficiency' not found" and "Module 'sage26_ffb_star_formation' initialization failed",
-and no other module's initialization failure):
-  - EnhancedSFEfficiency, at EnhancedStarFormationOn 0 so that no cross-module guard applies.
-    Configuration: the minimal pipeline, in which only this module reads the key (asserted from
-    the modules' parameters lists). Control: the same configuration with the key present exits 0.
-
-Placement refusal: at EnhancedStarFormationOn 0 (so no cross-module guard applies), the module
-configured twice, by galaxy in galaxy_physics and in satellite_mergers, every key present, is
-refused naming the module (check_placement: exactly one substep entry, by galaxy).
-
-Cross-module guards, at EnhancedStarFormationOn 1. Each configuration breaks exactly one guard, and
-the case requires that guard's diagnostic:
-  - Adjacency: pre_timestep sage26_determine_ffb_regime; galaxy_physics
-    sage26_calculate_star_formation, sage26_ffb_star_formation,
-    sage26_apply_star_formation_supernova (the transaction after, not immediately before,
-    sage26_calculate_star_formation). Refused by the transaction, naming both modules.
-  - Classifier: galaxy_physics sage26_ffb_star_formation, sage26_calculate_star_formation,
-    sage26_apply_star_formation_supernova (correctly placed), with no sage26_determine_ffb_regime
-    in pre_timestep. Refused by the transaction, naming sage26_determine_ffb_regime.
-  The classifier's own guard, which requires this transaction, is exercised by
-  sage26_determine_ffb_regime's integration test, beside the guard it tests.
-
-These run-level cases repeat, at the executable's exit status, refusals the module's C unit tests
-assert; they test no new behaviour.
+Runs: the file launches three, one per distinct configuration (Off with the module, Off without
+it, On).
 
 Run (from the repository root, after `make MODEL=sage26 SIMULATION=mini-millennium`):
   MODEL=sage26 SIMULATION=mini-millennium python3 models/sage26/modules/\\
@@ -105,8 +81,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_tests"))
 from sage26_run_helpers import (  # noqa: E402
     PackageRuns,
     assert_runs,
-    configured_modules,
-    module_parameters,
     require_mimic,
     require_pair,
 )
@@ -163,18 +137,6 @@ MINIMAL_WITHOUT = {
     "pre_timestep": MINIMAL["pre_timestep"],
     "galaxy_physics": SUPPLY_PHYSICS + [(ORDINARY_SF, BG), (APPLY_SF, BG)],
 }
-TWICE = {
-    "galaxy_physics": [(MODULE, BG)],
-    "satellite_mergers": [(MODULE, BG)],
-}
-NOT_ADJACENT = {
-    "pre_timestep": [(CLASSIFIER, FH)],
-    "galaxy_physics": [(ORDINARY_SF, BG), (MODULE, BG), (APPLY_SF, BG)],
-}
-NO_CLASSIFIER = {
-    "galaxy_physics": [(MODULE, BG), (ORDINARY_SF, BG), (APPLY_SF, BG)],
-}
-
 FFB_ROW_NON_NEGATIVE = (
     "ColdGas",
     "MetalsColdGas",
@@ -204,7 +166,6 @@ parameters_for = RUNS.parameters_for
 mimic_run = RUNS.mimic_run
 load_snapshot = RUNS.load_snapshot
 assert_outputs_identical = RUNS.assert_outputs_identical
-assert_refused = RUNS.assert_refused
 
 
 def assert_finite_non_negative(rows, props, where):
@@ -217,20 +178,6 @@ def assert_finite_non_negative(rows, props, where):
 # ============================================================================
 # TEST CASES
 # ============================================================================
-
-
-def test_loads_and_runs():
-    """The minimal pipeline at EnhancedStarFormationOn 1 runs to completion, exit 0, no leak."""
-    require_pair()
-    require_mimic()
-    with mimic_run(f"{MODULE}_loads", MINIMAL, parameters_for(MINIMAL)) as run:
-        returncode, stdout, stderr, output_dir = run
-        assert_runs(returncode, stdout, stderr)
-        assert "SAGE FFB star formation module initialized" in stdout, "no initialization log"
-        assert "SAGE FFB star formation module cleaned up" in stdout, "no cleanup log"
-        for snapshot in OUTPUT_FILES:
-            load_snapshot(output_dir, snapshot)
-    print(f"  exit status 0, no leak report, snapshots {list(OUTPUT_FILES)} written")
 
 
 def test_off_is_noop():
@@ -275,92 +222,8 @@ def test_on_writes_domain():
         ), f"witness: no FFBRegime 1 row with SupernovaOutflowRate > 0 at {where}"
 
 
-def test_required_key_enhancedsfefficiency_refused():
-    """A missing EnhancedSFEfficiency is refused by this module alone; the control exits 0."""
-    require_pair()
-    require_mimic()
-    key = "EnhancedSFEfficiency"
-    readers = [name for name in configured_modules(MINIMAL) if key in module_parameters(name)]
-    assert readers == [MODULE], f"configured readers of {key}: {readers}"
-    off = {"EnhancedStarFormationOn": 0}
-
-    with mimic_run(f"{MODULE}_key_control", MINIMAL, parameters_for(MINIMAL, off)) as run:
-        returncode, stdout, stderr, _ = run
-        assert_runs(returncode, stdout, stderr)
-        print(f"  control ({key} present): exit status {returncode}")
-
-    params = parameters_for(MINIMAL, off, omit=(key,))
-    with mimic_run(f"{MODULE}_key_missing", MINIMAL, params) as run:
-        returncode, stdout, stderr, _ = run
-        assert_refused(
-            returncode,
-            stdout,
-            stderr,
-            [
-                f"Required model parameter '{key}' not found",
-                f"Module '{MODULE}' initialization failed",
-            ],
-        )
-
-
-def test_placement_refused():
-    """At EnhancedStarFormationOn 0, a second substep entry is refused, naming the module."""
-    require_pair()
-    require_mimic()
-    params = parameters_for(TWICE, {"EnhancedStarFormationOn": 0})
-    with mimic_run(f"{MODULE}_twice", TWICE, params) as run:
-        returncode, stdout, stderr, _ = run
-        assert_refused(
-            returncode,
-            stdout,
-            stderr,
-            [f"{MODULE} must be configured exactly once in a substep phase"],
-        )
-
-
-def test_not_adjacent_refused():
-    """At EnhancedStarFormationOn 1, the transaction after the ordinary SF is refused."""
-    require_pair()
-    require_mimic()
-    params = parameters_for(NOT_ADJACENT)
-    assert params["EnhancedStarFormationOn"] == 1
-    with mimic_run(f"{MODULE}_not_adjacent", NOT_ADJACENT, params) as run:
-        returncode, stdout, stderr, _ = run
-        assert_refused(
-            returncode,
-            stdout,
-            stderr,
-            [f"{MODULE} must run immediately before {ORDINARY_SF}"],
-        )
-
-
-def test_classifier_required_refused():
-    """At EnhancedStarFormationOn 1, a placed transaction without the classifier is refused."""
-    require_pair()
-    require_mimic()
-    params = parameters_for(NO_CLASSIFIER)
-    assert params["EnhancedStarFormationOn"] == 1
-    with mimic_run(f"{MODULE}_no_classifier", NO_CLASSIFIER, params) as run:
-        returncode, stdout, stderr, _ = run
-        assert_refused(
-            returncode,
-            stdout,
-            stderr,
-            [f"{MODULE} requires {CLASSIFIER} in modules.pre_timestep"],
-        )
-
-
 def main():
-    tests = [
-        test_loads_and_runs,
-        test_off_is_noop,
-        test_on_writes_domain,
-        test_required_key_enhancedsfefficiency_refused,
-        test_placement_refused,
-        test_not_adjacent_refused,
-        test_classifier_required_refused,
-    ]
-    return run_test_suite(tests, f"{MODULE} Integration Tests")
+    return run_test_suite([test_off_is_noop, test_on_writes_domain], f"{MODULE} Integration Tests")
 
 
 if __name__ == "__main__":

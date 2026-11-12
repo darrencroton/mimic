@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "scripts/generate_properties.py",
-  "source_md5": "87a8c783a11155b485c0492abf73ffff",
+  "source_md5": "2ad73c98888e3b070584672868b9fa69",
   "model": "sage16",
   "model_path": "models/sage16",
   "reference_units": {
@@ -51,7 +51,7 @@
       "offset": 8,
       "size": 8,
       "units": "dimensionless",
-      "description": "Persistent run-scoped unique galaxy identifier across all snapshots (creation_halonr + multiplier * (forestnr_global + 1), where multiplier is simulation.unique_galaxy_id_multiplier, default 10^9, provenance attribute UniqueGalaxyIDMultiplier)"
+      "description": "Persistent run-scoped unique galaxy ID, creation_halonr + multiplier * (forestnr_global + 1) for tree rows (multiplier = simulation.unique_galaxy_id_multiplier, default 10^9) and strictly negative -(1 + ordinal + 1024 * host_key) for created records"
     },
     {
       "name": "UniqueCentralGalaxyID",

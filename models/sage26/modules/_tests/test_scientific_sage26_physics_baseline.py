@@ -1,37 +1,43 @@
 #!/usr/bin/env python3
 """
-sage26 full-physics galaxy-output baseline regression.
+sage26 full-physics galaxy-output baseline, and the validity of full-physics output.
 
-Validates: the package's complete default pipeline, run on the committed single-file test
-           trees, reproduces the committed galaxy-physics baseline: every property of every row at
-           each output snapshot (63, and 16, the snapshot holding the most FFBRegime 1 rows);
-           the input's SubSteps and modules block equal the package's vertical run file's, value
-           for value and in order; and the baseline covers the default pipeline's CGM-regime, FFB,
-           concentration and FIRE-feedback physics (FFBRegime 1 rows at snapshot 16; Regime 1
-           rows and non-zero Concentration, MassLoading and H2gas at 63)
+Validates: the package's complete default pipeline, run on the committed single-file test trees,
+           reproduces the committed galaxy-physics baseline: every property of every row at each
+           output snapshot (63, and 16, the snapshot holding the most FFBRegime 1 rows); the
+           input's SubSteps and modules block equal the package's vertical run file's, value for
+           value and in order; the baseline covers the default pipeline's CGM-regime, FFB,
+           concentration, FIRE-feedback and merger-path physics (FFBRegime 1 rows at snapshot 16;
+           Regime 1 rows, non-zero Concentration, MassLoading and H2gas, satellites, merger bulges
+           and quasar-mode accretion at 63); and the fresh output holds no NaN or Inf and no value
+           outside the `range:` its property metadata declares
 Tolerance: integers exact; floats at baseline_rtol() (1e-6 relative unless MIMIC_BASELINE_RTOL
            overrides it) with the absolute floor BASELINE_ATOL_DEFAULT (1e-10). Under a relaxed
            override, float differences beyond 1e-6 are reported as warnings. The baseline
-           reproduces bit for bit on the platform it was captured on
+           reproduces bit for bit on the platform it was captured on. Finite values and declared
+           ranges are checked exactly (inclusive bounds, declared sentinels excluded)
 Cross-platform floor: CI applies MIMIC_BASELINE_RTOL=1e-3 across platforms; locally on the
            capture platform the strict 1e-6 applies, and a difference beyond it there is a finding,
            not noise
 
 The repository-level baseline (tests/data/output/baseline/) is physics-free and belongs to the
-default package pair, so it cannot catch drift in sage26 galaxy formation. This model-owned
-test closes that gap for sage26. It guards itself with its own model and simulation check
-rather than the framework's default-pair guard: the committed baseline belongs to MODEL=sage26
-SIMULATION=mini-millennium, which is not the Makefile's default pair, so that guard would report
-NA under every sage26 pair.
+default package pair, so it cannot catch drift in sage26 galaxy formation. The core scientific
+tier checks finite values and declared ranges, but on a run file whose module pipeline is empty.
+This model-owned test closes both gaps for sage26. It guards itself with its own model and
+simulation check rather than the framework's default-pair guard: the committed baseline belongs to
+MODEL=sage26 SIMULATION=mini-millennium, which is not the Makefile's default pair, so that guard
+would report NA under every sage26 pair.
 
 Test cases:
-  - test_pair_guard_outcomes: the guard raises nothing under (sage26, mini-millennium),
-    TestNotApplicable under (sage26, micro-uchuu) and (sage26, mini-millennium-horizontal), and
-    TestSkipped under a build of another model
-  - test_input_matches_run_file: the input's SubSteps and modules block equal the run file's,
-    so a deliberate run-file change fails here until the baseline is refreshed with it
+  - test_input_matches_run_file: the input's SubSteps and modules block equal the run file's, so a
+    deliberate run-file change fails here until the baseline is refreshed with it
   - test_sage26_physics_baseline: a fresh run of the input matches the committed baseline at
-    every output snapshot, and the baseline covers the default pipeline's new physics
+    every output snapshot, and the baseline covers the default pipeline's physics
+  - test_physics_output_finite_and_in_range: the same fresh run (it is not repeated) holds no
+    NaN or Inf and no value outside its declared range, in any output property at any output
+    snapshot; properties with no declared range are skipped with a printed notice. A violation
+    is a finding about the physics or its metadata, to be explained, never absorbed by widening
+    a range or exempting a property
 
 Run: make MODEL=sage26 SIMULATION=mini-millennium && \\
      MODEL=sage26 SIMULATION=mini-millennium \\
@@ -39,8 +45,10 @@ Run: make MODEL=sage26 SIMULATION=mini-millennium && \\
 
 If the baseline case fails after a DELIBERATE, validated change to sage26 output, refresh the
 baseline. If the run file changed, first copy its SubSteps and modules block into the input
-(models/sage26/modules/_tests/input/test_physics_binary.yaml). Then rerun the input and copy
-each output file and the schema:
+(models/sage26/modules/_tests/input/test_physics_binary.yaml). Capture the baseline with an
+ordinary build (make MODEL=sage26 SIMULATION=mini-millennium), not a test build, then rerun the
+input twice into different output directories and require the two outputs byte-identical before
+copying one:
     ./mimic models/sage26/modules/_tests/input/test_physics_binary.yaml
     cp output/sage26-physics-binary/model_z0.000_0 \\
        output/sage26-physics-binary/model_z7.272_0 \\
@@ -52,7 +60,6 @@ commit message. Never edit a baseline file by hand, and never refresh it to sile
 that has not been explained.
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -69,13 +76,18 @@ from framework import (  # noqa: E402  (path set up above)
     MIMIC_EXE,
     NC,
     RED,
+    VALIDATION_MANIFEST_PATH,
+    YELLOW,
     TestNotApplicable,
     TestSkipped,
     baseline_rtol,
     compare_halos_comprehensive,
     compiled_model,
     compiled_simulation,
+    find_validity_violations,
+    format_validity_finding,
     load_binary_halos,
+    load_validation_manifest,
     run_mimic_fresh,
     run_test_suite,
 )
@@ -97,6 +109,23 @@ CURRENT_DIR = REPO_ROOT / "output" / "sage26-physics-binary"
 FFB_SNAPSHOT = 16
 OUTPUT_FILES = {63: "model_z0.000_0", FFB_SNAPSHOT: "model_z7.272_0"}
 SCHEMA = Path("metadata") / "output_schema.json"
+
+# Row selections the committed baseline must hold at least one row of, as (snapshot, label,
+# selection), so a pass says something about the physics the default pipeline switches on
+REQUIRED_ROWS = [
+    (FFB_SNAPSHOT, "FFBRegime == 1", lambda halos: halos["FFBRegime"] == 1),
+    (63, "Regime == 1", lambda halos: halos["Regime"] == 1),
+    (63, "Concentration != 0", lambda halos: halos["Concentration"] != 0),
+    (63, "MassLoading != 0", lambda halos: halos["MassLoading"] != 0),
+    (63, "H2gas != 0", lambda halos: halos["H2gas"] != 0),
+    # The merger path: satellites, merger bulges, and quasar-mode accretion
+    (63, "Type == 1", lambda halos: halos["Type"] == 1),
+    (63, "MergerBulgeMass != 0", lambda halos: halos["MergerBulgeMass"] != 0),
+    (63, "QuasarModeBHaccretionMass != 0", lambda halos: halos["QuasarModeBHaccretionMass"] != 0),
+]
+
+# Set once the input has been run in this process, so the cases share one fresh run
+_fresh_run_done = False
 
 
 def check_baseline_pair():
@@ -121,46 +150,26 @@ def check_baseline_pair():
         )
 
 
-def _guard_outcome(model, simulation):
-    """Apply the guard under the given MODEL and SIMULATION, restoring the environment after."""
-    saved = {key: os.environ.get(key) for key in ("MODEL", "SIMULATION")}
-    os.environ["MODEL"] = model
-    os.environ["SIMULATION"] = simulation
-    try:
-        check_baseline_pair()
-        return None
-    except (TestSkipped, TestNotApplicable) as exc:
-        return type(exc)
-    finally:
-        for key, value in saved.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+def _require_runnable():
+    """Skip unless the baseline pair is selected and Mimic is built."""
+    check_baseline_pair()
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
 
 
-def _outcome_name(outcome):
-    return "nothing" if outcome is None else outcome.__name__
-
-
-def test_pair_guard_outcomes():
-    """The guard runs the baseline under its pair, NA under other simulations, SKIP otherwise."""
-    before = {key: os.environ.get(key) for key in ("MODEL", "SIMULATION")}
-    expected = [
-        (("sage26", "mini-millennium"), None),
-        (("sage26", "micro-uchuu"), TestNotApplicable),
-        (("sage26", "mini-millennium-horizontal"), TestNotApplicable),
-        (("sage16", "mini-millennium"), TestSkipped),
-    ]
-    for (model, simulation), want in expected:
-        got = _guard_outcome(model, simulation)
-        print(f"  ({model}, {simulation}) raises {_outcome_name(got)}")
-        assert got is want, (
-            f"{RED}guard under ({model}, {simulation}) raised {_outcome_name(got)}, "
-            f"expected {_outcome_name(want)}{NC}"
-        )
-    after = {key: os.environ.get(key) for key in ("MODEL", "SIMULATION")}
-    assert after == before, f"guard probe left MODEL/SIMULATION changed: {before} -> {after}"
+def _fresh_outputs():
+    """Run the input once per process, always regenerating; return {snapshot: output path}."""
+    global _fresh_run_done
+    if not _fresh_run_done:
+        assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
+        # Remove every expected output first, so a stale file cannot satisfy a later check
+        for name in [*OUTPUT_FILES.values(), SCHEMA]:
+            stale = CURRENT_DIR / name
+            if stale.exists():
+                stale.unlink()
+        run_mimic_fresh(INPUT, CURRENT_DIR / OUTPUT_FILES[63])
+        _fresh_run_done = True
+    return {snapshot: CURRENT_DIR / name for snapshot, name in OUTPUT_FILES.items()}
 
 
 def _typed(node):
@@ -195,29 +204,16 @@ def test_input_matches_run_file():
             f"{RED}input '{key}' differs from {RUN_FILE.name}: refresh the input and the baseline "
             f"together (see this file's docstring){NC}"
         )
-    parameters = run_file["modules"]["parameters"]
     print(
         f"  SubSteps={run_file['SubSteps']}; modules block equal "
-        f"({len(parameters)} parameters, phases {list(run_file['modules']['phases'])})"
+        f"({len(run_file['modules']['parameters'])} parameters, "
+        f"phases {list(run_file['modules']['phases'])})"
     )
-
-
-def _row_counts(halos):
-    """Counts of the rows that show the default pipeline's new physics in one output snapshot."""
-    return {
-        "FFBRegime == 1": int(np.sum(halos["FFBRegime"] == 1)),
-        "Regime == 1": int(np.sum(halos["Regime"] == 1)),
-        "Concentration != 0": int(np.sum(halos["Concentration"] != 0)),
-        "MassLoading != 0": int(np.sum(halos["MassLoading"] != 0)),
-        "H2gas != 0": int(np.sum(halos["H2gas"] != 0)),
-    }
 
 
 def test_sage26_physics_baseline():
     """A fresh run of the input matches the committed baseline at every output snapshot."""
-    check_baseline_pair()
-    if not MIMIC_EXE.exists():
-        raise TestSkipped("Mimic not built")
+    _require_runnable()
 
     assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
     for name in [*OUTPUT_FILES.values(), SCHEMA]:
@@ -230,27 +226,23 @@ def test_sage26_physics_baseline():
         OUTPUT_FILES
     ), f"input snapshot_list {snapshot_list} is not the baseline's {sorted(OUTPUT_FILES)}"
 
-    # The committed baseline must exercise the default pipeline's new physics, or a pass would say nothing about it
-    ffb_counts = _row_counts(load_binary_halos(BASELINE_DIR / OUTPUT_FILES[FFB_SNAPSHOT])[0])
-    z0_counts = _row_counts(load_binary_halos(BASELINE_DIR / OUTPUT_FILES[63])[0])
-    print(f"  baseline coverage, snapshot {FFB_SNAPSHOT}: {ffb_counts}")
-    print(f"  baseline coverage, snapshot 63: {z0_counts}")
-    assert (
-        ffb_counts["FFBRegime == 1"] >= 1
-    ), f"baseline holds no FFBRegime 1 row at snapshot {FFB_SNAPSHOT}"
-    for key in ("Regime == 1", "Concentration != 0", "MassLoading != 0", "H2gas != 0"):
-        assert z0_counts[key] >= 1, f"baseline holds no row with {key} at snapshot 63"
-
-    # Remove every expected output first, so a stale file cannot satisfy the comparison
-    for name in [*OUTPUT_FILES.values(), SCHEMA]:
-        stale = CURRENT_DIR / name
-        if stale.exists():
-            stale.unlink()
-    run_mimic_fresh(INPUT, CURRENT_DIR / OUTPUT_FILES[63])
+    # The committed baseline must exercise the default pipeline's physics, or a pass would say
+    # nothing about it
+    baseline_halos = {
+        snapshot: load_binary_halos(BASELINE_DIR / name)[0]
+        for snapshot, name in OUTPUT_FILES.items()
+    }
+    for snapshot, label, selection in REQUIRED_ROWS:
+        count = int(np.sum(selection(baseline_halos[snapshot])))
+        print(f"  baseline snapshot {snapshot}: rows with {label}: {count}")
+        assert count >= 1, (
+            f"{RED}baseline snapshot {snapshot} holds no row with {label}, so it does not "
+            f"cover the default pipeline's physics{NC}"
+        )
 
     failures = []
-    for snapshot, name in OUTPUT_FILES.items():
-        current = CURRENT_DIR / name
+    for snapshot, current in _fresh_outputs().items():
+        name = OUTPUT_FILES[snapshot]
         assert current.exists(), f"Mimic wrote no output for snapshot {snapshot}: {current}"
         halos_now, meta_now = load_binary_halos(current)
         halos_ref, meta_ref = load_binary_halos(BASELINE_DIR / name)
@@ -266,9 +258,9 @@ def test_sage26_physics_baseline():
         names_now = halos_now.dtype.names
         names_ref = halos_ref.dtype.names
         assert names_now == names_ref, (
-            f"{RED}snapshot {snapshot}: output property names differ. "
-            f"Only in current: {sorted(set(names_now) - set(names_ref))}; "
-            f"only in baseline: {sorted(set(names_ref) - set(names_now))}{NC}"
+            f"{RED}snapshot {snapshot}: output property names differ.\n"
+            f"Only in current: {sorted(set(names_now) - set(names_ref))}\n"
+            f"Only in baseline: {sorted(set(names_ref) - set(names_now))}{NC}"
         )
 
         passed, report = compare_halos_comprehensive(
@@ -285,11 +277,43 @@ def test_sage26_physics_baseline():
             failures.append(snapshot)
 
     assert not failures, (
-        f"{RED}sage26 full-physics output does not match the committed baseline at snapshot(s) "
-        f"{failures}. If this was a deliberate, validated change, refresh the baseline (see this "
-        f"file's docstring).{NC}"
+        f"{RED}sage26 full-physics output does not match the committed baseline at "
+        f"snapshot(s) {failures}. If this was a deliberate, validated change, refresh the "
+        f"baseline (see this file's docstring).{NC}"
     )
     print(f"{GREEN}  ✓ sage26 galaxy-physics output matches the committed baseline{NC}")
+
+
+def test_physics_output_finite_and_in_range():
+    """Fresh full-physics output has no NaN or Inf and no value outside its declared range."""
+    _require_runnable()
+    if not VALIDATION_MANIFEST_PATH.exists():
+        raise TestSkipped("validation manifest not found: run 'make generate'")
+    properties = load_validation_manifest().get("properties", {})
+
+    violations = []
+    skipped_fields = []
+    for snapshot, current in _fresh_outputs().items():
+        halos, meta = load_binary_halos(current)
+        findings, skipped = find_validity_violations(halos, properties)
+        skipped_fields.extend(field for field in skipped if field not in skipped_fields)
+        print(
+            f"  snapshot {snapshot}: {meta['TotHalos']} rows, "
+            f"{len(halos.dtype.names) - len(skipped)} of {len(halos.dtype.names)} properties "
+            f"range-checked, {len(findings)} violation(s)"
+        )
+        for finding in findings:
+            text = format_validity_finding(finding)
+            print(f"{RED}  ✗ snapshot {snapshot}: {text}{NC}")
+            violations.append(f"snapshot {snapshot} {text}")
+    for field in skipped_fields:
+        print(f"{YELLOW}  Skipping {field}: no range specified in metadata{NC}")
+
+    assert not violations, (
+        f"{len(violations)} non-finite or out-of-range finding(s) in sage26 full-physics output; "
+        f"explain each before changing a range or a module:\n" + "\n".join(violations)
+    )
+    print(f"{GREEN}  ✓ no NaN, Inf or out-of-range value in any output property{NC}")
 
 
 def main():
@@ -297,9 +321,9 @@ def main():
     print(f"Mimic executable: {MIMIC_EXE}")
     return run_test_suite(
         [
-            test_pair_guard_outcomes,
             test_input_matches_run_file,
             test_sage26_physics_baseline,
+            test_physics_output_finite_and_in_range,
         ],
         "sage26 Full-Physics Baseline (test_scientific_sage26_physics_baseline.py)",
     )

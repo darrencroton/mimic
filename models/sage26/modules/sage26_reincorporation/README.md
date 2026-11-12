@@ -38,5 +38,6 @@ The module returns early when `EjectedGas <= 0`, where SAGE26 performs a zero-ma
 
 ## Tests
 
-- `_tests/test_unit_sage26_reincorporation.c`: the reincorporated amount, the `Vcrit` threshold, the cap, the metallicity, the central-only restriction, both destinations, substeps and the parameter refusals.
-- `_tests/test_integration_sage26_reincorporation.py`: the module in full runs, alone and with the infall modules, with non-negativity and metallicity-range checks on the output.
+- `_tests/test_unit_sage26_reincorporation.c`: the reincorporated amount, the `Vcrit` threshold, the cap, the metallicity, the central-only restriction, both destinations, and substeps.
+- `_tests/test_integration_sage26_reincorporation.py`: the supply pipeline run with and without the module, checking that the ejected gas and its metals fall and the hot gas and its metals rise in total while the baryon mass is unchanged.
+- The `CGMrecipeOn` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.
