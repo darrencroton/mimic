@@ -33,6 +33,7 @@ from framework import run_test_suite  # noqa: E402
 from framework.fs import remove_tree  # noqa: E402
 from framework.parity_gate import (  # noqa: E402
     REPO_ROOT,
+    SCHEMA_PROVENANCE_LABEL,
     VERTICAL_DATASET_KEYS,
     GatePackage,
     OutputRun,
@@ -625,6 +626,180 @@ def test_compare_outputs_checks_galaxy_bytes_created_rows_row_order_and_partitio
         assert any("file sets differ" in line for line in report.errors), report.errors
 
 
+def _schema_run(directory: Path, schema: dict, digest: str | None) -> OutputRun:
+    """A synthetic run carrying ``metadata/output_schema.json`` and the build digest ``digest``."""
+    run = _write_run(directory, GALAXY_ROWS)
+    (directory / "metadata").mkdir()
+    (directory / "metadata" / "output_schema.json").write_text(json.dumps(schema, indent=2))
+    return replace(run, source_md5=digest)
+
+
+SCHEMA_FIELDS = [
+    {"name": "Mvir", "units": "1e10 Msun/h", "description": "Virial mass"},
+    {"name": "Type", "units": "", "description": "Galaxy type"},
+]
+
+
+def _schema(source_md5: str = "aaaa", **changes) -> dict:
+    schema = {"source_md5": source_md5, "binary_record_size": 8, "fields": SCHEMA_FIELDS}
+    schema.update(changes)
+    return schema
+
+
+def _first_field(**changes) -> list:
+    return [{**SCHEMA_FIELDS[0], **changes}, SCHEMA_FIELDS[1]]
+
+
+#: (case, baseline schema, candidate schema, baseline digest, candidate digest, accepted).
+#: Digests default to each schema's own ``source_md5``; "unknown" is a side with no digest.
+SCHEMA_PROVENANCE_CASES = [
+    (
+        "source_md5 only, each its own digest",
+        _schema("aaaa"),
+        _schema("bbbb"),
+        "aaaa",
+        "bbbb",
+        True,
+    ),
+    ("baseline value is not its digest", _schema("aaaa"), _schema("bbbb"), "cccc", "bbbb", False),
+    ("candidate value is not its digest", _schema("aaaa"), _schema("bbbb"), "aaaa", "cccc", False),
+    ("baseline digest unknown", _schema("aaaa"), _schema("bbbb"), "unknown", "bbbb", False),
+    ("candidate digest unknown", _schema("aaaa"), _schema("bbbb"), "aaaa", "unknown", False),
+    ("both digests unknown", _schema("aaaa"), _schema("bbbb"), "unknown", "unknown", False),
+    (
+        "a field removed",
+        _schema("aaaa"),
+        _schema("aaaa", fields=SCHEMA_FIELDS[:1]),
+        "aaaa",
+        "aaaa",
+        False,
+    ),
+    (
+        "a field added",
+        _schema("aaaa"),
+        _schema("aaaa", fields=SCHEMA_FIELDS + [{"name": "Rvir"}]),
+        "aaaa",
+        "aaaa",
+        False,
+    ),
+    (
+        "fields reordered",
+        _schema("aaaa"),
+        _schema("aaaa", fields=SCHEMA_FIELDS[::-1]),
+        "aaaa",
+        "aaaa",
+        False,
+    ),
+    (
+        "a description",
+        _schema("aaaa"),
+        _schema("aaaa", fields=_first_field(description="x")),
+        "aaaa",
+        "aaaa",
+        False,
+    ),
+    (
+        "a unit",
+        _schema("aaaa"),
+        _schema("aaaa", fields=_first_field(units="Msun")),
+        "aaaa",
+        "aaaa",
+        False,
+    ),
+    (
+        "binary_record_size",
+        _schema("aaaa"),
+        _schema("aaaa", binary_record_size=16),
+        "aaaa",
+        "aaaa",
+        False,
+    ),
+    (
+        "a field removed and source_md5",
+        _schema("aaaa"),
+        _schema("bbbb", fields=SCHEMA_FIELDS[:1]),
+        "aaaa",
+        "bbbb",
+        False,
+    ),
+    (
+        "a unit and source_md5",
+        _schema("aaaa"),
+        _schema("bbbb", fields=_first_field(units="Msun")),
+        "aaaa",
+        "bbbb",
+        False,
+    ),
+    (
+        "binary_record_size and source_md5",
+        _schema("aaaa"),
+        _schema("bbbb", binary_record_size=16),
+        "aaaa",
+        "bbbb",
+        False,
+    ),
+    (
+        "a key added and source_md5",
+        _schema("aaaa"),
+        _schema("bbbb", extra=1),
+        "aaaa",
+        "bbbb",
+        False,
+    ),
+]
+
+
+def test_a_schema_differing_only_in_its_build_digest_is_provenance_not_a_difference():
+    """With no ``metadata_delta`` hook, a differing ``output_schema.json`` is accepted under one
+    fixed label only when it differs in ``source_md5`` alone and each side's value is its own
+    build digest; any other difference, a wrong digest or an unknown digest is an error."""
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp)
+        for number, (case, left, right, digest_left, digest_right, accepted) in enumerate(
+            SCHEMA_PROVENANCE_CASES
+        ):
+            digests = [
+                None if given == "unknown" else given for given in (digest_left, digest_right)
+            ]
+            base = _schema_run(scratch / f"base-{number}", left, digests[0])
+            other = _schema_run(scratch / f"other-{number}", right, digests[1])
+            report = compare_outputs(base, other)
+            if accepted:
+                assert not report.errors, f"{case}: refused: {report.errors}"
+                assert report.permitted == [SCHEMA_PROVENANCE_LABEL], f"{case}: {report.permitted}"
+            else:
+                assert any(
+                    "output_schema.json" in line for line in report.errors
+                ), f"{case}: accepted, errors {report.errors}"
+                assert SCHEMA_PROVENANCE_LABEL not in report.permitted, f"{case}: labelled"
+
+
+def test_identical_schemas_need_no_label_and_a_pinned_hook_keeps_its_own_verdict():
+    """Byte-identical schemas pass unlabelled even with no known digest, and a hook that judges
+    the file first (the snapshot-disabled battery's) is not overridden by the standing rule."""
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp)
+        base = _schema_run(scratch / "base", _schema("aaaa"), None)
+        other = _schema_run(scratch / "other", _schema("aaaa"), None)
+        report = compare_outputs(base, other)
+        assert not report.errors and not report.permitted, (report.errors, report.permitted)
+
+        base = _schema_run(scratch / "base2", _schema("aaaa"), "aaaa")
+        other = _schema_run(scratch / "other2", _schema("bbbb"), "bbbb")
+
+        def strict(rel, left, right, base, other, report):
+            if rel == "metadata/output_schema.json" and left != right:
+                report.error(f"{rel}: output schema differs")
+                return True
+            return False
+
+        report = compare_outputs(base, other, metadata_delta=strict)
+        assert report.errors == [
+            "metadata/output_schema.json: output schema differs"
+        ], report.errors
+        assert not report.permitted, report.permitted
+
+
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
 
@@ -768,6 +943,8 @@ if __name__ == "__main__":
                 test_the_vertical_manifest_proves_the_inventory,
                 test_remove_tree_retries_once_then_refuses_a_tree_that_remains,
                 test_compare_outputs_checks_galaxy_bytes_created_rows_row_order_and_partitions,
+                test_a_schema_differing_only_in_its_build_digest_is_provenance_not_a_difference,
+                test_identical_schemas_need_no_label_and_a_pinned_hook_keeps_its_own_verdict,
                 test_runtime_tree_differences_reports_tracked_and_untracked_edits_unless_exempt,
                 test_assert_own_worktree_accepts_only_a_registered_linked_worktree_under_the_root,
                 test_build_flag_check_reads_the_makefile_mode_markers,

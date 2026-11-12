@@ -1592,6 +1592,35 @@ def compare_galaxies(base: OutputRun, other: OutputRun, report: Report) -> None:
             report.galaxies += result.tree_rows + result.created_compared
 
 
+#: The label of the one permitted ``metadata/output_schema.json`` difference.
+SCHEMA_PROVENANCE_LABEL = "metadata/output_schema.json: source_md5 build provenance only"
+
+
+def schema_differs_by_build_provenance_only(
+    left: bytes, right: bytes, base: OutputRun, other: OutputRun
+) -> bool:
+    """True when two ``output_schema.json`` texts differ only in ``source_md5``, each side's value
+    being the digest its own build generated.
+
+    ``source_md5`` is a digest of the generator and its inputs, not of the schema, so it moves
+    whenever the generator's bytes do while the schema content stays put; the cross-format
+    identity test treats it as provenance in the same way. The parsed contents must otherwise be
+    equal (field order, descriptions, units and every other key included), and a side whose build
+    digest is unknown (``OutputRun.source_md5`` is None) or whose value differs from it is not
+    accepted.
+    """
+    try:
+        before, after = json.loads(left), json.loads(right)
+    except ValueError:
+        return False
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    for schema, run in ((before, base), (after, other)):
+        if run.source_md5 is None or schema.pop("source_md5", None) != run.source_md5:
+            return False
+    return json.dumps(before, sort_keys=True) == json.dumps(after, sort_keys=True)
+
+
 def compare_metadata_file(
     rel: str,
     base: OutputRun,
@@ -1602,8 +1631,10 @@ def compare_metadata_file(
     """One metadata file pair: identical, a named provenance or path-prefix difference, or an error.
 
     ``metadata_delta(rel, left, right, base, other, report)`` may judge a file itself (recording
-    its own allowance or error) and return True, ahead of the identical-bytes and path-prefix
-    rules.
+    its own allowance or error) and return True, ahead of the identical-bytes, schema-provenance
+    and path-prefix rules. A differing ``output_schema.json`` is permitted, for every caller whose
+    hook leaves it alone, when it differs only in ``source_md5`` and each side's value is its own
+    build digest (``schema_differs_by_build_provenance_only``).
     """
     left, right = (base.directory / rel).read_bytes(), (other.directory / rel).read_bytes()
     if rel == "metadata/version_info.json":
@@ -1616,6 +1647,11 @@ def compare_metadata_file(
     if metadata_delta is not None and metadata_delta(rel, left, right, base, other, report):
         return
     if left == right:
+        return
+    if rel == "metadata/output_schema.json" and schema_differs_by_build_provenance_only(
+        left, right, base, other
+    ):
+        report.allow(SCHEMA_PROVENANCE_LABEL)
         return
     text_left, text_right = left.decode(errors="replace"), right.decode(errors="replace")
     if (
