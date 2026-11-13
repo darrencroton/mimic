@@ -27,7 +27,10 @@
  *   law returned it as well as the central's recipient entry
  * - The failure file of a failed segment: written to the output directory before
  *   the run ends, holding the segment-start state, each row's Delta and the
- *   failing evaluation's coefficients as hexadecimal floats
+ *   failing evaluation's coefficients as hexadecimal floats; a coefficient whose
+ *   law had not run (a law returned non-zero mid-group) is marked not_evaluated,
+ *   and a segment that failed before any law ran lists none, even when an earlier
+ *   component left coefficients in the scratch
  * - The purity probe (check_purity): with it off no law is evaluated beyond the
  *   integrator's own; with it on every law is evaluated once more, in reversed
  *   canonical order, at a segment's first evaluation; a law whose coefficient
@@ -190,6 +193,17 @@ static int scratch_writer_rates(const struct RateContext *ctx, const struct Halo
   return 0;
 }
 
+/** Fails (returns 5) on a Type 1 row, else a small constant coefficient */
+static int fail_on_satellite_rates(const struct RateContext *ctx, const struct Halo *halo,
+                                   double *coefficients) {
+  (void)ctx;
+  if (halo->Type == 1) {
+    return 5;
+  }
+  coefficients[0] = 0.1;
+  return 0;
+}
+
 /** NaN on satellite rows only, for a source into the central */
 static int nan_central_rates(const struct RateContext *ctx, const struct Halo *halo,
                              double *coefficients) {
@@ -330,6 +344,10 @@ static const struct RateTransfer scratch_writer_transfers[] = {
     TRANSFER("scribble", 0, 191, RATE_TRANSFER_SINK, RESERVOIR_INDEX_RateFixtureCold, EXTERNAL,
              SELF, -1, NULL),
 };
+static const struct RateTransfer fail_on_satellite_transfers[] = {
+    TRANSFER("boom", 0, 192, RATE_TRANSFER_SINK, RESERVOIR_INDEX_RateFixtureCold, EXTERNAL, SELF,
+             -1, NULL),
+};
 static const struct RateTransfer misuse_transfers[] = {
     TRANSFER("noop", 0, 130, RATE_TRANSFER_SINK, RESERVOIR_INDEX_RateFixtureCold, EXTERNAL, SELF,
              -1, NULL),
@@ -374,6 +392,9 @@ static struct Module impure_probe =
     RATE_MODULE("impure_probe", impure_rates, impure_transfers, false);
 static struct Module scratch_writer_probe =
     RATE_MODULE("scratch_writer_probe", scratch_writer_rates, scratch_writer_transfers, false);
+/* Reads the central only to make the group one component, so its rows fail in sequence. */
+static struct Module fail_on_satellite_probe = RATE_MODULE(
+    "fail_on_satellite_probe", fail_on_satellite_rates, fail_on_satellite_transfers, true);
 static struct Module emit_probe = RATE_MODULE("emit_probe", emit_rates, misuse_transfers, false);
 static struct Module create_probe =
     RATE_MODULE("create_probe", create_rates, misuse_transfers, false);
@@ -436,11 +457,12 @@ static void ensure_probes_registered(void) {
   static bool registered = false;
   ensure_modules_registered();
   if (!registered) {
-    struct Module *probes[] = {
-        &count_probe,       &central_reader,   &nan_probe,    &emit_probe,
-        &create_probe,      &wrong_kind_probe, &master_probe, &slaved_probe,
-        &cycle_probe,       &context_saver,    &retire_probe, &fof_control,
-        &nan_central_probe, &observer_probe,   &impure_probe, &scratch_writer_probe};
+    struct Module *probes[] = {&count_probe,          &central_reader,         &nan_probe,
+                               &emit_probe,           &create_probe,           &wrong_kind_probe,
+                               &master_probe,         &slaved_probe,           &cycle_probe,
+                               &context_saver,        &retire_probe,           &fof_control,
+                               &nan_central_probe,    &observer_probe,         &impure_probe,
+                               &scratch_writer_probe, &fail_on_satellite_probe};
     for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++) {
       module_registry_add(probes[i]);
     }
@@ -1133,6 +1155,130 @@ int test_failure_file_holds_the_segment(void) {
   return TEST_PASS;
 }
 
+/** @brief Make the temporary output directory the failure-file cases write into */
+static int make_failure_dir(void) {
+  const char *tmp = getenv("TMPDIR");
+  snprintf(failure_dir, sizeof(failure_dir), "%s/mimic_rate_failure_XXXXXX",
+           tmp != NULL && tmp[0] != '\0' ? tmp : "/tmp");
+  return mkdtemp(failure_dir) != NULL;
+}
+
+/**
+ * @brief   Child body: a failing component that follows or sits beside others
+ *
+ * @param   arg  "zero_delta": row 0 integrates normally and leaves coefficients in the scratch,
+ *               then row 1, a first-snapshot sentinel row (Delta 0, no law runs) holding a
+ *               tracer above its parent, fails the tracer bound before any law ran.
+ *               "mid_row": a three-row group (one component) whose second module's law returns
+ *               non-zero on row 1 after the rest of row 1's laws and every law of row 0 ran.
+ */
+static void failure_case_body(const char *arg) {
+  static const int types[3] = {0, 1, 2};
+  static const double cold_sentinel[3] = {0.0, 0.5, 0.0};
+  static const double cold_empty[3] = {0.0, 0.0, 0.0};
+  const bool zero_delta = strcmp(arg, "zero_delta") == 0;
+  ensure_probes_registered();
+  reset_rate_config();
+  reset_probes();
+  feed_rate = 0.5;
+  snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", failure_dir);
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  if (!zero_delta) {
+    test_phase_add(RATE_PHASE, "fail_on_satellite_probe", PROCESSING_MODE_RATES);
+  }
+  if (module_system_init() != 0) {
+    return;
+  }
+  if (zero_delta) {
+    build_workspace(types, cold_sentinel, 2);
+    workspace.halos[1].SnapNum = -1;
+    workspace.halos[1].dT = 0.0;
+    workspace.halos[1].galaxy->RateFixtureColdTracer = 1.0;
+  } else {
+    build_workspace(types, cold_empty, 3);
+  }
+  run_pipeline();
+}
+
+/** @brief Whether @p text has a line starting with @p prefix */
+static bool has_line_starting(const char *text, const char *prefix) {
+  const size_t length = strlen(prefix);
+  for (const char *line = text; line != NULL && *line != '\0';) {
+    if (strncmp(line, prefix, length) == 0) {
+      return true;
+    }
+    line = strchr(line, '\n');
+    line = line != NULL ? line + 1 : NULL;
+  }
+  return false;
+}
+
+/** @brief Read the failure file the case wrote, then remove it and the directory */
+static char *take_failure_file(void) {
+  char path[MAX_STRING_LEN + 64];
+  snprintf(path, sizeof(path), "%s/rate_failure_task0.txt", failure_dir);
+  char *text = read_text_file(path);
+  unlink(path);
+  rmdir(failure_dir);
+  return text;
+}
+
+/**
+ * @test    test_failure_file_never_invents_coefficients
+ * @brief   The file lists only coefficients a law evaluation produced
+ *
+ * Zero-Delta case: component 1 fails its tracer bound before any law ran, after
+ * component 0 filled the scratch with coefficients; the file says no law was
+ * evaluated and lists no coefficient line. Mid-group case: the second module's
+ * law returns non-zero on row 1, so row 0's and row 1's first-module
+ * coefficients are exact hex floats and everything after the failing call is
+ * marked not_evaluated.
+ */
+int test_failure_file_never_invents_coefficients(void) {
+  TEST_ASSERT(make_failure_dir(), "a temporary output directory is made");
+  int ok = expect_fatal("zero_delta", failure_case_body, "cause tracer_bound", "failure file: ");
+  TEST_ASSERT_EQUAL(ok, 1, "the zero-Delta tracer-bound failure ends the run");
+  char *text = take_failure_file();
+  TEST_ASSERT(text != NULL, "the zero-Delta failure wrote its file");
+  TEST_ASSERT(strstr(text, "cause: tracer_bound\n") != NULL, "the file names the cause");
+  TEST_ASSERT(strstr(text, "law_evaluations_begun: 0\n") != NULL, "no evaluation had begun");
+  TEST_ASSERT(strstr(text, "failing_evaluation_tau: none\n") != NULL, "no evaluation tau");
+  TEST_ASSERT(strstr(text, "coefficients: no law was evaluated\n") != NULL,
+              "the file says no law was evaluated");
+  TEST_ASSERT(!has_line_starting(text, "coefficient "), "no coefficient line is listed");
+  TEST_ASSERT(strstr(text, "state 0 1 RateFixtureCold 0x1p-1\n") != NULL,
+              "the segment-start state is still listed");
+  free(text);
+
+  TEST_ASSERT(make_failure_dir(), "a second temporary output directory is made");
+  ok = expect_fatal("mid_row", failure_case_body, "module 'fail_on_satellite_probe'",
+                    "failure file: ");
+  TEST_ASSERT_EQUAL(ok, 1, "the mid-group law failure ends the run");
+  text = take_failure_file();
+  TEST_ASSERT(text != NULL, "the mid-group failure wrote its file");
+  static const char *const wanted[] = {
+      "law_evaluations_begun: 1\n",
+      "coefficient 0 count_probe.feed 0x1p-1\n",
+      "coefficient 0 count_probe.drain 0x1p+0\n",
+      "coefficient 0 fail_on_satellite_probe.boom 0x1.999999999999ap-4\n",
+      "coefficient 1 count_probe.feed 0x1p-1\n",
+      "coefficient 1 count_probe.drain 0x1p+0\n",
+      "coefficient 1 fail_on_satellite_probe.boom not_evaluated\n",
+      "coefficient 2 count_probe.feed not_evaluated\n",
+      "coefficient 2 count_probe.drain not_evaluated\n",
+      "coefficient 2 fail_on_satellite_probe.boom not_evaluated\n"};
+  int missing = 0;
+  for (size_t i = 0; i < sizeof(wanted) / sizeof(wanted[0]); i++) {
+    if (strstr(text, wanted[i]) == NULL) {
+      fprintf(stderr, "  failure file lacks: %s", wanted[i]);
+      missing++;
+    }
+  }
+  TEST_ASSERT_EQUAL(missing, 0, "evaluated coefficients are exact and the rest not_evaluated");
+  free(text);
+  return TEST_PASS;
+}
+
 /**
  * @brief   Run the whole-group probe case and return the number of law calls
  *
@@ -1540,6 +1686,7 @@ int main(void) {
   TEST_RUN(test_rate_law_cannot_emit_or_create);
   TEST_RUN(test_nan_law_is_fatal);
   TEST_RUN(test_failure_file_holds_the_segment);
+  TEST_RUN(test_failure_file_never_invents_coefficients);
   TEST_RUN(test_purity_probe_cost_and_order);
   TEST_RUN(test_purity_probe_catches_impure_laws);
   TEST_RUN(test_retired_row_leaves_the_next_segment);

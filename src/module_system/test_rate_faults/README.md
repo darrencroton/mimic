@@ -35,9 +35,7 @@ Like the other `src/module_system/test_*` fixtures, it is compiled and registere
 
 ## Tests
 
-- `tests/integration/test_rate_phase.py` — the failing laws with their failure files, the impure law under the purity switch, and the switch's value check.
-- `tests/unit/test_rate_transfer_tables.c` — the generated transfer table and the law.
-- `tests/integration/test_rate_metadata.py` — the `rates:` rules shared by the generator and the validator.
+- `tests/integration/test_rate_phase.py` — the failing laws with their failure files, the impure law under the purity switch, and the switch's value check. No other test names this module.
 
 ## Production Use
 

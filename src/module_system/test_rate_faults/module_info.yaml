@@ -55,9 +55,8 @@ module:
   # Tests
   # ===========================================================================
 
-  # Exercised by tests/unit/test_rate_transfer_tables.c,
-  # tests/integration/test_rate_metadata.py and tests/integration/test_rate_phase.py,
-  # which the test registry discovers directly.
+  # Exercised by tests/integration/test_rate_phase.py, which the test registry
+  # discovers directly.
   tests:
     unit: null
     integration: null

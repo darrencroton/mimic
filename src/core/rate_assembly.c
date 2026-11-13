@@ -908,7 +908,11 @@ struct LawAdapter {
   RateLawInvoker invoke;
   int64_t evaluations; /* law evaluations begun in this segment */
   double last_tau;     /* tau of the latest evaluation */
-  int failed_module;   /* plan module index of a law that returned non-zero, else -1 */
+  /* Laws of the latest evaluation that returned, counted in canonical call order (row by row,
+   * modules by name within a row): the coefficients of transfer slots of later calls were
+   * never evaluated, whatever the buffer holds. */
+  int64_t reached_calls;
+  int failed_module; /* plan module index of a law that returned non-zero, else -1 */
   int failed_row;
   int failed_code;
 };
@@ -947,6 +951,16 @@ struct FailureSummary {
   double step; /* the step being attempted, or 0 */
 };
 
+/** @brief Plan module index of @p mod (it is one of the plan's modules) */
+static int plan_module_index(const struct RateAssemblyPlan *plan, const struct Module *mod) {
+  for (int m = 0; m < plan->num_modules; m++) {
+    if (plan->modules[m] == mod) {
+      return m;
+    }
+  }
+  return -1;
+}
+
 /** @brief Print @p value as a hexadecimal float, with its bit pattern when it is not finite */
 static void print_hex(FILE *file, double value) {
   fprintf(file, "%a", value);
@@ -964,7 +978,10 @@ static void print_hex(FILE *file, double value) {
  * settings, the failure's cause, module, transfer and time, each row's segment
  * length, the component's segment-start state (the integrator leaves it
  * untouched on a failure) and the coefficients of the latest law evaluation, all
- * as hexadecimal floats. Failing to write it logs a warning and never hides the
+ * as hexadecimal floats. A coefficient whose law had not run when the evaluation
+ * ended (a law returned non-zero, or the probe stopped it) is marked
+ * not_evaluated, and a segment that failed before any law ran says so instead of
+ * listing coefficients. Failing to write it logs a warning and never hides the
  * failure itself.
  *
  * @param   path  Receives the file's path when it was written, else an empty string
@@ -1019,7 +1036,11 @@ static bool write_failure_file(const struct LawAdapter *a, const struct FailureS
   fprintf(file, "tau: %a\n", f->tau);
   fprintf(file, "step: %a\n", f->step);
   fprintf(file, "law_evaluations_begun: %" PRId64 "\n", a->evaluations);
-  fprintf(file, "failing_evaluation_tau: %a\n", a->last_tau);
+  if (a->evaluations > 0) {
+    fprintf(file, "failing_evaluation_tau: %a\n", a->last_tau);
+  } else {
+    fprintf(file, "failing_evaluation_tau: none\n");
+  }
   fprintf(file, "rows: %d\n", seg->num_rows);
   fprintf(file, "entries_per_row: %d\n", P);
   fprintf(file, "transfers_per_row: %d\n", T);
@@ -1043,13 +1064,24 @@ static bool write_failure_file(const struct LawAdapter *a, const struct FailureS
       fprintf(file, "\n");
     }
   }
-  fprintf(file, "# coefficient <row> <module>.<transfer> <value at the failing evaluation>\n");
-  for (int r = 0; r < seg->num_rows; r++) {
-    for (int t = 0; t < T; t++) {
-      fprintf(file, "coefficient %d %s.%s ", r, plan->transfers[t].module->name,
-              plan->transfers[t].transfer->name);
-      print_hex(file, seg->last_coefficients[r * T + t]);
-      fprintf(file, "\n");
+  if (a->evaluations == 0) {
+    fprintf(file, "coefficients: no law was evaluated\n");
+  } else {
+    fprintf(file, "# coefficient <row> <module>.<transfer> <value at the failing evaluation, or "
+                  "not_evaluated>\n");
+    const int64_t num_modules = plan->num_modules;
+    for (int r = 0; r < seg->num_rows; r++) {
+      for (int t = 0; t < T; t++) {
+        const int m = plan_module_index(plan, plan->transfers[t].module);
+        fprintf(file, "coefficient %d %s.%s ", r, plan->transfers[t].module->name,
+                plan->transfers[t].transfer->name);
+        if ((int64_t)r * num_modules + m < a->reached_calls) {
+          print_hex(file, seg->last_coefficients[r * T + t]);
+        } else {
+          fprintf(file, "not_evaluated");
+        }
+        fprintf(file, "\n");
+      }
     }
   }
 
@@ -1095,7 +1127,8 @@ static void fail_impure(struct LawAdapter *a, double tau, const double *coeffici
   const int w = seg->rows[r];
   const struct Halo *h = &a->ws->halos[w];
 
-  /* The failing evaluation's coefficients are the first pass's, which are complete. */
+  /* The failing evaluation's coefficients are the first pass's, as far as it got
+   * (a->reached_calls: all of it when the repeat failed). */
   memcpy(seg->last_coefficients, coefficients,
          (size_t)seg->num_rows * (size_t)plan->num_transfers * sizeof(double));
   a->last_tau = tau;
@@ -1219,6 +1252,7 @@ static int run_laws(struct LawAdapter *a, double tau, const double *state, doubl
   const int P = plan->entries_per_row;
   const int T = plan->num_transfers;
 
+  a->reached_calls = 0;
   for (int r = 0; r < seg->num_rows; r++) {
     load_trial_row(plan, &state[r * P], &seg->galaxies[r]);
   }
@@ -1247,6 +1281,7 @@ static int run_laws(struct LawAdapter *a, double tau, const double *state, doubl
       for (int k = 0; k < n; k++) {
         coefficients[r * T + plan->slot_transfer[plan->slot_base[m] + k]] = seg->coefficients[k];
       }
+      a->reached_calls = (int64_t)r * plan->num_modules + m + 1;
       if (probe) {
         check_scratch(a, tau, coefficients, r, m, "first");
       }
@@ -1441,6 +1476,7 @@ static void integrate_component(const struct RateAssemblyPlan *plan,
                                .invoke = invoke,
                                .evaluations = 0,
                                .last_tau = 0.0,
+                               .reached_calls = 0,
                                .failed_module = -1,
                                .failed_row = -1,
                                .failed_code = 0};

@@ -84,9 +84,15 @@
  * per row with its workspace row, UniqueGalaxyID, Type, dT and segment length
  * Delta; one line per entry with the segment-start state (the integrator
  * leaves it untouched on a failure); and one line per row and transfer with
- * the coefficient of the failing law evaluation (the latest one). Every
+ * the coefficient of the failing law evaluation (the latest one), marked
+ * not_evaluated where its law had not yet returned when the evaluation ended (a
+ * law returned non-zero, or the probe failed mid-pass). A segment that failed
+ * before any law ran (a segment of zero-length rows failing its closure
+ * checks) says "no law was evaluated" in place of the coefficient lines. Every
  * floating-point value is a C99 hexadecimal float (%a), exact; a value that is
- * not finite also carries its bit pattern.
+ * not finite also carries its bit pattern. The file is written only on a
+ * failure; a later successful run into the same output directory does not
+ * remove it.
  *
  * Memory. Everything a segment needs (the row, entry and flux tables, the
  * scratch rows, the latest coefficients, the purity probe's snapshots when it
