@@ -6,7 +6,7 @@ Validates, on the selected package's committed fixture in a test build (the defa
 vertical driver; MODEL=halos-only SIMULATION=mini-millennium-horizontal the horizontal driver):
   - test_run_file_section_refusals: a modules.rate_integration section with no rate phase (as
     a mapping or as null), with an unknown or non-scalar key, or with a value out of range (each
-    of the five keys), a section that is not a mapping, and a substep phase named
+    of the six keys), a section that is not a mapping, and a substep phase named
     rate_integration, each end the run before any module's init() with a message naming the key
   - test_explicit_scheme: the four rate fixtures in one rate phase, with a null section (every
     default), complete under the default (explicit) scheme; every one of the seven fixture
@@ -17,11 +17,24 @@ vertical driver; MODEL=halos-only SIMULATION=mini-millennium-horizontal the hori
   - test_created_records_join: with test_fixture creating records in pre_timestep, the run
     completes and every created row's fixture values are finite and non-negative (that a created
     record joins its component at zero content is shown by tests/unit/test_rate_dispatch.c)
+  - test_failing_laws_write_a_failure_file: test_rate_faults selecting the diverging coefficient,
+    NaN and the negative coefficient in turn ends each run non-zero, naming the module, its
+    transfer and the cause, and leaves rate_failure_task0.txt in the output directory with the
+    segment-start state, each row's Delta and the failing evaluation's coefficients as
+    hexadecimal floats; the well-behaved law completes and writes no file
+  - test_purity_probe_catches_the_impure_law: the impure law with check_purity true ends the run
+    non-zero naming the module and transfer; with check_purity false the same run completes
+  - test_purity_probe_leaves_output_unchanged: with the four well-behaved fixtures, check_purity
+    true gives Galaxies datasets byte-identical to the same run with it false, under both schemes
+  - check_purity with any value but true or false is refused at startup (in
+    test_run_file_section_refusals)
 
 The seven fixture properties (src/module_system/test_fixture/test_properties.yaml) are written to
 output in every test build, so the checks read them from the run's HDF5 galaxies.
 """
 
+import math
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -74,6 +87,12 @@ RESERVOIR_FIELDS = (
     "RateFixtureStarsTracer",
 )
 FIXTURE_FIELDS = RESERVOIR_FIELDS + ("RateFixtureFormed",)
+
+# The fault injector (src/module_system/test_rate_faults) rides in the rate phase beside the
+# supply fixture, which feeds the cold reservoir its sink drains. TestRateFaultsLaw selects the
+# law; the rate is its scale.
+FAULTS_MODULE = "test_rate_faults"
+FAULTS_RATE = 1.0
 
 # Logged by test_rate_supply's init(); absent when startup refused the run before any init().
 SUPPLY_INIT_LINE = "Test rate supply fixture initialized"
@@ -211,6 +230,37 @@ def test_run_file_section_refusals():
             {"max_rejections_per_step": 2.5},
             "modules.rate_integration.max_rejections_per_step must be a valid integer",
         ),
+        (
+            "purity_word",
+            fixtures,
+            {"check_purity": "yes"},
+            "modules.rate_integration.check_purity must be true or false, got 'yes'",
+        ),
+        (
+            "purity_capitalised",
+            fixtures,
+            {"check_purity": "True"},
+            "modules.rate_integration.check_purity must be true or false, got 'True'",
+        ),
+        (
+            "purity_number",
+            fixtures,
+            {"check_purity": 1},
+            "modules.rate_integration.check_purity must be true or false, got '1'",
+        ),
+        (
+            "purity_mapping",
+            fixtures,
+            {"check_purity": {"value": True}},
+            "modules.rate_integration.check_purity must be a scalar, true or false",
+        ),
+        (
+            "purity_without_rate_phase",
+            {},
+            {"check_purity": True},
+            "modules.rate_integration is set, but no phase under modules.phases runs "
+            "process_rates",
+        ),
         ("not_a_mapping", fixtures, ["explicit"], "modules.rate_integration must be a mapping"),
         (
             "reserved_phase_name",
@@ -314,6 +364,155 @@ def test_created_records_join():
         ), f"a created record has a negative or non-finite {field}"
 
 
+HEX_FLOAT = r"[-+]?0x[0-9a-f.]+p[-+]\d+"
+
+
+def _fault_phase():
+    """A rate phase of test_rate_supply (it feeds Cold) and the fault injector."""
+    return {"rates": [("test_rate_supply", "process_rates"), (FAULTS_MODULE, "process_rates")]}
+
+
+def _fault_params(law):
+    params = dict(RATE_PARAMS)
+    params.update({"TestRateFaultsLaw": law, "TestRateFaultsRate": FAULTS_RATE})
+    return params
+
+
+def _parse_failure_file(path):
+    """Return ({key: value} header lines, [state rows], [coefficient rows], [row clock lines])."""
+    header, states, coefficients, rows = {}, [], [], []
+    for line in Path(path).read_text().splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        if line.startswith("state "):
+            states.append(line.split())
+        elif line.startswith("coefficient "):
+            coefficients.append(line.split())
+        elif line.startswith("row "):
+            rows.append(line.split())
+        else:
+            key, _, value = line.partition(": ")
+            header[key] = value
+    return header, states, coefficients, rows
+
+
+def test_failing_laws_write_a_failure_file():
+    """Each failing fault law ends the run naming module, transfer and cause, with a file.
+
+    The failure file is <output_directory>/rate_failure_task0.txt in a serial run; it holds the
+    component's segment-start state, each row's Delta and the failing evaluation's coefficients
+    as hexadecimal floats. The well-behaved law completes and leaves no file.
+    """
+    cases = (
+        ("diverging", "step_underflow"),
+        ("not_a_number", "bad_coefficient"),
+        ("negative", "bad_coefficient"),
+    )
+    for law, cause in cases:
+        returncode, log, output_dir = _run(
+            f"fault_{law}", _fault_phase(), model_params=_fault_params(law)
+        )
+        assert returncode != 0, f"{law}: the run was accepted"
+        for fragment in (
+            f"cause: {cause}",
+            "module 'test_rate_faults', transfer 'fault'",
+            f"Rate segment failed: cause {cause}, module 'test_rate_faults', transfer 'fault'",
+        ):
+            assert fragment in log, f"{law}: the message lacks {fragment!r}\n{log[-3000:]}"
+        path = Path(output_dir) / "rate_failure_task0.txt"
+        assert path.is_file(), f"{law}: no failure file at {path}"
+        assert f"failure file: {path}" in log, f"{law}: the message does not name the file"
+
+        header, states, coefficients, rows = _parse_failure_file(path)
+        assert header["cause"] == cause, f"{law}: file cause {header['cause']!r}"
+        assert header["module"] == "test_rate_faults" and header["transfer"] == "fault"
+        assert header["task"] == "0" and header["check_purity"] == "false"
+        assert len(rows) == int(header["rows"]) >= 1, f"{law}: no row clock lines"
+        for (
+            row
+        ) in rows:  # row <r> workspace_row <w> unique_galaxy_id <id> type <t> dT <h> delta <h>
+            assert row[8] == "dT" and row[10] == "delta", f"{law}: row line {row}"
+            for value in (row[9], row[11]):
+                assert re.fullmatch(HEX_FLOAT, value), f"{law}: dT or delta not a hex float: {row}"
+            assert float.fromhex(row[11]) > 0.0, f"{law}: a failing row has a zero Delta: {row}"
+        per_row = int(header["entries_per_row"])
+        assert len(states) == len(rows) * per_row, f"{law}: {len(states)} state lines"
+        names = {state[3] for state in states}
+        assert set(RESERVOIR_FIELDS) <= names, f"{law}: state lacks reservoirs: {names}"
+        for state in states:  # state <r> <slot> <property> <hex>
+            assert re.fullmatch(HEX_FLOAT, state[4]), f"{law}: state not a hex float: {state}"
+            assert float.fromhex(state[4]) >= 0.0, f"{law}: negative start state {state}"
+        assert len(coefficients) == len(rows) * int(header["transfers_per_row"])
+
+        fault = [c for c in coefficients if c[2] == "test_rate_faults.fault"]
+        assert len(fault) == len(rows), f"{law}: the fault coefficient is not listed per row"
+        values = [float.fromhex(c[3]) if c[3] != "nan" else math.nan for c in fault]
+        if law == "not_a_number":
+            assert all(c[3] == "nan" and c[4].startswith("bits=0x7ff8") for c in fault), fault
+        elif law == "negative":
+            assert -1.0 in values, f"negative: the coefficient -1 is not in {fault}"
+        else:
+            assert max(values) > 1.0e3 * FAULTS_RATE, f"diverging: no large rate in {fault}"
+        for coefficient in coefficients:  # every other coefficient is a hex float or NaN
+            assert re.fullmatch(HEX_FLOAT, coefficient[3]) or coefficient[3] == "nan", coefficient
+
+    returncode, log, output_dir = _run(
+        "fault_well_behaved", _fault_phase(), model_params=_fault_params("well_behaved")
+    )
+    _assert_completed(returncode, log, "well_behaved")
+    assert not list(Path(output_dir).glob("rate_failure_task*.txt")), "a clean run wrote a file"
+
+
+def test_purity_probe_catches_the_impure_law():
+    """The impure law ends a check_purity run naming module and transfer; off, it completes."""
+    returncode, log, output_dir = _run(
+        "purity_impure_on",
+        _fault_phase(),
+        model_params=_fault_params("impure"),
+        rate_integration={"check_purity": True},
+    )
+    assert returncode != 0, "the impure law was accepted under check_purity: true"
+    for fragment in (
+        "Rate law is impure: module 'test_rate_faults', transfer 'fault'",
+        "on the first evaluation and",
+    ):
+        assert fragment in log, f"the message lacks {fragment!r}\n{log[-3000:]}"
+    path = Path(output_dir) / "rate_failure_task0.txt"
+    assert path.is_file(), "the purity failure left no failure file"
+    header, _, _, _ = _parse_failure_file(path)
+    assert header["cause"] == "impure_law" and header["check_purity"] == "true"
+
+    returncode, log, _ = _run(
+        "purity_impure_off",
+        _fault_phase(),
+        model_params=_fault_params("impure"),
+        rate_integration={"check_purity": False},
+    )
+    _assert_completed(returncode, log, "impure law, check_purity false")
+
+
+def test_purity_probe_leaves_output_unchanged():
+    """With the four well-behaved fixtures, check_purity true gives byte-identical Galaxies."""
+    for scheme in ("explicit", "implicit"):
+        outputs = {}
+        for purity in (False, True):
+            section = {"scheme": scheme, "check_purity": purity}
+            returncode, log, output_dir = _run(
+                f"purity_equal_{scheme}_{purity}",
+                _rate_phase(),
+                model_params=RATE_PARAMS,
+                rate_integration=section,
+            )
+            _assert_completed(returncode, log, f"{scheme}, check_purity {purity}")
+            outputs[purity] = _galaxies(output_dir)
+        _assert_fixture_output(outputs[True], f"{scheme} with the probe")
+        assert outputs[True].dtype == outputs[False].dtype
+        assert outputs[True].shape == outputs[False].shape
+        assert (
+            outputs[True].tobytes() == outputs[False].tobytes()
+        ), f"{scheme}: check_purity true changed the Galaxies datasets"
+
+
 def _cleanup():
     for temp_dir in _temp_dirs:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -328,6 +527,9 @@ def main():
                 test_implicit_scheme,
                 test_dynamic_timestepping,
                 test_created_records_join,
+                test_failing_laws_write_a_failure_file,
+                test_purity_probe_catches_the_impure_law,
+                test_purity_probe_leaves_output_unchanged,
             ],
             "Rate Phase (test_rate_phase.py)",
         )

@@ -25,7 +25,8 @@
  *   phase, and is an internal transfer or a sink;
  * - the totals form no dependency cycle: a slaved source's recipient total
  *   depends on its master's donor total, and a tracer's total on its parent's;
- * - the settings (struct MimicRateIntegration) lie in their ranges.
+ * - the settings (struct MimicRateIntegration) lie in their ranges (check_purity
+ *   is 0 or 1).
  *
  * Domain. The whole FoF workspace is one component when a configured transfer
  * has to_record: central or a configured module declares reads_central;
@@ -56,6 +57,16 @@
  * the row's own lookback time at the evaluation point, ctx->time + dT_r -
  * (substep + tau) Delta_r, with dT_r taken as 0 for a sentinel row.
  *
+ * Purity probe. With settings->check_purity set, a segment's first law
+ * evaluation also snapshots the scratch rows and evaluates every law a second
+ * time, rows and modules in reversed canonical order, with the same trial
+ * state. Every coefficient must match the first pass bit for bit (compared as
+ * 64-bit patterns), a law may not return non-zero the second time, and the
+ * scratch halo and galaxy a law was given (and the central's, for a module that
+ * reads it) must be byte-identical to the snapshot after every call; a
+ * mismatch is fatal, naming the module and transfer, and writes the failure
+ * file. With it off no law is evaluated beyond the integrator's own.
+ *
  * Write-back. On success the reservoir, tracer and observer fields of each
  * row's galaxy take the end state (an observer property the sum of its
  * entries, the first of which started at the property's value); nothing else
@@ -64,8 +75,22 @@
  * is (and the entry's row when that differs), the entry and tau, and the
  * workspace is left as it was.
  *
+ * Failure file. Before FATAL_ERROR, for a failed segment and a failed purity
+ * probe alike, <output_directory>/rate_failure_task<N>.txt is written, N the
+ * MPI task number (0 in a serial run); with no output directory configured, or
+ * when the file cannot be written, a warning is logged and the failure still
+ * ends the run. It is plain text: the run's rate settings; the cause (a
+ * rate_cause_name(), or impure_law), module, transfer, tau and step; one line
+ * per row with its workspace row, UniqueGalaxyID, Type, dT and segment length
+ * Delta; one line per entry with the segment-start state (the integrator
+ * leaves it untouched on a failure); and one line per row and transfer with
+ * the coefficient of the failing law evaluation (the latest one). Every
+ * floating-point value is a C99 hexadecimal float (%a), exact; a value that is
+ * not finite also carries its bit pattern.
+ *
  * Memory. Everything a segment needs (the row, entry and flux tables, the
- * scratch rows and the integrator's workspace) lives in one caller-owned
+ * scratch rows, the latest coefficients, the purity probe's snapshots when it
+ * is on, and the integrator's workspace) lives in one caller-owned
  * tracked MEM_UTILITY allocation (struct RateAssemblyScratch), grown to the
  * high water of the largest component and released by
  * rate_assembly_scratch_release(). The plan is one tracked MEM_UTILITY

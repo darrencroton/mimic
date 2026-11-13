@@ -25,6 +25,14 @@
  * - A law returning NaN is fatal, naming the module, its transfer and the cause;
  *   for a source into the central, the message names the satellite row whose
  *   law returned it as well as the central's recipient entry
+ * - The failure file of a failed segment: written to the output directory before
+ *   the run ends, holding the segment-start state, each row's Delta and the
+ *   failing evaluation's coefficients as hexadecimal floats
+ * - The purity probe (check_purity): with it off no law is evaluated beyond the
+ *   integrator's own; with it on every law is evaluated once more, in reversed
+ *   canonical order, at a segment's first evaluation; a law whose coefficient
+ *   changes between the two evaluations, or that writes its scratch row, is
+ *   fatal naming the module and transfer, and runs to completion with the probe off
  * - A law reading an observer sees its segment-start value at every evaluation,
  *   and the written-back observer is its start plus the committed amounts
  * - A large per-galaxy workspace gives each row the end state it gets alone
@@ -61,6 +69,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "framework/core_test_fixtures.h"
 
@@ -159,6 +168,25 @@ static int nan_rates(const struct RateContext *ctx, const struct Halo *halo, dou
   (void)ctx;
   (void)halo;
   coefficients[0] = NAN;
+  return 0;
+}
+
+/** Impure law: its coefficient depends on how many times it has been called */
+static unsigned long impure_counter = 0;
+static int impure_rates(const struct RateContext *ctx, const struct Halo *halo,
+                        double *coefficients) {
+  (void)ctx;
+  (void)halo;
+  coefficients[0] = 1.0 + 1.0e-3 * (double)(++impure_counter);
+  return 0;
+}
+
+/** Scratch-writing law: a constant coefficient, and a write into the scratch galaxy it was given */
+static int scratch_writer_rates(const struct RateContext *ctx, const struct Halo *halo,
+                                double *coefficients) {
+  (void)ctx;
+  halo->galaxy->RateFixtureFormed += 1.0;
+  coefficients[0] = 0.5;
   return 0;
 }
 
@@ -294,6 +322,14 @@ static const struct RateTransfer nan_transfers[] = {
     TRANSFER("poison", 0, 120, RATE_TRANSFER_SINK, RESERVOIR_INDEX_RateFixtureCold, EXTERNAL, SELF,
              -1, NULL),
 };
+static const struct RateTransfer impure_transfers[] = {
+    TRANSFER("seep", 0, 190, RATE_TRANSFER_SINK, RESERVOIR_INDEX_RateFixtureCold, EXTERNAL, SELF,
+             -1, NULL),
+};
+static const struct RateTransfer scratch_writer_transfers[] = {
+    TRANSFER("scribble", 0, 191, RATE_TRANSFER_SINK, RESERVOIR_INDEX_RateFixtureCold, EXTERNAL,
+             SELF, -1, NULL),
+};
 static const struct RateTransfer misuse_transfers[] = {
     TRANSFER("noop", 0, 130, RATE_TRANSFER_SINK, RESERVOIR_INDEX_RateFixtureCold, EXTERNAL, SELF,
              -1, NULL),
@@ -334,6 +370,10 @@ static struct Module count_probe = RATE_MODULE("count_probe", count_rates, count
 static struct Module central_reader =
     RATE_MODULE("central_reader", central_reader_rates, central_reader_transfers, true);
 static struct Module nan_probe = RATE_MODULE("nan_probe", nan_rates, nan_transfers, false);
+static struct Module impure_probe =
+    RATE_MODULE("impure_probe", impure_rates, impure_transfers, false);
+static struct Module scratch_writer_probe =
+    RATE_MODULE("scratch_writer_probe", scratch_writer_rates, scratch_writer_transfers, false);
 static struct Module emit_probe = RATE_MODULE("emit_probe", emit_rates, misuse_transfers, false);
 static struct Module create_probe =
     RATE_MODULE("create_probe", create_rates, misuse_transfers, false);
@@ -396,10 +436,11 @@ static void ensure_probes_registered(void) {
   static bool registered = false;
   ensure_modules_registered();
   if (!registered) {
-    struct Module *probes[] = {&count_probe,       &central_reader,   &nan_probe,    &emit_probe,
-                               &create_probe,      &wrong_kind_probe, &master_probe, &slaved_probe,
-                               &cycle_probe,       &context_saver,    &retire_probe, &fof_control,
-                               &nan_central_probe, &observer_probe};
+    struct Module *probes[] = {
+        &count_probe,       &central_reader,   &nan_probe,    &emit_probe,
+        &create_probe,      &wrong_kind_probe, &master_probe, &slaved_probe,
+        &cycle_probe,       &context_saver,    &retire_probe, &fof_control,
+        &nan_central_probe, &observer_probe,   &impure_probe, &scratch_writer_probe};
     for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++) {
       module_registry_add(probes[i]);
     }
@@ -420,7 +461,8 @@ static void reset_rate_config(void) {
       .relative_tolerance = RATE_INTEGRATION_DEFAULT_RELATIVE_TOLERANCE,
       .absolute_tolerance = RATE_INTEGRATION_DEFAULT_ABSOLUTE_TOLERANCE,
       .max_steps_per_segment = RATE_INTEGRATION_DEFAULT_MAX_STEPS_PER_SEGMENT,
-      .max_rejections_per_step = RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP};
+      .max_rejections_per_step = RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP,
+      .check_purity = RATE_INTEGRATION_DEFAULT_CHECK_PURITY};
 }
 
 /** @brief Append one model parameter to the configuration */
@@ -542,6 +584,10 @@ static void config_bad_tolerance(void) {
   test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
   MimicConfig.RateIntegration.relative_tolerance = 0.0;
 }
+static void config_bad_purity(void) {
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  MimicConfig.RateIntegration.check_purity = 2;
+}
 static void config_unsupported(void) {
   test_phase_add(RATE_PHASE, "fof_control", PROCESSING_MODE_RATES);
 }
@@ -605,6 +651,9 @@ int test_rate_phase_startup_rules(void) {
        "tracer) to 'RateFixtureCold' (a reservoir)"},
       {"tolerance out of range", config_bad_tolerance,
        "Configuration error in phase '" RATE_PHASE "'", "tolerances (relative 0, absolute"},
+      {"check_purity out of range", config_bad_purity,
+       "Configuration error in phase '" RATE_PHASE "'",
+       "modules.rate_integration.check_purity has value 2"},
       {"mode not supported", config_unsupported, "Configuration error in phase '" RATE_PHASE "'",
        "Module 'fof_control' does not support processing mode 'process_rates'"},
   };
@@ -693,6 +742,7 @@ int test_defaults_match_integrator(void) {
               "default step budget");
   TEST_ASSERT_EQUAL(settings.max_rejections_per_step,
                     RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP, "default rejection budget");
+  TEST_ASSERT_EQUAL(RATE_INTEGRATION_DEFAULT_CHECK_PURITY, 0, "the purity probe is off by default");
   return TEST_PASS;
 }
 
@@ -1000,6 +1050,213 @@ int test_nan_law_is_fatal(void) {
 }
 
 /* ==========================================================================
+ * The failure file and the purity probe
+ * ========================================================================== */
+
+/** The failure-file test's output directory, made before the child runs */
+static char failure_dir[MAX_STRING_LEN];
+
+/** @brief Child body: nan_body with the output directory set, so the failure file is written */
+static void failure_file_body(const char *unused) {
+  (void)unused;
+  static const int types[1] = {0};
+  static const double cold[1] = {1.0};
+  ensure_probes_registered();
+  reset_rate_config();
+  snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", failure_dir);
+  test_phase_add(RATE_PHASE, "nan_probe", PROCESSING_MODE_RATES);
+  if (module_system_init() != 0) {
+    return;
+  }
+  build_workspace(types, cold, 1);
+  run_pipeline();
+}
+
+/** @brief The whole text of the file at @p path, or NULL; the caller frees it */
+static char *read_text_file(const char *path) {
+  FILE *file = fopen(path, "r");
+  if (file == NULL) {
+    return NULL;
+  }
+  char *text = calloc(1, 65536);
+  const size_t got = text != NULL ? fread(text, 1, 65535, file) : 0;
+  (void)got;
+  fclose(file);
+  return text;
+}
+
+/**
+ * @test    test_failure_file_holds_the_segment
+ * @brief   A failed segment writes rate_failure_task0.txt before the run ends
+ *
+ * A one-row component with Cold = 1 and dT = 0.5 whose law returns NaN: the
+ * file names the cause, module and transfer, and holds the row's dT and Delta,
+ * the segment-start state and the failing evaluation's coefficient as
+ * hexadecimal floats (1 is 0x1p+0, 0.5 is 0x1p-1; a NaN carries its bits).
+ */
+int test_failure_file_holds_the_segment(void) {
+  const char *tmp = getenv("TMPDIR");
+  snprintf(failure_dir, sizeof(failure_dir), "%s/mimic_rate_failure_XXXXXX",
+           tmp != NULL && tmp[0] != '\0' ? tmp : "/tmp");
+  TEST_ASSERT(mkdtemp(failure_dir) != NULL, "a temporary output directory is made");
+
+  const int ok = expect_fatal(NULL, failure_file_body, "module 'nan_probe', transfer 'poison'",
+                              "failure file: ");
+  TEST_ASSERT_EQUAL(ok, 1, "the failing run ends fatally and names its failure file");
+
+  char path[MAX_STRING_LEN + 64];
+  snprintf(path, sizeof(path), "%s/rate_failure_task0.txt", failure_dir);
+  char *text = read_text_file(path);
+  TEST_ASSERT(text != NULL, "rate_failure_task0.txt exists in the output directory");
+  static const char *const wanted[] = {
+      "cause: bad_coefficient\n",
+      "module: nan_probe\n",
+      "transfer: poison\n",
+      "task: 0\n",
+      "check_purity: false\n",
+      "rows: 1\n",
+      "row 0 workspace_row 0 unique_galaxy_id 1000 type 0 dT 0x1p-1 delta 0x1p-1\n",
+      "state 0 1 RateFixtureCold 0x1p+0\n",
+      "state 0 0 RateFixtureHot 0x0p+0\n",
+      "coefficient 0 nan_probe.poison nan bits=0x7ff8000000000000\n"};
+  int missing = 0;
+  for (size_t i = 0; text != NULL && i < sizeof(wanted) / sizeof(wanted[0]); i++) {
+    if (strstr(text, wanted[i]) == NULL) {
+      fprintf(stderr, "  failure file lacks: %s", wanted[i]);
+      missing++;
+    }
+  }
+  TEST_ASSERT_EQUAL(missing, 0, "the failure file holds the cause, row clock, state and law");
+  free(text);
+  unlink(path);
+  rmdir(failure_dir);
+  return TEST_PASS;
+}
+
+/**
+ * @brief   Run the whole-group probe case and return the number of law calls
+ *
+ * Three rows, every reservoir empty, central_reader and count_probe in the
+ * phase (the central read makes the group one component, so one probe covers
+ * the three rows). An empty component with no source takes one four-stage step.
+ * The call order of the first two evaluations is copied to @p rows and
+ * @p from_reader, 12 entries each: the row and whether the module is
+ * central_reader.
+ */
+static int whole_group_calls(int check_purity, int rows[12], int from_reader[12]) {
+  static const int types[3] = {0, 1, 2};
+  static const double cold[3] = {0.0, 0.0, 0.0};
+  reset_rate_config();
+  reset_probes();
+  MimicConfig.RateIntegration.check_purity = check_purity;
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  test_phase_add(RATE_PHASE, "central_reader", PROCESSING_MODE_RATES);
+  if (module_system_init() != 0) {
+    return -1;
+  }
+  build_workspace(types, cold, 3);
+  run_pipeline();
+  const int total = num_calls;
+  for (int i = 0; i < 12 && i < total; i++) {
+    rows[i] = calls[i].row;
+    from_reader[i] = calls[i].central != NULL;
+  }
+  release_case();
+  return total;
+}
+
+/**
+ * @test    test_purity_probe_cost_and_order
+ * @brief   Off, no law is evaluated beyond the integrator's; on, one reversed pass at the first
+ *
+ * The same one-step group runs with check_purity false and true. The calls of
+ * the false run are the integrator's own (four stages of three rows and two
+ * modules); the true run makes exactly one more pass of six calls, and the
+ * first evaluation runs forward (rows 0 to 2, central_reader before
+ * count_probe) then in reversed canonical order.
+ */
+int test_purity_probe_cost_and_order(void) {
+  int off_rows[12] = {0};
+  int off_reader[12] = {0};
+  int on_rows[12] = {0};
+  int on_reader[12] = {0};
+  const int off = whole_group_calls(0, off_rows, off_reader);
+  const int on = whole_group_calls(1, on_rows, on_reader);
+
+  TEST_ASSERT_EQUAL(off, 4 * 3 * 2, "with the probe off, the four stages of one step and no more");
+  TEST_ASSERT_EQUAL(on - off, 3 * 2, "with the probe on, one more pass of every row and module");
+
+  static const int forward_rows[6] = {0, 0, 1, 1, 2, 2};
+  static const int forward_reader[6] = {1, 0, 1, 0, 1, 0};
+  static const int reversed_rows[6] = {2, 2, 1, 1, 0, 0};
+  static const int reversed_reader[6] = {0, 1, 0, 1, 0, 1};
+  int off_forward = 0;
+  int on_forward = 0;
+  int on_reversed = 0;
+  for (int i = 0; i < 6; i++) {
+    off_forward += off_rows[i] == forward_rows[i] && off_reader[i] == forward_reader[i];
+    on_forward += on_rows[i] == forward_rows[i] && on_reader[i] == forward_reader[i];
+    on_reversed += on_rows[6 + i] == reversed_rows[i] && on_reader[6 + i] == reversed_reader[i];
+  }
+  TEST_ASSERT_EQUAL(on_forward, 6, "the first evaluation runs rows and modules in order");
+  TEST_ASSERT_EQUAL(on_reversed, 6, "the repeat runs rows and modules in reversed order");
+
+  int off_second_forward = 0;
+  for (int i = 0; i < 6; i++) {
+    off_second_forward +=
+        off_rows[6 + i] == forward_rows[i] && off_reader[6 + i] == forward_reader[i];
+  }
+  TEST_ASSERT_EQUAL(off_forward + off_second_forward, 12,
+                    "with the probe off, the second evaluation is the next forward pass");
+  return TEST_PASS;
+}
+
+/**
+ * @brief   Child body: one row under the impure or the scratch-writing law
+ *
+ * @param   arg  "counter" or "scratch", then ":on" or ":off" for check_purity
+ */
+static void purity_body(const char *arg) {
+  static const int types[1] = {0};
+  static const double cold[1] = {1.0};
+  ensure_probes_registered();
+  reset_rate_config();
+  MimicConfig.RateIntegration.check_purity = strstr(arg, ":on") != NULL;
+  test_phase_add(RATE_PHASE,
+                 strncmp(arg, "counter", 7) == 0 ? "impure_probe" : "scratch_writer_probe",
+                 PROCESSING_MODE_RATES);
+  if (module_system_init() != 0) {
+    exit(2);
+  }
+  build_workspace(types, cold, 1);
+  run_pipeline();
+}
+
+/**
+ * @test    test_purity_probe_catches_impure_laws
+ * @brief   An impure law or a scratch write is fatal with the probe on, and runs with it off
+ */
+int test_purity_probe_catches_impure_laws(void) {
+  char captured[CHILD_CAPTURE_BYTES];
+  int ok = expect_fatal_capture("counter:on", purity_body, "module 'impure_probe', transfer 'seep'",
+                                "Rate law is impure", captured, sizeof(captured));
+  TEST_ASSERT_EQUAL(ok, 1, "a call-counting law is fatal under the probe, naming module, transfer");
+  TEST_ASSERT(strstr(captured, "on the first evaluation and") != NULL,
+              "the message says the coefficient changed between the two evaluations");
+
+  ok = expect_fatal_capture("scratch:on", purity_body,
+                            "module 'scratch_writer_probe', transfer 'scribble'",
+                            "changed the scratch row", captured, sizeof(captured));
+  TEST_ASSERT_EQUAL(ok, 1, "a law writing its scratch row is fatal under the probe");
+
+  TEST_ASSERT_EQUAL(expect_success("counter:off", purity_body), 1,
+                    "the call-counting law runs to completion with the probe off");
+  TEST_ASSERT_EQUAL(expect_success("scratch:off", purity_body), 1,
+                    "the scratch-writing law runs to completion with the probe off");
+  return TEST_PASS;
+}
+
+/* ==========================================================================
  * Rows that change between segments
  * ========================================================================== */
 
@@ -1282,6 +1539,9 @@ int main(void) {
   TEST_RUN(test_invalid_dt_is_fatal);
   TEST_RUN(test_rate_law_cannot_emit_or_create);
   TEST_RUN(test_nan_law_is_fatal);
+  TEST_RUN(test_failure_file_holds_the_segment);
+  TEST_RUN(test_purity_probe_cost_and_order);
+  TEST_RUN(test_purity_probe_catches_impure_laws);
   TEST_RUN(test_retired_row_leaves_the_next_segment);
   TEST_RUN(test_created_record_joins_at_zero);
   TEST_RUN(test_failure_names_the_evaluating_row);

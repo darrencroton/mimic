@@ -639,8 +639,9 @@ def create_test_param_file(
         rate_integration (dict, optional): The modules.rate_integration section, emitted
                                            verbatim when given (keys scheme,
                                            relative_tolerance, absolute_tolerance,
-                                           max_steps_per_segment, max_rejections_per_step);
-                                           omitted otherwise, so the defaults apply
+                                           max_steps_per_segment, max_rejections_per_step,
+                                           check_purity); omitted otherwise, so the defaults
+                                           apply
 
     Returns:
         tuple: (param_file_path, output_dir_path, temp_dir_path)

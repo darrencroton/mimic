@@ -86,6 +86,7 @@ struct MimicRateIntegration {
   double absolute_tolerance;     /* in (0, 1) */
   int64_t max_steps_per_segment; /* attempts per segment, accepted and rejected; >= 1 */
   int max_rejections_per_step;   /* consecutive rejections of one step; >= 1 */
+  int check_purity;              /* 0 false (default), 1 true: run the purity probe */
 };
 
 /* Forward declarations for phase config structs (defined in module_registry.h,

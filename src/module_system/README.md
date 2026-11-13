@@ -19,6 +19,7 @@
 - **`test_rate_formation/`** — Rate fixture (`process_rates`): threshold star formation from cold to stars, observed by `RateFixtureFormed`
 - **`test_rate_feedback/`** — Rate fixture (`process_rates`): reheating from cold to hot, and a yield into the cold tracer slaved to `test_rate_formation.star_formation`
 - **`test_rate_stripping/`** — Rate fixture (`process_rates`): stripping of a satellite's hot reservoir onto the FoF central's (`to_record: central`), and an ejection sink from cold
+- **`test_rate_faults/`** — Rate fixture (`process_rates`): a sink from cold whose law a parameter selects (well behaved, diverging, NaN, negative or impure), for the failure-file and purity-probe tests
 - **`generated/`** — Auto-generated registration code (do not edit)
 
 ## Usage

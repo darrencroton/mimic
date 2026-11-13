@@ -14,6 +14,7 @@
  * division alone.
  */
 
+#include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <math.h>
@@ -26,6 +27,7 @@
 
 #include "error.h"
 #include "fof_workspace.h"
+#include "globals.h"
 #include "memory.h"
 #include "rate_assembly.h"
 #include "rate_integrator.h"
@@ -69,6 +71,7 @@ struct RateAssemblyPlan {
 
   bool whole_group;
   bool needs_central; /* a transfer goes to the central or a module reads it */
+  bool check_purity;  /* run the purity probe at the first evaluation of every segment */
   int max_coefficients;
   struct RateIntegratorSettings settings;
 };
@@ -233,6 +236,13 @@ static int check_settings(const char *phase_name, const struct MimicRateIntegrat
     refuse_header(phase_name);
     ERROR_LOG("  modules.rate_integration tolerances (relative %g, absolute %g) must lie in (0, 1)",
               in->relative_tolerance, in->absolute_tolerance);
+    return -1;
+  }
+  if (in->check_purity != 0 && in->check_purity != 1) {
+    refuse_header(phase_name);
+    ERROR_LOG("  modules.rate_integration.check_purity has value %d; it must be 0 (false) or 1 "
+              "(true)",
+              in->check_purity);
     return -1;
   }
   if (in->max_steps_per_segment < 1 || in->max_rejections_per_step < 1) {
@@ -549,6 +559,7 @@ int rate_assembly_plan_build(const char *phase_name, const struct PhaseModuleCon
   plan->num_transfers = num_transfers;
   plan->num_observers = num_observers;
   plan->settings = checked;
+  plan->check_purity = settings->check_purity == 1;
 
   for (int i = 0; i < num_entries; i++) {
     insert_module_by_name(plan->modules, plan->num_modules++, entries[i].resolved);
@@ -651,19 +662,23 @@ struct Segment {
   int *rows;   /* [num_rows]: workspace row of each component row */
   double *dT;  /* [num_rows]: each row's dT, 0 for a sentinel row */
   double *delta;
-  struct Halo *halos;          /* [num_rows] scratch rows */
-  struct GalaxyData *galaxies; /* [num_rows] scratch galaxies */
-  struct RateEntry *entries;   /* [num_rows * P] */
-  double *state;               /* [num_rows * P] */
-  struct RateFlux *fluxes;     /* [num_rows * T] */
-  double *coefficients;        /* [max_coefficients] one law's slots */
-  void *integrator;            /* the integrator's workspace */
+  struct Halo *halos;                /* [num_rows] scratch rows */
+  struct GalaxyData *galaxies;       /* [num_rows] scratch galaxies */
+  struct RateEntry *entries;         /* [num_rows * P] */
+  double *state;                     /* [num_rows * P] */
+  struct RateFlux *fluxes;           /* [num_rows * T] */
+  double *coefficients;              /* [max_coefficients] one law's slots */
+  double *last_coefficients;         /* [num_rows * T] the latest law evaluation's coefficients */
+  struct Halo *probe_halos;          /* [num_rows] purity probe: the scratch rows before any law */
+  struct GalaxyData *probe_galaxies; /* [num_rows] purity probe: the scratch galaxies likewise */
+  void *integrator;                  /* the integrator's workspace */
   size_t integrator_bytes;
 };
 
 /** Byte offsets of a segment's tables within the scratch allocation. */
 struct SegmentLayout {
-  size_t rows, dT, delta, halos, galaxies, entries, state, fluxes, coefficients, integrator;
+  size_t rows, dT, delta, halos, galaxies, entries, state, fluxes, coefficients;
+  size_t last_coefficients, probe_halos, probe_galaxies, integrator;
   size_t total;
 };
 
@@ -682,6 +697,10 @@ static void lay_out_segment(const struct RateAssemblyPlan *plan, int num_rows,
   l->state = carve(&offset, entries, sizeof(double));
   l->fluxes = carve(&offset, fluxes, sizeof(struct RateFlux));
   l->coefficients = carve(&offset, (size_t)plan->max_coefficients, sizeof(double));
+  l->last_coefficients = carve(&offset, fluxes, sizeof(double));
+  const size_t probed = plan->check_purity ? r : 0; /* the probe's snapshots exist only when on */
+  l->probe_halos = carve(&offset, probed, sizeof(struct Halo));
+  l->probe_galaxies = carve(&offset, probed, sizeof(struct GalaxyData));
   l->integrator = carve(&offset, integrator_bytes, 1);
   l->total = align_up(offset);
 }
@@ -698,6 +717,9 @@ static void bind_segment(const struct SegmentLayout *l, void *bytes, size_t inte
   seg->state = (double *)(void *)(base + l->state);
   seg->fluxes = (struct RateFlux *)(void *)(base + l->fluxes);
   seg->coefficients = (double *)(void *)(base + l->coefficients);
+  seg->last_coefficients = (double *)(void *)(base + l->last_coefficients);
+  seg->probe_halos = (struct Halo *)(void *)(base + l->probe_halos);
+  seg->probe_galaxies = (struct GalaxyData *)(void *)(base + l->probe_galaxies);
   seg->integrator = base + l->integrator;
   seg->integrator_bytes = integrator_bytes;
 }
@@ -881,21 +903,316 @@ static void load_row(const struct RateAssemblyPlan *plan, const struct GalaxyDat
 struct LawAdapter {
   const struct RateAssemblyPlan *plan;
   const struct ModuleContext *ctx;
+  const struct FoFWorkspace *ws;
   struct Segment *seg;
   RateLawInvoker invoke;
-  int failed_module; /* plan module index of a law that returned non-zero, else -1 */
+  int64_t evaluations; /* law evaluations begun in this segment */
+  double last_tau;     /* tau of the latest evaluation */
+  int failed_module;   /* plan module index of a law that returned non-zero, else -1 */
   int failed_row;
   int failed_code;
 };
 
+/** @brief Whether two coefficients have the same 64-bit pattern (a NaN equals its own bits) */
+static bool same_bits(double a, double b) { return memcmp(&a, &b, sizeof(double)) == 0; }
+
+/** @brief Row @p r's own lookback time at segment time @p tau, as the law sees it */
+static double law_time(const struct LawAdapter *a, int r, double tau) {
+  const struct Segment *seg = a->seg;
+  return a->ctx->time + seg->dT[r] - ((double)a->ctx->substep_number + tau) * seg->delta[r];
+}
+
+/** @brief Call module @p m's law on row @p r, leaving its coefficients in seg->coefficients */
+static int call_law(struct LawAdapter *a, struct RateContext *rctx, int r, int m) {
+  const struct Module *mod = a->plan->modules[m];
+  const int n = mod->num_rate_transfers;
+  if (n > 0) {
+    memset(a->seg->coefficients, 0, (size_t)n * sizeof(double));
+  }
+  rctx->central = mod->reads_central ? &a->seg->halos[a->seg->central] : NULL;
+  return a->invoke(mod, rctx, &a->seg->halos[r], a->seg->coefficients);
+}
+
+/* ---------------------------------------------------------------------------
+ * The failure file
+ * ------------------------------------------------------------------------- */
+
+/** What the failure file and the purity message say about one failure */
+struct FailureSummary {
+  const char *cause; /* rate_cause_name(), or "impure_law" */
+  const char *detail;
+  const char *module;
+  const char *transfer;
+  double tau;  /* segment time of the failure */
+  double step; /* the step being attempted, or 0 */
+};
+
+/** @brief Print @p value as a hexadecimal float, with its bit pattern when it is not finite */
+static void print_hex(FILE *file, double value) {
+  fprintf(file, "%a", value);
+  if (!isfinite(value)) {
+    uint64_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    fprintf(file, " bits=0x%016" PRIx64, bits);
+  }
+}
+
 /**
- * @brief   struct RateLaw.evaluate: load the trial state, then call every law of every row
+ * @brief   Write the component's failure file, <output_directory>/rate_failure_task<N>.txt
+ *
+ * N is the MPI task number (0 in a serial run). The file holds the run's rate
+ * settings, the failure's cause, module, transfer and time, each row's segment
+ * length, the component's segment-start state (the integrator leaves it
+ * untouched on a failure) and the coefficients of the latest law evaluation, all
+ * as hexadecimal floats. Failing to write it logs a warning and never hides the
+ * failure itself.
+ *
+ * @param   path  Receives the file's path when it was written, else an empty string
+ * @return  true when the file was written
+ */
+static bool write_failure_file(const struct LawAdapter *a, const struct FailureSummary *f,
+                               char *path, size_t path_size) {
+  const struct RateAssemblyPlan *plan = a->plan;
+  const struct Segment *seg = a->seg;
+  const int P = plan->entries_per_row;
+  const int T = plan->num_transfers;
+  const struct RateIntegratorSettings *set = &plan->settings;
+
+  path[0] = '\0';
+  if (MimicConfig.OutputDir[0] == '\0') {
+    WARNING_LOG("No output directory is configured; no rate failure file written");
+    return false;
+  }
+  const int length =
+      snprintf(path, path_size, "%s/rate_failure_task%d.txt", MimicConfig.OutputDir, ThisTask);
+  if (length < 0 || (size_t)length >= path_size) {
+    WARNING_LOG("The rate failure file path under '%s' is too long; no file written",
+                MimicConfig.OutputDir);
+    path[0] = '\0';
+    return false;
+  }
+  FILE *file = fopen(path, "w");
+  if (file == NULL) {
+    WARNING_LOG("Cannot write the rate failure file '%s': %s", path, strerror(errno));
+    path[0] = '\0';
+    return false;
+  }
+
+  fprintf(file, "# Mimic rate segment failure file\n");
+  fprintf(file,
+          "# Floating-point values are hexadecimal floats (C99 %%a), exact; a value that is\n");
+  fprintf(file, "# not finite also carries its bit pattern.\n");
+  fprintf(file, "task: %d\n", ThisTask);
+  fprintf(file, "phase: %s\n", plan->phase_name);
+  fprintf(file, "snapshot: %d\n", a->ctx->snapshot_number);
+  fprintf(file, "substep: %d of %d\n", a->ctx->substep_number + 1, a->ctx->num_substeps);
+  fprintf(file, "scheme: %s\n", set->scheme == RATE_SCHEME_IMPLICIT ? "implicit" : "explicit");
+  fprintf(file, "relative_tolerance: %a\n", set->relative_tolerance);
+  fprintf(file, "absolute_tolerance: %a\n", set->absolute_tolerance);
+  fprintf(file, "max_steps_per_segment: %" PRId64 "\n", set->max_steps_per_segment);
+  fprintf(file, "max_rejections_per_step: %d\n", set->max_rejections_per_step);
+  fprintf(file, "check_purity: %s\n", plan->check_purity ? "true" : "false");
+  fprintf(file, "cause: %s\n", f->cause);
+  fprintf(file, "detail: %s\n", (f->detail != NULL && f->detail[0] != '\0') ? f->detail : "(none)");
+  fprintf(file, "module: %s\n", f->module);
+  fprintf(file, "transfer: %s\n", f->transfer);
+  fprintf(file, "tau: %a\n", f->tau);
+  fprintf(file, "step: %a\n", f->step);
+  fprintf(file, "law_evaluations_begun: %" PRId64 "\n", a->evaluations);
+  fprintf(file, "failing_evaluation_tau: %a\n", a->last_tau);
+  fprintf(file, "rows: %d\n", seg->num_rows);
+  fprintf(file, "entries_per_row: %d\n", P);
+  fprintf(file, "transfers_per_row: %d\n", T);
+
+  fprintf(file,
+          "# row <row> workspace_row <w> unique_galaxy_id <id> type <t> dT <dT> delta <Delta>\n");
+  for (int r = 0; r < seg->num_rows; r++) {
+    const struct Halo *h = &a->ws->halos[seg->rows[r]];
+    fprintf(file, "row %d workspace_row %d unique_galaxy_id %lld type %d dT ", r, seg->rows[r],
+            h->UniqueGalaxyID, h->Type);
+    print_hex(file, seg->dT[r]);
+    fprintf(file, " delta ");
+    print_hex(file, seg->delta[r]);
+    fprintf(file, "\n");
+  }
+  fprintf(file, "# state <row> <entry slot> <property> <segment-start value>\n");
+  for (int r = 0; r < seg->num_rows; r++) {
+    for (int p = 0; p < P; p++) {
+      fprintf(file, "state %d %d %s ", r, p, table_entry(plan->slot_property[p])->name);
+      print_hex(file, seg->state[r * P + p]);
+      fprintf(file, "\n");
+    }
+  }
+  fprintf(file, "# coefficient <row> <module>.<transfer> <value at the failing evaluation>\n");
+  for (int r = 0; r < seg->num_rows; r++) {
+    for (int t = 0; t < T; t++) {
+      fprintf(file, "coefficient %d %s.%s ", r, plan->transfers[t].module->name,
+              plan->transfers[t].transfer->name);
+      print_hex(file, seg->last_coefficients[r * T + t]);
+      fprintf(file, "\n");
+    }
+  }
+
+  const bool failed = ferror(file) != 0;
+  if (fclose(file) != 0 || failed) {
+    WARNING_LOG("Writing the rate failure file '%s' failed: %s", path, strerror(errno));
+    path[0] = '\0';
+    return false;
+  }
+  return true;
+}
+
+/* ---------------------------------------------------------------------------
+ * The purity probe
+ * ------------------------------------------------------------------------- */
+
+/** @brief Comma-separated names of module @p mod's transfers */
+static const char *module_transfer_names(const struct Module *mod, char *buffer, size_t size) {
+  size_t used = 0;
+  buffer[0] = '\0';
+  for (int k = 0; k < mod->num_rate_transfers && used < size; k++) {
+    const int written = snprintf(buffer + used, size - used, "%s%s", k == 0 ? "" : ", ",
+                                 mod->rate_transfers[k].name);
+    if (written < 0) {
+      break;
+    }
+    used += (size_t)written;
+  }
+  return buffer;
+}
+
+/**
+ * @brief   End the run: a law is not pure; name its module and transfer and write the failure file
+ *
+ * @param   transfer  The transfer's name, or the module's transfers when the whole law is at fault
+ * @param   reason    What differed between the two evaluations
+ */
+static void fail_impure(struct LawAdapter *a, double tau, const double *coefficients, int m, int r,
+                        const char *transfer, const char *reason) {
+  const struct RateAssemblyPlan *plan = a->plan;
+  const struct Segment *seg = a->seg;
+  const char *module = plan->modules[m]->name;
+  const int w = seg->rows[r];
+  const struct Halo *h = &a->ws->halos[w];
+
+  /* The failing evaluation's coefficients are the first pass's, which are complete. */
+  memcpy(seg->last_coefficients, coefficients,
+         (size_t)seg->num_rows * (size_t)plan->num_transfers * sizeof(double));
+  a->last_tau = tau;
+
+  ERROR_LOG("Rate law is not pure in phase '%s' at snapshot %d, substep %d of %d (a component of "
+            "%d row(s), %s scheme):",
+            plan->phase_name, a->ctx->snapshot_number, a->ctx->substep_number + 1,
+            a->ctx->num_substeps, seg->num_rows,
+            plan->settings.scheme == RATE_SCHEME_IMPLICIT ? "implicit" : "explicit");
+  ERROR_LOG("  module '%s', transfer '%s': %s", module, transfer, reason);
+  ERROR_LOG("  row %d of the component (workspace row %d, UniqueGalaxyID %lld, Type %d), tau "
+            "%.17g",
+            r, w, h->UniqueGalaxyID, h->Type, tau);
+  ERROR_LOG("  A law must return the same coefficients for the same row, state and time, in any "
+            "order, and leave its scratch row untouched; check_purity evaluates every law a "
+            "second time, in reversed order, at the first evaluation of each segment");
+
+  const struct FailureSummary summary = {.cause = "impure_law",
+                                         .detail = reason,
+                                         .module = module,
+                                         .transfer = transfer,
+                                         .tau = tau,
+                                         .step = 0.0};
+  char path[MAX_STRING_LEN + 64];
+  if (write_failure_file(a, &summary, path, sizeof(path))) {
+    ERROR_LOG("  failure file: %s", path);
+  }
+  FATAL_ERROR("Rate law is impure: module '%s', transfer '%s', workspace row %d (UniqueGalaxyID "
+              "%lld), tau %.17g: %s",
+              module, transfer, w, h->UniqueGalaxyID, tau, reason);
+}
+
+/** @brief Whether row @p r's scratch halo and galaxy (and the central's, if read) are untouched */
+static bool scratch_unchanged(const struct LawAdapter *a, int r, bool reads_central) {
+  const struct Segment *seg = a->seg;
+  if (memcmp(&seg->halos[r], &seg->probe_halos[r], sizeof(struct Halo)) != 0 ||
+      memcmp(&seg->galaxies[r], &seg->probe_galaxies[r], sizeof(struct GalaxyData)) != 0) {
+    return false;
+  }
+  const int c = seg->central;
+  if (reads_central && c >= 0 && c != r) {
+    return memcmp(&seg->halos[c], &seg->probe_halos[c], sizeof(struct Halo)) == 0 &&
+           memcmp(&seg->galaxies[c], &seg->probe_galaxies[c], sizeof(struct GalaxyData)) == 0;
+  }
+  return true;
+}
+
+/** @brief After a probed law call: end the run if it changed the scratch state it was given */
+static void check_scratch(struct LawAdapter *a, double tau, const double *coefficients, int r,
+                          int m, const char *pass) {
+  const struct Module *mod = a->plan->modules[m];
+  if (scratch_unchanged(a, r, mod->reads_central)) {
+    return;
+  }
+  char names[256];
+  char reason[160];
+  snprintf(reason, sizeof(reason), "the law changed the scratch row it was given (%s evaluation)",
+           pass);
+  fail_impure(a, tau, coefficients, m, r, module_transfer_names(mod, names, sizeof(names)), reason);
+}
+
+/**
+ * @brief   The purity probe's repeat: every law again, in reversed canonical order
+ *
+ * Runs right after the first evaluation's own pass, with the same trial state.
+ * Every coefficient must equal the first pass's bit for bit; a law that returns
+ * non-zero now, or that changes its scratch row, fails too. The scratch rows
+ * are compared with the snapshot taken before any law ran.
+ */
+static void repeat_laws_reversed(struct LawAdapter *a, struct RateContext *rctx, double tau,
+                                 const double *coefficients) {
+  const struct RateAssemblyPlan *plan = a->plan;
+  const struct Segment *seg = a->seg;
+  const int T = plan->num_transfers;
+  char names[256];
+  char reason[256];
+
+  for (int r = seg->num_rows - 1; r >= 0; r--) {
+    rctx->time = law_time(a, r, tau);
+    for (int m = plan->num_modules - 1; m >= 0; m--) {
+      const struct Module *mod = plan->modules[m];
+      const int rc = call_law(a, rctx, r, m);
+      if (rc != 0) {
+        snprintf(reason, sizeof(reason),
+                 "the law returned %d on its repeat evaluation after returning 0", rc);
+        fail_impure(a, tau, coefficients, m, r, module_transfer_names(mod, names, sizeof(names)),
+                    reason);
+      }
+      check_scratch(a, tau, coefficients, r, m, "repeat");
+      for (int k = 0; k < mod->num_rate_transfers; k++) {
+        const double first = coefficients[r * T + plan->slot_transfer[plan->slot_base[m] + k]];
+        if (!same_bits(first, seg->coefficients[k])) {
+          snprintf(reason, sizeof(reason),
+                   "the coefficient was %a (%.17g) on the first evaluation and %a (%.17g) on the "
+                   "repeat in reversed order",
+                   first, first, seg->coefficients[k], seg->coefficients[k]);
+          fail_impure(a, tau, coefficients, m, r, mod->rate_transfers[k].name, reason);
+        }
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Law evaluation
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief   Load the trial state, then call every law of every row; probe purity when asked
  *
  * Every row's trial state is loaded before any law runs, so a central view
- * holds the central's trial state whichever row evaluates it.
+ * holds the central's trial state whichever row evaluates it. With @p probe the
+ * scratch rows are snapshotted first, each law call is checked against the
+ * snapshot, and the laws are repeated in reversed order afterwards.
  */
-static int evaluate_laws(void *data, double tau, const double *state, double *coefficients) {
-  struct LawAdapter *a = data;
+static int run_laws(struct LawAdapter *a, double tau, const double *state, double *coefficients,
+                    bool probe) {
   const struct RateAssemblyPlan *plan = a->plan;
   const struct ModuleContext *ctx = a->ctx;
   struct Segment *seg = a->seg;
@@ -905,6 +1222,10 @@ static int evaluate_laws(void *data, double tau, const double *state, double *co
   for (int r = 0; r < seg->num_rows; r++) {
     load_trial_row(plan, &state[r * P], &seg->galaxies[r]);
   }
+  if (probe) {
+    memcpy(seg->probe_halos, seg->halos, (size_t)seg->num_rows * sizeof(struct Halo));
+    memcpy(seg->probe_galaxies, seg->galaxies, (size_t)seg->num_rows * sizeof(struct GalaxyData));
+  }
 
   struct RateContext rctx = {.snapshot_number = ctx->snapshot_number,
                              .redshift = ctx->redshift,
@@ -912,15 +1233,11 @@ static int evaluate_laws(void *data, double tau, const double *state, double *co
                              .central = NULL,
                              .params = ctx->params};
   for (int r = 0; r < seg->num_rows; r++) {
-    rctx.time = ctx->time + seg->dT[r] - ((double)ctx->substep_number + tau) * seg->delta[r];
+    rctx.time = law_time(a, r, tau);
     for (int m = 0; m < plan->num_modules; m++) {
       const struct Module *mod = plan->modules[m];
       const int n = mod->num_rate_transfers;
-      if (n > 0) {
-        memset(seg->coefficients, 0, (size_t)n * sizeof(double));
-      }
-      rctx.central = mod->reads_central ? &seg->halos[seg->central] : NULL;
-      const int rc = a->invoke(mod, &rctx, &seg->halos[r], seg->coefficients);
+      const int rc = call_law(a, &rctx, r, m);
       if (rc != 0) {
         a->failed_module = m;
         a->failed_row = r;
@@ -930,12 +1247,30 @@ static int evaluate_laws(void *data, double tau, const double *state, double *co
       for (int k = 0; k < n; k++) {
         coefficients[r * T + plan->slot_transfer[plan->slot_base[m] + k]] = seg->coefficients[k];
       }
+      if (probe) {
+        check_scratch(a, tau, coefficients, r, m, "first");
+      }
     }
+  }
+  if (probe) {
+    repeat_laws_reversed(a, &rctx, tau, coefficients);
   }
   return 0;
 }
 
-/** @brief End the run with a one-screen account of a failed segment */
+/** @brief struct RateLaw.evaluate: run the laws, and keep their coefficients for a failure file */
+static int evaluate_laws(void *data, double tau, const double *state, double *coefficients) {
+  struct LawAdapter *a = data;
+  const bool probe = a->plan->check_purity && a->evaluations == 0;
+  a->evaluations++;
+  a->last_tau = tau;
+  const int rc = run_laws(a, tau, state, coefficients, probe);
+  memcpy(a->seg->last_coefficients, coefficients,
+         (size_t)a->seg->num_rows * (size_t)a->plan->num_transfers * sizeof(double));
+  return rc;
+}
+
+/** @brief End the run with a one-screen account of a failed segment, and write its failure file */
 static void report_failure(const struct RateAssemblyPlan *plan, const struct ModuleContext *ctx,
                            const struct FoFWorkspace *ws, const struct Segment *seg,
                            const struct LawAdapter *law, const struct RateSegmentOutcome *outcome) {
@@ -1004,6 +1339,16 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
             " rejected step(s), %" PRId64 " law evaluation(s)",
             f->tau, f->step, outcome->stats.accepted_steps, outcome->stats.rejected_steps,
             outcome->stats.law_evaluations);
+  const struct FailureSummary summary = {.cause = cause,
+                                         .detail = f->detail,
+                                         .module = module,
+                                         .transfer = transfer,
+                                         .tau = f->tau,
+                                         .step = f->step};
+  char path[MAX_STRING_LEN + 64];
+  if (write_failure_file(law, &summary, path, sizeof(path))) {
+    ERROR_LOG("  failure file: %s", path);
+  }
   FATAL_ERROR("Rate segment failed: cause %s, module '%s', transfer '%s', workspace row %d "
               "(UniqueGalaxyID %lld), tau %.17g",
               cause, module, transfer, w, id, f->tau);
@@ -1091,8 +1436,11 @@ static void integrate_component(const struct RateAssemblyPlan *plan,
 
   struct LawAdapter adapter = {.plan = plan,
                                .ctx = ctx,
+                               .ws = ws,
                                .seg = &seg,
                                .invoke = invoke,
+                               .evaluations = 0,
+                               .last_tau = 0.0,
                                .failed_module = -1,
                                .failed_row = -1,
                                .failed_code = 0};

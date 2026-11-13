@@ -1389,7 +1389,7 @@ static void refuse_rate_integration_without_rate_phase(void) {
 /**
  * @brief   Read the rate phase's settings, modules.rate_integration
  *
- * The section is a mapping of five optional keys; a key it omits keeps its
+ * The section is a mapping of six optional keys; a key it omits keeps its
  * default (constants.h), and an absent or null section keeps them all. It is
  * refused, naming the key, when it has an unknown or non-scalar key or a value
  * out of range, and refused as a whole when no phase under modules.phases runs
@@ -1400,24 +1400,29 @@ static void refuse_rate_integration_without_rate_phase(void) {
  * - relative_tolerance, absolute_tolerance: finite numbers in (0, 1)
  * - max_steps_per_segment: an integer >= 1 (attempts per segment)
  * - max_rejections_per_step: an integer >= 1 (consecutive rejections of one step)
+ * - check_purity: true or false (default false), the purity probe of rate_assembly.h
  */
 static void parse_rate_integration_section(yaml_document_t *doc, yaml_node_t *section) {
-  static const char *const valid_keys[] = {"scheme", "relative_tolerance", "absolute_tolerance",
-                                           "max_steps_per_segment", "max_rejections_per_step"};
+  static const char *const valid_keys[] = {"scheme",
+                                           "relative_tolerance",
+                                           "absolute_tolerance",
+                                           "max_steps_per_segment",
+                                           "max_rejections_per_step",
+                                           "check_purity"};
   struct MimicRateIntegration *rate = &MimicConfig.RateIntegration;
 
   if (section->type != YAML_MAPPING_NODE) {
     FATAL_ERROR("modules.rate_integration must be a mapping of its keys (scheme, "
                 "relative_tolerance, absolute_tolerance, max_steps_per_segment, "
-                "max_rejections_per_step)");
+                "max_rejections_per_step, check_purity)");
   }
   /* reject_unknown_keys() skips a key that is not a scalar, so refuse one here first. */
   for (yaml_node_pair_t *pair = section->data.mapping.pairs.start;
        pair < section->data.mapping.pairs.top; pair++) {
     if (get_scalar_value(yaml_document_get_node(doc, pair->key)) == NULL) {
       FATAL_ERROR("modules.rate_integration has a key that is not a scalar; its keys are scheme, "
-                  "relative_tolerance, absolute_tolerance, max_steps_per_segment and "
-                  "max_rejections_per_step");
+                  "relative_tolerance, absolute_tolerance, max_steps_per_segment, "
+                  "max_rejections_per_step and check_purity");
     }
   }
   reject_unknown_keys(doc, section, "modules.rate_integration", valid_keys,
@@ -1477,6 +1482,21 @@ static void parse_rate_integration_section(yaml_document_t *doc, yaml_node_t *se
     }
     rate->max_rejections_per_step = value;
   }
+
+  node = get_mapping_value(doc, section, "check_purity");
+  if (node != NULL) {
+    const char *value = get_scalar_value(node);
+    if (value == NULL) {
+      FATAL_ERROR("modules.rate_integration.check_purity must be a scalar, true or false");
+    }
+    if (strcmp(value, "true") == 0) {
+      rate->check_purity = 1;
+    } else if (strcmp(value, "false") == 0) {
+      rate->check_purity = 0;
+    } else {
+      FATAL_ERROR("modules.rate_integration.check_purity must be true or false, got '%s'", value);
+    }
+  }
 }
 
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
@@ -1491,7 +1511,8 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
       .relative_tolerance = RATE_INTEGRATION_DEFAULT_RELATIVE_TOLERANCE,
       .absolute_tolerance = RATE_INTEGRATION_DEFAULT_ABSOLUTE_TOLERANCE,
       .max_steps_per_segment = RATE_INTEGRATION_DEFAULT_MAX_STEPS_PER_SEGMENT,
-      .max_rejections_per_step = RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP};
+      .max_rejections_per_step = RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP,
+      .check_purity = RATE_INTEGRATION_DEFAULT_CHECK_PURITY};
 
   /* Initialize phase configurations to NULL/0 */
   MimicConfig.pre_timestep = NULL;
