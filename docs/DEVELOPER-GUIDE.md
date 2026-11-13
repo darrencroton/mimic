@@ -30,6 +30,7 @@ Common tasks:
 - Adding a module: [Creating Physics Modules](#creating-physics-modules)
 - Adding a model package: [Adding a New Model Package](#adding-a-new-model-package)
 - Creating galaxy records from a module: [Record Creation Contract](#record-creation-contract)
+- Writing a module that declares conservative transfers between reservoirs: [Rate Callback Contract](#rate-callback-contract)
 - Choosing a processing mode: [Processing Modes and Phases](#processing-modes-and-phases)
 - Adding a property: [Property System](#property-system)
 - Working with units (different from Millennium): [Units and the Reference Basis](#units-and-the-reference-basis)
@@ -251,15 +252,20 @@ int module_name_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
 /* Snapshot family: process_snapshot */
 int module_name_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
                                  int64_t count);
+
+/* Rate family: process_rates */
+int module_name_rates(const struct RateContext *ctx, const struct Halo *halo,
+                      double *coefficients);
 ```
 
-A module that advertises only FoF modes implements `process` and no snapshot callback; a snapshot-only module implements `process_snapshot` and no `process`; a dual-mode module implements both. Generated registration binds each advertised callback and sets the other to `NULL`, and `module_registry_add()` aborts startup if an advertised family's callback is missing, the mode list is empty, or a mode is unknown. No module needs a stub for a family it does not support.
+A module that advertises only FoF modes implements `process` and no other callback; a snapshot-only module implements `process_snapshot` and no `process`; a rate-only module implements `rates` and no `process`; a module that advertises modes of several families implements one callback per family. The three families are the FoF family (`process_full_halo`, `process_per_event`, `process_by_galaxy`), the snapshot family and the rate family. Generated registration binds each advertised callback and sets the other to `NULL`, and `module_registry_add()` aborts startup if an advertised family's callback is missing, the mode list is empty, or a mode is unknown. No module needs a stub for a family it does not support.
 
 Lifecycle behavior:
 
 - `init()` runs once at startup for each configured module, however many phases it appears in. Load and validate module parameters here.
 - `process()` runs during configured FoF phases. Return non-zero after logging an `ERROR_LOG()` message if the module cannot continue. A `process_full_halo` callback is the only place a module may create galaxy records (`module_create_record()`); see the [Record Creation Contract](#record-creation-contract). `init()`, `cleanup()` and every other callback that tries it is refused.
 - `process_snapshot()` runs once per snapshot from the `modules.post_snapshot` phase (horizontal driver only) and follows the [snapshot callback contract](#snapshot-callback-contract); it can never create records, because the snapshot scope is topology-immutable.
+- `rates()` runs only in the rate phase, once per active row at every law evaluation of the integrator, at a trial state, and follows the [rate callback contract](#rate-callback-contract); it returns coefficients, never updates state, and can neither emit events nor create records.
 - `cleanup()` runs once during shutdown for each configured module. Free module-owned memory here.
 
 Return conventions:
@@ -267,6 +273,7 @@ Return conventions:
 - `init()` non-zero: startup aborts.
 - `process()` non-zero: Mimic exits with failure.
 - `process_snapshot()` non-zero: Mimic exits with failure, naming the module, the `post_snapshot` phase, the snapshot and the return code.
+- `rates()` non-zero: the rate segment fails (cause `bad_coefficient`), naming the module and transfer, and Mimic exits with failure.
 - `cleanup()` non-zero: error is logged and cleanup continues for other modules.
 
 ### Snapshot Callback Contract
@@ -311,6 +318,64 @@ Memory a snapshot module allocates for its callback is outside the retention-poo
 *Return kinds.* The first four are **status** functions (0 on success, -1 on error, the same on every task); `module_snapshot_any` is a **predicate** that returns -1 only when refused; `module_snapshot_is_root_task` has no error path. *Callback-kind gate.* Every function except `module_snapshot_is_root_task` is refused (`ERROR_LOG`, -1) while an `init`, full-halo, per-event, by-galaxy or `cleanup` callback is running, because those are not synchronised across tasks; they are allowed during snapshot dispatch and when no callback is running, so a unit test may call a `process_snapshot` entry point directly. *Ordering rule.* Every task reaches every collective, in the same order, with the same `n`: branch only on snapshot-level facts (`ctx`) or on a previous collective's result, never on a local count, and let a failure set a flag that `module_snapshot_any` agrees before any task writes, rather than returning early. NaN-free input is the caller's precondition for the two floating-point reductions (`module_snapshot_rank` rejects NaN itself); ids passed to `module_snapshot_rank` must be unique within the caller's keys (checked) and across tasks (`UniqueGalaxyID` gives this, because forests are disjoint). In a serial run or a non-MPI build every function is the identity (the rank is the position in the local sort), so a ported module's serial output is unchanged.
 
 *Declaring it.* A module whose `process_snapshot` reaches every whole-population quantity through these functions declares `snapshot_distribution: collective` in `module_info.yaml`; the default, `serial_only`, means it assumes the complete population is resident. The key is accepted only for a module that advertises `process_snapshot`, and startup refuses (`ERROR_LOG`, naming the module and `NTask`) any `serial_only` module configured under `modules.post_snapshot` when `NTask > 1`. `sham_rank_match` and `hod_populate` are ported and declare `collective`; the framework fixtures stay `serial_only`.
+
+### Rate Callback Contract
+
+A `process_rates` module does not update galaxies. It declares conservative transfers between reservoirs, and its callback returns the rate coefficients of those transfers at a trial state; the core integrates the transfers of every rate module in the phase together, as one system, with error control. Because no module applies an update, the result does not depend on the order of the rate modules in the run file, on the driver, or on the MPI task or chunk count. The Doxygen of `src/core/module_interface.h` (`struct RateContext`, `struct Module.rates`), `src/core/rate_assembly.h` (the phase, segments and failure file) and `src/core/rate_integrator.h` (the numerics) is the normative statement; this section explains it and must agree with it. No model package uses the mode: the only rate modules in the tree are the test-build fixtures `test_rate_supply`, `test_rate_formation`, `test_rate_feedback`, `test_rate_stripping`, `test_rate_faults` and `test_rate_jump` under `src/module_system/`, and the mode is proven on them alone.
+
+**Declaring.** Three kinds of galaxy property take part, declared with the `reservoir:` mapping in property metadata (see the [Property Metadata Schema](#property-metadata-schema)): a `reservoir` holds a conserved quantity and belongs to a conserved total; a `tracer` rides on a parent reservoir (metal mass in gas, say) and belongs to a total of its own; an `observer` accumulates the amount a named transfer moves and belongs to no total. A module declares its transfers in `module_info.yaml` under `rates:` (see the [Module Metadata Schema](#module-metadata-schema)), naming both ends of each: a reservoir, or the word `external`. An external donor is a source and an external recipient a sink; the integrator keeps per-total source and sink accumulators as solver state, so no property stands for the outside. A transfer that names an undeclared reservoir, or ends of a kind its declaration does not allow, fails at generation, in `make validate-modules` and again at startup against the generated reservoir table, before any `init()`.
+
+**The callback.**
+
+```c
+int module_name_rates(const struct RateContext *ctx, const struct Halo *halo, double *coefficients);
+```
+
+It is called once per active row (a row with a galaxy and `Type != 3`) per law evaluation. `halo` is a core-owned scratch copy of the row whose `galaxy` points at a scratch `struct GalaxyData` holding the trial state: the reservoir and tracer fields carry the state at the evaluation point, and every other field, observers included, keeps its value at the start of the segment (an observer is outside the error control, so it must not feed the dynamics). The law reads properties as typed fields, as every module does, and never sees the committed workspace. `coefficients` has one slot per declared transfer, zeroed before the call; the generated constant `<MODULE>_TRANSFER_<NAME>` is the slot of a transfer. `struct RateContext` carries:
+
+| Field | Meaning |
+| --- | --- |
+| `snapshot_number` | Snapshot index |
+| `redshift` | Snapshot redshift |
+| `time` | Lookback time from z=0 at the evaluation point, on the evaluated row's own clock, in internal units (the convention of `ModuleContext.time`); rows with different elapsed times see different values |
+| `central` | `const` pointer to the scratch copy of the FoF central at the trial state, non-NULL only for a module that declares `rates.reads_central: true`; NULL for every other module |
+| `params` | Read-only pointer to `MimicConfig` |
+
+The context carries no solver step, substep index or substep count: a law is a function of a state and a time.
+
+**The rate-law contract.** A law returns one finite, non-negative coefficient per declared transfer. What the coefficient means depends on the declaration:
+
+| Declaration | Kind | Coefficient | Flux in the row's own time |
+| --- | --- | --- | --- |
+| `from` and `to` both reservoirs | Internal transfer | Specific rate, inverse time | Coefficient times the donor's content |
+| `to: external` | Sink | Specific rate, inverse time | Coefficient times the donor's content |
+| `from: external`, no `slaved_to` | Source | Absolute rate, content per time | The coefficient |
+| `from: external` with `slaved_to` | Slaved source | Dimensionless | Coefficient times the master transfer's flux |
+
+A tracer needs no declaration: for every transfer out of a reservoir, each tracer of that reservoir moves at the same coefficient times the tracer's own content into the recipient's tracer of the same total (a tracer whose recipient has none leaves its total as a sink). A slaved source is an external source into a different total whose amount is a multiple of a named master transfer's flux; the master is an internal transfer or a sink, never a source or another slaved source. An observer records the committed amount of the transfer it names.
+
+Four rules bind every law, and they are what lets the integrator evaluate it at trial states, in any order and more than once:
+
+- **Pure.** The coefficients are a function of the row, the trial state, the time, the configured parameters and, for a module that declared it, the central's trial state, and of nothing else: no static counters, no caches, no random draws consumed in call order, no reads of anything the callback was not given.
+- **No side effects.** A law never writes the halo, the galaxy or the central it was handed, never retains a pointer to them, never emits an event (`module_emit_event()` refuses a call from a rate callback, naming the module) and never creates a record (`module_create_record()` refuses it). The `const` on `halo` and `ctx->central` is shallow, so a write through `halo->galaxy` compiles; the purity probe, not the signature, is what catches it.
+- **Total.** A non-zero return, a negative coefficient or a coefficient that is not finite fails the segment with cause `bad_coefficient`, naming the module and transfer. Nothing is clamped.
+- **Declared reads.** A law that reads another record declares it with `rates.reads_central: true`, which is the only cross-record read, and gets the FoF central. A law that does not declare it receives NULL, so it cannot depend on another galaxy's state.
+
+**The purity probe.** `modules.rate_integration.check_purity` (`true` or `false`, default `false`; exactly those two spellings) switches a probe on in any build. At the first law evaluation of each segment every law is evaluated a second time, rows and modules in reversed canonical order, at the same trial state; every coefficient must match the first pass bit for bit (compared as 64-bit patterns), a law may not fail the second time, and the scratch halo and galaxy each law was given (and the central's, for a module that reads it) must be byte-identical afterwards. A mismatch fails the run with cause `impure_law`, naming the module and transfer, and writes the failure file. With the probe off no law is evaluated beyond the integrator's own. Run it whenever a new law is written, and on a real model's laws before trusting a campaign.
+
+**The integration domain.** The domain is fixed at startup from declared metadata only: the whole FoF workspace is one component when any configured transfer has `to_record: central` or any configured rate module declares `reads_central: true`; otherwise every galaxy is its own component, and its integrated state is bit-identical whatever the content of every other galaxy in its group. A transfer ends on its own record, or on the FoF central (`to_record: central`) and nowhere else; on the central itself such a transfer acts on its own record. State is gathered at the start of each segment and written back at its end, so a discrete phase may change the number of rows between segments, and a record created in an earlier phase joins the component at its own content (zero for a created record).
+
+**Mixed elapsed times.** A substep is a segment, and segment time is normalised, τ from 0 to 1. Row r's segment length is Δ_r, the row's own `dT` divided by the group's substep count, and every flux is scaled by the Δ of the row whose clock it runs on: a transfer or sink by its donor's, a source by its recipient's, a slaved source by its master's. One amount is formed per transfer and applied to both its ends, so a cross-record transfer conserves whatever the two rows' Δ. A row carrying the first-snapshot sentinel (`SnapNum < 0` and `dT <= 0`) has Δ = 0: it donates nothing, its own laws and sources move nothing, its law time is the snapshot's own `ctx->time`, but it still receives what a donor with positive Δ sends it. Any other row whose `dT` is not positive and finite is fatal, naming the row. A segment whose every Δ is zero takes no step and evaluates no law.
+
+**Integration.** `modules.rate_integration.scheme` selects the scheme (the [User Guide](USER-GUIDE.md#run-file-structure) documents the keys). The default `explicit` scheme is SSPRK(4,3) with an embedded second-order estimate, a positivity guard (a step is capped, and rejected, so that no stage or committed entry goes negative, and nothing is clamped), and a step controller; `implicit` is first-order Patankar–Euler with coefficients frozen at the step start, solved block by block in a subtraction-free form so every entry stays non-negative at any step, and it integrates an ill-posed law without complaint, which is why it is never the default. Under both, the error weight of an entry is `absolute_tolerance` times its galaxy's total of the entry's conserved total plus `relative_tolerance` times its content; the first-step estimate leaves out every entry whose galaxy holds none of its total at the segment start, so the error control governs those entries from the first step. Entries and fluxes are processed in a canonical order (state entries by row index among the active rows and reservoir table index; fluxes by donor row and global transfer index, which orders every compiled rate module's transfers by module name, then declaration order) and every order-sensitive sum runs in it; nothing uses run-file order, registration order, IDs or pointers, which is why permuting the rate modules in the run file changes no byte of output.
+
+**The ledger.** Each segment is checked against its own bookkeeping: for every conserved total F, the change of the total over the segment must equal the external amounts into and out of it to a rounding tolerance, `8u [(L + 2) N_acc + n_F + 2] (Σ|x(start)| + Src_F + Snk_F)` (`u = 2^-53`, `L` the largest number of inflow and outflow terms on one entry, `N_acc` the accepted steps, `n_F` the entries of F). A violation fails the segment with cause `ledger`. At segment end a tracer may not exceed its parent beyond `8u (L + 2) N_acc` times the parent's gross throughput; a violation fails with cause `tracer_bound`, and the message says whether the tracer has sources of its own, which can break the bound in the exact solution. Changes that discrete phases make to a conserved total are checked too; see [Phase Order](#phase-order).
+
+**Failures.** The causes are `bad_coefficient`, `step_budget` (`max_steps_per_segment` attempts without reaching τ = 1), `rejection_budget` (`max_rejections_per_step` consecutive rejections of one step), `step_underflow` (a step below 2⁻⁴⁶ of the segment), `ledger`, `tracer_bound`, and `impure_law` from the purity probe. A failed segment ends the run through `FATAL_ERROR` with a one-screen message naming the cause, the module and transfer, the row whose law it was (and the entry's row when that differs), the entry and τ. The integrator works on a gathered copy and writes back only on success, so a failed segment leaves the workspace untouched. Before the run ends it writes `<output_directory>/rate_failure_task<N>.txt` (N the MPI task number, 0 in a serial run): the settings, the cause, each row's `dT` and Δ, the component's segment-start state and the coefficients of the latest law evaluation, all as exact hexadecimal floats, with `not_evaluated` for a slot whose law had not yet returned and "no law was evaluated" when none had run. The file is written only on a failure and a later successful run into the same directory does not remove it. Under the explicit scheme a law that diverges as its donor empties ends in a named failure (`step_underflow` or `rejection_budget`), never in a negative reservoir.
+
+**Provenance and statistics.** A run with a rate phase records the integrator, its tolerances and budgets, the declared transfers and integer step statistics in `RunProperties` (see the [User Guide](USER-GUIDE.md#reading-hdf5-output)); a run without one writes none of it. Statistics are integer counts and maxima, merged across MPI tasks by sum and maximum, so they are identical for any task count, chunk count or driver.
+
+**Limits.** There are no located events: a jump fires at a segment boundary, not at the moment a threshold is crossed. Rate phases hold no auxiliary state; one rate phase is allowed per run file; a transfer ends on its own record or the FoF central only. Duplicate observers of one transfer are not refused. The two schemes' tolerances are not comparable, because the implicit scheme has no local extrapolation. Identity (permutation, driver, task count, chunk count) is proven for tree rows only, bit for bit per binary, and the record-creation check cannot see created rows' content, which is zero. The mode is proven on the test-build fixtures: no production cost figure exists, and nothing here claims a model package's physics in this form is correct.
 
 ### Record Creation Contract
 
@@ -402,7 +467,7 @@ The generator derives minimal metadata from the file name:
 
 - module name: `my_prototype`
 - source file: `my_prototype.c`
-- supported modes: exactly the three FoF modes `process_full_halo`, `process_per_event`, and `process_by_galaxy` (a standalone module never advertises `process_snapshot`)
+- supported modes: exactly the three FoF modes `process_full_halo`, `process_per_event`, and `process_by_galaxy` (a standalone module never advertises `process_snapshot` or `process_rates`)
 - no declared dependencies, parameters, tests, docs, or events
 
 The C file must still implement the normal lifecycle symbols:
@@ -496,10 +561,13 @@ A model package is discovered by directory under `models/`. The one mandatory fi
 | `process_per_event` | `PROCESSING_MODE_PER_EVENT` | One event target, `ngal = 1`, `ctx->active_event != NULL` | Physics triggered by emitted events |
 | `process_by_galaxy` | `PROCESSING_MODE_BY_GALAXY` | One galaxy, `ngal = 1` | Local per-galaxy physics and time integration |
 | `process_snapshot` | `PROCESSING_MODE_SNAPSHOT` | Borrowed whole-snapshot population through `process_snapshot` | Snapshot-wide calculations; see [Snapshot Callback Contract](#snapshot-callback-contract) |
+| `process_rates` | `PROCESSING_MODE_RATES` | One read-only galaxy at a trial state, through `rates`; returns coefficients | Conservative transfers between reservoirs integrated together by the core; see [Rate Callback Contract](#rate-callback-contract) |
 
-The first three modes form the FoF callback family (`process`); `process_snapshot` is the snapshot family (`process_snapshot`). Each mode belongs to exactly one family, defined once in the C table in `src/core/processing_modes.c` (a `_Static_assert` makes an enumerator without an entry a compile error) and mirrored by `scripts/module_modes.py` for the generator and validator. A module may declare `process_snapshot` alone or alongside FoF modes. The FoF phases below accept only FoF modes, and `modules.post_snapshot` accepts only `process_snapshot`. The run-file parser maps mode names through the same table (`processing_mode_from_string()`) and rejects, in every phase, an entry mapping that names more than one module, and `module_system_init()` checks each entry's mode against its phase's family through the table, and against the module's supported modes and callbacks, before any `init()` runs.
+`process_full_halo`, `process_per_event` and `process_by_galaxy` form the FoF callback family (`process`); `process_snapshot` is the snapshot family (`process_snapshot`); `process_rates` is the rate family (`rates`). Each mode belongs to exactly one family, defined once in the C table in `src/core/processing_modes.c` (a `_Static_assert` makes an enumerator without an entry a compile error) and mirrored by `scripts/module_modes.py` for the generator and validator. A module may declare `process_snapshot` or `process_rates` alone or alongside FoF modes. Each phase accepts the modes of one family: the discrete phases (`pre_timestep`, `post_timestep` and every `modules.phases` entry that is not the rate phase) accept only FoF modes, `modules.post_snapshot` accepts only `process_snapshot`, and the rate phase accepts only `process_rates`. The run-file parser maps mode names through the same table (`processing_mode_from_string()`) and rejects, in every phase, an entry mapping that names more than one module, and `module_system_init()` checks each entry's mode against its phase's family through the table, and against the module's supported modes and callbacks, before any `init()` runs.
 
-Choose the narrowest mode that gives the module the context it needs. A module that only modifies one galaxy at a time should usually use `process_by_galaxy`. A module that redistributes reservoirs across a FoF group or emits merger events should use `process_full_halo`. `process_full_halo` is also the only mode that may create galaxy records: a created record joins the FoF workspace when the creating callback returns, so the modules after it, the by-galaxy passes of the same phase and every later phase and substep receive it as an ordinary row (see the [Record Creation Contract](#record-creation-contract)). A module cannot tell its dispatch mode from `ModuleContext`, so a module that creates must be configured as `process_full_halo`; configured as `process_by_galaxy` or `process_per_event` it fails at its first creation call. By-galaxy, per-event and snapshot callbacks cannot create.
+**Rate phase rules.** A phase under `modules.phases` whose entries are all `process_rates` is the rate phase; every other phase is discrete. A phase is one or the other, a run file configures at most one rate phase, and the rate phase is always a named substep phase. At startup, before any `init()`, the run is refused, naming the phase and the module, key or totals, for: a phase that mixes `process_rates` with another mode; `process_rates` in `pre_timestep`, `post_timestep` or `post_snapshot`; a second rate phase; a module listed twice in the rate phase; a slaved source whose master transfer belongs to a module not configured in the rate phase; a dependency cycle among the conserved totals of the configured rate modules (a slaved source makes its recipient's total depend on its master donor's total, a tracer's total on its parent's); a configured transfer whose ends the generated reservoir table does not hold as the kinds its declaration allows, so stale generated metadata cannot run; and a `modules.rate_integration` section with no rate phase, with an unknown or non-scalar key, or with an out-of-range value (see the [User Guide](USER-GUIDE.md#run-file-structure) for the keys). With a rate phase and no section, the defaults apply. `rate_integration` is a reserved key under `modules:` and cannot name a phase.
+
+Choose the narrowest mode that gives the module the context it needs. A module that only modifies one galaxy at a time should usually use `process_by_galaxy`. A module that redistributes reservoirs across a FoF group or emits merger events should use `process_full_halo`. A module whose physics is a set of continuous, conservative exchanges between reservoirs (cooling, star formation, reheating, stripping), and whose result should not depend on which module is listed first, can declare them and use `process_rates`; a discrete jump (a merger, a destruction) stays in a discrete mode. `process_full_halo` is also the only mode that may create galaxy records: a created record joins the FoF workspace when the creating callback returns, so the modules after it, the by-galaxy passes of the same phase and every later phase and substep receive it as an ordinary row (see the [Record Creation Contract](#record-creation-contract)). A module cannot tell its dispatch mode from `ModuleContext`, so a module that creates must be configured as `process_full_halo`; configured as `process_by_galaxy` or `process_per_event` it fails at its first creation call. By-galaxy, per-event and snapshot callbacks cannot create.
 
 ### Phase Order
 
@@ -514,20 +582,28 @@ post_timestep
 
 Under the horizontal driver, once every FoF group of a snapshot has run that sequence, each `modules.post_snapshot` entry runs once over the whole snapshot population, in YAML order. `for_each_phase()` visits the phases in this order, and visits `post_snapshot` only when it has entries, so pipeline collection, validation, event-contract enumeration and the HDF5 `EnabledModules` rows of a run without snapshot modules are exactly what they were before the phase existed.
 
-Inside each phase:
+Inside a discrete phase:
 
 1. All `process_full_halo` modules run in YAML order.
 2. Events emitted by full-halo modules are dispatched immediately to matching `process_per_event` consumers in YAML order.
 3. All `process_by_galaxy` modules run in galaxy-major order: for each galaxy, each by-galaxy module runs in YAML order.
 
-That means mode grouping takes precedence over raw YAML line position. If a by-galaxy module appears before a full-halo module in the same phase, it still runs after full-halo/event work. Each phase's dispatch lists are fixed at startup: once every module's `init()` has succeeded, `module_system_init()` splits each non-empty FoF phase's entries into its full-halo, per-event and by-galaxy lists, in YAML order, and `execute_phase()` walks those lists, so the phase configuration must not change between `module_system_init()` and `module_system_cleanup()`.
+That means mode grouping takes precedence over raw YAML line position. If a by-galaxy module appears before a full-halo module in the same phase, it still runs after full-halo/event work.
+
+Inside the rate phase there is one step instead: the substep's rate segment, in which every component of the workspace is gathered, integrated across the substep by the core and written back (see the [Rate Callback Contract](#rate-callback-contract)). It runs inside the same event-dispatch window as a discrete phase, but emission is refused for a rate callback, and the order of the modules in the run file has no effect on the result. The phases themselves still run in the order listed, so the position of the rate phase among the substep phases is a scientific choice, and a discrete phase that changes a conserved quantity before or after it does so between segments.
+
+Each phase's dispatch lists are fixed at startup: once every module's `init()` has succeeded, `module_system_init()` splits each non-empty FoF phase's entries into its full-halo, per-event, by-galaxy and rate lists, in YAML order (the rate list is non-empty only in the rate phase), and `execute_phase()` walks those lists, so the phase configuration must not change between `module_system_init()` and `module_system_cleanup()`. The split must cover every entry of the phase: an entry no list takes is a fatal core error rather than a module silently dropped.
+
+**The discrete-phase ledger.** Only when a rate phase is configured, the core also guards the conserved totals across the discrete phases. Before and after each dispatch unit of every other FoF-workspace phase (`pre_timestep`, each discrete substep phase and `post_timestep`) it sums each conserved total over the workspace's active rows; a unit is one full-halo module's call together with the per-event consumers its events trigger, or the phase's by-galaxy pass as a whole (that pass is galaxy-major, so its modules cannot be separated without a sum per call). A change beyond `8u (n_F + 2) S_F` (`u = 2^-53`, `n_F` the total's entry count, `S_F` its sum of magnitudes, each the larger of the values before and after the unit) is fatal, naming the phase, the module and the total, unless the change was declared. A module declares the totals its discrete callbacks may change with a `changes_totals: [<total>, ...]` key beside `supported_processing_modes` in `module_info.yaml`: a full-halo unit is excused by a declaration from that full-halo module or from a per-event module configured in the phase that subscribes to an event it emits; the by-galaxy pass is excused by a declaration from any by-galaxy module configured in the phase. A declared change is counted per total in the step statistics. Attribution is per unit, never finer: among the by-galaxy modules of one phase, and between a producer and the consumers subscribed to its events, one declaration covers the whole unit, so the ledger cannot say which of them changed the total. With no rate phase no sum is computed and the hook is not entered.
+
+The ledger covers the FoF-workspace phases only. A `post_snapshot` module that writes a reservoir does so outside the ledger: nothing checks its change to a conserved total, and `changes_totals` is refused on a module that advertises only `process_snapshot`, so such a module has no way to declare it.
 
 Phase selection guide:
 
 | Phase | Runs | Typical use |
 | --- | --- | --- |
 | `pre_timestep` | Once before substeps | Setup, reionization, infall budgets, merger clock setup |
-| `modules.phases.<name>` | Each substep, in YAML order | Named physical stages such as `galaxy_physics` or `satellite_mergers` |
+| `modules.phases.<name>` | Each substep, in YAML order | Named physical stages such as `galaxy_physics` or `satellite_mergers`; at most one of them may be the rate phase |
 | `post_timestep` | Once after substeps | Finalization and accumulator conversion |
 | `post_snapshot` | Once per snapshot, after every FoF group (horizontal driver only) | `process_snapshot` modules needing the whole snapshot population |
 
@@ -1502,8 +1578,8 @@ Generated files include:
 
 | Generator | Inputs | Outputs |
 | --- | --- | --- |
-| `scripts/generate_properties.py` | `src/core/core_properties.yaml`, `simulations/<SIMULATION>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml` | `src/include/generated/property_defs.h`, `populate_halo_payload.inc`, `property_test_helpers.h`, `copy_to_output.inc`, `hdf5_field_*.inc`, `output_schema_writer.inc`, and `tests/generated/property_ranges.json` |
-| `scripts/generate_module_registry.py` | selected model `shared/module_info.yaml`, module `module_info.yaml` files, and standalone module files | `src/module_system/generated/module_init.c`, `src/module_system/generated/event_contracts.h`, `tests/generated/module_sources.txt`, and `build/generated/module_registry_hash.txt` |
+| `scripts/generate_properties.py` | `src/core/core_properties.yaml`, `simulations/<SIMULATION>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml` | `src/include/generated/property_defs.h`, `reservoir_table.h` (the reservoir, tracer and observer entries with their offsets, kinds, parents and totals; counts of zero when none is declared), `populate_halo_payload.inc`, `property_test_helpers.h`, `copy_to_output.inc`, `hdf5_field_*.inc`, `output_schema_writer.inc`, and `tests/generated/property_ranges.json` |
+| `scripts/generate_module_registry.py` | selected model `shared/module_info.yaml`, module `module_info.yaml` files, and standalone module files | `src/module_system/generated/module_init.c` (registration, including each rate module's transfer and observer tables, `reads_central` flag, `changes_totals` list and `rates` binding), `src/module_system/generated/event_contracts.h`, `src/module_system/generated/rate_contracts.h` (one coefficient-slot constant per transfer and the transfer counts), `tests/generated/module_sources.txt`, and `build/generated/module_registry_hash.txt` |
 | `scripts/generate_test_registry.py` | core tests plus selected simulation and model test metadata | `build/generated/unit_tests.txt`, `integration_tests.txt`, `scientific_tests.txt`, and `test_registry_hash.txt` |
 | `scripts/generate_test_inputs.py` | selected model and simulation package metadata | shared test run files under `build/generated/test_inputs/<MODEL>/<SIMULATION>/` |
 
@@ -1514,6 +1590,8 @@ make check-generated
 ```
 
 to verify ignored generated files are current after generation.
+
+The rate tables name reservoirs by the index symbols of `reservoir_table.h`, never by literal integers, so removing or renaming a reservoir a transfer names is a compile error rather than a silent mis-wiring, and startup re-checks every configured transfer's end kinds against the table. Adding, removing or retyping a `reservoir:` mapping, or editing any `rates:` or `changes_totals` key, needs `make generate` for the pair; a build with no rate module generates empty tables and a production build of the shipped packages contains none.
 
 ### Benchmarking
 
@@ -1552,7 +1630,9 @@ Common failures:
 | Missing `supported_processing_modes` | Directory module metadata is incomplete | Add supported modes |
 | Module name mismatch | Directory and `module.name` disagree | Rename one side |
 | Unknown property dependency | Metadata references a property not in property YAML | Fix spelling or add the property |
-| Invalid processing mode | YAML uses an unsupported mode string | Use `process_full_halo`, `process_by_galaxy`, or `process_per_event` |
+| Invalid processing mode | YAML uses an unsupported mode string, or a mode a phase does not accept | Use `process_full_halo`, `process_per_event`, `process_by_galaxy`, `process_snapshot` (only under `modules.post_snapshot`) or `process_rates` (only in a rate phase) |
+| `Configuration error in phase '<phase>'` naming `process_rates` | A rate phase mixes modes, is a second one, lists a module twice, or sits in `pre_timestep`, `post_timestep` or `post_snapshot`; or a slaved source's master module, a transfer's ends or the totals' dependencies fail the startup checks | Put every `process_rates` module in one named substep phase and correct the declaration the message names |
+| `rates:` refusal from `make validate-modules` or `make generate` | A transfer names an undeclared reservoir, ends its declaration does not allow, or a total cycle | Fix the `rates:` block or the property's `reservoir:` mapping |
 
 Then regenerate and rebuild:
 
@@ -1570,6 +1650,8 @@ Run with debug logs:
 ```
 
 If `process()` fails without a useful reason, add `ERROR_LOG()` immediately before the failing `return -1` in the module. The core can identify the module and substep, but only the module knows the physics reason.
+
+A rate-phase failure names its cause (see the [Rate Callback Contract](#rate-callback-contract) for the list), the module and transfer, the row and the segment time, and leaves `<output_directory>/rate_failure_task<N>.txt` with the segment-start state and the failing evaluation's coefficients as exact hexadecimal floats. `bad_coefficient`, `step_underflow` and `rejection_budget` usually point at a law; rerun with `modules.rate_integration.check_purity: true` before suspecting the integrator, because an impure law (cause `impure_law`) makes every other symptom unreliable. A `Discrete-phase ledger` or `Undeclared change to conserved total` message means a discrete module changed a conserved total without listing it in `changes_totals`, or changed it when it should not have; the message names the phase and the module (or the by-galaxy pass).
 
 ### Memory Issues
 

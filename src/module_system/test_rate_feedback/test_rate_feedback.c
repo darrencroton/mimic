@@ -15,8 +15,8 @@
  *   test_rate_formation.star_formation, at TestRateFeedbackYield (dimensionless:
  *   the core multiplies it by the master's flux)
  *
- * The rate mode is declared but not yet dispatched, so only unit tests call
- * test_rate_feedback_rates() today.
+ * Test builds dispatch the rate mode: the core integrator calls test_rate_feedback_rates()
+ * in the rate phase, and unit tests also call it directly.
  *
  * Vision Principle #1: Physics-Agnostic Core Infrastructure
  */

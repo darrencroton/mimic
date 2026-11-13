@@ -99,6 +99,23 @@ All of these except the mid-run rows (the callback-failure row and the `module_c
 | `Unknown key '<section>.<key>'` | Typo, or key belongs to a different section | check the key against a shipped run file, e.g. `models/sage16/input/sage16_mini-millennium.yaml` |
 | Startup rejection: run file model/simulation vs compiled binary | Binary compiled with one `MODEL`/`SIMULATION`, run YAML declares another (`model.name`, `simulation.name`) | rebuild with the matching pair, or fix the run file |
 
+### Rate phase failures
+
+The mode exists in test builds only (`make TEST_BUILD=yes`; the fixtures are `test_rate_*`); a run file that configures none is unaffected. Startup rejections name the phase and the module, key or totals; a failed segment names the cause, module, transfer, row and segment time and leaves `<output_directory>/rate_failure_task<N>.txt`.
+
+| Symptom | Likely cause | First command |
+|---|---|---|
+| `Configuration error in phase '<p>'` mentioning `process_rates` | Mixed modes in one phase, a second rate phase, a module listed twice, `process_rates` in `pre_timestep`, `post_timestep` or `post_snapshot`, a slaved source whose master module is not in the phase, a cycle among conserved totals, or a transfer end the reservoir table does not hold as the allowed kind | read the lines after the header; for a table mismatch `make generate` for the same `MODEL`/`SIMULATION` |
+| `modules.rate_integration is set, but no phase ... runs process_rates`, an unknown key or out-of-range value | Section without a rate phase, typo (six keys only), `check_purity` not exactly `true`/`false`, tolerance outside (0, 1) | `mimic-config-and-flags` reference, `modules:` section |
+| `make validate-modules` / `make generate` refuses a `rates:` block | Transfer names an undeclared reservoir, both ends `external`, a tracer as `from`, an internal transfer across totals, duplicate transfer names, a slaved master that is not a reservoir-donor transfer, `rates:` without `process_rates` or the reverse | the message names module and transfer; `scripts/module_modes.py` `rate_metadata_errors()` holds the rules |
+| Failure cause `bad_coefficient` | A law returned non-zero, a negative or a non-finite coefficient (or a step times coefficient overflowed under `implicit`) | open the failure file; rerun with `check_purity: true` |
+| `step_underflow`, `rejection_budget` (explicit scheme) | A law that diverges as its donor empties, or a stage that cannot stay non-negative | the failure file's coefficients and start state; check the law near zero content |
+| `step_budget` | Too stiff for the explicit scheme at these tolerances | confirm the law first; only then raise `max_steps_per_segment`, loosen tolerances, or try `scheme: implicit` (first order; never the default) |
+| `ledger` / `tracer_bound` | A conserved total failed to close, or a tracer ended above its parent beyond rounding (the message says whether the tracer has sources of its own) | the failure file; a tracer fed by a source or slaved source can break the bound legitimately |
+| `impure_law` | The purity probe: a law's second, reversed-order evaluation differed in any bit or it changed its scratch row | fix the law (static counter, hidden state, write through `halo->galaxy`) |
+| `Undeclared change to conserved total '<t>' in phase '<p>'` | With a rate phase configured, a discrete module changed a total without `changes_totals` (a `post_snapshot` module is not checked) | add the total to that module's `changes_totals`, or fix the module |
+| A stale `rate_failure_task<N>.txt` | A later successful run does not remove an earlier failure's file | compare its time with the run's |
+
 ### Vertical reader failures
 
 | Symptom | Likely cause | First command |

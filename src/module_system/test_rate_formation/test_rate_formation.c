@@ -16,8 +16,8 @@
  * zero below the threshold and continuous across it. The module also declares the
  * observer RateFixtureFormed, which accumulates the amount star_formation moves.
  *
- * The rate mode is declared but not yet dispatched, so only unit tests call
- * test_rate_formation_rates() today.
+ * Test builds dispatch the rate mode: the core integrator calls test_rate_formation_rates()
+ * in the rate phase, and unit tests also call it directly.
  *
  * Vision Principle #1: Physics-Agnostic Core Infrastructure
  */

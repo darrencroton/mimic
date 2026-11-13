@@ -4,7 +4,7 @@ Snapshot Module Schema and Generated-Registration Tests
 
 Validates the metadata and generated-code side of the typed snapshot callback
 contract (process_snapshot / PROCESSING_MODE_SNAPSHOT) and the rate callback family
-(rates / PROCESSING_MODE_RATES), which is declared and registered but not yet dispatched:
+(rates / PROCESSING_MODE_RATES), which the core dispatches in a rate phase:
 
   - scripts/module_modes.py mirrors the C mode table and enum order
   - the registry generator and the metadata validator accept and reject the same

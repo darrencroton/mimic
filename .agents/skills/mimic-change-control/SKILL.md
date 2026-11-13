@@ -41,6 +41,7 @@ Classify by what the change touches. Run gates in the order listed; each column'
 | Simulation package | `simulations/<s>/` (halo_properties.yaml, simulation_info.yaml, a_list, fixtures) | `make MODEL=<m> SIMULATION=<s> generate` → `make MODEL=<m> SIMULATION=<s> check-generated` → `make MODEL=<m> SIMULATION=<s>` → `make MODEL=<m> SIMULATION=<s> tests` (same selector everywhere) |
 | Converter | `convert/mimic-convert/`, or a Mimic file its suite reads or builds (`src/`, `scripts/`, simulation metadata and fixtures; full list under Testing in `docs/DEVELOPER-GUIDE.md`) | `make tests-converter` (~6 min, delegate it) on top of the other classes' gates; `make tests` does not run it |
 | Bench | `bench/mimic-bench/`, the run-file keys it writes or verifies, the `RunProperties` and `version_info.json` fields it verifies, the output schema, or `plot/mimic-plot/hdf5_reader.py` / `output_schema.py` (full list under Testing in `docs/DEVELOPER-GUIDE.md`) | `make tests-bench` (~5 min, delegate it) on top of the other classes' gates; `make tests` does not run it |
+| Rate mode | `src/core/rate_integrator.*`, `rate_implicit.c`, `rate_assembly.*`, the rate parts of `module_registry.c`, `reservoir:` and `rates:`/`changes_totals` metadata, `src/module_system/test_rate_*` | Core/framework gates plus `make tests-converter` and `make tests-bench` when run-file keys, `RunProperties` or the schema change, `make tests-rate` (manual, needs MPI and the real data), and `make tests-reference-identity REFERENCE_COMMIT=<hash>` (production output must not move, apart from the `source_md5` provenance label the gates treat as build provenance); the `Rate Callback Contract` in `docs/DEVELOPER-GUIDE.md` and the Doxygen of `rate_assembly.h` / `rate_integrator.h` change in the same commit |
 | Plotting | `plot/mimic-plot/`, `models/<m>/plots/` | plot tests under `plot/mimic-plot/tests/` → run `mimic-plot` on real output → see the `mimic-plots-and-analysis` skill |
 | Docs only | `*.md`, `docs/` | `make check-docs` → no hard-wrapped prose → `make check-format` (harmless, CI runs it anyway) |
 | Generated output | any `*/generated/*`, `tests/generated/` | never edited directly — regenerate via `make generate` and commit alongside the metadata change that produced it |
@@ -151,6 +152,7 @@ Job `horizontal-v3` (45 min timeout), needs no real dataset:
 2. `make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-integration`, requiring four named horizontal-run cases to PASS
 3. `make tests-snapshot-global`
 4. `make tests-distributed` with `MPIRUN="mpirun --oversubscribe"`
+5. `make tests-rate RATE_BATTERY_ARGS=--offline` with the same `MPIRUN` (the rate battery's legs that need no real data; its cross-driver leg needs the mini-Millennium data and is run manually)
 
 Notes: `make` runs `lint-parameters` automatically as pre-build validation, so CI's build step covers it. Memory-leak gating happens inside the test suites themselves (C unit tests call `check_memory_leaks()` in-process; integration tests assert against each run's captured output). If local validation followed section 1, CI holds no surprises except the Linux-vs-macOS tolerance band.
 

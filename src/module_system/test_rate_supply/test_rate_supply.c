@@ -16,8 +16,8 @@
  * - cooling: RateFixtureHot to RateFixtureCold at TestRateSupplyCoolingRate
  *   (specific rate)
  *
- * The rate mode is declared but not yet dispatched, so only unit tests call
- * test_rate_supply_rates() today.
+ * Test builds dispatch the rate mode: the core integrator calls test_rate_supply_rates()
+ * in the rate phase, and unit tests also call it directly.
  *
  * Vision Principle #1: Physics-Agnostic Core Infrastructure
  */

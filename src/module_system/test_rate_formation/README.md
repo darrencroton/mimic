@@ -31,7 +31,7 @@ Both are required under `modules.parameters` whenever the module is configured; 
 
 ## Build Membership
 
-Like the other `src/module_system/test_*` fixtures, it is compiled and registered only in test builds: the `Makefile` adds its source to the `TEST_BUILD=yes` executable, and the generated `tests/generated/module_sources.txt` adds it to the unit-test runner. Production registration and the production executable exclude it. The rate mode is declared but not yet dispatched (every phase refuses `process_rates` at startup), so today only unit tests call its law.
+Like the other `src/module_system/test_*` fixtures, it is compiled and registered only in test builds: the `Makefile` adds its source to the `TEST_BUILD=yes` executable, and the generated `tests/generated/module_sources.txt` adds it to the unit-test runner. Production registration and the production executable exclude it. Test builds dispatch the rate mode: the law runs in the rate phase through the core integrator, and unit tests also call it directly.
 
 ## Tests
 
