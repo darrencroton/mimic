@@ -240,7 +240,7 @@ struct Run {
 static int run_segment(struct System *system, const struct RateIntegratorSettings *settings,
                        struct Run *run) {
   const struct RateComponent component = component_of(system);
-  if (rate_integrator_workspace_bytes(&component) > sizeof(workspace)) {
+  if (rate_integrator_workspace_bytes(&component, settings->scheme) > sizeof(workspace)) {
     return 1;
   }
   const struct RateLaw law = {.evaluate = constant_law, .data = system};

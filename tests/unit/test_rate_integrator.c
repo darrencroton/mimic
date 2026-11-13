@@ -381,7 +381,7 @@ struct Run {
 static int run_segment(struct System *system, struct LawProbe *probe,
                        const struct RateIntegratorSettings *settings, struct Run *run) {
   const struct RateComponent component = component_of(system);
-  if (rate_integrator_workspace_bytes(&component) > sizeof(workspace)) {
+  if (rate_integrator_workspace_bytes(&component, settings->scheme) > sizeof(workspace)) {
     return 1;
   }
   const struct RateLaw law = {.evaluate = probed_law, .data = probe};
