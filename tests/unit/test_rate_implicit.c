@@ -1178,11 +1178,11 @@ static void build_empty_central(struct System *system, enum EmptyCentral feed) {
  *
  * build_empty_central(), stripped and source-fed, under both schemes at the
  * default tolerances. The central's own total is zero at the segment start
- * while the component's is not; without owner decision S7-D2 its floored weight
- * (about 1e-19) asks for a first step below 2^-46 and the segment fails with
- * step_underflow. Expected: every case integrates without failure, its first
- * step is at least 2^-46, and its total closes within tol_F (this file's L for
- * the scheme).
+ * while the component's is not; without leaving an empty row of its total out
+ * of the first-step rule, its floored weight (about 1e-19) asks for a first step
+ * below 2^-46 and the segment fails with step_underflow. Expected: every case
+ * integrates without failure, its first step is at least 2^-46, and its total
+ * closes within tol_F (this file's L for the scheme).
  */
 static int test_empty_central_first_step(void) {
   static struct System system;
@@ -1561,12 +1561,9 @@ static void reverse_fluxes(struct System *system) {
 /**
  * @test    A reversed flux list gives a bit-identical implicit segment
  *
- * Random stars with no zero right-hand side, integrated adaptively at relative
- * tolerance 1e-4 with the flux list as built and reversed. (A zero entry in a
- * row whose total is zero, fed from another row, has a weight of 1e-12 of the
- * component's scale, which shrinks the first step of either scheme below the
- * minimum step; that is the first-step rule's, and is not this case's subject.) Expected:
- * bit-identical end states, external amounts and attempt sequences.
+ * Random stars, integrated adaptively at relative tolerance 1e-4 with the flux
+ * list as built and reversed. Expected: bit-identical end states, external
+ * amounts and attempt sequences.
  */
 static int test_flux_order_independent(void) {
   static struct System forward;
@@ -1575,8 +1572,8 @@ static int test_flux_order_independent(void) {
   static struct AttemptLog reversed_log;
   int64_t most = 0;
   for (int k = 0; k < 20; k++) {
-    build_random_star(&forward, RANDOM_SEED + (uint64_t)k, -2.0, 2.0, 0);
-    build_random_star(&reversed, RANDOM_SEED + (uint64_t)k, -2.0, 2.0, 0);
+    build_random_star(&forward, RANDOM_SEED + (uint64_t)k, -2.0, 2.0, 1);
+    build_random_star(&reversed, RANDOM_SEED + (uint64_t)k, -2.0, 2.0, 1);
     reverse_fluxes(&reversed);
     struct RateIntegratorSettings settings = implicit_settings(1e-4);
     attach_log(&settings, &forward_log, &forward);

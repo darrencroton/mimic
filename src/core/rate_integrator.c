@@ -1138,10 +1138,10 @@ static void count_rejection(struct Integration *in, enum AttemptResult result) {
  * Error control); d0 = max |x0_i| / w0_i and d1 = max |F0_i| / w0_i, F0 the net
  * rate from the stage-1 rates s.phi[0] (kept in s.net0). An entry is left out,
  * with weight zero here, when its weight is zero, when it is an observer, or
- * (owner decision S7-D2) when its own row's sum of its total (its parent's,
- * for a tracer) is zero: the floored scale would give it a weight near 1e-12
- * of the component's and a first step far below the minimum, so the error
- * control governs it from the first step through the trial-end scale instead.
+ * when its own row's sum of its total (its parent's, for a tracer) is zero:
+ * the floored scale would give it a weight near 1e-12 of the component's and a
+ * first step far below the minimum, so the error control governs it from the
+ * first step through the trial-end scale instead.
  *
  * @return  1 when some entry is left in, else 0 (d0 and d1 are then 0)
  */
@@ -1164,7 +1164,7 @@ static int start_weights(struct Integration *in, double *start_weight, double *d
     const int t = scale_total(c, i);
     const size_t g = (size_t)c->entries[i].row * (size_t)c->num_totals + (size_t)t;
     if (!(s->group_start[g] > 0.0)) {
-      start_weight[i] = 0.0; /* an empty row of its total: left out (S7-D2) */
+      start_weight[i] = 0.0; /* an empty row of its total: left out */
       continue;
     }
     const double scale = fmax(s->group_start[g], SCALE_FLOOR * s->total_start[t]);
@@ -1183,8 +1183,9 @@ static int start_weights(struct Integration *in, double *start_weight, double *d
  *
  * Uses the stage-1 rates already evaluated at the segment start. Entries are
  * left out as start_weights() states (zero weight, or an empty row of their
- * total by S7-D2); when all are, the step is min(1, cap) with no probe. Otherwise one forward-Euler
- * probe, non-negative under the cap sigma / K_max, costs one extra law evaluation.
+ * total); when all are, the step is min(1, cap) with no probe. Otherwise one
+ * forward-Euler probe, non-negative under the cap sigma / K_max, costs one
+ * extra law evaluation.
  */
 static enum RateCause first_step(struct Integration *in, double *step) {
   const struct RateComponent *c = in->c;

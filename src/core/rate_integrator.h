@@ -82,16 +82,15 @@
  * step that follows a rejection. The explicit first step uses the Hairer and
  * Wanner rule adapted to this norm and to the positivity cap, with one extra
  * law evaluation. Its d0, d1 and d2 leave out every entry whose start weight
- * is zero and, by owner decision S7-D2, every entry whose own row's sum of its
- * total (its parent's total, for a tracer) is zero at the segment start: the
- * floored scale would give such an entry a weight near 1e-12 of the
- * component's, and a first step far below the minimum, so the error control
- * governs it from the first step through the trial-end scale instead. When
- * every entry is left out the first step is min(1, cap), with no extra
- * evaluation. The last step is stretched by up to 10% to land on
- * tau = 1, otherwise a remainder shorter than two steps is split into two equal
- * steps; tau is assigned 1.0 at the end, never accumulated. A step below 2^-46
- * fails.
+ * is zero and every entry whose own row's sum of its total (its parent's total,
+ * for a tracer) is zero at the segment start: the floored scale would give
+ * such an entry a weight near 1e-12 of the component's, and a first step far
+ * below the minimum, so the error control governs it from the first step
+ * through the trial-end scale instead. When every entry is left out the first
+ * step is min(1, cap), with no extra evaluation. The last step is stretched by
+ * up to 10% to land on tau = 1, otherwise a remainder shorter than two steps is
+ * split into two equal steps; tau is assigned 1.0 at the end, never
+ * accumulated. A step below 2^-46 fails.
  *
  * The implicit scheme (settings.scheme = RATE_SCHEME_IMPLICIT). Patankar-Euler
  * with the coefficients frozen at the step start: (I - dt A(x_n)) x_{n+1} =
@@ -121,14 +120,13 @@
  * of each entry, which reuses the factors and the law evaluation at the trial
  * end (the next step's start when the step is accepted; its observers already
  * hold their committed values), so no law sees a state the solve did not
- * produce. It is weighed in the norm above; the next step is
- * the step times 0.9 * err^(-1/2), clamped to [0.2, 5], with no growth after a
- * rejection, and the step has no positivity cap. The first step is h0 = 1 when
- * d0 or d1 of the explicit rule is below 1e-5 and min(1, 0.01 d0 / d1)
- * otherwise, the same entries left out as there (S7-D2 included), and 1 when
- * every entry is left out; no probe state is formed and no extra law is
- * evaluated. Landing and
- * the minimum step are as above.
+ * produce. It is weighed in the norm above; the next step is the step times
+ * 0.9 * err^(-1/2), clamped to [0.2, 5], with no growth after a rejection, and
+ * the step has no positivity cap. The first step is h0 = 1 when d0 or d1 of the
+ * explicit rule is below 1e-5 and min(1, 0.01 d0 / d1) otherwise, the same
+ * entries left out as there, and 1 when every entry is left out; no probe state
+ * is formed and no extra law is evaluated. Landing and the minimum step are as
+ * above.
  *   A declared transfer, sink or source whose dt times rate is not finite, or a
  * block pivot that is not finite, fails the segment with
  * RATE_CAUSE_BAD_COEFFICIENT. A solved entry that is not finite and
