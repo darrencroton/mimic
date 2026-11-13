@@ -10,6 +10,8 @@ This test validates that Mimic's output system correctly:
 - Output data is loadable and has valid structure
 - Output matches baseline reference data
 - Both formats contain equivalent halo counts
+- A run with no rate phase writes none of the rate phase's records (RunProperties/RateTransfers
+  and RunProperties/RateIntegration) in its master or partition files
 
 """
 
@@ -339,6 +341,20 @@ def test_hdf5_format_execution():
     print(f"  ✓ HDF5 format execution successful")
 
 
+# Written only when a rate phase is configured (none of the committed run files configures one).
+RATE_RECORDS = ("RunProperties/RateTransfers", "RunProperties/RateIntegration")
+
+
+def assert_no_rate_records(*paths):
+    """Assert that no file holds a rate phase record (the run configures no rate phase)."""
+    import h5py
+
+    for path in paths:
+        with h5py.File(path, "r") as handle:
+            present = [name for name in RATE_RECORDS if name in handle]
+        assert not present, f"{Path(path).name}: a run with no rate phase wrote {present}"
+
+
 def test_hdf5_format_loading():
     """
     Test that HDF5 output file can be loaded and parsed
@@ -398,6 +414,7 @@ def test_hdf5_format_loading():
     master_file = output_dir / "model.hdf5"
     assert master_file.exists(), f"HDF5 master file not created: {master_file}"
     assert_hdf5_schema_layout(master_file, expected_format_version="1.2")
+    assert_no_rate_records(master_file, output_file)
 
     print(f"  ✓ Loaded {metadata['TotHalos']} halos from CURRENT HDF5 output")
     print(f"    File size: {output_file.stat().st_size:,} bytes")

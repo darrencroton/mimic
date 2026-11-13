@@ -6,7 +6,10 @@
  * self-describing: version/provenance, the enabled module pipeline, resolved
  * event contracts, model parameters, the snapshot-redshift mapping, and the
  * generated field schema. Used by both the per-file writer (hdf5.c) and the
- * master-file aggregator (master_hdf5.c).
+ * master-file aggregator (master_hdf5.c). When a rate phase is configured, and
+ * only then, it also writes the configured transfers (RateTransfers, every
+ * file) and the integration settings with the run's step statistics
+ * (RateIntegration, the master file).
  */
 
 #include <hdf5.h>
@@ -19,6 +22,7 @@
 #include "error.h"
 #include "hdf5_internal.h"
 #include "module_registry.h" /* for_each_phase, event-contract enumeration */
+#include "rate_assembly.h"   /* RateTransfers rows, step statistics */
 #include "output/util.h"     /* struct OutputPartitionSource, get_output_partition_source() */
 
 static void copy_hdf5_string(char dest[MAX_STRING_LEN], const char *src) {
@@ -465,6 +469,305 @@ static void write_event_contracts(hid_t parent_group_id) {
   myfree(entries);
 }
 
+/* ── The rate phase's records (written only when a rate phase is configured) ── */
+
+/** Row layout for the RateTransfers HDF5 compound dataset */
+typedef struct {
+  char module[MAX_STRING_LEN];
+  char transfer[MAX_STRING_LEN];
+  char from[MAX_STRING_LEN];
+  char to[MAX_STRING_LEN];
+  char to_record[MAX_STRING_LEN];
+  char kind[MAX_STRING_LEN];
+  char master[MAX_STRING_LEN];
+} RateTransferEntry;
+
+/**
+ * @brief   Writes the rate phase's configured transfers to HDF5 (master and per-file)
+ *
+ * @param   parent_group_id   HDF5 group ID to create the RateTransfers dataset in
+ *
+ * One row per transfer of every module configured in the rate phase, in global
+ * transfer order (module name, then declaration order): the module, the
+ * transfer, its two ends (a property name or "external"), its recipient record
+ * ("self" or "central"), its kind ("internal", "sink", "source" or
+ * "slaved_source") and a slaved source's master as <module>.<transfer> (empty
+ * otherwise). Nothing is written when no rate phase is configured.
+ */
+static void write_rate_transfers(hid_t parent_group_id) {
+  const struct RateAssemblyPlan *plan = module_rate_plan();
+  if (plan == NULL) {
+    return;
+  }
+  const int count = rate_assembly_plan_num_transfers(plan);
+  RateTransferEntry *entries =
+      (RateTransferEntry *)mymalloc_cat((size_t)count * sizeof(RateTransferEntry), MEM_IO);
+  for (int i = 0; i < count; i++) {
+    struct RateTransferRow record;
+    rate_assembly_plan_transfer_record(plan, i, &record);
+    copy_hdf5_string(entries[i].module, record.module);
+    copy_hdf5_string(entries[i].transfer, record.transfer);
+    copy_hdf5_string(entries[i].from, record.from);
+    copy_hdf5_string(entries[i].to, record.to);
+    copy_hdf5_string(entries[i].to_record, record.to_record);
+    copy_hdf5_string(entries[i].kind, record.kind);
+    copy_hdf5_string(entries[i].master, record.master);
+  }
+
+  hid_t str_type = H5Tcopy(H5T_C_S1);
+  if (H5Tset_size(str_type, MAX_STRING_LEN) < 0) {
+    FATAL_ERROR("Failed to set string type size for RateTransfers");
+  }
+  /* Memory and file layouts are identical, so one compound type serves both. */
+  hid_t rowtype = H5Tcreate(H5T_COMPOUND, sizeof(RateTransferEntry));
+  H5Tinsert(rowtype, "module", HOFFSET(RateTransferEntry, module), str_type);
+  H5Tinsert(rowtype, "transfer", HOFFSET(RateTransferEntry, transfer), str_type);
+  H5Tinsert(rowtype, "from", HOFFSET(RateTransferEntry, from), str_type);
+  H5Tinsert(rowtype, "to", HOFFSET(RateTransferEntry, to), str_type);
+  H5Tinsert(rowtype, "to_record", HOFFSET(RateTransferEntry, to_record), str_type);
+  H5Tinsert(rowtype, "kind", HOFFSET(RateTransferEntry, kind), str_type);
+  H5Tinsert(rowtype, "master", HOFFSET(RateTransferEntry, master), str_type);
+
+  hsize_t dims = (hsize_t)count;
+  hid_t dataspace_id = H5Screate_simple(1, &dims, NULL);
+  hid_t dataset_id = H5Dcreate(parent_group_id, "RateTransfers", rowtype, dataspace_id, H5P_DEFAULT,
+                               H5P_DEFAULT, H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to create RateTransfers dataset in HDF5 file");
+  }
+  if (H5Dwrite(dataset_id, rowtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, entries) < 0) {
+    FATAL_ERROR("Failed to write RateTransfers dataset to HDF5 file");
+  }
+  write_description_attr(dataset_id,
+                         "Transfers of the modules configured in the rate phase, in global "
+                         "transfer order (module name, then declaration order). Each row gives "
+                         "the module, the transfer, its from and to ends (a property or "
+                         "external), its recipient record (self or central), its kind "
+                         "(internal, sink, source or slaved_source) and a slaved source's master "
+                         "as module.transfer.");
+
+  H5Dclose(dataset_id);
+  H5Sclose(dataspace_id);
+  H5Tclose(rowtype);
+  H5Tclose(str_type);
+  myfree(entries);
+}
+
+/** @brief Write one scalar numeric attribute (fatal on failure) */
+static void write_scalar_attribute(hid_t group_id, const char *name, hid_t type,
+                                   const void *value) {
+  hid_t space_id = H5Screate(H5S_SCALAR);
+  hid_t attribute_id = H5Acreate(group_id, name, type, space_id, H5P_DEFAULT, H5P_DEFAULT);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create %s attribute in HDF5 output", name);
+  }
+  if (H5Awrite(attribute_id, type, value) < 0) {
+    FATAL_ERROR("Failed to write %s attribute to HDF5 output", name);
+  }
+  H5Aclose(attribute_id);
+  H5Sclose(space_id);
+}
+
+/** @brief Write a one-dimensional uint64 dataset with a description (fatal on failure) */
+static hid_t write_uint64_dataset(hid_t group_id, const char *name, const uint64_t *values,
+                                  hsize_t count, const char *description) {
+  hid_t space_id = H5Screate_simple(1, &count, NULL);
+  hid_t dataset_id =
+      H5Dcreate(group_id, name, H5T_NATIVE_UINT64, space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to create %s dataset in HDF5 file", name);
+  }
+  if (H5Dwrite(dataset_id, H5T_NATIVE_UINT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, values) < 0) {
+    FATAL_ERROR("Failed to write %s dataset to HDF5 file", name);
+  }
+  write_description_attr(dataset_id, description);
+  H5Sclose(space_id);
+  return dataset_id;
+}
+
+/** @brief Write a one-row compound dataset with a description (fatal on failure) */
+static void write_single_row(hid_t group_id, const char *name, hid_t rowtype, const void *row,
+                             const char *description) {
+  hsize_t one = 1;
+  hid_t space_id = H5Screate_simple(1, &one, NULL);
+  hid_t dataset_id =
+      H5Dcreate(group_id, name, rowtype, space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to create %s dataset in HDF5 file", name);
+  }
+  if (H5Dwrite(dataset_id, rowtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, row) < 0) {
+    FATAL_ERROR("Failed to write %s dataset to HDF5 file", name);
+  }
+  write_description_attr(dataset_id, description);
+  H5Dclose(dataset_id);
+  H5Sclose(space_id);
+}
+
+/** One-row layouts of the StepTotals and StepMaxima datasets */
+typedef struct {
+  uint64_t segments;
+  uint64_t accepted_steps;
+  uint64_t rejected_steps;
+  uint64_t law_evaluations;
+} RateStepTotalsRow;
+
+typedef struct {
+  uint64_t accepted_steps_per_segment;
+  uint64_t rejected_steps_per_segment;
+  uint64_t law_evaluations_per_segment;
+  double k_max;
+} RateStepMaximaRow;
+
+/** Row layout of the DeclaredDiscreteChanges dataset */
+typedef struct {
+  char total[MAX_STRING_LEN];
+  uint64_t count;
+} DeclaredChangeEntry;
+
+/** @brief Write the step statistics datasets of RunProperties/RateIntegration */
+static void write_rate_statistics(hid_t group_id, const struct RateStatistics *stats) {
+  hid_t k_max = write_uint64_dataset(
+      group_id, "KMaxHistogram", stats->counts.k_max_histogram, RATE_STATS_K_MAX_BINS,
+      "Segments by the largest K_max the segment met where its laws were evaluated (K_max: over "
+      "the entries holding content, the largest of an entry's segment length Delta times the sum "
+      "of its outflow coefficients). Bin 0: zero; "
+      "bin 1: below 2^octave_min_exponent; bin 2 + k - octave_min_exponent: [2^k, 2^(k+1)) for "
+      "k from octave_min_exponent to octave_max_exponent; last bin: 2^(octave_max_exponent + 1) "
+      "and above. The counts sum to StepTotals.segments.");
+  const int min_exponent = RATE_STATS_K_MAX_MIN_EXPONENT;
+  const int max_exponent = RATE_STATS_K_MAX_MAX_EXPONENT;
+  write_scalar_attribute(k_max, "octave_min_exponent", H5T_NATIVE_INT, &min_exponent);
+  write_scalar_attribute(k_max, "octave_max_exponent", H5T_NATIVE_INT, &max_exponent);
+  H5Dclose(k_max);
+
+  H5Dclose(write_uint64_dataset(
+      group_id, "AcceptedStepsHistogram", stats->counts.accepted_steps_histogram,
+      RATE_STATS_STEP_BINS,
+      "Segments by their number of accepted steps n, binned by bit length: bin 0 holds n = 0, "
+      "bin b > 0 holds 2^(b-1) <= n < 2^b. The counts sum to StepTotals.segments."));
+
+  const RateStepTotalsRow totals = {stats->counts.segments, stats->counts.accepted_steps,
+                                    stats->counts.rejected_steps, stats->counts.law_evaluations};
+  hid_t totals_type = H5Tcreate(H5T_COMPOUND, sizeof(RateStepTotalsRow));
+  H5Tinsert(totals_type, "segments", HOFFSET(RateStepTotalsRow, segments), H5T_NATIVE_UINT64);
+  H5Tinsert(totals_type, "accepted_steps", HOFFSET(RateStepTotalsRow, accepted_steps),
+            H5T_NATIVE_UINT64);
+  H5Tinsert(totals_type, "rejected_steps", HOFFSET(RateStepTotalsRow, rejected_steps),
+            H5T_NATIVE_UINT64);
+  H5Tinsert(totals_type, "law_evaluations", HOFFSET(RateStepTotalsRow, law_evaluations),
+            H5T_NATIVE_UINT64);
+  write_single_row(group_id, "StepTotals", totals_type, &totals,
+                   "Run totals over every task: segments (one component across one substep), "
+                   "accepted and rejected steps, and law evaluations (each one call of every "
+                   "rate module's law per active row of the component).");
+  H5Tclose(totals_type);
+
+  const RateStepMaximaRow maxima = {stats->maxima.accepted_steps, stats->maxima.rejected_steps,
+                                    stats->maxima.law_evaluations,
+                                    rate_statistics_max_k_max(stats)};
+  hid_t maxima_type = H5Tcreate(H5T_COMPOUND, sizeof(RateStepMaximaRow));
+  H5Tinsert(maxima_type, "accepted_steps_per_segment",
+            HOFFSET(RateStepMaximaRow, accepted_steps_per_segment), H5T_NATIVE_UINT64);
+  H5Tinsert(maxima_type, "rejected_steps_per_segment",
+            HOFFSET(RateStepMaximaRow, rejected_steps_per_segment), H5T_NATIVE_UINT64);
+  H5Tinsert(maxima_type, "law_evaluations_per_segment",
+            HOFFSET(RateStepMaximaRow, law_evaluations_per_segment), H5T_NATIVE_UINT64);
+  H5Tinsert(maxima_type, "k_max", HOFFSET(RateStepMaximaRow, k_max), H5T_NATIVE_DOUBLE);
+  write_single_row(group_id, "StepMaxima", maxima_type, &maxima,
+                   "Exact maxima over every segment of every task: accepted steps, rejected "
+                   "steps and law evaluations in one segment, and the largest K_max.");
+  H5Tclose(maxima_type);
+
+  const int num_totals = MIMIC_RESERVOIR_TOTAL_COUNT;
+  DeclaredChangeEntry *changes = (DeclaredChangeEntry *)mymalloc_cat(
+      (size_t)(num_totals > 0 ? num_totals : 1) * sizeof(DeclaredChangeEntry), MEM_IO);
+  for (int t = 0; t < num_totals; t++) {
+    copy_hdf5_string(changes[t].total, mimic_reservoir_total_names()[t]);
+    changes[t].count = stats->counts.declared_changes[t];
+  }
+  hid_t str_type = H5Tcopy(H5T_C_S1);
+  H5Tset_size(str_type, MAX_STRING_LEN);
+  hid_t change_type = H5Tcreate(H5T_COMPOUND, sizeof(DeclaredChangeEntry));
+  H5Tinsert(change_type, "total", HOFFSET(DeclaredChangeEntry, total), str_type);
+  H5Tinsert(change_type, "count", HOFFSET(DeclaredChangeEntry, count), H5T_NATIVE_UINT64);
+  hsize_t dims = (hsize_t)num_totals;
+  hid_t space_id = H5Screate_simple(1, &dims, NULL);
+  hid_t dataset_id = H5Dcreate(group_id, "DeclaredDiscreteChanges", change_type, space_id,
+                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to create DeclaredDiscreteChanges dataset in HDF5 file");
+  }
+  if (num_totals > 0 &&
+      H5Dwrite(dataset_id, change_type, H5S_ALL, H5S_ALL, H5P_DEFAULT, changes) < 0) {
+    FATAL_ERROR("Failed to write DeclaredDiscreteChanges dataset to HDF5 file");
+  }
+  write_description_attr(dataset_id,
+                         "Per conserved total, the discrete-phase dispatch units (a full-halo "
+                         "module's call with the per-event modules it triggers, or a phase's "
+                         "by-galaxy pass) that changed the total beyond rounding under a "
+                         "changes_totals declaration, over every task.");
+  H5Dclose(dataset_id);
+  H5Sclose(space_id);
+  H5Tclose(change_type);
+  H5Tclose(str_type);
+  myfree(changes);
+}
+
+/**
+ * @brief   Writes the rate phase's settings and step statistics (master file only)
+ *
+ * @param   parent_group_id   RunProperties group to create the RateIntegration group in
+ *
+ * Attributes: scheme, relative_tolerance, absolute_tolerance,
+ * max_steps_per_segment, max_rejections_per_step, check_purity ("true" or
+ * "false") and method (the scheme's method and controller constants).
+ * Datasets: the step statistics, merged across tasks at run end
+ * (module_rate_statistics()). Nothing is written when no rate phase is
+ * configured.
+ */
+static void write_rate_integration(hid_t parent_group_id) {
+  const struct RateStatistics *stats = module_rate_statistics();
+  if (stats == NULL) {
+    return;
+  }
+  const struct MimicRateIntegration *settings = &MimicConfig.RateIntegration;
+  hid_t group_id =
+      H5Gcreate(parent_group_id, "RateIntegration", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (group_id < 0) {
+    FATAL_ERROR("Failed to create RateIntegration group in HDF5 output");
+  }
+
+  hsize_t dims = 1;
+  hid_t dataspace_id = H5Screate_simple(1, &dims, NULL);
+  hid_t str_type = H5Tcopy(H5T_C_S1);
+  if (H5Tset_size(str_type, MAX_STRING_LEN) < 0) {
+    FATAL_ERROR("Failed to set HDF5 string type size for RateIntegration");
+  }
+  write_string_attribute(group_id, "scheme", str_type, dataspace_id,
+                         rate_assembly_scheme_name(settings->scheme));
+  write_scalar_attribute(group_id, "relative_tolerance", H5T_NATIVE_DOUBLE,
+                         &settings->relative_tolerance);
+  write_scalar_attribute(group_id, "absolute_tolerance", H5T_NATIVE_DOUBLE,
+                         &settings->absolute_tolerance);
+  write_scalar_attribute(group_id, "max_steps_per_segment", H5T_NATIVE_INT64,
+                         &settings->max_steps_per_segment);
+  write_scalar_attribute(group_id, "max_rejections_per_step", H5T_NATIVE_INT,
+                         &settings->max_rejections_per_step);
+  write_string_attribute(group_id, "check_purity", str_type, dataspace_id,
+                         settings->check_purity ? "true" : "false");
+  write_string_attribute(group_id, "method", str_type, dataspace_id,
+                         rate_assembly_method_description(settings->scheme));
+  H5Sclose(dataspace_id);
+  H5Tclose(str_type);
+
+  write_rate_statistics(group_id, stats);
+  write_description_attr(group_id,
+                         "The rate phase's integration settings (modules.rate_integration) and "
+                         "the run's step statistics, merged across every MPI task by integer sum "
+                         "and maximum.");
+  H5Gclose(group_id);
+}
+
 /**
  * @brief   Writes essential metadata to per-file output for self-containment
  *
@@ -490,6 +793,7 @@ void write_perfile_metadata(hid_t file_id) {
   write_version_metadata(props_group_id);            /* Identity */
   write_enabled_modules(props_group_id);             /* Configuration */
   write_event_contracts(props_group_id);             /* Configuration: event wiring */
+  write_rate_transfers(props_group_id);              /* Configuration: rate phase, if any */
   write_parameters_metadata(props_group_id);         /* Configuration */
   write_unique_galaxy_id_multiplier(props_group_id); /* Configuration: identity encoding */
   write_redshifts(props_group_id);                   /* Auxiliary */
@@ -696,6 +1000,8 @@ void store_run_properties(hid_t master_file_id) {
   write_version_metadata(props_group_id);    /* Identity: version & provenance */
   write_enabled_modules(props_group_id);     /* Configuration: which physics */
   write_event_contracts(props_group_id);     /* Configuration: event wiring */
+  write_rate_transfers(props_group_id);      /* Configuration: rate phase, if any */
+  write_rate_integration(props_group_id);    /* Rate settings and step statistics, if any */
   write_parameters_metadata(props_group_id); /* Configuration: parameter values */
   write_redshifts(props_group_id);           /* Auxiliary: snapshot mapping */
 

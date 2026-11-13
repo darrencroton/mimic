@@ -132,6 +132,7 @@ SOURCES += $(SRC_DIR)/module_system/test_rate_formation/test_rate_formation.c
 SOURCES += $(SRC_DIR)/module_system/test_rate_feedback/test_rate_feedback.c
 SOURCES += $(SRC_DIR)/module_system/test_rate_stripping/test_rate_stripping.c
 SOURCES += $(SRC_DIR)/module_system/test_rate_faults/test_rate_faults.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_jump/test_rate_jump.c
 endif
 
 OBJECTS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(SOURCES))

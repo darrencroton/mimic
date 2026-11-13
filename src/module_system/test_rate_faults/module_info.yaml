@@ -7,8 +7,10 @@
 # Purpose: the rate fixture's fault injector. It declares one sink out of the
 # cold reservoir whose law a parameter selects: a well-behaved constant rate, a
 # coefficient that diverges as the donor empties, NaN, a negative coefficient, or
-# an impure law (one that reads a static counter). The laws are documented in
-# README.md.
+# an impure law (one that reads a static counter). In its full-halo mode it adds
+# mass to the central's hot reservoir without declaring the total in
+# changes_totals, which the discrete-phase ledger refuses when a rate phase is
+# configured. The laws and the mode are documented in README.md.
 #
 # For metadata schema documentation, see:
 #   docs/DEVELOPER-GUIDE.md#module-metadata-schema
@@ -30,7 +32,7 @@ module:
 
   # test_rate_faults.c is implicit (auto-included)
 
-  supported_processing_modes: [process_rates]
+  supported_processing_modes: [process_rates, process_full_halo]
 
   # One coefficient per transfer, in this order (the law's coefficient slot).
   rates:
@@ -43,13 +45,16 @@ module:
   # Dependencies
   # ===========================================================================
 
-  # The reservoir the law reads and its transfer moves.
+  # The reservoir the law reads and its transfer moves, and the reservoir the
+  # full-halo mode adds to.
   dependencies:
     properties:
       - RateFixtureCold
+      - RateFixtureHot
     parameters:
       - TestRateFaultsLaw
       - TestRateFaultsRate
+      - TestRateFaultsAddedMass  # optional: required only in process_full_halo
 
   # ===========================================================================
   # Tests

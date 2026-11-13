@@ -679,6 +679,7 @@ Per-file HDF5 output contains:
                           # @git_branch, @git_date, @build_date, @hdf5_format_version
   EnabledModules
   EventContracts          # present only when event contracts exist
+  RateTransfers           # present only when a rate phase is configured
   Parameters
   Redshifts
   FieldMetadata           # field names, units, descriptions (once per file)
@@ -713,6 +714,29 @@ A horizontal run's master links one partition file per requested output snapshot
 ```
 
 `RunProperties/EnabledModules`, `RunProperties/Parameters`, and `RunProperties/EventContracts` are the main reproducibility datasets: months later, you can recover exactly which physics pipeline and parameter values produced a file without finding the original run YAML.
+
+**Rate phase records.** When the run file configures a rate phase (a phase of `process_rates` modules, integrated under `modules.rate_integration`), and only then, two more records are written; a run without one carries neither, and `hdf5_format_version` is the same either way.
+
+- `RunProperties/RateTransfers`, in the master file and every per-file output: one row per transfer of every module configured in the rate phase, in global transfer order (module name, then the order the module declares its transfers). Its fields are `module`, `transfer`, `from` and `to` (a property name, or `external`), `to_record` (`self` or `central`), `kind` (`internal`, `sink`, `source` or `slaved_source`) and `master` (a slaved source's master as `<module>.<transfer>`, empty otherwise).
+- `RunProperties/RateIntegration`, in the master file only: a group whose attributes record the settings the run used — `scheme`, `relative_tolerance`, `absolute_tolerance`, `max_steps_per_segment`, `max_rejections_per_step`, `check_purity` (`true` or `false`) and `method` (one sentence naming the scheme's method and its fixed controller constants) — and whose datasets hold the run's step statistics, merged over every MPI task:
+
+| Dataset | Contents |
+|---|---|
+| `StepTotals` | One row: `segments` (each component of a FoF group integrated across one substep), `accepted_steps`, `rejected_steps` and `law_evaluations` (each one call of every rate module's law per row of the component) |
+| `StepMaxima` | One row: the most accepted steps, rejected steps and law evaluations in any one segment, and the largest `k_max` (over the entries holding content, the largest of an entry's segment length times the sum of its outflow coefficients, at any state where the laws were evaluated) |
+| `KMaxHistogram` | Segments by their largest `k_max`, one bin per octave `[2^k, 2^(k+1))` for `k` from the attribute `octave_min_exponent` to `octave_max_exponent`, after a bin for zero and one for values below the lowest octave, and before a last bin for values above the highest |
+| `AcceptedStepsHistogram` | Segments by their number of accepted steps `n`, binned by bit length: bin 0 holds `n = 0`, bin `b` holds `2^(b-1) <= n < 2^b` |
+| `DeclaredDiscreteChanges` | Per conserved total (`total`, `count`): the discrete-phase dispatch units that changed the total beyond rounding under a `changes_totals` declaration |
+
+Every statistic is an integer count or an exact maximum, so the values are the same whatever the MPI task count, the chunking or the driver; each histogram's counts sum to `StepTotals.segments`. The run also logs one `Rate integration:` line summarising them at the end, which is all a binary-output run records.
+
+```python
+with h5py.File("output/<run>/model.hdf5", "r") as f:
+    rate = f["RunProperties/RateIntegration"]
+    print(rate.attrs["scheme"][0].decode(), rate["StepTotals"][0]["segments"])
+    for row in f["RunProperties/RateTransfers"][:]:
+        print(row["module"].decode(), row["transfer"].decode(), row["kind"].decode())
+```
 
 ### Reading Binary Output
 

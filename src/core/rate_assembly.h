@@ -94,6 +94,21 @@
  * failure; a later successful run into the same output directory does not
  * remove it.
  *
+ * Step statistics. rate_assembly_run() adds every segment it integrates (one
+ * component across one substep) to a struct RateStatistics: the segment count;
+ * the accepted steps, rejected steps and law evaluations the integrator
+ * reports (the purity probe's repeat evaluations are not among them); a
+ * histogram of the segment's K_max, the largest it met at any state where the
+ * laws were evaluated, in whole-octave bins taken from the binary exponent,
+ * with dedicated bins for zero, underflow and overflow; a histogram of the
+ * segment's accepted steps by bit length; and the exact maxima of each per
+ * segment. The registry adds the discrete-phase ledger's declared changes per
+ * total (module_registry.h). Every member is an unsigned 64-bit integer, a
+ * maximum of K_max kept as the bit pattern of the non-negative double (whose
+ * order the patterns share), so tasks merge by integer sum and maximum and the
+ * result is the same for any task count, chunk count or driver; no
+ * floating-point sum is kept.
+ *
  * Memory. Everything a segment needs (the row, entry and flux tables, the
  * scratch rows, the latest coefficients, the purity probe's snapshots when it
  * is on, and the integrator's workspace) lives in one caller-owned
@@ -105,14 +120,79 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "module_interface.h"
 #include "module_registry.h"
+#include "generated/reservoir_table.h"
 
 struct FoFWorkspace; /* fof_workspace.h */
 
 /** The startup plan of the rate phase (opaque; rate_assembly_plan_build()). */
 struct RateAssemblyPlan;
+
+/** Lowest and highest octave of the K_max histogram: bin [2^k, 2^(k+1)) for k in this range */
+#define RATE_STATS_K_MAX_MIN_EXPONENT (-64)
+#define RATE_STATS_K_MAX_MAX_EXPONENT 63
+
+/** K_max histogram bins: zero, underflow (below 2^-64), one per octave, overflow (2^64 and up) */
+#define RATE_STATS_K_MAX_ZERO_BIN 0
+#define RATE_STATS_K_MAX_UNDERFLOW_BIN 1
+#define RATE_STATS_K_MAX_FIRST_OCTAVE_BIN 2
+#define RATE_STATS_K_MAX_OCTAVES (RATE_STATS_K_MAX_MAX_EXPONENT - RATE_STATS_K_MAX_MIN_EXPONENT + 1)
+#define RATE_STATS_K_MAX_OVERFLOW_BIN (RATE_STATS_K_MAX_FIRST_OCTAVE_BIN + RATE_STATS_K_MAX_OCTAVES)
+#define RATE_STATS_K_MAX_BINS (RATE_STATS_K_MAX_OVERFLOW_BIN + 1)
+
+/** Accepted-steps histogram bins: bin b counts segments whose step count has bit length b */
+#define RATE_STATS_STEP_BINS 65
+
+/** Slots of the per-total counts: one per conserved total, at least one so the array is valid */
+#define RATE_STATS_TOTAL_SLOTS (MIMIC_RESERVOIR_TOTAL_COUNT > 0 ? MIMIC_RESERVOIR_TOTAL_COUNT : 1)
+
+/** The summed step statistics (merged across MPI tasks by integer sum). */
+struct RateStatisticsCounts {
+  uint64_t segments;        /* (component, substep) pairs integrated */
+  uint64_t accepted_steps;  /* over every segment */
+  uint64_t rejected_steps;  /* over every segment */
+  uint64_t law_evaluations; /* integrator evaluations, each one call per row and module */
+  uint64_t k_max_histogram[RATE_STATS_K_MAX_BINS];
+  uint64_t accepted_steps_histogram[RATE_STATS_STEP_BINS];
+  /* Units of a discrete phase whose change to total t its declarations covered */
+  uint64_t declared_changes[RATE_STATS_TOTAL_SLOTS];
+};
+
+/** The per-segment maxima (merged across MPI tasks by integer maximum). */
+struct RateStatisticsMaxima {
+  uint64_t accepted_steps;  /* the most accepted steps in one segment */
+  uint64_t rejected_steps;  /* the most rejected steps in one segment */
+  uint64_t law_evaluations; /* the most law evaluations in one segment */
+  uint64_t k_max_bits;      /* bit pattern of the largest K_max (a non-negative double) */
+};
+
+/** A run's (or one task's) rate statistics; zero-initialise before the first segment. */
+struct RateStatistics {
+  struct RateStatisticsCounts counts;
+  struct RateStatisticsMaxima maxima;
+};
+
+/** Number of uint64_t words of each half, for an MPI reduction over the struct as an array */
+#define RATE_STATS_COUNT_WORDS (sizeof(struct RateStatisticsCounts) / sizeof(uint64_t))
+#define RATE_STATS_MAXIMA_WORDS (sizeof(struct RateStatisticsMaxima) / sizeof(uint64_t))
+_Static_assert(sizeof(struct RateStatisticsCounts) == RATE_STATS_COUNT_WORDS * sizeof(uint64_t),
+               "struct RateStatisticsCounts must be an array of uint64_t");
+_Static_assert(sizeof(struct RateStatisticsMaxima) == RATE_STATS_MAXIMA_WORDS * sizeof(uint64_t),
+               "struct RateStatisticsMaxima must be an array of uint64_t");
+
+/** One configured transfer as the output records it (rate_assembly_plan_transfer_record()). */
+struct RateTransferRow {
+  const char *module;    /* the rate module's name */
+  const char *transfer;  /* the transfer's name */
+  const char *from;      /* a property name, or "external" */
+  const char *to;        /* a property name, or "external" */
+  const char *to_record; /* "self" or "central" */
+  const char *kind;      /* "internal", "sink", "source" or "slaved_source" */
+  const char *master;    /* a slaved source's master as <module>.<transfer>, else "" */
+};
 
 /**
  * @brief   Calls one module's law; the registry supplies it to mark the running callback
@@ -153,13 +233,47 @@ void rate_assembly_plan_free(struct RateAssemblyPlan *plan);
  * @param   ws        The FoF workspace; reservoir, tracer and observer fields are updated
  * @param   scratch   Grow-to-high-water scratch, owned by the caller
  * @param   invoke    Calls one module's law
+ * @param   stats     Receives every integrated segment's step statistics
  *
  * Fatal on a failed segment and on a non-sentinel row whose dT is not
  * positive and finite.
  */
 void rate_assembly_run(const struct RateAssemblyPlan *plan, const struct ModuleContext *ctx,
                        struct FoFWorkspace *ws, struct RateAssemblyScratch *scratch,
-                       RateLawInvoker invoke);
+                       RateLawInvoker invoke, struct RateStatistics *stats);
+
+/** @brief The number of configured transfers, the rows of RunProperties/RateTransfers. */
+int rate_assembly_plan_num_transfers(const struct RateAssemblyPlan *plan);
+
+/**
+ * @brief   Describe configured transfer @p index, in global transfer order
+ *
+ * The strings live as long as the plan and the generated tables.
+ */
+void rate_assembly_plan_transfer_record(const struct RateAssemblyPlan *plan, int index,
+                                        struct RateTransferRow *record);
+
+/** @brief The scheme's name as the run file spells it: "explicit" or "implicit". */
+const char *rate_assembly_scheme_name(int scheme);
+
+/**
+ * @brief   One sentence naming a scheme's method and its compile-time controller constants
+ *
+ * Recorded as RunProperties/RateIntegration's method attribute.
+ */
+const char *rate_assembly_method_description(int scheme);
+
+/** @brief K_max histogram bin of a segment's K_max (zero, underflow, an octave or overflow). */
+int rate_statistics_k_max_bin(double k_max);
+
+/** @brief Accepted-steps histogram bin of a step count: its bit length, 0 to 64. */
+int rate_statistics_step_bin(uint64_t accepted_steps);
+
+/** @brief The largest K_max the statistics hold, decoded from its bit pattern. */
+double rate_statistics_max_k_max(const struct RateStatistics *stats);
+
+/** @brief Log the one-line INFO_LOG summary of a run's merged statistics. */
+void rate_statistics_log_summary(const struct RateStatistics *stats);
 
 /** @brief Release the scratch and zero its descriptor (safe when empty). */
 void rate_assembly_scratch_release(struct RateAssemblyScratch *scratch);

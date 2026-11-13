@@ -15,7 +15,8 @@ Reads:
     src/module_system/test_*/module_info.yaml  (test builds only)
     scripts/module_modes.py                     - Shared processing-mode descriptors
     galaxy property YAML (model, and test-only in test builds) - reservoir: kinds that
-                                                  rates: transfers are validated against
+                                                  rates: transfers and changes_totals
+                                                  are validated against
 
 Generates:
     src/module_system/generated/module_init.c      - Module registration code
@@ -61,6 +62,7 @@ from module_modes import (
     TRANSFER_KINDS,
     TRANSFER_RECORDS,
     callback_families,
+    changes_totals,
     enum_for_mode,
     global_transfer_index,
     is_rate_module,
@@ -973,17 +975,59 @@ def generate_rate_table_definitions(modules: List[Dict[str, Any]]) -> List[str]:
 
 
 def generate_rate_module_members(module: Dict[str, Any]) -> List[str]:
-    """Generate the struct Module rate members of one rate module's registration."""
+    """Generate the struct Module rate members of one rate module's registration.
+
+    Each line is one initializer without its separating comma.
+    """
     name = module["name"]
     observers = rate_observers(module)
     observers_val = f"{name}_rate_observers" if observers else "NULL"
     reads_central = "true" if rate_reads_central(module) else "false"
     return [
-        f"    .rate_transfers = {name}_rate_transfers,",
-        f"    .num_rate_transfers = {rate_transfer_count_macro(name)},",
-        f"    .rate_observers = {observers_val},",
-        f"    .num_rate_observers = {len(observers)},",
+        f"    .rate_transfers = {name}_rate_transfers",
+        f"    .num_rate_transfers = {rate_transfer_count_macro(name)}",
+        f"    .rate_observers = {observers_val}",
+        f"    .num_rate_observers = {len(observers)}",
         f"    .reads_central = {reads_central}",
+    ]
+
+
+def generate_changes_totals_definitions(modules: List[Dict[str, Any]]) -> List[str]:
+    """Generate the changes_totals table of every module that declares one.
+
+    Returns no lines when no module declares changes_totals, which is every
+    production build. Totals are named by string: the core resolves each name
+    against the generated reservoir table at startup, when a rate phase is
+    configured, so a table left stale by a removed total cannot run.
+    """
+    declaring = sorted((m for m in modules if changes_totals(m)), key=lambda m: m["name"])
+    if not declaring:
+        return []
+
+    lines: List[str] = []
+    lines.append("/* ========================================================================== */")
+    lines.append("/* DECLARED TOTAL CHANGES (Auto-generated from module_info.yaml)             */")
+    lines.append("/* ========================================================================== */")
+    lines.append("")
+    lines.append("/*")
+    lines.append(" * The conserved totals each module declares, in changes_totals, that its")
+    lines.append(" * discrete callbacks may change. Read by the discrete-phase ledger, which runs")
+    lines.append(" * only when a rate phase is configured.")
+    lines.append(" */")
+    lines.append("")
+    for module in declaring:
+        totals = ", ".join(f'"{total}"' for total in changes_totals(module))
+        lines.append(f"static const char *const {module['name']}_changes_totals[] = {{{totals}}};")
+    lines.append("")
+    return lines
+
+
+def generate_changes_totals_members(module: Dict[str, Any]) -> List[str]:
+    """Generate the struct Module changes_totals members (initializers without commas)."""
+    name = module["name"]
+    return [
+        f"    .changes_totals = {name}_changes_totals",
+        f"    .num_changes_totals = {len(changes_totals(module))}",
     ]
 
 
@@ -1045,11 +1089,15 @@ def generate_module_struct_definitions(
         lines.append(f"    .subscriptions = {subscriptions_val},")
         lines.append(f"    .num_subscriptions = {num_subscriptions},")
         lines.append(f"    .emitted_event_ids = {emitted_ids_val},")
+        # Members only some modules have, after the ones every module has; the last
+        # initializer carries no comma.
+        members = [f"    .num_emitted_events = {num_emitted}"]
         if rate_module:
-            lines.append(f"    .num_emitted_events = {num_emitted},")
-            lines.extend(generate_rate_module_members(module))
-        else:
-            lines.append(f"    .num_emitted_events = {num_emitted}")
+            members.extend(generate_rate_module_members(module))
+        if changes_totals(module):
+            members.extend(generate_changes_totals_members(module))
+        lines.extend(member + "," for member in members[:-1])
+        lines.append(members[-1])
         lines.append("};")
         lines.append("")
 
@@ -1216,6 +1264,9 @@ def generate_module_init_c(
 
     # Rate transfer and observer tables (none without a rate module)
     lines.extend(rate_table_lines)
+
+    # Declared total changes (none without a module that declares changes_totals)
+    lines.extend(generate_changes_totals_definitions(runtime_modules))
 
     # Module struct definitions
     lines.extend(generate_module_struct_definitions(runtime_modules, event_info))
@@ -1477,7 +1528,8 @@ def main():
                 f"✓ All property dependencies valid ({len(valid_properties)} properties available)"
             )
 
-        # Validate rates: declarations (shared with scripts/validate_modules.py)
+        # Validate rates: and changes_totals declarations (shared with
+        # scripts/validate_modules.py)
         print("Validating rate declarations...")
         rate_errors = validate_rate_declarations(modules, load_galaxy_property_metadata())
         if rate_errors:

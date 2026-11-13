@@ -28,6 +28,16 @@ vertical driver; MODEL=halos-only SIMULATION=mini-millennium-horizontal the hori
     true gives Galaxies datasets byte-identical to the same run with it false, under both schemes
   - check_purity with any value but true or false is refused at startup (in
     test_run_file_section_refusals)
+  - test_lossless_jump_records_no_change: test_rate_jump merging satellites without loss in a
+    discrete phase after the rate phase completes, merges some satellites, and the master file's
+    RunProperties/RateIntegration/DeclaredDiscreteChanges counts are zero for both totals
+  - test_lossy_jump_is_counted: the same with a declared loss completes, and both totals'
+    declared-change counts are non-zero
+  - test_undeclared_change_is_fatal: test_rate_faults in its full-halo mode, adding mass in a
+    discrete phase without declaring it, ends the run naming the phase, the module and the total
+  - test_undeclared_change_beside_a_declaring_module: test_rate_jump (declaring both totals) and
+    test_rate_faults in its full-halo mode in one discrete phase end the run naming
+    test_rate_faults and the total: a declaration covers only its own dispatch unit
 
 The seven fixture properties (src/module_system/test_fixture/test_properties.yaml) are written to
 output in every test build, so the checks read them from the run's HDF5 galaxies.
@@ -96,6 +106,15 @@ FAULTS_RATE = 1.0
 
 # Logged by test_rate_supply's init(); absent when startup refused the run before any init().
 SUPPLY_INIT_LINE = "Test rate supply fixture initialized"
+
+# The discrete jump (src/module_system/test_rate_jump): a full-halo module in a discrete phase
+# after the rate phase, merging satellites whose stars exceed the threshold into the central.
+# The threshold is low enough that satellites of the committed fixture merge.
+JUMP_MODULE = "test_rate_jump"
+JUMP_PHASE = "jumps"
+JUMP_THRESHOLD = 1.0e-9
+JUMP_MERGES = re.compile(r"Test rate jump fixture: (\d+) satellite\(s\) merged")
+FIXTURE_TOTALS = ("rate_fixture_mass", "rate_fixture_tracer")
 
 _temp_dirs = []
 
@@ -428,9 +447,8 @@ def test_failing_laws_write_a_failure_file():
         assert header["module"] == "test_rate_faults" and header["transfer"] == "fault"
         assert header["task"] == "0" and header["check_purity"] == "false"
         assert len(rows) == int(header["rows"]) >= 1, f"{law}: no row clock lines"
-        for (
-            row
-        ) in rows:  # row <r> workspace_row <w> unique_galaxy_id <id> type <t> dT <h> delta <h>
+        # row <r> workspace_row <w> unique_galaxy_id <id> type <t> dT <h> delta <h>
+        for row in rows:
             assert row[8] == "dT" and row[10] == "delta", f"{law}: row line {row}"
             for value in (row[9], row[11]):
                 assert re.fullmatch(HEX_FLOAT, value), f"{law}: dT or delta not a hex float: {row}"
@@ -513,6 +531,83 @@ def test_purity_probe_leaves_output_unchanged():
         ), f"{scheme}: check_purity true changed the Galaxies datasets"
 
 
+def _jump_params(loss, faults=False):
+    params = dict(RATE_PARAMS)
+    params.update({"TestRateJumpStarsThreshold": JUMP_THRESHOLD, "TestRateJumpLossFraction": loss})
+    if faults:
+        params.update(_fault_params("well_behaved"))
+        params["TestRateFaultsAddedMass"] = 1.0e-3
+    return params
+
+
+def _declared_changes(output_dir):
+    """Return {total: count} from the master file's RunProperties/RateIntegration."""
+    with h5py.File(Path(output_dir) / "model.hdf5", "r") as handle:
+        rows = handle["RunProperties/RateIntegration/DeclaredDiscreteChanges"][:]
+    return {row["total"].decode(): int(row["count"]) for row in rows}
+
+
+def _merges(log):
+    found = JUMP_MERGES.findall(log)
+    assert found, f"test_rate_jump logged no merge count\n{log[-3000:]}"
+    return sum(int(count) for count in found)
+
+
+def test_lossless_jump_records_no_change():
+    """Merging satellites without loss completes, and the ledger records no change."""
+    phase_config = {**_rate_phase(), JUMP_PHASE: [(JUMP_MODULE, "process_full_halo")]}
+    returncode, log, output_dir = _run(
+        "jump_lossless", phase_config, model_params=_jump_params(0.0)
+    )
+    _assert_completed(returncode, log, "lossless jump")
+    assert _merges(log) > 0, "test_rate_jump merged no satellite, so nothing was exercised"
+    changes = _declared_changes(output_dir)
+    assert set(changes) == set(FIXTURE_TOTALS), f"declared-change totals {sorted(changes)}"
+    assert all(count == 0 for count in changes.values()), f"lossless merges counted: {changes}"
+
+
+def test_lossy_jump_is_counted():
+    """A declared loss completes, and every total's declared-change count is non-zero."""
+    phase_config = {**_rate_phase(), JUMP_PHASE: [(JUMP_MODULE, "process_full_halo")]}
+    returncode, log, output_dir = _run("jump_lossy", phase_config, model_params=_jump_params(0.25))
+    _assert_completed(returncode, log, "lossy jump")
+    merges = _merges(log)
+    changes = _declared_changes(output_dir)
+    assert set(changes) == set(FIXTURE_TOTALS), f"declared-change totals {sorted(changes)}"
+    for total, count in changes.items():
+        assert 0 < count <= merges, f"{total}: {count} declared change(s) for {merges} merge(s)"
+
+
+def test_undeclared_change_is_fatal():
+    """test_rate_faults adding mass undeclared in a discrete phase ends the run, naming both."""
+    phase_config = {**_rate_phase(), "kicks": [(FAULTS_MODULE, "process_full_halo")]}
+    params = _jump_params(0.0, faults=True)
+    returncode, log, _ = _run("undeclared", phase_config, model_params=params)
+    assert returncode != 0, "an undeclared change to a conserved total was accepted"
+    fragment = (
+        "Undeclared change to conserved total 'rate_fixture_mass' in phase 'kicks' by module "
+        "'test_rate_faults'"
+    )
+    assert fragment in log, f"the message lacks {fragment!r}\n{log[-3000:]}"
+
+
+def test_undeclared_change_beside_a_declaring_module():
+    """A declaring module in the same phase does not cover test_rate_faults' own unit."""
+    phase_config = {
+        **_rate_phase(),
+        JUMP_PHASE: [(JUMP_MODULE, "process_full_halo"), (FAULTS_MODULE, "process_full_halo")],
+    }
+    returncode, log, _ = _run(
+        "undeclared_mixed", phase_config, model_params=_jump_params(0.25, faults=True)
+    )
+    assert returncode != 0, "an undeclared change beside a declaring module was accepted"
+    fragment = (
+        f"Undeclared change to conserved total 'rate_fixture_mass' in phase '{JUMP_PHASE}' by "
+        "module 'test_rate_faults'"
+    )
+    assert fragment in log, f"the message lacks {fragment!r}\n{log[-3000:]}"
+
+
 def _cleanup():
     for temp_dir in _temp_dirs:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -530,6 +625,10 @@ def main():
                 test_failing_laws_write_a_failure_file,
                 test_purity_probe_catches_the_impure_law,
                 test_purity_probe_leaves_output_unchanged,
+                test_lossless_jump_records_no_change,
+                test_lossy_jump_is_counted,
+                test_undeclared_change_is_fatal,
+                test_undeclared_change_beside_a_declaring_module,
             ],
             "Rate Phase (test_rate_phase.py)",
         )

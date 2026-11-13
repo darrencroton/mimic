@@ -29,6 +29,12 @@ Validates:
     no rate table, and its rate header declares a count of zero
   - test_validator_resolves_master_for_one_module_path: validating one module path
     still resolves a slaved master another module declares
+  - test_changes_totals_accepted_and_emitted: test_rate_jump's changes_totals passes both
+    tools, and generation emits its table of total names and its struct Module members
+  - test_changes_totals_refusals: changes_totals that is not a non-empty list, lists a
+    non-string, lists a total twice, names an undeclared total, or sits on a module with no
+    discrete FoF mode is refused by both tools, naming the module, with exit code 1 (3 for
+    an undeclared total)
 
 The generated tables' contents in a test build, and the fixture laws, are checked
 by tests/unit/test_rate_transfer_tables.c.
@@ -55,6 +61,7 @@ from discovery import model_property_files, rel  # noqa: E402
 from framework import run_test_suite  # noqa: E402
 from generate_module_registry import (  # noqa: E402
     event_name_to_enum_constant,
+    generate_changes_totals_definitions,
     generate_module_struct_definitions,
     generate_rate_table_definitions,
     load_galaxy_property_metadata,
@@ -1083,6 +1090,103 @@ def test_reserved_names_match_sources():
 
 
 # ---------------------------------------------------------------------------
+# changes_totals
+# ---------------------------------------------------------------------------
+
+JUMP = "test_rate_jump"
+
+
+def _with_jump(modules):
+    """Add test_rate_jump's metadata, which declares changes_totals, to a module dict."""
+    modules[JUMP] = load_module_metadata(MODULE_SYSTEM / JUMP)
+    return modules[JUMP]
+
+
+def _totals_not_a_list(m, p):
+    _with_jump(m)["changes_totals"] = "rate_fixture_mass"
+
+
+def _totals_empty(m, p):
+    _with_jump(m)["changes_totals"] = []
+
+
+def _totals_non_string(m, p):
+    _with_jump(m)["changes_totals"] = ["rate_fixture_mass", 7]
+
+
+def _totals_duplicate(m, p):
+    _with_jump(m)["changes_totals"] = ["rate_fixture_mass", "rate_fixture_mass"]
+
+
+def _totals_undeclared(m, p):
+    _with_jump(m)["changes_totals"] = ["rate_fixture_mass", "rate_fixture_energy"]
+
+
+def _totals_on_rate_only_module(m, p):
+    _with_jump(m)
+    m["test_rate_supply"]["changes_totals"] = ["rate_fixture_mass"]
+
+
+# (case, doctor, module, message fragment, refusals per tool, validator exit code)
+CHANGES_TOTALS_REFUSALS = [
+    ("not a list", _totals_not_a_list, JUMP, "it must be a non-empty list of total names", 1, 1),
+    ("empty list", _totals_empty, JUMP, "it must be a non-empty list of total names", 1, 1),
+    ("non-string entry", _totals_non_string, JUMP, "entries must be total names: [7]", 1, 1),
+    ("listed twice", _totals_duplicate, JUMP, "lists ['rate_fixture_mass'] more than once", 1, 1),
+    (
+        "undeclared total",
+        _totals_undeclared,
+        JUMP,
+        "names ['rate_fixture_energy'], which no reservoir or tracer property declares",
+        1,
+        3,
+    ),
+    (
+        "no discrete FoF mode",
+        _totals_on_rate_only_module,
+        "test_rate_supply",
+        "on a module that advertises none of process_full_halo, process_per_event, "
+        "process_by_galaxy",
+        1,
+        1,
+    ),
+]
+
+
+def test_changes_totals_accepted_and_emitted():
+    """test_rate_jump's changes_totals passes both tools and is emitted as names."""
+    gen_errors, val_errors = run_both_tools(lambda m, p: _with_jump(m))
+    assert gen_errors == [], f"the generator refused test_rate_jump: {gen_errors}"
+    assert val_errors == [], f"validate_modules.py refused test_rate_jump: {val_errors}"
+
+    jump = load_module_metadata(MODULE_SYSTEM / JUMP)
+    table = "\n".join(generate_changes_totals_definitions([jump]))
+    assert (
+        'static const char *const test_rate_jump_changes_totals[] = {"rate_fixture_mass", '
+        '"rate_fixture_tracer"};'
+    ) in table, f"the emitted table is not the declared names:\n{table}"
+    assert (
+        generate_changes_totals_definitions(list(fixture_modules().values())) == []
+    ), "modules without changes_totals emit a table"
+
+    event_info = {"producer_ids": {}, "consumes": {}, "emits": {}}
+    members = "\n".join(generate_module_struct_definitions([jump], event_info))
+    assert "    .changes_totals = test_rate_jump_changes_totals," in members, members
+    assert members.rstrip().endswith("    .num_changes_totals = 2\n};"), members
+    print("  ✓ test_rate_jump's changes_totals accepted and emitted as total names")
+
+
+def test_changes_totals_refusals():
+    """Each changes_totals refusal is raised by both tools, naming the module."""
+    for case, doctor, module, fragment, count, code in CHANGES_TOTALS_REFUSALS:
+        assert_refused(case, doctor, module, None, fragment, count)
+        _, val_errors = run_both_tools(doctor)
+        codes = {exit_code for name, exit_code, _ in val_errors if name == module}
+        assert codes == {code}, f"{case}: validator exit code(s) {codes}, expected {code}"
+    print(f"  ✓ {len(CHANGES_TOTALS_REFUSALS)} changes_totals refusals raised by both tools")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -1106,6 +1210,8 @@ def main():
             test_tools_share_the_galaxy_property_view,
             test_reads_central_emitted,
             test_reserved_names_match_sources,
+            test_changes_totals_accepted_and_emitted,
+            test_changes_totals_refusals,
         ],
         "Rate Metadata (test_rate_metadata.py)",
     )

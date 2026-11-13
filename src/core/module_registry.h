@@ -291,6 +291,50 @@ int64_t module_record_creation_staging_blocks(void);
  */
 size_t module_rate_scratch_bytes(void);
 
+/*
+ * Discrete-phase ledger. Only when a rate phase is configured, execute_phase()
+ * sums each conserved total (generated/reservoir_table.h) over the FoF
+ * workspace's active rows (a galaxy and Type != 3, in workspace order, then
+ * reservoir table order) before and after each dispatch unit of every other
+ * FoF phase. A dispatch unit is one full-halo module's call together with the
+ * per-event consumers its events trigger, the commit of the records it created
+ * and the safety dispatch after it; or the phase's by-galaxy pass as a whole.
+ * A total changes when |after - before| exceeds 8u (n_F + 2) S_F, u = 2^-53,
+ * n_F the larger of the total's entry counts before and after and S_F the
+ * larger of its sums of magnitudes. A change in a full-halo unit is fatal,
+ * naming the phase, the module and the total, unless that module, or a
+ * per-event module configured in the phase that subscribes to an event it
+ * emits, lists the total in changes_totals; a change in the by-galaxy pass is
+ * fatal unless a by-galaxy module configured in the phase lists it. A covered
+ * change is counted per total in the run's rate statistics. Changes made by a
+ * post_snapshot module are outside the ledger. With no rate phase the hook is
+ * never entered and no sum is computed.
+ */
+
+struct RateAssemblyPlan; /* rate_assembly.h */
+struct RateStatistics;   /* rate_assembly.h */
+
+/** @brief The rate phase's plan, or NULL when no rate phase is configured. */
+const struct RateAssemblyPlan *module_rate_plan(void);
+
+/**
+ * @brief   This task's rate statistics, or NULL when no rate phase is configured
+ *
+ * Zeroed by module_system_init(); each rate segment and each covered discrete
+ * change adds to it. The caller may merge other tasks' statistics into it in
+ * place before it is written (main.c does, at run end); valid until
+ * module_system_cleanup().
+ */
+struct RateStatistics *module_rate_statistics(void);
+
+/**
+ * @brief   Discrete-phase dispatch units the ledger has checked since module_system_init()
+ *
+ * For tests and diagnostics: zero whenever no rate phase is configured, because
+ * the hook is never entered.
+ */
+int64_t module_discrete_ledger_units(void);
+
 /**
  * @brief   Kind of module callback the registry is currently running
  *

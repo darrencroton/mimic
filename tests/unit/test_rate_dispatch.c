@@ -40,9 +40,19 @@
  *   and the written-back observer is its start plus the committed amounts
  * - A large per-galaxy workspace gives each row the end state it gets alone
  * - A row retired by a discrete phase after the rate phase leaves the next segment
+ *   (the retiring probe declares the total its retirement removes the row's content from)
  * - A record test_fixture creates in pre_timestep joins the component at zero content
  * - The scratch is one tracked allocation, grown to its high water and released
  *   by module_system_cleanup()
+ * - The discrete-phase ledger: with no rate phase its hook is never entered;
+ *   with one, a full-halo unit's change is covered by a per-event consumer that
+ *   declares the total and subscribes to that producer, and counted, but the
+ *   same declaration does not cover an unrelated full-halo module, whose change
+ *   is fatal naming it; the by-galaxy pass is one unit, covered by any by-galaxy
+ *   module of the phase that declares the total
+ * - The step statistics: the recorded segments equal the (component, substep)
+ *   pairs run, the law evaluations times the rows per component equal a
+ *   counting law's calls, and each histogram's counts sum to the segments
  *
  * Fatal paths run in forked children (child_capture.h). Unit tests always run
  * against test-build generated code, so the fixture reservoir table and the
@@ -126,11 +136,22 @@ static int num_calls = 0;
 /** Calls of the full-halo probes; the counting law records it with every call */
 static int discrete_phase_calls = 0;
 
+/** The ledger producer's module_id, the one the ledger consumer's subscription names */
+#define LEDGER_PRODUCER_ID 901
+
+/** Mass the discrete-phase ledger probes add to the FoF central's Cold per call */
+static double producer_adds = 0.0;
+static double other_adds = 0.0;
+static double galaxy_adds = 0.0;
+
 static void reset_probes(void) {
   num_calls = 0;
   discrete_phase_calls = 0;
   feed_rate = 0.0;
   drain_rate = 1.0;
+  producer_adds = 0.0;
+  other_adds = 0.0;
+  galaxy_adds = 0.0;
 }
 
 static void record_call(const struct RateContext *ctx, const struct Halo *halo) {
@@ -299,6 +320,44 @@ static int fof_idle_process(struct ModuleContext *ctx, struct Halo *halos, int n
   return 0;
 }
 
+/* Discrete-phase ledger probes. Each adds its amount to the FoF central's Cold per call. */
+
+static void add_to_central_cold(const struct ModuleContext *ctx, struct Halo *halos, double add) {
+  if (add != 0.0) {
+    halos[ctx->central_index].galaxy->RateFixtureCold += add;
+  }
+}
+
+/** Full-halo producer: adds producer_adds; its consumer declares the mass total */
+static int ledger_producer_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  (void)ngal;
+  add_to_central_cold(ctx, halos, producer_adds);
+  return 0;
+}
+
+/** Full-halo module that no declaration names: adds other_adds */
+static int ledger_other_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  (void)ngal;
+  add_to_central_cold(ctx, halos, other_adds);
+  return 0;
+}
+
+/** Per-event consumer that declares the mass total; never called (nothing is emitted) */
+static int ledger_consumer_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  (void)ctx;
+  (void)halos;
+  (void)ngal;
+  return 0;
+}
+
+/** By-galaxy module that declares nothing: adds galaxy_adds to each galaxy's Cold */
+static int ledger_galaxy_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  (void)ctx;
+  (void)ngal;
+  halos[0].galaxy->RateFixtureCold += galaxy_adds;
+  return 0;
+}
+
 /* ==========================================================================
  * Probe modules
  * ========================================================================== */
@@ -306,6 +365,10 @@ static int fof_idle_process(struct ModuleContext *ctx, struct Halo *halos, int n
 static const enum ProcessingMode rates_modes[] = {PROCESSING_MODE_RATES};
 static const enum ProcessingMode full_halo_modes[] = {PROCESSING_MODE_FULL_HALO};
 static const enum ProcessingMode by_galaxy_modes[] = {PROCESSING_MODE_BY_GALAXY};
+static const enum ProcessingMode per_event_modes[] = {PROCESSING_MODE_PER_EVENT};
+
+/** The changes_totals of every probe that declares one */
+static const char *const mass_total[] = {"rate_fixture_mass"};
 
 /** A transfer descriptor as the generator emits one */
 #define TRANSFER(NAME, SLOT, GLOBAL, KIND, FROM, TO, RECORD, MASTER, SLAVED_TO)                    \
@@ -439,12 +502,15 @@ static struct Module context_saver = {.name = "context_saver",
                                       .process = saver_process,
                                       .supported_processing_modes = full_halo_modes,
                                       .num_supported_modes = 1};
+/* Retiring a row with content removes it from the active totals, so the probe declares it. */
 static struct Module retire_probe = {.name = "retire_probe",
                                      .init = probe_init,
                                      .cleanup = probe_cleanup,
                                      .process = retire_process,
                                      .supported_processing_modes = full_halo_modes,
-                                     .num_supported_modes = 1};
+                                     .num_supported_modes = 1,
+                                     .changes_totals = mass_total,
+                                     .num_changes_totals = 1};
 static struct Module fof_control = {.name = "fof_control",
                                     .init = probe_init,
                                     .cleanup = probe_cleanup,
@@ -452,17 +518,78 @@ static struct Module fof_control = {.name = "fof_control",
                                     .supported_processing_modes = by_galaxy_modes,
                                     .num_supported_modes = 1};
 
+static const struct EventSubscription ledger_subscriptions[] = {
+    {.producer_module_id = LEDGER_PRODUCER_ID,
+     .event_id = 0,
+     .event_name = "nudge",
+     .producer_name = "ledger_producer"},
+};
+static struct Module ledger_producer = {.name = "ledger_producer",
+                                        .init = probe_init,
+                                        .cleanup = probe_cleanup,
+                                        .process = ledger_producer_process,
+                                        .supported_processing_modes = full_halo_modes,
+                                        .num_supported_modes = 1,
+                                        .module_id = LEDGER_PRODUCER_ID};
+static struct Module ledger_consumer = {.name = "ledger_consumer",
+                                        .init = probe_init,
+                                        .cleanup = probe_cleanup,
+                                        .process = ledger_consumer_process,
+                                        .supported_processing_modes = per_event_modes,
+                                        .num_supported_modes = 1,
+                                        .subscriptions = ledger_subscriptions,
+                                        .num_subscriptions = 1,
+                                        .changes_totals = mass_total,
+                                        .num_changes_totals = 1};
+static struct Module ledger_other = {.name = "ledger_other",
+                                     .init = probe_init,
+                                     .cleanup = probe_cleanup,
+                                     .process = ledger_other_process,
+                                     .supported_processing_modes = full_halo_modes,
+                                     .num_supported_modes = 1};
+static struct Module ledger_galaxy = {.name = "ledger_galaxy",
+                                      .init = probe_init,
+                                      .cleanup = probe_cleanup,
+                                      .process = ledger_galaxy_process,
+                                      .supported_processing_modes = by_galaxy_modes,
+                                      .num_supported_modes = 1};
+/* A by-galaxy module that changes nothing but declares the mass total. */
+static struct Module ledger_galaxy_declarer = {.name = "ledger_galaxy_declarer",
+                                               .init = probe_init,
+                                               .cleanup = probe_cleanup,
+                                               .process = fof_idle_process,
+                                               .supported_processing_modes = by_galaxy_modes,
+                                               .num_supported_modes = 1,
+                                               .changes_totals = mass_total,
+                                               .num_changes_totals = 1};
+
 /** @brief Register the generated modules and every probe, once per process */
 static void ensure_probes_registered(void) {
   static bool registered = false;
   ensure_modules_registered();
   if (!registered) {
-    struct Module *probes[] = {&count_probe,          &central_reader,         &nan_probe,
-                               &emit_probe,           &create_probe,           &wrong_kind_probe,
-                               &master_probe,         &slaved_probe,           &cycle_probe,
-                               &context_saver,        &retire_probe,           &fof_control,
-                               &nan_central_probe,    &observer_probe,         &impure_probe,
-                               &scratch_writer_probe, &fail_on_satellite_probe};
+    struct Module *probes[] = {&count_probe,
+                               &central_reader,
+                               &nan_probe,
+                               &emit_probe,
+                               &create_probe,
+                               &wrong_kind_probe,
+                               &master_probe,
+                               &slaved_probe,
+                               &cycle_probe,
+                               &context_saver,
+                               &retire_probe,
+                               &fof_control,
+                               &nan_central_probe,
+                               &observer_probe,
+                               &impure_probe,
+                               &scratch_writer_probe,
+                               &fail_on_satellite_probe,
+                               &ledger_producer,
+                               &ledger_consumer,
+                               &ledger_other,
+                               &ledger_galaxy,
+                               &ledger_galaxy_declarer};
     for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++) {
       module_registry_add(probes[i]);
     }
@@ -1663,6 +1790,279 @@ int test_scratch_is_one_high_water_allocation(void) {
   return TEST_PASS;
 }
 
+/* ==========================================================================
+ * The discrete-phase ledger
+ * ========================================================================== */
+
+/** @brief Index of a conserved total by name, or -1 */
+static int total_index(const char *name) {
+  for (int t = 0; t < MIMIC_RESERVOIR_TOTAL_COUNT; t++) {
+    if (strcmp(mimic_reservoir_total_names()[t], name) == 0) {
+      return t;
+    }
+  }
+  return -1;
+}
+
+/**
+ * @test    test_ledger_hook_needs_a_rate_phase
+ * @brief   With no rate phase the ledger's hook is never entered
+ *
+ * A discrete phase with a full-halo and a by-galaxy probe runs one substep: with
+ * no rate phase the ledger checks no unit and no rate statistics exist; with a
+ * rate phase beside it, the same phase is checked as two units (the full-halo
+ * call and the by-galaxy pass), which shows the count is the hook's.
+ */
+int test_ledger_hook_needs_a_rate_phase(void) {
+  static const int types[3] = {0, 1, 2};
+  static const double cold[3] = {2.0, 0.5, 1.0};
+  for (int with_rates = 0; with_rates <= 1; with_rates++) {
+    reset_rate_config();
+    reset_probes();
+    if (with_rates) {
+      test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+    }
+    test_phase_add("discrete", "context_saver", PROCESSING_MODE_FULL_HALO);
+    test_phase_add("discrete", "fof_control", PROCESSING_MODE_BY_GALAXY);
+    TEST_ASSERT_EQUAL(module_system_init(), 0, "the phases initialise");
+    build_workspace(types, cold, 3);
+    run_pipeline();
+    if (with_rates) {
+      TEST_ASSERT_EQUAL(module_discrete_ledger_units(), 2,
+                        "with a rate phase the full-halo call and the by-galaxy pass are checked");
+      TEST_ASSERT(module_rate_statistics() != NULL, "a rate phase has statistics");
+    } else {
+      TEST_ASSERT_EQUAL(discrete_phase_calls, 1, "the discrete phase ran");
+      TEST_ASSERT_EQUAL(module_discrete_ledger_units(), 0,
+                        "with no rate phase the ledger's hook is never entered");
+      TEST_ASSERT(module_rate_statistics() == NULL, "no rate phase, no statistics");
+    }
+    release_case();
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_ledger_counts_a_covered_change
+ * @brief   A producer's change is covered by its subscribed consumer's declaration, and counted
+ *
+ * Two substeps of [rates (count_probe), events (ledger_producer, ledger_consumer)]:
+ * the producer adds mass undeclared, and the per-event consumer that subscribes
+ * to it declares the mass total, so the run completes and the mass total's
+ * declared-change count is one per substep; the tracer total's is zero.
+ */
+int test_ledger_counts_a_covered_change(void) {
+  static const int types[2] = {0, 1};
+  static const double cold[2] = {2.0, 0.5};
+  reset_rate_config();
+  reset_probes();
+  producer_adds = 0.5;
+  MimicConfig.SubSteps = 2;
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  test_phase_add("events", "ledger_producer", PROCESSING_MODE_FULL_HALO);
+  test_phase_add("events", "ledger_consumer", PROCESSING_MODE_PER_EVENT);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "the phases initialise");
+  build_workspace(types, cold, 2);
+  context.num_substeps = 2;
+  run_pipeline();
+  const struct RateStatistics *stats = module_rate_statistics();
+  TEST_ASSERT(stats != NULL, "a rate phase has statistics");
+  const int mass = total_index("rate_fixture_mass");
+  const int tracer = total_index("rate_fixture_tracer");
+  TEST_ASSERT(mass >= 0 && tracer >= 0, "the fixture totals exist");
+  TEST_ASSERT_EQUAL((int)stats->counts.declared_changes[mass], 2,
+                    "the covered change is counted once per substep");
+  TEST_ASSERT_EQUAL((int)stats->counts.declared_changes[tracer], 0,
+                    "an unchanged total is not counted");
+  TEST_ASSERT_EQUAL(module_discrete_ledger_units(), 2, "one full-halo unit per substep");
+  release_case();
+  return TEST_PASS;
+}
+
+/** @brief Child body: a consumer declaring the total beside an unrelated changing module */
+static void unrelated_change_body(const char *unused) {
+  (void)unused;
+  static const int types[2] = {0, 1};
+  static const double cold[2] = {2.0, 0.5};
+  ensure_probes_registered();
+  reset_rate_config();
+  reset_probes();
+  other_adds = 0.5;
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  test_phase_add("events", "ledger_producer", PROCESSING_MODE_FULL_HALO);
+  test_phase_add("events", "ledger_consumer", PROCESSING_MODE_PER_EVENT);
+  test_phase_add("events", "ledger_other", PROCESSING_MODE_FULL_HALO);
+  if (module_system_init() != 0) {
+    return;
+  }
+  build_workspace(types, cold, 2);
+  run_pipeline();
+}
+
+/**
+ * @test    test_ledger_declaration_covers_only_subscribed_producers
+ * @brief   A consumer's declaration does not cover a full-halo module it does not subscribe to
+ *
+ * In one discrete phase, ledger_consumer declares the mass total and subscribes
+ * to ledger_producer; ledger_other, an unrelated full-halo module, adds mass.
+ * The run ends naming ledger_other, the phase and the total.
+ */
+int test_ledger_declaration_covers_only_subscribed_producers(void) {
+  ensure_probes_registered();
+  const int ok = expect_fatal(NULL, unrelated_change_body,
+                              "Undeclared change to conserved total 'rate_fixture_mass' in phase "
+                              "'events' by module 'ledger_other'",
+                              "neither 'ledger_other' nor a per-event module");
+  TEST_ASSERT_EQUAL(ok, 1, "an unrelated module's undeclared change is fatal, naming it");
+  return TEST_PASS;
+}
+
+/** @brief Child body: the by-galaxy pass changes the mass total; @p arg "declared" adds a
+ * declaring by-galaxy module to the phase */
+static void by_galaxy_change_body(const char *arg) {
+  static const int types[2] = {0, 1};
+  static const double cold[2] = {2.0, 0.5};
+  ensure_probes_registered();
+  reset_rate_config();
+  reset_probes();
+  galaxy_adds = 0.25;
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  test_phase_add("galaxies", "ledger_galaxy", PROCESSING_MODE_BY_GALAXY);
+  if (arg != NULL && strcmp(arg, "declared") == 0) {
+    test_phase_add("galaxies", "ledger_galaxy_declarer", PROCESSING_MODE_BY_GALAXY);
+  }
+  if (module_system_init() != 0) {
+    exit(2);
+  }
+  build_workspace(types, cold, 2);
+  run_pipeline();
+  const struct RateStatistics *stats = module_rate_statistics();
+  /* Covered: one declared change for the one pass of the one substep. */
+  exit(stats->counts.declared_changes[total_index("rate_fixture_mass")] == 1 ? 0 : 3);
+}
+
+/**
+ * @test    test_ledger_by_galaxy_pass_is_one_unit
+ * @brief   The by-galaxy pass is covered by any by-galaxy module of the phase, or fatal
+ *
+ * ledger_galaxy changes the mass total in the by-galaxy pass. Alone, the run
+ * ends naming the phase's by-galaxy pass and the total; beside a by-galaxy
+ * module that declares the total (and changes nothing), the pass is covered and
+ * counted once.
+ */
+int test_ledger_by_galaxy_pass_is_one_unit(void) {
+  ensure_probes_registered();
+  const int fatal = expect_fatal(NULL, by_galaxy_change_body,
+                                 "Undeclared change to conserved total 'rate_fixture_mass' in "
+                                 "phase 'galaxies' by its process_by_galaxy pass",
+                                 "modules 'ledger_galaxy'");
+  TEST_ASSERT_EQUAL(fatal, 1, "an undeclared by-galaxy change is fatal, naming the pass");
+  TEST_ASSERT_EQUAL(expect_success("declared", by_galaxy_change_body), 1,
+                    "a declaring by-galaxy module covers the pass, and the change is counted");
+  return TEST_PASS;
+}
+
+/* ==========================================================================
+ * Step statistics
+ * ========================================================================== */
+
+/** @brief Sum of a histogram's counts */
+static uint64_t histogram_sum(const uint64_t *bins, int count) {
+  uint64_t sum = 0;
+  for (int b = 0; b < count; b++) {
+    sum += bins[b];
+  }
+  return sum;
+}
+
+/**
+ * @test    test_step_statistics_arithmetic
+ * @brief   The statistics count what ran: segments, law evaluations and histogram totals
+ *
+ * Three active rows over two substeps, once with count_probe (each row its own
+ * component: six segments of one row) and once with central_reader (the group
+ * one component: two segments of three rows), with the purity probe off. The
+ * recorded segments equal the (component, substep) pairs, the recorded law
+ * evaluations times the rows per component equal the counting law's calls,
+ * and each histogram's counts sum to the segments.
+ */
+int test_step_statistics_arithmetic(void) {
+  static const int types[3] = {0, 1, 2};
+  static const double cold[3] = {2.0, 0.5, 1.0};
+  struct {
+    const char *module;
+    int components;
+    int rows_per_component;
+  } cases[] = {{"count_probe", 3, 1}, {"central_reader", 1, 3}};
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+    reset_rate_config();
+    reset_probes();
+    feed_rate = 0.3;
+    MimicConfig.SubSteps = 2;
+    test_phase_add(RATE_PHASE, cases[c].module, PROCESSING_MODE_RATES);
+    TEST_ASSERT_EQUAL(module_system_init(), 0, "the rate phase initialises");
+    build_workspace(types, cold, 3);
+    context.num_substeps = 2;
+    run_pipeline();
+    const struct RateStatistics *stats = module_rate_statistics();
+    TEST_ASSERT(stats != NULL, "a rate phase has statistics");
+    TEST_ASSERT(num_calls > 0 && num_calls < MAX_CALLS, "the probe counted its calls");
+    TEST_ASSERT_EQUAL((int)stats->counts.segments, cases[c].components * 2,
+                      "segments equal the (component, substep) pairs run");
+    TEST_ASSERT_EQUAL((int)(stats->counts.law_evaluations * (uint64_t)cases[c].rows_per_component),
+                      num_calls, "law evaluations times rows per component equal the calls");
+    TEST_ASSERT(histogram_sum(stats->counts.k_max_histogram, RATE_STATS_K_MAX_BINS) ==
+                    stats->counts.segments,
+                "the K_max histogram sums to the segments");
+    TEST_ASSERT(histogram_sum(stats->counts.accepted_steps_histogram, RATE_STATS_STEP_BINS) ==
+                    stats->counts.segments,
+                "the accepted-steps histogram sums to the segments");
+    TEST_ASSERT(stats->maxima.accepted_steps > 0 &&
+                    stats->maxima.accepted_steps <= stats->counts.accepted_steps,
+                "the per-segment maximum lies within the total");
+    TEST_ASSERT(stats->counts.accepted_steps_histogram[rate_statistics_step_bin(
+                    stats->maxima.accepted_steps)] > 0,
+                "the largest step count's bin is occupied");
+    TEST_ASSERT(
+        stats->counts.k_max_histogram[rate_statistics_k_max_bin(rate_statistics_max_k_max(stats))] >
+            0,
+        "the largest K_max's bin is occupied");
+    release_case();
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_statistics_bins
+ * @brief   The histogram bins: zero, underflow, octaves by binary exponent, overflow, bit length
+ */
+int test_statistics_bins(void) {
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(0.0), RATE_STATS_K_MAX_ZERO_BIN, "zero");
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(-0.0), RATE_STATS_K_MAX_ZERO_BIN, "negative zero");
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(0x1p-65), RATE_STATS_K_MAX_UNDERFLOW_BIN,
+                    "below the lowest octave");
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(0x1p-64), RATE_STATS_K_MAX_FIRST_OCTAVE_BIN,
+                    "the lowest octave starts at 2^-64");
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(1.0), RATE_STATS_K_MAX_FIRST_OCTAVE_BIN + 64,
+                    "1 is the start of octave 0");
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(1.999), RATE_STATS_K_MAX_FIRST_OCTAVE_BIN + 64,
+                    "octave 0 is [1, 2)");
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(0.75), RATE_STATS_K_MAX_FIRST_OCTAVE_BIN + 63,
+                    "octave -1 is [1/2, 1)");
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(0x1.fffffffffffffp63),
+                    RATE_STATS_K_MAX_OVERFLOW_BIN - 1, "the highest octave ends below 2^64");
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(0x1p64), RATE_STATS_K_MAX_OVERFLOW_BIN,
+                    "2^64 overflows");
+  TEST_ASSERT_EQUAL(rate_statistics_k_max_bin(INFINITY), RATE_STATS_K_MAX_OVERFLOW_BIN,
+                    "infinity overflows");
+  TEST_ASSERT_EQUAL(rate_statistics_step_bin(0), 0, "no steps: bit length 0");
+  TEST_ASSERT_EQUAL(rate_statistics_step_bin(1), 1, "one step: bit length 1");
+  TEST_ASSERT_EQUAL(rate_statistics_step_bin(3), 2, "three steps: bit length 2");
+  TEST_ASSERT_EQUAL(rate_statistics_step_bin(4), 3, "four steps: bit length 3");
+  TEST_ASSERT_EQUAL(rate_statistics_step_bin(UINT64_MAX), 64, "the largest count: bit length 64");
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -1695,6 +2095,12 @@ int main(void) {
   TEST_RUN(test_law_sees_observer_at_segment_start);
   TEST_RUN(test_per_galaxy_rows_match_rows_alone);
   TEST_RUN(test_scratch_is_one_high_water_allocation);
+  TEST_RUN(test_ledger_hook_needs_a_rate_phase);
+  TEST_RUN(test_ledger_counts_a_covered_change);
+  TEST_RUN(test_ledger_declaration_covers_only_subscribed_producers);
+  TEST_RUN(test_ledger_by_galaxy_pass_is_one_unit);
+  TEST_RUN(test_step_statistics_arithmetic);
+  TEST_RUN(test_statistics_bins);
 
   TEST_SUMMARY();
   return TEST_RESULT();

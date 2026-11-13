@@ -37,6 +37,11 @@ declarations of the galaxy properties (scripts/generate_properties.py validates
 those on their own), so a transfer end is checked against the property metadata of
 the build being generated.
 
+It also owns ``changes_totals``: the conserved totals a module of a discrete FoF
+mode declares it may change, which the core's discrete-phase ledger reads when a
+rate phase is configured. The same rate_metadata_errors() checks it, against the
+totals the galaxy properties declare.
+
 This file is a generation input. compute_metadata_hash() in the generator and
 compute_module_metadata_hash() in scripts/check_generated.py both hash its path
 and bytes, and the Makefile module-generation stamp depends on it, so editing it
@@ -328,6 +333,13 @@ def rate_transfer_count_macro(module_name: str) -> str:
 # rate_contracts.h. tests/integration/test_rate_metadata.py checks these lists
 # against the sources.
 RESERVED_RATE_TAGS: Tuple[str, ...] = ("RateTransfer",)
+
+# A module of a discrete FoF mode that changes a conserved total declares it here: a
+# list of total names. The core checks the change only when a rate phase is configured.
+CHANGES_TOTALS_KEY = "changes_totals"
+DISCRETE_FOF_MODES: Tuple[str, ...] = tuple(
+    mode.name for mode in PROCESSING_MODES if mode.family == FAMILY_FOF
+)
 RESERVED_RATE_IDENTIFIERS: Tuple[str, ...] = (
     "MIMIC_RATE_TRANSFER_COUNT",
     "RATE_TRANSFER_EXTERNAL",
@@ -826,6 +838,70 @@ def _module_rate_errors(module: Dict[str, Any], scan: _RateScan) -> None:
     _observer_errors(name, rates.get("observers", []), scan)
 
 
+def declared_totals(galaxy_properties: Dict[str, Dict[str, Any]]) -> Set[str]:
+    """Return the conserved totals the galaxy properties declare.
+
+    A total exists when at least one property of kind reservoir or tracer names it.
+    """
+    return {
+        total
+        for total in (_total_of(galaxy_properties, name) for name in galaxy_properties)
+        if total is not None
+    }
+
+
+def changes_totals(module: Dict[str, Any]) -> List[str]:
+    """Return the totals a module declares in changes_totals (empty when the key is omitted).
+
+    Call it on metadata that passed rate_metadata_errors().
+    """
+    return list(module.get(CHANGES_TOTALS_KEY) or [])
+
+
+def _changes_totals_errors(module: Dict[str, Any], scan: _RateScan) -> None:
+    """Check one module's changes_totals: declaration.
+
+    A module that changes a conserved total in a discrete phase declares it here.
+    The key is a non-empty list of distinct total names, each one a total the
+    galaxy properties declare, on a runtime module that advertises a discrete FoF
+    mode (the only modes whose changes the core checks).
+    """
+    if CHANGES_TOTALS_KEY not in module:
+        return
+    name = rate_error_module(module)
+    value = module[CHANGES_TOTALS_KEY]
+    if not isinstance(value, list) or not value:
+        scan.refuse(
+            name, f"{CHANGES_TOTALS_KEY} is {value!r}; it must be a non-empty list of total names"
+        )
+        return
+    modes = module.get("supported_processing_modes")
+    discrete = isinstance(modes, list) and any(mode in DISCRETE_FOF_MODES for mode in modes)
+    if module.get("is_utility", False) or not discrete:
+        scan.refuse(
+            name,
+            f"{CHANGES_TOTALS_KEY} {value!r} on a module that advertises none of "
+            f"{', '.join(DISCRETE_FOF_MODES)}; only a discrete FoF callback's changes to a "
+            "conserved total are checked",
+        )
+    non_strings = [total for total in value if not isinstance(total, str)]
+    if non_strings:
+        scan.refuse(name, f"{CHANGES_TOTALS_KEY} entries must be total names: {non_strings!r}")
+    names = [total for total in value if isinstance(total, str)]
+    duplicates = sorted({total for total in names if names.count(total) > 1})
+    if duplicates:
+        scan.refuse(name, f"{CHANGES_TOTALS_KEY} lists {duplicates} more than once")
+    known = declared_totals(scan.galaxy_properties)
+    unknown = sorted({total for total in names if total not in known})
+    if unknown:
+        scan.refuse(
+            name,
+            f"{CHANGES_TOTALS_KEY} names {unknown}, which no reservoir or tracer property "
+            f"declares as its total (declared totals: {sorted(known)})",
+            dependency=True,
+        )
+
+
 def _slaved_master_edges(
     scan: _RateScan,
 ) -> Tuple[Dict[str, Set[str]], Dict[Tuple[str, str], List[Tuple[str, str]]]]:
@@ -1087,6 +1163,8 @@ def rate_metadata_errors(
     every module whose slaved source is on it, naming the totals. Finally no
     generated name may collide with another, with a core name of the same form,
     with an event identifier or with a name reservoir_table.h declares.
+    changes_totals, on any module, is a non-empty list of distinct names of totals
+    the galaxy properties declare, on a runtime module advertising a discrete FoF mode.
 
     Args:
         modules: Module metadata dicts (module_info.yaml contents).
@@ -1100,6 +1178,7 @@ def rate_metadata_errors(
     scan = _RateScan(galaxy_properties)
     for module in modules:
         _module_rate_errors(module, scan)
+        _changes_totals_errors(module, scan)
 
     edges, via = _slaved_master_edges(scan)
     _add_tracer_edges(galaxy_properties, edges)

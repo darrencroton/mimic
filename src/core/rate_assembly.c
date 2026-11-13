@@ -1389,6 +1389,172 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
               cause, module, transfer, w, id, f->tau);
 }
 
+/* ---------------------------------------------------------------------------
+ * Step statistics
+ * ------------------------------------------------------------------------- */
+
+int rate_statistics_k_max_bin(double k_max) {
+  if (k_max == 0.0) {
+    return RATE_STATS_K_MAX_ZERO_BIN; /* -0.0 too */
+  }
+  if (!(k_max > 0.0) || !isfinite(k_max)) {
+    return RATE_STATS_K_MAX_OVERFLOW_BIN; /* +inf; a NaN or a negative value cannot occur */
+  }
+  int exponent = 0;
+  (void)frexp(k_max, &exponent); /* k_max = m 2^exponent, m in [0.5, 1): octave exponent - 1 */
+  const int octave = exponent - 1;
+  if (octave < RATE_STATS_K_MAX_MIN_EXPONENT) {
+    return RATE_STATS_K_MAX_UNDERFLOW_BIN;
+  }
+  if (octave > RATE_STATS_K_MAX_MAX_EXPONENT) {
+    return RATE_STATS_K_MAX_OVERFLOW_BIN;
+  }
+  return RATE_STATS_K_MAX_FIRST_OCTAVE_BIN + (octave - RATE_STATS_K_MAX_MIN_EXPONENT);
+}
+
+int rate_statistics_step_bin(uint64_t accepted_steps) {
+  int bits = 0;
+  while (accepted_steps != 0) {
+    bits++;
+    accepted_steps >>= 1;
+  }
+  return bits;
+}
+
+/**
+ * @brief   The bit pattern of a K_max, for the maxima
+ *
+ * Non-negative doubles order as their bit patterns do, so the largest pattern
+ * is the largest K_max. -0.0 is folded into +0.0 (all bits clear), whose
+ * pattern would otherwise exceed every positive one; a NaN cannot occur.
+ */
+static uint64_t k_max_bits(double k_max) {
+  if (!(k_max > 0.0)) {
+    return 0;
+  }
+  uint64_t bits;
+  memcpy(&bits, &k_max, sizeof(bits));
+  return bits;
+}
+
+double rate_statistics_max_k_max(const struct RateStatistics *stats) {
+  double k_max;
+  memcpy(&k_max, &stats->maxima.k_max_bits, sizeof(k_max));
+  return k_max;
+}
+
+static void raise_to(uint64_t *maximum, uint64_t value) {
+  if (value > *maximum) {
+    *maximum = value;
+  }
+}
+
+/** @brief Add one integrated segment to the statistics */
+static void record_segment(struct RateStatistics *stats, const struct RateStepStats *segment) {
+  const uint64_t accepted = (uint64_t)segment->accepted_steps;
+  const uint64_t rejected = (uint64_t)segment->rejected_steps;
+  const uint64_t evaluations = (uint64_t)segment->law_evaluations;
+  struct RateStatisticsCounts *counts = &stats->counts;
+  counts->segments++;
+  counts->accepted_steps += accepted;
+  counts->rejected_steps += rejected;
+  counts->law_evaluations += evaluations;
+  counts->k_max_histogram[rate_statistics_k_max_bin(segment->max_k_max)]++;
+  counts->accepted_steps_histogram[rate_statistics_step_bin(accepted)]++;
+  raise_to(&stats->maxima.accepted_steps, accepted);
+  raise_to(&stats->maxima.rejected_steps, rejected);
+  raise_to(&stats->maxima.law_evaluations, evaluations);
+  raise_to(&stats->maxima.k_max_bits, k_max_bits(segment->max_k_max));
+}
+
+void rate_statistics_log_summary(const struct RateStatistics *stats) {
+  char declared[512] = "";
+  size_t used = 0;
+  const int num_totals = MIMIC_RESERVOIR_TOTAL_COUNT;
+  for (int t = 0; t < num_totals && used < sizeof(declared); t++) {
+    const int written =
+        snprintf(declared + used, sizeof(declared) - used, "%s%s %" PRIu64, t > 0 ? ", " : "",
+                 total_name(t), stats->counts.declared_changes[t]);
+    if (written < 0) {
+      break;
+    }
+    used += (size_t)written;
+  }
+  INFO_LOG("Rate integration: %" PRIu64 " segments, %" PRIu64 " accepted and %" PRIu64
+           " rejected steps, %" PRIu64 " law evaluations; per segment at most %" PRIu64
+           " accepted steps, %" PRIu64 " rejected, %" PRIu64 " evaluations, K_max %.6g; "
+           "declared discrete changes: %s",
+           stats->counts.segments, stats->counts.accepted_steps, stats->counts.rejected_steps,
+           stats->counts.law_evaluations, stats->maxima.accepted_steps,
+           stats->maxima.rejected_steps, stats->maxima.law_evaluations,
+           rate_statistics_max_k_max(stats), num_totals > 0 ? declared : "(no total)");
+}
+
+/* ---------------------------------------------------------------------------
+ * Provenance
+ * ------------------------------------------------------------------------- */
+
+int rate_assembly_plan_num_transfers(const struct RateAssemblyPlan *plan) {
+  return plan->num_transfers;
+}
+
+/** @brief The output name of a transfer kind, as module_info.yaml's vocabulary has it */
+static const char *transfer_kind_record(enum RateTransferKind kind) {
+  switch (kind) {
+  case RATE_TRANSFER_INTERNAL:
+    return "internal";
+  case RATE_TRANSFER_SINK:
+    return "sink";
+  case RATE_TRANSFER_SOURCE:
+    return "source";
+  case RATE_TRANSFER_SLAVED_SOURCE:
+    return "slaved_source";
+  }
+  return "unknown";
+}
+
+/** @brief A transfer end's property name, or "external" */
+static const char *end_record(int index) {
+  const struct ReservoirEntry *entry = table_entry(index);
+  return entry != NULL ? entry->name : "external";
+}
+
+void rate_assembly_plan_transfer_record(const struct RateAssemblyPlan *plan, int index,
+                                        struct RateTransferRow *record) {
+  if (index < 0 || index >= plan->num_transfers) {
+    FATAL_ERROR("Rate phase '%s': transfer record %d requested of %d", plan->phase_name, index,
+                plan->num_transfers);
+  }
+  const struct PlanTransfer *pt = &plan->transfers[index];
+  const struct RateTransfer *t = pt->transfer;
+  record->module = pt->module->name;
+  record->transfer = t->name;
+  record->from = end_record(t->from);
+  record->to = end_record(t->to);
+  record->to_record = t->to_record == RATE_TRANSFER_TO_CENTRAL ? "central" : "self";
+  record->kind = transfer_kind_record(t->kind);
+  record->master = t->slaved_to != NULL ? t->slaved_to : "";
+}
+
+const char *rate_assembly_scheme_name(int scheme) {
+  return scheme == RATE_SCHEME_IMPLICIT ? "implicit" : "explicit";
+}
+
+/* The compile-time constants of rate_integrator.c, stated once for the output record. */
+const char *rate_assembly_method_description(int scheme) {
+  if (scheme == RATE_SCHEME_IMPLICIT) {
+    return "Linearly implicit Patankar-Euler, coefficients frozen at the step start, solved per "
+           "galaxy block in subtraction-free (Grassmann-Taksar-Heyman) form; error estimate "
+           "M^-1 (dt/2) (F(x_n+1) - F(x_n)); controller factor 0.9 err^(-1/2) clamped to [0.2, "
+           "5], no growth after a rejection; scale floor 1e-12; landing stretch 1.1; minimum "
+           "step 2^-46";
+  }
+  return "SSPRK(4,3) explicit Runge-Kutta, embedded second-order weights (1/4, 1/4, 1/4, 1/4); "
+         "positivity C = 2, sigma = 0.9; controller factor 0.9 err^(-1/3) clamped to [0.2, 5], "
+         "no growth after a rejection; scale floor 1e-12; landing stretch 1.1; minimum step "
+         "2^-46";
+}
+
 /**
  * @brief   Integrate one component across the substep and write it back
  *
@@ -1399,7 +1565,7 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
 static void integrate_component(const struct RateAssemblyPlan *plan,
                                 const struct ModuleContext *ctx, struct FoFWorkspace *ws,
                                 struct RateAssemblyScratch *scratch, RateLawInvoker invoke,
-                                int single_row, int num_rows) {
+                                struct RateStatistics *stats, int single_row, int num_rows) {
   const int P = plan->entries_per_row;
   const int T = plan->num_transfers;
   if ((int64_t)num_rows * (int64_t)(P > T ? P : T) > (int64_t)INT_MAX) {
@@ -1492,13 +1658,16 @@ static void integrate_component(const struct RateAssemblyPlan *plan,
   for (r = 0; r < num_rows; r++) {
     store_row(plan, &seg.state[r * P], ws->halos[seg.rows[r]].galaxy);
   }
+  record_segment(stats, &outcome.stats);
 }
 
 void rate_assembly_run(const struct RateAssemblyPlan *plan, const struct ModuleContext *ctx,
                        struct FoFWorkspace *ws, struct RateAssemblyScratch *scratch,
-                       RateLawInvoker invoke) {
-  if (plan == NULL || ctx == NULL || ws == NULL || scratch == NULL || invoke == NULL) {
-    FATAL_ERROR("rate_assembly_run called without a plan, context, workspace, scratch or invoker");
+                       RateLawInvoker invoke, struct RateStatistics *stats) {
+  if (plan == NULL || ctx == NULL || ws == NULL || scratch == NULL || invoke == NULL ||
+      stats == NULL) {
+    FATAL_ERROR("rate_assembly_run called without a plan, context, workspace, scratch, invoker "
+                "or statistics");
   }
   if (ctx->num_substeps <= 0) {
     FATAL_ERROR("Rate phase '%s': the module context has %d substeps", plan->phase_name,
@@ -1511,13 +1680,13 @@ void rate_assembly_run(const struct RateAssemblyPlan *plan, const struct ModuleC
       active += row_is_active(&ws->halos[w]);
     }
     if (active > 0) {
-      integrate_component(plan, ctx, ws, scratch, invoke, -1, active);
+      integrate_component(plan, ctx, ws, scratch, invoke, stats, -1, active);
     }
     return;
   }
   for (int64_t w = 0; w < ws->count; w++) {
     if (row_is_active(&ws->halos[w])) {
-      integrate_component(plan, ctx, ws, scratch, invoke, (int)w, 1);
+      integrate_component(plan, ctx, ws, scratch, invoke, stats, (int)w, 1);
     }
   }
 }

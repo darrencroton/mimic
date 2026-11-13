@@ -119,6 +119,18 @@ static const struct PhaseModuleConfig *rate_phase_config = NULL;
 static struct RateAssemblyScratch rate_scratch = {NULL, 0};
 
 /**
+ * @brief   The rate phase's step statistics, and the discrete-phase ledger's unit count
+ *
+ * The statistics are zeroed when module_system_init() builds the rate plan; the
+ * rate segments and the discrete-phase ledger (module_registry.h) add to them,
+ * and module_rate_statistics() exposes them only while a rate plan exists. The
+ * unit count is zeroed by every module_system_init() and counts the dispatch
+ * units the ledger checks, so it stays zero in a run with no rate phase.
+ */
+static struct RateStatistics rate_statistics;
+static int64_t discrete_ledger_units = 0;
+
+/**
  * @brief   The module callback the registry is running, if any
  *
  * Read by module_create_record() to name the caller in a refusal, and by the
@@ -881,6 +893,7 @@ static void free_phase_event_buffer(void);
  */
 struct PhasePlan {
   const struct PhaseModuleConfig *phase_config; /**< Key: the phase's configuration array */
+  const char *phase_name;                       /**< For diagnostics; outlives the plan */
   int num_entries;                              /**< The phase's entry count at build time */
   struct Module **modules;                      /**< Owns the three lists below */
   struct Module *const *full_halo;
@@ -891,6 +904,14 @@ struct PhasePlan {
   int num_by_galaxy;
   struct Module *const *rates;
   int num_rates;
+  /**
+   * The discrete-phase ledger's declarations, or NULL when the ledger does not
+   * run in this phase (no rate phase is configured, or this is the rate phase).
+   * Row u < num_full_halo is full-halo unit u, row num_full_halo the by-galaxy
+   * pass; entry [u * MIMIC_RESERVOIR_TOTAL_COUNT + t] is true when the unit's
+   * declarations cover a change to total t.
+   */
+  bool *ledger_declares;
 };
 
 /** pre_timestep, every named substep phase and post_timestep; post_snapshot has no plan */
@@ -916,6 +937,13 @@ static void release_phase_plans(void) {
     } else {
       abandoned++;
     }
+    if (phase_plans[p].ledger_declares != NULL) {
+      if (is_tracked_memory_block(phase_plans[p].ledger_declares)) {
+        myfree(phase_plans[p].ledger_declares);
+      } else {
+        abandoned++;
+      }
+    }
     phase_plans[p] = (struct PhasePlan){0};
   }
   if (abandoned > 0) {
@@ -940,6 +968,76 @@ static int collect_phase_mode(const struct PhaseModuleConfig *modules, int num_m
     }
   }
   return count;
+}
+
+/** @brief The index of a conserved total named @p name, or -1 when the build has none */
+static int conserved_total_index(const char *name) {
+  const int count = MIMIC_RESERVOIR_TOTAL_COUNT;
+  for (int t = 0; t < count; t++) {
+    if (strcmp(mimic_reservoir_total_names()[t], name) == 0) {
+      return t;
+    }
+  }
+  return -1;
+}
+
+/** @brief Mark the totals @p mod lists in changes_totals in one ledger row (names checked) */
+static void declare_module_totals(const struct Module *mod, bool *row) {
+  for (int i = 0; i < mod->num_changes_totals; i++) {
+    const int t = conserved_total_index(mod->changes_totals[i]);
+    if (t < 0) {
+      FATAL_ERROR("Module '%s' declares changes_totals '%s', which is not a conserved total of "
+                  "this build — build_rate_phase() must refuse it first",
+                  mod->name, mod->changes_totals[i]);
+    }
+    row[t] = true;
+  }
+}
+
+/** @brief Whether per-event module @p consumer subscribes to an event @p producer emits */
+static bool subscribes_to(const struct Module *consumer, const struct Module *producer) {
+  if (producer->module_id <= 0) {
+    return false; /* not a producer */
+  }
+  for (int s = 0; s < consumer->num_subscriptions; s++) {
+    if (consumer->subscriptions[s].producer_module_id == producer->module_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @brief   The discrete-phase ledger's declarations of one discrete phase (struct PhasePlan)
+ *
+ * A full-halo unit is covered by its module's changes_totals and by those of
+ * every per-event module in the phase that subscribes to one of its events; the
+ * by-galaxy pass by every by-galaxy module's in the phase.
+ *
+ * @return  A tracked MEM_UTILITY allocation, or NULL when the ledger does not run
+ */
+static bool *build_ledger_declarations(const struct PhasePlan *plan) {
+  const int num_totals = MIMIC_RESERVOIR_TOTAL_COUNT;
+  if (rate_plan == NULL || plan->num_rates > 0 || num_totals == 0) {
+    return NULL;
+  }
+  const size_t rows = (size_t)plan->num_full_halo + 1;
+  bool *declares = mymalloc_cat(rows * (size_t)num_totals * sizeof(bool), MEM_UTILITY);
+  memset(declares, 0, rows * (size_t)num_totals * sizeof(bool));
+  for (int u = 0; u < plan->num_full_halo; u++) {
+    bool *row = declares + (size_t)u * (size_t)num_totals;
+    declare_module_totals(plan->full_halo[u], row);
+    for (int c = 0; c < plan->num_per_event; c++) {
+      if (subscribes_to(plan->per_event[c], plan->full_halo[u])) {
+        declare_module_totals(plan->per_event[c], row);
+      }
+    }
+  }
+  bool *by_galaxy_row = declares + (size_t)plan->num_full_halo * (size_t)num_totals;
+  for (int b = 0; b < plan->num_by_galaxy; b++) {
+    declare_module_totals(plan->by_galaxy[b], by_galaxy_row);
+  }
+  return declares;
 }
 
 /**
@@ -986,8 +1084,10 @@ static void build_phase_plan_visitor(const char *phase_name, struct PhaseModuleC
                 phase_name, num_modules, num_planned);
   }
 
-  phase_plans[num_phase_plans++] = (struct PhasePlan){
+  struct PhasePlan *plan = &phase_plans[num_phase_plans++];
+  *plan = (struct PhasePlan){
       .phase_config = modules,
+      .phase_name = phase_name,
       .num_entries = num_modules,
       .modules = slots,
       .full_halo = slots,
@@ -999,6 +1099,7 @@ static void build_phase_plan_visitor(const char *phase_name, struct PhaseModuleC
       .rates = slots + num_full_halo + num_per_event + num_by_galaxy,
       .num_rates = num_rates,
   };
+  plan->ledger_declares = build_ledger_declarations(plan);
 }
 
 /**
@@ -1110,7 +1211,35 @@ static void release_rate_phase(void) {
 }
 
 /**
+ * @brief   for_each_phase visitor: refuse a changes_totals name the build has no total for
+ *
+ * Generation validates the names against the same property metadata the
+ * reservoir table is generated from, so a refusal here means stale generated
+ * code; it is still refused before any init() rather than trusted.
+ */
+static void check_declared_totals_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
+                                          int num_modules, void *userdata) {
+  for (int i = 0; i < num_modules; i++) {
+    const struct Module *mod = modules[i].resolved;
+    for (int k = 0; mod != NULL && k < mod->num_changes_totals; k++) {
+      if (conserved_total_index(mod->changes_totals[k]) < 0) {
+        ERROR_LOG("Configuration error in phase '%s':", phase_name);
+        ERROR_LOG("  Module '%s' declares changes_totals '%s', which is not a conserved total "
+                  "of this build's reservoir table",
+                  mod->name, mod->changes_totals[k]);
+        ERROR_LOG("  Fix: regenerate the build (make generate), or correct the module's "
+                  "changes_totals");
+        *(int *)userdata = 1;
+      }
+    }
+  }
+}
+
+/**
  * @brief   Find the rate phase, if any, and build its plan
+ *
+ * With a rate phase, also checks every configured module's changes_totals
+ * names against the reservoir table and zeroes the run's rate statistics.
  *
  * @return  0 on success (with or without a rate phase), -1 after an ERROR_LOG
  */
@@ -1123,15 +1252,29 @@ static int build_rate_phase(void) {
   if (search.name == NULL) {
     return 0;
   }
+  int stale = 0;
+  for_each_phase(check_declared_totals_visitor, &stale);
+  if (stale) {
+    return -1;
+  }
   if (rate_assembly_plan_build(search.name, search.entries, search.num_entries,
                                &MimicConfig.RateIntegration, &rate_plan) != 0) {
     return -1;
   }
   rate_phase_config = search.entries;
+  memset(&rate_statistics, 0, sizeof(rate_statistics));
   return 0;
 }
 
 size_t module_rate_scratch_bytes(void) { return rate_scratch.capacity; }
+
+const struct RateAssemblyPlan *module_rate_plan(void) { return rate_plan; }
+
+struct RateStatistics *module_rate_statistics(void) {
+  return rate_plan != NULL ? &rate_statistics : NULL;
+}
+
+int64_t module_discrete_ledger_units(void) { return discrete_ledger_units; }
 
 /**
  * @brief   Initialize the module system
@@ -1155,6 +1298,7 @@ int module_system_init(void) {
   release_phase_plans();
   free_phase_event_buffer();
   release_rate_phase();
+  discrete_ledger_units = 0;
 
   /* Build execution pipeline by collecting all unique modules across phases */
   num_pipeline_modules = 0;
@@ -1875,6 +2019,109 @@ void module_release_record_creation_scratch(void) {
   record_creation.ordinals_ready = false;
 }
 
+/* ── Discrete-phase ledger (module_registry.h) ─────────────────────────── */
+
+/** Each conserved total over a workspace's active rows: its sum, magnitude and entry count */
+struct TotalSums {
+  double sum[RATE_STATS_TOTAL_SLOTS];
+  double magnitude[RATE_STATS_TOTAL_SLOTS]; /* sum of |x| */
+  int64_t entries[RATE_STATS_TOTAL_SLOTS];
+};
+
+/** @brief Sum every conserved total over the active rows, in workspace then table order */
+static void sum_conserved_totals(const struct FoFWorkspace *ws, struct TotalSums *out) {
+  memset(out, 0, sizeof(*out));
+  const int num_entries = MIMIC_RESERVOIR_COUNT;
+  const struct ReservoirEntry *table = mimic_reservoir_table();
+  for (int64_t w = 0; w < ws->count; w++) {
+    const struct GalaxyData *galaxy = ws->halos[w].galaxy;
+    if (galaxy == NULL || ws->halos[w].Type == 3) {
+      continue;
+    }
+    for (int e = 0; e < num_entries; e++) {
+      const int t = table[e].total;
+      if (t < 0) {
+        continue; /* an observer belongs to no total */
+      }
+      const double value = *(const double *)(const void *)((const char *)galaxy + table[e].offset);
+      out->sum[t] += value;
+      out->magnitude[t] += fabs(value);
+      out->entries[t]++;
+    }
+  }
+}
+
+/** @brief Comma-separated names of a plan list's modules, for a diagnostic */
+static const char *module_list_names(struct Module *const *list, int count, char *buffer,
+                                     size_t size) {
+  size_t used = 0;
+  buffer[0] = '\0';
+  for (int i = 0; i < count && used < size; i++) {
+    const int written =
+        snprintf(buffer + used, size - used, "%s'%s'", i > 0 ? ", " : "", list[i]->name);
+    if (written < 0) {
+      break;
+    }
+    used += (size_t)written;
+  }
+  return buffer;
+}
+
+/**
+ * @brief   Check one dispatch unit's change to every conserved total
+ *
+ * @param   unit     A full-halo unit's index in the plan, or plan->num_full_halo for the
+ *                   by-galaxy pass
+ *
+ * Fatal on an undeclared change; counts a declared one in the run's statistics.
+ */
+static void check_discrete_unit(const struct PhasePlan *plan, int unit,
+                                const struct TotalSums *before, const struct TotalSums *after,
+                                const struct ModuleContext *ctx, const struct FoFWorkspace *ws) {
+  const int num_totals = MIMIC_RESERVOIR_TOTAL_COUNT;
+  const double unit_roundoff = 0x1p-53;
+  discrete_ledger_units++;
+  for (int t = 0; t < num_totals; t++) {
+    const int64_t entries =
+        before->entries[t] > after->entries[t] ? before->entries[t] : after->entries[t];
+    const double magnitude = fmax(before->magnitude[t], after->magnitude[t]);
+    const double tolerance = 8.0 * unit_roundoff * ((double)entries + 2.0) * magnitude;
+    const double change = after->sum[t] - before->sum[t];
+    if (fabs(change) <= tolerance) {
+      continue; /* no change; a NaN fails this test and is a change */
+    }
+    if (plan->ledger_declares[(size_t)unit * (size_t)num_totals + (size_t)t]) {
+      rate_statistics.counts.declared_changes[t]++;
+      continue;
+    }
+
+    const char *total = mimic_reservoir_total_names()[t];
+    const long long central_id = (ctx->central_index >= 0 && ctx->central_index < ws->count)
+                                     ? ws->halos[ctx->central_index].UniqueGalaxyID
+                                     : -1;
+    ERROR_LOG("Discrete-phase ledger: phase '%s' changed conserved total '%s' from %.17g to "
+              "%.17g (by %.17g; rounding tolerance %.3g) at snapshot %d, substep %d, in the FoF "
+              "group of central UniqueGalaxyID %lld",
+              plan->phase_name, total, before->sum[t], after->sum[t], change, tolerance,
+              ctx->snapshot_number, ctx->substep_number, central_id);
+    if (unit < plan->num_full_halo) {
+      const struct Module *mod = plan->full_halo[unit];
+      FATAL_ERROR("Undeclared change to conserved total '%s' in phase '%s' by module '%s' "
+                  "(process_full_halo, with the per-event modules its events trigger): neither "
+                  "'%s' nor a per-event module in the phase subscribed to its events lists '%s' "
+                  "in changes_totals",
+                  total, plan->phase_name, mod->name, mod->name, total);
+    }
+    char names[512];
+    FATAL_ERROR("Undeclared change to conserved total '%s' in phase '%s' by its "
+                "process_by_galaxy pass (modules %s): no by-galaxy module in the phase lists "
+                "'%s' in changes_totals",
+                total, plan->phase_name,
+                module_list_names(plan->by_galaxy, plan->num_by_galaxy, names, sizeof(names)),
+                total);
+  }
+}
+
 /** @brief RateLawInvoker for the rate phase: one module's law, marked as the running callback */
 static int invoke_rate_law(const struct Module *mod, const struct RateContext *ctx,
                            const struct Halo *halo, double *coefficients) {
@@ -1899,6 +2146,13 @@ static int invoke_rate_law(const struct Module *mod, const struct RateContext *c
  * Each pass walks the phase's plan (built by module_system_init()), so no
  * entry's mode is tested here; the galaxy loop is entered only when the plan
  * has a by-galaxy entry, and the safety dispatch runs only for pending events.
+ *
+ * When a rate phase is configured, every other phase also runs the
+ * discrete-phase ledger (module_registry.h): each conserved total is summed
+ * before and after each full-halo unit (the call, the per-event consumers its
+ * events trigger, its commit and the safety dispatch) and around the by-galaxy
+ * pass as a whole, and a change its declarations do not cover is fatal. With no
+ * rate phase the plan carries no declarations and the hook is not entered.
  *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip)
@@ -1938,14 +2192,22 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                   "module_system_init() must build it before execute_phase()",
                   phase_config[0].module_name);
     }
-    rate_assembly_run(rate_plan, ctx, ws, &rate_scratch, invoke_rate_law);
+    rate_assembly_run(rate_plan, ctx, ws, &rate_scratch, invoke_rate_law, &rate_statistics);
   }
+
+  /* The discrete-phase ledger runs only when a rate phase is configured, and never in it */
+  const bool ledger = plan->ledger_declares != NULL;
+  struct TotalSums before;
+  struct TotalSums after;
 
   /* PASS 1: PROCESSING_MODE_FULL_HALO modules (always first) */
   struct Halo *halos = ws->halos;
   int ngal = workspace_callback_count(ws);
   for (int i = 0; i < plan->num_full_halo; i++) {
     struct Module *mod = plan->full_halo[i];
+    if (ledger) {
+      sum_conserved_totals(ws, &before);
+    }
 
     DEBUG_LOG("Executing module: %s (full array, ngal=%d, substep %d/%d, z=%.3f)", mod->name, ngal,
               ctx->substep_number + 1, ctx->num_substeps, ctx->redshift);
@@ -1978,10 +2240,20 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
     if (phase_event_state.last_dispatched_event < phase_event_state.event_count) {
       dispatch_events_range(phase_event_state.last_dispatched_event, phase_event_state.event_count);
     }
+
+    /* The unit ends here: the call, its consumers, its commit and the safety dispatch. */
+    if (ledger) {
+      sum_conserved_totals(ws, &after);
+      check_discrete_unit(plan, i, &before, &after, ctx, ws);
+    }
   }
 
   /* PASS 2: PROCESSING_MODE_BY_GALAXY modules (after full-halo/event work); entered only
-   * when the phase has a by-galaxy entry */
+   * when the phase has a by-galaxy entry, and checked by the ledger as one unit */
+  const bool by_galaxy_ledger = ledger && plan->num_by_galaxy > 0;
+  if (by_galaxy_ledger) {
+    sum_conserved_totals(ws, &before);
+  }
   for (int64_t g = 0; plan->num_by_galaxy > 0 && g < ws->count; g++) {
     if (ws->halos[g].galaxy == NULL || ws->halos[g].Type == 3) {
       continue;
@@ -2002,6 +2274,10 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                     ctx->substep_number);
       }
     }
+  }
+  if (by_galaxy_ledger) {
+    sum_conserved_totals(ws, &after);
+    check_discrete_unit(plan, plan->num_full_halo, &before, &after, ctx, ws);
   }
 
   end_phase_event_dispatch();

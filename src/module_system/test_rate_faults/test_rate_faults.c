@@ -18,6 +18,11 @@
  * - impure: TestRateFaultsRate plus a term that grows with a static call counter, so
  *   the same row and state give a different coefficient on every call
  *
+ * In its full-halo mode (configured as process_full_halo in a discrete phase) it
+ * adds TestRateFaultsAddedMass to the FoF central's RateFixtureHot on every call
+ * without declaring the total in changes_totals, so a run with a rate phase shows
+ * the discrete-phase ledger refusing an undeclared change.
+ *
  * Vision Principle #1: Physics-Agnostic Core Infrastructure
  */
 
@@ -55,6 +60,13 @@ static double fault_rate = 0.0;
 static unsigned long impure_calls = 0;
 
 /**
+ * Mass the full-halo mode adds to the central's hot reservoir per call, from the
+ * optional TestRateFaultsAddedMass; negative when absent, which the full-halo mode
+ * refuses, so a rate-mode configuration needs no value.
+ */
+static double added_mass = -1.0;
+
+/**
  * @brief   Initialize the faults fixture
  *
  * Reads the two required parameters; refuses an unknown law name and a rate that
@@ -85,6 +97,17 @@ int test_rate_faults_init(void) {
   }
   fault_law = (enum FaultLaw)found;
   impure_calls = 0;
+
+  /* Optional: check presence first, since model_get_double() treats a missing
+   * parameter as an error. */
+  added_mass = -1.0;
+  if (model_has_param("TestRateFaultsAddedMass")) {
+    LOAD_PARAM_DOUBLE("TestRateFaultsAddedMass", added_mass);
+    if (!isfinite(added_mass) || added_mass <= 0.0) {
+      ERROR_LOG("TestRateFaultsAddedMass must be finite and positive (got %g)", added_mass);
+      return -1;
+    }
+  }
 
   INFO_LOG("Test rate faults fixture initialized (law %s, rate %g)", fault_law_names[fault_law],
            fault_rate);
@@ -126,6 +149,28 @@ int test_rate_faults_rates(const struct RateContext *ctx, const struct Halo *hal
     break;
   }
   coefficients[TEST_RATE_FAULTS_TRANSFER_FAULT] = coefficient;
+  return 0;
+}
+
+/**
+ * @brief   Add mass to the central's hot reservoir without declaring it (full-halo mode)
+ *
+ * @param   ctx    Module context: the FoF central is row ctx->central_index
+ * @param   halos  The FoF workspace's rows
+ * @param   ngal   Number of rows
+ * @return  0 on success; -1 when TestRateFaultsAddedMass was not given
+ */
+int test_rate_faults_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  if (added_mass <= 0.0) {
+    ERROR_LOG("test_rate_faults in process_full_halo needs TestRateFaultsAddedMass under "
+              "modules.parameters");
+    return -1;
+  }
+  const int c = ctx->central_index;
+  if (halos == NULL || c < 0 || c >= ngal || halos[c].galaxy == NULL || halos[c].Type == 3) {
+    return 0; /* no active central to add to */
+  }
+  halos[c].galaxy->RateFixtureHot += added_mass;
   return 0;
 }
 

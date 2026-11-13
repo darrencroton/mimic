@@ -871,6 +871,25 @@ struct Module {
    * it is given a non-NULL central (see struct RateContext).
    */
   bool reads_central;
+
+  /* ===== Discrete-phase ledger (generated from module_info.yaml changes_totals) ===== */
+
+  /**
+   * @brief Conserved totals this module's discrete callbacks may change (NULL if none)
+   *
+   * Points to a generated table of the total names the module lists in
+   * `changes_totals`. Read only when a rate phase is configured: the core then
+   * sums each conserved total over the FoF workspace's active rows around every
+   * dispatch unit of a discrete phase, and a change the unit's declarations do
+   * not cover is fatal (module_registry.h, "Discrete-phase ledger"). Each name is
+   * resolved against the generated reservoir table at startup.
+   */
+  const char *const *changes_totals;
+
+  /**
+   * @brief Length of changes_totals (0 if the module declares none)
+   */
+  int num_changes_totals;
 };
 
 #endif // MODULE_INTERFACE_H

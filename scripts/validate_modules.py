@@ -19,7 +19,9 @@ The ``rates:`` declaration of a ``process_rates`` module is checked by the rules
 scripts/module_modes.py (rate_metadata_errors()), which the registry generator shares.
 Its cross-module rules (a slaved source's master and the order of the conserved
 totals) always run over every discovered module, so validating one module path still
-resolves a master declared by another module.
+resolves a master declared by another module. The same rules check
+``changes_totals``, the conserved totals a discrete module declares it may change,
+against the totals the galaxy properties declare.
 
 Exit codes:
     0 - All validations passed
@@ -750,14 +752,14 @@ def validate_rate_declarations(
     results: ValidationResults,
     report_only: Optional[set] = None,
 ) -> bool:
-    """Validate every module's rates: declaration against the property metadata.
+    """Validate every module's rates: and changes_totals declarations against the properties.
 
     The rules live in rate_metadata_errors() in scripts/module_modes.py, which the
     registry generator also uses, so the two tools refuse the same metadata. They
     run over every module passed, because a slaved source's master and the order
     of the conserved totals span modules. A malformed declaration is a schema
-    error (exit code 1); a reference to an unknown property or to an undeclared
-    transfer is a dependency error (exit code 3).
+    error (exit code 1); a reference to an unknown property, an undeclared
+    transfer or an undeclared total is a dependency error (exit code 3).
 
     Args:
         modules: (module directory, metadata) pairs, every discovered module.
