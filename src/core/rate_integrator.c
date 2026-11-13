@@ -1063,8 +1063,10 @@ static enum AttemptResult attempt_step(struct Integration *in, double tau, doubl
  * closure tolerance's (L + 2) N_acc terms; the per-total sums are formed once at
  * segment end (sum_external_amounts()). Each observer adds its flux's committed
  * amount, the number that moved (zero for a flux whose two ends are one entry,
- * attempt_step()). With tracers present, each entry's inflow
- * amounts accumulate the same way for the tracer bound's throughput.
+ * attempt_step()); under the implicit scheme implicit_attempt() has already
+ * put that sum in the trial, where its trial-end law evaluation reads it, so it
+ * is not added again. With tracers present, each entry's inflow amounts
+ * accumulate the same way for the tracer bound's throughput.
  */
 static void commit_step(struct Integration *in) {
   const struct RateComponent *c = in->c;
@@ -1084,7 +1086,9 @@ static void commit_step(struct Integration *in) {
   for (int i = 0; i < c->num_entries; i++) {
     const struct RateEntry *entry = &c->entries[i];
     if (entry->kind == RATE_ENTRY_OBSERVER) {
-      s->x[i] += s->amount[entry->flux];
+      if (in->settings->scheme != RATE_SCHEME_IMPLICIT) {
+        s->x[i] += s->amount[entry->flux];
+      }
     } else if (in->num_tracers > 0) {
       double inflow = 0.0;
       for (int k = s->in_start[i]; k < s->in_start[i + 1]; k++) {
@@ -1132,10 +1136,14 @@ static void count_rejection(struct Integration *in, enum AttemptResult result) {
  * w0_i = absolute_tolerance * S + relative_tolerance * |x0_i|, S the entry's row
  * sum of its total floored at 1e-12 of the component's (rate_integrator.h,
  * Error control); d0 = max |x0_i| / w0_i and d1 = max |F0_i| / w0_i, F0 the net
- * rate from the stage-1 rates s.phi[0] (kept in s.net0), over entries with a
- * positive weight. Observers get weight zero.
+ * rate from the stage-1 rates s.phi[0] (kept in s.net0). An entry is left out,
+ * with weight zero here, when its weight is zero, when it is an observer, or
+ * (owner decision S7-D2) when its own row's sum of its total (its parent's,
+ * for a tracer) is zero: the floored scale would give it a weight near 1e-12
+ * of the component's and a first step far below the minimum, so the error
+ * control governs it from the first step through the trial-end scale instead.
  *
- * @return  1 when some entry has a positive weight, else 0 (d0 and d1 are then 0)
+ * @return  1 when some entry is left in, else 0 (d0 and d1 are then 0)
  */
 static int start_weights(struct Integration *in, double *start_weight, double *d0, double *d1) {
   const struct RateComponent *c = in->c;
@@ -1155,6 +1163,10 @@ static int start_weights(struct Integration *in, double *start_weight, double *d
     }
     const int t = scale_total(c, i);
     const size_t g = (size_t)c->entries[i].row * (size_t)c->num_totals + (size_t)t;
+    if (!(s->group_start[g] > 0.0)) {
+      start_weight[i] = 0.0; /* an empty row of its total: left out (S7-D2) */
+      continue;
+    }
     const double scale = fmax(s->group_start[g], SCALE_FLOOR * s->total_start[t]);
     start_weight[i] = atol * scale + rtol * fabs(s->x[i]);
     if (start_weight[i] > 0.0) {
@@ -1169,10 +1181,10 @@ static int start_weights(struct Integration *in, double *start_weight, double *d
 /**
  * @brief   The first step (Hairer and Wanner, adapted to the norm and the cap)
  *
- * Uses the stage-1 rates already evaluated at the segment start. Entries whose
- * start weight is zero are left out; when all are, the step is min(1, cap) with
- * no probe. Otherwise one forward-Euler probe, non-negative under the cap
- * sigma / K_max, costs one extra law evaluation.
+ * Uses the stage-1 rates already evaluated at the segment start. Entries are
+ * left out as start_weights() states (zero weight, or an empty row of their
+ * total by S7-D2); when all are, the step is min(1, cap) with no probe. Otherwise one forward-Euler
+ * probe, non-negative under the cap sigma / K_max, costs one extra law evaluation.
  */
 static enum RateCause first_step(struct Integration *in, double *step) {
   const struct RateComponent *c = in->c;
@@ -1799,8 +1811,10 @@ static enum RateCause evaluate_trial(struct Integration *in, double tau, double 
 /**
  * @brief   Attempt one implicit step of length @p step from the accepted state at @p tau
  *
- * On acceptance s.trial holds the end state and s.amount the committed amounts.
- * With @p adaptive the laws are evaluated at the trial end and the filtered
+ * On acceptance s.trial holds the end state, observers included at their
+ * committed values, and s.amount the committed amounts, so the trial end the
+ * laws are evaluated at is exactly the state the next step starts from. With
+ * @p adaptive the laws are evaluated at the trial end and the filtered
  * estimate M^-1 (dt/2) (F(x_{n+1}) - F(x_n)) is weighed: @p norm and
  * @p min_weight are written then, and left negative otherwise. A solved entry
  * that is not finite and non-negative (an overflow) rejects the attempt
@@ -1820,7 +1834,9 @@ static enum AttemptResult implicit_attempt(struct Integration *in, double tau, d
   int bad = -1;
   for (int i = 0; i < c->num_entries; i++) {
     if (c->entries[i].kind == RATE_ENTRY_OBSERVER) {
-      s->trial[i] = s->x[i]; /* commit_step() adds the observed amount */
+      /* The committed value, as the trial-end law evaluation must see it; commit_step() keeps it.
+       */
+      s->trial[i] = s->x[i] + s->amount[c->entries[i].flux];
     } else if (bad < 0 && (!(s->trial[i] >= 0.0) || isinf(s->trial[i]))) {
       bad = i;
     }
@@ -1849,8 +1865,8 @@ static enum AttemptResult implicit_attempt(struct Integration *in, double tau, d
 /**
  * @brief   The implicit first step: h0 of the explicit rule, with no probe and no cap
  *
- * 1 when no entry has a positive start weight, or when d0 or d1 is below 1e-5;
- * otherwise min(1, 0.01 d0 / d1).
+ * 1 when start_weights() leaves every entry out, or when d0 or d1 is below
+ * 1e-5; otherwise min(1, 0.01 d0 / d1).
  */
 static double implicit_first_step(struct Integration *in) {
   double d0;
