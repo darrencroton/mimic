@@ -34,15 +34,15 @@ Timing conditions: nothing of this slice's ran beside a timing. The machine was 
 
 ## Commands and exit codes
 
-Run one at a time on `2d34a8e2`, each followed by `make generate && make` for the default pair (`sage16`, `mini-millennium`), which is not a gate and also exited 0 every time. Elapsed times are wall clock on the machine above, with warm caches.
+Run one at a time on `2d34a8e2`, with `make generate && make` for the default pair (`sage16`, `mini-millennium`) run once after the five `make tests` runs, once after the 50-pair check and once after each of the eight later gates; those restores are not gates and each exited 0. Elapsed times are wall clock on the machine above, with warm caches.
 
 | Command | Exit | Key lines |
 |---|---|---|
-| `make MODEL=sage16 SIMULATION=mini-millennium tests` | 0 | unit 53 passed; scientific passed=114 failed=0 skipped=0 n/a=0 warned=1; `ALL TESTS AND CHECKS PASSED`; 151 s |
-| `make MODEL=sage26 SIMULATION=mini-millennium tests` | 0 | unit 217 passed; scientific passed=273 failed=0 skipped=0 warned=1; 193 s |
-| `make MODEL=halos-only SIMULATION=mini-millennium tests` | 0 | scientific passed=46 failed=0 skipped=0 warned=1; 120 s |
-| `make MODEL=hod SIMULATION=mini-millennium tests` | 0 | scientific passed=46 failed=0 skipped=0 warned=1; 119 s |
-| `make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal tests` | 0 | scientific passed=56 failed=0 skipped=0 warned=1; 3,112,152 galaxies bitwise identical in 42 fields across 8 snapshots in its cross-format gate; 468 s |
+| `make MODEL=sage16 SIMULATION=mini-millennium tests` | 0 | unit passed=540 failed=0 skipped=0 n/a=27; integration passed=209 failed=0 skipped=0 n/a=12; scientific passed=114 failed=0 skipped=0 n/a=0 warned=1; `ALL TESTS AND CHECKS PASSED`; 151 s |
+| `make MODEL=sage26 SIMULATION=mini-millennium tests` | 0 | unit passed=718 failed=0 skipped=0 n/a=27; integration passed=224 failed=0 skipped=0 n/a=14; scientific passed=273 failed=0 skipped=0 n/a=0 warned=1; 193 s |
+| `make MODEL=halos-only SIMULATION=mini-millennium tests` | 0 | unit passed=424 failed=0 skipped=0 n/a=27; integration passed=184 failed=0 skipped=0 n/a=14; scientific passed=46 failed=0 skipped=0 n/a=0 warned=1; 120 s |
+| `make MODEL=hod SIMULATION=mini-millennium tests` | 0 | unit passed=449 failed=0 skipped=0 n/a=27; integration passed=183 failed=0 skipped=0 n/a=20; scientific passed=46 failed=0 skipped=0 n/a=0 warned=1; 119 s |
+| `make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal tests` | 0 | unit passed=416 failed=0 skipped=0 n/a=30; integration passed=172 failed=0 skipped=0 n/a=20; scientific passed=56 failed=0 skipped=0 n/a=0 warned=1; 3,112,152 galaxies bitwise identical in 42 fields across 8 snapshots in its cross-format gate; 468 s |
 | `make MODEL=<m> SIMULATION=<s> generate && make MODEL=<m> SIMULATION=<s> check-generated`, production mode, for each of the 50 distinct pairs of the 51 run files under `models/*/input/` | 50 of 50 exit 0 | pair list `pairs.txt`, per-pair exits `check-generated-pairs.exits`; the default pair restored afterwards (exit 0) |
 | `make tests-reference-identity REFERENCE_COMMIT=39a8d28e` | 0 | 11 passed, 0 failed; every leg's only schema difference is `metadata/output_schema.json: source_md5 build provenance only` (8 legs: `{halos-only, sage16} × {vertical, horizontal} × {fixed, dynamic}`), 0 galaxy differences, 0 errors; 38 s |
 | `make tests-distributed` | 0 | 264 checks, 4 models at `-np 1, 2, 3, 4, 8`, chunked legs, chunked refusals; no skips; 34 s |
@@ -79,7 +79,7 @@ The standing checks, run on the final tree of the slice: `./scripts/beautify.sh`
 | Workspace bytes per galaxy, 10,000 against 1,000 | explicit | 0.9997 | within 10% | passed |
 | Workspace bytes per galaxy, 10,000 against 1,000 | implicit | 0.9996 | within 10% | passed |
 
-Reading the table: work is linear in galaxies for both schemes (the per-galaxy per-evaluation time rises by 12% and 8% over two decades of size, the rise coming between 100 and 1,000 satellites; its cause was not investigated). The 10-satellite explicit row's maximum (40 ns) is one outlying repeat of the 10-satellite explicit star, whose segment takes tens of microseconds, not a trend. The implicit scheme takes about nine times the accepted steps of the explicit scheme at equal tolerances (263 against 29; first order against third) and, per law evaluation, about four times the integrator time, so its segment costs about nine times the explicit one's here (263 × 54 ns against 117 × 13 ns per galaxy); the scheme is never the default. The step counts are a property of this star at the default tolerances, not of the fixture's production use. Two earlier runs of the same driver (before the gates; not the table above) gave median ratios of 1.088 and 1.121 (explicit) and 1.029 and 1.040 (implicit), so across three runs the ratios spread by about 0.03 (explicit) and 0.06 (implicit).
+Reading the table: work is linear in galaxies for both schemes (the per-galaxy per-evaluation time rises by 12% and 8% over two decades of size, for the explicit scheme the rise comes between 100 and 1,000 satellites, for the implicit scheme it is split across both decades; its cause was not investigated). The 10-satellite explicit row's maximum (40 ns) is one outlying repeat of the 10-satellite explicit star, whose segment takes tens of microseconds, not a trend. The implicit scheme takes about nine times the accepted steps of the explicit scheme at equal tolerances (263 against 29; first order against third) and, per law evaluation, about four times the integrator time, so its segment costs about nine times the explicit one's here (264 × 54 ns against 117 × 13 ns per galaxy, law evaluations times time per evaluation); the scheme is never the default. The step counts are a property of this star at the default tolerances, not of the fixture's production use. Two earlier runs of the same driver (before the gates; not the table above) gave median ratios of 1.088 and 1.121 (explicit) and 1.029 and 1.040 (implicit), so across three runs the ratios spread by about 0.03 (explicit) and 0.06 (implicit).
 
 ## Cost, real dispatch
 
