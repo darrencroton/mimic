@@ -51,8 +51,11 @@ The legs:
     The same fixture with ``test_fixture`` creating records in ``pre_timestep``, ahead of the
     rate phase: a serial run must complete with created rows, and ``-np 1, 2, 3, 4, 8`` must
     match it through the comparator with ``--compare-created`` (both sides must report created
-    rows), in row order and in step statistics. One driver only: a created record's
-    ``UniqueGalaxyID`` differs between drivers.
+    rows), in row order and in step statistics. The created rows hold zero fixture content (no
+    fixture law acts on them), so the leg proves the rate pass runs clean and identically with
+    created rows present, not that their content is ordered or written back; the number of
+    created rows carrying non-zero fixture state is printed, not asserted. One driver only: a
+    created record's ``UniqueGalaxyID`` differs between drivers.
 
 Every leg first asserts that the seven fixture properties (``RateFixture*``) are finite,
 non-negative and non-zero in some rows of its reference output, so no comparison is made over
@@ -534,10 +537,23 @@ class Battery:
 
     def check_created_rows(self, key: str, config: dict) -> None:
         """The serial reference holds created rows (UniqueGalaxyID < 0), so the created-record
-        path is never compared vacuously."""
+        path is never compared vacuously. Also prints how many created rows carry non-zero
+        fixture state: no fixture law acts on a created row, so that is reported, not asserted."""
         base = config["output"]["output_filename"]
         rows = [table for _, _, table in galaxy_tables(self.references[key], base)]
         created = sum(int(np.count_nonzero(table["UniqueGalaxyID"] < 0)) for table in rows)
+        with_state = 0
+        for table in rows:
+            made = table[table["UniqueGalaxyID"] < 0]
+            nonzero = np.zeros(len(made), dtype=bool)
+            for field in FIXTURE_FIELDS:
+                nonzero |= made[field] != 0.0
+            with_state += int(np.count_nonzero(nonzero))
+        print(
+            f"  created rows in the {key} reference: {created}, {with_state} with non-zero "
+            "fixture state",
+            flush=True,
+        )
         self.marker(created > 0, f"created_rows_{key}", f"{created} created rows in the reference")
 
     def chunked_serial(self, config: dict) -> None:
@@ -872,15 +888,16 @@ def main(argv=None) -> int:
             print(f"  {failure}")
         return 1
     summary = ", ".join(f"{leg} {battery.cases[leg]} cases" for leg in legs)
-    if legs not in (LEGS, OFFLINE_LEGS):
+    if args.only:
         print(
             f"PARTIAL: tests-rate (legs {', '.join(legs)} only; {battery.passes} checks passed, "
             f"but a filtered run is not the gate; log: {LOG_PATH})"
         )
         return 3
+    mode = " --offline (cross-driver leg not run)" if args.offline else ""
     print(
-        f"PASS: tests-rate ({battery.passes} checks over {summary}; every leg asserted non-zero "
-        f"fixture properties; no skips; log: {LOG_PATH})"
+        f"PASS: tests-rate{mode} ({battery.passes} checks over {summary}; every leg asserted "
+        f"non-zero fixture properties; no skips; log: {LOG_PATH})"
     )
     return 0
 
