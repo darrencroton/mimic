@@ -5,7 +5,7 @@ Run the rate battery: the rate mode's identity legs across drivers, tasks, chunk
 Usage::
 
     MODEL=<caller model> SIMULATION=<caller simulation> [MPIRUN="mpirun --oversubscribe"] \\
-        python tests/manual/run_rate_battery.py [--offline | --only LEG ...]
+        python tests/manual/run_rate_battery.py [--offline | --only LEG ... | --cost]
 
 ``make tests-rate`` runs every leg. ``make tests-rate RATE_BATTERY_ARGS=--offline`` runs the legs
 that need no external data (CI's step). ``--only`` (repeatable) is a development aid: a filtered
@@ -13,6 +13,14 @@ run is not the gate, so it ends with a ``PARTIAL:`` summary and exit status 3 ev
 check it ran passed. ``MPIRUN`` is the launcher command (default ``mpirun``; CI uses ``mpirun
 --oversubscribe``), split with shell quoting rules and given ``-np <N>``. Needs Open MPI (or
 another MPI whose ``mpicc``/``mpirun`` are on PATH), HDF5 and libyaml.
+
+``--cost`` runs no leg: it compiles ``tests/manual/rate_cost.c``, the manual cost driver that
+times hand-built stars of 10, 100, 1,000 and 10,000 satellites through the integrator alone under
+each scheme, against an explicit source list (the integrator and the error module; no Makefile
+rule), and runs it from the repository root. It prints the driver's table and verdicts and exits
+with the driver's status (0 when every cost bound held, 1 when one missed or a segment failed).
+It builds and restores nothing else, and its timings mean something only on a machine doing
+nothing else.
 
 Every leg runs ``halos-only`` with the four rate fixtures (``test_rate_supply``,
 ``test_rate_formation``, ``test_rate_feedback``, ``test_rate_stripping``) in one rate phase and
@@ -106,6 +114,14 @@ HORIZONTAL_SIMULATION = distributed.SIMULATION  # the package holding the forest
 RATE_RUN_FILE = "forest_blocks_rate.yaml"
 WORK_ROOT = REPO_ROOT / "output" / "rate-battery"
 LOG_PATH = REPO_ROOT / "build" / "rate_tests.log"
+COST_SOURCE = Path("tests") / "manual" / "rate_cost.c"
+COST_BINARY = REPO_ROOT / "build" / "rate_cost"
+# The units the cost driver links: the integrator under test and the error module it reports
+# through; the driver itself defines the few globals main.c and allvars.c would.
+COST_SOURCES = (Path("src") / "core" / "rate_integrator.c", Path("src") / "util" / "error.c")
+COST_INCLUDES = ("src", "src/include", "src/include/generated", "src/util", "src/core")
+COST_COMPILE_TIMEOUT = 300
+COST_RUN_TIMEOUT = 600
 COMPARATOR = distributed.COMPARATOR
 
 RATE_PHASE = "rates"
@@ -853,12 +869,46 @@ def raise_on_signal(signum, _frame):
     raise SystemExit(128 + signum)
 
 
+def run_cost() -> int:
+    """Compile the cost driver against its explicit source list and run it; its exit status.
+
+    The compile uses the Makefile's optimisation and the house warning set; the driver's output
+    goes straight to the terminal.
+    """
+    COST_BINARY.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [os.environ.get("CC", "cc"), "-O2", *distributed.HOUSE_WARNINGS]
+    cmd += [f"-I{path}" for path in COST_INCLUDES]
+    cmd += [str(COST_SOURCE), *map(str, COST_SOURCES), "-lm", "-o", str(COST_BINARY)]
+    print(f"$ {shlex.join(cmd)}", flush=True)
+    try:
+        status = subprocess.run(cmd, cwd=REPO_ROOT, timeout=COST_COMPILE_TIMEOUT).returncode
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"FAIL: could not compile the cost driver: {error}")
+        return 1
+    if status != 0:
+        print(f"FAIL: compiling the cost driver exited {status}")
+        return 1
+    print(f"$ {COST_BINARY}", flush=True)
+    try:
+        return subprocess.run(
+            [str(COST_BINARY)], cwd=REPO_ROOT, timeout=COST_RUN_TIMEOUT
+        ).returncode
+    except subprocess.TimeoutExpired:
+        print(f"FAIL: the cost driver timed out after {COST_RUN_TIMEOUT} s")
+        return 1
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--only", choices=LEGS, action="append")
     group.add_argument("--offline", action="store_true", help="the legs needing no external data")
+    group.add_argument(
+        "--cost", action="store_true", help="compile and run the integrator cost driver only"
+    )
     args = parser.parse_args(argv)
+    if args.cost:
+        return run_cost()
     legs = (
         OFFLINE_LEGS
         if args.offline
