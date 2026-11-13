@@ -27,6 +27,15 @@
 /* Upper bound on SubSteps, MinDynamicSubsteps and MaxDynamicSubsteps; fails fast on nonsense */
 #define MAX_SUBSTEPS_PER_SNAPSHOT 100000
 
+/* Defaults of the run-file section modules.rate_integration (read_parameter_file.c), applied
+ * whenever a rate phase is configured and the section omits a key. Equal to the rate
+ * integrator's own defaults (rate_integrator_default_settings(), rate_integrator.h). */
+#define RATE_INTEGRATION_DEFAULT_SCHEME 0 /* enum RateScheme: RATE_SCHEME_EXPLICIT */
+#define RATE_INTEGRATION_DEFAULT_RELATIVE_TOLERANCE 1e-4
+#define RATE_INTEGRATION_DEFAULT_ABSOLUTE_TOLERANCE 1e-7
+#define RATE_INTEGRATION_DEFAULT_MAX_STEPS_PER_SEGMENT 100000
+#define RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP 30
+
 /* Cosmological constants */
 #define INITIAL_REDSHIFT 1000.0 /* Recombination era (CMB formation) */
 

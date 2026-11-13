@@ -28,6 +28,7 @@
 #include "memory.h"          /* For mymalloc_cat, myfree */
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
+#include "rate_integrator.h" /* enum RateScheme (values only; nothing here calls the integrator) */
 #include "horizontal/reader.h"            /* horizontal_reader_lookup, struct HorizontalReader */
 #include "vertical/forest_distribution.h" /* forest_distribution_scheme_from_string */
 #include "vertical/reader.h"              /* vertical_reader_lookup, struct VerticalReader */
@@ -1178,9 +1179,9 @@ static void format_processing_mode_names(char *buffer, size_t size) {
  * (processing_mode_from_string(), processing_modes.c), so the parser keeps no
  * name list of its own. Whether a mode is legal in its phase (FoF modes in
  * pre_timestep, the named substep phases and post_timestep; only
- * process_snapshot in post_snapshot; process_rates in no phase yet, so it parses
- * here and every phase refuses it) and whether the module supports it are
- * checked by module_system_init(), before any module init().
+ * process_snapshot in post_snapshot; process_rates only in one named substep
+ * phase whose entries are all process_rates) and whether the module supports
+ * it are checked by module_system_init(), before any module init().
  *
  * @param   doc         YAML document
  * @param   phase_node  Node for this phase (sequence of module:loop pairs)
@@ -1318,7 +1319,7 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
  */
 static int phase_name_is_reserved(const char *name) {
   static const char *reserved[] = {"pre_timestep", "post_timestep", POST_SNAPSHOT_PHASE_NAME,
-                                   "parameters", "phases"};
+                                   "parameters",   "phases",        "rate_integration"};
   for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
     if (strcmp(name, reserved[i]) == 0) {
       return 1;
@@ -1364,10 +1365,118 @@ static void add_substep_phase(yaml_document_t *doc, const char *name, yaml_node_
   MimicConfig.num_substep_phases++;
 }
 
+/** @brief Whether some phase under modules.phases has a process_rates entry */
+static int substep_phase_runs_rates(void) {
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    for (int i = 0; i < phase->num_modules; i++) {
+      if (phase->modules[i].processing_mode == PROCESSING_MODE_RATES) {
+        return 1;
+      }
+    }
+  }
+  return 0;
+}
+
+/**
+ * @brief   Read the rate phase's settings, modules.rate_integration
+ *
+ * The section is a mapping of five optional keys; a key it omits keeps its
+ * default (constants.h), and an absent or null section keeps them all. It is
+ * refused, naming the key, when it has an unknown key or a value out of range,
+ * and refused as a whole when no phase under modules.phases runs process_rates,
+ * since nothing would read it. Fatal on any refusal, before any module init().
+ *
+ * - scheme: explicit (the default) or implicit, case-insensitive
+ * - relative_tolerance, absolute_tolerance: finite numbers in (0, 1)
+ * - max_steps_per_segment: an integer >= 1 (attempts per segment)
+ * - max_rejections_per_step: an integer >= 1 (consecutive rejections of one step)
+ */
+static void parse_rate_integration_section(yaml_document_t *doc, yaml_node_t *section) {
+  static const char *const valid_keys[] = {"scheme", "relative_tolerance", "absolute_tolerance",
+                                           "max_steps_per_segment", "max_rejections_per_step"};
+  struct MimicRateIntegration *rate = &MimicConfig.RateIntegration;
+
+  if (section->type != YAML_MAPPING_NODE) {
+    FATAL_ERROR("modules.rate_integration must be a mapping of its keys (scheme, "
+                "relative_tolerance, absolute_tolerance, max_steps_per_segment, "
+                "max_rejections_per_step)");
+  }
+  reject_unknown_keys(doc, section, "modules.rate_integration", valid_keys,
+                      sizeof(valid_keys) / sizeof(valid_keys[0]));
+  if (!substep_phase_runs_rates()) {
+    FATAL_ERROR("modules.rate_integration is set, but no phase under modules.phases runs "
+                "process_rates; configure a rate phase or remove the section");
+  }
+
+  yaml_node_t *node = get_mapping_value(doc, section, "scheme");
+  if (node != NULL) {
+    const char *value = get_scalar_value(node);
+    if (value == NULL) {
+      FATAL_ERROR("modules.rate_integration.scheme must be a scalar string (explicit or implicit)");
+    }
+    if (strcasecmp(value, "explicit") == 0) {
+      rate->scheme = RATE_SCHEME_EXPLICIT;
+    } else if (strcasecmp(value, "implicit") == 0) {
+      rate->scheme = RATE_SCHEME_IMPLICIT;
+    } else {
+      FATAL_ERROR("Unknown modules.rate_integration.scheme '%s'. Valid values are explicit, "
+                  "implicit.",
+                  value);
+    }
+  }
+
+  const char *const tolerance_keys[] = {"relative_tolerance", "absolute_tolerance"};
+  double *const tolerances[] = {&rate->relative_tolerance, &rate->absolute_tolerance};
+  for (size_t k = 0; k < 2; k++) {
+    char field[64];
+    snprintf(field, sizeof(field), "modules.rate_integration.%s", tolerance_keys[k]);
+    node = get_mapping_value(doc, section, tolerance_keys[k]);
+    if (node == NULL) {
+      continue;
+    }
+    const double value = get_strict_double_value(node, field);
+    if (!(value > 0.0 && value < 1.0)) {
+      FATAL_ERROR("%s must lie in (0, 1), got %g", field, value);
+    }
+    *tolerances[k] = value;
+  }
+
+  node = get_mapping_value(doc, section, "max_steps_per_segment");
+  if (node != NULL) {
+    const int64_t value =
+        get_strict_int64_value(node, "modules.rate_integration.max_steps_per_segment");
+    if (value < 1) {
+      FATAL_ERROR("modules.rate_integration.max_steps_per_segment must be >= 1, got %" PRId64,
+                  value);
+    }
+    rate->max_steps_per_segment = value;
+  }
+
+  node = get_mapping_value(doc, section, "max_rejections_per_step");
+  if (node != NULL) {
+    const int value =
+        get_strict_int_value(node, "modules.rate_integration.max_rejections_per_step");
+    if (value < 1) {
+      FATAL_ERROR("modules.rate_integration.max_rejections_per_step must be >= 1, got %d", value);
+    }
+    rate->max_rejections_per_step = value;
+  }
+}
+
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node, *parameters;
 
   DEBUG_LOG("Parsing multi-phase modules section");
+
+  /* Rate phase settings start from their defaults on every parse, so a second
+   * parse in one process (every core unit test) does not inherit the first's. */
+  MimicConfig.RateIntegration = (struct MimicRateIntegration){
+      .scheme = RATE_INTEGRATION_DEFAULT_SCHEME,
+      .relative_tolerance = RATE_INTEGRATION_DEFAULT_RELATIVE_TOLERANCE,
+      .absolute_tolerance = RATE_INTEGRATION_DEFAULT_ABSOLUTE_TOLERANCE,
+      .max_steps_per_segment = RATE_INTEGRATION_DEFAULT_MAX_STEPS_PER_SEGMENT,
+      .max_rejections_per_step = RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP};
 
   /* Initialize phase configurations to NULL/0 */
   MimicConfig.pre_timestep = NULL;
@@ -1414,9 +1523,9 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
     }
     if (strcmp(key_name, "pre_timestep") != 0 && strcmp(key_name, "post_timestep") != 0 &&
         strcmp(key_name, POST_SNAPSHOT_PHASE_NAME) != 0 && strcmp(key_name, "phases") != 0 &&
-        strcmp(key_name, "parameters") != 0) {
+        strcmp(key_name, "parameters") != 0 && strcmp(key_name, "rate_integration") != 0) {
       FATAL_ERROR("Unknown key 'modules.%s'; supported keys are pre_timestep, "
-                  "phases, post_timestep, post_snapshot, parameters",
+                  "phases, post_timestep, post_snapshot, rate_integration, parameters",
                   key_name);
     }
   }
@@ -1442,6 +1551,13 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
       yaml_node_t *value = yaml_document_get_node(doc, pair->value);
       add_substep_phase(doc, get_scalar_value(key), value);
     }
+  }
+
+  /* The rate phase's settings, read once the phases are known: an absent or null
+   * section keeps the defaults seeded above. */
+  yaml_node_t *rate_node = get_mapping_value(doc, section, "rate_integration");
+  if (rate_node != NULL && !is_yaml_null(rate_node)) {
+    parse_rate_integration_section(doc, rate_node);
   }
 
   /* Release the unused array in physics-free / no-middle-phase runs so cleanup

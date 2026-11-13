@@ -2,15 +2,17 @@
  * @file    test_rate_mode_contract.c
  * @brief   Unit tests for the declared rate mode (process_rates) and its callback family
  *
- * The mode is declared but not yet dispatched, so these tests pin what exists:
+ * These tests pin the mode's declaration and placement; the rate phase's
+ * dispatch is tested by test_rate_dispatch.c:
  * - Registration of hand-built modules: a module advertising process_rates with a
  *   NULL rates callback is fatal (a callback of another family does not satisfy
  *   it), a module with the callback registers, and a FoF mode that lacks its own
  *   process callback stays fatal even when the rates callback is present
  * - The rate mode in the C mode table: its name, family and parsing
- * - Startup refusal of process_rates in every phase kind (pre_timestep, a named
- *   substep phase, post_timestep and post_snapshot) before any init(), with a
- *   diagnostic naming the phase and the module
+ * - Placement: process_rates is refused in pre_timestep, post_timestep and
+ *   post_snapshot, and for a module that does not advertise it, before any
+ *   init() with a diagnostic naming the phase and the module; a named substep
+ *   phase holding only process_rates entries (the rate phase) is accepted
  * - struct RateContext as a module sees it: the evaluation's own time, a NULL
  *   central for a module that did not declare reads_central, and no solver state
  * - Generated registration of the four rate fixtures: register_all_modules()
@@ -315,18 +317,50 @@ static void placement_case_body(const char *unused) {
 }
 
 /**
- * @test    test_rate_mode_refused_in_every_phase
- * @brief   process_rates in pre_timestep, a named substep phase, post_timestep or
- *          post_snapshot is refused at startup, before any init(), naming the
- *          phase and the module
+ * @brief   Child body: the placement of current_case initialises, and every init() ran
+ *
+ * Exits 2 when module_system_init() refuses the configuration or skips an
+ * init(); returns (exit 0) otherwise.
  */
-int test_rate_mode_refused_in_every_phase(void) {
+static void accepted_placement_body(const char *unused) {
+  (void)unused;
+  static struct Module rate_module = {.name = "rate_probe",
+                                      .init = probe_init,
+                                      .cleanup = probe_cleanup,
+                                      .rates = rate_probe_rates,
+                                      .supported_processing_modes = rates_only_modes,
+                                      .num_supported_modes = 1};
+  reset_config();
+  init_memory_system(0);
+  module_registry_add(&rate_module);
+  MimicConfig.SubSteps = 1;
+  MimicConfig.RateIntegration = (struct MimicRateIntegration){
+      .scheme = RATE_INTEGRATION_DEFAULT_SCHEME,
+      .relative_tolerance = RATE_INTEGRATION_DEFAULT_RELATIVE_TOLERANCE,
+      .absolute_tolerance = RATE_INTEGRATION_DEFAULT_ABSOLUTE_TOLERANCE,
+      .max_steps_per_segment = RATE_INTEGRATION_DEFAULT_MAX_STEPS_PER_SEGMENT,
+      .max_rejections_per_step = RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP};
+  test_phase_add(current_case->phase, current_case->module, PROCESSING_MODE_RATES);
+  if (module_system_init() != 0 || init_calls != 1) {
+    fprintf(stderr, "rate phase '%s' refused or init() count %d\n", current_case->phase,
+            init_calls);
+    exit(2);
+  }
+  module_system_cleanup();
+}
+
+/**
+ * @test    test_rate_mode_placement
+ * @brief   process_rates outside a named substep phase, or for a module that does not
+ *          advertise it, is refused at startup, before any init(), naming the phase
+ *          and the module; a named substep phase of process_rates entries is accepted
+ */
+int test_rate_mode_placement(void) {
   static const struct PlacementCase cases[] = {
       {"pre_timestep", "rate_probe"},
-      {SUBSTEP_PHASE, "rate_probe"},
       {"post_timestep", "rate_probe"},
       {POST_SNAPSHOT_PHASE_NAME, "rate_probe"},
-      /* A module that does not advertise the mode is refused for the family, not the support. */
+      /* A module that does not advertise the mode is refused for the support. */
       {SUBSTEP_PHASE, "fof_control"},
   };
 
@@ -336,8 +370,13 @@ int test_rate_mode_refused_in_every_phase(void) {
     char module_needle[192];
     snprintf(phase_needle, sizeof(phase_needle), "Configuration error in phase '%s'",
              cases[i].phase);
-    snprintf(module_needle, sizeof(module_needle),
-             "Module '%s' is configured with processing mode 'process_rates'", cases[i].module);
+    if (strcmp(cases[i].module, "fof_control") == 0) {
+      snprintf(module_needle, sizeof(module_needle),
+               "Module '%s' does not support processing mode 'process_rates'", cases[i].module);
+    } else {
+      snprintf(module_needle, sizeof(module_needle),
+               "Module '%s' is configured with processing mode 'process_rates'", cases[i].module);
+    }
     current_case = &cases[i];
 
     /* ===== EXECUTE / VALIDATE ===== */
@@ -348,6 +387,12 @@ int test_rate_mode_refused_in_every_phase(void) {
     }
     TEST_ASSERT_EQUAL(ok, 1, "process_rates is refused before any init(), naming phase and module");
   }
+
+  /* ===== The rate phase itself: a named substep phase of process_rates entries ===== */
+  static const struct PlacementCase accepted = {SUBSTEP_PHASE, "rate_probe"};
+  current_case = &accepted;
+  TEST_ASSERT_EQUAL(expect_success(NULL, accepted_placement_body), 1,
+                    "a named substep phase holding only process_rates is accepted");
   return TEST_PASS;
 }
 
@@ -357,8 +402,8 @@ int test_rate_mode_refused_in_every_phase(void) {
  *
  * The context here is hand-built and the callback is the test's own, so this
  * exercises no core path: whether the central is NULL or non-NULL is the
- * caller's choice, and the core will make it (NULL unless the module declares
- * reads_central) only once a phase dispatches the mode. The Python mirror test
+ * caller's choice here; the core's choice (NULL unless the module declares
+ * reads_central) is tested by test_rate_dispatch.c. The Python mirror test
  * pins the field list, which carries no solver step, substep index or substep count.
  */
 int test_rate_context_as_a_module_sees_it(void) {
@@ -393,7 +438,7 @@ int main(void) {
 
   TEST_RUN(test_rate_mode_table_entry);
   TEST_RUN(test_rate_registration_requires_callback);
-  TEST_RUN(test_rate_mode_refused_in_every_phase);
+  TEST_RUN(test_rate_mode_placement);
   TEST_RUN(test_rate_context_as_a_module_sees_it);
   TEST_RUN(test_generated_rate_fixtures_register);
 

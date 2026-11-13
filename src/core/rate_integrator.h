@@ -28,10 +28,14 @@
  * bound on the unchanged state, where the bound is zero.
  *
  * Canonical order. Entries are processed in the order the caller lists them,
- * which the caller makes canonical. Fluxes are processed in the order of
- * (clock row, global transfer index), whatever order the caller lists them in,
- * so a permuted flux list gives a bit-identical result; a tracer move follows
- * its master transfer, tracer moves of one transfer in entry order.
+ * which the caller makes canonical; the implicit scheme needs each row's
+ * entries (observers included) listed together. Fluxes are processed in the
+ * order of (clock row, global transfer index), whatever order the caller lists
+ * them in, so a permuted flux list gives a bit-identical result; a tracer move
+ * follows its master transfer, tracer moves of one transfer in entry order.
+ * Fluxes that share a clock row and a global index (one transfer declared as a
+ * source into the central, evaluated on several rows) keep the caller's
+ * relative order, so the caller lists them canonically.
  *
  * Tracers. A tracer entry names its parent, a reservoir entry of the same row in
  * another total. Tracers move without declaration: for every internal transfer
@@ -234,7 +238,7 @@ struct RateEntry {
  * sink's donor, are reservoirs (tracers move without declaration). An internal
  * transfer whose two ends are the same entry moves nothing; its coefficient is
  * still evaluated and checked. `global_index` is the transfer's global index;
- * (clock row, global_index) must be unique within a component. `master` is read
+ * (clock row, global_index) orders the fluxes ("Canonical order"). `master` is read
  * for a slaved source only: the caller's index of its master, a declared
  * internal transfer or sink.
  */

@@ -244,6 +244,31 @@ modules:
 
 `post_snapshot` is optional and only the horizontal driver runs it; see [Snapshot-wide modules](#snapshot-wide-modules).
 
+`modules.rate_integration` is optional and sets how the rate phase is integrated. The rate phase is a phase under `modules.phases` whose entries are all `process_rates`; a run has at most one, and `process_rates` anywhere else (in `pre_timestep`, `post_timestep`, `post_snapshot`, or mixed with another mode in one phase) stops the run at startup. With a rate phase and no section, every key takes its default:
+
+```yaml
+modules:
+  phases:
+    rates:
+      - my_rate_module: process_rates
+  rate_integration:
+    scheme: explicit
+    relative_tolerance: 1.0e-4
+    absolute_tolerance: 1.0e-7
+    max_steps_per_segment: 100000
+    max_rejections_per_step: 30
+```
+
+| Key | Default | Allowed values | Meaning |
+|---|---|---|---|
+| `scheme` | `explicit` | `explicit` or `implicit` | `explicit`: third-order embedded Runge–Kutta with a positivity guard. `implicit`: first-order linearly implicit (Patankar–Euler); it integrates stiff systems in few steps but accepts an ill-posed law without complaint, so it is never the default |
+| `relative_tolerance` | `1e-4` | a number in (0, 1) | Error tolerance relative to each content |
+| `absolute_tolerance` | `1e-7` | a number in (0, 1) | Error tolerance relative to the galaxy's total of the conserved quantity |
+| `max_steps_per_segment` | `100000` | an integer of at least 1 | Steps one segment (one substep of one component) may attempt, accepted and rejected |
+| `max_rejections_per_step` | `30` | an integer of at least 1 | Consecutive rejections of one step before the segment fails |
+
+The section is refused at startup, naming the key, when it has an unknown key, a value outside its range, or no rate phase to apply to; `rate_integration` is also reserved as a `phases:` name. A segment that fails ends the run with a message naming the cause, the module and transfer, the galaxy and the segment time.
+
 `TimestepScheme` controls how `SubSteps` is interpreted. The default `fixed` scheme runs exactly `SubSteps` substeps per snapshot interval (`SubSteps` must be at least 1). The opt-in `dynamic` scheme treats `SubSteps` as the requested resolution per halo dynamical time, computes the central halo's `t_dyn = Rvir / Vvir`, and runs `ceil(deltaT * SubSteps / t_dyn)` substeps clamped to at least `MinDynamicSubsteps` (optional top-level key, default 1, a floor that also applies to a degenerate interval) and at most `MaxDynamicSubsteps` (optional top-level key, default 200) — a safety ceiling against pathological snapshot spacing, not a resolution target, so raise it only if it is clipping the redshift range you care about. `SubSteps`, `MinDynamicSubsteps` and `MaxDynamicSubsteps` must each be between 1 and 100,000, and `MinDynamicSubsteps` may not exceed `MaxDynamicSubsteps`. Dynamic mode therefore uses fewer substeps when a snapshot interval is shorter than the dynamical time and more when it spans many dynamical times. HDF5 master outputs record `SubSteps`, `TimestepScheme` and `MaxDynamicSubsteps` under `RunProperties`; `MinDynamicSubsteps` is recorded with the rest of the run file in the run's `metadata/` directory.
 
 `model.name` and `simulation.name` are package names, not display labels. Mimic derives `models/<model.name>/model_properties.yaml`, `simulations/<simulation.name>/simulation_info.yaml`, and `simulations/<simulation.name>/halo_properties.yaml` from them. These package paths are not user-overridable because the executable is generated and compiled for exactly one model/simulation pair.

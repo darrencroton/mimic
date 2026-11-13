@@ -35,9 +35,9 @@
  *    - process_snapshot() (snapshot family) once per snapshot from the
  *      post_snapshot phase, with a borrowed view of that snapshot's whole
  *      population; see struct Module.process_snapshot for the contract
- *    - rates() (rate family) for the process_rates mode: declared here, with
- *      its context, but not yet dispatched by any phase; see
- *      struct Module.rates and struct RateContext
+ *    - rates() (rate family) for each active row at every law evaluation of
+ *      the rate phase's segments, at a trial state; see struct Module.rates
+ *      and struct RateContext
  * 4. Core calls cleanup() during program shutdown
  *
  * For a complete, maintained example implementation (including the
@@ -92,7 +92,7 @@
  *
  * Rate family (struct Module.rates):
  * - PROCESSING_MODE_RATES: Module returns transfer coefficients for one row at a trial state
- *   (declared only: every phase refuses it at startup until the mode is dispatched)
+ *   (only in the rate phase: a phase under modules.phases whose entries are all process_rates)
  *
  * When multiple PROCESSING_MODE_BY_GALAXY modules exist in a phase, they execute in
  * galaxy-major order:
@@ -108,7 +108,7 @@ enum ProcessingMode {
   PROCESSING_MODE_PER_EVENT, /**< Module called for each emitted event target */
   PROCESSING_MODE_BY_GALAXY, /**< Module called per-galaxy (galaxy-major loop) */
   PROCESSING_MODE_SNAPSHOT,  /**< Module called once with a whole snapshot population */
-  PROCESSING_MODE_RATES,     /**< Module called per row for transfer coefficients (not yet run) */
+  PROCESSING_MODE_RATES,     /**< Module called per row for transfer coefficients (rate phase) */
   PROCESSING_MODE_COUNT      /**< Number of processing modes */
 };
 
@@ -486,11 +486,12 @@ struct RateObserver {
  * Failure cases: invalid context, invalid halo indices (including a row created
  * by module_create_record() during the running callback, which is not committed
  * until the callback returns), calling outside
- * PROCESSING_MODE_FULL_HALO dispatch, or calling during post_snapshot dispatch
- * (a snapshot callback can neither emit nor consume FoF events). The phase event buffer grows to
- * fit whatever is emitted (module_registry.c); only its structural ceiling (MAX_HALO_ARRAY_SIZE) is
- * unrecoverable, and that aborts via FATAL_ERROR rather than returning non-zero, since it is not
- * something a caller can meaningfully handle.
+ * PROCESSING_MODE_FULL_HALO dispatch, calling during post_snapshot dispatch
+ * (a snapshot callback can neither emit nor consume FoF events), or calling
+ * from a process_rates callback, with any context (refused naming the module). The phase event
+ * buffer grows to fit whatever is emitted (module_registry.c); only its structural ceiling
+ * (MAX_HALO_ARRAY_SIZE) is unrecoverable, and that aborts via FATAL_ERROR rather than returning
+ * non-zero, since it is not something a caller can meaningfully handle.
  *
  * Special case for direct module unit tests: when neither a FoF phase nor
  * post_snapshot dispatch is active, the event is dropped and 0 is returned.
@@ -713,9 +714,9 @@ struct Module {
    * @brief Return the transfer coefficients of one row (rate callback family)
    *
    * Required when the module advertises PROCESSING_MODE_RATES and NULL
-   * otherwise; registration rejects a missing callback. The mode is declared
-   * but not yet dispatched: every phase refuses it at startup, so no core path
-   * calls this member today.
+   * otherwise; registration rejects a missing callback. The rate phase calls it
+   * for each active row (a galaxy, Type != 3) at every law evaluation of a
+   * segment; it may neither emit events nor create records.
    *
    * @p halo is a core-owned scratch copy of one row whose galaxy holds the trial
    * state; read it, never write it. @p coefficients has one zeroed slot per

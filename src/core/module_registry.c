@@ -37,6 +37,7 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
+#include "rate_assembly.h"
 #include "task_layout.h"
 #include "generated/parameter_unit_conversions.h"
 
@@ -101,6 +102,21 @@ static struct PhaseEventDispatchState phase_event_state = {.events = NULL,
                                                            .active = false,
                                                            .emission_allowed = false,
                                                            .current_producer_module_id = 0};
+
+/**
+ * @brief   The rate phase: its startup plan and its segment scratch
+ *
+ * A rate phase is a phase under modules.phases whose entries are all
+ * process_rates; a run has at most one. module_system_init() builds its plan
+ * (rate_assembly.h) before any module's init() and keys it by the phase's
+ * configuration array; execute_phase() runs it. The scratch is one
+ * run-persistent, grow-to-high-water MEM_UTILITY allocation holding every
+ * table of a segment and the integrator's workspace; module_system_cleanup()
+ * releases it with the plan, following the phase event buffer.
+ */
+static struct RateAssemblyPlan *rate_plan = NULL;
+static const struct PhaseModuleConfig *rate_phase_config = NULL;
+static struct RateAssemblyScratch rate_scratch = {NULL, 0};
 
 /**
  * @brief   The module callback the registry is running, if any
@@ -586,12 +602,77 @@ bool module_precedes_in_phase(const char *first, const char *second,
   return first_idx < second_idx;
 }
 
+/** @brief Whether a phase is one of the fixed lifecycle phases pre_timestep and post_timestep */
+static bool phase_is_lifecycle(const char *phase_name) {
+  return strcmp(phase_name, "pre_timestep") == 0 || strcmp(phase_name, "post_timestep") == 0;
+}
+
+/**
+ * @brief   Validate a phase that holds a process_rates entry
+ *
+ * Such a phase is the rate phase: a named substep phase under modules.phases
+ * whose entries are all process_rates, each naming a different module that
+ * supports the mode. process_rates in pre_timestep or post_timestep, a phase
+ * mixing it with another mode, and a module listed twice (its law would be
+ * counted twice) are refused, naming the phase and the module. post_snapshot
+ * refuses every mode but process_snapshot itself (validate_post_snapshot_entries()).
+ *
+ * @return  0 on success, -1 after an ERROR_LOG
+ */
+static int validate_rate_phase_entries(const struct PhaseModuleConfig *config, int num_modules,
+                                       const char *phase_name) {
+  int first_rate = 0;
+  while (config[first_rate].processing_mode != PROCESSING_MODE_RATES) {
+    first_rate++;
+  }
+  if (phase_is_lifecycle(phase_name)) {
+    ERROR_LOG("Configuration error in phase '%s':", phase_name);
+    ERROR_LOG("  Module '%s' is configured with processing mode 'process_rates', which only a "
+              "rate phase under modules.phases can run (a phase whose entries are all "
+              "process_rates)",
+              config[first_rate].module_name);
+    return -1;
+  }
+
+  for (int i = 0; i < num_modules; i++) {
+    if (config[i].processing_mode != PROCESSING_MODE_RATES) {
+      ERROR_LOG("Configuration error in phase '%s':", phase_name);
+      ERROR_LOG("  The phase mixes process_rates (module '%s') with %s (module '%s'); a rate "
+                "phase holds only process_rates entries",
+                config[first_rate].module_name,
+                processing_mode_to_string(config[i].processing_mode), config[i].module_name);
+      ERROR_LOG("  Fix: move the other modules to a phase of their own");
+      return -1;
+    }
+    for (int j = 0; j < i; j++) {
+      if (strcmp(config[j].module_name, config[i].module_name) == 0) {
+        ERROR_LOG("Configuration error in phase '%s':", phase_name);
+        ERROR_LOG("  Module '%s' is listed more than once; a rate module's transfers enter the "
+                  "phase's one system once",
+                  config[i].module_name);
+        return -1;
+      }
+    }
+
+    const struct Module *mod = find_module_by_name(config[i].module_name);
+    if (mod != NULL && !module_supports_processing_mode(mod, PROCESSING_MODE_RATES)) {
+      ERROR_LOG("Configuration error in phase '%s':", phase_name);
+      ERROR_LOG("  Module '%s' does not support processing mode 'process_rates'", mod->name);
+      ERROR_LOG("  Supported modes: %s", format_supported_modes(mod));
+      return -1;
+    }
+  }
+  return 0;
+}
+
 /**
  * @brief   Validate phase configuration against module constraints
  *
  * Ensures that each module in the phase is configured with a FoF-family
- * processing mode it actually supports. Fails hard with clear error messages if
- * a mismatch is detected.
+ * processing mode it actually supports, or, for a phase holding a
+ * process_rates entry, that the phase is a valid rate phase
+ * (validate_rate_phase_entries()). Fails hard with clear error messages if a
+ * mismatch is detected.
  *
  * @param   config       Phase module configuration array
  * @param   num_modules  Number of modules in phase
@@ -601,6 +682,12 @@ bool module_precedes_in_phase(const char *first, const char *second,
 static int validate_phase_processing_modes(struct PhaseModuleConfig *config, int num_modules,
                                            const char *phase_name) {
   for (int i = 0; i < num_modules; i++) {
+    if (config[i].processing_mode == PROCESSING_MODE_RATES) {
+      return validate_rate_phase_entries(config, num_modules, phase_name);
+    }
+  }
+
+  for (int i = 0; i < num_modules; i++) {
     /* Find registered module */
     struct Module *mod = find_module_by_name(config[i].module_name);
     if (mod == NULL) {
@@ -608,24 +695,17 @@ static int validate_phase_processing_modes(struct PhaseModuleConfig *config, int
       continue;
     }
 
-    /* Every phase validated here is dispatched by execute_phase(), which calls
-     * only FoF callbacks: any other family would be skipped silently. A mode outside
-     * the table leaves the family at this FoF default and is reported as not a FoF mode. */
+    /* A phase without a process_rates entry is dispatched by execute_phase()'s FoF
+     * passes, which call only FoF callbacks: any other family would be skipped silently.
+     * A mode outside the table leaves the family at this FoF default and is reported as
+     * not a FoF mode. */
     enum ModuleCallbackFamily family = MODULE_CALLBACK_FAMILY_FOF;
     if (processing_mode_family(config[i].processing_mode, &family) != 0 ||
         family != MODULE_CALLBACK_FAMILY_FOF) {
       ERROR_LOG("Configuration error in phase '%s':", phase_name);
-      if (family == MODULE_CALLBACK_FAMILY_RATE) {
-        /* The mode is declared but no phase dispatches it yet, so it is refused everywhere. */
-        ERROR_LOG("  Module '%s' is configured with processing mode '%s', which no phase can "
-                  "run yet (it is not a FoF mode: process_full_halo, process_per_event, "
-                  "process_by_galaxy)",
-                  mod->name, processing_mode_to_string(config[i].processing_mode));
-      } else {
-        ERROR_LOG("  Module '%s' is configured with processing mode '%s', which is not a "
-                  "FoF mode (process_full_halo, process_per_event, process_by_galaxy)",
-                  mod->name, processing_mode_to_string(config[i].processing_mode));
-      }
+      ERROR_LOG("  Module '%s' is configured with processing mode '%s', which is not a "
+                "FoF mode (process_full_halo, process_per_event, process_by_galaxy)",
+                mod->name, processing_mode_to_string(config[i].processing_mode));
       return -1;
     }
 
@@ -794,8 +874,10 @@ static void free_phase_event_buffer(void);
  * released by release_phase_plans(). Between the two its contents are
  * read-only, so execute_phase() walks only the entries of the mode it is
  * dispatching instead of re-testing every entry's mode on every call. The
- * three lists share one allocation of `num_entries` slots, in YAML order
- * within each mode; a module listed twice in the phase appears twice.
+ * four lists share one allocation of `num_entries` slots, in YAML order
+ * within each mode; a module listed twice in the phase appears twice. The rate
+ * list is non-empty only in the rate phase, which holds nothing else and whose
+ * dispatch the rate plan (rate_assembly.h) describes.
  */
 struct PhasePlan {
   const struct PhaseModuleConfig *phase_config; /**< Key: the phase's configuration array */
@@ -807,6 +889,8 @@ struct PhasePlan {
   int num_per_event;
   struct Module *const *by_galaxy;
   int num_by_galaxy;
+  struct Module *const *rates;
+  int num_rates;
 };
 
 /** pre_timestep, every named substep phase and post_timestep; post_snapshot has no plan */
@@ -862,7 +946,7 @@ static int collect_phase_mode(const struct PhaseModuleConfig *modules, int num_m
  * @brief   for_each_phase visitor: build the dispatch plan of one FoF phase
  *
  * Fatal when an entry is unresolved, when the plan table is full, or when the
- * three mode lists do not together cover every entry of the phase.
+ * four mode lists do not together cover every entry of the phase.
  */
 static void build_phase_plan_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
                                      int num_modules, void *userdata) {
@@ -888,11 +972,14 @@ static void build_phase_plan_visitor(const char *phase_name, struct PhaseModuleC
       collect_phase_mode(modules, num_modules, PROCESSING_MODE_PER_EVENT, slots + num_full_halo);
   const int num_by_galaxy = collect_phase_mode(modules, num_modules, PROCESSING_MODE_BY_GALAXY,
                                                slots + num_full_halo + num_per_event);
+  const int num_rates = collect_phase_mode(modules, num_modules, PROCESSING_MODE_RATES,
+                                           slots + num_full_halo + num_per_event + num_by_galaxy);
 
   /* Internal invariant: validate_phase_processing_modes() has already refused every mode that
-   * is not a FoF mode, so the three lists cover the phase. An entry in none of them would be
-   * dropped silently from dispatch (a mode added without its list), so fail rather than plan. */
-  const int num_planned = num_full_halo + num_per_event + num_by_galaxy;
+   * is neither a FoF mode nor process_rates in the rate phase, so the four lists cover the
+   * phase. An entry in none of them would be dropped silently from dispatch (a mode added
+   * without its list), so fail rather than plan. */
+  const int num_planned = num_full_halo + num_per_event + num_by_galaxy + num_rates;
   if (num_planned != num_modules) {
     FATAL_ERROR("Phase '%s' has %d entries but its dispatch plan covers only %d: a configured "
                 "processing mode has no plan list",
@@ -909,6 +996,8 @@ static void build_phase_plan_visitor(const char *phase_name, struct PhaseModuleC
       .num_per_event = num_per_event,
       .by_galaxy = slots + num_full_halo + num_per_event,
       .num_by_galaxy = num_by_galaxy,
+      .rates = slots + num_full_halo + num_per_event + num_by_galaxy,
+      .num_rates = num_rates,
   };
 }
 
@@ -963,6 +1052,87 @@ static void validate_events_visitor(const char *phase_name, struct PhaseModuleCo
   }
 }
 
+/** The rate phase found by find_rate_phase_visitor(), and whether a second one was refused */
+struct RatePhaseSearch {
+  const char *name;
+  struct PhaseModuleConfig *entries;
+  int num_entries;
+  int failed;
+};
+
+/**
+ * @brief   for_each_phase visitor: find the rate phase, refusing a second one
+ *
+ * Runs after validate_modes_visitor(), so a phase holding a process_rates entry
+ * is a valid rate phase (a named substep phase of process_rates entries only).
+ */
+static void find_rate_phase_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
+                                    int num_modules, void *userdata) {
+  struct RatePhaseSearch *search = userdata;
+  if (num_modules == 0 || modules[0].processing_mode != PROCESSING_MODE_RATES) {
+    return;
+  }
+  if (search->name != NULL) {
+    ERROR_LOG("Configuration error in phase '%s':", phase_name);
+    ERROR_LOG("  A second rate phase: phase '%s' already runs process_rates, and a run has at "
+              "most one rate phase",
+              search->name);
+    ERROR_LOG("  Fix: put every process_rates module in one phase");
+    search->failed = 1;
+    return;
+  }
+  search->name = phase_name;
+  search->entries = modules;
+  search->num_entries = num_modules;
+}
+
+/**
+ * @brief   Release the rate phase's plan and scratch
+ *
+ * Called by module_system_cleanup(), by module_system_init() for a plan an
+ * earlier initialisation left, and when initialisation fails after the plan
+ * was built.
+ */
+static void release_rate_phase(void) {
+  if (rate_plan != NULL) {
+    /* A test-tier memory reset between init and cleanup must not abort the
+     * process on a stale pointer; ./mimic never resets the memory system. */
+    if (is_tracked_memory_block(rate_plan)) {
+      rate_assembly_plan_free(rate_plan);
+    } else {
+      WARNING_LOG("Rate plan held a pointer the memory system no longer tracks (memory system "
+                  "reset without module_system_cleanup()); dropping it");
+    }
+  }
+  rate_plan = NULL;
+  rate_phase_config = NULL;
+  rate_assembly_scratch_release(&rate_scratch);
+}
+
+/**
+ * @brief   Find the rate phase, if any, and build its plan
+ *
+ * @return  0 on success (with or without a rate phase), -1 after an ERROR_LOG
+ */
+static int build_rate_phase(void) {
+  struct RatePhaseSearch search = {NULL, NULL, 0, 0};
+  for_each_phase(find_rate_phase_visitor, &search);
+  if (search.failed) {
+    return -1;
+  }
+  if (search.name == NULL) {
+    return 0;
+  }
+  if (rate_assembly_plan_build(search.name, search.entries, search.num_entries,
+                               &MimicConfig.RateIntegration, &rate_plan) != 0) {
+    return -1;
+  }
+  rate_phase_config = search.entries;
+  return 0;
+}
+
+size_t module_rate_scratch_bytes(void) { return rate_scratch.capacity; }
+
 /**
  * @brief   Initialize the module system
  *
@@ -984,6 +1154,7 @@ int module_system_init(void) {
    * cleaned up; both releases tolerate a memory-system reset in between. */
   release_phase_plans();
   free_phase_event_buffer();
+  release_rate_phase();
 
   /* Build execution pipeline by collecting all unique modules across phases */
   num_pipeline_modules = 0;
@@ -1016,6 +1187,12 @@ int module_system_init(void) {
   }
   VERBOSE_LOG("Event subscription validation passed");
 
+  /* The rate phase: at most one, its transfers checked against the reservoir
+   * table and each other, and its integration domain fixed, before any init() */
+  if (build_rate_phase() != 0) {
+    return -1;
+  }
+
   /* Initialize all modules in pipeline order */
   for (int i = 0; i < num_pipeline_modules; i++) {
     struct Module *mod = execution_pipeline[i];
@@ -1026,6 +1203,7 @@ int module_system_init(void) {
     leave_callback(prior);
     if (result != 0) {
       ERROR_LOG("Module '%s' initialization failed with code %d", mod->name, result);
+      release_rate_phase(); /* a failed initialisation leaves no plan */
       return result;
     }
   }
@@ -1211,6 +1389,17 @@ static void dispatch_events_range(int start_index, int end_index) {
 
 int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index, int target_index,
                       double value0, double value1) {
+  /* Checked first, and before the shortcut below: a rate law runs inside its
+   * phase's event-dispatch window, so neither a context it kept from an earlier
+   * discrete callback nor that shortcut may let it emit. */
+  if (running_callback.kind == RUNNING_CALLBACK_RATE) {
+    ERROR_LOG("module_emit_event refused for module '%s': called from a process_rates callback "
+              "(event_id=%d); a rate law returns coefficients and cannot emit events",
+              running_callback.module_name != NULL ? running_callback.module_name : "(unnamed)",
+              event_id);
+    return -1;
+  }
+
   if (ctx == NULL) {
     ERROR_LOG("module_emit_event called with NULL context");
     return -1;
@@ -1686,10 +1875,22 @@ void module_release_record_creation_scratch(void) {
   record_creation.ordinals_ready = false;
 }
 
+/** @brief RateLawInvoker for the rate phase: one module's law, marked as the running callback */
+static int invoke_rate_law(const struct Module *mod, const struct RateContext *ctx,
+                           const struct Halo *halo, double *coefficients) {
+  const struct RunningCallback prior = enter_callback(RUNNING_CALLBACK_RATE, mod->name);
+  const int result = mod->rates(ctx, halo, coefficients);
+  leave_callback(prior);
+  return result;
+}
+
 /**
  * @brief   Execute modules in a specific phase
  *
  * Core execution engine for multi-phase pipeline:
+ * 0. In the rate phase (its entries all PROCESSING_MODE_RATES, so it runs no
+ *    other pass), the substep's rate segment: every component of the
+ *    workspace integrated and written back (rate_assembly_run())
  * 1. PROCESSING_MODE_FULL_HALO modules, each followed by the commit of the
  *    records it created (commit_created_records())
  * 2. Event dispatch to PROCESSING_MODE_PER_EVENT modules
@@ -1727,6 +1928,18 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
   }
 
   begin_phase_event_dispatch(plan, ctx, ws->halos, workspace_callback_count(ws));
+
+  /* PASS 0: the rate segment, inside the dispatch window; emission stays refused
+   * (module_emit_event() rejects a running rate callback), and creation too
+   * (module_create_record() accepts only a running full-halo callback). */
+  if (plan->num_rates > 0) {
+    if (rate_plan == NULL || rate_phase_config != phase_config) {
+      FATAL_ERROR("Rate phase whose first entry is module '%s' has no rate plan — "
+                  "module_system_init() must build it before execute_phase()",
+                  phase_config[0].module_name);
+    }
+    rate_assembly_run(rate_plan, ctx, ws, &rate_scratch, invoke_rate_law);
+  }
 
   /* PASS 1: PROCESSING_MODE_FULL_HALO modules (always first) */
   struct Halo *halos = ws->halos;
@@ -1959,8 +2172,10 @@ int module_system_cleanup(void) {
 
   /* Released here, not at phase end: the event buffer is shared by every
    * execute_phase() call, so freeing it per phase would reintroduce the
-   * hot-path allocation churn the grow-to-high-water design exists to avoid. */
+   * hot-path allocation churn the grow-to-high-water design exists to avoid.
+   * The rate scratch follows the same rule, and its plan goes with it. */
   free_phase_event_buffer();
+  release_rate_phase();
 
   if (num_pipeline_modules == 0) {
     free_phase_configuration();

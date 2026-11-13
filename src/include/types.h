@@ -72,6 +72,22 @@ enum Valid_OutputFormats { output_binary = 0, output_hdf5 = 1, num_output_format
 /* Enum for timestep schemes. Fixed must remain zero for memset-zeroed test fixtures. */
 enum TimestepScheme { TIMESTEP_SCHEME_FIXED = 0, TIMESTEP_SCHEME_DYNAMIC = 1 };
 
+/* Settings of the rate phase (run-file section modules.rate_integration).
+ *
+ * Read only when a phase under modules.phases runs process_rates; the parser
+ * fills every field with its default (constants.h) whenever a modules section
+ * is parsed, then applies the keys the section sets. `scheme` holds an
+ * enum RateScheme value (rate_integrator.h), stored as int so this core header
+ * carries only the configuration's shape. module_system_init() refuses values
+ * outside their ranges, so a configuration built by hand must set every field. */
+struct MimicRateIntegration {
+  int scheme;                    /* 0 explicit (default), 1 implicit */
+  double relative_tolerance;     /* in (0, 1) */
+  double absolute_tolerance;     /* in (0, 1) */
+  int64_t max_steps_per_segment; /* attempts per segment, accepted and rejected; >= 1 */
+  int max_rejections_per_step;   /* consecutive rejections of one step; >= 1 */
+};
+
 /* Forward declarations for phase config structs (defined in module_registry.h,
  * which uses enum ProcessingMode from module_interface.h) */
 struct PhaseModuleConfig;
@@ -226,6 +242,9 @@ struct MimicConfig {
    * (horizontal driver only); every entry is process_snapshot, in YAML order */
   struct PhaseModuleConfig *post_snapshot; /* Array of modules for this phase */
   int num_post_snapshot;                   /* Number of modules in this phase */
+
+  /* Rate phase settings (modules.rate_integration; see struct MimicRateIntegration) */
+  struct MimicRateIntegration RateIntegration;
 
   /* Model parameters - ALL physics parameters */
   int NumModelParams; /* Number of model parameters loaded from input file */

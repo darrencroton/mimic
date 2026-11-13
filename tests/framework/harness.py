@@ -592,6 +592,7 @@ def create_test_param_file(
     min_dynamic_substeps=None,
     max_dynamic_substeps=None,
     snapshot_list=None,
+    rate_integration=None,
 ):
     """
     Create a test YAML parameter file with multi-phase module configuration
@@ -616,7 +617,9 @@ def create_test_param_file(
                             }
                             Each tuple is (module_name, processing_mode) where processing_mode is
                             'process_full_halo', 'process_per_event', or 'process_by_galaxy'
-                            ('process_snapshot' is used only under 'post_snapshot')
+                            ('process_snapshot' is used only under 'post_snapshot'; a
+                            user-named phase whose entries are all 'process_rates' is the
+                            run's one rate phase)
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: keep reference simulation config)
         last_file (int): Last file to process (default: keep reference simulation config)
@@ -633,6 +636,11 @@ def create_test_param_file(
         min_dynamic_substeps (int, optional): MinDynamicSubsteps override (emitted only when given)
         max_dynamic_substeps (int, optional): MaxDynamicSubsteps override (default: from ref file)
         snapshot_list (list[int], optional): Output snapshots (default: the ref file's list)
+        rate_integration (dict, optional): The modules.rate_integration section, emitted
+                                           verbatim when given (keys scheme,
+                                           relative_tolerance, absolute_tolerance,
+                                           max_steps_per_segment, max_rejections_per_step);
+                                           omitted otherwise, so the defaults apply
 
     Returns:
         tuple: (param_file_path, output_dir_path, temp_dir_path)
@@ -749,6 +757,9 @@ def create_test_param_file(
         if post_snapshot:
             modules_section["post_snapshot"] = _entries(post_snapshot)
     # else: physics-free mode — leave modules with no phases
+
+    if rate_integration is not None:
+        modules_section["rate_integration"] = rate_integration
 
     config["modules"] = modules_section
 

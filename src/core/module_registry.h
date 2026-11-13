@@ -177,6 +177,13 @@ int module_system_init(void);
  * PROCESSING_MODE_PER_EVENT modules.
  *
  * Execution order within phase:
+ * 0. In the rate phase (a phase under modules.phases whose entries are all
+ *    PROCESSING_MODE_RATES; at most one per run), the substep's rate segment:
+ *    each component of the workspace (the whole group when a configured
+ *    transfer goes to the central or a module reads it, else each galaxy) is
+ *    gathered, integrated and written back on success (rate_assembly.h), every
+ *    law running as RUNNING_CALLBACK_RATE inside the phase's event-dispatch
+ *    window. A failed segment is fatal. The rate phase runs no other pass.
  * 1. All PROCESSING_MODE_FULL_HALO modules execute with full halo array
  * 2. Events emitted by full-halo modules are dispatched only to subscribed
  *    PROCESSING_MODE_PER_EVENT modules (resolved from module_info.yaml events.consumes)
@@ -275,6 +282,16 @@ void module_release_record_creation_scratch(void);
 int64_t module_record_creation_staging_blocks(void);
 
 /**
+ * @brief   Bytes the rate phase's scratch holds (diagnostic)
+ *
+ * The scratch is one tracked MEM_UTILITY allocation holding a segment's tables
+ * and the integrator's workspace, grown to the high water of the largest
+ * component the run has integrated and released by module_system_cleanup().
+ * For tests and diagnostics; zero before the first rate segment and after cleanup.
+ */
+size_t module_rate_scratch_bytes(void);
+
+/**
  * @brief   Kind of module callback the registry is currently running
  *
  * Set and restored by the registry around every module call, including
@@ -290,7 +307,7 @@ enum RunningCallbackKind {
   RUNNING_CALLBACK_PER_EVENT, /**< A process_per_event process() call */
   RUNNING_CALLBACK_BY_GALAXY, /**< A process_by_galaxy process() call */
   RUNNING_CALLBACK_SNAPSHOT,  /**< A process_snapshot() call from execute_post_snapshot() */
-  RUNNING_CALLBACK_RATE,      /**< A process_rates rates() call (declared; no phase runs it yet) */
+  RUNNING_CALLBACK_RATE,      /**< A process_rates rates() call from the rate phase */
   RUNNING_CALLBACK_CLEANUP,   /**< A module's cleanup() */
 };
 
