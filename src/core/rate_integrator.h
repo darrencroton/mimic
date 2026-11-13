@@ -5,15 +5,18 @@
  * @file    rate_integrator.h
  * @brief   Advances one rate component across one segment, and checks its closure
  *
- * A component is a set of entries (the reservoir contents of one or more rows)
- * coupled by fluxes. The integrator advances it across one segment in
- * normalised time tau, from 0 to 1, with the explicit SSPRK(4,3) scheme under
- * error control, a positivity guard and a per-segment conservation check.
+ * A component is a set of entries (the reservoir, tracer and observer contents
+ * of one or more rows) coupled by fluxes. The integrator advances it across one
+ * segment in normalised time tau, from 0 to 1, with the explicit SSPRK(4,3)
+ * scheme under error control, a positivity guard, a per-segment conservation
+ * check and a tracer-bound check.
  *
  * Time. Every row r has its own segment length Delta_r. A flux runs on its
  * clock row's time: an internal transfer or a sink on its donor's row, a source
- * on its recipient's row. Its rate in tau units is Delta of that row times its
- * coefficient, times the donor's content for an internal transfer or a sink.
+ * on its recipient's row, a slaved source on its master's clock row. Its rate
+ * in tau units is Delta of that row times its coefficient, times the donor's
+ * content for an internal transfer or a sink; a slaved source's rate is its
+ * coefficient times its master's rate, which already carries the master's Delta.
  * One amount per flux and stage is formed once and applied to both of its
  * ends, as (x - sum of outflows) + sum of inflows, each sum in canonical flux
  * order, so a cross-record transfer conserves whatever the two rows' Delta. A
@@ -24,7 +27,32 @@
  * Canonical order. Entries are processed in the order the caller lists them,
  * which the caller makes canonical. Fluxes are processed in the order of
  * (clock row, global transfer index), whatever order the caller lists them in,
- * so a permuted flux list gives a bit-identical result.
+ * so a permuted flux list gives a bit-identical result; a tracer move follows
+ * its master transfer, tracer moves of one transfer in entry order.
+ *
+ * Tracers. A tracer entry names its parent, a reservoir entry of the same row in
+ * another total. Tracers move without declaration: for every internal transfer
+ * or sink out of a parent, each of the parent's tracers moves at the same
+ * coefficient times the tracer's own content (no division by the parent, so an
+ * empty donor is well defined) into the recipient's tracer of the same total.
+ * Where the transfer is a sink, or its recipient has no tracer of that total,
+ * the tracer amount leaves its total as a sink of that total. A source or a
+ * slaved source carries no tracer: a source into a parent dilutes its tracers.
+ *
+ * Slaved sources. A RATE_FLUX_SLAVED flux is an external source whose
+ * coefficient is dimensionless; its rate at each stage is that coefficient times
+ * its master's rate at the stage, evaluated after the transfers. The master is a
+ * declared internal transfer or sink, never a source or another slaved source
+ * (one level deep), and a master that moves nothing (both ends one entry) gives
+ * its slaved sources nothing. Its amounts accumulate as a source of the
+ * recipient's total.
+ *
+ * Observers. An observer entry accumulates, at every accepted step, the
+ * committed amount of the declared flux it names: the same number that moved
+ * (zero for a flux whose two ends are one entry). Observers belong to no total
+ * and are left out of the error norm, the first-step rule, the positivity checks,
+ * K_max and the closure; a law sees an observer at its segment-start value until
+ * a step is accepted.
  *
  * Positivity. With C = 2 and sigma = 0.9, K_i is Delta of entry i's row times
  * the sum of the coefficients out of entry i, and K_max is the largest K_i over
@@ -39,7 +67,8 @@
  * max(|x_i| at step start, |x_i| at the trial end), where S_i is the larger of
  * the entry's own row's sum over the entries of its total at step start and at
  * the trial end, floored at 1e-12 times the larger of that total's sums over
- * the whole component at the same two states. err is the largest |e_i| / w_i,
+ * the whole component at the same two states; a tracer uses its parent's total.
+ * Observers have no weight. err is the largest |e_i| / w_i,
  * a zero error contributing 0 and a zero weight under a non-zero error, or a
  * NaN, contributing +infinity; a step is accepted when err <= 1. The next step
  * is the step times 0.9 * err^(-1/3), clamped to [0.2, 5], with no growth on a
@@ -50,11 +79,19 @@
  * otherwise a remainder shorter than two steps is split into two equal steps;
  * tau is assigned 1.0 at the end, never accumulated. A step below 2^-46 fails.
  *
- * Closure. The external amounts accumulate per entry over accepted steps and are
- * summed per total once at segment end, in entry order, so the rounding of the
- * per-total amounts stays inside the closure tolerance however many external
- * fluxes a total has; the segment then fails with RATE_CAUSE_LEDGER when a total
- * does not close (rate_check_closure()).
+ * Segment-end checks. The external amounts accumulate per entry over accepted
+ * steps and are summed per total once at segment end, in entry order, so the
+ * rounding of the per-total amounts stays inside the closure tolerance however
+ * many external fluxes a total has; the segment then fails with
+ * RATE_CAUSE_LEDGER when a total does not close (rate_check_closure()). It then
+ * fails with RATE_CAUSE_TRACER_BOUND when a tracer z of parent p ends with
+ * z - p > 8u (L + 2) N_acc Theta_p, u = 2^-53, where Theta_p, the parent's gross
+ * throughput, is p's segment-start content plus the inflow amounts into p over
+ * the accepted steps (accumulated per entry, like the external amounts). The
+ * scheme preserves the bound when every inflow to a tracer is matched by a
+ * parent inflow at least as large; a source or slaved source into the tracer can
+ * break that premise in the exact solution, so the failure's detail says
+ * whether the tracer has sources of its own.
  *
  * Fixed steps. With settings.fixed_steps = n > 0 the segment is n equal steps
  * with the controller off and no error estimate. The positivity checks stay on;
@@ -67,7 +104,9 @@
  * keeps no state between calls, so the step sequence is a pure function of the
  * component, the start state, the law, the settings and the Delta values. It
  * works on a copy and writes the caller's state back only on success: a failed
- * segment leaves the state and the external amounts untouched.
+ * segment leaves the state and the external amounts untouched. A malformed
+ * tracer, observer or slaved-source link (struct RateEntry, struct RateFlux) is
+ * a programming error and fatal.
  *
  * This unit knows nothing of galaxies, modules, the FoF workspace or the run file.
  */
@@ -88,31 +127,53 @@
 enum RateFluxKind {
   RATE_FLUX_INTERNAL, /* entry to entry; coefficient is a specific rate (inverse time) */
   RATE_FLUX_SOURCE,   /* external to entry; coefficient is an absolute rate (content per time) */
-  RATE_FLUX_SINK      /* entry to external; coefficient is a specific rate (inverse time) */
+  RATE_FLUX_SINK,     /* entry to external; coefficient is a specific rate (inverse time) */
+  RATE_FLUX_SLAVED    /* external to entry; coefficient is dimensionless, times the master's flux */
 };
 
-/** One state entry: the content of one reservoir of one row. */
+/** What a state entry holds; the zero value is a reservoir. */
+enum RateEntryKind {
+  RATE_ENTRY_RESERVOIR = 0, /* a reservoir's content, a member of a conserved total */
+  RATE_ENTRY_TRACER,        /* a tracer's content, moved with its parent's outflows */
+  RATE_ENTRY_OBSERVER       /* the committed amount of one flux, accumulated; no total */
+};
+
+/**
+ * @brief   One state entry: the content of one reservoir, tracer or observer of one row
+ *
+ * A tracer's `parent` is the entry index of a reservoir of the same row whose
+ * total differs from the tracer's; one parent has at most one tracer per total.
+ * An observer's `flux` is the caller's index of the declared flux it observes;
+ * its `total` is not read. Fields a kind does not use are not read.
+ */
 struct RateEntry {
   int row;   /* index into RateComponent.row_delta */
   int total; /* conserved total, 0 <= total < RateComponent.num_totals */
+  enum RateEntryKind kind;
+  int parent; /* a tracer's parent entry */
+  int flux;   /* an observer's flux, 0 <= flux < RateComponent.num_fluxes */
 };
 
 /**
  * @brief   One flux of a component
  *
  * `from` is an entry index for an internal transfer or a sink and
- * RATE_END_EXTERNAL for a source; `to` is an entry index for an internal
- * transfer or a source and RATE_END_EXTERNAL for a sink. An internal transfer's
- * two ends belong to one total. An internal transfer whose two ends are the same
- * entry moves nothing; its coefficient is still evaluated and checked.
- * `global_index` is the transfer's global index; (clock row, global_index) must
- * be unique within a component.
+ * RATE_END_EXTERNAL for a source or a slaved source; `to` is an entry index for
+ * an internal transfer, a source or a slaved source and RATE_END_EXTERNAL for a
+ * sink. An internal transfer's two ends belong to one total; its ends, and a
+ * sink's donor, are reservoirs (tracers move without declaration). An internal
+ * transfer whose two ends are the same entry moves nothing; its coefficient is
+ * still evaluated and checked. `global_index` is the transfer's global index;
+ * (clock row, global_index) must be unique within a component. `master` is read
+ * for a slaved source only: the caller's index of its master, a declared
+ * internal transfer or sink.
  */
 struct RateFlux {
   enum RateFluxKind kind;
   int from;
   int to;
   int global_index;
+  int master; /* a slaved source's master flux */
 };
 
 /** The static description of one component; the integrator reads it and never writes it. */
@@ -130,7 +191,8 @@ struct RateComponent {
  * @brief   The laws: fills one coefficient per flux for a given state
  *
  * `evaluate` receives the segment time tau of the evaluation, the state (one
- * value per entry, in the component's entry order, never negative) and the
+ * value per entry, in the component's entry order, never negative but for an
+ * observer, which holds whatever the caller started it at) and the
  * coefficient array (one slot per flux, in the component's flux order, zeroed
  * before the call). It returns 0 on success; a non-zero return fails the
  * segment with RATE_CAUSE_BAD_COEFFICIENT and no entry or flux named, since
@@ -148,9 +210,11 @@ enum RateRejection { RATE_REJECTION_NONE, RATE_REJECTION_POSITIVITY, RATE_REJECT
  * @brief   One attempted step, as reported to RateIntegratorSettings.on_attempt
  *
  * `state` is the committed state after an accepted step, or the unchanged
- * step-start state after a rejection; it is valid only during the call.
- * `error_norm` and `min_weight` are negative when the attempt ended before its
- * error estimate (a positivity rejection, or any fixed step).
+ * step-start state after a rejection; `amounts` is each declared flux's
+ * committed amount, in the component's flux order, after an accepted step, and
+ * NULL after a rejection. Both are valid only during the call. `error_norm` and
+ * `min_weight` are negative when the attempt ended before its error estimate (a
+ * positivity rejection, or any fixed step).
  */
 struct RateAttempt {
   double tau;  /* segment time at the step start */
@@ -160,6 +224,7 @@ struct RateAttempt {
   double error_norm; /* err of the attempt */
   double min_weight; /* the smallest weight w_i of the attempt */
   const double *state;
+  const double *amounts;
 };
 
 /** Tolerances, budgets and the optional attempt observer of one segment. */
@@ -182,16 +247,19 @@ enum RateCause {
   RATE_CAUSE_REJECTION_BUDGET, /* max_rejections_per_step consecutive rejections of one step,
                                   or any rejection of a fixed step */
   RATE_CAUSE_STEP_UNDERFLOW,   /* the step fell below the minimum step, 2^-46 */
-  RATE_CAUSE_LEDGER            /* a conserved total failed the segment closure */
+  RATE_CAUSE_LEDGER,           /* a conserved total failed the segment closure */
+  RATE_CAUSE_TRACER_BOUND      /* a tracer ended above its parent beyond the rounding bound */
 };
 
 /**
  * @brief   What failed, where and when
  *
- * `entry` and `flux` are the caller's indices (RateComponent order), or -1.
+ * `entry` and `flux` are the caller's indices (RateComponent order), or -1; a
+ * limiter that is a tracer move is named by its master transfer.
  *
  * - bad_coefficient: the first offending flux in canonical order and its donor
- *   (its recipient for a source). A law that returns non-zero names neither.
+ *   (its recipient for a source or a slaved source). A law that returns
+ *   non-zero names neither.
  * - step_budget, step_underflow and rejection_budget in adaptive mode: the
  *   latest limiter met in the segment, which is one of
  *   - a step clamped to the positivity cap (the cap binds when the step reaches
@@ -210,15 +278,19 @@ enum RateCause {
  * - Fixed steps: step_budget names the failing step's start-of-step limiter; a
  *   positivity rejection (rejection_budget) names its own limiter as above.
  * - ledger: `total` names the total and both are -1.
+ * - tracer_bound: the first failing tracer in entry order, its total, and its
+ *   first source or slaved source in canonical order (-1 when it has none);
+ *   `detail` says whether the tracer has sources of its own.
  */
 struct RateFailure {
   enum RateCause cause;
   int entry;
   int flux;
-  int row;     /* the row of `entry`, or the flux's clock row; -1 when neither is named */
-  int total;   /* the failing total of a ledger failure, else -1 */
-  double tau;  /* segment time at the start of the failing step */
-  double step; /* the step being attempted, or 0 */
+  int row;            /* the row of `entry`, or the flux's clock row; -1 when neither is named */
+  int total;          /* the failing total of a ledger or tracer_bound failure, else -1 */
+  double tau;         /* segment time at the start of the failing step */
+  double step;        /* the step being attempted, or 0 */
+  const char *detail; /* a static sentence qualifying the cause, or "" */
 };
 
 /** Step statistics of one segment, complete on failure too. */
@@ -243,10 +315,10 @@ struct RateSegmentOutcome {
  *
  * For every total F, |sum_F end - sum_F start - (Src_F - Snk_F)| must not
  * exceed tol_F = 8u [(L + 2) N_acc + n_F + 2] (sum_F |start| + Src_F + Snk_F),
- * u = 2^-53, every sum taken in entry order.
+ * u = 2^-53, every sum taken in entry order. Observer entries are left out.
  */
 struct RateClosureInput {
-  const struct RateEntry *entries; /* [num_entries]: only `total` is read */
+  const struct RateEntry *entries; /* [num_entries]: only `total` and `kind` are read */
   int num_entries;
   int num_totals;
   const double *start_state;    /* [num_entries] */
@@ -280,9 +352,10 @@ size_t rate_integrator_workspace_bytes(const struct RateComponent *component);
  * @param   outcome         Failure record, step statistics and L (always written)
  * @return  RATE_CAUSE_NONE on success, else the failure cause (also in outcome->failure)
  *
- * Inputs outside the domain (a negative entry, a negative or non-finite Delta,
- * tolerances outside (0, 1), a malformed flux) are unspecified behaviour. A
- * workspace smaller than required is a programming error and fatal.
+ * Inputs outside the domain (a negative reservoir or tracer entry, a negative or
+ * non-finite Delta, tolerances outside (0, 1), a malformed flux) are unspecified
+ * behaviour. A workspace smaller than required, and a malformed tracer, observer
+ * or slaved-source link, are programming errors and fatal.
  */
 enum RateCause rate_integrate_segment(const struct RateComponent *component,
                                       const struct RateLaw *law,

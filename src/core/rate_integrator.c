@@ -11,10 +11,13 @@
  *   d    = b - bhat = (-1/12, -1/12, -1/12, 1/4)
  *
  * Each flux's stage rate phi (tau units) is formed once per stage from the
- * coefficients the laws return there; each stage combination, and the update
- * and error combinations, are formed once per flux and applied to both of the
- * flux's ends through the per-entry outflow and inflow lists, which hold the
- * fluxes in canonical order. rate_integrator.h states the contract.
+ * coefficients the laws return there, slaved sources after every other flux;
+ * each stage combination, and the update and error combinations, are formed
+ * once per flux and applied to both of the flux's ends through the per-entry
+ * outflow and inflow lists, which hold the fluxes in canonical order. Tracer
+ * moves are fluxes too: derived once per segment from the parent links, they
+ * follow the caller's declared fluxes in the internal flux arrays and take their
+ * master's coefficient. rate_integrator.h states the contract.
  */
 
 #include <math.h>
@@ -45,40 +48,51 @@
 /* Segment closure: 8u with u = 2^-53. */
 #define CLOSURE_FACTOR 0x1p-50
 
-/** Sort key of a flux: canonical order is (clock row, global transfer index). */
+/**
+ * Sort key of a flux: canonical order is (clock row, global transfer index); a
+ * tracer move shares its master's pair and follows it, ordered by its tracer.
+ */
 struct FluxKey {
   int row;
   int global_index;
-  int index; /* the caller's flux index; breaks ties only for a malformed description */
+  int tracer; /* a tracer move's tracer entry; -1 for a declared flux */
+  int index;  /* the internal flux index; breaks ties only for a malformed description */
 };
 
-/** Scratch carved from the caller's workspace (n entries, m fluxes, R rows, T totals). */
+/**
+ * Scratch carved from the caller's workspace (n entries, m internal fluxes: the
+ * caller's declared fluxes, then room for the tracer moves; R rows, T totals).
+ */
 struct Scratch {
-  double *x;            /* [n] accepted state at the current step start */
-  double *trial;        /* [n] trial end state; the first step keeps the start weights here */
-  double *stage;        /* [n] stage state, or the first step's probe state */
-  double *net0;         /* [n] first step: net rate at the start */
-  double *net1;         /* [n] first step: net rate at the probe */
-  double *coef;         /* [m] coefficients of the latest law evaluation */
-  double *phi[4];       /* [m] each: flux rates of stages 1 to 4, tau units */
-  double *sum3;         /* [m] phi[0] + phi[1] + phi[2] */
-  double *amount;       /* [m] amounts of the current stage, then of the update */
-  double *error_amount; /* [m] (b - bhat) amounts of the attempt */
-  double *group_start;  /* [R * T] row sums of each total at the step start */
-  double *group_trial;  /* [R * T] row sums of each total at the trial end */
-  double *total_start;  /* [T] component sums at the step start */
-  double *total_trial;  /* [T] component sums at the trial end */
-  double *source_entry; /* [n] external inflow into each entry over accepted steps */
-  double *sink_entry;   /* [n] external outflow from each entry over accepted steps */
-  double *source;       /* [T] per-total sums of source_entry, formed once at segment end */
-  double *sink;         /* [T] per-total sums of sink_entry, formed once at segment end */
-  struct FluxKey *keys; /* [m] */
-  int *order;           /* [m] caller flux indices in canonical order */
-  int *clock_row;       /* [m] the row whose Delta scales each flux */
-  int *out_start;       /* [n + 1] CSR offsets into out_list */
-  int *out_list;        /* outflows of each entry, canonical order */
-  int *in_start;        /* [n + 1] CSR offsets into in_list */
-  int *in_list;         /* inflows of each entry, canonical order */
+  double *x;             /* [n] accepted state at the current step start */
+  double *trial;         /* [n] trial end state; the first step keeps the start weights here */
+  double *stage;         /* [n] stage state, or the first step's probe state */
+  double *net0;          /* [n] first step: net rate at the start */
+  double *net1;          /* [n] first step: net rate at the probe */
+  double *coef;          /* [m] coefficients of the latest law evaluation */
+  double *phi[4];        /* [m] each: flux rates of stages 1 to 4, tau units */
+  double *sum3;          /* [m] phi[0] + phi[1] + phi[2] */
+  double *amount;        /* [m] amounts of the current stage, then of the update */
+  double *error_amount;  /* [m] (b - bhat) amounts of the attempt */
+  double *group_start;   /* [R * T] row sums of each total at the step start */
+  double *group_trial;   /* [R * T] row sums of each total at the trial end */
+  double *total_start;   /* [T] component sums at the step start */
+  double *total_trial;   /* [T] component sums at the trial end */
+  double *source_entry;  /* [n] external inflow into each entry over accepted steps */
+  double *sink_entry;    /* [n] external outflow from each entry over accepted steps */
+  double *source;        /* [T] per-total sums of source_entry, formed once at segment end */
+  double *sink;          /* [T] per-total sums of sink_entry, formed once at segment end */
+  double *inflow_entry;  /* [n] inflow into each entry over accepted steps (tracer bound) */
+  struct RateFlux *flux; /* [m] declared fluxes as given, then the derived tracer moves */
+  struct FluxKey *keys;  /* [m] */
+  int *order;            /* [m] internal flux indices in canonical order */
+  int *clock_row;        /* [m] the row whose Delta scales each flux */
+  int *out_start;        /* [n + 1] CSR offsets into out_list */
+  int *out_list;         /* outflows of each entry, canonical order */
+  int *in_start;         /* [n + 1] CSR offsets into in_list */
+  int *in_list;          /* inflows of each entry, canonical order */
+  int *tracer_start;     /* [n + 1] CSR offsets into tracer_list */
+  int *tracer_list;      /* [n] tracers of each parent, entry order */
 };
 
 /** One segment's integration: inputs, scratch and the running step-start data. */
@@ -88,6 +102,9 @@ struct Integration {
   const struct RateIntegratorSettings *settings;
   struct RateSegmentOutcome *outcome;
   struct Scratch s;
+  int num_declared;  /* the caller's fluxes: internal indices 0 .. num_declared - 1 */
+  int num_fluxes;    /* declared fluxes plus tracer moves */
+  int num_tracers;   /* tracer entries */
   double k_start;    /* K_max at the current step start */
   int k_start_entry; /* the entry attaining it, or -1 */
   int k_start_flux;  /* that entry's outflow with the largest coefficient, or -1 */
@@ -116,10 +133,28 @@ static void *carve(char *base, size_t *offset, size_t count, size_t size) {
   return block;
 }
 
+/**
+ * @brief   Room for the tracer moves: every declared flux times the most tracers one parent has
+ *
+ * A parent's tracers lie in distinct totals other than its own (checked in
+ * build_tracer_lists()), so it has at most min(tracer entries, T - 1) of them.
+ */
+static size_t tracer_move_capacity(const struct RateComponent *c) {
+  size_t tracers = 0;
+  for (int i = 0; i < c->num_entries; i++) {
+    if (c->entries[i].kind == RATE_ENTRY_TRACER) {
+      tracers++;
+    }
+  }
+  const size_t other_totals = (c->num_totals > 1) ? (size_t)(c->num_totals - 1) : 0;
+  const size_t per_flux = (tracers < other_totals) ? tracers : other_totals;
+  return (size_t)c->num_fluxes * per_flux;
+}
+
 /** Lay the scratch out over @p base (or only measure it when NULL); returns the bytes. */
 static size_t layout_scratch(const struct RateComponent *c, char *base, struct Scratch *s) {
   const size_t n = (size_t)c->num_entries;
-  const size_t m = (size_t)c->num_fluxes;
+  const size_t m = (size_t)c->num_fluxes + tracer_move_capacity(c);
   const size_t totals = (size_t)c->num_totals;
   const size_t groups = (size_t)c->num_rows * totals;
   size_t offset = 0;
@@ -144,6 +179,8 @@ static size_t layout_scratch(const struct RateComponent *c, char *base, struct S
   s->sink_entry = carve(base, &offset, n, sizeof(double));
   s->source = carve(base, &offset, totals, sizeof(double));
   s->sink = carve(base, &offset, totals, sizeof(double));
+  s->inflow_entry = carve(base, &offset, n, sizeof(double));
+  s->flux = carve(base, &offset, m, sizeof(struct RateFlux));
   s->keys = carve(base, &offset, m, sizeof(struct FluxKey));
   s->order = carve(base, &offset, m, sizeof(int));
   s->clock_row = carve(base, &offset, m, sizeof(int));
@@ -151,6 +188,8 @@ static size_t layout_scratch(const struct RateComponent *c, char *base, struct S
   s->out_list = carve(base, &offset, m, sizeof(int));
   s->in_start = carve(base, &offset, n + 1, sizeof(int));
   s->in_list = carve(base, &offset, m, sizeof(int));
+  s->tracer_start = carve(base, &offset, n + 1, sizeof(int));
+  s->tracer_list = carve(base, &offset, n, sizeof(int));
   return offset;
 }
 
@@ -172,17 +211,30 @@ static int compare_flux_keys(const void *a, const void *b) {
   if (ka->global_index != kb->global_index) {
     return (ka->global_index < kb->global_index) ? -1 : 1;
   }
+  if (ka->tracer != kb->tracer) {
+    return (ka->tracer < kb->tracer) ? -1 : 1;
+  }
   return (ka->index > kb->index) - (ka->index < kb->index);
 }
 
 /** True when flux @p f moves content out of entry `from` (a self-transfer moves nothing). */
 static int flux_has_donor(const struct RateFlux *f) {
-  return f->kind != RATE_FLUX_SOURCE && f->from != f->to;
+  return (f->kind == RATE_FLUX_INTERNAL || f->kind == RATE_FLUX_SINK) && f->from != f->to;
 }
 
 /** True when flux @p f moves content into entry `to`. */
 static int flux_has_recipient(const struct RateFlux *f) {
   return f->kind != RATE_FLUX_SINK && f->from != f->to;
+}
+
+/** True when flux @p f enters the component from outside: a source or a slaved source. */
+static int flux_is_external_source(const struct RateFlux *f) {
+  return f->kind == RATE_FLUX_SOURCE || f->kind == RATE_FLUX_SLAVED;
+}
+
+/** The entry a failure record names for flux @p f: its donor, or its recipient for a source. */
+static int flux_named_entry(const struct RateFlux *f) {
+  return flux_is_external_source(f) ? f->to : f->from;
 }
 
 /** Turn per-entry counts in start[1..n] into CSR offsets start[0..n]. */
@@ -202,21 +254,164 @@ static void restore_offsets(int *start, int n) {
 }
 
 /**
- * @brief   Sort the fluxes canonically and build each entry's flux lists
+ * @brief   Check every tracer's parent link and list each parent's tracers in entry order
+ *
+ * A tracer's parent is a reservoir entry of the same row in another total, and
+ * one parent has at most one tracer per total; anything else is a programming
+ * error and fatal, since the tracer moves and the workspace size rely on it.
+ */
+static void build_tracer_lists(struct Integration *in) {
+  const struct RateComponent *c = in->c;
+  struct Scratch *s = &in->s;
+  const int n = c->num_entries;
+
+  memset(s->tracer_start, 0, (size_t)(n + 1) * sizeof(int));
+  in->num_tracers = 0;
+  for (int z = 0; z < n; z++) {
+    if (c->entries[z].kind != RATE_ENTRY_TRACER) {
+      continue;
+    }
+    const int p = c->entries[z].parent;
+    if (p < 0 || p >= n || c->entries[p].kind != RATE_ENTRY_RESERVOIR ||
+        c->entries[p].row != c->entries[z].row || c->entries[p].total == c->entries[z].total) {
+      FATAL_ERROR("Rate tracer entry %d names parent %d, which is not a reservoir entry of its "
+                  "row in another total",
+                  z, p);
+    }
+    s->tracer_start[p + 1]++;
+    in->num_tracers++;
+  }
+  counts_to_offsets(s->tracer_start, n);
+  for (int z = 0; z < n; z++) {
+    if (c->entries[z].kind == RATE_ENTRY_TRACER) {
+      s->tracer_list[s->tracer_start[c->entries[z].parent]++] = z;
+    }
+  }
+  restore_offsets(s->tracer_start, n);
+  for (int p = 0; p < n; p++) {
+    for (int a = s->tracer_start[p]; a < s->tracer_start[p + 1]; a++) {
+      for (int b = a + 1; b < s->tracer_start[p + 1]; b++) {
+        if (c->entries[s->tracer_list[a]].total == c->entries[s->tracer_list[b]].total) {
+          FATAL_ERROR("Rate tracer entries %d and %d share parent %d and total %d",
+                      s->tracer_list[a], s->tracer_list[b], p, c->entries[s->tracer_list[a]].total);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * @brief   Check every observer's flux and every slaved source's master; fatal when malformed
+ *
+ * Slaved sources are one level deep: a master is a declared internal transfer
+ * or sink, never a source or another slaved source.
+ */
+static void check_links(const struct RateComponent *c) {
+  for (int i = 0; i < c->num_entries; i++) {
+    const struct RateEntry *entry = &c->entries[i];
+    if (entry->kind == RATE_ENTRY_OBSERVER && (entry->flux < 0 || entry->flux >= c->num_fluxes)) {
+      FATAL_ERROR("Rate observer entry %d names flux %d, which the component does not declare", i,
+                  entry->flux);
+    }
+  }
+  for (int f = 0; f < c->num_fluxes; f++) {
+    if (c->fluxes[f].kind != RATE_FLUX_SLAVED) {
+      continue;
+    }
+    const int master = c->fluxes[f].master;
+    if (master < 0 || master >= c->num_fluxes ||
+        (c->fluxes[master].kind != RATE_FLUX_INTERNAL &&
+         c->fluxes[master].kind != RATE_FLUX_SINK)) {
+      FATAL_ERROR("Rate slaved source %d names master %d, which is not a declared internal "
+                  "transfer or sink (slaved sources are one level deep)",
+                  f, master);
+    }
+  }
+}
+
+/** The tracer of entry @p parent in total @p total, or -1. */
+static int tracer_in_total(const struct Integration *in, int parent, int total) {
+  const struct Scratch *s = &in->s;
+  for (int k = s->tracer_start[parent]; k < s->tracer_start[parent + 1]; k++) {
+    if (in->c->entries[s->tracer_list[k]].total == total) {
+      return s->tracer_list[k];
+    }
+  }
+  return -1;
+}
+
+/**
+ * @brief   Copy the declared fluxes and append the tracer moves (rate_integrator.h, Tracers)
+ *
+ * For every declared flux with a donor, each tracer of the donor moves into the
+ * recipient's tracer of the same total, or leaves the component as a sink when
+ * the flux is a sink or the recipient has no such tracer. A move keeps its
+ * master's global index and names the master in `master`.
+ */
+static void derive_tracer_moves(struct Integration *in) {
+  const struct RateComponent *c = in->c;
+  struct Scratch *s = &in->s;
+  const size_t capacity = tracer_move_capacity(c);
+  int count = c->num_fluxes;
+
+  memcpy(s->flux, c->fluxes, (size_t)c->num_fluxes * sizeof(struct RateFlux));
+  for (int f = 0; f < c->num_fluxes; f++) {
+    const struct RateFlux *master = &c->fluxes[f];
+    if (!flux_has_donor(master)) {
+      continue;
+    }
+    for (int k = s->tracer_start[master->from]; k < s->tracer_start[master->from + 1]; k++) {
+      const int z = s->tracer_list[k];
+      const int target = (master->kind == RATE_FLUX_INTERNAL)
+                             ? tracer_in_total(in, master->to, c->entries[z].total)
+                             : -1;
+      if ((size_t)(count - c->num_fluxes) >= capacity) {
+        FATAL_ERROR("Rate component needs more tracer moves than its workspace holds (%zu)",
+                    capacity);
+      }
+      struct RateFlux *move = &s->flux[count++];
+      move->kind = (target >= 0) ? RATE_FLUX_INTERNAL : RATE_FLUX_SINK;
+      move->from = z;
+      move->to = (target >= 0) ? target : RATE_END_EXTERNAL;
+      move->global_index = master->global_index;
+      move->master = f;
+    }
+  }
+  in->num_declared = c->num_fluxes;
+  in->num_fluxes = count;
+}
+
+/** The row whose Delta scales internal flux @p f (rate_integrator.h, Time). */
+static int clock_row_of(const struct Integration *in, int f) {
+  const struct RateFlux *flux = &in->s.flux[f];
+  if (flux->kind == RATE_FLUX_SOURCE) {
+    return in->c->entries[flux->to].row;
+  }
+  if (flux->kind == RATE_FLUX_SLAVED) {
+    return in->c->entries[in->s.flux[flux->master].from].row;
+  }
+  return in->c->entries[flux->from].row;
+}
+
+/**
+ * @brief   Derive the tracer moves, sort every flux canonically and build each entry's lists
  * @return  L, the largest number of inflow plus outflow terms on one entry
  */
 static int build_flux_lists(struct Integration *in) {
   const struct RateComponent *c = in->c;
   struct Scratch *s = &in->s;
   const int n = c->num_entries;
-  const int m = c->num_fluxes;
+
+  build_tracer_lists(in);
+  check_links(c);
+  derive_tracer_moves(in);
+  const int m = in->num_fluxes;
 
   for (int f = 0; f < m; f++) {
-    const struct RateFlux *flux = &c->fluxes[f];
-    const int clock_entry = (flux->kind == RATE_FLUX_SOURCE) ? flux->to : flux->from;
-    s->clock_row[f] = c->entries[clock_entry].row;
+    s->clock_row[f] = clock_row_of(in, f);
     s->keys[f].row = s->clock_row[f];
-    s->keys[f].global_index = flux->global_index;
+    s->keys[f].global_index = s->flux[f].global_index;
+    s->keys[f].tracer = (f < in->num_declared) ? -1 : s->flux[f].from;
     s->keys[f].index = f;
   }
   if (m > 1) {
@@ -229,7 +424,7 @@ static int build_flux_lists(struct Integration *in) {
   memset(s->out_start, 0, (size_t)(n + 1) * sizeof(int));
   memset(s->in_start, 0, (size_t)(n + 1) * sizeof(int));
   for (int f = 0; f < m; f++) {
-    const struct RateFlux *flux = &c->fluxes[f];
+    const struct RateFlux *flux = &s->flux[f];
     if (flux_has_donor(flux)) {
       s->out_start[flux->from + 1]++;
     }
@@ -248,7 +443,7 @@ static int build_flux_lists(struct Integration *in) {
   counts_to_offsets(s->in_start, n);
   for (int k = 0; k < m; k++) {
     const int f = s->order[k];
-    const struct RateFlux *flux = &c->fluxes[f];
+    const struct RateFlux *flux = &s->flux[f];
     if (flux_has_donor(flux)) {
       s->out_list[s->out_start[flux->from]++] = f;
     }
@@ -265,12 +460,13 @@ static int build_flux_lists(struct Integration *in) {
  * Failure records and attempt reports
  * ------------------------------------------------------------------------- */
 
+/** Record a failure; @p flux is an internal index, named to the caller by its master if a move. */
 static enum RateCause record_failure(struct Integration *in, enum RateCause cause, int entry,
                                      int flux, double tau, double step) {
   struct RateFailure *failure = &in->outcome->failure;
   failure->cause = cause;
   failure->entry = entry;
-  failure->flux = flux;
+  failure->flux = (flux >= in->num_declared) ? in->s.flux[flux].master : flux;
   if (entry >= 0) {
     failure->row = in->c->entries[entry].row;
   } else if (flux >= 0) {
@@ -281,9 +477,11 @@ static enum RateCause record_failure(struct Integration *in, enum RateCause caus
   failure->total = -1;
   failure->tau = tau;
   failure->step = step;
+  failure->detail = "";
   return cause;
 }
 
+/** Report an attempt; an accepted one carries the declared fluxes' committed amounts. */
 static void report_attempt(const struct Integration *in, double tau, double step, int accepted,
                            enum RateRejection rejection, double error_norm, double min_weight) {
   if (in->settings->on_attempt == NULL) {
@@ -297,6 +495,7 @@ static void report_attempt(const struct Integration *in, double tau, double step
       .error_norm = error_norm,
       .min_weight = min_weight,
       .state = in->s.x,
+      .amounts = accepted ? in->s.amount : NULL,
   };
   in->settings->on_attempt(in->settings->attempt_data, &attempt);
 }
@@ -309,38 +508,58 @@ static void report_attempt(const struct Integration *in, double tau, double step
  * @brief   Evaluate the laws at @p state and check every coefficient
  *
  * A failure is recorded against the step that starts at @p step_tau with length
- * @p step; the first bad coefficient in canonical order is named.
+ * @p step; the first bad coefficient in canonical order is named. Each tracer
+ * move then takes its master's coefficient.
  */
 static enum RateCause evaluate_law(struct Integration *in, double eval_tau, const double *state,
                                    double step_tau, double step) {
-  const struct RateComponent *c = in->c;
   struct Scratch *s = &in->s;
 
-  memset(s->coef, 0, (size_t)c->num_fluxes * sizeof(double));
+  memset(s->coef, 0, (size_t)in->num_declared * sizeof(double));
   in->outcome->stats.law_evaluations++;
   if (in->law->evaluate(in->law->data, eval_tau, state, s->coef) != 0) {
     return record_failure(in, RATE_CAUSE_BAD_COEFFICIENT, -1, -1, step_tau, step);
   }
-  for (int k = 0; k < c->num_fluxes; k++) {
+  for (int k = 0; k < in->num_fluxes; k++) {
     const int f = s->order[k];
+    if (f >= in->num_declared) {
+      continue;
+    }
     const double coefficient = s->coef[f];
     if (!(coefficient >= 0.0) || isinf(coefficient)) {
-      const struct RateFlux *flux = &c->fluxes[f];
-      const int entry = (flux->kind == RATE_FLUX_SOURCE) ? flux->to : flux->from;
-      return record_failure(in, RATE_CAUSE_BAD_COEFFICIENT, entry, f, step_tau, step);
+      return record_failure(in, RATE_CAUSE_BAD_COEFFICIENT, flux_named_entry(&s->flux[f]), f,
+                            step_tau, step);
     }
+  }
+  for (int f = in->num_declared; f < in->num_fluxes; f++) {
+    s->coef[f] = s->coef[s->flux[f].master];
   }
   return RATE_CAUSE_NONE;
 }
 
-/** Each flux's rate in tau units at @p state, from the latest coefficients. */
+/**
+ * @brief   Each flux's rate in tau units at @p state, from the latest coefficients
+ *
+ * Slaved sources are formed after every other flux: the coefficient times the
+ * master's rate, or zero when the master moves nothing.
+ */
 static void flux_rates(const struct Integration *in, const double *state, double *phi) {
   const struct RateComponent *c = in->c;
   const struct Scratch *s = &in->s;
-  for (int f = 0; f < c->num_fluxes; f++) {
-    const struct RateFlux *flux = &c->fluxes[f];
+  for (int f = 0; f < in->num_fluxes; f++) {
+    const struct RateFlux *flux = &s->flux[f];
+    if (flux->kind == RATE_FLUX_SLAVED) {
+      continue;
+    }
     const double scaled = c->row_delta[s->clock_row[f]] * s->coef[f];
     phi[f] = (flux->kind == RATE_FLUX_SOURCE) ? scaled : scaled * state[flux->from];
+  }
+  for (int f = 0; f < in->num_declared; f++) {
+    const struct RateFlux *flux = &s->flux[f];
+    if (flux->kind == RATE_FLUX_SLAVED) {
+      const struct RateFlux *master = &s->flux[flux->master];
+      phi[f] = (master->from != master->to) ? s->coef[f] * phi[flux->master] : 0.0;
+    }
   }
 }
 
@@ -398,7 +617,10 @@ static double positivity_cap(double k) {
 
 /**
  * @brief   Form (x - sum of outflow amounts) + sum of inflow amounts per entry
- * @return  The first entry below zero or not a number, or -1
+ * @return  The first reservoir or tracer entry below zero or not a number, or -1
+ *
+ * An observer has no flux lists, so it keeps its value here; commit_step() adds
+ * its amount.
  */
 static int form_state(const struct Integration *in, const double *x, const double *amount,
                       double *out) {
@@ -415,7 +637,7 @@ static int form_state(const struct Integration *in, const double *x, const doubl
     }
     const double value = (x[i] - outflow) + inflow;
     out[i] = value;
-    if (!(value >= 0.0) && first_bad < 0) {
+    if (!(value >= 0.0) && first_bad < 0 && in->c->entries[i].kind != RATE_ENTRY_OBSERVER) {
       first_bad = i;
     }
   }
@@ -447,22 +669,20 @@ static void net_change(const struct Integration *in, const double *values, doubl
  * source. It seeds the failure record's limiter while no other limiter is set.
  */
 static void set_start_limiter(struct Integration *in) {
-  const struct RateComponent *c = in->c;
   const struct Scratch *s = &in->s;
   in->start_entry = in->k_start_entry;
   in->start_flux = in->k_start_flux;
   if (in->start_entry >= 0) {
     return;
   }
-  for (int k = 0; k < c->num_fluxes; k++) {
+  for (int k = 0; k < in->num_fluxes; k++) {
     const int f = s->order[k];
     if (in->start_flux < 0 || s->phi[0][f] > s->phi[0][in->start_flux]) {
       in->start_flux = f;
     }
   }
   if (in->start_flux >= 0) {
-    const struct RateFlux *flux = &c->fluxes[in->start_flux];
-    in->start_entry = (flux->kind == RATE_FLUX_SOURCE) ? flux->to : flux->from;
+    in->start_entry = flux_named_entry(&s->flux[in->start_flux]);
   }
 }
 
@@ -494,7 +714,7 @@ static enum RateCause begin_step(struct Integration *in, double tau, double step
  * Error estimate
  * ------------------------------------------------------------------------- */
 
-/** Per-row and per-component sums of each total at @p state, in entry order. */
+/** Per-row and per-component sums of each total at @p state, in entry order; no observer. */
 static void sum_totals(const struct Integration *in, const double *state, double *group,
                        double *total) {
   const struct RateComponent *c = in->c;
@@ -503,9 +723,18 @@ static void sum_totals(const struct Integration *in, const double *state, double
   memset(total, 0, (size_t)totals * sizeof(double));
   for (int i = 0; i < c->num_entries; i++) {
     const struct RateEntry *entry = &c->entries[i];
+    if (entry->kind == RATE_ENTRY_OBSERVER) {
+      continue;
+    }
     group[(size_t)entry->row * (size_t)totals + (size_t)entry->total] += state[i];
     total[entry->total] += state[i];
   }
+}
+
+/** The total whose sums scale entry @p i's weight: its own, or its parent's for a tracer. */
+static int scale_total(const struct RateComponent *c, int i) {
+  const struct RateEntry *entry = &c->entries[i];
+  return (entry->kind == RATE_ENTRY_TRACER) ? c->entries[entry->parent].total : entry->total;
 }
 
 /**
@@ -528,7 +757,10 @@ static double error_norm(struct Integration *in, double *min_weight) {
   double smallest_weight = INFINITY;
   int arg = -1;
   for (int i = 0; i < c->num_entries; i++) {
-    const int t = c->entries[i].total;
+    if (c->entries[i].kind == RATE_ENTRY_OBSERVER) {
+      continue;
+    }
+    const int t = scale_total(c, i);
     const size_t g = (size_t)c->entries[i].row * (size_t)c->num_totals + (size_t)t;
     double scale = fmax(s->group_start[g], s->group_trial[g]);
     const double scale_floor = SCALE_FLOOR * fmax(s->total_start[t], s->total_trial[t]);
@@ -639,7 +871,7 @@ static enum AttemptResult attempt_step(struct Integration *in, double tau, doubl
                                        int adaptive, double *norm, double *min_weight,
                                        double *k_seen) {
   struct Scratch *s = &in->s;
-  const int m = in->c->num_fluxes;
+  const int m = in->num_fluxes;
   const double *phi0 = s->phi[0];
   enum AttemptResult result;
 
@@ -704,7 +936,9 @@ static enum AttemptResult attempt_step(struct Integration *in, double tau, doubl
  * Each external amount accumulates on its own entry, so an entry's accumulator
  * takes at most its own flux terms per step and its rounding stays inside the
  * closure tolerance's (L + 2) N_acc terms; the per-total sums are formed once at
- * segment end (sum_external_amounts()).
+ * segment end (sum_external_amounts()). Each observer adds its flux's committed
+ * amount, the number that moved. With tracers present, each entry's inflow
+ * amounts accumulate the same way for the tracer bound's throughput.
  */
 static void commit_step(struct Integration *in) {
   const struct RateComponent *c = in->c;
@@ -712,13 +946,26 @@ static void commit_step(struct Integration *in) {
   double *previous = s->x;
   s->x = s->trial;
   s->trial = previous;
-  for (int k = 0; k < c->num_fluxes; k++) {
+  for (int k = 0; k < in->num_fluxes; k++) {
     const int f = s->order[k];
-    const struct RateFlux *flux = &c->fluxes[f];
-    if (flux->kind == RATE_FLUX_SOURCE) {
+    const struct RateFlux *flux = &s->flux[f];
+    if (flux_is_external_source(flux)) {
       s->source_entry[flux->to] += s->amount[f];
     } else if (flux->kind == RATE_FLUX_SINK) {
       s->sink_entry[flux->from] += s->amount[f];
+    }
+  }
+  for (int i = 0; i < c->num_entries; i++) {
+    const struct RateEntry *entry = &c->entries[i];
+    if (entry->kind == RATE_ENTRY_OBSERVER) {
+      const struct RateFlux *flux = &s->flux[entry->flux];
+      s->x[i] += (flux->from != flux->to) ? s->amount[entry->flux] : 0.0;
+    } else if (in->num_tracers > 0) {
+      double inflow = 0.0;
+      for (int k = s->in_start[i]; k < s->in_start[i + 1]; k++) {
+        inflow += s->amount[s->in_list[k]];
+      }
+      s->inflow_entry[i] += inflow;
     }
   }
   in->outcome->stats.accepted_steps++;
@@ -731,6 +978,9 @@ static void sum_external_amounts(struct Integration *in) {
   memset(s->source, 0, (size_t)c->num_totals * sizeof(double));
   memset(s->sink, 0, (size_t)c->num_totals * sizeof(double));
   for (int i = 0; i < c->num_entries; i++) {
+    if (c->entries[i].kind == RATE_ENTRY_OBSERVER) {
+      continue;
+    }
     s->source[c->entries[i].total] += s->source_entry[i];
     s->sink[c->entries[i].total] += s->sink_entry[i];
   }
@@ -773,7 +1023,11 @@ static enum RateCause first_step(struct Integration *in, double *step) {
   double d0 = 0.0;
   double d1 = 0.0;
   for (int i = 0; i < c->num_entries; i++) {
-    const int t = c->entries[i].total;
+    if (c->entries[i].kind == RATE_ENTRY_OBSERVER) {
+      start_weight[i] = 0.0; /* no weight: left out of d0, d1 and d2 */
+      continue;
+    }
+    const int t = scale_total(c, i);
     const size_t g = (size_t)c->entries[i].row * (size_t)c->num_totals + (size_t)t;
     const double scale = fmax(s->group_start[g], SCALE_FLOOR * s->total_start[t]);
     start_weight[i] = atol * scale + rtol * fabs(s->x[i]);
@@ -793,7 +1047,7 @@ static enum RateCause first_step(struct Integration *in, double *step) {
   if (in->k_start > 0.0) {
     h0 = fmin(h0, POSITIVITY_MARGIN / in->k_start);
   }
-  for (int f = 0; f < c->num_fluxes; f++) {
+  for (int f = 0; f < in->num_fluxes; f++) {
     s->amount[f] = h0 * s->phi[0][f];
   }
   /* Outflows take at most sigma of each entry, so the probe cannot go negative
@@ -978,6 +1232,8 @@ const char *rate_cause_name(enum RateCause cause) {
     return "step_underflow";
   case RATE_CAUSE_LEDGER:
     return "ledger";
+  case RATE_CAUSE_TRACER_BOUND:
+    return "tracer_bound";
   }
   return "unknown";
 }
@@ -991,13 +1247,14 @@ enum RateCause rate_check_closure(const struct RateClosureInput *input,
   failure->total = -1;
   failure->tau = 1.0;
   failure->step = 0.0;
+  failure->detail = "";
   for (int t = 0; t < input->num_totals; t++) {
     double start_sum = 0.0;
     double end_sum = 0.0;
     double start_magnitude = 0.0;
     int members = 0;
     for (int i = 0; i < input->num_entries; i++) {
-      if (input->entries[i].total != t) {
+      if (input->entries[i].kind == RATE_ENTRY_OBSERVER || input->entries[i].total != t) {
         continue;
       }
       start_sum += input->start_state[i];
@@ -1016,6 +1273,51 @@ enum RateCause rate_check_closure(const struct RateClosureInput *input,
       failure->total = t;
       return RATE_CAUSE_LEDGER;
     }
+  }
+  return RATE_CAUSE_NONE;
+}
+
+/** The detail of a tracer_bound failure, by whether the tracer has sources of its own. */
+#define TRACER_BOUND_OWN_SOURCES                                                                   \
+  "the tracer has sources of its own (a source or slaved source into it), which can break the "    \
+  "bound in the exact solution"
+#define TRACER_BOUND_NO_SOURCES                                                                    \
+  "the tracer has no sources of its own: its only inflows are tracer moves"
+
+/**
+ * @brief   The tracer bound at segment end (rate_integrator.h, Segment-end checks)
+ *
+ * For each tracer z of parent p, in entry order: z - p <= 8u (L + 2) N_acc
+ * Theta_p, with Theta_p p's start content plus its accumulated inflow amounts.
+ * The first failing tracer is named with its first source or slaved source in
+ * canonical order, if it has one.
+ */
+static enum RateCause check_tracer_bound(struct Integration *in, const double *start) {
+  const struct RateComponent *c = in->c;
+  const struct Scratch *s = &in->s;
+  const double terms =
+      (double)(in->outcome->max_terms_per_entry + 2) * (double)in->outcome->stats.accepted_steps;
+  for (int z = 0; z < c->num_entries; z++) {
+    if (c->entries[z].kind != RATE_ENTRY_TRACER) {
+      continue;
+    }
+    const int p = c->entries[z].parent;
+    const double throughput = start[p] + s->inflow_entry[p];
+    const double bound = CLOSURE_FACTOR * terms * throughput;
+    if (s->x[z] - s->x[p] <= bound) {
+      continue;
+    }
+    int own_source = -1;
+    for (int k = s->in_start[z]; k < s->in_start[z + 1] && own_source < 0; k++) {
+      if (flux_is_external_source(&s->flux[s->in_list[k]])) {
+        own_source = s->in_list[k];
+      }
+    }
+    record_failure(in, RATE_CAUSE_TRACER_BOUND, z, own_source, 1.0, 0.0);
+    in->outcome->failure.total = c->entries[z].total;
+    in->outcome->failure.detail =
+        (own_source >= 0) ? TRACER_BOUND_OWN_SOURCES : TRACER_BOUND_NO_SOURCES;
+    return RATE_CAUSE_TRACER_BOUND;
   }
   return RATE_CAUSE_NONE;
 }
@@ -1055,6 +1357,7 @@ enum RateCause rate_integrate_segment(const struct RateComponent *component,
   outcome->failure.flux = -1;
   outcome->failure.row = -1;
   outcome->failure.total = -1;
+  outcome->failure.detail = "";
 
   const size_t required = rate_integrator_workspace_bytes(component);
   if (workspace_bytes < required || (required > 0 && workspace == NULL)) {
@@ -1086,6 +1389,7 @@ enum RateCause rate_integrate_segment(const struct RateComponent *component,
   memcpy(in.s.x, state, (size_t)component->num_entries * sizeof(double));
   memset(in.s.source_entry, 0, (size_t)component->num_entries * sizeof(double));
   memset(in.s.sink_entry, 0, (size_t)component->num_entries * sizeof(double));
+  memset(in.s.inflow_entry, 0, (size_t)component->num_entries * sizeof(double));
 
   const enum RateCause cause =
       (settings->fixed_steps > 0) ? integrate_fixed(&in) : integrate_adaptive(&in);
@@ -1107,6 +1411,9 @@ enum RateCause rate_integrate_segment(const struct RateComponent *component,
   };
   if (rate_check_closure(&closure, &outcome->failure) != RATE_CAUSE_NONE) {
     return RATE_CAUSE_LEDGER;
+  }
+  if (check_tracer_bound(&in, state) != RATE_CAUSE_NONE) {
+    return RATE_CAUSE_TRACER_BOUND;
   }
 
   memcpy(state, in.s.x, (size_t)component->num_entries * sizeof(double));

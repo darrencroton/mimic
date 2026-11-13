@@ -67,6 +67,9 @@ static int add_entry(struct System *system, int row, int total, double content) 
   const int index = system->num_entries++;
   system->entries[index].row = row;
   system->entries[index].total = total;
+  system->entries[index].kind = RATE_ENTRY_RESERVOIR;
+  system->entries[index].parent = -1;
+  system->entries[index].flux = -1;
   system->state[index] = content;
   return index;
 }
@@ -78,6 +81,7 @@ static int add_flux(struct System *system, enum RateFluxKind kind, int from, int
   system->fluxes[index].from = from;
   system->fluxes[index].to = to;
   system->fluxes[index].global_index = global_index;
+  system->fluxes[index].master = -1;
   system->coefficient[index] = coefficient;
   return index;
 }
@@ -859,7 +863,10 @@ static int test_mixed_delta_cross_record_conserves(void) {
  * end removes it.
  */
 static int test_closure_check_detects_imbalance(void) {
-  const struct RateEntry entries[] = {{0, 0}, {0, 0}, {1, 0}, {1, 1}};
+  const struct RateEntry entries[] = {{0, 0, RATE_ENTRY_RESERVOIR, -1, -1},
+                                      {0, 0, RATE_ENTRY_RESERVOIR, -1, -1},
+                                      {1, 0, RATE_ENTRY_RESERVOIR, -1, -1},
+                                      {1, 1, RATE_ENTRY_RESERVOIR, -1, -1}};
   const double start[] = {0.3, 0.5, 0.2, 0.9};
   const double raised[] = {0.3, 0.5, 0.2 + 1e-6, 0.9};
   const double lowered[] = {0.3, 0.5, 0.2 - 1e-6, 0.9};
