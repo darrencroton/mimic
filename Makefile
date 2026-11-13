@@ -326,7 +326,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-reference-identity tests-converter tests-bench test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-reference-identity tests-rate tests-converter tests-bench test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -514,6 +514,7 @@ help:
 	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
 	@echo "  make tests-reference-identity REFERENCE_COMMIT=<hash> - Require byte-identical galaxy output between an ancestor commit and HEAD on real mini-Millennium (manual, 8 legs; the byte gate for performance work; REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS/_LDFLAGS gate a candidate build)"
 	@echo "  make tests-distributed  - Run the distributed horizontal gate: the MPI collectives control test, serial-versus-MPI identity at -np 1, 2, 3, 4 and 8 for halos-only, sage16, sham and hod, chunked legs (input.forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3 for halos-only, sage16 and hod, with the sham/hod chunked refusal); needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; a few minutes; rebuild with make afterwards"
+	@echo "  make tests-rate         - Run the rate battery: the rate fixtures and test_rate_jump on halos-only, vertical against horizontal on the real mini-Millennium data (explicit fixed and dynamic, implicit fixed), then on the forest_blocks fixture serial against -np 1, 2, 3, 4, 8 and forest_chunks 2, 3, 8, every order of the four rate modules under both schemes, and record creation across task counts; needs mpicc/mpirun and the real data; RATE_BATTERY_ARGS=--offline skips the real-data leg; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; rebuild with make afterwards"
 	@echo "  make tests-converter    - Run the converter self-tests (manual, ~6 min; not run by make tests)"
 	@echo "  make tests-bench        - Run the bench self-tests (manual, ~5 min; the capture tests need ./mimic built and the mini-millennium trees and otherwise skip; not run by make tests)"
 	@echo "  make tests summary      - Run make tests with concise warning/failure/skip output"
@@ -968,6 +969,18 @@ tests-snapshot-global-identity:
 # build/reference_identity.log itself.
 tests-reference-identity:
 	@$(PYTHON) tests/manual/test_reference_identity.py
+
+# Rate battery (tests/manual/run_rate_battery.py has the legs): the rate fixtures and
+# test_rate_jump on halos-only, built as test builds. Cross-driver identity on the real
+# mini-Millennium data in both layouts (explicit fixed and dynamic, implicit fixed), then on the
+# committed forest_blocks fixture: serial against USE-MPI=yes at -np 1, 2, 3, 4 and 8 and against
+# input.forest_chunks 2, 3 and 8, every order of the four rate modules under both schemes, and
+# record creation across task counts. RATE_BATTERY_ARGS=--offline runs the legs that need no
+# real data (CI's step); --only <leg> is a development aid whose run is not the gate. Needs
+# mpicc/mpirun; MPIRUN (environment, default mpirun) is the launcher. Writes build/rate_tests.log,
+# restores the caller's generated code; rebuild with `make` after.
+tests-rate:
+	@MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) tests/manual/run_rate_battery.py $(RATE_BATTERY_ARGS)
 
 # Reference source-dump harness: read-only, loads forests through the selected
 # vertical reader and dumps their literal link fields and core payload for the
