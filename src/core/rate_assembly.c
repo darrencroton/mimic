@@ -1468,14 +1468,18 @@ static void record_segment(struct RateStatistics *stats, const struct RateStepSt
 }
 
 void rate_statistics_log_summary(const struct RateStatistics *stats) {
+  /* Each total's entry is written whole or not at all; a list that does not fit ends "...". */
+  static const char more[] = ", ...";
   char declared[512] = "";
   size_t used = 0;
   const int num_totals = MIMIC_RESERVOIR_TOTAL_COUNT;
-  for (int t = 0; t < num_totals && used < sizeof(declared); t++) {
-    const int written =
-        snprintf(declared + used, sizeof(declared) - used, "%s%s %" PRIu64, t > 0 ? ", " : "",
-                 total_name(t), stats->counts.declared_changes[t]);
-    if (written < 0) {
+  for (int t = 0; t < num_totals; t++) {
+    const size_t room =
+        sizeof(declared) > sizeof(more) + used ? sizeof(declared) - sizeof(more) - used : 0;
+    const int written = snprintf(declared + used, room, "%s%s %" PRIu64, t > 0 ? ", " : "",
+                                 total_name(t), stats->counts.declared_changes[t]);
+    if (written < 0 || (size_t)written >= room) {
+      snprintf(declared + used, sizeof(declared) - used, "%s", t > 0 ? more : "...");
       break;
     }
     used += (size_t)written;

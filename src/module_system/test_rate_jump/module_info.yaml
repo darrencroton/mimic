@@ -57,9 +57,8 @@ module:
   # Tests
   # ===========================================================================
 
-  # Exercised by tests/integration/test_rate_phase.py and
-  # tests/integration/test_rate_provenance.py, which the test registry discovers
-  # directly.
+  # Exercised by tests/integration/test_rate_phase.py, which the test registry
+  # discovers directly.
   tests:
     unit: null
     integration: null

@@ -2051,15 +2051,22 @@ static void sum_conserved_totals(const struct FoFWorkspace *ws, struct TotalSums
   }
 }
 
-/** @brief Comma-separated names of a plan list's modules, for a diagnostic */
+/**
+ * @brief   Comma-separated names of a plan list's modules, for a diagnostic
+ *
+ * Each name is written whole or not at all; a list that does not fit in
+ * @p size bytes (at least 8) ends with "..." after its last whole name.
+ */
 static const char *module_list_names(struct Module *const *list, int count, char *buffer,
                                      size_t size) {
+  static const char more[] = ", ...";
   size_t used = 0;
   buffer[0] = '\0';
-  for (int i = 0; i < count && used < size; i++) {
-    const int written =
-        snprintf(buffer + used, size - used, "%s'%s'", i > 0 ? ", " : "", list[i]->name);
-    if (written < 0) {
+  for (int i = 0; i < count; i++) {
+    const size_t room = size > sizeof(more) + used ? size - sizeof(more) - used : 0;
+    const int written = snprintf(buffer + used, room, "%s'%s'", i > 0 ? ", " : "", list[i]->name);
+    if (written < 0 || (size_t)written >= room) {
+      snprintf(buffer + used, size - used, "%s", i > 0 ? more : "...");
       break;
     }
     used += (size_t)written;

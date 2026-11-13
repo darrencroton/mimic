@@ -32,8 +32,7 @@ Like the other `src/module_system/test_*` fixtures, it is compiled and registere
 
 ## Tests
 
-- `tests/integration/test_rate_phase.py` — the lossless merge (no change recorded), the lossy merge (a non-zero declared-change count), and this module beside `test_rate_faults`'s full-halo mode in one phase.
-- `tests/integration/test_rate_provenance.py` — the declared-change counts in `RunProperties/RateIntegration`.
+- `tests/integration/test_rate_phase.py` — the lossless merge (no change recorded), the lossy merge (a non-zero declared-change count in `RunProperties/RateIntegration/DeclaredDiscreteChanges`), and this module beside `test_rate_faults`'s full-halo mode in one phase. No other test names this module.
 
 ## Production Use
 

@@ -17,8 +17,10 @@ fixtures in one rate phase:
   - test_step_statistics_arithmetic: each histogram's counts sum to StepTotals.segments, the
     per-segment maxima lie in the occupied top bins and within the totals, and with no discrete
     phase every total's declared-change count is zero
-  - test_summary_line: a rate-phase run logs one "Rate integration:" summary line, a binary-output
-    run included (which writes no HDF5 record); a run with no rate phase logs none
+  - test_summary_line: a rate-phase run logs one "Rate integration:" summary line; a run with no
+    rate phase logs none
+  - test_binary_run_logs_the_summary_only: a binary-output rate-phase run logs the summary line
+    and writes no HDF5 (not applicable on a horizontal package, which is HDF5-only)
 """
 
 import shutil
@@ -38,6 +40,7 @@ from framework import (  # noqa: E402
     check_no_memory_leaks,
     core_input_file,
     create_test_param_file,
+    not_applicable_if_selected_package_is_horizontal,
     run_mimic,
     run_test_suite,
 )
@@ -300,21 +303,26 @@ def test_step_statistics_arithmetic():
 
 
 def test_summary_line():
-    """One summary line with a rate phase, a binary run included; none without one."""
+    """One summary line with a rate phase; none without one."""
     log, _ = _explicit_run()
     lines = [line for line in log.splitlines() if SUMMARY_PREFIX in line]
     assert len(lines) == 1, f"expected one summary line, found {lines}"
     for total in FIXTURE_TOTALS:
         assert f"{total} 0" in lines[0], f"the summary line lacks {total}: {lines[0]}"
 
+    log, _ = _completed("no_rate_phase", {})
+    assert SUMMARY_PREFIX not in log, "a run with no rate phase logged a rate summary"
+    print("  ✓ One summary line per rate-phase run, none without a rate phase")
+
+
+def test_binary_run_logs_the_summary_only():
+    """A binary-output rate-phase run logs the summary line and writes no HDF5 record."""
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output")
     log, output_dir = _completed("binary", _rate_phase(), output_format="binary")
     lines = [line for line in log.splitlines() if SUMMARY_PREFIX in line]
     assert len(lines) == 1, f"binary run: expected one summary line, found {lines}"
     assert not list(output_dir.glob("*.hdf5")), "a binary-output run wrote HDF5"
-
-    log, _ = _completed("no_rate_phase", {})
-    assert SUMMARY_PREFIX not in log, "a run with no rate phase logged a rate summary"
-    print("  ✓ One summary line per rate-phase run, none without a rate phase")
+    print("  ✓ A binary-output run records its statistics in the summary line only")
 
 
 def _cleanup():
@@ -331,6 +339,7 @@ def main():
                 test_rate_integration_settings,
                 test_step_statistics_arithmetic,
                 test_summary_line,
+                test_binary_run_logs_the_summary_only,
             ],
             "Rate Provenance (test_rate_provenance.py)",
         )

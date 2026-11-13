@@ -8,7 +8,8 @@
  *   another mode, in pre_timestep, post_timestep or post_snapshot, in a second
  *   phase, or listed twice; a slaved source whose master's module is not in the
  *   phase; a dependency cycle among totals (named); a transfer whose end has the
- *   wrong kind in the reservoir table; settings out of range. Each refusal comes
+ *   wrong kind in the reservoir table; settings out of range; a changes_totals
+ *   name the reservoir table does not hold (stale generated code). Each refusal comes
  *   from module_system_init() before any init(), naming the phase and the module,
  *   transfer or totals
  * - The cycle finder on its own, on graphs with and without a cycle
@@ -370,6 +371,9 @@ static const enum ProcessingMode per_event_modes[] = {PROCESSING_MODE_PER_EVENT}
 /** The changes_totals of every probe that declares one */
 static const char *const mass_total[] = {"rate_fixture_mass"};
 
+/** A changes_totals name no reservoir table holds, as stale generated code would carry */
+static const char *const stale_total[] = {"no_such_total"};
+
 /** A transfer descriptor as the generator emits one */
 #define TRANSFER(NAME, SLOT, GLOBAL, KIND, FROM, TO, RECORD, MASTER, SLAVED_TO)                    \
   {.name = (NAME),                                                                                 \
@@ -553,6 +557,15 @@ static struct Module ledger_galaxy = {.name = "ledger_galaxy",
                                       .process = ledger_galaxy_process,
                                       .supported_processing_modes = by_galaxy_modes,
                                       .num_supported_modes = 1};
+/* A full-halo module whose changes_totals names a total the build does not have. */
+static struct Module stale_declarer = {.name = "stale_declarer",
+                                       .init = probe_init,
+                                       .cleanup = probe_cleanup,
+                                       .process = fof_idle_process,
+                                       .supported_processing_modes = full_halo_modes,
+                                       .num_supported_modes = 1,
+                                       .changes_totals = stale_total,
+                                       .num_changes_totals = 1};
 /* A by-galaxy module that changes nothing but declares the mass total. */
 static struct Module ledger_galaxy_declarer = {.name = "ledger_galaxy_declarer",
                                                .init = probe_init,
@@ -589,7 +602,8 @@ static void ensure_probes_registered(void) {
                                &ledger_consumer,
                                &ledger_other,
                                &ledger_galaxy,
-                               &ledger_galaxy_declarer};
+                               &ledger_galaxy_declarer,
+                               &stale_declarer};
     for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++) {
       module_registry_add(probes[i]);
     }
@@ -740,6 +754,10 @@ static void config_bad_purity(void) {
 static void config_unsupported(void) {
   test_phase_add(RATE_PHASE, "fof_control", PROCESSING_MODE_RATES);
 }
+static void config_stale_total(void) {
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  test_phase_add("stale_phase", "stale_declarer", PROCESSING_MODE_FULL_HALO);
+}
 
 static const struct RuleCase *current_rule = NULL;
 
@@ -805,6 +823,10 @@ int test_rate_phase_startup_rules(void) {
        "modules.rate_integration.check_purity has value 2"},
       {"mode not supported", config_unsupported, "Configuration error in phase '" RATE_PHASE "'",
        "Module 'fof_control' does not support processing mode 'process_rates'"},
+      {"changes_totals name not in the reservoir table", config_stale_total,
+       "Configuration error in phase 'stale_phase'",
+       "Module 'stale_declarer' declares changes_totals 'no_such_total', which is not a conserved "
+       "total of this build's reservoir table"},
   };
 
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
