@@ -8,8 +8,10 @@
  * tracer total's closure, the yield-to-formed ratio, an empty donor, the
  * tracer-bound failure, observers as exact sums of committed amounts and their
  * exclusion from the error norm, a tracer leaving its total where the recipient
- * has no tracer, a tracer's error weight on its parent's total, canonical order
- * of the derived tracer moves, and the refusal of a slaved chain.
+ * has no tracer, a tracer's error weight on its parent's total, a self-transfer
+ * that commits nothing, the tracer bound on a zero-Delta segment, a cross-row
+ * tracer move with mixed Delta, two tracers of one parent, canonical order of
+ * the derived tracer moves, and the refusal of a slaved chain.
  *
  * Every expected value comes from a closed form written in this file, never
  * from the integrator. Times are in normalised segment time tau, so a row with
@@ -40,6 +42,7 @@ static int failed = 0;
 #define MAX_ENTRIES 16
 #define MAX_FLUXES 16
 #define MAX_TOTALS 4
+#define MAX_ROWS 2
 #define LOG_CAPACITY 8192
 
 /* ---------------------------------------------------------------------------
@@ -50,24 +53,37 @@ static int failed = 0;
 struct System {
   struct RateEntry entries[MAX_ENTRIES];
   struct RateFlux fluxes[MAX_FLUXES];
-  double delta[1];
+  double delta[MAX_ROWS];
   double state[MAX_ENTRIES];
   double coefficient[MAX_FLUXES];
   int num_entries;
   int num_fluxes;
+  int num_rows;
   int num_totals;
+  int row;             /* the row add_entry() puts new entries on */
+  int64_t evaluations; /* law evaluations seen by constant_law() */
 };
 
+/** Start a one-row system: row 0 with segment length @p delta. */
 static void system_init(struct System *system, double delta, int num_totals) {
   memset(system, 0, sizeof(*system));
   system->delta[0] = delta;
+  system->num_rows = 1;
   system->num_totals = num_totals;
+}
+
+/** Add a row with segment length @p delta; later entries go on it. */
+static int add_row(struct System *system, double delta) {
+  const int row = system->num_rows++;
+  system->delta[row] = delta;
+  system->row = row;
+  return row;
 }
 
 static int add_entry(struct System *system, enum RateEntryKind kind, int total, int link,
                      double content) {
   const int index = system->num_entries++;
-  system->entries[index].row = 0;
+  system->entries[index].row = system->row;
   system->entries[index].total = total;
   system->entries[index].kind = kind;
   system->entries[index].parent = (kind == RATE_ENTRY_TRACER) ? link : -1;
@@ -108,7 +124,7 @@ static struct RateComponent component_of(const struct System *system) {
       .fluxes = system->fluxes,
       .num_fluxes = system->num_fluxes,
       .row_delta = system->delta,
-      .num_rows = 1,
+      .num_rows = system->num_rows,
       .num_totals = system->num_totals,
   };
   return component;
@@ -116,7 +132,8 @@ static struct RateComponent component_of(const struct System *system) {
 
 /** Each flux's coefficient is its constant in System.coefficient. */
 static int constant_law(void *data, double tau, const double *state, double *coefficients) {
-  const struct System *system = data;
+  struct System *system = data;
+  system->evaluations++;
   (void)tau;
   (void)state;
   for (int f = 0; f < system->num_fluxes; f++) {
@@ -227,6 +244,7 @@ static int run_segment(struct System *system, const struct RateIntegratorSetting
     return 1;
   }
   const struct RateLaw law = {.evaluate = constant_law, .data = system};
+  system->evaluations = 0;
   run->cause = rate_integrate_segment(&component, &law, settings, workspace, sizeof(workspace),
                                       system->state, run->source, run->sink, &run->outcome);
   return 0;
@@ -673,6 +691,238 @@ static int test_tracer_weighed_on_parent_total(void) {
 }
 
 /**
+ * @test    A self-transfer commits nothing: its observer, its reported amounts and its yield
+ *
+ * G0 = 1 with tracer Z0 = 0.01, S with tracer Z_S; formation G to S at 1.3, a
+ * transfer G to G at 0.7 (both ends one entry), and a yield of 0.02 slaved to
+ * the self-transfer into Z; Delta = 3, relative tolerance 1e-8. Observers on
+ * the self-transfer and on formation start at zero. Expected: the self-transfer
+ * observer and the sum of its reported committed amounts are both exactly 0,
+ * the formation observer equals the sum of its reported amounts bit for bit,
+ * the tracer total gains no source, and Z = Z0 e^(-1.3 t) within 10 x the
+ * relative tolerance.
+ */
+static int test_self_transfer_commits_nothing(void) {
+  struct System system;
+  system_init(&system, 3.0, 2);
+  const int gas = add_reservoir(&system, 0, 1.0);
+  const int stars = add_reservoir(&system, 0, 0.0);
+  const int metals = add_tracer(&system, 1, gas, 0.01);
+  add_tracer(&system, 1, stars, 0.0);
+  const int formation = add_flux(&system, RATE_FLUX_INTERNAL, gas, stars, 0, -1, 1.3);
+  const int self = add_flux(&system, RATE_FLUX_INTERNAL, gas, gas, 1, -1, 0.7);
+  add_flux(&system, RATE_FLUX_SLAVED, RATE_END_EXTERNAL, metals, 2, self, 0.02);
+  const int self_observer = add_observer(&system, self, 0.0);
+  const int formed = add_observer(&system, formation, 0.0);
+  struct RateIntegratorSettings settings = adaptive_settings(1e-8);
+  struct AttemptLog log;
+  attach_log(&settings, &log, &system);
+  log.watched[0] = self;
+  log.watched[1] = formation;
+  struct Run run;
+  TEST_ASSERT(run_segment(&system, &settings, &run) == 0, "workspace too small");
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "self-transfer segment failed");
+
+  const double zero = 0.0;
+  const double metals_error = fabs(system.state[metals] - 0.01 * exp(-1.3 * 3.0));
+  printf("  self-transfer observer %.17g, sum of its reported amounts %.17g; formed %.17g, "
+         "sum %.17g; tracer source %.3g; |Z - exact| = %.3e (bound 1e-7)\n",
+         system.state[self_observer], log.sum[0], system.state[formed], log.sum[1], run.source[1],
+         metals_error);
+  TEST_ASSERT(memcmp(&system.state[self_observer], &zero, sizeof(double)) == 0,
+              "the self-transfer observer is not exactly zero");
+  TEST_ASSERT(memcmp(&log.sum[0], &zero, sizeof(double)) == 0,
+              "the self-transfer's reported committed amounts are not exactly zero");
+  TEST_ASSERT(memcmp(&system.state[formed], &log.sum[1], sizeof(double)) == 0,
+              "the formation observer differs from the sum of its committed amounts");
+  TEST_ASSERT(run.source[1] == 0.0, "a yield slaved to a self-transfer moved content");
+  TEST_ASSERT(metals_error <= 10.0 * 1e-8, "the tracer misses its closed form");
+  return 0;
+}
+
+/** G0 = 1 to S at 1.3 with tracers Z (start @p z0) and Z_S, on one row of Delta = 0. */
+static void build_zero_delta(struct System *system, double z0) {
+  system_init(system, 0.0, 2);
+  const int gas = add_reservoir(system, 0, 1.0);
+  const int stars = add_reservoir(system, 0, 0.0);
+  add_tracer(system, 1, gas, z0);
+  add_tracer(system, 1, stars, 0.0);
+  add_flux(system, RATE_FLUX_INTERNAL, gas, stars, 0, -1, 1.3);
+}
+
+/**
+ * @test    A segment with every Delta zero still holds each tracer to its parent
+ *
+ * The segment takes no step and evaluates no law, so N_acc = 0 and the bound is
+ * zero. Expected: Z0 = 0.5 and Z0 = 1 (equal to its parent) succeed with the
+ * state bitwise unchanged and zero external amounts; Z0 = 1.5 fails with
+ * tracer_bound naming Z with no flux, leaving the state and the caller's
+ * external-amount arrays bitwise untouched. No case evaluates a law.
+ */
+static int test_zero_delta_tracer_bound(void) {
+  const double within[] = {0.5, 1.0};
+  struct System system;
+  struct Run run;
+  const struct RateIntegratorSettings settings = adaptive_settings(1e-8);
+  for (int c = 0; c < 2; c++) {
+    build_zero_delta(&system, within[c]);
+    double before[MAX_ENTRIES];
+    memcpy(before, system.state, sizeof(before));
+    TEST_ASSERT(run_segment(&system, &settings, &run) == 0, "workspace too small");
+    printf("  Delta = 0, Z0 = %.2f: cause %s, %lld law evaluations, %lld steps\n", within[c],
+           rate_cause_name(run.cause), (long long)system.evaluations,
+           (long long)run.outcome.stats.accepted_steps);
+    TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "a tracer within its bound failed at Delta = 0");
+    TEST_ASSERT(memcmp(before, system.state, sizeof(before)) == 0,
+                "a zero-Delta segment changed the state");
+    TEST_ASSERT(run.source[1] == 0.0 && run.sink[1] == 0.0,
+                "a zero-Delta segment reported an external amount");
+    TEST_ASSERT(system.evaluations == 0 && run.outcome.stats.law_evaluations == 0 &&
+                    run.outcome.stats.accepted_steps == 0,
+                "a zero-Delta segment evaluated a law or took a step");
+  }
+
+  build_zero_delta(&system, 1.5);
+  double before[MAX_ENTRIES];
+  memcpy(before, system.state, sizeof(before));
+  for (int t = 0; t < MAX_TOTALS; t++) {
+    run.source[t] = 42.0;
+    run.sink[t] = 42.0;
+  }
+  TEST_ASSERT(run_segment(&system, &settings, &run) == 0, "workspace too small");
+  const struct RateFailure *failure = &run.outcome.failure;
+  printf("  Delta = 0, Z0 = 1.50: cause %s, entry %d, flux %d, %lld law evaluations\n",
+         rate_cause_name(run.cause), failure->entry, failure->flux, (long long)system.evaluations);
+  TEST_ASSERT(run.cause == RATE_CAUSE_TRACER_BOUND,
+              "a tracer above its parent passed a zero-Delta segment");
+  TEST_ASSERT(failure->entry == 2 && failure->flux == -1 && failure->total == 1,
+              "the failure does not name the tracer and its total alone");
+  TEST_ASSERT(memcmp(before, system.state, sizeof(before)) == 0,
+              "a zero-Delta tracer_bound failure changed the state");
+  TEST_ASSERT(run.source[0] == 42.0 && run.source[1] == 42.0 && run.sink[0] == 42.0 &&
+                  run.sink[1] == 42.0,
+              "a zero-Delta tracer_bound failure wrote the external amounts");
+  TEST_ASSERT(system.evaluations == 0 && run.outcome.stats.law_evaluations == 0,
+              "a zero-Delta segment evaluated a law");
+  return 0;
+}
+
+/* Cross-row problem: satellite gas G to the central's H at k_s on the satellite's clock, H
+ * drained at k_c on the central's; each carries a tracer. */
+#define CROSS_K_SATELLITE 1.7
+#define CROSS_K_CENTRAL 0.9
+#define CROSS_DELTA_SATELLITE 1.4
+#define CROSS_DELTA_CENTRAL 1.25
+
+/**
+ * @test    A tracer follows a cross-row transfer on its donor's clock, with mixed Delta
+ *
+ * Central (row 0, Delta 1.25): H0 = 0.8 with tracer Z_H0 = 0.004, H drained at
+ * 0.9. Satellite (row 1, Delta 1.4): G0 = 0.6 with tracer Z_G0 = 0.012, G to the
+ * central's H at 1.7 (a to_record: central transfer). Relative tolerance 1e-8.
+ * With a = 1.7 x 1.4 and b = 0.9 x 1.25: G = G0 e^(-a), Z_G = Z_G0 e^(-a), H = H0
+ * e^(-b) + a G0 (e^(-a) - e^(-b)) / (b - a), and Z_H the same with the tracer's
+ * starts. Expected: every entry within 10 x the relative tolerance; the tracer
+ * total's sink, the tracer leaving with H's drain, within 10 x the relative
+ * tolerance of (Z_G0 + Z_H0) - Z_G - Z_H with no source; the tracer total within
+ * tol_F.
+ */
+static int test_cross_row_tracer_move(void) {
+  struct System system;
+  system_init(&system, CROSS_DELTA_CENTRAL, 2);
+  const double h0 = 0.8;
+  const double zh0 = 0.004;
+  const double g0 = 0.6;
+  const double zg0 = 0.012;
+  const int hot = add_reservoir(&system, 0, h0);
+  const int hot_z = add_tracer(&system, 1, hot, zh0);
+  add_row(&system, CROSS_DELTA_SATELLITE);
+  const int gas = add_reservoir(&system, 0, g0);
+  const int gas_z = add_tracer(&system, 1, gas, zg0);
+  add_flux(&system, RATE_FLUX_INTERNAL, gas, hot, 0, -1, CROSS_K_SATELLITE);
+  add_flux(&system, RATE_FLUX_SINK, hot, RATE_END_EXTERNAL, 1, -1, CROSS_K_CENTRAL);
+  const struct RateIntegratorSettings settings = adaptive_settings(1e-8);
+  struct Run run;
+  TEST_ASSERT(run_segment(&system, &settings, &run) == 0, "workspace too small");
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "cross-row segment failed");
+
+  const double a = CROSS_K_SATELLITE * CROSS_DELTA_SATELLITE;
+  const double b = CROSS_K_CENTRAL * CROSS_DELTA_CENTRAL;
+  const double transit = (exp(-a) - exp(-b)) / (b - a);
+  const double exact_g = g0 * exp(-a);
+  const double exact_zg = zg0 * exp(-a);
+  const double exact_h = h0 * exp(-b) + a * g0 * transit;
+  const double exact_zh = zh0 * exp(-b) + a * zg0 * transit;
+  const double *x = system.state;
+  const double error = fmax(fmax(fabs(x[gas] - exact_g), fabs(x[gas_z] - exact_zg)),
+                            fmax(fabs(x[hot] - exact_h), fabs(x[hot_z] - exact_zh)));
+  const double sink_error = fabs(run.sink[1] - ((zg0 + zh0) - exact_zg - exact_zh));
+  const double drift = fabs(((x[gas_z] + x[hot_z]) - (zh0 + zg0)) - (run.source[1] - run.sink[1]));
+  const double tolerance = closure_tolerance(&run, 2, zh0 + zg0, run.source[1], run.sink[1]);
+  printf("  cross-row: error %.3e, |tracer sink - exact| = %.3e (bound 1e-7); drift %.3e "
+         "(tol_F %.3e)\n",
+         error, sink_error, drift, tolerance);
+  TEST_ASSERT(error <= 10.0 * 1e-8, "the cross-row problem misses its closed forms");
+  TEST_ASSERT(sink_error <= 10.0 * 1e-8, "the tracer total's sink misses its closed form");
+  TEST_ASSERT(run.source[1] == 0.0, "the tracer total gained a source");
+  TEST_ASSERT(drift <= tolerance, "the tracer total does not close within tol_F");
+  return 0;
+}
+
+/**
+ * @test    Two tracers of one parent move to the recipient's tracers of their own totals
+ *
+ * G0 = 1 with metals Z0 = 0.02 (total 1) and dust D0 = 0.005 (total 2); S0 = 0.5
+ * with its dust (0.003) listed before its metals (0.01); G to S at 1.3, Delta =
+ * 3, relative tolerance 1e-8. Expected: each tracer of G decays as e^(-1.3 t),
+ * each tracer of S gains what the same-total tracer of G lost, every entry
+ * within 10 x the relative tolerance, and both tracer totals within tol_F with
+ * no external amount.
+ */
+static int test_two_tracers_on_one_parent(void) {
+  struct System system;
+  system_init(&system, 3.0, 3);
+  const double z0 = 0.02;
+  const double d0 = 0.005;
+  const double zs0 = 0.01;
+  const double ds0 = 0.003;
+  const int gas = add_reservoir(&system, 0, 1.0);
+  const int metals = add_tracer(&system, 1, gas, z0);
+  const int dust = add_tracer(&system, 2, gas, d0);
+  const int stars = add_reservoir(&system, 0, 0.5);
+  const int star_dust = add_tracer(&system, 2, stars, ds0);
+  const int star_metals = add_tracer(&system, 1, stars, zs0);
+  add_flux(&system, RATE_FLUX_INTERNAL, gas, stars, 0, -1, 1.3);
+  const struct RateIntegratorSettings settings = adaptive_settings(1e-8);
+  struct Run run;
+  TEST_ASSERT(run_segment(&system, &settings, &run) == 0, "workspace too small");
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "two-tracer segment failed");
+
+  const double decay = exp(-1.3 * 3.0);
+  const double *x = system.state;
+  double error = fabs(x[gas] - decay);
+  error = fmax(error, fabs(x[stars] - (0.5 + (1.0 - decay))));
+  error = fmax(error, fabs(x[metals] - z0 * decay));
+  error = fmax(error, fabs(x[dust] - d0 * decay));
+  error = fmax(error, fabs(x[star_metals] - (zs0 + z0 * (1.0 - decay))));
+  error = fmax(error, fabs(x[star_dust] - (ds0 + d0 * (1.0 - decay))));
+  const double metals_drift = fabs((x[metals] + x[star_metals]) - (z0 + zs0));
+  const double dust_drift = fabs((x[dust] + x[star_dust]) - (d0 + ds0));
+  const double metals_tolerance = closure_tolerance(&run, 2, z0 + zs0, 0.0, 0.0);
+  const double dust_tolerance = closure_tolerance(&run, 2, d0 + ds0, 0.0, 0.0);
+  printf("  two tracers: error %.3e (bound 1e-7); metals drift %.3e (tol_F %.3e), dust drift "
+         "%.3e (tol_F %.3e)\n",
+         error, metals_drift, metals_tolerance, dust_drift, dust_tolerance);
+  TEST_ASSERT(error <= 10.0 * 1e-8, "the two-tracer problem misses its closed forms");
+  TEST_ASSERT(run.source[1] == 0.0 && run.sink[1] == 0.0 && run.source[2] == 0.0 &&
+                  run.sink[2] == 0.0,
+              "a tracer total gained an external amount");
+  TEST_ASSERT(metals_drift <= metals_tolerance && dust_drift <= dust_tolerance,
+              "a tracer total does not close within tol_F");
+  return 0;
+}
+
+/**
  * @test    Derived tracer moves follow canonical order, not the caller's flux order
  *
  * The yield problem with its fluxes listed in reverse. Expected: the end state
@@ -741,6 +991,10 @@ int main(void) {
   TEST_RUN(test_observer_excluded_from_norm);
   TEST_RUN(test_tracer_without_recipient_tracer_is_a_sink);
   TEST_RUN(test_tracer_weighed_on_parent_total);
+  TEST_RUN(test_self_transfer_commits_nothing);
+  TEST_RUN(test_zero_delta_tracer_bound);
+  TEST_RUN(test_cross_row_tracer_move);
+  TEST_RUN(test_two_tracers_on_one_parent);
   TEST_RUN(test_tracer_moves_order_independent);
   TEST_RUN(test_slaved_chain_refused);
 

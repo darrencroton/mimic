@@ -912,10 +912,13 @@ static enum AttemptResult attempt_step(struct Integration *in, double tau, doubl
     return result;
   }
 
-  /* Update with b = (1/6, 1/6, 1/6, 1/2); error amounts with d = b - bhat. */
+  /* Update with b = (1/6, 1/6, 1/6, 1/2); error amounts with d = b - bhat. A flux whose two
+   * ends are one entry moves nothing, so its committed amount, the one the attempt report and
+   * the observers read, is zero. */
   for (int f = 0; f < m; f++) {
     const double phi3 = s->phi[3][f];
-    s->amount[f] = step * (s->sum3[f] / 6.0 + 0.5 * phi3);
+    const int moves = s->flux[f].from != s->flux[f].to;
+    s->amount[f] = moves ? step * (s->sum3[f] / 6.0 + 0.5 * phi3) : 0.0;
     s->error_amount[f] = step * (0.25 * phi3 - s->sum3[f] / 12.0);
   }
   const int negative = form_state(in, s->x, s->amount, s->trial);
@@ -937,7 +940,8 @@ static enum AttemptResult attempt_step(struct Integration *in, double tau, doubl
  * takes at most its own flux terms per step and its rounding stays inside the
  * closure tolerance's (L + 2) N_acc terms; the per-total sums are formed once at
  * segment end (sum_external_amounts()). Each observer adds its flux's committed
- * amount, the number that moved. With tracers present, each entry's inflow
+ * amount, the number that moved (zero for a flux whose two ends are one entry,
+ * attempt_step()). With tracers present, each entry's inflow
  * amounts accumulate the same way for the tracer bound's throughput.
  */
 static void commit_step(struct Integration *in) {
@@ -958,8 +962,7 @@ static void commit_step(struct Integration *in) {
   for (int i = 0; i < c->num_entries; i++) {
     const struct RateEntry *entry = &c->entries[i];
     if (entry->kind == RATE_ENTRY_OBSERVER) {
-      const struct RateFlux *flux = &s->flux[entry->flux];
-      s->x[i] += (flux->from != flux->to) ? s->amount[entry->flux] : 0.0;
+      s->x[i] += s->amount[entry->flux];
     } else if (in->num_tracers > 0) {
       double inflow = 0.0;
       for (int k = s->in_start[i]; k < s->in_start[i + 1]; k++) {
@@ -1381,15 +1384,24 @@ enum RateCause rate_integrate_segment(const struct RateComponent *component,
   layout_scratch(component, workspace, &in.s);
   outcome->max_terms_per_entry = build_flux_lists(&in);
 
-  if (component->num_entries == 0 || !any_row_advances(component)) {
+  if (component->num_entries == 0) {
     write_amounts(component, NULL, NULL, source_amounts, sink_amounts);
     return RATE_CAUSE_NONE;
   }
-
   memcpy(in.s.x, state, (size_t)component->num_entries * sizeof(double));
   memset(in.s.source_entry, 0, (size_t)component->num_entries * sizeof(double));
   memset(in.s.sink_entry, 0, (size_t)component->num_entries * sizeof(double));
   memset(in.s.inflow_entry, 0, (size_t)component->num_entries * sizeof(double));
+
+  if (!any_row_advances(component)) {
+    /* No step and no law: the state stands, and the tracer bound (N_acc = 0, so the bound is
+     * zero) still holds every tracer to its parent. */
+    if (check_tracer_bound(&in, state) != RATE_CAUSE_NONE) {
+      return RATE_CAUSE_TRACER_BOUND;
+    }
+    write_amounts(component, NULL, NULL, source_amounts, sink_amounts);
+    return RATE_CAUSE_NONE;
+  }
 
   const enum RateCause cause =
       (settings->fixed_steps > 0) ? integrate_fixed(&in) : integrate_adaptive(&in);

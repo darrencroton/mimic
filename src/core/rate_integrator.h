@@ -22,7 +22,8 @@
  * order, so a cross-record transfer conserves whatever the two rows' Delta. A
  * row with Delta = 0 donates nothing and its sources move nothing, but it
  * receives what a donor row with positive Delta sends it. A segment whose every
- * Delta is zero takes no step and evaluates no law.
+ * Delta is zero takes no step and evaluates no law; it still runs the tracer
+ * bound on the unchanged state, where the bound is zero.
  *
  * Canonical order. Entries are processed in the order the caller lists them,
  * which the caller makes canonical. Fluxes are processed in the order of
@@ -211,8 +212,9 @@ enum RateRejection { RATE_REJECTION_NONE, RATE_REJECTION_POSITIVITY, RATE_REJECT
  *
  * `state` is the committed state after an accepted step, or the unchanged
  * step-start state after a rejection; `amounts` is each declared flux's
- * committed amount, in the component's flux order, after an accepted step, and
- * NULL after a rejection. Both are valid only during the call. `error_norm` and
+ * committed amount, in the component's flux order, after an accepted step (zero
+ * for a flux whose two ends are one entry, which moves nothing), and NULL after
+ * a rejection. Both are valid only during the call. `error_norm` and
  * `min_weight` are negative when the attempt ended before its error estimate (a
  * positivity rejection, or any fixed step).
  */
