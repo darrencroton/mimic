@@ -4,13 +4,14 @@ Rate phase: the modules.rate_integration run-file section and the rate fixtures 
 
 Validates, on the selected package's committed fixture in a test build (the default pair runs the
 vertical driver; MODEL=halos-only SIMULATION=mini-millennium-horizontal the horizontal driver):
-  - test_run_file_section_refusals: a modules.rate_integration section with no rate phase, with
-    an unknown key, or with a value out of range (each of the five keys), a section that is not
-    a mapping, and a substep phase named rate_integration, each end the run before any module's
-    init() with a message naming the key
-  - test_explicit_scheme: the four rate fixtures in one rate phase complete under the default
-    (explicit) scheme; every one of the seven fixture properties is non-zero on some row, and no
-    reservoir, tracer or observer value is negative or non-finite; no leak is reported
+  - test_run_file_section_refusals: a modules.rate_integration section with no rate phase (as
+    a mapping or as null), with an unknown or non-scalar key, or with a value out of range (each
+    of the five keys), a section that is not a mapping, and a substep phase named
+    rate_integration, each end the run before any module's init() with a message naming the key
+  - test_explicit_scheme: the four rate fixtures in one rate phase, with a null section (every
+    default), complete under the default (explicit) scheme; every one of the seven fixture
+    properties is non-zero on some row, and no reservoir, tracer or observer value is negative
+    or non-finite; no leak is reported
   - test_implicit_scheme: the same under scheme: implicit, with all five keys set
   - test_dynamic_timestepping: the same under TimestepScheme: dynamic
   - test_created_records_join: with test_fixture creating records in pre_timestep, the run
@@ -27,6 +28,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
@@ -83,8 +85,16 @@ def _rate_phase():
     return {"rates": [(name, "process_rates") for name in RATE_FIXTURES]}
 
 
-def _run(name, phase_config, model_params=None, **overrides):
-    """Write a run file on the committed HDF5 fixture, run it, return (rc, log, output_dir)."""
+# _run()'s edit_section default: leave the section as create_test_param_file() wrote it.
+_KEEP = object()
+
+
+def _run(name, phase_config, model_params=None, edit_section=_KEEP, **overrides):
+    """Write a run file on the committed HDF5 fixture, run it, return (rc, log, output_dir).
+
+    edit_section, when given, replaces modules.rate_integration in the written file with that
+    value verbatim, None included (written as null), for spellings the harness does not emit.
+    """
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
     ref = core_input_file("test_hdf5.yaml")  # skips for a package with no committed fixture
@@ -97,6 +107,12 @@ def _run(name, phase_config, model_params=None, **overrides):
         **overrides,
     )
     _temp_dirs.append(temp_dir)
+    if edit_section is not _KEEP:
+        with open(param_file) as handle:
+            config = yaml.safe_load(handle)
+        config["modules"]["rate_integration"] = edit_section
+        with open(param_file, "w") as handle:
+            yaml.dump(config, handle, default_flow_style=False, sort_keys=False)
     returncode, stdout, stderr = run_mimic(param_file)
     return returncode, stdout + "\n" + stderr, output_dir
 
@@ -203,9 +219,30 @@ def test_run_file_section_refusals():
             "Substep phase name 'rate_integration' is reserved",
         ),
     ]
-    for name, phase_config, section, fragment in cases:
+    runs = [
+        (name, phase_config, fragment, {"rate_integration": section})
+        for name, phase_config, section, fragment in cases
+    ]
+    # Spellings written into the run file directly: a null section with no rate phase, and a
+    # key that is not a scalar (a YAML sequence key, which PyYAML writes for a tuple).
+    runs += [
+        (
+            "null_without_rate_phase",
+            {},
+            "modules.rate_integration is set, but no phase under modules.phases runs "
+            "process_rates",
+            {"edit_section": None},
+        ),
+        (
+            "non_scalar_key",
+            fixtures,
+            "modules.rate_integration has a key that is not a scalar",
+            {"edit_section": {("scheme",): 7}},
+        ),
+    ]
+    for name, phase_config, fragment, section_args in runs:
         returncode, log, _ = _run(
-            f"refuse_{name}", phase_config, model_params=RATE_PARAMS, rate_integration=section
+            f"refuse_{name}", phase_config, model_params=RATE_PARAMS, **section_args
         )
         assert returncode != 0, f"{name}: the run was accepted"
         assert fragment in log, f"{name}: the refusal does not say {fragment!r}\n{log[-3000:]}"
@@ -213,8 +250,13 @@ def test_run_file_section_refusals():
 
 
 def test_explicit_scheme():
-    """The four rate fixtures run under the default (explicit) scheme with sound output."""
-    returncode, log, output_dir = _run("explicit", _rate_phase(), model_params=RATE_PARAMS)
+    """The four rate fixtures run under the default (explicit) scheme with sound output.
+
+    The section is written as null, which with a rate phase keeps every default.
+    """
+    returncode, log, output_dir = _run(
+        "explicit", _rate_phase(), model_params=RATE_PARAMS, edit_section=None
+    )
     _assert_completed(returncode, log, "explicit")
     _assert_fixture_output(_galaxies(output_dir), "explicit")
 

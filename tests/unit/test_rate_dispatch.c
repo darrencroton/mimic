@@ -22,7 +22,12 @@
  * - The first-snapshot sentinel: an all-sentinel group is unchanged and runs no
  *   law; a non-sentinel row with dT <= 0 is fatal, naming the row
  * - A rate law can neither emit an event nor create a record
- * - A law returning NaN is fatal, naming the module, its transfer and the cause
+ * - A law returning NaN is fatal, naming the module, its transfer and the cause;
+ *   for a source into the central, the message names the satellite row whose
+ *   law returned it as well as the central's recipient entry
+ * - A law reading an observer sees its segment-start value at every evaluation,
+ *   and the written-back observer is its start plus the committed amounts
+ * - A large per-galaxy workspace gives each row the end state it gets alone
  * - A row retired by a discrete phase after the rate phase leaves the next segment
  * - A record test_fixture creates in pre_timestep joins the component at zero content
  * - The scratch is one tracked allocation, grown to its high water and released
@@ -154,6 +159,29 @@ static int nan_rates(const struct RateContext *ctx, const struct Halo *halo, dou
   (void)ctx;
   (void)halo;
   coefficients[0] = NAN;
+  return 0;
+}
+
+/** NaN on satellite rows only, for a source into the central */
+static int nan_central_rates(const struct RateContext *ctx, const struct Halo *halo,
+                             double *coefficients) {
+  (void)ctx;
+  coefficients[0] = (halo->Type == 0) ? 0.0 : NAN;
+  return 0;
+}
+
+/** RateFixtureFormed as each observer_probe call saw it */
+static double observed_formed[MAX_CALLS];
+static int num_observed = 0;
+
+/** Formation law that reads its own observer: Cold to Stars at 1 + Cold */
+static int observer_rates(const struct RateContext *ctx, const struct Halo *halo,
+                          double *coefficients) {
+  (void)ctx;
+  if (num_observed < MAX_CALLS) {
+    observed_formed[num_observed++] = halo->galaxy->RateFixtureFormed;
+  }
+  coefficients[0] = 1.0 + halo->galaxy->RateFixtureCold;
   return 0;
 }
 
@@ -317,6 +345,33 @@ static struct Module slaved_probe =
     RATE_MODULE("slaved_probe", idle_rates, slaved_transfers, false);
 static struct Module cycle_probe = RATE_MODULE("cycle_probe", idle_rates, cycle_transfers, false);
 
+/* A source into the central's Cold, evaluated on every row. */
+static const struct RateTransfer nan_central_transfers[] = {
+    TRANSFER("gift", 0, 180, RATE_TRANSFER_SOURCE, EXTERNAL, RESERVOIR_INDEX_RateFixtureCold,
+             RATE_TRANSFER_TO_CENTRAL, -1, NULL),
+};
+static struct Module nan_central_probe =
+    RATE_MODULE("nan_central_probe", nan_central_rates, nan_central_transfers, false);
+
+/* Cold to Stars, observed into RateFixtureFormed. */
+static const struct RateTransfer observer_transfers[] = {
+    TRANSFER("form", 0, 170, RATE_TRANSFER_INTERNAL, RESERVOIR_INDEX_RateFixtureCold,
+             RESERVOIR_INDEX_RateFixtureStars, SELF, -1, NULL),
+};
+static const struct RateObserver observer_observers[] = {
+    {.property = RESERVOIR_INDEX_RateFixtureFormed, .transfer = 0},
+};
+static struct Module observer_probe = {.name = "observer_probe",
+                                       .init = probe_init,
+                                       .cleanup = probe_cleanup,
+                                       .rates = observer_rates,
+                                       .supported_processing_modes = rates_modes,
+                                       .num_supported_modes = 1,
+                                       .rate_transfers = observer_transfers,
+                                       .num_rate_transfers = 1,
+                                       .rate_observers = observer_observers,
+                                       .num_rate_observers = 1};
+
 static struct Module context_saver = {.name = "context_saver",
                                       .init = probe_init,
                                       .cleanup = probe_cleanup,
@@ -341,9 +396,10 @@ static void ensure_probes_registered(void) {
   static bool registered = false;
   ensure_modules_registered();
   if (!registered) {
-    struct Module *probes[] = {&count_probe,  &central_reader,   &nan_probe,    &emit_probe,
-                               &create_probe, &wrong_kind_probe, &master_probe, &slaved_probe,
-                               &cycle_probe,  &context_saver,    &retire_probe, &fof_control};
+    struct Module *probes[] = {&count_probe,       &central_reader,   &nan_probe,    &emit_probe,
+                               &create_probe,      &wrong_kind_probe, &master_probe, &slaved_probe,
+                               &cycle_probe,       &context_saver,    &retire_probe, &fof_control,
+                               &nan_central_probe, &observer_probe};
     for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++) {
       module_registry_add(probes[i]);
     }
@@ -1030,6 +1086,132 @@ int test_created_record_joins_at_zero(void) {
   return TEST_PASS;
 }
 
+/** @brief Child body: a source into the central whose law returns NaN on satellite rows */
+static void nan_central_body(const char *unused) {
+  (void)unused;
+  static const int types[3] = {0, 1, 2};
+  static const double cold[3] = {1.0, 1.0, 1.0};
+  ensure_probes_registered();
+  reset_rate_config();
+  test_phase_add(RATE_PHASE, "nan_central_probe", PROCESSING_MODE_RATES);
+  if (module_system_init() != 0) {
+    return;
+  }
+  build_workspace(types, cold, 3);
+  run_pipeline();
+}
+
+/**
+ * @test    test_failure_names_the_evaluating_row
+ * @brief   A bad coefficient of a source into the central names the row whose law returned it
+ *
+ * The integrator names the source's recipient entry, the central's Cold, so
+ * the message names that entry's row as well as the evaluating satellite row.
+ */
+int test_failure_names_the_evaluating_row(void) {
+  char captured[CHILD_CAPTURE_BYTES];
+  const int ok = expect_fatal_capture(
+      NULL, nan_central_body, "module 'nan_central_probe', transfer 'gift'",
+      "workspace row 1 (UniqueGalaxyID 1001), tau 0", captured, sizeof(captured));
+  TEST_ASSERT_EQUAL(ok, 1, "the fatal line names satellite row 1, whose law returned NaN");
+  TEST_ASSERT(strstr(captured, "its flux names entry 'RateFixtureCold' on row 0 (workspace row 0, "
+                               "UniqueGalaxyID 1000)") != NULL,
+              "the message also names the recipient entry on the central's row");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_law_sees_observer_at_segment_start
+ * @brief   A law reading an observer sees its segment-start value; write-back adds the amounts
+ *
+ * Stars and the observer RateFixtureFormed start at the same value and receive
+ * the same committed amounts, so they end bit-identical; every evaluation of
+ * the law sees the observer at its start value.
+ */
+int test_law_sees_observer_at_segment_start(void) {
+  static const int types[1] = {0};
+  static const double cold[1] = {2.0};
+  reset_rate_config();
+  num_observed = 0;
+  test_phase_add(RATE_PHASE, "observer_probe", PROCESSING_MODE_RATES);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "the phase initialises");
+  build_workspace(types, cold, 1);
+  struct GalaxyData *g = workspace.halos[0].galaxy;
+  g->RateFixtureStars = 0.25;
+  g->RateFixtureFormed = 0.25;
+  run_pipeline();
+
+  TEST_ASSERT(num_observed > 4, "the segment took several evaluations");
+  bool constant = true;
+  for (int i = 0; i < num_observed; i++) {
+    constant &= (observed_formed[i] == 0.25);
+  }
+  TEST_ASSERT(constant, "every evaluation saw the observer at its segment-start value");
+  TEST_ASSERT(g->RateFixtureFormed > 0.25, "the observer accumulated the formed amount");
+  TEST_ASSERT(memcmp(&g->RateFixtureFormed, &g->RateFixtureStars, sizeof(double)) == 0,
+              "the written-back observer is its start plus the committed amounts");
+  release_case();
+  return TEST_PASS;
+}
+
+/** Rows of the per-galaxy scaling case */
+#define LARGE_ROWS 3000
+
+/** @brief Row i of the scaling case: its Type, start Cold and dT */
+static void large_row(int i, int *type, double *cold, double *dt) {
+  *type = (i == 0) ? 0 : 2;
+  *cold = 0.05 + 0.01 * (double)(i % 97);
+  *dt = 0.2 + 0.003 * (double)(i % 53);
+}
+
+/**
+ * @test    test_per_galaxy_rows_match_rows_alone
+ * @brief   A large per-galaxy workspace gives each row the end state it gets integrated alone
+ *
+ * Each row of a LARGE_ROWS workspace is its own component; the gather takes
+ * the row directly (no scan of the workspace per row). Every row's end Cold is
+ * bit-identical to the same row integrated in a one-row workspace.
+ */
+int test_per_galaxy_rows_match_rows_alone(void) {
+  static int types[LARGE_ROWS];
+  static double cold[LARGE_ROWS];
+  static double dts[LARGE_ROWS];
+  static double together[LARGE_ROWS];
+  for (int i = 0; i < LARGE_ROWS; i++) {
+    large_row(i, &types[i], &cold[i], &dts[i]);
+  }
+
+  reset_rate_config();
+  reset_probes();
+  feed_rate = 0.3;
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "the phase initialises");
+  build_workspace(types, cold, LARGE_ROWS);
+  for (int i = 0; i < LARGE_ROWS; i++) {
+    workspace.halos[i].dT = dts[i];
+  }
+  run_pipeline();
+  for (int i = 0; i < LARGE_ROWS; i++) {
+    together[i] = workspace.halos[i].galaxy->RateFixtureCold;
+  }
+  free_workspace();
+
+  int mismatches = 0;
+  for (int i = 0; i < LARGE_ROWS; i++) {
+    num_calls = 0;
+    build_workspace(&types[i], &cold[i], 1);
+    workspace.halos[0].dT = dts[i];
+    run_pipeline();
+    const double alone = workspace.halos[0].galaxy->RateFixtureCold;
+    mismatches += memcmp(&alone, &together[i], sizeof(double)) != 0;
+    free_workspace();
+  }
+  TEST_ASSERT_EQUAL(mismatches, 0, "every row ends bit-identical to the row integrated alone");
+  TEST_ASSERT(together[1] != cold[1], "the rows were integrated");
+  module_system_cleanup();
+  return TEST_PASS;
+}
+
 /* ==========================================================================
  * Memory
  * ========================================================================== */
@@ -1102,6 +1284,9 @@ int main(void) {
   TEST_RUN(test_nan_law_is_fatal);
   TEST_RUN(test_retired_row_leaves_the_next_segment);
   TEST_RUN(test_created_record_joins_at_zero);
+  TEST_RUN(test_failure_names_the_evaluating_row);
+  TEST_RUN(test_law_sees_observer_at_segment_start);
+  TEST_RUN(test_per_galaxy_rows_match_rows_alone);
   TEST_RUN(test_scratch_is_one_high_water_allocation);
 
   TEST_SUMMARY();

@@ -1378,14 +1378,23 @@ static int substep_phase_runs_rates(void) {
   return 0;
 }
 
+/** @brief Refuse a modules.rate_integration key (null or not) when no phase runs process_rates */
+static void refuse_rate_integration_without_rate_phase(void) {
+  if (!substep_phase_runs_rates()) {
+    FATAL_ERROR("modules.rate_integration is set, but no phase under modules.phases runs "
+                "process_rates; configure a rate phase or remove the section");
+  }
+}
+
 /**
  * @brief   Read the rate phase's settings, modules.rate_integration
  *
  * The section is a mapping of five optional keys; a key it omits keeps its
  * default (constants.h), and an absent or null section keeps them all. It is
- * refused, naming the key, when it has an unknown key or a value out of range,
- * and refused as a whole when no phase under modules.phases runs process_rates,
- * since nothing would read it. Fatal on any refusal, before any module init().
+ * refused, naming the key, when it has an unknown or non-scalar key or a value
+ * out of range, and refused as a whole when no phase under modules.phases runs
+ * process_rates, since nothing would read it (a null section too: see
+ * parse_modules_section()). Fatal on any refusal, before any module init().
  *
  * - scheme: explicit (the default) or implicit, case-insensitive
  * - relative_tolerance, absolute_tolerance: finite numbers in (0, 1)
@@ -1402,12 +1411,18 @@ static void parse_rate_integration_section(yaml_document_t *doc, yaml_node_t *se
                 "relative_tolerance, absolute_tolerance, max_steps_per_segment, "
                 "max_rejections_per_step)");
   }
+  /* reject_unknown_keys() skips a key that is not a scalar, so refuse one here first. */
+  for (yaml_node_pair_t *pair = section->data.mapping.pairs.start;
+       pair < section->data.mapping.pairs.top; pair++) {
+    if (get_scalar_value(yaml_document_get_node(doc, pair->key)) == NULL) {
+      FATAL_ERROR("modules.rate_integration has a key that is not a scalar; its keys are scheme, "
+                  "relative_tolerance, absolute_tolerance, max_steps_per_segment and "
+                  "max_rejections_per_step");
+    }
+  }
   reject_unknown_keys(doc, section, "modules.rate_integration", valid_keys,
                       sizeof(valid_keys) / sizeof(valid_keys[0]));
-  if (!substep_phase_runs_rates()) {
-    FATAL_ERROR("modules.rate_integration is set, but no phase under modules.phases runs "
-                "process_rates; configure a rate phase or remove the section");
-  }
+  refuse_rate_integration_without_rate_phase();
 
   yaml_node_t *node = get_mapping_value(doc, section, "scheme");
   if (node != NULL) {
@@ -1554,9 +1569,12 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
   }
 
   /* The rate phase's settings, read once the phases are known: an absent or null
-   * section keeps the defaults seeded above. */
+   * section keeps the defaults seeded above, and a null one, like any other, is
+   * refused when no phase runs process_rates. */
   yaml_node_t *rate_node = get_mapping_value(doc, section, "rate_integration");
-  if (rate_node != NULL && !is_yaml_null(rate_node)) {
+  if (rate_node != NULL && is_yaml_null(rate_node)) {
+    refuse_rate_integration_without_rate_phase();
+  } else if (rate_node != NULL) {
     parse_rate_integration_section(doc, rate_node);
   }
 

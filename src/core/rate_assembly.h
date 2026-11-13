@@ -46,8 +46,9 @@
  *
  * A law evaluation. Each active row has a scratch copy of its halo whose galaxy
  * pointer addresses a scratch copy of its galaxy, taken at segment start; at
- * every evaluation the reservoir, tracer and observer fields of every row's
- * scratch galaxy are overwritten with the trial state, and then each
+ * every evaluation the reservoir and tracer fields of every row's scratch
+ * galaxy are overwritten with the trial state (observer fields keep their
+ * segment-start values, since observers are out of error control), and then each
  * configured module's law is called for each row, rows in order and modules by
  * name, with its coefficient slots zeroed. A module that declares reads_central
  * receives the central's scratch copy (at the same trial state) as
@@ -59,8 +60,9 @@
  * row's galaxy take the end state (an observer property the sum of its
  * entries, the first of which started at the property's value); nothing else
  * of the scratch copies is written back. On failure the run ends through
- * FATAL_ERROR, naming the cause, the module and transfer, the row, the entry
- * and tau, and the workspace is left as it was.
+ * FATAL_ERROR, naming the cause, the module and transfer, the row whose law it
+ * is (and the entry's row when that differs), the entry and tau, and the
+ * workspace is left as it was.
  *
  * Memory. Everything a segment needs (the row, entry and flux tables, the
  * scratch rows and the integrator's workspace) lives in one caller-owned

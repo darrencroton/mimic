@@ -835,7 +835,23 @@ static bool first_observer_slot(const struct RateAssemblyPlan *plan, int p) {
   return p == 0 || plan->slot_property[p - 1] != plan->slot_property[p];
 }
 
-/** @brief Write a state's reservoir, tracer and observer values into one row's galaxy */
+/**
+ * @brief   Write a trial state's reservoir and tracer values into one row's scratch galaxy
+ *
+ * Observer fields are left at their segment-start values: observers are out of
+ * error control, so a law must not see them move within a segment.
+ */
+static void load_trial_row(const struct RateAssemblyPlan *plan, const double *row_state,
+                           struct GalaxyData *galaxy) {
+  const int P = plan->entries_per_row;
+  for (int p = 0; p < P; p++) {
+    if (plan->slot_observer[p] < 0) {
+      *galaxy_field(galaxy, plan->slot_property[p]) = row_state[p];
+    }
+  }
+}
+
+/** @brief Write an end state's reservoir, tracer and observer values into one row's galaxy */
 static void store_row(const struct RateAssemblyPlan *plan, const double *row_state,
                       struct GalaxyData *galaxy) {
   const int P = plan->entries_per_row;
@@ -872,7 +888,12 @@ struct LawAdapter {
   int failed_code;
 };
 
-/** @brief struct RateLaw.evaluate: load the trial state, then call every law of every row */
+/**
+ * @brief   struct RateLaw.evaluate: load the trial state, then call every law of every row
+ *
+ * Every row's trial state is loaded before any law runs, so a central view
+ * holds the central's trial state whichever row evaluates it.
+ */
 static int evaluate_laws(void *data, double tau, const double *state, double *coefficients) {
   struct LawAdapter *a = data;
   const struct RateAssemblyPlan *plan = a->plan;
@@ -882,7 +903,7 @@ static int evaluate_laws(void *data, double tau, const double *state, double *co
   const int T = plan->num_transfers;
 
   for (int r = 0; r < seg->num_rows; r++) {
-    store_row(plan, &state[r * P], &seg->galaxies[r]);
+    load_trial_row(plan, &state[r * P], &seg->galaxies[r]);
   }
 
   struct RateContext rctx = {.snapshot_number = ctx->snapshot_number,
@@ -924,7 +945,7 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
   const char *module = "(none)";
   const char *transfer = "(none)";
   const char *kind = "";
-  int row = f->row;
+  int row = -1; /* the row whose law is named: the flux's evaluating row */
   char transfer_buffer[128];
 
   if (f->flux >= 0 && T > 0) {
@@ -932,9 +953,7 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
     module = pt->module->name;
     transfer = pt->transfer->name;
     kind = transfer_kind_name(pt->transfer->kind);
-    if (row < 0) {
-      row = f->flux / T;
-    }
+    row = f->flux / T; /* not f->row, the clock row: a source to the central is clocked there */
   } else if (law->failed_module >= 0) {
     module = plan->modules[law->failed_module]->name;
     snprintf(transfer_buffer, sizeof(transfer_buffer), "(none named: the law returned %d)",
@@ -943,11 +962,16 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
     row = law->failed_row;
   }
   const char *entry = "(none)";
+  int entry_row = -1;
   if (f->entry >= 0 && P > 0) {
     entry = table_entry(plan->slot_property[f->entry % P])->name;
+    entry_row = f->entry / P;
     if (row < 0) {
-      row = f->entry / P;
+      row = entry_row;
     }
+  }
+  if (row < 0) {
+    row = f->row;
   }
   const int w = (row >= 0 && row < seg->num_rows) ? seg->rows[row] : -1;
   const long long id = w >= 0 ? ws->halos[w].UniqueGalaxyID : -1;
@@ -963,9 +987,16 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
             (f->detail != NULL && f->detail[0] != '\0') ? ")" : "");
   ERROR_LOG("  module '%s', transfer '%s'%s%s", module, transfer, kind[0] != '\0' ? ", a " : "",
             kind);
-  ERROR_LOG("  row %d of the component (workspace row %d, UniqueGalaxyID %lld, Type %d), "
-            "entry '%s'",
-            row, w, id, type, entry);
+  if (entry_row >= 0 && entry_row != row) {
+    const int ew = seg->rows[entry_row];
+    ERROR_LOG("  row %d of the component (workspace row %d, UniqueGalaxyID %lld, Type %d); its "
+              "flux names entry '%s' on row %d (workspace row %d, UniqueGalaxyID %lld)",
+              row, w, id, type, entry, entry_row, ew, ws->halos[ew].UniqueGalaxyID);
+  } else {
+    ERROR_LOG("  row %d of the component (workspace row %d, UniqueGalaxyID %lld, Type %d), "
+              "entry '%s'",
+              row, w, id, type, entry);
+  }
   if (f->total >= 0) {
     ERROR_LOG("  total '%s'", total_name(f->total));
   }
@@ -981,7 +1012,9 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
 /**
  * @brief   Integrate one component across the substep and write it back
  *
- * @param   single_row  The component's one workspace row, or -1 for every active row
+ * @param   single_row  The component's one workspace row (an active row), or -1 for every
+ *                      active row
+ * @param   num_rows    The component's row count: 1, or the workspace's active rows
  */
 static void integrate_component(const struct RateAssemblyPlan *plan,
                                 const struct ModuleContext *ctx, struct FoFWorkspace *ws,
@@ -1002,9 +1035,13 @@ static void integrate_component(const struct RateAssemblyPlan *plan,
   struct Segment seg = {.num_rows = num_rows, .central = -1};
   bind_segment(&layout, scratch->bytes, 0, &seg);
 
+  /* A one-row component takes its row directly, so a per-galaxy pass over N rows
+   * visits each row once rather than scanning the workspace for every one. */
   int r = 0;
-  for (int64_t w = 0; w < ws->count; w++) {
-    if ((single_row >= 0 && w != single_row) || !row_is_active(&ws->halos[w])) {
+  const int64_t first = single_row >= 0 ? single_row : 0;
+  const int64_t end = single_row >= 0 ? single_row + 1 : ws->count;
+  for (int64_t w = first; w < end; w++) {
+    if (!row_is_active(&ws->halos[w])) {
       continue;
     }
     seg.rows[r] = (int)w;
@@ -1013,6 +1050,10 @@ static void integrate_component(const struct RateAssemblyPlan *plan,
       seg.central = r;
     }
     r++;
+  }
+  if (r != num_rows) {
+    FATAL_ERROR("Rate phase '%s': gathered %d active row(s) for a component of %d",
+                plan->phase_name, r, num_rows);
   }
   if (plan->needs_central && seg.central < 0) {
     FATAL_ERROR("Rate phase '%s': the FoF central (workspace row %d) is not an active row (it "
