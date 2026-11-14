@@ -37,7 +37,7 @@ The architectural direction is [`docs/VISION.md`](../VISION.md); the conventions
 
 **The failure file does not carry the run-file path (low value).** It carries the build's version and commit, the phase, snapshot, substep, base time and redshift; the run-file path is a local in `src/core/main.c` and needs plumbing to reach the writer. Do it with the next change to the failure file; accept when a failure file written by a run names the run file it came from.
 
-**The rate mode has been built and run on macOS with Apple clang only by hand (check).** CI builds and runs the unit, integration and offline battery tiers on Linux when the branch reaches `main`; watch the first CI run. Bit-identity is claimed per binary only. Accept when that CI run is green or each failure is explained.
+**The rate mode has not yet run in CI (check).** It was developed on macOS with Apple clang. On 2026-11-14 the three CI jobs were run by hand at `ef6899be` in an Ubuntu 24.04 container (gcc 13.3, Open MPI 4.1.6) and passed: on arm64 every step of all three jobs, and on emulated x86_64 the default and horizontal jobs without the converter and bench suites. The builds gave no compiler warning and the bit-exact unit tests agree on both architectures. A container run as root skips four permission-denial cases, which fails the two steps that require them; they pass as an unprivileged user, as on the CI runner (rerun on arm64 only). CI itself runs when the branch reaches `main`; watch the first run. Bit-identity is claimed per binary only. Accept when that CI run is green or each failure is explained.
 
 ## `sage16`
 
