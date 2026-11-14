@@ -13,7 +13,7 @@ The law returns one coefficient per transfer, in declaration order (the slots `T
 | 0 | `reheating`: `RateFixtureCold` to `RateFixtureHot` | Internal (specific rate) | `TestRateFeedbackReheatRate` |
 | 1 | `yield`: `external` to `RateFixtureColdTracer`, slaved to `test_rate_formation.star_formation` | Slaved source (dimensionless) | `TestRateFeedbackYield` |
 
-The `yield` coefficient is dimensionless: the source's flux is the coefficient times the master's flux, so the cold tracer gains `TestRateFeedbackYield` per unit mass formed into stars. The master's donor, `RateFixtureCold`, is in total `rate_fixture_mass` and the recipient in `rate_fixture_tracer`, so the slaved source makes the tracer total depend on the mass total, which is the order the tracer parents already impose. Neither coefficient depends on the row's state.
+The `yield` coefficient is dimensionless: the source's flux is the coefficient times the master's flux, so the cold tracer gains `TestRateFeedbackYield` per unit mass formed into stars. The master's donor, `RateFixtureCold`, is in total `rate_fixture_mass` and the recipient in `rate_fixture_tracer`, so the slaved source makes the tracer total depend on the mass total, which is the order the tracer parents already impose. Neither coefficient depends on the row's state. A yield is a source into a tracer, which can overtake its parent once the parent's pristine part is nearly exhausted; this constant yield does not vanish as that happens, so a run at high enough rates can end with the cause `tracer_bound`, by design (see the tracer bound in the [Rate Callback Contract](../../../docs/DEVELOPER-GUIDE.md#rate-callback-contract)).
 
 ## Parameters
 

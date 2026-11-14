@@ -31,6 +31,10 @@ module:
   #   from: external             source, absolute rate (content/time)
   #   from: external + slaved_to slaved source, dimensionless multiple of <module>.<transfer>'s flux
   # to_record: central puts the recipient on the FoF central; reads_central: true lets the law read it.
+  # An internal transfer whose from and to are one reservoir needs to_record: central (with self it
+  # moves nothing and is refused). An observer is a reservoir kind observer property that gains the
+  # amount its transfer moved over the segment, once the segment succeeds; a repeated
+  # (property, transfer) pair in one module is refused.
   # rates:
   #   reads_central: false
   #   transfers:
@@ -45,7 +49,10 @@ module:
 
   # Discrete modules only (process_full_halo, process_per_event, process_by_galaxy): the conserved
   # totals the module may change. Read only when a rate phase is configured, where an undeclared
-  # change to a conserved total is fatal. Totals are named by the reservoir: mapping of properties.
+  # change to a conserved total is fatal (a change below about 1e-12 of the total within one dispatch
+  # unit is not detected). Beside a rate phase a discrete module must also leave every reservoir and
+  # tracer finite and not negative: a negative rounding residue ends the run when the next rate
+  # segment starts. Totals are named by the reservoir: mapping of properties.
   # changes_totals: [my_total]
 
   # ============================================================================

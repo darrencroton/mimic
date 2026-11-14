@@ -13,7 +13,7 @@ The law returns one coefficient per transfer, in declaration order (the slots `T
 | 0 | `stripping`: `RateFixtureHot` to `RateFixtureHot`, `to_record: central` | Internal (specific rate) | `TestRateStrippingRate` when `Type != 0`, else 0 |
 | 1 | `ejection`: `RateFixtureCold` to `external` | Sink (specific rate) | `TestRateStrippingEjectionRate` |
 
-`to_record: central` puts the recipient on the FoF central's record. On the central itself the transfer would move hot onto its own hot reservoir and contribute nothing, and the law returns 0 there.
+`to_record: central` puts the recipient on the FoF central's record. On the central itself the transfer would move hot onto its own hot reservoir and contribute nothing, and the law returns 0 there. A transfer whose two ends are one reservoir is legal only in this `to_record: central` form; with `to_record: self` the metadata is refused.
 
 ## Parameters
 

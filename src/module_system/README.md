@@ -23,7 +23,7 @@
 - **`test_rate_jump/`** — Rate fixture (`process_full_halo`): merges orphan satellites whose stars exceed a threshold into the FoF central, optionally destroying a fraction, and declares both fixture totals in `changes_totals`, for the discrete-phase ledger
 - **`generated/`** — Auto-generated registration code (do not edit), including each rate module's transfer tables and `rate_contracts.h`
 
-The `test_rate_*` fixtures, with `test_fixture`'s `RateFixture*` properties, are compiled and registered in test builds only (`make TEST_BUILD=yes`); a production build contains no rate module. They are the working examples of the [rate callback contract](../../docs/DEVELOPER-GUIDE.md#rate-callback-contract), and the only rate modules in the tree.
+The `test_rate_*` fixtures, with `test_fixture`'s `RateFixture*` properties, are compiled and registered in test builds only (`make TEST_BUILD=yes`); a production build contains no rate module. A test build merges seven `double` `RateFixture*` output columns (three reservoirs, three tracers and one observer; zero unless a rate phase runs or `test_fixture`'s `TestFixtureCreatedContent` is set) into every package, beside `TestDummyProperty`. They are the working examples of the [rate callback contract](../../docs/DEVELOPER-GUIDE.md#rate-callback-contract), and the only rate modules in the tree.
 
 ## Usage
 
